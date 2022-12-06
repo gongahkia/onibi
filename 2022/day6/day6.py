@@ -25,7 +25,7 @@ def signaller ():
 
             
 def reservist ():
-    string = afpn1358()
+    string = signaller ()
     for itervar in range(len(string)):
         tempdict = {}
         sample = string[itervar:itervar+14]
