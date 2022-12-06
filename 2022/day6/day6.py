@@ -1,4 +1,4 @@
-def sighaller ():
+def signaller ():
     fhand = open ('input.txt','r')
     for string in fhand:
         for itervar in range(len(string)):
