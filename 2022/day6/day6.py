@@ -1,4 +1,4 @@
-def afpn1358 ():
+def sighaller ():
     fhand = open ('input.txt','r')
     for string in fhand:
         for itervar in range(len(string)):
