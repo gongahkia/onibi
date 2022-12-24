@@ -4,7 +4,6 @@
  
 using namespace std;
 
-
 // to parse each individual line of the string
 int main () {
     string line;
@@ -20,5 +19,3 @@ int main () {
     };
     cout << "Part 1: " << part1totalsum << endl;
 }
-
-   
