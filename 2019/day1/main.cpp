@@ -9,10 +9,7 @@ using namespace std;
 int main () {
     string line;
     int part1totalsum = 0;
-    int part2totalsum = 0;
-    int part2tempsum = 0;
     int tempsum;
-    int tempsum2;
     ifstream fhand ("input.txt");
   
     while (getline (fhand, line)) {
