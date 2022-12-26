@@ -1,14 +1,17 @@
-def day2part1(noun,verb):
-    opcode = []
-    baselist = []
-    product:int
-   
+def fileparser(noun,verb):
     fhand = open("input.txt","r")
     for line in fhand:
         templist = line.split(",")
     templist[1],templist[2] = noun,verb
+    return templist
+
+def day2part1(noun,verb):
+    opcode = []
+    baselist = []
+    product:int
+
+    templist = fileparser(noun,verb)
     baselist = templist
-    print (templist)
     
     for itervar in range(0,len(templist),4):
         opcode = templist[itervar:itervar+4]
@@ -26,7 +29,14 @@ def day2part1(noun,verb):
         elif int(opcode[0]) == 99:
             #immediate halt condition
             break
-
+        
     return baselist[0]
 
-day2part1(12,2)
+def day2part2():
+    for noun in range(0,100):
+        for verb in range(0,100):
+            if day2part1(noun,verb) == 19690720:
+                return (noun,verb)
+            
+print(day2part1(12,2))
+print(day2part2())
