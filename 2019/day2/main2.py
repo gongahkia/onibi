@@ -28,3 +28,5 @@ def day2part1(noun,verb):
             break
 
     return baselist[0]
+
+day2part1(12,2)
