@@ -1,8 +1,5 @@
 #include <iostream>
 #include <fstream>
-#include <vector>
-#include <cmath>
-#include <algorithm>
 // #include <typeinfo> -> used to check on the type of value after stoi() converted string to int
 
 using namespace std;
