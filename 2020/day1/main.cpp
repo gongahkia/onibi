@@ -13,28 +13,23 @@ int main() {
 	vector <int> numholder;
 	fhand.open("input.txt",ios::in);
 	
-	if (fhand.is_open()) {
-		while (getline(fhand,line)) {
-			numholder.push_back(stoi(line));
-		}
-		fhand.close();
-	}
+    //create the vector to store all values
+    if (fhand.is_open()) {
+        while (getline(fhand,line)) {
+            numholder.push_back(stoi(line));
+        }
+        fhand.close();
+    }
 
-	for (int a: numholder) {
-		for (int b: numholder) {
-				sum = a + b;
-				if (sum == 2020) {
-				cout << "part1: " << a * b << endl;
-				break;
-				} else {
-				sum = 0;
-				}
-		}
-				if (sum == 2020) {
-				break;
-				}
-				}
-	
+    for (int i = 0; i < numholder.size(); i++) {
+        sum = 2020 - numholder[i];
+        for (int q = 0; q < numholder.size(); q++) {
+            if (numholder[q] == sum) {
+                cout << "part 1: " << sum * (2020-sum) << endl;
+                break;}
+        }
+    }
+
 	for (int i: numholder) {
 		for (int q: numholder) {
 			for (int k: numholder) {
@@ -54,7 +49,5 @@ int main() {
 			break;
 		}
 	}
-
-
 	return 0;
 }
