@@ -20,18 +20,4 @@ def part1():
             gamma_rate += '1'
             epsilon_rate += '0'
     return (int(gamma_rate,2) * int(epsilon_rate,2))          
-
-    
-            
-
-
-
-
-
-
-
-
-
-
-
 print(part1())
