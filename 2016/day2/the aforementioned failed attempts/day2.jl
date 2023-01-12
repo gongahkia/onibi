@@ -18,7 +18,3 @@ end
 function movement_right(coordinate)
     coordinate[0] = coordinate[0] + 1
 end
-
-
-
-
