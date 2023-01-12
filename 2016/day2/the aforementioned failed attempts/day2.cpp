@@ -21,16 +21,6 @@ int main () {
             cout << line << endl;
         }
     }
-
-
-
-
-
-
-
-
-
-
-
+    //something something spaghetti code
     return 0;
 }
