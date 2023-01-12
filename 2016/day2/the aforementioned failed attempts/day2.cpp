@@ -6,9 +6,7 @@ using namespace std;
 class movement:
 
     public:
-        
-
-
+    // something class object something method something movement
 
 int main () {
 
