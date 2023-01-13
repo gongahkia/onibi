@@ -1,5 +1,4 @@
 class movement:
-
     def __init__ (self, location = [0,0]):
         print("Movement object is instantiated")
         self.location = location
@@ -22,12 +21,7 @@ class movement:
             return True
         else:
             return False
-
-
-
-
-
-
+        
 def part2():
     templist = []
     fhand = open("input.txt","r")
