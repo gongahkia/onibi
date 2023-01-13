@@ -54,6 +54,4 @@ def part1():
         print(a.coordinates)
         #dictionaries weren't working for me today, no idea why tbh
 
-def part2():
-
 part1()
