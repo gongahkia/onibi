@@ -41,13 +41,4 @@ for row in row_collector:
             left_count += 1
     total_left_count += left_count
 
-for row in row_collector:
-    right_count = 1
-    for itervar in range(len(row_collector[row])):
-        if row_collector[row][len(row_collector)[row]-itervar] <= row_collector[row][len(row_collector)[row]-itervar-1]:
-            break
-        else:
-            right_count += 1
-    total_right_count += right_count
-
 print(f"left count: {total_left_count}")
