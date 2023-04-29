@@ -1,3 +1,4 @@
 fn main() {
-    println!("Hello, world!");
+    let baby:&str = "shitass";
+    println!("aw yeah baby {}", baby);
 }
