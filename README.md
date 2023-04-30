@@ -13,6 +13,7 @@ Written in Rust, because we love crabs.
 * [ ] ***Kelp***
     * [ ] *Program*
         * [ ] **To-do list**
+            * [ ] add a break condition to exit the program when run
         * [ ] **task components**
             * task name
             * description, details
