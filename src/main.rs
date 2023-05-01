@@ -57,7 +57,7 @@ fn main() {
         let userinput_task_deadline_array: Vec<&str> = userinput_task_deadline_raw_array.collect();
         
         // for future reference:
-        // - error was initially occuring due to newline character of last element in vector, need
+        // error was initially occuring due to newline character of last element in vector, need
         // to remember to use .trim_end() method to remove said newline character
         let userinput_task_deadline_day_int:u32 = userinput_task_deadline_array[0].trim_end().parse().unwrap();
         let userinput_task_deadline_month_int:u32 = userinput_task_deadline_array[1].trim_end().parse().unwrap();
@@ -65,47 +65,38 @@ fn main() {
 
         let userinput_task_deadline_formatted:[u32; 3] = [userinput_task_deadline_day_int, userinput_task_deadline_month_int, userinput_task_deadline_year_int];
 
-        // task urgency -> parsed into an enum
+        // task urgency handled by an enum
         println!("Enter task urgency (L/M/H): ");
-        let mut userinput_task_urgency_string:String = String::new();
-        io::stdin().read_line(&mut userinput_task_urgency_string).expect("Failed to read line");
-        let userinput_task_urgency_stringliteral:&str = userinput_task_urgency_string.as_str().trim_end();
         let userinput_task_urgency:UrgencyLevel;
-
-        match userinput_task_urgency_stringliteral {
-            "l" => {
-                userinput_task_urgency = UrgencyLevel::Low;
-            },
-            "m" => {
-                userinput_task_urgency = UrgencyLevel::Medium;
-            },
-            "h" => {
-                userinput_task_urgency = UrgencyLevel::High;
-            },
-            &_ => {
+        
+        // loop and a match pattern to handle error handling
+        loop {
+            let mut userinput_task_urgency_string:String = String::new();
+            io::stdin().read_line(&mut userinput_task_urgency_string).expect("Failed to read line");
+            let userinput_task_urgency_stringliteral:&str = userinput_task_urgency_string.as_str().trim_end();
+            match userinput_task_urgency_stringliteral {
+                "l" => {
+                    userinput_task_urgency = UrgencyLevel::Low;
+                    break;
+                },
+                "m" => {
+                    userinput_task_urgency = UrgencyLevel::Medium;
+                    break;
+                },
+                "h" => {
+                    userinput_task_urgency = UrgencyLevel::High;
+                    break;
+                },
                 // match-all pattern employed for invalid input
-                loop {
-                    println!("Please enter a valid input! [L/M/h]: ");
-                    let mut userinput2_task_urgency:String = String::new();
-                    io::stdin().read_line(&mut userinput2_task_urgency).expect("Failed to read line");
-                    let userinput2_task_urgency_str:&str = userinput2_task_urgency.as_str().trim_end();
-                    if userinput2_task_urgency_str == "l" {
-                        userinput_task_urgency = UrgencyLevel::Low;
-                        break;
-                    } else if userinput2_task_urgency_str == "m" {
-                        userinput_task_urgency = UrgencyLevel::Medium;
-                        break;
-                    } else if userinput2_task_urgency_str == "h" {
-                        userinput_task_urgency = UrgencyLevel::High;
-                        break;
-                    } else {
+                &_ => {
+                    println!("Please enter a valid input! [L/M/H]: ");
                     }
                 }
             }
-        };
-        
+
         storage_array.push((userinput_task_name, userinput_task_description, userinput_task_deadline_formatted, userinput_task_urgency));
         println!("{:?}", storage_array);
+
+        };
+        
     }
-    
-}
