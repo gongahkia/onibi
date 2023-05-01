@@ -1,8 +1,9 @@
 // to resolve:
 // - if needed, do the following in a separate isolated rust file
-// - add the enum choosing back in, figure out why the enum cant be chosen
-// - destructure the data presented into the Task struct if possible
-// - add error checking for invalid input for the date, the urgency level
+    // - destructure the data presented into the Task struct if possible, otherwise find some way to utilise the struct which is currently quite useless
+    // - add error checking for invalid input for:
+        // the date 
+        // the urgency level -- done 
 
 use std::io;
 
@@ -69,12 +70,38 @@ fn main() {
         let mut userinput_task_urgency_string:String = String::new();
         io::stdin().read_line(&mut userinput_task_urgency_string).expect("Failed to read line");
         let userinput_task_urgency_stringliteral:&str = userinput_task_urgency_string.as_str().trim_end();
+        let userinput_task_urgency:UrgencyLevel;
 
-        let userinput_task_urgency = match userinput_task_urgency_stringliteral {
-            "l" => UrgencyLevel::Low,
-            "m" => UrgencyLevel::Medium,
-            "h" => UrgencyLevel::High,
-            &_ => UrgencyLevel::Low,
+        match userinput_task_urgency_stringliteral {
+            "l" => {
+                userinput_task_urgency = UrgencyLevel::Low;
+            },
+            "m" => {
+                userinput_task_urgency = UrgencyLevel::Medium;
+            },
+            "h" => {
+                userinput_task_urgency = UrgencyLevel::High;
+            },
+            &_ => {
+                // match-all pattern employed for invalid input
+                loop {
+                    println!("Please enter a valid input! [L/M/h]: ");
+                    let mut userinput2_task_urgency:String = String::new();
+                    io::stdin().read_line(&mut userinput2_task_urgency).expect("Failed to read line");
+                    let userinput2_task_urgency_str:&str = userinput2_task_urgency.as_str().trim_end();
+                    if userinput2_task_urgency_str == "l" {
+                        userinput_task_urgency = UrgencyLevel::Low;
+                        break;
+                    } else if userinput2_task_urgency_str == "m" {
+                        userinput_task_urgency = UrgencyLevel::Medium;
+                        break;
+                    } else if userinput2_task_urgency_str == "h" {
+                        userinput_task_urgency = UrgencyLevel::High;
+                        break;
+                    } else {
+                    }
+                }
+            }
         };
         
         storage_array.push((userinput_task_name, userinput_task_description, userinput_task_deadline_formatted, userinput_task_urgency));
