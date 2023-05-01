@@ -1,0 +1,15 @@
+---
+title: Reflections from first project with Rust
+author: Gongahkia
+date: 1 May 2023
+output: pdf_document
+---
+
+# Main learning pointers
+
+1. Always remember to use `.trim_end()` when dealing with user input, since a *newline character* (`\n`) is appended to user input when the **carriage return** (enter key) character is hit.
+   * This tip alone will save you hours of time debugging when working with simple user input.
+
+# Useful links
+
+* [Debug statement](https://doc.rust-lang.org/rust-by-example/hello/print/print_debug.html)

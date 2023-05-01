@@ -1,7 +1,5 @@
 // to resolve:
-// - add a break condition that ends the loop
 // - if needed, do the following in a separate isolated rust file
-// - debug the match statement at bottom of program that is commented out
 // - add the enum choosing back in, figure out why the enum cant be chosen
 // - destructure the data presented into the Task struct if possible
 // - add error checking for invalid input for the date, the urgency level
@@ -16,6 +14,7 @@ struct Task {
     task_urgency:UrgencyLevel,
 }
 
+#[derive(Debug)]
 enum UrgencyLevel {
     Low,
     Medium,
@@ -24,11 +23,18 @@ enum UrgencyLevel {
 
 fn main() {
 
-    let mut storage_array:Vec<(String, String, [u32;3], &str)> = vec![];
+    let mut storage_array:Vec<(String, String, [u32;3], UrgencyLevel)> = vec![];
 
     loop {
         
-        // * to add a break condition here!
+        // break condition
+        println!("[E]xit: ");
+        let mut exit_condition:String = String::new();
+        io::stdin().read_line(&mut exit_condition).expect("Failed to read line");
+        let exit_condition_str:&str = exit_condition.as_str().trim_end();
+        if exit_condition_str == "e" {
+            break;
+        }
 
         // task name
         println!("Enter task name: ");
@@ -62,28 +68,14 @@ fn main() {
         println!("Enter task urgency (L/M/H): ");
         let mut userinput_task_urgency_string:String = String::new();
         io::stdin().read_line(&mut userinput_task_urgency_string).expect("Failed to read line");
-        let userinput_task_urgency_stringliteral:&str = &userinput_task_urgency_string[..];
+        let userinput_task_urgency_stringliteral:&str = userinput_task_urgency_string.as_str().trim_end();
 
-        // * edit this type to be that of an enum again after working out why the match statement
-        // below does not work
-        let userinput_task_urgency:&str = "shit";
-    
-        // * figure out why this match statement isnt working
-        /*match userinput_task_urgency_stringliteral {
-            "l" => {
-                userinput_task_urgency = UrgencyLevel::Low;
-            }, 
-            "m" => {
-                userinput_task_urgency = UrgencyLevel::Medium;
-            },
-            "h" => {
-                userinput_task_urgency = UrgencyLevel::High;
-            },
-            _ => {
-                println!("Defaulting to low task urgency!");
-                userinput_task_urgency = UrgencyLevel::Low;
-            },
-        }*/
+        let userinput_task_urgency = match userinput_task_urgency_stringliteral {
+            "l" => UrgencyLevel::Low,
+            "m" => UrgencyLevel::Medium,
+            "h" => UrgencyLevel::High,
+            &_ => UrgencyLevel::Low,
+        };
         
         storage_array.push((userinput_task_name, userinput_task_description, userinput_task_deadline_formatted, userinput_task_urgency));
         println!("{:?}", storage_array);
