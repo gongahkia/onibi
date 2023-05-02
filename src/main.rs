@@ -1,18 +1,17 @@
-// to resolve:
+// to resolve && add
 // - if needed, do the following in a separate isolated rust file
-    // - destructure the data presented into the Task struct if possible, otherwise find some way to utilise the struct which is currently quite useless
-
-// to add
-// - if needed, do the following in a separate isolated rust file
-    // - saving local file data to another file, and loading a previous save (reading and writing to files)
+    // - loading a previous save (reading and writing to files) and parsing it into a struct
     // - modularize the functions used in this program to prevent it from becoming one massive file
-// - ability to edit items
+    // - ability to edit items
 
 // ----------
 
 use std::io;
+use std::fmt;
+use std::fs::File;
+use std::io::Write;
 
-// destructure the tuple later to edit its contents
+#[derive(Debug)]
 struct Task {
     task_name:String, // eg. do math homework
     task_description:String, // eg. submit them via managebac after completing them via linkedin
@@ -20,16 +19,27 @@ struct Task {
     task_urgency:UrgencyLevel,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum UrgencyLevel {
     Low,
     Medium,
     High,
 }
 
+// allow for displaying of enum as a string 
+impl fmt::Display for UrgencyLevel {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            UrgencyLevel::Low => write!(f, "Low"),
+            UrgencyLevel::Medium => write!(f, "Medium"),
+            UrgencyLevel::High => write!(f, "High"),
+        }
+    }
+}
+
 fn main() {
 
-    let mut storage_array:Vec<(String, String, [i32;3], UrgencyLevel)> = vec![];
+    let mut storage_array:Vec<Task> = vec![];
 
     loop {
         
@@ -39,6 +49,12 @@ fn main() {
         io::stdin().read_line(&mut exit_condition).expect("Failed to read line");
         let exit_condition_str:&str = exit_condition.as_str().trim_end();
         if exit_condition_str == "e" {
+            // writing of all tasks to a local file titled .kelpStorage
+            let mut save_file = File::create(".kelpStorage").expect("File already exists");
+            for eachtask in &storage_array {
+                let task_deadline_string:String = eachtask.task_deadline.into_iter().map(|i| i.to_string()).collect::<String>();
+                write!(save_file, "{}, {}, {}, {}\n", eachtask.task_name, eachtask.task_description, task_deadline_string, eachtask.task_urgency.to_string());
+            }
             break;
         }
 
@@ -137,7 +153,15 @@ fn main() {
                 }
             }
 
-        storage_array.push((userinput_task_name, userinput_task_description, userinput_task_deadline_formatted, userinput_task_urgency));
+        let given_task = Task {
+            task_name: userinput_task_name,
+            task_description: userinput_task_description,
+            task_deadline: userinput_task_deadline_formatted,
+            task_urgency: userinput_task_urgency,
+        };
+
+        //storage_array.push((userinput_task_name, userinput_task_description, userinput_task_deadline_formatted, userinput_task_urgency));
+        storage_array.push(given_task);
         println!("{:?}", storage_array);
 
         };
