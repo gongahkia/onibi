@@ -10,6 +10,19 @@ output: pdf_document
 1. Always remember to use `.trim_end()` when dealing with user input, since a *newline character* (`\n`) is appended to user input when the **carriage return** (enter key) character is hit.
    * This tip alone will save you hours of time debugging when working with simple user input.
 
+2. Learn more about *iterator statements* in Rust, such as the `.iter()`, `.map()`, `.collect()` statements.
+   * As an example, I made use of the .chars(), .all() operator to powerfully check whether multiple items satisfied a predicate.
+
+3. In the future, start out by planning my program with Rust's modules in mind, to allow for easier **refactoring** in the future.
+
+```{rust}
+fn main() {
+    println!("I am losing my mind");
+}
+```
+
 # Useful links
 
 * [Debug statement](https://doc.rust-lang.org/rust-by-example/hello/print/print_debug.html)
+
+

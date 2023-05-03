@@ -1,11 +1,14 @@
-// to resolve && add
+// to resolve 
 // - if needed, do the following in a separate isolated rust file
-    // - add ability to edit tasks and save new tasks
-    // - modularize the functions used in this program to prevent it from becoming one massive file
-    // - ability to edit items
+    // URGENT: fix part of code where days, months cannot be single digit, otherwise there is issue
+    // with parsing
+    // - edit tasks, each aspect of a task can be edited
+    // - add colors and clear screen after this is settled
+    // - refactor code, make this entire program one giant file
 
 // ----------
 
+// required imports
 use std::io;
 use std::fmt;
 use std::fs;
@@ -15,8 +18,8 @@ use std::io::Write;
 
 #[derive(Debug)]
 struct Task {
-    task_name:String, // eg. do math homework
-    task_description:String, // eg. submit them via managebac after completing them via linkedin
+    task_name:String,
+    task_description:String,
     task_deadline:[i32; 3],
     task_urgency:UrgencyLevel,
 }
@@ -28,7 +31,7 @@ enum UrgencyLevel {
     High,
 }
 
-// allow for displaying of enum as a string 
+// converting enum to string 
 impl fmt::Display for UrgencyLevel {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -39,7 +42,7 @@ impl fmt::Display for UrgencyLevel {
     }
 }
 
-// allow for conversion of string to enum 
+// converting string to enum 
 impl FromStr for UrgencyLevel {
     type Err = ();
     fn from_str(s: &str) -> Result<UrgencyLevel, ()> {
@@ -56,20 +59,18 @@ fn main() {
 
     let mut storage_vector:Vec<Task> = vec![];
 
+    // -----
+
     // reading of local file and parsing it into the struct Task
     let file_contents_results = fs::read_to_string(".kelpStorage");
-    // handling of error values
-    let file_contents = match file_contents_results {
+    let _file_contents = match file_contents_results {
         Ok(string) => {
         let file_contents_array = string.trim_end().split("\n");
         let file_contents_vector:Vec<&str> = file_contents_array.collect();
-        //println!("{:?}", file_contents_vector);
         for eachtask in &file_contents_vector {
             let each_task_array:Vec<&str> = eachtask.split(", ").collect();
             let each_task_deadline:[i32;3] = [each_task_array[2][..2].trim_end().parse().unwrap(), each_task_array[2][2..4].trim_end().parse().unwrap(), each_task_array[2][4..].trim_end().parse().unwrap()];
-            //println!("{:?}", each_task_deadline);
             match each_task_array[3].parse::<UrgencyLevel>() {
-                //each_task_array[3].parse::<UrgencyLevel>()
                 Ok(level) => {
                     let each_task_urgency:UrgencyLevel = level;
                     let the_given_task = Task {
@@ -85,9 +86,12 @@ fn main() {
             }
         }
         },
-        Err(_) => println!("Failed to read file. Loading new save."),
+        Err(_) => println!("No save file found. Loading a fresh save."),
     };
 
+    // -----
+
+    // create task loop
     loop {
         
         // break condition
@@ -105,11 +109,15 @@ fn main() {
             break;
         }
 
+        // -----
+
         // task name
         println!("Enter task name: ");
         let mut userinput_task_name:String = String::new();
         io::stdin().read_line(&mut userinput_task_name).expect("Failed to read line");
         let userinput_task_name = String::from(userinput_task_name.trim_end());
+
+        // -----
         
         // task description
         println!("Enter task description: ");
@@ -117,10 +125,9 @@ fn main() {
         io::stdin().read_line(&mut userinput_task_description).expect("Failed to read line");
         let userinput_task_description = String::from(userinput_task_description.trim_end());
 
-        // task deadline -> parsed using destructuring
-            // for future reference:
-            // error was initially occuring due to newline character of last element in vector, need
-            // to remember to use .trim_end() method to remove said newline character
+        // -----
+        
+        // task deadline, parsed using destructuring
         println!("Enter task deadline in the following format [DD/MM/YY]: ");
         let userinput_task_deadline_formatted:[i32; 3];
 
@@ -137,13 +144,8 @@ fn main() {
             }
 
             // checking for characters instead of date input if there are 3 fields
-                // for future reference:
-                // here, we made use of the .chars(), .all() operator, which is extremely powerful
-                // for checking whether multiple items satisfy a predicate
             if userinput_task_deadline_array[0].chars().all(char::is_numeric) && userinput_task_deadline_array[1].chars().all(char::is_numeric) && userinput_task_deadline_array[2].trim_end().chars().all(char::is_numeric) {
-                // println!("awesome");
             } else {
-                // println!("fk off");
                 println!("Enter a valid integer input.\nEnter task deadline in the following format [DD/MM/YY]: ");
                 continue;
             }
@@ -168,14 +170,14 @@ fn main() {
             }
             userinput_task_deadline_formatted = [userinput_task_deadline_day_int, userinput_task_deadline_month_int, userinput_task_deadline_year_int];
             break;
-            // let [user_day, user_month, user_year] = userinput_task_deadline_formatted;
         }
+        
+        // -----
 
-        // task urgency handled by an enum
+        // task urgency, handled by an enum
         println!("Enter task urgency (L/M/H): ");
         let userinput_task_urgency:UrgencyLevel;
         
-        // loop and a match pattern to handle error handling
         loop {
             let mut userinput_task_urgency_string:String = String::new();
             io::stdin().read_line(&mut userinput_task_urgency_string).expect("Failed to read line");
@@ -199,18 +201,21 @@ fn main() {
                     }
                 }
             }
-
+        
+        // -----
+        
+        // creation of an instance of the Task struct, and assignment of internal field values
         let given_task = Task {
             task_name: userinput_task_name,
             task_description: userinput_task_description,
             task_deadline: userinput_task_deadline_formatted,
             task_urgency: userinput_task_urgency,
         };
-
-        //storage_vector.push((userinput_task_name, userinput_task_description, userinput_task_deadline_formatted, userinput_task_urgency));
+        
+        // updating of storage_vector:Vec<Task> collection
         storage_vector.push(given_task);
-        println!("{:?}", storage_vector);
 
         };
         
+        println!("{:?}", storage_vector);
     }
