@@ -67,7 +67,7 @@ fn main() {
         for eachtask in &file_contents_vector {
             let each_task_array:Vec<&str> = eachtask.split(", ").collect();
             let each_task_deadline:[i32;3] = [each_task_array[2][..2].trim_end().parse().unwrap(), each_task_array[2][2..4].trim_end().parse().unwrap(), each_task_array[2][4..].trim_end().parse().unwrap()];
-            println!("{:?}", each_task_deadline);
+            //println!("{:?}", each_task_deadline);
             match each_task_array[3].parse::<UrgencyLevel>() {
                 //each_task_array[3].parse::<UrgencyLevel>()
                 Ok(level) => {
