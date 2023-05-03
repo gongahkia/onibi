@@ -1,6 +1,7 @@
 // to resolve && add
-// - figure out the issue with indexing 
 // - if needed, do the following in a separate isolated rust file
+    // - add ability to edit tasks and save new tasks, so there will never be an instance of an
+    // empty file to open
     // - loading a previous save (reading and writing to files) and parsing it into a struct
     // - modularize the functions used in this program to prevent it from becoming one massive file
     // - ability to edit items
