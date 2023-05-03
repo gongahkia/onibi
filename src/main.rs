@@ -1,7 +1,6 @@
 // to resolve 
 // - if needed, do the following in a separate isolated rust file
     // - edit tasks, each aspect of a task can be edited
-    // - clear screen for easier interface to use
     // - refactor code, make this entire program one neat giant file
 
 // ----------
@@ -17,6 +16,7 @@ use std::str::FromStr;
 use std::fs::File;
 use std::io::Write;
 use colored::*;
+use std::process::Command;
 
 #[derive(Debug)]
 struct Task {
@@ -226,6 +226,7 @@ fn main() {
         
         // updating of storage_vector:Vec<Task> collection
         storage_vector.push(given_task);
+        Command::new("clear").status().unwrap();
 
         };
         
