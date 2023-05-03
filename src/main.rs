@@ -1,4 +1,5 @@
 // to resolve && add
+// - figure out the issue with indexing 
 // - if needed, do the following in a separate isolated rust file
     // - loading a previous save (reading and writing to files) and parsing it into a struct
     // - modularize the functions used in this program to prevent it from becoming one massive file
@@ -8,6 +9,8 @@
 
 use std::io;
 use std::fmt;
+use std::fs;
+use std::str::FromStr;
 use std::fs::File;
 use std::io::Write;
 
@@ -37,9 +40,55 @@ impl fmt::Display for UrgencyLevel {
     }
 }
 
+// allow for conversion of string to enum 
+impl FromStr for UrgencyLevel {
+    type Err = ();
+    fn from_str(s: &str) -> Result<UrgencyLevel, ()> {
+        match s {
+            "Low" => Ok(UrgencyLevel::Low),
+            "Medium" => Ok(UrgencyLevel::Medium),
+            "High" => Ok(UrgencyLevel::High),
+            _ => Err(()),
+        }
+    }
+}
+
 fn main() {
 
     let mut storage_array:Vec<Task> = vec![];
+
+    // reading of local file and parsing it into the struct Task
+    let file_contents_results = fs::read_to_string(".kelpStorage");
+    // handling of error values
+    let file_contents = match file_contents_results {
+        Ok(string) => {
+        let file_contents_array = string.trim_end().split("\n");
+        let file_contents_vector:Vec<&str> = file_contents_array.collect();
+        //println!("{:?}", file_contents_vector);
+        let mut new_file_contents_vector:Vec<Task> = vec![];
+        for eachtask in &file_contents_vector {
+            let each_task_array:Vec<&str> = eachtask.split(", ").collect();
+            let each_task_deadline:[i32;3] = [each_task_array[2][..2].trim_end().parse().unwrap(), each_task_array[2][2..4].trim_end().parse().unwrap(), each_task_array[2][4..].trim_end().parse().unwrap()];
+            println!("{:?}", each_task_deadline);
+            match each_task_array[3].parse::<UrgencyLevel>() {
+                //each_task_array[3].parse::<UrgencyLevel>()
+                Ok(level) => {
+                    let each_task_urgency:UrgencyLevel = level;
+                    let the_given_task = Task {
+                        task_name: String::from(each_task_array[0]),
+                        task_description: String::from(each_task_array[1]),
+                        task_deadline: each_task_deadline,
+                        task_urgency: each_task_urgency,
+                        };
+                    new_file_contents_vector.push(the_given_task);
+                    println!("{:?}", new_file_contents_vector);
+                },
+                Err(_) => (),
+            }
+        }
+        },
+        Err(_) => println!("Failed to read file. Loading new save."),
+    };
 
     loop {
         
