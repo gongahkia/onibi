@@ -1,10 +1,14 @@
 // to resolve 
 // - if needed, do the following in a separate isolated rust file
     // - edit tasks, each aspect of a task can be edited
-    // - add colors and clear screen after this is settled
+    // - clear screen for easier interface to use
     // - refactor code, make this entire program one neat giant file
+    // - account for situation where no tasks are saved, in which case file should not be created
 
 // ----------
+
+// external crate imports
+extern crate colored;
 
 // required imports
 use std::io;
@@ -13,6 +17,7 @@ use std::fs;
 use std::str::FromStr;
 use std::fs::File;
 use std::io::Write;
+use colored::*;
 
 #[derive(Debug)]
 struct Task {
@@ -63,7 +68,7 @@ fn main() {
     let file_contents_results = fs::read_to_string(".kelpStorage");
     let _file_contents = match file_contents_results {
         Ok(string) => {
-            println!("Save file found. Loading data.\n\n");
+            println!("{}\nLoading data.", "Save file found.".green().underline());
             let file_contents_array = string.trim_end().split("\n");
             let file_contents_vector:Vec<&str> = file_contents_array.collect();
             for eachtask in &file_contents_vector {
@@ -84,11 +89,10 @@ fn main() {
                     Err(_) => (),
                 }
             }
+            println!("{}\n\n{:?}", "Here are your tasks:".yellow(), storage_vector);
         },
-        Err(_) => println!("No save file found. Loading a fresh save."),
+        Err(_) => println!("{}\nLoading a fresh save.", "No save file found.".red().underline()),
     };
-
-    println!("Here are your tasks:\n\n{:?}", storage_vector);
 
     // -----
 
@@ -96,20 +100,24 @@ fn main() {
     loop {
         
         // break condition
-        println!("[E]xit / [Enter] to add task: ");
+        println!("[E]xit / [Enter] to {}: ", "add task".bold());
         let mut exit_condition:String = String::new();
         io::stdin().read_line(&mut exit_condition).expect("Failed to read line");
         let exit_condition_str:&str = exit_condition.as_str().trim_end();
         if exit_condition_str == "e" {
-            // writing of all tasks to a local file titled .kelpStorage
-            let mut save_file = File::create(".kelpStorage").expect("File already exists");
-            for eachtask in &storage_vector {
-            let mut task_deadline_string:String = String::from("");
-            for component in eachtask.task_deadline {
-                task_deadline_string.push_str(component.to_string().as_str());
-                task_deadline_string.push_str("/");
-            };
-            write!(save_file, "{}, {}, {}, {}\n", eachtask.task_name, eachtask.task_description, task_deadline_string, eachtask.task_urgency.to_string());
+            if storage_vector.len() > 0 {
+                // writing of all tasks to a local file titled .kelpStorage
+                let mut save_file = File::create(".kelpStorage").expect("File already exists");
+                for eachtask in &storage_vector {
+                    let mut task_deadline_string:String = String::from("");
+                    for component in eachtask.task_deadline {
+                        task_deadline_string.push_str(component.to_string().as_str());
+                        task_deadline_string.push_str("/");
+                    };
+                    write!(save_file, "{}, {}, {}, {}\n", eachtask.task_name, eachtask.task_description, task_deadline_string, eachtask.task_urgency.to_string());
+                }
+            } else {
+                println!("{}\nExiting without creating save file.", "No tasks were created.".red().underline());
             }
             break;
         }
@@ -117,7 +125,7 @@ fn main() {
         // -----
 
         // task name
-        println!("Enter task name: ");
+        println!("Enter {}: ", "task name".bold());
         let mut userinput_task_name:String = String::new();
         io::stdin().read_line(&mut userinput_task_name).expect("Failed to read line");
         let userinput_task_name = String::from(userinput_task_name.trim_end());
@@ -125,7 +133,7 @@ fn main() {
         // -----
         
         // task description
-        println!("Enter task description: ");
+        println!("Enter {}: ", "task description".bold());
         let mut userinput_task_description:String = String::new();
         io::stdin().read_line(&mut userinput_task_description).expect("Failed to read line");
         let userinput_task_description = String::from(userinput_task_description.trim_end());
@@ -133,7 +141,7 @@ fn main() {
         // -----
         
         // task deadline, parsed using destructuring
-        println!("Enter task deadline in the following format [DD/MM/YY]: ");
+        println!("Enter {} in the following format {}: ", "task deadline".bold(), "[DD/MM/YY]".underline());
         let userinput_task_deadline_formatted:[i32; 3];
 
         loop {
@@ -144,14 +152,14 @@ fn main() {
             
             // checking for valid number of fields input (characters, str literals and numbers covered)
             if userinput_task_deadline_array.len() != 3 {
-                println!("Invalid input detected.\nEnter task deadline in the following format [DD/MM/YY]: ");
+                println!("{}\nEnter {} in the following format {}: ", "Invalid input detected.".red().underline(), "task deadline".bold(), "[DD/MM/YY]".underline());
                 continue;
             }
 
             // checking for characters instead of date input if there are 3 fields
             if userinput_task_deadline_array[0].chars().all(char::is_numeric) && userinput_task_deadline_array[1].chars().all(char::is_numeric) && userinput_task_deadline_array[2].trim_end().chars().all(char::is_numeric) {
             } else {
-                println!("Enter a valid integer input.\nEnter task deadline in the following format [DD/MM/YY]: ");
+                println!("{}\nEnter {} in the following format {}: ", "Enter a valid integer input.".red().underline(), "task deadline".bold(), "[DD/MM/YY]".underline());
                 continue;
             }
 
@@ -162,15 +170,15 @@ fn main() {
             
             // checking for valid date inputs
             if userinput_task_deadline_day_int > 31 || userinput_task_deadline_day_int < 1 {
-                println!("Enter a valid day input.\nEnter task deadline in the following format [DD/MM/YY]: ");
+                println!("{}\nEnter {} in the following format {}: ", "Enter a valid day input.".red().underline(), "task deadline".bold(), "[DD/MM/YY]".underline());
                 continue;
             }
             if userinput_task_deadline_month_int > 12 || userinput_task_deadline_month_int < 1 {
-                println!("Enter a valid month input.\nEnter task deadline in the following format [DD/MM/YY]: ");
+                println!("{}\nEnter {} in the following format {}: ", "Enter a valid month input.".red().underline(), "task deadline".bold(), "[DD/MM/YY]".underline());
                 continue;
             } 
             if userinput_task_deadline_year_int < 23 || userinput_task_deadline_year_int > 99 {
-                println!("Enter a valid year input.\nEnter task deadline in the following format [DD/MM/YY]: ");
+                println!("{}\nEnter {} in the following format {}: ", "Enter a valid year input.".red().underline(), "task deadline".bold(), "[DD/MM/YY]".underline());
                 continue; 
             }
             userinput_task_deadline_formatted = [userinput_task_deadline_day_int, userinput_task_deadline_month_int, userinput_task_deadline_year_int];
@@ -180,7 +188,7 @@ fn main() {
         // -----
 
         // task urgency, handled by an enum
-        println!("Enter task urgency (L/M/H): ");
+        println!("Enter {} (L/M/H): ", "task urgency".bold());
         let userinput_task_urgency:UrgencyLevel;
         
         loop {
@@ -202,7 +210,7 @@ fn main() {
                 },
                 // match-all pattern employed for invalid input
                 &_ => {
-                    println!("Please enter a valid input! [L/M/H]: ");
+                    println!("{} [L/M/H]: ", "Please enter a valid input!".red().underline());
                     }
                 }
             }
@@ -222,5 +230,7 @@ fn main() {
 
         };
         
-        println!("Here are your tasks:\n\n{:?}", storage_vector);
+        if storage_vector.len() > 0 {
+            println!("{}\n\n{:?}", "Here are your tasks:".yellow(), storage_vector);
+        };
     }
