@@ -3,7 +3,6 @@
     // - edit tasks, each aspect of a task can be edited
     // - clear screen for easier interface to use
     // - refactor code, make this entire program one neat giant file
-    // - account for situation where no tasks are saved, in which case file should not be created
 
 // ----------
 
