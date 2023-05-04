@@ -60,6 +60,7 @@ impl FromStr for UrgencyLevel {
 
 fn main() {
 
+    // global variables
     let mut storage_vector:Vec<Task> = vec![];
 
     // -----
@@ -89,6 +90,7 @@ fn main() {
                     Err(_) => (),
                 }
             }
+            // for debugging purposes only, to be edited out in actual program
             println!("{}\n\n{:?}", "Here are your tasks:".yellow(), storage_vector);
         },
         Err(_) => println!("{}\nLoading a fresh save.", "No save file found.".red().underline()),
@@ -97,7 +99,7 @@ fn main() {
     // -----
 
     // menu screen
-    println!("What would you like to do?\n{}\n{}\n{}", "[C]reate new task".magenta(), "[E]dit a task".blue(), "[F]inish a task".cyan());
+    println!("What would you like to do?\n{}\n{}\n{}\n{}", "[C]reate new task".magenta(), "[E]dit a task".blue(), "[F]inish a task".cyan(), "[S]ort tasks".bright_green());
     let mut choose_action:String = String::new();
     io::stdin().read_line(&mut choose_action).expect("Failed to read line");
     let choose_action_str:&str = choose_action.as_str().trim_end();
@@ -133,7 +135,7 @@ fn main() {
                             }
                         }
                     } else {
-                        println!("{}\nExiting without creating save file.", "No tasks were created.".red().underline());
+                        println!("{}\n{}", "No tasks were created.".red().underline(), "Exiting without creating save file.".yellow());
                     }
                     break;
                 }
@@ -254,13 +256,30 @@ fn main() {
         
         // EDIT A TASK
         "e" => {
-            println!("to be added later");
+            Command::new("clear").status().unwrap();
+            if storage_vector.len() > 0 {
+                println!("{}\n", "Here are your tasks: ".yellow());
+                let mut counter:i8 = 1;
+                for task in storage_vector {
+                    println!("{}. | {:?} ", counter, task.task_name);
+                    counter += 1;
+                }
+                println!("\nPlease enter the {} of the task you would {}.", "name".yellow(), "like to edit".underline());
+                // continue adding code here
+            } else {
+                println!("{}\n{}", "No tasks were found.".red(), "Please create a task first".yellow());
+            }
         }, 
 
         // FINISH A TASK
         "f" => {
             println!("to be added even later");
-        }
+        },
+        
+        // SORT TASKS
+        "s" => {
+            println!("to be added the last");
+        },
         
         // match-all statement for other cases
         &_ => {
