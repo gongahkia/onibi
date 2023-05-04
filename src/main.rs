@@ -93,7 +93,7 @@ fn main() {
             // for debugging purposes only, to be edited out in actual program
             println!("{}\n\n{:?}", "Here are your tasks:".yellow(), storage_vector);
         },
-        Err(_) => println!("{}\nLoading a fresh save.", "No save file found.".red().underline()),
+        Err(_) => println!("{}\n{}", "No save file found.".red().underline(), "Loading a fresh save.".yellow()),
     };
 
     // -----
@@ -267,7 +267,7 @@ fn main() {
                 println!("\nPlease enter the {} of the task you would {}.", "name".yellow(), "like to edit".underline());
                 // continue adding code here
             } else {
-                println!("{}\n{}", "No tasks were found.".red(), "Please create a task first".yellow());
+                println!("{}\n{}", "No tasks were found.".red().underline(), "Please create a task first".yellow());
             }
         }, 
 
