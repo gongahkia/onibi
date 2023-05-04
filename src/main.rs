@@ -113,7 +113,11 @@ fn main() {
                         task_deadline_string.push_str(component.to_string().as_str());
                         task_deadline_string.push_str("/");
                     };
-                    write!(save_file, "{}, {}, {}, {}\n", eachtask.task_name, eachtask.task_description, task_deadline_string, eachtask.task_urgency.to_string());
+                    let write_to_file_result = write!(save_file, "{}, {}, {}, {}\n", eachtask.task_name, eachtask.task_description, task_deadline_string, eachtask.task_urgency.to_string());
+                    match write_to_file_result {
+                        Ok(_) => (),
+                        Err(_) => (),
+                    }
                 }
             } else {
                 println!("{}\nExiting without creating save file.", "No tasks were created.".red().underline());
