@@ -1,5 +1,6 @@
 // to resolve 
 // - if needed, do the following in a separate isolated rust file
+    // - take a break, work on sorting tasks first
     // - edit tasks, each aspect of a task can be edited
     // - finish tasks, tasks can be completed nicely
     // - refactor code, make this entire program one neat giant file
@@ -259,12 +260,16 @@ fn main() {
             Command::new("clear").status().unwrap();
             if storage_vector.len() > 0 {
                 println!("{}\n", "Here are your tasks: ".yellow());
-                let mut counter:i8 = 1;
+                let mut counter:u8 = 1;
                 for task in storage_vector {
                     println!("{}. | {:?} ", counter, task.task_name);
                     counter += 1;
                 }
-                println!("\nPlease enter the {} of the task you would {}.", "name".yellow(), "like to edit".underline());
+                println!("\nPlease enter the {} of the task you would {}.", "number".yellow(), "like to edit".underline());
+                let mut task_to_edit:String = String::new();
+                io::stdin().read_line(&mut task_to_edit).expect("Failed to read line");
+                let task_to_edit_int:usize = task_to_edit.trim_end().parse::<usize>().unwrap() - 1;
+                println!("{}", task_to_edit_int);
                 // continue adding code here
             } else {
                 println!("{}\n{}", "No tasks were found.".red().underline(), "Please create a task first".yellow());
