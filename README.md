@@ -6,9 +6,7 @@ The *K*ommand line h*elp*er.
 
 Written in Rust, because we love crabs.
 
-## Features
-
-> **KIV this portion to prevent feature bloat!**
+## Feature roadmap
 
 * [ ] ***Kelp***
     * [ ] *Program*
