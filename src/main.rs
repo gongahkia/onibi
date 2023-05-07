@@ -67,6 +67,7 @@ fn main() {
     // -----
 
     // reading of local file and parsing it into the struct Task
+    Command::new("clear").status().unwrap();
     let file_contents_results = fs::read_to_string(".kelpStorage");
     let _file_contents = match file_contents_results {
         Ok(string) => {
@@ -136,6 +137,7 @@ fn main() {
                             }
                         }
                     } else {
+                        Command::new("clear").status().unwrap();
                         println!("{}\n{}", "No tasks were created.".red().underline(), "Exiting without creating save file.".yellow());
                     }
                     break;
@@ -144,6 +146,7 @@ fn main() {
                 // -----
 
                 // task name
+                Command::new("clear").status().unwrap();
                 println!("Enter {}: ", "task name".bold());
                 let mut userinput_task_name:String = String::new();
                 io::stdin().read_line(&mut userinput_task_name).expect("Failed to read line");
@@ -251,6 +254,7 @@ fn main() {
                 };
                 
                 if storage_vector.len() > 0 {
+                    Command::new("clear").status().unwrap();
                     println!("{}\n\n{:?}", "Here are your tasks:".yellow(), storage_vector);
                 };
         }, 
