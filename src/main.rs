@@ -1,7 +1,9 @@
 // to resolve 
 // - if needed, do the following in a separate isolated rust file
-    // - take a break, work on sorting tasks first
     // - edit tasks, each aspect of a task can be edited
+        // - plumb together Task struct methods and the actions in the edit portion of main
+        // function
+    // - take a break, work on sorting tasks first
     // - finish tasks, tasks can be completed nicely
     // - refactor code, make this entire program one neat giant file
 
@@ -26,6 +28,101 @@ struct Task {
     task_description:String,
     task_deadline:[i32; 3],
     task_urgency:UrgencyLevel,
+}
+
+impl Task {
+    
+    fn edit_task_name(mut self) -> Task {
+        println!("{}", "Enter the new task name:".yellow());
+        let mut new_task_name:String = String::new();
+        // error handling done in a scuffed way in .unwrap()
+        io::stdin().read_line(&mut new_task_name).unwrap();
+        self.task_name = new_task_name;
+        // return value
+        self
+    }
+
+    fn edit_task_description(mut self) -> Task {
+        println!("{}", "Enter the new task description:".yellow());
+        let mut new_task_description:String = String::new();
+        io::stdin().read_line(&mut new_task_description).unwrap();
+        self.task_description = new_task_description;
+        self
+    }
+
+    fn edit_task_deadline(mut self) -> Task {
+        println!("{}", "Enter the new task deadline:".yellow());
+
+        loop {
+            let mut new_userinput_task_deadline_raw:String = String::new();
+            io::stdin().read_line(&mut new_userinput_task_deadline_raw).expect("Failed to read line");
+            let new_userinput_task_deadline_raw_array = new_userinput_task_deadline_raw.split("/");
+            let new_userinput_task_deadline_array: Vec<&str> = new_userinput_task_deadline_raw_array.collect();
+            
+            // checking for valid number of fields input (characters, str literals and numbers covered)
+            if new_userinput_task_deadline_array.len() != 3 {
+                println!("{}\nEnter {} in the following format {}: ", "Invalid input detected.".red().underline(), "task deadline".bold(), "[DD/MM/YY]".underline());
+                continue;
+            }
+
+            // checking for characters instead of date input if there are 3 fields
+            if new_userinput_task_deadline_array[0].chars().all(char::is_numeric) && new_userinput_task_deadline_array[1].chars().all(char::is_numeric) && new_userinput_task_deadline_array[2].trim_end().chars().all(char::is_numeric) {
+            } else {
+                println!("{}\nEnter {} in the following format {}: ", "Enter a valid integer input.".red().underline(), "task deadline".bold(), "[DD/MM/YY]".underline());
+                continue;
+            }
+
+            // these have to be signed integers first, to allow for subsequent error checking
+            let new_userinput_task_deadline_day_int:i32 = new_userinput_task_deadline_array[0].trim_end().parse().unwrap();
+            let new_userinput_task_deadline_month_int:i32 = new_userinput_task_deadline_array[1].trim_end().parse().unwrap();
+            let new_userinput_task_deadline_year_int:i32 = new_userinput_task_deadline_array[2].trim_end().parse().unwrap();
+            
+            // checking for valid date inputs
+            if new_userinput_task_deadline_day_int > 31 || new_userinput_task_deadline_day_int < 1 {
+                println!("{}\nEnter {} in the following format {}: ", "Enter a valid day input.".red().underline(), "task deadline".bold(), "[DD/MM/YY]".underline());
+                continue;
+            }
+            if new_userinput_task_deadline_month_int > 12 || new_userinput_task_deadline_month_int < 1 {
+                println!("{}\nEnter {} in the following format {}: ", "Enter a valid month input.".red().underline(), "task deadline".bold(), "[DD/MM/YY]".underline());
+                continue;
+            } 
+            if new_userinput_task_deadline_year_int < 23 || new_userinput_task_deadline_year_int > 99 {
+                println!("{}\nEnter {} in the following format {}: ", "Enter a valid year input.".red().underline(), "task deadline".bold(), "[DD/MM/YY]".underline());
+                continue; 
+            }
+        self.task_deadline = [new_userinput_task_deadline_day_int, new_userinput_task_deadline_month_int, new_userinput_task_deadline_year_int];
+        }
+        self
+    }
+
+    fn edit_task_urgency(mut self) -> Task {
+        println!("{}", "Enter the new task urgency:".yellow());
+        let new_task_urgency:UrgencyLevel;
+        loop {
+            let mut new_userinput_task_urgency_string:String = String::new();
+            io::stdin().read_line(&mut new_userinput_task_urgency_string).expect("Failed to read line");
+            let new_userinput_task_urgency_stringliteral:&str = new_userinput_task_urgency_string.as_str().trim_end();
+            match new_userinput_task_urgency_stringliteral {
+                "l" => {
+                    new_task_urgency = UrgencyLevel::Low;
+                    break;
+                },
+                "m" => {
+                    new_task_urgency = UrgencyLevel::Medium;
+                    break;
+                },
+                "h" => {
+                    new_task_urgency = UrgencyLevel::High;
+                    break;
+                },
+                &_ => {
+                    println!("{} [L/M/H]: ", "Please enter a valid input!".red().underline());
+                    }
+                }
+            }
+        self.task_urgency = new_task_urgency;
+        self
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -147,7 +244,7 @@ fn main() {
 
                 // task name
                 Command::new("clear").status().unwrap();
-                println!("Enter {}: ", "task name".bold());
+                println!("{} {}{} ", "Enter".yellow(), "task name".yellow().bold(), ":".yellow());
                 let mut userinput_task_name:String = String::new();
                 io::stdin().read_line(&mut userinput_task_name).expect("Failed to read line");
                 let userinput_task_name = String::from(userinput_task_name.trim_end());
@@ -155,7 +252,7 @@ fn main() {
                 // -----
                 
                 // task description
-                println!("Enter {}: ", "task description".bold());
+                println!("{} {}{} ", "Enter".yellow(), "task description".yellow().bold(), ":".yellow());
                 let mut userinput_task_description:String = String::new();
                 io::stdin().read_line(&mut userinput_task_description).expect("Failed to read line");
                 let userinput_task_description = String::from(userinput_task_description.trim_end());
@@ -163,7 +260,7 @@ fn main() {
                 // -----
                 
                 // task deadline, parsed using destructuring
-                println!("Enter {} in the following format {}: ", "task deadline".bold(), "[DD/MM/YY]".underline());
+                println!("{} {} {} {}{} ", "Enter".yellow(), "task deadline".yellow().bold(), "in the following format".yellow(), "[DD/MM/YY]".underline().yellow(), ":".yellow());
                 let userinput_task_deadline_formatted:[i32; 3];
 
                 loop {
@@ -210,7 +307,7 @@ fn main() {
                 // -----
 
                 // task urgency, handled by an enum
-                println!("Enter {} (L/M/H): ", "task urgency".bold());
+                println!("{} {} {}{} ", "Enter".yellow(), "task urgency".yellow().bold(), "[L/M/H]".yellow().underline(), ":".yellow());
                 let userinput_task_urgency:UrgencyLevel;
                 
                 loop {
