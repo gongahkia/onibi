@@ -1,7 +1,8 @@
 // to resolve 
 // - if needed, do the following in a separate isolated rust file
     // - work on sorting of tasks
-    // - finish tasks, tasks can be completed nicely
+    // - finish tasks, tasks can be completed nicely --> carry on from line 473
+        // - add error handling for invalid input for editing and completing tasks, integer number
     // - refactor code, make this entire program one neat giant file
 
 // ----------
@@ -365,15 +366,15 @@ fn main() {
                     println!("{}. | {:?} ", counter, task.task_name);
                     counter += 1;
                 }
-                println!("\nPlease enter the {} of the task you would {}.", "number".yellow(), "like to edit".underline());
+                println!("\n{} {} {}", "Please enter the".yellow(), "number".yellow().underline(), "of the task you would like to edit:".yellow());
                 let mut task_to_edit:String = String::new();
                 io::stdin().read_line(&mut task_to_edit).expect("Failed to read line");
                 let task_to_edit_int:usize = task_to_edit.trim_end().parse::<usize>().unwrap() - 1;
-                println!("Index of the task to be edited: {}", task_to_edit_int);
-                println!("{:?}", storage_vector[task_to_edit_int].task_name);               
-                // -----
-                thread::sleep(time::Duration::from_secs(10));
-                // to invoke the sleep call similar to Python in Rust
+                // println!("Index of the task to be edited: {}", task_to_edit_int);
+                // println!("{:?}", storage_vector[task_to_edit_int].task_name);               
+                // ----- ^ for debugging purposes
+                // thread::sleep(time::Duration::from_secs(3));
+                // ----- ^ to invoke the sleep call similar to Python in Rust
                 Command::new("clear").status().unwrap();
                 println!("{}\n{}\n{}\n{}\n{}", "Which component of the task do you want to edit?".yellow(), "[N]ame".purple(), "[D]escription".blue(), "D[E]adline".cyan(), "[U]rgency".bright_green());
                 let mut what_to_edit:String = String::new();
@@ -455,7 +456,25 @@ fn main() {
 
         // FINISH A TASK
         "f" => {
-            println!("to be added even later");
+            Command::new("clear").status().unwrap();
+            // .unwrap() is used for error handling here
+            if storage_vector.len() > 0 {
+                println!("{}\n", "Here are your tasks: ".yellow());
+                let mut counter:u8 = 1;
+                for task in &storage_vector {
+                    println!("{}. | {:?} ", counter, task.task_name);
+                    counter += 1;
+                }
+                println!("\n{} {} {}", "Please enter the".yellow(), "number".yellow().underline(), "of the task you have completed:".yellow());
+                let mut completed_task:String = String::new();
+                io::stdin().read_line(&mut completed_task).expect("Failed to read line");
+                let completed_task_int:usize = completed_task.trim_end().parse::<usize>().unwrap() - 1;
+                println!("{}", completed_task_int);
+                // to continue adding code here, for removing a task when completed, and to add a
+                // well done message!
+            } else {
+                println!("{}\n{}", "No tasks were found.".red().underline(), "Please create a task first".yellow());
+            }
         },
         
         // SORT TASKS

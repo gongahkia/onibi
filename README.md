@@ -29,8 +29,8 @@ Written in Rust, because we love crabs.
             * [ ] completed tasks saved until entire list is deleted
         * [ ] **delete tasks**
             * [ ] deleted tasks are stored in recycle bin for 30 days, removed from storage after
-        * [ ] **editing tasks**
-            * [ ] allow for editing every component of a task (name, description, due date, urgency level, tags)
+        * [x] **editing tasks**
+            * [x] allow for editing every component of a task (name, description, due date, urgency level, tags)
         * [ ] **list creation**
             * [ ] allow for lighter-weight alternative to projects, while still sorting related tasks together
         * [ ] **tags**
