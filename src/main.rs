@@ -1,9 +1,6 @@
 // to resolve 
 // - if needed, do the following in a separate isolated rust file
-    // - edit tasks, each aspect of a task can be edited
-        // - plumb together Task struct methods and the actions in the edit portion of main
-        // function
-    // - take a break, work on sorting tasks first
+    // - work on sorting of tasks
     // - finish tasks, tasks can be completed nicely
     // - refactor code, make this entire program one neat giant file
 
@@ -36,7 +33,8 @@ fn edit_task_name(index:usize, mut storage_vector:Vec<Task>) -> Vec<Task> {
     let mut new_task_name:String = String::new();
     // error handling done in a scuffed way in .unwrap()
     io::stdin().read_line(&mut new_task_name).unwrap();
-    storage_vector[index].task_name = new_task_name;    
+    let new_task_name_String:String = new_task_name.as_str().trim_end().to_string();
+    storage_vector[index].task_name = new_task_name_String;    
     // return value
     storage_vector
 }
@@ -45,7 +43,8 @@ fn edit_task_description(index:usize, mut storage_vector:Vec<Task>) -> Vec<Task>
     println!("{}", "Enter the new task description:".yellow());
     let mut new_task_description:String = String::new();
     io::stdin().read_line(&mut new_task_description).unwrap();
-    storage_vector[index].task_description = new_task_description;
+    let new_task_description_String:String = new_task_description.as_str().trim_end().to_string();
+    storage_vector[index].task_description = new_task_description_String;
     storage_vector
 }
 
@@ -383,21 +382,72 @@ fn main() {
                 let what_to_edit_str = what_to_edit.as_str().trim_end();
                 match what_to_edit_str {
                     "n" => {
-                        edit_task_name(task_to_edit_int, storage_vector);
+                        let storage_vector = edit_task_name(task_to_edit_int, storage_vector);
+                        let mut the_save_file = File::create(".kelpStorage").expect("File already exists");
+                        for eachtask in storage_vector {
+                            let mut task_deadline_string:String = String::from("");
+                            for component in eachtask.task_deadline {
+                                task_deadline_string.push_str(component.to_string().as_str());
+                                task_deadline_string.push_str("/");
+                            };
+                            let write_to_file_result = write!(the_save_file, "{}, {}, {}, {}\n", eachtask.task_name, eachtask.task_description, task_deadline_string, eachtask.task_urgency.to_string());
+                            match write_to_file_result {
+                                Ok(_) => (),
+                                Err(_) => (),
+                            }
+                        }
                     },
                     "d" => {
-                        edit_task_description(task_to_edit_int, storage_vector);
+                        let storage_vector = edit_task_description(task_to_edit_int, storage_vector);
+                        let mut the_save_file = File::create(".kelpStorage").expect("File already exists");
+                        for eachtask in storage_vector {
+                            let mut task_deadline_string:String = String::from("");
+                            for component in eachtask.task_deadline {
+                                task_deadline_string.push_str(component.to_string().as_str());
+                                task_deadline_string.push_str("/");
+                            };
+                            let write_to_file_result = write!(the_save_file, "{}, {}, {}, {}\n", eachtask.task_name, eachtask.task_description, task_deadline_string, eachtask.task_urgency.to_string());
+                            match write_to_file_result {
+                                Ok(_) => (),
+                                Err(_) => (),
+                            }
+                        }
                     },
                     "e" => {
-                        edit_task_deadline(task_to_edit_int, storage_vector);
+                        let storage_vector = edit_task_deadline(task_to_edit_int, storage_vector);
+                        let mut the_save_file = File::create(".kelpStorage").expect("File already exists");
+                        for eachtask in storage_vector {
+                            let mut task_deadline_string:String = String::from("");
+                            for component in eachtask.task_deadline {
+                                task_deadline_string.push_str(component.to_string().as_str());
+                                task_deadline_string.push_str("/");
+                            };
+                            let write_to_file_result = write!(the_save_file, "{}, {}, {}, {}\n", eachtask.task_name, eachtask.task_description, task_deadline_string, eachtask.task_urgency.to_string());
+                            match write_to_file_result {
+                                Ok(_) => (),
+                                Err(_) => (),
+                            }
+                        }
                     },
                     "u" => {
-                        edit_task_urgency(task_to_edit_int, storage_vector);
+                        let storage_vector = edit_task_urgency(task_to_edit_int, storage_vector);
+                        let mut the_save_file = File::create(".kelpStorage").expect("File already exists");
+                        for eachtask in storage_vector {
+                            let mut task_deadline_string:String = String::from("");
+                            for component in eachtask.task_deadline {
+                                task_deadline_string.push_str(component.to_string().as_str());
+                                task_deadline_string.push_str("/");
+                            };
+                            let write_to_file_result = write!(the_save_file, "{}, {}, {}, {}\n", eachtask.task_name, eachtask.task_description, task_deadline_string, eachtask.task_urgency.to_string());
+                            match write_to_file_result {
+                                Ok(_) => (),
+                                Err(_) => (),
+                            }
+                        }
                     },
                     _ => (),
                     // match-all statement
                 };
-                // implement SAVING OF NEW DATA BEFORE EXITING!
             } else {
                 println!("{}\n{}", "No tasks were found.".red().underline(), "Please create a task first".yellow());
             }
