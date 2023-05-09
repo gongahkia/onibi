@@ -19,6 +19,7 @@ use std::fs;
 use std::str::FromStr;
 use std::fs::File;
 use std::io::Write;
+use std::{thread, time};
 use colored::*;
 use std::process::Command;
 
@@ -30,99 +31,97 @@ struct Task {
     task_urgency:UrgencyLevel,
 }
 
-impl Task {
-    
-    fn edit_task_name(mut self) -> Task {
-        println!("{}", "Enter the new task name:".yellow());
-        let mut new_task_name:String = String::new();
-        // error handling done in a scuffed way in .unwrap()
-        io::stdin().read_line(&mut new_task_name).unwrap();
-        self.task_name = new_task_name;
-        // return value
-        self
-    }
+fn edit_task_name(index:usize, mut storage_vector:Vec<Task>) -> Vec<Task> {
+    println!("{}", "Enter the new task name:".yellow());
+    let mut new_task_name:String = String::new();
+    // error handling done in a scuffed way in .unwrap()
+    io::stdin().read_line(&mut new_task_name).unwrap();
+    storage_vector[index].task_name = new_task_name;    
+    // return value
+    storage_vector
+}
 
-    fn edit_task_description(mut self) -> Task {
-        println!("{}", "Enter the new task description:".yellow());
-        let mut new_task_description:String = String::new();
-        io::stdin().read_line(&mut new_task_description).unwrap();
-        self.task_description = new_task_description;
-        self
-    }
+fn edit_task_description(index:usize, mut storage_vector:Vec<Task>) -> Vec<Task> {
+    println!("{}", "Enter the new task description:".yellow());
+    let mut new_task_description:String = String::new();
+    io::stdin().read_line(&mut new_task_description).unwrap();
+    storage_vector[index].task_description = new_task_description;
+    storage_vector
+}
 
-    fn edit_task_deadline(mut self) -> Task {
-        println!("{}", "Enter the new task deadline:".yellow());
+fn edit_task_deadline(index:usize, mut storage_vector:Vec<Task>) -> Vec<Task> {
+    println!("{}", "Enter the new task deadline:".yellow());
 
-        loop {
-            let mut new_userinput_task_deadline_raw:String = String::new();
-            io::stdin().read_line(&mut new_userinput_task_deadline_raw).expect("Failed to read line");
-            let new_userinput_task_deadline_raw_array = new_userinput_task_deadline_raw.split("/");
-            let new_userinput_task_deadline_array: Vec<&str> = new_userinput_task_deadline_raw_array.collect();
-            
-            // checking for valid number of fields input (characters, str literals and numbers covered)
-            if new_userinput_task_deadline_array.len() != 3 {
-                println!("{}\nEnter {} in the following format {}: ", "Invalid input detected.".red().underline(), "task deadline".bold(), "[DD/MM/YY]".underline());
-                continue;
-            }
-
-            // checking for characters instead of date input if there are 3 fields
-            if new_userinput_task_deadline_array[0].chars().all(char::is_numeric) && new_userinput_task_deadline_array[1].chars().all(char::is_numeric) && new_userinput_task_deadline_array[2].trim_end().chars().all(char::is_numeric) {
-            } else {
-                println!("{}\nEnter {} in the following format {}: ", "Enter a valid integer input.".red().underline(), "task deadline".bold(), "[DD/MM/YY]".underline());
-                continue;
-            }
-
-            // these have to be signed integers first, to allow for subsequent error checking
-            let new_userinput_task_deadline_day_int:i32 = new_userinput_task_deadline_array[0].trim_end().parse().unwrap();
-            let new_userinput_task_deadline_month_int:i32 = new_userinput_task_deadline_array[1].trim_end().parse().unwrap();
-            let new_userinput_task_deadline_year_int:i32 = new_userinput_task_deadline_array[2].trim_end().parse().unwrap();
-            
-            // checking for valid date inputs
-            if new_userinput_task_deadline_day_int > 31 || new_userinput_task_deadline_day_int < 1 {
-                println!("{}\nEnter {} in the following format {}: ", "Enter a valid day input.".red().underline(), "task deadline".bold(), "[DD/MM/YY]".underline());
-                continue;
-            }
-            if new_userinput_task_deadline_month_int > 12 || new_userinput_task_deadline_month_int < 1 {
-                println!("{}\nEnter {} in the following format {}: ", "Enter a valid month input.".red().underline(), "task deadline".bold(), "[DD/MM/YY]".underline());
-                continue;
-            } 
-            if new_userinput_task_deadline_year_int < 23 || new_userinput_task_deadline_year_int > 99 {
-                println!("{}\nEnter {} in the following format {}: ", "Enter a valid year input.".red().underline(), "task deadline".bold(), "[DD/MM/YY]".underline());
-                continue; 
-            }
-        self.task_deadline = [new_userinput_task_deadline_day_int, new_userinput_task_deadline_month_int, new_userinput_task_deadline_year_int];
+    loop {
+        let mut new_userinput_task_deadline_raw:String = String::new();
+        io::stdin().read_line(&mut new_userinput_task_deadline_raw).expect("Failed to read line");
+        let new_userinput_task_deadline_raw_array = new_userinput_task_deadline_raw.split("/");
+        let new_userinput_task_deadline_array: Vec<&str> = new_userinput_task_deadline_raw_array.collect();
+        
+        // checking for valid number of fields input (characters, str literals and numbers covered)
+        if new_userinput_task_deadline_array.len() != 3 {
+            println!("{}\nEnter {} in the following format {}: ", "Invalid input detected.".red().underline(), "task deadline".bold(), "[DD/MM/YY]".underline());
+            continue;
         }
-        self
-    }
 
-    fn edit_task_urgency(mut self) -> Task {
-        println!("{}", "Enter the new task urgency:".yellow());
-        let new_task_urgency:UrgencyLevel;
-        loop {
-            let mut new_userinput_task_urgency_string:String = String::new();
-            io::stdin().read_line(&mut new_userinput_task_urgency_string).expect("Failed to read line");
-            let new_userinput_task_urgency_stringliteral:&str = new_userinput_task_urgency_string.as_str().trim_end();
-            match new_userinput_task_urgency_stringliteral {
-                "l" => {
-                    new_task_urgency = UrgencyLevel::Low;
-                    break;
-                },
-                "m" => {
-                    new_task_urgency = UrgencyLevel::Medium;
-                    break;
-                },
-                "h" => {
-                    new_task_urgency = UrgencyLevel::High;
-                    break;
-                },
-                &_ => {
-                    println!("{} [L/M/H]: ", "Please enter a valid input!".red().underline());
-                    }
+        // checking for characters instead of date input if there are 3 fields
+        if new_userinput_task_deadline_array[0].chars().all(char::is_numeric) && new_userinput_task_deadline_array[1].chars().all(char::is_numeric) && new_userinput_task_deadline_array[2].trim_end().chars().all(char::is_numeric) {
+        } else {
+            println!("{}\nEnter {} in the following format {}: ", "Enter a valid integer input.".red().underline(), "task deadline".bold(), "[DD/MM/YY]".underline());
+            continue;
+        }
+
+        // these have to be signed integers first, to allow for subsequent error checking
+        let new_userinput_task_deadline_day_int:i32 = new_userinput_task_deadline_array[0].trim_end().parse().unwrap();
+        let new_userinput_task_deadline_month_int:i32 = new_userinput_task_deadline_array[1].trim_end().parse().unwrap();
+        let new_userinput_task_deadline_year_int:i32 = new_userinput_task_deadline_array[2].trim_end().parse().unwrap();
+        
+        // checking for valid date inputs
+        if new_userinput_task_deadline_day_int > 31 || new_userinput_task_deadline_day_int < 1 {
+            println!("{}\nEnter {} in the following format {}: ", "Enter a valid day input.".red().underline(), "task deadline".bold(), "[DD/MM/YY]".underline());
+            continue;
+        }
+        if new_userinput_task_deadline_month_int > 12 || new_userinput_task_deadline_month_int < 1 {
+            println!("{}\nEnter {} in the following format {}: ", "Enter a valid month input.".red().underline(), "task deadline".bold(), "[DD/MM/YY]".underline());
+            continue;
+        } 
+        if new_userinput_task_deadline_year_int < 23 || new_userinput_task_deadline_year_int > 99 {
+            println!("{}\nEnter {} in the following format {}: ", "Enter a valid year input.".red().underline(), "task deadline".bold(), "[DD/MM/YY]".underline());
+            continue; 
+        }
+    storage_vector[index].task_deadline = [new_userinput_task_deadline_day_int, new_userinput_task_deadline_month_int, new_userinput_task_deadline_year_int];
+    break
+    }
+    storage_vector
+}
+
+fn edit_task_urgency(index:usize, mut storage_vector:Vec<Task>) -> Vec<Task> {
+    println!("{}", "Enter the new task urgency:".yellow());
+    let new_task_urgency:UrgencyLevel;
+    loop {
+        let mut new_userinput_task_urgency_string:String = String::new();
+        io::stdin().read_line(&mut new_userinput_task_urgency_string).expect("Failed to read line");
+        let new_userinput_task_urgency_stringliteral:&str = new_userinput_task_urgency_string.as_str().trim_end();
+        match new_userinput_task_urgency_stringliteral {
+            "l" => {
+                new_task_urgency = UrgencyLevel::Low;
+                break;
+            },
+            "m" => {
+                new_task_urgency = UrgencyLevel::Medium;
+                break;
+            },
+            "h" => {
+                new_task_urgency = UrgencyLevel::High;
+                break;
+            },
+            &_ => {
+                println!("{} [L/M/H]: ", "Please enter a valid input!".red().underline());
                 }
             }
-        self.task_urgency = new_task_urgency;
-        self
-    }
+        }
+    storage_vector[index].task_urgency = new_task_urgency;
+    storage_vector
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -359,10 +358,11 @@ fn main() {
         // EDIT A TASK
         "e" => {
             Command::new("clear").status().unwrap();
+            // .unwrap() is used for error handling here
             if storage_vector.len() > 0 {
                 println!("{}\n", "Here are your tasks: ".yellow());
                 let mut counter:u8 = 1;
-                for task in storage_vector {
+                for task in &storage_vector {
                     println!("{}. | {:?} ", counter, task.task_name);
                     counter += 1;
                 }
@@ -370,8 +370,34 @@ fn main() {
                 let mut task_to_edit:String = String::new();
                 io::stdin().read_line(&mut task_to_edit).expect("Failed to read line");
                 let task_to_edit_int:usize = task_to_edit.trim_end().parse::<usize>().unwrap() - 1;
-                println!("{}", task_to_edit_int);
-                // continue adding code here
+                println!("Index of the task to be edited: {}", task_to_edit_int);
+                println!("{:?}", storage_vector[task_to_edit_int].task_name);               
+                // -----
+                thread::sleep(time::Duration::from_secs(10));
+                // to invoke the sleep call similar to Python in Rust
+                Command::new("clear").status().unwrap();
+                println!("{}\n{}\n{}\n{}\n{}", "Which component of the task do you want to edit?".yellow(), "[N]ame".purple(), "[D]escription".blue(), "D[E]adline".cyan(), "[U]rgency".bright_green());
+                let mut what_to_edit:String = String::new();
+                io::stdin().read_line(&mut what_to_edit).expect("Failed to read line");
+                // could use .unwrap() for error handling above as well
+                let what_to_edit_str = what_to_edit.as_str().trim_end();
+                match what_to_edit_str {
+                    "n" => {
+                        edit_task_name(task_to_edit_int, storage_vector);
+                    },
+                    "d" => {
+                        edit_task_description(task_to_edit_int, storage_vector);
+                    },
+                    "e" => {
+                        edit_task_deadline(task_to_edit_int, storage_vector);
+                    },
+                    "u" => {
+                        edit_task_urgency(task_to_edit_int, storage_vector);
+                    },
+                    _ => (),
+                    // match-all statement
+                };
+                // implement SAVING OF NEW DATA BEFORE EXITING!
             } else {
                 println!("{}\n{}", "No tasks were found.".red().underline(), "Please create a task first".yellow());
             }
