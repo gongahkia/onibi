@@ -192,15 +192,15 @@ fn main() {
                 }
             }
             // for debugging purposes only, to be edited out in actual program
-            println!("{}\n\n{:?}", "Here are your tasks:".yellow(), storage_vector);
+            println!("{}\n\n{:?}\n", "Here are your tasks:".yellow(), storage_vector);
         },
-        Err(_) => println!("{}\n{}", "No save file found.".red().underline(), "Loading a fresh save.".yellow()),
+        Err(_) => println!("{}\n{}\n", "No save file found.".red().underline(), "Loading a fresh save.".yellow()),
     };
 
     // -----
 
     // menu screen
-    println!("What would you like to do?\n{}\n{}\n{}\n{}", "[C]reate new task".magenta(), "[E]dit a task".blue(), "[F]inish a task".cyan(), "[S]ort tasks".bright_green());
+    println!("{}\n{}\n{}\n{}\n{}", "What would you like to do?".yellow(), "[C]reate new task".magenta(), "[E]dit a task".blue(), "[F]inish a task".cyan(), "[S]ort tasks".bright_green());
     let mut choose_action:String = String::new();
     io::stdin().read_line(&mut choose_action).expect("Failed to read line");
     let choose_action_str:&str = choose_action.as_str().trim_end();
@@ -475,14 +475,22 @@ fn main() {
                 // println!("{}", completed_task_int);
                 Command::new("clear").status().unwrap();
                 let removed_task = storage_vector.remove(completed_task_int);
-                println!("{} {}", removed_task.task_name.yellow().underline(), "has been removed!".yellow());
-                println!("{}", "Good job! Remember to take breaks and drink enough water!".green());
+                println!("{} {}", removed_task.task_name.yellow().underline(), "has been completed!".yellow());
+                println!("{}\n", "Good job! Remember to take breaks and drink enough water!".green());
                 // println!("{:?}", storage_vector);
                 if storage_vector.is_empty() {
                     println!("{}\n{}", "No outstanding tasks left!".yellow().underline(), "Go for a run :)".green().bold());
                     fs::remove_file(".kelpStorage").expect("Failed to find file");
                     // simply removes the local file to prevent an empty vector from being saved
                 } else {
+                    let storage_vector_len:usize = storage_vector.len();
+                    if storage_vector_len == 1 {
+                        println!("{} {}\n", "You have".yellow(), "1 outstanding task.".yellow().underline());
+                    } else {
+                        let storage_vector_len_string:String = storage_vector_len.to_string();
+                        println!("{} {}{}\n", "You have".yellow(), storage_vector_len_string.yellow().underline(), " outstanding tasks.".yellow().underline());
+                    }
+
                     let mut the_save_file = File::create(".kelpStorage").expect("File already exists");
                     for eachtask in storage_vector {
                         let mut task_deadline_string:String = String::from("");
@@ -496,7 +504,7 @@ fn main() {
                             Err(_) => (),
                         }
                     }
-                    // creates and rewrites a local save
+                    // creates and rewrites the local file with the updated storage_vector
                 }
             } else {
                 println!("{}\n{}", "No tasks were found.".red().underline(), "Please create a task first".yellow());
@@ -505,12 +513,46 @@ fn main() {
         
         // SORT TASKS
         "s" => {
-            println!("to be added the last");
+            Command::new("clear").status().unwrap();
+            if storage_vector.len() > 0 {
+                println!("{}\n", "Here are your tasks: ".yellow());
+                let mut counter:u8 = 1;
+                for task in &storage_vector {
+                    println!("{}. | {:?} ", counter, task.task_name);
+                    counter += 1;
+                }
+                println!("\n{}\n{}\n{}\n{}", "Sort tasks by...".yellow(), "[U]rgency".purple(), "D[E]adline".cyan(), "[T]ags".green());
+                let mut sort_criteria:String = String::new();
+                io::stdin().read_line(&mut sort_criteria).expect("Failed to read line");
+                let sort_criteria_str:&str = sort_criteria.as_str().trim_end();
+                match sort_criteria_str {
+                    "u" => {
+                        println!("{} {}", "Sorting by".yellow(), "urgency level.".yellow().underline());
+                        for task in storage_vector {
+                            println!("{:?}", task.task_urgency);
+                        }
+                    },
+
+                    "e" => {
+                        println!("{} {}", "Sorting by".yellow(), "deadline.".yellow().underline());
+                    }, 
+
+                    "t" => {
+                        println!("{} {}", "Sorting by".yellow(), "tag type.".yellow().underline());
+                    },
+
+                    _ => (),
+                    // match-all statement
+                }
+            } else {
+                println!("{}\n{}", "No tasks were found.".red().underline(), "Please create a task first".yellow());
+            }
         },
         
         // match-all statement for other cases
         &_ => {
-            println!("Help la bro");
+            Command::new("clear").status().unwrap();
+            println!("{}\n{}", "Invalid input detected.".red().underline(), "Please give a valid input.".yellow());
         }
     }
     
