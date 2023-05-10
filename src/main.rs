@@ -7,13 +7,8 @@
     // FEATURE IMPLEMENTATION
     //  // - add tagging feature for tasks?
         // - work on sorting of tasks
-            // - display dates in a formatted manner, carry on from line 571
-            // - sort tasks by deadline
+            // - sort tasks by deadline -> carry on from line 595
             // - sort tasks by tag? 
-        // - display each task's component information on a separate line when displaying all
-        // information (@ the end of here are your tasks, at the start of the program when loading
-        // save file, after editing tasks, etc) ---> break this down into a simple function that
-        // can be reused
         // - refactor code, make this entire program one neat giant file
 
 // ----------
@@ -28,7 +23,6 @@ use std::fs;
 use std::str::FromStr;
 use std::fs::File;
 use std::io::Write;
-use std::{thread, time};
 use colored::*;
 use std::process::Command;
 
@@ -38,6 +32,25 @@ struct Task {
     task_description:String,
     task_deadline:[i32; 3],
     task_urgency:UrgencyLevel,
+}
+
+fn display_task_vector(storage_vector:&Vec<Task>, counter:u8) {
+    let mut counter = counter;
+    for task in storage_vector {
+        println!("{}{}", "Task ".yellow().underline(), counter.to_string().yellow().underline());
+        println!("{} {}", "Name: ".yellow(), task.task_name);
+        println!("{} {}", "Description: ".yellow(), task.task_description);
+        let mut task_deadline_string:String = String::from("");
+        for component in task.task_deadline {
+            task_deadline_string.push_str(component.to_string().as_str());
+            task_deadline_string.push_str("/");
+        };
+        task_deadline_string.pop();
+        // removes last character of the string
+        println!("{} {}", "Deadline: ".yellow(), task_deadline_string);
+        println!("{} {}\n", "Urgency: ".yellow(), task.task_urgency);
+        counter += 1;
+    }
 }
 
 fn edit_task_name(index:usize, mut storage_vector:Vec<Task>) -> Vec<Task> {
@@ -200,7 +213,8 @@ fn main() {
                 }
             }
             // for debugging purposes only, to be edited out in actual program
-            println!("{}\n\n{:?}\n", "Here are your tasks:".yellow(), storage_vector);
+            println!("{}\n", "Here are your tasks:".yellow());
+            display_task_vector(&storage_vector, 1);
         },
         Err(_) => println!("{}\n{}\n", "No save file found.".red().underline(), "Loading a fresh save.".yellow()),
     };
@@ -360,10 +374,11 @@ fn main() {
 
                 };
                 
-                if storage_vector.len() > 0 {
-                    Command::new("clear").status().unwrap();
-                    println!("{}\n\n{:?}", "Here are your tasks:".yellow(), storage_vector);
-                };
+            if storage_vector.len() > 0 {
+                Command::new("clear").status().unwrap();
+                println!("{} \n", "Here are your tasks: ".yellow());
+                display_task_vector(&storage_vector, 1);
+            };
         }, 
         
         // EDIT A TASK
@@ -384,8 +399,6 @@ fn main() {
                 // println!("Index of the task to be edited: {}", task_to_edit_int);
                 // println!("{:?}", storage_vector[task_to_edit_int].task_name);               
                 // ----- ^ for debugging purposes
-                // thread::sleep(time::Duration::from_secs(3));
-                // ----- ^ to invoke the sleep call similar to Python in Rust
                 Command::new("clear").status().unwrap();
                 println!("{}\n{}\n{}\n{}\n{}", "Which component of the task do you want to edit?".yellow(), "[N]ame".purple(), "[D]escription".blue(), "D[E]adline".cyan(), "[U]rgency".bright_green());
                 let mut what_to_edit:String = String::new();
@@ -557,25 +570,28 @@ fn main() {
                             }
                         }
 
-                        println!("\n{}\n", "High urgency tasks".red());
                         counter = 1;
-                        for task in &high_urgency_storage_vector {
-                            println!("{}. | {:?} | {:?} | {:?} | {:?} | ", counter, task.task_name, task.task_description, task.task_deadline, task.task_urgency);
-                            counter += 1;
-                        }
+
+                        println!("\n{}\n", "High urgency tasks".red());
+                        if high_urgency_storage_vector.is_empty() {
+                            println!("{} {} {}", "There are".yellow(), "no tasks".yellow().underline(), "in this category.".yellow());
+                        } else {
+                            display_task_vector(&high_urgency_storage_vector, counter);
+                        };
                         
                         println!("\n{}\n", "Medium urgency tasks".blue());
-                        for task in &medium_urgency_storage_vector {
-                            println!("{}. | {:?} | {:?} | {:?} | {:?} | ", counter, task.task_name, task.task_description, task.task_deadline, task.task_urgency);
-                            counter += 1;
-                        }
+                        if medium_urgency_storage_vector.is_empty() {
+                            println!("{} {} {}", "There are".yellow(), "no tasks".yellow().underline().bold(), "in this category.".yellow());
+                        } else {
+                            display_task_vector(&medium_urgency_storage_vector, counter);
+                        };
 
                         println!("\n{}\n", "Low urgency tasks".green());
-                        for task in &low_urgency_storage_vector {
-                            println!("{}. | {:?} | {:?} | {:?} | {:?} | ", counter, task.task_name, task.task_description, task.task_deadline, task.task_urgency);
-                            counter += 1;
-                        }
-                        // display dates in a formatted manner
+                        if low_urgency_storage_vector.is_empty() {
+                            println!("{} {} {}", "There are".yellow(), "no tasks".yellow().underline(), "in this category.".yellow());
+                        } else {
+                            display_task_vector(&low_urgency_storage_vector, counter);
+                        };
 
                     },
 

@@ -19,7 +19,10 @@ Written in Rust, because we love crabs.
             * [x] due date
             * [x] urgency level
         * [ ] **sorting tasks**
-            * [ ] sort tasks by due date, urgency level, tags, manual sorting
+            * [ ] sort tasks by the following criteria
+                * [ ] due date
+                * [x] urgency level
+                * [ ] tags
         * [ ] **storing data**
             * [ ] integrate online syncing to google drive via drive API
             * [x] changes written to a local storage file titled `.kelpStorage`
