@@ -2,7 +2,7 @@
 title: Reflections from first project with Rust
 author: Gongahkia
 date: 1 May 2023
-output: pdf_document
+output: beamer_presentation
 ---
 
 # Main learning pointers
@@ -15,14 +15,14 @@ output: pdf_document
 
 3. In the future, start out by planning my program with Rust's modules in mind, to allow for easier **refactoring** in the future.
 
-```{rust}
-fn main() {
-    println!("I am losing my mind");
-}
-```
+4. Rust's match case statement is ***chef's kiss***.
 
 # Useful links
 
 * [Debug statement](https://doc.rust-lang.org/rust-by-example/hello/print/print_debug.html)
 
-
+```{rust}
+fn main() {
+    println!("I am losing my mind");
+}
+```
