@@ -12,19 +12,19 @@ Written in Rust, because we love crabs.
     * [ ] *Program*
         * [x] **To-do list**
             * [x] add a break condition to exit the program when run
-        * [ ] **task components**
-            * [ ] tags
+        * [x] **task components**
+            * [ ] tags *(likely implemented in Kelp 2.0)*
             * [x] task name
             * [x] description, details
             * [x] due date
             * [x] urgency level
-        * [ ] **sorting tasks**
-            * [ ] sort tasks by the following criteria
-                * [ ] due date
+        * [x] **sorting tasks**
+            * [x] sort tasks by the following criteria
+                * [x] due date
                 * [x] urgency level
-                * [ ] tags
-        * [ ] **storing data**
-            * [ ] integrate online syncing to google drive via drive API
+                * [ ] tags *(likely implemented in Kelp 2.0)*
+        * [x] **storing data**
+            * [ ] integrate online syncing to google drive via drive API *(likely implemented in Kelp 2.0)*
             * [x] changes written to a local storage file titled `.kelpStorage`
             * [x] automatically load local storage file upon entering program
         * [x] **completed tasks**

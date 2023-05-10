@@ -5,16 +5,16 @@
         // - add error handling for empty input for the task name, implement in the creating tasks
         // and editing tasks portions of the program
     // FEATURE IMPLEMENTATION
-    //  // - add tagging feature for tasks?
+        // - add tagging feature for tasks?
         // - work on sorting of tasks
-            // - sort tasks by deadline -> carry on from line 595
-            // - sort tasks by tag? 
+            // - sort tasks by tag? -> carry on from line 667
         // - refactor code, make this entire program one neat giant file
 
 // ----------
 
 // external crate imports
 extern crate colored;
+extern crate chrono;
 
 // required imports
 use std::io;
@@ -24,6 +24,7 @@ use std::str::FromStr;
 use std::fs::File;
 use std::io::Write;
 use colored::*;
+use chrono::Local;
 use std::process::Command;
 
 #[derive(Debug)]
@@ -596,7 +597,69 @@ fn main() {
                     },
 
                     "e" => {
+                        Command::new("clear").status().unwrap();
+                        let mut overdue_storage_vector:Vec<Task> = vec![];
+                        let mut today_storage_vector:Vec<Task> = vec![];
+                        let mut this_month_storage_vector:Vec<Task> = vec![];
+                        let mut next_month_and_later_storage_vector:Vec<Task> = vec![];
+                        let current_day:String = Local::now().to_string();
+                        let current_day_str:&str = current_day.as_str();
+                        let current_day_vector:Vec<&str> = current_day_str.split(" ").collect();
+                        let current_date_vector:Vec<&str> = current_day_vector[0].split("-").collect();
+                        // println!("{:?}", current_date_vector);
+                        let current_year:i32 = current_date_vector[0][2..].parse().unwrap();
+                        let current_month:i32 = current_date_vector[1].parse().unwrap();
+                        let current_day_of_date:i32 = current_date_vector[2].parse().unwrap();
                         println!("{} {}", "Sorting by".yellow(), "deadline.".yellow().underline());
+                        for task in storage_vector {
+                            if task.task_deadline[2] > current_year {
+                                // deadline is a year or more later
+                                next_month_and_later_storage_vector.push(task);
+                            } else if task.task_deadline[1] > current_month {
+                                // deadline is a month or more later
+                                next_month_and_later_storage_vector.push(task);
+                            } else if task.task_deadline[0] > current_day_of_date {
+                                // deadline is a day or more later
+                                this_month_storage_vector.push(task);
+                            } else if task.task_deadline[0] == current_day_of_date {
+                                // deadline is today
+                                today_storage_vector.push(task);
+                            } else {
+                                // deadline is overdue 
+                                overdue_storage_vector.push(task);
+                            }
+                        };
+
+                        let mut counter:u8 = 1;
+
+                        println!("\n{}\n", "Overdue tasks".red());
+                        if overdue_storage_vector.is_empty() {
+                            println!("{} {} {}", "There are".yellow(), "no tasks".yellow().underline().bold(), "in this category.".yellow());
+                        } else {
+                            display_task_vector(&overdue_storage_vector, counter);
+                        };
+
+                        println!("\n{}\n", "Tasks due today".red());
+                        if today_storage_vector.is_empty() {
+                            println!("{} {} {}", "There are".yellow(), "no tasks".yellow().underline().bold(), "in this category.".yellow());
+                        } else {
+                            display_task_vector(&today_storage_vector, counter);
+                        };
+
+                        println!("\n{}\n", "Tasks due this month".blue());
+                        if this_month_storage_vector.is_empty() {
+                            println!("{} {} {}", "There are".yellow(), "no tasks".yellow().underline().bold(), "in this category.".yellow());
+                        } else {
+                            display_task_vector(&this_month_storage_vector, counter);
+                        };
+
+                        println!("\n{}\n", "Tasks due next month".green());
+                        if next_month_and_later_storage_vector.is_empty() {
+                            println!("{} {} {}", "There are".yellow(), "no tasks".yellow().underline().bold(), "in this category.".yellow());
+                        } else {
+                            display_task_vector(&next_month_and_later_storage_vector, counter);
+                        };
+
                     }, 
 
                     "t" => {
