@@ -24,13 +24,13 @@ Written in Rust, because we love crabs.
             * [ ] integrate online syncing to google drive via drive API
             * [x] changes written to a local storage file titled `.kelpStorage`
             * [x] automatically load local storage file upon entering program
-        * [ ] **completed tasks**
-            * [ ] check off completed tasks
-            * [ ] completed tasks saved until entire list is deleted
-        * [ ] **delete tasks**
-            * [ ] deleted tasks are stored in recycle bin for 30 days, removed from storage after
+        * [x] **completed tasks**
+            * [x] check off completed tasks
         * [x] **editing tasks**
             * [x] allow for editing every component of a task (name, description, due date, urgency level, tags)
+        * [ ] **delete tasks** *(likely implemented in Kelp 2.0)*
+            * [ ] deleted tasks are stored in recycle bin for 30 days, removed from storage after
+            * [ ] completed tasks saved until entire list is deleted 
         * [ ] **list creation**
             * [ ] allow for lighter-weight alternative to projects, while still sorting related tasks together
         * [ ] **tags**
