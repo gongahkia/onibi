@@ -5,7 +5,15 @@
         // - add error handling for empty input for the task name, implement in the creating tasks
         // and editing tasks portions of the program
     // FEATURE IMPLEMENTATION
+    //  // - add tagging feature for tasks?
         // - work on sorting of tasks
+            // - display dates in a formatted manner, carry on from line 571
+            // - sort tasks by deadline
+            // - sort tasks by tag? 
+        // - display each task's component information on a separate line when displaying all
+        // information (@ the end of here are your tasks, at the start of the program when loading
+        // save file, after editing tasks, etc) ---> break this down into a simple function that
+        // can be reused
         // - refactor code, make this entire program one neat giant file
 
 // ----------
@@ -527,10 +535,48 @@ fn main() {
                 let sort_criteria_str:&str = sort_criteria.as_str().trim_end();
                 match sort_criteria_str {
                     "u" => {
-                        println!("{} {}", "Sorting by".yellow(), "urgency level.".yellow().underline());
+                        let mut low_urgency_storage_vector:Vec<Task> = vec![];
+                        let mut medium_urgency_storage_vector:Vec<Task> = vec![];
+                        let mut high_urgency_storage_vector:Vec<Task> = vec![];
+                        Command::new("clear").status().unwrap();
+                        println!("{} {}", "Sorting by".yellow(), "urgency level.".yellow().underline().bold());
                         for task in storage_vector {
-                            println!("{:?}", task.task_urgency);
+                            match task.task_urgency {
+                                UrgencyLevel::Low => {
+                                    low_urgency_storage_vector.push(task);
+                                },
+                                UrgencyLevel::Medium => {
+                                    medium_urgency_storage_vector.push(task);
+                                },
+                                UrgencyLevel::High => {
+                                    high_urgency_storage_vector.push(task);
+                                }, 
+                                // note that there is no need for a match-all statement since an
+                                // enum neccesitates that only its enum variants can fulfill its
+                                // requirements
+                            }
                         }
+
+                        println!("\n{}\n", "High urgency tasks".red());
+                        counter = 1;
+                        for task in &high_urgency_storage_vector {
+                            println!("{}. | {:?} | {:?} | {:?} | {:?} | ", counter, task.task_name, task.task_description, task.task_deadline, task.task_urgency);
+                            counter += 1;
+                        }
+                        
+                        println!("\n{}\n", "Medium urgency tasks".blue());
+                        for task in &medium_urgency_storage_vector {
+                            println!("{}. | {:?} | {:?} | {:?} | {:?} | ", counter, task.task_name, task.task_description, task.task_deadline, task.task_urgency);
+                            counter += 1;
+                        }
+
+                        println!("\n{}\n", "Low urgency tasks".green());
+                        for task in &low_urgency_storage_vector {
+                            println!("{}. | {:?} | {:?} | {:?} | {:?} | ", counter, task.task_name, task.task_description, task.task_deadline, task.task_urgency);
+                            counter += 1;
+                        }
+                        // display dates in a formatted manner
+
                     },
 
                     "e" => {
