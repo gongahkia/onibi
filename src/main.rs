@@ -1,9 +1,12 @@
 // to resolve 
 // - if needed, do the following in a separate isolated rust file
-    // - work on sorting of tasks
-    // - finish tasks, tasks can be completed nicely --> carry on from line 473
+//  // DEBUGGING
         // - add error handling for invalid input for editing and completing tasks, integer number
-    // - refactor code, make this entire program one neat giant file
+        // - add error handling for empty input for the task name, implement in the creating tasks
+        // and editing tasks portions of the program
+    // FEATURE IMPLEMENTATION
+        // - work on sorting of tasks
+        // - refactor code, make this entire program one neat giant file
 
 // ----------
 
@@ -34,8 +37,8 @@ fn edit_task_name(index:usize, mut storage_vector:Vec<Task>) -> Vec<Task> {
     let mut new_task_name:String = String::new();
     // error handling done in a scuffed way in .unwrap()
     io::stdin().read_line(&mut new_task_name).unwrap();
-    let new_task_name_String:String = new_task_name.as_str().trim_end().to_string();
-    storage_vector[index].task_name = new_task_name_String;    
+    let new_task_name_string:String = new_task_name.as_str().trim_end().to_string();
+    storage_vector[index].task_name = new_task_name_string;    
     // return value
     storage_vector
 }
@@ -44,8 +47,8 @@ fn edit_task_description(index:usize, mut storage_vector:Vec<Task>) -> Vec<Task>
     println!("{}", "Enter the new task description:".yellow());
     let mut new_task_description:String = String::new();
     io::stdin().read_line(&mut new_task_description).unwrap();
-    let new_task_description_String:String = new_task_description.as_str().trim_end().to_string();
-    storage_vector[index].task_description = new_task_description_String;
+    let new_task_description_string:String = new_task_description.as_str().trim_end().to_string();
+    storage_vector[index].task_description = new_task_description_string;
     storage_vector
 }
 
@@ -469,9 +472,32 @@ fn main() {
                 let mut completed_task:String = String::new();
                 io::stdin().read_line(&mut completed_task).expect("Failed to read line");
                 let completed_task_int:usize = completed_task.trim_end().parse::<usize>().unwrap() - 1;
-                println!("{}", completed_task_int);
-                // to continue adding code here, for removing a task when completed, and to add a
-                // well done message!
+                // println!("{}", completed_task_int);
+                Command::new("clear").status().unwrap();
+                let removed_task = storage_vector.remove(completed_task_int);
+                println!("{} {}", removed_task.task_name.yellow().underline(), "has been removed!".yellow());
+                println!("{}", "Good job! Remember to take breaks and drink enough water!".green());
+                // println!("{:?}", storage_vector);
+                if storage_vector.is_empty() {
+                    println!("{}\n{}", "No outstanding tasks left!".yellow().underline(), "Go for a run :)".green().bold());
+                    fs::remove_file(".kelpStorage").expect("Failed to find file");
+                    // simply removes the local file to prevent an empty vector from being saved
+                } else {
+                    let mut the_save_file = File::create(".kelpStorage").expect("File already exists");
+                    for eachtask in storage_vector {
+                        let mut task_deadline_string:String = String::from("");
+                        for component in eachtask.task_deadline {
+                            task_deadline_string.push_str(component.to_string().as_str());
+                            task_deadline_string.push_str("/");
+                        };
+                        let write_to_file_result = write!(the_save_file, "{}, {}, {}, {}\n", eachtask.task_name, eachtask.task_description, task_deadline_string, eachtask.task_urgency.to_string());
+                        match write_to_file_result {
+                            Ok(_) => (),
+                            Err(_) => (),
+                        }
+                    }
+                    // creates and rewrites a local save
+                }
             } else {
                 println!("{}\n{}", "No tasks were found.".red().underline(), "Please create a task first".yellow());
             }
