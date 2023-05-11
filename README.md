@@ -67,13 +67,12 @@ Written in Rust, because we love crabs.
 | MacOS | |
 | Linux | |
 
-## Installation
+## Installation and usage
+
+Ensure Rust is installed. [Instructions](https://www.rust-lang.org/tools/install) here.
 
 ```console
-$ git clone 
+$ git clone https://github.com/gongahkia/Kelp
+$ cd ~/{path-to-file}
+$ cargo run
 ```
-
-## Usage
-
-| Command | Keymap | Function |
-| :---: | :---: | :---: |
