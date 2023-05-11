@@ -1,17 +1,3 @@
-// to resolve 
-// - if needed, do the following in a separate isolated rust file
-//  // DEBUGGING
-        // - add error handling for invalid input for editing and completing tasks, integer number
-        // - add error handling for empty input for the task name, implement in the creating tasks
-        // and editing tasks portions of the program
-    // FEATURE IMPLEMENTATION
-        // - add tagging feature for tasks?
-        // - work on sorting of tasks
-            // - sort tasks by tag? -> carry on from line 667
-        // - refactor code, make this entire program one neat giant file
-
-// ----------
-
 // external crate imports
 extern crate colored;
 extern crate chrono;
