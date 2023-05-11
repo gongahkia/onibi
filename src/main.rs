@@ -619,7 +619,7 @@ fn main() {
                             }
                         };
 
-                        let mut counter:u8 = 1;
+                        let counter:u8 = 1;
 
                         println!("\n{}\n", "Overdue tasks".red());
                         if overdue_storage_vector.is_empty() {
