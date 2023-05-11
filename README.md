@@ -1,4 +1,4 @@
-> **THIS IS A WORK IN PROGRESS!!!**
+> **THIS BUILD IS A WORK IN PROGRESS!!!**
 
 # KELP 🌿🌊
 

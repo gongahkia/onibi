@@ -186,9 +186,12 @@ fn main() {
     let mut storage_vector:Vec<Task> = vec![];
 
     // -----
+    
+    // printing of logo 
+    Command::new("clear").status().unwrap();
+    println!("{} {} 🪸\n", "Welcome to".yellow(), "Kelp 1.0".cyan());
 
     // reading of local file and parsing it into the struct Task
-    Command::new("clear").status().unwrap();
     let file_contents_results = fs::read_to_string(".kelpStorage");
     let _file_contents = match file_contents_results {
         Ok(string) => {
