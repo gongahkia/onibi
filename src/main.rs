@@ -174,8 +174,8 @@ fn main() {
     // -----
     
     // printing of logo 
-    Command::new("clear").status().unwrap();
-    println!("{} {} 🪸\n", "Welcome to".yellow(), "Kelp 1.0".cyan());
+    Command::new("clear").status().expect("Failed to call command");
+    println!("{} {}\n", "Welcome to".yellow(), "Kelp 1.0".cyan());
 
     // reading of local file and parsing it into the struct Task
     let file_contents_results = fs::read_to_string(".kelpStorage");
@@ -222,7 +222,7 @@ fn main() {
         // CREATE A TASK
         "c" => {
 
-            Command::new("clear").status().unwrap();
+            Command::new("clear").status().expect("Failed to call command");
             // create task loop
             loop {
                 
@@ -248,7 +248,7 @@ fn main() {
                             }
                         }
                     } else {
-                        Command::new("clear").status().unwrap();
+                        Command::new("clear").status().expect("Failed to call command");
                         println!("{}\n{}", "No tasks were created.".red().underline(), "Exiting without creating save file.".yellow());
                     }
                     break;
@@ -257,7 +257,7 @@ fn main() {
                 // -----
 
                 // task name
-                Command::new("clear").status().unwrap();
+                Command::new("clear").status().expect("Failed to call command");
                 println!("{} {}{} ", "Enter".yellow(), "task name".yellow().bold(), ":".yellow());
                 let mut userinput_task_name:String = String::new();
                 io::stdin().read_line(&mut userinput_task_name).expect("Failed to read line");
@@ -360,12 +360,12 @@ fn main() {
                 
                 // updating of storage_vector:Vec<Task> collection
                 storage_vector.push(given_task);
-                Command::new("clear").status().unwrap();
+                Command::new("clear").status().expect("Failed to call command");
 
                 };
                 
             if storage_vector.len() > 0 {
-                Command::new("clear").status().unwrap();
+                Command::new("clear").status().expect("Failed to call command");
                 println!("{} \n", "Here are your tasks: ".yellow());
                 display_task_vector(&storage_vector, 1);
             };
@@ -373,7 +373,7 @@ fn main() {
         
         // EDIT A TASK
         "e" => {
-            Command::new("clear").status().unwrap();
+            Command::new("clear").status().expect("Failed to call command");
             // .unwrap() is used for error handling here
             if storage_vector.len() > 0 {
                 println!("{}\n", "Here are your tasks: ".yellow());
@@ -389,7 +389,7 @@ fn main() {
                 // println!("Index of the task to be edited: {}", task_to_edit_int);
                 // println!("{:?}", storage_vector[task_to_edit_int].task_name);               
                 // ----- ^ for debugging purposes
-                Command::new("clear").status().unwrap();
+                Command::new("clear").status().expect("Failed to call command");
                 println!("{}\n{}\n{}\n{}\n{}", "Which component of the task do you want to edit?".yellow(), "[N]ame".purple(), "[D]escription".blue(), "D[E]adline".cyan(), "[U]rgency".bright_green());
                 let mut what_to_edit:String = String::new();
                 io::stdin().read_line(&mut what_to_edit).expect("Failed to read line");
@@ -470,7 +470,7 @@ fn main() {
 
         // FINISH A TASK
         "f" => {
-            Command::new("clear").status().unwrap();
+            Command::new("clear").status().expect("Failed to call command");
             // .unwrap() is used for error handling here
             if storage_vector.len() > 0 {
                 println!("{}\n", "Here are your tasks: ".yellow());
@@ -484,7 +484,7 @@ fn main() {
                 io::stdin().read_line(&mut completed_task).expect("Failed to read line");
                 let completed_task_int:usize = completed_task.trim_end().parse::<usize>().unwrap() - 1;
                 // println!("{}", completed_task_int);
-                Command::new("clear").status().unwrap();
+                Command::new("clear").status().expect("Failed to call command");
                 let removed_task = storage_vector.remove(completed_task_int);
                 println!("{} {}", removed_task.task_name.yellow().underline(), "has been completed!".yellow());
                 println!("{}\n", "Good job! Remember to take breaks and drink enough water!".green());
@@ -524,7 +524,7 @@ fn main() {
         
         // SORT TASKS
         "s" => {
-            Command::new("clear").status().unwrap();
+            Command::new("clear").status().expect("Failed to call command");
             if storage_vector.len() > 0 {
                 println!("{}\n", "Here are your tasks: ".yellow());
                 let mut counter:u8 = 1;
@@ -541,7 +541,7 @@ fn main() {
                         let mut low_urgency_storage_vector:Vec<Task> = vec![];
                         let mut medium_urgency_storage_vector:Vec<Task> = vec![];
                         let mut high_urgency_storage_vector:Vec<Task> = vec![];
-                        Command::new("clear").status().unwrap();
+                        Command::new("clear").status().expect("Failed to call command");
                         println!("{} {}", "Sorting by".yellow(), "urgency level.".yellow().underline().bold());
                         for task in storage_vector {
                             match task.task_urgency {
@@ -586,7 +586,7 @@ fn main() {
                     },
 
                     "e" => {
-                        Command::new("clear").status().unwrap();
+                        Command::new("clear").status().expect("Failed to call command");
                         let mut overdue_storage_vector:Vec<Task> = vec![];
                         let mut today_storage_vector:Vec<Task> = vec![];
                         let mut this_month_storage_vector:Vec<Task> = vec![];
@@ -665,7 +665,7 @@ fn main() {
         
         // match-all statement for other cases
         &_ => {
-            Command::new("clear").status().unwrap();
+            Command::new("clear").status().expect("Failed to call command");
             println!("{}\n{}", "Invalid input detected.".red().underline(), "Please give a valid input.".yellow());
         }
     }
