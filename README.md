@@ -1,5 +1,3 @@
-> **THIS BUILD IS A WORK IN PROGRESS!!!**
-
 # KELP 🌿🌊
 
 The *K*ommand line h*elp*er.
