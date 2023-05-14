@@ -1,3 +1,12 @@
+// TO DO
+// DEBUG
+    // -- figure out why tasks with no task tags aren't shown at all
+    // -- editing task tags
+// IMPLEMENT
+    // -- work on adding task tags 
+    // -- sorting tasks by task tags
+    // -- see if there is a better way to handle task tags (more user-friendly way to input)
+
 // external crate imports
 extern crate colored;
 extern crate chrono;
@@ -19,6 +28,7 @@ struct Task {
     task_description:String,
     task_deadline:[i32; 3],
     task_urgency:UrgencyLevel,
+    task_tags:String
 }
 
 fn display_task_vector(storage_vector:&Vec<Task>, counter:u8) {
@@ -33,9 +43,21 @@ fn display_task_vector(storage_vector:&Vec<Task>, counter:u8) {
             task_deadline_string.push_str("/");
         };
         task_deadline_string.pop();
-        // removes last character of the string
         println!("{} {}", "Deadline: ".yellow(), task_deadline_string);
-        println!("{} {}\n", "Urgency: ".yellow(), task.task_urgency);
+        if ! task.task_tags.is_empty() {
+            let task_tags_collection:Vec<&str> = task.task_tags.split("&").collect();
+            let mut task_tags_for_reader:String = String::new();
+            for item in task_tags_collection {
+                task_tags_for_reader.push_str(item);
+                task_tags_for_reader.push_str(", ");
+            }
+            task_tags_for_reader.pop();
+            task_tags_for_reader.pop();
+            println!("{} {}", "Urgency: ".yellow(), task.task_urgency);
+            println!("{} {}\n", "Tags: ".yellow(), task_tags_for_reader);
+        } else {
+            println!("{} {}\n", "Urgency: ".yellow(), task.task_urgency);
+        }
         counter += 1;
     }
 }
@@ -43,8 +65,7 @@ fn display_task_vector(storage_vector:&Vec<Task>, counter:u8) {
 fn edit_task_name(index:usize, mut storage_vector:Vec<Task>) -> Vec<Task> {
     println!("{}", "Enter the new task name:".yellow());
     let mut new_task_name:String = String::new();
-    // error handling done in a scuffed way in .unwrap()
-    io::stdin().read_line(&mut new_task_name).unwrap();
+    io::stdin().read_line(&mut new_task_name).expect("Failed to read line");
     let new_task_name_string:String = new_task_name.as_str().trim_end().to_string();
     storage_vector[index].task_name = new_task_name_string;    
     // return value
@@ -54,7 +75,7 @@ fn edit_task_name(index:usize, mut storage_vector:Vec<Task>) -> Vec<Task> {
 fn edit_task_description(index:usize, mut storage_vector:Vec<Task>) -> Vec<Task> {
     println!("{}", "Enter the new task description:".yellow());
     let mut new_task_description:String = String::new();
-    io::stdin().read_line(&mut new_task_description).unwrap();
+    io::stdin().read_line(&mut new_task_description).expect("Failed to read line");
     let new_task_description_string:String = new_task_description.as_str().trim_end().to_string();
     storage_vector[index].task_description = new_task_description_string;
     storage_vector
@@ -135,6 +156,17 @@ fn edit_task_urgency(index:usize, mut storage_vector:Vec<Task>) -> Vec<Task> {
     storage_vector
 }
 
+fn edit_task_tags(index:usize, mut storage_vector:Vec<Task>) -> Vec<Task> {
+    println!("{}", "Enter the new task tags, separated by a space:".yellow());
+    let mut new_task_tags:String = String::new();
+    io::stdin().read_line(&mut new_task_tags).expect("Failed to read line");
+    let new_task_tags_string:String = new_task_tags.as_str().trim_end().to_string();
+    let new_task_tag_collection:Vec<&str> = new_task_tags_string.split(" ").collect();
+    let new_task_tag_reformatted:String = new_task_tag_collection.join("&");
+    storage_vector[index].task_tags = new_task_tag_reformatted;
+    storage_vector
+}
+
 #[derive(Debug, Clone, Copy)]
 enum UrgencyLevel {
     Low,
@@ -196,6 +228,7 @@ fn main() {
                             task_description: String::from(each_task_array[1]),
                             task_deadline: each_task_deadline,
                             task_urgency: each_task_urgency,
+                            task_tags: String::from(each_task_array[4]),
                             };
                         storage_vector.push(the_given_task);
                     },
@@ -241,7 +274,7 @@ fn main() {
                                 task_deadline_string.push_str(component.to_string().as_str());
                                 task_deadline_string.push_str("/");
                             };
-                            let write_to_file_result = write!(save_file, "{}, {}, {}, {}\n", eachtask.task_name, eachtask.task_description, task_deadline_string, eachtask.task_urgency.to_string());
+                            let write_to_file_result = write!(save_file, "{}, {}, {}, {}, {}\n", eachtask.task_name, eachtask.task_description, task_deadline_string, eachtask.task_urgency.to_string(), eachtask.task_tags);
                             match write_to_file_result {
                                 Ok(_) => (),
                                 Err(_) => (),
@@ -350,12 +383,23 @@ fn main() {
                 
                 // -----
                 
+                // task tags added to a collection that can then be iterated over
+                println!("{} {} {} {}{}", "Enter".yellow(), "tags associated with the task".yellow().underline(), ",".yellow(), "separated by a space".yellow(), ":".yellow());
+
+                let mut userinput_task_tag:String = String::new();
+                io::stdin().read_line(&mut userinput_task_tag).expect("Failed to read line.");
+                let userinput_task_tag_collection:Vec<&str> = userinput_task_tag.split(" ").collect();
+                let userinput_task_tag_collection_formatted:String = userinput_task_tag_collection.join("&");
+
+                // -----
+                
                 // creation of an instance of the Task struct, and assignment of internal field values
                 let given_task = Task {
                     task_name: userinput_task_name,
                     task_description: userinput_task_description,
                     task_deadline: userinput_task_deadline_formatted,
                     task_urgency: userinput_task_urgency,
+                    task_tags: userinput_task_tag_collection_formatted,
                 };
                 
                 // updating of storage_vector:Vec<Task> collection
@@ -390,7 +434,7 @@ fn main() {
                 // println!("{:?}", storage_vector[task_to_edit_int].task_name);               
                 // ----- ^ for debugging purposes
                 Command::new("clear").status().expect("Failed to call command");
-                println!("{}\n{}\n{}\n{}\n{}", "Which component of the task do you want to edit?".yellow(), "[N]ame".purple(), "[D]escription".blue(), "D[E]adline".cyan(), "[U]rgency".bright_green());
+                println!("{}\n{}\n{}\n{}\n{}\n{}", "Which component of the task do you want to edit?".yellow(), "[N]ame".purple(), "[D]escription".blue(), "D[E]adline".cyan(), "[U]rgency".bright_green(), "[T]ags".bright_red());
                 let mut what_to_edit:String = String::new();
                 io::stdin().read_line(&mut what_to_edit).expect("Failed to read line");
                 // could use .unwrap() for error handling above as well
@@ -405,7 +449,7 @@ fn main() {
                                 task_deadline_string.push_str(component.to_string().as_str());
                                 task_deadline_string.push_str("/");
                             };
-                            let write_to_file_result = write!(the_save_file, "{}, {}, {}, {}\n", eachtask.task_name, eachtask.task_description, task_deadline_string, eachtask.task_urgency.to_string());
+                            let write_to_file_result = write!(the_save_file, "{}, {}, {}, {}, {}\n", eachtask.task_name, eachtask.task_description, task_deadline_string, eachtask.task_urgency.to_string(), eachtask.task_tags);
                             match write_to_file_result {
                                 Ok(_) => (),
                                 Err(_) => (),
@@ -421,7 +465,7 @@ fn main() {
                                 task_deadline_string.push_str(component.to_string().as_str());
                                 task_deadline_string.push_str("/");
                             };
-                            let write_to_file_result = write!(the_save_file, "{}, {}, {}, {}\n", eachtask.task_name, eachtask.task_description, task_deadline_string, eachtask.task_urgency.to_string());
+                            let write_to_file_result = write!(the_save_file, "{}, {}, {}, {}, {}\n", eachtask.task_name, eachtask.task_description, task_deadline_string, eachtask.task_urgency.to_string(), eachtask.task_tags);
                             match write_to_file_result {
                                 Ok(_) => (),
                                 Err(_) => (),
@@ -437,7 +481,7 @@ fn main() {
                                 task_deadline_string.push_str(component.to_string().as_str());
                                 task_deadline_string.push_str("/");
                             };
-                            let write_to_file_result = write!(the_save_file, "{}, {}, {}, {}\n", eachtask.task_name, eachtask.task_description, task_deadline_string, eachtask.task_urgency.to_string());
+                            let write_to_file_result = write!(the_save_file, "{}, {}, {}, {}, {}\n", eachtask.task_name, eachtask.task_description, task_deadline_string, eachtask.task_urgency.to_string(), eachtask.task_tags);
                             match write_to_file_result {
                                 Ok(_) => (),
                                 Err(_) => (),
@@ -453,13 +497,29 @@ fn main() {
                                 task_deadline_string.push_str(component.to_string().as_str());
                                 task_deadline_string.push_str("/");
                             };
-                            let write_to_file_result = write!(the_save_file, "{}, {}, {}, {}\n", eachtask.task_name, eachtask.task_description, task_deadline_string, eachtask.task_urgency.to_string());
+                            let write_to_file_result = write!(the_save_file, "{}, {}, {}, {}, {}\n", eachtask.task_name, eachtask.task_description, task_deadline_string, eachtask.task_urgency.to_string(), eachtask.task_tags);
                             match write_to_file_result {
                                 Ok(_) => (),
                                 Err(_) => (),
                             }
                         }
                     },
+                    "t" => {
+                        let storage_vector = edit_task_tags(task_to_edit_int, storage_vector);
+                        let mut the_save_file = File::create(".kelpStorage").expect("File already exists");
+                        for eachtask in storage_vector {
+                            let mut task_deadline_string:String = String::from("");
+                            for component in eachtask.task_deadline {
+                                task_deadline_string.push_str(component.to_string().as_str());
+                                task_deadline_string.push_str("/");
+                            };
+                            let write_to_file_result = write!(the_save_file, "{}, {}, {}, {}, {}\n", eachtask.task_name, eachtask.task_description, task_deadline_string, eachtask.task_urgency.to_string(), eachtask.task_tags);
+                            match write_to_file_result {
+                                Ok(_) => (),
+                                Err(_) => (),
+                            }
+                        }
+                    }
                     _ => (),
                     // match-all statement
                 };
