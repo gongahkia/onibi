@@ -2,6 +2,8 @@
 // DEBUG
     // -- figure out why tasks with no task tags aren't shown at all
     // -- editing task tags
+    // -- debug line 233 onward --> why cant i display tasks with no task tags --> line 236 is not
+    // executing
 // IMPLEMENT
     // -- work on adding task tags 
     // -- sorting tasks by task tags
@@ -217,22 +219,44 @@ fn main() {
             let file_contents_array = string.trim_end().split("\n");
             let file_contents_vector:Vec<&str> = file_contents_array.collect();
             for eachtask in &file_contents_vector {
-                let each_task_array:Vec<&str> = eachtask.split(", ").collect();
-                let each_task_deadline_array:Vec<&str> = each_task_array[2].trim_end_matches("/").split("/").collect();
-                let each_task_deadline:[i32;3] = [each_task_deadline_array[0].trim_end().parse().unwrap(), each_task_deadline_array[1].trim_end().parse().unwrap(), each_task_deadline_array[2].trim_end().parse().unwrap()];
-                match each_task_array[3].parse::<UrgencyLevel>() {
-                    Ok(level) => {
-                        let each_task_urgency:UrgencyLevel = level;
-                        let the_given_task = Task {
-                            task_name: String::from(each_task_array[0]),
-                            task_description: String::from(each_task_array[1]),
-                            task_deadline: each_task_deadline,
-                            task_urgency: each_task_urgency,
-                            task_tags: String::from(each_task_array[4]),
-                            };
-                        storage_vector.push(the_given_task);
-                    },
-                    Err(_) => (),
+                if eachtask.chars().last().unwrap() == ',' {
+                    let each_task_array:Vec<&str> = eachtask.split(", ").collect();
+                    println!("{:?}", each_task_array);
+                    let each_task_deadline_array:Vec<&str> = each_task_array[2].trim_end_matches("/").split("/").collect();
+                    let each_task_deadline:[i32;3] = [each_task_deadline_array[0].trim_end().parse().unwrap(), each_task_deadline_array[1].trim_end().parse().unwrap(), each_task_deadline_array[2].trim_end().parse().unwrap()];
+                    match each_task_array[3].parse::<UrgencyLevel>() {
+                        Ok(level) => {
+                            let each_task_urgency:UrgencyLevel = level;
+                            let the_given_task = Task {
+                                task_name: String::from(each_task_array[0]),
+                                task_description: String::from(each_task_array[1]),
+                                task_deadline: each_task_deadline,
+                                task_urgency: each_task_urgency,
+                                task_tags: String::from(" "),
+                                };
+                            println!("{:?} xxx", the_given_task.task_tags);
+                            storage_vector.push(the_given_task);
+                        },
+                        Err(_) => (),
+                    }
+                } else {
+                    let each_task_array:Vec<&str> = eachtask.split(", ").collect();
+                    let each_task_deadline_array:Vec<&str> = each_task_array[2].trim_end_matches("/").split("/").collect();
+                    let each_task_deadline:[i32;3] = [each_task_deadline_array[0].trim_end().parse().unwrap(), each_task_deadline_array[1].trim_end().parse().unwrap(), each_task_deadline_array[2].trim_end().parse().unwrap()];
+                    match each_task_array[3].parse::<UrgencyLevel>() {
+                        Ok(level) => {
+                            let each_task_urgency:UrgencyLevel = level;
+                            let the_given_task = Task {
+                                task_name: String::from(each_task_array[0]),
+                                task_description: String::from(each_task_array[1]),
+                                task_deadline: each_task_deadline,
+                                task_urgency: each_task_urgency,
+                                task_tags: String::from(each_task_array[4]),
+                                };
+                            storage_vector.push(the_given_task);
+                        },
+                        Err(_) => (),
+                    }
                 }
             }
             // for debugging purposes only, to be edited out in actual program
