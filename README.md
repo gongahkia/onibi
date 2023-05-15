@@ -61,18 +61,48 @@ Written in Rust, because we love crabs.
 
 | Platform | Status | Download |
 | :---: | :---: | :---: |
-| Windows | | 
-| MacOS | |
-| Linux | |
+| Windows | Up | On WSL, below instructions |
+| MacOS | Up | Below instructions |
+| Linux | Up | Below instructions |
+
+---
 
 ## Installation and usage
 
-Ensure Rust is installed. [Instructions](https://www.rust-lang.org/tools/install) here.
+1. Run the following commands in your terminal.
+
+> To continue from here, adding instructions to curl the installation file and run ti
 
 ```console
-$ git clone https://github.com/gongahkia/Kelp
+$ 
 $ chmod +x installer.sh
 $ ./installer.sh
-$ cd ~/{path-to-file}
-$ cargo run
+```
+
+2. After running the Rust installer, we have to add a line of code to the **bottom** of our `.bashrc` file to indicate the file path. *(Neovim is used below, but it can be replaced with any other code editor)*.
+
+```console
+$ nvim ~/.bashrc
+```
+
+*Line to be added:* 
+
+```bash
+export PATH=~/.config/Kelp-build:$PATH
+```
+
+---
+
+## Uninstalling Kelp
+
+```console
+$ cd ~/.config
+$ rm -r Kelp-build
+```
+
+Additionally, remember to remove the line added to your `.bashrc` file. 
+
+```console
+$ nvim ~/.bashrc
+-- removes final line from file
 ```
