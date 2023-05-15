@@ -11,7 +11,7 @@ ENDCOLOR="\e[0m"
 
 clear
 printf "Welcome to the ${GREEN}Kelp installer.${ENDCOLOR}\n"
-printf "${YELLOW}Beginning the install in 5 seconds...${ENDCOLOR}\n"
+printf "${YELLOW}Beginning the installion in 5 seconds...${ENDCOLOR}\n"
 
 sleep 5
 clear
