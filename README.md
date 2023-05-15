@@ -79,10 +79,11 @@ $ chmod +x installer.sh
 $ ./installer.sh
 ```
 
-2. After running the Rust installer, we have to add a line of code to the **bottom** of our `.bashrc` file to indicate the file path. *(Neovim is used below, but it can be replaced with any other code editor)*.
+2. After running the Rust installer, we have to add a line of code to the **bottom** of our `.bashrc` file to indicate the file path. Remember to **source** your `.bashrc` file. (Neovim is used below, but any other code editor can be used).
 
 ```console
 $ nvim ~/.bashrc
+$ source ~/.bashrc
 ```
 
 *Line to be added:* 
@@ -91,10 +92,10 @@ $ nvim ~/.bashrc
 export PATH=~/.config/Kelp-build:$PATH
 ```
 
-3. Finally, `cd` back into the directory that we previously ran the `installation.sh` binary in.
+3. Finally, `cd` back into the directory that we previously ran the `installation.sh` binary in, and remove the installation files.
 
 ```console
-$ rm -r Kelp
+$ rm -r installation.sh Kelp
 ```
 
 ---
