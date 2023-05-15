@@ -2,7 +2,7 @@
 title: Reflections from first project with Rust
 author: Gongahkia
 date: 1 May 2023
-output: beamer_presentation
+output: tufte::tufte_handout
 ---
 
 # Main learning pointers
@@ -16,6 +16,8 @@ output: beamer_presentation
 3. In the future, start out by planning my program with Rust's modules in mind, to allow for easier **refactoring** in the future.
 
 4. Rust's match case statement is ***chef's kiss***.
+
+5. Accessing certain values by reference is so incredibly goated.
 
 # Useful links
 

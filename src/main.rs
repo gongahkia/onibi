@@ -3,7 +3,6 @@
         // exceeds the available index range, reject and ask for a new number
     // IMPLEMENT
         // -- task tags
-            // -- sorting tasks by determined task tag
             // -- see if there is a better way to handle task tags (more user-friendly way to input)
 
 // external crate imports
@@ -804,7 +803,50 @@ fn main() {
                         let tag_num_to_edit_int:usize = tag_num_to_edit.trim_end().parse::<usize>().expect("Failed to parse integer of usize") - 1;
                         println!("Index of the tag to sort by: {}\nTag to sort by: {}", tag_num_to_edit_int, tags_collection[tag_num_to_edit_int]);
                         // ----- ^ for debugging purposes
-                        //Command::new("clear").status().expect("Failed to call command");
+                        Command::new("clear").status().expect("Failed to call command");
+                        let tag_sort_criteria:&str = tags_collection[tag_num_to_edit_int];
+                        let mut sorted_task_tag_collection:Vec<&Task> = Vec::new();
+                        for i in 0..storage_vector.len() {
+                            let given_task:&Task = &storage_vector[i];
+                            let indiv_task_tag:Vec<&str> = storage_vector[i].task_tags.split("&").collect();
+                            // println!("{:?}", indiv_task_tag);
+                            for tag in indiv_task_tag {
+                                if tag == tag_sort_criteria {
+                                    sorted_task_tag_collection.push(given_task);
+                                } else {
+                                }
+                            }
+                        }
+                        // println!("{:?}", sorted_task_tag_collection);
+                        println!("{} {} {}\n", "Sorting by the".yellow(), "tag:".yellow().underline(), tag_sort_criteria.green());
+                        let mut counter:u8 = 1;
+                        for task in sorted_task_tag_collection {
+                            println!("{}{}", "Task ".yellow().underline(), counter.to_string().yellow().underline());
+                            println!("{} {}", "Name: ".yellow(), task.task_name);
+                            println!("{} {}", "Description: ".yellow(), task.task_description);
+                            let mut task_deadline_string:String = String::from("");
+                            for component in task.task_deadline {
+                                task_deadline_string.push_str(component.to_string().as_str());
+                                task_deadline_string.push_str("/");
+                            };
+                            task_deadline_string.pop();
+                            println!("{} {}", "Deadline: ".yellow(), task_deadline_string);
+                            if task.task_tags == String::from(" ") {
+                                println!("{} {}\n", "Urgency: ".yellow(), task.task_urgency);
+                            } else {
+                                let task_tags_collection:Vec<&str> = task.task_tags.split("&").collect();
+                                let mut task_tags_for_reader:String = String::new();
+                                for item in task_tags_collection {
+                                    task_tags_for_reader.push_str(item);
+                                    task_tags_for_reader.push_str(", ");
+                                }
+                                task_tags_for_reader.pop();
+                                task_tags_for_reader.pop();
+                                println!("{} {}", "Urgency: ".yellow(), task.task_urgency);
+                                println!("{} {}\n", "Tags: ".yellow(), task_tags_for_reader);
+                            }
+                            counter += 1;
+                        }
                     },
 
                     _ => (),
