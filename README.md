@@ -4,6 +4,8 @@ The *K*ommand line h*elp*er.
 
 Written in Rust, because we love crabs.
 
+Installation handled in Bash, because I feel like bashing my head in.
+
 ## Feature roadmap
 
 | Feature implementation | Implemented |
