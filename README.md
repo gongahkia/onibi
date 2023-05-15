@@ -50,9 +50,9 @@ Written in Rust, because we love crabs.
 | Kanban board functionality that can be visualised in CLI. | *Implemented in Kelp 2.0* |
 | Sane defaults and keymaps | *Implemented in Kelp 2.0* |
 | **Program installation** | ~ |
-| Handle all program and dependancy installation with bash scripting. | *Implemented in Kelp 2.0* |
-| Bash script edits `.bashrc` file to add aliases and path for CLI commands to be used. | *Implemented in Kelp 2.0* |
-| Port program to Linux, Windows and Mac environments. | *Implemented in Kelp 2.0* |
+| Handle all program and dependancy installation with bash scripting. | ✅ |
+| Bash script edits `.bashrc` file to add aliases and path for CLI commands to be used. | ✅ |
+| Port program to Linux, Windows and Mac environments. | ✅ |
 | Rebuild this as a webapp using rust's iced library and tauri. | *Implemented in Kelp 3.0* |
 
 ---
