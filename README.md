@@ -71,6 +71,8 @@ Ensure Rust is installed. [Instructions](https://www.rust-lang.org/tools/install
 
 ```console
 $ git clone https://github.com/gongahkia/Kelp
+$ chmod +x installer.sh
+$ ./installer.sh
 $ cd ~/{path-to-file}
 $ cargo run
 ```
