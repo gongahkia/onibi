@@ -69,6 +69,12 @@ Installation handled in Bash, because I feel like bashing my head in.
 
 ---
 
+## Dependancies
+
+* `curl`
+* `wget`
+* `git`
+
 ## Installation and usage
 
 1. Run the following commands in your terminal.
