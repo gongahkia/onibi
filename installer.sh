@@ -90,7 +90,5 @@ cp kelp ~/.config
 cd ~/.config
 mkdir Kelp-build
 mv kelp Kelp-build
-
-# final commands
 clear
 printf "${BLUE}Installation completed!${ENDCOLOR}\n"
