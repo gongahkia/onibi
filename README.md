@@ -95,7 +95,7 @@ export PATH=~/.config/Kelp-build:$PATH
 3. Finally, `cd` back into the directory that we previously ran the `installation.sh` binary in, and remove the installation files.
 
 ```console
-$ rm -r installation.sh Kelp
+$ rm -r installer.sh Kelp
 ```
 
 ---
