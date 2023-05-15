@@ -15,7 +15,7 @@ Written in Rust, because we love crabs.
 | Task due date | ✅ |
 | Task urgency | ✅ |
 | Task tags | ~  |
-| Tags to be attached to each task optionally, to sort tasks by tags | *Implemented in Kelp 2.0* |
+| Tags to be attached to each task optionally, to sort tasks by tags | ✅ |
 | **Data storage** | ~ |
 | Changes written to local file titled `.kelpStorage` | ✅ |
 | Loads saves from `.kelpStorage` | ✅ |
@@ -29,11 +29,11 @@ Written in Rust, because we love crabs.
 | Task description | ✅ |
 | Task deadline | ✅ |
 | Task urgency | ✅ | 
-| Task tags | *Implemented in Kelp 2.0* |
+| Task tags | ✅ |
 | **Sorting tasks** | ~ |
 | Due date | ✅ |
 | Urgency level | ✅ |
-| Tags | *Implemented in Kelp 2.0* |
+| Tags | ✅ |
 | **Deleting tasks** | ~ |
 | Recycle bin stores deleted tasks for 30 days | *Implemented in Kelp 2.0* |
 | Completed tasks saved until entire list is deleted | *Implemented in Kelp 2.0* |
