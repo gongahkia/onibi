@@ -1,9 +1,9 @@
-// TO DO
     // DEBUG
-        //
+        // -- add a check for editing tasks and sorting tasks by tag number, if number inputted
+        // exceeds the available index range, reject and ask for a new number
     // IMPLEMENT
         // -- task tags
-            // -- sorting tasks by task tags
+            // -- sorting tasks by determined task tag
             // -- see if there is a better way to handle task tags (more user-friendly way to input)
 
 // external crate imports
@@ -103,9 +103,9 @@ fn edit_task_deadline(index:usize, mut storage_vector:Vec<Task>) -> Vec<Task> {
         }
 
         // these have to be signed integers first, to allow for subsequent error checking
-        let new_userinput_task_deadline_day_int:i32 = new_userinput_task_deadline_array[0].trim_end().parse().unwrap();
-        let new_userinput_task_deadline_month_int:i32 = new_userinput_task_deadline_array[1].trim_end().parse().unwrap();
-        let new_userinput_task_deadline_year_int:i32 = new_userinput_task_deadline_array[2].trim_end().parse().unwrap();
+        let new_userinput_task_deadline_day_int:i32 = new_userinput_task_deadline_array[0].trim_end().parse().expect("Failed to parse number");
+        let new_userinput_task_deadline_month_int:i32 = new_userinput_task_deadline_array[1].trim_end().parse().expect("Failed to parse number");
+        let new_userinput_task_deadline_year_int:i32 = new_userinput_task_deadline_array[2].trim_end().parse().expect("Failed to parse number");
         
         // checking for valid date inputs
         if new_userinput_task_deadline_day_int > 31 || new_userinput_task_deadline_day_int < 1 {
@@ -216,10 +216,10 @@ fn main() {
             let file_contents_array = string.trim_end().split("\n");
             let file_contents_vector:Vec<&str> = file_contents_array.collect();
             for eachtask in &file_contents_vector {
-                if eachtask.chars().last().unwrap() == ',' {
+                if eachtask.chars().last().expect("Failed to find character") == ',' {
                     let each_task_array:Vec<&str> = eachtask.split(", ").collect();
                     let each_task_deadline_array:Vec<&str> = each_task_array[2].trim_end_matches("/").split("/").collect();
-                    let each_task_deadline:[i32;3] = [each_task_deadline_array[0].trim_end().parse().unwrap(), each_task_deadline_array[1].trim_end().parse().unwrap(), each_task_deadline_array[2].trim_end().parse().unwrap()];
+                    let each_task_deadline:[i32;3] = [each_task_deadline_array[0].trim_end().parse().expect("Failed to parse number"), each_task_deadline_array[1].trim_end().parse().expect("Failed to parse number"), each_task_deadline_array[2].trim_end().parse().expect("Failed to parse number")];
                     let mut each_task_urgency_unedited:String = each_task_array[3].to_string();
                     each_task_urgency_unedited.truncate(each_task_urgency_unedited.len() -1);
                     match each_task_urgency_unedited.parse::<UrgencyLevel>() {
@@ -239,7 +239,7 @@ fn main() {
                 } else {
                     let each_task_array:Vec<&str> = eachtask.split(", ").collect();
                     let each_task_deadline_array:Vec<&str> = each_task_array[2].trim_end_matches("/").split("/").collect();
-                    let each_task_deadline:[i32;3] = [each_task_deadline_array[0].trim_end().parse().unwrap(), each_task_deadline_array[1].trim_end().parse().unwrap(), each_task_deadline_array[2].trim_end().parse().unwrap()];
+                    let each_task_deadline:[i32;3] = [each_task_deadline_array[0].trim_end().parse().expect("Failed to parse number"), each_task_deadline_array[1].trim_end().parse().expect("Failed to parse number"), each_task_deadline_array[2].trim_end().parse().expect("Failed to parse number")];
                     match each_task_array[3].parse::<UrgencyLevel>() {
                         Ok(level) => {
                             let each_task_urgency:UrgencyLevel = level;
@@ -351,9 +351,9 @@ fn main() {
                     }
 
                     // these have to be signed integers first, to allow for subsequent error checking
-                    let userinput_task_deadline_day_int:i32 = userinput_task_deadline_array[0].trim_end().parse().unwrap();
-                    let userinput_task_deadline_month_int:i32 = userinput_task_deadline_array[1].trim_end().parse().unwrap();
-                    let userinput_task_deadline_year_int:i32 = userinput_task_deadline_array[2].trim_end().parse().unwrap();
+                    let userinput_task_deadline_day_int:i32 = userinput_task_deadline_array[0].trim_end().parse().expect("Failed to parse number");
+                    let userinput_task_deadline_month_int:i32 = userinput_task_deadline_array[1].trim_end().parse().expect("Failed to parse number");
+                    let userinput_task_deadline_year_int:i32 = userinput_task_deadline_array[2].trim_end().parse().expect("Failed to parse number");
                     
                     // checking for valid date inputs
                     if userinput_task_deadline_day_int > 31 || userinput_task_deadline_day_int < 1 {
@@ -409,7 +409,7 @@ fn main() {
 
                 let mut userinput_task_tag:String = String::new();
                 io::stdin().read_line(&mut userinput_task_tag).expect("Failed to read line.");
-                let userinput_task_tag_collection:Vec<&str> = userinput_task_tag.split(" ").collect();
+                let userinput_task_tag_collection:Vec<&str> = userinput_task_tag.trim_end().split(" ").collect();
                 let userinput_task_tag_collection_formatted:String = userinput_task_tag_collection.join("&");
 
                 // -----
@@ -431,9 +431,46 @@ fn main() {
                 
             if storage_vector.len() > 0 {
                 Command::new("clear").status().expect("Failed to call command");
-                println!("{} \n", "Here are your tasks: ".yellow());
-                display_task_vector(&storage_vector, 1);
-            };
+                println!("{}\n", "Here are your tasks: ".yellow());
+                let mut counter:i32 = 1;
+                for task in storage_vector {
+                    if task.task_tags == "" || task.task_tags == " " {
+                        println!("{}{}", "Task ".yellow().underline(), counter.to_string().yellow().underline());
+                        println!("{} {}", "Name: ".yellow(), task.task_name);
+                        println!("{} {}", "Description: ".yellow(), task.task_description);
+                        let mut task_deadline_string:String = String::from("");
+                        for component in task.task_deadline {
+                            task_deadline_string.push_str(component.to_string().as_str());
+                            task_deadline_string.push_str("/");
+                        };
+                        task_deadline_string.pop();
+                        println!("{} {}", "Deadline: ".yellow(), task_deadline_string);
+                        println!("{} {}\n", "Urgency: ".yellow(), task.task_urgency);
+                    } else {
+                        println!("{}{}", "Task ".yellow().underline(), counter.to_string().yellow().underline());
+                        println!("{} {}", "Name: ".yellow(), task.task_name);
+                        println!("{} {}", "Description: ".yellow(), task.task_description);
+                        let mut task_deadline_string:String = String::from("");
+                        for component in task.task_deadline {
+                            task_deadline_string.push_str(component.to_string().as_str());
+                            task_deadline_string.push_str("/");
+                        };
+                        task_deadline_string.pop();
+                        println!("{} {}", "Deadline: ".yellow(), task_deadline_string);
+                        println!("{} {}", "Urgency: ".yellow(), task.task_urgency);
+                        let task_tags_collection:Vec<&str> = task.task_tags.split("&").collect();
+                        let mut task_tags_for_reader:String = String::new();
+                        for item in task_tags_collection {
+                            task_tags_for_reader.push_str(item);
+                            task_tags_for_reader.push_str(", ");
+                        }
+                        task_tags_for_reader.pop();
+                        task_tags_for_reader.pop();
+                        println!("{} {}\n", "Tags: ".yellow(), task_tags_for_reader);
+                    }
+                        counter += 1;
+                }
+            }
         }, 
         
         // EDIT A TASK
@@ -450,7 +487,7 @@ fn main() {
                 println!("\n{} {} {}", "Please enter the".yellow(), "number".yellow().underline(), "of the task you would like to edit:".yellow());
                 let mut task_to_edit:String = String::new();
                 io::stdin().read_line(&mut task_to_edit).expect("Failed to read line");
-                let task_to_edit_int:usize = task_to_edit.trim_end().parse::<usize>().unwrap() - 1;
+                let task_to_edit_int:usize = task_to_edit.trim_end().parse::<usize>().expect("Failed to parse integer of usize") - 1;
                 // println!("Index of the task to be edited: {}", task_to_edit_int);
                 // println!("{:?}", storage_vector[task_to_edit_int].task_name);               
                 // ----- ^ for debugging purposes
@@ -563,7 +600,7 @@ fn main() {
                 println!("\n{} {} {}", "Please enter the".yellow(), "number".yellow().underline(), "of the task you have completed:".yellow());
                 let mut completed_task:String = String::new();
                 io::stdin().read_line(&mut completed_task).expect("Failed to read line");
-                let completed_task_int:usize = completed_task.trim_end().parse::<usize>().unwrap() - 1;
+                let completed_task_int:usize = completed_task.trim_end().parse::<usize>().expect("Failed to parse integer of usize") - 1;
                 // println!("{}", completed_task_int);
                 Command::new("clear").status().expect("Failed to call command");
                 let removed_task = storage_vector.remove(completed_task_int);
@@ -677,9 +714,9 @@ fn main() {
                         let current_day_vector:Vec<&str> = current_day_str.split(" ").collect();
                         let current_date_vector:Vec<&str> = current_day_vector[0].split("-").collect();
                         // println!("{:?}", current_date_vector);
-                        let current_year:i32 = current_date_vector[0][2..].parse().unwrap();
-                        let current_month:i32 = current_date_vector[1].parse().unwrap();
-                        let current_day_of_date:i32 = current_date_vector[2].parse().unwrap();
+                        let current_year:i32 = current_date_vector[0][2..].parse().expect("Failed to parse number");
+                        let current_month:i32 = current_date_vector[1].parse().expect("Failed to parse number");
+                        let current_day_of_date:i32 = current_date_vector[2].parse().expect("Failed to parse number");
                         println!("{} {}", "Sorting by".yellow(), "deadline.".yellow().underline());
                         for task in storage_vector {
                             if task.task_deadline[2] > current_year {
@@ -734,8 +771,40 @@ fn main() {
 
                     "t" => {
                         Command::new("clear").status().expect("Failed to call command");
-                        println!("{} {}", "Sorting by".yellow(), "tag type.".yellow().underline());
-                        println!("Yet to implement");
+                        println!("{} {}\n", "Sorting by".yellow(), "tag type.".yellow().underline());
+                        println!("{}\n", "Here are your tags:".yellow());
+                        let mut tags_collection:Vec<&str> = Vec::new();
+                        for task in &storage_vector {
+                            let indiv_task_tag:Vec<&str> = task.task_tags.split("&").collect();
+                            // println!("{:?}", indiv_task_tag);
+                            for tag in indiv_task_tag {
+                                if tag == " " {
+                                } else {
+                                    tags_collection.push(tag);
+                                }
+                            }
+                        }
+                        tags_collection.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+                        // ^ sort a vector
+                        // println!("{:?}", tags_collection);
+                        tags_collection.dedup(); 
+                        // ^ removes duplicates
+                        // println!("{:?}", tags_collection);
+
+                        if tags_collection.len() > 0 {
+                            let mut counter:u8 = 1;
+                            for tag in &tags_collection {
+                                println!("{}. | {:?} ", counter, tag);
+                                counter += 1;
+                                }
+                            }
+                        println!("\n{} {} {}", "Please enter the".yellow(), "number".yellow().underline(), "of the tag you would like to sort by:".yellow());
+                        let mut tag_num_to_edit:String = String::new();
+                        io::stdin().read_line(&mut tag_num_to_edit).expect("Failed to read line");
+                        let tag_num_to_edit_int:usize = tag_num_to_edit.trim_end().parse::<usize>().expect("Failed to parse integer of usize") - 1;
+                        println!("Index of the tag to sort by: {}\nTag to sort by: {}", tag_num_to_edit_int, tags_collection[tag_num_to_edit_int]);
+                        // ----- ^ for debugging purposes
+                        //Command::new("clear").status().expect("Failed to call command");
                     },
 
                     _ => (),
