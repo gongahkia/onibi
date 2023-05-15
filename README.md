@@ -74,7 +74,7 @@ Written in Rust, because we love crabs.
 > To continue from here, adding instructions to curl the installation file and run ti
 
 ```console
-$ 
+$ wget https://raw.githubusercontent.com/gongahkia/Kelp/main/installer.sh
 $ chmod +x installer.sh
 $ ./installer.sh
 ```
