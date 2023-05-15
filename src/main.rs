@@ -2,8 +2,6 @@
         // -- add a check for editing tasks and sorting tasks by tag number, if number inputted
         // exceeds the available index range, reject and ask for a new number
     // IMPLEMENT
-        // -- task tags
-            // -- see if there is a better way to handle task tags (more user-friendly way to input)
 
 // external crate imports
 extern crate colored;
@@ -487,6 +485,7 @@ fn main() {
                 let mut task_to_edit:String = String::new();
                 io::stdin().read_line(&mut task_to_edit).expect("Failed to read line");
                 let task_to_edit_int:usize = task_to_edit.trim_end().parse::<usize>().expect("Failed to parse integer of usize") - 1;
+                // println!("{}", task_to_edit_int);
                 // println!("Index of the task to be edited: {}", task_to_edit_int);
                 // println!("{:?}", storage_vector[task_to_edit_int].task_name);               
                 // ----- ^ for debugging purposes
