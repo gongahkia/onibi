@@ -91,6 +91,12 @@ $ nvim ~/.bashrc
 export PATH=~/.config/Kelp-build:$PATH
 ```
 
+3. Finally, `cd` back into the directory that we previously ran the `installation.sh` binary in.
+
+```console
+$ rm -r Kelp
+```
+
 ---
 
 ## Uninstalling Kelp
