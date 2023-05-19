@@ -42,10 +42,9 @@ Installation handled in Bash, because making *Kelp* felt like bashing my head in
 | **List creation** | ~ |
 | Lighter-weight alternative to projects that sorts related tasks together. | *Implemented in Kelp 2.0* |
 | **Project management** | ~ |
-| Each project comprises an *entire task list*. | *Implemented in Kelp 2.0* |
-| Project name | *Implemented in Kelp 2.0* |
-| Project description | *Implemented in Kelp 2.0* |
-| Project tasks | *Implemented in Kelp 2.0* |
+| Each project comprises an *entire task list*. | ✅ |
+| Project name | ✅ |
+| Project tasks | ✅ |
 | Project completion percentage | *Implemented in Kelp 2.0* |
 | **Quality of life improvements** | ~ |
 | Program commands can optionally be interacted with via cli commands *(similar to `neofetch` and `git`)*. | *Implemented in Kelp 2.0* |
