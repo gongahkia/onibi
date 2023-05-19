@@ -12,11 +12,14 @@
 // external crate imports
 extern crate colored;
 extern crate chrono;
+extern crate substring;
 
 // required imports
 use std::io;
 use std::fmt;
 use std::fs;
+use substring::Substring;
+use std::path::Path;
 use std::str::FromStr;
 use std::fs::File;
 use std::io::Write;
@@ -209,10 +212,51 @@ fn main() {
     let mut what_to_do:String = String::new();
     io::stdin().read_line(&mut what_to_do).expect("Failed to read line");
     let what_to_do_formatted:&str = what_to_do.trim_end();
+
     match what_to_do_formatted {
+
         "p" => {
-            println!("Project management time");
+            // println!("Project management time");
+            let is_file_directory:bool = Path::new(".kelpProjects").is_dir();
+            if is_file_directory {
+                // file directory exists
+                // println!("Do something with it");
+                let number_of_files:usize = fs::read_dir(".kelpProjects").expect("Failed to read directory").count();
+                if number_of_files > 0 {
+                    // directory is not empty
+                    let mut file_name_list:Vec<String> = Vec::new();
+                    for file in fs::read_dir(".kelpProjects").expect("Unable to read file directory") {
+                        // println!("{}", file.expect("Unable to open file").path().display());
+                        let file_name:String = file.expect("Unable to open file").path().display().to_string();
+                        file_name_list.push(file_name);
+                    }
+                    Command::new("clear").status().expect("Failed to run command.");
+                    println!("{}", "File directory already exists".yellow());
+                    println!("{}\n", "The following projects were found.".yellow());
+                    // println!("{:?}", file_name_list);
+                    let mut counter:i8 = 1;
+                    for file in file_name_list {
+                        println!("{} | {}", counter, file.split("/").collect::<Vec<&str>>()[1].bright_green());
+                        counter += 1;
+                    }
+                    let mut project_number:String = String::new();
+                    println!("\n{} {} {}\n", "Please enter the".yellow(), "number".yellow().underline(), "of the project you would like to work on:".yellow());
+                    io::stdin().read_line(&mut project_number).expect("Failed to read line");
+                    let project_number_int:u8 = project_number.trim_end().parse().expect("Failed to parse number");
+                    println!("{}", project_number_int);
+                } else {
+                    // directory is empty, make new files
+                    println!("Directory is empty");
+                    println!("{}", "No active projects found.".yellow().underline());
+                }
+            } else {
+                // file directory does not exist --> first time users
+                println!("Create the folder");
+                fs::create_dir(".kelpProjects").expect("Unable to create the desired file!");
+                println!("Folder created");
+            }
         },
+
         "t" => {
             // global variables
             let mut storage_vector:Vec<Task> = vec![];
