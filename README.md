@@ -40,7 +40,7 @@ Installation handled in Bash, because making *Kelp* felt like bashing my head in
 | Recycle bin stores deleted tasks for 30 days | *Implemented in Kelp 2.0* |
 | Completed tasks saved until entire list is deleted | *Implemented in Kelp 2.0* |
 | **List creation** | ~ |
-| Lighter-weight alternative to projects that sorts related tasks together. | *Implemented in Kelp 2.0* |
+| Lighter-weight alternative to projects that sorts related tasks together. | ✅ |
 | **Project management** | ~ |
 | Each project comprises an *entire task list*. | ✅ |
 | Project name | ✅ |
