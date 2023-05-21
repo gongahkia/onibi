@@ -2,7 +2,6 @@
         // -- add a check for editing tasks and sorting tasks by tag number, if number inputted
         // exceeds the available index range, reject and ask for a new number
     // IMPLEMENT
-        // -- even with existing project folders, add option to create more in program
         // -- add option to delete project folders when projects are completed
         // -- Add seperate recycle_bin_vector that stores deleted or completed tasks for PROJECTS
         // until the entire project is completed, store this vector in another list
@@ -21,6 +20,7 @@ use std::str::FromStr;
 use std::fs::File;
 use std::io::Write;
 use colored::*;
+use std::{thread, time};
 use chrono::Local;
 use std::process::Command;
 
@@ -221,6 +221,39 @@ fn main() {
                 let number_of_files:usize = fs::read_dir(".kelpProjects").expect("Failed to read directory").count();
                 if number_of_files > 0 {
                     // (1.1) directory is not empty
+                    // ADD CODE HERE IN LINE 224
+                    Command::new("clear").status().expect("Failed to run command");
+                    let mut project_do:String = String::new();
+                    println!("{}", "What would you like to do with your projects?".yellow());
+                    println!("{}", "[O]pen existing projects".magenta());
+                    println!("{}", "[C]reate new project".cyan());
+                    io::stdin().read_line(&mut project_do).expect("Failed to read line");
+                    let project_do_formatted:&str = project_do.trim_end();
+
+                    match project_do_formatted {
+                        "o" => (), // there is no automatic break in a match statement
+                        "c" => {
+                            // CODE THAT CREATES NEW PROJECT DIRECTORIES INSIDE THE FILE PATH
+                            Command::new("clear").status().expect("Failed to run command");
+                            let mut project_name:String = String::new();
+                            println!("{} {}", "Input".cyan(), "new project name:".cyan().underline());
+                            io::stdin().read_line(&mut project_name).expect("Failed to read line");
+                            let project_name_string:String = project_name.trim_end().to_string();
+                            Command::new("clear").status().expect("Failed to run command");
+                            println!("{} {}{}{}", "Starting up".yellow(), "new project ".yellow(), project_name_string.cyan().underline(), "...".yellow());
+                            let mut target_file_path:String = String::from(".kelpProjects/");
+                            target_file_path.push_str(project_name_string.as_str());
+                            fs::create_dir(target_file_path).expect("Unable to create the desired file!");
+                            thread::sleep(time::Duration::from_secs(2));
+                        },
+                        _ => {
+                            Command::new("clear").status().expect("Failed to read line");
+                            println!("{}", "Invalid input detected.".red().underline());
+                            println!("{}", "Defaulting to opening your projects...".yellow());
+                            thread::sleep(time::Duration::from_secs(3));
+                        },
+                    }
+                    
                     let mut file_name_list:Vec<String> = Vec::new();
                     for file in fs::read_dir(".kelpProjects").expect("Unable to read file directory") {
                         // println!("{}", file.expect("Unable to open file").path().display());
@@ -924,7 +957,7 @@ fn main() {
                     // (1.2) directory is empty, handle creation of new folders
                     // println!(".kelpProjects folder exists but is empty");
                     // Command::new("clear").status().expect("Failed to run command");
-                    println!("{}", "No active projects found.".yellow().underline());
+                    println!("{}\n", "No active projects found.".yellow().underline());
                     // CODE THAT CREATES NEW PROJECT DIRECTORIES INSIDE THE FILE PATH
                     let mut project_name:String = String::new();
                     println!("{} {}", "Input".cyan(), "new project name:".cyan().underline());
@@ -935,6 +968,7 @@ fn main() {
                     let mut target_file_path:String = String::from(".kelpProjects/");
                     target_file_path.push_str(project_name_string.as_str());
                     fs::create_dir(target_file_path).expect("Unable to create the desired file!");
+                    thread::sleep(time::Duration::from_secs(2));
                     // PROJECT TASK LOOP = 696 lines
                     let mut file_name_list:Vec<String> = Vec::new();
                     for file in fs::read_dir(".kelpProjects").expect("Unable to read file directory") {
@@ -1636,12 +1670,12 @@ fn main() {
                 Command::new("clear").status().expect("Failed to run command");
                 // (2) file directory does not exist --> first time users
                 // handle subsequent creation of folders and tasks
-                println!("{}\n", "No projects folder found!".yellow().underline());
+                println!("{}", "No projects folder found!".red().underline());
                 fs::create_dir(".kelpProjects").expect("Unable to create the desired file!");
-                println!("{} {}\n", ".kelpProjects".cyan().underline(), "folder created.".green());
+                println!("{}", "Projects folder created.".green());
                 // CODE THAT CREATES NEW PROJECT DIRECTORIES INSIDE THE FILE PATH
                 let mut project_name:String = String::new();
-                println!("{} {}", "Input".cyan(), "new project name:".cyan().underline());
+                println!("\n{} {}", "Input".cyan(), "new project name:".cyan().underline());
                 io::stdin().read_line(&mut project_name).expect("Failed to read line");
                 let project_name_string:String = project_name.trim_end().to_string();
                 Command::new("clear").status().expect("Failed to run command");
@@ -1649,14 +1683,15 @@ fn main() {
                 let mut target_file_path:String = String::from(".kelpProjects/");
                 target_file_path.push_str(project_name_string.as_str());
                 fs::create_dir(target_file_path).expect("Unable to create the desired file!");
+                thread::sleep(time::Duration::from_secs(2));
                 let mut file_name_list:Vec<String> = Vec::new();
                 for file in fs::read_dir(".kelpProjects").expect("Unable to read file directory") {
                     let file_name:String = file.expect("Unable to open file").path().display().to_string();
                     file_name_list.push(file_name);
                 }
                 Command::new("clear").status().expect("Failed to run command.");
-                println!("{}", "File directory already exists".yellow());
-                println!("{}\n", "The following projects were found.".yellow());
+                // println!("{}", "File directory already exists".yellow());
+                println!("{}\n", "Here are your projects.".yellow());
                 // println!("{:?}", file_name_list);
                 let mut counter:i8 = 1;
                 for file in &file_name_list {
