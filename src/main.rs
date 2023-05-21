@@ -1,6 +1,6 @@
     // DEBUG
         // -- add a check for editing tasks and sorting tasks by tag number, if number inputted
-        // exceeds the available index range, reject and ask for a new number
+        // exceeds the available index range, reject and ask for a new number (index errors)
     // IMPLEMENT
         // -- add option to delete project folders when projects are completed
         // -- Add seperate recycle_bin_vector that stores deleted or completed tasks for PROJECTS
