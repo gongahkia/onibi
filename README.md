@@ -1,3 +1,5 @@
+![](https://img.shields.io/badge/kelp_1.0-passing-green)
+
 # KELP 🌿🌊
 
 The *K*ommand line h*elp*er.
