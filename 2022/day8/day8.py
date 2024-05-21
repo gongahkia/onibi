@@ -1,6 +1,7 @@
 # True means visible 
 # False means not visible
 # to be updated later when looking via columns
+
 coord:{(int):bool} = {}
 
 def parta():
