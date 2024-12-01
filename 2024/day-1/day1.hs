@@ -5,28 +5,28 @@ import Data.Map (fromListWith, (!?), Map)
 
 -- ----- helper functions -----
 
-totalDistance :: [Int] -> [Int] -> Int
-totalDistance left right =
+totalDist :: [Int] -> [Int] -> Int
+totalDist left right =
     let sortedLeft = sort left
         sortedRight = sort right
         distances = zipWith (\x y -> abs (x - y)) sortedLeft sortedRight
     in sum distances
 
-similarityScore :: [Int] -> [Int] -> Int
-similarityScore left right =
+simScore :: [Int] -> [Int] -> Int
+simScore left right =
     let 
         rightCounts :: Map Int Int
         rightCounts = fromListWith (+) [(x, 1) | x <- right]
-        score = sum [x * countOccurrences x rightCounts | x <- left]
+        score = sum [x * countOccurence x rightCounts | x <- left]
     in score
 
-countOccurrences :: Int -> Map Int Int -> Int
-countOccurrences x counts = case counts !? x of
+countOccurence :: Int -> Map Int Int -> Int
+countOccurence x counts = case counts !? x of
     Just count -> count
     Nothing    -> 0
 
-parseInput :: String -> ([Int], [Int])
-parseInput content =
+parse :: String -> ([Int], [Int])
+parse content =
     let linesOfInput = lines content
         splitNumbers line = case words line of
             [a, b] -> (read a, read b)
@@ -39,9 +39,9 @@ parseInput content =
 main :: IO ()
 main = do
     content <- readFile "input-1.txt"
-    -- content <- readFile "input-2.txt" -- for debugging
-    let (leftList, rightList) = parseInput content
-    let partAResult = totalDistance leftList rightList
-    let partBResult = similarityScore leftList rightList
-    putStrLn $ "part a total distance: " ++ show partAResult
-    putStrLn $ "part b similarity score: " ++ show partBResult
+    -- content <- readFile "input-2.txt" 
+    let (leftList, rightList) = parse content
+    let partA = totalDist leftList rightList
+    let partB = simScore leftList rightList
+    putStrLn $ "part a total distance: " ++ show partA
+    putStrLn $ "part b similarity score: " ++ show partB
