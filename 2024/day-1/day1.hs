@@ -30,7 +30,7 @@ parse content =
     let linesOfInput = lines content
         splitNumbers line = case words line of
             [a, b] -> (read a, read b)
-            _      -> error "Invalid line format"
+            _      -> error "invalid line format"
         pairs = map splitNumbers linesOfInput
     in (map fst pairs, map snd pairs)
 
