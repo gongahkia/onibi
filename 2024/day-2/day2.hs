@@ -1,4 +1,8 @@
+-- ----- required imports -----
+
 import Data.List (tails)
+
+-- ----- helper functions -----
 
 parse :: String -> [Int]
 parse = map read . words
@@ -25,6 +29,8 @@ countSafeA = length . filter (safe . parse)
 
 countSafeB :: [String] -> Int
 countSafeB = length . filter (safeWithDamp . parse)
+
+-- ----- actual execution code -----
 
 main :: IO ()
 main = do
