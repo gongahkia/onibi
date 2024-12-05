@@ -49,7 +49,7 @@ valid() {
     echo $valid
 }
 
-topological_sort() {
+topsort() {
     update=($1)
     declare -A graph
     declare -A in_deg
@@ -105,7 +105,7 @@ mid_sum() {
     for update in "${update_array[@]}"; do
         valid_result=$(valid "$update")
         if [[ $valid_result == "false" ]]; then
-            ordered_update=$(topological_sort "$update")
+            ordered_update=$(topsort "$update")
             if [[ -n "$ordered_update" ]]; then
                 ordered_update_array=($ordered_update)
                 mid_index=$((${#ordered_update_array[@]} / 2))
