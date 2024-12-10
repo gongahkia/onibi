@@ -8,10 +8,13 @@ def is_valid(x, y, n, m):
     return 0 <= x < n and 0 <= y < m
 
 def bfs(map_grid, n, m, start_x, start_y, part=1):
+    """
+    thank you prof vivien WAHOOO
+    """
     directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
     queue = deque([(start_x, start_y)])
     visited = set([(start_x, start_y)])
-    if part == 1:
+    if part == 1: # solving for part 1
         score = 0
         while queue:
             x, y = queue.popleft()
@@ -22,7 +25,7 @@ def bfs(map_grid, n, m, start_x, start_y, part=1):
                     queue.append((nx, ny))
                     visited.add((nx, ny))
         return score
-    else:
+    else: # solving for part 2
         trails = set()
         queue = deque([(start_x, start_y, [(start_x, start_y)])])
         while queue:
