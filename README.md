@@ -6,7 +6,7 @@ The *K*ommand line h*elp*er.
 
 Written in Rust, because [we love crabs](https://www.reddit.com/r/rust/comments/uboyeq/why_is_rust_the_most_loved_programming_language/?rdt=50321).
 
-Installation handled in Bash, because making *Kelp* felt like bashing my head in.
+Installation handled in Bash, because making *Kelp* felt like [bashing my head in](https://www.reddit.com/r/rust/comments/cgs9lj/why_do_people_hate_rust/).
 
 ## Feature roadmap
 
