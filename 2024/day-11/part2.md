@@ -1,1 +1,0 @@
-![me_rn](https://i.kym-cdn.com/entries/icons/mobile/000/006/306/Flipping_Tables_Banner.jpg)
