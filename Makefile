@@ -1,2 +1,4 @@
-make ticklist:
-	find . -type d -name 'day*' -exec sh -c 'test $(find "$1" -maxdepth 1 \( -name "*.py" -o -name "*.java" -o -name "*.js" -o -name "*.ts" \) | wc -l) -eq 0 && echo "$1"' _ {} \; | sort -t'/' -k2 -n -k3V
+.PHONY: generate-ticklist
+
+generate-ticklist:
+	@ clear && find . -type d -name 'day*' -exec sh -c 'test $$(find "$$1" -maxdepth 1 \( -name "*.py" -o -name "*.java" -o -name "*.js" -o -name "*.ts" \) | wc -l) -eq 0 && echo "$$1"' _ {} \; | sort -t'/' -k2 -n -k3V

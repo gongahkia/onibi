@@ -4,9 +4,7 @@
 
 ![](./asset/aoc.gif)
 
-## ticklist 
-
-Generated with `make ticklist`.
+## ticklist (generated with `make`)
 
 ```txt
 ./2025/day-2
