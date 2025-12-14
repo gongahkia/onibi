@@ -2,7 +2,11 @@
 
 *It's beginning to look a lot like Christmas~*
 
+![](./asset/aoc.gif)
+
 ## ticklist 
+
+Generated with `make ticklist`.
 
 ```txt
 ./2025/day-2
@@ -24,6 +28,3 @@
 ./2024/day-8
 ./2024/day-9
 ```
-
-> [!NOTE]  
-> Generate ticklist with this command `find . -type d -name 'day*' -exec sh -c 'test $(find "$1" -maxdepth 1 \( -name "*.py" -o -name "*.java" -o -name "*.js" -o -name "*.ts" \) | wc -l) -eq 0 && echo "$1"' _ {} \; | sort -t'/' -k2 -n -k3V`.
