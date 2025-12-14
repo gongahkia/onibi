@@ -1,1 +1,29 @@
-`it's beginning to look a lot like Christmas`
+# `advent of code`
+
+*It's beginning to look a lot like Christmas~*
+
+## ticklist 
+
+```txt
+./2025/day-2
+./2025/day-3
+./2025/day-4
+./2025/day-5
+./2025/day-6
+./2025/day-7
+./2016/day1
+./2018/day1
+./2020/day1
+./2021/day2
+./2022/day7
+./2024/day-1
+./2024/day-2
+./2024/day-3
+./2024/day-4
+./2024/day-5
+./2024/day-8
+./2024/day-9
+```
+
+> [!NOTE]  
+> Generate ticklist with this command `find . -type d -name 'day*' -exec sh -c 'test $(find "$1" -maxdepth 1 \( -name "*.py" -o -name "*.java" -o -name "*.js" -o -name "*.ts" \) | wc -l) -eq 0 && echo "$1"' _ {} \; | sort -t'/' -k2 -n -k3V`.
