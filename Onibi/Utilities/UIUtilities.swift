@@ -39,6 +39,7 @@ struct PressEffect: ViewModifier {
 
 struct ShimmerEffect: ViewModifier {
     @State private var phase: CGFloat = 0
+    var isAnimating: Bool = true
     
     func body(content: Content) -> some View {
         content
@@ -56,10 +57,22 @@ struct ShimmerEffect: ViewModifier {
             )
             .clipped()
             .onAppear {
-                withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
-                    phase = 1
+                startAnimation()
+            }
+            .onChange(of: isAnimating) { _, animating in
+                if animating {
+                    startAnimation()
+                } else {
+                    phase = 0
                 }
             }
+    }
+    
+    private func startAnimation() {
+        guard isAnimating else { return }
+        withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
+            phase = 1
+        }
     }
 }
 
@@ -68,8 +81,8 @@ extension View {
         modifier(PressEffect())
     }
     
-    func shimmer() -> some View {
-        modifier(ShimmerEffect())
+    func shimmer(isAnimating: Bool = true) -> some View {
+        modifier(ShimmerEffect(isAnimating: isAnimating))
     }
 }
 

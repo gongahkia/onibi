@@ -1,4 +1,3 @@
-(B) Fix badge count in MenuBarController.swift — add decrementNotificationCount method called on dismiss and wire clearAll to reset to zero +stability
 (B) Stop ShimmerEffect repeatForever animation in UIUtilities.swift when the loading state ends — use conditional animation modifier +performance
 (B) Make SuccessToast auto-dismiss duration configurable via parameter instead of hardcoded 2s in UIUtilities.swift +refactor
 (B) Add SwiftLint configuration file .swiftlint.yml with project-specific rules to make CI lint step pass consistently instead of continue-on-error +infra
