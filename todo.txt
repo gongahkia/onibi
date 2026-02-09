@@ -3,9 +3,6 @@
 # Tags: +feature, +refactor, +infra, +security, +test
 
 
-## GHOSTTY-SPECIFIC INTEGRATION
-(B) Implement deep-link URL scheme ghostty-menubar:// to open specific log entries +feature
-
 ## SHELL HOOK INSTALLATION (Easy for non-technical users)
 (B) Create ShellHookInstaller service with methods for zsh, bash, fish shell detection +feature
 (B) Implement automatic shell detection using $SHELL environment variable and file existence checks +feature
