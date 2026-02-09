@@ -158,6 +158,7 @@ struct ErrorView: View {
 struct SuccessToast: View {
     let message: String
     @Binding var isShowing: Bool
+    var duration: TimeInterval = 2.0
     
     var body: some View {
         if isShowing {
@@ -174,7 +175,7 @@ struct SuccessToast: View {
             .shadow(radius: 4)
             .transition(.move(edge: .top).combined(with: .opacity))
             .onAppear {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
                     withAnimation { isShowing = false }
                 }
             }
