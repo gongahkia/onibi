@@ -110,15 +110,14 @@ final class SessionManager: ObservableObject {
     
     /// Prune sessions inactive for > 24h
     func pruneStaleSessions() {
-        let oneDay: TimeInterval = 86400 // 24 hours
+        sessionLock.lock()
+        defer { sessionLock.unlock() }
+        let oneDay: TimeInterval = 86400
         let now = Date()
-        
-        // Remove sessions that haven't been active for 24 hours
         let initialCount = activeSessions.count
         activeSessions = activeSessions.filter { _, session in
             now.timeIntervalSince(session.lastActivityTime) < oneDay
         }
-        
         if activeSessions.count < initialCount {
             Log.sessions.info("pruned \(initialCount - self.activeSessions.count) stale sessions")
         }
@@ -136,6 +135,8 @@ final class SessionManager: ObservableObject {
     
     /// Clear all sessions
     func clearAll() {
+        sessionLock.lock()
+        defer { sessionLock.unlock() }
         activeSessions.removeAll()
         recentSessions.removeAll()
     }

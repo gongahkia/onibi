@@ -14,8 +14,15 @@ final class DependencyContainer {
     
     /// Register default services
     private func registerDefaultServices() {
-        // Register EventBus
         register(EventBus.self) { EventBus.shared }
+        register(SessionManager.self) { SessionManager.shared }
+        register(NotificationManager.self) { NotificationManager.shared }
+        register(ErrorReporter.self) { ErrorReporter.shared }
+        register(BackgroundTaskScheduler.self) { BackgroundTaskScheduler.shared }
+        register(GhosttyIPCClient.self) { GhosttyIPCClient.shared }
+        register(GhosttyCliService.self) { GhosttyCliService.shared }
+        register(LogFileTruncator.self) { LogFileTruncator.shared }
+        register(PerformanceMonitor.self) { PerformanceMonitor.shared }
     }
     
     /// Register a service factory
