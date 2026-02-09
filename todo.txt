@@ -1,8 +1,3 @@
-(B) Add persona toggle to SettingsView.swift General tab — switching persona shows/hides advanced settings sections +feature
-(B) Wire persona selection to SettingsView.swift so casual mode hides: filter rules tab, log retention config, notification throttle config +feature
-(B) Wire persona selection to MenuBarView.swift so casual mode shows simplified notification list without metadata/session details +feature
-(B) Add GhosttyCliService.swift service that wraps `ghostty +show-config` output parsing to read Ghostty's actual config +feature +integration
-(B) Replace manual config file reading in GhosttyConfigParser.swift with GhosttyCliService.showConfig() call as primary source, falling back to file parse +feature +integration
 (B) Add `ghostty +list-themes` integration in GhosttyCliService.swift to expose available Ghostty themes +feature +integration
 (B) Add theme sync option in SettingsView.swift Appearance tab that reads Ghostty's active theme via GhosttyCliService and applies matching menubar theme +feature +integration
 (B) Add OSC sequence detection to LogFileParser.swift — detect OSC 9 (BEL-terminated) and OSC 777 (ST-terminated) notification sequences in terminal output +feature +integration
