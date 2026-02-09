@@ -65,6 +65,9 @@ final class MenuBarController: ObservableObject {
             updateIcon(hasNotifications: false)
             button.action = #selector(togglePopover(_:))
             button.target = self
+            
+            // Ensure the button can receive clicks even in accessory mode
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         
         setupPopover()
@@ -165,6 +168,9 @@ final class MenuBarController: ObservableObject {
     /// Open the popover
     func openPopover(relativeTo button: NSStatusBarButton) {
         guard let popover = popover else { return }
+        
+        // Activate the app to ensure popover can receive focus
+        NSApp.activate(ignoringOtherApps: true)
         
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         
