@@ -53,6 +53,11 @@ final class MenuBarController: ObservableObject {
         } else {
             button.title = ""
         }
+        
+        // Sync badge with native notification center
+        Task {
+            await NotificationManager.shared.setBadgeCount(notificationCount)
+        }
     }
     
     /// Start icon animation for new notifications
