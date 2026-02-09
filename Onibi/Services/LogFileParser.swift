@@ -3,6 +3,13 @@ import Foundation
 /// Parses log entries from the terminal log file
 final class LogFileParser {
     
+    // Shared date formatter with fractional seconds support
+    private static let dateFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+    
     /// Parse a single line from the log file
     func parseLine(_ line: String) -> ParsedLogLine? {
         // Check for OSC 9/777 notifications first (even without structured log format)
@@ -124,12 +131,13 @@ final class LogFileParser {
     
     /// Parse ISO8601 timestamp
     private func parseTimestamp(_ str: String) -> Date? {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: str) {
+        // Try with fractional seconds first (most common)
+        if let date = Self.dateFormatter.date(from: str) {
             return date
         }
+        
         // Try without fractional seconds
+        let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
         return formatter.date(from: str)
     }
