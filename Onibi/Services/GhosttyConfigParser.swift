@@ -35,9 +35,44 @@ struct OnibiConfigParser {
         return parse(contents: contents)
     }
     
+    /// Parse config from dictionary
+    static func parse(dictionary: [String: String]) -> Config {
+        var config = Config()
+        
+        for (key, value) in dictionary {
+            let normalizedKey = key.lowercased().replacingOccurrences(of: "-", with: "_")
+            
+            // Map known keys
+            switch normalizedKey {
+            case "theme":
+                config.theme = value
+            case "font_family":
+                config.fontFamily = value
+            case "font_size":
+                config.fontSize = Int(value)
+            case "background":
+                config.backgroundColor = value
+            case "foreground":
+                config.foregroundColor = value
+            case "cursor_color":
+                config.cursorColor = value
+            case "selection_background":
+                config.selectionBackground = value
+            case "window_decorations":
+                config.windowDecorations = value.lowercased() == "true" || value == "1"
+            case "shell_integration":
+                config.shellIntegration = value.lowercased() != "none" && value.lowercased() != "false"
+            default:
+                config.customProperties[normalizedKey] = value
+            }
+        }
+        
+        return config
+    }
+    
     /// Parse config from string contents
     static func parse(contents: String) -> Config {
-        var config = Config()
+        var dictionary: [String: String] = [:]
         
         let lines = contents.components(separatedBy: .newlines)
         
@@ -59,35 +94,27 @@ struct OnibiConfigParser {
             
             guard parts.count >= 2 else { continue }
             
-            let key = parts[0].lowercased().replacingOccurrences(of: "-", with: "_")
+            let key = parts[0]
             let value = parts.dropFirst().joined(separator: " ")
-            
-            // Map known keys
-            switch key {
-            case "theme":
-                config.theme = value
-            case "font_family":
-                config.fontFamily = value
-            case "font_size":
-                config.fontSize = Int(value)
-            case "background":
-                config.backgroundColor = value
-            case "foreground":
-                config.foregroundColor = value
-            case "cursor_color":
-                config.cursorColor = value
-            case "selection_background":
-                config.selectionBackground = value
-            case "window_decorations":
-                config.windowDecorations = value.lowercased() == "true" || value == "1"
-            case "shell_integration":
-                config.shellIntegration = value.lowercased() != "none" && value.lowercased() != "false"
-            default:
-                config.customProperties[key] = value
-            }
+            dictionary[key] = value
         }
         
-        return config
+        return parse(dictionary: dictionary)
+    }
+    
+    /// Fetch config asynchronously (CLI first, then file fallback)
+    static func fetchConfig() async -> Config {
+        // Try CLI first
+        if let cliConfig = try? await GhosttyCliService.shared.showConfig() {
+            return parse(dictionary: cliConfig)
+        }
+        
+        // Fallback to file parsing
+        if let fileConfig = parse() {
+            return fileConfig
+        }
+        
+        return Config()
     }
     
     /// Get color from Ghostty config format
