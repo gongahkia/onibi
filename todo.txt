@@ -1,4 +1,3 @@
-(B) Add regex pattern validation with user feedback in SettingsView.swift filter rule editor — show error if pattern is invalid before saving +feature
 (B) Guard against negative fontSize values in GhosttyConfigParser.swift parseColor/value parsing with validation +stability
 (B) Remove duplicate shell hook installation check — current alreadyInstalled in ShellHookInstaller.swift uses broad string contains match that can false positive on partial matches; use exact marker line match +stability
 (B) Add verify step after shell hook install in ShellHookInstaller.swift that cleans up the test log entry it writes +stability
