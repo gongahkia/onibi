@@ -140,44 +140,50 @@ extension PatternRule {
 /// Applies user-defined patterns alongside built-in detectors
 final class CustomPatternDetector: ObservableObject {
     static let shared = CustomPatternDetector()
-    
     @Published var customPatterns: [PatternRule] = []
-    
+    private let patternsLock = NSLock()
     private init() {
         loadPatterns()
     }
     
     /// Check content against all custom patterns
     func check(_ content: String) -> PatternRule? {
-        // Sort by priority (higher first)
-        let sorted = customPatterns.sorted { $0.priority > $1.priority }
-        
+        patternsLock.lock()
+        let sorted = customPatterns.sorted { $0.priority > $1.priority } // sort by priority (higher first)
+        patternsLock.unlock()
         for pattern in sorted where pattern.isEnabled {
             if pattern.matches(content) {
                 return pattern
             }
         }
-        
         return nil
     }
     
     /// Add a new pattern
     func addPattern(_ pattern: PatternRule) {
+        patternsLock.lock()
         customPatterns.append(pattern)
+        patternsLock.unlock()
         savePatterns()
     }
     
     /// Update an existing pattern
     func updatePattern(_ pattern: PatternRule) {
+        patternsLock.lock()
         if let index = customPatterns.firstIndex(where: { $0.id == pattern.id }) {
             customPatterns[index] = pattern
+            patternsLock.unlock()
             savePatterns()
+        } else {
+            patternsLock.unlock()
         }
     }
     
     /// Delete a pattern
     func deletePattern(id: UUID) {
+        patternsLock.lock()
         customPatterns.removeAll { $0.id == id }
+        patternsLock.unlock()
         savePatterns()
     }
     
@@ -191,13 +197,18 @@ final class CustomPatternDetector: ObservableObject {
     /// Import patterns from JSON
     func importPatterns(from data: Data) throws {
         let patterns = try JSONDecoder().decode([PatternRule].self, from: data)
+        patternsLock.lock()
         customPatterns.append(contentsOf: patterns)
+        patternsLock.unlock()
         savePatterns()
     }
     
     /// Export patterns to JSON
     func exportPatterns() throws -> Data {
-        try JSONEncoder().encode(customPatterns)
+        patternsLock.lock()
+        let snapshot = customPatterns
+        patternsLock.unlock()
+        return try JSONEncoder().encode(snapshot)
     }
     
     // MARK: - Persistence
