@@ -789,6 +789,11 @@ struct AboutSettingsTab: View {
                 .frame(width: 200)
             
             VStack(spacing: 8) {
+                Button(action: copyDiagnostics) {
+                    Label("Copy Diagnostics", systemImage: "doc.on.clipboard")
+                }
+                .buttonStyle(.bordered)
+                
                 Link("GitHub Repository", destination: URL(string: "https://github.com")!)
                 Link("Report an Issue", destination: URL(string: "https://github.com")!)
             }
@@ -832,6 +837,39 @@ struct AboutSettingsTab: View {
         
         let url = URL(fileURLWithPath: ghosttyConfigPath)
         NSWorkspace.shared.open(url)
+    }
+    
+    private func copyDiagnostics() {
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
+        let osVersion = ProcessInfo.processInfo.operatingSystemVersionString
+        let settings = SettingsViewModel.shared.settings
+        let logPath = settings.logFilePath
+        
+        var diagnostics = """
+        Onibi Diagnostics
+        =================
+        
+        App Version: \(appVersion)
+        macOS Version: \(osVersion)
+        Ghostty Installed: \(ghosttyInstalled ? "Yes" : "No")
+        Ghostty Version: \(ghosttyVersion)
+        Ghostty Config Path: \(ghosttyConfigPath)
+        Log File Path: \(logPath)
+        
+        System Info:
+        - Process ID: \(ProcessInfo.processInfo.processIdentifier)
+        - Physical Memory: \(ByteCountFormatter.string(fromByteCount: Int64(ProcessInfo.processInfo.physicalMemory), countStyle: .memory))
+        
+        Settings:
+        - User Persona: \(settings.userPersona.rawValue)
+        - Auto Start: \(settings.autoStartOnLogin)
+        - Sync Theme: \(settings.syncThemeWithGhostty)
+        - Log Retention: \(settings.logRetentionDays) days
+        """
+        
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(diagnostics, forType: .string)
     }
 }
 

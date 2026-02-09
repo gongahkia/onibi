@@ -1,5 +1,4 @@
 (B) Add unit tests for JSONStorageManager — test atomic write, backup recovery, cache flush, concurrent access +infra
-(B) Add "Open Ghostty Config" button in SettingsView.swift that opens Ghostty config file in default editor via NSWorkspace +feature
 (B) Add "Copy Diagnostics" button in SettingsView.swift About tab that copies app version, Ghostty version, macOS version, log path to clipboard for bug reports +feature
 (B) Add menubar icon state for "Ghostty not running" vs "monitoring active" vs "new notifications" with distinct SF Symbol variants +feature
 (B) Add relative timestamp refresh timer in MenuBarView.swift NotificationCard so "2 min ago" updates without requiring scroll +feature
