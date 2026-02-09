@@ -52,10 +52,14 @@ final class DependencyContainer {
         return nil
     }
     
-    /// Resolve a service or crash if not found
-    func resolveRequired<T>(_ type: T.Type) -> T {
+    enum ServiceError: Error {
+        case serviceNotFound(String)
+    }
+
+    /// Resolve a service or throw if not found
+    func resolveRequired<T>(_ type: T.Type) throws -> T {
         guard let service = resolve(type) else {
-            fatalError("Required service \(type) not registered")
+            throw ServiceError.serviceNotFound(String(describing: type))
         }
         return service
     }
