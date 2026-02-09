@@ -149,6 +149,14 @@ struct OnibiConfig {
     
     trap '_onibi_preexec' DEBUG
     
-    PROMPT_COMMAND='echo "$(date -Iseconds)|CMD_END|$?" >> ~/.config/onibi/terminal.log'
+    _onibi_prompt_cmd() {
+        echo "$(date -Iseconds)|CMD_END|$?" >> ~/.config/onibi/terminal.log
+    }
+    
+    if [[ -z "$PROMPT_COMMAND" ]]; then
+        PROMPT_COMMAND='_onibi_prompt_cmd'
+    elif [[ "$PROMPT_COMMAND" != *"_onibi_prompt_cmd"* ]]; then
+        PROMPT_COMMAND="_onibi_prompt_cmd; $PROMPT_COMMAND"
+    fi
     """
 }
