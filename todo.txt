@@ -1,6 +1,0 @@
-# Ghostty Menubar - Evolution Audit Tasks
-# Generated: 2026-02-09 | Priority: (A) = MVP/Core Vision, (B) = Audit-Suggested
-# Tags: +feature, +refactor, +infra, +security, +test
-
-# All audit tasks completed! 🎉
-
