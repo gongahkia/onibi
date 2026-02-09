@@ -76,6 +76,11 @@ final class LogBuffer {
         // Keep incomplete line in buffer
         buffer = remaining
         
+        // Safety limit: prevent unbounded growth if no newlines found (e.g. binary file)
+        if buffer.count > 65536 {
+            buffer = ""
+        }
+        
         return lines
     }
     
