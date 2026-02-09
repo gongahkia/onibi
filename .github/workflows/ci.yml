@@ -1,4 +1,4 @@
-name: Onibi CI
+name: Onibi CI/CD and .DMG release on push
 
 on:
   push:
