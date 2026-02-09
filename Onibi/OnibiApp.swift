@@ -5,12 +5,38 @@ import Combine
 struct OnibiApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
+    
     var body: some Scene {
         Settings {
+            SettingsView()
+        }
+        
+        WindowGroup("Logs", id: "logs") {
+            DetailedLogsView()
+                .onReceive(NotificationCenter.default.publisher(for: .openLogsWindow)) { _ in
+                    // Already handled by openWindow, but here for completeness within the view if needed
+                }
+        }
+        .windowStyle(.hiddenTitleBar)
+        // Invisible window group to handle commands
+        WindowGroup(id: "command-handler") {
             EmptyView()
+                .onReceive(NotificationCenter.default.publisher(for: .openLogsWindow)) { _ in
+                    openWindow(id: "logs")
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .openSettingsWindow)) { _ in
+                    DispatchQueue.main.async {
+                         NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+                    }
+                }
         }
     }
 }
+
+// Extensions handled in respective files
+
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var menuBarController: MenuBarController?

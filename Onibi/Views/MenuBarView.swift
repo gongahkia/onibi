@@ -1,5 +1,10 @@
 import SwiftUI
 
+extension Notification.Name {
+    static let openLogsWindow = Notification.Name("openLogsWindow")
+    static let openSettingsWindow = Notification.Name("openSettingsWindow")
+}
+
 /// Main menubar dropdown view
 struct MenuBarView: View {
     @StateObject private var viewModel = NotificationViewModel()
@@ -91,7 +96,10 @@ struct MenuBarView: View {
                 }
             }
             
-            Button(action: { showSettings = true }) {
+            Button(action: {
+                NSApp.activate(ignoringOtherApps: true)
+                NotificationCenter.default.post(name: .openSettingsWindow, object: nil)
+            }) {
                 Image(systemName: "gearshape")
                     .font(.system(size: 14))
                     .foregroundColor(.secondary)
@@ -152,7 +160,12 @@ struct MenuBarView: View {
     
     private var footerSection: some View {
         HStack {
-            Button(action: { viewModel.showLogsView = true }) {
+            Button(action: {
+                // Open Logs Window
+                NSApp.activate(ignoringOtherApps: true)
+                // We use a URL scheme or notification to trigger openWindow from AppDelegate/App
+                NotificationCenter.default.post(name: .openLogsWindow, object: nil)
+            }) {
                 HStack(spacing: 4) {
                     Image(systemName: "list.bullet.rectangle")
                         .font(.system(size: 12))
@@ -271,6 +284,7 @@ struct NotificationCard: View {
         case .aiOutput: return .purple
         case .devWorkflow: return .orange
         case .automation: return .blue
+        case .terminalNotification: return .red
         }
     }
     
