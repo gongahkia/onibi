@@ -103,7 +103,37 @@ jobs:
         run: |
           mkdir -p dmg-contents
           cp -R build/Build/Products/Release/Onibi.app dmg-contents/
-          hdiutil create -volname "Onibi" -srcfolder dmg-contents -ov -format UDZO Onibi.dmg
+          hdiutil create -volname "Onibi" -srcfolder dmg-contents -ov -format UDZO Onibi-unsigned.dmg
+      
+      - name: Code Sign DMG
+        if: ${{ secrets.DEVELOPER_ID_CERTIFICATE != '' }}
+        env:
+          DEVELOPER_ID_CERTIFICATE: ${{ secrets.DEVELOPER_ID_CERTIFICATE }}
+          DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+        run: |
+          # Import Developer ID certificate
+          echo "$DEVELOPER_ID_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p actions build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p actions build.keychain
+          security import certificate.p12 -k build.keychain -P "$DEVELOPER_ID_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k actions build.keychain
+          
+          # Sign the DMG for Gatekeeper compatibility
+          codesign --force --sign "Developer ID Application" --timestamp Onibi-unsigned.dmg
+          mv Onibi-unsigned.dmg Onibi.dmg
+          
+          # Verify signature
+          codesign --verify --verbose Onibi.dmg
+          
+          # Clean up
+          security delete-keychain build.keychain
+          rm certificate.p12
+      
+      - name: Use Unsigned DMG (Fallback)
+        if: ${{ secrets.DEVELOPER_ID_CERTIFICATE == '' }}
+        run: |
+          mv Onibi-unsigned.dmg Onibi.dmg
       
       - name: Create Release
         uses: softprops/action-gh-release@v1
