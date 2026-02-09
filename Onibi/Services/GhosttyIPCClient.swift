@@ -10,12 +10,14 @@ final class GhosttyIPCClient: ObservableObject {
     @Published var isGhosttyRunning: Bool = false
     @Published var ghosttyVersion: String?
     @Published var activeSessions: [GhosttySession] = []
-    
     private let processMonitor = GhosttyProcessMonitor()
     private var cancellables = Set<AnyCancellable>()
-    
+    private var settings: AppSettings = .default
     private init() {
         setupProcessMonitoring()
+        EventBus.shared.settingsPublisher
+            .sink { [weak self] s in self?.settings = s }
+            .store(in: &cancellables)
     }
     
     // MARK: - Process Detection

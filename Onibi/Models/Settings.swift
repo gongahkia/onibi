@@ -108,7 +108,12 @@ struct AppSettings: Codable, Equatable {
         showInDock: Bool = false,
         playNotificationSounds: Bool = true,
         filterRules: [FilterRule] = [],
-        logFilePath: String = Defaults.logFilePath
+        logFilePath: String = Defaults.logFilePath,
+        ghosttyBundleId: String = Defaults.ghosttyBundleId,
+        ghosttyBinaryPath: String = Defaults.ghosttyBinaryPath,
+        maxErrorLogSizeBytes: Int64 = Defaults.maxErrorLogSizeBytes,
+        errorLogMaxRotations: Int = Defaults.errorLogMaxRotations,
+        notificationDeduplicationWindow: TimeInterval = Defaults.notificationDeduplicationWindow
     ) {
         self.theme = theme
         self.syncThemeWithGhostty = syncThemeWithGhostty
@@ -128,6 +133,11 @@ struct AppSettings: Codable, Equatable {
         self.playNotificationSounds = playNotificationSounds
         self.filterRules = filterRules
         self.logFilePath = logFilePath
+        self.ghosttyBundleId = ghosttyBundleId
+        self.ghosttyBinaryPath = ghosttyBinaryPath
+        self.maxErrorLogSizeBytes = maxErrorLogSizeBytes
+        self.errorLogMaxRotations = errorLogMaxRotations
+        self.notificationDeduplicationWindow = notificationDeduplicationWindow
     }
     
     static let `default` = AppSettings()
