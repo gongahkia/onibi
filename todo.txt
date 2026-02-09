@@ -1,5 +1,3 @@
-(B) Implement actual settings sheet presentation in MenuBarView.swift — currently the gear button sets showSettings but no sheet is shown +feature
-(B) Fix showLogsView state in MenuBarView.swift — currently set to true but nothing navigates to DetailedLogsView +feature
 (B) Add hasCompletedOnboarding check in GhosttyMenubarApp.swift applicationDidFinishLaunching to conditionally show OnboardingView on first launch +feature
 (B) Wire HotkeyManager in OnboardingView.swift to use addGlobalMonitorForEvents instead of addLocalMonitorForEvents so hotkey works when app is not focused +feature
 (B) Add debouncing (0.3s) to SettingsViewModel.swift settings save — use Combine debounce on $settings publisher instead of saving on every didSet +performance
