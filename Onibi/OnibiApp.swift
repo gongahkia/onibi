@@ -124,13 +124,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     
+    private var settingsWindow: NSWindow?
+    
     private func openSettingsWindow() {
-        // Use the standard macOS way to show preferences/settings
-        if #available(macOS 14.0, *) {
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        } else {
-            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+        // Check if settings window already exists
+        if let existingWindow = settingsWindow, existingWindow.isVisible {
+            existingWindow.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
         }
+        
+        // Create a new settings window manually since SwiftUI Settings scene
+        // doesn't work reliably when running outside a bundled .app
+        let settingsView = SettingsView()
+        let hostingController = NSHostingController(rootView: settingsView)
+        
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "Onibi Settings"
+        window.setContentSize(NSSize(width: 550, height: 450))
+        window.styleMask = [.titled, .closable]
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        
+        settingsWindow = window
+        NSApp.activate(ignoringOtherApps: true)
     }
     
     private func openLogsWindow() {
