@@ -9,7 +9,6 @@
 (B) Add backup rotation (keep last 3 backups) in ShellHookInstaller.swift instead of single backup that gets overwritten +stability
 (B) Add PROMPT_COMMAND collision check in FileWatcher.swift bash hook — check if already set before appending to avoid double-execution +stability
 (B) Fix badge count in MenuBarController.swift — add decrementNotificationCount method called on dismiss and wire clearAll to reset to zero +stability
-(B) Stop ShimmerEffect repeatForever animation in UIUtilities.swift when the loading state ends — use conditional animation modifier +performance
 (B) Make SuccessToast auto-dismiss duration configurable via parameter instead of hardcoded 2s in UIUtilities.swift +refactor
 (B) Add SwiftLint configuration file .swiftlint.yml with project-specific rules to make CI lint step pass consistently instead of continue-on-error +infra
 (B) Add test target to Package.swift referencing GhosttyMenubarTests directory so tests can run via swift test as well as xcodebuild +infra
