@@ -79,7 +79,7 @@ final class FileWatcher: ObservableObject {
 }
 
 /// Ghostty integration configuration
-struct GhosttyConfig {
+struct OnibiConfig {
     /// Default locations to check for Ghostty config
     static let configLocations: [String] = [
         NSHomeDirectory() + "/.config/ghostty/config",
@@ -88,13 +88,13 @@ struct GhosttyConfig {
     
     /// App's log file location (shell hooks write here)
     static let logFilePath: String = {
-        let configDir = NSHomeDirectory() + "/.config/ghostty-menubar"
+        let configDir = NSHomeDirectory() + "/.config/onibi"
         return configDir + "/terminal.log"
     }()
     
     /// Directory for app data
     static let appDataDirectory: String = {
-        return NSHomeDirectory() + "/.config/ghostty-menubar"
+        return NSHomeDirectory() + "/.config/onibi"
     }()
     
     /// Ensure app data directory exists
@@ -107,34 +107,34 @@ struct GhosttyConfig {
     
     /// Shell hook script for zsh to log commands
     static let zshHookScript: String = """
-    # Ghostty Menubar Integration
+    # Onibi Integration
     # Add to ~/.zshrc
     
-    _ghostty_menubar_preexec() {
-        echo "$(date -Iseconds)|CMD_START|$1" >> ~/.config/ghostty-menubar/terminal.log
+    _onibi_preexec() {
+        echo "$(date -Iseconds)|CMD_START|$1" >> ~/.config/onibi/terminal.log
     }
     
-    _ghostty_menubar_precmd() {
+    _onibi_precmd() {
         local exit_code=$?
-        echo "$(date -Iseconds)|CMD_END|$exit_code" >> ~/.config/ghostty-menubar/terminal.log
+        echo "$(date -Iseconds)|CMD_END|$exit_code" >> ~/.config/onibi/terminal.log
     }
     
     autoload -Uz add-zsh-hook
-    add-zsh-hook preexec _ghostty_menubar_preexec
-    add-zsh-hook precmd _ghostty_menubar_precmd
+    add-zsh-hook preexec _onibi_preexec
+    add-zsh-hook precmd _onibi_precmd
     """
     
     /// Shell hook script for bash
     static let bashHookScript: String = """
-    # Ghostty Menubar Integration
+    # Onibi Integration
     # Add to ~/.bashrc
     
-    _ghostty_menubar_preexec() {
-        echo "$(date -Iseconds)|CMD_START|$BASH_COMMAND" >> ~/.config/ghostty-menubar/terminal.log
+    _onibi_preexec() {
+        echo "$(date -Iseconds)|CMD_START|$BASH_COMMAND" >> ~/.config/onibi/terminal.log
     }
     
-    trap '_ghostty_menubar_preexec' DEBUG
+    trap '_onibi_preexec' DEBUG
     
-    PROMPT_COMMAND='echo "$(date -Iseconds)|CMD_END|$?" >> ~/.config/ghostty-menubar/terminal.log'
+    PROMPT_COMMAND='echo "$(date -Iseconds)|CMD_END|$?" >> ~/.config/onibi/terminal.log'
     """
 }

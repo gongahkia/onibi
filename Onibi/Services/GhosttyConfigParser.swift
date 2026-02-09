@@ -1,7 +1,7 @@
 import Foundation
 
 /// Parser for Ghostty configuration files
-struct GhosttyConfigParser {
+struct OnibiConfigParser {
     
     /// Parsed Ghostty configuration
     struct Config {
@@ -19,7 +19,7 @@ struct GhosttyConfigParser {
     
     /// Parse Ghostty config from default locations
     static func parse() -> Config? {
-        for path in GhosttyConfig.configLocations {
+        for path in OnibiConfig.configLocations {
             if FileManager.default.fileExists(atPath: path) {
                 return parse(at: path)
             }
@@ -115,16 +115,16 @@ struct GhosttyConfigParser {
 
 // MARK: - Theme Colors
 
-extension GhosttyConfigParser.Config {
+extension OnibiConfigParser.Config {
     /// Get SwiftUI-compatible color from background
     var backgroundColorRGB: (r: UInt8, g: UInt8, b: UInt8)? {
         guard let bg = backgroundColor else { return nil }
-        return GhosttyConfigParser.parseColor(bg)
+        return OnibiConfigParser.parseColor(bg)
     }
     
     /// Get SwiftUI-compatible color from foreground
     var foregroundColorRGB: (r: UInt8, g: UInt8, b: UInt8)? {
         guard let fg = foregroundColor else { return nil }
-        return GhosttyConfigParser.parseColor(fg)
+        return OnibiConfigParser.parseColor(fg)
     }
 }

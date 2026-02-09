@@ -8,7 +8,7 @@ struct OnboardingView: View {
     private let pages: [OnboardingPage] = [
         OnboardingPage(
             icon: "terminal.fill",
-            title: "Welcome to Ghostty Menubar",
+            title: "Welcome to Onibi",
             description: "Monitor your terminal output, get notifications for important events, and stay on top of your development workflow.",
             color: .accentColor
         ),
@@ -150,7 +150,7 @@ struct OnboardingPageView: View {
     
     private func copyShellHook() {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(GhosttyConfig.zshHookScript, forType: .string)
+        NSPasteboard.general.setString(OnibiConfig.zshHookScript, forType: .string)
         showCopied = true
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {

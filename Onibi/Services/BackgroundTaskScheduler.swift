@@ -68,14 +68,14 @@ final class BackgroundTaskScheduler: ObservableObject {
     // MARK: - Private
     
     private func setupLogBuffer() {
-        logBuffer = LogBuffer(filePath: GhosttyConfig.logFilePath)
+        logBuffer = LogBuffer(filePath: OnibiConfig.logFilePath)
         // Skip existing content on startup
         try? logBuffer?.seekToEnd()
     }
     
     private func setupFileWatcher() {
         // Watch the config directory for changes
-        fileWatcher = FileWatcher(path: GhosttyConfig.appDataDirectory, debounceInterval: 0.5) { [weak self] in
+        fileWatcher = FileWatcher(path: OnibiConfig.appDataDirectory, debounceInterval: 0.5) { [weak self] in
             self?.processNewLogContent()
         }
         fileWatcher?.start()

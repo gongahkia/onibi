@@ -32,10 +32,10 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>com.ghostty-menubar.deeplink</string>
+			<string>com.onibi.deeplink</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>ghostty-menubar</string>
+				<string>onibi</string>
 			</array>
 		</dict>
 	</array>

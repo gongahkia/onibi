@@ -5,7 +5,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                Text("Ghostty Menubar")
+                Text("Onibi")
                     .font(.headline)
                     .fontWeight(.semibold)
                 Spacer()

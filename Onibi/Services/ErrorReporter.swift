@@ -9,10 +9,10 @@ final class ErrorReporter: ObservableObject {
     @Published var hasUnreadErrors: Bool = false
     
     private let maxErrors = 50
-    private let errorLogPath = GhosttyConfig.appDataDirectory + "/error.log"
+    private let errorLogPath = OnibiConfig.appDataDirectory + "/error.log"
     
     // GitHub repo info
-    private let githubRepo = "ghostty-menubar/ghostty-menubar"
+    private let githubRepo = "onibi/onibi"
     
     private init() {
         loadRecentErrors()
@@ -119,7 +119,7 @@ final class ErrorReporter: ObservableObject {
             guard let self = self else { return }
             
             do {
-                try GhosttyConfig.ensureDirectoryExists()
+                try OnibiConfig.ensureDirectoryExists()
                 
                 if FileManager.default.fileExists(atPath: self.errorLogPath) {
                     let handle = try FileHandle(forWritingTo: URL(fileURLWithPath: self.errorLogPath))
@@ -252,7 +252,7 @@ final class ErrorReporter: ObservableObject {
         var issues: [String] = []
         
         let fm = FileManager.default
-        let dataDir = GhosttyConfig.appDataDirectory
+        let dataDir = OnibiConfig.appDataDirectory
         
         // Check directory exists
         if !fm.fileExists(atPath: dataDir) {

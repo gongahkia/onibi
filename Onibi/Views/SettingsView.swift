@@ -77,11 +77,11 @@ struct GeneralSettingsTab: View {
                 HStack {
                     Text("Configuration directory")
                     Spacer()
-                    Text(GhosttyConfig.appDataDirectory)
+                    Text(OnibiConfig.appDataDirectory)
                         .font(.caption)
                         .foregroundColor(.secondary)
                     Button("Reveal") {
-                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: GhosttyConfig.appDataDirectory)
+                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: OnibiConfig.appDataDirectory)
                     }
                 }
             }
@@ -201,7 +201,7 @@ struct NotificationsSettingsTab: View {
         let notification = AppNotification(
             type: .system,
             title: "Test Notification",
-            message: "This is a test notification from Ghostty Menubar"
+            message: "This is a test notification from Onibi"
         )
         EventBus.shared.publish(notification)
         
@@ -324,7 +324,7 @@ struct LogsSettingsTab: View {
     
     private func calculateStorageSize() {
         DispatchQueue.global(qos: .utility).async {
-            let logsPath = GhosttyConfig.appDataDirectory + "/logs.json"
+            let logsPath = OnibiConfig.appDataDirectory + "/logs.json"
             if let attrs = try? FileManager.default.attributesOfItem(atPath: logsPath),
                let size = attrs[.size] as? Int64 {
                 let sizeStr = ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
@@ -340,7 +340,7 @@ struct LogsSettingsTab: View {
     }
     
     private func clearAllLogs() {
-        let logsPath = GhosttyConfig.appDataDirectory + "/logs.json"
+        let logsPath = OnibiConfig.appDataDirectory + "/logs.json"
         try? FileManager.default.removeItem(atPath: logsPath)
         calculateStorageSize()
     }
@@ -545,7 +545,7 @@ struct AboutSettingsTab: View {
                 .foregroundColor(.accentColor)
             
             VStack(spacing: 8) {
-                Text("Ghostty Menubar")
+                Text("Onibi")
                     .font(.title)
                     .fontWeight(.bold)
                 

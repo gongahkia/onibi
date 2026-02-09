@@ -9,18 +9,18 @@ final class JSONStorageManager: StorageManager {
     private var isDirty = false
     private var flushTimer: Timer?
     private let flushInterval: TimeInterval
-    private let queue = DispatchQueue(label: "com.ghostty.storage", qos: .utility)
+    private let queue = DispatchQueue(label: "com.onibi.storage", qos: .utility)
     
     /// Storage file version for migrations
     private static let currentVersion = 1
     
     init(flushInterval: TimeInterval = 30.0) {
-        self.logsPath = GhosttyConfig.appDataDirectory + "/logs.json"
-        self.backupPath = GhosttyConfig.appDataDirectory + "/logs.backup.json"
+        self.logsPath = OnibiConfig.appDataDirectory + "/logs.json"
+        self.backupPath = OnibiConfig.appDataDirectory + "/logs.backup.json"
         self.flushInterval = flushInterval
         
         // Ensure directory exists
-        try? GhosttyConfig.ensureDirectoryExists()
+        try? OnibiConfig.ensureDirectoryExists()
         
         // Start periodic flush
         startPeriodicFlush()
@@ -193,7 +193,7 @@ private struct StorageWrapper: Codable {
 /// Extension for settings persistence using UserDefaults
 extension UserDefaults {
     private enum Keys {
-        static let settings = "com.ghostty.menubar.settings"
+        static let settings = "com.onibi.app.settings"
     }
     
     func saveSettings(_ settings: Settings) throws {

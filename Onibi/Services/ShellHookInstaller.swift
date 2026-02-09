@@ -31,57 +31,57 @@ final class ShellHookInstaller: ObservableObject {
         }
         
         // Marker comments for identification
-        static let startMarker = "# >>> ghostty-menubar >>>"
-        static let endMarker = "# <<< ghostty-menubar <<<"
+        static let startMarker = "# >>> onibi >>>"
+        static let endMarker = "# <<< onibi <<<"
         
         // Shell-specific scripts
         static let zshHookScript = """
-        # >>> ghostty-menubar >>>
-        # Ghostty Menubar Shell Integration - DO NOT EDIT
-        _ghostty_menubar_preexec() {
+        # >>> onibi >>>
+        # Onibi Shell Integration - DO NOT EDIT
+        _onibi_preexec() {
             local session_id="${TERM_SESSION_ID:-$$}"
-            echo "$(date -Iseconds)|CMD_START|$session_id|$1" >> ~/.config/ghostty-menubar/terminal.log
+            echo "$(date -Iseconds)|CMD_START|$session_id|$1" >> ~/.config/onibi/terminal.log
         }
         
-        _ghostty_menubar_precmd() {
+        _onibi_precmd() {
             local exit_code=$?
             local session_id="${TERM_SESSION_ID:-$$}"
-            echo "$(date -Iseconds)|CMD_END|$session_id|$exit_code" >> ~/.config/ghostty-menubar/terminal.log
+            echo "$(date -Iseconds)|CMD_END|$session_id|$exit_code" >> ~/.config/onibi/terminal.log
         }
         
         autoload -Uz add-zsh-hook
-        add-zsh-hook preexec _ghostty_menubar_preexec
-        add-zsh-hook precmd _ghostty_menubar_precmd
-        # <<< ghostty-menubar <<<
+        add-zsh-hook preexec _onibi_preexec
+        add-zsh-hook precmd _onibi_precmd
+        # <<< onibi <<<
         """
         
         static let bashHookScript = """
-        # >>> ghostty-menubar >>>
-        # Ghostty Menubar Shell Integration - DO NOT EDIT
-        _ghostty_menubar_preexec() {
+        # >>> onibi >>>
+        # Onibi Shell Integration - DO NOT EDIT
+        _onibi_preexec() {
             local session_id="${TERM_SESSION_ID:-$$}"
-            echo "$(date -Iseconds)|CMD_START|$session_id|$BASH_COMMAND" >> ~/.config/ghostty-menubar/terminal.log
+            echo "$(date -Iseconds)|CMD_START|$session_id|$BASH_COMMAND" >> ~/.config/onibi/terminal.log
         }
         
-        trap '_ghostty_menubar_preexec' DEBUG
+        trap '_onibi_preexec' DEBUG
         
-        PROMPT_COMMAND='_ghostty_mb_exit=$?; echo "$(date -Iseconds)|CMD_END|${TERM_SESSION_ID:-$$}|$_ghostty_mb_exit" >> ~/.config/ghostty-menubar/terminal.log; '$PROMPT_COMMAND
-        # <<< ghostty-menubar <<<
+        PROMPT_COMMAND='_onibi_exit=$?; echo "$(date -Iseconds)|CMD_END|${TERM_SESSION_ID:-$$}|$_onibi_exit" >> ~/.config/onibi/terminal.log; '$PROMPT_COMMAND
+        # <<< onibi <<<
         """
         
         static let fishHookScript = """
-        # >>> ghostty-menubar >>>
-        # Ghostty Menubar Shell Integration - DO NOT EDIT
-        function _ghostty_menubar_preexec --on-event fish_preexec
+        # >>> onibi >>>
+        # Onibi Shell Integration - DO NOT EDIT
+        function _onibi_preexec --on-event fish_preexec
             set -l session_id (echo $TERM_SESSION_ID; or echo %self)
-            echo (date -Iseconds)"|CMD_START|$session_id|$argv" >> ~/.config/ghostty-menubar/terminal.log
+            echo (date -Iseconds)"|CMD_START|$session_id|$argv" >> ~/.config/onibi/terminal.log
         end
         
-        function _ghostty_menubar_postexec --on-event fish_postexec
+        function _onibi_postexec --on-event fish_postexec
             set -l session_id (echo $TERM_SESSION_ID; or echo %self)
-            echo (date -Iseconds)"|CMD_END|$session_id|$status" >> ~/.config/ghostty-menubar/terminal.log
+            echo (date -Iseconds)"|CMD_END|$session_id|$status" >> ~/.config/onibi/terminal.log
         end
-        # <<< ghostty-menubar <<<
+        # <<< onibi <<<
         """
     }
     
@@ -150,7 +150,7 @@ final class ShellHookInstaller: ObservableObject {
         try createBackup(for: shell)
         
         // Ensure config directory exists
-        try GhosttyConfig.ensureDirectoryExists()
+        try OnibiConfig.ensureDirectoryExists()
         
         // Read existing content or create new file
         var existingContent = ""
@@ -177,7 +177,7 @@ final class ShellHookInstaller: ObservableObject {
     func createBackup(for shell: Shell) throws {
         guard rcFileExists(for: shell) else { return }
         
-        let backupPath = shell.rcFilePath + ".ghostty-menubar-backup"
+        let backupPath = shell.rcFilePath + ".onibi-backup"
         let fm = FileManager.default
         
         // Remove old backup if exists
@@ -222,7 +222,7 @@ final class ShellHookInstaller: ObservableObject {
     
     /// Test if hooks are working by writing a test entry
     func verify() -> Bool {
-        let testPath = GhosttyConfig.logFilePath
+        let testPath = OnibiConfig.logFilePath
         let testEntry = "\(ISO8601DateFormatter().string(from: Date()))|TEST|verification\n"
         
         do {
@@ -240,7 +240,7 @@ final class ShellHookInstaller: ObservableObject {
         } catch {
             // File might not exist yet, try creating
             do {
-                try GhosttyConfig.ensureDirectoryExists()
+                try OnibiConfig.ensureDirectoryExists()
                 try testEntry.write(toFile: testPath, atomically: true, encoding: .utf8)
                 return true
             } catch {

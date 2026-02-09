@@ -41,7 +41,7 @@ final class MenuBarController: ObservableObject {
         guard let button = statusItem?.button else { return }
         
         let iconName = hasNotifications ? "terminal.fill" : "terminal"
-        let image = NSImage(systemSymbolName: iconName, accessibilityDescription: "Ghostty Menubar")
+        let image = NSImage(systemSymbolName: iconName, accessibilityDescription: "Onibi")
         
         // Template image for proper light/dark mode adaptation
         image?.isTemplate = true

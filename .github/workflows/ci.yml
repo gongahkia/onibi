@@ -33,8 +33,8 @@ jobs:
       - name: Build
         run: |
           xcodebuild build \
-            -project GhosttyMenubar.xcodeproj \
-            -scheme GhosttyMenubar \
+            -project Onibi.xcodeproj \
+            -scheme Onibi \
             -configuration Debug \
             -destination 'platform=macOS' \
             CODE_SIGN_IDENTITY="" \
@@ -43,8 +43,8 @@ jobs:
       - name: Run Tests
         run: |
           xcodebuild test \
-            -project GhosttyMenubar.xcodeproj \
-            -scheme GhosttyMenubar \
+            -project Onibi.xcodeproj \
+            -scheme Onibi \
             -destination 'platform=macOS' \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO
@@ -53,8 +53,8 @@ jobs:
       - name: Build Release
         run: |
           xcodebuild build \
-            -project GhosttyMenubar.xcodeproj \
-            -scheme GhosttyMenubar \
+            -project Onibi.xcodeproj \
+            -scheme Onibi \
             -configuration Release \
             -destination 'platform=macOS' \
             -derivedDataPath build \
@@ -64,13 +64,13 @@ jobs:
       - name: Create App Bundle
         run: |
           mkdir -p artifacts
-          cp -R build/Build/Products/Release/GhosttyMenubar.app artifacts/
+          cp -R build/Build/Products/Release/Onibi.app artifacts/
       
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: GhosttyMenubar-${{ github.sha }}
-          path: artifacts/GhosttyMenubar.app
+          name: Onibi-${{ github.sha }}
+          path: artifacts/Onibi.app
           retention-days: 7
 
   release:
@@ -91,8 +91,8 @@ jobs:
       - name: Build Release
         run: |
           xcodebuild build \
-            -project GhosttyMenubar.xcodeproj \
-            -scheme GhosttyMenubar \
+            -project Onibi.xcodeproj \
+            -scheme Onibi \
             -configuration Release \
             -destination 'platform=macOS' \
             -derivedDataPath build \
@@ -102,13 +102,13 @@ jobs:
       - name: Create DMG
         run: |
           mkdir -p dmg-contents
-          cp -R build/Build/Products/Release/GhosttyMenubar.app dmg-contents/
-          hdiutil create -volname "GhosttyMenubar" -srcfolder dmg-contents -ov -format UDZO GhosttyMenubar.dmg
+          cp -R build/Build/Products/Release/Onibi.app dmg-contents/
+          hdiutil create -volname "Onibi" -srcfolder dmg-contents -ov -format UDZO Onibi.dmg
       
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: GhosttyMenubar.dmg
+          files: Onibi.dmg
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

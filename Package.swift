@@ -2,20 +2,20 @@
 import PackageDescription
 
 let package = Package(
-    name: "GhosttyMenubar",
+    name: "Onibi",
     platforms: [
         .macOS(.v13)
     ],
     products: [
-        .executable(name: "GhosttyMenubar", targets: ["GhosttyMenubar"])
+        .executable(name: "Onibi", targets: ["Onibi"])
     ],
     dependencies: [
     ],
     targets: [
         .executableTarget(
-            name: "GhosttyMenubar",
+            name: "Onibi",
             dependencies: [],
-            path: "GhosttyMenubar"
+            path: "Onibi"
         )
     ]
 )

@@ -32,7 +32,7 @@ final class LogFileTruncator: ObservableObject {
     
     /// Update current log file size
     func updateCurrentSize() {
-        let logPath = GhosttyConfig.logFilePath
+        let logPath = OnibiConfig.logFilePath
         
         if let attributes = try? fileManager.attributesOfItem(atPath: logPath),
            let size = attributes[.size] as? Int64 {
@@ -66,7 +66,7 @@ final class LogFileTruncator: ObservableObject {
     
     /// Rotate log file and truncate to keep only last N lines
     func rotateAndTruncate(keepLines: Int) throws {
-        let logPath = GhosttyConfig.logFilePath
+        let logPath = OnibiConfig.logFilePath
         
         guard fileManager.fileExists(atPath: logPath) else { return }
         
@@ -93,7 +93,7 @@ final class LogFileTruncator: ObservableObject {
     
     /// Rotate log files: terminal.log -> terminal.log.1 -> terminal.log.2 -> terminal.log.3 (max 3)
     func rotateLogFiles() throws {
-        let basePath = GhosttyConfig.logFilePath
+        let basePath = OnibiConfig.logFilePath
         let maxRotations = 3
         
         // Remove oldest rotation if exists
@@ -138,7 +138,7 @@ final class LogFileTruncator: ObservableObject {
     
     /// Get total size of logs directory
     func totalLogsDirectorySize() -> Int64 {
-        let logsDir = GhosttyConfig.appDataDirectory
+        let logsDir = OnibiConfig.appDataDirectory
         var totalSize: Int64 = 0
         
         if let enumerator = fileManager.enumerator(atPath: logsDir) {
@@ -156,7 +156,7 @@ final class LogFileTruncator: ObservableObject {
     
     /// Get list of rotated log files
     func getRotatedLogFiles() -> [URL] {
-        let basePath = GhosttyConfig.logFilePath
+        let basePath = OnibiConfig.logFilePath
         var files: [URL] = []
         
         for i in 1...3 {

@@ -22,7 +22,7 @@ final class LogsViewModel: ObservableObject {
         
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             // Load from JSON storage
-            let logsPath = GhosttyConfig.appDataDirectory + "/logs.json"
+            let logsPath = OnibiConfig.appDataDirectory + "/logs.json"
             
             var loadedLogs: [LogEntry] = []
             

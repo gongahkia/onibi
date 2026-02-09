@@ -1,5 +1,5 @@
 import XCTest
-@testable import GhosttyMenubar
+@testable import Onibi
 
 final class EventDetectorTests: XCTestCase {
     

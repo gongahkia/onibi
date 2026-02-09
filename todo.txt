@@ -1,0 +1,96 @@
+(B) Add NSLock guard around `customPatterns` property access in PatternRule.swift CustomPatternDetector class to prevent concurrent read/write races +stability +security
+(B) Add NSLock guard around `cachedLogs` and `isDirty` access in JSONStorageManager.swift to prevent data races on cache append/flush +stability +security
+(B) Add NSLock guard around `eventsProcessed` counter in BackgroundTaskScheduler.swift processLogLine method where it dispatches to global queue but publishes to main +stability +security
+(B) Close FileHandle in all error paths in LogBuffer.swift readNewContent method — wrap in defer block +stability
+(B) Invalidate flushTimer in JSONStorageManager.swift deinit using weak self capture in timer closure to break retain cycle +stability
+(B) Invalidate monitoring timer in LogFileTruncator.swift deinit to prevent orphaned timer +stability
+(B) Invalidate cleanup timer in SessionManager.swift deinit and add pruning of inactive sessions older than 24h to prevent memory leak +stability
+(B) Remove global event monitor in MenuBarController.swift cleanup method to prevent leak — store monitor reference and call NSEvent.removeMonitor +stability
+(B) Add defer { fileHandle.closeFile() } around all FileHandle usage in ErrorReporter.swift log writing to prevent resource leaks +stability
+(B) Replace fatalError in DependencyContainer.swift resolveRequired with throwing function or Optional return to prevent crashes in production +stability
+(B) Add do/catch with ErrorReporter logging around regex compilation failures in PatternRule.swift matches() method instead of silently returning false +stability
+(B) Add do/catch with ErrorReporter logging around regex compilation failures in LogFileParser.swift compilePatterns method instead of returning empty array +stability
+(B) Add JSON decode error logging in LogsViewModel.swift loadLogs method instead of silently returning empty array on failure +stability
+(B) Add JSON decode error logging in NotificationViewModel.swift loadNotifications to surface persistence corruption +stability
+(B) Validate Settings fields before saving in SettingsViewModel.swift — ensure retentionDays > 0, maxStorageMB > 0, clamp to sane ranges +stability
+(B) Add file rotation detection in LogBuffer.swift using file inode comparison (via FileManager.attributesOfItem) instead of naive size-only check +stability
+(B) Fix JSONStorageManager.swift line 138 JSON validation logic that always evaluates true — replace with actual JSONSerialization.isValidJSONObject check +stability
+(B) Add max buffer size limit (e.g. 64KB) in LogBuffer.swift partialLineBuffer to prevent unbounded memory growth from incomplete lines +stability
+(B) Ensure Unmanaged pointer in FileWatcher.swift FSEventStreamCreate is properly retained/released — add explicit release in stop method +stability
+(B) Add Codable encoding for sourceEvent property in AppNotification so notification context survives app restart +stability
+(B) Delete ContentView.swift — it is unused dead code since MenuBarView is the actual popover content +refactor
+(B) Remove stub methods attemptXPCConnection and checkMachPort from GhosttyIPCClient.swift — replace with real ghostty CLI integration +refactor
+(B) Extract hardcoded UserDefaults key strings in PatternRule.swift, NotificationViewModel.swift, SettingsViewModel.swift into a central UserDefaultsKeys enum +refactor
+(B) Extract hardcoded "1.0.0" version string in SettingsView.swift About tab to read from Bundle.main.infoDictionary CFBundleShortVersionString +refactor
+(B) Extract hardcoded popover size (360x520) in MenuBarView.swift and MenuBarController.swift into a shared Constants enum +refactor
+(B) Extract hardcoded notification sounds in NotificationManager.swift into Settings.notificationSoundName so users can configure +refactor
+(B) Extract hardcoded retention defaults (7 days, 100MB) in Settings.swift into clearly named static constants at top of file +refactor
+(B) Extract hardcoded log file path ~/.config/ghostty-menubar from FileWatcher.swift GhosttyConfig into Settings so it is user-configurable +refactor
+(B) Add user persona enum (powerUser, casual) to Settings model with stored preference +feature
+(B) Add persona selection step to OnboardingView.swift as first page — powerUser shows all config, casual shows simplified defaults +feature
+(B) Add persona toggle to SettingsView.swift General tab — switching persona shows/hides advanced settings sections +feature
+(B) Wire persona selection to SettingsView.swift so casual mode hides: filter rules tab, log retention config, notification throttle config +feature
+(B) Wire persona selection to MenuBarView.swift so casual mode shows simplified notification list without metadata/session details +feature
+(B) Add GhosttyCliService.swift service that wraps `ghostty +show-config` output parsing to read Ghostty's actual config +feature +integration
+(B) Replace manual config file reading in GhosttyConfigParser.swift with GhosttyCliService.showConfig() call as primary source, falling back to file parse +feature +integration
+(B) Add `ghostty +list-themes` integration in GhosttyCliService.swift to expose available Ghostty themes +feature +integration
+(B) Add theme sync option in SettingsView.swift Appearance tab that reads Ghostty's active theme via GhosttyCliService and applies matching menubar theme +feature +integration
+(B) Add OSC sequence detection to LogFileParser.swift — detect OSC 9 (BEL-terminated) and OSC 777 (ST-terminated) notification sequences in terminal output +feature +integration
+(B) Add NotificationType.terminalNotification case for OSC 9/777 detected notifications with appropriate icon and display name +feature +integration
+(B) Wire OSC-detected notifications through EventBus and NotificationManager so they surface as native macOS notifications +feature +integration
+(B) Add configurable log volume profile enum (light, moderate, heavy) to Settings that adjusts: FileWatcher debounce interval, LogBuffer read size, truncation thresholds +feature
+(B) Add log volume profile selector to SettingsView.swift Logs tab with descriptions of each profile's resource tradeoffs +feature
+(B) Add configurable notification throttle interval (seconds) to Settings.notificationPreferences instead of hardcoded 1s in BackgroundTaskScheduler +feature
+(B) Add configurable FalsePositiveReducer confidence threshold to Settings instead of hardcoded scoring weights +feature
+(B) Add confirmation alert before "Clear All Logs" action in SettingsView.swift line 342 +feature
+(B) Add confirmation alert before "Reset to Defaults" action in SettingsView.swift +feature
+(B) Add confirmation alert before "Quit" in MenuBarView.swift instead of immediate NSApplication.terminate +feature
+(B) Implement actual settings sheet presentation in MenuBarView.swift — currently the gear button sets showSettings but no sheet is shown +feature
+(B) Fix showLogsView state in MenuBarView.swift — currently set to true but nothing navigates to DetailedLogsView +feature
+(B) Add hasCompletedOnboarding check in GhosttyMenubarApp.swift applicationDidFinishLaunching to conditionally show OnboardingView on first launch +feature
+(B) Wire HotkeyManager in OnboardingView.swift to use addGlobalMonitorForEvents instead of addLocalMonitorForEvents so hotkey works when app is not focused +feature
+(B) Add debouncing (0.3s) to SettingsViewModel.swift settings save — use Combine debounce on $settings publisher instead of saving on every didSet +performance
+(B) Cache LogStatistics computation in LogsViewModel.swift using a dirty flag instead of recomputing on every access +performance
+(B) Move filteredLogs computation in DetailedLogsView.swift into a @State var updated via onChange instead of recomputing in body on every render +performance
+(B) Move log export in DetailedLogsView.swift to background thread using Task { } and show progress indicator instead of blocking main thread +performance
+(B) Fix CSV export in DetailedLogsView.swift to properly escape fields containing commas, quotes, and newlines per RFC 4180 +stability
+(B) Replace quadratic Text concatenation in DetailedLogsView.swift highlightedText with a single AttributedString pass +performance
+(B) Move storage size calculation in SettingsView.swift to onAppear of Logs tab only instead of running on every tab switch +performance
+(B) Cache compiled regex patterns in LogFileParser.swift compilePatterns — store in dictionary keyed by pattern string, reuse across calls +performance
+(B) Use single ISO8601DateFormatter instance in LogFileParser.swift with fractionalSeconds option instead of trying two formatters per line +performance
+(B) Replace Array-based PerformanceMonitor.samples in BackgroundTaskScheduler.swift with circular buffer to avoid array resizing +performance
+(B) Add periodic cleanup of recentHashes in FalsePositiveReducer.swift via timer instead of scanning on every shouldSuppress call +performance
+(B) Move SoundEffects.play calls in UIUtilities.swift to background thread to prevent main thread blocking +performance
+(B) Add [weak self] capture to all Timer and DispatchQueue closures in BackgroundTaskScheduler.swift, SessionManager.swift, LogFileTruncator.swift to prevent retain cycles +stability
+(B) Add max notification count setting to Settings (default 100 for casual, 500 for powerUser) instead of hardcoded 100 in NotificationViewModel +feature
+(B) Persist FalsePositiveReducer dismissalCounts to UserDefaults so adaptive throttling survives app restart +feature
+(B) Add regex pattern validation with user feedback in SettingsView.swift filter rule editor — show error if pattern is invalid before saving +feature
+(B) Guard against negative fontSize values in GhosttyConfigParser.swift parseColor/value parsing with validation +stability
+(B) Remove duplicate shell hook installation check — current alreadyInstalled in ShellHookInstaller.swift uses broad string contains match that can false positive on partial matches; use exact marker line match +stability
+(B) Add verify step after shell hook install in ShellHookInstaller.swift that cleans up the test log entry it writes +stability
+(B) Fix ShellHookInstaller.swift uninstall to preserve existing newlines — current aggressive newline removal can break rc file formatting +stability
+(B) Add backup rotation (keep last 3 backups) in ShellHookInstaller.swift instead of single backup that gets overwritten +stability
+(B) Add PROMPT_COMMAND collision check in FileWatcher.swift bash hook — check if already set before appending to avoid double-execution +stability
+(B) Fix badge count in MenuBarController.swift — add decrementNotificationCount method called on dismiss and wire clearAll to reset to zero +stability
+(B) Stop ShimmerEffect repeatForever animation in UIUtilities.swift when the loading state ends — use conditional animation modifier +performance
+(B) Make SuccessToast auto-dismiss duration configurable via parameter instead of hardcoded 2s in UIUtilities.swift +refactor
+(B) Add SwiftLint configuration file .swiftlint.yml with project-specific rules to make CI lint step pass consistently instead of continue-on-error +infra
+(B) Add test target to Package.swift referencing GhosttyMenubarTests directory so tests can run via swift test as well as xcodebuild +infra
+(B) Add unit tests for JSONStorageManager — test atomic write, backup recovery, cache flush, concurrent access +infra
+(B) Add unit tests for FalsePositiveReducer — test deduplication window, confidence scoring, suppression patterns +infra
+(B) Add unit tests for SessionManager — test session creation, activity recording, inactive pruning, cleanup +infra
+(B) Add unit tests for GhosttyConfigParser — test key=value parsing, key-value parsing, color parsing, invalid input +infra
+(B) Add unit tests for ShellHookInstaller — test install/uninstall for each shell, backup creation, collision detection +infra
+(B) Add integration test that exercises full pipeline: write log line → FileWatcher detects → LogBuffer reads → EventDetector matches → notification emitted +infra
+(B) Add DMG code signing step to ci.yml release job using Developer ID certificate for Gatekeeper compatibility +infra
+(B) Add notarization step to ci.yml release job using xcrun notarytool so users don't get Gatekeeper warnings +infra
+(B) Pin macos-latest to macos-14 in ci.yml to prevent CI breakage when GitHub updates runner images +infra
+(B) Add Xcode version matrix (15.0, 15.4) to ci.yml build-and-test job for forward compatibility testing +infra
+(B) Add GhosttyCliService.isGhosttyInstalled() check that verifies `ghostty` binary exists in PATH and returns version string +feature +integration
+(B) Show Ghostty version and config path in SettingsView.swift About tab via GhosttyCliService for user diagnostics +feature +integration
+(B) Add "Open Ghostty Config" button in SettingsView.swift that opens Ghostty config file in default editor via NSWorkspace +feature
+(B) Add "Copy Diagnostics" button in SettingsView.swift About tab that copies app version, Ghostty version, macOS version, log path to clipboard for bug reports +feature
+(B) Add menubar icon state for "Ghostty not running" vs "monitoring active" vs "new notifications" with distinct SF Symbol variants +feature
+(B) Add relative timestamp refresh timer in MenuBarView.swift NotificationCard so "2 min ago" updates without requiring scroll +feature
+(B) Limit ErrorReporter.swift stack trace capture to error severity only instead of all log entries to reduce overhead +performance
+(B) Add DependencyContainer cycle detection — track resolve stack and throw if same type requested recursively +stability

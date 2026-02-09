@@ -2,7 +2,7 @@ import SwiftUI
 import Combine
 
 @main
-struct GhosttyMenubarApp: App {
+struct OnibiApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     
     var body: some Scene {
@@ -17,7 +17,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Ensure app data directory exists
-        try? GhosttyConfig.ensureDirectoryExists()
+        try? OnibiConfig.ensureDirectoryExists()
         
         // Set up menubar controller
         menuBarController = MenuBarController()
@@ -36,8 +36,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menuBarController?.cleanup()
     }
     
-    /// Handle ghostty-menubar:// URLs
-    /// Format: ghostty-menubar://log/{logId} or ghostty-menubar://notification/{notificationId}
+    /// Handle onibi:// URLs
+    /// Format: onibi://log/{logId} or onibi://notification/{notificationId}
     @objc func handleURL(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
         guard let urlString = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
               let url = URL(string: urlString) else { return }
@@ -46,14 +46,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func handleDeepLink(_ url: URL) {
-        guard url.scheme == "ghostty-menubar" else { return }
+        guard url.scheme == "onibi" else { return }
         
         let host = url.host
         let pathComponents = url.pathComponents.filter { $0 != "/" }
         
         switch host {
         case "log":
-            // ghostty-menubar://log/{logId}
+            // onibi://log/{logId}
             if let logId = pathComponents.first {
                 NotificationCenter.default.post(
                     name: .openLogEntry,
@@ -63,7 +63,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             
         case "notification":
-            // ghostty-menubar://notification/{notificationId}
+            // onibi://notification/{notificationId}
             if let notificationId = pathComponents.first {
                 NotificationCenter.default.post(
                     name: .showNotificationInApp,
@@ -73,7 +73,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             
         case "open":
-            // ghostty-menubar://open - just open the popover
+            // onibi://open - just open the popover
             if let button = menuBarController?.statusItem?.button {
                 menuBarController?.openPopover(relativeTo: button)
             }

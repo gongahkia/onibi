@@ -67,7 +67,7 @@ struct MenuBarView: View {
                 .font(.title3)
                 .foregroundColor(.accentColor)
             
-            Text("Ghostty Menubar")
+            Text("Onibi")
                 .font(.headline)
                 .fontWeight(.semibold)
             
