@@ -7,6 +7,7 @@ struct MenuBarView: View {
     @StateObject private var ghosttyClient = GhosttyIPCClient.shared
     @State private var showSettings = false
     @State private var showClearConfirmation = false
+    @State private var showQuitConfirmation = false
     
     var body: some View {
         VStack(spacing: 0) {
@@ -170,12 +171,19 @@ struct MenuBarView: View {
             
             Spacer()
             
-            Button(action: { NSApplication.shared.terminate(nil) }) {
-                Text("Quit")
-                    .font(.caption)
+            Button("Quit") {
+                showQuitConfirmation = true
             }
             .buttonStyle(.plain)
             .foregroundColor(.secondary)
+            .alert("Quit Onibi?", isPresented: $showQuitConfirmation) {
+                Button("Cancel", role: .cancel) {}
+                Button("Quit", role: .destructive) {
+                    NSApplication.shared.terminate(nil)
+                }
+            } message: {
+                Text("Background monitoring will stop.")
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)

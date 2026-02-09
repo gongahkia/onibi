@@ -22,7 +22,6 @@ final class BackgroundTaskScheduler: ObservableObject {
     
     // Throttling
     private var notificationThrottle: [NotificationType: Date] = [:]
-    private let throttleInterval: TimeInterval = 1.0 // 1 second between same-type notifications
     
     // LRU Cache
     private var parsedCache = LRUCache<String, GhosttyEvent>(capacity: 1000)
@@ -46,7 +45,7 @@ final class BackgroundTaskScheduler: ObservableObject {
         setupLogBuffer()
         setupFileWatcher()
         
-        print("[BackgroundTaskScheduler] Started monitoring")
+        print("[BackgroundTaskScheduler] Started monitoring with profile: \(settings.logVolumeProfile.displayName)")
     }
     
     /// Stop background monitoring
@@ -79,7 +78,7 @@ final class BackgroundTaskScheduler: ObservableObject {
     private func setupFileWatcher() {
         // Watch the log directory for changes
         let logDir = URL(fileURLWithPath: settings.logFilePath).deletingLastPathComponent().path
-        fileWatcher = FileWatcher(path: logDir, debounceInterval: 0.5) { [weak self] in
+        fileWatcher = FileWatcher(path: logDir, debounceInterval: settings.logVolumeProfile.debounceInterval) { [weak self] in
             self?.processNewLogContent()
         }
         fileWatcher?.start()
@@ -89,11 +88,14 @@ final class BackgroundTaskScheduler: ObservableObject {
         EventBus.shared.settingsPublisher
             .sink { [weak self] newSettings in
                 guard let self = self else { return }
-                if newSettings.logFilePath != self.settings.logFilePath {
-                    self.settings = newSettings
+                
+                let restartRequired = newSettings.logFilePath != self.settings.logFilePath ||
+                                    newSettings.logVolumeProfile != self.settings.logVolumeProfile
+                
+                self.settings = newSettings
+                
+                if restartRequired {
                     self.restartMonitoring()
-                } else {
-                    self.settings = newSettings
                 }
             }
             .store(in: &cancellables)
@@ -239,7 +241,7 @@ final class BackgroundTaskScheduler: ObservableObject {
     private func shouldThrottle(_ type: NotificationType) -> Bool {
         let now = Date()
         if let lastTime = notificationThrottle[type],
-            now.timeIntervalSince(lastTime) < throttleInterval {
+            now.timeIntervalSince(lastTime) < settings.notifications.throttleInterval {
             return true
         }
         notificationThrottle[type] = now
@@ -250,7 +252,7 @@ final class BackgroundTaskScheduler: ObservableObject {
         switch type {
         case .commandStart, .commandEnd:
             return .command
-        case .output, .aiResponse, .taskComplete, .build, .test:
+        case .output, .aiResponse, .taskComplete, .build, .test, .terminalNotification:
             return .output
         }
     }

@@ -11,6 +11,7 @@ struct NotificationPreferences: Codable, Equatable {
     var showBadge: Bool
     var autoExpireMinutes: Int?
     var useNativeNotifications: Bool
+    var throttleInterval: TimeInterval
     
     var soundMap: [NotificationType: String?]
     
@@ -24,12 +25,14 @@ struct NotificationPreferences: Codable, Equatable {
         showBadge: Bool = true,
         autoExpireMinutes: Int? = nil,
         useNativeNotifications: Bool = true,
+        throttleInterval: TimeInterval = 1.0,
         soundMap: [NotificationType: String?] = [
             .system: nil,
             .taskCompletion: "Glass",
             .aiOutput: "Ping",
             .devWorkflow: "Pop",
-            .automation: "Purr"
+            .automation: "Purr",
+            .terminalNotification: "Ping"
         ]
     ) {
         self.enableSystem = enableSystem
@@ -41,6 +44,7 @@ struct NotificationPreferences: Codable, Equatable {
         self.showBadge = showBadge
         self.autoExpireMinutes = autoExpireMinutes
         self.useNativeNotifications = useNativeNotifications
+        self.throttleInterval = throttleInterval
         self.soundMap = soundMap
     }
     

@@ -113,9 +113,19 @@ struct GeneralSettingsTab: View {
         }
     }
     
+    @State private var showResetConfirmation = false
+
     private var resetButton: some View {
         Button("Reset to Defaults") {
-            viewModel.resetToDefaults()
+            showResetConfirmation = true
+        }
+        .alert("Reset Settings?", isPresented: $showResetConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Reset", role: .destructive) {
+                viewModel.resetToDefaults()
+            }
+        } message: {
+            Text("This will restore all settings to their default values. This action cannot be undone.")
         }
     }
 }
@@ -156,6 +166,23 @@ struct NotificationsSettingsTab: View {
                     Text("15 minutes").tag(15 as Int?)
                     Text("30 minutes").tag(30 as Int?)
                     Text("1 hour").tag(60 as Int?)
+                }
+                
+                if viewModel.settings.userPersona == .powerUser {
+                    HStack {
+                        Text("Throttle interval")
+                        Spacer()
+                        Slider(value: $viewModel.settings.notifications.throttleInterval, in: 0...5, step: 0.1) {
+                            Text("Interval")
+                        }
+                        .frame(width: 150)
+                        
+                        Text(String(format: "%.1fs", viewModel.settings.notifications.throttleInterval))
+                            .monospacedDigit()
+                            .frame(width: 40, alignment: .trailing)
+                            .foregroundColor(.secondary)
+                    }
+                    .help("Minimum time between notifications of the same type")
                 }
             }
             
@@ -322,6 +349,22 @@ struct LogsSettingsTab: View {
     
     var body: some View {
         Form {
+            Section("Performance Profile") {
+                Picker("Log Volume", selection: $viewModel.settings.logVolumeProfile) {
+                    ForEach(LogVolumeProfile.allCases, id: \.self) { profile in
+                        Text(profile.displayName).tag(profile)
+                    }
+                }
+                .pickerStyle(.menu)
+                .onChange(of: viewModel.settings.logVolumeProfile) { newValue in
+                    viewModel.settings.maxLogFileSizeMB = newValue.maxFileSizeMB
+                }
+                
+                Text(viewModel.settings.logVolumeProfile.description)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
             if viewModel.settings.userPersona == .powerUser {
                 Section("Retention") {
                     Picker("Keep logs for", selection: $viewModel.settings.logRetentionDays) {
