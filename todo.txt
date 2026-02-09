@@ -1,8 +1,3 @@
-(B) Add `ghostty +list-themes` integration in GhosttyCliService.swift to expose available Ghostty themes +feature +integration
-(B) Add theme sync option in SettingsView.swift Appearance tab that reads Ghostty's active theme via GhosttyCliService and applies matching menubar theme +feature +integration
-(B) Add OSC sequence detection to LogFileParser.swift — detect OSC 9 (BEL-terminated) and OSC 777 (ST-terminated) notification sequences in terminal output +feature +integration
-(B) Add NotificationType.terminalNotification case for OSC 9/777 detected notifications with appropriate icon and display name +feature +integration
-(B) Wire OSC-detected notifications through EventBus and NotificationManager so they surface as native macOS notifications +feature +integration
 (B) Add configurable log volume profile enum (light, moderate, heavy) to Settings that adjusts: FileWatcher debounce interval, LogBuffer read size, truncation thresholds +feature
 (B) Add log volume profile selector to SettingsView.swift Logs tab with descriptions of each profile's resource tradeoffs +feature
 (B) Add configurable notification throttle interval (seconds) to Settings.notificationPreferences instead of hardcoded 1s in BackgroundTaskScheduler +feature
