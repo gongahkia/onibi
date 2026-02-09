@@ -3,19 +3,6 @@
 # Tags: +feature, +refactor, +infra, +security, +test
 
 
-## UNIT TESTING
-(B) Create XCTest target GhosttyMenubarTests in Xcode project +test
-(B) Write LogFileParserTests: test each log line format (CMD_START, CMD_END, output patterns) +test
-(B) Write EventDetectorTests: test AIResponseDetector, TaskCompletionDetector with positive/negative cases +test
-(B) Write LogBufferTests: test incremental reading, partial line handling, file rotation detection +test
-(B) Write JSONStorageManagerTests: test atomic writes, backup rotation, corrupted file recovery +test
-(B) Write LRUCacheTests: test capacity limits, eviction order, thread safety +test
-(B) Write FilterRuleTests: test pattern matching for contains, prefix, suffix, regex modes +test
-(B) Write SettingsViewModelTests: test persistence, import/export, reset to defaults +test
-(B) Write NotificationViewModelTests: test add, dismiss, clearAll, persistence across restarts +test
-(B) Create MockEventBus for testing components in isolation without side effects +test
-(B) Write ShellHookInstallerTests using temporary directories for rc file modifications +test
-
 ## GITHUB ACTIONS CI/CD
 (B) Create .github/workflows/ci.yml with macOS-latest runner +infra
 (B) Add checkout, setup-xcode steps with Xcode 15+ for Swift 5.9 compatibility +infra
