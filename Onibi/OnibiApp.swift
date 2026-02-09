@@ -52,15 +52,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var menuBarController: MenuBarController?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Configure as menubar-only app (no dock icon, no auto-opening windows)
-        NSApp.setActivationPolicy(.accessory)
-        
-        // Close any windows that SwiftUI may have auto-opened (like Settings)
+        // Close the Settings window if it auto-opened (SwiftUI behavior for menubar apps)
         // We need a slight delay to let SwiftUI finish its initial setup
-        DispatchQueue.main.async {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             for window in NSApp.windows {
-                // Don't close the invisible command-handler window
-                if window.title != "" && window.identifier?.rawValue != "command-handler" {
+                // Close only the Settings window (has "General" or similar title from Settings scene)
+                // The Settings window typically has these characteristics
+                if window.title == "General" || 
+                   window.title == "Settings" ||
+                   window.title == "Preferences" ||
+                   (window.contentViewController != nil && 
+                    String(describing: type(of: window.contentViewController!)).contains("Settings")) {
                     window.close()
                 }
             }
