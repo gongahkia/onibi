@@ -239,12 +239,49 @@ struct AppearanceSettingsTab: View {
     var body: some View {
         Form {
             Section("Theme") {
-                Picker("Appearance", selection: $viewModel.settings.theme) {
-                    ForEach(Theme.allCases, id: \.self) { theme in
-                        Text(theme.displayName).tag(theme)
+                Toggle("Sync with Ghostty", isOn: $viewModel.settings.syncThemeWithGhostty)
+                    .onChange(of: viewModel.settings.syncThemeWithGhostty) { newValue in
+                        if newValue {
+                            viewModel.syncGhosttyTheme()
+                        }
+                    }
+                
+                if !viewModel.settings.syncThemeWithGhostty {
+                    Picker("Appearance", selection: $viewModel.settings.theme) {
+                        ForEach(Theme.allCases, id: \.self) { theme in
+                            Text(theme.displayName).tag(theme)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                } else {
+                    Text("Theme is synchronized with Ghostty configuration")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    if let custom = viewModel.settings.customTheme {
+                        HStack {
+                            Text("Background")
+                            Spacer()
+                            ColorPreview(hex: custom.backgroundColor)
+                        }
+                        HStack {
+                            Text("Foreground")
+                            Spacer()
+                            ColorPreview(hex: custom.foregroundColor)
+                        }
+                    } else {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                                .scaleEffect(0.5)
+                            Spacer()
+                        }
+                        .onAppear {
+                            // Trigger sync if missing
+                            viewModel.syncGhosttyTheme()
+                        }
                     }
                 }
-                .pickerStyle(.segmented)
             }
             
             Section("Menubar Icon") {

@@ -35,12 +35,32 @@ final class SettingsViewModel: ObservableObject {
         settings = try decoder.decode(Settings.self, from: data)
     }
     
-    /// Export settings to JSON file
     func exportSettings(to url: URL) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(settings)
         try data.write(to: url)
+    }
+    
+    /// Sync theme from Ghostty configuration
+    func syncGhosttyTheme() {
+        Task {
+            let config = await GhosttyConfigParser.fetchConfig()
+            
+            // Extract colors
+            if let bg = config.backgroundColor, let fg = config.foregroundColor {
+                let customTheme = CustomTheme(
+                    backgroundColor: bg,
+                    foregroundColor: fg,
+                    accentColor: config.cursorColor
+                )
+                
+                await MainActor.run {
+                    self.settings.customTheme = customTheme
+                    self.settings.syncThemeWithGhostty = true
+                }
+            }
+        }
     }
     
     // MARK: - Private

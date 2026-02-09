@@ -1,8 +1,17 @@
 import Foundation
 
+/// Custom theme colors, e.g. from Ghostty sync
+struct CustomTheme: Codable, Equatable {
+    var backgroundColor: String
+    var foregroundColor: String
+    var accentColor: String?
+}
+
 /// User preferences and app configuration
 struct Settings: Codable, Equatable {
     var theme: Theme
+    var syncThemeWithGhostty: Bool
+    var customTheme: CustomTheme?
     var userPersona: UserPersona
     var notifications: NotificationPreferences
     var logRetentionDays: Int
@@ -25,6 +34,8 @@ struct Settings: Codable, Equatable {
     
     init(
         theme: Theme = .system,
+        syncThemeWithGhostty: Bool = false,
+        customTheme: CustomTheme? = nil,
         userPersona: UserPersona = .casual,
         notifications: NotificationPreferences = NotificationPreferences(),
         logRetentionDays: Int = Defaults.logRetentionDays,
@@ -38,6 +49,8 @@ struct Settings: Codable, Equatable {
         logFilePath: String = Defaults.logFilePath
     ) {
         self.theme = theme
+        self.syncThemeWithGhostty = syncThemeWithGhostty
+        self.customTheme = customTheme
         self.userPersona = userPersona
         self.notifications = notifications
         self.logRetentionDays = logRetentionDays
