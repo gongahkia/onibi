@@ -147,7 +147,6 @@ final class JSONStorageManager: StorageManager {
         let data = try Data(contentsOf: url)
         
         // Validate JSON
-        // Validate JSON
         let jsonObject = try JSONSerialization.jsonObject(with: data)
         guard JSONSerialization.isValidJSONObject(jsonObject) else {
             throw StorageError.corruptedData
