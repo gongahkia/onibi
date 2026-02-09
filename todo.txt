@@ -3,23 +3,6 @@
 # Tech Stack: Swift + SwiftUI | UI Style: Minimalist/clean (Bartender/Hidden Bar inspired)
 # Max 150 tasks | Format: todo.txt
 
-## USER EXPERIENCE ENHANCEMENTS
-Implement onboarding flow for first-time users
-Create tutorial tooltips for main features
-Add keyboard shortcuts for common actions (⌘K for search, ⌘, for settings)
-Implement context menus for right-click interactions
-Create Quick Actions for macOS Spotlight integration
-Add drag-and-drop support for exporting log entries
-Implement notification grouping by project or workspace
-Create smart notifications (learn from user dismissal patterns)
-Add notification snooze functionality
-Implement custom notification rules (if X then notify)
-Create notification summary view (daily/weekly digest)
-Add integration with macOS Notification Center (optional)
-Implement deep linking from notifications to terminal
-Create hotkey for showing/hiding menubar dropdown
-Add support for multiple Ghostty instances/profiles
-
 ## POLISH & OPTIMIZATION
 Implement smooth animations for all UI transitions
 Add micro-interactions for delightful UX
