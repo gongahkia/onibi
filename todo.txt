@@ -1,10 +1,3 @@
-(B) Add configurable log volume profile enum (light, moderate, heavy) to Settings that adjusts: FileWatcher debounce interval, LogBuffer read size, truncation thresholds +feature
-(B) Add log volume profile selector to SettingsView.swift Logs tab with descriptions of each profile's resource tradeoffs +feature
-(B) Add configurable notification throttle interval (seconds) to Settings.notificationPreferences instead of hardcoded 1s in BackgroundTaskScheduler +feature
-(B) Add configurable FalsePositiveReducer confidence threshold to Settings instead of hardcoded scoring weights +feature
-(B) Add confirmation alert before "Clear All Logs" action in SettingsView.swift line 342 +feature
-(B) Add confirmation alert before "Reset to Defaults" action in SettingsView.swift +feature
-(B) Add confirmation alert before "Quit" in MenuBarView.swift instead of immediate NSApplication.terminate +feature
 (B) Implement actual settings sheet presentation in MenuBarView.swift — currently the gear button sets showSettings but no sheet is shown +feature
 (B) Fix showLogsView state in MenuBarView.swift — currently set to true but nothing navigates to DetailedLogsView +feature
 (B) Add hasCompletedOnboarding check in GhosttyMenubarApp.swift applicationDidFinishLaunching to conditionally show OnboardingView on first launch +feature
