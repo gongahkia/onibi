@@ -1,4 +1,3 @@
-(B) Add debouncing (0.3s) to SettingsViewModel.swift settings save — use Combine debounce on $settings publisher instead of saving on every didSet +performance
 (B) Cache LogStatistics computation in LogsViewModel.swift using a dirty flag instead of recomputing on every access +performance
 (B) Move filteredLogs computation in DetailedLogsView.swift into a @State var updated via onChange instead of recomputing in body on every render +performance
 (B) Move log export in DetailedLogsView.swift to background thread using Task { } and show progress indicator instead of blocking main thread +performance

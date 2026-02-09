@@ -3,13 +3,19 @@ import Combine
 
 /// ViewModel for the detailed logs viewer
 final class LogsViewModel: ObservableObject {
-    @Published var logs: [LogEntry] = []
+    @Published var logs: [LogEntry] = [] {
+        didSet { invalidateStatisticsCache() }
+    }
     @Published var isLoading: Bool = false
     @Published var activeFilters: [String] = []
     @Published var errorMessage: String?
     
     private let eventBus = EventBus.shared
     private var cancellables = Set<AnyCancellable>()
+    
+    // Cache for statistics computation
+    private var cachedStatistics: LogStatistics?
+    private var isStatisticsDirty = true
     
     init() {
         setupSubscriptions()
@@ -59,18 +65,30 @@ final class LogsViewModel: ObservableObject {
         activeFilters.removeAll()
     }
     
-    /// Get statistics
+    /// Get statistics (cached)
     var statistics: LogStatistics {
-        LogStatistics(
+        if !isStatisticsDirty, let cached = cachedStatistics {
+            return cached
+        }
+        
+        let stats = LogStatistics(
             totalCommands: logs.count,
             successfulCommands: logs.filter { $0.exitCode == 0 }.count,
             failedCommands: logs.filter { ($0.exitCode ?? 0) != 0 }.count,
             aiQueries: logs.filter { $0.metadata["source"] == "ai" }.count,
             taskCompletions: logs.filter { $0.metadata["source"] == "task" }.count
         )
+        
+        cachedStatistics = stats
+        isStatisticsDirty = false
+        return stats
     }
     
     // MARK: - Private
+    
+    private func invalidateStatisticsCache() {
+        isStatisticsDirty = true
+    }
     
     private func setupSubscriptions() {
         eventBus.logPublisher
