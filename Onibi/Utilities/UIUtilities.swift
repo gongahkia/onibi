@@ -39,6 +39,7 @@ struct PressEffect: ViewModifier {
 
 struct ShimmerEffect: ViewModifier {
     @State private var phase: CGFloat = 0
+    let isLoading: Bool
     
     func body(content: Content) -> some View {
         content
@@ -56,8 +57,22 @@ struct ShimmerEffect: ViewModifier {
             )
             .clipped()
             .onAppear {
-                withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
-                    phase = 1
+                if isLoading {
+                    withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
+                        phase = 1
+                    }
+                }
+            }
+            .onChange(of: isLoading) { loading in
+                if loading {
+                    withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
+                        phase = 1
+                    }
+                } else {
+                    // Stop animation when loading ends
+                    withAnimation(.linear(duration: 0)) {
+                        phase = 0
+                    }
                 }
             }
     }
@@ -68,8 +83,8 @@ extension View {
         modifier(PressEffect())
     }
     
-    func shimmer() -> some View {
-        modifier(ShimmerEffect())
+    func shimmer(isLoading: Bool = true) -> some View {
+        modifier(ShimmerEffect(isLoading: isLoading))
     }
 }
 
@@ -145,6 +160,13 @@ struct ErrorView: View {
 struct SuccessToast: View {
     let message: String
     @Binding var isShowing: Bool
+    let duration: TimeInterval
+    
+    init(message: String, isShowing: Binding<Bool>, duration: TimeInterval = 2.0) {
+        self.message = message
+        self._isShowing = isShowing
+        self.duration = duration
+    }
     
     var body: some View {
         if isShowing {
@@ -161,7 +183,7 @@ struct SuccessToast: View {
             .shadow(radius: 4)
             .transition(.move(edge: .top).combined(with: .opacity))
             .onAppear {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
                     withAnimation { isShowing = false }
                 }
             }
@@ -342,15 +364,18 @@ final class SoundEffects {
     func play(_ sound: SystemSound) {
         guard enabled else { return }
         
-        switch sound {
-        case .click:
-            NSSound(named: "Pop")?.play()
-        case .success:
-            NSSound(named: "Glass")?.play()
-        case .notification:
-            NSSound(named: "Ping")?.play()
-        case .error:
-            NSSound(named: "Basso")?.play()
+        // Move to background thread to prevent main thread blocking
+        DispatchQueue.global(qos: .userInitiated).async {
+            switch sound {
+            case .click:
+                NSSound(named: "Pop")?.play()
+            case .success:
+                NSSound(named: "Glass")?.play()
+            case .notification:
+                NSSound(named: "Ping")?.play()
+            case .error:
+                NSSound(named: "Basso")?.play()
+            }
         }
     }
     
