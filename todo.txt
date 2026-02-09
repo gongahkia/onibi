@@ -1,5 +1,4 @@
 (B) Add unit tests for JSONStorageManager — test atomic write, backup recovery, cache flush, concurrent access +infra
-(B) Add unit tests for SessionManager — test session creation, activity recording, inactive pruning, cleanup +infra
 (B) Add unit tests for GhosttyConfigParser — test key=value parsing, key-value parsing, color parsing, invalid input +infra
 (B) Add unit tests for ShellHookInstaller — test install/uninstall for each shell, backup creation, collision detection +infra
 (B) Add integration test that exercises full pipeline: write log line → FileWatcher detects → LogBuffer reads → EventDetector matches → notification emitted +infra
