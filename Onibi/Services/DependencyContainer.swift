@@ -6,6 +6,7 @@ final class DependencyContainer {
     
     private var services: [String: Any] = [:]
     private let lock = NSLock()
+    private var resolvingStack: [String] = []
     
     private init() {
         registerDefaultServices()
@@ -33,17 +34,27 @@ final class DependencyContainer {
         services[key] = instance
     }
     
-    /// Resolve a service
+    /// Resolve a service with cycle detection
     func resolve<T>(_ type: T.Type) -> T? {
         let key = String(describing: type)
         lock.lock()
         defer { lock.unlock() }
+        
+        // Check for circular dependency
+        if resolvingStack.contains(key) {
+            let cycle = (resolvingStack + [key]).joined(separator: " -> ")
+            fatalError("Circular dependency detected: \(cycle)")
+        }
         
         if let instance = services[key] as? T {
             return instance
         }
         
         if let factory = services[key] as? () -> T {
+            // Track this type in the resolve stack
+            resolvingStack.append(key)
+            defer { resolvingStack.removeLast() }
+            
             let instance = factory()
             services[key] = instance
             return instance
@@ -54,6 +65,7 @@ final class DependencyContainer {
     
     enum ServiceError: Error {
         case serviceNotFound(String)
+        case circularDependency(String)
     }
 
     /// Resolve a service or throw if not found

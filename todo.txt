@@ -1,3 +1,0 @@
-(B) Add unit tests for JSONStorageManager — test atomic write, backup recovery, cache flush, concurrent access +infra
-(B) Limit ErrorReporter.swift stack trace capture to error severity only instead of all log entries to reduce overhead +performance
-(B) Add DependencyContainer cycle detection — track resolve stack and throw if same type requested recursively +stability
