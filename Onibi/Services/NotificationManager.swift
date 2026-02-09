@@ -66,7 +66,7 @@ final class NotificationManager: NSObject, ObservableObject {
             
             return granted
         } catch {
-            print("[NotificationManager] Authorization error: \(error)")
+            Log.notifications.error("authorization error: \(error.localizedDescription)")
             return false
         }
     }
@@ -147,7 +147,7 @@ final class NotificationManager: NSObject, ObservableObject {
         do {
             try await center.add(request)
         } catch {
-            print("[NotificationManager] Failed to send notification: \(error)")
+            Log.notifications.error("failed to send notification: \(error.localizedDescription)")
         }
     }
     
@@ -166,7 +166,7 @@ final class NotificationManager: NSObject, ObservableObject {
         do {
             try await center.setBadgeCount(count)
         } catch {
-            print("[NotificationManager] Failed to set badge: \(error)")
+            Log.notifications.error("failed to set badge: \(error.localizedDescription)")
         }
     }
     

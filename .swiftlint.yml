@@ -11,9 +11,6 @@ disabled_rules:
   - trailing_whitespace
   - opening_brace
   - identifier_name
-  - force_cast
-  - force_try
-  - force_unwrapping
   - nesting
   - type_body_length
   - file_length

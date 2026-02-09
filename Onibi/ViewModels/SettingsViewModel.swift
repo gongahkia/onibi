@@ -80,7 +80,7 @@ final class SettingsViewModel: ObservableObject {
             let data = try encoder.encode(settings)
             UserDefaults.standard.set(data, forKey: settingsKey)
         } catch {
-            print("Failed to save settings: \(error)")
+            Log.settings.error("failed to save settings: \(error.localizedDescription)")
         }
     }
     

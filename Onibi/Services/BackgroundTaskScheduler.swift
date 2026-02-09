@@ -45,7 +45,7 @@ final class BackgroundTaskScheduler: ObservableObject {
         setupLogBuffer()
         setupFileWatcher()
         
-        print("[BackgroundTaskScheduler] Started monitoring with profile: \(settings.logVolumeProfile.displayName)")
+        Log.scheduler.info("started monitoring with profile: \(self.settings.logVolumeProfile.displayName)")
     }
     
     /// Stop background monitoring
@@ -59,7 +59,7 @@ final class BackgroundTaskScheduler: ObservableObject {
             try? await storageManager.flushToDisk()
         }
         
-        print("[BackgroundTaskScheduler] Stopped")
+        Log.scheduler.info("stopped")
     }
     
     /// Force a manual log refresh

@@ -123,7 +123,7 @@ final class SessionManager: ObservableObject {
         }
         
         if activeSessions.count < initialCount {
-            print("[SessionManager] Pruned \(initialCount - activeSessions.count) stale sessions")
+            Log.sessions.info("pruned \(initialCount - self.activeSessions.count) stale sessions")
         }
     }
     

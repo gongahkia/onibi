@@ -146,7 +146,7 @@ final class ErrorReporter: ObservableObject {
                 // Rotate if too large (> 1MB)
                 self.rotateLogIfNeeded()
             } catch {
-                print("[ErrorReporter] Failed to write error log: \(error)")
+                Log.errors.error("failed to write error log: \(error.localizedDescription)")
             }
         }
     }

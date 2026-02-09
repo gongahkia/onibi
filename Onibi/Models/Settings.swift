@@ -66,13 +66,22 @@ struct AppSettings: Codable, Equatable {
     var playNotificationSounds: Bool
     var filterRules: [FilterRule]
     var logFilePath: String
-    
+    var ghosttyBundleId: String
+    var ghosttyBinaryPath: String
+    var maxErrorLogSizeBytes: Int64
+    var errorLogMaxRotations: Int
+    var notificationDeduplicationWindow: TimeInterval
     enum Defaults {
         static let logRetentionDays = 7
         static let maxStorageMB = 100
         static let maxLogFileSizeMB = 10
         static let maxLogLines = 10000
         static let logFilePath = NSHomeDirectory() + "/.config/onibi/terminal.log"
+        static let ghosttyBundleId = "com.mitchellh.ghostty"
+        static let ghosttyBinaryPath = "/usr/local/bin/ghostty"
+        static let maxErrorLogSizeBytes: Int64 = 1_000_000
+        static let errorLogMaxRotations = 3
+        static let notificationDeduplicationWindow: TimeInterval = 5.0
         static func maxNotificationCount(for persona: UserPersona) -> Int {
             switch persona {
             case .casual: return 100
