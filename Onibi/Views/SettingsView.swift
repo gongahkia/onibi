@@ -765,6 +765,12 @@ struct AboutSettingsTab: View {
                                 .textSelection(.enabled)
                                 .lineLimit(1)
                         }
+                        
+                        Button(action: openGhosttyConfig) {
+                            Label("Open Ghostty Config", systemImage: "doc.text")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(ghosttyConfigPath.isEmpty || !FileManager.default.fileExists(atPath: ghosttyConfigPath))
                     }
                     .padding(.leading, 8)
                 } else {
@@ -817,6 +823,15 @@ struct AboutSettingsTab: View {
         if ghosttyConfigPath.isEmpty {
             ghosttyConfigPath = OnibiConfig.configLocations.first ?? "Not found"
         }
+    }
+    
+    private func openGhosttyConfig() {
+        guard !ghosttyConfigPath.isEmpty, FileManager.default.fileExists(atPath: ghosttyConfigPath) else {
+            return
+        }
+        
+        let url = URL(fileURLWithPath: ghosttyConfigPath)
+        NSWorkspace.shared.open(url)
     }
 }
 
