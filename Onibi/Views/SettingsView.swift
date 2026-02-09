@@ -405,7 +405,6 @@ struct LogsSettingsTab: View {
                     Text(storageSize)
                         .foregroundColor(.secondary)
                 }
-                .onAppear { calculateStorageSize() }
             }
             
             Section("Management") {
@@ -424,6 +423,7 @@ struct LogsSettingsTab: View {
         }
         .formStyle(.grouped)
         .navigationTitle("Logs")
+        .onAppear { calculateStorageSize() }
     }
     
     private func calculateStorageSize() {
