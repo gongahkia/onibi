@@ -208,23 +208,50 @@ final class ShellHookInstaller: ObservableObject {
     func uninstall(from shell: Shell) throws {
         guard rcFileExists(for: shell) else { return }
         
-        var contents = try String(contentsOfFile: shell.rcFilePath, encoding: .utf8)
+        let contents = try String(contentsOfFile: shell.rcFilePath, encoding: .utf8)
         
-        // Find and remove the hook section
-        if let startRange = contents.range(of: Shell.startMarker),
-           let endRange = contents.range(of: Shell.endMarker) {
-            // Extend to include newlines
-            let fullStart = contents.lineRange(for: startRange).lowerBound
-            var fullEnd = contents.lineRange(for: endRange).upperBound
-            
-            // Remove trailing newlines
-            while fullEnd < contents.endIndex && contents[fullEnd].isNewline {
-                fullEnd = contents.index(after: fullEnd)
+        // Find and remove the hook section line by line to preserve file formatting
+        var lines = contents.components(separatedBy: "\n")
+        var inHookSection = false
+        var indicesToRemove: [Int] = []
+        
+        for (index, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed == Shell.startMarker {
+                inHookSection = true
             }
-            
-            contents.removeSubrange(fullStart..<fullEnd)
-            try contents.write(toFile: shell.rcFilePath, atomically: true, encoding: .utf8)
+            if inHookSection {
+                indicesToRemove.append(index)
+            }
+            if trimmed == Shell.endMarker {
+                inHookSection = false
+            }
         }
+        
+        // Remove from end to start to keep indices valid
+        for index in indicesToRemove.reversed() {
+            lines.remove(at: index)
+        }
+        
+        // Remove at most 2 blank lines that may precede the removed section
+        // (since we typically add \n\n before the hook script)
+        var blankLinesRemoved = 0
+        if let firstRemovedIndex = indicesToRemove.first {
+            var checkIndex = min(firstRemovedIndex, lines.count)
+            while checkIndex > 0 && blankLinesRemoved < 2 {
+                let prevIndex = checkIndex - 1
+                if prevIndex < lines.count && lines[prevIndex].trimmingCharacters(in: .whitespaces).isEmpty {
+                    lines.remove(at: prevIndex)
+                    blankLinesRemoved += 1
+                    checkIndex -= 1
+                } else {
+                    break
+                }
+            }
+        }
+        
+        let newContents = lines.joined(separator: "\n")
+        try newContents.write(toFile: shell.rcFilePath, atomically: true, encoding: .utf8)
         
         // Update status
         DispatchQueue.main.async {
