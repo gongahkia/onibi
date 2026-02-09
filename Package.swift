@@ -16,6 +16,11 @@ let package = Package(
             name: "Onibi",
             dependencies: [],
             path: "Onibi"
+        ),
+        .testTarget(
+            name: "OnibiTests",
+            dependencies: ["Onibi"],
+            path: "OnibiTests"
         )
     ]
 )
