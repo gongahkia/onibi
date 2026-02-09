@@ -20,6 +20,9 @@ final class EventBus: ObservableObject {
     /// Publisher for errors
     let errorPublisher = PassthroughSubject<Error, Never>()
     
+    /// Publisher for notification count changes (delta: -1 for dismiss, Int.min for clearAll)
+    let notificationCountDeltaPublisher = PassthroughSubject<Int, Never>()
+    
     private init() {}
     
     /// Publish a new event

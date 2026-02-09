@@ -21,6 +21,7 @@ final class NotificationViewModel: ObservableObject {
             notifications.removeAll { $0.id == notification.id }
         }
         saveNotifications()
+        eventBus.notificationCountDeltaPublisher.send(-1)
     }
     
     /// Clear all notifications
@@ -29,6 +30,7 @@ final class NotificationViewModel: ObservableObject {
             notifications.removeAll()
         }
         saveNotifications()
+        eventBus.notificationCountDeltaPublisher.send(Int.min)
     }
     
     /// Mark notification as read

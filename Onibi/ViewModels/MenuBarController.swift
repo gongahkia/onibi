@@ -155,6 +155,20 @@ final class MenuBarController: ObservableObject {
             }
             .store(in: &cancellables)
         
+        // Subscribe to notification count changes (dismiss/clearAll)
+        eventBus.notificationCountDeltaPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] delta in
+                guard let self = self else { return }
+                if delta == Int.min {
+                    self.notificationCount = 0
+                } else {
+                    self.notificationCount = max(0, self.notificationCount + delta)
+                }
+                self.updateIcon(hasNotifications: self.notificationCount > 0)
+            }
+            .store(in: &cancellables)
+        
         // Handle native notification tap to show popover
         NotificationCenter.default.publisher(for: .showNotificationInApp)
             .receive(on: DispatchQueue.main)
