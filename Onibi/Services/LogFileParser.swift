@@ -213,11 +213,21 @@ struct CommandPatterns {
         "FAILED"
     ]
     
-    /// Compile all patterns into regex objects
+    /// Compile all patterns into regex objects with caching
+    private static var patternCache: [String: NSRegularExpression] = [:]
+    
     static func compilePatterns(_ patterns: [String]) -> [NSRegularExpression] {
         patterns.compactMap { pattern in
+            // Check cache first
+            if let cached = patternCache[pattern] {
+                return cached
+            }
+            
+            // Compile and cache
             do {
-                return try NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+                let regex = try NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+                patternCache[pattern] = regex
+                return regex
             } catch {
                 ErrorReporter.shared.report(error, context: "Patterns compilation: \(pattern)")
                 return nil
