@@ -139,13 +139,20 @@ final class ShellHookInstaller: ObservableObject {
         
         do {
             let contents = try String(contentsOfFile: shell.rcFilePath, encoding: .utf8)
-            if contents.contains(Shell.startMarker) && contents.contains(Shell.endMarker) {
+            if containsExactMarkerLine(contents, marker: Shell.startMarker) &&
+               containsExactMarkerLine(contents, marker: Shell.endMarker) {
                 return .installed
             }
             return .notInstalled
         } catch {
             return .error("Cannot read \(shell.rcFilePath)")
         }
+    }
+    
+    /// Check for exact marker line to avoid partial matches
+    private func containsExactMarkerLine(_ contents: String, marker: String) -> Bool {
+        let lines = contents.components(separatedBy: .newlines)
+        return lines.contains { $0.trimmingCharacters(in: .whitespaces) == marker }
     }
     
     // MARK: - Installation
@@ -164,8 +171,8 @@ final class ShellHookInstaller: ObservableObject {
             existingContent = try String(contentsOfFile: shell.rcFilePath, encoding: .utf8)
         }
         
-        // Check if already installed
-        if existingContent.contains(Shell.startMarker) {
+        // Check if already installed (use exact line match)
+        if containsExactMarkerLine(existingContent, marker: Shell.startMarker) {
             throw InstallError.alreadyInstalled
         }
         
