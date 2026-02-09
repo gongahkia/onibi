@@ -67,6 +67,7 @@ final class FileWatcher: ObservableObject {
             return
         }
         
+        guard let stream = stream else { return }
         FSEventStreamScheduleWithRunLoop(stream, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
         FSEventStreamStart(stream)
     }

@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import UserNotifications
 import Combine
 
@@ -11,7 +12,7 @@ final class NotificationManager: NSObject, ObservableObject {
     @Published var isAuthorized: Bool = false
     @Published var authorizationStatus: UNAuthorizationStatus = .notDetermined
     
-    private var settings: Settings = .default
+    private var settings: AppSettings = .default
     private var cancellables = Set<AnyCancellable>()
     
     // Notification category identifiers
@@ -29,6 +30,7 @@ final class NotificationManager: NSObject, ObservableObject {
             case .aiOutput: return .aiOutput
             case .devWorkflow: return .devWorkflow
             case .automation: return .automation
+            case .terminalNotification: return .system
             }
         }
     }

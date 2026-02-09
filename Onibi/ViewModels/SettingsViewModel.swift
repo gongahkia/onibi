@@ -5,7 +5,7 @@ import Combine
 final class SettingsViewModel: ObservableObject {
     static let shared = SettingsViewModel()
     
-    @Published var settings: Settings {
+    @Published var settings: AppSettings {
         didSet {
             let validated = settings.validated()
             if validated != settings {
@@ -34,14 +34,14 @@ final class SettingsViewModel: ObservableObject {
     
     /// Reset all settings to defaults
     func resetToDefaults() {
-        settings = Settings.default
+        settings = AppSettings.default
     }
     
     /// Import settings from JSON file
     func importSettings(from url: URL) throws {
         let data = try Data(contentsOf: url)
         let decoder = JSONDecoder()
-        settings = try decoder.decode(Settings.self, from: data)
+        settings = try decoder.decode(AppSettings.self, from: data)
     }
     
     func exportSettings(to url: URL) throws {
@@ -84,10 +84,10 @@ final class SettingsViewModel: ObservableObject {
         }
     }
     
-    private static func loadSettings() -> Settings {
+    private static func loadSettings() -> AppSettings {
         guard let data = UserDefaults.standard.data(forKey: UserDefaultsKeys.settings),
-              let settings = try? JSONDecoder().decode(Settings.self, from: data) else {
-            return Settings.default
+              let settings = try? JSONDecoder().decode(AppSettings.self, from: data) else {
+            return AppSettings.default
         }
         return settings
     }

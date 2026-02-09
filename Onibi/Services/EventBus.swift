@@ -15,7 +15,7 @@ final class EventBus: ObservableObject {
     let notificationPublisher = PassthroughSubject<AppNotification, Never>()
     
     /// Publisher for settings changes
-    let settingsPublisher = PassthroughSubject<Settings, Never>()
+    let settingsPublisher = PassthroughSubject<AppSettings, Never>()
     
     /// Publisher for errors
     let errorPublisher = PassthroughSubject<Error, Never>()
@@ -41,7 +41,7 @@ final class EventBus: ObservableObject {
     }
     
     /// Publish settings update
-    func publish(_ settings: Settings) {
+    func publish(_ settings: AppSettings) {
         settingsPublisher.send(settings)
     }
     

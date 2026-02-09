@@ -14,12 +14,15 @@ final class MenuBarController: ObservableObject {
     @Published var menuBarState: MenuBarState = .idle
     
     enum MenuBarState {
+        case idle
         case ghosttyNotRunning
         case monitoringActive
         case newNotifications
         
         var iconName: String {
             switch self {
+            case .idle:
+                return "terminal"
             case .ghosttyNotRunning:
                 return "terminal"
             case .monitoringActive:
@@ -31,6 +34,8 @@ final class MenuBarController: ObservableObject {
         
         var iconColor: NSColor? {
             switch self {
+            case .idle:
+                return .secondaryLabelColor
             case .ghosttyNotRunning:
                 return .secondaryLabelColor
             case .monitoringActive:
@@ -67,8 +72,8 @@ final class MenuBarController: ObservableObject {
     
     /// Update the menubar icon based on state
     func updateIcon(hasNotifications: Bool) {
-        guard let button = statusItem?.button else { return }
-        
+        guard statusItem?.button != nil else { return }
+
         // Determine state
         if hasNotifications && notificationCount > 0 {
             menuBarState = .newNotifications

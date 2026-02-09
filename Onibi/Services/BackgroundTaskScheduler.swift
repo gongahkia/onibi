@@ -9,7 +9,7 @@ final class BackgroundTaskScheduler: ObservableObject {
     private var logBuffer: LogBuffer?
     private var logParser: LogFileParser
     private var storageManager: JSONStorageManager
-    private var settings: Settings = .default
+    private var settings: AppSettings = .default
     
     private let eventBus = EventBus.shared
     private var cancellables = Set<AnyCancellable>()

@@ -215,14 +215,14 @@ extension UserDefaults {
         static let settings = "com.onibi.app.settings"
     }
     
-    func saveSettings(_ settings: Settings) throws {
+    func saveSettings(_ settings: AppSettings) throws {
         let encoder = JSONEncoder()
         let data = try encoder.encode(settings)
         set(data, forKey: Keys.settings)
     }
     
-    func loadSettings() -> Settings? {
+    func loadSettings() -> AppSettings? {
         guard let data = data(forKey: Keys.settings) else { return nil }
-        return try? JSONDecoder().decode(Settings.self, from: data)
+        return try? JSONDecoder().decode(AppSettings.self, from: data)
     }
 }

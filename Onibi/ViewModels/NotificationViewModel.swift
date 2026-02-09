@@ -1,4 +1,4 @@
-import Foundation
+import SwiftUI
 import Combine
 
 /// ViewModel for managing notifications in the menubar

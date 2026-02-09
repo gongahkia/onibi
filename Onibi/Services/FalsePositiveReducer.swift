@@ -13,7 +13,7 @@ final class FalsePositiveReducer: ObservableObject {
     private let deduplicationWindow: TimeInterval = 5.0
     private let minimumContentLength = 3
     
-    private var settings: Settings = .default
+    private var settings: AppSettings = .default
     private var cleanupTimer: Timer?
     private let hashLock = NSLock()
     

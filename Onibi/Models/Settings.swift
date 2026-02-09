@@ -47,7 +47,7 @@ enum LogVolumeProfile: String, Codable, CaseIterable {
 }
 
 /// User preferences and app configuration
-struct Settings: Codable, Equatable {
+struct AppSettings: Codable, Equatable {
     var theme: Theme
     var syncThemeWithGhostty: Bool
     var customTheme: CustomTheme?
@@ -121,10 +121,10 @@ struct Settings: Codable, Equatable {
         self.logFilePath = logFilePath
     }
     
-    static let `default` = Settings()
+    static let `default` = AppSettings()
     
     /// Returns a validated copy with safe values
-    func validated() -> Settings {
+    func validated() -> AppSettings {
         var copy = self
         copy.logRetentionDays = max(1, copy.logRetentionDays)
         copy.maxStorageMB = max(10, copy.maxStorageMB)
