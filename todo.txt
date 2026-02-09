@@ -1,0 +1,108 @@
+# Ghostty Menubar - Evolution Audit Tasks
+# Generated: 2026-02-09 | Priority: (A) = MVP/Core Vision, (B) = Audit-Suggested
+# Tags: +feature, +refactor, +infra, +security, +test
+
+## NATIVE NOTIFICATIONS (User Priority #1)
+(B) Create NotificationManager service wrapping UNUserNotificationCenter for macOS native notifications +feature
+(B) Request notification authorization on first launch using UNUserNotificationCenter.requestAuthorization +feature
+(B) Define UNNotificationCategory for each NotificationType (system, task, AI, dev, automation) with custom actions +feature
+(B) Implement UNNotificationContent builder that maps AppNotification to native notification payload +feature
+(B) Add notification action handlers for "View in App", "Dismiss", and "Open Terminal" via UNUserNotificationCenterDelegate +feature
+(B) Create settings toggle for "Use Native Notifications" vs "In-App Only" in NotificationPreferences model +feature
+(B) Implement notification sound attachment using UNNotificationSound with custom sound files +feature
+(B) Add notification grouping using threadIdentifier to cluster by NotificationType +feature
+(B) Handle notification tap to bring menubar popover to foreground and scroll to relevant entry +feature
+(B) Implement notification badge count sync between NSStatusItem and UNUserNotificationCenter.setBadgeCount +feature
+
+## GHOSTTY-SPECIFIC INTEGRATION
+(B) Create GhosttyIPCClient to detect running Ghostty instances via mach ports or XPC if available +feature
+(B) Add Ghostty config file parser to read user's ghostty/config for theme colors and font preferences +feature
+(B) Implement GhosttyProcessMonitor using NSWorkspace.runningApplications to detect Ghostty launch/quit +feature
+(B) Create fallback architecture: prefer Ghostty IPC if available, else use shell hooks +refactor
+(B) Add "Ghostty Not Running" status indicator in menubar header when Ghostty process not detected +feature
+(B) Parse Ghostty window titles to extract session names for notification context +feature
+(B) Implement deep-link URL scheme ghostty-menubar:// to open specific log entries +feature
+
+## SHELL HOOK INSTALLATION (Easy for non-technical users)
+(B) Create ShellHookInstaller service with methods for zsh, bash, fish shell detection +feature
+(B) Implement automatic shell detection using $SHELL environment variable and file existence checks +feature
+(B) Create one-click "Install Shell Hooks" button in onboarding that appends to appropriate rc file +feature
+(B) Add backup mechanism that copies original .zshrc/.bashrc before modification +security
+(B) Implement shell hook verification that tests if hooks are working by writing test entry +feature
+(B) Create uninstall method that cleanly removes hook lines using marker comments +feature
+(B) Add fish shell support with fish_preexec and fish_postexec functions +feature
+(B) Show installation status indicator (installed/not installed/error) per shell in settings +feature
+
+## LOG TRUNCATION & PERFORMANCE
+(B) Add maxLogFileSizeMB setting to Settings model with default value of 10MB +feature
+(B) Implement LogFileTruncator service that monitors terminal.log size and truncates oldest entries +feature
+(B) Create truncation strategy: keep last N lines (configurable) when file exceeds size limit +feature
+(B) Add file size check in FileWatcher before reading to skip processing if file too large +refactor
+(B) Implement log rotation: rename terminal.log to terminal.log.1 when limit reached, keep max 3 rotations +feature
+(B) Add "Current log size" display in Logs settings tab with visual progress bar +feature
+(B) Create low-disk-space warning when logs directory exceeds 80% of maxStorageMB +feature
+(B) Implement streaming JSON append for logs.json instead of full rewrite using file handles +refactor
+
+## TERMINAL SESSION TRACKING
+(B) Add sessionId field to LogEntry and GhosttyEvent models as optional String +refactor
+(B) Modify shell hooks to include $TERM_SESSION_ID or fallback to $$ (PID) in log format +refactor
+(B) Create SessionManager to track active terminal sessions with start time and command count +feature
+(B) Update LogFileParser to extract session identifier from log line format +refactor
+(B) Add session filter dropdown in DetailedLogsView to filter by terminal session +feature
+(B) Include session context in notification message: "Task completed in Session: main-dev" +feature
+(B) Create session color coding using hash of sessionId for visual distinction in logs list +feature
+(B) Implement session lifecycle detection: mark sessions as active/closed based on activity +feature
+
+## CUSTOM REGEX PATTERNS
+(B) Add customPatterns array of PatternRule to Settings model with name, regex, notificationType +feature
+(B) Create PatternRule model with id, name, pattern (String), isRegex (Bool), notificationType, isEnabled +feature
+(B) Implement CustomPatternDetector that applies user-defined patterns alongside built-in detectors +feature
+(B) Add "Custom Patterns" section in Filters settings tab with add/edit/delete/test UI +feature
+(B) Create pattern test UI: text input field to paste sample text and see if pattern matches +feature
+(B) Implement pattern import/export as JSON for sharing patterns between users +feature
+(B) Add built-in pattern presets: "npm scripts", "pytest", "cargo build", "go test" with one-click add +feature
+(B) Create pattern priority system: user patterns checked before built-in patterns +refactor
+
+## ERROR HANDLING & GITHUB INTEGRATION
+(B) Create ErrorReporter service that captures errors with stack traces and context +infra
+(B) Implement ErrorLogView sheet showing recent errors with timestamps and details +feature
+(B) Add "Report Issue on GitHub" button that opens browser with pre-filled issue template +feature
+(B) Generate GitHub issue URL with title, body containing error log, and system info (macOS version, app version) +feature
+(B) Create user-friendly error alerts using NSAlert for critical errors (file permission, corrupted data) +feature
+(B) Implement automatic error log file at ~/.config/ghostty-menubar/error.log with rotation +infra
+(B) Add "Copy Error Details" button in error view for manual bug reporting +feature
+(B) Create health check on app launch: verify log directory permissions, write test, validate JSON +infra
+(B) Show non-blocking error banner in menubar view when recoverable errors occur +feature
+
+## UNIT TESTING
+(B) Create XCTest target GhosttyMenubarTests in Xcode project +test
+(B) Write LogFileParserTests: test each log line format (CMD_START, CMD_END, output patterns) +test
+(B) Write EventDetectorTests: test AIResponseDetector, TaskCompletionDetector with positive/negative cases +test
+(B) Write LogBufferTests: test incremental reading, partial line handling, file rotation detection +test
+(B) Write JSONStorageManagerTests: test atomic writes, backup rotation, corrupted file recovery +test
+(B) Write LRUCacheTests: test capacity limits, eviction order, thread safety +test
+(B) Write FilterRuleTests: test pattern matching for contains, prefix, suffix, regex modes +test
+(B) Write SettingsViewModelTests: test persistence, import/export, reset to defaults +test
+(B) Write NotificationViewModelTests: test add, dismiss, clearAll, persistence across restarts +test
+(B) Create MockEventBus for testing components in isolation without side effects +test
+(B) Write ShellHookInstallerTests using temporary directories for rc file modifications +test
+
+## GITHUB ACTIONS CI/CD
+(B) Create .github/workflows/ci.yml with macOS-latest runner +infra
+(B) Add checkout, setup-xcode steps with Xcode 15+ for Swift 5.9 compatibility +infra
+(B) Add step to run xcodebuild test for GhosttyMenubarTests scheme +infra
+(B) Add SwiftLint step using swiftlint lint --strict for code quality +infra
+(B) Create build step that produces GhosttyMenubar.app bundle +infra
+(B) Add artifact upload for built .app bundle on successful builds +infra
+(B) Create release workflow triggered on version tags that notarizes and creates GitHub Release +infra
+(B) Add branch protection requiring CI pass before merge +infra
+
+## FALSE POSITIVE REDUCTION
+(B) Add confidence score (0.0-1.0) to detection results based on pattern specificity +refactor
+(B) Implement context window: check lines before/after match for confirming signals +refactor
+(B) Create notification deduplication using content hash within 5-second window +refactor
+(B) Add "Mark as False Positive" action in notification context menu for user feedback +feature
+(B) Store false positive patterns in Settings to auto-suppress in future +feature
+(B) Implement adaptive throttling: increase throttle interval if user frequently dismisses same type +feature
+(B) Add minimum content length filter to avoid notifications for very short/empty outputs +refactor
+
