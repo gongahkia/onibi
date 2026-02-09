@@ -3,16 +3,6 @@
 # Tags: +feature, +refactor, +infra, +security, +test
 
 
-## SHELL HOOK INSTALLATION (Easy for non-technical users)
-(B) Create ShellHookInstaller service with methods for zsh, bash, fish shell detection +feature
-(B) Implement automatic shell detection using $SHELL environment variable and file existence checks +feature
-(B) Create one-click "Install Shell Hooks" button in onboarding that appends to appropriate rc file +feature
-(B) Add backup mechanism that copies original .zshrc/.bashrc before modification +security
-(B) Implement shell hook verification that tests if hooks are working by writing test entry +feature
-(B) Create uninstall method that cleanly removes hook lines using marker comments +feature
-(B) Add fish shell support with fish_preexec and fish_postexec functions +feature
-(B) Show installation status indicator (installed/not installed/error) per shell in settings +feature
-
 ## LOG TRUNCATION & PERFORMANCE
 (B) Add maxLogFileSizeMB setting to Settings model with default value of 10MB +feature
 (B) Implement LogFileTruncator service that monitors terminal.log size and truncates oldest entries +feature
