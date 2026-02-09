@@ -1,4 +1,3 @@
-(B) Move filteredLogs computation in DetailedLogsView.swift into a @State var updated via onChange instead of recomputing in body on every render +performance
 (B) Move log export in DetailedLogsView.swift to background thread using Task { } and show progress indicator instead of blocking main thread +performance
 (B) Fix CSV export in DetailedLogsView.swift to properly escape fields containing commas, quotes, and newlines per RFC 4180 +stability
 (B) Replace quadratic Text concatenation in DetailedLogsView.swift highlightedText with a single AttributedString pass +performance
