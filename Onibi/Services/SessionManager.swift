@@ -16,6 +16,10 @@ final class SessionManager: ObservableObject {
         setupEventSubscription()
     }
     
+    deinit {
+        cancellables.removeAll()
+    }
+    
     // MARK: - Session Model
     
     struct TerminalSession: Identifiable, Equatable {
@@ -107,6 +111,22 @@ final class SessionManager: ObservableObject {
         }
     }
     
+    /// Prune sessions inactive for > 24h
+    func pruneStaleSessions() {
+        let oneDay: TimeInterval = 86400 // 24 hours
+        let now = Date()
+        
+        // Remove sessions that haven't been active for 24 hours
+        let initialCount = activeSessions.count
+        activeSessions = activeSessions.filter { _, session in
+            now.timeIntervalSince(session.lastActivityTime) < oneDay
+        }
+        
+        if activeSessions.count < initialCount {
+            print("[SessionManager] Pruned \(initialCount - activeSessions.count) stale sessions")
+        }
+    }
+    
     /// Get all session IDs
     var allSessionIds: [String] {
         Array(activeSessions.keys).sorted()
@@ -141,6 +161,7 @@ final class SessionManager: ObservableObject {
             .autoconnect()
             .sink { [weak self] _ in
                 self?.checkForInactiveSessions()
+                self?.pruneStaleSessions()
             }
             .store(in: &cancellables)
     }
