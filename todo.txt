@@ -3,16 +3,6 @@
 # Tags: +feature, +refactor, +infra, +security, +test
 
 
-## GITHUB ACTIONS CI/CD
-(B) Create .github/workflows/ci.yml with macOS-latest runner +infra
-(B) Add checkout, setup-xcode steps with Xcode 15+ for Swift 5.9 compatibility +infra
-(B) Add step to run xcodebuild test for GhosttyMenubarTests scheme +infra
-(B) Add SwiftLint step using swiftlint lint --strict for code quality +infra
-(B) Create build step that produces GhosttyMenubar.app bundle +infra
-(B) Add artifact upload for built .app bundle on successful builds +infra
-(B) Create release workflow triggered on version tags that notarizes and creates GitHub Release +infra
-(B) Add branch protection requiring CI pass before merge +infra
-
 ## FALSE POSITIVE REDUCTION
 (B) Add confidence score (0.0-1.0) to detection results based on pattern specificity +refactor
 (B) Implement context window: check lines before/after match for confirming signals +refactor
