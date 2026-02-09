@@ -12,6 +12,7 @@ final class FalsePositiveReducer: ObservableObject {
     private var recentHashes: [String: Date] = [:]
     private let deduplicationWindow: TimeInterval = 5.0
     private let minimumContentLength = 3
+    private var cleanupTimer: Timer?
     
     private var settings: Settings = .default
     
@@ -24,9 +25,24 @@ final class FalsePositiveReducer: ObservableObject {
                 self?.settings = newSettings
             }
             .store(in: &cancellables)
+        
+        // Start periodic cleanup timer (every 10 seconds)
+        cleanupTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
+            self?.cleanupOldHashes()
+        }
+    }
+    
+    deinit {
+        cleanupTimer?.invalidate()
     }
     
     private var cancellables = Set<AnyCancellable>()
+    
+    /// Periodic cleanup of old hashes
+    private func cleanupOldHashes() {
+        let now = Date()
+        recentHashes = recentHashes.filter { now.timeIntervalSince($0.value) < deduplicationWindow }
+    }
     
     // MARK: - Detection Result with Confidence
     
@@ -104,16 +120,12 @@ final class FalsePositiveReducer: ObservableObject {
     /// Check if content was recently seen (within window)
     func isDuplicate(_ content: String) -> Bool {
         let hash = contentHash(content)
-        let now = Date()
-        
-        // Clean old entries
-        recentHashes = recentHashes.filter { now.timeIntervalSince($0.value) < deduplicationWindow }
         
         if recentHashes[hash] != nil {
             return true
         }
         
-        recentHashes[hash] = now
+        recentHashes[hash] = Date()
         return false
     }
     
