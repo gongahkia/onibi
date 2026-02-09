@@ -607,6 +607,17 @@ struct FilterRuleEditor: View {
     @State private var isRegex: Bool = false
     @State private var matchType: MatchType = .contains
     @State private var action: FilterAction = .highlight
+    @State private var regexError: String?
+    
+    private var isValidPattern: Bool {
+        guard isRegex && !pattern.isEmpty else { return true }
+        do {
+            _ = try NSRegularExpression(pattern: pattern)
+            return true
+        } catch {
+            return false
+        }
+    }
     
     var body: some View {
         VStack(spacing: 20) {
@@ -617,7 +628,19 @@ struct FilterRuleEditor: View {
             Form {
                 TextField("Name", text: $name)
                 TextField("Pattern", text: $pattern)
+                    .onChange(of: pattern) { _ in
+                        validateRegex()
+                    }
                 Toggle("Use regex", isOn: $isRegex)
+                    .onChange(of: isRegex) { _ in
+                        validateRegex()
+                    }
+                
+                if let error = regexError, isRegex {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
                 
                 Picker("Match type", selection: $matchType) {
                     ForEach(MatchType.allCases, id: \.self) { type in
@@ -650,11 +673,11 @@ struct FilterRuleEditor: View {
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(name.isEmpty || pattern.isEmpty)
+                .disabled(name.isEmpty || pattern.isEmpty || !isValidPattern)
             }
         }
         .padding()
-        .frame(width: 400, height: 350)
+        .frame(width: 400, height: 380)
         .onAppear {
             if let rule = rule {
                 name = rule.name
@@ -663,6 +686,20 @@ struct FilterRuleEditor: View {
                 matchType = rule.matchType
                 action = rule.action
             }
+        }
+    }
+    
+    private func validateRegex() {
+        guard isRegex && !pattern.isEmpty else {
+            regexError = nil
+            return
+        }
+        
+        do {
+            _ = try NSRegularExpression(pattern: pattern)
+            regexError = nil
+        } catch let error as NSError {
+            regexError = "Invalid regex: \(error.localizedDescription)"
         }
     }
 }
