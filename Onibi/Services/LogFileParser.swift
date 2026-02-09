@@ -5,6 +5,11 @@ final class LogFileParser {
     
     /// Parse a single line from the log file
     func parseLine(_ line: String) -> ParsedLogLine? {
+        // Check for OSC 9/777 notifications first (even without structured log format)
+        if let notification = parseOSCNotification(line) {
+            return notification
+        }
+        
         let components = line.split(separator: "|", maxSplits: 2).map(String.init)
         guard components.count >= 2 else { return nil }
         
@@ -70,6 +75,47 @@ final class LogFileParser {
         }
     }
     
+    /// Parse OSC 9 or OSC 777 notification sequences
+    private func parseOSCNotification(_ line: String) -> ParsedLogLine? {
+        // OSC 9;Title;MessageBEL or ST
+        let osc9Pattern = "\\x1b]9;(.*?);(.*?)(?:\\x07|\\x1b\\\\)"
+        // OSC 777;notify;Title;MessageBEL or ST
+        let osc777Pattern = "\\x1b]777;notify;(.*?);(.*?)(?:\\x07|\\x1b\\\\)"
+        
+        if let match = firstMatch(for: osc9Pattern, in: line) {
+            return ParsedLogLine(
+                timestamp: Date(),
+                type: .terminalNotification,
+                command: "\(match.1)|\(match.2)", // Store Title|Message in command/payload
+                exitCode: nil
+            )
+        }
+        
+        if let match = firstMatch(for: osc777Pattern, in: line) {
+            return ParsedLogLine(
+                timestamp: Date(),
+                type: .terminalNotification,
+                command: "\(match.1)|\(match.2)",
+                exitCode: nil
+            )
+        }
+        
+        return nil
+    }
+    
+    private func firstMatch(for pattern: String, in string: String) -> (String, String, String)? {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let nsString = string as NSString
+        guard let match = regex.firstMatch(in: string, range: NSRange(location: 0, length: string.utf16.count)) else { return nil }
+        
+        if match.numberOfRanges >= 3 {
+             let group1 = nsString.substring(with: match.range(at: 1))
+             let group2 = nsString.substring(with: match.range(at: 2))
+             return (string, group1, group2)
+        }
+        return nil
+    }
+    
     /// Parse multiple lines
     func parseLines(_ content: String) -> [ParsedLogLine] {
         content.split(separator: "\n")
@@ -106,6 +152,7 @@ enum LogLineType {
     case taskComplete
     case build
     case test
+    case terminalNotification
 }
 
 // MARK: - Regex Patterns

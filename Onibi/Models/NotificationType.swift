@@ -7,6 +7,7 @@ enum NotificationType: String, Codable, CaseIterable {
     case aiOutput = "aiOutput"
     case devWorkflow = "devWorkflow"
     case automation = "automation"
+    case terminalNotification = "terminalNotification"
     
     var displayName: String {
         switch self {
@@ -15,6 +16,7 @@ enum NotificationType: String, Codable, CaseIterable {
         case .aiOutput: return "AI Output"
         case .devWorkflow: return "Dev Workflow"
         case .automation: return "Automation"
+        case .terminalNotification: return "Terminal Notification"
         }
     }
     
@@ -25,6 +27,7 @@ enum NotificationType: String, Codable, CaseIterable {
         case .aiOutput: return "sparkles"
         case .devWorkflow: return "hammer.fill"
         case .automation: return "bolt.fill"
+        case .terminalNotification: return "bell.badge.fill"
         }
     }
 }

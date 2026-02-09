@@ -139,6 +139,27 @@ final class BackgroundTaskScheduler: ObservableObject {
             return // Already processed
         }
         
+        // Handle OSC notifications
+        if parsed.type == .terminalNotification {
+            let payload = parsed.command ?? ""
+            let parts = payload.split(separator: "|", maxSplits: 1).map(String.init)
+            let title = parts.count > 0 ? parts[0] : "Terminal Notification"
+            let message = parts.count > 1 ? parts[1] : ""
+            
+            let notification = AppNotification(
+                type: .terminalNotification,
+                title: title,
+                message: message,
+                timestamp: parsed.timestamp
+            )
+            DispatchQueue.main.async {
+                self.eventBus.publish(notification)
+            }
+            // Still create an event for it? Optional but let's just return as it's handled.
+            parsedCache.set(cacheKey, value: GhosttyEvent(timestamp: parsed.timestamp, type: .system, metadata: [:])) // Dummy event for cache
+            return
+        }
+        
         // Create event
         let event = GhosttyEvent(
             timestamp: parsed.timestamp,
