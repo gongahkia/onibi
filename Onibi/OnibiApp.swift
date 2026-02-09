@@ -52,6 +52,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var menuBarController: MenuBarController?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Configure as menubar-only app (no dock icon, no auto-opening windows)
+        NSApp.setActivationPolicy(.accessory)
+        
+        // Close any windows that SwiftUI may have auto-opened (like Settings)
+        // We need a slight delay to let SwiftUI finish its initial setup
+        DispatchQueue.main.async {
+            for window in NSApp.windows {
+                // Don't close the invisible command-handler window
+                if window.title != "" && window.identifier?.rawValue != "command-handler" {
+                    window.close()
+                }
+            }
+        }
+        
         // Ensure app data directory exists
         try? OnibiConfig.ensureDirectoryExists()
         
