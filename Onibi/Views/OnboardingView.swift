@@ -326,14 +326,11 @@ final class HotkeyManager {
     func register(onToggle: @escaping () -> Void) {
         self.onToggle = onToggle
         
-        // Note: In a real app, use MASShortcut or similar for proper global hotkeys
-        // This is a simplified local approach
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        // Use global monitor so hotkey works when app is not focused
+        eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.modifierFlags.contains([.command, .shift]) && event.charactersIgnoringModifiers == "g" {
                 self?.onToggle?()
-                return nil
             }
-            return event
         }
     }
     
