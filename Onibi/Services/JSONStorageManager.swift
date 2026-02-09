@@ -10,6 +10,7 @@ final class JSONStorageManager: StorageManager {
     private var flushTimer: Timer?
     private let flushInterval: TimeInterval
     private let queue = DispatchQueue(label: "com.onibi.storage", qos: .utility)
+    private let cacheLock = NSLock()
     
     /// Storage file version for migrations
     private static let currentVersion = 1
@@ -78,19 +79,25 @@ final class JSONStorageManager: StorageManager {
     }
     
     func appendLog(_ entry: LogEntry) async throws {
+        cacheLock.lock()
         cache.append(entry)
         isDirty = true
+        cacheLock.unlock()
     }
     
     func deleteLogsOlderThan(_ date: Date) async throws {
+        cacheLock.lock()
         cache.removeAll { $0.timestamp < date }
         isDirty = true
+        cacheLock.unlock()
         try await flushToDisk()
     }
     
     func clearAllLogs() async throws {
+        cacheLock.lock()
         cache.removeAll()
         isDirty = false
+        cacheLock.unlock()
         try fileManager.removeItem(atPath: logsPath)
     }
     
@@ -104,14 +111,19 @@ final class JSONStorageManager: StorageManager {
     
     /// Append multiple logs efficiently
     func appendLogs(_ entries: [LogEntry]) async throws {
+        cacheLock.lock()
         cache.append(contentsOf: entries)
         isDirty = true
+        cacheLock.unlock()
     }
     
     /// Flush in-memory cache to disk
     func flushToDisk() async throws {
-        guard isDirty else { return }
-        try await saveLogs(cache)
+        cacheLock.lock()
+        guard isDirty else { cacheLock.unlock(); return }
+        let snapshot = cache
+        cacheLock.unlock()
+        try await saveLogs(snapshot)
     }
     
     // MARK: - Private
@@ -174,9 +186,14 @@ final class JSONStorageManager: StorageManager {
     }
     
     private func flushToDiskSync() throws {
-        guard isDirty else { return }
-        try writeLogsAtomic(cache)
+        cacheLock.lock()
+        guard isDirty else { cacheLock.unlock(); return }
+        let snapshot = cache
+        cacheLock.unlock()
+        try writeLogsAtomic(snapshot)
+        cacheLock.lock()
         isDirty = false
+        cacheLock.unlock()
     }
 }
 
