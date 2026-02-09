@@ -8,7 +8,8 @@ final class JSONStorageManagerTests: XCTestCase {
         storage = JSONStorageManager(flushInterval: 0.1)
     }
     override func tearDown() {
-        try? storage.clearAllLogs()
+        let logsPath = NSHomeDirectory() + "/.config/onibi/logs.json"
+        try? FileManager.default.removeItem(atPath: logsPath)
         storage = nil
         super.tearDown()
     }
