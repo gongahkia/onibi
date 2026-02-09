@@ -74,12 +74,13 @@ final class NotificationViewModel: ObservableObject {
     }
     
     private func loadPersistedNotifications() {
-        // Load from UserDefaults for now
-        guard let data = UserDefaults.standard.data(forKey: "notifications"),
-              let decoded = try? JSONDecoder().decode([AppNotification].self, from: data) else {
-            return
+        guard let data = UserDefaults.standard.data(forKey: "notifications") else { return }
+        
+        do {
+            notifications = try JSONDecoder().decode([AppNotification].self, from: data)
+        } catch {
+            ErrorReporter.shared.report(error, context: "NotificationViewModel loadNotifications")
         }
-        notifications = decoded
     }
     
     private func saveNotifications() {
