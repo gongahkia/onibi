@@ -1,4 +1,4 @@
-name: CI
+name: Onibi CI/CD and .DMG release on push
 
 on:
   push:
@@ -12,26 +12,26 @@ jobs:
     runs-on: macos-14
     strategy:
       matrix:
-        xcode-version: ['15.0', '15.4']
-    
+        xcode-version: ["15.0", "15.4"]
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      
+
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: ${{ matrix.xcode-version }}
-      
+
       - name: Show Xcode version
         run: xcodebuild -version
-      
+
       - name: Install SwiftLint
         run: brew install swiftlint
-      
+
       - name: Run SwiftLint
         run: swiftlint lint --strict --reporter github-actions-logging
-      
+
       - name: Build
         run: |
           xcodebuild build \
@@ -41,7 +41,7 @@ jobs:
             -destination 'platform=macOS' \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO
-      
+
       - name: Run Tests
         run: |
           xcodebuild test \
@@ -61,12 +61,12 @@ jobs:
             -derivedDataPath build \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO
-      
+
       - name: Create App Bundle
         run: |
           mkdir -p artifacts
           cp -R build/Build/Products/Release/Onibi.app artifacts/
-      
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -79,16 +79,16 @@ jobs:
     runs-on: macos-14
     needs: build-and-test
     if: startsWith(github.ref, 'refs/tags/v')
-    
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      
+
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '15.0'
-      
+          xcode-version: "15.0"
+
       - name: Build Release
         run: |
           xcodebuild build \
@@ -99,66 +99,68 @@ jobs:
             -derivedDataPath build \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO
-      
+
       - name: Create DMG
         run: |
           mkdir -p dmg-contents
           cp -R build/Build/Products/Release/Onibi.app dmg-contents/
           hdiutil create -volname "Onibi" -srcfolder dmg-contents -ov -format UDZO Onibi-unsigned.dmg
-      
-      - name: Code Sign DMG
-        if: ${{ secrets.DEVELOPER_ID_CERTIFICATE != '' }}
+
+      - name: Code Sign and Prepare DMG
         env:
           DEVELOPER_ID_CERTIFICATE: ${{ secrets.DEVELOPER_ID_CERTIFICATE }}
           DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
         run: |
-          # Import Developer ID certificate
-          echo "$DEVELOPER_ID_CERTIFICATE" | base64 --decode > certificate.p12
-          security create-keychain -p actions build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p actions build.keychain
-          security import certificate.p12 -k build.keychain -P "$DEVELOPER_ID_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k actions build.keychain
-          
-          # Sign the DMG for Gatekeeper compatibility
-          codesign --force --sign "Developer ID Application" --timestamp Onibi-unsigned.dmg
-          mv Onibi-unsigned.dmg Onibi.dmg
-          
-          # Verify signature
-          codesign --verify --verbose Onibi.dmg
-          
-          # Clean up
-          security delete-keychain build.keychain
-          rm certificate.p12
-      
-      - name: Use Unsigned DMG (Fallback)
-        if: ${{ secrets.DEVELOPER_ID_CERTIFICATE == '' }}
-        run: |
-          mv Onibi-unsigned.dmg Onibi.dmg
-      
+          if [ -n "$DEVELOPER_ID_CERTIFICATE" ]; then
+            echo "Signing DMG with Developer ID certificate..."
+            # Import Developer ID certificate
+            echo "$DEVELOPER_ID_CERTIFICATE" | base64 --decode > certificate.p12
+            security create-keychain -p actions build.keychain
+            security default-keychain -s build.keychain
+            security unlock-keychain -p actions build.keychain
+            security import certificate.p12 -k build.keychain -P "$DEVELOPER_ID_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple: -s -k actions build.keychain
+            
+            # Sign the DMG for Gatekeeper compatibility
+            codesign --force --sign "Developer ID Application" --timestamp Onibi-unsigned.dmg
+            mv Onibi-unsigned.dmg Onibi.dmg
+            
+            # Verify signature
+            codesign --verify --verbose Onibi.dmg
+            
+            # Clean up
+            security delete-keychain build.keychain
+            rm certificate.p12
+          else
+            echo "No Developer ID certificate configured, using unsigned DMG..."
+            mv Onibi-unsigned.dmg Onibi.dmg
+          fi
+
       - name: Notarize DMG
-        if: ${{ secrets.APPLE_ID != '' && secrets.APPLE_ID_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          # Submit DMG for notarization using xcrun notarytool
-          echo "Submitting DMG for notarization..."
-          xcrun notarytool submit Onibi.dmg \
-            --apple-id "$APPLE_ID" \
-            --password "$APPLE_ID_PASSWORD" \
-            --team-id "$APPLE_TEAM_ID" \
-            --wait
-          
-          # Staple the notarization ticket to the DMG
-          echo "Stapling notarization ticket..."
-          xcrun stapler staple Onibi.dmg
-          
-          # Verify stapling
-          echo "Verifying stapled notarization..."
-          xcrun stapler validate Onibi.dmg
-      
+          if [ -n "$APPLE_ID" ] && [ -n "$APPLE_ID_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            echo "Submitting DMG for notarization..."
+            xcrun notarytool submit Onibi.dmg \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_ID_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --wait
+            
+            # Staple the notarization ticket to the DMG
+            echo "Stapling notarization ticket..."
+            xcrun stapler staple Onibi.dmg
+            
+            # Verify stapling
+            echo "Verifying stapled notarization..."
+            xcrun stapler validate Onibi.dmg
+          else
+            echo "Notarization credentials not configured, skipping notarization..."
+          fi
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
