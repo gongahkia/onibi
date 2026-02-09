@@ -53,19 +53,46 @@ final class GhosttyIPCClient: ObservableObject {
     
     // MARK: - IPC (Future)
     
-    /// Attempt to connect via XPC (if Ghostty exposes service)
-    /// Currently Ghostty doesn't have public XPC API, so this is a placeholder
-    func attemptXPCConnection() -> Bool {
-        // Ghostty doesn't currently expose XPC services
-        // This would be the place to connect when/if it does
-        return false
+    /// Execute a Ghostty CLI command
+    func executeCommand(_ arguments: [String]) async throws -> String {
+        guard isGhosttyRunning else {
+            throw GhosttyError.notRunning
+        }
+        
+        // Locate ghostty binary
+        // simplified lookup
+        let binaryPath = "/usr/local/bin/ghostty"
+        guard FileManager.default.fileExists(atPath: binaryPath) else {
+            throw GhosttyError.binaryNotFound
+        }
+        
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: binaryPath)
+        process.arguments = arguments
+        
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        
+        try process.run()
+        
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global().async {
+                process.waitUntilExit()
+                
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                if let output = String(data: data, encoding: .utf8) {
+                    continuation.resume(returning: output)
+                } else {
+                    continuation.resume(throwing: GhosttyError.outputDecodingFailed)
+                }
+            }
+        }
     }
     
-    /// Check for mach port (if Ghostty exposes one)
-    func checkMachPort() -> Bool {
-        // Ghostty doesn't currently expose mach ports for IPC
-        // Placeholder for future integration
-        return false
+    enum GhosttyError: Error {
+        case notRunning
+        case binaryNotFound
+        case outputDecodingFailed
     }
     
     // MARK: - Window/Session Detection
