@@ -35,9 +35,9 @@ final class FileWatcher: ObservableObject {
         
         var context = FSEventStreamContext(
             version: 0,
-            info: Unmanaged.passUnretained(self).toOpaque(),
+            info: Unmanaged.passRetained(self).toOpaque(),
             retain: nil,
-            release: nil,
+            release: fileWatcherReleaseCallback,
             copyDescription: nil
         )
         
@@ -57,7 +57,15 @@ final class FileWatcher: ObservableObject {
             FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagUseCFTypes)
         )
         
-        guard let stream = stream else { return }
+        if let stream = stream {
+            self.stream = stream
+        } else {
+            // Stream creation failed, release the retained self
+            if let info = context.info {
+                Unmanaged<FileWatcher>.fromOpaque(info).release()
+            }
+            return
+        }
         
         FSEventStreamScheduleWithRunLoop(stream, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
         FSEventStreamStart(stream)
@@ -76,6 +84,12 @@ final class FileWatcher: ObservableObject {
         // Trigger debounced callback
         debounceSubject.send()
     }
+
+}
+
+private func fileWatcherReleaseCallback(info: UnsafeRawPointer?) {
+    guard let info = info else { return }
+    Unmanaged<FileWatcher>.fromOpaque(info).release()
 }
 
 /// Ghostty integration configuration
