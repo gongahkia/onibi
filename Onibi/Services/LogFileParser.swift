@@ -25,6 +25,20 @@ private final class RegexCache {
 /// Parses log entries from the terminal log file
 final class LogFileParser {
     
+    /// Shared ISO8601 formatter with fractional seconds support
+    private static let isoFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+    
+    /// Fallback formatter without fractional seconds
+    private static let isoFormatterNoFractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+    
     /// Parse a single line from the log file
     func parseLine(_ line: String) -> ParsedLogLine? {
         // Check for OSC 9/777 notifications first (even without structured log format)
@@ -146,14 +160,11 @@ final class LogFileParser {
     
     /// Parse ISO8601 timestamp
     private func parseTimestamp(_ str: String) -> Date? {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: str) {
+        if let date = Self.isoFormatter.date(from: str) {
             return date
         }
         // Try without fractional seconds
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: str)
+        return Self.isoFormatterNoFractional.date(from: str)
     }
 }
 
