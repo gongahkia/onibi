@@ -4,7 +4,7 @@ import Combine
 
 /// Manages the menubar status item and popover
 final class MenuBarController: ObservableObject {
-    private var statusItem: NSStatusItem?
+    var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var eventMonitor: Any?
     private var cancellables = Set<AnyCancellable>()
