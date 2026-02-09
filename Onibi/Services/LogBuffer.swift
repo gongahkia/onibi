@@ -4,6 +4,7 @@ import Foundation
 final class LogBuffer {
     private var buffer: String = ""
     private var lastReadPosition: UInt64 = 0
+    private var currentFileID: NSNumber?
     private let filePath: String
     
     init(filePath: String) {
@@ -21,6 +22,19 @@ final class LogBuffer {
         }
         
         defer { try? fileHandle.close() }
+        
+        // Check for file rotation via inode
+        let attributes = try? FileManager.default.attributesOfItem(atPath: filePath)
+        let fileID = attributes?[.systemFileNumber] as? NSNumber
+        
+        if let currentID = currentFileID, let newID = fileID,  currentID != newID {
+            // File rotated (new inode)
+            lastReadPosition = 0
+            buffer = ""
+            currentFileID = newID
+        } else if currentFileID == nil {
+            currentFileID = fileID
+        }
         
         // Check if file was truncated/rotated
         let fileSize = try fileHandle.seekToEnd()
@@ -69,6 +83,7 @@ final class LogBuffer {
     func reset() {
         buffer = ""
         lastReadPosition = 0
+        currentFileID = nil
     }
     
     /// Set position to end of file (skip existing content)
@@ -85,6 +100,9 @@ final class LogBuffer {
         defer { try? fileHandle.close() }
         
         lastReadPosition = try fileHandle.seekToEnd()
+        
+        let attributes = try? FileManager.default.attributesOfItem(atPath: filePath)
+        currentFileID = attributes?[.systemFileNumber] as? NSNumber
     }
 }
 
