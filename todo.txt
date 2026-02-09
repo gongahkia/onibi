@@ -3,17 +3,6 @@
 # Tags: +feature, +refactor, +infra, +security, +test
 
 
-## ERROR HANDLING & GITHUB INTEGRATION
-(B) Create ErrorReporter service that captures errors with stack traces and context +infra
-(B) Implement ErrorLogView sheet showing recent errors with timestamps and details +feature
-(B) Add "Report Issue on GitHub" button that opens browser with pre-filled issue template +feature
-(B) Generate GitHub issue URL with title, body containing error log, and system info (macOS version, app version) +feature
-(B) Create user-friendly error alerts using NSAlert for critical errors (file permission, corrupted data) +feature
-(B) Implement automatic error log file at ~/.config/ghostty-menubar/error.log with rotation +infra
-(B) Add "Copy Error Details" button in error view for manual bug reporting +feature
-(B) Create health check on app launch: verify log directory permissions, write test, validate JSON +infra
-(B) Show non-blocking error banner in menubar view when recoverable errors occur +feature
-
 ## UNIT TESTING
 (B) Create XCTest target GhosttyMenubarTests in Xcode project +test
 (B) Write LogFileParserTests: test each log line format (CMD_START, CMD_END, output patterns) +test
