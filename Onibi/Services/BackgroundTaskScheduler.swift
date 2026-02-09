@@ -29,6 +29,7 @@ final class BackgroundTaskScheduler: ObservableObject {
     @Published var isRunning = false
     @Published var lastParseTime: Date?
     @Published var eventsProcessed: Int = 0
+    private let eventsLock = NSLock()
     
     private init() {
         self.logParser = LogFileParser()
@@ -147,8 +148,11 @@ final class BackgroundTaskScheduler: ObservableObject {
             }
         }
         
+        self.eventsLock.lock()
+        let newCount = self.eventsProcessed + 1
+        self.eventsLock.unlock()
         DispatchQueue.main.async {
-            self.eventsProcessed += 1
+            self.eventsProcessed = newCount
         }
     }
     
