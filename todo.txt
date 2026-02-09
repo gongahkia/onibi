@@ -1,16 +1,3 @@
-(B) Invalidate monitoring timer in LogFileTruncator.swift deinit to prevent orphaned timer +stability
-(B) Invalidate cleanup timer in SessionManager.swift deinit and add pruning of inactive sessions older than 24h to prevent memory leak +stability
-(B) Remove global event monitor in MenuBarController.swift cleanup method to prevent leak — store monitor reference and call NSEvent.removeMonitor +stability
-(B) Add defer { fileHandle.closeFile() } around all FileHandle usage in ErrorReporter.swift log writing to prevent resource leaks +stability
-(B) Replace fatalError in DependencyContainer.swift resolveRequired with throwing function or Optional return to prevent crashes in production +stability
-(B) Add do/catch with ErrorReporter logging around regex compilation failures in PatternRule.swift matches() method instead of silently returning false +stability
-(B) Add do/catch with ErrorReporter logging around regex compilation failures in LogFileParser.swift compilePatterns method instead of returning empty array +stability
-(B) Add JSON decode error logging in LogsViewModel.swift loadLogs method instead of silently returning empty array on failure +stability
-(B) Add JSON decode error logging in NotificationViewModel.swift loadNotifications to surface persistence corruption +stability
-(B) Validate Settings fields before saving in SettingsViewModel.swift — ensure retentionDays > 0, maxStorageMB > 0, clamp to sane ranges +stability
-(B) Add file rotation detection in LogBuffer.swift using file inode comparison (via FileManager.attributesOfItem) instead of naive size-only check +stability
-(B) Fix JSONStorageManager.swift line 138 JSON validation logic that always evaluates true — replace with actual JSONSerialization.isValidJSONObject check +stability
-(B) Add max buffer size limit (e.g. 64KB) in LogBuffer.swift partialLineBuffer to prevent unbounded memory growth from incomplete lines +stability
 (B) Ensure Unmanaged pointer in FileWatcher.swift FSEventStreamCreate is properly retained/released — add explicit release in stop method +stability
 (B) Add Codable encoding for sourceEvent property in AppNotification so notification context survives app restart +stability
 (B) Delete ContentView.swift — it is unused dead code since MenuBarView is the actual popover content +refactor
