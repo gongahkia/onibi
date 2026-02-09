@@ -25,6 +25,7 @@ struct DetailedLogsView: View {
     @State private var showExportOptions = false
     @State private var showFilterSheet = false
     @State private var selectedLogEntry: LogEntry?
+    @State private var filteredLogs: [LogEntry] = []
     
     var body: some View {
         VStack(spacing: 0) {
@@ -62,11 +63,23 @@ struct DetailedLogsView: View {
         .sheet(isPresented: $showFilterSheet) {
             FilterSheetView(viewModel: viewModel)
         }
+        .onAppear {
+            updateFilteredLogs()
+        }
+        .onChange(of: viewModel.logs) { _ in
+            updateFilteredLogs()
+        }
+        .onChange(of: selectedTab) { _ in
+            updateFilteredLogs()
+        }
+        .onChange(of: searchText) { _ in
+            updateFilteredLogs()
+        }
     }
     
     // MARK: - Filtered Logs
     
-    private var filteredLogs: [LogEntry] {
+    private func updateFilteredLogs() {
         var logs = viewModel.logs
         
         // Filter by tab
@@ -89,7 +102,7 @@ struct DetailedLogsView: View {
             }
         }
         
-        return logs
+        filteredLogs = logs
     }
     
     // MARK: - Header
