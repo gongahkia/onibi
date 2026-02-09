@@ -93,7 +93,7 @@ final class NotificationViewModel: ObservableObject {
 
 extension AppNotification: Codable {
     enum CodingKeys: String, CodingKey {
-        case id, type, title, message, timestamp, isRead
+        case id, type, title, message, timestamp, isRead, sourceEvent
     }
     
     public init(from decoder: Decoder) throws {
@@ -104,7 +104,7 @@ extension AppNotification: Codable {
         message = try container.decode(String.self, forKey: .message)
         timestamp = try container.decode(Date.self, forKey: .timestamp)
         isRead = try container.decode(Bool.self, forKey: .isRead)
-        sourceEvent = nil
+        sourceEvent = try container.decodeIfPresent(GhosttyEvent.self, forKey: .sourceEvent)
     }
     
     public func encode(to encoder: Encoder) throws {
@@ -115,5 +115,6 @@ extension AppNotification: Codable {
         try container.encode(message, forKey: .message)
         try container.encode(timestamp, forKey: .timestamp)
         try container.encode(isRead, forKey: .isRead)
+        try container.encodeIfPresent(sourceEvent, forKey: .sourceEvent)
     }
 }
