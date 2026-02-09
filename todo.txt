@@ -1,5 +1,0 @@
-# Ghostty Menubar App - Product Requirements Document (PRD)
-# macOS menubar application for displaying Ghostty terminal output, notifications, and task completions
-# Tech Stack: Swift + SwiftUI | UI Style: Minimalist/clean (Bartender/Hidden Bar inspired)
-# All tasks completed! ✅
-
