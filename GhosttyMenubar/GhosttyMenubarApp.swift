@@ -13,34 +13,19 @@ struct GhosttyMenubarApp: App {
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate {
-    var statusItem: NSStatusItem?
-    var popover: NSPopover?
+    var menuBarController: MenuBarController?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
-        setupMenuBar()
+        // Ensure app data directory exists
+        try? GhosttyConfig.ensureDirectoryExists()
+        
+        // Set up menubar controller
+        menuBarController = MenuBarController()
+        menuBarController?.setup()
     }
     
-    private func setupMenuBar() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        
-        if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "terminal", accessibilityDescription: "Ghostty Menubar")
-            button.action = #selector(togglePopover)
-        }
-        
-        popover = NSPopover()
-        popover?.contentSize = NSSize(width: 360, height: 480)
-        popover?.behavior = .transient
-        popover?.contentViewController = NSHostingController(rootView: ContentView())
-    }
-    
-    @objc func togglePopover() {
-        guard let button = statusItem?.button, let popover = popover else { return }
-        
-        if popover.isShown {
-            popover.performClose(nil)
-        } else {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        }
+    func applicationWillTerminate(_ notification: Notification) {
+        menuBarController?.cleanup()
     }
 }
+

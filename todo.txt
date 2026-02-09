@@ -3,23 +3,6 @@
 # Tech Stack: Swift + SwiftUI | UI Style: Minimalist/clean (Bartender/Hidden Bar inspired)
 # Max 150 tasks | Format: todo.txt
 
-
-## GHOSTTY INTEGRATION & LOG PARSING
-Research Ghostty log file location and format on macOS
-Create FileWatcher service using FSEvents API to monitor Ghostty log files
-Implement LogFileParser class to parse Ghostty log entries
-Create regex patterns for detecting command execution in logs
-Implement parser for stdout/stderr output in Ghostty logs
-Create AIResponseDetector to identify AI assistant outputs (Claude/GPT patterns)
-Implement TaskCompletionDetector for completed task notifications
-Create DevWorkflowParser for build/test/deployment notification detection
-Implement AutomationOutputParser for custom script output detection
-Create LogBuffer to handle incremental file reading and partial line handling
-Implement error handling for malformed or corrupted log entries
-Optimize log parsing performance for large files (streaming, chunking)
-Implement log rotation detection and handling
-Create fallback mechanism if Ghostty log location changes
-
 ## MENUBAR UI FOUNDATION
 Create MenuBarController to manage NSStatusItem
 Design and implement menubar icon (monochrome, adapts to light/dark mode)
