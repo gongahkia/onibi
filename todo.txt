@@ -2,13 +2,5 @@
 # Generated: 2026-02-09 | Priority: (A) = MVP/Core Vision, (B) = Audit-Suggested
 # Tags: +feature, +refactor, +infra, +security, +test
 
-
-## FALSE POSITIVE REDUCTION
-(B) Add confidence score (0.0-1.0) to detection results based on pattern specificity +refactor
-(B) Implement context window: check lines before/after match for confirming signals +refactor
-(B) Create notification deduplication using content hash within 5-second window +refactor
-(B) Add "Mark as False Positive" action in notification context menu for user feedback +feature
-(B) Store false positive patterns in Settings to auto-suppress in future +feature
-(B) Implement adaptive throttling: increase throttle interval if user frequently dismisses same type +feature
-(B) Add minimum content length filter to avoid notifications for very short/empty outputs +refactor
+# All audit tasks completed! 🎉
 
