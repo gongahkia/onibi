@@ -49,7 +49,9 @@ struct OnibiConfigParser {
             case "font_family":
                 config.fontFamily = value
             case "font_size":
-                config.fontSize = Int(value)
+                if let size = Int(value), size > 0 {
+                    config.fontSize = size
+                }
             case "background":
                 config.backgroundColor = value
             case "foreground":

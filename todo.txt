@@ -1,9 +1,7 @@
 (B) Add [weak self] capture to all Timer and DispatchQueue closures in BackgroundTaskScheduler.swift, SessionManager.swift, LogFileTruncator.swift to prevent retain cycles +stability
 (B) Add max notification count setting to Settings (default 100 for casual, 500 for powerUser) instead of hardcoded 100 in NotificationViewModel +feature
-(B) Persist FalsePositiveReducer dismissalCounts to UserDefaults so adaptive throttling survives app restart +feature
 (B) Add regex pattern validation with user feedback in SettingsView.swift filter rule editor — show error if pattern is invalid before saving +feature
 (B) Guard against negative fontSize values in GhosttyConfigParser.swift parseColor/value parsing with validation +stability
-(B) Remove duplicate shell hook installation check — current alreadyInstalled in ShellHookInstaller.swift uses broad string contains match that can false positive on partial matches; use exact marker line match +stability
 (B) Add verify step after shell hook install in ShellHookInstaller.swift that cleans up the test log entry it writes +stability
 (B) Fix ShellHookInstaller.swift uninstall to preserve existing newlines — current aggressive newline removal can break rc file formatting +stability
 (B) Add backup rotation (keep last 3 backups) in ShellHookInstaller.swift instead of single backup that gets overwritten +stability
