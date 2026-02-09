@@ -50,17 +50,15 @@ add-zsh-hook precmd _onibi_precmd
 
 ### Features
 
-| Feature | Description |
-|---|---|
-| Command tracking | Detects command start/end with exit codes |
-| AI response detection | Pattern-matches Claude, GPT and other AI assistant output |
-| Task completion alerts | Notifies on build, test and workflow completions |
-| Session management | Tracks multiple Ghostty terminal sessions |
-| False positive reduction | Confidence scoring and deduplication |
-| Native notifications | macOS Notification Center with actionable buttons |
-| Log rotation | Automatic truncation and rotation of log files |
-| Ghostty IPC | Detects running Ghostty instances, reads config |
-| Theme sync | Syncs popover theme colors from Ghostty config |
+* **Command tracking**: Detects command start/end with exit codes
+* **AI response detection**: Pattern-matches Claude, GPT and other AI assistant output
+* **Task completion alerts**: Notifies on build, test and workflow completions 
+* **Session management**: Tracks multiple Ghostty terminal sessions 
+* **False positive reduction**: Confidence scoring and deduplication 
+* **Native notifications**: macOS Notification Center with actionable buttons 
+* **Log rotation**: Automatic truncation and rotation of log files 
+* **Ghostty IPC**: Detects running Ghostty instances, reads config 
+* **Theme sync**: Syncs popover theme colors from Ghostty config 
 
 ## Architecture
 
