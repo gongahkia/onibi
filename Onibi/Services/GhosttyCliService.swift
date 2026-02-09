@@ -56,6 +56,16 @@ final class GhosttyCliService {
         }
     }
     
+    /// Check if Ghostty binary exists in PATH and return version string
+    func isGhosttyInstalled() async -> (installed: Bool, version: String?) {
+        do {
+            let version = try await getVersion()
+            return (true, version)
+        } catch {
+            return (false, nil)
+        }
+    }
+    
     // MARK: - Private
     
     private func parseConfigOutput(_ output: String) -> [String: String] {

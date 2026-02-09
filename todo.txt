@@ -1,5 +1,4 @@
 (B) Add unit tests for JSONStorageManager — test atomic write, backup recovery, cache flush, concurrent access +infra
-(B) Add Xcode version matrix (15.0, 15.4) to ci.yml build-and-test job for forward compatibility testing +infra
 (B) Add GhosttyCliService.isGhosttyInstalled() check that verifies `ghostty` binary exists in PATH and returns version string +feature +integration
 (B) Show Ghostty version and config path in SettingsView.swift About tab via GhosttyCliService for user diagnostics +feature +integration
 (B) Add "Open Ghostty Config" button in SettingsView.swift that opens Ghostty config file in default editor via NSWorkspace +feature
