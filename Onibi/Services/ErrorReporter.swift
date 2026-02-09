@@ -63,7 +63,7 @@ final class ErrorReporter: ObservableObject {
             title: String(describing: type(of: error)),
             message: error.localizedDescription,
             context: context,
-            stackTrace: Thread.callStackSymbols.joined(separator: "\n"),
+            stackTrace: shouldCaptureStackTrace(severity: severity) ? Thread.callStackSymbols.joined(separator: "\n") : nil,
             severity: severity
         )
         
@@ -81,7 +81,7 @@ final class ErrorReporter: ObservableObject {
             title: title,
             message: message,
             context: context,
-            stackTrace: Thread.callStackSymbols.joined(separator: "\n"),
+            stackTrace: shouldCaptureStackTrace(severity: severity) ? Thread.callStackSymbols.joined(separator: "\n") : nil,
             severity: severity
         )
         
@@ -90,6 +90,17 @@ final class ErrorReporter: ObservableObject {
         
         if severity == .critical {
             showCriticalAlert(appError)
+        }
+    }
+    
+    /// Determine if stack trace should be captured based on severity
+    private func shouldCaptureStackTrace(severity: AppError.Severity) -> Bool {
+        // Only capture stack traces for error and critical severity to reduce overhead
+        switch severity {
+        case .info, .warning:
+            return false
+        case .error, .critical:
+            return true
         }
     }
     
