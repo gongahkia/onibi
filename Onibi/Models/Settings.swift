@@ -12,12 +12,14 @@ struct Settings: Codable, Equatable {
     var showInDock: Bool
     var playNotificationSounds: Bool
     var filterRules: [FilterRule]
+    var logFilePath: String
     
     enum Defaults {
         static let logRetentionDays = 7
         static let maxStorageMB = 100
         static let maxLogFileSizeMB = 10
         static let maxLogLines = 10000
+        static let logFilePath = NSHomeDirectory() + "/.config/onibi/terminal.log"
     }
     
     init(
@@ -30,7 +32,8 @@ struct Settings: Codable, Equatable {
         autoStartOnLogin: Bool = false,
         showInDock: Bool = false,
         playNotificationSounds: Bool = true,
-        filterRules: [FilterRule] = []
+        filterRules: [FilterRule] = [],
+        logFilePath: String = Defaults.logFilePath
     ) {
         self.theme = theme
         self.notifications = notifications
@@ -42,6 +45,7 @@ struct Settings: Codable, Equatable {
         self.showInDock = showInDock
         self.playNotificationSounds = playNotificationSounds
         self.filterRules = filterRules
+        self.logFilePath = logFilePath
     }
     
     static let `default` = Settings()
@@ -53,6 +57,9 @@ struct Settings: Codable, Equatable {
         copy.maxStorageMB = max(10, copy.maxStorageMB)
         copy.maxLogFileSizeMB = max(1, copy.maxLogFileSizeMB)
         copy.maxLogLines = max(100, copy.maxLogLines)
+        if copy.logFilePath.isEmpty {
+            copy.logFilePath = Defaults.logFilePath
+        }
         return copy
     }
 }

@@ -9,6 +9,7 @@ final class BackgroundTaskScheduler: ObservableObject {
     private var logBuffer: LogBuffer?
     private var logParser: LogFileParser
     private var storageManager: JSONStorageManager
+    private var settings: Settings = .default
     
     private let eventBus = EventBus.shared
     private var cancellables = Set<AnyCancellable>()
@@ -34,6 +35,7 @@ final class BackgroundTaskScheduler: ObservableObject {
     private init() {
         self.logParser = LogFileParser()
         self.storageManager = JSONStorageManager()
+        setupSubscriptions()
     }
     
     /// Start background monitoring
@@ -69,17 +71,38 @@ final class BackgroundTaskScheduler: ObservableObject {
     // MARK: - Private
     
     private func setupLogBuffer() {
-        logBuffer = LogBuffer(filePath: OnibiConfig.logFilePath)
+        logBuffer = LogBuffer(filePath: settings.logFilePath)
         // Skip existing content on startup
         try? logBuffer?.seekToEnd()
     }
     
     private func setupFileWatcher() {
-        // Watch the config directory for changes
-        fileWatcher = FileWatcher(path: OnibiConfig.appDataDirectory, debounceInterval: 0.5) { [weak self] in
+        // Watch the log directory for changes
+        let logDir = URL(fileURLWithPath: settings.logFilePath).deletingLastPathComponent().path
+        fileWatcher = FileWatcher(path: logDir, debounceInterval: 0.5) { [weak self] in
             self?.processNewLogContent()
         }
         fileWatcher?.start()
+    }
+    
+    private func setupSubscriptions() {
+        EventBus.shared.settingsPublisher
+            .sink { [weak self] newSettings in
+                guard let self = self else { return }
+                if newSettings.logFilePath != self.settings.logFilePath {
+                    self.settings = newSettings
+                    self.restartMonitoring()
+                } else {
+                    self.settings = newSettings
+                }
+            }
+            .store(in: &cancellables)
+    }
+    
+    private func restartMonitoring() {
+        guard isRunning else { return }
+        stop()
+        start()
     }
     
     private func processNewLogContent() {
@@ -195,7 +218,7 @@ final class BackgroundTaskScheduler: ObservableObject {
     private func shouldThrottle(_ type: NotificationType) -> Bool {
         let now = Date()
         if let lastTime = notificationThrottle[type],
-           now.timeIntervalSince(lastTime) < throttleInterval {
+            now.timeIntervalSince(lastTime) < throttleInterval {
             return true
         }
         notificationThrottle[type] = now

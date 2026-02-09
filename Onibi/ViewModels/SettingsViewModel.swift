@@ -3,6 +3,8 @@ import Combine
 
 /// ViewModel for managing app settings
 final class SettingsViewModel: ObservableObject {
+    static let shared = SettingsViewModel()
+    
     @Published var settings: Settings {
         didSet {
             let validated = settings.validated()

@@ -19,14 +19,14 @@ final class ShellHookInstaller: ObservableObject {
             }
         }
         
-        var hookScript: String {
+        func hookScript(logPath: String) -> String {
             switch self {
             case .zsh:
-                return Self.zshHookScript
+                return Self.zshHookScript(logPath: logPath)
             case .bash:
-                return Self.bashHookScript
+                return Self.bashHookScript(logPath: logPath)
             case .fish:
-                return Self.fishHookScript
+                return Self.fishHookScript(logPath: logPath)
             }
         }
         
@@ -35,54 +35,60 @@ final class ShellHookInstaller: ObservableObject {
         static let endMarker = "# <<< onibi <<<"
         
         // Shell-specific scripts
-        static let zshHookScript = """
-        # >>> onibi >>>
-        # Onibi Shell Integration - DO NOT EDIT
-        _onibi_preexec() {
-            local session_id="${TERM_SESSION_ID:-$$}"
-            echo "$(date -Iseconds)|CMD_START|$session_id|$1" >> ~/.config/onibi/terminal.log
+        static func zshHookScript(logPath: String) -> String {
+            """
+            # >>> onibi >>>
+            # Onibi Shell Integration - DO NOT EDIT
+            _onibi_preexec() {
+                local session_id="${TERM_SESSION_ID:-$$}"
+                echo "$(date -Iseconds)|CMD_START|$session_id|$1" >> \(logPath)
+            }
+            
+            _onibi_precmd() {
+                local exit_code=$?
+                local session_id="${TERM_SESSION_ID:-$$}"
+                echo "$(date -Iseconds)|CMD_END|$session_id|$exit_code" >> \(logPath)
+            }
+            
+            autoload -Uz add-zsh-hook
+            add-zsh-hook preexec _onibi_preexec
+            add-zsh-hook precmd _onibi_precmd
+            # <<< onibi <<<
+            """
         }
         
-        _onibi_precmd() {
-            local exit_code=$?
-            local session_id="${TERM_SESSION_ID:-$$}"
-            echo "$(date -Iseconds)|CMD_END|$session_id|$exit_code" >> ~/.config/onibi/terminal.log
+        static func bashHookScript(logPath: String) -> String {
+            """
+            # >>> onibi >>>
+            # Onibi Shell Integration - DO NOT EDIT
+            _onibi_preexec() {
+                local session_id="${TERM_SESSION_ID:-$$}"
+                echo "$(date -Iseconds)|CMD_START|$session_id|$BASH_COMMAND" >> \(logPath)
+            }
+            
+            trap '_onibi_preexec' DEBUG
+            
+            PROMPT_COMMAND='_onibi_exit=$?; echo "$(date -Iseconds)|CMD_END|${TERM_SESSION_ID:-$$}|$_onibi_exit" >> \(logPath); '$PROMPT_COMMAND
+            # <<< onibi <<<
+            """
         }
         
-        autoload -Uz add-zsh-hook
-        add-zsh-hook preexec _onibi_preexec
-        add-zsh-hook precmd _onibi_precmd
-        # <<< onibi <<<
-        """
-        
-        static let bashHookScript = """
-        # >>> onibi >>>
-        # Onibi Shell Integration - DO NOT EDIT
-        _onibi_preexec() {
-            local session_id="${TERM_SESSION_ID:-$$}"
-            echo "$(date -Iseconds)|CMD_START|$session_id|$BASH_COMMAND" >> ~/.config/onibi/terminal.log
+        static func fishHookScript(logPath: String) -> String {
+            """
+            # >>> onibi >>>
+            # Onibi Shell Integration - DO NOT EDIT
+            function _onibi_preexec --on-event fish_preexec
+                set -l session_id (echo $TERM_SESSION_ID; or echo %self)
+                echo (date -Iseconds)"|CMD_START|$session_id|$argv" >> \(logPath)
+            end
+            
+            function _onibi_postexec --on-event fish_postexec
+                set -l session_id (echo $TERM_SESSION_ID; or echo %self)
+                echo (date -Iseconds)"|CMD_END|$session_id|$status" >> \(logPath)
+            end
+            # <<< onibi <<<
+            """
         }
-        
-        trap '_onibi_preexec' DEBUG
-        
-        PROMPT_COMMAND='_onibi_exit=$?; echo "$(date -Iseconds)|CMD_END|${TERM_SESSION_ID:-$$}|$_onibi_exit" >> ~/.config/onibi/terminal.log; '$PROMPT_COMMAND
-        # <<< onibi <<<
-        """
-        
-        static let fishHookScript = """
-        # >>> onibi >>>
-        # Onibi Shell Integration - DO NOT EDIT
-        function _onibi_preexec --on-event fish_preexec
-            set -l session_id (echo $TERM_SESSION_ID; or echo %self)
-            echo (date -Iseconds)"|CMD_START|$session_id|$argv" >> ~/.config/onibi/terminal.log
-        end
-        
-        function _onibi_postexec --on-event fish_postexec
-            set -l session_id (echo $TERM_SESSION_ID; or echo %self)
-            echo (date -Iseconds)"|CMD_END|$session_id|$status" >> ~/.config/onibi/terminal.log
-        end
-        # <<< onibi <<<
-        """
     }
     
     // MARK: - Status
@@ -164,7 +170,8 @@ final class ShellHookInstaller: ObservableObject {
         }
         
         // Append hook script
-        let newContent = existingContent + "\n\n" + shell.hookScript + "\n"
+        let settings = SettingsViewModel.shared.settings
+        let newContent = existingContent + "\n\n" + shell.hookScript(logPath: settings.logFilePath) + "\n"
         try newContent.write(toFile: shell.rcFilePath, atomically: true, encoding: .utf8)
         
         // Update status
@@ -222,7 +229,8 @@ final class ShellHookInstaller: ObservableObject {
     
     /// Test if hooks are working by writing a test entry
     func verify() -> Bool {
-        let testPath = OnibiConfig.logFilePath
+        let settings = SettingsViewModel.shared.settings
+        let testPath = settings.logFilePath
         let testEntry = "\(ISO8601DateFormatter().string(from: Date()))|TEST|verification\n"
         
         do {
