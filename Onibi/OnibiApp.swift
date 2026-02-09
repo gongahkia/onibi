@@ -38,6 +38,9 @@ struct OnibiApp: App {
                          NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
                     }
                 }
+                .onReceive(NotificationCenter.default.publisher(for: .openOnboardingWindow)) { _ in
+                    openWindow(id: "onboarding")
+                }
         }
     }
 }

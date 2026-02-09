@@ -102,7 +102,7 @@ struct OnboardingView: View {
     }
     
     private func finishOnboarding() {
-        UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
+        settingsViewModel.settings.hasCompletedOnboarding = true
         dismiss()
     }
 }
