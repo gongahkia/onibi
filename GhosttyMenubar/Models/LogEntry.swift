@@ -9,6 +9,7 @@ struct LogEntry: Identifiable, Codable, Equatable {
     let exitCode: Int?
     let duration: TimeInterval?
     let workingDirectory: String?
+    let sessionId: String?
     let metadata: [String: String]
     
     init(
@@ -19,6 +20,7 @@ struct LogEntry: Identifiable, Codable, Equatable {
         exitCode: Int? = nil,
         duration: TimeInterval? = nil,
         workingDirectory: String? = nil,
+        sessionId: String? = nil,
         metadata: [String: String] = [:]
     ) {
         self.id = id
@@ -28,6 +30,7 @@ struct LogEntry: Identifiable, Codable, Equatable {
         self.exitCode = exitCode
         self.duration = duration
         self.workingDirectory = workingDirectory
+        self.sessionId = sessionId
         self.metadata = metadata
     }
 }

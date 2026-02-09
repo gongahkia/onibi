@@ -7,6 +7,7 @@ struct GhosttyEvent: Identifiable, Codable, Equatable {
     let type: EventType
     let command: String?
     let output: String?
+    let sessionId: String?
     let metadata: [String: String]
     
     init(
@@ -15,6 +16,7 @@ struct GhosttyEvent: Identifiable, Codable, Equatable {
         type: EventType,
         command: String? = nil,
         output: String? = nil,
+        sessionId: String? = nil,
         metadata: [String: String] = [:]
     ) {
         self.id = id
@@ -22,6 +24,7 @@ struct GhosttyEvent: Identifiable, Codable, Equatable {
         self.type = type
         self.command = command
         self.output = output
+        self.sessionId = sessionId
         self.metadata = metadata
     }
 }

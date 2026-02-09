@@ -3,16 +3,6 @@
 # Tags: +feature, +refactor, +infra, +security, +test
 
 
-## LOG TRUNCATION & PERFORMANCE
-(B) Add maxLogFileSizeMB setting to Settings model with default value of 10MB +feature
-(B) Implement LogFileTruncator service that monitors terminal.log size and truncates oldest entries +feature
-(B) Create truncation strategy: keep last N lines (configurable) when file exceeds size limit +feature
-(B) Add file size check in FileWatcher before reading to skip processing if file too large +refactor
-(B) Implement log rotation: rename terminal.log to terminal.log.1 when limit reached, keep max 3 rotations +feature
-(B) Add "Current log size" display in Logs settings tab with visual progress bar +feature
-(B) Create low-disk-space warning when logs directory exceeds 80% of maxStorageMB +feature
-(B) Implement streaming JSON append for logs.json instead of full rewrite using file handles +refactor
-
 ## TERMINAL SESSION TRACKING
 (B) Add sessionId field to LogEntry and GhosttyEvent models as optional String +refactor
 (B) Modify shell hooks to include $TERM_SESSION_ID or fallback to $$ (PID) in log format +refactor
