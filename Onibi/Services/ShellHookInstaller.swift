@@ -68,7 +68,17 @@ final class ShellHookInstaller: ObservableObject {
             
             trap '_onibi_preexec' DEBUG
             
-            PROMPT_COMMAND='_onibi_exit=$?; echo "$(date -Iseconds)|CMD_END|${TERM_SESSION_ID:-$$}|$_onibi_exit" >> \(logPath); '$PROMPT_COMMAND
+            # Check for existing PROMPT_COMMAND and preserve it
+            _onibi_prompt_cmd() {
+                local _onibi_exit=$?
+                echo "$(date -Iseconds)|CMD_END|${TERM_SESSION_ID:-$$}|$_onibi_exit" >> \(logPath)
+                return $_onibi_exit
+            }
+            if [[ -n "$PROMPT_COMMAND" && "$PROMPT_COMMAND" != *"_onibi_prompt_cmd"* ]]; then
+                PROMPT_COMMAND="_onibi_prompt_cmd; $PROMPT_COMMAND"
+            elif [[ -z "$PROMPT_COMMAND" ]]; then
+                PROMPT_COMMAND="_onibi_prompt_cmd"
+            fi
             # <<< onibi <<<
             """
         }
