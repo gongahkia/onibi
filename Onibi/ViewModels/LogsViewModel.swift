@@ -26,10 +26,13 @@ final class LogsViewModel: ObservableObject {
             
             var loadedLogs: [LogEntry] = []
             
-            if FileManager.default.fileExists(atPath: logsPath),
-               let data = try? Data(contentsOf: URL(fileURLWithPath: logsPath)),
-               let decoded = try? JSONDecoder().decode([LogEntry].self, from: data) {
-                loadedLogs = decoded
+            if FileManager.default.fileExists(atPath: logsPath) {
+                do {
+                    let data = try Data(contentsOf: URL(fileURLWithPath: logsPath))
+                    loadedLogs = try JSONDecoder().decode([LogEntry].self, from: data)
+                } catch {
+                    ErrorReporter.shared.report(error, context: "LogsViewModel.loadLogs JSON decode")
+                }
             }
             
             DispatchQueue.main.async {
