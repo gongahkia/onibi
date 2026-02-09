@@ -11,6 +11,35 @@ final class MenuBarController: ObservableObject {
     
     @Published var notificationCount: Int = 0
     @Published var isAnimating: Bool = false
+    @Published var menuBarState: MenuBarState = .idle
+    
+    enum MenuBarState {
+        case ghosttyNotRunning
+        case monitoringActive
+        case newNotifications
+        
+        var iconName: String {
+            switch self {
+            case .ghosttyNotRunning:
+                return "terminal"
+            case .monitoringActive:
+                return "terminal.fill"
+            case .newNotifications:
+                return "terminal.fill"
+            }
+        }
+        
+        var iconColor: NSColor? {
+            switch self {
+            case .ghosttyNotRunning:
+                return .secondaryLabelColor
+            case .monitoringActive:
+                return nil // Use template for system colors
+            case .newNotifications:
+                return nil // Use template for system colors
+            }
+        }
+    }
     
     private let eventBus = EventBus.shared
     
@@ -40,15 +69,42 @@ final class MenuBarController: ObservableObject {
     func updateIcon(hasNotifications: Bool) {
         guard let button = statusItem?.button else { return }
         
-        let iconName = hasNotifications ? "terminal.fill" : "terminal"
-        let image = NSImage(systemSymbolName: iconName, accessibilityDescription: "Onibi")
+        // Determine state
+        if hasNotifications && notificationCount > 0 {
+            menuBarState = .newNotifications
+        } else {
+            // Check if Ghostty is running/monitoring is active
+            Task {
+                let (installed, _) = await GhosttyCliService.shared.isGhosttyInstalled()
+                DispatchQueue.main.async {
+                    self.menuBarState = installed ? .monitoringActive : .ghosttyNotRunning
+                    self.updateIconAppearance()
+                }
+            }
+            return
+        }
+        
+        updateIconAppearance()
+    }
+    
+    private func updateIconAppearance() {
+        guard let button = statusItem?.button else { return }
+        
+        let image = NSImage(systemSymbolName: menuBarState.iconName, accessibilityDescription: "Onibi")
         
         // Template image for proper light/dark mode adaptation
-        image?.isTemplate = true
+        image?.isTemplate = menuBarState.iconColor == nil
         button.image = image
         
+        // Set custom tint for ghostty not running state
+        if let color = menuBarState.iconColor {
+            button.contentTintColor = color
+        } else {
+            button.contentTintColor = nil
+        }
+        
         // Update badge
-        if hasNotifications && notificationCount > 0 {
+        if menuBarState == .newNotifications && notificationCount > 0 {
             button.title = " \(notificationCount > 99 ? "99+" : String(notificationCount))"
         } else {
             button.title = ""
@@ -83,7 +139,7 @@ final class MenuBarController: ObservableObject {
             index += 1
             if index >= 6 { // 3 cycles
                 self.isAnimating = false
-                self.updateIcon(hasNotifications: self.notificationCount > 0)
+                self.updateIconAppearance()
                 timer.invalidate()
             }
         }
