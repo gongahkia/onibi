@@ -4,10 +4,27 @@ import UserNotifications
 import Combine
 
 /// Native macOS notification manager wrapping UNUserNotificationCenter
+/// Gracefully handles running outside of a proper .app bundle (e.g., via `swift build`)
 final class NotificationManager: NSObject, ObservableObject {
     static let shared = NotificationManager()
     
-    private let center = UNUserNotificationCenter.current()
+    /// Lazy, safe initialization of UNUserNotificationCenter
+    /// Returns nil if we're not running in a proper app bundle
+    private lazy var center: UNUserNotificationCenter? = {
+        // Check if we have a valid bundle identifier before attempting to access notification center
+        guard Bundle.main.bundleIdentifier != nil else {
+            Log.notifications.warning("No bundle identifier - notifications disabled (running outside .app bundle)")
+            return nil
+        }
+        
+        // Return the notification center - the bundle identifier check above prevents the crash
+        return UNUserNotificationCenter.current()
+    }()
+    
+    /// Whether native notifications are available (requires proper .app bundle)
+    var isNotificationCenterAvailable: Bool {
+        return center != nil
+    }
     
     @Published var isAuthorized: Bool = false
     @Published var authorizationStatus: UNAuthorizationStatus = .notDetermined
@@ -44,17 +61,28 @@ final class NotificationManager: NSObject, ObservableObject {
     
     private override init() {
         super.init()
-        center.delegate = self
-        checkAuthorizationStatus()
         setupSubscriptions()
+        
+        // Only set up delegate and check authorization if center is available
+        if let notificationCenter = center {
+            notificationCenter.delegate = self
+            checkAuthorizationStatus()
+        } else {
+            Log.notifications.info("Running without native notifications - use Xcode or build as .app bundle for full functionality")
+        }
     }
     
     // MARK: - Authorization
     
     /// Request notification authorization
     func requestAuthorization() async -> Bool {
+        guard let notificationCenter = center else {
+            Log.notifications.debug("Skipping authorization request - notification center not available")
+            return false
+        }
+        
         do {
-            let granted = try await center.requestAuthorization(options: [.alert, .sound, .badge])
+            let granted = try await notificationCenter.requestAuthorization(options: [.alert, .sound, .badge])
             await MainActor.run {
                 self.isAuthorized = granted
                 self.authorizationStatus = granted ? .authorized : .denied
@@ -73,7 +101,9 @@ final class NotificationManager: NSObject, ObservableObject {
     
     /// Check current authorization status
     func checkAuthorizationStatus() {
-        center.getNotificationSettings { [weak self] settings in
+        guard let notificationCenter = center else { return }
+        
+        notificationCenter.getNotificationSettings { [weak self] settings in
             DispatchQueue.main.async {
                 self?.authorizationStatus = settings.authorizationStatus
                 self?.isAuthorized = settings.authorizationStatus == .authorized
@@ -112,14 +142,14 @@ final class NotificationManager: NSObject, ObservableObject {
             )
         }
         
-        center.setNotificationCategories(Set(categories))
+        center?.setNotificationCategories(Set(categories))
     }
     
     // MARK: - Send Notifications
     
     /// Send a native notification from AppNotification
     func send(_ notification: AppNotification) async {
-        guard isAuthorized else { return }
+        guard let notificationCenter = center, isAuthorized else { return }
         
         let content = UNMutableNotificationContent()
         content.title = notification.title
@@ -145,7 +175,7 @@ final class NotificationManager: NSObject, ObservableObject {
         )
         
         do {
-            try await center.add(request)
+            try await notificationCenter.add(request)
         } catch {
             Log.notifications.error("failed to send notification: \(error.localizedDescription)")
         }
@@ -153,18 +183,20 @@ final class NotificationManager: NSObject, ObservableObject {
     
     /// Remove delivered notifications
     func removeDelivered(ids: [String]) {
-        center.removeDeliveredNotifications(withIdentifiers: ids)
+        center?.removeDeliveredNotifications(withIdentifiers: ids)
     }
     
     /// Remove all delivered notifications
     func removeAllDelivered() {
-        center.removeAllDeliveredNotifications()
+        center?.removeAllDeliveredNotifications()
     }
     
     /// Update badge count
     func setBadgeCount(_ count: Int) async {
+        guard let notificationCenter = center else { return }
+        
         do {
-            try await center.setBadgeCount(count)
+            try await notificationCenter.setBadgeCount(count)
         } catch {
             Log.notifications.error("failed to set badge: \(error.localizedDescription)")
         }
