@@ -3,6 +3,7 @@ import SwiftUI
 /// Main menubar dropdown view
 struct MenuBarView: View {
     @StateObject private var viewModel = NotificationViewModel()
+    @ObservedObject private var settingsVM = SettingsViewModel.shared
     @StateObject private var ghosttyClient = GhosttyIPCClient.shared
     @State private var showSettings = false
     @State private var showClearConfirmation = false
@@ -133,7 +134,10 @@ struct MenuBarView: View {
         ScrollView {
             LazyVStack(spacing: 1) {
                 ForEach(viewModel.notifications) { notification in
-                    NotificationCard(notification: notification) {
+                    NotificationCard(
+                        notification: notification,
+                        userPersona: settingsVM.settings.userPersona
+                    ) {
                         viewModel.dismiss(notification)
                     }
                 }
@@ -183,6 +187,7 @@ struct MenuBarView: View {
 
 struct NotificationCard: View {
     let notification: AppNotification
+    let userPersona: UserPersona
     let onDismiss: () -> Void
     
     @State private var isHovered = false
@@ -213,6 +218,20 @@ struct NotificationCard: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .lineLimit(2)
+                
+                if userPersona == .powerUser, let event = notification.sourceEvent {
+                    HStack(spacing: 8) {
+                        if let cmd = event.command {
+                            Label(cmd, systemImage: "terminal")
+                        }
+                        if let session = event.sessionId {
+                            Label(session, systemImage: "macwindow")
+                        }
+                    }
+                    .font(.caption2)
+                    .foregroundColor(.secondary.opacity(0.8))
+                    .padding(.top, 2)
+                }
             }
             
             if isHovered {

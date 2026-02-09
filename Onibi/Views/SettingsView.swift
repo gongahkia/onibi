@@ -28,7 +28,7 @@ struct SettingsView: View {
     
     var body: some View {
         NavigationSplitView {
-            List(SettingsTab.allCases, id: \.self, selection: $selectedTab) { tab in
+            List(SettingsTab.allCases.filter { shouldShowTab($0) }, id: \.self, selection: $selectedTab) { tab in
                 Label(tab.rawValue, systemImage: tab.icon)
                     .tag(tab)
             }
@@ -55,6 +55,13 @@ struct SettingsView: View {
         }
         .frame(minWidth: 600, minHeight: 400)
     }
+    
+    private func shouldShowTab(_ tab: SettingsTab) -> Bool {
+        if viewModel.settings.userPersona == .casual {
+            return tab != .filters
+        }
+        return true
+    }
 }
 
 // MARK: - General Settings Tab
@@ -64,6 +71,19 @@ struct GeneralSettingsTab: View {
     
     var body: some View {
         Form {
+            Section("User Persona") {
+                Picker("Experience Level", selection: $viewModel.settings.userPersona) {
+                    ForEach(UserPersona.allCases, id: \.self) { persona in
+                        Text(persona.displayName).tag(persona)
+                    }
+                }
+                .pickerStyle(.segmented)
+                
+                Text(viewModel.settings.userPersona.description)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
             Section("Startup") {
                 Toggle("Launch at login", isOn: $viewModel.settings.autoStartOnLogin)
                 Toggle("Show in Dock", isOn: $viewModel.settings.showInDock)
@@ -265,34 +285,38 @@ struct LogsSettingsTab: View {
     
     var body: some View {
         Form {
-            Section("Retention") {
-                Picker("Keep logs for", selection: $viewModel.settings.logRetentionDays) {
-                    Text("1 day").tag(1)
-                    Text("3 days").tag(3)
-                    Text("7 days").tag(7)
-                    Text("14 days").tag(14)
-                    Text("30 days").tag(30)
-                }
-                
-                Slider(value: Binding(
-                    get: { Double(viewModel.settings.logRetentionDays) },
-                    set: { viewModel.settings.logRetentionDays = Int($0) }
-                ), in: 1...30, step: 1) {
-                    Text("Retention: \(viewModel.settings.logRetentionDays) days")
+            if viewModel.settings.userPersona == .powerUser {
+                Section("Retention") {
+                    Picker("Keep logs for", selection: $viewModel.settings.logRetentionDays) {
+                        Text("1 day").tag(1)
+                        Text("3 days").tag(3)
+                        Text("7 days").tag(7)
+                        Text("14 days").tag(14)
+                        Text("30 days").tag(30)
+                    }
+                    
+                    Slider(value: Binding(
+                        get: { Double(viewModel.settings.logRetentionDays) },
+                        set: { viewModel.settings.logRetentionDays = Int($0) }
+                    ), in: 1...30, step: 1) {
+                        Text("Retention: \(viewModel.settings.logRetentionDays) days")
+                    }
                 }
             }
             
             Section("Storage") {
-                HStack {
-                    Text("Maximum storage")
-                    Spacer()
-                    Picker("", selection: $viewModel.settings.maxStorageMB) {
-                        Text("50 MB").tag(50)
-                        Text("100 MB").tag(100)
-                        Text("250 MB").tag(250)
-                        Text("500 MB").tag(500)
+                if viewModel.settings.userPersona == .powerUser {
+                    HStack {
+                        Text("Maximum storage")
+                        Spacer()
+                        Picker("", selection: $viewModel.settings.maxStorageMB) {
+                            Text("50 MB").tag(50)
+                            Text("100 MB").tag(100)
+                            Text("250 MB").tag(250)
+                            Text("500 MB").tag(500)
+                        }
+                        .frame(width: 120)
                     }
-                    .frame(width: 120)
                 }
                 
                 HStack {
