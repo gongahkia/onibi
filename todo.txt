@@ -1,6 +1,3 @@
-(B) Add NSLock guard around `customPatterns` property access in PatternRule.swift CustomPatternDetector class to prevent concurrent read/write races +stability +security
-(B) Add NSLock guard around `cachedLogs` and `isDirty` access in JSONStorageManager.swift to prevent data races on cache append/flush +stability +security
-(B) Add NSLock guard around `eventsProcessed` counter in BackgroundTaskScheduler.swift processLogLine method where it dispatches to global queue but publishes to main +stability +security
 (B) Close FileHandle in all error paths in LogBuffer.swift readNewContent method — wrap in defer block +stability
 (B) Invalidate flushTimer in JSONStorageManager.swift deinit using weak self capture in timer closure to break retain cycle +stability
 (B) Invalidate monitoring timer in LogFileTruncator.swift deinit to prevent orphaned timer +stability
