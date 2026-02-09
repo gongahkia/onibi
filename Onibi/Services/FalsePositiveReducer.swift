@@ -19,6 +19,7 @@ final class FalsePositiveReducer: ObservableObject {
     
     private init() {
         loadSuppressedPatterns()
+        loadDismissalCounts()
         
         // Subscribe to settings
         EventBus.shared.settingsPublisher
@@ -180,6 +181,7 @@ final class FalsePositiveReducer: ObservableObject {
     /// Record a dismissal for adaptive throttling
     func recordDismissal(type: NotificationType) {
         dismissalCounts[type, default: 0] += 1
+        saveDismissalCounts()
     }
     
     /// Get suggested throttle interval based on dismissal frequency
@@ -200,11 +202,13 @@ final class FalsePositiveReducer: ObservableObject {
     /// Reset dismissal counts (e.g., on app launch or daily)
     func resetDismissalCounts() {
         dismissalCounts.removeAll()
+        saveDismissalCounts()
     }
     
     // MARK: - Persistence
     
     private let suppressedKey = "suppressedFalsePositivePatterns"
+    private let dismissalCountsKey = "dismissalCounts"
     
     private func loadSuppressedPatterns() {
         if let patterns = UserDefaults.standard.stringArray(forKey: suppressedKey) {
@@ -214,6 +218,26 @@ final class FalsePositiveReducer: ObservableObject {
     
     private func saveSuppressedPatterns() {
         UserDefaults.standard.set(suppressedPatterns, forKey: suppressedKey)
+    }
+    
+    private func loadDismissalCounts() {
+        guard let data = UserDefaults.standard.data(forKey: dismissalCountsKey),
+              let decoded = try? JSONDecoder().decode([String: Int].self, from: data) else { return }
+        
+        dismissalCounts = decoded.reduce(into: [:]) { result, pair in
+            if let type = NotificationType(rawValue: pair.key) {
+                result[type] = pair.value
+            }
+        }
+    }
+    
+    private func saveDismissalCounts() {
+        let encoded: [String: Int] = dismissalCounts.reduce(into: [:]) { result, pair in
+            result[pair.key.rawValue] = pair.value
+        }
+        if let data = try? JSONEncoder().encode(encoded) {
+            UserDefaults.standard.set(data, forKey: dismissalCountsKey)
+        }
     }
     
     // MARK: - Combined Filter
