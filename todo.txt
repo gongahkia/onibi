@@ -3,11 +3,6 @@
 # Tags: +feature, +refactor, +infra, +security, +test
 
 ## NATIVE NOTIFICATIONS (User Priority #1)
-(B) Create NotificationManager service wrapping UNUserNotificationCenter for macOS native notifications +feature
-(B) Request notification authorization on first launch using UNUserNotificationCenter.requestAuthorization +feature
-(B) Define UNNotificationCategory for each NotificationType (system, task, AI, dev, automation) with custom actions +feature
-(B) Implement UNNotificationContent builder that maps AppNotification to native notification payload +feature
-(B) Add notification action handlers for "View in App", "Dismiss", and "Open Terminal" via UNUserNotificationCenterDelegate +feature
 (B) Create settings toggle for "Use Native Notifications" vs "In-App Only" in NotificationPreferences model +feature
 (B) Implement notification sound attachment using UNNotificationSound with custom sound files +feature
 (B) Add notification grouping using threadIdentifier to cluster by NotificationType +feature

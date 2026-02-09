@@ -10,6 +10,7 @@ struct NotificationPreferences: Codable, Equatable {
     var soundName: String?
     var showBadge: Bool
     var autoExpireMinutes: Int?
+    var useNativeNotifications: Bool
     
     init(
         enableSystem: Bool = true,
@@ -19,7 +20,8 @@ struct NotificationPreferences: Codable, Equatable {
         enableAutomation: Bool = true,
         soundName: String? = nil,
         showBadge: Bool = true,
-        autoExpireMinutes: Int? = nil
+        autoExpireMinutes: Int? = nil,
+        useNativeNotifications: Bool = true
     ) {
         self.enableSystem = enableSystem
         self.enableTaskCompletion = enableTaskCompletion
@@ -29,6 +31,7 @@ struct NotificationPreferences: Codable, Equatable {
         self.soundName = soundName
         self.showBadge = showBadge
         self.autoExpireMinutes = autoExpireMinutes
+        self.useNativeNotifications = useNativeNotifications
     }
     
     /// Check if notifications are enabled for a specific type
