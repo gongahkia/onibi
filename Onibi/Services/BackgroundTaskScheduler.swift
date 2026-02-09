@@ -321,11 +321,55 @@ final class LRUCache<Key: Hashable, Value> {
 
 // MARK: - Performance Monitor
 
+/// Circular buffer for efficient fixed-size storage
+struct CircularBuffer<T> {
+    private var buffer: [T?]
+    private var writeIndex = 0
+    private var count = 0
+    let capacity: Int
+    
+    init(capacity: Int) {
+        self.capacity = capacity
+        self.buffer = Array(repeating: nil, count: capacity)
+    }
+    
+    mutating func append(_ element: T) {
+        buffer[writeIndex] = element
+        writeIndex = (writeIndex + 1) % capacity
+        if count < capacity {
+            count += 1
+        }
+    }
+    
+    var elements: [T] {
+        var result: [T] = []
+        result.reserveCapacity(count)
+        
+        if count < capacity {
+            // Not wrapped yet
+            for i in 0..<count {
+                if let element = buffer[i] {
+                    result.append(element)
+                }
+            }
+        } else {
+            // Wrapped - start from writeIndex (oldest)
+            for i in 0..<capacity {
+                let index = (writeIndex + i) % capacity
+                if let element = buffer[index] {
+                    result.append(element)
+                }
+            }
+        }
+        return result
+    }
+}
+
 /// Simple performance monitoring
 final class PerformanceMonitor {
     static let shared = PerformanceMonitor()
     
-    private var metrics: [String: [TimeInterval]] = [:]
+    private var metrics: [String: CircularBuffer<TimeInterval>] = [:]
     private let lock = NSLock()
     
     private init() {}
@@ -342,21 +386,18 @@ final class PerformanceMonitor {
         defer { lock.unlock() }
         
         if metrics[name] == nil {
-            metrics[name] = []
+            metrics[name] = CircularBuffer(capacity: 100)
         }
         metrics[name]?.append(duration)
-        
-        // Keep only last 100 measurements
-        if let count = metrics[name]?.count, count > 100 {
-            metrics[name]?.removeFirst(count - 100)
-        }
     }
     
     func averageDuration(_ name: String) -> TimeInterval? {
         lock.lock()
         defer { lock.unlock() }
         
-        guard let values = metrics[name], !values.isEmpty else { return nil }
+        guard let buffer = metrics[name] else { return nil }
+        let values = buffer.elements
+        guard !values.isEmpty else { return nil }
         return values.reduce(0, +) / Double(values.count)
     }
     
@@ -365,7 +406,8 @@ final class PerformanceMonitor {
         defer { lock.unlock() }
         
         var report = "Performance Report:\n"
-        for (name, values) in metrics.sorted(by: { $0.key < $1.key }) {
+        for (name, buffer) in metrics.sorted(by: { $0.key < $1.key }) {
+            let values = buffer.elements
             let avg = values.reduce(0, +) / Double(values.count)
             report += "  \(name): avg=\(String(format: "%.3f", avg * 1000))ms, count=\(values.count)\n"
         }
