@@ -31,7 +31,6 @@ jobs:
       
       - name: Run SwiftLint
         run: swiftlint lint --strict --reporter github-actions-logging
-        continue-on-error: true
       
       - name: Build
         run: |
@@ -51,8 +50,7 @@ jobs:
             -destination 'platform=macOS' \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO
-        continue-on-error: true
-      
+
       - name: Build Release
         run: |
           xcodebuild build \
