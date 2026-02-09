@@ -3,28 +3,6 @@
 # Tech Stack: Swift + SwiftUI | UI Style: Minimalist/clean (Bartender/Hidden Bar inspired)
 # Max 150 tasks | Format: todo.txt
 
-## SETTINGS & PREFERENCES PANEL
-Create SettingsView with tab-based navigation
-Design General tab with basic app preferences
-Implement Notifications tab for per-type notification controls
-Create Appearance tab for theme and UI customization
-Design Logs tab for retention and storage settings
-Implement Filters tab for custom filtering rules
-Create About tab with version info and credits
-Add toggle switches for notification types (system, tasks, AI, dev, automation)
-Implement notification sound picker with preview
-Create theme selector (light, dark, system auto)
-Design custom menubar icon picker or upload
-Implement log retention period slider (1 day to 30 days)
-Create storage limit configuration with current usage display
-Add "Clear All Logs" button with confirmation dialog
-Implement notification preview/test functionality
-Create filter rule builder UI (if/then conditions)
-Add import/export settings functionality (JSON)
-Implement settings validation and error messaging
-Create settings persistence using UserDefaults or JSON file
-Add reset to defaults functionality for all settings
-
 ## DATA PERSISTENCE & STORAGE
 Implement JSON file-based storage for logs (~/.config/ghostty-menubar/logs.json)
 Create Codable data models for serializing logs, notifications, and settings to JSON
