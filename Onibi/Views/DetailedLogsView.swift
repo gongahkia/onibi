@@ -365,17 +365,21 @@ struct LogEntryRow: View {
     private func highlightedText(_ text: String, highlight: String) -> Text {
         guard !highlight.isEmpty else { return Text(text) }
         
-        var result = Text("")
-        var remaining = text[...]
+        var attributedString = AttributedString(text)
+        var searchRange = attributedString.startIndex..<attributedString.endIndex
         
-        while let range = remaining.range(of: highlight, options: .caseInsensitive) {
-            result = result + Text(remaining[..<range.lowerBound])
-            result = result + Text(remaining[range]).bold().foregroundColor(.accentColor)
-            remaining = remaining[range.upperBound...]
+        while let range = attributedString[searchRange].range(of: highlight, options: .caseInsensitive) {
+            attributedString[range].font = .body.bold()
+            attributedString[range].foregroundColor = .accentColor
+            
+            if range.upperBound < attributedString.endIndex {
+                searchRange = range.upperBound..<attributedString.endIndex
+            } else {
+                break
+            }
         }
-        result = result + Text(remaining)
         
-        return result
+        return Text(attributedString)
     }
     
     private func copyToClipboard() {
