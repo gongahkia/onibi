@@ -3,6 +3,7 @@ import Foundation
 /// User preferences and app configuration
 struct Settings: Codable, Equatable {
     var theme: Theme
+    var userPersona: UserPersona
     var notifications: NotificationPreferences
     var logRetentionDays: Int
     var maxStorageMB: Int
@@ -24,6 +25,7 @@ struct Settings: Codable, Equatable {
     
     init(
         theme: Theme = .system,
+        userPersona: UserPersona = .casual,
         notifications: NotificationPreferences = NotificationPreferences(),
         logRetentionDays: Int = Defaults.logRetentionDays,
         maxStorageMB: Int = Defaults.maxStorageMB,
@@ -36,6 +38,7 @@ struct Settings: Codable, Equatable {
         logFilePath: String = Defaults.logFilePath
     ) {
         self.theme = theme
+        self.userPersona = userPersona
         self.notifications = notifications
         self.logRetentionDays = logRetentionDays
         self.maxStorageMB = maxStorageMB
