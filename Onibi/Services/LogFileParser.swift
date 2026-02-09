@@ -1,5 +1,27 @@
 import Foundation
 
+/// Cache for compiled regex patterns
+private final class RegexCache {
+    static let shared = RegexCache()
+    private var cache: [String: NSRegularExpression] = [:]
+    private let lock = NSLock()
+    
+    func regex(for pattern: String) -> NSRegularExpression? {
+        lock.lock()
+        defer { lock.unlock() }
+        
+        if let cached = cache[pattern] {
+            return cached
+        }
+        
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+        cache[pattern] = regex
+        return regex
+    }
+}
+
 /// Parses log entries from the terminal log file
 final class LogFileParser {
     
@@ -104,7 +126,7 @@ final class LogFileParser {
     }
     
     private func firstMatch(for pattern: String, in string: String) -> (String, String, String)? {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        guard let regex = RegexCache.shared.regex(for: pattern) else { return nil }
         let nsString = string as NSString
         guard let match = regex.firstMatch(in: string, range: NSRange(location: 0, length: string.utf16.count)) else { return nil }
         
@@ -213,15 +235,10 @@ struct CommandPatterns {
         "FAILED"
     ]
     
-    /// Compile all patterns into regex objects
+    /// Compile all patterns into regex objects (uses cache)
     static func compilePatterns(_ patterns: [String]) -> [NSRegularExpression] {
         patterns.compactMap { pattern in
-            do {
-                return try NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
-            } catch {
-                ErrorReporter.shared.report(error, context: "Patterns compilation: \(pattern)")
-                return nil
-            }
+            RegexCache.shared.regex(for: pattern)
         }
     }
 }
