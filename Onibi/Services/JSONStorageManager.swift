@@ -66,8 +66,8 @@ final class JSONStorageManager: StorageManager {
                     self.cache = logs
                     continuation.resume(returning: logs)
                 } catch {
-                    // Try backup
-                    if let backup = try? self.readLogs(from: self.backupPath) {
+                    ErrorReporter.shared.report(error, context: "JSONStorageManager.loadLogs", severity: .warning)
+                    if let backup = try? self.readLogs(from: self.backupPath) { // fallback to backup
                         self.cache = backup
                         continuation.resume(returning: backup)
                     } else {

@@ -127,7 +127,7 @@ final class BackgroundTaskScheduler: ObservableObject {
                     self?.lastParseTime = Date()
                 }
             } catch {
-                print("[BackgroundTaskScheduler] Error reading log: \(error)")
+                ErrorReporter.shared.report(error, context: "BackgroundTaskScheduler.processNewLogContent", severity: .warning)
             }
         }
     }

@@ -63,7 +63,7 @@ final class LogFileTruncator: ObservableObject {
             do {
                 try rotateAndTruncate(keepLines: settings.maxLogLines)
             } catch {
-                print("[LogFileTruncator] Error during truncation: \(error)")
+                ErrorReporter.shared.report(error, context: "LogFileTruncator.checkAndTruncateIfNeeded", severity: .warning)
             }
         }
     }

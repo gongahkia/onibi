@@ -34,46 +34,40 @@ final class DependencyContainer {
         services[key] = instance
     }
     
+    enum ServiceError: Error, CustomStringConvertible {
+        case serviceNotFound(String)
+        case circularDependency(String)
+        var description: String {
+            switch self {
+            case .serviceNotFound(let type): return "service not found: \(type)"
+            case .circularDependency(let cycle): return "circular dependency: \(cycle)"
+            }
+        }
+    }
     /// Resolve a service with cycle detection
     func resolve<T>(_ type: T.Type) -> T? {
+        return try? resolveRequired(type)
+    }
+    /// Resolve a service or throw if not found
+    func resolveRequired<T>(_ type: T.Type) throws -> T {
         let key = String(describing: type)
         lock.lock()
         defer { lock.unlock() }
-        
-        // Check for circular dependency
         if resolvingStack.contains(key) {
             let cycle = (resolvingStack + [key]).joined(separator: " -> ")
-            fatalError("Circular dependency detected: \(cycle)")
+            throw ServiceError.circularDependency(cycle)
         }
-        
         if let instance = services[key] as? T {
             return instance
         }
-        
         if let factory = services[key] as? () -> T {
-            // Track this type in the resolve stack
             resolvingStack.append(key)
-            defer { resolvingStack.removeLast() }
-            
             let instance = factory()
+            resolvingStack.removeLast()
             services[key] = instance
             return instance
         }
-        
-        return nil
-    }
-    
-    enum ServiceError: Error {
-        case serviceNotFound(String)
-        case circularDependency(String)
-    }
-
-    /// Resolve a service or throw if not found
-    func resolveRequired<T>(_ type: T.Type) throws -> T {
-        guard let service = resolve(type) else {
-            throw ServiceError.serviceNotFound(String(describing: type))
-        }
-        return service
+        throw ServiceError.serviceNotFound(key)
     }
 }
 
@@ -81,18 +75,21 @@ final class DependencyContainer {
 @propertyWrapper
 struct Injected<T> {
     private var service: T?
-    
     var wrappedValue: T {
         mutating get {
             if service == nil {
                 service = DependencyContainer.shared.resolve(T.self)
             }
-            guard let service = service else {
-                fatalError("Service \(T.self) not registered")
+            guard let resolved = service else {
+                ErrorReporter.shared.report(
+                    title: "DependencyContainer",
+                    message: "Service \(T.self) not registered",
+                    severity: .critical
+                )
+                fatalError("Service \(T.self) not registered") // unrecoverable: DI misconfiguration
             }
-            return service
+            return resolved
         }
     }
-    
     init() {}
 }

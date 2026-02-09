@@ -8,6 +8,7 @@ final class MenuBarController: ObservableObject {
     private var popover: NSPopover?
     private var eventMonitor: Any?
     private var cancellables = Set<AnyCancellable>()
+    private var animationTimer: Timer?
     
     @Published var notificationCount: Int = 0
     @Published var isAnimating: Bool = false
@@ -129,21 +130,21 @@ final class MenuBarController: ObservableObject {
         let icons = ["terminal", "terminal.fill"]
         var index = 0
         
-        Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] timer in
+        animationTimer?.invalidate()
+        animationTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] timer in
             guard let self = self, self.isAnimating else {
                 timer.invalidate()
                 return
             }
-            
             if let button = self.statusItem?.button {
                 let image = NSImage(systemSymbolName: icons[index % 2], accessibilityDescription: nil)
                 image?.isTemplate = true
                 button.image = image
             }
-            
             index += 1
             if index >= 6 { // 3 cycles
                 self.isAnimating = false
+                self.animationTimer = nil
                 self.updateIconAppearance()
                 timer.invalidate()
             }
@@ -178,6 +179,8 @@ final class MenuBarController: ObservableObject {
     
     /// Clean up resources
     func cleanup() {
+        animationTimer?.invalidate()
+        animationTimer = nil
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
             eventMonitor = nil

@@ -15,7 +15,12 @@ let package = Package(
         .executableTarget(
             name: "Onibi",
             dependencies: [],
-            path: "Onibi"
+            path: "Onibi",
+            exclude: [
+                "Info.plist",
+                "Assets.xcassets",
+                "Onibi.entitlements"
+            ]
         ),
         .testTarget(
             name: "OnibiTests",

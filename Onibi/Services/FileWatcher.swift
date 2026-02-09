@@ -32,20 +32,18 @@ final class FileWatcher: ObservableObject {
     /// Start watching the file/directory
     func start() {
         guard stream == nil else { return }
-        
+        let retained = Unmanaged.passRetained(self)
         var context = FSEventStreamContext(
             version: 0,
-            info: Unmanaged.passRetained(self).toOpaque(),
+            info: retained.toOpaque(),
             retain: nil,
             release: fileWatcherReleaseCallback,
             copyDescription: nil
         )
-        
         let pathsToWatch = [path] as CFArray
-        
-        stream = FSEventStreamCreate(
+        guard let newStream = FSEventStreamCreate(
             nil,
-            { (_, info, numEvents, eventPaths, eventFlags, eventIds) in
+            { (_, info, numEvents, eventPaths, eventFlags, _) in
                 guard let info = info else { return }
                 let watcher = Unmanaged<FileWatcher>.fromOpaque(info).takeUnretainedValue()
                 watcher.handleEvents(numEvents: numEvents, eventPaths: eventPaths, eventFlags: eventFlags)
@@ -53,23 +51,15 @@ final class FileWatcher: ObservableObject {
             &context,
             pathsToWatch,
             lastEventId,
-            0.5, // Latency in seconds
+            0.5,
             FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagUseCFTypes)
-        )
-        
-        if let stream = stream {
-            self.stream = stream
-        } else {
-            // Stream creation failed, release the retained self
-            if let info = context.info {
-                Unmanaged<FileWatcher>.fromOpaque(info).release()
-            }
+        ) else {
+            retained.release() // stream creation failed, release the retained self
             return
         }
-        
-        guard let stream = stream else { return }
-        FSEventStreamScheduleWithRunLoop(stream, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
-        FSEventStreamStart(stream)
+        stream = newStream
+        FSEventStreamScheduleWithRunLoop(newStream, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+        FSEventStreamStart(newStream)
     }
     
     /// Stop watching
