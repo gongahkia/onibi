@@ -16,21 +16,21 @@ final class FalsePositiveReducerTests: XCTestCase {
     }
     // MARK: - Deduplication Window Tests
     func testIsDuplicateReturnsTrueForSameContent() {
-        let content = "test error message"
+        let content = "dedup-same-\(UUID().uuidString)"
         XCTAssertFalse(reducer.isDuplicate(content))
         XCTAssertTrue(reducer.isDuplicate(content))
     }
     func testIsDuplicateReturnsFalseForDifferentContent() {
-        let content1 = "first error"
-        let content2 = "second error"
+        let content1 = "dedup-diff1-\(UUID().uuidString)"
+        let content2 = "dedup-diff2-\(UUID().uuidString)"
         XCTAssertFalse(reducer.isDuplicate(content1))
         XCTAssertFalse(reducer.isDuplicate(content2))
     }
     func testDeduplicationWindowExpires() async throws {
-        let content = "test message"
+        let content = "dedup-expire-\(UUID().uuidString)"
         XCTAssertFalse(reducer.isDuplicate(content))
         XCTAssertTrue(reducer.isDuplicate(content))
-        try await Task.sleep(nanoseconds: 6_000_000_000)
+        try await Task.sleep(nanoseconds: 6_000_000_000) // 6s > 5s window
         XCTAssertFalse(reducer.isDuplicate(content))
     }
     // MARK: - Confidence Scoring Tests
@@ -153,9 +153,10 @@ final class FalsePositiveReducerTests: XCTestCase {
     }
     // MARK: - Combined Filter Tests
     func testShouldNotifyWithValidContent() {
+        let content = "valid-notify-content-\(UUID().uuidString)" // unique to avoid dedup
         let result = reducer.shouldNotify(
-            content: "test error message",
-            pattern: "error",
+            content: content,
+            pattern: "valid",
             type: .system,
             context: nil
         )
@@ -175,7 +176,7 @@ final class FalsePositiveReducerTests: XCTestCase {
     func testShouldNotifyWithSuppressedContent() {
         reducer.markAsFalsePositive("suppressed")
         let result = reducer.shouldNotify(
-            content: "suppressed warning",
+            content: "suppressed warning content here",
             pattern: "warning",
             type: .system,
             context: nil
@@ -183,7 +184,7 @@ final class FalsePositiveReducerTests: XCTestCase {
         XCTAssertFalse(result.matched)
     }
     func testShouldNotifyWithDuplicateContent() {
-        let content = "duplicate message"
+        let content = "duplicate-msg-\(UUID().uuidString)"
         _ = reducer.shouldNotify(content: content, pattern: "message", type: .system, context: nil)
         let result = reducer.shouldNotify(content: content, pattern: "message", type: .system, context: nil)
         XCTAssertFalse(result.matched)

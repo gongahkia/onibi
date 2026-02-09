@@ -153,7 +153,9 @@ final class JSONStorageManager: StorageManager {
             throw StorageError.corruptedData
         }
         
-        let wrapper = try JSONDecoder().decode(StorageWrapper.self, from: data)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let wrapper = try decoder.decode(StorageWrapper.self, from: data)
         
         // Handle version migration if needed
         if wrapper.version < JSONStorageManager.currentVersion {

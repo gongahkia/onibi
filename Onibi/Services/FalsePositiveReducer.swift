@@ -124,14 +124,11 @@ final class FalsePositiveReducer: ObservableObject {
     /// Check if content was recently seen (within window)
     func isDuplicate(_ content: String) -> Bool {
         let hash = contentHash(content)
-        
         hashLock.lock()
         defer { hashLock.unlock() }
-        
-        if recentHashes[hash] != nil {
+        if let ts = recentHashes[hash], Date().timeIntervalSince(ts) < deduplicationWindow {
             return true
         }
-        
         recentHashes[hash] = Date()
         return false
     }
