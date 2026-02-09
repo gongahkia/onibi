@@ -15,7 +15,7 @@ final class SettingsViewModel: ObservableObject {
         }
     }
     
-    private let settingsKey = "appSettings"
+    private let settingsKey = UserDefaultsKeys.settings
     
     init() {
         self.settings = SettingsViewModel.loadSettings()
@@ -54,7 +54,7 @@ final class SettingsViewModel: ObservableObject {
     }
     
     private static func loadSettings() -> Settings {
-        guard let data = UserDefaults.standard.data(forKey: "appSettings"),
+        guard let data = UserDefaults.standard.data(forKey: UserDefaultsKeys.settings),
               let settings = try? JSONDecoder().decode(Settings.self, from: data) else {
             return Settings.default
         }

@@ -74,7 +74,7 @@ final class NotificationViewModel: ObservableObject {
     }
     
     private func loadPersistedNotifications() {
-        guard let data = UserDefaults.standard.data(forKey: "notifications") else { return }
+        guard let data = UserDefaults.standard.data(forKey: UserDefaultsKeys.notifications) else { return }
         
         do {
             notifications = try JSONDecoder().decode([AppNotification].self, from: data)
@@ -85,7 +85,7 @@ final class NotificationViewModel: ObservableObject {
     
     private func saveNotifications() {
         guard let data = try? JSONEncoder().encode(notifications) else { return }
-        UserDefaults.standard.set(data, forKey: "notifications")
+        UserDefaults.standard.set(data, forKey: UserDefaultsKeys.notifications)
     }
 }
 

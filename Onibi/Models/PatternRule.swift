@@ -214,7 +214,7 @@ final class CustomPatternDetector: ObservableObject {
     
     // MARK: - Persistence
     
-    private let patternsKey = "customPatterns"
+    private let patternsKey = UserDefaultsKeys.customPatterns
     
     private func loadPatterns() {
         if let data = UserDefaults.standard.data(forKey: patternsKey),
