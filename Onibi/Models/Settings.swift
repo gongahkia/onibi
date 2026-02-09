@@ -13,13 +13,20 @@ struct Settings: Codable, Equatable {
     var playNotificationSounds: Bool
     var filterRules: [FilterRule]
     
+    enum Defaults {
+        static let logRetentionDays = 7
+        static let maxStorageMB = 100
+        static let maxLogFileSizeMB = 10
+        static let maxLogLines = 10000
+    }
+    
     init(
         theme: Theme = .system,
         notifications: NotificationPreferences = NotificationPreferences(),
-        logRetentionDays: Int = 7,
-        maxStorageMB: Int = 100,
-        maxLogFileSizeMB: Int = 10,
-        maxLogLines: Int = 10000,
+        logRetentionDays: Int = Defaults.logRetentionDays,
+        maxStorageMB: Int = Defaults.maxStorageMB,
+        maxLogFileSizeMB: Int = Defaults.maxLogFileSizeMB,
+        maxLogLines: Int = Defaults.maxLogLines,
         autoStartOnLogin: Bool = false,
         showInDock: Bool = false,
         playNotificationSounds: Bool = true,
