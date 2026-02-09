@@ -50,6 +50,7 @@ struct OnibiApp: App {
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var menuBarController: MenuBarController?
+    private var logsWindow: NSWindow?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Close the Settings window if it auto-opened (SwiftUI behavior for menubar apps)
@@ -83,14 +84,89 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             andEventID: AEEventID(kAEGetURL)
         )
         
+        // Set up notification observers for opening windows
+        setupWindowNotificationObservers()
+        
         // Check onboarding
         if !SettingsViewModel.shared.settings.hasCompletedOnboarding {
-             // We need to trigger openWindow(id: "onboarding") but we don't have access to Environment here.
-             // We can use a notification observed by the command-handler window group.
              DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                  NotificationCenter.default.post(name: .openOnboardingWindow, object: nil)
              }
         }
+    }
+    
+    private func setupWindowNotificationObservers() {
+        // Handle Settings window open request
+        NotificationCenter.default.addObserver(
+            forName: .openSettingsWindow,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.openSettingsWindow()
+        }
+        
+        // Handle Logs window open request
+        NotificationCenter.default.addObserver(
+            forName: .openLogsWindow,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.openLogsWindow()
+        }
+        
+        // Handle Onboarding window open request
+        NotificationCenter.default.addObserver(
+            forName: .openOnboardingWindow,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.openOnboardingWindow()
+        }
+    }
+    
+    private func openSettingsWindow() {
+        // Use the standard macOS way to show preferences/settings
+        if #available(macOS 14.0, *) {
+            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        } else {
+            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+        }
+    }
+    
+    private func openLogsWindow() {
+        // Check if logs window already exists
+        if let existingWindow = logsWindow, existingWindow.isVisible {
+            existingWindow.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        
+        // Create a new logs window
+        let logsView = DetailedLogsView()
+        let hostingController = NSHostingController(rootView: logsView)
+        
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "Onibi Logs"
+        window.setContentSize(NSSize(width: 600, height: 500))
+        window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        
+        logsWindow = window
+        NSApp.activate(ignoringOtherApps: true)
+    }
+    
+    private func openOnboardingWindow() {
+        let onboardingView = OnboardingView()
+        let hostingController = NSHostingController(rootView: onboardingView)
+        
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "Welcome to Onibi"
+        window.setContentSize(NSSize(width: 600, height: 400))
+        window.styleMask = [.titled, .closable]
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
     
     func applicationWillTerminate(_ notification: Notification) {
