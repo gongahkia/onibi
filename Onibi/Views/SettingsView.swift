@@ -707,6 +707,10 @@ struct FilterRuleEditor: View {
 // MARK: - About Settings Tab
 
 struct AboutSettingsTab: View {
+    @State private var ghosttyVersion: String = "Checking..."
+    @State private var ghosttyInstalled: Bool = false
+    @State private var ghosttyConfigPath: String = ""
+    
     var body: some View {
         VStack(spacing: 24) {
             Image(systemName: "terminal.fill")
@@ -731,6 +735,53 @@ struct AboutSettingsTab: View {
             Divider()
                 .frame(width: 200)
             
+            // Ghostty diagnostics section
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Ghostty Status:")
+                        .font(.headline)
+                    Spacer()
+                    Image(systemName: ghosttyInstalled ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .foregroundColor(ghosttyInstalled ? .green : .red)
+                }
+                
+                if ghosttyInstalled {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Version:")
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text(ghosttyVersion)
+                                .font(.caption)
+                                .textSelection(.enabled)
+                        }
+                        
+                        HStack {
+                            Text("Config Path:")
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text(ghosttyConfigPath)
+                                .font(.caption)
+                                .textSelection(.enabled)
+                                .lineLimit(1)
+                        }
+                    }
+                    .padding(.leading, 8)
+                } else {
+                    Text("Ghostty not found in PATH")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.leading, 8)
+                }
+            }
+            .padding()
+            .background(Color.secondary.opacity(0.1))
+            .cornerRadius(8)
+            .padding(.horizontal, 40)
+            
+            Divider()
+                .frame(width: 200)
+            
             VStack(spacing: 8) {
                 Link("GitHub Repository", destination: URL(string: "https://github.com")!)
                 Link("Report an Issue", destination: URL(string: "https://github.com")!)
@@ -745,6 +796,27 @@ struct AboutSettingsTab: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
+        .task {
+            await loadGhosttyInfo()
+        }
+    }
+    
+    private func loadGhosttyInfo() async {
+        let (installed, version) = await GhosttyCliService.shared.isGhosttyInstalled()
+        ghosttyInstalled = installed
+        ghosttyVersion = version ?? "Not available"
+        
+        // Find config path from known locations
+        for path in OnibiConfig.configLocations {
+            if FileManager.default.fileExists(atPath: path) {
+                ghosttyConfigPath = path
+                break
+            }
+        }
+        
+        if ghosttyConfigPath.isEmpty {
+            ghosttyConfigPath = OnibiConfig.configLocations.first ?? "Not found"
+        }
     }
 }
 
