@@ -59,7 +59,7 @@ final class NotificationManager: NSObject, ObservableObject {
         case openTerminal = "OPEN_TERMINAL"
     }
     
-    private override init() {
+    override private init() {
         super.init()
         setupSubscriptions()
         
@@ -219,7 +219,7 @@ final class NotificationManager: NSObject, ObservableObject {
         }
         
         // Per-type sound
-        return settings.notifications.soundMap[type] ?? nil
+        return settings.notifications.soundMap[type]
     }
 }
 
