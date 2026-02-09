@@ -99,7 +99,9 @@ final class MenuBarController: ObservableObject {
     private func updateIconAppearance() {
         guard let button = statusItem?.button else { return }
         
-        let image = NSImage(systemSymbolName: menuBarState.iconName, accessibilityDescription: "Onibi")
+        // Use the user's preferred icon style from settings
+        let iconName = SettingsViewModel.shared.settings.menubarIconStyle
+        let image = NSImage(systemSymbolName: iconName, accessibilityDescription: "Onibi")
         
         // Template image for proper light/dark mode adaptation
         image?.isTemplate = menuBarState.iconColor == nil
@@ -254,6 +256,14 @@ final class MenuBarController: ObservableObject {
                         userInfo: ["notificationId": notificationId]
                     )
                 }
+            }
+            .store(in: &cancellables)
+        
+        // Handle menubar icon style changes from settings
+        NotificationCenter.default.publisher(for: .menubarIconChanged)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateIconAppearance()
             }
             .store(in: &cancellables)
     }
