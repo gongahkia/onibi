@@ -169,7 +169,12 @@ struct CommandPatterns {
     /// Compile all patterns into regex objects
     static func compilePatterns(_ patterns: [String]) -> [NSRegularExpression] {
         patterns.compactMap { pattern in
-            try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+            do {
+                return try NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+            } catch {
+                ErrorReporter.shared.report(error, context: "Patterns compilation: \(pattern)")
+                return nil
+            }
         }
     }
 }
