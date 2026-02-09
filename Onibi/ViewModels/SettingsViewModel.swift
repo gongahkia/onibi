@@ -12,15 +12,24 @@ final class SettingsViewModel: ObservableObject {
                 settings = validated
                 return
             }
-            saveSettings()
             EventBus.shared.publish(settings)
         }
     }
     
     private let settingsKey = UserDefaultsKeys.settings
+    private var cancellables = Set<AnyCancellable>()
     
     init() {
         self.settings = SettingsViewModel.loadSettings()
+        
+        // Debounce settings save to avoid excessive writes
+        $settings
+            .dropFirst()
+            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.saveSettings()
+            }
+            .store(in: &cancellables)
     }
     
     /// Reset all settings to defaults
