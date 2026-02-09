@@ -3,16 +3,6 @@
 # Tags: +feature, +refactor, +infra, +security, +test
 
 
-## CUSTOM REGEX PATTERNS
-(B) Add customPatterns array of PatternRule to Settings model with name, regex, notificationType +feature
-(B) Create PatternRule model with id, name, pattern (String), isRegex (Bool), notificationType, isEnabled +feature
-(B) Implement CustomPatternDetector that applies user-defined patterns alongside built-in detectors +feature
-(B) Add "Custom Patterns" section in Filters settings tab with add/edit/delete/test UI +feature
-(B) Create pattern test UI: text input field to paste sample text and see if pattern matches +feature
-(B) Implement pattern import/export as JSON for sharing patterns between users +feature
-(B) Add built-in pattern presets: "npm scripts", "pytest", "cargo build", "go test" with one-click add +feature
-(B) Create pattern priority system: user patterns checked before built-in patterns +refactor
-
 ## ERROR HANDLING & GITHUB INTEGRATION
 (B) Create ErrorReporter service that captures errors with stack traces and context +infra
 (B) Implement ErrorLogView sheet showing recent errors with timestamps and details +feature
