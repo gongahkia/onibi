@@ -3,22 +3,6 @@
 # Tech Stack: Swift + SwiftUI | UI Style: Minimalist/clean (Bartender/Hidden Bar inspired)
 # Max 150 tasks | Format: todo.txt
 
-## BACKGROUND SERVICES & PERFORMANCE
-Create BackgroundTaskScheduler for periodic log parsing
-Implement efficient file watching with debouncing (avoid excessive parsing)
-Create memory-efficient log buffering system
-Implement lazy loading for notification list
-Add background thread handling for parsing and database operations
-Create performance monitoring and logging system
-Implement CPU and memory usage optimization
-Add throttling for rapid notification arrivals
-Create efficient regex compilation and caching
-Implement LRU cache for parsed log entries
-Add app nap compatibility for energy efficiency
-Create launch agent for auto-start on login (optional)
-Implement graceful shutdown and cleanup
-Add crash reporting and error logging system
-
 ## USER EXPERIENCE ENHANCEMENTS
 Implement onboarding flow for first-time users
 Create tutorial tooltips for main features
