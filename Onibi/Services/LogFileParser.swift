@@ -46,12 +46,12 @@ final class LogFileParser {
             return notification
         }
         
-        let components = line.split(separator: "|", maxSplits: 2).map(String.init)
-        guard components.count >= 2 else { return nil }
-        
+        let components = line.split(separator: "|", maxSplits: 3).map(String.init)
+        guard components.count >= 3 else { return nil } // need timestamp, type, session_id at minimum
+
         let timestampStr = components[0]
         let eventType = components[1]
-        let payload = components.count > 2 ? components[2] : nil
+        let payload = components.count > 3 ? components[3] : nil
         
         guard let timestamp = parseTimestamp(timestampStr) else { return nil }
         
