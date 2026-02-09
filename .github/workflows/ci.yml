@@ -23,8 +23,8 @@ jobs:
         with:
           xcode-version: ${{ matrix.xcode-version }}
 
-      - name: Show Xcode version
-        run: xcodebuild -version
+      - name: Show Swift version
+        run: swift --version
 
       - name: Install SwiftLint
         run: brew install swiftlint
@@ -32,46 +32,20 @@ jobs:
       - name: Run SwiftLint
         run: swiftlint lint --strict --reporter github-actions-logging
 
-      - name: Build
-        run: |
-          xcodebuild build \
-            -project Onibi.xcodeproj \
-            -scheme Onibi \
-            -configuration Debug \
-            -destination 'platform=macOS' \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO
+      - name: Build Debug
+        run: swift build -c debug
 
       - name: Run Tests
-        run: |
-          xcodebuild test \
-            -project Onibi.xcodeproj \
-            -scheme Onibi \
-            -destination 'platform=macOS' \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO
+        run: swift test
 
       - name: Build Release
-        run: |
-          xcodebuild build \
-            -project Onibi.xcodeproj \
-            -scheme Onibi \
-            -configuration Release \
-            -destination 'platform=macOS' \
-            -derivedDataPath build \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO
+        run: swift build -c release
 
-      - name: Create App Bundle
-        run: |
-          mkdir -p artifacts
-          cp -R build/Build/Products/Release/Onibi.app artifacts/
-
-      - name: Upload Artifact
+      - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Onibi-${{ github.sha }}
-          path: artifacts/Onibi.app
+          name: Onibi-${{ matrix.xcode-version }}-${{ github.sha }}
+          path: .build/release/Onibi
           retention-days: 7
 
   release:
@@ -90,20 +64,56 @@ jobs:
           xcode-version: "15.0"
 
       - name: Build Release
+        run: swift build -c release
+
+      - name: Create App Bundle
         run: |
-          xcodebuild build \
-            -project Onibi.xcodeproj \
-            -scheme Onibi \
-            -configuration Release \
-            -destination 'platform=macOS' \
-            -derivedDataPath build \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO
+          # Create app bundle structure
+          mkdir -p Onibi.app/Contents/MacOS
+          mkdir -p Onibi.app/Contents/Resources
+
+          # Copy executable
+          cp .build/release/Onibi Onibi.app/Contents/MacOS/
+
+          # Create Info.plist
+          cat > Onibi.app/Contents/Info.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>Onibi</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.onibi.app</string>
+              <key>CFBundleName</key>
+              <string>Onibi</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>1.0.0</string>
+              <key>CFBundleVersion</key>
+              <string>1</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>14.0</string>
+              <key>LSUIElement</key>
+              <true/>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+              <key>NSPrincipalClass</key>
+              <string>NSApplication</string>
+          </dict>
+          </plist>
+          EOF
+
+          # Copy icon if exists
+          if [ -f "asset/icon.icns" ]; then
+            cp asset/icon.icns Onibi.app/Contents/Resources/AppIcon.icns
+          fi
 
       - name: Create DMG
         run: |
           mkdir -p dmg-contents
-          cp -R build/Build/Products/Release/Onibi.app dmg-contents/
+          cp -R Onibi.app dmg-contents/
           hdiutil create -volname "Onibi" -srcfolder dmg-contents -ov -format UDZO Onibi-unsigned.dmg
 
       - name: Code Sign and Prepare DMG
