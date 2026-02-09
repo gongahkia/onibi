@@ -1,6 +1,4 @@
 (B) Remove stub methods attemptXPCConnection and checkMachPort from GhosttyIPCClient.swift — replace with real ghostty CLI integration +refactor
-(B) Extract hardcoded UserDefaults key strings in PatternRule.swift, NotificationViewModel.swift, SettingsViewModel.swift into a central UserDefaultsKeys enum +refactor
-(B) Extract hardcoded "1.0.0" version string in SettingsView.swift About tab to read from Bundle.main.infoDictionary CFBundleShortVersionString +refactor
 (B) Extract hardcoded popover size (360x520) in MenuBarView.swift and MenuBarController.swift into a shared Constants enum +refactor
 (B) Extract hardcoded notification sounds in NotificationManager.swift into Settings.notificationSoundName so users can configure +refactor
 (B) Extract hardcoded retention defaults (7 days, 100MB) in Settings.swift into clearly named static constants at top of file +refactor
