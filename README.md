@@ -20,7 +20,7 @@
 ## Architecture
 
 <div align="center">
-    <img src="./asset/reference/architecture.png" width="50%">
+    <img src="./asset/reference/architecture.png">
 </div>
 
 ## Reference
