@@ -59,6 +59,7 @@ struct Settings: Codable, Equatable {
     var maxLogFileSizeMB: Int
     var maxLogLines: Int
     var detectionThreshold: Double = 0.5
+    var hasCompletedOnboarding: Bool
     var autoStartOnLogin: Bool
     var showInDock: Bool
     var playNotificationSounds: Bool
@@ -85,6 +86,7 @@ struct Settings: Codable, Equatable {
         maxLogFileSizeMB: Int = Defaults.maxLogFileSizeMB,
         maxLogLines: Int = Defaults.maxLogLines,
         detectionThreshold: Double = 0.5,
+        hasCompletedOnboarding: Bool = false,
         autoStartOnLogin: Bool = false,
         showInDock: Bool = false,
         playNotificationSounds: Bool = true,
@@ -102,6 +104,7 @@ struct Settings: Codable, Equatable {
         self.maxLogFileSizeMB = maxLogFileSizeMB
         self.maxLogLines = maxLogLines
         self.detectionThreshold = detectionThreshold
+        self.hasCompletedOnboarding = hasCompletedOnboarding
         self.autoStartOnLogin = autoStartOnLogin
         self.showInDock = showInDock
         self.playNotificationSounds = playNotificationSounds

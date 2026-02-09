@@ -20,6 +20,13 @@ struct OnibiApp: App {
                 }
         }
         .windowStyle(.hiddenTitleBar)
+        
+        WindowGroup("Welcome", id: "onboarding") {
+            OnboardingView()
+                .frame(minWidth: 600, minHeight: 400)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentSize)
         // Invisible window group to handle commands
         WindowGroup(id: "command-handler") {
             EmptyView()
@@ -56,6 +63,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             forEventClass: AEEventClass(kInternetEventClass),
             andEventID: AEEventID(kAEGetURL)
         )
+        
+        // Check onboarding
+        if !SettingsViewModel.shared.settings.hasCompletedOnboarding {
+             // We need to trigger openWindow(id: "onboarding") but we don't have access to Environment here.
+             // We can use a notification observed by the command-handler window group.
+             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                 NotificationCenter.default.post(name: .openOnboardingWindow, object: nil)
+             }
+        }
     }
     
     func applicationWillTerminate(_ notification: Notification) {
@@ -112,5 +128,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 extension Notification.Name {
     static let openLogEntry = Notification.Name("openLogEntry")
+    static let openOnboardingWindow = Notification.Name("openOnboardingWindow")
 }
 
