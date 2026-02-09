@@ -38,6 +38,7 @@ struct PatternRule: Identifiable, Codable, Equatable {
                 let range = NSRange(content.startIndex..., in: content)
                 return regex.firstMatch(in: content, options: [], range: range) != nil
             } catch {
+                ErrorReporter.shared.report(error, context: "PatternRule regex compilation: \(name)")
                 return false
             }
         } else {
