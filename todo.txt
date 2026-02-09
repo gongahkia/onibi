@@ -1,5 +1,3 @@
-(B) Add Codable encoding for sourceEvent property in AppNotification so notification context survives app restart +stability
-(B) Delete ContentView.swift — it is unused dead code since MenuBarView is the actual popover content +refactor
 (B) Remove stub methods attemptXPCConnection and checkMachPort from GhosttyIPCClient.swift — replace with real ghostty CLI integration +refactor
 (B) Extract hardcoded UserDefaults key strings in PatternRule.swift, NotificationViewModel.swift, SettingsViewModel.swift into a central UserDefaultsKeys enum +refactor
 (B) Extract hardcoded "1.0.0" version string in SettingsView.swift About tab to read from Bundle.main.infoDictionary CFBundleShortVersionString +refactor
