@@ -38,4 +38,14 @@ struct Settings: Codable, Equatable {
     }
     
     static let `default` = Settings()
+    
+    /// Returns a validated copy with safe values
+    func validated() -> Settings {
+        var copy = self
+        copy.logRetentionDays = max(1, copy.logRetentionDays)
+        copy.maxStorageMB = max(10, copy.maxStorageMB)
+        copy.maxLogFileSizeMB = max(1, copy.maxLogFileSizeMB)
+        copy.maxLogLines = max(100, copy.maxLogLines)
+        return copy
+    }
 }

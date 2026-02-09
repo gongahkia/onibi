@@ -5,6 +5,11 @@ import Combine
 final class SettingsViewModel: ObservableObject {
     @Published var settings: Settings {
         didSet {
+            let validated = settings.validated()
+            if validated != settings {
+                settings = validated
+                return
+            }
             saveSettings()
             EventBus.shared.publish(settings)
         }
