@@ -3,22 +3,6 @@
 # Tech Stack: Swift + SwiftUI | UI Style: Minimalist/clean (Bartender/Hidden Bar inspired)
 # Max 150 tasks | Format: todo.txt
 
-## DATA PERSISTENCE & STORAGE
-Implement JSON file-based storage for logs (~/.config/ghostty-menubar/logs.json)
-Create Codable data models for serializing logs, notifications, and settings to JSON
-Design JSON schema with versioning field for future migration support
-Implement atomic file writes using temporary file + rename pattern to prevent corruption
-Create in-memory cache with periodic flush to disk (configurable interval)
-Implement log retention by filtering entries on load (auto-remove entries older than threshold)
-Create data export service for backing up logs (JSON already human-readable)
-Implement settings persistence using Codable and UserDefaults
-Add iCloud sync option for settings via ubiquitous key-value store (optional feature)
-Create file size monitoring with warning when logs.json exceeds threshold
-Implement batch append mode for efficient log additions without full file rewrite
-Add optional encryption using CryptoKit for sensitive log data
-Create JSON validation and integrity checks on startup
-Implement recovery from corrupted JSON (backup rotation, fallback to empty state)
-
 ## BACKGROUND SERVICES & PERFORMANCE
 Create BackgroundTaskScheduler for periodic log parsing
 Implement efficient file watching with debouncing (avoid excessive parsing)
