@@ -5,22 +5,29 @@ import Combine
 final class SettingsViewModel: ObservableObject {
     static let shared = SettingsViewModel()
     
-    @Published var settings: Settings {
-        didSet {
-            let validated = settings.validated()
-            if validated != settings {
-                settings = validated
-                return
-            }
-            saveSettings()
-            EventBus.shared.publish(settings)
-        }
-    }
+    @Published var settings: Settings
     
     private let settingsKey = UserDefaultsKeys.settings
+    private var cancellables = Set<AnyCancellable>()
     
     init() {
         self.settings = SettingsViewModel.loadSettings()
+        
+        // Debounce settings save by 0.3s to reduce file I/O
+        $settings
+            .dropFirst() // Skip initial value
+            .debounce(for: .seconds(0.3), scheduler: DispatchQueue.main)
+            .sink { [weak self] newSettings in
+                guard let self = self else { return }
+                let validated = newSettings.validated()
+                if validated != newSettings {
+                    self.settings = validated
+                    return
+                }
+                self.saveSettings()
+                EventBus.shared.publish(newSettings)
+            }
+            .store(in: &cancellables)
     }
     
     /// Reset all settings to defaults
