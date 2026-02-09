@@ -1,5 +1,3 @@
-(B) Close FileHandle in all error paths in LogBuffer.swift readNewContent method — wrap in defer block +stability
-(B) Invalidate flushTimer in JSONStorageManager.swift deinit using weak self capture in timer closure to break retain cycle +stability
 (B) Invalidate monitoring timer in LogFileTruncator.swift deinit to prevent orphaned timer +stability
 (B) Invalidate cleanup timer in SessionManager.swift deinit and add pruning of inactive sessions older than 24h to prevent memory leak +stability
 (B) Remove global event monitor in MenuBarController.swift cleanup method to prevent leak — store monitor reference and call NSEvent.removeMonitor +stability
