@@ -3,26 +3,6 @@
 # Tech Stack: Swift + SwiftUI | UI Style: Minimalist/clean (Bartender/Hidden Bar inspired)
 # Max 150 tasks | Format: todo.txt
 
-## DETAILED LOGS VIEWER
-Create DetailedLogsView as separate expandable section
-Design tab interface for log view modes (All, Commands, AI, Workflows)
-Implement SearchBar component with real-time filtering
-Create FilterControls for log type, date range, and custom filters
-Design LogEntryRow component showing command, output, and metadata
-Implement syntax highlighting for command outputs
-Create collapsible log entries (expand/collapse stdout/stderr)
-Add copy-to-clipboard functionality for log entries
-Implement infinite scroll/pagination for log history
-Create timestamp column with sortable date filtering
-Design and implement log export functionality (TXT, JSON, CSV)
-Add keyword highlighting in search results
-Create filter chips UI for active filters with quick removal
-Implement log entry detail modal for full output viewing
-Add "Jump to Date" functionality for quick navigation
-Create statistics view (commands run, AI queries, task completions)
-Implement log level filtering (info, warning, error)
-Add regex search support for power users
-
 ## SETTINGS & PREFERENCES PANEL
 Create SettingsView with tab-based navigation
 Design General tab with basic app preferences
