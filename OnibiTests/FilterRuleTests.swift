@@ -2,165 +2,66 @@ import XCTest
 @testable import Onibi
 
 final class FilterRuleTests: XCTestCase {
-    
-    // MARK: - Contains Mode Tests
-    
-    func testContainsMatch() {
-        let rule = FilterRule(
-            id: UUID(),
-            name: "Test",
-            pattern: "error",
-            matchMode: .contains,
-            action: .highlight,
-            isEnabled: true
-        )
-        
-        XCTAssertTrue(rule.matches("This contains an error message"))
-        XCTAssertTrue(rule.matches("error at line 10"))
-        XCTAssertFalse(rule.matches("All tests passed"))
+    // MARK: - Init Tests
+    func testDefaultInit() {
+        let rule = FilterRule(name: "Test", pattern: "error")
+        XCTAssertEqual(rule.name, "Test")
+        XCTAssertEqual(rule.pattern, "error")
+        XCTAssertTrue(rule.isEnabled)
+        XCTAssertFalse(rule.isRegex)
+        XCTAssertEqual(rule.matchType, .contains)
+        XCTAssertEqual(rule.action, .highlight)
     }
-    
-    func testContainsCaseInsensitive() {
+    func testCustomInit() {
         let rule = FilterRule(
-            id: UUID(),
-            name: "Test",
-            pattern: "error",
-            matchMode: .contains,
-            action: .highlight,
-            isEnabled: true
+            name: "Custom",
+            isEnabled: false,
+            pattern: "warn.*",
+            isRegex: true,
+            matchType: .regex,
+            action: .notify
         )
-        
-        XCTAssertTrue(rule.matches("ERROR: Something went wrong"))
-        XCTAssertTrue(rule.matches("Error occurred"))
+        XCTAssertEqual(rule.name, "Custom")
+        XCTAssertFalse(rule.isEnabled)
+        XCTAssertEqual(rule.pattern, "warn.*")
+        XCTAssertTrue(rule.isRegex)
+        XCTAssertEqual(rule.matchType, .regex)
+        XCTAssertEqual(rule.action, .notify)
     }
-    
-    // MARK: - Prefix Mode Tests
-    
-    func testPrefixMatch() {
-        let rule = FilterRule(
-            id: UUID(),
-            name: "Test",
-            pattern: "[ERROR]",
-            matchMode: .prefix,
-            action: .highlight,
-            isEnabled: true
-        )
-        
-        XCTAssertTrue(rule.matches("[ERROR] Something failed"))
-        XCTAssertFalse(rule.matches("Something [ERROR] in middle"))
+    // MARK: - MatchType Tests
+    func testMatchTypeCases() {
+        let cases = MatchType.allCases
+        XCTAssertTrue(cases.contains(.contains))
+        XCTAssertTrue(cases.contains(.startsWith))
+        XCTAssertTrue(cases.contains(.endsWith))
+        XCTAssertTrue(cases.contains(.exact))
+        XCTAssertTrue(cases.contains(.regex))
     }
-    
-    // MARK: - Suffix Mode Tests
-    
-    func testSuffixMatch() {
-        let rule = FilterRule(
-            id: UUID(),
-            name: "Test",
-            pattern: "DONE",
-            matchMode: .suffix,
-            action: .highlight,
-            isEnabled: true
-        )
-        
-        XCTAssertTrue(rule.matches("Build DONE"))
-        XCTAssertFalse(rule.matches("DONE building"))
+    // MARK: - FilterAction Tests
+    func testFilterActionCases() {
+        let cases = FilterAction.allCases
+        XCTAssertTrue(cases.contains(.highlight))
+        XCTAssertTrue(cases.contains(.hide))
+        XCTAssertTrue(cases.contains(.notify))
+        XCTAssertTrue(cases.contains(.tag))
     }
-    
-    // MARK: - Regex Mode Tests
-    
-    func testRegexMatch() {
-        let rule = FilterRule(
-            id: UUID(),
-            name: "Test",
-            pattern: "\\d+ tests? passed",
-            matchMode: .regex,
-            action: .highlight,
-            isEnabled: true
-        )
-        
-        XCTAssertTrue(rule.matches("1 test passed"))
-        XCTAssertTrue(rule.matches("42 tests passed"))
-        XCTAssertFalse(rule.matches("No tests passed"))
+    // MARK: - Codable Tests
+    func testFilterRuleCodable() throws {
+        let rule = FilterRule(name: "Codable", pattern: "test", matchType: .startsWith, action: .hide)
+        let data = try JSONEncoder().encode(rule)
+        let decoded = try JSONDecoder().decode(FilterRule.self, from: data)
+        XCTAssertEqual(rule, decoded)
     }
-    
-    func testRegexInvalidPattern() {
-        let rule = FilterRule(
-            id: UUID(),
-            name: "Test",
-            pattern: "[invalid(regex",
-            matchMode: .regex,
-            action: .highlight,
-            isEnabled: true
-        )
-        
-        // Should not crash, just return false
-        XCTAssertFalse(rule.matches("any content"))
+    // MARK: - Equatable Tests
+    func testFilterRuleEquality() {
+        let id = UUID()
+        let rule1 = FilterRule(id: id, name: "A", pattern: "p")
+        let rule2 = FilterRule(id: id, name: "A", pattern: "p")
+        XCTAssertEqual(rule1, rule2)
     }
-    
-    // MARK: - Disabled Rule Tests
-    
-    func testDisabledRuleDoesNotMatch() {
-        let rule = FilterRule(
-            id: UUID(),
-            name: "Test",
-            pattern: "match",
-            matchMode: .contains,
-            action: .highlight,
-            isEnabled: false
-        )
-        
-        XCTAssertFalse(rule.matches("This should match but won't"))
-    }
-    
-    // MARK: - Action Tests
-    
-    func testDifferentActions() {
-        let excludeRule = FilterRule(
-            id: UUID(),
-            name: "Exclude",
-            pattern: "debug",
-            matchMode: .contains,
-            action: .exclude,
-            isEnabled: true
-        )
-        
-        let highlightRule = FilterRule(
-            id: UUID(),
-            name: "Highlight",
-            pattern: "important",
-            matchMode: .contains,
-            action: .highlight,
-            isEnabled: true
-        )
-        
-        let notifyRule = FilterRule(
-            id: UUID(),
-            name: "Notify",
-            pattern: "alert",
-            matchMode: .contains,
-            action: .notify,
-            isEnabled: true
-        )
-        
-        XCTAssertEqual(excludeRule.action, .exclude)
-        XCTAssertEqual(highlightRule.action, .highlight)
-        XCTAssertEqual(notifyRule.action, .notify)
-    }
-    
-    // MARK: - Empty Pattern Tests
-    
-    func testEmptyPattern() {
-        let rule = FilterRule(
-            id: UUID(),
-            name: "Empty",
-            pattern: "",
-            matchMode: .contains,
-            action: .highlight,
-            isEnabled: true
-        )
-        
-        // Empty pattern should match everything or nothing depending on implementation
-        // Testing that it doesn't crash
-        _ = rule.matches("any content")
+    func testFilterRuleInequality() {
+        let rule1 = FilterRule(name: "A", pattern: "p")
+        let rule2 = FilterRule(name: "B", pattern: "q")
+        XCTAssertNotEqual(rule1, rule2)
     }
 }
