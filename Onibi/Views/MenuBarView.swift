@@ -3,6 +3,7 @@ import SwiftUI
 extension Notification.Name {
     static let openLogsWindow = Notification.Name("openLogsWindow")
     static let openSettingsWindow = Notification.Name("openSettingsWindow")
+    static let menubarIconChanged = Notification.Name("menubarIconChanged")
 }
 
 /// Main menubar dropdown view

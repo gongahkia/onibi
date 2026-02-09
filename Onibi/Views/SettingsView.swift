@@ -264,6 +264,8 @@ struct NotificationsSettingsTab: View {
 struct AppearanceSettingsTab: View {
     @ObservedObject var viewModel: SettingsViewModel
     
+    private let iconOptions = ["terminal", "terminal.fill", "chevron.left.forwardslash.chevron.right"]
+    
     var body: some View {
         Form {
             Section("Theme") {
@@ -281,6 +283,9 @@ struct AppearanceSettingsTab: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    .onChange(of: viewModel.settings.theme) { newValue in
+                        applyTheme(newValue)
+                    }
                 } else {
                     Text("Theme is synchronized with Ghostty configuration")
                         .font(.caption)
@@ -317,15 +322,24 @@ struct AppearanceSettingsTab: View {
                     Text("Icon style")
                     Spacer()
                     HStack(spacing: 16) {
-                        iconOption("terminal", selected: true)
-                        iconOption("terminal.fill", selected: false)
-                        iconOption("chevron.left.forwardslash.chevron.right", selected: false)
+                        ForEach(iconOptions, id: \.self) { iconName in
+                            iconOption(iconName, selected: viewModel.settings.menubarIconStyle == iconName)
+                                .onTapGesture {
+                                    viewModel.settings.menubarIconStyle = iconName
+                                    // Notify MenuBarController to update icon
+                                    NotificationCenter.default.post(name: .menubarIconChanged, object: iconName)
+                                }
+                        }
                     }
                 }
             }
         }
         .formStyle(.grouped)
         .navigationTitle("Appearance")
+        .onAppear {
+            // Apply current theme on appear
+            applyTheme(viewModel.settings.theme)
+        }
     }
     
     private func iconOption(_ name: String, selected: Bool) -> some View {
@@ -338,6 +352,17 @@ struct AppearanceSettingsTab: View {
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(selected ? Color.accentColor : Color.clear, lineWidth: 2)
             )
+    }
+    
+    private func applyTheme(_ theme: Theme) {
+        switch theme {
+        case .light:
+            NSApp.appearance = NSAppearance(named: .aqua)
+        case .dark:
+            NSApp.appearance = NSAppearance(named: .darkAqua)
+        case .system:
+            NSApp.appearance = nil
+        }
     }
 }
 
