@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Combine
 
 /// Client for Ghostty-specific integration

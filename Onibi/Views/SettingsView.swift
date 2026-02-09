@@ -234,6 +234,7 @@ struct NotificationsSettingsTab: View {
         case .aiOutput: return .purple
         case .devWorkflow: return .orange
         case .automation: return .blue
+        case .terminalNotification: return .teal
         }
     }
     

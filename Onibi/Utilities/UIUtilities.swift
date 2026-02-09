@@ -247,13 +247,12 @@ extension View {
 // MARK: - High Contrast
 
 struct HighContrastModifier: ViewModifier {
-    @Environment(\.accessibilityHighContrast) var highContrast
+    @Environment(\.colorSchemeContrast) var contrast
     let normalColor: Color
     let highContrastColor: Color
-    
     func body(content: Content) -> some View {
         content
-            .foregroundColor(highContrast ? highContrastColor : normalColor)
+            .foregroundColor(contrast == .increased ? highContrastColor : normalColor)
     }
 }
 

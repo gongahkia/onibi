@@ -56,6 +56,7 @@ struct NotificationPreferences: Codable, Equatable {
         case .aiOutput: return enableAIOutput
         case .devWorkflow: return enableDevWorkflow
         case .automation: return enableAutomation
+        case .terminalNotification: return enableSystem
         }
     }
 }

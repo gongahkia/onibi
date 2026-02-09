@@ -54,7 +54,7 @@ final class SettingsViewModel: ObservableObject {
     /// Sync theme from Ghostty configuration
     func syncGhosttyTheme() {
         Task {
-            let config = await GhosttyConfigParser.fetchConfig()
+            let config = await OnibiConfigParser.fetchConfig()
             
             // Extract colors
             if let bg = config.backgroundColor, let fg = config.foregroundColor {
