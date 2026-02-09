@@ -135,6 +135,29 @@ jobs:
         run: |
           mv Onibi-unsigned.dmg Onibi.dmg
       
+      - name: Notarize DMG
+        if: ${{ secrets.APPLE_ID != '' && secrets.APPLE_ID_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # Submit DMG for notarization using xcrun notarytool
+          echo "Submitting DMG for notarization..."
+          xcrun notarytool submit Onibi.dmg \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_ID_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          
+          # Staple the notarization ticket to the DMG
+          echo "Stapling notarization ticket..."
+          xcrun stapler staple Onibi.dmg
+          
+          # Verify stapling
+          echo "Verifying stapled notarization..."
+          xcrun stapler validate Onibi.dmg
+      
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:

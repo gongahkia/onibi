@@ -1,5 +1,4 @@
 (B) Add unit tests for JSONStorageManager — test atomic write, backup recovery, cache flush, concurrent access +infra
-(B) Add DMG code signing step to ci.yml release job using Developer ID certificate for Gatekeeper compatibility +infra
 (B) Add notarization step to ci.yml release job using xcrun notarytool so users don't get Gatekeeper warnings +infra
 (B) Pin macos-latest to macos-14 in ci.yml to prevent CI breakage when GitHub updates runner images +infra
 (B) Add Xcode version matrix (15.0, 15.4) to ci.yml build-and-test job for forward compatibility testing +infra
