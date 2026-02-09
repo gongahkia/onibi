@@ -2,8 +2,6 @@
 # Generated: 2026-02-09 | Priority: (A) = MVP/Core Vision, (B) = Audit-Suggested
 # Tags: +feature, +refactor, +infra, +security, +test
 
-## NATIVE NOTIFICATIONS (User Priority #1)
-(B) Implement notification badge count sync between NSStatusItem and UNUserNotificationCenter.setBadgeCount +feature
 
 ## GHOSTTY-SPECIFIC INTEGRATION
 (B) Create GhosttyIPCClient to detect running Ghostty instances via mach ports or XPC if available +feature
