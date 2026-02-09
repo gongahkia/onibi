@@ -510,6 +510,7 @@ struct ExportOptionsView: View {
     let logs: [LogEntry]
     @Environment(\.dismiss) private var dismiss
     @State private var format: ExportFormat = .json
+    @State private var isExporting = false
     
     enum ExportFormat: String, CaseIterable {
         case json = "JSON"
@@ -529,6 +530,7 @@ struct ExportOptionsView: View {
                 }
             }
             .pickerStyle(.segmented)
+            .disabled(isExporting)
             
             Text("\(logs.count) entries will be exported")
                 .font(.caption)
@@ -536,11 +538,18 @@ struct ExportOptionsView: View {
             
             HStack {
                 Button("Cancel") { dismiss() }
-                Button("Export") {
-                    exportLogs()
-                    dismiss()
+                    .disabled(isExporting)
+                
+                if isExporting {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                        .frame(width: 80)
+                } else {
+                    Button("Export") {
+                        exportLogs()
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
-                .buttonStyle(.borderedProminent)
             }
         }
         .padding()
@@ -554,29 +563,40 @@ struct ExportOptionsView: View {
         
         guard panel.runModal() == .OK, let url = panel.url else { return }
         
-        let content: String
-        switch format {
-        case .json:
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            encoder.dateEncodingStrategy = .iso8601
-            if let data = try? encoder.encode(logs), let str = String(data: data, encoding: .utf8) {
-                content = str
-            } else {
-                content = "[]"
-            }
-        case .csv:
-            var csv = "timestamp,command,output,exit_code,duration\n"
-            for log in logs {
-                let escaped = { (s: String) in s.replacingOccurrences(of: "\"", with: "\"\"") }
-                csv += "\"\(log.timestamp.ISO8601Format())\",\"\(escaped(log.command))\",\"\(escaped(log.output))\",\(log.exitCode ?? 0),\(log.duration ?? 0)\n"
-            }
-            content = csv
-        case .txt:
-            content = logs.map { "[\($0.timestamp)] $ \($0.command)\n\($0.output)" }.joined(separator: "\n\n---\n\n")
-        }
+        isExporting = true
+        let currentFormat = format
+        let logsToExport = logs
         
-        try? content.write(to: url, atomically: true, encoding: .utf8)
+        Task.detached(priority: .userInitiated) {
+            let content: String
+            switch currentFormat {
+            case .json:
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                encoder.dateEncodingStrategy = .iso8601
+                if let data = try? encoder.encode(logsToExport), let str = String(data: data, encoding: .utf8) {
+                    content = str
+                } else {
+                    content = "[]"
+                }
+            case .csv:
+                var csv = "timestamp,command,output,exit_code,duration\n"
+                for log in logsToExport {
+                    let escaped = { (s: String) in s.replacingOccurrences(of: "\"", with: "\"\"") }
+                    csv += "\"\(log.timestamp.ISO8601Format())\",\"\(escaped(log.command))\",\"\(escaped(log.output))\",\(log.exitCode ?? 0),\(log.duration ?? 0)\n"
+                }
+                content = csv
+            case .txt:
+                content = logsToExport.map { "[\($0.timestamp)] $ \($0.command)\n\($0.output)" }.joined(separator: "\n\n---\n\n")
+            }
+            
+            try? content.write(to: url, atomically: true, encoding: .utf8)
+            
+            await MainActor.run {
+                isExporting = false
+                dismiss()
+            }
+        }
     }
 }
 
