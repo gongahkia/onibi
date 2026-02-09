@@ -3,11 +3,17 @@ import SwiftUI
 /// Main menubar dropdown view
 struct MenuBarView: View {
     @StateObject private var viewModel = NotificationViewModel()
+    @StateObject private var ghosttyClient = GhosttyIPCClient.shared
     @State private var showSettings = false
     @State private var showClearConfirmation = false
     
     var body: some View {
         VStack(spacing: 0) {
+            // Ghostty status banner
+            if !ghosttyClient.isGhosttyRunning {
+                ghosttyNotRunningBanner
+            }
+            
             // Header
             headerSection
             
@@ -27,6 +33,30 @@ struct MenuBarView: View {
         }
         .frame(width: 360, height: 520)
         .background(Color(NSColor.windowBackgroundColor))
+    }
+    
+    // MARK: - Ghostty Status Banner
+    
+    private var ghosttyNotRunningBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(.orange)
+            
+            Text("Ghostty Not Running")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            
+            Spacer()
+            
+            Button("Launch") {
+                ghosttyClient.launchGhostty()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.orange.opacity(0.1))
     }
     
     // MARK: - Header

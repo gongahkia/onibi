@@ -4,10 +4,6 @@
 
 
 ## GHOSTTY-SPECIFIC INTEGRATION
-(B) Create GhosttyIPCClient to detect running Ghostty instances via mach ports or XPC if available +feature
-(B) Add Ghostty config file parser to read user's ghostty/config for theme colors and font preferences +feature
-(B) Implement GhosttyProcessMonitor using NSWorkspace.runningApplications to detect Ghostty launch/quit +feature
-(B) Create fallback architecture: prefer Ghostty IPC if available, else use shell hooks +refactor
 (B) Add "Ghostty Not Running" status indicator in menubar header when Ghostty process not detected +feature
 (B) Parse Ghostty window titles to extract session names for notification context +feature
 (B) Implement deep-link URL scheme ghostty-menubar:// to open specific log entries +feature
