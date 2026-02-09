@@ -31,7 +31,7 @@ struct MenuBarView: View {
             // Footer
             footerSection
         }
-        .frame(width: 360, height: 520)
+        .frame(width: Constants.Popover.width, height: Constants.Popover.height)
         .background(Color(NSColor.windowBackgroundColor))
     }
     
