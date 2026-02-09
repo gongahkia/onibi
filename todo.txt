@@ -3,18 +3,7 @@
 # Tech Stack: Swift + SwiftUI | UI Style: Minimalist/clean (Bartender/Hidden Bar inspired)
 # Max 150 tasks | Format: todo.txt
 
-## PROJECT SETUP & INITIALIZATION
-Create new Xcode project with SwiftUI lifecycle for macOS menubar app
-Configure minimum macOS version requirement (macOS 13.0+ for modern SwiftUI features)
-Set up project folder structure (Models, Views, ViewModels, Services, Utilities)
-Configure app bundle identifier and signing certificates for macOS distribution
-Create .gitignore file for Xcode and Swift projects
-Initialize Git repository with initial commit
-Set up Swift Package Manager dependencies manifest
-Add Combine framework for reactive data flow
-Configure app to run as menubar-only application (LSUIElement = true in Info.plist)
-Create app icon set for menubar (16x16, 32x32 @1x and @2x)
-Set up build configurations (Debug, Release) with appropriate compiler flags
+
 
 ## CORE ARCHITECTURE & DATA MODELS
 Define GhosttyEvent model for parsed terminal events with timestamp and type
