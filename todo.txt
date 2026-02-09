@@ -4,20 +4,6 @@
 # Max 150 tasks | Format: todo.txt
 
 
-
-## CORE ARCHITECTURE & DATA MODELS
-Define GhosttyEvent model for parsed terminal events with timestamp and type
-Create NotificationType enum (system, taskCompletion, aiOutput, devWorkflow, automation)
-Define LogEntry model with command, output, timestamp, and metadata
-Create EventParser protocol for parsing different event types
-Define Settings model for user preferences and configuration
-Create FilterRule model for custom log filtering
-Define NotificationPreferences model for per-type notification settings
-Create Theme enum (light, dark, system) for UI customization
-Define StorageManager protocol for log persistence
-Create EventBus/Publisher system using Combine for reactive updates
-Set up dependency injection container for service management
-
 ## GHOSTTY INTEGRATION & LOG PARSING
 Research Ghostty log file location and format on macOS
 Create FileWatcher service using FSEvents API to monitor Ghostty log files
