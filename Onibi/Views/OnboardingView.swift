@@ -3,9 +3,12 @@ import SwiftUI
 /// Onboarding view for first-time users
 struct OnboardingView: View {
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var settingsViewModel = SettingsViewModel.shared
     @State private var currentPage = 0
     
     private let pages: [OnboardingPage] = [
+        // Page 0 is Persona Selection (custom view)
+        
         OnboardingPage(
             icon: "terminal.fill",
             title: "Welcome to Onibi",
@@ -39,13 +42,21 @@ struct OnboardingView: View {
         )
     ]
     
+    // Total pages = 1 (Persona) + pages.count
+    private var totalPages: Int { pages.count + 1 }
+    
     var body: some View {
         VStack(spacing: 0) {
             // Page content
             TabView(selection: $currentPage) {
+                // Step 0: Persona Selection
+                PersonaSelectionView(selectedPersona: $settingsViewModel.settings.userPersona)
+                    .tag(0)
+                
+                // Content Pages
                 ForEach(pages.indices, id: \.self) { index in
                     OnboardingPageView(page: pages[index])
-                        .tag(index)
+                        .tag(index + 1)
                 }
             }
             .tabViewStyle(.automatic)
@@ -64,7 +75,7 @@ struct OnboardingView: View {
                 
                 // Page indicators
                 HStack(spacing: 6) {
-                    ForEach(pages.indices, id: \.self) { index in
+                    ForEach(0..<totalPages, id: \.self) { index in
                         Circle()
                             .fill(currentPage == index ? Color.accentColor : Color.secondary.opacity(0.3))
                             .frame(width: 8, height: 8)
@@ -73,7 +84,7 @@ struct OnboardingView: View {
                 
                 Spacer()
                 
-                if currentPage < pages.count - 1 {
+                if currentPage < totalPages - 1 {
                     Button("Next") {
                         withAnimation { currentPage += 1 }
                     }
@@ -149,13 +160,100 @@ struct OnboardingPageView: View {
     }
     
     private func copyShellHook() {
+        let settings = SettingsViewModel.shared.settings
+        let script = ShellHookInstaller.Shell.zsh.hookScript(logPath: settings.logFilePath)
+        
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(OnibiConfig.zshHookScript, forType: .string)
+        NSPasteboard.general.setString(script, forType: .string)
         showCopied = true
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             showCopied = false
         }
+    }
+}
+
+// MARK: - Persona Selection View
+
+struct PersonaSelectionView: View {
+    @Binding var selectedPersona: UserPersona
+    
+    var body: some View {
+        VStack(spacing: 32) {
+            VStack(spacing: 16) {
+                Text("Choose Your Experience")
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+                
+                Text("Select the mode that best fits your workflow.")
+                    .font(.body)
+                    .foregroundColor(.secondary)
+            }
+            
+            HStack(spacing: 20) {
+                PersonaCard(
+                    persona: .casual,
+                    isSelected: selectedPersona == .casual,
+                    icon: "cup.and.saucer.fill",
+                    color: .green
+                ) {
+                    selectedPersona = .casual
+                }
+                
+                PersonaCard(
+                    persona: .powerUser,
+                    isSelected: selectedPersona == .powerUser,
+                    icon: "terminal.fill",
+                    color: .purple
+                ) {
+                    selectedPersona = .powerUser
+                }
+            }
+            .padding(.horizontal)
+            
+            Text(selectedPersona.description)
+                .font(.headline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+                .frame(height: 60)
+        }
+        .padding()
+    }
+}
+
+struct PersonaCard: View {
+    let persona: UserPersona
+    let isSelected: Bool
+    let icon: String
+    let color: Color
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 16) {
+                Image(systemName: icon)
+                    .font(.system(size: 40))
+                    .foregroundColor(isSelected ? .white : color)
+                
+                Text(persona.displayName)
+                    .font(.headline)
+                    .foregroundColor(isSelected ? .white : .primary)
+            }
+            .frame(width: 140, height: 140)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(isSelected ? color : Color(NSColor.controlBackgroundColor))
+                    .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(isSelected ? color : Color.clear, lineWidth: 2)
+            )
+        }
+        .buttonStyle(.plain)
+        .scaleEffect(isSelected ? 1.05 : 1.0)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
     }
 }
 
