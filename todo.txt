@@ -3,16 +3,6 @@
 # Tags: +feature, +refactor, +infra, +security, +test
 
 
-## TERMINAL SESSION TRACKING
-(B) Add sessionId field to LogEntry and GhosttyEvent models as optional String +refactor
-(B) Modify shell hooks to include $TERM_SESSION_ID or fallback to $$ (PID) in log format +refactor
-(B) Create SessionManager to track active terminal sessions with start time and command count +feature
-(B) Update LogFileParser to extract session identifier from log line format +refactor
-(B) Add session filter dropdown in DetailedLogsView to filter by terminal session +feature
-(B) Include session context in notification message: "Task completed in Session: main-dev" +feature
-(B) Create session color coding using hash of sessionId for visual distinction in logs list +feature
-(B) Implement session lifecycle detection: mark sessions as active/closed based on activity +feature
-
 ## CUSTOM REGEX PATTERNS
 (B) Add customPatterns array of PatternRule to Settings model with name, regex, notificationType +feature
 (B) Create PatternRule model with id, name, pattern (String), isRegex (Bool), notificationType, isEnabled +feature
