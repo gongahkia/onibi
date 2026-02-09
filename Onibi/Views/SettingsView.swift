@@ -23,7 +23,7 @@ enum SettingsTab: String, CaseIterable {
 
 /// Main settings view
 struct SettingsView: View {
-    @StateObject private var viewModel = SettingsViewModel()
+    @ObservedObject private var viewModel = SettingsViewModel.shared
     @State private var selectedTab: SettingsTab = .general
     
     var body: some View {
