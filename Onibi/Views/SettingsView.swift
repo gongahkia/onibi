@@ -346,6 +346,7 @@ struct LogsSettingsTab: View {
     @ObservedObject var viewModel: SettingsViewModel
     @State private var showClearConfirmation = false
     @State private var storageSize: String = "Calculating..."
+    @State private var hasCalculatedStorage = false
     
     var body: some View {
         Form {
@@ -405,7 +406,11 @@ struct LogsSettingsTab: View {
                     Text(storageSize)
                         .foregroundColor(.secondary)
                 }
-                .onAppear { calculateStorageSize() }
+                .onAppear {
+                    guard !hasCalculatedStorage else { return }
+                    hasCalculatedStorage = true
+                    calculateStorageSize()
+                }
             }
             
             Section("Management") {
@@ -446,6 +451,7 @@ struct LogsSettingsTab: View {
     private func clearAllLogs() {
         let logsPath = OnibiConfig.appDataDirectory + "/logs.json"
         try? FileManager.default.removeItem(atPath: logsPath)
+        hasCalculatedStorage = false
         calculateStorageSize()
     }
 }
