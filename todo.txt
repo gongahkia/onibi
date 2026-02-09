@@ -3,9 +3,6 @@
 # Tags: +feature, +refactor, +infra, +security, +test
 
 ## NATIVE NOTIFICATIONS (User Priority #1)
-(B) Create settings toggle for "Use Native Notifications" vs "In-App Only" in NotificationPreferences model +feature
-(B) Implement notification sound attachment using UNNotificationSound with custom sound files +feature
-(B) Add notification grouping using threadIdentifier to cluster by NotificationType +feature
 (B) Handle notification tap to bring menubar popover to foreground and scroll to relevant entry +feature
 (B) Implement notification badge count sync between NSStatusItem and UNUserNotificationCenter.setBadgeCount +feature
 

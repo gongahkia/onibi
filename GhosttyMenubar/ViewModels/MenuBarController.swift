@@ -149,5 +149,27 @@ final class MenuBarController: ObservableObject {
                 self.animateIcon()
             }
             .store(in: &cancellables)
+        
+        // Handle native notification tap to show popover
+        NotificationCenter.default.publisher(for: .showNotificationInApp)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] notification in
+                guard let self = self, let button = self.statusItem?.button else { return }
+                self.openPopover(relativeTo: button)
+                
+                // Optionally scroll to specific notification
+                if let notificationId = notification.userInfo?["notificationId"] as? String {
+                    NotificationCenter.default.post(
+                        name: .scrollToNotification,
+                        object: nil,
+                        userInfo: ["notificationId": notificationId]
+                    )
+                }
+            }
+            .store(in: &cancellables)
     }
+}
+
+extension Notification.Name {
+    static let scrollToNotification = Notification.Name("scrollToNotification")
 }
