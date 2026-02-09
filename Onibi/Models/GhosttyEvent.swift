@@ -31,8 +31,8 @@ struct GhosttyEvent: Identifiable, Codable, Equatable {
 
 /// Type of terminal event
 enum EventType: String, Codable, CaseIterable {
-    case command = "command"
-    case output = "output"
-    case error = "error"
-    case system = "system"
+    case command
+    case output
+    case error
+    case system
 }

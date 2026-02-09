@@ -47,7 +47,6 @@ struct OnibiApp: App {
 
 // Extensions handled in respective files
 
-
 class AppDelegate: NSObject, NSApplicationDelegate {
     var menuBarController: MenuBarController?
     private var logsWindow: NSWindow?
@@ -242,4 +241,3 @@ extension Notification.Name {
     static let openLogEntry = Notification.Name("openLogEntry")
     static let openOnboardingWindow = Notification.Name("openOnboardingWindow")
 }
-

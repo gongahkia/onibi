@@ -31,17 +31,17 @@ struct FilterRule: Identifiable, Codable, Equatable {
 
 /// How to match the filter pattern
 enum MatchType: String, Codable, CaseIterable {
-    case contains = "contains"
-    case startsWith = "startsWith"
-    case endsWith = "endsWith"
-    case exact = "exact"
-    case regex = "regex"
+    case contains
+    case startsWith
+    case endsWith
+    case exact
+    case regex
 }
 
 /// What action to take when filter matches
 enum FilterAction: String, Codable, CaseIterable {
-    case highlight = "highlight"
-    case hide = "hide"
-    case notify = "notify"
-    case tag = "tag"
+    case highlight
+    case hide
+    case notify
+    case tag
 }

@@ -2,8 +2,8 @@ import Foundation
 
 /// User interface complexity preference
 enum UserPersona: String, Codable, CaseIterable {
-    case casual = "casual"
-    case powerUser = "powerUser"
+    case casual
+    case powerUser
     
     var displayName: String {
         switch self {
