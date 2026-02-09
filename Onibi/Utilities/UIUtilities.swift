@@ -338,19 +338,22 @@ final class SoundEffects {
     static let shared = SoundEffects()
     
     private var enabled = true
+    private let soundQueue = DispatchQueue(label: "com.onibi.soundeffects", qos: .utility)
     
     func play(_ sound: SystemSound) {
         guard enabled else { return }
         
-        switch sound {
-        case .click:
-            NSSound(named: "Pop")?.play()
-        case .success:
-            NSSound(named: "Glass")?.play()
-        case .notification:
-            NSSound(named: "Ping")?.play()
-        case .error:
-            NSSound(named: "Basso")?.play()
+        soundQueue.async {
+            switch sound {
+            case .click:
+                NSSound(named: "Pop")?.play()
+            case .success:
+                NSSound(named: "Glass")?.play()
+            case .notification:
+                NSSound(named: "Ping")?.play()
+            case .error:
+                NSSound(named: "Basso")?.play()
+            }
         }
     }
     

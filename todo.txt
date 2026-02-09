@@ -1,4 +1,3 @@
-(B) Add periodic cleanup of recentHashes in FalsePositiveReducer.swift via timer instead of scanning on every shouldSuppress call +performance
 (B) Move SoundEffects.play calls in UIUtilities.swift to background thread to prevent main thread blocking +performance
 (B) Add [weak self] capture to all Timer and DispatchQueue closures in BackgroundTaskScheduler.swift, SessionManager.swift, LogFileTruncator.swift to prevent retain cycles +stability
 (B) Add max notification count setting to Settings (default 100 for casual, 500 for powerUser) instead of hardcoded 100 in NotificationViewModel +feature
