@@ -459,6 +459,28 @@ struct FiltersSettingsTab: View {
     
     var body: some View {
         VStack(spacing: 0) {
+            if viewModel.settings.userPersona == .powerUser {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Detection Sensitivity")
+                        .font(.headline)
+                    
+                    HStack {
+                        Slider(value: $viewModel.settings.detectionThreshold, in: 0.1...0.9, step: 0.1) {
+                            Text("Threshold")
+                        }
+                        
+                        Text(String(format: "%.1f", viewModel.settings.detectionThreshold))
+                            .monospacedDigit()
+                            .frame(width: 40, alignment: .trailing)
+                            .foregroundColor(.secondary)
+                    }
+                    .help("Lower values detect more events but may increase false positives")
+                    
+                    Divider()
+                }
+                .padding()
+            }
+            
             // List of filters
             if viewModel.settings.filterRules.isEmpty {
                 emptyState

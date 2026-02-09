@@ -7,17 +7,58 @@ struct CustomTheme: Codable, Equatable {
     var accentColor: String?
 }
 
+/// Log resource usage profile
+enum LogVolumeProfile: String, Codable, CaseIterable {
+    case light
+    case moderate
+    case heavy
+    
+    var displayName: String {
+        switch self {
+        case .light: return "Light (Battery Saver)"
+        case .moderate: return "Moderate (Balanced)"
+        case .heavy: return "Heavy (Real-time)"
+        }
+    }
+    
+    var description: String {
+        switch self {
+        case .light: return "Polls less frequently, smaller log retention. Best for battery life."
+        case .moderate: return "Balanced polling and retention. Recommended for most users."
+        case .heavy: return "Frequent polling, larger log retention. Best for debugging or high-throughput."
+        }
+    }
+    
+    var debounceInterval: TimeInterval {
+        switch self {
+        case .light: return 2.0
+        case .moderate: return 0.5
+        case .heavy: return 0.1
+        }
+    }
+    
+    var maxFileSizeMB: Int {
+        switch self {
+        case .light: return 2
+        case .moderate: return 10
+        case .heavy: return 50
+        }
+    }
+}
+
 /// User preferences and app configuration
 struct Settings: Codable, Equatable {
     var theme: Theme
     var syncThemeWithGhostty: Bool
     var customTheme: CustomTheme?
     var userPersona: UserPersona
+    var logVolumeProfile: LogVolumeProfile
     var notifications: NotificationPreferences
     var logRetentionDays: Int
     var maxStorageMB: Int
     var maxLogFileSizeMB: Int
     var maxLogLines: Int
+    var detectionThreshold: Double = 0.5
     var autoStartOnLogin: Bool
     var showInDock: Bool
     var playNotificationSounds: Bool
@@ -37,11 +78,13 @@ struct Settings: Codable, Equatable {
         syncThemeWithGhostty: Bool = false,
         customTheme: CustomTheme? = nil,
         userPersona: UserPersona = .casual,
+        logVolumeProfile: LogVolumeProfile = .moderate,
         notifications: NotificationPreferences = NotificationPreferences(),
         logRetentionDays: Int = Defaults.logRetentionDays,
         maxStorageMB: Int = Defaults.maxStorageMB,
         maxLogFileSizeMB: Int = Defaults.maxLogFileSizeMB,
         maxLogLines: Int = Defaults.maxLogLines,
+        detectionThreshold: Double = 0.5,
         autoStartOnLogin: Bool = false,
         showInDock: Bool = false,
         playNotificationSounds: Bool = true,
@@ -52,11 +95,13 @@ struct Settings: Codable, Equatable {
         self.syncThemeWithGhostty = syncThemeWithGhostty
         self.customTheme = customTheme
         self.userPersona = userPersona
+        self.logVolumeProfile = logVolumeProfile
         self.notifications = notifications
         self.logRetentionDays = logRetentionDays
         self.maxStorageMB = maxStorageMB
         self.maxLogFileSizeMB = maxLogFileSizeMB
         self.maxLogLines = maxLogLines
+        self.detectionThreshold = detectionThreshold
         self.autoStartOnLogin = autoStartOnLogin
         self.showInDock = showInDock
         self.playNotificationSounds = playNotificationSounds
@@ -73,6 +118,7 @@ struct Settings: Codable, Equatable {
         copy.maxStorageMB = max(10, copy.maxStorageMB)
         copy.maxLogFileSizeMB = max(1, copy.maxLogFileSizeMB)
         copy.maxLogLines = max(100, copy.maxLogLines)
+        copy.detectionThreshold = min(max(0.0, copy.detectionThreshold), 1.0)
         if copy.logFilePath.isEmpty {
             copy.logFilePath = Defaults.logFilePath
         }

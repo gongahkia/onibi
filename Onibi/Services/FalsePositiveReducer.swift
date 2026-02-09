@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import Combine
 
 /// Utility for reducing false positive notifications
 final class FalsePositiveReducer: ObservableObject {
@@ -12,9 +13,20 @@ final class FalsePositiveReducer: ObservableObject {
     private let deduplicationWindow: TimeInterval = 5.0
     private let minimumContentLength = 3
     
+    private var settings: Settings = .default
+    
     private init() {
         loadSuppressedPatterns()
+        
+        // Subscribe to settings
+        EventBus.shared.settingsPublisher
+            .sink { [weak self] newSettings in
+                self?.settings = newSettings
+            }
+            .store(in: &cancellables)
     }
+    
+    private var cancellables = Set<AnyCancellable>()
     
     // MARK: - Detection Result with Confidence
     
@@ -217,6 +229,10 @@ final class FalsePositiveReducer: ObservableObject {
             isRegex: false,
             context: context
         )
+        
+        if confidence < settings.detectionThreshold {
+            return DetectionResult(matched: false, confidence: confidence, type: type, context: context)
+        }
         
         return DetectionResult(matched: true, confidence: confidence, type: type, context: context)
     }
