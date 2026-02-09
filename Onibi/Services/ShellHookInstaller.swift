@@ -238,7 +238,8 @@ final class ShellHookInstaller: ObservableObject {
     func verify() -> Bool {
         let settings = SettingsViewModel.shared.settings
         let testPath = settings.logFilePath
-        let testEntry = "\(ISO8601DateFormatter().string(from: Date()))|TEST|verification\n"
+        let testMarker = "TEST|verification"
+        let testEntry = "\(ISO8601DateFormatter().string(from: Date()))|\(testMarker)\n"
         
         do {
             // Write test entry
@@ -251,16 +252,38 @@ final class ShellHookInstaller: ObservableObject {
             
             // Read back and verify
             let contents = try String(contentsOfFile: testPath, encoding: .utf8)
-            return contents.contains("TEST|verification")
+            let verified = contents.contains(testMarker)
+            
+            // Clean up test entry
+            if verified {
+                cleanupTestEntry(at: testPath, marker: testMarker)
+            }
+            
+            return verified
         } catch {
             // File might not exist yet, try creating
             do {
                 try OnibiConfig.ensureDirectoryExists()
                 try testEntry.write(toFile: testPath, atomically: true, encoding: .utf8)
+                // Clean up test entry
+                cleanupTestEntry(at: testPath, marker: testMarker)
                 return true
             } catch {
                 return false
             }
+        }
+    }
+    
+    /// Remove test verification entries from log file
+    private func cleanupTestEntry(at path: String, marker: String) {
+        do {
+            let contents = try String(contentsOfFile: path, encoding: .utf8)
+            let lines = contents.components(separatedBy: "\n")
+            let filteredLines = lines.filter { !$0.contains(marker) }
+            let cleanedContents = filteredLines.joined(separator: "\n")
+            try cleanedContents.write(toFile: path, atomically: true, encoding: .utf8)
+        } catch {
+            // Cleanup is best-effort, don't fail verify if cleanup fails
         }
     }
     
