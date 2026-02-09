@@ -65,9 +65,10 @@ final class NotificationViewModel: ObservableObject {
             notifications.insert(notification, at: 0)
         }
         
-        // Enforce maximum count
-        if notifications.count > 100 {
-            notifications = Array(notifications.prefix(100))
+        // Enforce maximum count from settings
+        let maxCount = SettingsViewModel.shared.settings.maxNotificationCount
+        if notifications.count > maxCount {
+            notifications = Array(notifications.prefix(maxCount))
         }
         
         saveNotifications()

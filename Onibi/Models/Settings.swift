@@ -58,6 +58,7 @@ struct Settings: Codable, Equatable {
     var maxStorageMB: Int
     var maxLogFileSizeMB: Int
     var maxLogLines: Int
+    var maxNotificationCount: Int
     var detectionThreshold: Double = 0.5
     var hasCompletedOnboarding: Bool
     var autoStartOnLogin: Bool
@@ -72,6 +73,12 @@ struct Settings: Codable, Equatable {
         static let maxLogFileSizeMB = 10
         static let maxLogLines = 10000
         static let logFilePath = NSHomeDirectory() + "/.config/onibi/terminal.log"
+        static func maxNotificationCount(for persona: UserPersona) -> Int {
+            switch persona {
+            case .casual: return 100
+            case .powerUser: return 500
+            }
+        }
     }
     
     init(
@@ -85,6 +92,7 @@ struct Settings: Codable, Equatable {
         maxStorageMB: Int = Defaults.maxStorageMB,
         maxLogFileSizeMB: Int = Defaults.maxLogFileSizeMB,
         maxLogLines: Int = Defaults.maxLogLines,
+        maxNotificationCount: Int? = nil,
         detectionThreshold: Double = 0.5,
         hasCompletedOnboarding: Bool = false,
         autoStartOnLogin: Bool = false,
@@ -103,6 +111,7 @@ struct Settings: Codable, Equatable {
         self.maxStorageMB = maxStorageMB
         self.maxLogFileSizeMB = maxLogFileSizeMB
         self.maxLogLines = maxLogLines
+        self.maxNotificationCount = maxNotificationCount ?? Defaults.maxNotificationCount(for: userPersona)
         self.detectionThreshold = detectionThreshold
         self.hasCompletedOnboarding = hasCompletedOnboarding
         self.autoStartOnLogin = autoStartOnLogin

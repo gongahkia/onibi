@@ -1,4 +1,3 @@
-(B) Add [weak self] capture to all Timer and DispatchQueue closures in BackgroundTaskScheduler.swift, SessionManager.swift, LogFileTruncator.swift to prevent retain cycles +stability
 (B) Add max notification count setting to Settings (default 100 for casual, 500 for powerUser) instead of hardcoded 100 in NotificationViewModel +feature
 (B) Persist FalsePositiveReducer dismissalCounts to UserDefaults so adaptive throttling survives app restart +feature
 (B) Add regex pattern validation with user feedback in SettingsView.swift filter rule editor — show error if pattern is invalid before saving +feature
