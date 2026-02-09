@@ -212,6 +212,9 @@ struct NotificationCard: View {
     let onDismiss: () -> Void
     
     @State private var isHovered = false
+    @State private var currentTime = Date()
+    
+    let timer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
     
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -275,6 +278,9 @@ struct NotificationCard: View {
                 isHovered = hovering
             }
         }
+        .onReceive(timer) { _ in
+            currentTime = Date()
+        }
     }
     
     private var iconColor: Color {
@@ -291,7 +297,7 @@ struct NotificationCard: View {
     private var relativeTime: String {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: notification.timestamp, relativeTo: Date())
+        return formatter.localizedString(for: notification.timestamp, relativeTo: currentTime)
     }
 }
 
