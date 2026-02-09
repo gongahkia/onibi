@@ -1,5 +1,6 @@
 import Foundation
 import UserNotifications
+import Combine
 
 /// Native macOS notification manager wrapping UNUserNotificationCenter
 final class NotificationManager: NSObject, ObservableObject {
@@ -9,6 +10,9 @@ final class NotificationManager: NSObject, ObservableObject {
     
     @Published var isAuthorized: Bool = false
     @Published var authorizationStatus: UNAuthorizationStatus = .notDetermined
+    
+    private var settings: Settings = .default
+    private var cancellables = Set<AnyCancellable>()
     
     // Notification category identifiers
     enum Category: String {
@@ -40,6 +44,7 @@ final class NotificationManager: NSObject, ObservableObject {
         super.init()
         center.delegate = self
         checkAuthorizationStatus()
+        setupSubscriptions()
     }
     
     // MARK: - Authorization
@@ -165,14 +170,22 @@ final class NotificationManager: NSObject, ObservableObject {
     
     // MARK: - Private
     
+    private func setupSubscriptions() {
+        EventBus.shared.settingsPublisher
+            .sink { [weak self] settings in
+                self?.settings = settings
+            }
+            .store(in: &cancellables)
+    }
+    
     private func soundName(for type: NotificationType) -> String? {
-        switch type {
-        case .system: return nil // Use default
-        case .taskCompletion: return "Glass"
-        case .aiOutput: return "Ping"
-        case .devWorkflow: return "Pop"
-        case .automation: return "Purr"
+        // Global override if set
+        if let globalSound = settings.notifications.soundName {
+            return globalSound
         }
+        
+        // Per-type sound
+        return settings.notifications.soundMap[type] ?? nil
     }
 }
 
