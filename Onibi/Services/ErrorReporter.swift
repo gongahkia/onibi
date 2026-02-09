@@ -123,11 +123,11 @@ final class ErrorReporter: ObservableObject {
                 
                 if FileManager.default.fileExists(atPath: self.errorLogPath) {
                     let handle = try FileHandle(forWritingTo: URL(fileURLWithPath: self.errorLogPath))
+                    defer { try? handle.close() }
                     try handle.seekToEnd()
                     if let data = entry.data(using: .utf8) {
                         try handle.write(contentsOf: data)
                     }
-                    try handle.close()
                 } else {
                     try entry.write(toFile: self.errorLogPath, atomically: true, encoding: .utf8)
                 }
