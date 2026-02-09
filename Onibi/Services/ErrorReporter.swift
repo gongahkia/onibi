@@ -153,11 +153,10 @@ final class ErrorReporter: ObservableObject {
     
     private func rotateLogIfNeeded() {
         let fm = FileManager.default
+        let maxSize = SettingsViewModel.shared.settings.maxErrorLogSizeBytes
         guard let attrs = try? fm.attributesOfItem(atPath: errorLogPath),
               let size = attrs[.size] as? Int64,
-              size > 1_000_000 else { return }
-        
-        // Keep backup and truncate
+              size > maxSize else { return }
         let backupPath = errorLogPath + ".1"
         try? fm.removeItem(atPath: backupPath)
         try? fm.moveItem(atPath: errorLogPath, toPath: backupPath)

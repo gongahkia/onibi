@@ -8,9 +8,9 @@ final class SessionManager: ObservableObject {
     
     @Published var activeSessions: [String: TerminalSession] = [:]
     @Published var recentSessions: [TerminalSession] = []
-    
     private var cancellables = Set<AnyCancellable>()
     private let eventBus = EventBus.shared
+    private let sessionLock = NSLock()
     
     private init() {
         setupEventSubscription()
@@ -50,10 +50,11 @@ final class SessionManager: ObservableObject {
     
     /// Get or create a session
     func getOrCreateSession(id: String) -> TerminalSession {
+        sessionLock.lock()
+        defer { sessionLock.unlock() }
         if let existing = activeSessions[id] {
             return existing
         }
-        
         let session = TerminalSession(
             id: id,
             startTime: Date(),
@@ -61,22 +62,21 @@ final class SessionManager: ObservableObject {
             commandCount: 0,
             isActive: true
         )
-        
         activeSessions[id] = session
         return session
     }
     
     /// Record activity for a session
     func recordActivity(sessionId: String) {
+        sessionLock.lock()
+        defer { sessionLock.unlock() }
         guard var session = activeSessions[sessionId] else {
-            // Create new session if doesn't exist
-            var newSession = getOrCreateSession(id: sessionId)
-            newSession.commandCount += 1
-            newSession.lastActivityTime = Date()
+            var newSession = TerminalSession(
+                id: sessionId, startTime: Date(), lastActivityTime: Date(), commandCount: 1, isActive: true
+            )
             activeSessions[sessionId] = newSession
             return
         }
-        
         session.lastActivityTime = Date()
         session.commandCount += 1
         session.isActive = true
@@ -85,17 +85,14 @@ final class SessionManager: ObservableObject {
     
     /// Mark session as inactive after timeout
     func markInactive(sessionId: String) {
+        sessionLock.lock()
+        defer { sessionLock.unlock() }
         guard var session = activeSessions[sessionId] else { return }
         session.isActive = false
         activeSessions[sessionId] = session
-        
-        // Add to recent sessions
         if !recentSessions.contains(where: { $0.id == sessionId }) {
             recentSessions.insert(session, at: 0)
-            // Keep only last 10 recent sessions
-            if recentSessions.count > 10 {
-                recentSessions.removeLast()
-            }
+            if recentSessions.count > 10 { recentSessions.removeLast() }
         }
     }
     

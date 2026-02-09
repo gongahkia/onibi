@@ -24,8 +24,9 @@ final class GhosttyIPCClient: ObservableObject {
     
     /// Check if Ghostty is currently running
     func checkGhosttyRunning() -> Bool {
+        let bundleId = settings.ghosttyBundleId
         let running = NSWorkspace.shared.runningApplications.contains { app in
-            app.bundleIdentifier == "com.mitchellh.ghostty" ||
+            app.bundleIdentifier == bundleId ||
             app.localizedName?.lowercased() == "ghostty"
         }
         
@@ -38,15 +39,16 @@ final class GhosttyIPCClient: ObservableObject {
     
     /// Get Ghostty application if running
     func getGhosttyApp() -> NSRunningApplication? {
-        NSWorkspace.shared.runningApplications.first { app in
-            app.bundleIdentifier == "com.mitchellh.ghostty" ||
+        let bundleId = settings.ghosttyBundleId
+        return NSWorkspace.shared.runningApplications.first { app in
+            app.bundleIdentifier == bundleId ||
             app.localizedName?.lowercased() == "ghostty"
         }
     }
     
     /// Attempt to launch Ghostty
     func launchGhostty() {
-        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.mitchellh.ghostty") {
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: settings.ghosttyBundleId) {
             NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
         } else {
             // Fallback: try by name
@@ -62,9 +64,7 @@ final class GhosttyIPCClient: ObservableObject {
             throw GhosttyError.notRunning
         }
         
-        // Locate ghostty binary
-        // simplified lookup
-        let binaryPath = "/usr/local/bin/ghostty"
+        let binaryPath = settings.ghosttyBinaryPath
         guard FileManager.default.fileExists(atPath: binaryPath) else {
             throw GhosttyError.binaryNotFound
         }
@@ -154,10 +154,9 @@ struct GhosttySession: Identifiable, Equatable {
 /// Monitors Ghostty process lifecycle using NSWorkspace notifications
 final class GhosttyProcessMonitor: ObservableObject {
     @Published var isGhosttyRunning: Bool = false
-    
     private var launchObserver: Any?
     private var terminateObserver: Any?
-    
+    private var bundleId: String { SettingsViewModel.shared.settings.ghosttyBundleId }
     init() {
         setupObservers()
         checkInitialState()
@@ -194,24 +193,22 @@ final class GhosttyProcessMonitor: ObservableObject {
     
     private func checkInitialState() {
         isGhosttyRunning = NSWorkspace.shared.runningApplications.contains { app in
-            app.bundleIdentifier == "com.mitchellh.ghostty" ||
-            app.localizedName?.lowercased() == "ghostty"
+            app.bundleIdentifier == self.bundleId || app.localizedName?.lowercased() == "ghostty"
         }
     }
-    
+    private func isGhostty(_ app: NSRunningApplication) -> Bool {
+        app.bundleIdentifier == bundleId || app.localizedName?.lowercased() == "ghostty"
+    }
     private func handleAppLaunch(_ notification: Notification) {
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-        
-        if app.bundleIdentifier == "com.mitchellh.ghostty" || app.localizedName?.lowercased() == "ghostty" {
+        if isGhostty(app) {
             isGhosttyRunning = true
             NotificationCenter.default.post(name: .ghosttyDidLaunch, object: nil)
         }
     }
-    
     private func handleAppTerminate(_ notification: Notification) {
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-        
-        if app.bundleIdentifier == "com.mitchellh.ghostty" || app.localizedName?.lowercased() == "ghostty" {
+        if isGhostty(app) {
             isGhosttyRunning = false
             NotificationCenter.default.post(name: .ghosttyDidTerminate, object: nil)
         }
