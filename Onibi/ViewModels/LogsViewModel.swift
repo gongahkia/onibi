@@ -3,13 +3,20 @@ import Combine
 
 /// ViewModel for the detailed logs viewer
 final class LogsViewModel: ObservableObject {
-    @Published var logs: [LogEntry] = []
+    @Published var logs: [LogEntry] = [] {
+        didSet {
+            statisticsDirty = true
+        }
+    }
     @Published var isLoading: Bool = false
     @Published var activeFilters: [String] = []
     @Published var errorMessage: String?
     
     private let eventBus = EventBus.shared
     private var cancellables = Set<AnyCancellable>()
+    
+    private var statisticsDirty = true
+    private var cachedStatistics = LogStatistics(totalCommands: 0, successfulCommands: 0, failedCommands: 0, aiQueries: 0, taskCompletions: 0)
     
     init() {
         setupSubscriptions()
@@ -59,15 +66,19 @@ final class LogsViewModel: ObservableObject {
         activeFilters.removeAll()
     }
     
-    /// Get statistics
+    /// Get statistics (cached with dirty flag)
     var statistics: LogStatistics {
-        LogStatistics(
-            totalCommands: logs.count,
-            successfulCommands: logs.filter { $0.exitCode == 0 }.count,
-            failedCommands: logs.filter { ($0.exitCode ?? 0) != 0 }.count,
-            aiQueries: logs.filter { $0.metadata["source"] == "ai" }.count,
-            taskCompletions: logs.filter { $0.metadata["source"] == "task" }.count
-        )
+        if statisticsDirty {
+            cachedStatistics = LogStatistics(
+                totalCommands: logs.count,
+                successfulCommands: logs.filter { $0.exitCode == 0 }.count,
+                failedCommands: logs.filter { ($0.exitCode ?? 0) != 0 }.count,
+                aiQueries: logs.filter { $0.metadata["source"] == "ai" }.count,
+                taskCompletions: logs.filter { $0.metadata["source"] == "task" }.count
+            )
+            statisticsDirty = false
+        }
+        return cachedStatistics
     }
     
     // MARK: - Private
