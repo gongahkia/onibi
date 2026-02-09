@@ -71,6 +71,7 @@ struct AppSettings: Codable, Equatable {
     var maxErrorLogSizeBytes: Int64
     var errorLogMaxRotations: Int
     var notificationDeduplicationWindow: TimeInterval
+    var menubarIconStyle: String  // SF Symbol name for menubar icon
     enum Defaults {
         static let logRetentionDays = 7
         static let maxStorageMB = 100
