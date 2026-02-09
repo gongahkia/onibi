@@ -1,4 +1,3 @@
-(B) Use single ISO8601DateFormatter instance in LogFileParser.swift with fractionalSeconds option instead of trying two formatters per line +performance
 (B) Replace Array-based PerformanceMonitor.samples in BackgroundTaskScheduler.swift with circular buffer to avoid array resizing +performance
 (B) Add periodic cleanup of recentHashes in FalsePositiveReducer.swift via timer instead of scanning on every shouldSuppress call +performance
 (B) Move SoundEffects.play calls in UIUtilities.swift to background thread to prevent main thread blocking +performance
