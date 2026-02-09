@@ -114,7 +114,8 @@ struct AppSettings: Codable, Equatable {
         ghosttyBinaryPath: String = Defaults.ghosttyBinaryPath,
         maxErrorLogSizeBytes: Int64 = Defaults.maxErrorLogSizeBytes,
         errorLogMaxRotations: Int = Defaults.errorLogMaxRotations,
-        notificationDeduplicationWindow: TimeInterval = Defaults.notificationDeduplicationWindow
+        notificationDeduplicationWindow: TimeInterval = Defaults.notificationDeduplicationWindow,
+        menubarIconStyle: String = "terminal"
     ) {
         self.theme = theme
         self.syncThemeWithGhostty = syncThemeWithGhostty
@@ -139,6 +140,7 @@ struct AppSettings: Codable, Equatable {
         self.maxErrorLogSizeBytes = maxErrorLogSizeBytes
         self.errorLogMaxRotations = errorLogMaxRotations
         self.notificationDeduplicationWindow = notificationDeduplicationWindow
+        self.menubarIconStyle = menubarIconStyle
     }
     
     static let `default` = AppSettings()
