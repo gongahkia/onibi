@@ -582,8 +582,13 @@ struct ExportOptionsView: View {
             case .csv:
                 var csv = "timestamp,command,output,exit_code,duration\n"
                 for log in logsToExport {
-                    let escaped = { (s: String) in s.replacingOccurrences(of: "\"", with: "\"\"") }
-                    csv += "\"\(log.timestamp.ISO8601Format())\",\"\(escaped(log.command))\",\"\(escaped(log.output))\",\(log.exitCode ?? 0),\(log.duration ?? 0)\n"
+                    // RFC 4180: escape double quotes by doubling them; fields with commas, quotes, or newlines must be quoted
+                    func escapeCSVField(_ s: String) -> String {
+                        let escaped = s.replacingOccurrences(of: "\"", with: "\"\"")
+                        // Always quote fields to handle commas, newlines, and quotes safely
+                        return "\"\(escaped)\""
+                    }
+                    csv += "\(escapeCSVField(log.timestamp.ISO8601Format())),\(escapeCSVField(log.command)),\(escapeCSVField(log.output)),\(log.exitCode ?? 0),\(log.duration ?? 0)\n"
                 }
                 content = csv
             case .txt:
