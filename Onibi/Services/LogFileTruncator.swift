@@ -40,12 +40,12 @@ final class LogFileTruncator: ObservableObject {
         
         if let attributes = try? fileManager.attributesOfItem(atPath: logPath),
            let size = attributes[.size] as? Int64 {
-            DispatchQueue.main.async {
-                self.currentLogSizeBytes = size
+            DispatchQueue.main.async { [weak self] in
+                self?.currentLogSizeBytes = size
             }
         } else {
-            DispatchQueue.main.async {
-                self.currentLogSizeBytes = 0
+            DispatchQueue.main.async { [weak self] in
+                self?.currentLogSizeBytes = 0
             }
         }
     }
@@ -88,8 +88,8 @@ final class LogFileTruncator: ObservableObject {
         // Write truncated content
         try truncatedContent.write(toFile: logPath, atomically: true, encoding: .utf8)
         
-        DispatchQueue.main.async {
-            self.lastTruncationDate = Date()
+        DispatchQueue.main.async { [weak self] in
+            self?.lastTruncationDate = Date()
         }
         
         updateCurrentSize()

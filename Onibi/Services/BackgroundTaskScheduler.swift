@@ -123,8 +123,8 @@ final class BackgroundTaskScheduler: ObservableObject {
                     self.processLogLine(line)
                 }
                 
-                DispatchQueue.main.async {
-                    self.lastParseTime = Date()
+                DispatchQueue.main.async { [weak self] in
+                    self?.lastParseTime = Date()
                 }
             } catch {
                 print("[BackgroundTaskScheduler] Error reading log: \(error)")
@@ -154,8 +154,8 @@ final class BackgroundTaskScheduler: ObservableObject {
                 message: message,
                 timestamp: parsed.timestamp
             )
-            DispatchQueue.main.async {
-                self.eventBus.publish(notification)
+            DispatchQueue.main.async { [weak self] in
+                self?.eventBus.publish(notification)
             }
             // Still create an event for it? Optional but let's just return as it's handled.
             parsedCache.set(cacheKey, value: GhosttyEvent(timestamp: parsed.timestamp, type: .system, metadata: [:])) // Dummy event for cache
@@ -197,8 +197,8 @@ final class BackgroundTaskScheduler: ObservableObject {
         self.eventsLock.lock()
         let newCount = self.eventsProcessed + 1
         self.eventsLock.unlock()
-        DispatchQueue.main.async {
-            self.eventsProcessed = newCount
+        DispatchQueue.main.async { [weak self] in
+            self?.eventsProcessed = newCount
         }
     }
     
@@ -232,8 +232,8 @@ final class BackgroundTaskScheduler: ObservableObject {
         }
         
         if let notification = notification {
-            DispatchQueue.main.async {
-                self.eventBus.publish(notification)
+            DispatchQueue.main.async { [weak self] in
+                self?.eventBus.publish(notification)
             }
         }
     }
