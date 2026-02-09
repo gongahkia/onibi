@@ -187,19 +187,40 @@ final class ShellHookInstaller: ObservableObject {
         }
     }
     
-    /// Create backup of rc file
+    /// Create backup of rc file with rotation (keep last 3)
     func createBackup(for shell: Shell) throws {
         guard rcFileExists(for: shell) else { return }
         
-        let backupPath = shell.rcFilePath + ".onibi-backup"
         let fm = FileManager.default
+        let basePath = shell.rcFilePath + ".onibi-backup"
         
-        // Remove old backup if exists
-        if fm.fileExists(atPath: backupPath) {
-            try fm.removeItem(atPath: backupPath)
+        // Rotate backups: .3 -> delete, .2 -> .3, .1 -> .2, current -> .1
+        let backup3 = basePath + ".3"
+        let backup2 = basePath + ".2"
+        let backup1 = basePath + ".1"
+        
+        // Delete oldest backup if exists
+        if fm.fileExists(atPath: backup3) {
+            try? fm.removeItem(atPath: backup3)
         }
         
-        try fm.copyItem(atPath: shell.rcFilePath, toPath: backupPath)
+        // Rotate .2 -> .3
+        if fm.fileExists(atPath: backup2) {
+            try? fm.moveItem(atPath: backup2, toPath: backup3)
+        }
+        
+        // Rotate .1 -> .2
+        if fm.fileExists(atPath: backup1) {
+            try? fm.moveItem(atPath: backup1, toPath: backup2)
+        }
+        
+        // Rotate current backup -> .1
+        if fm.fileExists(atPath: basePath) {
+            try? fm.moveItem(atPath: basePath, toPath: backup1)
+        }
+        
+        // Create new backup
+        try fm.copyItem(atPath: shell.rcFilePath, toPath: basePath)
     }
     
     // MARK: - Uninstallation

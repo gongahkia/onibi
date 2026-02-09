@@ -1,4 +1,3 @@
-(B) Fix ShellHookInstaller.swift uninstall to preserve existing newlines — current aggressive newline removal can break rc file formatting +stability
 (B) Add backup rotation (keep last 3 backups) in ShellHookInstaller.swift instead of single backup that gets overwritten +stability
 (B) Add PROMPT_COMMAND collision check in FileWatcher.swift bash hook — check if already set before appending to avoid double-execution +stability
 (B) Fix badge count in MenuBarController.swift — add decrementNotificationCount method called on dismiss and wire clearAll to reset to zero +stability
