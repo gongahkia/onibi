@@ -135,6 +135,13 @@ final class MenuBarController: ObservableObject {
         let selectedIcon = SettingsViewModel.shared.settings.menubarIconStyle
         var index = 0
         
+        // Set the correct icon before animating
+        if let button = statusItem?.button {
+            let image = NSImage(systemSymbolName: selectedIcon, accessibilityDescription: nil)
+            image?.isTemplate = true
+            button.image = image
+        }
+        
         animationTimer?.invalidate()
         animationTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] timer in
             guard let self = self, self.isAnimating else {
@@ -142,20 +149,14 @@ final class MenuBarController: ObservableObject {
                 return
             }
             if let button = self.statusItem?.button {
-                if index % 2 == 0 {
-                    // Show icon
-                    let image = NSImage(systemSymbolName: selectedIcon, accessibilityDescription: nil)
-                    image?.isTemplate = true
-                    button.image = image
-                } else {
-                    // Hide icon (blink off)
-                    button.image = nil
-                }
+                // Blink by toggling opacity
+                button.alphaValue = (index % 2 == 0) ? 0.2 : 1.0
             }
             index += 1
             if index >= 6 { // 3 cycles
                 self.isAnimating = false
                 self.animationTimer = nil
+                self.statusItem?.button?.alphaValue = 1.0
                 self.updateIconAppearance()
                 timer.invalidate()
             }
