@@ -50,9 +50,9 @@ final class GhosttyIPCClient: ObservableObject {
     func launchGhostty() {
         if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: settings.ghosttyBundleId) {
             NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
-        } else {
-            // Fallback: try by name
-            NSWorkspace.shared.launchApplication("Ghostty")
+        } else if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.mitchellh.ghostty") {
+            // Fallback: try default bundle identifier
+            NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
         }
     }
     

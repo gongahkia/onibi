@@ -219,7 +219,7 @@ final class NotificationManager: NSObject, ObservableObject {
         }
         
         // Per-type sound
-        return settings.notifications.soundMap[type]
+        return settings.notifications.soundMap[type] ?? nil
     }
 }
 
@@ -256,8 +256,8 @@ extension NotificationManager: UNUserNotificationCenterDelegate {
             
         case Action.openTerminal.rawValue:
             // Open Ghostty terminal
-            await MainActor.run {
-                NSWorkspace.shared.launchApplication("Ghostty")
+            if let ghosttyURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.mitchellh.ghostty") {
+                try? await NSWorkspace.shared.openApplication(at: ghosttyURL, configuration: NSWorkspace.OpenConfiguration())
             }
             
         case Action.dismiss.rawValue:
