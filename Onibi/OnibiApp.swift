@@ -6,7 +6,6 @@ struct OnibiApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.openSettings) private var openSettings
     
     var body: some Scene {
         Settings {
