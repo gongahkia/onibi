@@ -1,4 +1,4 @@
-[![](https://img.shields.io/badge/onibi_1.0-passing-green)](https://github.com/gongahkia/onibi/releases/tag/1.0)
+[![](https://img.shields.io/badge/onibi_1.0.0-passing-green)](https://github.com/gongahkia/onibi/releases/tag/1.0.0)
 ![](https://github.com/gongahkia/onibi/actions/workflows/ci.yml/badge.svg)
 
 # `Onibi`
