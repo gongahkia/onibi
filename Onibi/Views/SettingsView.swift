@@ -270,7 +270,7 @@ struct AppearanceSettingsTab: View {
         Form {
             Section("Theme") {
                 Toggle("Sync with Ghostty", isOn: $viewModel.settings.syncThemeWithGhostty)
-                    .onChange(of: viewModel.settings.syncThemeWithGhostty) { newValue in
+                    .onChange(of: viewModel.settings.syncThemeWithGhostty) { _, newValue in
                         if newValue {
                             viewModel.syncGhosttyTheme()
                         }
@@ -283,7 +283,7 @@ struct AppearanceSettingsTab: View {
                         }
                     }
                     .pickerStyle(.segmented)
-                    .onChange(of: viewModel.settings.theme) { newValue in
+                    .onChange(of: viewModel.settings.theme) { _, newValue in
                         applyTheme(newValue)
                     }
                 } else {
@@ -383,7 +383,7 @@ struct LogsSettingsTab: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .onChange(of: viewModel.settings.logVolumeProfile) { newValue in
+                .onChange(of: viewModel.settings.logVolumeProfile) { _, newValue in
                     viewModel.settings.maxLogFileSizeMB = newValue.maxFileSizeMB
                 }
                 
@@ -654,11 +654,11 @@ struct FilterRuleEditor: View {
             Form {
                 TextField("Name", text: $name)
                 TextField("Pattern", text: $pattern)
-                    .onChange(of: pattern) { _ in
+                    .onChange(of: pattern) {
                         validateRegex()
                     }
                 Toggle("Use regex", isOn: $isRegex)
-                    .onChange(of: isRegex) { _ in
+                    .onChange(of: isRegex) {
                         validateRegex()
                     }
                 
@@ -871,7 +871,7 @@ struct AboutSettingsTab: View {
         let settings = SettingsViewModel.shared.settings
         let logPath = settings.logFilePath
         
-        var diagnostics = """
+        let diagnostics = """
         Onibi Diagnostics
         =================
         

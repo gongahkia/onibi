@@ -66,13 +66,13 @@ struct DetailedLogsView: View {
         .onAppear {
             updateFilteredLogs()
         }
-        .onChange(of: viewModel.logs) { _ in
+        .onChange(of: viewModel.logs) {
             updateFilteredLogs()
         }
-        .onChange(of: selectedTab) { _ in
+        .onChange(of: selectedTab) {
             updateFilteredLogs()
         }
-        .onChange(of: searchText) { _ in
+        .onChange(of: searchText) {
             updateFilteredLogs()
         }
     }
