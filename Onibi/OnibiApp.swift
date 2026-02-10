@@ -51,6 +51,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var logsWindow: NSWindow?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Set activation policy to accessory (menubar-only, no dock icon)
+        // This is critical when running as a bare executable via `swift build`
+        // since there's no Info.plist LSUIElement to configure this automatically
+        NSApp.setActivationPolicy(.accessory)
+        
         // Close the Settings window if it auto-opened (SwiftUI behavior for menubar apps)
         // We need a slight delay to let SwiftUI finish its initial setup
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
