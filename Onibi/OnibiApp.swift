@@ -144,7 +144,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         let window = NSWindow(contentViewController: hostingController)
         window.title = "Onibi Settings"
-        window.setContentSize(NSSize(width: 550, height: 450))
+        window.setContentSize(NSSize(width: 550, height: 550))
         window.styleMask = [.titled, .closable]
         window.center()
         window.makeKeyAndOrderFront(nil)

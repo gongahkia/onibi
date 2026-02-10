@@ -820,8 +820,8 @@ struct AboutSettingsTab: View {
                 }
                 .buttonStyle(.bordered)
                 
-                Link("GitHub Repository", destination: URL(string: "https://github.com")!)
-                Link("Report an Issue", destination: URL(string: "https://github.com")!)
+                Link("GitHub Repository", destination: URL(string: "https://github.com/gongahkia/onibi")!)
+                Link("Report an Issue", destination: URL(string: "https://github.com/gongahkia/onibi/issues")!)
             }
             .font(.subheadline)
             
