@@ -68,6 +68,9 @@ struct SettingsView: View {
 
 struct GeneralSettingsTab: View {
     @ObservedObject var viewModel: SettingsViewModel
+    @State private var showResetConfirmation = false
+    @State private var importExportAlertMessage = ""
+    @State private var showImportExportAlert = false
     
     var body: some View {
         Form {
@@ -105,15 +108,36 @@ struct GeneralSettingsTab: View {
                     }
                 }
             }
+            
+            Section("Settings File") {
+                HStack {
+                    Button("Import...") {
+                        importSettingsFromFile()
+                    }
+                    
+                    Button("Export...") {
+                        exportSettingsToFile()
+                    }
+                    
+                    Spacer()
+                }
+                
+                Text("Import replaces current settings. Export saves current settings as JSON.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
         .formStyle(.grouped)
         .navigationTitle("General")
         .toolbar {
             resetButton
         }
+        .alert("Settings", isPresented: $showImportExportAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(importExportAlertMessage)
+        }
     }
-    
-    @State private var showResetConfirmation = false
 
     private var resetButton: some View {
         Button("Reset to Defaults") {
@@ -126,6 +150,45 @@ struct GeneralSettingsTab: View {
             }
         } message: {
             Text("This will restore all settings to their default values. This action cannot be undone.")
+        }
+    }
+    
+    private func importSettingsFromFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a JSON settings file to import."
+        
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        
+        do {
+            try viewModel.importSettings(from: url)
+            importExportAlertMessage = "Imported settings from \(url.lastPathComponent)."
+            showImportExportAlert = true
+        } catch {
+            importExportAlertMessage = "Failed to import settings: \(error.localizedDescription)"
+            showImportExportAlert = true
+        }
+    }
+    
+    private func exportSettingsToFile() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "onibi-settings.json"
+        panel.canCreateDirectories = true
+        panel.message = "Choose where to save your settings file."
+        
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        
+        do {
+            try viewModel.exportSettings(to: url)
+            importExportAlertMessage = "Exported settings to \(url.lastPathComponent)."
+            showImportExportAlert = true
+        } catch {
+            importExportAlertMessage = "Failed to export settings: \(error.localizedDescription)"
+            showImportExportAlert = true
         }
     }
 }
