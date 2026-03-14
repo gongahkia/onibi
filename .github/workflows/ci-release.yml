@@ -1,0 +1,88 @@
+name: CI and Release
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run cargo test
+        run: cargo test --locked
+
+  package-smoke:
+    name: Package Smoke Test
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check installer shell syntax
+        run: bash -n installer.sh
+      - name: Check packaging shell syntax
+        run: bash -n scripts/package-release.sh
+      - name: Build release bundle
+        run: ./scripts/package-release.sh "$RUNNER_TEMP/kelp-dist"
+
+  release-artifacts:
+    name: Release Artifacts (${{ matrix.os }})
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ${{ matrix.os }}
+    needs: package-smoke
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            archive_name: kelp-linux
+          - os: macos-latest
+            archive_name: kelp-macos
+          - os: windows-latest
+            archive_name: kelp-windows
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build release binary
+        run: cargo build --release --locked
+      - name: Create Unix artifact bundle
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p dist/completions
+          cp target/release/kelp dist/kelp
+          ./target/release/kelp completions bash > dist/completions/kelp.bash
+          ./target/release/kelp completions zsh > dist/completions/_kelp
+          ./target/release/kelp completions fish > dist/completions/kelp.fish
+          cp README.md dist/README.md
+          tar -czf "${{ matrix.archive_name }}.tar.gz" -C dist .
+      - name: Create Windows artifact bundle
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item target/release/kelp.exe dist/kelp.exe
+          Copy-Item README.md dist/README.md
+          Compress-Archive -Path dist/* -DestinationPath "${{ matrix.archive_name }}.zip"
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive_name }}
+          path: |
+            ${{ matrix.archive_name }}.tar.gz
+            ${{ matrix.archive_name }}.zip
