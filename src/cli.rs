@@ -200,6 +200,8 @@ pub struct TaskAddArgs {
     pub wait_until: Option<String>,
     #[arg(long)]
     pub blocked_reason: Option<String>,
+    #[arg(long = "depends-on")]
+    pub depends_on: Vec<u64>,
 }
 
 #[derive(Debug, Args, Clone)]
@@ -268,6 +270,10 @@ pub struct TaskEditArgs {
     pub blocked_reason: Option<String>,
     #[arg(long)]
     pub clear_blocked_reason: bool,
+    #[arg(long = "depends-on", conflicts_with = "clear_depends_on")]
+    pub depends_on: Vec<u64>,
+    #[arg(long)]
+    pub clear_depends_on: bool,
 }
 
 #[derive(Debug, Args, Clone)]
