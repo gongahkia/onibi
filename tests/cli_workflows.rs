@@ -79,7 +79,13 @@ fn legacy_import_command_migrates_old_project_files() {
 
     let list = run(&["kelp", "task", "list", "--json"], &storage, &clock);
     let list: Value = serde_json::from_str(&list).expect("list output should be valid JSON");
-    assert_eq!(list["tasks"].as_array().expect("tasks should be an array").len(), 2);
+    assert_eq!(
+        list["tasks"]
+            .as_array()
+            .expect("tasks should be an array")
+            .len(),
+        2
+    );
 
     fs::remove_dir_all(storage_root).expect("storage cleanup should succeed");
     fs::remove_dir_all(legacy_root).expect("legacy cleanup should succeed");
@@ -107,7 +113,12 @@ fn storage_backup_and_export_commands_write_files() {
 
     let backup = run(&["kelp", "storage", "backup", "--json"], &storage, &clock);
     let backup: Value = serde_json::from_str(&backup).expect("backup output should be valid JSON");
-    assert!(PathBuf::from(backup["path"].as_str().expect("backup path should be a string")).exists());
+    assert!(PathBuf::from(
+        backup["path"]
+            .as_str()
+            .expect("backup path should be a string")
+    )
+    .exists());
 
     let export_path = export_root.join("kelp-export.json");
     let exported = run(
@@ -125,7 +136,9 @@ fn storage_backup_and_export_commands_write_files() {
     let exported: Value =
         serde_json::from_str(&exported).expect("export output should be valid JSON");
     assert_eq!(
-        exported["path"].as_str().expect("export path should be a string"),
+        exported["path"]
+            .as_str()
+            .expect("export path should be a string"),
         export_path.to_str().expect("export path should be UTF-8")
     );
     assert!(export_path.exists());
@@ -237,7 +250,11 @@ fn archive_unarchive_and_bulk_edit_commands_work_together() {
     let storage = JsonFileStorage::at(storage_root.clone());
     let clock = FixedClock::new(date("2026-03-14"));
 
-    run(&["kelp", "project", "add", "--name", "Launch"], &storage, &clock);
+    run(
+        &["kelp", "project", "add", "--name", "Launch"],
+        &storage,
+        &clock,
+    );
     run(
         &[
             "kelp",
@@ -251,26 +268,8 @@ fn archive_unarchive_and_bulk_edit_commands_work_together() {
         &storage,
         &clock,
     );
-    run(
-        &[
-            "kelp",
-            "task",
-            "archive",
-            "1",
-        ],
-        &storage,
-        &clock,
-    );
-    run(
-        &[
-            "kelp",
-            "task",
-            "unarchive",
-            "1",
-        ],
-        &storage,
-        &clock,
-    );
+    run(&["kelp", "task", "archive", "1"], &storage, &clock);
+    run(&["kelp", "task", "unarchive", "1"], &storage, &clock);
     run(
         &[
             "kelp",
@@ -287,23 +286,9 @@ fn archive_unarchive_and_bulk_edit_commands_work_together() {
         &storage,
         &clock,
     );
+    run(&["kelp", "project", "archive", "Launch"], &storage, &clock);
     run(
-        &[
-            "kelp",
-            "project",
-            "archive",
-            "Launch",
-        ],
-        &storage,
-        &clock,
-    );
-    run(
-        &[
-            "kelp",
-            "project",
-            "unarchive",
-            "Launch",
-        ],
+        &["kelp", "project", "unarchive", "Launch"],
         &storage,
         &clock,
     );
@@ -390,7 +375,11 @@ fn review_planning_actions_and_date_shortcuts_work_together() {
     let storage = JsonFileStorage::at(storage_root.clone());
     let clock = FixedClock::new(date("2026-03-14"));
 
-    run(&["kelp", "project", "add", "--name", "Launch"], &storage, &clock);
+    run(
+        &["kelp", "project", "add", "--name", "Launch"],
+        &storage,
+        &clock,
+    );
     run(
         &[
             "kelp",
@@ -523,14 +512,7 @@ fn explicit_next_wait_and_block_flows_are_available() {
     assert_eq!(task["status"], "blocked");
 
     let review = run(
-        &[
-            "kelp",
-            "review",
-            "weekly",
-            "--next-action",
-            "1",
-            "--json",
-        ],
+        &["kelp", "review", "weekly", "--next-action", "1", "--json"],
         &storage,
         &clock,
     );
@@ -600,14 +582,7 @@ fn deadlines_and_blocker_metadata_roundtrip_through_the_cli() {
         &clock,
     );
     run(
-        &[
-            "kelp",
-            "task",
-            "wait",
-            "1",
-            "--until",
-            "2026-03-17",
-        ],
+        &["kelp", "task", "wait", "1", "--until", "2026-03-17"],
         &storage,
         &clock,
     );
@@ -648,7 +623,11 @@ fn deadlines_and_blocker_metadata_roundtrip_through_the_cli() {
     assert_eq!(blocked_task["status"], "blocked");
     assert_eq!(blocked_task["blocked_reason"], "Waiting on legal sign-off");
 
-    let project = run(&["kelp", "project", "show", "Launch", "--json"], &storage, &clock);
+    let project = run(
+        &["kelp", "project", "show", "Launch", "--json"],
+        &storage,
+        &clock,
+    );
     let project: Value =
         serde_json::from_str(&project).expect("project output should be valid JSON");
     assert_eq!(project["project"]["deadline"], "2026-03-20");
