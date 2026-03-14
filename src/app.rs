@@ -353,9 +353,9 @@ fn execute_today<S: Storage>(storage: &S, today: NaiveDate, json: bool) -> Resul
     sort_tasks(&mut in_progress);
 
     let sections = vec![
-        ("Overdue", overdue),
-        ("Due today", due_today),
-        ("In progress", in_progress),
+        ("Overdue".to_string(), overdue),
+        ("Due today".to_string(), due_today),
+        ("In progress".to_string(), in_progress),
     ];
 
     if json {
@@ -418,9 +418,9 @@ fn daily_review<S: Storage>(
     sort_tasks(&mut needs_scheduling);
 
     let sections = vec![
-        ("Carryover", carryover),
-        ("Due today", due_today),
-        ("Needs scheduling", needs_scheduling),
+        ("Carryover".to_string(), carryover),
+        ("Due today".to_string(), due_today),
+        ("Needs scheduling".to_string(), needs_scheduling),
     ];
 
     if args.json {
@@ -475,9 +475,9 @@ fn weekly_review<S: Storage>(
     stalled_projects.sort_by(|left, right| left.0.name.to_lowercase().cmp(&right.0.name.to_lowercase()));
 
     let sections = vec![
-        ("Overdue", overdue),
-        ("Due this week", due_this_week),
-        ("Stale tasks", stale_tasks),
+        ("Overdue".to_string(), overdue),
+        ("Due this week".to_string(), due_this_week),
+        ("Stale tasks".to_string(), stale_tasks),
     ];
 
     if args.json {
@@ -701,7 +701,7 @@ fn sort_tasks(tasks: &mut Vec<&Task>) {
     });
 }
 
-fn group_tasks_by_due_date<'a>(tasks: Vec<&'a Task>) -> Vec<(&'static str, Vec<&'a Task>)> {
+fn group_tasks_by_due_date<'a>(tasks: Vec<&'a Task>) -> Vec<(String, Vec<&'a Task>)> {
     let mut grouped: Vec<(String, Vec<&Task>)> = Vec::new();
 
     for task in tasks {
@@ -717,16 +717,13 @@ fn group_tasks_by_due_date<'a>(tasks: Vec<&'a Task>) -> Vec<(&'static str, Vec<&
     }
 
     grouped
-        .into_iter()
-        .map(|(label, items)| (Box::leak(label.into_boxed_str()) as &'static str, items))
-        .collect()
 }
 
-fn sections_to_views(sections: &[(&str, Vec<&Task>)], state: &AppState) -> Vec<TaskSectionView> {
+fn sections_to_views(sections: &[(String, Vec<&Task>)], state: &AppState) -> Vec<TaskSectionView> {
     sections
         .iter()
         .map(|(name, tasks)| TaskSectionView {
-            name: (*name).to_string(),
+            name: name.clone(),
             tasks: tasks.iter().map(|task| task_view(task, state)).collect(),
         })
         .collect()
