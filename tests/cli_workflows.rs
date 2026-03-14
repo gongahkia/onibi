@@ -769,3 +769,172 @@ fn task_dependencies_drive_review_risk_and_clear_after_completion() {
 
     fs::remove_dir_all(storage_root).expect("storage cleanup should succeed");
 }
+
+#[test]
+fn project_next_actions_are_canonicalized_and_weekly_review_splits_project_signals() {
+    let storage_root = temp_root("canonical-next-actions");
+    let storage = JsonFileStorage::at(storage_root.clone());
+    let clock = FixedClock::new(date("2026-03-14"));
+
+    run(
+        &[
+            "kelp",
+            "project",
+            "add",
+            "--name",
+            "Launch",
+            "--deadline",
+            "2026-03-18",
+        ],
+        &storage,
+        &clock,
+    );
+    run(
+        &[
+            "kelp",
+            "project",
+            "add",
+            "--name",
+            "Docs",
+            "--deadline",
+            "2026-03-20",
+        ],
+        &storage,
+        &clock,
+    );
+    run(
+        &[
+            "kelp",
+            "project",
+            "add",
+            "--name",
+            "Ops",
+            "--deadline",
+            "2026-03-19",
+        ],
+        &storage,
+        &clock,
+    );
+
+    run(
+        &[
+            "kelp",
+            "task",
+            "add",
+            "--title",
+            "Draft copy",
+            "--project",
+            "Launch",
+            "--due",
+            "2026-03-15",
+        ],
+        &storage,
+        &clock,
+    );
+    run(
+        &[
+            "kelp",
+            "task",
+            "add",
+            "--title",
+            "Publish copy",
+            "--project",
+            "Launch",
+            "--due",
+            "2026-03-16",
+        ],
+        &storage,
+        &clock,
+    );
+    run(
+        &[
+            "kelp",
+            "task",
+            "add",
+            "--title",
+            "Write runbook",
+            "--project",
+            "Docs",
+            "--due",
+            "2026-03-17",
+        ],
+        &storage,
+        &clock,
+    );
+    run(
+        &[
+            "kelp",
+            "task",
+            "add",
+            "--title",
+            "Lead incident cleanup",
+            "--project",
+            "Ops",
+            "--due",
+            "2026-03-15",
+        ],
+        &storage,
+        &clock,
+    );
+    run(
+        &[
+            "kelp",
+            "task",
+            "add",
+            "--title",
+            "Wait for vendor RCA",
+            "--project",
+            "Ops",
+            "--due",
+            "2026-03-16",
+        ],
+        &storage,
+        &clock,
+    );
+
+    run(&["kelp", "task", "next", "1"], &storage, &clock);
+    run(&["kelp", "task", "next", "2"], &storage, &clock);
+    run(&["kelp", "task", "next", "4"], &storage, &clock);
+    run(
+        &[
+            "kelp",
+            "task",
+            "block",
+            "5",
+            "--reason",
+            "Vendor RCA still pending",
+        ],
+        &storage,
+        &clock,
+    );
+
+    let first_launch_task = run(&["kelp", "task", "show", "1", "--json"], &storage, &clock);
+    let first_launch_task: Value =
+        serde_json::from_str(&first_launch_task).expect("task output should be valid JSON");
+    assert_eq!(first_launch_task["status"], "todo");
+
+    let second_launch_task = run(&["kelp", "task", "show", "2", "--json"], &storage, &clock);
+    let second_launch_task: Value =
+        serde_json::from_str(&second_launch_task).expect("task output should be valid JSON");
+    assert_eq!(second_launch_task["status"], "next_action");
+
+    let review = run(&["kelp", "review", "weekly", "--json"], &storage, &clock);
+    let review: Value = serde_json::from_str(&review).expect("review output should be valid JSON");
+    assert!(review["projects_without_next_actions"]
+        .as_array()
+        .expect("projects without next actions should be an array")
+        .iter()
+        .any(|project| project["name"] == "Docs"));
+    assert!(!review["projects_without_next_actions"]
+        .as_array()
+        .expect("projects without next actions should be an array")
+        .iter()
+        .any(|project| project["name"] == "Launch"));
+    assert!(review["stalled_projects"]
+        .as_array()
+        .expect("stalled projects should be an array")
+        .iter()
+        .any(|project| project["name"] == "Ops"));
+
+    fs::remove_dir_all(storage_root).expect("storage cleanup should succeed");
+}
