@@ -668,3 +668,104 @@ fn deadlines_and_blocker_metadata_roundtrip_through_the_cli() {
 
     fs::remove_dir_all(storage_root).expect("storage cleanup should succeed");
 }
+
+#[test]
+fn task_dependencies_drive_review_risk_and_clear_after_completion() {
+    let storage_root = temp_root("task-dependencies");
+    let storage = JsonFileStorage::at(storage_root.clone());
+    let clock = FixedClock::new(date("2026-03-14"));
+
+    run(
+        &[
+            "kelp",
+            "project",
+            "add",
+            "--name",
+            "Launch",
+            "--deadline",
+            "2026-03-18",
+        ],
+        &storage,
+        &clock,
+    );
+    run(
+        &[
+            "kelp",
+            "task",
+            "add",
+            "--title",
+            "Prepare assets",
+            "--project",
+            "Launch",
+            "--due",
+            "2026-03-15",
+        ],
+        &storage,
+        &clock,
+    );
+    run(
+        &[
+            "kelp",
+            "task",
+            "add",
+            "--title",
+            "Publish assets",
+            "--project",
+            "Launch",
+            "--due",
+            "2026-03-16",
+            "--depends-on",
+            "1",
+        ],
+        &storage,
+        &clock,
+    );
+
+    let dependent = run(&["kelp", "task", "show", "2", "--json"], &storage, &clock);
+    let dependent: Value =
+        serde_json::from_str(&dependent).expect("task output should be valid JSON");
+    assert_eq!(
+        dependent["depends_on"]
+            .as_array()
+            .expect("depends_on should be an array")[0],
+        1
+    );
+    assert_eq!(
+        dependent["unresolved_dependencies"]
+            .as_array()
+            .expect("unresolved deps should be an array")[0],
+        1
+    );
+
+    let review = run(&["kelp", "review", "weekly", "--json"], &storage, &clock);
+    let review: Value = serde_json::from_str(&review).expect("review output should be valid JSON");
+    assert!(review["sections"]
+        .as_array()
+        .expect("sections should be an array")
+        .iter()
+        .any(|section| {
+            section["name"] == "Blocked by dependencies"
+                && section["tasks"]
+                    .as_array()
+                    .expect("tasks should be an array")
+                    .iter()
+                    .any(|task| task["title"] == "Publish assets")
+        }));
+    assert!(review["at_risk_projects"]
+        .as_array()
+        .expect("at risk projects should be an array")
+        .iter()
+        .any(|project| project["name"] == "Launch"));
+
+    run(&["kelp", "task", "done", "1"], &storage, &clock);
+
+    let dependent = run(&["kelp", "task", "show", "2", "--json"], &storage, &clock);
+    let dependent: Value =
+        serde_json::from_str(&dependent).expect("task output should be valid JSON");
+    assert!(dependent["unresolved_dependencies"]
+        .as_array()
+        .expect("unresolved deps should be an array")
+        .is_empty());
+
+    fs::remove_dir_all(storage_root).expect("storage cleanup should succeed");
+}
