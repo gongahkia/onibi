@@ -133,7 +133,7 @@ pub fn render_project_detail(
 
 pub fn render_task_sections(
     title: &str,
-    sections: &[(&str, Vec<&Task>)],
+    sections: &[(String, Vec<&Task>)],
     state: &AppState,
 ) -> String {
     let mut lines = vec![heading(title)];
@@ -144,7 +144,7 @@ pub fn render_task_sections(
             continue;
         }
         any_tasks = true;
-        lines.push(section(*section_title));
+        lines.push(section(section_title));
         for task in tasks {
             let project = task
                 .project_id
