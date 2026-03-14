@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use thiserror::Error;
 
+pub const CURRENT_APP_SCHEMA_VERSION: u32 = 2;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct TaskId(pub u64);
 
@@ -151,6 +153,8 @@ pub struct Task {
     pub created_on: NaiveDate,
     pub updated_on: NaiveDate,
     pub completed_on: Option<NaiveDate>,
+    #[serde(default)]
+    pub archived_on: Option<NaiveDate>,
 }
 
 impl Task {
@@ -186,6 +190,8 @@ pub struct Project {
     pub status: ProjectStatus,
     pub created_on: NaiveDate,
     pub updated_on: NaiveDate,
+    #[serde(default)]
+    pub archived_on: Option<NaiveDate>,
 }
 
 impl Project {
@@ -203,6 +209,7 @@ impl Project {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AppState {
+    #[serde(default = "current_app_schema_version")]
     pub schema_version: u32,
     pub next_task_id: u64,
     pub next_project_id: u64,
@@ -213,7 +220,7 @@ pub struct AppState {
 impl Default for AppState {
     fn default() -> Self {
         Self {
-            schema_version: 1,
+            schema_version: CURRENT_APP_SCHEMA_VERSION,
             next_task_id: 1,
             next_project_id: 1,
             tasks: Vec::new(),
@@ -356,6 +363,7 @@ impl AppState {
             status: ProjectStatus::Active,
             created_on: today,
             updated_on: today,
+            archived_on: None,
         };
 
         self.next_project_id += 1;
@@ -396,6 +404,7 @@ impl AppState {
             created_on: today,
             updated_on: today,
             completed_on: None,
+            archived_on: None,
         };
 
         self.next_task_id += 1;
@@ -465,6 +474,7 @@ impl AppState {
                     .ok_or(DomainError::TaskNotFound(task_id))?;
                 task.status = status;
                 task.completed_on = None;
+                task.archived_on = None;
                 task.updated_on = today;
                 Ok(None)
             }
@@ -473,6 +483,7 @@ impl AppState {
                     .find_task_mut(task_id)
                     .ok_or(DomainError::TaskNotFound(task_id))?;
                 task.status = TaskStatus::Archived;
+                task.archived_on = Some(today);
                 task.updated_on = today;
                 Ok(None)
             }
@@ -503,6 +514,7 @@ impl AppState {
         }
 
         project.status = ProjectStatus::Archived;
+        project.archived_on = Some(today);
         project.updated_on = today;
 
         Ok(())
@@ -522,6 +534,7 @@ impl AppState {
         }
 
         project.status = ProjectStatus::Active;
+        project.archived_on = None;
         project.updated_on = today;
 
         Ok(())
@@ -572,6 +585,7 @@ impl AppState {
                 created_on: today,
                 updated_on: today,
                 completed_on: None,
+                archived_on: None,
             };
 
             let next_task_id = next_task.id;
@@ -694,6 +708,10 @@ fn days_in_month(year: i32, month: u32) -> u32 {
     .expect("month boundaries should be valid");
 
     (first_of_next_month - Duration::days(1)).day()
+}
+
+fn current_app_schema_version() -> u32 {
+    CURRENT_APP_SCHEMA_VERSION
 }
 
 #[cfg(test)]
