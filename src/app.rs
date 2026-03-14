@@ -241,6 +241,7 @@ fn add_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskAddArgs) -> Res
             recurrence: args.repeat,
             waiting_until,
             blocked_reason: args.blocked_reason,
+            depends_on: parse_task_dependencies(&args.depends_on),
         },
         today,
     )?;
@@ -813,6 +814,10 @@ fn execute_today<S: Storage>(storage: &S, today: NaiveDate, json: bool) -> Resul
         .into_iter()
         .filter(|task| matches!(task.status, TaskStatus::Blocked))
         .collect::<Vec<_>>();
+    let mut dependency_blocked = active_open_tasks(&state)
+        .into_iter()
+        .filter(|task| state.has_unresolved_dependencies(task))
+        .collect::<Vec<_>>();
     let mut waiting_follow_up = active_open_tasks(&state)
         .into_iter()
         .filter(|task| {
@@ -826,6 +831,7 @@ fn execute_today<S: Storage>(storage: &S, today: NaiveDate, json: bool) -> Resul
     sort_tasks(&mut next_actions, TaskSortKey::Priority);
     sort_tasks(&mut in_progress, TaskSortKey::Due);
     sort_tasks(&mut blocked, TaskSortKey::Priority);
+    sort_tasks(&mut dependency_blocked, TaskSortKey::Priority);
     sort_tasks(&mut waiting_follow_up, TaskSortKey::Due);
 
     let sections = vec![
@@ -834,6 +840,7 @@ fn execute_today<S: Storage>(storage: &S, today: NaiveDate, json: bool) -> Resul
         ("Next actions".to_string(), next_actions),
         ("In progress".to_string(), in_progress),
         ("Blocked".to_string(), blocked),
+        ("Blocked by dependencies".to_string(), dependency_blocked),
         ("Waiting follow-up".to_string(), waiting_follow_up),
     ];
 
@@ -906,6 +913,10 @@ fn daily_review<S: Storage>(
         .into_iter()
         .filter(|task| matches!(task.status, TaskStatus::Waiting))
         .collect::<Vec<_>>();
+    let mut dependency_blocked = active_open_tasks(&state)
+        .into_iter()
+        .filter(|task| state.has_unresolved_dependencies(task))
+        .collect::<Vec<_>>();
     let mut needs_scheduling = active_open_tasks(&state)
         .into_iter()
         .filter(|task| task.due_date.is_none() && matches!(task.priority, Priority::High))
@@ -916,6 +927,7 @@ fn daily_review<S: Storage>(
     sort_tasks(&mut next_actions, TaskSortKey::Priority);
     sort_tasks(&mut blocked, TaskSortKey::Priority);
     sort_tasks(&mut waiting, TaskSortKey::Updated);
+    sort_tasks(&mut dependency_blocked, TaskSortKey::Priority);
     sort_tasks(&mut needs_scheduling, TaskSortKey::Due);
 
     let sections = vec![
@@ -924,6 +936,7 @@ fn daily_review<S: Storage>(
         ("Next actions".to_string(), next_actions),
         ("Blocked".to_string(), blocked),
         ("Waiting".to_string(), waiting),
+        ("Blocked by dependencies".to_string(), dependency_blocked),
         ("Needs scheduling".to_string(), needs_scheduling),
     ];
 
@@ -986,6 +999,10 @@ fn weekly_review<S: Storage>(
                 && task.waiting_until.map(|until| until <= today).unwrap_or(true)
         })
         .collect::<Vec<_>>();
+    let mut dependency_blocked = active_open_tasks(&state)
+        .into_iter()
+        .filter(|task| state.has_unresolved_dependencies(task))
+        .collect::<Vec<_>>();
     let mut stale_tasks = active_open_tasks(&state)
         .into_iter()
         .filter(|task| task.updated_on <= stale_cutoff)
@@ -994,7 +1011,10 @@ fn weekly_review<S: Storage>(
         .into_iter()
         .filter_map(|project| {
             let summary = state.project_summary(project.id, today).ok()?;
-            if summary.open_tasks == 0 || summary.next_action_tasks == 0 {
+            if summary.open_tasks == 0
+                || summary.next_action_tasks == 0
+                || summary.dependency_blocked_tasks > 0
+            {
                 Some((project, summary))
             } else {
                 None
@@ -1024,18 +1044,43 @@ fn weekly_review<S: Storage>(
             }
         })
         .collect::<Vec<_>>();
+    let mut at_risk_projects = active_projects(&state)
+        .into_iter()
+        .filter_map(|project| {
+            let deadline = project.deadline?;
+            let summary = state.project_summary(project.id, today).ok()?;
+            if deadline >= today
+                && deadline <= window_end
+                && (summary.overdue_tasks > 0
+                    || summary.blocked_tasks > 0
+                    || summary.dependency_blocked_tasks > 0
+                    || summary.next_action_tasks == 0)
+            {
+                Some((project, summary))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
 
     sort_tasks(&mut overdue, TaskSortKey::Due);
     sort_tasks(&mut next_actions, TaskSortKey::Priority);
     sort_tasks(&mut blocked, TaskSortKey::Priority);
     sort_tasks(&mut waiting, TaskSortKey::Updated);
     sort_tasks(&mut waiting_follow_up, TaskSortKey::Due);
+    sort_tasks(&mut dependency_blocked, TaskSortKey::Priority);
     sort_tasks(&mut due_this_week, TaskSortKey::Due);
     sort_tasks(&mut stale_tasks, TaskSortKey::Updated);
     stalled_projects.sort_by(|left, right| left.0.name.to_lowercase().cmp(&right.0.name.to_lowercase()));
     projects_missing_deadlines
         .sort_by(|left, right| left.0.name.to_lowercase().cmp(&right.0.name.to_lowercase()));
     deadline_projects.sort_by(|left, right| {
+        left.0
+            .deadline
+            .cmp(&right.0.deadline)
+            .then_with(|| left.0.name.to_lowercase().cmp(&right.0.name.to_lowercase()))
+    });
+    at_risk_projects.sort_by(|left, right| {
         left.0
             .deadline
             .cmp(&right.0.deadline)
@@ -1048,6 +1093,7 @@ fn weekly_review<S: Storage>(
         ("Blocked".to_string(), blocked),
         ("Waiting".to_string(), waiting),
         ("Waiting follow-up".to_string(), waiting_follow_up),
+        ("Blocked by dependencies".to_string(), dependency_blocked),
         ("Due this week".to_string(), due_this_week),
         ("Stale tasks".to_string(), stale_tasks),
     ];
@@ -1065,6 +1111,10 @@ fn weekly_review<S: Storage>(
                 .map(|(project, summary)| project_view(project, *summary))
                 .collect(),
             deadline_projects: deadline_projects
+                .iter()
+                .map(|(project, summary)| project_view(project, *summary))
+                .collect(),
+            at_risk_projects: at_risk_projects
                 .iter()
                 .map(|(project, summary)| project_view(project, *summary))
                 .collect(),
@@ -1086,6 +1136,11 @@ fn weekly_review<S: Storage>(
     output.push_str(&render_project_list(
         "Projects due this week",
         &deadline_projects,
+    ));
+    output.push_str("\n\n");
+    output.push_str(&render_project_list(
+        "Projects at risk this week",
+        &at_risk_projects,
     ));
     Ok(render_review_output("Weekly review", &applied_actions, output))
 }
@@ -1195,6 +1250,14 @@ fn build_task_patch(state: &AppState, args: &TaskEditArgs, today: NaiveDate) -> 
         args.blocked_reason.clone().map(Some)
     };
 
+    let depends_on = if args.clear_depends_on {
+        Some(Vec::new())
+    } else if args.depends_on.is_empty() {
+        None
+    } else {
+        Some(parse_task_dependencies(&args.depends_on))
+    };
+
     Ok(TaskPatch {
         title: args.title.clone(),
         notes,
@@ -1206,6 +1269,7 @@ fn build_task_patch(state: &AppState, args: &TaskEditArgs, today: NaiveDate) -> 
         recurrence,
         waiting_until,
         blocked_reason,
+        depends_on,
     })
 }
 
@@ -1257,7 +1321,12 @@ fn build_bulk_task_patch(
         recurrence,
         waiting_until: None,
         blocked_reason: None,
+        depends_on: None,
     })
+}
+
+fn parse_task_dependencies(values: &[u64]) -> Vec<TaskId> {
+    values.iter().copied().map(TaskId).collect()
 }
 
 fn resolve_optional_project_id(state: &AppState, project_ref: Option<&str>) -> Result<Option<ProjectId>> {
@@ -1375,6 +1444,7 @@ fn apply_review_actions(
                 recurrence: None,
                 waiting_until: None,
                 blocked_reason: None,
+                depends_on: Vec::new(),
             },
             today,
         )?;
@@ -1702,9 +1772,9 @@ fn bash_completion_script() -> &'static str {
                 COMPREPLY=( $(compgen -W "add list show edit bulk-edit next start wait block done reopen defer archive unarchive delete" -- "$cur") )
             else
                 case "$second" in
-                    add) COMPREPLY=( $(compgen -W "--title --notes --project --priority --tag --due --repeat --wait-until --blocked-reason" -- "$cur") ) ;;
+                    add) COMPREPLY=( $(compgen -W "--title --notes --project --priority --tag --due --repeat --wait-until --blocked-reason --depends-on" -- "$cur") ) ;;
                     list) COMPREPLY=( $(compgen -W "--project --status --priority --tag --due-today --overdue --all --sort --json" -- "$cur") ) ;;
-                    edit) COMPREPLY=( $(compgen -W "--title --notes --clear-notes --project --clear-project --status --priority --tag --clear-tags --due --clear-due --repeat --clear-repeat --wait-until --clear-wait-until --blocked-reason --clear-blocked-reason" -- "$cur") ) ;;
+                    edit) COMPREPLY=( $(compgen -W "--title --notes --clear-notes --project --clear-project --status --priority --tag --clear-tags --due --clear-due --repeat --clear-repeat --wait-until --clear-wait-until --blocked-reason --clear-blocked-reason --depends-on --clear-depends-on" -- "$cur") ) ;;
                     bulk-edit) COMPREPLY=( $(compgen -W "--project --clear-project --status --priority --tag --clear-tags --due --clear-due --repeat --clear-repeat" -- "$cur") ) ;;
                     wait) COMPREPLY=( $(compgen -W "--until" -- "$cur") ) ;;
                     block) COMPREPLY=( $(compgen -W "--reason" -- "$cur") ) ;;
@@ -1797,7 +1867,7 @@ case $state in
       config) _arguments '--json[emit JSON output]' '--upcoming-days=[set default upcoming window]:days:' '--task-sort=[set default task sort]:sort:(due priority updated title)' '--json-output[default to JSON]' '--plain-output[default to plain output]' ;;
       import) _arguments '--source=[legacy root path]:path:_files' '--json[emit JSON output]' ;;
       storage) _arguments '--json[emit JSON output]' '--output=[export destination]:path:_files' ;;
-      task) _arguments '--json[emit JSON output]' '--project=[project reference]:project:' '--status=[task status]:status:(todo next_action in_progress waiting blocked done archived)' '--priority=[task priority]:priority:(low medium high)' '--tag=[task tag]:tag:' '--due=[date expression]:date:' '--repeat=[recurrence]:repeat:(daily weekly monthly)' '--wait-until=[waiting until date]:date:' '--blocked-reason=[blocker reason]:reason:' '--days=[defer by days]:days:' '--until=[defer until date]:date:' '--all[include closed and archived tasks]' '--sort=[task sort]:sort:(due priority updated title)' ;;
+      task) _arguments '--json[emit JSON output]' '--project=[project reference]:project:' '--status=[task status]:status:(todo next_action in_progress waiting blocked done archived)' '--priority=[task priority]:priority:(low medium high)' '--tag=[task tag]:tag:' '--due=[date expression]:date:' '--repeat=[recurrence]:repeat:(daily weekly monthly)' '--wait-until=[waiting until date]:date:' '--blocked-reason=[blocker reason]:reason:' '--depends-on=[dependency task id]:id:' '--days=[defer by days]:days:' '--until=[defer until date]:date:' '--all[include closed and archived tasks]' '--sort=[task sort]:sort:(due priority updated title)' ;;
       project) _arguments '--name=[project name]:name:' '--description=[project description]:description:' '--deadline=[project deadline]:date:' '--clear-description[clear project description]' '--clear-deadline[clear project deadline]' '--archived[list archived projects]' '--json[emit JSON output]' ;;
       today) _arguments '--json[emit JSON output]' ;;
       upcoming) _arguments '--days=[upcoming window]:days:' '--json[emit JSON output]' ;;
@@ -1837,6 +1907,7 @@ complete -c kelp -n '__fish_seen_subcommand_from add list edit bulk-edit' -l pri
 complete -c kelp -n '__fish_seen_subcommand_from add edit bulk-edit' -l due -r -d 'Date expression'
 complete -c kelp -n '__fish_seen_subcommand_from add edit' -l wait-until -r -d 'Waiting follow-up date'
 complete -c kelp -n '__fish_seen_subcommand_from add edit' -l blocked-reason -r -d 'Blocker reason'
+complete -c kelp -n '__fish_seen_subcommand_from add edit' -l depends-on -r -d 'Dependency task id'
 complete -c kelp -n '__fish_seen_subcommand_from add edit bulk-edit' -l repeat -a 'daily weekly monthly' -d 'Recurrence'
 complete -c kelp -n '__fish_seen_subcommand_from add edit bulk-edit list' -l tag -r -d 'Task tag'
 complete -c kelp -n '__fish_seen_subcommand_from list' -l status -a 'todo next_action in_progress waiting blocked done archived' -d 'Task status'
@@ -1858,6 +1929,7 @@ complete -c kelp -n '__fish_seen_subcommand_from edit bulk-edit' -l clear-due -d
 complete -c kelp -n '__fish_seen_subcommand_from edit bulk-edit' -l clear-repeat -d 'Clear recurrence'
 complete -c kelp -n '__fish_seen_subcommand_from edit' -l clear-wait-until -d 'Clear waiting follow-up date'
 complete -c kelp -n '__fish_seen_subcommand_from edit' -l clear-blocked-reason -d 'Clear blocker reason'
+complete -c kelp -n '__fish_seen_subcommand_from edit' -l clear-depends-on -d 'Clear task dependencies'
 
 complete -c kelp -n '__fish_seen_subcommand_from add' -l name -r -d 'Project name'
 complete -c kelp -n '__fish_seen_subcommand_from add edit' -l description -r -d 'Project description'
@@ -1898,6 +1970,12 @@ fn task_view(task: &Task, state: &AppState) -> TaskView {
         archived_on: task.archived_on,
         waiting_until: task.waiting_until,
         blocked_reason: task.blocked_reason.clone(),
+        depends_on: task.depends_on.iter().map(|task_id| task_id.0).collect(),
+        unresolved_dependencies: state
+            .unresolved_task_dependencies(task)
+            .into_iter()
+            .map(|task_id| task_id.0)
+            .collect(),
     }
 }
 
@@ -1947,6 +2025,8 @@ struct TaskView {
     archived_on: Option<NaiveDate>,
     waiting_until: Option<NaiveDate>,
     blocked_reason: Option<String>,
+    depends_on: Vec<u64>,
+    unresolved_dependencies: Vec<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -2035,6 +2115,7 @@ struct WeeklyReviewResponse {
     stalled_projects: Vec<ProjectView>,
     projects_missing_deadlines: Vec<ProjectView>,
     deadline_projects: Vec<ProjectView>,
+    at_risk_projects: Vec<ProjectView>,
 }
 
 #[derive(Debug, Serialize)]
