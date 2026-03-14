@@ -1,5 +1,6 @@
 mod app;
 mod cli;
+mod config;
 mod domain;
 mod legacy;
 mod render;
@@ -10,6 +11,7 @@ use clap::Parser;
 
 pub use app::{execute, Clock, FixedClock, SystemClock};
 pub use cli::Cli;
+pub use config::{AppConfig, JsonConfigStore, TaskSortKey};
 pub use storage::{JsonFileStorage, Storage};
 
 pub fn run() -> Result<()> {
