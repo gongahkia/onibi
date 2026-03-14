@@ -1,94 +1,49 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-RED="\e[31m"
+set -euo pipefail
+
 GREEN="\e[32m"
 YELLOW="\e[33m"
 BLUE="\e[34m"
-GRAY="\e[90m"
-MAGENTA="\e[95m"
-CYAN="\e[96m"
+RED="\e[31m"
 ENDCOLOR="\e[0m"
 
-clear
-printf "Welcome to the ${GREEN}Kelp installer.${ENDCOLOR}\n"
-printf "${YELLOW}Beginning the installion in 5 seconds...${ENDCOLOR}\n"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$SCRIPT_DIR"
+CARGO_BIN_DIR="${CARGO_HOME:-$HOME/.cargo}/bin"
 
-sleep 5
-clear
-printf "${YELLOW}Detecting OS...${ENDCOLOR}\n"
-sleep 2
-printf "${GREEN}OS detected!${ENDCOLOR}\n"
+printf "${BLUE}Installing Kelp from${ENDCOLOR} ${REPO_ROOT}\n"
 
-function linuxDistro() {
-    if [[ -f /etc/os-release ]]
-    then
-        source /etc/os-release
-        echo $ID
+ensure_rust_toolchain() {
+    if command -v cargo >/dev/null 2>&1; then
+        return
+    fi
+
+    printf "${YELLOW}Cargo was not found, installing Rust with rustup...${ENDCOLOR}\n"
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+
+    if [[ -f "$HOME/.cargo/env" ]]; then
+        # shellcheck disable=SC1090
+        source "$HOME/.cargo/env"
+    fi
+
+    if ! command -v cargo >/dev/null 2>&1; then
+        printf "${RED}Cargo is still unavailable after rustup installation.${ENDCOLOR}\n" >&2
+        exit 1
     fi
 }
 
-# Rust installs on...
+ensure_rust_toolchain
 
-if [[ $OSTYPE == darwin ]]; then
-    # OSX
-    printf "OS: ${BLUE}MacOS${ENDCOLOR}\n"
-    sleep 2
-    printf "${YELLOW}Proceeding with Rust installation.${ENDCOLOR}\n"
-    sleep 2
-    curl https://sh.rustup.rs -sSf | sh -s -- --help
+printf "${YELLOW}Building and installing the Kelp binary...${ENDCOLOR}\n"
+cargo install --path "$REPO_ROOT" --locked --force
 
-elif [[ $OSTYPE == linux-gnu ]]; then
-    # Linux
-    printf "OS: ${BLUE}Linux generic install${ENDCOLOR}\n"
-    sleep 2
-    printf "${YELLOW}Proceeding with Rust installation.${ENDCOLOR}\n"
-    sleep 2
-    curl https://sh.rustup.rs -sSf | sh -s -- --help
+printf "${GREEN}Kelp installed successfully.${ENDCOLOR}\n"
+printf "${BLUE}Binary location:${ENDCOLOR} %s/kelp\n" "$CARGO_BIN_DIR"
 
-elif [[ $OSTYPE == msys ]]; then
-    # WSL
-    printf "OS: ${BLUE}Windows${ENDCOLOR}\n"
-    sleep 2
-    printf "${YELLOW}Proceeding with Rust installation.${ENDCOLOR}\n"
-    sleep 2
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-elif [[ $OSTYPE == cygwin ]]; then
-    # WSL
-    printf "OS: ${BLUE}Windows${ENDCOLOR}\n"
-    sleep 2
-    printf "${YELLOW}Proceeding with Rust installation.${ENDCOLOR}\n"
-    sleep 2
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-else
-    # undetected OS
-    echo $OSTYPE
-    printf "${RED}OS cannot be detected. Defaulting to Rust install for WSL.${ENDCOLOR}\n"
-    sleep 2
-    printf "${YELLOW}Proceeding with Rust installation.${ENDCOLOR}\n"
-    sleep 2
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
+if [[ ":$PATH:" != *":$CARGO_BIN_DIR:"* ]]; then
+    printf "${YELLOW}Add this directory to your PATH if needed:${ENDCOLOR}\n"
+    printf "  export PATH=\"%s:\$PATH\"\n" "$CARGO_BIN_DIR"
 fi
 
-# actual code
-sleep 3
-git clone https://github.com/gongahkia/Kelp
-clear
-cd Kelp
-printf "${GREEN}Rust installed.${ENDCOLOR}\n"
-printf "${GREEN}Git repo cloned.${ENDCOLOR}\n"
-printf "${YELLOW}Building Cargo binary.${ENDCOLOR}\n"
-cargo build --release
-clear
-printf "${GREEN}Cargo Binary built.${ENDCOLOR}\n"
-printf "${YELLOW}Enter [y] to the following prompts.${ENDCOLOR}\n"
-rm -r LICENSE .gitignore LearningPointers src .git Cargo.toml Cargo.lock README.md installer.sh 
-cd target/release
-cp kelp ~/.config
-cd ~/.config
-mkdir Kelp-build
-mv kelp Kelp-build
-clear
-printf "${BLUE}Installation completed!${ENDCOLOR}\n"
+printf "${GREEN}Try:${ENDCOLOR} kelp init\n"
