@@ -15,19 +15,20 @@ This rewrite replaces the old prompt-driven single-file prototype with:
 - `kelp import legacy --source <path>`
 - `kelp config show|set`
 - `kelp storage path|backup|export`
-- `kelp task add|list|show|edit|bulk-edit|start|done|reopen|defer|archive|unarchive|delete`
+- `kelp task add|list|show|edit|bulk-edit|next|start|wait|block|done|reopen|defer|archive|unarchive|delete`
 - `kelp project add|list|show|archive|unarchive`
 - `kelp today`
 - `kelp upcoming --days <n>`
-- `kelp review daily --start <id> --complete <id> --defer <id:date>`
+- `kelp review daily --next-action <id> --start <id> --waiting <id> --blocked <id> --complete <id> --defer <id:date>`
 - `kelp review weekly --archive <id> --plan <project:task>`
 - `kelp search <query>`
 - `kelp completions bash|zsh|fish`
 - recurring task generation for daily, weekly, and monthly work
+- richer planner states for `next_action`, `waiting`, and `blocked` tasks
 - JSON output on planner and listing commands via `--json`
 - config defaults for upcoming windows, sort order, and JSON output
 - human date expressions like `today`, `tomorrow`, `next-week`, `next-monday`, and `+3d`
-- legacy `.kelpStorage` and `.kelpProjects` migration
+- duplicate-safe legacy `.kelpStorage` and `.kelpProjects` migration
 
 ## Install and Run
 
@@ -116,6 +117,8 @@ Import data from the legacy Kelp format:
 kelp import legacy --source /path/to/old/kelp/root
 ```
 
+Re-running the same import skips duplicate tasks instead of cloning them into the new store.
+
 ## Usage
 
 Create a project:
@@ -170,6 +173,14 @@ kelp task start 2
 kelp task defer 2 --days 3
 ```
 
+Move tasks between richer planner states:
+
+```console
+kelp task next 2
+kelp task wait 2
+kelp task block 2
+```
+
 Bulk-edit multiple tasks at once:
 
 ```console
@@ -185,7 +196,7 @@ kelp review daily
 Apply actions while reviewing:
 
 ```console
-kelp review daily --start 1 --complete 2 --defer 3:2026-03-20
+kelp review daily --next-action 1 --waiting 2 --blocked 3 --defer 4:2026-03-20
 ```
 
 Create the next action for a stalled project during weekly review:
@@ -221,6 +232,8 @@ Run the offline test suite:
 ```console
 cargo test --offline
 ```
+
+GitHub Actions also runs cross-platform test jobs and tagged release artifact builds from [.github/workflows/ci-release.yml](.github/workflows/ci-release.yml).
 
 The codebase is split into:
 
