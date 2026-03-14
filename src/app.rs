@@ -1592,7 +1592,7 @@ fn compare_due_dates(left: &Task, right: &Task) -> std::cmp::Ordering {
     }
 }
 
-fn group_tasks_by_due_date<'a>(tasks: Vec<&'a Task>) -> Vec<(String, Vec<&'a Task>)> {
+fn group_tasks_by_due_date(tasks: Vec<&Task>) -> Vec<(String, Vec<&Task>)> {
     let mut grouped: Vec<(String, Vec<&Task>)> = Vec::new();
 
     for task in tasks {
