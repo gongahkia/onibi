@@ -230,7 +230,7 @@ impl JsonFileStorage {
         for backup in backups {
             let contents = fs::read_to_string(&backup)
                 .with_context(|| format!("failed to read backup {}", backup.display()))?;
-            if let Ok(state) = serde_json::from_str::<AppState>(&contents) {
+            if let Ok(state) = parse_state_contents(&contents, &backup) {
                 self.write_state_file(&state)?;
                 return Ok(state);
             }
@@ -260,11 +260,7 @@ impl Storage for JsonFileStorage {
         }
 
         match serde_json::from_str::<Value>(&contents) {
-            Ok(mut value) => {
-                migrate_state_value(&mut value)?;
-                serde_json::from_value::<AppState>(value)
-                    .with_context(|| format!("failed to parse {}", data_file.display()))
-            }
+            Ok(_) => parse_state_contents(&contents, &data_file),
             Err(error) => self.recover_from_backup(error),
         }
     }
@@ -367,8 +363,13 @@ fn migrate_state_value(value: &mut Value) -> Result<()> {
         .and_then(Value::as_u64)
         .unwrap_or(1) as u32;
 
-    if schema_version < 2 {
-        add_missing_archived_fields(value);
+    match schema_version {
+        0 | 1 => add_missing_archived_fields(value),
+        2 | 3 => {}
+        other if other > CURRENT_APP_SCHEMA_VERSION => {
+            bail!("app state schema version {other} is newer than this build supports");
+        }
+        _ => {}
     }
 
     if let Some(object) = value.as_object_mut() {
@@ -381,6 +382,14 @@ fn migrate_state_value(value: &mut Value) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn parse_state_contents(contents: &str, path: &Path) -> Result<AppState> {
+    let mut value: Value = serde_json::from_str(contents)
+        .with_context(|| format!("failed to parse {}", path.display()))?;
+    migrate_state_value(&mut value)?;
+    serde_json::from_value::<AppState>(value)
+        .with_context(|| format!("failed to parse {}", path.display()))
 }
 
 fn add_missing_archived_fields(value: &mut Value) {
@@ -578,6 +587,29 @@ mod tests {
         assert_eq!(loaded.schema_version, CURRENT_APP_SCHEMA_VERSION);
         assert_eq!(loaded.tasks[0].archived_on, None);
         assert_eq!(loaded.projects[0].archived_on, None);
+
+        fs::remove_dir_all(root).expect("temporary directory cleanup should succeed");
+    }
+
+    #[test]
+    fn load_rejects_future_schema_versions() {
+        let root = temp_root();
+        let storage = JsonFileStorage::at(root.clone());
+        storage.init().expect("init should succeed");
+        fs::write(
+            storage.data_file(),
+            format!(
+                "{{\"schema_version\": {}, \"next_task_id\": 1, \"next_project_id\": 1, \"tasks\": [], \"projects\": []}}",
+                CURRENT_APP_SCHEMA_VERSION + 1
+            ),
+        )
+        .expect("future schema state should be written");
+
+        let error = storage.load().expect_err("future schema should be rejected");
+
+        assert!(error
+            .to_string()
+            .contains("newer than this build supports"));
 
         fs::remove_dir_all(root).expect("temporary directory cleanup should succeed");
     }
