@@ -129,6 +129,7 @@ fn import_storage_file(
                         recurrence: None,
                         waiting_until: None,
                         blocked_reason: None,
+                        depends_on: Vec::new(),
                     },
                     today,
                 )?;
