@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use thiserror::Error;
 
-pub const CURRENT_APP_SCHEMA_VERSION: u32 = 2;
+pub const CURRENT_APP_SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct TaskId(pub u64);
@@ -64,14 +64,24 @@ impl fmt::Display for Priority {
 pub enum TaskStatus {
     #[default]
     Todo,
+    NextAction,
     InProgress,
+    Waiting,
+    Blocked,
     Done,
     Archived,
 }
 
 impl TaskStatus {
     pub fn is_open(self) -> bool {
-        matches!(self, Self::Todo | Self::InProgress)
+        matches!(
+            self,
+            Self::Todo | Self::NextAction | Self::InProgress | Self::Waiting | Self::Blocked
+        )
+    }
+
+    pub fn is_next_action(self) -> bool {
+        matches!(self, Self::NextAction | Self::InProgress)
     }
 }
 
@@ -79,7 +89,10 @@ impl fmt::Display for TaskStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let label = match self {
             Self::Todo => "todo",
+            Self::NextAction => "next_action",
             Self::InProgress => "in_progress",
+            Self::Waiting => "waiting",
+            Self::Blocked => "blocked",
             Self::Done => "done",
             Self::Archived => "archived",
         };
@@ -271,6 +284,9 @@ pub struct ProjectSummary {
     pub open_tasks: usize,
     pub completed_tasks: usize,
     pub overdue_tasks: usize,
+    pub next_action_tasks: usize,
+    pub waiting_tasks: usize,
+    pub blocked_tasks: usize,
     pub completion_percent: u8,
 }
 
@@ -468,7 +484,11 @@ impl AppState {
     ) -> Result<Option<TaskId>, DomainError> {
         match status {
             TaskStatus::Done => self.complete_task(task_id, today),
-            TaskStatus::Todo | TaskStatus::InProgress => {
+            TaskStatus::Todo
+            | TaskStatus::NextAction
+            | TaskStatus::InProgress
+            | TaskStatus::Waiting
+            | TaskStatus::Blocked => {
                 let task = self
                     .find_task_mut(task_id)
                     .ok_or(DomainError::TaskNotFound(task_id))?;
@@ -637,6 +657,18 @@ impl AppState {
                         .unwrap_or(false)
             })
             .count();
+        let next_action_tasks = tasks
+            .iter()
+            .filter(|task| task.status.is_next_action())
+            .count();
+        let waiting_tasks = tasks
+            .iter()
+            .filter(|task| matches!(task.status, TaskStatus::Waiting))
+            .count();
+        let blocked_tasks = tasks
+            .iter()
+            .filter(|task| matches!(task.status, TaskStatus::Blocked))
+            .count();
         let completion_percent = if total_tasks == 0 {
             0
         } else {
@@ -648,6 +680,9 @@ impl AppState {
             open_tasks,
             completed_tasks,
             overdue_tasks,
+            next_action_tasks,
+            waiting_tasks,
+            blocked_tasks,
             completion_percent,
         })
     }
@@ -798,25 +833,49 @@ mod tests {
             )
             .expect("task creation should succeed");
 
+        let waiting_task = state
+            .create_task(
+                NewTask {
+                    title: "Wait for legal sign-off".to_string(),
+                    notes: None,
+                    project_id: Some(project.id),
+                    priority: Priority::Low,
+                    tags: vec!["legal".to_string()],
+                    due_date: Some(date("2026-03-15")),
+                    recurrence: None,
+                },
+                today,
+            )
+            .expect("task creation should succeed");
+
         state
             .complete_task(completed_task.id, today)
             .expect("completion should succeed");
+        state
+            .set_task_status(overdue_task.id, TaskStatus::NextAction, today)
+            .expect("status update should succeed");
+        state
+            .set_task_status(waiting_task.id, TaskStatus::Waiting, today)
+            .expect("status update should succeed");
 
         let summary = state
             .project_summary(project.id, today)
             .expect("summary should succeed");
 
-        assert_eq!(summary.total_tasks, 2);
+        assert_eq!(summary.total_tasks, 3);
         assert_eq!(summary.completed_tasks, 1);
-        assert_eq!(summary.open_tasks, 1);
+        assert_eq!(summary.open_tasks, 2);
         assert_eq!(summary.overdue_tasks, 1);
-        assert_eq!(summary.completion_percent, 50);
+        assert_eq!(summary.next_action_tasks, 1);
+        assert_eq!(summary.waiting_tasks, 1);
+        assert_eq!(summary.blocked_tasks, 0);
+        assert_eq!(summary.completion_percent, 33);
         assert_eq!(
             state
                 .find_task(overdue_task.id)
                 .expect("task should still exist")
                 .status,
-            TaskStatus::Todo
+            TaskStatus::NextAction
         );
     }
 }
