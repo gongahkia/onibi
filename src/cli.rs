@@ -102,6 +102,7 @@ pub enum ProjectCommand {
     #[command(visible_alias = "ls")]
     List(ProjectListArgs),
     Show(ProjectShowArgs),
+    Edit(ProjectEditArgs),
     Archive(ProjectArchiveArgs),
     Unarchive(ProjectUnarchiveArgs),
 }
@@ -195,6 +196,10 @@ pub struct TaskAddArgs {
     pub due: Option<String>,
     #[arg(long, value_enum)]
     pub repeat: Option<RecurrenceRule>,
+    #[arg(long)]
+    pub wait_until: Option<String>,
+    #[arg(long)]
+    pub blocked_reason: Option<String>,
 }
 
 #[derive(Debug, Args, Clone)]
@@ -255,6 +260,14 @@ pub struct TaskEditArgs {
     pub repeat: Option<RecurrenceRule>,
     #[arg(long)]
     pub clear_repeat: bool,
+    #[arg(long, conflicts_with = "clear_wait_until")]
+    pub wait_until: Option<String>,
+    #[arg(long)]
+    pub clear_wait_until: bool,
+    #[arg(long, conflicts_with = "clear_blocked_reason")]
+    pub blocked_reason: Option<String>,
+    #[arg(long)]
+    pub clear_blocked_reason: bool,
 }
 
 #[derive(Debug, Args, Clone)]
@@ -295,11 +308,15 @@ pub struct TaskNextArgs {
 #[derive(Debug, Args, Clone)]
 pub struct TaskWaitArgs {
     pub id: u64,
+    #[arg(long)]
+    pub until: Option<String>,
 }
 
 #[derive(Debug, Args, Clone)]
 pub struct TaskBlockArgs {
     pub id: u64,
+    #[arg(long)]
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Args, Clone)]
@@ -342,6 +359,8 @@ pub struct ProjectAddArgs {
     pub name: String,
     #[arg(long)]
     pub description: Option<String>,
+    #[arg(long)]
+    pub deadline: Option<String>,
 }
 
 #[derive(Debug, Args, Clone)]
@@ -357,6 +376,19 @@ pub struct ProjectShowArgs {
     pub project: String,
     #[arg(long)]
     pub json: bool,
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct ProjectEditArgs {
+    pub project: String,
+    #[arg(long, conflicts_with = "clear_description")]
+    pub description: Option<String>,
+    #[arg(long)]
+    pub clear_description: bool,
+    #[arg(long, conflicts_with = "clear_deadline")]
+    pub deadline: Option<String>,
+    #[arg(long)]
+    pub clear_deadline: bool,
 }
 
 #[derive(Debug, Args, Clone)]
