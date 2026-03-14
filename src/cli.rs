@@ -478,7 +478,9 @@ fn parse_project_task_plan(value: &str) -> Result<ProjectTaskPlan, String> {
 
     let project_ref = project_ref.trim();
     if project_ref.is_empty() {
-        return Err(format!("invalid project reference in plan instruction '{value}'"));
+        return Err(format!(
+            "invalid project reference in plan instruction '{value}'"
+        ));
     }
 
     let title = title.trim();
