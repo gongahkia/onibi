@@ -536,6 +536,12 @@ impl AppState {
         }
 
         task.updated_on = today;
+        let canonical_project_id = matches!(task.status, TaskStatus::NextAction).then_some(task.project_id);
+
+        let canonical_project_id = canonical_project_id.flatten();
+        if let Some(project_id) = canonical_project_id {
+            self.demote_other_next_actions_in_project(project_id, task_id, today);
+        }
 
         Ok(())
     }
@@ -569,11 +575,25 @@ impl AppState {
     ) -> Result<Option<TaskId>, DomainError> {
         match status {
             TaskStatus::Done => self.complete_task(task_id, today),
-            TaskStatus::Todo
-            | TaskStatus::NextAction
-            | TaskStatus::InProgress
-            | TaskStatus::Waiting
-            | TaskStatus::Blocked => {
+            TaskStatus::NextAction => {
+                let project_id = {
+                    let task = self
+                        .find_task_mut(task_id)
+                        .ok_or(DomainError::TaskNotFound(task_id))?;
+                    task.status = TaskStatus::NextAction;
+                    task.completed_on = None;
+                    task.archived_on = None;
+                    task.waiting_until = None;
+                    task.blocked_reason = None;
+                    task.updated_on = today;
+                    task.project_id
+                };
+                if let Some(project_id) = project_id {
+                    self.demote_other_next_actions_in_project(project_id, task_id, today);
+                }
+                Ok(None)
+            }
+            TaskStatus::Todo | TaskStatus::InProgress | TaskStatus::Waiting | TaskStatus::Blocked => {
                 let task = self
                     .find_task_mut(task_id)
                     .ok_or(DomainError::TaskNotFound(task_id))?;
@@ -838,6 +858,23 @@ impl AppState {
         }
 
         Ok(normalized)
+    }
+
+    fn demote_other_next_actions_in_project(
+        &mut self,
+        project_id: ProjectId,
+        keep_task_id: TaskId,
+        today: NaiveDate,
+    ) {
+        for task in &mut self.tasks {
+            if task.id != keep_task_id
+                && task.project_id == Some(project_id)
+                && matches!(task.status, TaskStatus::NextAction)
+            {
+                task.status = TaskStatus::Todo;
+                task.updated_on = today;
+            }
+        }
     }
 
     fn task_reaches_target(
@@ -1209,5 +1246,71 @@ mod tests {
             .expect_err("cycle should be rejected");
 
         assert!(matches!(error, DomainError::TaskDependencyCycle { .. }));
+    }
+
+    #[test]
+    fn marking_a_project_task_as_next_action_demotes_the_previous_one() {
+        let mut state = AppState::default();
+        let today = date("2026-03-14");
+        let project = state
+            .create_project(
+                NewProject {
+                    name: "Launch".to_string(),
+                    description: None,
+                    deadline: None,
+                },
+                today,
+            )
+            .expect("project creation should succeed");
+        let first = state
+            .create_task(
+                NewTask {
+                    title: "Draft copy".to_string(),
+                    notes: None,
+                    project_id: Some(project.id),
+                    priority: Priority::Medium,
+                    tags: vec![],
+                    due_date: None,
+                    recurrence: None,
+                    waiting_until: None,
+                    blocked_reason: None,
+                    depends_on: Vec::new(),
+                },
+                today,
+            )
+            .expect("first task should be created");
+        let second = state
+            .create_task(
+                NewTask {
+                    title: "Publish copy".to_string(),
+                    notes: None,
+                    project_id: Some(project.id),
+                    priority: Priority::Medium,
+                    tags: vec![],
+                    due_date: None,
+                    recurrence: None,
+                    waiting_until: None,
+                    blocked_reason: None,
+                    depends_on: Vec::new(),
+                },
+                today,
+            )
+            .expect("second task should be created");
+
+        state
+            .set_task_status(first.id, TaskStatus::NextAction, today)
+            .expect("first next action should succeed");
+        state
+            .set_task_status(second.id, TaskStatus::NextAction, today)
+            .expect("second next action should succeed");
+
+        assert_eq!(
+            state.find_task(first.id).expect("first task should exist").status,
+            TaskStatus::Todo
+        );
+        assert_eq!(
+            state.find_task(second.id).expect("second task should exist").status,
+            TaskStatus::NextAction
+        );
     }
 }
