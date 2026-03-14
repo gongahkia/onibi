@@ -1,4 +1,6 @@
-use crate::domain::{AppState, Priority, Project, ProjectSummary, RecurrenceRule, Task, TaskStatus};
+use crate::domain::{
+    AppState, Priority, Project, ProjectSummary, RecurrenceRule, Task, TaskStatus,
+};
 use chrono::NaiveDate;
 use std::env;
 use std::io::IsTerminal;
@@ -21,7 +23,11 @@ pub fn render_task_detail(task: &Task, state: &AppState) -> String {
     let mut lines = vec![heading(&format!("Task {}", task.id.0))];
     lines.push(format!("{} {}", muted("title:"), bold(&task.title)));
     lines.push(format!("{} {}", muted("status:"), status_chip(task.status)));
-    lines.push(format!("{} {}", muted("priority:"), priority_chip(task.priority)));
+    lines.push(format!(
+        "{} {}",
+        muted("priority:"),
+        priority_chip(task.priority)
+    ));
     lines.push(format!(
         "{} {}",
         muted("project:"),
@@ -29,7 +35,11 @@ pub fn render_task_detail(task: &Task, state: &AppState) -> String {
             .and_then(|project_id| state.project_name(project_id))
             .unwrap_or("none")
     ));
-    lines.push(format!("{} {}", muted("due:"), format_optional_date(task.due_date)));
+    lines.push(format!(
+        "{} {}",
+        muted("due:"),
+        format_optional_date(task.due_date)
+    ));
     lines.push(format!(
         "{} {}",
         muted("waiting until:"),
@@ -76,7 +86,9 @@ pub fn render_task_list(title: &str, tasks: &[&Task], state: &AppState) -> Strin
         return lines.join("\n");
     }
 
-    lines.push(muted("ID   STATUS       PRI     DUE         PROJECT       TITLE"));
+    lines.push(muted(
+        "ID   STATUS       PRI     DUE         PROJECT       TITLE",
+    ));
     for task in tasks {
         let project = task
             .project_id
@@ -104,7 +116,9 @@ pub fn render_project_list(title: &str, projects: &[(&Project, ProjectSummary)])
         return lines.join("\n");
     }
 
-    lines.push(muted("ID   STATUS      DONE   OPEN   OVERDUE   DEADLINE     NAME"));
+    lines.push(muted(
+        "ID   STATUS      DONE   OPEN   OVERDUE   DEADLINE     NAME",
+    ));
     for (project, summary) in projects {
         lines.push(format!(
             "{:<4} {:<11} {:>3}%   {:<6} {:<8} {:<12} {}",
@@ -136,9 +150,21 @@ pub fn render_project_detail(
         summary.completion_percent
     ));
     lines.push(format!("{} {}", muted("open tasks:"), summary.open_tasks));
-    lines.push(format!("{} {}", muted("done tasks:"), summary.completed_tasks));
-    lines.push(format!("{} {}", muted("overdue tasks:"), summary.overdue_tasks));
-    lines.push(format!("{} {}", muted("deadline:"), format_optional_date(project.deadline)));
+    lines.push(format!(
+        "{} {}",
+        muted("done tasks:"),
+        summary.completed_tasks
+    ));
+    lines.push(format!(
+        "{} {}",
+        muted("overdue tasks:"),
+        summary.overdue_tasks
+    ));
+    lines.push(format!(
+        "{} {}",
+        muted("deadline:"),
+        format_optional_date(project.deadline)
+    ));
     lines.push(format!(
         "{} {}",
         muted("next actions:"),
@@ -237,7 +263,13 @@ fn format_inline_tags(tags: &[String]) -> String {
     if tags.is_empty() {
         String::new()
     } else {
-        format!("  {}", tags.iter().map(|tag| format!("#{tag}")).collect::<Vec<_>>().join(" "))
+        format!(
+            "  {}",
+            tags.iter()
+                .map(|tag| format!("#{tag}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        )
     }
 }
 
@@ -278,7 +310,10 @@ fn truncate(value: &str, width: usize) -> String {
         return value.to_string();
     }
 
-    let mut truncated = value.chars().take(width.saturating_sub(1)).collect::<String>();
+    let mut truncated = value
+        .chars()
+        .take(width.saturating_sub(1))
+        .collect::<String>();
     truncated.push('…');
     truncated
 }
