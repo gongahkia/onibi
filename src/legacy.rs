@@ -109,11 +109,10 @@ fn import_storage_file(
 
         match parse_legacy_task_line(line) {
             Ok(task) => {
-                if state
-                    .tasks
-                    .iter()
-                    .any(|existing| task_fingerprint(existing, project_id) == legacy_task_fingerprint(&task, project_id))
-                {
+                if state.tasks.iter().any(|existing| {
+                    task_fingerprint(existing, project_id)
+                        == legacy_task_fingerprint(&task, project_id)
+                }) {
                     summary.skipped_duplicates += 1;
                     continue;
                 }
@@ -135,11 +134,11 @@ fn import_storage_file(
                 )?;
                 summary.imported_tasks += 1;
             }
-            Err(error) => summary.warnings.push(format!(
-                "{}:{} {error}",
-                path.display(),
-                line_index + 1
-            )),
+            Err(error) => {
+                summary
+                    .warnings
+                    .push(format!("{}:{} {error}", path.display(), line_index + 1))
+            }
         }
     }
 
@@ -314,8 +313,8 @@ mod tests {
         .expect("legacy project file should be written");
 
         let mut state = AppState::default();
-        let summary =
-            import_legacy_from_path(&mut state, &root, date("2026-03-14")).expect("import should succeed");
+        let summary = import_legacy_from_path(&mut state, &root, date("2026-03-14"))
+            .expect("import should succeed");
 
         assert_eq!(summary.imported_tasks, 2);
         assert_eq!(summary.imported_projects, 1);
