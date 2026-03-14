@@ -43,7 +43,10 @@ pub enum Command {
         #[command(subcommand)]
         command: ReviewCommand,
     },
+    #[command(visible_alias = "find")]
     Search(SearchArgs),
+    #[command(visible_alias = "completion")]
+    Completions(CompletionsArgs),
 }
 
 #[derive(Debug, Subcommand, Clone)]
@@ -66,23 +69,31 @@ pub enum StorageCommand {
 
 #[derive(Debug, Subcommand, Clone)]
 pub enum TaskCommand {
+    #[command(visible_alias = "create")]
     Add(TaskAddArgs),
+    #[command(visible_alias = "ls")]
     List(TaskListArgs),
     Show(TaskShowArgs),
     Edit(TaskEditArgs),
     BulkEdit(TaskBulkEditArgs),
+    #[command(visible_alias = "begin")]
     Start(TaskStartArgs),
+    #[command(visible_alias = "complete")]
     Done(TaskDoneArgs),
     Reopen(TaskReopenArgs),
+    #[command(visible_alias = "snooze")]
     Defer(TaskDeferArgs),
     Archive(TaskArchiveArgs),
     Unarchive(TaskUnarchiveArgs),
+    #[command(visible_alias = "rm")]
     Delete(TaskDeleteArgs),
 }
 
 #[derive(Debug, Subcommand, Clone)]
 pub enum ProjectCommand {
+    #[command(visible_alias = "create")]
     Add(ProjectAddArgs),
+    #[command(visible_alias = "ls")]
     List(ProjectListArgs),
     Show(ProjectShowArgs),
     Archive(ProjectArchiveArgs),
@@ -91,7 +102,9 @@ pub enum ProjectCommand {
 
 #[derive(Debug, Subcommand, Clone)]
 pub enum ReviewCommand {
+    #[command(visible_alias = "day")]
     Daily(ReviewArgs),
+    #[command(visible_alias = "week")]
     Weekly(ReviewArgs),
 }
 
@@ -117,6 +130,19 @@ pub struct ConfigSetArgs {
     pub json_output: bool,
     #[arg(long, conflicts_with = "json_output")]
     pub plain_output: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum ShellKind {
+    Bash,
+    Zsh,
+    Fish,
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct CompletionsArgs {
+    #[arg(value_enum)]
+    pub shell: ShellKind,
 }
 
 #[derive(Debug, Args, Clone)]
@@ -342,12 +368,20 @@ pub struct ReviewArgs {
     pub archive: Vec<u64>,
     #[arg(long = "defer", value_parser = parse_task_reschedule)]
     pub defer: Vec<TaskReschedule>,
+    #[arg(long = "plan", value_parser = parse_project_task_plan)]
+    pub plan: Vec<ProjectTaskPlan>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskReschedule {
     pub id: u64,
     pub due_expression: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectTaskPlan {
+    pub project_ref: String,
+    pub title: String,
 }
 
 #[derive(Debug, Args, Clone)]
@@ -369,5 +403,26 @@ fn parse_task_reschedule(value: &str) -> Result<TaskReschedule, String> {
     Ok(TaskReschedule {
         id,
         due_expression: due_expression.trim().to_string(),
+    })
+}
+
+fn parse_project_task_plan(value: &str) -> Result<ProjectTaskPlan, String> {
+    let (project_ref, title) = value
+        .split_once(':')
+        .ok_or_else(|| format!("invalid plan instruction '{value}', expected PROJECT:TASK"))?;
+
+    let project_ref = project_ref.trim();
+    if project_ref.is_empty() {
+        return Err(format!("invalid project reference in plan instruction '{value}'"));
+    }
+
+    let title = title.trim();
+    if title.is_empty() {
+        return Err(format!("invalid task title in plan instruction '{value}'"));
+    }
+
+    Ok(ProjectTaskPlan {
+        project_ref: project_ref.to_string(),
+        title: title.to_string(),
     })
 }
