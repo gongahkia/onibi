@@ -363,13 +363,15 @@ fn migrate_state_value(value: &mut Value) -> Result<()> {
         .and_then(Value::as_u64)
         .unwrap_or(1) as u32;
 
-    match schema_version {
-        0 | 1 => add_missing_archived_fields(value),
-        2 | 3 => {}
-        other if other > CURRENT_APP_SCHEMA_VERSION => {
-            bail!("app state schema version {other} is newer than this build supports");
-        }
-        _ => {}
+    if schema_version < 2 {
+        add_missing_archived_fields(value);
+    }
+    if schema_version < 4 {
+        add_missing_planner_fields(value);
+    }
+
+    if schema_version > CURRENT_APP_SCHEMA_VERSION {
+        bail!("app state schema version {schema_version} is newer than this build supports");
     }
 
     if let Some(object) = value.as_object_mut() {
@@ -408,6 +410,31 @@ fn add_missing_archived_fields(value: &mut Value) {
             if let Some(object) = project.as_object_mut() {
                 object
                     .entry("archived_on".to_string())
+                    .or_insert_with(|| json!(null));
+            }
+        }
+    }
+}
+
+fn add_missing_planner_fields(value: &mut Value) {
+    if let Some(tasks) = value.get_mut("tasks").and_then(Value::as_array_mut) {
+        for task in tasks {
+            if let Some(object) = task.as_object_mut() {
+                object
+                    .entry("waiting_until".to_string())
+                    .or_insert_with(|| json!(null));
+                object
+                    .entry("blocked_reason".to_string())
+                    .or_insert_with(|| json!(null));
+            }
+        }
+    }
+
+    if let Some(projects) = value.get_mut("projects").and_then(Value::as_array_mut) {
+        for project in projects {
+            if let Some(object) = project.as_object_mut() {
+                object
+                    .entry("deadline".to_string())
                     .or_insert_with(|| json!(null));
             }
         }
@@ -457,6 +484,8 @@ mod tests {
                     tags: vec!["rust".to_string(), "cli".to_string()],
                     due_date: Some(today),
                     recurrence: None,
+                    waiting_until: None,
+                    blocked_reason: None,
                 },
                 today,
             )
@@ -505,6 +534,8 @@ mod tests {
                     tags: vec!["backup".to_string()],
                     due_date: Some(today),
                     recurrence: None,
+                    waiting_until: None,
+                    blocked_reason: None,
                 },
                 today,
             )
@@ -586,7 +617,10 @@ mod tests {
 
         assert_eq!(loaded.schema_version, CURRENT_APP_SCHEMA_VERSION);
         assert_eq!(loaded.tasks[0].archived_on, None);
+        assert_eq!(loaded.tasks[0].waiting_until, None);
+        assert_eq!(loaded.tasks[0].blocked_reason, None);
         assert_eq!(loaded.projects[0].archived_on, None);
+        assert_eq!(loaded.projects[0].deadline, None);
 
         fs::remove_dir_all(root).expect("temporary directory cleanup should succeed");
     }
