@@ -3,7 +3,6 @@ use anyhow::{Context, Result};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub trait Storage {
     fn init(&self) -> Result<PathBuf>;
@@ -117,6 +116,7 @@ mod tests {
     use super::*;
     use crate::domain::{NewTask, Priority};
     use chrono::NaiveDate;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn date(value: &str) -> NaiveDate {
         NaiveDate::parse_from_str(value, "%Y-%m-%d").expect("date fixture should be valid")
