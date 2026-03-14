@@ -2,11 +2,10 @@ use crate::cli::{
     Cli, Command, CompletionsArgs, ConfigCommand, ConfigSetArgs, ConfigShowArgs, ImportCommand,
     LegacyImportArgs, ProjectAddArgs, ProjectArchiveArgs, ProjectCommand, ProjectEditArgs,
     ProjectListArgs, ProjectShowArgs, ProjectTaskPlan, ProjectUnarchiveArgs, ReviewArgs,
-    SearchArgs, ShellKind, StorageBackupArgs, StorageCommand, StorageExportArgs,
-    StoragePathArgs, TaskAddArgs, TaskArchiveArgs, TaskBlockArgs, TaskBulkEditArgs, TaskCommand,
-    TaskDeferArgs, TaskDeleteArgs, TaskDoneArgs, TaskEditArgs, TaskListArgs, TaskNextArgs,
-    TaskReopenArgs, TaskReschedule, TaskShowArgs, TaskStartArgs, TaskUnarchiveArgs, TaskWaitArgs,
-    UpcomingArgs,
+    SearchArgs, ShellKind, StorageBackupArgs, StorageCommand, StorageExportArgs, StoragePathArgs,
+    TaskAddArgs, TaskArchiveArgs, TaskBlockArgs, TaskBulkEditArgs, TaskCommand, TaskDeferArgs,
+    TaskDeleteArgs, TaskDoneArgs, TaskEditArgs, TaskListArgs, TaskNextArgs, TaskReopenArgs,
+    TaskReschedule, TaskShowArgs, TaskStartArgs, TaskUnarchiveArgs, TaskWaitArgs, UpcomingArgs,
 };
 use crate::config::{AppConfig, JsonConfigStore, TaskSortKey};
 use crate::domain::{
@@ -200,10 +199,7 @@ fn set_config<S: Storage>(storage: &S, args: ConfigSetArgs) -> Result<String> {
 
     config_store.save(&config)?;
 
-    Ok(render_confirmation(
-        "Config updated",
-        &changed.join("\n"),
-    ))
+    Ok(render_confirmation("Config updated", &changed.join("\n")))
 }
 
 fn execute_review_command<S: Storage>(
@@ -285,10 +281,18 @@ fn import_legacy<S: Storage>(
     if !summary.warnings.is_empty() {
         lines.push(String::new());
         lines.push("warnings:".to_string());
-        lines.extend(summary.warnings.into_iter().map(|warning| format!("  - {warning}")));
+        lines.extend(
+            summary
+                .warnings
+                .into_iter()
+                .map(|warning| format!("  - {warning}")),
+        );
     }
 
-    Ok(render_confirmation("Legacy import complete", &lines.join("\n")))
+    Ok(render_confirmation(
+        "Legacy import complete",
+        &lines.join("\n"),
+    ))
 }
 
 fn show_storage_paths<S: Storage>(storage: &S, args: StoragePathArgs) -> Result<String> {
@@ -447,7 +451,10 @@ fn list_tasks<S: Storage>(storage: &S, today: NaiveDate, args: TaskListArgs) -> 
 
     if wants_json(args.json, &config) {
         return to_pretty_json(&TaskListResponse {
-            tasks: tasks.into_iter().map(|task| task_view(task, &state)).collect(),
+            tasks: tasks
+                .into_iter()
+                .map(|task| task_view(task, &state))
+                .collect(),
         });
     }
 
@@ -663,7 +670,11 @@ fn add_project<S: Storage>(storage: &S, today: NaiveDate, args: ProjectAddArgs) 
     ))
 }
 
-fn edit_project<S: Storage>(storage: &S, today: NaiveDate, args: ProjectEditArgs) -> Result<String> {
+fn edit_project<S: Storage>(
+    storage: &S,
+    today: NaiveDate,
+    args: ProjectEditArgs,
+) -> Result<String> {
     let mut state = storage.load()?;
     let project_id = state.resolve_project_id(&args.project)?;
     let patch = build_project_patch(&args, today)?;
@@ -731,7 +742,11 @@ fn list_projects<S: Storage>(
     Ok(render_project_list("Projects", &project_entries))
 }
 
-fn show_project<S: Storage>(storage: &S, today: NaiveDate, args: ProjectShowArgs) -> Result<String> {
+fn show_project<S: Storage>(
+    storage: &S,
+    today: NaiveDate,
+    args: ProjectShowArgs,
+) -> Result<String> {
     let config = load_config(storage)?;
     let state = storage.load()?;
     let project_id = state.resolve_project_id(&args.project)?;
@@ -746,7 +761,10 @@ fn show_project<S: Storage>(storage: &S, today: NaiveDate, args: ProjectShowArgs
     if wants_json(args.json, &config) {
         return to_pretty_json(&ProjectDetailResponse {
             project: project_view(project, summary),
-            tasks: tasks.into_iter().map(|task| task_view(task, &state)).collect(),
+            tasks: tasks
+                .into_iter()
+                .map(|task| task_view(task, &state))
+                .collect(),
         });
     }
 
@@ -822,7 +840,10 @@ fn execute_today<S: Storage>(storage: &S, today: NaiveDate, json: bool) -> Resul
         .into_iter()
         .filter(|task| {
             matches!(task.status, TaskStatus::Waiting)
-                && task.waiting_until.map(|until| until <= today).unwrap_or(true)
+                && task
+                    .waiting_until
+                    .map(|until| until <= today)
+                    .unwrap_or(true)
         })
         .collect::<Vec<_>>();
 
@@ -853,7 +874,11 @@ fn execute_today<S: Storage>(storage: &S, today: NaiveDate, json: bool) -> Resul
     Ok(render_task_sections("Today", &sections, &state))
 }
 
-fn execute_upcoming<S: Storage>(storage: &S, today: NaiveDate, args: UpcomingArgs) -> Result<String> {
+fn execute_upcoming<S: Storage>(
+    storage: &S,
+    today: NaiveDate,
+    args: UpcomingArgs,
+) -> Result<String> {
     let config = load_config(storage)?;
     let days = args.days.unwrap_or(config.default_upcoming_days);
     if days < 1 {
@@ -882,11 +907,7 @@ fn execute_upcoming<S: Storage>(storage: &S, today: NaiveDate, args: UpcomingArg
     Ok(render_task_sections("Upcoming", &sections, &state))
 }
 
-fn daily_review<S: Storage>(
-    storage: &S,
-    today: NaiveDate,
-    args: ReviewArgs,
-) -> Result<String> {
+fn daily_review<S: Storage>(storage: &S, today: NaiveDate, args: ReviewArgs) -> Result<String> {
     let config = load_config(storage)?;
     let mut state = storage.load()?;
     let applied_actions = apply_review_actions(&mut state, today, &args)?;
@@ -954,11 +975,7 @@ fn daily_review<S: Storage>(
     ))
 }
 
-fn weekly_review<S: Storage>(
-    storage: &S,
-    today: NaiveDate,
-    args: ReviewArgs,
-) -> Result<String> {
+fn weekly_review<S: Storage>(storage: &S, today: NaiveDate, args: ReviewArgs) -> Result<String> {
     let config = load_config(storage)?;
     let mut state = storage.load()?;
     let applied_actions = apply_review_actions(&mut state, today, &args)?;
@@ -996,7 +1013,10 @@ fn weekly_review<S: Storage>(
         .into_iter()
         .filter(|task| {
             matches!(task.status, TaskStatus::Waiting)
-                && task.waiting_until.map(|until| until <= today).unwrap_or(true)
+                && task
+                    .waiting_until
+                    .map(|until| until <= today)
+                    .unwrap_or(true)
         })
         .collect::<Vec<_>>();
     let mut dependency_blocked = active_open_tasks(&state)
@@ -1083,7 +1103,8 @@ fn weekly_review<S: Storage>(
     sort_tasks(&mut stale_tasks, TaskSortKey::Updated);
     projects_without_next_actions
         .sort_by(|left, right| left.0.name.to_lowercase().cmp(&right.0.name.to_lowercase()));
-    stalled_projects.sort_by(|left, right| left.0.name.to_lowercase().cmp(&right.0.name.to_lowercase()));
+    stalled_projects
+        .sort_by(|left, right| left.0.name.to_lowercase().cmp(&right.0.name.to_lowercase()));
     projects_missing_deadlines
         .sort_by(|left, right| left.0.name.to_lowercase().cmp(&right.0.name.to_lowercase()));
     deadline_projects.sort_by(|left, right| {
@@ -1163,7 +1184,11 @@ fn weekly_review<S: Storage>(
         "Projects at risk this week",
         &at_risk_projects,
     ));
-    Ok(render_review_output("Weekly review", &applied_actions, output))
+    Ok(render_review_output(
+        "Weekly review",
+        &applied_actions,
+        output,
+    ))
 }
 
 fn execute_search<S: Storage>(storage: &S, today: NaiveDate, args: SearchArgs) -> Result<String> {
@@ -1184,7 +1209,9 @@ fn execute_search<S: Storage>(storage: &S, today: NaiveDate, args: SearchArgs) -
                     || task
                         .project_id
                         .and_then(|project_id| state.project_name(project_id))
-                        .map(|project_name| project_name.to_lowercase().contains(&query.to_lowercase()))
+                        .map(|project_name| {
+                            project_name.to_lowercase().contains(&query.to_lowercase())
+                        })
                         .unwrap_or(false))
         })
         .collect::<Vec<_>>();
@@ -1350,7 +1377,10 @@ fn parse_task_dependencies(values: &[u64]) -> Vec<TaskId> {
     values.iter().copied().map(TaskId).collect()
 }
 
-fn resolve_optional_project_id(state: &AppState, project_ref: Option<&str>) -> Result<Option<ProjectId>> {
+fn resolve_optional_project_id(
+    state: &AppState,
+    project_ref: Option<&str>,
+) -> Result<Option<ProjectId>> {
     project_ref
         .map(|reference| state.resolve_project_id(reference))
         .transpose()
@@ -1449,7 +1479,10 @@ fn apply_review_actions(
                 .find_project(project_id)
                 .with_context(|| format!("project {project_ref} does not exist"))?;
             if matches!(project.status, ProjectStatus::Archived) {
-                bail!("cannot plan next actions in archived project '{}'", project.name);
+                bail!(
+                    "cannot plan next actions in archived project '{}'",
+                    project.name
+                );
             }
             project.name.clone()
         };
@@ -1498,7 +1531,12 @@ fn filtered_tasks<'a>(
         .collect()
 }
 
-fn task_matches_filter(task: &Task, state: &AppState, today: NaiveDate, filter: &TaskFilter<'_>) -> bool {
+fn task_matches_filter(
+    task: &Task,
+    state: &AppState,
+    today: NaiveDate,
+    filter: &TaskFilter<'_>,
+) -> bool {
     if let Some(project_id) = filter.project_id {
         if task.project_id != Some(project_id) {
             return false;
