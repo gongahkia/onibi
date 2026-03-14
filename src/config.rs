@@ -9,17 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const CURRENT_CONFIG_SCHEMA_VERSION: u32 = 1;
 
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    ValueEnum,
-    Default,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskSortKey {
     #[default]
@@ -242,7 +232,10 @@ fn resolve_config_root() -> Result<PathBuf> {
     }
 
     if let Some(home) = env::var_os("HOME") {
-        return Ok(PathBuf::from(home).join(".local").join("share").join("kelp"));
+        return Ok(PathBuf::from(home)
+            .join(".local")
+            .join("share")
+            .join("kelp"));
     }
 
     Ok(env::current_dir()
