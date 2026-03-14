@@ -1,4 +1,4 @@
-name: CI and Release
+name: Kelp CI/CD and Release
 
 on:
   pull_request:
