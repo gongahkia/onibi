@@ -6,7 +6,7 @@
 
 The *K*ommand line h*elp*er.
 
-## Dependancies
+## Dependencies
 
 `Kelp` relies on [curl](https://curl.se/), [wget](https://www.gnu.org/software/wget/) and [git](https://git-scm.com/).
 
@@ -14,8 +14,12 @@ The *K*ommand line h*elp*er.
 
 ```console
 $ wget https://raw.githubusercontent.com/gongahkia/Kelp/main/installer.sh
+
 $ chmod +x installer.sh
 $ ./installer.sh
+$ ./installer.sh --with-completions
+
+$ ./scripts/package-release.sh
 ```
 
 After running the Rust installer, we have to add a line of code to the **bottom** of our `.bashrc` file to indicate the file path. Remember to **source** your `.bashrc` file. (Neovim is used below, but any other code editor can be used).
