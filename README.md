@@ -26,6 +26,7 @@ This rewrite replaces the old prompt-driven single-file prototype with:
 - `kelp completions bash|zsh|fish`
 - recurring task generation for daily, weekly, and monthly work
 - richer planner states for `next_action`, `waiting`, and `blocked` tasks
+- one canonical `next_action` per project, enforced when you promote a new task
 - task dependency tracking with dependency-aware review sections
 - task metadata for `waiting_until` follow-up dates and `blocked_reason`
 - project deadlines surfaced in project views and weekly review
@@ -186,6 +187,8 @@ kelp task wait 2 --until 2026-03-18
 kelp task block 2 --reason "Waiting on vendor approval"
 ```
 
+Promoting a new `next_action` inside the same project automatically demotes the older one back to `todo`.
+
 Link tasks with explicit dependencies:
 
 ```console
@@ -225,7 +228,7 @@ kelp review weekly --plan Launch:"Draft launch checklist"
 ```
 
 The weekly review also surfaces projects due soon, projects missing deadlines, waiting tasks that need follow-up, and blocked tasks.
-It now also surfaces tasks blocked by unresolved dependencies and projects at risk because of deadline pressure plus dependency blockers.
+It now also surfaces tasks blocked by unresolved dependencies, projects without a designated next action, projects stalled by blockers, and projects at risk because of deadline pressure plus dependency blockers.
 
 Inspect the next two weeks of work:
 
