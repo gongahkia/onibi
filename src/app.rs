@@ -1,10 +1,11 @@
 use crate::cli::{
-    Cli, Command, ConfigCommand, ConfigSetArgs, ConfigShowArgs, ImportCommand, LegacyImportArgs, ProjectAddArgs,
-    ProjectArchiveArgs, ProjectCommand, ProjectListArgs, ProjectShowArgs, ProjectUnarchiveArgs,
-    ReviewArgs, SearchArgs, StorageBackupArgs, StorageCommand, StorageExportArgs,
-    StoragePathArgs, TaskAddArgs, TaskArchiveArgs, TaskBulkEditArgs, TaskCommand,
-    TaskDeferArgs, TaskDeleteArgs, TaskDoneArgs, TaskEditArgs, TaskListArgs, TaskReopenArgs,
-    TaskReschedule, TaskShowArgs, TaskStartArgs, TaskUnarchiveArgs, UpcomingArgs,
+    Cli, Command, CompletionsArgs, ConfigCommand, ConfigSetArgs, ConfigShowArgs, ImportCommand,
+    LegacyImportArgs, ProjectAddArgs, ProjectArchiveArgs, ProjectCommand, ProjectListArgs,
+    ProjectShowArgs, ProjectTaskPlan, ProjectUnarchiveArgs, ReviewArgs, SearchArgs, ShellKind,
+    StorageBackupArgs, StorageCommand, StorageExportArgs, StoragePathArgs, TaskAddArgs,
+    TaskArchiveArgs, TaskBulkEditArgs, TaskCommand, TaskDeferArgs, TaskDeleteArgs, TaskDoneArgs,
+    TaskEditArgs, TaskListArgs, TaskReopenArgs, TaskReschedule, TaskShowArgs, TaskStartArgs,
+    TaskUnarchiveArgs, UpcomingArgs,
 };
 use crate::config::{AppConfig, JsonConfigStore, TaskSortKey};
 use crate::domain::{
@@ -18,7 +19,7 @@ use crate::render::{
 };
 use crate::storage::Storage;
 use anyhow::{bail, Context, Result};
-use chrono::{Duration, Local, Months, NaiveDate};
+use chrono::{Datelike, Duration, Local, Months, NaiveDate, Weekday};
 use serde::Serialize;
 
 pub trait Clock {
@@ -68,6 +69,7 @@ pub fn execute<S: Storage, C: Clock>(cli: Cli, storage: &S, clock: &C) -> Result
         Command::Upcoming(args) => execute_upcoming(storage, today, args),
         Command::Review { command } => execute_review_command(command, storage, today),
         Command::Search(args) => execute_search(storage, today, args),
+        Command::Completions(args) => render_completions(args),
     }
 }
 
@@ -129,6 +131,16 @@ fn execute_storage_command<S: Storage>(command: StorageCommand, storage: &S) -> 
         StorageCommand::Export(args) => export_storage(storage, args),
         StorageCommand::Backup(args) => backup_storage(storage, args),
     }
+}
+
+fn render_completions(args: CompletionsArgs) -> Result<String> {
+    let script = match args.shell {
+        ShellKind::Bash => bash_completion_script(),
+        ShellKind::Zsh => zsh_completion_script(),
+        ShellKind::Fish => fish_completion_script(),
+    };
+
+    Ok(script.to_string())
 }
 
 fn show_config<S: Storage>(storage: &S, args: ConfigShowArgs) -> Result<String> {
@@ -1052,6 +1064,36 @@ fn apply_review_actions(
         }
     }
 
+    for ProjectTaskPlan { project_ref, title } in &args.plan {
+        let project_id = state.resolve_project_id(project_ref)?;
+        let project_name = {
+            let project = state
+                .find_project(project_id)
+                .with_context(|| format!("project {project_ref} does not exist"))?;
+            if matches!(project.status, ProjectStatus::Archived) {
+                bail!("cannot plan next actions in archived project '{}'", project.name);
+            }
+            project.name.clone()
+        };
+
+        let task = state.create_task(
+            NewTask {
+                title: title.clone(),
+                notes: None,
+                project_id: Some(project_id),
+                priority: Priority::Medium,
+                tags: vec!["next-action".to_string()],
+                due_date: None,
+                recurrence: None,
+            },
+            today,
+        )?;
+        actions.push(format!(
+            "planned next action {} in project {}",
+            task.id.0, project_name
+        ));
+    }
+
     for task_id in &args.archive {
         state.set_task_status(TaskId(*task_id), TaskStatus::Archived, today)?;
         actions.push(format!("archived task {task_id}"));
@@ -1249,9 +1291,17 @@ fn wants_json(explicit_json: bool, config: &AppConfig) -> bool {
 }
 
 fn resolve_date_expression(today: NaiveDate, value: &str) -> Result<NaiveDate> {
-    let normalized = value.trim().to_lowercase();
+    let normalized = value.trim().to_lowercase().replace('_', "-");
     if normalized.is_empty() {
         bail!("date expression cannot be empty");
+    }
+
+    if let Some(days) = parse_relative_days_expression(&normalized)? {
+        return Ok(today + Duration::days(days));
+    }
+
+    if let Some(date) = resolve_weekday_expression(today, &normalized) {
+        return Ok(date);
     }
 
     match normalized.as_str() {
@@ -1262,8 +1312,263 @@ fn resolve_date_expression(today: NaiveDate, value: &str) -> Result<NaiveDate> {
             .checked_add_months(Months::new(1))
             .ok_or_else(|| anyhow::anyhow!("failed to resolve date expression '{value}'")),
         _ => NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d")
-            .with_context(|| format!("invalid date '{value}', expected YYYY-MM-DD or a keyword")),
+            .with_context(|| {
+                format!(
+                    "invalid date '{value}', expected YYYY-MM-DD or keywords like today, tomorrow, next-week, next-monday, or +3d"
+                )
+            }),
     }
+}
+
+fn parse_relative_days_expression(value: &str) -> Result<Option<i64>> {
+    let Some(days) = value.strip_prefix('+') else {
+        return Ok(None);
+    };
+
+    let days = days.strip_suffix('d').unwrap_or(days).trim();
+    if days.is_empty() {
+        bail!("invalid relative date expression '{value}'");
+    }
+
+    let parsed_days = days
+        .parse::<i64>()
+        .with_context(|| format!("invalid relative date expression '{value}'"))?;
+    if parsed_days < 0 {
+        bail!("relative date expressions must be non-negative");
+    }
+
+    Ok(Some(parsed_days))
+}
+
+fn resolve_weekday_expression(today: NaiveDate, value: &str) -> Option<NaiveDate> {
+    let (target_name, force_next_week) = if let Some(name) = value.strip_prefix("next-") {
+        (name, true)
+    } else {
+        (value, false)
+    };
+
+    let target = parse_weekday(target_name)?;
+    let current = i64::from(today.weekday().num_days_from_monday());
+    let target = i64::from(target.num_days_from_monday());
+    let mut delta = (target - current).rem_euclid(7);
+
+    if force_next_week && delta == 0 {
+        delta = 7;
+    }
+
+    Some(today + Duration::days(delta))
+}
+
+fn parse_weekday(value: &str) -> Option<Weekday> {
+    match value {
+        "mon" | "monday" => Some(Weekday::Mon),
+        "tue" | "tues" | "tuesday" => Some(Weekday::Tue),
+        "wed" | "wednesday" => Some(Weekday::Wed),
+        "thu" | "thur" | "thurs" | "thursday" => Some(Weekday::Thu),
+        "fri" | "friday" => Some(Weekday::Fri),
+        "sat" | "saturday" => Some(Weekday::Sat),
+        "sun" | "sunday" => Some(Weekday::Sun),
+        _ => None,
+    }
+}
+
+fn bash_completion_script() -> &'static str {
+    r#"_kelp()
+{
+    local cur prev first second
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    first="${COMP_WORDS[1]}"
+    second="${COMP_WORDS[2]}"
+
+    if [[ ${COMP_CWORD} -eq 1 ]]; then
+        COMPREPLY=( $(compgen -W "init config import storage task project today upcoming review search completions" -- "$cur") )
+        return
+    fi
+
+    case "$first" in
+        config)
+            if [[ ${COMP_CWORD} -eq 2 ]]; then
+                COMPREPLY=( $(compgen -W "show set" -- "$cur") )
+            else
+                COMPREPLY=( $(compgen -W "--json --upcoming-days --task-sort --json-output --plain-output" -- "$cur") )
+            fi
+            ;;
+        import)
+            COMPREPLY=( $(compgen -W "legacy --source --json" -- "$cur") )
+            ;;
+        storage)
+            if [[ ${COMP_CWORD} -eq 2 ]]; then
+                COMPREPLY=( $(compgen -W "path export backup" -- "$cur") )
+            else
+                COMPREPLY=( $(compgen -W "--json --output" -- "$cur") )
+            fi
+            ;;
+        task)
+            if [[ ${COMP_CWORD} -eq 2 ]]; then
+                COMPREPLY=( $(compgen -W "add list show edit bulk-edit start done reopen defer archive unarchive delete" -- "$cur") )
+            else
+                case "$second" in
+                    add) COMPREPLY=( $(compgen -W "--title --notes --project --priority --tag --due --repeat" -- "$cur") ) ;;
+                    list) COMPREPLY=( $(compgen -W "--project --status --priority --tag --due-today --overdue --all --sort --json" -- "$cur") ) ;;
+                    edit) COMPREPLY=( $(compgen -W "--title --notes --clear-notes --project --clear-project --status --priority --tag --clear-tags --due --clear-due --repeat --clear-repeat" -- "$cur") ) ;;
+                    bulk-edit) COMPREPLY=( $(compgen -W "--project --clear-project --status --priority --tag --clear-tags --due --clear-due --repeat --clear-repeat" -- "$cur") ) ;;
+                    defer) COMPREPLY=( $(compgen -W "--until --days" -- "$cur") ) ;;
+                    show) COMPREPLY=( $(compgen -W "--json" -- "$cur") ) ;;
+                    *) COMPREPLY=() ;;
+                esac
+            fi
+            ;;
+        project)
+            if [[ ${COMP_CWORD} -eq 2 ]]; then
+                COMPREPLY=( $(compgen -W "add list show archive unarchive" -- "$cur") )
+            else
+                case "$second" in
+                    add) COMPREPLY=( $(compgen -W "--name --description" -- "$cur") ) ;;
+                    list|show) COMPREPLY=( $(compgen -W "--archived --json" -- "$cur") ) ;;
+                    *) COMPREPLY=() ;;
+                esac
+            fi
+            ;;
+        review)
+            if [[ ${COMP_CWORD} -eq 2 ]]; then
+                COMPREPLY=( $(compgen -W "daily weekly" -- "$cur") )
+            else
+                COMPREPLY=( $(compgen -W "--json --start --complete --archive --defer --plan" -- "$cur") )
+            fi
+            ;;
+        today)
+            COMPREPLY=( $(compgen -W "--json" -- "$cur") )
+            ;;
+        upcoming)
+            COMPREPLY=( $(compgen -W "--days --json" -- "$cur") )
+            ;;
+        search)
+            COMPREPLY=( $(compgen -W "--json" -- "$cur") )
+            ;;
+        completions)
+            COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") )
+            ;;
+    esac
+}
+
+complete -F _kelp kelp
+"#
+}
+
+fn zsh_completion_script() -> &'static str {
+    r#"#compdef kelp
+
+local -a commands
+commands=(
+  'init:initialize storage'
+  'config:read or update planner defaults'
+  'import:import legacy kelp data'
+  'storage:inspect or export storage'
+  'task:manage tasks'
+  'project:manage projects'
+  'today:show today views'
+  'upcoming:show upcoming work'
+  'review:run planner reviews'
+  'search:search tasks and projects'
+  'completions:generate shell completions'
+)
+
+local context state line
+
+_arguments -C \
+  '1:command:->command' \
+  '2:subcommand:->subcommand' \
+  '*::arg:->args'
+
+case $state in
+  command)
+    _describe 'command' commands
+    ;;
+  subcommand)
+    case $words[2] in
+      config) _describe 'config command' 'show:set' ;;
+      import) _describe 'import command' 'legacy:legacy import' ;;
+      storage) _describe 'storage command' 'path:show paths' 'export:export data' 'backup:create backup' ;;
+      task) _describe 'task command' 'add:add task' 'list:list tasks' 'show:show task' 'edit:edit task' 'bulk-edit:bulk edit tasks' 'start:start task' 'done:complete task' 'reopen:reopen task' 'defer:defer task' 'archive:archive task' 'unarchive:unarchive task' 'delete:delete task' ;;
+      project) _describe 'project command' 'add:add project' 'list:list projects' 'show:show project' 'archive:archive project' 'unarchive:unarchive project' ;;
+      review) _describe 'review command' 'daily:daily review' 'weekly:weekly review' ;;
+      completions) _describe 'shell' 'bash:bash completion' 'zsh:zsh completion' 'fish:fish completion' ;;
+    esac
+    ;;
+  args)
+    case $words[2] in
+      config) _arguments '--json[emit JSON output]' '--upcoming-days=[set default upcoming window]:days:' '--task-sort=[set default task sort]:sort:(due priority updated title)' '--json-output[default to JSON]' '--plain-output[default to plain output]' ;;
+      import) _arguments '--source=[legacy root path]:path:_files' '--json[emit JSON output]' ;;
+      storage) _arguments '--json[emit JSON output]' '--output=[export destination]:path:_files' ;;
+      task) _arguments '--json[emit JSON output]' '--project=[project reference]:project:' '--status=[task status]:status:(todo in_progress done archived)' '--priority=[task priority]:priority:(low medium high)' '--tag=[task tag]:tag:' '--due=[date expression]:date:' '--repeat=[recurrence]:repeat:(daily weekly monthly)' '--days=[defer by days]:days:' '--until=[defer until date]:date:' '--all[include archived and closed tasks]' '--sort=[task sort]:sort:(due priority updated title)' ;;
+      project) _arguments '--name=[project name]:name:' '--description=[project description]:description:' '--archived[list archived projects]' '--json[emit JSON output]' ;;
+      today) _arguments '--json[emit JSON output]' ;;
+      upcoming) _arguments '--days=[upcoming window]:days:' '--json[emit JSON output]' ;;
+      review) _arguments '--json[emit JSON output]' '--start=[start task id]:id:' '--complete=[complete task id]:id:' '--archive=[archive task id]:id:' '--defer=[reschedule as id:date]:instruction:' '--plan=[create project next action as project:task]:instruction:' ;;
+      search) _arguments '--json[emit JSON output]' ;;
+    esac
+    ;;
+esac
+"#
+}
+
+fn fish_completion_script() -> &'static str {
+    r#"complete -c kelp -f
+complete -c kelp -n '__fish_use_subcommand' -a 'init config import storage task project today upcoming review search completions'
+
+complete -c kelp -n '__fish_seen_subcommand_from config; and not __fish_seen_subcommand_from show set' -a 'show set'
+complete -c kelp -n '__fish_seen_subcommand_from import; and not __fish_seen_subcommand_from legacy' -a 'legacy'
+complete -c kelp -n '__fish_seen_subcommand_from storage; and not __fish_seen_subcommand_from path export backup' -a 'path export backup'
+complete -c kelp -n '__fish_seen_subcommand_from task; and not __fish_seen_subcommand_from add list show edit bulk-edit start done reopen defer archive unarchive delete' -a 'add list show edit bulk-edit start done reopen defer archive unarchive delete'
+complete -c kelp -n '__fish_seen_subcommand_from project; and not __fish_seen_subcommand_from add list show archive unarchive' -a 'add list show archive unarchive'
+complete -c kelp -n '__fish_seen_subcommand_from review; and not __fish_seen_subcommand_from daily weekly' -a 'daily weekly'
+complete -c kelp -n '__fish_seen_subcommand_from completions; and not __fish_seen_subcommand_from bash zsh fish' -a 'bash zsh fish'
+
+complete -c kelp -n '__fish_seen_subcommand_from config' -l json -d 'Emit JSON output'
+complete -c kelp -n '__fish_seen_subcommand_from set' -l upcoming-days -d 'Set the default upcoming window'
+complete -c kelp -n '__fish_seen_subcommand_from set' -l task-sort -a 'due priority updated title' -d 'Set the default task sort'
+complete -c kelp -n '__fish_seen_subcommand_from set' -l json-output -d 'Default to JSON output'
+complete -c kelp -n '__fish_seen_subcommand_from set' -l plain-output -d 'Default to plain output'
+
+complete -c kelp -n '__fish_seen_subcommand_from legacy' -l source -r -d 'Legacy root path'
+complete -c kelp -n '__fish_seen_subcommand_from legacy' -l json -d 'Emit JSON output'
+complete -c kelp -n '__fish_seen_subcommand_from path export backup today upcoming search daily weekly show list' -l json -d 'Emit JSON output'
+complete -c kelp -n '__fish_seen_subcommand_from export' -l output -r -d 'Export destination'
+
+complete -c kelp -n '__fish_seen_subcommand_from add edit bulk-edit list' -l project -r -d 'Project reference'
+complete -c kelp -n '__fish_seen_subcommand_from add list edit bulk-edit' -l priority -a 'low medium high' -d 'Task priority'
+complete -c kelp -n '__fish_seen_subcommand_from add edit bulk-edit' -l due -r -d 'Date expression'
+complete -c kelp -n '__fish_seen_subcommand_from add edit bulk-edit' -l repeat -a 'daily weekly monthly' -d 'Recurrence'
+complete -c kelp -n '__fish_seen_subcommand_from add edit bulk-edit list' -l tag -r -d 'Task tag'
+complete -c kelp -n '__fish_seen_subcommand_from list' -l status -a 'todo in_progress done archived' -d 'Task status'
+complete -c kelp -n '__fish_seen_subcommand_from list' -l due-today -d 'Only show tasks due today'
+complete -c kelp -n '__fish_seen_subcommand_from list' -l overdue -d 'Only show overdue tasks'
+complete -c kelp -n '__fish_seen_subcommand_from list' -l all -d 'Include closed and archived tasks'
+complete -c kelp -n '__fish_seen_subcommand_from list' -l sort -a 'due priority updated title' -d 'Task sort order'
+complete -c kelp -n '__fish_seen_subcommand_from defer' -l until -r -d 'Defer until a date expression'
+complete -c kelp -n '__fish_seen_subcommand_from defer' -l days -r -d 'Defer by days'
+
+complete -c kelp -n '__fish_seen_subcommand_from add' -l title -r -d 'Task title'
+complete -c kelp -n '__fish_seen_subcommand_from add edit' -l notes -r -d 'Task notes'
+complete -c kelp -n '__fish_seen_subcommand_from edit' -l clear-notes -d 'Remove task notes'
+complete -c kelp -n '__fish_seen_subcommand_from edit bulk-edit' -l clear-project -d 'Remove project association'
+complete -c kelp -n '__fish_seen_subcommand_from edit bulk-edit' -l clear-tags -d 'Clear tags'
+complete -c kelp -n '__fish_seen_subcommand_from edit bulk-edit' -l clear-due -d 'Clear due date'
+complete -c kelp -n '__fish_seen_subcommand_from edit bulk-edit' -l clear-repeat -d 'Clear recurrence'
+
+complete -c kelp -n '__fish_seen_subcommand_from add' -l name -r -d 'Project name'
+complete -c kelp -n '__fish_seen_subcommand_from add' -l description -r -d 'Project description'
+complete -c kelp -n '__fish_seen_subcommand_from list' -l archived -d 'List archived projects'
+
+complete -c kelp -n '__fish_seen_subcommand_from daily weekly' -l start -r -d 'Mark a task in progress'
+complete -c kelp -n '__fish_seen_subcommand_from daily weekly' -l complete -r -d 'Complete a task'
+complete -c kelp -n '__fish_seen_subcommand_from daily weekly' -l archive -r -d 'Archive a task'
+complete -c kelp -n '__fish_seen_subcommand_from daily weekly' -l defer -r -d 'Reschedule as id:date'
+complete -c kelp -n '__fish_seen_subcommand_from daily weekly' -l plan -r -d 'Create next action as project:task'
+
+complete -c kelp -n '__fish_seen_subcommand_from upcoming' -l days -r -d 'Upcoming window'
+"#
 }
 
 fn task_view(task: &Task, state: &AppState) -> TaskView {
