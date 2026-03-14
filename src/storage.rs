@@ -134,10 +134,13 @@ impl JsonFileStorage {
     }
 
     fn lock_is_stale(&self, path: &Path) -> Result<bool> {
-        let metadata = fs::metadata(path)
-            .with_context(|| format!("failed to inspect {}", path.display()))?;
+        let metadata =
+            fs::metadata(path).with_context(|| format!("failed to inspect {}", path.display()))?;
         let modified = metadata.modified().with_context(|| {
-            format!("failed to inspect the lock timestamp for {}", path.display())
+            format!(
+                "failed to inspect the lock timestamp for {}",
+                path.display()
+            )
         })?;
         let age = SystemTime::now()
             .duration_since(modified)
@@ -324,7 +327,10 @@ fn resolve_data_root() -> Result<PathBuf> {
     }
 
     if let Some(home) = env::var_os("HOME") {
-        return Ok(PathBuf::from(home).join(".local").join("share").join("kelp"));
+        return Ok(PathBuf::from(home)
+            .join(".local")
+            .join("share")
+            .join("kelp"));
     }
 
     Ok(env::current_dir()
@@ -657,11 +663,11 @@ mod tests {
         )
         .expect("future schema state should be written");
 
-        let error = storage.load().expect_err("future schema should be rejected");
+        let error = storage
+            .load()
+            .expect_err("future schema should be rejected");
 
-        assert!(error
-            .to_string()
-            .contains("newer than this build supports"));
+        assert!(error.to_string().contains("newer than this build supports"));
 
         fs::remove_dir_all(root).expect("temporary directory cleanup should succeed");
     }
