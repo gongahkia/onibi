@@ -9,6 +9,7 @@ pub struct LegacyImportSummary {
     pub imported_tasks: usize,
     pub imported_projects: usize,
     pub reused_projects: usize,
+    pub skipped_duplicates: usize,
     pub scanned_files: usize,
     pub warnings: Vec<String>,
 }
@@ -107,6 +108,15 @@ fn import_storage_file(
 
         match parse_legacy_task_line(line) {
             Ok(task) => {
+                if state
+                    .tasks
+                    .iter()
+                    .any(|existing| task_fingerprint(existing, project_id) == legacy_task_fingerprint(&task, project_id))
+                {
+                    summary.skipped_duplicates += 1;
+                    continue;
+                }
+
                 state.create_task(
                     NewTask {
                         title: task.title,
@@ -130,6 +140,49 @@ fn import_storage_file(
     }
 
     Ok(())
+}
+
+fn task_fingerprint(task: &crate::domain::Task, project_id: Option<ProjectId>) -> String {
+    let mut tags = task.tags.clone();
+    tags.sort();
+    format!(
+        "{}|{}|{}|{}|{}|{}",
+        task.title.trim().to_lowercase(),
+        task.notes
+            .as_deref()
+            .unwrap_or_default()
+            .trim()
+            .to_lowercase(),
+        project_id
+            .or(task.project_id)
+            .map(|value| value.0.to_string())
+            .unwrap_or_else(|| "inbox".to_string()),
+        task.priority,
+        task.due_date
+            .map(|date| date.to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        tags.join(",")
+    )
+}
+
+fn legacy_task_fingerprint(task: &LegacyTaskRow, project_id: Option<ProjectId>) -> String {
+    let mut tags = task.tags.clone();
+    tags.sort();
+    format!(
+        "{}|{}|{}|{}|{}|{}",
+        task.title.trim().to_lowercase(),
+        task.notes
+            .as_deref()
+            .unwrap_or_default()
+            .trim()
+            .to_lowercase(),
+        project_id
+            .map(|value| value.0.to_string())
+            .unwrap_or_else(|| "inbox".to_string()),
+        task.priority,
+        task.due_date,
+        tags.join(",")
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -266,6 +319,30 @@ mod tests {
         assert_eq!(state.tasks.len(), 2);
         assert_eq!(state.projects.len(), 1);
         assert_eq!(state.tasks[1].project_id, Some(state.projects[0].id));
+
+        fs::remove_dir_all(root).expect("temporary directory cleanup should succeed");
+    }
+
+    #[test]
+    fn skips_duplicate_legacy_tasks_when_reimporting() {
+        let root = temp_root();
+        fs::create_dir_all(&root).expect("legacy root should be created");
+        fs::write(
+            root.join(".kelpStorage"),
+            "Inbox task, Capture inbox notes, 15/03/26/, Medium, planning\n",
+        )
+        .expect("legacy inbox file should be written");
+
+        let mut state = AppState::default();
+        let first = import_legacy_from_path(&mut state, &root, date("2026-03-14"))
+            .expect("first import should succeed");
+        let second = import_legacy_from_path(&mut state, &root, date("2026-03-14"))
+            .expect("second import should succeed");
+
+        assert_eq!(first.imported_tasks, 1);
+        assert_eq!(second.imported_tasks, 0);
+        assert_eq!(second.skipped_duplicates, 1);
+        assert_eq!(state.tasks.len(), 1);
 
         fs::remove_dir_all(root).expect("temporary directory cleanup should succeed");
     }
