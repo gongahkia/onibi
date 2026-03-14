@@ -369,6 +369,9 @@ fn migrate_state_value(value: &mut Value) -> Result<()> {
     if schema_version < 4 {
         add_missing_planner_fields(value);
     }
+    if schema_version < 5 {
+        add_missing_dependency_fields(value);
+    }
 
     if schema_version > CURRENT_APP_SCHEMA_VERSION {
         bail!("app state schema version {schema_version} is newer than this build supports");
@@ -441,6 +444,18 @@ fn add_missing_planner_fields(value: &mut Value) {
     }
 }
 
+fn add_missing_dependency_fields(value: &mut Value) {
+    if let Some(tasks) = value.get_mut("tasks").and_then(Value::as_array_mut) {
+        for task in tasks {
+            if let Some(object) = task.as_object_mut() {
+                object
+                    .entry("depends_on".to_string())
+                    .or_insert_with(|| json!([]));
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -486,6 +501,7 @@ mod tests {
                     recurrence: None,
                     waiting_until: None,
                     blocked_reason: None,
+                    depends_on: Vec::new(),
                 },
                 today,
             )
@@ -536,6 +552,7 @@ mod tests {
                     recurrence: None,
                     waiting_until: None,
                     blocked_reason: None,
+                    depends_on: Vec::new(),
                 },
                 today,
             )
@@ -619,6 +636,7 @@ mod tests {
         assert_eq!(loaded.tasks[0].archived_on, None);
         assert_eq!(loaded.tasks[0].waiting_until, None);
         assert_eq!(loaded.tasks[0].blocked_reason, None);
+        assert!(loaded.tasks[0].depends_on.is_empty());
         assert_eq!(loaded.projects[0].archived_on, None);
         assert_eq!(loaded.projects[0].deadline, None);
 
