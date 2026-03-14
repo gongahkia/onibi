@@ -122,6 +122,21 @@ pub fn render_project_detail(
     lines.push(format!("{} {}", muted("open tasks:"), summary.open_tasks));
     lines.push(format!("{} {}", muted("done tasks:"), summary.completed_tasks));
     lines.push(format!("{} {}", muted("overdue tasks:"), summary.overdue_tasks));
+    lines.push(format!(
+        "{} {}",
+        muted("next actions:"),
+        summary.next_action_tasks
+    ));
+    lines.push(format!(
+        "{} {}",
+        muted("waiting tasks:"),
+        summary.waiting_tasks
+    ));
+    lines.push(format!(
+        "{} {}",
+        muted("blocked tasks:"),
+        summary.blocked_tasks
+    ));
     if let Some(description) = &project.description {
         lines.push(format!("{} {}", muted("description:"), description));
     }
@@ -245,7 +260,10 @@ fn priority_chip(priority: Priority) -> String {
 fn status_chip(status: TaskStatus) -> String {
     match status {
         TaskStatus::Todo => warning("todo"),
+        TaskStatus::NextAction => accent("next_action"),
         TaskStatus::InProgress => accent("in_progress"),
+        TaskStatus::Waiting => warning("waiting"),
+        TaskStatus::Blocked => danger("blocked"),
         TaskStatus::Done => success("done"),
         TaskStatus::Archived => muted("archived"),
     }
