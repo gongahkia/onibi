@@ -2,7 +2,7 @@ use crate::domain::{AppState, NewTask, Priority, ProjectId};
 use anyhow::{Context, Result};
 use chrono::NaiveDate;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LegacyImportSummary {
@@ -68,12 +68,11 @@ fn ensure_project(
 ) -> Result<ProjectId> {
     if let Some(project) = state
         .projects
-        .iter_mut()
+        .iter()
         .find(|project| project.name.eq_ignore_ascii_case(project_name))
     {
         if project.status != crate::domain::ProjectStatus::Active {
-            project.status = crate::domain::ProjectStatus::Active;
-            project.updated_on = today;
+            state.activate_project(project.id, today)?;
         }
         summary.reused_projects += 1;
         return Ok(project.id);
@@ -213,6 +212,7 @@ fn parse_legacy_date(raw: &str) -> Result<NaiveDate> {
 mod tests {
     use super::*;
     use std::env;
+    use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn date(value: &str) -> NaiveDate {
