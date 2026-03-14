@@ -1,14 +1,28 @@
 use crate::domain::AppState;
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use std::env;
 use std::fs;
+use std::fs::OpenOptions;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+const BACKUP_RETENTION: usize = 10;
+const LOCK_ATTEMPTS: usize = 5;
+const LOCK_RETRY_DELAY_MS: u64 = 20;
+const STALE_LOCK_AFTER_SECS: u64 = 30;
 
 pub trait Storage {
     fn init(&self) -> Result<PathBuf>;
     fn load(&self) -> Result<AppState>;
     fn save(&self, state: &AppState) -> Result<()>;
     fn data_file(&self) -> PathBuf;
+    fn root_dir(&self) -> PathBuf;
+    fn backup_dir(&self) -> PathBuf;
+    fn lock_file(&self) -> PathBuf;
+    fn export_to(&self, output: &Path) -> Result<PathBuf>;
+    fn create_backup_snapshot(&self) -> Result<PathBuf>;
 }
 
 #[derive(Debug, Clone)]
@@ -35,25 +49,207 @@ impl JsonFileStorage {
 
         Ok(())
     }
-}
 
-impl Storage for JsonFileStorage {
-    fn init(&self) -> Result<PathBuf> {
+    fn write_atomic(&self, path: &Path, contents: &str) -> Result<()> {
+        let temp_file = path.with_extension("json.tmp");
+        Self::ensure_parent_dir(&temp_file)?;
+        fs::write(&temp_file, format!("{contents}\n"))
+            .with_context(|| format!("failed to write {}", temp_file.display()))?;
+        if path.exists() {
+            fs::remove_file(path)
+                .with_context(|| format!("failed to replace {}", path.display()))?;
+        }
+        fs::rename(&temp_file, path).with_context(|| {
+            format!(
+                "failed to move {} into place at {}",
+                temp_file.display(),
+                path.display()
+            )
+        })?;
+
+        Ok(())
+    }
+
+    fn ensure_default_data_file(&self) -> Result<PathBuf> {
         let data_file = self.data_file();
         Self::ensure_parent_dir(&data_file)?;
+        fs::create_dir_all(self.backup_dir())
+            .with_context(|| format!("failed to create {}", self.backup_dir().display()))?;
+        fs::create_dir_all(self.corrupt_dir())
+            .with_context(|| format!("failed to create {}", self.corrupt_dir().display()))?;
 
         if !data_file.exists() {
             let contents = serde_json::to_string_pretty(&AppState::default())
                 .context("failed to serialize default Kelp state")?;
-            fs::write(&data_file, format!("{contents}\n"))
-                .with_context(|| format!("failed to create {}", data_file.display()))?;
+            self.write_atomic(&data_file, &contents)?;
         }
 
         Ok(data_file)
     }
 
+    fn corrupt_dir(&self) -> PathBuf {
+        self.root.join("corrupt")
+    }
+
+    fn acquire_write_lock(&self) -> Result<StorageLock> {
+        let lock_file = self.lock_file();
+        Self::ensure_parent_dir(&lock_file)?;
+
+        for attempt in 0..LOCK_ATTEMPTS {
+            match OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&lock_file)
+            {
+                Ok(mut file) => {
+                    use std::io::Write;
+                    let _ = writeln!(file, "pid={}", std::process::id());
+                    let _ = writeln!(file, "created_at={}", unix_timestamp());
+                    return Ok(StorageLock { path: lock_file });
+                }
+                Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                    if self.lock_is_stale(&lock_file)? {
+                        let _ = fs::remove_file(&lock_file);
+                        continue;
+                    }
+
+                    if attempt + 1 == LOCK_ATTEMPTS {
+                        bail!(
+                            "storage is locked by another process: {}",
+                            lock_file.display()
+                        );
+                    }
+
+                    thread::sleep(Duration::from_millis(LOCK_RETRY_DELAY_MS));
+                }
+                Err(error) => {
+                    return Err(error)
+                        .with_context(|| format!("failed to acquire {}", lock_file.display()));
+                }
+            }
+        }
+
+        bail!("failed to acquire storage lock {}", lock_file.display())
+    }
+
+    fn lock_is_stale(&self, path: &Path) -> Result<bool> {
+        let metadata = fs::metadata(path)
+            .with_context(|| format!("failed to inspect {}", path.display()))?;
+        let modified = metadata.modified().with_context(|| {
+            format!("failed to inspect the lock timestamp for {}", path.display())
+        })?;
+        let age = SystemTime::now()
+            .duration_since(modified)
+            .unwrap_or_else(|_| Duration::from_secs(0));
+
+        Ok(age >= Duration::from_secs(STALE_LOCK_AFTER_SECS))
+    }
+
+    fn write_state_file(&self, state: &AppState) -> Result<()> {
+        let contents =
+            serde_json::to_string_pretty(state).context("failed to serialize Kelp state")?;
+        self.write_atomic(&self.data_file(), &contents)
+    }
+
+    fn backup_file_name() -> String {
+        format!("data-{}.json", unique_suffix())
+    }
+
+    fn snapshot_current_data(&self) -> Result<Option<PathBuf>> {
+        let data_file = self.data_file();
+        if !data_file.exists() {
+            return Ok(None);
+        }
+
+        let backup_file = self.backup_dir().join(Self::backup_file_name());
+        Self::ensure_parent_dir(&backup_file)?;
+        fs::copy(&data_file, &backup_file).with_context(|| {
+            format!(
+                "failed to create backup snapshot {} from {}",
+                backup_file.display(),
+                data_file.display()
+            )
+        })?;
+        self.prune_old_backups()?;
+
+        Ok(Some(backup_file))
+    }
+
+    fn prune_old_backups(&self) -> Result<()> {
+        let mut backups = self.list_backups()?;
+        backups.sort();
+
+        if backups.len() <= BACKUP_RETENTION {
+            return Ok(());
+        }
+
+        for obsolete in backups.into_iter().take(backups.len() - BACKUP_RETENTION) {
+            fs::remove_file(&obsolete)
+                .with_context(|| format!("failed to prune {}", obsolete.display()))?;
+        }
+
+        Ok(())
+    }
+
+    fn list_backups(&self) -> Result<Vec<PathBuf>> {
+        let backup_dir = self.backup_dir();
+        if !backup_dir.exists() {
+            return Ok(Vec::new());
+        }
+
+        let mut backups = fs::read_dir(&backup_dir)
+            .with_context(|| format!("failed to read {}", backup_dir.display()))?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .with_context(|| format!("failed to enumerate {}", backup_dir.display()))?
+            .into_iter()
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("json"))
+            .collect::<Vec<_>>();
+        backups.sort();
+        Ok(backups)
+    }
+
+    fn recover_from_backup(&self, parse_error: serde_json::Error) -> Result<AppState> {
+        let data_file = self.data_file();
+        let corrupt_file = self
+            .corrupt_dir()
+            .join(format!("data-corrupt-{}.json", unix_timestamp()));
+        Self::ensure_parent_dir(&corrupt_file)?;
+        fs::rename(&data_file, &corrupt_file).with_context(|| {
+            format!(
+                "failed to move corrupt data file {} into quarantine {}",
+                data_file.display(),
+                corrupt_file.display()
+            )
+        })?;
+
+        let mut backups = self.list_backups()?;
+        backups.reverse();
+        for backup in backups {
+            let contents = fs::read_to_string(&backup)
+                .with_context(|| format!("failed to read backup {}", backup.display()))?;
+            if let Ok(state) = serde_json::from_str::<AppState>(&contents) {
+                self.write_state_file(&state)?;
+                return Ok(state);
+            }
+        }
+
+        Err(parse_error)
+            .with_context(|| format!("failed to parse {}", data_file.display()))
+            .context(format!(
+                "no valid backup was available; corrupt data moved to {}",
+                corrupt_file.display()
+            ))
+    }
+}
+
+impl Storage for JsonFileStorage {
+    fn init(&self) -> Result<PathBuf> {
+        self.ensure_default_data_file()
+    }
+
     fn load(&self) -> Result<AppState> {
-        let data_file = self.init()?;
+        let data_file = self.ensure_default_data_file()?;
         let contents = fs::read_to_string(&data_file)
             .with_context(|| format!("failed to read {}", data_file.display()))?;
 
@@ -61,35 +257,58 @@ impl Storage for JsonFileStorage {
             return Ok(AppState::default());
         }
 
-        serde_json::from_str(&contents)
-            .with_context(|| format!("failed to parse {}", data_file.display()))
+        match serde_json::from_str(&contents) {
+            Ok(state) => Ok(state),
+            Err(error) => self.recover_from_backup(error),
+        }
     }
 
     fn save(&self, state: &AppState) -> Result<()> {
-        let data_file = self.init()?;
-        let temp_file = data_file.with_extension("json.tmp");
-        let contents =
-            serde_json::to_string_pretty(state).context("failed to serialize Kelp state")?;
-
-        fs::write(&temp_file, format!("{contents}\n"))
-            .with_context(|| format!("failed to write {}", temp_file.display()))?;
-        if data_file.exists() {
-            fs::remove_file(&data_file)
-                .with_context(|| format!("failed to replace {}", data_file.display()))?;
-        }
-        fs::rename(&temp_file, &data_file).with_context(|| {
-            format!(
-                "failed to move {} into place at {}",
-                temp_file.display(),
-                data_file.display()
-            )
-        })?;
-
+        self.ensure_default_data_file()?;
+        let _lock = self.acquire_write_lock()?;
+        self.write_state_file(state)?;
+        let _ = self.snapshot_current_data()?;
         Ok(())
     }
 
     fn data_file(&self) -> PathBuf {
         self.root.join("data.json")
+    }
+
+    fn root_dir(&self) -> PathBuf {
+        self.root.clone()
+    }
+
+    fn backup_dir(&self) -> PathBuf {
+        self.root.join("backups")
+    }
+
+    fn lock_file(&self) -> PathBuf {
+        self.root.join("data.lock")
+    }
+
+    fn export_to(&self, output: &Path) -> Result<PathBuf> {
+        let data_file = self.ensure_default_data_file()?;
+        Self::ensure_parent_dir(output)?;
+        fs::copy(&data_file, output).with_context(|| {
+            format!(
+                "failed to export {} to {}",
+                data_file.display(),
+                output.display()
+            )
+        })?;
+        Ok(output.to_path_buf())
+    }
+
+    fn create_backup_snapshot(&self) -> Result<PathBuf> {
+        self.ensure_default_data_file()?;
+        let _lock = self.acquire_write_lock()?;
+        self.snapshot_current_data()?.ok_or_else(|| {
+            anyhow::anyhow!(
+                "failed to create a backup snapshot for {}",
+                self.data_file().display()
+            )
+        })
     }
 }
 
@@ -111,23 +330,43 @@ fn resolve_data_root() -> Result<PathBuf> {
         .join(".kelp"))
 }
 
+#[derive(Debug)]
+struct StorageLock {
+    path: PathBuf,
+}
+
+impl Drop for StorageLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+fn unix_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time should be after the unix epoch")
+        .as_secs()
+}
+
+fn unique_suffix() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time should be after the unix epoch")
+        .as_nanos()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::domain::{NewTask, Priority};
     use chrono::NaiveDate;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn date(value: &str) -> NaiveDate {
         NaiveDate::parse_from_str(value, "%Y-%m-%d").expect("date fixture should be valid")
     }
 
     fn temp_root() -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time should be after the unix epoch")
-            .as_nanos();
-        env::temp_dir().join(format!("kelp-storage-test-{}-{nanos}", std::process::id()))
+        env::temp_dir().join(format!("kelp-storage-test-{}", unique_suffix()))
     }
 
     #[test]
@@ -170,6 +409,75 @@ mod tests {
         assert_eq!(loaded.tasks.len(), 1);
         assert_eq!(loaded.tasks[0].title, "Ship the rewrite");
 
+        fs::remove_dir_all(root).expect("temporary directory cleanup should succeed");
+    }
+
+    #[test]
+    fn save_creates_backup_snapshots() {
+        let root = temp_root();
+        let storage = JsonFileStorage::at(root.clone());
+        let state = AppState::default();
+
+        storage.save(&state).expect("save should succeed");
+        let backup = storage
+            .create_backup_snapshot()
+            .expect("backup snapshot should succeed");
+
+        assert!(backup.exists());
+        assert!(backup.starts_with(storage.backup_dir()));
+
+        fs::remove_dir_all(root).expect("temporary directory cleanup should succeed");
+    }
+
+    #[test]
+    fn load_recovers_from_the_latest_valid_backup() {
+        let root = temp_root();
+        let storage = JsonFileStorage::at(root.clone());
+        let today = date("2026-03-14");
+        let mut state = AppState::default();
+
+        state
+            .create_task(
+                NewTask {
+                    title: "Recover me".to_string(),
+                    notes: None,
+                    project_id: None,
+                    priority: Priority::Medium,
+                    tags: vec!["backup".to_string()],
+                    due_date: Some(today),
+                    recurrence: None,
+                },
+                today,
+            )
+            .expect("task creation should succeed");
+
+        storage.save(&state).expect("save should succeed");
+        fs::write(storage.data_file(), "{not-valid-json").expect("corrupt data should be written");
+
+        let recovered = storage.load().expect("load should recover from backup");
+
+        assert_eq!(recovered.tasks.len(), 1);
+        assert_eq!(recovered.tasks[0].title, "Recover me");
+        assert!(fs::read_dir(storage.corrupt_dir())
+            .expect("corrupt dir should exist")
+            .next()
+            .is_some());
+
+        fs::remove_dir_all(root).expect("temporary directory cleanup should succeed");
+    }
+
+    #[test]
+    fn save_fails_when_a_fresh_lock_file_exists() {
+        let root = temp_root();
+        let storage = JsonFileStorage::at(root.clone());
+        storage.init().expect("init should succeed");
+        fs::write(storage.lock_file(), "held").expect("lock file should be created");
+
+        let error = storage
+            .save(&AppState::default())
+            .expect_err("save should fail while the lock is held");
+
+        assert!(error.to_string().contains("storage is locked"));
         fs::remove_dir_all(root).expect("temporary directory cleanup should succeed");
     }
 }
