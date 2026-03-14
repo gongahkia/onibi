@@ -597,7 +597,7 @@ fn build_task_patch(state: &AppState, args: &TaskEditArgs) -> Result<TaskPatch> 
 
 fn resolve_optional_project_id(state: &AppState, project_ref: Option<&str>) -> Result<Option<ProjectId>> {
     project_ref
-        .map(|reference| state.resolve_project_id(reference).map(Some))
+        .map(|reference| state.resolve_project_id(reference))
         .transpose()
         .map_err(Into::into)
 }
