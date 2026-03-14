@@ -83,6 +83,7 @@ fn ensure_project(
     let project = state.create_project(
         project_name.to_string(),
         Some("Imported from legacy Kelp".to_string()),
+        None,
         today,
     )?;
     summary.imported_projects += 1;
@@ -126,6 +127,8 @@ fn import_storage_file(
                         tags: task.tags,
                         due_date: Some(task.due_date),
                         recurrence: None,
+                        waiting_until: None,
+                        blocked_reason: None,
                     },
                     today,
                 )?;
