@@ -7,6 +7,7 @@ This rewrite replaces the old prompt-driven single-file prototype with:
 - typed domain models for tasks, projects, status, priority, and recurrence
 - subcommand-driven CLI workflows
 - structured local JSON storage with backups, lock files, and export tooling
+- a JSON-first storage model with versioned migrations and recovery paths
 - richer terminal output for lists, details, and review views
 - offline-testable application logic with deterministic clocks in tests
 
@@ -16,7 +17,7 @@ This rewrite replaces the old prompt-driven single-file prototype with:
 - `kelp config show|set`
 - `kelp storage path|backup|export`
 - `kelp task add|list|show|edit|bulk-edit|next|start|wait|block|done|reopen|defer|archive|unarchive|delete`
-- `kelp project add|list|show|archive|unarchive`
+- `kelp project add|list|show|edit|archive|unarchive`
 - `kelp today`
 - `kelp upcoming --days <n>`
 - `kelp review daily --next-action <id> --start <id> --waiting <id> --blocked <id> --complete <id> --defer <id:date>`
@@ -25,6 +26,8 @@ This rewrite replaces the old prompt-driven single-file prototype with:
 - `kelp completions bash|zsh|fish`
 - recurring task generation for daily, weekly, and monthly work
 - richer planner states for `next_action`, `waiting`, and `blocked` tasks
+- task metadata for `waiting_until` follow-up dates and `blocked_reason`
+- project deadlines surfaced in project views and weekly review
 - JSON output on planner and listing commands via `--json`
 - config defaults for upcoming windows, sort order, and JSON output
 - human date expressions like `today`, `tomorrow`, `next-week`, `next-monday`, and `+3d`
@@ -85,6 +88,7 @@ kelp init
 All other commands also create the storage file automatically on first use.
 
 Automatic backup snapshots are stored under `backups/` next to `data.json`, and a coarse lock file is used during writes to avoid overlapping save operations.
+Schema migrations run automatically when older JSON state files are loaded.
 
 Kelp also stores `config.json` next to `data.json`. Use it to set planner defaults that apply across commands:
 
@@ -124,7 +128,7 @@ Re-running the same import skips duplicate tasks instead of cloning them into th
 Create a project:
 
 ```console
-kelp project add --name "Launch"
+kelp project add --name "Launch" --deadline 2026-03-20
 ```
 
 Create a recurring task:
@@ -177,8 +181,15 @@ Move tasks between richer planner states:
 
 ```console
 kelp task next 2
-kelp task wait 2
-kelp task block 2
+kelp task wait 2 --until 2026-03-18
+kelp task block 2 --reason "Waiting on vendor approval"
+```
+
+Update project planning metadata:
+
+```console
+kelp project edit Launch --deadline 2026-03-24
+kelp project edit Launch --description "Finalize launch readiness"
 ```
 
 Bulk-edit multiple tasks at once:
@@ -204,6 +215,8 @@ Create the next action for a stalled project during weekly review:
 ```console
 kelp review weekly --plan Launch:"Draft launch checklist"
 ```
+
+The weekly review also surfaces projects due soon, projects missing deadlines, waiting tasks that need follow-up, and blocked tasks.
 
 Inspect the next two weeks of work:
 
@@ -240,6 +253,7 @@ The codebase is split into:
 - `src/domain.rs` for typed planner entities and state transitions
 - `src/legacy.rs` for legacy Kelp import parsing
 - `src/storage.rs` for JSON-backed persistence
+- `src/config.rs` for config persistence and migration
 - `src/cli.rs` for Clap command parsing
 - `src/app.rs` for command execution and view composition
 - `src/render.rs` for terminal presentation
