@@ -13,16 +13,20 @@ This rewrite replaces the old prompt-driven single-file prototype with:
 ## Features
 
 - `kelp import legacy --source <path>`
+- `kelp config show|set`
 - `kelp storage path|backup|export`
 - `kelp task add|list|show|edit|bulk-edit|start|done|reopen|defer|archive|unarchive|delete`
 - `kelp project add|list|show|archive|unarchive`
 - `kelp today`
 - `kelp upcoming --days <n>`
 - `kelp review daily --start <id> --complete <id> --defer <id:date>`
-- `kelp review weekly --archive <id>`
+- `kelp review weekly --archive <id> --plan <project:task>`
 - `kelp search <query>`
+- `kelp completions bash|zsh|fish`
 - recurring task generation for daily, weekly, and monthly work
 - JSON output on planner and listing commands via `--json`
+- config defaults for upcoming windows, sort order, and JSON output
+- human date expressions like `today`, `tomorrow`, `next-week`, `next-monday`, and `+3d`
 - legacy `.kelpStorage` and `.kelpProjects` migration
 
 ## Install and Run
@@ -51,6 +55,18 @@ Or use the included installer:
 ./installer.sh
 ```
 
+Install with completions at the same time:
+
+```console
+./installer.sh --with-completions
+```
+
+Build a release bundle with the binary, README, installer, and shell completion files:
+
+```console
+./scripts/package-release.sh
+```
+
 ## Storage
 
 Kelp uses JSON as its canonical local backend today. It stores `data.json` under one of these locations:
@@ -68,6 +84,13 @@ kelp init
 All other commands also create the storage file automatically on first use.
 
 Automatic backup snapshots are stored under `backups/` next to `data.json`, and a coarse lock file is used during writes to avoid overlapping save operations.
+
+Kelp also stores `config.json` next to `data.json`. Use it to set planner defaults that apply across commands:
+
+```console
+kelp config set --upcoming-days 10 --task-sort priority --json-output
+kelp config show
+```
 
 Inspect the storage layout:
 
@@ -114,6 +137,14 @@ kelp task add \
   --tag planning
 ```
 
+Use relative or named dates when it is faster than typing an ISO date:
+
+```console
+kelp task add --title "Inbox zero" --due tomorrow
+kelp task add --title "Send agenda" --due next-monday
+kelp task add --title "Check blockers" --due +3d
+```
+
 List open tasks:
 
 ```console
@@ -157,6 +188,12 @@ Apply actions while reviewing:
 kelp review daily --start 1 --complete 2 --defer 3:2026-03-20
 ```
 
+Create the next action for a stalled project during weekly review:
+
+```console
+kelp review weekly --plan Launch:"Draft launch checklist"
+```
+
 Inspect the next two weeks of work:
 
 ```console
@@ -167,6 +204,14 @@ Search across active tasks and projects:
 
 ```console
 kelp search review
+```
+
+Generate shell completions on demand:
+
+```console
+kelp completions bash > ~/.local/share/bash-completion/completions/kelp
+kelp completions zsh > ~/.zfunc/_kelp
+kelp completions fish > ~/.config/fish/completions/kelp.fish
 ```
 
 ## Development
@@ -185,3 +230,4 @@ The codebase is split into:
 - `src/cli.rs` for Clap command parsing
 - `src/app.rs` for command execution and view composition
 - `src/render.rs` for terminal presentation
+- `scripts/package-release.sh` for local release bundles
