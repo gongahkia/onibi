@@ -1,12 +1,16 @@
 use crate::cli::{
-    Cli, Command, ListOutputArgs, ProjectAddArgs, ProjectArchiveArgs, ProjectCommand,
-    ProjectListArgs, ProjectShowArgs, SearchArgs, TaskAddArgs, TaskCommand, TaskDeleteArgs,
-    TaskDoneArgs, TaskEditArgs, TaskListArgs, TaskReopenArgs, TaskShowArgs, UpcomingArgs,
+    Cli, Command, ImportCommand, LegacyImportArgs, ProjectAddArgs,
+    ProjectArchiveArgs, ProjectCommand, ProjectListArgs, ProjectShowArgs, ProjectUnarchiveArgs,
+    ReviewArgs, SearchArgs, StorageBackupArgs, StorageCommand, StorageExportArgs,
+    StoragePathArgs, TaskAddArgs, TaskArchiveArgs, TaskBulkEditArgs, TaskCommand,
+    TaskDeferArgs, TaskDeleteArgs, TaskDoneArgs, TaskEditArgs, TaskListArgs, TaskReopenArgs,
+    TaskReschedule, TaskShowArgs, TaskStartArgs, TaskUnarchiveArgs, UpcomingArgs,
 };
 use crate::domain::{
     normalize_tags, AppState, NewTask, Priority, Project, ProjectId, ProjectStatus, ProjectSummary,
     RecurrenceRule, Task, TaskId, TaskPatch, TaskStatus,
 };
+use crate::legacy::import_legacy_from_path;
 use crate::render::{
     render_confirmation, render_init, render_project_detail, render_project_list,
     render_search_results, render_task_detail, render_task_list, render_task_sections,
@@ -54,6 +58,8 @@ pub fn execute<S: Storage, C: Clock>(cli: Cli, storage: &S, clock: &C) -> Result
             let path = storage.init()?;
             Ok(render_init(&path))
         }
+        Command::Import { command } => execute_import_command(command, storage, today),
+        Command::Storage { command } => execute_storage_command(command, storage),
         Command::Task { command } => execute_task_command(command, storage, today),
         Command::Project { command } => execute_project_command(command, storage, today),
         Command::Today(args) => execute_today(storage, today, args.json),
@@ -69,12 +75,17 @@ fn execute_task_command<S: Storage>(
     today: NaiveDate,
 ) -> Result<String> {
     match command {
+        TaskCommand::Start(args) => start_task(storage, today, args),
         TaskCommand::Add(args) => add_task(storage, today, args),
         TaskCommand::List(args) => list_tasks(storage, today, args),
         TaskCommand::Show(args) => show_task(storage, today, args),
         TaskCommand::Edit(args) => edit_task(storage, today, args),
+        TaskCommand::BulkEdit(args) => bulk_edit_tasks(storage, today, args),
         TaskCommand::Done(args) => complete_task(storage, today, args),
         TaskCommand::Reopen(args) => reopen_task(storage, today, args),
+        TaskCommand::Defer(args) => defer_task(storage, today, args),
+        TaskCommand::Archive(args) => archive_task(storage, today, args),
+        TaskCommand::Unarchive(args) => unarchive_task(storage, today, args),
         TaskCommand::Delete(args) => delete_task(storage, args),
     }
 }
@@ -89,6 +100,25 @@ fn execute_project_command<S: Storage>(
         ProjectCommand::List(args) => list_projects(storage, today, args),
         ProjectCommand::Show(args) => show_project(storage, today, args),
         ProjectCommand::Archive(args) => archive_project(storage, today, args),
+        ProjectCommand::Unarchive(args) => unarchive_project(storage, today, args),
+    }
+}
+
+fn execute_import_command<S: Storage>(
+    command: ImportCommand,
+    storage: &S,
+    today: NaiveDate,
+) -> Result<String> {
+    match command {
+        ImportCommand::Legacy(args) => import_legacy(storage, today, args),
+    }
+}
+
+fn execute_storage_command<S: Storage>(command: StorageCommand, storage: &S) -> Result<String> {
+    match command {
+        StorageCommand::Path(args) => show_storage_paths(storage, args),
+        StorageCommand::Export(args) => export_storage(storage, args),
+        StorageCommand::Backup(args) => backup_storage(storage, args),
     }
 }
 
@@ -123,6 +153,105 @@ fn add_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskAddArgs) -> Res
     Ok(render_confirmation(
         "Task created",
         &render_task_detail(&task, &state),
+    ))
+}
+
+fn import_legacy<S: Storage>(
+    storage: &S,
+    today: NaiveDate,
+    args: LegacyImportArgs,
+) -> Result<String> {
+    let mut state = storage.load()?;
+    let summary = import_legacy_from_path(&mut state, &args.source, today)?;
+    storage.save(&state)?;
+
+    if args.json {
+        return to_pretty_json(&ImportResponse {
+            imported_tasks: summary.imported_tasks,
+            imported_projects: summary.imported_projects,
+            reused_projects: summary.reused_projects,
+            scanned_files: summary.scanned_files,
+            warnings: summary.warnings,
+        });
+    }
+
+    let mut lines = vec![
+        format!("source: {}", args.source.display()),
+        format!("imported tasks: {}", summary.imported_tasks),
+        format!("imported projects: {}", summary.imported_projects),
+        format!("reused projects: {}", summary.reused_projects),
+        format!("scanned files: {}", summary.scanned_files),
+    ];
+    if !summary.warnings.is_empty() {
+        lines.push(String::new());
+        lines.push("warnings:".to_string());
+        lines.extend(summary.warnings.into_iter().map(|warning| format!("  - {warning}")));
+    }
+
+    Ok(render_confirmation("Legacy import complete", &lines.join("\n")))
+}
+
+fn show_storage_paths<S: Storage>(storage: &S, args: StoragePathArgs) -> Result<String> {
+    let info = StorageInfoResponse {
+        backend: "json",
+        root_dir: storage.root_dir().display().to_string(),
+        data_file: storage.data_file().display().to_string(),
+        backup_dir: storage.backup_dir().display().to_string(),
+        lock_file: storage.lock_file().display().to_string(),
+    };
+
+    if args.json {
+        return to_pretty_json(&info);
+    }
+
+    Ok(render_confirmation(
+        "Storage paths",
+        &format!(
+            "backend: {}\nroot: {}\ndata: {}\nbackups: {}\nlock: {}",
+            info.backend, info.root_dir, info.data_file, info.backup_dir, info.lock_file
+        ),
+    ))
+}
+
+fn export_storage<S: Storage>(storage: &S, args: StorageExportArgs) -> Result<String> {
+    let output = storage.export_to(&args.output)?;
+    if args.json {
+        return to_pretty_json(&StoragePathResult {
+            path: output.display().to_string(),
+        });
+    }
+
+    Ok(render_confirmation(
+        "Storage exported",
+        &format!("wrote {}", output.display()),
+    ))
+}
+
+fn backup_storage<S: Storage>(storage: &S, args: StorageBackupArgs) -> Result<String> {
+    let backup = storage.create_backup_snapshot()?;
+    if args.json {
+        return to_pretty_json(&StoragePathResult {
+            path: backup.display().to_string(),
+        });
+    }
+
+    Ok(render_confirmation(
+        "Backup created",
+        &format!("wrote {}", backup.display()),
+    ))
+}
+
+fn start_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskStartArgs) -> Result<String> {
+    let mut state = storage.load()?;
+    state.set_task_status(TaskId(args.id), TaskStatus::InProgress, today)?;
+    storage.save(&state)?;
+
+    let task = state
+        .find_task(TaskId(args.id))
+        .with_context(|| format!("task {} does not exist after starting", args.id))?;
+    Ok(render_confirmation(
+        "Task started",
+        &render_task_detail(task, &state),
     ))
 }
 
@@ -199,6 +328,48 @@ fn edit_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskEditArgs) -> R
     Ok(output)
 }
 
+fn bulk_edit_tasks<S: Storage>(
+    storage: &S,
+    today: NaiveDate,
+    args: TaskBulkEditArgs,
+) -> Result<String> {
+    if args.ids.is_empty() {
+        bail!("bulk edit requires at least one task id");
+    }
+
+    let mut state = storage.load()?;
+    let patch = build_bulk_task_patch(&state, &args)?;
+    let desired_status = args.status;
+    if patch.is_empty() && desired_status.is_none() {
+        bail!("no bulk edit changes were provided");
+    }
+
+    let mut updated = 0usize;
+    let mut spawned_tasks = Vec::new();
+    for id in args.ids {
+        let task_id = TaskId(id);
+        if !patch.is_empty() {
+            state.apply_task_patch(task_id, patch.clone(), today)?;
+        }
+        if let Some(status) = desired_status {
+            if let Some(spawned_task_id) = state.set_task_status(task_id, status, today)? {
+                spawned_tasks.push(spawned_task_id.0);
+            }
+        }
+        updated += 1;
+    }
+    storage.save(&state)?;
+
+    Ok(render_confirmation(
+        "Bulk edit applied",
+        &format!(
+            "updated tasks: {}\nspawned recurring tasks: {}",
+            updated,
+            format_u64_list(&spawned_tasks)
+        ),
+    ))
+}
+
 fn complete_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskDoneArgs) -> Result<String> {
     let mut state = storage.load()?;
     let spawned_task_id = state.complete_task(TaskId(args.id), today)?;
@@ -229,6 +400,64 @@ fn reopen_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskReopenArgs) 
         .with_context(|| format!("task {} does not exist after reopening", args.id))?;
     Ok(render_confirmation(
         "Task reopened",
+        &render_task_detail(task, &state),
+    ))
+}
+
+fn defer_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskDeferArgs) -> Result<String> {
+    let mut state = storage.load()?;
+    let due_date = resolve_defer_date(today, &args)?;
+    state.apply_task_patch(
+        TaskId(args.id),
+        TaskPatch {
+            due_date: Some(Some(due_date)),
+            ..TaskPatch::default()
+        },
+        today,
+    )?;
+    storage.save(&state)?;
+
+    let task = state
+        .find_task(TaskId(args.id))
+        .with_context(|| format!("task {} does not exist after deferring", args.id))?;
+    Ok(render_confirmation(
+        "Task deferred",
+        &render_task_detail(task, &state),
+    ))
+}
+
+fn archive_task<S: Storage>(
+    storage: &S,
+    today: NaiveDate,
+    args: TaskArchiveArgs,
+) -> Result<String> {
+    let mut state = storage.load()?;
+    state.set_task_status(TaskId(args.id), TaskStatus::Archived, today)?;
+    storage.save(&state)?;
+
+    let task = state
+        .find_task(TaskId(args.id))
+        .with_context(|| format!("task {} does not exist after archiving", args.id))?;
+    Ok(render_confirmation(
+        "Task archived",
+        &render_task_detail(task, &state),
+    ))
+}
+
+fn unarchive_task<S: Storage>(
+    storage: &S,
+    today: NaiveDate,
+    args: TaskUnarchiveArgs,
+) -> Result<String> {
+    let mut state = storage.load()?;
+    state.set_task_status(TaskId(args.id), TaskStatus::Todo, today)?;
+    storage.save(&state)?;
+
+    let task = state
+        .find_task(TaskId(args.id))
+        .with_context(|| format!("task {} does not exist after unarchiving", args.id))?;
+    Ok(render_confirmation(
+        "Task unarchived",
         &render_task_detail(task, &state),
     ))
 }
@@ -333,6 +562,25 @@ fn archive_project<S: Storage>(
     ))
 }
 
+fn unarchive_project<S: Storage>(
+    storage: &S,
+    today: NaiveDate,
+    args: ProjectUnarchiveArgs,
+) -> Result<String> {
+    let mut state = storage.load()?;
+    let project_id = state.resolve_project_id(&args.project)?;
+    state.activate_project(project_id, today)?;
+    storage.save(&state)?;
+
+    let project = state
+        .find_project(project_id)
+        .with_context(|| format!("project {} does not exist after unarchive", args.project))?;
+    Ok(render_confirmation(
+        "Project reactivated",
+        &format!("reactivated project {}: {}", project.id.0, project.name),
+    ))
+}
+
 fn execute_today<S: Storage>(storage: &S, today: NaiveDate, json: bool) -> Result<String> {
     let state = storage.load()?;
     let mut overdue = active_open_tasks(&state)
@@ -397,9 +645,13 @@ fn execute_upcoming<S: Storage>(storage: &S, today: NaiveDate, args: UpcomingArg
 fn daily_review<S: Storage>(
     storage: &S,
     today: NaiveDate,
-    args: ListOutputArgs,
+    args: ReviewArgs,
 ) -> Result<String> {
-    let state = storage.load()?;
+    let mut state = storage.load()?;
+    let applied_actions = apply_review_actions(&mut state, today, &args)?;
+    if !applied_actions.is_empty() {
+        storage.save(&state)?;
+    }
     let mut carryover = active_open_tasks(&state)
         .into_iter()
         .filter(|task| task.due_date.map(|due| due < today).unwrap_or(false))
@@ -424,20 +676,29 @@ fn daily_review<S: Storage>(
     ];
 
     if args.json {
-        return to_pretty_json(&SectionedTaskResponse {
+        return to_pretty_json(&ReviewTaskResponse {
+            applied_actions,
             sections: sections_to_views(&sections, &state),
         });
     }
 
-    Ok(render_task_sections("Daily review", &sections, &state))
+    Ok(render_review_output(
+        "Daily review",
+        &applied_actions,
+        render_task_sections("Daily review", &sections, &state),
+    ))
 }
 
 fn weekly_review<S: Storage>(
     storage: &S,
     today: NaiveDate,
-    args: ListOutputArgs,
+    args: ReviewArgs,
 ) -> Result<String> {
-    let state = storage.load()?;
+    let mut state = storage.load()?;
+    let applied_actions = apply_review_actions(&mut state, today, &args)?;
+    if !applied_actions.is_empty() {
+        storage.save(&state)?;
+    }
     let window_end = today + Duration::days(7);
     let stale_cutoff = today - Duration::days(7);
 
@@ -482,6 +743,7 @@ fn weekly_review<S: Storage>(
 
     if args.json {
         return to_pretty_json(&WeeklyReviewResponse {
+            applied_actions,
             sections: sections_to_views(&sections, &state),
             stalled_projects: stalled_projects
                 .iter()
@@ -496,7 +758,7 @@ fn weekly_review<S: Storage>(
         "Projects without next actions",
         &stalled_projects,
     ));
-    Ok(output)
+    Ok(render_review_output("Weekly review", &applied_actions, output))
 }
 
 fn execute_search<S: Storage>(storage: &S, today: NaiveDate, args: SearchArgs) -> Result<String> {
@@ -595,11 +857,106 @@ fn build_task_patch(state: &AppState, args: &TaskEditArgs) -> Result<TaskPatch> 
     })
 }
 
+fn build_bulk_task_patch(state: &AppState, args: &TaskBulkEditArgs) -> Result<TaskPatch> {
+    let project_id = if args.clear_project {
+        Some(None)
+    } else if let Some(project_ref) = args.project.as_deref() {
+        Some(Some(state.resolve_project_id(project_ref)?))
+    } else {
+        None
+    };
+
+    let tags = if args.clear_tags {
+        Some(Vec::new())
+    } else if args.tags.is_empty() {
+        None
+    } else {
+        Some(normalize_tags(args.tags.clone()))
+    };
+
+    let due_date = if args.clear_due {
+        Some(None)
+    } else {
+        args.due.map(Some)
+    };
+
+    let recurrence = if args.clear_repeat {
+        Some(None)
+    } else {
+        args.repeat.map(Some)
+    };
+
+    Ok(TaskPatch {
+        title: None,
+        notes: None,
+        project_id,
+        status: None,
+        priority: args.priority,
+        tags,
+        due_date,
+        recurrence,
+    })
+}
+
 fn resolve_optional_project_id(state: &AppState, project_ref: Option<&str>) -> Result<Option<ProjectId>> {
     project_ref
         .map(|reference| state.resolve_project_id(reference))
         .transpose()
         .map_err(Into::into)
+}
+
+fn resolve_defer_date(today: NaiveDate, args: &TaskDeferArgs) -> Result<NaiveDate> {
+    match (args.until, args.days) {
+        (Some(due_date), None) => Ok(due_date),
+        (None, Some(days)) if days > 0 => Ok(today + Duration::days(days)),
+        (None, Some(_)) => bail!("--days must be greater than 0"),
+        (None, None) => bail!("provide either --until YYYY-MM-DD or --days N"),
+        (Some(_), Some(_)) => bail!("--until and --days cannot be used together"),
+    }
+}
+
+fn apply_review_actions(
+    state: &mut AppState,
+    today: NaiveDate,
+    args: &ReviewArgs,
+) -> Result<Vec<String>> {
+    let mut actions = Vec::new();
+
+    for task_id in &args.start {
+        state.set_task_status(TaskId(*task_id), TaskStatus::InProgress, today)?;
+        actions.push(format!("started task {task_id}"));
+    }
+
+    for TaskReschedule { id, due_date } in &args.defer {
+        state.apply_task_patch(
+            TaskId(*id),
+            TaskPatch {
+                due_date: Some(Some(*due_date)),
+                ..TaskPatch::default()
+            },
+            today,
+        )?;
+        actions.push(format!("deferred task {id} to {due_date}"));
+    }
+
+    for task_id in &args.complete {
+        let spawned_task_id = state.complete_task(TaskId(*task_id), today)?;
+        if let Some(spawned_task_id) = spawned_task_id {
+            actions.push(format!(
+                "completed task {task_id} and spawned recurring task {}",
+                spawned_task_id.0
+            ));
+        } else {
+            actions.push(format!("completed task {task_id}"));
+        }
+    }
+
+    for task_id in &args.archive {
+        state.set_task_status(TaskId(*task_id), TaskStatus::Archived, today)?;
+        actions.push(format!("archived task {task_id}"));
+    }
+
+    Ok(actions)
 }
 
 fn filtered_tasks<'a>(
@@ -733,6 +1090,38 @@ fn render_separator() -> &'static str {
     "--"
 }
 
+fn render_review_output(title: &str, applied_actions: &[String], body: String) -> String {
+    if applied_actions.is_empty() {
+        return body;
+    }
+
+    format!(
+        "{}\n{}\n\n{}",
+        render_confirmation(
+            &format!("{title} actions applied"),
+            &applied_actions
+                .iter()
+                .map(|action| format!("- {action}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ),
+        render_separator(),
+        body
+    )
+}
+
+fn format_u64_list(values: &[u64]) -> String {
+    if values.is_empty() {
+        "none".to_string()
+    } else {
+        values
+            .iter()
+            .map(|value| value.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
 fn task_view(task: &Task, state: &AppState) -> TaskView {
     TaskView {
         id: task.id.0,
@@ -811,6 +1200,29 @@ struct TaskSectionView {
 }
 
 #[derive(Debug, Serialize)]
+struct ImportResponse {
+    imported_tasks: usize,
+    imported_projects: usize,
+    reused_projects: usize,
+    scanned_files: usize,
+    warnings: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct StorageInfoResponse {
+    backend: &'static str,
+    root_dir: String,
+    data_file: String,
+    backup_dir: String,
+    lock_file: String,
+}
+
+#[derive(Debug, Serialize)]
+struct StoragePathResult {
+    path: String,
+}
+
+#[derive(Debug, Serialize)]
 struct TaskListResponse {
     tasks: Vec<TaskView>,
 }
@@ -832,7 +1244,14 @@ struct SectionedTaskResponse {
 }
 
 #[derive(Debug, Serialize)]
+struct ReviewTaskResponse {
+    applied_actions: Vec<String>,
+    sections: Vec<TaskSectionView>,
+}
+
+#[derive(Debug, Serialize)]
 struct WeeklyReviewResponse {
+    applied_actions: Vec<String>,
     sections: Vec<TaskSectionView>,
     stalled_projects: Vec<ProjectView>,
 }
