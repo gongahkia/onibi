@@ -312,3 +312,164 @@ fn archive_unarchive_and_bulk_edit_commands_work_together() {
 
     fs::remove_dir_all(storage_root).expect("storage cleanup should succeed");
 }
+
+#[test]
+fn config_defaults_drive_json_output_and_upcoming_windows() {
+    let storage_root = temp_root("config-defaults");
+    let storage = JsonFileStorage::at(storage_root.clone());
+    let clock = FixedClock::new(date("2026-03-14"));
+
+    run(
+        &[
+            "kelp",
+            "config",
+            "set",
+            "--upcoming-days",
+            "10",
+            "--task-sort",
+            "priority",
+            "--json-output",
+        ],
+        &storage,
+        &clock,
+    );
+    run(
+        &[
+            "kelp",
+            "task",
+            "add",
+            "--title",
+            "Ship release notes",
+            "--due",
+            "2026-03-22",
+            "--priority",
+            "high",
+        ],
+        &storage,
+        &clock,
+    );
+
+    let config = run(&["kelp", "config", "show", "--json"], &storage, &clock);
+    let config: Value = serde_json::from_str(&config).expect("config output should be valid JSON");
+    assert_eq!(config["default_upcoming_days"], 10);
+    assert_eq!(config["default_task_sort"], "priority");
+    assert_eq!(config["default_json_output"], true);
+
+    let upcoming = run(&["kelp", "upcoming"], &storage, &clock);
+    let upcoming: Value =
+        serde_json::from_str(&upcoming).expect("upcoming output should follow the JSON default");
+    assert_eq!(
+        upcoming["sections"][0]["tasks"][0]["title"],
+        "Ship release notes"
+    );
+
+    fs::remove_dir_all(storage_root).expect("storage cleanup should succeed");
+}
+
+#[test]
+fn review_planning_actions_and_date_shortcuts_work_together() {
+    let storage_root = temp_root("review-plan");
+    let storage = JsonFileStorage::at(storage_root.clone());
+    let clock = FixedClock::new(date("2026-03-14"));
+
+    run(&["kelp", "project", "add", "--name", "Launch"], &storage, &clock);
+    run(
+        &[
+            "kelp",
+            "task",
+            "add",
+            "--title",
+            "Prep launch brief",
+            "--due",
+            "next-monday",
+        ],
+        &storage,
+        &clock,
+    );
+    run(
+        &[
+            "kelp",
+            "task",
+            "add",
+            "--title",
+            "Confirm venue",
+            "--due",
+            "+3d",
+        ],
+        &storage,
+        &clock,
+    );
+
+    let review = run(
+        &[
+            "kelp",
+            "review",
+            "weekly",
+            "--defer",
+            "1:tomorrow",
+            "--plan",
+            "Launch:Ship launch checklist",
+            "--json",
+        ],
+        &storage,
+        &clock,
+    );
+    let review: Value = serde_json::from_str(&review).expect("review output should be valid JSON");
+    assert_eq!(
+        review["applied_actions"]
+            .as_array()
+            .expect("actions should be an array")
+            .len(),
+        2
+    );
+
+    let first_task = run(&["kelp", "task", "show", "1", "--json"], &storage, &clock);
+    let first_task: Value =
+        serde_json::from_str(&first_task).expect("task output should be valid JSON");
+    assert_eq!(first_task["due_date"], "2026-03-15");
+
+    let second_task = run(&["kelp", "task", "show", "2", "--json"], &storage, &clock);
+    let second_task: Value =
+        serde_json::from_str(&second_task).expect("task output should be valid JSON");
+    assert_eq!(second_task["due_date"], "2026-03-17");
+
+    let planned_task = run(&["kelp", "task", "show", "3", "--json"], &storage, &clock);
+    let planned_task: Value =
+        serde_json::from_str(&planned_task).expect("planned task output should be valid JSON");
+    assert_eq!(planned_task["project"], "Launch");
+    assert_eq!(planned_task["title"], "Ship launch checklist");
+    assert_eq!(planned_task["tags"][0], "next-action");
+
+    fs::remove_dir_all(storage_root).expect("storage cleanup should succeed");
+}
+
+#[test]
+fn aliases_and_completion_generation_are_available() {
+    let storage_root = temp_root("aliases");
+    let storage = JsonFileStorage::at(storage_root.clone());
+    let clock = FixedClock::new(date("2026-03-14"));
+
+    run(
+        &[
+            "kelp",
+            "task",
+            "create",
+            "--title",
+            "Alias task",
+            "--due",
+            "today",
+        ],
+        &storage,
+        &clock,
+    );
+
+    let list = run(&["kelp", "task", "ls", "--json"], &storage, &clock);
+    let list: Value = serde_json::from_str(&list).expect("list output should be valid JSON");
+    assert_eq!(list["tasks"][0]["title"], "Alias task");
+
+    let bash = run(&["kelp", "completions", "bash"], &storage, &clock);
+    assert!(bash.contains("complete -F _kelp kelp"));
+    assert!(bash.contains("review"));
+
+    fs::remove_dir_all(storage_root).expect("storage cleanup should succeed");
+}
