@@ -58,6 +58,24 @@ fn legacy_import_command_migrates_old_project_files() {
 
     assert_eq!(imported["imported_tasks"], 2);
     assert_eq!(imported["imported_projects"], 1);
+    assert_eq!(imported["skipped_duplicates"], 0);
+
+    let reimported = run(
+        &[
+            "kelp",
+            "import",
+            "legacy",
+            "--source",
+            legacy_root.to_str().expect("legacy path should be UTF-8"),
+            "--json",
+        ],
+        &storage,
+        &clock,
+    );
+    let reimported: Value =
+        serde_json::from_str(&reimported).expect("reimport output should be valid JSON");
+    assert_eq!(reimported["imported_tasks"], 0);
+    assert_eq!(reimported["skipped_duplicates"], 2);
 
     let list = run(&["kelp", "task", "list", "--json"], &storage, &clock);
     let list: Value = serde_json::from_str(&list).expect("list output should be valid JSON");
@@ -438,6 +456,7 @@ fn review_planning_actions_and_date_shortcuts_work_together() {
         serde_json::from_str(&planned_task).expect("planned task output should be valid JSON");
     assert_eq!(planned_task["project"], "Launch");
     assert_eq!(planned_task["title"], "Ship launch checklist");
+    assert_eq!(planned_task["status"], "next_action");
     assert_eq!(planned_task["tags"][0], "next-action");
 
     fs::remove_dir_all(storage_root).expect("storage cleanup should succeed");
@@ -470,6 +489,61 @@ fn aliases_and_completion_generation_are_available() {
     let bash = run(&["kelp", "completions", "bash"], &storage, &clock);
     assert!(bash.contains("complete -F _kelp kelp"));
     assert!(bash.contains("review"));
+    assert!(bash.contains("next"));
+    assert!(bash.contains("blocked"));
+
+    fs::remove_dir_all(storage_root).expect("storage cleanup should succeed");
+}
+
+#[test]
+fn explicit_next_wait_and_block_flows_are_available() {
+    let storage_root = temp_root("status-flows");
+    let storage = JsonFileStorage::at(storage_root.clone());
+    let clock = FixedClock::new(date("2026-03-14"));
+
+    run(
+        &[
+            "kelp",
+            "task",
+            "add",
+            "--title",
+            "Unclear task",
+            "--due",
+            "2026-03-20",
+        ],
+        &storage,
+        &clock,
+    );
+    run(&["kelp", "task", "next", "1"], &storage, &clock);
+    run(&["kelp", "task", "wait", "1"], &storage, &clock);
+    run(&["kelp", "task", "block", "1"], &storage, &clock);
+
+    let task = run(&["kelp", "task", "show", "1", "--json"], &storage, &clock);
+    let task: Value = serde_json::from_str(&task).expect("task output should be valid JSON");
+    assert_eq!(task["status"], "blocked");
+
+    let review = run(
+        &[
+            "kelp",
+            "review",
+            "weekly",
+            "--next-action",
+            "1",
+            "--json",
+        ],
+        &storage,
+        &clock,
+    );
+    let review: Value = serde_json::from_str(&review).expect("review output should be valid JSON");
+    assert!(review["sections"]
+        .as_array()
+        .expect("sections should be an array")
+        .iter()
+        .any(|section| section["name"] == "Next actions"));
+
+    let task = run(&["kelp", "task", "show", "1", "--json"], &storage, &clock);
+    let task: Value = serde_json::from_str(&task).expect("task output should be valid JSON");
+    assert_eq!(task["status"], "next_action");
 
     fs::remove_dir_all(storage_root).expect("storage cleanup should succeed");
 }
