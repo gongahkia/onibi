@@ -547,3 +547,124 @@ fn explicit_next_wait_and_block_flows_are_available() {
 
     fs::remove_dir_all(storage_root).expect("storage cleanup should succeed");
 }
+
+#[test]
+fn deadlines_and_blocker_metadata_roundtrip_through_the_cli() {
+    let storage_root = temp_root("planner-metadata");
+    let storage = JsonFileStorage::at(storage_root.clone());
+    let clock = FixedClock::new(date("2026-03-14"));
+
+    run(
+        &[
+            "kelp",
+            "project",
+            "add",
+            "--name",
+            "Launch",
+            "--description",
+            "Ship the next release",
+            "--deadline",
+            "2026-03-18",
+        ],
+        &storage,
+        &clock,
+    );
+    run(
+        &[
+            "kelp",
+            "task",
+            "add",
+            "--title",
+            "Wait on design",
+            "--project",
+            "Launch",
+            "--wait-until",
+            "2026-03-16",
+        ],
+        &storage,
+        &clock,
+    );
+    run(
+        &[
+            "kelp",
+            "task",
+            "add",
+            "--title",
+            "Blocked release",
+            "--project",
+            "Launch",
+            "--blocked-reason",
+            "Vendor API outage",
+        ],
+        &storage,
+        &clock,
+    );
+    run(
+        &[
+            "kelp",
+            "task",
+            "wait",
+            "1",
+            "--until",
+            "2026-03-17",
+        ],
+        &storage,
+        &clock,
+    );
+    run(
+        &[
+            "kelp",
+            "task",
+            "block",
+            "2",
+            "--reason",
+            "Waiting on legal sign-off",
+        ],
+        &storage,
+        &clock,
+    );
+    run(
+        &[
+            "kelp",
+            "project",
+            "edit",
+            "Launch",
+            "--deadline",
+            "2026-03-20",
+        ],
+        &storage,
+        &clock,
+    );
+
+    let waiting_task = run(&["kelp", "task", "show", "1", "--json"], &storage, &clock);
+    let waiting_task: Value =
+        serde_json::from_str(&waiting_task).expect("task output should be valid JSON");
+    assert_eq!(waiting_task["status"], "waiting");
+    assert_eq!(waiting_task["waiting_until"], "2026-03-17");
+
+    let blocked_task = run(&["kelp", "task", "show", "2", "--json"], &storage, &clock);
+    let blocked_task: Value =
+        serde_json::from_str(&blocked_task).expect("task output should be valid JSON");
+    assert_eq!(blocked_task["status"], "blocked");
+    assert_eq!(blocked_task["blocked_reason"], "Waiting on legal sign-off");
+
+    let project = run(&["kelp", "project", "show", "Launch", "--json"], &storage, &clock);
+    let project: Value =
+        serde_json::from_str(&project).expect("project output should be valid JSON");
+    assert_eq!(project["project"]["deadline"], "2026-03-20");
+
+    let review = run(&["kelp", "review", "weekly", "--json"], &storage, &clock);
+    let review: Value = serde_json::from_str(&review).expect("review output should be valid JSON");
+    assert!(review["deadline_projects"]
+        .as_array()
+        .expect("deadline projects should be an array")
+        .iter()
+        .any(|project| project["name"] == "Launch"));
+
+    let bash = run(&["kelp", "completions", "bash"], &storage, &clock);
+    assert!(bash.contains("--wait-until"));
+    assert!(bash.contains("--blocked-reason"));
+    assert!(bash.contains("edit"));
+
+    fs::remove_dir_all(storage_root).expect("storage cleanup should succeed");
+}
