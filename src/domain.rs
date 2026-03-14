@@ -102,9 +102,7 @@ impl fmt::Display for TaskStatus {
     }
 }
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, ValueEnum,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "snake_case")]
 pub enum RecurrenceRule {
     Daily,
@@ -229,7 +227,11 @@ impl Project {
             return true;
         }
 
-        let description = self.description.as_deref().unwrap_or_default().to_lowercase();
+        let description = self
+            .description
+            .as_deref()
+            .unwrap_or_default()
+            .to_lowercase();
 
         self.name.to_lowercase().contains(&query) || description.contains(&query)
     }
@@ -364,15 +366,20 @@ impl AppState {
     }
 
     pub fn find_project(&self, project_id: ProjectId) -> Option<&Project> {
-        self.projects.iter().find(|project| project.id == project_id)
+        self.projects
+            .iter()
+            .find(|project| project.id == project_id)
     }
 
     pub fn find_project_mut(&mut self, project_id: ProjectId) -> Option<&mut Project> {
-        self.projects.iter_mut().find(|project| project.id == project_id)
+        self.projects
+            .iter_mut()
+            .find(|project| project.id == project_id)
     }
 
     pub fn project_name(&self, project_id: ProjectId) -> Option<&str> {
-        self.find_project(project_id).map(|project| project.name.as_str())
+        self.find_project(project_id)
+            .map(|project| project.name.as_str())
     }
 
     pub fn is_project_archived(&self, project_id: ProjectId) -> bool {
@@ -434,11 +441,7 @@ impl AppState {
         Ok(project)
     }
 
-    pub fn create_task(
-        &mut self,
-        input: NewTask,
-        today: NaiveDate,
-    ) -> Result<Task, DomainError> {
+    pub fn create_task(&mut self, input: NewTask, today: NaiveDate) -> Result<Task, DomainError> {
         let title = clean_required_text(input.title, "task title")?;
         let notes = clean_optional_text(input.notes);
         let tags = normalize_tags(input.tags);
@@ -536,7 +539,8 @@ impl AppState {
         }
 
         task.updated_on = today;
-        let canonical_project_id = matches!(task.status, TaskStatus::NextAction).then_some(task.project_id);
+        let canonical_project_id =
+            matches!(task.status, TaskStatus::NextAction).then_some(task.project_id);
 
         let canonical_project_id = canonical_project_id.flatten();
         if let Some(project_id) = canonical_project_id {
@@ -593,7 +597,10 @@ impl AppState {
                 }
                 Ok(None)
             }
-            TaskStatus::Todo | TaskStatus::InProgress | TaskStatus::Waiting | TaskStatus::Blocked => {
+            TaskStatus::Todo
+            | TaskStatus::InProgress
+            | TaskStatus::Waiting
+            | TaskStatus::Blocked => {
                 let task = self
                     .find_task_mut(task_id)
                     .ok_or(DomainError::TaskNotFound(task_id))?;
@@ -705,7 +712,9 @@ impl AppState {
             task.updated_on = today;
 
             task.recurrence.map(|rule| {
-                let due_date = task.due_date.ok_or(DomainError::RecurrenceRequiresDueDate)?;
+                let due_date = task
+                    .due_date
+                    .ok_or(DomainError::RecurrenceRequiresDueDate)?;
                 Ok((task.clone(), rule.next_due_date(due_date)))
             })
         }
@@ -1228,11 +1237,16 @@ mod tests {
             )
             .expect("dependent task should be created");
 
-        assert_eq!(state.unresolved_task_dependencies(&state.tasks[1]), vec![first.id]);
+        assert_eq!(
+            state.unresolved_task_dependencies(&state.tasks[1]),
+            vec![first.id]
+        );
         state
             .complete_task(first.id, today)
             .expect("completion should succeed");
-        assert!(state.unresolved_task_dependencies(&state.tasks[1]).is_empty());
+        assert!(state
+            .unresolved_task_dependencies(&state.tasks[1])
+            .is_empty());
 
         let error = state
             .apply_task_patch(
@@ -1298,11 +1312,17 @@ mod tests {
             .expect("second next action should succeed");
 
         assert_eq!(
-            state.find_task(first.id).expect("first task should exist").status,
+            state
+                .find_task(first.id)
+                .expect("first task should exist")
+                .status,
             TaskStatus::Todo
         );
         assert_eq!(
-            state.find_task(second.id).expect("second task should exist").status,
+            state
+                .find_task(second.id)
+                .expect("second task should exist")
+                .status,
             TaskStatus::NextAction
         );
     }
