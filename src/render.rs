@@ -42,6 +42,11 @@ pub fn render_task_detail(task: &Task, state: &AppState) -> String {
     ));
     lines.push(format!(
         "{} {}",
+        muted("depends on:"),
+        format_task_id_list(&task.depends_on)
+    ));
+    lines.push(format!(
+        "{} {}",
         muted("repeat:"),
         task.recurrence
             .map(format_recurrence)
@@ -149,6 +154,11 @@ pub fn render_project_detail(
         muted("blocked tasks:"),
         summary.blocked_tasks
     ));
+    lines.push(format!(
+        "{} {}",
+        muted("dependency blocked:"),
+        summary.dependency_blocked_tasks
+    ));
     if let Some(description) = &project.description {
         lines.push(format!("{} {}", muted("description:"), description));
     }
@@ -245,6 +255,18 @@ fn format_tags(tags: &[String]) -> String {
 fn format_optional_date(date: Option<NaiveDate>) -> String {
     date.map(|value| value.to_string())
         .unwrap_or_else(|| "none".to_string())
+}
+
+fn format_task_id_list(task_ids: &[crate::domain::TaskId]) -> String {
+    if task_ids.is_empty() {
+        "none".to_string()
+    } else {
+        task_ids
+            .iter()
+            .map(|task_id| task_id.0.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
 fn format_recurrence(rule: RecurrenceRule) -> String {
