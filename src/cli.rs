@@ -1,5 +1,5 @@
+use crate::config::TaskSortKey;
 use crate::domain::{Priority, RecurrenceRule, TaskStatus};
-use chrono::NaiveDate;
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -17,6 +17,10 @@ pub struct Cli {
 #[derive(Debug, Subcommand, Clone)]
 pub enum Command {
     Init,
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
+    },
     Import {
         #[command(subcommand)]
         command: ImportCommand,
@@ -40,6 +44,12 @@ pub enum Command {
         command: ReviewCommand,
     },
     Search(SearchArgs),
+}
+
+#[derive(Debug, Subcommand, Clone)]
+pub enum ConfigCommand {
+    Show(ConfigShowArgs),
+    Set(ConfigSetArgs),
 }
 
 #[derive(Debug, Subcommand, Clone)]
@@ -92,6 +102,24 @@ pub struct ListOutputArgs {
 }
 
 #[derive(Debug, Args, Clone)]
+pub struct ConfigShowArgs {
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct ConfigSetArgs {
+    #[arg(long)]
+    pub upcoming_days: Option<i64>,
+    #[arg(long, value_enum)]
+    pub task_sort: Option<TaskSortKey>,
+    #[arg(long, conflicts_with = "plain_output")]
+    pub json_output: bool,
+    #[arg(long, conflicts_with = "json_output")]
+    pub plain_output: bool,
+}
+
+#[derive(Debug, Args, Clone)]
 pub struct LegacyImportArgs {
     #[arg(long, default_value = ".")]
     pub source: PathBuf,
@@ -131,8 +159,8 @@ pub struct TaskAddArgs {
     pub priority: Priority,
     #[arg(long = "tag")]
     pub tags: Vec<String>,
-    #[arg(long, value_parser = parse_date)]
-    pub due: Option<NaiveDate>,
+    #[arg(long)]
+    pub due: Option<String>,
     #[arg(long, value_enum)]
     pub repeat: Option<RecurrenceRule>,
 }
@@ -151,6 +179,10 @@ pub struct TaskListArgs {
     pub due_today: bool,
     #[arg(long)]
     pub overdue: bool,
+    #[arg(long)]
+    pub all: bool,
+    #[arg(long, value_enum)]
+    pub sort: Option<TaskSortKey>,
     #[arg(long)]
     pub json: bool,
 }
@@ -183,8 +215,8 @@ pub struct TaskEditArgs {
     pub tags: Vec<String>,
     #[arg(long)]
     pub clear_tags: bool,
-    #[arg(long, value_parser = parse_date, conflicts_with = "clear_due")]
-    pub due: Option<NaiveDate>,
+    #[arg(long, conflicts_with = "clear_due")]
+    pub due: Option<String>,
     #[arg(long)]
     pub clear_due: bool,
     #[arg(long, value_enum, conflicts_with = "clear_repeat")]
@@ -208,8 +240,8 @@ pub struct TaskBulkEditArgs {
     pub tags: Vec<String>,
     #[arg(long)]
     pub clear_tags: bool,
-    #[arg(long, value_parser = parse_date, conflicts_with = "clear_due")]
-    pub due: Option<NaiveDate>,
+    #[arg(long, conflicts_with = "clear_due")]
+    pub due: Option<String>,
     #[arg(long)]
     pub clear_due: bool,
     #[arg(long, value_enum, conflicts_with = "clear_repeat")]
@@ -236,8 +268,8 @@ pub struct TaskReopenArgs {
 #[derive(Debug, Args, Clone)]
 pub struct TaskDeferArgs {
     pub id: u64,
-    #[arg(long, value_parser = parse_date, conflicts_with = "days")]
-    pub until: Option<NaiveDate>,
+    #[arg(long, conflicts_with = "days")]
+    pub until: Option<String>,
     #[arg(long, conflicts_with = "until")]
     pub days: Option<i64>,
 }
@@ -292,8 +324,8 @@ pub struct ProjectUnarchiveArgs {
 
 #[derive(Debug, Args, Clone)]
 pub struct UpcomingArgs {
-    #[arg(long, default_value_t = 7)]
-    pub days: i64,
+    #[arg(long)]
+    pub days: Option<i64>,
     #[arg(long)]
     pub json: bool,
 }
@@ -315,7 +347,7 @@ pub struct ReviewArgs {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskReschedule {
     pub id: u64,
-    pub due_date: NaiveDate,
+    pub due_expression: String,
 }
 
 #[derive(Debug, Args, Clone)]
@@ -325,20 +357,17 @@ pub struct SearchArgs {
     pub json: bool,
 }
 
-fn parse_date(value: &str) -> Result<NaiveDate, String> {
-    NaiveDate::parse_from_str(value, "%Y-%m-%d")
-        .map_err(|_| format!("invalid date '{value}', expected YYYY-MM-DD"))
-}
-
 fn parse_task_reschedule(value: &str) -> Result<TaskReschedule, String> {
-    let (id, due_date) = value
+    let (id, due_expression) = value
         .split_once(':')
-        .ok_or_else(|| format!("invalid defer instruction '{value}', expected ID:YYYY-MM-DD"))?;
+        .ok_or_else(|| format!("invalid defer instruction '{value}', expected ID:DATE"))?;
 
     let id = id
         .parse::<u64>()
         .map_err(|_| format!("invalid task id in defer instruction '{value}'"))?;
-    let due_date = parse_date(due_date)?;
 
-    Ok(TaskReschedule { id, due_date })
+    Ok(TaskReschedule {
+        id,
+        due_expression: due_expression.trim().to_string(),
+    })
 }
