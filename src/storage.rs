@@ -183,7 +183,8 @@ impl JsonFileStorage {
             return Ok(());
         }
 
-        for obsolete in backups.into_iter().take(backups.len() - BACKUP_RETENTION) {
+        let obsolete_count = backups.len() - BACKUP_RETENTION;
+        for obsolete in backups.into_iter().take(obsolete_count) {
             fs::remove_file(&obsolete)
                 .with_context(|| format!("failed to prune {}", obsolete.display()))?;
         }
