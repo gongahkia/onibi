@@ -3,9 +3,9 @@ use crate::cli::{
     LegacyImportArgs, ProjectAddArgs, ProjectArchiveArgs, ProjectCommand, ProjectListArgs,
     ProjectShowArgs, ProjectTaskPlan, ProjectUnarchiveArgs, ReviewArgs, SearchArgs, ShellKind,
     StorageBackupArgs, StorageCommand, StorageExportArgs, StoragePathArgs, TaskAddArgs,
-    TaskArchiveArgs, TaskBulkEditArgs, TaskCommand, TaskDeferArgs, TaskDeleteArgs, TaskDoneArgs,
-    TaskEditArgs, TaskListArgs, TaskReopenArgs, TaskReschedule, TaskShowArgs, TaskStartArgs,
-    TaskUnarchiveArgs, UpcomingArgs,
+    TaskArchiveArgs, TaskBlockArgs, TaskBulkEditArgs, TaskCommand, TaskDeferArgs,
+    TaskDeleteArgs, TaskDoneArgs, TaskEditArgs, TaskListArgs, TaskNextArgs, TaskReopenArgs,
+    TaskReschedule, TaskShowArgs, TaskStartArgs, TaskUnarchiveArgs, TaskWaitArgs, UpcomingArgs,
 };
 use crate::config::{AppConfig, JsonConfigStore, TaskSortKey};
 use crate::domain::{
@@ -86,7 +86,10 @@ fn execute_task_command<S: Storage>(
     today: NaiveDate,
 ) -> Result<String> {
     match command {
+        TaskCommand::Next(args) => mark_next_action_task(storage, today, args),
         TaskCommand::Start(args) => start_task(storage, today, args),
+        TaskCommand::Wait(args) => wait_task(storage, today, args),
+        TaskCommand::Block(args) => block_task(storage, today, args),
         TaskCommand::Add(args) => add_task(storage, today, args),
         TaskCommand::List(args) => list_tasks(storage, today, args),
         TaskCommand::Show(args) => show_task(storage, today, args),
@@ -339,6 +342,52 @@ fn start_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskStartArgs) ->
         .with_context(|| format!("task {} does not exist after starting", args.id))?;
     Ok(render_confirmation(
         "Task started",
+        &render_task_detail(task, &state),
+    ))
+}
+
+fn mark_next_action_task<S: Storage>(
+    storage: &S,
+    today: NaiveDate,
+    args: TaskNextArgs,
+) -> Result<String> {
+    let mut state = storage.load()?;
+    state.set_task_status(TaskId(args.id), TaskStatus::NextAction, today)?;
+    storage.save(&state)?;
+
+    let task = state
+        .find_task(TaskId(args.id))
+        .with_context(|| format!("task {} does not exist after updating", args.id))?;
+    Ok(render_confirmation(
+        "Task marked as next action",
+        &render_task_detail(task, &state),
+    ))
+}
+
+fn wait_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskWaitArgs) -> Result<String> {
+    let mut state = storage.load()?;
+    state.set_task_status(TaskId(args.id), TaskStatus::Waiting, today)?;
+    storage.save(&state)?;
+
+    let task = state
+        .find_task(TaskId(args.id))
+        .with_context(|| format!("task {} does not exist after updating", args.id))?;
+    Ok(render_confirmation(
+        "Task marked as waiting",
+        &render_task_detail(task, &state),
+    ))
+}
+
+fn block_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskBlockArgs) -> Result<String> {
+    let mut state = storage.load()?;
+    state.set_task_status(TaskId(args.id), TaskStatus::Blocked, today)?;
+    storage.save(&state)?;
+
+    let task = state
+        .find_task(TaskId(args.id))
+        .with_context(|| format!("task {} does not exist after updating", args.id))?;
+    Ok(render_confirmation(
+        "Task marked as blocked",
         &render_task_detail(task, &state),
     ))
 }
@@ -686,19 +735,31 @@ fn execute_today<S: Storage>(storage: &S, today: NaiveDate, json: bool) -> Resul
         .into_iter()
         .filter(|task| task.due_date == Some(today))
         .collect::<Vec<_>>();
+    let mut next_actions = active_open_tasks(&state)
+        .into_iter()
+        .filter(|task| matches!(task.status, TaskStatus::NextAction))
+        .collect::<Vec<_>>();
     let mut in_progress = active_open_tasks(&state)
         .into_iter()
         .filter(|task| matches!(task.status, TaskStatus::InProgress))
         .collect::<Vec<_>>();
+    let mut blocked = active_open_tasks(&state)
+        .into_iter()
+        .filter(|task| matches!(task.status, TaskStatus::Blocked))
+        .collect::<Vec<_>>();
 
     sort_tasks(&mut overdue, TaskSortKey::Due);
     sort_tasks(&mut due_today, TaskSortKey::Due);
+    sort_tasks(&mut next_actions, TaskSortKey::Priority);
     sort_tasks(&mut in_progress, TaskSortKey::Due);
+    sort_tasks(&mut blocked, TaskSortKey::Priority);
 
     let sections = vec![
         ("Overdue".to_string(), overdue),
         ("Due today".to_string(), due_today),
+        ("Next actions".to_string(), next_actions),
         ("In progress".to_string(), in_progress),
+        ("Blocked".to_string(), blocked),
     ];
 
     if wants_json(json, &config) {
@@ -758,6 +819,18 @@ fn daily_review<S: Storage>(
         .into_iter()
         .filter(|task| task.due_date == Some(today))
         .collect::<Vec<_>>();
+    let mut next_actions = active_open_tasks(&state)
+        .into_iter()
+        .filter(|task| task.status.is_next_action())
+        .collect::<Vec<_>>();
+    let mut blocked = active_open_tasks(&state)
+        .into_iter()
+        .filter(|task| matches!(task.status, TaskStatus::Blocked))
+        .collect::<Vec<_>>();
+    let mut waiting = active_open_tasks(&state)
+        .into_iter()
+        .filter(|task| matches!(task.status, TaskStatus::Waiting))
+        .collect::<Vec<_>>();
     let mut needs_scheduling = active_open_tasks(&state)
         .into_iter()
         .filter(|task| task.due_date.is_none() && matches!(task.priority, Priority::High))
@@ -765,11 +838,17 @@ fn daily_review<S: Storage>(
 
     sort_tasks(&mut carryover, TaskSortKey::Due);
     sort_tasks(&mut due_today, TaskSortKey::Due);
+    sort_tasks(&mut next_actions, TaskSortKey::Priority);
+    sort_tasks(&mut blocked, TaskSortKey::Priority);
+    sort_tasks(&mut waiting, TaskSortKey::Updated);
     sort_tasks(&mut needs_scheduling, TaskSortKey::Due);
 
     let sections = vec![
         ("Carryover".to_string(), carryover),
         ("Due today".to_string(), due_today),
+        ("Next actions".to_string(), next_actions),
+        ("Blocked".to_string(), blocked),
+        ("Waiting".to_string(), waiting),
         ("Needs scheduling".to_string(), needs_scheduling),
     ];
 
@@ -813,6 +892,18 @@ fn weekly_review<S: Storage>(
                 .unwrap_or(false)
         })
         .collect::<Vec<_>>();
+    let mut next_actions = active_open_tasks(&state)
+        .into_iter()
+        .filter(|task| task.status.is_next_action())
+        .collect::<Vec<_>>();
+    let mut blocked = active_open_tasks(&state)
+        .into_iter()
+        .filter(|task| matches!(task.status, TaskStatus::Blocked))
+        .collect::<Vec<_>>();
+    let mut waiting = active_open_tasks(&state)
+        .into_iter()
+        .filter(|task| matches!(task.status, TaskStatus::Waiting))
+        .collect::<Vec<_>>();
     let mut stale_tasks = active_open_tasks(&state)
         .into_iter()
         .filter(|task| task.updated_on <= stale_cutoff)
@@ -821,7 +912,7 @@ fn weekly_review<S: Storage>(
         .into_iter()
         .filter_map(|project| {
             let summary = state.project_summary(project.id, today).ok()?;
-            if summary.open_tasks == 0 {
+            if summary.open_tasks == 0 || summary.next_action_tasks == 0 {
                 Some((project, summary))
             } else {
                 None
@@ -830,12 +921,18 @@ fn weekly_review<S: Storage>(
         .collect::<Vec<_>>();
 
     sort_tasks(&mut overdue, TaskSortKey::Due);
+    sort_tasks(&mut next_actions, TaskSortKey::Priority);
+    sort_tasks(&mut blocked, TaskSortKey::Priority);
+    sort_tasks(&mut waiting, TaskSortKey::Updated);
     sort_tasks(&mut due_this_week, TaskSortKey::Due);
     sort_tasks(&mut stale_tasks, TaskSortKey::Updated);
     stalled_projects.sort_by(|left, right| left.0.name.to_lowercase().cmp(&right.0.name.to_lowercase()));
 
     let sections = vec![
         ("Overdue".to_string(), overdue),
+        ("Next actions".to_string(), next_actions),
+        ("Blocked".to_string(), blocked),
+        ("Waiting".to_string(), waiting),
         ("Due this week".to_string(), due_this_week),
         ("Stale tasks".to_string(), stale_tasks),
     ];
@@ -1034,9 +1131,24 @@ fn apply_review_actions(
 ) -> Result<Vec<String>> {
     let mut actions = Vec::new();
 
+    for task_id in &args.next_action {
+        state.set_task_status(TaskId(*task_id), TaskStatus::NextAction, today)?;
+        actions.push(format!("marked task {task_id} as the next action"));
+    }
+
     for task_id in &args.start {
         state.set_task_status(TaskId(*task_id), TaskStatus::InProgress, today)?;
         actions.push(format!("started task {task_id}"));
+    }
+
+    for task_id in &args.waiting {
+        state.set_task_status(TaskId(*task_id), TaskStatus::Waiting, today)?;
+        actions.push(format!("marked task {task_id} as waiting"));
+    }
+
+    for task_id in &args.blocked {
+        state.set_task_status(TaskId(*task_id), TaskStatus::Blocked, today)?;
+        actions.push(format!("marked task {task_id} as blocked"));
     }
 
     for TaskReschedule { id, due_expression } in &args.defer {
@@ -1088,6 +1200,9 @@ fn apply_review_actions(
             },
             today,
         )?;
+        state
+            .set_task_status(task.id, TaskStatus::NextAction, today)
+            .with_context(|| format!("failed to mark planned task {} as next action", task.id.0))?;
         actions.push(format!(
             "planned next action {} in project {}",
             task.id.0, project_name
@@ -1406,7 +1521,7 @@ fn bash_completion_script() -> &'static str {
             ;;
         task)
             if [[ ${COMP_CWORD} -eq 2 ]]; then
-                COMPREPLY=( $(compgen -W "add list show edit bulk-edit start done reopen defer archive unarchive delete" -- "$cur") )
+                COMPREPLY=( $(compgen -W "add list show edit bulk-edit next start wait block done reopen defer archive unarchive delete" -- "$cur") )
             else
                 case "$second" in
                     add) COMPREPLY=( $(compgen -W "--title --notes --project --priority --tag --due --repeat" -- "$cur") ) ;;
@@ -1434,7 +1549,7 @@ fn bash_completion_script() -> &'static str {
             if [[ ${COMP_CWORD} -eq 2 ]]; then
                 COMPREPLY=( $(compgen -W "daily weekly" -- "$cur") )
             else
-                COMPREPLY=( $(compgen -W "--json --start --complete --archive --defer --plan" -- "$cur") )
+                COMPREPLY=( $(compgen -W "--json --next-action --start --waiting --blocked --complete --archive --defer --plan" -- "$cur") )
             fi
             ;;
         today)
@@ -1490,7 +1605,7 @@ case $state in
       config) _describe 'config command' 'show:set' ;;
       import) _describe 'import command' 'legacy:legacy import' ;;
       storage) _describe 'storage command' 'path:show paths' 'export:export data' 'backup:create backup' ;;
-      task) _describe 'task command' 'add:add task' 'list:list tasks' 'show:show task' 'edit:edit task' 'bulk-edit:bulk edit tasks' 'start:start task' 'done:complete task' 'reopen:reopen task' 'defer:defer task' 'archive:archive task' 'unarchive:unarchive task' 'delete:delete task' ;;
+      task) _describe 'task command' 'add:add task' 'list:list tasks' 'show:show task' 'edit:edit task' 'bulk-edit:bulk edit tasks' 'next:mark next action' 'start:start task' 'wait:mark waiting' 'block:mark blocked' 'done:complete task' 'reopen:reopen task' 'defer:defer task' 'archive:archive task' 'unarchive:unarchive task' 'delete:delete task' ;;
       project) _describe 'project command' 'add:add project' 'list:list projects' 'show:show project' 'archive:archive project' 'unarchive:unarchive project' ;;
       review) _describe 'review command' 'daily:daily review' 'weekly:weekly review' ;;
       completions) _describe 'shell' 'bash:bash completion' 'zsh:zsh completion' 'fish:fish completion' ;;
@@ -1501,11 +1616,11 @@ case $state in
       config) _arguments '--json[emit JSON output]' '--upcoming-days=[set default upcoming window]:days:' '--task-sort=[set default task sort]:sort:(due priority updated title)' '--json-output[default to JSON]' '--plain-output[default to plain output]' ;;
       import) _arguments '--source=[legacy root path]:path:_files' '--json[emit JSON output]' ;;
       storage) _arguments '--json[emit JSON output]' '--output=[export destination]:path:_files' ;;
-      task) _arguments '--json[emit JSON output]' '--project=[project reference]:project:' '--status=[task status]:status:(todo in_progress done archived)' '--priority=[task priority]:priority:(low medium high)' '--tag=[task tag]:tag:' '--due=[date expression]:date:' '--repeat=[recurrence]:repeat:(daily weekly monthly)' '--days=[defer by days]:days:' '--until=[defer until date]:date:' '--all[include archived and closed tasks]' '--sort=[task sort]:sort:(due priority updated title)' ;;
+      task) _arguments '--json[emit JSON output]' '--project=[project reference]:project:' '--status=[task status]:status:(todo next_action in_progress waiting blocked done archived)' '--priority=[task priority]:priority:(low medium high)' '--tag=[task tag]:tag:' '--due=[date expression]:date:' '--repeat=[recurrence]:repeat:(daily weekly monthly)' '--days=[defer by days]:days:' '--until=[defer until date]:date:' '--all[include archived and closed tasks]' '--sort=[task sort]:sort:(due priority updated title)' ;;
       project) _arguments '--name=[project name]:name:' '--description=[project description]:description:' '--archived[list archived projects]' '--json[emit JSON output]' ;;
       today) _arguments '--json[emit JSON output]' ;;
       upcoming) _arguments '--days=[upcoming window]:days:' '--json[emit JSON output]' ;;
-      review) _arguments '--json[emit JSON output]' '--start=[start task id]:id:' '--complete=[complete task id]:id:' '--archive=[archive task id]:id:' '--defer=[reschedule as id:date]:instruction:' '--plan=[create project next action as project:task]:instruction:' ;;
+      review) _arguments '--json[emit JSON output]' '--next-action=[mark task as next action]:id:' '--start=[start task id]:id:' '--waiting=[mark task as waiting]:id:' '--blocked=[mark task as blocked]:id:' '--complete=[complete task id]:id:' '--archive=[archive task id]:id:' '--defer=[reschedule as id:date]:instruction:' '--plan=[create project next action as project:task]:instruction:' ;;
       search) _arguments '--json[emit JSON output]' ;;
     esac
     ;;
@@ -1520,7 +1635,7 @@ complete -c kelp -n '__fish_use_subcommand' -a 'init config import storage task 
 complete -c kelp -n '__fish_seen_subcommand_from config; and not __fish_seen_subcommand_from show set' -a 'show set'
 complete -c kelp -n '__fish_seen_subcommand_from import; and not __fish_seen_subcommand_from legacy' -a 'legacy'
 complete -c kelp -n '__fish_seen_subcommand_from storage; and not __fish_seen_subcommand_from path export backup' -a 'path export backup'
-complete -c kelp -n '__fish_seen_subcommand_from task; and not __fish_seen_subcommand_from add list show edit bulk-edit start done reopen defer archive unarchive delete' -a 'add list show edit bulk-edit start done reopen defer archive unarchive delete'
+complete -c kelp -n '__fish_seen_subcommand_from task; and not __fish_seen_subcommand_from add list show edit bulk-edit next start wait block done reopen defer archive unarchive delete' -a 'add list show edit bulk-edit next start wait block done reopen defer archive unarchive delete'
 complete -c kelp -n '__fish_seen_subcommand_from project; and not __fish_seen_subcommand_from add list show archive unarchive' -a 'add list show archive unarchive'
 complete -c kelp -n '__fish_seen_subcommand_from review; and not __fish_seen_subcommand_from daily weekly' -a 'daily weekly'
 complete -c kelp -n '__fish_seen_subcommand_from completions; and not __fish_seen_subcommand_from bash zsh fish' -a 'bash zsh fish'
@@ -1541,7 +1656,7 @@ complete -c kelp -n '__fish_seen_subcommand_from add list edit bulk-edit' -l pri
 complete -c kelp -n '__fish_seen_subcommand_from add edit bulk-edit' -l due -r -d 'Date expression'
 complete -c kelp -n '__fish_seen_subcommand_from add edit bulk-edit' -l repeat -a 'daily weekly monthly' -d 'Recurrence'
 complete -c kelp -n '__fish_seen_subcommand_from add edit bulk-edit list' -l tag -r -d 'Task tag'
-complete -c kelp -n '__fish_seen_subcommand_from list' -l status -a 'todo in_progress done archived' -d 'Task status'
+complete -c kelp -n '__fish_seen_subcommand_from list' -l status -a 'todo next_action in_progress waiting blocked done archived' -d 'Task status'
 complete -c kelp -n '__fish_seen_subcommand_from list' -l due-today -d 'Only show tasks due today'
 complete -c kelp -n '__fish_seen_subcommand_from list' -l overdue -d 'Only show overdue tasks'
 complete -c kelp -n '__fish_seen_subcommand_from list' -l all -d 'Include closed and archived tasks'
@@ -1562,6 +1677,9 @@ complete -c kelp -n '__fish_seen_subcommand_from add' -l description -r -d 'Proj
 complete -c kelp -n '__fish_seen_subcommand_from list' -l archived -d 'List archived projects'
 
 complete -c kelp -n '__fish_seen_subcommand_from daily weekly' -l start -r -d 'Mark a task in progress'
+complete -c kelp -n '__fish_seen_subcommand_from daily weekly' -l next-action -r -d 'Mark a task as the next action'
+complete -c kelp -n '__fish_seen_subcommand_from daily weekly' -l waiting -r -d 'Mark a task as waiting'
+complete -c kelp -n '__fish_seen_subcommand_from daily weekly' -l blocked -r -d 'Mark a task as blocked'
 complete -c kelp -n '__fish_seen_subcommand_from daily weekly' -l complete -r -d 'Complete a task'
 complete -c kelp -n '__fish_seen_subcommand_from daily weekly' -l archive -r -d 'Archive a task'
 complete -c kelp -n '__fish_seen_subcommand_from daily weekly' -l defer -r -d 'Reschedule as id:date'
