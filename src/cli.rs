@@ -76,8 +76,14 @@ pub enum TaskCommand {
     Show(TaskShowArgs),
     Edit(TaskEditArgs),
     BulkEdit(TaskBulkEditArgs),
+    #[command(visible_alias = "na")]
+    Next(TaskNextArgs),
     #[command(visible_alias = "begin")]
     Start(TaskStartArgs),
+    #[command(visible_alias = "hold")]
+    Wait(TaskWaitArgs),
+    #[command(visible_alias = "stuck")]
+    Block(TaskBlockArgs),
     #[command(visible_alias = "complete")]
     Done(TaskDoneArgs),
     Reopen(TaskReopenArgs),
@@ -282,6 +288,21 @@ pub struct TaskStartArgs {
 }
 
 #[derive(Debug, Args, Clone)]
+pub struct TaskNextArgs {
+    pub id: u64,
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct TaskWaitArgs {
+    pub id: u64,
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct TaskBlockArgs {
+    pub id: u64,
+}
+
+#[derive(Debug, Args, Clone)]
 pub struct TaskDoneArgs {
     pub id: u64,
 }
@@ -360,8 +381,14 @@ pub struct UpcomingArgs {
 pub struct ReviewArgs {
     #[arg(long)]
     pub json: bool,
+    #[arg(long = "next-action")]
+    pub next_action: Vec<u64>,
     #[arg(long = "start")]
     pub start: Vec<u64>,
+    #[arg(long = "waiting")]
+    pub waiting: Vec<u64>,
+    #[arg(long = "blocked")]
+    pub blocked: Vec<u64>,
     #[arg(long = "complete")]
     pub complete: Vec<u64>,
     #[arg(long = "archive")]
