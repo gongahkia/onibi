@@ -258,6 +258,7 @@ fn import_legacy<S: Storage>(
             imported_tasks: summary.imported_tasks,
             imported_projects: summary.imported_projects,
             reused_projects: summary.reused_projects,
+            skipped_duplicates: summary.skipped_duplicates,
             scanned_files: summary.scanned_files,
             warnings: summary.warnings,
         });
@@ -268,6 +269,7 @@ fn import_legacy<S: Storage>(
         format!("imported tasks: {}", summary.imported_tasks),
         format!("imported projects: {}", summary.imported_projects),
         format!("reused projects: {}", summary.reused_projects),
+        format!("skipped duplicates: {}", summary.skipped_duplicates),
         format!("scanned files: {}", summary.scanned_files),
     ];
     if !summary.warnings.is_empty() {
@@ -1777,6 +1779,7 @@ struct ImportResponse {
     imported_tasks: usize,
     imported_projects: usize,
     reused_projects: usize,
+    skipped_duplicates: usize,
     scanned_files: usize,
     warnings: Vec<String>,
 }
