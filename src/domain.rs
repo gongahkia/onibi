@@ -1253,14 +1253,7 @@ mod tests {
         let mut state = AppState::default();
         let today = date("2026-03-14");
         let project = state
-            .create_project(
-                NewProject {
-                    name: "Launch".to_string(),
-                    description: None,
-                    deadline: None,
-                },
-                today,
-            )
+            .create_project("Launch".to_string(), None, None, today)
             .expect("project creation should succeed");
         let first = state
             .create_task(
