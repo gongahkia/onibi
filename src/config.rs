@@ -1,9 +1,11 @@
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const CURRENT_CONFIG_SCHEMA_VERSION: u32 = 1;
 
@@ -104,10 +106,14 @@ impl JsonConfigStore {
             return Ok(AppConfig::default());
         }
 
-        let mut config: AppConfig = serde_json::from_str(&contents)
-            .with_context(|| format!("failed to parse {}", file.display()))?;
-        config.schema_version = CURRENT_CONFIG_SCHEMA_VERSION;
-        Ok(config)
+        match serde_json::from_str::<Value>(&contents) {
+            Ok(mut value) => {
+                migrate_config_value(&mut value)?;
+                serde_json::from_value::<AppConfig>(value)
+                    .with_context(|| format!("failed to parse {}", file.display()))
+            }
+            Err(error) => self.recover_corrupt_config(error),
+        }
     }
 
     pub fn save(&self, config: &AppConfig) -> Result<()> {
@@ -138,6 +144,37 @@ impl JsonConfigStore {
 
         Ok(())
     }
+
+    fn corrupt_dir(&self) -> PathBuf {
+        self.root.join("corrupt")
+    }
+
+    fn recover_corrupt_config(&self, parse_error: serde_json::Error) -> Result<AppConfig> {
+        let file = self.config_file();
+        let corrupt_file = self
+            .corrupt_dir()
+            .join(format!("config-corrupt-{}.json", unix_timestamp()));
+        if let Some(parent) = corrupt_file.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create {}", parent.display()))?;
+        }
+        fs::rename(&file, &corrupt_file).with_context(|| {
+            format!(
+                "failed to move corrupt config {} into quarantine {}",
+                file.display(),
+                corrupt_file.display()
+            )
+        })?;
+
+        let default_config = AppConfig::default();
+        self.save(&default_config)?;
+        Err(parse_error)
+            .with_context(|| format!("failed to parse {}", file.display()))
+            .context(format!(
+                "corrupt config moved to {}; a default config was written",
+                corrupt_file.display()
+            ))
+    }
 }
 
 fn current_config_schema_version() -> u32 {
@@ -146,6 +183,53 @@ fn current_config_schema_version() -> u32 {
 
 fn default_upcoming_days() -> i64 {
     7
+}
+
+fn unix_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time should be after the unix epoch")
+        .as_secs()
+}
+
+fn migrate_config_value(value: &mut Value) -> Result<()> {
+    let schema_version = value
+        .get("schema_version")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as u32;
+
+    match schema_version {
+        0 | 1 => add_missing_config_fields(value),
+        other if other > CURRENT_CONFIG_SCHEMA_VERSION => {
+            bail!("config schema version {other} is newer than this build supports");
+        }
+        _ => {}
+    }
+
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "schema_version".to_string(),
+            Value::Number(CURRENT_CONFIG_SCHEMA_VERSION.into()),
+        );
+    } else {
+        bail!("config must be represented as a JSON object");
+    }
+
+    Ok(())
+}
+
+fn add_missing_config_fields(value: &mut Value) {
+    if let Some(object) = value.as_object_mut() {
+        object
+            .entry("default_upcoming_days".to_string())
+            .or_insert_with(|| json!(default_upcoming_days()));
+        object
+            .entry("default_task_sort".to_string())
+            .or_insert_with(|| json!(TaskSortKey::default()));
+        object
+            .entry("default_json_output".to_string())
+            .or_insert_with(|| json!(false));
+    }
 }
 
 fn resolve_config_root() -> Result<PathBuf> {
@@ -211,6 +295,49 @@ mod tests {
         assert_eq!(loaded.default_upcoming_days, 14);
         assert_eq!(loaded.default_task_sort, TaskSortKey::Priority);
         assert!(loaded.default_json_output);
+
+        fs::remove_dir_all(root).expect("cleanup should succeed");
+    }
+
+    #[test]
+    fn load_migrates_legacy_config_values() {
+        let root = temp_root();
+        let store = JsonConfigStore::at(root.clone());
+        fs::create_dir_all(&root).expect("config root should be created");
+        fs::write(
+            root.join("config.json"),
+            "{\n  \"default_upcoming_days\": 9\n}\n",
+        )
+        .expect("legacy config should be written");
+
+        let config = store.load().expect("config should load");
+
+        assert_eq!(config.schema_version, CURRENT_CONFIG_SCHEMA_VERSION);
+        assert_eq!(config.default_upcoming_days, 9);
+        assert_eq!(config.default_task_sort, TaskSortKey::Due);
+        assert!(!config.default_json_output);
+
+        fs::remove_dir_all(root).expect("cleanup should succeed");
+    }
+
+    #[test]
+    fn load_quarantines_corrupt_config_and_reports_an_error() {
+        let root = temp_root();
+        let store = JsonConfigStore::at(root.clone());
+        fs::create_dir_all(&root).expect("config root should be created");
+        fs::write(root.join("config.json"), "{not-valid-json")
+            .expect("corrupt config should be written");
+
+        let error = store
+            .load()
+            .expect_err("corrupt config should return an error after recovery");
+
+        assert!(error.to_string().contains("corrupt config moved"));
+        assert!(root.join("config.json").exists());
+        assert!(fs::read_dir(root.join("corrupt"))
+            .expect("corrupt directory should exist")
+            .next()
+            .is_some());
 
         fs::remove_dir_all(root).expect("cleanup should succeed");
     }
