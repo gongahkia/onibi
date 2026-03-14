@@ -1007,13 +1007,23 @@ fn weekly_review<S: Storage>(
         .into_iter()
         .filter(|task| task.updated_on <= stale_cutoff)
         .collect::<Vec<_>>();
+    let mut projects_without_next_actions = active_projects(&state)
+        .into_iter()
+        .filter_map(|project| {
+            let summary = state.project_summary(project.id, today).ok()?;
+            if summary.open_tasks > 0 && summary.next_action_tasks == 0 {
+                Some((project, summary))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
     let mut stalled_projects = active_projects(&state)
         .into_iter()
         .filter_map(|project| {
             let summary = state.project_summary(project.id, today).ok()?;
-            if summary.open_tasks == 0
-                || summary.next_action_tasks == 0
-                || summary.dependency_blocked_tasks > 0
+            if summary.open_tasks > 0
+                && (summary.blocked_tasks > 0 || summary.dependency_blocked_tasks > 0)
             {
                 Some((project, summary))
             } else {
@@ -1071,6 +1081,8 @@ fn weekly_review<S: Storage>(
     sort_tasks(&mut dependency_blocked, TaskSortKey::Priority);
     sort_tasks(&mut due_this_week, TaskSortKey::Due);
     sort_tasks(&mut stale_tasks, TaskSortKey::Updated);
+    projects_without_next_actions
+        .sort_by(|left, right| left.0.name.to_lowercase().cmp(&right.0.name.to_lowercase()));
     stalled_projects.sort_by(|left, right| left.0.name.to_lowercase().cmp(&right.0.name.to_lowercase()));
     projects_missing_deadlines
         .sort_by(|left, right| left.0.name.to_lowercase().cmp(&right.0.name.to_lowercase()));
@@ -1102,6 +1114,10 @@ fn weekly_review<S: Storage>(
         return to_pretty_json(&WeeklyReviewResponse {
             applied_actions,
             sections: sections_to_views(&sections, &state),
+            projects_without_next_actions: projects_without_next_actions
+                .iter()
+                .map(|(project, summary)| project_view(project, *summary))
+                .collect(),
             stalled_projects: stalled_projects
                 .iter()
                 .map(|(project, summary)| project_view(project, *summary))
@@ -1125,6 +1141,11 @@ fn weekly_review<S: Storage>(
     output.push_str("\n\n");
     output.push_str(&render_project_list(
         "Projects without next actions",
+        &projects_without_next_actions,
+    ));
+    output.push_str("\n\n");
+    output.push_str(&render_project_list(
+        "Projects stalled by blockers",
         &stalled_projects,
     ));
     output.push_str("\n\n");
@@ -2112,6 +2133,7 @@ struct ReviewTaskResponse {
 struct WeeklyReviewResponse {
     applied_actions: Vec<String>,
     sections: Vec<TaskSectionView>,
+    projects_without_next_actions: Vec<ProjectView>,
     stalled_projects: Vec<ProjectView>,
     projects_missing_deadlines: Vec<ProjectView>,
     deadline_projects: Vec<ProjectView>,
