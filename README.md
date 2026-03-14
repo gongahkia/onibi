@@ -1,272 +1,122 @@
-# Kelp
+![](https://img.shields.io/badge/kelp_1.0-passing-green)
 
-Kelp is a Rust CLI personal planner for tasks, projects, recurring work, and daily or weekly review flows.
+# KELP 🌿🌊
 
-This rewrite replaces the old prompt-driven single-file prototype with:
+The *K*ommand line h*elp*er.
 
-- typed domain models for tasks, projects, status, priority, and recurrence
-- subcommand-driven CLI workflows
-- structured local JSON storage with backups, lock files, and export tooling
-- a JSON-first storage model with versioned migrations and recovery paths
-- richer terminal output for lists, details, and review views
-- offline-testable application logic with deterministic clocks in tests
+Written in Rust, because [we love crabs](https://www.reddit.com/r/rust/comments/uboyeq/why_is_rust_the_most_loved_programming_language/?rdt=50321).
 
-## Features
+Installation handled in Bash, because making *Kelp* felt like [bashing my head in](https://www.reddit.com/r/rust/comments/cgs9lj/why_do_people_hate_rust/).
 
-- `kelp import legacy --source <path>`
-- `kelp config show|set`
-- `kelp storage path|backup|export`
-- `kelp task add|list|show|edit|bulk-edit|next|start|wait|block|done|reopen|defer|archive|unarchive|delete`
-- `kelp project add|list|show|edit|archive|unarchive`
-- `kelp today`
-- `kelp upcoming --days <n>`
-- `kelp review daily --next-action <id> --start <id> --waiting <id> --blocked <id> --complete <id> --defer <id:date>`
-- `kelp review weekly --archive <id> --plan <project:task>`
-- `kelp search <query>`
-- `kelp completions bash|zsh|fish`
-- recurring task generation for daily, weekly, and monthly work
-- richer planner states for `next_action`, `waiting`, and `blocked` tasks
-- one canonical `next_action` per project, enforced when you promote a new task
-- task dependency tracking with dependency-aware review sections
-- task metadata for `waiting_until` follow-up dates and `blocked_reason`
-- project deadlines surfaced in project views and weekly review
-- JSON output on planner and listing commands via `--json`
-- config defaults for upcoming windows, sort order, and JSON output
-- human date expressions like `today`, `tomorrow`, `next-week`, `next-monday`, and `+3d`
-- duplicate-safe legacy `.kelpStorage` and `.kelpProjects` migration
+## Feature roadmap
 
-## Install and Run
+| Feature implementation | Implemented |
+| :---: | :---: |
+| **To-do list** | ~ |
+| **Task attributes** | ~  |
+| Task name | ✅ |
+| Task description | ✅ |
+| Task due date | ✅ |
+| Task urgency | ✅ |
+| Task tags | ~  |
+| Tags to be attached to each task optionally, to sort tasks by tags | ✅ |
+| **Data storage** | ~ |
+| Changes written to local file titled `.kelpStorage` | ✅ |
+| Loads saves from `.kelpStorage` | ✅ |
+| Online sync via Google drive Api | *Implemented in Kelp 2.0* |
+| **Create task** | ~ |
+| Error handling | ✅ |
+| **Completed tasks** | ~ |
+| Check off completed tasks | ✅ |
+| **Editing tasks** | ~ |
+| Task name | ✅ |
+| Task description | ✅ |
+| Task deadline | ✅ |
+| Task urgency | ✅ |
+| Task tags | ✅ |
+| **Sorting tasks** | ~ |
+| Due date | ✅ |
+| Urgency level | ✅ |
+| Tags | ✅ |
+| **Deleting tasks** | ~ |
+| Recycle bin stores deleted tasks for 30 days | *Implemented in Kelp 2.0* |
+| Completed tasks saved until entire list is deleted | *Implemented in Kelp 2.0* |
+| **List creation** | ~ |
+| Lighter-weight alternative to projects that sorts related tasks together. | ✅ |
+| **Project management** | ~ |
+| Each project comprises an *entire task list*. | ✅ |
+| Project name | ✅ |
+| Project tasks | ✅ |
+| Project completion percentage | *Implemented in Kelp 2.0* |
+| **Quality of life improvements** | ~ |
+| Program commands can optionally be interacted with via cli commands *(similar to `neofetch` and `git`)*. | *Implemented in Kelp 2.0* |
+| Kanban board functionality that can be visualised in CLI. | *Implemented in Kelp 2.0* |
+| Sane defaults and keymaps | *Implemented in Kelp 2.0* |
+| **Program installation** | ~ |
+| Handle all program and dependancy installation with bash scripting. | ✅ |
+| Bash script edits `.bashrc` file to add aliases and path for CLI commands to be used. | ✅ |
+| Port program to Linux, Windows and Mac environments. | ✅ |
+| Rebuild this as a webapp using rust's iced library and tauri. | *Implemented in Kelp 3.0* |
 
-Build locally with Cargo:
+---
 
-```console
-cargo build --release
-```
+## Deployment
 
-Run directly from the repo:
+| Platform | Status | Download |
+| :---: | :---: | :---: |
+| Windows | Up | On WSL, below instructions |
+| MacOS | Up | Below instructions |
+| Linux | Up | Below instructions |
 
-```console
-cargo run -- task list
-```
+---
 
-Or install into your Cargo bin directory:
+## Dependancies
 
-```console
-cargo install --path .
-```
+* `curl`
+* `wget`
+* `git`
 
-Or use the included installer:
+## Installation and usage
 
-```console
-./installer.sh
-```
-
-Install with completions at the same time:
-
-```console
-./installer.sh --with-completions
-```
-
-Build a release bundle with the binary, README, installer, and shell completion files:
-
-```console
-./scripts/package-release.sh
-```
-
-## Storage
-
-Kelp uses JSON as its canonical local backend today. It stores `data.json` under one of these locations:
-
-1. `$KELP_DATA_DIR/data.json` when `KELP_DATA_DIR` is set
-2. `$XDG_DATA_HOME/kelp/data.json` when `XDG_DATA_HOME` is set
-3. `$HOME/.local/share/kelp/data.json` by default
-
-Initialize the storage file explicitly with:
+1. Run the following commands in your terminal.
 
 ```console
-kelp init
+$ wget https://raw.githubusercontent.com/gongahkia/Kelp/main/installer.sh
+$ chmod +x installer.sh
+$ ./installer.sh
 ```
 
-All other commands also create the storage file automatically on first use.
-
-Automatic backup snapshots are stored under `backups/` next to `data.json`, and a coarse lock file is used during writes to avoid overlapping save operations.
-Schema migrations run automatically when older JSON state files are loaded.
-
-Kelp also stores `config.json` next to `data.json`. Use it to set planner defaults that apply across commands:
+2. After running the Rust installer, we have to add a line of code to the **bottom** of our `.bashrc` file to indicate the file path. Remember to **source** your `.bashrc` file. (Neovim is used below, but any other code editor can be used).
 
 ```console
-kelp config set --upcoming-days 10 --task-sort priority --json-output
-kelp config show
+$ nvim ~/.bashrc
+$ source ~/.bashrc
 ```
 
-Inspect the storage layout:
+*Line to be added:*
+
+```bash
+export PATH=~/.config/Kelp-build:$PATH
+```
+
+3. Finally, `cd` back into the directory that we previously ran the `installation.sh` binary in, and remove the installation files.
 
 ```console
-kelp storage path
+$ rm -r installer.sh Kelp
 ```
 
-Create a manual backup snapshot:
+---
+
+## Uninstalling Kelp
 
 ```console
-kelp storage backup
+$ cd ~/.config
+$ rm -r Kelp-build
 ```
 
-Export the current dataset:
+Additionally, remember to remove the line added to your `.bashrc` file.
 
 ```console
-kelp storage export --output ./kelp-export.json
+$ nvim ~/.bashrc
+-- removes final line from file
 ```
-
-Import data from the legacy Kelp format:
-
-```console
-kelp import legacy --source /path/to/old/kelp/root
-```
-
-Re-running the same import skips duplicate tasks instead of cloning them into the new store.
-
-## Usage
-
-Create a project:
-
-```console
-kelp project add --name "Launch" --deadline 2026-03-20
-```
-
-Create a recurring task:
-
-```console
-kelp task add \
-  --title "Weekly review" \
-  --project "Launch" \
-  --priority high \
-  --due 2026-03-20 \
-  --repeat weekly \
-  --tag review \
-  --tag planning
-```
-
-Use relative or named dates when it is faster than typing an ISO date:
-
-```console
-kelp task add --title "Inbox zero" --due tomorrow
-kelp task add --title "Send agenda" --due next-monday
-kelp task add --title "Check blockers" --due +3d
-```
-
-List open tasks:
-
-```console
-kelp task list
-```
-
-List overdue tasks as JSON:
-
-```console
-kelp task list --overdue --json
-```
-
-Complete a task and spawn its next recurring instance:
-
-```console
-kelp task done 1
-```
-
-Start or defer tasks during execution:
-
-```console
-kelp task start 2
-kelp task defer 2 --days 3
-```
-
-Move tasks between richer planner states:
-
-```console
-kelp task next 2
-kelp task wait 2 --until 2026-03-18
-kelp task block 2 --reason "Waiting on vendor approval"
-```
-
-Promoting a new `next_action` inside the same project automatically demotes the older one back to `todo`.
-
-Link tasks with explicit dependencies:
-
-```console
-kelp task add --title "Publish assets" --project Launch --depends-on 1
-kelp task edit 2 --depends-on 1 --depends-on 3
-```
-
-Update project planning metadata:
-
-```console
-kelp project edit Launch --deadline 2026-03-24
-kelp project edit Launch --description "Finalize launch readiness"
-```
-
-Bulk-edit multiple tasks at once:
-
-```console
-kelp task bulk-edit 1 2 3 --priority high --tag sprint --due 2026-03-21
-```
-
-Run the daily review:
-
-```console
-kelp review daily
-```
-
-Apply actions while reviewing:
-
-```console
-kelp review daily --next-action 1 --waiting 2 --blocked 3 --defer 4:2026-03-20
-```
-
-Create the next action for a stalled project during weekly review:
-
-```console
-kelp review weekly --plan Launch:"Draft launch checklist"
-```
-
-The weekly review also surfaces projects due soon, projects missing deadlines, waiting tasks that need follow-up, and blocked tasks.
-It now also surfaces tasks blocked by unresolved dependencies, projects without a designated next action, projects stalled by blockers, and projects at risk because of deadline pressure plus dependency blockers.
-
-Inspect the next two weeks of work:
-
-```console
-kelp upcoming --days 14
-```
-
-Search across active tasks and projects:
-
-```console
-kelp search review
-```
-
-Generate shell completions on demand:
-
-```console
-kelp completions bash > ~/.local/share/bash-completion/completions/kelp
-kelp completions zsh > ~/.zfunc/_kelp
-kelp completions fish > ~/.config/fish/completions/kelp.fish
-```
-
-## Development
-
-Run the offline test suite:
-
-```console
-cargo test --offline
-```
-
-GitHub Actions also runs cross-platform test jobs and tagged release artifact builds from [.github/workflows/ci-release.yml](.github/workflows/ci-release.yml).
-
-The codebase is split into:
-
-- `src/domain.rs` for typed planner entities and state transitions
-- `src/legacy.rs` for legacy Kelp import parsing
-- `src/storage.rs` for JSON-backed persistence
-- `src/config.rs` for config persistence and migration
-- `src/cli.rs` for Clap command parsing
-- `src/app.rs` for command execution and view composition
-- `src/render.rs` for terminal presentation
-- `scripts/package-release.sh` for local release bundles
