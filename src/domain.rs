@@ -846,6 +846,8 @@ mod tests {
                     tags: vec!["ops".to_string()],
                     due_date: Some(created_on),
                     recurrence: Some(RecurrenceRule::Weekly),
+                    waiting_until: None,
+                    blocked_reason: None,
                 },
                 created_on,
             )
