@@ -1,11 +1,12 @@
 use crate::cli::{
-    Cli, Command, ImportCommand, LegacyImportArgs, ProjectAddArgs,
+    Cli, Command, ConfigCommand, ConfigSetArgs, ConfigShowArgs, ImportCommand, LegacyImportArgs, ProjectAddArgs,
     ProjectArchiveArgs, ProjectCommand, ProjectListArgs, ProjectShowArgs, ProjectUnarchiveArgs,
     ReviewArgs, SearchArgs, StorageBackupArgs, StorageCommand, StorageExportArgs,
     StoragePathArgs, TaskAddArgs, TaskArchiveArgs, TaskBulkEditArgs, TaskCommand,
     TaskDeferArgs, TaskDeleteArgs, TaskDoneArgs, TaskEditArgs, TaskListArgs, TaskReopenArgs,
     TaskReschedule, TaskShowArgs, TaskStartArgs, TaskUnarchiveArgs, UpcomingArgs,
 };
+use crate::config::{AppConfig, JsonConfigStore, TaskSortKey};
 use crate::domain::{
     normalize_tags, AppState, NewTask, Priority, Project, ProjectId, ProjectStatus, ProjectSummary,
     RecurrenceRule, Task, TaskId, TaskPatch, TaskStatus,
@@ -17,7 +18,7 @@ use crate::render::{
 };
 use crate::storage::Storage;
 use anyhow::{bail, Context, Result};
-use chrono::{Duration, Local, NaiveDate};
+use chrono::{Duration, Local, Months, NaiveDate};
 use serde::Serialize;
 
 pub trait Clock {
@@ -58,6 +59,7 @@ pub fn execute<S: Storage, C: Clock>(cli: Cli, storage: &S, clock: &C) -> Result
             let path = storage.init()?;
             Ok(render_init(&path))
         }
+        Command::Config { command } => execute_config_command(command, storage),
         Command::Import { command } => execute_import_command(command, storage, today),
         Command::Storage { command } => execute_storage_command(command, storage),
         Command::Task { command } => execute_task_command(command, storage, today),
@@ -66,6 +68,13 @@ pub fn execute<S: Storage, C: Clock>(cli: Cli, storage: &S, clock: &C) -> Result
         Command::Upcoming(args) => execute_upcoming(storage, today, args),
         Command::Review { command } => execute_review_command(command, storage, today),
         Command::Search(args) => execute_search(storage, today, args),
+    }
+}
+
+fn execute_config_command<S: Storage>(command: ConfigCommand, storage: &S) -> Result<String> {
+    match command {
+        ConfigCommand::Show(args) => show_config(storage, args),
+        ConfigCommand::Set(args) => set_config(storage, args),
     }
 }
 
@@ -122,6 +131,64 @@ fn execute_storage_command<S: Storage>(command: StorageCommand, storage: &S) -> 
     }
 }
 
+fn show_config<S: Storage>(storage: &S, args: ConfigShowArgs) -> Result<String> {
+    let config_store = JsonConfigStore::at(storage.root_dir());
+    let config = config_store.load()?;
+    if args.json || config.default_json_output {
+        return to_pretty_json(&config_response(&config, &config_store));
+    }
+
+    let response = config_response(&config, &config_store);
+    Ok(render_confirmation(
+        "Config",
+        &format!(
+            "file: {}\ndefault upcoming days: {}\ndefault task sort: {}\ndefault json output: {}",
+            response.path,
+            response.default_upcoming_days,
+            response.default_task_sort,
+            response.default_json_output
+        ),
+    ))
+}
+
+fn set_config<S: Storage>(storage: &S, args: ConfigSetArgs) -> Result<String> {
+    let config_store = JsonConfigStore::at(storage.root_dir());
+    let mut config = config_store.load()?;
+    let mut changed = Vec::new();
+
+    if let Some(upcoming_days) = args.upcoming_days {
+        if upcoming_days < 1 {
+            bail!("--upcoming-days must be at least 1");
+        }
+        config.default_upcoming_days = upcoming_days;
+        changed.push(format!("default upcoming days -> {upcoming_days}"));
+    }
+
+    if let Some(task_sort) = args.task_sort {
+        config.default_task_sort = task_sort;
+        changed.push(format!("default task sort -> {task_sort}"));
+    }
+
+    if args.json_output {
+        config.default_json_output = true;
+        changed.push("default json output -> true".to_string());
+    } else if args.plain_output {
+        config.default_json_output = false;
+        changed.push("default json output -> false".to_string());
+    }
+
+    if changed.is_empty() {
+        bail!("no config changes were provided");
+    }
+
+    config_store.save(&config)?;
+
+    Ok(render_confirmation(
+        "Config updated",
+        &changed.join("\n"),
+    ))
+}
+
 fn execute_review_command<S: Storage>(
     command: crate::cli::ReviewCommand,
     storage: &S,
@@ -136,6 +203,11 @@ fn execute_review_command<S: Storage>(
 fn add_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskAddArgs) -> Result<String> {
     let mut state = storage.load()?;
     let project_id = resolve_optional_project_id(&state, args.project.as_deref())?;
+    let due_date = args
+        .due
+        .as_deref()
+        .map(|value| resolve_date_expression(today, value))
+        .transpose()?;
     let task = state.create_task(
         NewTask {
             title: args.title,
@@ -143,7 +215,7 @@ fn add_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskAddArgs) -> Res
             project_id,
             priority: args.priority,
             tags: normalize_tags(args.tags),
-            due_date: args.due,
+            due_date,
             recurrence: args.repeat,
         },
         today,
@@ -161,11 +233,12 @@ fn import_legacy<S: Storage>(
     today: NaiveDate,
     args: LegacyImportArgs,
 ) -> Result<String> {
+    let config = load_config(storage)?;
     let mut state = storage.load()?;
     let summary = import_legacy_from_path(&mut state, &args.source, today)?;
     storage.save(&state)?;
 
-    if args.json {
+    if wants_json(args.json, &config) {
         return to_pretty_json(&ImportResponse {
             imported_tasks: summary.imported_tasks,
             imported_projects: summary.imported_projects,
@@ -192,6 +265,7 @@ fn import_legacy<S: Storage>(
 }
 
 fn show_storage_paths<S: Storage>(storage: &S, args: StoragePathArgs) -> Result<String> {
+    let config = load_config(storage)?;
     let info = StorageInfoResponse {
         backend: "json",
         root_dir: storage.root_dir().display().to_string(),
@@ -200,7 +274,7 @@ fn show_storage_paths<S: Storage>(storage: &S, args: StoragePathArgs) -> Result<
         lock_file: storage.lock_file().display().to_string(),
     };
 
-    if args.json {
+    if wants_json(args.json, &config) {
         return to_pretty_json(&info);
     }
 
@@ -214,8 +288,9 @@ fn show_storage_paths<S: Storage>(storage: &S, args: StoragePathArgs) -> Result<
 }
 
 fn export_storage<S: Storage>(storage: &S, args: StorageExportArgs) -> Result<String> {
+    let config = load_config(storage)?;
     let output = storage.export_to(&args.output)?;
-    if args.json {
+    if wants_json(args.json, &config) {
         return to_pretty_json(&StoragePathResult {
             path: output.display().to_string(),
         });
@@ -228,8 +303,9 @@ fn export_storage<S: Storage>(storage: &S, args: StorageExportArgs) -> Result<St
 }
 
 fn backup_storage<S: Storage>(storage: &S, args: StorageBackupArgs) -> Result<String> {
+    let config = load_config(storage)?;
     let backup = storage.create_backup_snapshot()?;
-    if args.json {
+    if wants_json(args.json, &config) {
         return to_pretty_json(&StoragePathResult {
             path: backup.display().to_string(),
         });
@@ -256,6 +332,7 @@ fn start_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskStartArgs) ->
 }
 
 fn list_tasks<S: Storage>(storage: &S, today: NaiveDate, args: TaskListArgs) -> Result<String> {
+    let config = load_config(storage)?;
     let state = storage.load()?;
     let project_id = resolve_optional_project_id(&state, args.project.as_deref())?;
     let mut tasks = filtered_tasks(
@@ -268,11 +345,13 @@ fn list_tasks<S: Storage>(storage: &S, today: NaiveDate, args: TaskListArgs) -> 
             tag: args.tag.as_deref(),
             due_today: args.due_today,
             overdue: args.overdue,
+            include_all_statuses: args.all,
+            include_archived_projects: args.all,
         },
     );
-    sort_tasks(&mut tasks);
+    sort_tasks(&mut tasks, args.sort.unwrap_or(config.default_task_sort));
 
-    if args.json {
+    if wants_json(args.json, &config) {
         return to_pretty_json(&TaskListResponse {
             tasks: tasks.into_iter().map(|task| task_view(task, &state)).collect(),
         });
@@ -282,12 +361,13 @@ fn list_tasks<S: Storage>(storage: &S, today: NaiveDate, args: TaskListArgs) -> 
 }
 
 fn show_task<S: Storage>(storage: &S, _today: NaiveDate, args: TaskShowArgs) -> Result<String> {
+    let config = load_config(storage)?;
     let state = storage.load()?;
     let task = state
         .find_task(TaskId(args.id))
         .with_context(|| format!("task {} does not exist", args.id))?;
 
-    if args.json {
+    if wants_json(args.json, &config) {
         return to_pretty_json(&task_view(task, &state));
     }
 
@@ -297,7 +377,7 @@ fn show_task<S: Storage>(storage: &S, _today: NaiveDate, args: TaskShowArgs) -> 
 fn edit_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskEditArgs) -> Result<String> {
     let mut state = storage.load()?;
     let task_id = TaskId(args.id);
-    let patch = build_task_patch(&state, &args)?;
+    let patch = build_task_patch(&state, &args, today)?;
     let desired_status = args.status;
     if patch.is_empty() && desired_status.is_none() {
         bail!("no task changes were provided");
@@ -338,7 +418,7 @@ fn bulk_edit_tasks<S: Storage>(
     }
 
     let mut state = storage.load()?;
-    let patch = build_bulk_task_patch(&state, &args)?;
+    let patch = build_bulk_task_patch(&state, &args, today)?;
     let desired_status = args.status;
     if patch.is_empty() && desired_status.is_none() {
         bail!("no bulk edit changes were provided");
@@ -489,6 +569,7 @@ fn list_projects<S: Storage>(
     today: NaiveDate,
     args: ProjectListArgs,
 ) -> Result<String> {
+    let config = load_config(storage)?;
     let state = storage.load()?;
     let mut projects: Vec<&Project> = state
         .projects
@@ -510,7 +591,7 @@ fn list_projects<S: Storage>(
         })
         .collect::<Result<_>>()?;
 
-    if args.json {
+    if wants_json(args.json, &config) {
         return to_pretty_json(&ProjectListResponse {
             projects: project_entries
                 .iter()
@@ -523,6 +604,7 @@ fn list_projects<S: Storage>(
 }
 
 fn show_project<S: Storage>(storage: &S, today: NaiveDate, args: ProjectShowArgs) -> Result<String> {
+    let config = load_config(storage)?;
     let state = storage.load()?;
     let project_id = state.resolve_project_id(&args.project)?;
     let project = state
@@ -531,9 +613,9 @@ fn show_project<S: Storage>(storage: &S, today: NaiveDate, args: ProjectShowArgs
     let summary = state.project_summary(project.id, today)?;
     let mut tasks = state.project_tasks(project.id);
     tasks.retain(|task| !matches!(task.status, TaskStatus::Archived));
-    sort_tasks(&mut tasks);
+    sort_tasks(&mut tasks, TaskSortKey::Due);
 
-    if args.json {
+    if wants_json(args.json, &config) {
         return to_pretty_json(&ProjectDetailResponse {
             project: project_view(project, summary),
             tasks: tasks.into_iter().map(|task| task_view(task, &state)).collect(),
@@ -582,6 +664,7 @@ fn unarchive_project<S: Storage>(
 }
 
 fn execute_today<S: Storage>(storage: &S, today: NaiveDate, json: bool) -> Result<String> {
+    let config = load_config(storage)?;
     let state = storage.load()?;
     let mut overdue = active_open_tasks(&state)
         .into_iter()
@@ -596,9 +679,9 @@ fn execute_today<S: Storage>(storage: &S, today: NaiveDate, json: bool) -> Resul
         .filter(|task| matches!(task.status, TaskStatus::InProgress))
         .collect::<Vec<_>>();
 
-    sort_tasks(&mut overdue);
-    sort_tasks(&mut due_today);
-    sort_tasks(&mut in_progress);
+    sort_tasks(&mut overdue, TaskSortKey::Due);
+    sort_tasks(&mut due_today, TaskSortKey::Due);
+    sort_tasks(&mut in_progress, TaskSortKey::Due);
 
     let sections = vec![
         ("Overdue".to_string(), overdue),
@@ -606,7 +689,7 @@ fn execute_today<S: Storage>(storage: &S, today: NaiveDate, json: bool) -> Resul
         ("In progress".to_string(), in_progress),
     ];
 
-    if json {
+    if wants_json(json, &config) {
         return to_pretty_json(&SectionedTaskResponse {
             sections: sections_to_views(&sections, &state),
         });
@@ -616,12 +699,14 @@ fn execute_today<S: Storage>(storage: &S, today: NaiveDate, json: bool) -> Resul
 }
 
 fn execute_upcoming<S: Storage>(storage: &S, today: NaiveDate, args: UpcomingArgs) -> Result<String> {
-    if args.days < 1 {
+    let config = load_config(storage)?;
+    let days = args.days.unwrap_or(config.default_upcoming_days);
+    if days < 1 {
         bail!("--days must be at least 1");
     }
 
     let state = storage.load()?;
-    let end = today + Duration::days(args.days);
+    let end = today + Duration::days(days);
     let mut tasks = active_open_tasks(&state)
         .into_iter()
         .filter(|task| {
@@ -630,10 +715,10 @@ fn execute_upcoming<S: Storage>(storage: &S, today: NaiveDate, args: UpcomingArg
                 .unwrap_or(false)
         })
         .collect::<Vec<_>>();
-    sort_tasks(&mut tasks);
+    sort_tasks(&mut tasks, TaskSortKey::Due);
 
     let sections = group_tasks_by_due_date(tasks);
-    if args.json {
+    if wants_json(args.json, &config) {
         return to_pretty_json(&SectionedTaskResponse {
             sections: sections_to_views(&sections, &state),
         });
@@ -647,6 +732,7 @@ fn daily_review<S: Storage>(
     today: NaiveDate,
     args: ReviewArgs,
 ) -> Result<String> {
+    let config = load_config(storage)?;
     let mut state = storage.load()?;
     let applied_actions = apply_review_actions(&mut state, today, &args)?;
     if !applied_actions.is_empty() {
@@ -665,9 +751,9 @@ fn daily_review<S: Storage>(
         .filter(|task| task.due_date.is_none() && matches!(task.priority, Priority::High))
         .collect::<Vec<_>>();
 
-    sort_tasks(&mut carryover);
-    sort_tasks(&mut due_today);
-    sort_tasks(&mut needs_scheduling);
+    sort_tasks(&mut carryover, TaskSortKey::Due);
+    sort_tasks(&mut due_today, TaskSortKey::Due);
+    sort_tasks(&mut needs_scheduling, TaskSortKey::Due);
 
     let sections = vec![
         ("Carryover".to_string(), carryover),
@@ -675,7 +761,7 @@ fn daily_review<S: Storage>(
         ("Needs scheduling".to_string(), needs_scheduling),
     ];
 
-    if args.json {
+    if wants_json(args.json, &config) {
         return to_pretty_json(&ReviewTaskResponse {
             applied_actions,
             sections: sections_to_views(&sections, &state),
@@ -694,6 +780,7 @@ fn weekly_review<S: Storage>(
     today: NaiveDate,
     args: ReviewArgs,
 ) -> Result<String> {
+    let config = load_config(storage)?;
     let mut state = storage.load()?;
     let applied_actions = apply_review_actions(&mut state, today, &args)?;
     if !applied_actions.is_empty() {
@@ -730,9 +817,9 @@ fn weekly_review<S: Storage>(
         })
         .collect::<Vec<_>>();
 
-    sort_tasks(&mut overdue);
-    sort_tasks(&mut due_this_week);
-    sort_tasks(&mut stale_tasks);
+    sort_tasks(&mut overdue, TaskSortKey::Due);
+    sort_tasks(&mut due_this_week, TaskSortKey::Due);
+    sort_tasks(&mut stale_tasks, TaskSortKey::Updated);
     stalled_projects.sort_by(|left, right| left.0.name.to_lowercase().cmp(&right.0.name.to_lowercase()));
 
     let sections = vec![
@@ -741,7 +828,7 @@ fn weekly_review<S: Storage>(
         ("Stale tasks".to_string(), stale_tasks),
     ];
 
-    if args.json {
+    if wants_json(args.json, &config) {
         return to_pretty_json(&WeeklyReviewResponse {
             applied_actions,
             sections: sections_to_views(&sections, &state),
@@ -762,6 +849,7 @@ fn weekly_review<S: Storage>(
 }
 
 fn execute_search<S: Storage>(storage: &S, today: NaiveDate, args: SearchArgs) -> Result<String> {
+    let config = load_config(storage)?;
     let state = storage.load()?;
     let query = args.query.trim();
     if query.is_empty() {
@@ -782,7 +870,7 @@ fn execute_search<S: Storage>(storage: &S, today: NaiveDate, args: SearchArgs) -
                         .unwrap_or(false))
         })
         .collect::<Vec<_>>();
-    sort_tasks(&mut tasks);
+    sort_tasks(&mut tasks, TaskSortKey::Due);
 
     let mut projects = active_projects(&state)
         .into_iter()
@@ -797,7 +885,7 @@ fn execute_search<S: Storage>(storage: &S, today: NaiveDate, args: SearchArgs) -
         .collect::<Vec<_>>();
     projects.sort_by(|left, right| left.0.name.to_lowercase().cmp(&right.0.name.to_lowercase()));
 
-    if args.json {
+    if wants_json(args.json, &config) {
         return to_pretty_json(&SearchResponse {
             tasks: tasks.iter().map(|task| task_view(task, &state)).collect(),
             projects: projects
@@ -810,7 +898,7 @@ fn execute_search<S: Storage>(storage: &S, today: NaiveDate, args: SearchArgs) -
     Ok(render_search_results(&tasks, &projects, &state))
 }
 
-fn build_task_patch(state: &AppState, args: &TaskEditArgs) -> Result<TaskPatch> {
+fn build_task_patch(state: &AppState, args: &TaskEditArgs, today: NaiveDate) -> Result<TaskPatch> {
     let project_id = if args.clear_project {
         Some(None)
     } else if let Some(project_ref) = args.project.as_deref() {
@@ -836,7 +924,11 @@ fn build_task_patch(state: &AppState, args: &TaskEditArgs) -> Result<TaskPatch> 
     let due_date = if args.clear_due {
         Some(None)
     } else {
-        args.due.map(Some)
+        args.due
+            .as_deref()
+            .map(|value| resolve_date_expression(today, value))
+            .transpose()?
+            .map(Some)
     };
 
     let recurrence = if args.clear_repeat {
@@ -857,7 +949,11 @@ fn build_task_patch(state: &AppState, args: &TaskEditArgs) -> Result<TaskPatch> 
     })
 }
 
-fn build_bulk_task_patch(state: &AppState, args: &TaskBulkEditArgs) -> Result<TaskPatch> {
+fn build_bulk_task_patch(
+    state: &AppState,
+    args: &TaskBulkEditArgs,
+    today: NaiveDate,
+) -> Result<TaskPatch> {
     let project_id = if args.clear_project {
         Some(None)
     } else if let Some(project_ref) = args.project.as_deref() {
@@ -877,7 +973,11 @@ fn build_bulk_task_patch(state: &AppState, args: &TaskBulkEditArgs) -> Result<Ta
     let due_date = if args.clear_due {
         Some(None)
     } else {
-        args.due.map(Some)
+        args.due
+            .as_deref()
+            .map(|value| resolve_date_expression(today, value))
+            .transpose()?
+            .map(Some)
     };
 
     let recurrence = if args.clear_repeat {
@@ -906,8 +1006,8 @@ fn resolve_optional_project_id(state: &AppState, project_ref: Option<&str>) -> R
 }
 
 fn resolve_defer_date(today: NaiveDate, args: &TaskDeferArgs) -> Result<NaiveDate> {
-    match (args.until, args.days) {
-        (Some(due_date), None) => Ok(due_date),
+    match (&args.until, args.days) {
+        (Some(due_date), None) => resolve_date_expression(today, due_date),
         (None, Some(days)) if days > 0 => Ok(today + Duration::days(days)),
         (None, Some(_)) => bail!("--days must be greater than 0"),
         (None, None) => bail!("provide either --until YYYY-MM-DD or --days N"),
@@ -927,11 +1027,12 @@ fn apply_review_actions(
         actions.push(format!("started task {task_id}"));
     }
 
-    for TaskReschedule { id, due_date } in &args.defer {
+    for TaskReschedule { id, due_expression } in &args.defer {
+        let due_date = resolve_date_expression(today, due_expression)?;
         state.apply_task_patch(
             TaskId(*id),
             TaskPatch {
-                due_date: Some(Some(*due_date)),
+                due_date: Some(Some(due_date)),
                 ..TaskPatch::default()
             },
             today,
@@ -976,7 +1077,7 @@ fn task_matches_filter(task: &Task, state: &AppState, today: NaiveDate, filter: 
         if task.project_id != Some(project_id) {
             return false;
         }
-    } else if !task_in_active_project(task, state) {
+    } else if !filter.include_archived_projects && !task_in_active_project(task, state) {
         return false;
     }
 
@@ -984,7 +1085,7 @@ fn task_matches_filter(task: &Task, state: &AppState, today: NaiveDate, filter: 
         if task.status != status {
             return false;
         }
-    } else if !task.status.is_open() {
+    } else if !filter.include_all_statuses && !task.status.is_open() {
         return false;
     }
 
@@ -1038,24 +1139,31 @@ fn task_in_active_project(task: &Task, state: &AppState) -> bool {
         .unwrap_or(true)
 }
 
-fn sort_tasks(tasks: &mut Vec<&Task>) {
+fn sort_tasks(tasks: &mut Vec<&Task>, sort_key: TaskSortKey) {
     tasks.sort_by(|left, right| {
-        let due_order = match (left.due_date, right.due_date) {
-            (Some(left_due), Some(right_due)) => left_due.cmp(&right_due),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => std::cmp::Ordering::Equal,
+        let primary = match sort_key {
+            TaskSortKey::Due => compare_due_dates(left, right),
+            TaskSortKey::Priority => right.priority.rank().cmp(&left.priority.rank()),
+            TaskSortKey::Updated => right.updated_on.cmp(&left.updated_on),
+            TaskSortKey::Title => left.title.to_lowercase().cmp(&right.title.to_lowercase()),
         };
-        if due_order != std::cmp::Ordering::Equal {
-            return due_order;
+        if primary != std::cmp::Ordering::Equal {
+            return primary;
         }
 
-        right
-            .priority
-            .rank()
-            .cmp(&left.priority.rank())
+        compare_due_dates(left, right)
+            .then_with(|| right.priority.rank().cmp(&left.priority.rank()))
             .then_with(|| left.id.0.cmp(&right.id.0))
     });
+}
+
+fn compare_due_dates(left: &Task, right: &Task) -> std::cmp::Ordering {
+    match (left.due_date, right.due_date) {
+        (Some(left_due), Some(right_due)) => left_due.cmp(&right_due),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    }
 }
 
 fn group_tasks_by_due_date<'a>(tasks: Vec<&'a Task>) -> Vec<(String, Vec<&'a Task>)> {
@@ -1122,6 +1230,42 @@ fn format_u64_list(values: &[u64]) -> String {
     }
 }
 
+fn config_response(config: &AppConfig, store: &JsonConfigStore) -> ConfigResponse {
+    ConfigResponse {
+        path: store.config_file().display().to_string(),
+        schema_version: config.schema_version,
+        default_upcoming_days: config.default_upcoming_days,
+        default_task_sort: config.default_task_sort,
+        default_json_output: config.default_json_output,
+    }
+}
+
+fn load_config<S: Storage>(storage: &S) -> Result<AppConfig> {
+    JsonConfigStore::at(storage.root_dir()).load()
+}
+
+fn wants_json(explicit_json: bool, config: &AppConfig) -> bool {
+    explicit_json || config.default_json_output
+}
+
+fn resolve_date_expression(today: NaiveDate, value: &str) -> Result<NaiveDate> {
+    let normalized = value.trim().to_lowercase();
+    if normalized.is_empty() {
+        bail!("date expression cannot be empty");
+    }
+
+    match normalized.as_str() {
+        "today" => Ok(today),
+        "tomorrow" => Ok(today + Duration::days(1)),
+        "next-week" | "next_week" => Ok(today + Duration::days(7)),
+        "next-month" | "next_month" => today
+            .checked_add_months(Months::new(1))
+            .ok_or_else(|| anyhow::anyhow!("failed to resolve date expression '{value}'")),
+        _ => NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d")
+            .with_context(|| format!("invalid date '{value}', expected YYYY-MM-DD or a keyword")),
+    }
+}
+
 fn task_view(task: &Task, state: &AppState) -> TaskView {
     TaskView {
         id: task.id.0,
@@ -1138,6 +1282,7 @@ fn task_view(task: &Task, state: &AppState) -> TaskView {
         created_on: task.created_on,
         updated_on: task.updated_on,
         completed_on: task.completed_on,
+        archived_on: task.archived_on,
     }
 }
 
@@ -1149,6 +1294,7 @@ fn project_view(project: &Project, summary: ProjectSummary) -> ProjectView {
         status: project.status,
         created_on: project.created_on,
         updated_on: project.updated_on,
+        archived_on: project.archived_on,
         summary,
     }
 }
@@ -1164,6 +1310,8 @@ struct TaskFilter<'a> {
     tag: Option<&'a str>,
     due_today: bool,
     overdue: bool,
+    include_all_statuses: bool,
+    include_archived_projects: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -1180,6 +1328,7 @@ struct TaskView {
     created_on: NaiveDate,
     updated_on: NaiveDate,
     completed_on: Option<NaiveDate>,
+    archived_on: Option<NaiveDate>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1190,6 +1339,7 @@ struct ProjectView {
     status: ProjectStatus,
     created_on: NaiveDate,
     updated_on: NaiveDate,
+    archived_on: Option<NaiveDate>,
     summary: ProjectSummary,
 }
 
@@ -1220,6 +1370,15 @@ struct StorageInfoResponse {
 #[derive(Debug, Serialize)]
 struct StoragePathResult {
     path: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ConfigResponse {
+    path: String,
+    schema_version: u32,
+    default_upcoming_days: i64,
+    default_task_sort: TaskSortKey,
+    default_json_output: bool,
 }
 
 #[derive(Debug, Serialize)]
