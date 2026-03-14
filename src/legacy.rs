@@ -66,16 +66,17 @@ fn ensure_project(
     today: NaiveDate,
     summary: &mut LegacyImportSummary,
 ) -> Result<ProjectId> {
-    if let Some(project) = state
+    if let Some((project_id, project_status)) = state
         .projects
         .iter()
         .find(|project| project.name.eq_ignore_ascii_case(project_name))
+        .map(|project| (project.id, project.status))
     {
-        if project.status != crate::domain::ProjectStatus::Active {
-            state.activate_project(project.id, today)?;
+        if project_status != crate::domain::ProjectStatus::Active {
+            state.activate_project(project_id, today)?;
         }
         summary.reused_projects += 1;
-        return Ok(project.id);
+        return Ok(project_id);
     }
 
     let project = state.create_project(
