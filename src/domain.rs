@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use thiserror::Error;
 
-pub const CURRENT_APP_SCHEMA_VERSION: u32 = 3;
+pub const CURRENT_APP_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct TaskId(pub u64);
@@ -168,6 +168,10 @@ pub struct Task {
     pub completed_on: Option<NaiveDate>,
     #[serde(default)]
     pub archived_on: Option<NaiveDate>,
+    #[serde(default)]
+    pub waiting_until: Option<NaiveDate>,
+    #[serde(default)]
+    pub blocked_reason: Option<String>,
 }
 
 impl Task {
@@ -205,6 +209,8 @@ pub struct Project {
     pub updated_on: NaiveDate,
     #[serde(default)]
     pub archived_on: Option<NaiveDate>,
+    #[serde(default)]
+    pub deadline: Option<NaiveDate>,
 }
 
 impl Project {
@@ -251,6 +257,8 @@ pub struct NewTask {
     pub tags: Vec<String>,
     pub due_date: Option<NaiveDate>,
     pub recurrence: Option<RecurrenceRule>,
+    pub waiting_until: Option<NaiveDate>,
+    pub blocked_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -263,6 +271,8 @@ pub struct TaskPatch {
     pub tags: Option<Vec<String>>,
     pub due_date: Option<Option<NaiveDate>>,
     pub recurrence: Option<Option<RecurrenceRule>>,
+    pub waiting_until: Option<Option<NaiveDate>>,
+    pub blocked_reason: Option<Option<String>>,
 }
 
 impl TaskPatch {
@@ -275,6 +285,20 @@ impl TaskPatch {
             && self.tags.is_none()
             && self.due_date.is_none()
             && self.recurrence.is_none()
+            && self.waiting_until.is_none()
+            && self.blocked_reason.is_none()
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ProjectPatch {
+    pub description: Option<Option<String>>,
+    pub deadline: Option<Option<NaiveDate>>,
+}
+
+impl ProjectPatch {
+    pub fn is_empty(&self) -> bool {
+        self.description.is_none() && self.deadline.is_none()
     }
 }
 
@@ -361,6 +385,7 @@ impl AppState {
         &mut self,
         name: String,
         description: Option<String>,
+        deadline: Option<NaiveDate>,
         today: NaiveDate,
     ) -> Result<Project, DomainError> {
         let name = clean_required_text(name, "project name")?;
@@ -380,6 +405,7 @@ impl AppState {
             created_on: today,
             updated_on: today,
             archived_on: None,
+            deadline,
         };
 
         self.next_project_id += 1;
@@ -421,6 +447,8 @@ impl AppState {
             updated_on: today,
             completed_on: None,
             archived_on: None,
+            waiting_until: input.waiting_until,
+            blocked_reason: clean_optional_text(input.blocked_reason),
         };
 
         self.next_task_id += 1;
@@ -466,12 +494,39 @@ impl AppState {
         if let Some(recurrence) = patch.recurrence {
             task.recurrence = recurrence;
         }
+        if let Some(waiting_until) = patch.waiting_until {
+            task.waiting_until = waiting_until;
+        }
+        if let Some(blocked_reason) = patch.blocked_reason {
+            task.blocked_reason = clean_optional_text(blocked_reason);
+        }
 
         if task.recurrence.is_some() && task.due_date.is_none() {
             return Err(DomainError::RecurrenceRequiresDueDate);
         }
 
         task.updated_on = today;
+
+        Ok(())
+    }
+
+    pub fn apply_project_patch(
+        &mut self,
+        project_id: ProjectId,
+        patch: ProjectPatch,
+        today: NaiveDate,
+    ) -> Result<(), DomainError> {
+        let project = self
+            .find_project_mut(project_id)
+            .ok_or_else(|| DomainError::ProjectNotFound(project_id.to_string()))?;
+
+        if let Some(description) = patch.description {
+            project.description = clean_optional_text(description);
+        }
+        if let Some(deadline) = patch.deadline {
+            project.deadline = deadline;
+        }
+        project.updated_on = today;
 
         Ok(())
     }
@@ -495,6 +550,12 @@ impl AppState {
                 task.status = status;
                 task.completed_on = None;
                 task.archived_on = None;
+                if !matches!(status, TaskStatus::Waiting) {
+                    task.waiting_until = None;
+                }
+                if !matches!(status, TaskStatus::Blocked) {
+                    task.blocked_reason = None;
+                }
                 task.updated_on = today;
                 Ok(None)
             }
@@ -504,6 +565,8 @@ impl AppState {
                     .ok_or(DomainError::TaskNotFound(task_id))?;
                 task.status = TaskStatus::Archived;
                 task.archived_on = Some(today);
+                task.waiting_until = None;
+                task.blocked_reason = None;
                 task.updated_on = today;
                 Ok(None)
             }
@@ -582,6 +645,8 @@ impl AppState {
 
             task.status = TaskStatus::Done;
             task.completed_on = Some(today);
+            task.waiting_until = None;
+            task.blocked_reason = None;
             task.updated_on = today;
 
             task.recurrence.map(|rule| {
@@ -606,6 +671,8 @@ impl AppState {
                 updated_on: today,
                 completed_on: None,
                 archived_on: None,
+                waiting_until: None,
+                blocked_reason: None,
             };
 
             let next_task_id = next_task.id;
@@ -800,7 +867,7 @@ mod tests {
         let mut state = AppState::default();
         let today = date("2026-03-14");
         let project = state
-            .create_project("Launch".to_string(), None, today)
+            .create_project("Launch".to_string(), None, Some(date("2026-03-28")), today)
             .expect("project creation should succeed");
 
         let overdue_task = state
@@ -813,6 +880,8 @@ mod tests {
                     tags: vec!["release".to_string()],
                     due_date: Some(date("2026-03-10")),
                     recurrence: None,
+                    waiting_until: None,
+                    blocked_reason: None,
                 },
                 today,
             )
@@ -828,6 +897,8 @@ mod tests {
                     tags: vec!["release".to_string()],
                     due_date: Some(today),
                     recurrence: None,
+                    waiting_until: None,
+                    blocked_reason: None,
                 },
                 today,
             )
@@ -843,6 +914,8 @@ mod tests {
                     tags: vec!["legal".to_string()],
                     due_date: Some(date("2026-03-15")),
                     recurrence: None,
+                    waiting_until: None,
+                    blocked_reason: None,
                 },
                 today,
             )
@@ -877,5 +950,42 @@ mod tests {
                 .status,
             TaskStatus::NextAction
         );
+        assert_eq!(
+            state
+                .find_project(project.id)
+                .expect("project should exist")
+                .deadline,
+            Some(date("2026-03-28"))
+        );
+    }
+
+    #[test]
+    fn setting_task_status_clears_waiting_and_blocked_metadata_when_work_resumes() {
+        let mut state = AppState::default();
+        let today = date("2026-03-14");
+        let task = state
+            .create_task(
+                NewTask {
+                    title: "Unstick deployment".to_string(),
+                    notes: None,
+                    project_id: None,
+                    priority: Priority::High,
+                    tags: vec!["ops".to_string()],
+                    due_date: Some(today),
+                    recurrence: None,
+                    waiting_until: Some(date("2026-03-16")),
+                    blocked_reason: Some("Waiting for vendor response".to_string()),
+                },
+                today,
+            )
+            .expect("task creation should succeed");
+
+        state
+            .set_task_status(task.id, TaskStatus::NextAction, today)
+            .expect("status update should succeed");
+
+        let task = state.find_task(task.id).expect("task should still exist");
+        assert_eq!(task.waiting_until, None);
+        assert_eq!(task.blocked_reason, None);
     }
 }
