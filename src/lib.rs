@@ -1,6 +1,7 @@
 mod app;
 mod cli;
 mod domain;
+mod legacy;
 mod render;
 mod storage;
 
