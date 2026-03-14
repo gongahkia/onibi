@@ -283,6 +283,8 @@ pub enum DomainError {
     TaskAlreadyClosed { task_id: TaskId, status: TaskStatus },
     #[error("project {project_id} is already archived")]
     ProjectAlreadyArchived { project_id: ProjectId },
+    #[error("project {project_id} is already active")]
+    ProjectAlreadyActive { project_id: ProjectId },
 }
 
 impl AppState {
@@ -296,6 +298,10 @@ impl AppState {
 
     pub fn find_project(&self, project_id: ProjectId) -> Option<&Project> {
         self.projects.iter().find(|project| project.id == project_id)
+    }
+
+    pub fn find_project_mut(&mut self, project_id: ProjectId) -> Option<&mut Project> {
+        self.projects.iter_mut().find(|project| project.id == project_id)
     }
 
     pub fn project_name(&self, project_id: ProjectId) -> Option<&str> {
@@ -489,9 +495,7 @@ impl AppState {
         today: NaiveDate,
     ) -> Result<(), DomainError> {
         let project = self
-            .projects
-            .iter_mut()
-            .find(|project| project.id == project_id)
+            .find_project_mut(project_id)
             .ok_or_else(|| DomainError::ProjectNotFound(project_id.to_string()))?;
 
         if matches!(project.status, ProjectStatus::Archived) {
@@ -499,6 +503,25 @@ impl AppState {
         }
 
         project.status = ProjectStatus::Archived;
+        project.updated_on = today;
+
+        Ok(())
+    }
+
+    pub fn activate_project(
+        &mut self,
+        project_id: ProjectId,
+        today: NaiveDate,
+    ) -> Result<(), DomainError> {
+        let project = self
+            .find_project_mut(project_id)
+            .ok_or_else(|| DomainError::ProjectNotFound(project_id.to_string()))?;
+
+        if matches!(project.status, ProjectStatus::Active) {
+            return Err(DomainError::ProjectAlreadyActive { project_id });
+        }
+
+        project.status = ProjectStatus::Active;
         project.updated_on = today;
 
         Ok(())
