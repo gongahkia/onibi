@@ -1,5 +1,6 @@
-use crate::domain::AppState;
+use crate::domain::{AppState, CURRENT_APP_SCHEMA_VERSION};
 use anyhow::{bail, Context, Result};
+use serde_json::{json, Value};
 use std::env;
 use std::fs;
 use std::fs::OpenOptions;
@@ -258,8 +259,12 @@ impl Storage for JsonFileStorage {
             return Ok(AppState::default());
         }
 
-        match serde_json::from_str(&contents) {
-            Ok(state) => Ok(state),
+        match serde_json::from_str::<Value>(&contents) {
+            Ok(mut value) => {
+                migrate_state_value(&mut value)?;
+                serde_json::from_value::<AppState>(value)
+                    .with_context(|| format!("failed to parse {}", data_file.display()))
+            }
             Err(error) => self.recover_from_backup(error),
         }
     }
@@ -354,6 +359,50 @@ fn unique_suffix() -> u128 {
         .duration_since(UNIX_EPOCH)
         .expect("system time should be after the unix epoch")
         .as_nanos()
+}
+
+fn migrate_state_value(value: &mut Value) -> Result<()> {
+    let schema_version = value
+        .get("schema_version")
+        .and_then(Value::as_u64)
+        .unwrap_or(1) as u32;
+
+    if schema_version < 2 {
+        add_missing_archived_fields(value);
+    }
+
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "schema_version".to_string(),
+            Value::Number(CURRENT_APP_SCHEMA_VERSION.into()),
+        );
+    } else {
+        bail!("app state must be represented as a JSON object");
+    }
+
+    Ok(())
+}
+
+fn add_missing_archived_fields(value: &mut Value) {
+    if let Some(tasks) = value.get_mut("tasks").and_then(Value::as_array_mut) {
+        for task in tasks {
+            if let Some(object) = task.as_object_mut() {
+                object
+                    .entry("archived_on".to_string())
+                    .or_insert_with(|| json!(null));
+            }
+        }
+    }
+
+    if let Some(projects) = value.get_mut("projects").and_then(Value::as_array_mut) {
+        for project in projects {
+            if let Some(object) = project.as_object_mut() {
+                object
+                    .entry("archived_on".to_string())
+                    .or_insert_with(|| json!(null));
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -479,6 +528,57 @@ mod tests {
             .expect_err("save should fail while the lock is held");
 
         assert!(error.to_string().contains("storage is locked"));
+        fs::remove_dir_all(root).expect("temporary directory cleanup should succeed");
+    }
+
+    #[test]
+    fn load_migrates_v1_state_to_the_current_schema() {
+        let root = temp_root();
+        let storage = JsonFileStorage::at(root.clone());
+        storage.init().expect("init should succeed");
+        fs::write(
+            storage.data_file(),
+            r#"{
+  "schema_version": 1,
+  "next_task_id": 2,
+  "next_project_id": 2,
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Old task",
+      "notes": null,
+      "project_id": null,
+      "status": "todo",
+      "priority": "medium",
+      "tags": [],
+      "due_date": "2026-03-14",
+      "recurrence": null,
+      "created_on": "2026-03-14",
+      "updated_on": "2026-03-14",
+      "completed_on": null
+    }
+  ],
+  "projects": [
+    {
+      "id": 1,
+      "name": "Old project",
+      "description": null,
+      "status": "active",
+      "created_on": "2026-03-14",
+      "updated_on": "2026-03-14"
+    }
+  ]
+}
+"#,
+        )
+        .expect("legacy state should be written");
+
+        let loaded = storage.load().expect("load should migrate v1 state");
+
+        assert_eq!(loaded.schema_version, CURRENT_APP_SCHEMA_VERSION);
+        assert_eq!(loaded.tasks[0].archived_on, None);
+        assert_eq!(loaded.projects[0].archived_on, None);
+
         fs::remove_dir_all(root).expect("temporary directory cleanup should succeed");
     }
 }
