@@ -1,10 +1,11 @@
 use chrono::{Datelike, Duration, NaiveDate};
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fmt;
 use thiserror::Error;
 
-pub const CURRENT_APP_SCHEMA_VERSION: u32 = 4;
+pub const CURRENT_APP_SCHEMA_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct TaskId(pub u64);
@@ -172,6 +173,8 @@ pub struct Task {
     pub waiting_until: Option<NaiveDate>,
     #[serde(default)]
     pub blocked_reason: Option<String>,
+    #[serde(default)]
+    pub depends_on: Vec<TaskId>,
 }
 
 impl Task {
@@ -186,10 +189,16 @@ impl Task {
         }
 
         let notes = self.notes.as_deref().unwrap_or_default().to_lowercase();
+        let blocked_reason = self
+            .blocked_reason
+            .as_deref()
+            .unwrap_or_default()
+            .to_lowercase();
         let tags = self.tags.join(" ").to_lowercase();
 
         self.title.to_lowercase().contains(&query)
             || notes.contains(&query)
+            || blocked_reason.contains(&query)
             || tags.contains(&query)
     }
 
@@ -259,6 +268,7 @@ pub struct NewTask {
     pub recurrence: Option<RecurrenceRule>,
     pub waiting_until: Option<NaiveDate>,
     pub blocked_reason: Option<String>,
+    pub depends_on: Vec<TaskId>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -273,6 +283,7 @@ pub struct TaskPatch {
     pub recurrence: Option<Option<RecurrenceRule>>,
     pub waiting_until: Option<Option<NaiveDate>>,
     pub blocked_reason: Option<Option<String>>,
+    pub depends_on: Option<Vec<TaskId>>,
 }
 
 impl TaskPatch {
@@ -287,6 +298,7 @@ impl TaskPatch {
             && self.recurrence.is_none()
             && self.waiting_until.is_none()
             && self.blocked_reason.is_none()
+            && self.depends_on.is_none()
     }
 }
 
@@ -311,6 +323,7 @@ pub struct ProjectSummary {
     pub next_action_tasks: usize,
     pub waiting_tasks: usize,
     pub blocked_tasks: usize,
+    pub dependency_blocked_tasks: usize,
     pub completion_percent: u8,
 }
 
@@ -332,6 +345,13 @@ pub enum DomainError {
     ProjectAlreadyArchived { project_id: ProjectId },
     #[error("project {project_id} is already active")]
     ProjectAlreadyActive { project_id: ProjectId },
+    #[error("task dependency {0} does not exist")]
+    InvalidTaskDependency(TaskId),
+    #[error("task {task_id} cannot depend on {dependency_id} because it creates a cycle")]
+    TaskDependencyCycle {
+        task_id: TaskId,
+        dependency_id: TaskId,
+    },
 }
 
 impl AppState {
@@ -432,6 +452,7 @@ impl AppState {
                 return Err(DomainError::ProjectNotFound(project_id.to_string()));
             }
         }
+        let depends_on = self.validate_task_dependencies(None, &input.depends_on)?;
 
         let task = Task {
             id: TaskId(self.next_task_id),
@@ -449,6 +470,7 @@ impl AppState {
             archived_on: None,
             waiting_until: input.waiting_until,
             blocked_reason: clean_optional_text(input.blocked_reason),
+            depends_on,
         };
 
         self.next_task_id += 1;
@@ -468,6 +490,11 @@ impl AppState {
                 return Err(DomainError::ProjectNotFound(project_id.to_string()));
             }
         }
+        let normalized_dependencies = patch
+            .depends_on
+            .as_ref()
+            .map(|dependencies| self.validate_task_dependencies(Some(task_id), dependencies))
+            .transpose()?;
 
         let task = self
             .find_task_mut(task_id)
@@ -499,6 +526,9 @@ impl AppState {
         }
         if let Some(blocked_reason) = patch.blocked_reason {
             task.blocked_reason = clean_optional_text(blocked_reason);
+        }
+        if let Some(depends_on) = normalized_dependencies {
+            task.depends_on = depends_on;
         }
 
         if task.recurrence.is_some() && task.due_date.is_none() {
@@ -580,7 +610,12 @@ impl AppState {
             .position(|task| task.id == task_id)
             .ok_or(DomainError::TaskNotFound(task_id))?;
 
-        Ok(self.tasks.remove(index))
+        let removed = self.tasks.remove(index);
+        for task in &mut self.tasks {
+            task.depends_on.retain(|dependency| *dependency != task_id);
+        }
+
+        Ok(removed)
     }
 
     pub fn archive_project(
@@ -673,6 +708,7 @@ impl AppState {
                 archived_on: None,
                 waiting_until: None,
                 blocked_reason: None,
+                depends_on: Vec::new(),
             };
 
             let next_task_id = next_task.id;
@@ -689,6 +725,22 @@ impl AppState {
             .iter()
             .filter(|task| task.project_id == Some(project_id))
             .collect()
+    }
+
+    pub fn unresolved_task_dependencies(&self, task: &Task) -> Vec<TaskId> {
+        task.depends_on
+            .iter()
+            .copied()
+            .filter(|dependency| {
+                self.find_task(*dependency)
+                    .map(|task| task.status.is_open())
+                    .unwrap_or(true)
+            })
+            .collect()
+    }
+
+    pub fn has_unresolved_dependencies(&self, task: &Task) -> bool {
+        !self.unresolved_task_dependencies(task).is_empty()
     }
 
     pub fn project_summary(
@@ -736,6 +788,10 @@ impl AppState {
             .iter()
             .filter(|task| matches!(task.status, TaskStatus::Blocked))
             .count();
+        let dependency_blocked_tasks = tasks
+            .iter()
+            .filter(|task| task.is_open() && self.has_unresolved_dependencies(task))
+            .count();
         let completion_percent = if total_tasks == 0 {
             0
         } else {
@@ -750,8 +806,92 @@ impl AppState {
             next_action_tasks,
             waiting_tasks,
             blocked_tasks,
+            dependency_blocked_tasks,
             completion_percent,
         })
+    }
+
+    fn validate_task_dependencies(
+        &self,
+        task_id: Option<TaskId>,
+        dependencies: &[TaskId],
+    ) -> Result<Vec<TaskId>, DomainError> {
+        let normalized = normalize_task_dependencies(dependencies.to_vec());
+
+        for dependency in &normalized {
+            if self.find_task(*dependency).is_none() {
+                return Err(DomainError::InvalidTaskDependency(*dependency));
+            }
+        }
+
+        if let Some(task_id) = task_id {
+            for dependency in &normalized {
+                if *dependency == task_id
+                    || self.task_reaches_target(*dependency, task_id, task_id, &normalized)
+                {
+                    return Err(DomainError::TaskDependencyCycle {
+                        task_id,
+                        dependency_id: *dependency,
+                    });
+                }
+            }
+        }
+
+        Ok(normalized)
+    }
+
+    fn task_reaches_target(
+        &self,
+        start: TaskId,
+        target: TaskId,
+        patched_task_id: TaskId,
+        patched_dependencies: &[TaskId],
+    ) -> bool {
+        let mut visited = HashSet::new();
+        self.task_reaches_target_inner(
+            start,
+            target,
+            patched_task_id,
+            patched_dependencies,
+            &mut visited,
+        )
+    }
+
+    fn task_reaches_target_inner(
+        &self,
+        current: TaskId,
+        target: TaskId,
+        patched_task_id: TaskId,
+        patched_dependencies: &[TaskId],
+        visited: &mut HashSet<TaskId>,
+    ) -> bool {
+        if !visited.insert(current) {
+            return false;
+        }
+
+        let dependencies = if current == patched_task_id {
+            patched_dependencies.to_vec()
+        } else if let Some(task) = self.find_task(current) {
+            task.depends_on.clone()
+        } else {
+            Vec::new()
+        };
+
+        for dependency in dependencies {
+            if dependency == target
+                || self.task_reaches_target_inner(
+                    dependency,
+                    target,
+                    patched_task_id,
+                    patched_dependencies,
+                    visited,
+                )
+            {
+                return true;
+            }
+        }
+
+        false
     }
 }
 
@@ -767,6 +907,21 @@ pub fn normalize_tags(tags: Vec<String>) -> Vec<String> {
         normalized.push(cleaned);
     }
 
+    normalized
+}
+
+fn normalize_task_dependencies(dependencies: Vec<TaskId>) -> Vec<TaskId> {
+    let mut normalized = Vec::new();
+
+    for dependency in dependencies {
+        if normalized.iter().any(|existing| existing == &dependency) {
+            continue;
+        }
+
+        normalized.push(dependency);
+    }
+
+    normalized.sort();
     normalized
 }
 
@@ -848,6 +1003,7 @@ mod tests {
                     recurrence: Some(RecurrenceRule::Weekly),
                     waiting_until: None,
                     blocked_reason: None,
+                    depends_on: Vec::new(),
                 },
                 created_on,
             )
@@ -884,6 +1040,7 @@ mod tests {
                     recurrence: None,
                     waiting_until: None,
                     blocked_reason: None,
+                    depends_on: Vec::new(),
                 },
                 today,
             )
@@ -901,6 +1058,7 @@ mod tests {
                     recurrence: None,
                     waiting_until: None,
                     blocked_reason: None,
+                    depends_on: Vec::new(),
                 },
                 today,
             )
@@ -918,6 +1076,7 @@ mod tests {
                     recurrence: None,
                     waiting_until: None,
                     blocked_reason: None,
+                    depends_on: Vec::new(),
                 },
                 today,
             )
@@ -944,6 +1103,7 @@ mod tests {
         assert_eq!(summary.next_action_tasks, 1);
         assert_eq!(summary.waiting_tasks, 1);
         assert_eq!(summary.blocked_tasks, 0);
+        assert_eq!(summary.dependency_blocked_tasks, 0);
         assert_eq!(summary.completion_percent, 33);
         assert_eq!(
             state
@@ -977,6 +1137,7 @@ mod tests {
                     recurrence: None,
                     waiting_until: Some(date("2026-03-16")),
                     blocked_reason: Some("Waiting for vendor response".to_string()),
+                    depends_on: Vec::new(),
                 },
                 today,
             )
@@ -989,5 +1150,64 @@ mod tests {
         let task = state.find_task(task.id).expect("task should still exist");
         assert_eq!(task.waiting_until, None);
         assert_eq!(task.blocked_reason, None);
+    }
+
+    #[test]
+    fn tasks_can_depend_on_other_tasks_without_creating_cycles() {
+        let mut state = AppState::default();
+        let today = date("2026-03-14");
+        let first = state
+            .create_task(
+                NewTask {
+                    title: "Prepare brief".to_string(),
+                    notes: None,
+                    project_id: None,
+                    priority: Priority::Medium,
+                    tags: vec![],
+                    due_date: Some(today),
+                    recurrence: None,
+                    waiting_until: None,
+                    blocked_reason: None,
+                    depends_on: Vec::new(),
+                },
+                today,
+            )
+            .expect("first task should be created");
+        let second = state
+            .create_task(
+                NewTask {
+                    title: "Send brief".to_string(),
+                    notes: None,
+                    project_id: None,
+                    priority: Priority::Medium,
+                    tags: vec![],
+                    due_date: Some(today),
+                    recurrence: None,
+                    waiting_until: None,
+                    blocked_reason: None,
+                    depends_on: vec![first.id],
+                },
+                today,
+            )
+            .expect("dependent task should be created");
+
+        assert_eq!(state.unresolved_task_dependencies(&state.tasks[1]), vec![first.id]);
+        state
+            .complete_task(first.id, today)
+            .expect("completion should succeed");
+        assert!(state.unresolved_task_dependencies(&state.tasks[1]).is_empty());
+
+        let error = state
+            .apply_task_patch(
+                first.id,
+                TaskPatch {
+                    depends_on: Some(vec![second.id]),
+                    ..TaskPatch::default()
+                },
+                today,
+            )
+            .expect_err("cycle should be rejected");
+
+        assert!(matches!(error, DomainError::TaskDependencyCycle { .. }));
     }
 }
