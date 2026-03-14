@@ -1,12 +1,13 @@
 use crate::domain::{Priority, RecurrenceRule, TaskStatus};
 use chrono::NaiveDate;
 use clap::{Args, Parser, Subcommand};
+use std::path::PathBuf;
 
 #[derive(Debug, Parser, Clone)]
 #[command(
     name = "kelp",
     version,
-    about = "A Rust-first CLI personal planner for tasks, projects, and reviews."
+    about = "A Rust-first CLI personal planner for tasks, projects, reviews, and data workflows."
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -16,6 +17,14 @@ pub struct Cli {
 #[derive(Debug, Subcommand, Clone)]
 pub enum Command {
     Init,
+    Import {
+        #[command(subcommand)]
+        command: ImportCommand,
+    },
+    Storage {
+        #[command(subcommand)]
+        command: StorageCommand,
+    },
     Task {
         #[command(subcommand)]
         command: TaskCommand,
@@ -34,13 +43,30 @@ pub enum Command {
 }
 
 #[derive(Debug, Subcommand, Clone)]
+pub enum ImportCommand {
+    Legacy(LegacyImportArgs),
+}
+
+#[derive(Debug, Subcommand, Clone)]
+pub enum StorageCommand {
+    Path(StoragePathArgs),
+    Export(StorageExportArgs),
+    Backup(StorageBackupArgs),
+}
+
+#[derive(Debug, Subcommand, Clone)]
 pub enum TaskCommand {
     Add(TaskAddArgs),
     List(TaskListArgs),
     Show(TaskShowArgs),
     Edit(TaskEditArgs),
+    BulkEdit(TaskBulkEditArgs),
+    Start(TaskStartArgs),
     Done(TaskDoneArgs),
     Reopen(TaskReopenArgs),
+    Defer(TaskDeferArgs),
+    Archive(TaskArchiveArgs),
+    Unarchive(TaskUnarchiveArgs),
     Delete(TaskDeleteArgs),
 }
 
@@ -50,16 +76,45 @@ pub enum ProjectCommand {
     List(ProjectListArgs),
     Show(ProjectShowArgs),
     Archive(ProjectArchiveArgs),
+    Unarchive(ProjectUnarchiveArgs),
 }
 
 #[derive(Debug, Subcommand, Clone)]
 pub enum ReviewCommand {
-    Daily(ListOutputArgs),
-    Weekly(ListOutputArgs),
+    Daily(ReviewArgs),
+    Weekly(ReviewArgs),
 }
 
 #[derive(Debug, Args, Clone, Default)]
 pub struct ListOutputArgs {
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct LegacyImportArgs {
+    #[arg(long, default_value = ".")]
+    pub source: PathBuf,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct StoragePathArgs {
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct StorageExportArgs {
+    #[arg(long)]
+    pub output: PathBuf,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct StorageBackupArgs {
     #[arg(long)]
     pub json: bool,
 }
@@ -139,12 +194,61 @@ pub struct TaskEditArgs {
 }
 
 #[derive(Debug, Args, Clone)]
+pub struct TaskBulkEditArgs {
+    pub ids: Vec<u64>,
+    #[arg(long, conflicts_with = "clear_project")]
+    pub project: Option<String>,
+    #[arg(long)]
+    pub clear_project: bool,
+    #[arg(long, value_enum)]
+    pub status: Option<TaskStatus>,
+    #[arg(long, value_enum)]
+    pub priority: Option<Priority>,
+    #[arg(long = "tag", conflicts_with = "clear_tags")]
+    pub tags: Vec<String>,
+    #[arg(long)]
+    pub clear_tags: bool,
+    #[arg(long, value_parser = parse_date, conflicts_with = "clear_due")]
+    pub due: Option<NaiveDate>,
+    #[arg(long)]
+    pub clear_due: bool,
+    #[arg(long, value_enum, conflicts_with = "clear_repeat")]
+    pub repeat: Option<RecurrenceRule>,
+    #[arg(long)]
+    pub clear_repeat: bool,
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct TaskStartArgs {
+    pub id: u64,
+}
+
+#[derive(Debug, Args, Clone)]
 pub struct TaskDoneArgs {
     pub id: u64,
 }
 
 #[derive(Debug, Args, Clone)]
 pub struct TaskReopenArgs {
+    pub id: u64,
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct TaskDeferArgs {
+    pub id: u64,
+    #[arg(long, value_parser = parse_date, conflicts_with = "days")]
+    pub until: Option<NaiveDate>,
+    #[arg(long, conflicts_with = "until")]
+    pub days: Option<i64>,
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct TaskArchiveArgs {
+    pub id: u64,
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct TaskUnarchiveArgs {
     pub id: u64,
 }
 
@@ -182,11 +286,36 @@ pub struct ProjectArchiveArgs {
 }
 
 #[derive(Debug, Args, Clone)]
+pub struct ProjectUnarchiveArgs {
+    pub project: String,
+}
+
+#[derive(Debug, Args, Clone)]
 pub struct UpcomingArgs {
     #[arg(long, default_value_t = 7)]
     pub days: i64,
     #[arg(long)]
     pub json: bool,
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct ReviewArgs {
+    #[arg(long)]
+    pub json: bool,
+    #[arg(long = "start")]
+    pub start: Vec<u64>,
+    #[arg(long = "complete")]
+    pub complete: Vec<u64>,
+    #[arg(long = "archive")]
+    pub archive: Vec<u64>,
+    #[arg(long = "defer", value_parser = parse_task_reschedule)]
+    pub defer: Vec<TaskReschedule>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskReschedule {
+    pub id: u64,
+    pub due_date: NaiveDate,
 }
 
 #[derive(Debug, Args, Clone)]
@@ -199,4 +328,17 @@ pub struct SearchArgs {
 fn parse_date(value: &str) -> Result<NaiveDate, String> {
     NaiveDate::parse_from_str(value, "%Y-%m-%d")
         .map_err(|_| format!("invalid date '{value}', expected YYYY-MM-DD"))
+}
+
+fn parse_task_reschedule(value: &str) -> Result<TaskReschedule, String> {
+    let (id, due_date) = value
+        .split_once(':')
+        .ok_or_else(|| format!("invalid defer instruction '{value}', expected ID:YYYY-MM-DD"))?;
+
+    let id = id
+        .parse::<u64>()
+        .map_err(|_| format!("invalid task id in defer instruction '{value}'"))?;
+    let due_date = parse_date(due_date)?;
+
+    Ok(TaskReschedule { id, due_date })
 }
