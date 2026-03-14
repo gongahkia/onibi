@@ -32,6 +32,16 @@ pub fn render_task_detail(task: &Task, state: &AppState) -> String {
     lines.push(format!("{} {}", muted("due:"), format_optional_date(task.due_date)));
     lines.push(format!(
         "{} {}",
+        muted("waiting until:"),
+        format_optional_date(task.waiting_until)
+    ));
+    lines.push(format!(
+        "{} {}",
+        muted("blocked reason:"),
+        task.blocked_reason.as_deref().unwrap_or("none")
+    ));
+    lines.push(format!(
+        "{} {}",
         muted("repeat:"),
         task.recurrence
             .map(format_recurrence)
@@ -89,15 +99,16 @@ pub fn render_project_list(title: &str, projects: &[(&Project, ProjectSummary)])
         return lines.join("\n");
     }
 
-    lines.push(muted("ID   STATUS      DONE   OPEN   OVERDUE   NAME"));
+    lines.push(muted("ID   STATUS      DONE   OPEN   OVERDUE   DEADLINE     NAME"));
     for (project, summary) in projects {
         lines.push(format!(
-            "{:<4} {:<11} {:>3}%   {:<6} {:<8} {}",
+            "{:<4} {:<11} {:>3}%   {:<6} {:<8} {:<12} {}",
             project.id.0,
             project.status,
             summary.completion_percent,
             summary.open_tasks,
             summary.overdue_tasks,
+            format_optional_date(project.deadline),
             project.name
         ));
     }
@@ -122,6 +133,7 @@ pub fn render_project_detail(
     lines.push(format!("{} {}", muted("open tasks:"), summary.open_tasks));
     lines.push(format!("{} {}", muted("done tasks:"), summary.completed_tasks));
     lines.push(format!("{} {}", muted("overdue tasks:"), summary.overdue_tasks));
+    lines.push(format!("{} {}", muted("deadline:"), format_optional_date(project.deadline)));
     lines.push(format!(
         "{} {}",
         muted("next actions:"),
