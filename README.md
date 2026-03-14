@@ -6,21 +6,24 @@ This rewrite replaces the old prompt-driven single-file prototype with:
 
 - typed domain models for tasks, projects, status, priority, and recurrence
 - subcommand-driven CLI workflows
-- structured local JSON storage
+- structured local JSON storage with backups, lock files, and export tooling
 - richer terminal output for lists, details, and review views
 - offline-testable application logic with deterministic clocks in tests
 
 ## Features
 
-- `kelp task add|list|show|edit|done|reopen|delete`
-- `kelp project add|list|show|archive`
+- `kelp import legacy --source <path>`
+- `kelp storage path|backup|export`
+- `kelp task add|list|show|edit|bulk-edit|start|done|reopen|defer|archive|unarchive|delete`
+- `kelp project add|list|show|archive|unarchive`
 - `kelp today`
 - `kelp upcoming --days <n>`
-- `kelp review daily`
-- `kelp review weekly`
+- `kelp review daily --start <id> --complete <id> --defer <id:date>`
+- `kelp review weekly --archive <id>`
 - `kelp search <query>`
 - recurring task generation for daily, weekly, and monthly work
 - JSON output on planner and listing commands via `--json`
+- legacy `.kelpStorage` and `.kelpProjects` migration
 
 ## Install and Run
 
@@ -42,9 +45,15 @@ Or install into your Cargo bin directory:
 cargo install --path .
 ```
 
+Or use the included installer:
+
+```console
+./installer.sh
+```
+
 ## Storage
 
-Kelp stores data in `data.json` under one of these locations:
+Kelp uses JSON as its canonical local backend today. It stores `data.json` under one of these locations:
 
 1. `$KELP_DATA_DIR/data.json` when `KELP_DATA_DIR` is set
 2. `$XDG_DATA_HOME/kelp/data.json` when `XDG_DATA_HOME` is set
@@ -57,6 +66,32 @@ kelp init
 ```
 
 All other commands also create the storage file automatically on first use.
+
+Automatic backup snapshots are stored under `backups/` next to `data.json`, and a coarse lock file is used during writes to avoid overlapping save operations.
+
+Inspect the storage layout:
+
+```console
+kelp storage path
+```
+
+Create a manual backup snapshot:
+
+```console
+kelp storage backup
+```
+
+Export the current dataset:
+
+```console
+kelp storage export --output ./kelp-export.json
+```
+
+Import data from the legacy Kelp format:
+
+```console
+kelp import legacy --source /path/to/old/kelp/root
+```
 
 ## Usage
 
@@ -97,10 +132,29 @@ Complete a task and spawn its next recurring instance:
 kelp task done 1
 ```
 
+Start or defer tasks during execution:
+
+```console
+kelp task start 2
+kelp task defer 2 --days 3
+```
+
+Bulk-edit multiple tasks at once:
+
+```console
+kelp task bulk-edit 1 2 3 --priority high --tag sprint --due 2026-03-21
+```
+
 Run the daily review:
 
 ```console
 kelp review daily
+```
+
+Apply actions while reviewing:
+
+```console
+kelp review daily --start 1 --complete 2 --defer 3:2026-03-20
 ```
 
 Inspect the next two weeks of work:
@@ -126,6 +180,7 @@ cargo test --offline
 The codebase is split into:
 
 - `src/domain.rs` for typed planner entities and state transitions
+- `src/legacy.rs` for legacy Kelp import parsing
 - `src/storage.rs` for JSON-backed persistence
 - `src/cli.rs` for Clap command parsing
 - `src/app.rs` for command execution and view composition
