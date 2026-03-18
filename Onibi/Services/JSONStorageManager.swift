@@ -2,6 +2,8 @@ import Foundation
 
 /// JSON-based storage implementation for logs
 final class JSONStorageManager: StorageManager {
+    static let shared = JSONStorageManager()
+
     private let logsPath: String
     private let backupPath: String
     private let fileManager = FileManager.default
@@ -10,10 +12,9 @@ final class JSONStorageManager: StorageManager {
     private var flushTimer: Timer?
     private let flushInterval: TimeInterval
     private let queue = DispatchQueue(label: "com.onibi.storage", qos: .utility)
-    private let cacheLock = NSLock()
     
     /// Storage file version for migrations
-    private static let currentVersion = 1
+    private static let currentVersion = 2
     
     init(flushInterval: TimeInterval = 30.0) {
         self.logsPath = OnibiConfig.appDataDirectory + "/logs.json"
@@ -36,69 +37,62 @@ final class JSONStorageManager: StorageManager {
     // MARK: - StorageManager Protocol
     
     func saveLogs(_ entries: [LogEntry]) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            queue.async { [weak self] in
-                guard let self = self else {
-                    continuation.resume(throwing: StorageError.writeFailure(underlying: NSError(domain: "Storage", code: -1)))
-                    return
-                }
-                do {
-                    try self.writeLogsAtomic(entries)
-                    self.cache = entries
-                    self.isDirty = false
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: StorageError.writeFailure(underlying: error))
-                }
+        do {
+            try queue.sync {
+                try writeLogsAtomic(entries)
+                cache = entries
+                isDirty = false
             }
+        } catch {
+            throw StorageError.writeFailure(underlying: error)
         }
     }
     
     func loadLogs() async throws -> [LogEntry] {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[LogEntry], Error>) in
-            queue.async { [weak self] in
-                guard let self = self else {
-                    continuation.resume(returning: [])
-                    return
-                }
-                do {
-                    let logs = try self.readLogs()
-                    self.cache = logs
-                    continuation.resume(returning: logs)
-                } catch {
-                    ErrorReporter.shared.report(error, context: "JSONStorageManager.loadLogs", severity: .warning)
-                    if let backup = try? self.readLogs(from: self.backupPath) { // fallback to backup
-                        self.cache = backup
-                        continuation.resume(returning: backup)
-                    } else {
-                        continuation.resume(returning: [])
-                    }
-                }
+        do {
+            return try queue.sync {
+                let logs = try readLogs()
+                cache = logs
+                return logs
             }
+        } catch {
+            ErrorReporter.shared.report(error, context: "JSONStorageManager.loadLogs", severity: .warning)
+            if let backup = try? queue.sync(execute: { try readLogs(from: backupPath) }) {
+                queue.sync {
+                    cache = backup
+                }
+                return backup
+            }
+            return []
         }
     }
     
     func appendLog(_ entry: LogEntry) async throws {
-        cacheLock.lock()
-        cache.append(entry)
-        isDirty = true
-        cacheLock.unlock()
+        queue.sync {
+            cache.append(entry)
+            isDirty = true
+        }
     }
     
     func deleteLogsOlderThan(_ date: Date) async throws {
-        cacheLock.lock()
-        cache.removeAll { $0.timestamp < date }
-        isDirty = true
-        cacheLock.unlock()
+        queue.sync {
+            cache.removeAll { $0.sortTimestamp < date }
+            isDirty = true
+        }
         try await flushToDisk()
     }
     
     func clearAllLogs() async throws {
-        cacheLock.lock()
-        cache.removeAll()
-        isDirty = false
-        cacheLock.unlock()
-        try fileManager.removeItem(atPath: logsPath)
+        queue.sync {
+            cache.removeAll()
+            isDirty = false
+        }
+        if fileManager.fileExists(atPath: logsPath) {
+            try fileManager.removeItem(atPath: logsPath)
+        }
+        if fileManager.fileExists(atPath: backupPath) {
+            try? fileManager.removeItem(atPath: backupPath)
+        }
     }
     
     func getStorageSize() async throws -> Int64 {
@@ -111,18 +105,19 @@ final class JSONStorageManager: StorageManager {
     
     /// Append multiple logs efficiently
     func appendLogs(_ entries: [LogEntry]) async throws {
-        cacheLock.lock()
-        cache.append(contentsOf: entries)
-        isDirty = true
-        cacheLock.unlock()
+        queue.sync {
+            cache.append(contentsOf: entries)
+            isDirty = true
+        }
     }
     
     /// Flush in-memory cache to disk
     func flushToDisk() async throws {
-        cacheLock.lock()
-        guard isDirty else { cacheLock.unlock(); return }
-        let snapshot = cache
-        cacheLock.unlock()
+        let snapshot = queue.sync { () -> [LogEntry]? in
+            guard isDirty else { return nil }
+            return cache
+        }
+        guard let snapshot else { return }
         try await saveLogs(snapshot)
     }
     
@@ -154,14 +149,16 @@ final class JSONStorageManager: StorageManager {
         
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        let wrapper = try decoder.decode(StorageWrapper.self, from: data)
-        
-        // Handle version migration if needed
-        if wrapper.version < JSONStorageManager.currentVersion {
-            // Future: implement migrations
+
+        if let wrapper = try? decoder.decode(StorageWrapper.self, from: data) {
+            return wrapper.logs
+        }
+
+        if let legacyLogs = try? decoder.decode([LogEntry].self, from: data) {
+            return legacyLogs
         }
         
-        return wrapper.logs
+        throw StorageError.corruptedData
     }
     
     private func writeLogsAtomic(_ logs: [LogEntry]) throws {
@@ -189,14 +186,15 @@ final class JSONStorageManager: StorageManager {
     }
     
     private func flushToDiskSync() throws {
-        cacheLock.lock()
-        guard isDirty else { cacheLock.unlock(); return }
-        let snapshot = cache
-        cacheLock.unlock()
+        let snapshot = queue.sync { () -> [LogEntry]? in
+            guard isDirty else { return nil }
+            return cache
+        }
+        guard let snapshot else { return }
         try writeLogsAtomic(snapshot)
-        cacheLock.lock()
-        isDirty = false
-        cacheLock.unlock()
+        queue.sync {
+            isDirty = false
+        }
     }
 }
 

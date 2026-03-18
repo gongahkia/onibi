@@ -13,6 +13,7 @@ final class LogsViewModel: ObservableObject {
     @Published var errorMessage: String?
     
     private let eventBus = EventBus.shared
+    private let storageManager = JSONStorageManager.shared
     private var cancellables = Set<AnyCancellable>()
     
     private var statisticsDirty = true
@@ -26,25 +27,12 @@ final class LogsViewModel: ObservableObject {
     /// Load logs from storage
     func loadLogs() {
         isLoading = true
-        
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            // Load from JSON storage
-            let logsPath = OnibiConfig.appDataDirectory + "/logs.json"
-            
-            var loadedLogs: [LogEntry] = []
-            
-            if FileManager.default.fileExists(atPath: logsPath) {
-                do {
-                    let data = try Data(contentsOf: URL(fileURLWithPath: logsPath))
-                    loadedLogs = try JSONDecoder().decode([LogEntry].self, from: data)
-                } catch {
-                    ErrorReporter.shared.report(error, context: "LogsViewModel.loadLogs JSON decode")
-                }
-            }
-            
-            DispatchQueue.main.async {
-                self?.logs = loadedLogs.sorted { $0.timestamp > $1.timestamp }
-                self?.isLoading = false
+        Task { [weak self] in
+            guard let self else { return }
+            let loadedLogs = (try? await storageManager.loadLogs()) ?? []
+            await MainActor.run {
+                self.logs = loadedLogs.sorted { $0.sortTimestamp > $1.sortTimestamp }
+                self.isLoading = false
             }
         }
     }
@@ -73,7 +61,7 @@ final class LogsViewModel: ObservableObject {
                 totalCommands: logs.count,
                 successfulCommands: logs.filter { $0.exitCode == 0 }.count,
                 failedCommands: logs.filter { ($0.exitCode ?? 0) != 0 }.count,
-                aiQueries: logs.filter { $0.metadata["source"] == "ai" }.count,
+                aiQueries: logs.filter { $0.isAssistantCommand }.count,
                 taskCompletions: logs.filter { $0.metadata["source"] == "task" }.count
             )
             statisticsDirty = false

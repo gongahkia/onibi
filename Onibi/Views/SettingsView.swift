@@ -6,6 +6,7 @@ enum SettingsTab: String, CaseIterable {
     case notifications = "Notifications"
     case appearance = "Appearance"
     case logs = "Logs"
+    case mobile = "Mobile Access"
     case filters = "Filters"
     case about = "About"
     
@@ -15,6 +16,7 @@ enum SettingsTab: String, CaseIterable {
         case .notifications: return "bell"
         case .appearance: return "paintbrush"
         case .logs: return "doc.text"
+        case .mobile: return "iphone"
         case .filters: return "line.3.horizontal.decrease"
         case .about: return "info.circle"
         }
@@ -45,6 +47,8 @@ struct SettingsView: View {
                     AppearanceSettingsTab(viewModel: viewModel)
                 case .logs:
                     LogsSettingsTab(viewModel: viewModel)
+                case .mobile:
+                    MobileAccessSettingsTab(viewModel: viewModel)
                 case .filters:
                     FiltersSettingsTab(viewModel: viewModel)
                 case .about:
@@ -542,6 +546,130 @@ struct LogsSettingsTab: View {
         try? FileManager.default.removeItem(atPath: logsPath)
         hasCalculatedStorage = false
         calculateStorageSize()
+    }
+}
+
+// MARK: - Mobile Access Settings Tab
+
+struct MobileAccessSettingsTab: View {
+    @ObservedObject var viewModel: SettingsViewModel
+    @ObservedObject private var gatewayService = MobileGatewayService.shared
+    @State private var revealToken = false
+
+    var body: some View {
+        Form {
+            Section("Gateway") {
+                Toggle("Enable mobile gateway", isOn: $viewModel.settings.mobileAccessEnabled)
+
+                Stepper(value: $viewModel.settings.mobileAccessPort, in: 1024...65535) {
+                    HStack {
+                        Text("Gateway port")
+                        Spacer()
+                        Text(String(viewModel.settings.mobileAccessPort))
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                HStack {
+                    Text("Gateway status")
+                    Spacer()
+                    Label(
+                        gatewayService.isRunning ? "Running" : "Stopped",
+                        systemImage: gatewayService.isRunning ? "checkmark.circle.fill" : "xmark.circle.fill"
+                    )
+                    .foregroundColor(gatewayService.isRunning ? .green : .secondary)
+                }
+
+                HStack {
+                    Text("Local endpoint")
+                    Spacer()
+                    Text(gatewayService.localURLString)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+
+            Section("Pairing") {
+                HStack {
+                    Text("Pairing token")
+                    Spacer()
+                    if revealToken {
+                        Text(gatewayService.pairingToken)
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                    } else {
+                        Text(String(repeating: "•", count: min(gatewayService.pairingToken.count, 24)))
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                HStack {
+                    Button(revealToken ? "Hide Token" : "Reveal Token") {
+                        revealToken.toggle()
+                    }
+                    Button("Copy Token") {
+                        gatewayService.copyPairingToken()
+                    }
+                    Button("Rotate Token") {
+                        gatewayService.rotatePairingToken()
+                    }
+                    Spacer()
+                }
+            }
+
+            Section("Tailscale") {
+                HStack {
+                    Text("Serve status")
+                    Spacer()
+                    Text(gatewayService.tailscaleStatus.detail ?? "Unavailable")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.trailing)
+                }
+
+                if let baseURL = gatewayService.tailscaleStatus.baseURLString {
+                    HStack {
+                        Text("Tailnet URL")
+                        Spacer()
+                        Text(baseURL)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .textSelection(.enabled)
+                    }
+                }
+
+                HStack {
+                    Button("Refresh Status") {
+                        Task { await gatewayService.refreshTailscaleStatus() }
+                    }
+                    Button("Enable Tailscale Serve") {
+                        gatewayService.enableTailscaleServe()
+                    }
+                    .disabled(!gatewayService.isRunning)
+                    Button("Copy URL") {
+                        gatewayService.copyBaseURL()
+                    }
+                    .disabled(gatewayService.tailscaleStatus.baseURLString == nil)
+                    Spacer()
+                }
+            }
+
+            if let error = gatewayService.lastError, !error.isEmpty {
+                Section("Last Error") {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                        .textSelection(.enabled)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle("Mobile Access")
+        .task {
+            await gatewayService.refreshTailscaleStatus()
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import OnibiCore
 
 /// Coordinates background log parsing and event processing
 final class BackgroundTaskScheduler: ObservableObject {
@@ -9,6 +10,7 @@ final class BackgroundTaskScheduler: ObservableObject {
     private var logBuffer: LogBuffer?
     private var logParser: LogFileParser
     private var storageManager: JSONStorageManager
+    private let commandTracker = CommandLifecycleTracker()
     private var settings: AppSettings = .default
     
     private let eventBus = EventBus.shared
@@ -33,7 +35,7 @@ final class BackgroundTaskScheduler: ObservableObject {
     
     private init() {
         self.logParser = LogFileParser()
-        self.storageManager = JSONStorageManager()
+        self.storageManager = JSONStorageManager.shared
         setupSubscriptions()
     }
     
@@ -53,9 +55,11 @@ final class BackgroundTaskScheduler: ObservableObject {
         isRunning = false
         fileWatcher?.stop()
         fileWatcher = nil
+        logBuffer = nil
         
         // Final flush
         Task {
+            await commandTracker.clear()
             try? await storageManager.flushToDisk()
         }
         
@@ -136,7 +140,7 @@ final class BackgroundTaskScheduler: ObservableObject {
         guard let parsed = logParser.parseLine(line) else { return }
         
         // Check cache
-        let cacheKey = "\(parsed.timestamp.timeIntervalSince1970)_\(parsed.type)"
+        let cacheKey = line
         if parsedCache.get(cacheKey) != nil {
             return // Already processed
         }
@@ -161,14 +165,23 @@ final class BackgroundTaskScheduler: ObservableObject {
             parsedCache.set(cacheKey, value: GhosttyEvent(timestamp: parsed.timestamp, type: .system, metadata: [:])) // Dummy event for cache
             return
         }
-        
+
+        let assistantKind = AssistantClassifier.classify(command: parsed.command)
+        let displayCommand = parsed.command.map { CommandSanitizer.sanitize(command: $0) }
+        var metadata: [String: String] = [:]
+        metadata["assistantKind"] = assistantKind.rawValue
+        if let displayCommand {
+            metadata["displayCommand"] = displayCommand
+        }
+
         // Create event
         let event = GhosttyEvent(
             timestamp: parsed.timestamp,
             type: mapLogLineType(parsed.type),
             command: parsed.command,
             output: nil,
-            metadata: [:]
+            sessionId: parsed.sessionId,
+            metadata: metadata
         )
         
         // Cache it
@@ -178,19 +191,64 @@ final class BackgroundTaskScheduler: ObservableObject {
         eventBus.publish(event)
         
         // Check for notifications
-        checkAndCreateNotification(from: line, timestamp: parsed.timestamp)
+        checkAndCreateNotification(
+            from: parsed.command ?? line,
+            timestamp: parsed.timestamp,
+            assistantKind: assistantKind,
+            displayCommand: displayCommand
+        )
         
-        // Create log entry
-        if let command = parsed.command {
-            let logEntry = LogEntry(
-                timestamp: parsed.timestamp,
-                command: command,
-                output: "",
-                exitCode: parsed.exitCode
-            )
-            
-            Task {
-                try? await storageManager.appendLog(logEntry)
+        if let sessionId = parsed.sessionId {
+            switch parsed.type {
+            case .commandStart:
+                let metadata = [
+                    "assistantKind": assistantKind.rawValue,
+                    "displayCommand": displayCommand ?? CommandSanitizer.sanitize(command: parsed.command ?? "")
+                ]
+                Task {
+                    await commandTracker.recordStart(
+                        sessionId: sessionId,
+                        command: parsed.command ?? "",
+                        timestamp: parsed.timestamp,
+                        assistantKind: assistantKind,
+                        metadata: metadata
+                    )
+                }
+            case .commandEnd:
+                Task { [weak self] in
+                    guard let self else { return }
+                    guard let completed = await self.commandTracker.complete(
+                        sessionId: sessionId,
+                        exitCode: parsed.exitCode,
+                        endedAt: parsed.timestamp
+                    ) else {
+                        return
+                    }
+
+                    let logEntry = LogEntry(
+                        timestamp: completed.endedAt,
+                        startedAt: completed.startedAt,
+                        endedAt: completed.endedAt,
+                        command: completed.command,
+                        displayCommand: completed.displayCommand,
+                        output: "",
+                        exitCode: completed.exitCode,
+                        duration: completed.duration,
+                        workingDirectory: completed.workingDirectory,
+                        sessionId: completed.sessionId,
+                        assistantKind: completed.assistantKind,
+                        metadata: completed.metadata
+                    )
+
+                    try? await self.storageManager.appendLog(logEntry)
+                    try? await self.storageManager.flushToDisk()
+
+                    await MainActor.run {
+                        self.eventBus.publish(logEntry)
+                    }
+                }
+            default:
+                break
             }
         }
         
@@ -202,15 +260,20 @@ final class BackgroundTaskScheduler: ObservableObject {
         }
     }
     
-    private func checkAndCreateNotification(from content: String, timestamp: Date) {
+    private func checkAndCreateNotification(
+        from content: String,
+        timestamp: Date,
+        assistantKind: AssistantKind,
+        displayCommand: String?
+    ) {
         var notification: AppNotification?
         
-        if aiDetector.matches(content) {
+        if assistantKind != .unknown || aiDetector.matches(content) {
             if shouldThrottle(.aiOutput) { return }
             notification = AppNotification(
                 type: .aiOutput,
-                title: "AI Response",
-                message: String(content.prefix(100)),
+                title: assistantKind == .unknown ? "AI Response" : "\(assistantKind.displayName) Session",
+                message: String((displayCommand ?? content).prefix(100)),
                 timestamp: timestamp
             )
         } else if taskDetector.matches(content) {

@@ -51,6 +51,7 @@ final class LogFileParser {
 
         let timestampStr = components[0]
         let eventType = components[1]
+        let sessionId = components[2]
         let payload = components.count > 3 ? components[3] : nil
         
         guard let timestamp = parseTimestamp(timestampStr) else { return nil }
@@ -60,6 +61,7 @@ final class LogFileParser {
             return ParsedLogLine(
                 timestamp: timestamp,
                 type: .commandStart,
+                sessionId: sessionId,
                 command: payload,
                 exitCode: nil
             )
@@ -68,6 +70,7 @@ final class LogFileParser {
             return ParsedLogLine(
                 timestamp: timestamp,
                 type: .commandEnd,
+                sessionId: sessionId,
                 command: nil,
                 exitCode: exitCode
             )
@@ -75,6 +78,7 @@ final class LogFileParser {
             return ParsedLogLine(
                 timestamp: timestamp,
                 type: .output,
+                sessionId: sessionId,
                 command: payload,
                 exitCode: nil
             )
@@ -82,6 +86,7 @@ final class LogFileParser {
             return ParsedLogLine(
                 timestamp: timestamp,
                 type: .aiResponse,
+                sessionId: sessionId,
                 command: payload,
                 exitCode: nil
             )
@@ -89,6 +94,7 @@ final class LogFileParser {
             return ParsedLogLine(
                 timestamp: timestamp,
                 type: .taskComplete,
+                sessionId: sessionId,
                 command: payload,
                 exitCode: nil
             )
@@ -96,6 +102,7 @@ final class LogFileParser {
             return ParsedLogLine(
                 timestamp: timestamp,
                 type: .build,
+                sessionId: sessionId,
                 command: payload,
                 exitCode: nil
             )
@@ -103,6 +110,7 @@ final class LogFileParser {
             return ParsedLogLine(
                 timestamp: timestamp,
                 type: .test,
+                sessionId: sessionId,
                 command: payload,
                 exitCode: nil
             )
@@ -122,6 +130,7 @@ final class LogFileParser {
             return ParsedLogLine(
                 timestamp: Date(),
                 type: .terminalNotification,
+                sessionId: nil,
                 command: "\(match.1)|\(match.2)", // Store Title|Message in command/payload
                 exitCode: nil
             )
@@ -131,6 +140,7 @@ final class LogFileParser {
             return ParsedLogLine(
                 timestamp: Date(),
                 type: .terminalNotification,
+                sessionId: nil,
                 command: "\(match.1)|\(match.2)",
                 exitCode: nil
             )
@@ -172,6 +182,7 @@ final class LogFileParser {
 struct ParsedLogLine {
     let timestamp: Date
     let type: LogLineType
+    let sessionId: String?
     let command: String?
     let exitCode: Int?
 }

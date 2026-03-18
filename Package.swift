@@ -4,17 +4,24 @@ import PackageDescription
 let package = Package(
     name: "Onibi",
     platforms: [
-        .macOS(.v14)
+        .macOS(.v14),
+        .iOS(.v17)
     ],
     products: [
+        .library(name: "OnibiCore", targets: ["OnibiCore"]),
         .executable(name: "Onibi", targets: ["Onibi"])
     ],
     dependencies: [
     ],
     targets: [
+        .target(
+            name: "OnibiCore",
+            dependencies: [],
+            path: "OnibiCore"
+        ),
         .executableTarget(
             name: "Onibi",
-            dependencies: [],
+            dependencies: ["OnibiCore"],
             path: "Onibi",
             exclude: [
                 "Info.plist",
@@ -24,8 +31,13 @@ let package = Package(
         ),
         .testTarget(
             name: "OnibiTests",
-            dependencies: ["Onibi"],
+            dependencies: ["Onibi", "OnibiCore"],
             path: "OnibiTests"
+        ),
+        .testTarget(
+            name: "OnibiCoreTests",
+            dependencies: ["OnibiCore"],
+            path: "OnibiCoreTests"
         )
     ]
 )

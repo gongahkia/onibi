@@ -77,7 +77,7 @@ final class LogFileParserTests: XCTestCase {
         let result = parser.parseLine(line)
         
         XCTAssertNotNil(result)
-        // Session ID should be captured
+        XCTAssertEqual(result?.sessionId, "term_session_abc")
     }
     
     func testParseWithPIDAsSession() {
@@ -85,6 +85,7 @@ final class LogFileParserTests: XCTestCase {
         let result = parser.parseLine(line)
         
         XCTAssertNotNil(result)
+        XCTAssertEqual(result?.sessionId, "99999")
     }
     
     // MARK: - Invalid Input Tests

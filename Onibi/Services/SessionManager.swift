@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import SwiftUI
+import OnibiCore
 
 /// Manages terminal session tracking and lifecycle
 final class SessionManager: ObservableObject {
@@ -29,6 +30,8 @@ final class SessionManager: ObservableObject {
         var commandCount: Int
         var isActive: Bool
         var displayName: String?
+        var primaryAssistant: AssistantKind = .unknown
+        var lastCommandPreview: String?
         
         var formattedDuration: String {
             let duration = lastActivityTime.timeIntervalSince(startTime)
@@ -67,19 +70,32 @@ final class SessionManager: ObservableObject {
     }
     
     /// Record activity for a session
-    func recordActivity(sessionId: String) {
+    func recordActivity(
+        sessionId: String,
+        assistantKind: AssistantKind = .unknown,
+        displayCommand: String? = nil
+    ) {
         sessionLock.lock()
         defer { sessionLock.unlock() }
         guard var session = activeSessions[sessionId] else {
-            var newSession = TerminalSession(
+            let newSession = TerminalSession(
                 id: sessionId, startTime: Date(), lastActivityTime: Date(), commandCount: 1, isActive: true
             )
-            activeSessions[sessionId] = newSession
+            activeSessions[sessionId] = newSession.withUpdates(
+                assistantKind: assistantKind,
+                displayCommand: displayCommand
+            )
             return
         }
         session.lastActivityTime = Date()
         session.commandCount += 1
         session.isActive = true
+        if assistantKind != .unknown {
+            session.primaryAssistant = assistantKind
+        }
+        if let displayCommand, !displayCommand.isEmpty {
+            session.lastCommandPreview = displayCommand
+        }
         activeSessions[sessionId] = session
     }
     
@@ -149,7 +165,14 @@ final class SessionManager: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] event in
                 if let sessionId = event.sessionId {
-                    self?.recordActivity(sessionId: sessionId)
+                    let assistantKind = event.metadata["assistantKind"].flatMap(AssistantKind.init(rawValue:))
+                        ?? AssistantClassifier.classify(command: event.command, metadata: event.metadata)
+                    let displayCommand = event.metadata["displayCommand"]
+                    self?.recordActivity(
+                        sessionId: sessionId,
+                        assistantKind: assistantKind,
+                        displayCommand: displayCommand
+                    )
                 }
             }
             .store(in: &cancellables)
@@ -182,5 +205,18 @@ final class SessionManager: ObservableObject {
     func sessionContext(for sessionId: String?) -> String? {
         guard let id = sessionId else { return nil }
         return "Session: \(displayName(for: id))"
+    }
+}
+
+private extension SessionManager.TerminalSession {
+    func withUpdates(assistantKind: AssistantKind, displayCommand: String?) -> SessionManager.TerminalSession {
+        var copy = self
+        if assistantKind != .unknown {
+            copy.primaryAssistant = assistantKind
+        }
+        if let displayCommand, !displayCommand.isEmpty {
+            copy.lastCommandPreview = displayCommand
+        }
+        return copy
     }
 }

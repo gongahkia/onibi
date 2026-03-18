@@ -78,6 +78,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Set up menubar controller
         menuBarController = MenuBarController()
         menuBarController?.setup()
+
+        // Start background monitoring immediately so the host is ready for local and mobile clients.
+        BackgroundTaskScheduler.shared.start()
+        MobileGatewayService.shared.bootstrap()
         
         // Register URL handler
         NSAppleEventManager.shared().setEventHandler(
@@ -190,6 +194,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func applicationWillTerminate(_ notification: Notification) {
+        BackgroundTaskScheduler.shared.stop()
+        MobileGatewayService.shared.stop()
         menuBarController?.cleanup()
     }
     

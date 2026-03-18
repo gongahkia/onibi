@@ -1,4 +1,5 @@
 import SwiftUI
+import OnibiCore
 
 /// Tab options for log viewing modes
 enum LogViewTab: String, CaseIterable {
@@ -89,7 +90,7 @@ struct DetailedLogsView: View {
         case .commands:
             logs = logs.filter { !$0.command.isEmpty }
         case .ai:
-            logs = logs.filter { $0.metadata["source"] == "ai" }
+            logs = logs.filter { $0.isAssistantCommand }
         case .workflows:
             logs = logs.filter { $0.metadata["source"] == "workflow" }
         }
@@ -98,6 +99,7 @@ struct DetailedLogsView: View {
         if !searchText.isEmpty {
             logs = logs.filter {
                 $0.command.localizedCaseInsensitiveContains(searchText) ||
+                $0.displayCommand.localizedCaseInsensitiveContains(searchText) ||
                 $0.output.localizedCaseInsensitiveContains(searchText)
             }
         }
@@ -282,9 +284,13 @@ struct LogEntryRow: View {
                     .frame(width: 70, alignment: .leading)
                 
                 // Command with highlighting
-                highlightedText(entry.command, highlight: searchText)
+                highlightedText(entry.displayCommand, highlight: searchText)
                     .font(.system(.body, design: .monospaced))
                     .lineLimit(isExpanded ? nil : 1)
+
+                if entry.assistantKind != .unknown {
+                    assistantBadge
+                }
                 
                 Spacer()
                 
@@ -348,6 +354,16 @@ struct LogEntryRow: View {
         let formatter = DateFormatter()
         formatter.timeStyle = .medium
         return formatter.string(from: entry.timestamp)
+    }
+
+    private var assistantBadge: some View {
+        Text(entry.assistantKind.displayName)
+            .font(.caption2)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.accentColor.opacity(0.15))
+            .foregroundColor(.accentColor)
+            .cornerRadius(4)
     }
     
     private func formatDuration(_ duration: TimeInterval) -> String {
@@ -429,7 +445,13 @@ struct LogEntryDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     detailRow("Command", value: entry.command)
+                    detailRow("Display Command", value: entry.displayCommand)
                     detailRow("Timestamp", value: formatDate(entry.timestamp))
+                    detailRow("Started At", value: formatDate(entry.startedAt))
+                    if let endedAt = entry.endedAt {
+                        detailRow("Ended At", value: formatDate(endedAt))
+                    }
+                    detailRow("Assistant", value: entry.assistantKind.displayName)
                     if let exitCode = entry.exitCode {
                         detailRow("Exit Code", value: String(exitCode))
                     }
