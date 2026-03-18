@@ -1,9 +1,10 @@
-[![](https://img.shields.io/badge/onibi_1.0.0-passing-green)](https://github.com/gongahkia/onibi/releases/tag/1.0.0)
+[![](https://img.shields.io/badge/onibi_1.0.0-passing-light_green)](https://github.com/gongahkia/onibi/releases/tag/1.0.0)
+[![](https://img.shields.io/badge/onibi_2.0.0-passing-green)](https://github.com/gongahkia/onibi/releases/tag/2.0.0)
 ![](https://github.com/gongahkia/onibi/actions/workflows/ci.yml/badge.svg)
 
 # `Onibi`
 
-MacOS menubar app to [monitor](#architecture) your [Ghostty](https://ghostty.org/) sessions.
+[MacOS menubar app](#macos-menubar-app) to [monitor](#architecture) your [Ghostty](https://ghostty.org/) sessions *(now with a companion [iOS app](#ios-app))*.
 
 ## Stack
 
@@ -27,6 +28,8 @@ MacOS menubar app to [monitor](#architecture) your [Ghostty](https://ghostty.org
 
 ## Screenshots
 
+### MacOS menubar app
+
 <div align="center">
     <img src="./asset/reference/2.png" width="30%">
     <img src="./asset/reference/12.png" width="30%">
@@ -49,6 +52,10 @@ MacOS menubar app to [monitor](#architecture) your [Ghostty](https://ghostty.org
     <img src="./asset/reference/9.png" width="32%">
     <img src="./asset/reference/10.png" width="32%">
 </div>
+
+### iOS app
+
+![](./asset/reference/13.png)
 
 ## Usage
 
