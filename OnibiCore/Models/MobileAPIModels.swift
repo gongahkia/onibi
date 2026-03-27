@@ -153,3 +153,13 @@ public struct MobileConnectionConfiguration: Codable, Equatable, Sendable {
         URL(string: baseURLString)
     }
 }
+
+public struct MobileConnectionDraft: Equatable, Sendable {
+    public let baseURLString: String
+    public let token: String
+
+    public init(baseURLString: String, token: String) {
+        self.baseURLString = baseURLString
+        self.token = token
+    }
+}
