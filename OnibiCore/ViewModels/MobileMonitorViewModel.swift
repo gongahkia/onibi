@@ -1,8 +1,9 @@
-import Combine
 import Foundation
+import Observation
 
 @MainActor
-public final class MobileMonitorViewModel: ObservableObject {
+@Observable
+public final class MobileMonitorViewModel {
     public enum ConnectionState: Equatable {
         case idle
         case notConfigured
@@ -13,18 +14,27 @@ public final class MobileMonitorViewModel: ObservableObject {
         case failed(String)
     }
 
-    @Published public private(set) var connectionState: ConnectionState = .idle
-    @Published public private(set) var hasConfiguration: Bool
-    @Published public private(set) var health: HostHealth?
-    @Published public private(set) var summary: SummaryResponse?
-    @Published public private(set) var sessions: [SessionSnapshot] = []
-    @Published public private(set) var recentEvents: [EventPreview] = []
-    @Published public private(set) var selectedSessionDetail: SessionDetail?
+    public private(set) var connectionState: ConnectionState
+    public private(set) var hasConfiguration: Bool
+    public private(set) var health: HostHealth?
+    public private(set) var summary: SummaryResponse?
+    public private(set) var sessions: [SessionSnapshot] = []
+    public private(set) var recentEvents: [EventPreview] = []
+    public private(set) var sessionDetails: [String: SessionDetail] = [:]
+    public private(set) var loadingSessionIDs = Set<String>()
+    public private(set) var isRefreshing = false
+    public private(set) var lastRefreshAt: Date?
+    public private(set) var connectionDraft: MobileConnectionDraft?
 
+    @ObservationIgnored
     private let client: MobileAPIClientProtocol
+    @ObservationIgnored
     private let connectionStore: MobileConnectionStore
+    @ObservationIgnored
     private let pollInterval: TimeInterval
+    @ObservationIgnored
     private var pollingTask: Task<Void, Never>?
+    @ObservationIgnored
     private var latestCursor: Date?
 
     public init(
@@ -35,31 +45,40 @@ public final class MobileMonitorViewModel: ObservableObject {
         self.client = client
         self.connectionStore = connectionStore
         self.pollInterval = pollInterval
-        self.hasConfiguration = connectionStore.loadConfiguration() != nil
+        let storedDraft = Self.makeConnectionDraft(from: connectionStore.loadConfiguration())
+        self.connectionDraft = storedDraft
+        self.hasConfiguration = storedDraft != nil
+        self.connectionState = storedDraft == nil ? .notConfigured : .idle
     }
 
     public var isConfigured: Bool {
         hasConfiguration
     }
 
+    public func sessionDetail(for id: String) -> SessionDetail? {
+        sessionDetails[id]
+    }
+
+    public func isLoadingSessionDetail(_ id: String) -> Bool {
+        loadingSessionIDs.contains(id)
+    }
+
     public func saveConfiguration(baseURLString: String, token: String) throws {
         try connectionStore.saveConfiguration(baseURLString: baseURLString, token: token)
+        connectionDraft = MobileConnectionDraft(baseURLString: baseURLString, token: token)
         hasConfiguration = true
         connectionState = .idle
+        resetRuntimeState()
     }
 
     public func clearConfiguration() {
         connectionStore.clear()
         pollingTask?.cancel()
         pollingTask = nil
+        connectionDraft = nil
         hasConfiguration = false
         connectionState = .notConfigured
-        health = nil
-        summary = nil
-        sessions = []
-        recentEvents = []
-        selectedSessionDetail = nil
-        latestCursor = nil
+        resetRuntimeState()
     }
 
     public func setSceneActive(_ isActive: Bool) {
@@ -98,7 +117,12 @@ public final class MobileMonitorViewModel: ObservableObject {
             return
         }
 
-        connectionState = .loading
+        let isInitialLoad = health == nil && summary == nil && sessions.isEmpty && recentEvents.isEmpty
+        if isInitialLoad {
+            connectionState = .loading
+        }
+        isRefreshing = true
+
         do {
             async let nextHealth = client.fetchHealth()
             async let nextSummary = client.fetchSummary()
@@ -115,41 +139,121 @@ public final class MobileMonitorViewModel: ObservableObject {
             health = resolvedHealth
             summary = resolvedSummary
             sessions = resolvedSessions
+            syncSessionDetails(with: resolvedSessions)
 
             if let newest = resolvedEvents.max(by: { $0.timestamp < $1.timestamp }) {
                 latestCursor = newest.timestamp
             }
 
-            if resolvedEvents.isEmpty {
-                recentEvents = recentEvents.prefix(50).map { $0 }
-            } else {
-                recentEvents = Array((resolvedEvents + recentEvents).prefix(50))
-            }
+            recentEvents = mergeRecentEvents(resolvedEvents)
 
             connectionState = .online
+            lastRefreshAt = Date()
         } catch let error as MobileClientError {
-            switch error {
-            case .notConfigured:
-                connectionState = .notConfigured
-            case .unauthorized:
-                connectionState = .unauthorized
-            case .unreachable:
-                connectionState = .unreachable
-            default:
-                connectionState = .failed(error.localizedDescription)
-            }
+            connectionState = Self.connectionState(for: error)
+        } catch {
+            connectionState = .failed(error.localizedDescription)
+        }
+
+        isRefreshing = false
+    }
+
+    public func loadSessionDetail(id: String, forceRefresh: Bool = false) async {
+        guard isConfigured else {
+            connectionState = .notConfigured
+            return
+        }
+
+        if !forceRefresh, sessionDetails[id] != nil {
+            return
+        }
+
+        loadingSessionIDs.insert(id)
+        defer {
+            loadingSessionIDs.remove(id)
+        }
+
+        do {
+            let detail = try await client.fetchSessionDetail(id: id)
+            sessionDetails[id] = detail
+        } catch let error as MobileClientError {
+            connectionState = Self.connectionState(for: error)
         } catch {
             connectionState = .failed(error.localizedDescription)
         }
     }
+}
 
-    public func loadSessionDetail(id: String) async {
-        do {
-            selectedSessionDetail = try await client.fetchSessionDetail(id: id)
-        } catch let error as MobileClientError {
-            connectionState = .failed(error.localizedDescription)
-        } catch {
-            connectionState = .failed(error.localizedDescription)
+private extension MobileMonitorViewModel {
+    func mergeRecentEvents(_ incomingEvents: [EventPreview]) -> [EventPreview] {
+        let combinedEvents = (incomingEvents + recentEvents)
+            .sorted(by: { $0.timestamp > $1.timestamp })
+
+        var uniqueIDs = Set<UUID>()
+        var mergedEvents: [EventPreview] = []
+        mergedEvents.reserveCapacity(min(combinedEvents.count, 50))
+
+        for event in combinedEvents where uniqueIDs.insert(event.id).inserted {
+            mergedEvents.append(event)
+            if mergedEvents.count == 50 {
+                break
+            }
         }
+
+        return mergedEvents
+    }
+
+    func resetRuntimeState() {
+        health = nil
+        summary = nil
+        sessions = []
+        recentEvents = []
+        sessionDetails = [:]
+        loadingSessionIDs = []
+        isRefreshing = false
+        lastRefreshAt = nil
+        latestCursor = nil
+    }
+
+    func syncSessionDetails(with updatedSessions: [SessionSnapshot]) {
+        let validIDs = Set(updatedSessions.map(\.id))
+        sessionDetails = sessionDetails.filter { validIDs.contains($0.key) }
+
+        for session in updatedSessions {
+            guard let existingDetail = sessionDetails[session.id] else {
+                continue
+            }
+
+            sessionDetails[session.id] = SessionDetail(
+                session: session,
+                commands: existingDetail.commands
+            )
+        }
+    }
+
+    static func connectionState(for error: MobileClientError) -> ConnectionState {
+        switch error {
+        case .notConfigured:
+            return .notConfigured
+        case .unauthorized:
+            return .unauthorized
+        case .unreachable:
+            return .unreachable
+        default:
+            return .failed(error.localizedDescription)
+        }
+    }
+
+    static func makeConnectionDraft(
+        from storedConnection: (configuration: MobileConnectionConfiguration, token: String)?
+    ) -> MobileConnectionDraft? {
+        guard let storedConnection else {
+            return nil
+        }
+
+        return MobileConnectionDraft(
+            baseURLString: storedConnection.configuration.baseURLString,
+            token: storedConnection.token
+        )
     }
 }

@@ -3,6 +3,26 @@ import XCTest
 
 @MainActor
 final class MobileMonitorViewModelTests: XCTestCase {
+    func testInitialStateReflectsMissingConfiguration() {
+        let defaults = UserDefaults(suiteName: "MobileMonitorViewModelTests.missing")!
+        defaults.removePersistentDomain(forName: "MobileMonitorViewModelTests.missing")
+        let store = MobileConnectionStore(
+            defaults: defaults,
+            configurationKey: "config",
+            tokenStore: PairingTokenStore(service: "test.mobile.missing", account: "token")
+        )
+
+        let viewModel = MobileMonitorViewModel(
+            client: StubMobileClient(),
+            connectionStore: store,
+            pollInterval: 60
+        )
+
+        XCTAssertEqual(viewModel.connectionState, .notConfigured)
+        XCTAssertFalse(viewModel.hasConfiguration)
+        XCTAssertNil(viewModel.connectionDraft)
+    }
+
     func testRefreshLoadsDataWhenConfigured() async throws {
         let defaults = UserDefaults(suiteName: "MobileMonitorViewModelTests.refresh")!
         defaults.removePersistentDomain(forName: "MobileMonitorViewModelTests.refresh")
@@ -24,6 +44,8 @@ final class MobileMonitorViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.connectionState, .online)
         XCTAssertEqual(viewModel.sessions.count, 1)
         XCTAssertEqual(viewModel.recentEvents.count, 1)
+        XCTAssertNotNil(viewModel.lastRefreshAt)
+        XCTAssertEqual(viewModel.connectionDraft?.baseURLString, "https://example.ts.net")
     }
 
     func testRefreshMarksUnauthorizedState() async throws {
@@ -45,6 +67,28 @@ final class MobileMonitorViewModelTests: XCTestCase {
         await viewModel.refresh()
 
         XCTAssertEqual(viewModel.connectionState, .unauthorized)
+    }
+
+    func testLoadSessionDetailCachesValueBySessionID() async throws {
+        let defaults = UserDefaults(suiteName: "MobileMonitorViewModelTests.detail")!
+        defaults.removePersistentDomain(forName: "MobileMonitorViewModelTests.detail")
+        let store = MobileConnectionStore(
+            defaults: defaults,
+            configurationKey: "config",
+            tokenStore: PairingTokenStore(service: "test.mobile.detail", account: "token")
+        )
+        try store.saveConfiguration(baseURLString: "https://example.ts.net", token: "token")
+
+        let viewModel = MobileMonitorViewModel(
+            client: StubMobileClient(),
+            connectionStore: store,
+            pollInterval: 60
+        )
+
+        await viewModel.loadSessionDetail(id: "session-1")
+
+        XCTAssertNotNil(viewModel.sessionDetail(for: "session-1"))
+        XCTAssertFalse(viewModel.isLoadingSessionDetail("session-1"))
     }
 }
 
