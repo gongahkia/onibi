@@ -445,6 +445,15 @@ impl AppState {
         let title = clean_required_text(input.title, "task title")?;
         let notes = clean_optional_text(input.notes);
         let tags = normalize_tags(input.tags);
+        let blocked_reason = clean_optional_text(input.blocked_reason);
+        let waiting_until = input.waiting_until;
+        let status = if blocked_reason.is_some() {
+            TaskStatus::Blocked
+        } else if waiting_until.is_some() {
+            TaskStatus::Waiting
+        } else {
+            TaskStatus::Todo
+        };
 
         if input.recurrence.is_some() && input.due_date.is_none() {
             return Err(DomainError::RecurrenceRequiresDueDate);
@@ -462,7 +471,7 @@ impl AppState {
             title,
             notes,
             project_id: input.project_id,
-            status: TaskStatus::Todo,
+            status,
             priority: input.priority,
             tags,
             due_date: input.due_date,
@@ -471,8 +480,8 @@ impl AppState {
             updated_on: today,
             completed_on: None,
             archived_on: None,
-            waiting_until: input.waiting_until,
-            blocked_reason: clean_optional_text(input.blocked_reason),
+            waiting_until,
+            blocked_reason,
             depends_on,
         };
 

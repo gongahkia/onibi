@@ -1,26 +1,35 @@
 use crate::cli::{
     Cli, Command, CompletionsArgs, ConfigCommand, ConfigSetArgs, ConfigShowArgs, ImportCommand,
-    LegacyImportArgs, ProjectAddArgs, ProjectArchiveArgs, ProjectCommand, ProjectEditArgs,
-    ProjectListArgs, ProjectShowArgs, ProjectTaskPlan, ProjectUnarchiveArgs, ReviewArgs,
-    SearchArgs, ShellKind, StorageBackupArgs, StorageCommand, StorageExportArgs, StoragePathArgs,
-    TaskAddArgs, TaskArchiveArgs, TaskBlockArgs, TaskBulkEditArgs, TaskCommand, TaskDeferArgs,
-    TaskDeleteArgs, TaskDoneArgs, TaskEditArgs, TaskListArgs, TaskNextArgs, TaskReopenArgs,
-    TaskReschedule, TaskShowArgs, TaskStartArgs, TaskUnarchiveArgs, TaskWaitArgs, UpcomingArgs,
+    LegacyImportArgs, OutputFormat, ProjectAddArgs, ProjectArchiveArgs, ProjectCommand,
+    ProjectEditArgs, ProjectListArgs, ProjectShowArgs, ProjectTaskPlan, ProjectUnarchiveArgs,
+    ReviewArgs, SearchArgs, ShellKind, StorageBackupArgs, StorageCommand, StorageExportArgs,
+    StoragePathArgs, TaskAddArgs, TaskArchiveArgs, TaskBlockArgs, TaskBulkEditArgs, TaskCommand,
+    TaskDeferArgs, TaskDeleteArgs, TaskDoneArgs, TaskEditArgs, TaskListArgs, TaskNextArgs,
+    TaskReadyArgs, TaskReopenArgs, TaskReschedule, TaskShowArgs, TaskStartArgs, TaskUnarchiveArgs,
+    TaskWaitArgs, UpcomingArgs,
 };
 use crate::config::{AppConfig, JsonConfigStore, TaskSortKey};
 use crate::domain::{
     normalize_tags, AppState, NewTask, Priority, Project, ProjectId, ProjectPatch, ProjectStatus,
     ProjectSummary, RecurrenceRule, Task, TaskId, TaskPatch, TaskStatus,
 };
+use crate::error::{conflict_error, not_found_error, usage_error};
 use crate::legacy::import_legacy_from_path;
+use crate::output::success_json;
 use crate::render::{
     render_confirmation, render_init, render_project_detail, render_project_list,
     render_search_results, render_task_detail, render_task_list, render_task_sections,
+    RenderOptions,
 };
 use crate::storage::Storage;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use chrono::{Datelike, Duration, Local, Months, NaiveDate, Weekday};
+use clap::CommandFactory;
+use clap_complete::{generate, shells};
 use serde::Serialize;
+use std::fs;
+use std::io::Cursor;
+use std::path::Path;
 
 pub trait Clock {
     fn today(&self) -> NaiveDate;
@@ -52,110 +61,189 @@ impl Clock for FixedClock {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct RuntimeOptions {
+    render: RenderOptions,
+    requested_output: Option<OutputFormat>,
+}
+
+impl RuntimeOptions {
+    fn from_cli(cli: &Cli) -> Self {
+        Self {
+            render: RenderOptions { color: cli.color },
+            requested_output: cli.requested_output(),
+        }
+    }
+
+    fn wants_json(self, config: &AppConfig) -> bool {
+        matches!(self.requested_output, Some(OutputFormat::Json))
+            || (self.requested_output.is_none() && config.default_json_output)
+    }
+}
+
 pub fn execute<S: Storage, C: Clock>(cli: Cli, storage: &S, clock: &C) -> Result<String> {
+    let config_store = JsonConfigStore::at(storage.root_dir());
+    execute_with_config(cli, storage, &config_store, clock)
+}
+
+pub fn execute_with_config<S: Storage, C: Clock>(
+    cli: Cli,
+    storage: &S,
+    config_store: &JsonConfigStore,
+    clock: &C,
+) -> Result<String> {
     let today = clock.today();
+    let runtime = RuntimeOptions::from_cli(&cli);
 
     match cli.command {
         Command::Init => {
             let path = storage.init()?;
-            Ok(render_init(&path))
+            let config = load_config(config_store)?;
+            if runtime.wants_json(&config) {
+                return to_pretty_json(
+                    "init",
+                    &StoragePathResult {
+                        path: path.display().to_string(),
+                    },
+                );
+            }
+            Ok(render_init(runtime.render, &path))
         }
-        Command::Config { command } => execute_config_command(command, storage),
-        Command::Import { command } => execute_import_command(command, storage, today),
-        Command::Storage { command } => execute_storage_command(command, storage),
-        Command::Task { command } => execute_task_command(command, storage, today),
-        Command::Project { command } => execute_project_command(command, storage, today),
-        Command::Today(args) => execute_today(storage, today, args.json),
-        Command::Upcoming(args) => execute_upcoming(storage, today, args),
-        Command::Review { command } => execute_review_command(command, storage, today),
-        Command::Search(args) => execute_search(storage, today, args),
+        Command::Config { command } => execute_config_command(command, config_store, runtime),
+        Command::Import { command } => {
+            execute_import_command(command, storage, config_store, today, runtime)
+        }
+        Command::Storage { command } => {
+            execute_storage_command(command, storage, config_store, runtime)
+        }
+        Command::Task { command } => {
+            execute_task_command(command, storage, config_store, today, runtime)
+        }
+        Command::Project { command } => {
+            execute_project_command(command, storage, config_store, today, runtime)
+        }
+        Command::Today(args) => execute_today(storage, config_store, today, args, runtime),
+        Command::Upcoming(args) => execute_upcoming(storage, config_store, today, args, runtime),
+        Command::Review { command } => {
+            execute_review_command(command, storage, config_store, today, runtime)
+        }
+        Command::Search(args) => execute_search(storage, config_store, today, args, runtime),
         Command::Completions(args) => render_completions(args),
     }
 }
 
-fn execute_config_command<S: Storage>(command: ConfigCommand, storage: &S) -> Result<String> {
+fn execute_config_command(
+    command: ConfigCommand,
+    config_store: &JsonConfigStore,
+    runtime: RuntimeOptions,
+) -> Result<String> {
     match command {
-        ConfigCommand::Show(args) => show_config(storage, args),
-        ConfigCommand::Set(args) => set_config(storage, args),
+        ConfigCommand::Show(args) => show_config(config_store, args, runtime),
+        ConfigCommand::Set(args) => set_config(config_store, args, runtime),
     }
 }
 
 fn execute_task_command<S: Storage>(
     command: TaskCommand,
     storage: &S,
+    config_store: &JsonConfigStore,
     today: NaiveDate,
+    runtime: RuntimeOptions,
 ) -> Result<String> {
     match command {
-        TaskCommand::Next(args) => mark_next_action_task(storage, today, args),
-        TaskCommand::Start(args) => start_task(storage, today, args),
-        TaskCommand::Wait(args) => wait_task(storage, today, args),
-        TaskCommand::Block(args) => block_task(storage, today, args),
-        TaskCommand::Add(args) => add_task(storage, today, args),
-        TaskCommand::List(args) => list_tasks(storage, today, args),
-        TaskCommand::Show(args) => show_task(storage, today, args),
-        TaskCommand::Edit(args) => edit_task(storage, today, args),
-        TaskCommand::BulkEdit(args) => bulk_edit_tasks(storage, today, args),
-        TaskCommand::Done(args) => complete_task(storage, today, args),
-        TaskCommand::Reopen(args) => reopen_task(storage, today, args),
-        TaskCommand::Defer(args) => defer_task(storage, today, args),
-        TaskCommand::Archive(args) => archive_task(storage, today, args),
-        TaskCommand::Unarchive(args) => unarchive_task(storage, today, args),
-        TaskCommand::Delete(args) => delete_task(storage, args),
+        TaskCommand::Next(args) => {
+            mark_next_action_task(storage, config_store, today, args, runtime)
+        }
+        TaskCommand::Start(args) => start_task(storage, config_store, today, args, runtime),
+        TaskCommand::Wait(args) => wait_task(storage, config_store, today, args, runtime),
+        TaskCommand::Block(args) => block_task(storage, config_store, today, args, runtime),
+        TaskCommand::Add(args) => add_task(storage, config_store, today, args, runtime),
+        TaskCommand::List(args) => list_tasks(storage, config_store, today, args, runtime),
+        TaskCommand::Ready(args) => ready_tasks(storage, config_store, today, args, runtime),
+        TaskCommand::Show(args) => show_task(storage, config_store, today, args, runtime),
+        TaskCommand::Edit(args) => edit_task(storage, config_store, today, args, runtime),
+        TaskCommand::BulkEdit(args) => bulk_edit_tasks(storage, config_store, today, args, runtime),
+        TaskCommand::Done(args) => complete_task(storage, config_store, today, args, runtime),
+        TaskCommand::Reopen(args) => reopen_task(storage, config_store, today, args, runtime),
+        TaskCommand::Defer(args) => defer_task(storage, config_store, today, args, runtime),
+        TaskCommand::Archive(args) => archive_task(storage, config_store, today, args, runtime),
+        TaskCommand::Unarchive(args) => unarchive_task(storage, config_store, today, args, runtime),
+        TaskCommand::Delete(args) => delete_task(storage, config_store, args, runtime),
     }
 }
 
 fn execute_project_command<S: Storage>(
     command: ProjectCommand,
     storage: &S,
+    config_store: &JsonConfigStore,
     today: NaiveDate,
+    runtime: RuntimeOptions,
 ) -> Result<String> {
     match command {
-        ProjectCommand::Add(args) => add_project(storage, today, args),
-        ProjectCommand::List(args) => list_projects(storage, today, args),
-        ProjectCommand::Show(args) => show_project(storage, today, args),
-        ProjectCommand::Edit(args) => edit_project(storage, today, args),
-        ProjectCommand::Archive(args) => archive_project(storage, today, args),
-        ProjectCommand::Unarchive(args) => unarchive_project(storage, today, args),
+        ProjectCommand::Add(args) => add_project(storage, config_store, today, args, runtime),
+        ProjectCommand::List(args) => list_projects(storage, config_store, today, args, runtime),
+        ProjectCommand::Show(args) => show_project(storage, config_store, today, args, runtime),
+        ProjectCommand::Edit(args) => edit_project(storage, config_store, today, args, runtime),
+        ProjectCommand::Archive(args) => {
+            archive_project(storage, config_store, today, args, runtime)
+        }
+        ProjectCommand::Unarchive(args) => {
+            unarchive_project(storage, config_store, today, args, runtime)
+        }
     }
 }
 
 fn execute_import_command<S: Storage>(
     command: ImportCommand,
     storage: &S,
+    config_store: &JsonConfigStore,
     today: NaiveDate,
+    runtime: RuntimeOptions,
 ) -> Result<String> {
     match command {
-        ImportCommand::Legacy(args) => import_legacy(storage, today, args),
+        ImportCommand::Legacy(args) => import_legacy(storage, config_store, today, args, runtime),
     }
 }
 
-fn execute_storage_command<S: Storage>(command: StorageCommand, storage: &S) -> Result<String> {
+fn execute_storage_command<S: Storage>(
+    command: StorageCommand,
+    storage: &S,
+    config_store: &JsonConfigStore,
+    runtime: RuntimeOptions,
+) -> Result<String> {
     match command {
-        StorageCommand::Path(args) => show_storage_paths(storage, args),
-        StorageCommand::Export(args) => export_storage(storage, args),
-        StorageCommand::Backup(args) => backup_storage(storage, args),
+        StorageCommand::Path(args) => show_storage_paths(storage, config_store, args, runtime),
+        StorageCommand::Export(args) => export_storage(storage, config_store, args, runtime),
+        StorageCommand::Backup(args) => backup_storage(storage, config_store, args, runtime),
     }
 }
 
 fn render_completions(args: CompletionsArgs) -> Result<String> {
-    let script = match args.shell {
-        ShellKind::Bash => bash_completion_script(),
-        ShellKind::Zsh => zsh_completion_script(),
-        ShellKind::Fish => fish_completion_script(),
-    };
+    let mut command = Cli::command();
+    let mut buffer = Cursor::new(Vec::new());
 
-    Ok(script.to_string())
-}
-
-fn show_config<S: Storage>(storage: &S, args: ConfigShowArgs) -> Result<String> {
-    let config_store = JsonConfigStore::at(storage.root_dir());
-    let config = config_store.load()?;
-    if args.json || config.default_json_output {
-        return to_pretty_json(&config_response(&config, &config_store));
+    match args.shell {
+        ShellKind::Bash => generate(shells::Bash, &mut command, "kelp", &mut buffer),
+        ShellKind::Zsh => generate(shells::Zsh, &mut command, "kelp", &mut buffer),
+        ShellKind::Fish => generate(shells::Fish, &mut command, "kelp", &mut buffer),
     }
 
-    let response = config_response(&config, &config_store);
+    String::from_utf8(buffer.into_inner()).map_err(Into::into)
+}
+
+fn show_config(
+    config_store: &JsonConfigStore,
+    _args: ConfigShowArgs,
+    runtime: RuntimeOptions,
+) -> Result<String> {
+    let config = config_store.load()?;
+    if runtime.wants_json(&config) {
+        return to_pretty_json("config.show", &config_response(&config, config_store));
+    }
+
+    let response = config_response(&config, config_store);
     Ok(render_confirmation(
+        runtime.render,
         "Config",
         &format!(
             "file: {}\ndefault upcoming days: {}\ndefault task sort: {}\ndefault json output: {}",
@@ -167,14 +255,20 @@ fn show_config<S: Storage>(storage: &S, args: ConfigShowArgs) -> Result<String> 
     ))
 }
 
-fn set_config<S: Storage>(storage: &S, args: ConfigSetArgs) -> Result<String> {
-    let config_store = JsonConfigStore::at(storage.root_dir());
+fn set_config(
+    config_store: &JsonConfigStore,
+    args: ConfigSetArgs,
+    runtime: RuntimeOptions,
+) -> Result<String> {
     let mut config = config_store.load()?;
     let mut changed = Vec::new();
 
     if let Some(upcoming_days) = args.upcoming_days {
         if upcoming_days < 1 {
-            bail!("--upcoming-days must be at least 1");
+            return Err(usage_error(
+                "invalid_upcoming_days",
+                "--upcoming-days must be at least 1",
+            ));
         }
         config.default_upcoming_days = upcoming_days;
         changed.push(format!("default upcoming days -> {upcoming_days}"));
@@ -194,26 +288,50 @@ fn set_config<S: Storage>(storage: &S, args: ConfigSetArgs) -> Result<String> {
     }
 
     if changed.is_empty() {
-        bail!("no config changes were provided");
+        return Err(usage_error(
+            "missing_config_changes",
+            "no config changes were provided",
+        ));
     }
 
     config_store.save(&config)?;
 
-    Ok(render_confirmation("Config updated", &changed.join("\n")))
+    if runtime.wants_json(&config) {
+        return to_pretty_json("config.set", &config_response(&config, config_store));
+    }
+
+    Ok(render_confirmation(
+        runtime.render,
+        "Config updated",
+        &changed.join("\n"),
+    ))
 }
 
 fn execute_review_command<S: Storage>(
     command: crate::cli::ReviewCommand,
     storage: &S,
+    config_store: &JsonConfigStore,
     today: NaiveDate,
+    runtime: RuntimeOptions,
 ) -> Result<String> {
     match command {
-        crate::cli::ReviewCommand::Daily(args) => daily_review(storage, today, args),
-        crate::cli::ReviewCommand::Weekly(args) => weekly_review(storage, today, args),
+        crate::cli::ReviewCommand::Daily(args) => {
+            daily_review(storage, config_store, today, args, runtime)
+        }
+        crate::cli::ReviewCommand::Weekly(args) => {
+            weekly_review(storage, config_store, today, args, runtime)
+        }
     }
 }
 
-fn add_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskAddArgs) -> Result<String> {
+fn add_task<S: Storage>(
+    storage: &S,
+    config_store: &JsonConfigStore,
+    today: NaiveDate,
+    args: TaskAddArgs,
+    runtime: RuntimeOptions,
+) -> Result<String> {
+    let config = load_config(config_store)?;
     let mut state = storage.load()?;
     let project_id = resolve_optional_project_id(&state, args.project.as_deref())?;
     let due_date = args
@@ -229,7 +347,7 @@ fn add_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskAddArgs) -> Res
     let task = state.create_task(
         NewTask {
             title: args.title,
-            notes: args.notes,
+            notes: read_optional_text_input(args.notes, args.notes_file.as_deref())?,
             project_id,
             priority: args.priority,
             tags: normalize_tags(args.tags),
@@ -243,31 +361,41 @@ fn add_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskAddArgs) -> Res
     )?;
     storage.save(&state)?;
 
+    if runtime.wants_json(&config) {
+        return to_pretty_json("task.add", &task_view(&task, &state));
+    }
+
     Ok(render_confirmation(
+        runtime.render,
         "Task created",
-        &render_task_detail(&task, &state),
+        &render_task_detail(runtime.render, &task, &state),
     ))
 }
 
 fn import_legacy<S: Storage>(
     storage: &S,
+    config_store: &JsonConfigStore,
     today: NaiveDate,
     args: LegacyImportArgs,
+    runtime: RuntimeOptions,
 ) -> Result<String> {
-    let config = load_config(storage)?;
+    let config = load_config(config_store)?;
     let mut state = storage.load()?;
     let summary = import_legacy_from_path(&mut state, &args.source, today)?;
     storage.save(&state)?;
 
-    if wants_json(args.json, &config) {
-        return to_pretty_json(&ImportResponse {
-            imported_tasks: summary.imported_tasks,
-            imported_projects: summary.imported_projects,
-            reused_projects: summary.reused_projects,
-            skipped_duplicates: summary.skipped_duplicates,
-            scanned_files: summary.scanned_files,
-            warnings: summary.warnings,
-        });
+    if runtime.wants_json(&config) {
+        return to_pretty_json(
+            "import.legacy",
+            &ImportResponse {
+                imported_tasks: summary.imported_tasks,
+                imported_projects: summary.imported_projects,
+                reused_projects: summary.reused_projects,
+                skipped_duplicates: summary.skipped_duplicates,
+                scanned_files: summary.scanned_files,
+                warnings: summary.warnings,
+            },
+        );
     }
 
     let mut lines = vec![
@@ -290,13 +418,19 @@ fn import_legacy<S: Storage>(
     }
 
     Ok(render_confirmation(
+        runtime.render,
         "Legacy import complete",
         &lines.join("\n"),
     ))
 }
 
-fn show_storage_paths<S: Storage>(storage: &S, args: StoragePathArgs) -> Result<String> {
-    let config = load_config(storage)?;
+fn show_storage_paths<S: Storage>(
+    storage: &S,
+    config_store: &JsonConfigStore,
+    _args: StoragePathArgs,
+    runtime: RuntimeOptions,
+) -> Result<String> {
+    let config = load_config(config_store)?;
     let info = StorageInfoResponse {
         backend: "json",
         root_dir: storage.root_dir().display().to_string(),
@@ -305,11 +439,12 @@ fn show_storage_paths<S: Storage>(storage: &S, args: StoragePathArgs) -> Result<
         lock_file: storage.lock_file().display().to_string(),
     };
 
-    if wants_json(args.json, &config) {
-        return to_pretty_json(&info);
+    if runtime.wants_json(&config) {
+        return to_pretty_json("storage.path", &info);
     }
 
     Ok(render_confirmation(
+        runtime.render,
         "Storage paths",
         &format!(
             "backend: {}\nroot: {}\ndata: {}\nbackups: {}\nlock: {}",
@@ -318,69 +453,112 @@ fn show_storage_paths<S: Storage>(storage: &S, args: StoragePathArgs) -> Result<
     ))
 }
 
-fn export_storage<S: Storage>(storage: &S, args: StorageExportArgs) -> Result<String> {
-    let config = load_config(storage)?;
-    let output = storage.export_to(&args.output)?;
-    if wants_json(args.json, &config) {
-        return to_pretty_json(&StoragePathResult {
-            path: output.display().to_string(),
-        });
+fn export_storage<S: Storage>(
+    storage: &S,
+    config_store: &JsonConfigStore,
+    args: StorageExportArgs,
+    runtime: RuntimeOptions,
+) -> Result<String> {
+    let config = load_config(config_store)?;
+    let output = storage.export_to(&args.file)?;
+    if runtime.wants_json(&config) {
+        return to_pretty_json(
+            "storage.export",
+            &StoragePathResult {
+                path: output.display().to_string(),
+            },
+        );
     }
 
     Ok(render_confirmation(
+        runtime.render,
         "Storage exported",
         &format!("wrote {}", output.display()),
     ))
 }
 
-fn backup_storage<S: Storage>(storage: &S, args: StorageBackupArgs) -> Result<String> {
-    let config = load_config(storage)?;
+fn backup_storage<S: Storage>(
+    storage: &S,
+    config_store: &JsonConfigStore,
+    _args: StorageBackupArgs,
+    runtime: RuntimeOptions,
+) -> Result<String> {
+    let config = load_config(config_store)?;
     let backup = storage.create_backup_snapshot()?;
-    if wants_json(args.json, &config) {
-        return to_pretty_json(&StoragePathResult {
-            path: backup.display().to_string(),
-        });
+    if runtime.wants_json(&config) {
+        return to_pretty_json(
+            "storage.backup",
+            &StoragePathResult {
+                path: backup.display().to_string(),
+            },
+        );
     }
 
     Ok(render_confirmation(
+        runtime.render,
         "Backup created",
         &format!("wrote {}", backup.display()),
     ))
 }
 
-fn start_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskStartArgs) -> Result<String> {
+fn start_task<S: Storage>(
+    storage: &S,
+    config_store: &JsonConfigStore,
+    today: NaiveDate,
+    args: TaskStartArgs,
+    runtime: RuntimeOptions,
+) -> Result<String> {
+    let config = load_config(config_store)?;
     let mut state = storage.load()?;
     state.set_task_status(TaskId(args.id), TaskStatus::InProgress, today)?;
     storage.save(&state)?;
 
-    let task = state
-        .find_task(TaskId(args.id))
-        .with_context(|| format!("task {} does not exist after starting", args.id))?;
+    let task = state.find_task(TaskId(args.id)).ok_or_else(|| {
+        not_found_error("task_not_found", format!("task {} does not exist", args.id))
+    })?;
+    if runtime.wants_json(&config) {
+        return to_pretty_json("task.start", &task_view(task, &state));
+    }
     Ok(render_confirmation(
+        runtime.render,
         "Task started",
-        &render_task_detail(task, &state),
+        &render_task_detail(runtime.render, task, &state),
     ))
 }
 
 fn mark_next_action_task<S: Storage>(
     storage: &S,
+    config_store: &JsonConfigStore,
     today: NaiveDate,
     args: TaskNextArgs,
+    runtime: RuntimeOptions,
 ) -> Result<String> {
+    let config = load_config(config_store)?;
     let mut state = storage.load()?;
     state.set_task_status(TaskId(args.id), TaskStatus::NextAction, today)?;
     storage.save(&state)?;
 
-    let task = state
-        .find_task(TaskId(args.id))
-        .with_context(|| format!("task {} does not exist after updating", args.id))?;
+    let task = state.find_task(TaskId(args.id)).ok_or_else(|| {
+        not_found_error("task_not_found", format!("task {} does not exist", args.id))
+    })?;
+    if runtime.wants_json(&config) {
+        return to_pretty_json("task.next", &task_view(task, &state));
+    }
     Ok(render_confirmation(
+        runtime.render,
         "Task marked as next action",
-        &render_task_detail(task, &state),
+        &render_task_detail(runtime.render, task, &state),
     ))
 }
 
-fn wait_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskWaitArgs) -> Result<String> {
+fn wait_task<S: Storage>(
+    storage: &S,
+    config_store: &JsonConfigStore,
+    today: NaiveDate,
+    args: TaskWaitArgs,
+    runtime: RuntimeOptions,
+) -> Result<String> {
+    let config = load_config(config_store)?;
     let mut state = storage.load()?;
     state.set_task_status(TaskId(args.id), TaskStatus::Waiting, today)?;
     if let Some(until) = args.until.as_deref() {
@@ -396,16 +574,27 @@ fn wait_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskWaitArgs) -> R
     }
     storage.save(&state)?;
 
-    let task = state
-        .find_task(TaskId(args.id))
-        .with_context(|| format!("task {} does not exist after updating", args.id))?;
+    let task = state.find_task(TaskId(args.id)).ok_or_else(|| {
+        not_found_error("task_not_found", format!("task {} does not exist", args.id))
+    })?;
+    if runtime.wants_json(&config) {
+        return to_pretty_json("task.wait", &task_view(task, &state));
+    }
     Ok(render_confirmation(
+        runtime.render,
         "Task marked as waiting",
-        &render_task_detail(task, &state),
+        &render_task_detail(runtime.render, task, &state),
     ))
 }
 
-fn block_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskBlockArgs) -> Result<String> {
+fn block_task<S: Storage>(
+    storage: &S,
+    config_store: &JsonConfigStore,
+    today: NaiveDate,
+    args: TaskBlockArgs,
+    runtime: RuntimeOptions,
+) -> Result<String> {
+    let config = load_config(config_store)?;
     let mut state = storage.load()?;
     state.set_task_status(TaskId(args.id), TaskStatus::Blocked, today)?;
     if let Some(reason) = args.reason {
@@ -420,17 +609,27 @@ fn block_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskBlockArgs) ->
     }
     storage.save(&state)?;
 
-    let task = state
-        .find_task(TaskId(args.id))
-        .with_context(|| format!("task {} does not exist after updating", args.id))?;
+    let task = state.find_task(TaskId(args.id)).ok_or_else(|| {
+        not_found_error("task_not_found", format!("task {} does not exist", args.id))
+    })?;
+    if runtime.wants_json(&config) {
+        return to_pretty_json("task.block", &task_view(task, &state));
+    }
     Ok(render_confirmation(
+        runtime.render,
         "Task marked as blocked",
-        &render_task_detail(task, &state),
+        &render_task_detail(runtime.render, task, &state),
     ))
 }
 
-fn list_tasks<S: Storage>(storage: &S, today: NaiveDate, args: TaskListArgs) -> Result<String> {
-    let config = load_config(storage)?;
+fn list_tasks<S: Storage>(
+    storage: &S,
+    config_store: &JsonConfigStore,
+    today: NaiveDate,
+    args: TaskListArgs,
+    runtime: RuntimeOptions,
+) -> Result<String> {
+    let config = load_config(config_store)?;
     let state = storage.load()?;
     let project_id = resolve_optional_project_id(&state, args.project.as_deref())?;
     let mut tasks = filtered_tasks(
@@ -440,48 +639,115 @@ fn list_tasks<S: Storage>(storage: &S, today: NaiveDate, args: TaskListArgs) -> 
             project_id,
             status: args.status,
             priority: args.priority,
-            tag: args.tag.as_deref(),
+            tags: args.tags.iter().map(String::as_str).collect(),
+            query: args.query.as_deref(),
             due_today: args.due_today,
             overdue: args.overdue,
             include_all_statuses: args.all,
             include_archived_projects: args.all,
+            ready_only: args.ready,
         },
     );
     sort_tasks(&mut tasks, args.sort.unwrap_or(config.default_task_sort));
+    apply_limit(&mut tasks, args.limit);
 
-    if wants_json(args.json, &config) {
-        return to_pretty_json(&TaskListResponse {
-            tasks: tasks
-                .into_iter()
-                .map(|task| task_view(task, &state))
-                .collect(),
-        });
+    if runtime.wants_json(&config) {
+        return to_pretty_json(
+            "task.list",
+            &TaskListResponse {
+                tasks: tasks
+                    .into_iter()
+                    .map(|task| task_view(task, &state))
+                    .collect(),
+            },
+        );
     }
 
-    Ok(render_task_list("Tasks", &tasks, &state))
+    Ok(render_task_list(runtime.render, "Tasks", &tasks, &state))
 }
 
-fn show_task<S: Storage>(storage: &S, _today: NaiveDate, args: TaskShowArgs) -> Result<String> {
-    let config = load_config(storage)?;
+fn ready_tasks<S: Storage>(
+    storage: &S,
+    config_store: &JsonConfigStore,
+    today: NaiveDate,
+    args: TaskReadyArgs,
+    runtime: RuntimeOptions,
+) -> Result<String> {
+    let config = load_config(config_store)?;
     let state = storage.load()?;
-    let task = state
-        .find_task(TaskId(args.id))
-        .with_context(|| format!("task {} does not exist", args.id))?;
+    let mut tasks = filtered_tasks(
+        &state,
+        today,
+        TaskFilter {
+            project_id: None,
+            status: None,
+            priority: None,
+            tags: Vec::new(),
+            query: None,
+            due_today: false,
+            overdue: false,
+            include_all_statuses: false,
+            include_archived_projects: false,
+            ready_only: true,
+        },
+    );
+    sort_ready_tasks(&mut tasks);
+    apply_limit(&mut tasks, args.limit);
 
-    if wants_json(args.json, &config) {
-        return to_pretty_json(&task_view(task, &state));
+    if runtime.wants_json(&config) {
+        return to_pretty_json(
+            "task.ready",
+            &TaskListResponse {
+                tasks: tasks.iter().map(|task| task_view(task, &state)).collect(),
+            },
+        );
     }
 
-    Ok(render_task_detail(task, &state))
+    Ok(render_task_list(
+        runtime.render,
+        "Ready tasks",
+        &tasks,
+        &state,
+    ))
 }
 
-fn edit_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskEditArgs) -> Result<String> {
+fn show_task<S: Storage>(
+    storage: &S,
+    config_store: &JsonConfigStore,
+    _today: NaiveDate,
+    args: TaskShowArgs,
+    runtime: RuntimeOptions,
+) -> Result<String> {
+    let config = load_config(config_store)?;
+    let state = storage.load()?;
+    let task = state.find_task(TaskId(args.id)).ok_or_else(|| {
+        not_found_error("task_not_found", format!("task {} does not exist", args.id))
+    })?;
+
+    if runtime.wants_json(&config) {
+        return to_pretty_json("task.show", &task_view(task, &state));
+    }
+
+    Ok(render_task_detail(runtime.render, task, &state))
+}
+
+fn edit_task<S: Storage>(
+    storage: &S,
+    config_store: &JsonConfigStore,
+    today: NaiveDate,
+    args: TaskEditArgs,
+    runtime: RuntimeOptions,
+) -> Result<String> {
+    let config = load_config(config_store)?;
     let mut state = storage.load()?;
     let task_id = TaskId(args.id);
     let patch = build_task_patch(&state, &args, today)?;
     let desired_status = args.status;
     if patch.is_empty() && desired_status.is_none() {
-        bail!("no task changes were provided");
+        return Err(usage_error(
+            "missing_task_changes",
+            "no task changes were provided",
+        ));
     }
 
     if !patch.is_empty() {
@@ -494,10 +760,23 @@ fn edit_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskEditArgs) -> R
     };
     storage.save(&state)?;
 
-    let task = state
-        .find_task(task_id)
-        .with_context(|| format!("task {} does not exist after update", args.id))?;
-    let mut output = render_confirmation("Task updated", &render_task_detail(task, &state));
+    let task = state.find_task(task_id).ok_or_else(|| {
+        not_found_error("task_not_found", format!("task {} does not exist", args.id))
+    })?;
+    if runtime.wants_json(&config) {
+        return to_pretty_json(
+            "task.edit",
+            &TaskMutationResponse {
+                task: task_view(task, &state),
+                spawned_task_id: spawned_task_id.map(|task_id| task_id.0),
+            },
+        );
+    }
+    let mut output = render_confirmation(
+        runtime.render,
+        "Task updated",
+        &render_task_detail(runtime.render, task, &state),
+    );
     if let Some(next_task_id) = spawned_task_id {
         output.push_str(&format!(
             "\n{}\nspawned recurring task {}",
@@ -511,18 +790,27 @@ fn edit_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskEditArgs) -> R
 
 fn bulk_edit_tasks<S: Storage>(
     storage: &S,
+    config_store: &JsonConfigStore,
     today: NaiveDate,
     args: TaskBulkEditArgs,
+    runtime: RuntimeOptions,
 ) -> Result<String> {
+    let config = load_config(config_store)?;
     if args.ids.is_empty() {
-        bail!("bulk edit requires at least one task id");
+        return Err(usage_error(
+            "missing_task_ids",
+            "bulk edit requires at least one task id",
+        ));
     }
 
     let mut state = storage.load()?;
     let patch = build_bulk_task_patch(&state, &args, today)?;
     let desired_status = args.status;
     if patch.is_empty() && desired_status.is_none() {
-        bail!("no bulk edit changes were provided");
+        return Err(usage_error(
+            "missing_bulk_task_changes",
+            "no bulk edit changes were provided",
+        ));
     }
 
     let mut updated = 0usize;
@@ -541,7 +829,18 @@ fn bulk_edit_tasks<S: Storage>(
     }
     storage.save(&state)?;
 
+    if runtime.wants_json(&config) {
+        return to_pretty_json(
+            "task.bulk_edit",
+            &BulkTaskMutationResponse {
+                updated_tasks: updated,
+                spawned_task_ids: spawned_tasks,
+            },
+        );
+    }
+
     Ok(render_confirmation(
+        runtime.render,
         "Bulk edit applied",
         &format!(
             "updated tasks: {}\nspawned recurring tasks: {}",
@@ -551,15 +850,35 @@ fn bulk_edit_tasks<S: Storage>(
     ))
 }
 
-fn complete_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskDoneArgs) -> Result<String> {
+fn complete_task<S: Storage>(
+    storage: &S,
+    config_store: &JsonConfigStore,
+    today: NaiveDate,
+    args: TaskDoneArgs,
+    runtime: RuntimeOptions,
+) -> Result<String> {
+    let config = load_config(config_store)?;
     let mut state = storage.load()?;
     let spawned_task_id = state.complete_task(TaskId(args.id), today)?;
     storage.save(&state)?;
 
-    let task = state
-        .find_task(TaskId(args.id))
-        .with_context(|| format!("task {} does not exist after completion", args.id))?;
-    let mut output = render_confirmation("Task completed", &render_task_detail(task, &state));
+    let task = state.find_task(TaskId(args.id)).ok_or_else(|| {
+        not_found_error("task_not_found", format!("task {} does not exist", args.id))
+    })?;
+    if runtime.wants_json(&config) {
+        return to_pretty_json(
+            "task.done",
+            &TaskMutationResponse {
+                task: task_view(task, &state),
+                spawned_task_id: spawned_task_id.map(|task_id| task_id.0),
+            },
+        );
+    }
+    let mut output = render_confirmation(
+        runtime.render,
+        "Task completed",
+        &render_task_detail(runtime.render, task, &state),
+    );
     if let Some(next_task_id) = spawned_task_id {
         output.push_str(&format!(
             "\n{}\nspawned recurring task {}",
@@ -571,21 +890,39 @@ fn complete_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskDoneArgs) 
     Ok(output)
 }
 
-fn reopen_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskReopenArgs) -> Result<String> {
+fn reopen_task<S: Storage>(
+    storage: &S,
+    config_store: &JsonConfigStore,
+    today: NaiveDate,
+    args: TaskReopenArgs,
+    runtime: RuntimeOptions,
+) -> Result<String> {
+    let config = load_config(config_store)?;
     let mut state = storage.load()?;
     state.set_task_status(TaskId(args.id), TaskStatus::Todo, today)?;
     storage.save(&state)?;
 
-    let task = state
-        .find_task(TaskId(args.id))
-        .with_context(|| format!("task {} does not exist after reopening", args.id))?;
+    let task = state.find_task(TaskId(args.id)).ok_or_else(|| {
+        not_found_error("task_not_found", format!("task {} does not exist", args.id))
+    })?;
+    if runtime.wants_json(&config) {
+        return to_pretty_json("task.reopen", &task_view(task, &state));
+    }
     Ok(render_confirmation(
+        runtime.render,
         "Task reopened",
-        &render_task_detail(task, &state),
+        &render_task_detail(runtime.render, task, &state),
     ))
 }
 
-fn defer_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskDeferArgs) -> Result<String> {
+fn defer_task<S: Storage>(
+    storage: &S,
+    config_store: &JsonConfigStore,
+    today: NaiveDate,
+    args: TaskDeferArgs,
+    runtime: RuntimeOptions,
+) -> Result<String> {
+    let config = load_config(config_store)?;
     let mut state = storage.load()?;
     let due_date = resolve_defer_date(today, &args)?;
     state.apply_task_patch(
@@ -598,73 +935,126 @@ fn defer_task<S: Storage>(storage: &S, today: NaiveDate, args: TaskDeferArgs) ->
     )?;
     storage.save(&state)?;
 
-    let task = state
-        .find_task(TaskId(args.id))
-        .with_context(|| format!("task {} does not exist after deferring", args.id))?;
+    let task = state.find_task(TaskId(args.id)).ok_or_else(|| {
+        not_found_error("task_not_found", format!("task {} does not exist", args.id))
+    })?;
+    if runtime.wants_json(&config) {
+        return to_pretty_json("task.defer", &task_view(task, &state));
+    }
     Ok(render_confirmation(
+        runtime.render,
         "Task deferred",
-        &render_task_detail(task, &state),
+        &render_task_detail(runtime.render, task, &state),
     ))
 }
 
 fn archive_task<S: Storage>(
     storage: &S,
+    config_store: &JsonConfigStore,
     today: NaiveDate,
     args: TaskArchiveArgs,
+    runtime: RuntimeOptions,
 ) -> Result<String> {
+    let config = load_config(config_store)?;
     let mut state = storage.load()?;
     state.set_task_status(TaskId(args.id), TaskStatus::Archived, today)?;
     storage.save(&state)?;
 
-    let task = state
-        .find_task(TaskId(args.id))
-        .with_context(|| format!("task {} does not exist after archiving", args.id))?;
+    let task = state.find_task(TaskId(args.id)).ok_or_else(|| {
+        not_found_error("task_not_found", format!("task {} does not exist", args.id))
+    })?;
+    if runtime.wants_json(&config) {
+        return to_pretty_json("task.archive", &task_view(task, &state));
+    }
     Ok(render_confirmation(
+        runtime.render,
         "Task archived",
-        &render_task_detail(task, &state),
+        &render_task_detail(runtime.render, task, &state),
     ))
 }
 
 fn unarchive_task<S: Storage>(
     storage: &S,
+    config_store: &JsonConfigStore,
     today: NaiveDate,
     args: TaskUnarchiveArgs,
+    runtime: RuntimeOptions,
 ) -> Result<String> {
+    let config = load_config(config_store)?;
     let mut state = storage.load()?;
     state.set_task_status(TaskId(args.id), TaskStatus::Todo, today)?;
     storage.save(&state)?;
 
-    let task = state
-        .find_task(TaskId(args.id))
-        .with_context(|| format!("task {} does not exist after unarchiving", args.id))?;
+    let task = state.find_task(TaskId(args.id)).ok_or_else(|| {
+        not_found_error("task_not_found", format!("task {} does not exist", args.id))
+    })?;
+    if runtime.wants_json(&config) {
+        return to_pretty_json("task.unarchive", &task_view(task, &state));
+    }
     Ok(render_confirmation(
+        runtime.render,
         "Task unarchived",
-        &render_task_detail(task, &state),
+        &render_task_detail(runtime.render, task, &state),
     ))
 }
 
-fn delete_task<S: Storage>(storage: &S, args: TaskDeleteArgs) -> Result<String> {
+fn delete_task<S: Storage>(
+    storage: &S,
+    config_store: &JsonConfigStore,
+    args: TaskDeleteArgs,
+    runtime: RuntimeOptions,
+) -> Result<String> {
+    let config = load_config(config_store)?;
     let mut state = storage.load()?;
     let task = state.delete_task(TaskId(args.id))?;
     storage.save(&state)?;
 
+    if runtime.wants_json(&config) {
+        return to_pretty_json(
+            "task.delete",
+            &DeleteResponse {
+                removed_id: task.id.0,
+                removed_title: task.title.clone(),
+            },
+        );
+    }
+
     Ok(render_confirmation(
+        runtime.render,
         "Task deleted",
         &format!("removed task {}: {}", task.id.0, task.title),
     ))
 }
 
-fn add_project<S: Storage>(storage: &S, today: NaiveDate, args: ProjectAddArgs) -> Result<String> {
+fn add_project<S: Storage>(
+    storage: &S,
+    config_store: &JsonConfigStore,
+    today: NaiveDate,
+    args: ProjectAddArgs,
+    runtime: RuntimeOptions,
+) -> Result<String> {
+    let config = load_config(config_store)?;
     let mut state = storage.load()?;
     let deadline = args
         .deadline
         .as_deref()
         .map(|value| resolve_date_expression(today, value))
         .transpose()?;
-    let project = state.create_project(args.name, args.description, deadline, today)?;
+    let project = state.create_project(
+        args.name,
+        read_optional_text_input(args.description, args.description_file.as_deref())?,
+        deadline,
+        today,
+    )?;
     storage.save(&state)?;
 
+    let summary = state.project_summary(project.id, today)?;
+    if runtime.wants_json(&config) {
+        return to_pretty_json("project.add", &project_view(&project, summary));
+    }
+
     Ok(render_confirmation(
+        runtime.render,
         "Project created",
         &format!("created project {}: {}", project.id.0, project.name),
     ))
@@ -672,23 +1062,37 @@ fn add_project<S: Storage>(storage: &S, today: NaiveDate, args: ProjectAddArgs) 
 
 fn edit_project<S: Storage>(
     storage: &S,
+    config_store: &JsonConfigStore,
     today: NaiveDate,
     args: ProjectEditArgs,
+    runtime: RuntimeOptions,
 ) -> Result<String> {
+    let config = load_config(config_store)?;
     let mut state = storage.load()?;
     let project_id = state.resolve_project_id(&args.project)?;
     let patch = build_project_patch(&args, today)?;
     if patch.is_empty() {
-        bail!("no project changes were provided");
+        return Err(usage_error(
+            "missing_project_changes",
+            "no project changes were provided",
+        ));
     }
 
     state.apply_project_patch(project_id, patch, today)?;
     storage.save(&state)?;
 
-    let project = state
-        .find_project(project_id)
-        .with_context(|| format!("project {} does not exist after update", args.project))?;
+    let project = state.find_project(project_id).ok_or_else(|| {
+        not_found_error(
+            "project_not_found",
+            format!("project {} does not exist", args.project),
+        )
+    })?;
+    let summary = state.project_summary(project.id, today)?;
+    if runtime.wants_json(&config) {
+        return to_pretty_json("project.edit", &project_view(project, summary));
+    }
     Ok(render_confirmation(
+        runtime.render,
         "Project updated",
         &format!(
             "project {}: {}\ndeadline: {}\ndescription: {}",
@@ -705,10 +1109,12 @@ fn edit_project<S: Storage>(
 
 fn list_projects<S: Storage>(
     storage: &S,
+    config_store: &JsonConfigStore,
     today: NaiveDate,
     args: ProjectListArgs,
+    runtime: RuntimeOptions,
 ) -> Result<String> {
-    let config = load_config(storage)?;
+    let config = load_config(config_store)?;
     let state = storage.load()?;
     let mut projects: Vec<&Project> = state
         .projects
@@ -722,7 +1128,7 @@ fn list_projects<S: Storage>(
         .collect();
     projects.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
 
-    let project_entries: Vec<(&Project, ProjectSummary)> = projects
+    let mut project_entries: Vec<(&Project, ProjectSummary)> = projects
         .iter()
         .map(|project| {
             let summary = state.project_summary(project.id, today)?;
@@ -730,61 +1136,124 @@ fn list_projects<S: Storage>(
         })
         .collect::<Result<_>>()?;
 
-    if wants_json(args.json, &config) {
-        return to_pretty_json(&ProjectListResponse {
-            projects: project_entries
-                .iter()
-                .map(|(project, summary)| project_view(project, *summary))
-                .collect(),
-        });
+    if !args.archived {
+        if args.at_risk {
+            project_entries.retain(|(_, summary)| {
+                summary.overdue_tasks > 0
+                    || summary.blocked_tasks > 0
+                    || summary.dependency_blocked_tasks > 0
+                    || (summary.open_tasks > 0 && summary.next_action_tasks == 0)
+            });
+        }
+        if args.missing_next_action {
+            project_entries
+                .retain(|(_, summary)| summary.open_tasks > 0 && summary.next_action_tasks == 0);
+        }
+        if let Some(days) = args.deadline_within {
+            if days < 1 {
+                return Err(usage_error(
+                    "invalid_deadline_window",
+                    "--deadline-within must be at least 1",
+                ));
+            }
+            let window_end = today + Duration::days(days);
+            project_entries.retain(|(project, _)| {
+                project
+                    .deadline
+                    .map(|deadline| deadline >= today && deadline <= window_end)
+                    .unwrap_or(false)
+            });
+        }
+    }
+    apply_limit(&mut project_entries, args.limit);
+
+    if runtime.wants_json(&config) {
+        return to_pretty_json(
+            "project.list",
+            &ProjectListResponse {
+                projects: project_entries
+                    .iter()
+                    .map(|(project, summary)| project_view(project, *summary))
+                    .collect(),
+            },
+        );
     }
 
-    Ok(render_project_list("Projects", &project_entries))
+    Ok(render_project_list(
+        runtime.render,
+        "Projects",
+        &project_entries,
+    ))
 }
 
 fn show_project<S: Storage>(
     storage: &S,
+    config_store: &JsonConfigStore,
     today: NaiveDate,
     args: ProjectShowArgs,
+    runtime: RuntimeOptions,
 ) -> Result<String> {
-    let config = load_config(storage)?;
+    let config = load_config(config_store)?;
     let state = storage.load()?;
     let project_id = state.resolve_project_id(&args.project)?;
-    let project = state
-        .find_project(project_id)
-        .with_context(|| format!("project {} does not exist", args.project))?;
+    let project = state.find_project(project_id).ok_or_else(|| {
+        not_found_error(
+            "project_not_found",
+            format!("project {} does not exist", args.project),
+        )
+    })?;
     let summary = state.project_summary(project.id, today)?;
     let mut tasks = state.project_tasks(project.id);
     tasks.retain(|task| !matches!(task.status, TaskStatus::Archived));
     sort_tasks(&mut tasks, TaskSortKey::Due);
 
-    if wants_json(args.json, &config) {
-        return to_pretty_json(&ProjectDetailResponse {
-            project: project_view(project, summary),
-            tasks: tasks
-                .into_iter()
-                .map(|task| task_view(task, &state))
-                .collect(),
-        });
+    if runtime.wants_json(&config) {
+        return to_pretty_json(
+            "project.show",
+            &ProjectDetailResponse {
+                project: project_view(project, summary),
+                tasks: tasks
+                    .into_iter()
+                    .map(|task| task_view(task, &state))
+                    .collect(),
+            },
+        );
     }
 
-    Ok(render_project_detail(project, summary, &tasks, &state))
+    Ok(render_project_detail(
+        runtime.render,
+        project,
+        summary,
+        &tasks,
+        &state,
+    ))
 }
 
 fn archive_project<S: Storage>(
     storage: &S,
+    config_store: &JsonConfigStore,
     today: NaiveDate,
     args: ProjectArchiveArgs,
+    runtime: RuntimeOptions,
 ) -> Result<String> {
+    let config = load_config(config_store)?;
     let mut state = storage.load()?;
     let project_id = state.resolve_project_id(&args.project)?;
     state.archive_project(project_id, today)?;
     storage.save(&state)?;
 
-    let project = state
-        .find_project(project_id)
-        .with_context(|| format!("project {} does not exist after archive", args.project))?;
+    let project = state.find_project(project_id).ok_or_else(|| {
+        not_found_error(
+            "project_not_found",
+            format!("project {} does not exist", args.project),
+        )
+    })?;
+    let summary = state.project_summary(project.id, today)?;
+    if runtime.wants_json(&config) {
+        return to_pretty_json("project.archive", &project_view(project, summary));
+    }
     Ok(render_confirmation(
+        runtime.render,
         "Project archived",
         &format!("archived project {}: {}", project.id.0, project.name),
     ))
@@ -792,25 +1261,42 @@ fn archive_project<S: Storage>(
 
 fn unarchive_project<S: Storage>(
     storage: &S,
+    config_store: &JsonConfigStore,
     today: NaiveDate,
     args: ProjectUnarchiveArgs,
+    runtime: RuntimeOptions,
 ) -> Result<String> {
+    let config = load_config(config_store)?;
     let mut state = storage.load()?;
     let project_id = state.resolve_project_id(&args.project)?;
     state.activate_project(project_id, today)?;
     storage.save(&state)?;
 
-    let project = state
-        .find_project(project_id)
-        .with_context(|| format!("project {} does not exist after unarchive", args.project))?;
+    let project = state.find_project(project_id).ok_or_else(|| {
+        not_found_error(
+            "project_not_found",
+            format!("project {} does not exist", args.project),
+        )
+    })?;
+    let summary = state.project_summary(project.id, today)?;
+    if runtime.wants_json(&config) {
+        return to_pretty_json("project.unarchive", &project_view(project, summary));
+    }
     Ok(render_confirmation(
+        runtime.render,
         "Project reactivated",
         &format!("reactivated project {}: {}", project.id.0, project.name),
     ))
 }
 
-fn execute_today<S: Storage>(storage: &S, today: NaiveDate, json: bool) -> Result<String> {
-    let config = load_config(storage)?;
+fn execute_today<S: Storage>(
+    storage: &S,
+    config_store: &JsonConfigStore,
+    today: NaiveDate,
+    _args: crate::cli::ListOutputArgs,
+    runtime: RuntimeOptions,
+) -> Result<String> {
+    let config = load_config(config_store)?;
     let state = storage.load()?;
     let mut overdue = active_open_tasks(&state)
         .into_iter()
@@ -865,24 +1351,37 @@ fn execute_today<S: Storage>(storage: &S, today: NaiveDate, json: bool) -> Resul
         ("Waiting follow-up".to_string(), waiting_follow_up),
     ];
 
-    if wants_json(json, &config) {
-        return to_pretty_json(&SectionedTaskResponse {
-            sections: sections_to_views(&sections, &state),
-        });
+    if runtime.wants_json(&config) {
+        return to_pretty_json(
+            "today",
+            &SectionedTaskResponse {
+                sections: sections_to_views(&sections, &state),
+            },
+        );
     }
 
-    Ok(render_task_sections("Today", &sections, &state))
+    Ok(render_task_sections(
+        runtime.render,
+        "Today",
+        &sections,
+        &state,
+    ))
 }
 
 fn execute_upcoming<S: Storage>(
     storage: &S,
+    config_store: &JsonConfigStore,
     today: NaiveDate,
     args: UpcomingArgs,
+    runtime: RuntimeOptions,
 ) -> Result<String> {
-    let config = load_config(storage)?;
+    let config = load_config(config_store)?;
     let days = args.days.unwrap_or(config.default_upcoming_days);
     if days < 1 {
-        bail!("--days must be at least 1");
+        return Err(usage_error(
+            "invalid_upcoming_days",
+            "--days must be at least 1",
+        ));
     }
 
     let state = storage.load()?;
@@ -898,17 +1397,31 @@ fn execute_upcoming<S: Storage>(
     sort_tasks(&mut tasks, TaskSortKey::Due);
 
     let sections = group_tasks_by_due_date(tasks);
-    if wants_json(args.json, &config) {
-        return to_pretty_json(&SectionedTaskResponse {
-            sections: sections_to_views(&sections, &state),
-        });
+    if runtime.wants_json(&config) {
+        return to_pretty_json(
+            "upcoming",
+            &SectionedTaskResponse {
+                sections: sections_to_views(&sections, &state),
+            },
+        );
     }
 
-    Ok(render_task_sections("Upcoming", &sections, &state))
+    Ok(render_task_sections(
+        runtime.render,
+        "Upcoming",
+        &sections,
+        &state,
+    ))
 }
 
-fn daily_review<S: Storage>(storage: &S, today: NaiveDate, args: ReviewArgs) -> Result<String> {
-    let config = load_config(storage)?;
+fn daily_review<S: Storage>(
+    storage: &S,
+    config_store: &JsonConfigStore,
+    today: NaiveDate,
+    args: ReviewArgs,
+    runtime: RuntimeOptions,
+) -> Result<String> {
+    let config = load_config(config_store)?;
     let mut state = storage.load()?;
     let applied_actions = apply_review_actions(&mut state, today, &args)?;
     if !applied_actions.is_empty() {
@@ -961,22 +1474,32 @@ fn daily_review<S: Storage>(storage: &S, today: NaiveDate, args: ReviewArgs) -> 
         ("Needs scheduling".to_string(), needs_scheduling),
     ];
 
-    if wants_json(args.json, &config) {
-        return to_pretty_json(&ReviewTaskResponse {
-            applied_actions,
-            sections: sections_to_views(&sections, &state),
-        });
+    if runtime.wants_json(&config) {
+        return to_pretty_json(
+            "review.daily",
+            &ReviewTaskResponse {
+                applied_actions,
+                sections: sections_to_views(&sections, &state),
+            },
+        );
     }
 
     Ok(render_review_output(
+        runtime.render,
         "Daily review",
         &applied_actions,
-        render_task_sections("Daily review", &sections, &state),
+        render_task_sections(runtime.render, "Daily review", &sections, &state),
     ))
 }
 
-fn weekly_review<S: Storage>(storage: &S, today: NaiveDate, args: ReviewArgs) -> Result<String> {
-    let config = load_config(storage)?;
+fn weekly_review<S: Storage>(
+    storage: &S,
+    config_store: &JsonConfigStore,
+    today: NaiveDate,
+    args: ReviewArgs,
+    runtime: RuntimeOptions,
+) -> Result<String> {
+    let config = load_config(config_store)?;
     let mut state = storage.load()?;
     let applied_actions = apply_review_actions(&mut state, today, &args)?;
     if !applied_actions.is_empty() {
@@ -1131,72 +1654,90 @@ fn weekly_review<S: Storage>(storage: &S, today: NaiveDate, args: ReviewArgs) ->
         ("Stale tasks".to_string(), stale_tasks),
     ];
 
-    if wants_json(args.json, &config) {
-        return to_pretty_json(&WeeklyReviewResponse {
-            applied_actions,
-            sections: sections_to_views(&sections, &state),
-            projects_without_next_actions: projects_without_next_actions
-                .iter()
-                .map(|(project, summary)| project_view(project, *summary))
-                .collect(),
-            stalled_projects: stalled_projects
-                .iter()
-                .map(|(project, summary)| project_view(project, *summary))
-                .collect(),
-            projects_missing_deadlines: projects_missing_deadlines
-                .iter()
-                .map(|(project, summary)| project_view(project, *summary))
-                .collect(),
-            deadline_projects: deadline_projects
-                .iter()
-                .map(|(project, summary)| project_view(project, *summary))
-                .collect(),
-            at_risk_projects: at_risk_projects
-                .iter()
-                .map(|(project, summary)| project_view(project, *summary))
-                .collect(),
-        });
+    if runtime.wants_json(&config) {
+        return to_pretty_json(
+            "review.weekly",
+            &WeeklyReviewResponse {
+                applied_actions,
+                sections: sections_to_views(&sections, &state),
+                projects_without_next_actions: projects_without_next_actions
+                    .iter()
+                    .map(|(project, summary)| project_view(project, *summary))
+                    .collect(),
+                stalled_projects: stalled_projects
+                    .iter()
+                    .map(|(project, summary)| project_view(project, *summary))
+                    .collect(),
+                projects_missing_deadlines: projects_missing_deadlines
+                    .iter()
+                    .map(|(project, summary)| project_view(project, *summary))
+                    .collect(),
+                deadline_projects: deadline_projects
+                    .iter()
+                    .map(|(project, summary)| project_view(project, *summary))
+                    .collect(),
+                at_risk_projects: at_risk_projects
+                    .iter()
+                    .map(|(project, summary)| project_view(project, *summary))
+                    .collect(),
+            },
+        );
     }
 
-    let mut output = render_task_sections("Weekly review", &sections, &state);
+    let mut output = render_task_sections(runtime.render, "Weekly review", &sections, &state);
     output.push_str("\n\n");
     output.push_str(&render_project_list(
+        runtime.render,
         "Projects without next actions",
         &projects_without_next_actions,
     ));
     output.push_str("\n\n");
     output.push_str(&render_project_list(
+        runtime.render,
         "Projects stalled by blockers",
         &stalled_projects,
     ));
     output.push_str("\n\n");
     output.push_str(&render_project_list(
+        runtime.render,
         "Projects missing deadlines",
         &projects_missing_deadlines,
     ));
     output.push_str("\n\n");
     output.push_str(&render_project_list(
+        runtime.render,
         "Projects due this week",
         &deadline_projects,
     ));
     output.push_str("\n\n");
     output.push_str(&render_project_list(
+        runtime.render,
         "Projects at risk this week",
         &at_risk_projects,
     ));
     Ok(render_review_output(
+        runtime.render,
         "Weekly review",
         &applied_actions,
         output,
     ))
 }
 
-fn execute_search<S: Storage>(storage: &S, today: NaiveDate, args: SearchArgs) -> Result<String> {
-    let config = load_config(storage)?;
+fn execute_search<S: Storage>(
+    storage: &S,
+    config_store: &JsonConfigStore,
+    today: NaiveDate,
+    args: SearchArgs,
+    runtime: RuntimeOptions,
+) -> Result<String> {
+    let config = load_config(config_store)?;
     let state = storage.load()?;
     let query = args.query.trim();
     if query.is_empty() {
-        bail!("search query cannot be empty");
+        return Err(usage_error(
+            "empty_search_query",
+            "search query cannot be empty",
+        ));
     }
 
     let mut tasks = state
@@ -1230,17 +1771,25 @@ fn execute_search<S: Storage>(storage: &S, today: NaiveDate, args: SearchArgs) -
         .collect::<Vec<_>>();
     projects.sort_by(|left, right| left.0.name.to_lowercase().cmp(&right.0.name.to_lowercase()));
 
-    if wants_json(args.json, &config) {
-        return to_pretty_json(&SearchResponse {
-            tasks: tasks.iter().map(|task| task_view(task, &state)).collect(),
-            projects: projects
-                .iter()
-                .map(|(project, summary)| project_view(project, *summary))
-                .collect(),
-        });
+    if runtime.wants_json(&config) {
+        return to_pretty_json(
+            "search",
+            &SearchResponse {
+                tasks: tasks.iter().map(|task| task_view(task, &state)).collect(),
+                projects: projects
+                    .iter()
+                    .map(|(project, summary)| project_view(project, *summary))
+                    .collect(),
+            },
+        );
     }
 
-    Ok(render_search_results(&tasks, &projects, &state))
+    Ok(render_search_results(
+        runtime.render,
+        &tasks,
+        &projects,
+        &state,
+    ))
 }
 
 fn build_task_patch(state: &AppState, args: &TaskEditArgs, today: NaiveDate) -> Result<TaskPatch> {
@@ -1255,7 +1804,7 @@ fn build_task_patch(state: &AppState, args: &TaskEditArgs, today: NaiveDate) -> 
     let notes = if args.clear_notes {
         Some(None)
     } else {
-        args.notes.clone().map(Some)
+        read_optional_text_input(args.notes.clone(), args.notes_file.as_deref())?.map(Some)
     };
 
     let tags = if args.clear_tags {
@@ -1377,6 +1926,19 @@ fn parse_task_dependencies(values: &[u64]) -> Vec<TaskId> {
     values.iter().copied().map(TaskId).collect()
 }
 
+fn read_optional_text_input(inline: Option<String>, file: Option<&Path>) -> Result<Option<String>> {
+    if let Some(path) = file {
+        let contents = fs::read_to_string(path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        return Ok(
+            Some(contents.trim_end_matches(&['\n', '\r'][..]).to_string())
+                .filter(|contents| !contents.trim().is_empty()),
+        );
+    }
+
+    Ok(inline.filter(|value| !value.trim().is_empty()))
+}
+
 fn resolve_optional_project_id(
     state: &AppState,
     project_ref: Option<&str>,
@@ -1391,7 +1953,8 @@ fn build_project_patch(args: &ProjectEditArgs, today: NaiveDate) -> Result<Proje
     let description = if args.clear_description {
         Some(None)
     } else {
-        args.description.clone().map(Some)
+        read_optional_text_input(args.description.clone(), args.description_file.as_deref())?
+            .map(Some)
     };
 
     let deadline = if args.clear_deadline {
@@ -1414,9 +1977,18 @@ fn resolve_defer_date(today: NaiveDate, args: &TaskDeferArgs) -> Result<NaiveDat
     match (&args.until, args.days) {
         (Some(due_date), None) => resolve_date_expression(today, due_date),
         (None, Some(days)) if days > 0 => Ok(today + Duration::days(days)),
-        (None, Some(_)) => bail!("--days must be greater than 0"),
-        (None, None) => bail!("provide either --until YYYY-MM-DD or --days N"),
-        (Some(_), Some(_)) => bail!("--until and --days cannot be used together"),
+        (None, Some(_)) => Err(usage_error(
+            "invalid_defer_days",
+            "--days must be greater than 0",
+        )),
+        (None, None) => Err(usage_error(
+            "missing_defer_date",
+            "provide either --until YYYY-MM-DD or --days N",
+        )),
+        (Some(_), Some(_)) => Err(usage_error(
+            "conflicting_defer_options",
+            "--until and --days cannot be used together",
+        )),
     }
 }
 
@@ -1475,14 +2047,20 @@ fn apply_review_actions(
     for ProjectTaskPlan { project_ref, title } in &args.plan {
         let project_id = state.resolve_project_id(project_ref)?;
         let project_name = {
-            let project = state
-                .find_project(project_id)
-                .with_context(|| format!("project {project_ref} does not exist"))?;
+            let project = state.find_project(project_id).ok_or_else(|| {
+                not_found_error(
+                    "project_not_found",
+                    format!("project {project_ref} does not exist"),
+                )
+            })?;
             if matches!(project.status, ProjectStatus::Archived) {
-                bail!(
-                    "cannot plan next actions in archived project '{}'",
-                    project.name
-                );
+                return Err(conflict_error(
+                    "project_archived",
+                    format!(
+                        "cannot plan next actions in archived project '{}'",
+                        project.name
+                    ),
+                ));
             }
             project.name.clone()
         };
@@ -1559,10 +2137,18 @@ fn task_matches_filter(
         }
     }
 
-    if let Some(tag) = filter.tag {
-        if !task.has_tag(tag) {
+    if !filter.tags.iter().all(|tag| task.has_tag(tag)) {
+        return false;
+    }
+
+    if let Some(query) = filter.query {
+        if !task.matches_query(query) {
             return false;
         }
+    }
+
+    if filter.ready_only && !is_ready_task(task, state) {
+        return false;
     }
 
     if filter.due_today && task.due_date != Some(today) {
@@ -1579,6 +2165,16 @@ fn task_matches_filter(
     }
 
     true
+}
+
+fn is_ready_task(task: &Task, state: &AppState) -> bool {
+    task.project_id.is_some()
+        && matches!(
+            task.status,
+            TaskStatus::Todo | TaskStatus::NextAction | TaskStatus::InProgress
+        )
+        && task_in_active_project(task, state)
+        && !state.has_unresolved_dependencies(task)
 }
 
 fn active_open_tasks(state: &AppState) -> Vec<&Task> {
@@ -1616,6 +2212,18 @@ fn sort_tasks(tasks: &mut Vec<&Task>, sort_key: TaskSortKey) {
         }
 
         compare_due_dates(left, right)
+            .then_with(|| right.priority.rank().cmp(&left.priority.rank()))
+            .then_with(|| left.id.0.cmp(&right.id.0))
+    });
+}
+
+fn sort_ready_tasks(tasks: &mut Vec<&Task>) {
+    tasks.sort_by(|left, right| {
+        right
+            .status
+            .is_next_action()
+            .cmp(&left.status.is_next_action())
+            .then_with(|| compare_due_dates(left, right))
             .then_with(|| right.priority.rank().cmp(&left.priority.rank()))
             .then_with(|| left.id.0.cmp(&right.id.0))
     });
@@ -1662,7 +2270,12 @@ fn render_separator() -> &'static str {
     "--"
 }
 
-fn render_review_output(title: &str, applied_actions: &[String], body: String) -> String {
+fn render_review_output(
+    render: RenderOptions,
+    title: &str,
+    applied_actions: &[String],
+    body: String,
+) -> String {
     if applied_actions.is_empty() {
         return body;
     }
@@ -1670,6 +2283,7 @@ fn render_review_output(title: &str, applied_actions: &[String], body: String) -
     format!(
         "{}\n{}\n\n{}",
         render_confirmation(
+            render,
             &format!("{title} actions applied"),
             &applied_actions
                 .iter()
@@ -1694,6 +2308,12 @@ fn format_u64_list(values: &[u64]) -> String {
     }
 }
 
+fn apply_limit<T>(items: &mut Vec<T>, limit: Option<usize>) {
+    if let Some(limit) = limit {
+        items.truncate(limit);
+    }
+}
+
 fn config_response(config: &AppConfig, store: &JsonConfigStore) -> ConfigResponse {
     ConfigResponse {
         path: store.config_file().display().to_string(),
@@ -1704,18 +2324,17 @@ fn config_response(config: &AppConfig, store: &JsonConfigStore) -> ConfigRespons
     }
 }
 
-fn load_config<S: Storage>(storage: &S) -> Result<AppConfig> {
-    JsonConfigStore::at(storage.root_dir()).load()
-}
-
-fn wants_json(explicit_json: bool, config: &AppConfig) -> bool {
-    explicit_json || config.default_json_output
+fn load_config(config_store: &JsonConfigStore) -> Result<AppConfig> {
+    config_store.load()
 }
 
 fn resolve_date_expression(today: NaiveDate, value: &str) -> Result<NaiveDate> {
     let normalized = value.trim().to_lowercase().replace('_', "-");
     if normalized.is_empty() {
-        bail!("date expression cannot be empty");
+        return Err(usage_error(
+            "empty_date_expression",
+            "date expression cannot be empty",
+        ));
     }
 
     if let Some(days) = parse_relative_days_expression(&normalized)? {
@@ -1732,11 +2351,14 @@ fn resolve_date_expression(today: NaiveDate, value: &str) -> Result<NaiveDate> {
         "next-week" | "next_week" => Ok(today + Duration::days(7)),
         "next-month" | "next_month" => today
             .checked_add_months(Months::new(1))
-            .ok_or_else(|| anyhow::anyhow!("failed to resolve date expression '{value}'")),
+            .ok_or_else(|| usage_error("invalid_date_expression", format!("failed to resolve date expression '{value}'"))),
         _ => NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d")
-            .with_context(|| {
-                format!(
-                    "invalid date '{value}', expected YYYY-MM-DD or keywords like today, tomorrow, next-week, next-monday, or +3d"
+            .map_err(|_| {
+                usage_error(
+                    "invalid_date_expression",
+                    format!(
+                        "invalid date '{value}', expected YYYY-MM-DD or keywords like today, tomorrow, next-week, next-monday, or +3d"
+                    ),
                 )
             }),
     }
@@ -1749,14 +2371,23 @@ fn parse_relative_days_expression(value: &str) -> Result<Option<i64>> {
 
     let days = days.strip_suffix('d').unwrap_or(days).trim();
     if days.is_empty() {
-        bail!("invalid relative date expression '{value}'");
+        return Err(usage_error(
+            "invalid_relative_date_expression",
+            format!("invalid relative date expression '{value}'"),
+        ));
     }
 
-    let parsed_days = days
-        .parse::<i64>()
-        .with_context(|| format!("invalid relative date expression '{value}'"))?;
+    let parsed_days = days.parse::<i64>().map_err(|_| {
+        usage_error(
+            "invalid_relative_date_expression",
+            format!("invalid relative date expression '{value}'"),
+        )
+    })?;
     if parsed_days < 0 {
-        bail!("relative date expressions must be non-negative");
+        return Err(usage_error(
+            "invalid_relative_date_expression",
+            "relative date expressions must be non-negative",
+        ));
     }
 
     Ok(Some(parsed_days))
@@ -1792,222 +2423,6 @@ fn parse_weekday(value: &str) -> Option<Weekday> {
         "sun" | "sunday" => Some(Weekday::Sun),
         _ => None,
     }
-}
-
-fn bash_completion_script() -> &'static str {
-    r#"_kelp()
-{
-    local cur prev first second
-    cur="${COMP_WORDS[COMP_CWORD]}"
-    prev="${COMP_WORDS[COMP_CWORD-1]}"
-    first="${COMP_WORDS[1]}"
-    second="${COMP_WORDS[2]}"
-
-    if [[ ${COMP_CWORD} -eq 1 ]]; then
-        COMPREPLY=( $(compgen -W "init config import storage task project today upcoming review search completions" -- "$cur") )
-        return
-    fi
-
-    case "$first" in
-        config)
-            if [[ ${COMP_CWORD} -eq 2 ]]; then
-                COMPREPLY=( $(compgen -W "show set" -- "$cur") )
-            else
-                COMPREPLY=( $(compgen -W "--json --upcoming-days --task-sort --json-output --plain-output" -- "$cur") )
-            fi
-            ;;
-        import)
-            COMPREPLY=( $(compgen -W "legacy --source --json" -- "$cur") )
-            ;;
-        storage)
-            if [[ ${COMP_CWORD} -eq 2 ]]; then
-                COMPREPLY=( $(compgen -W "path export backup" -- "$cur") )
-            else
-                COMPREPLY=( $(compgen -W "--json --output" -- "$cur") )
-            fi
-            ;;
-        task)
-            if [[ ${COMP_CWORD} -eq 2 ]]; then
-                COMPREPLY=( $(compgen -W "add list show edit bulk-edit next start wait block done reopen defer archive unarchive delete" -- "$cur") )
-            else
-                case "$second" in
-                    add) COMPREPLY=( $(compgen -W "--title --notes --project --priority --tag --due --repeat --wait-until --blocked-reason --depends-on" -- "$cur") ) ;;
-                    list) COMPREPLY=( $(compgen -W "--project --status --priority --tag --due-today --overdue --all --sort --json" -- "$cur") ) ;;
-                    edit) COMPREPLY=( $(compgen -W "--title --notes --clear-notes --project --clear-project --status --priority --tag --clear-tags --due --clear-due --repeat --clear-repeat --wait-until --clear-wait-until --blocked-reason --clear-blocked-reason --depends-on --clear-depends-on" -- "$cur") ) ;;
-                    bulk-edit) COMPREPLY=( $(compgen -W "--project --clear-project --status --priority --tag --clear-tags --due --clear-due --repeat --clear-repeat" -- "$cur") ) ;;
-                    wait) COMPREPLY=( $(compgen -W "--until" -- "$cur") ) ;;
-                    block) COMPREPLY=( $(compgen -W "--reason" -- "$cur") ) ;;
-                    defer) COMPREPLY=( $(compgen -W "--until --days" -- "$cur") ) ;;
-                    show) COMPREPLY=( $(compgen -W "--json" -- "$cur") ) ;;
-                    *) COMPREPLY=() ;;
-                esac
-            fi
-            ;;
-        project)
-            if [[ ${COMP_CWORD} -eq 2 ]]; then
-                COMPREPLY=( $(compgen -W "add list show edit archive unarchive" -- "$cur") )
-            else
-                case "$second" in
-                    add) COMPREPLY=( $(compgen -W "--name --description --deadline" -- "$cur") ) ;;
-                    edit) COMPREPLY=( $(compgen -W "--description --clear-description --deadline --clear-deadline" -- "$cur") ) ;;
-                    list|show) COMPREPLY=( $(compgen -W "--archived --json" -- "$cur") ) ;;
-                    *) COMPREPLY=() ;;
-                esac
-            fi
-            ;;
-        review)
-            if [[ ${COMP_CWORD} -eq 2 ]]; then
-                COMPREPLY=( $(compgen -W "daily weekly" -- "$cur") )
-            else
-                COMPREPLY=( $(compgen -W "--json --next-action --start --waiting --blocked --complete --archive --defer --plan" -- "$cur") )
-            fi
-            ;;
-        today)
-            COMPREPLY=( $(compgen -W "--json" -- "$cur") )
-            ;;
-        upcoming)
-            COMPREPLY=( $(compgen -W "--days --json" -- "$cur") )
-            ;;
-        search)
-            COMPREPLY=( $(compgen -W "--json" -- "$cur") )
-            ;;
-        completions)
-            COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") )
-            ;;
-    esac
-}
-
-complete -F _kelp kelp
-"#
-}
-
-fn zsh_completion_script() -> &'static str {
-    r#"#compdef kelp
-
-local -a commands
-commands=(
-  'init:initialize storage'
-  'config:read or update planner defaults'
-  'import:import legacy kelp data'
-  'storage:inspect or export storage'
-  'task:manage tasks'
-  'project:manage projects'
-  'today:show today views'
-  'upcoming:show upcoming work'
-  'review:run planner reviews'
-  'search:search tasks and projects'
-  'completions:generate shell completions'
-)
-
-local context state line
-
-_arguments -C \
-  '1:command:->command' \
-  '2:subcommand:->subcommand' \
-  '*::arg:->args'
-
-case $state in
-  command)
-    _describe 'command' commands
-    ;;
-  subcommand)
-    case $words[2] in
-      config) _describe 'config command' 'show:set' ;;
-      import) _describe 'import command' 'legacy:legacy import' ;;
-      storage) _describe 'storage command' 'path:show paths' 'export:export data' 'backup:create backup' ;;
-      task) _describe 'task command' 'add:add task' 'list:list tasks' 'show:show task' 'edit:edit task' 'bulk-edit:bulk edit tasks' 'next:mark next action' 'start:start task' 'wait:mark waiting' 'block:mark blocked' 'done:complete task' 'reopen:reopen task' 'defer:defer task' 'archive:archive task' 'unarchive:unarchive task' 'delete:delete task' ;;
-      project) _describe 'project command' 'add:add project' 'list:list projects' 'show:show project' 'edit:edit project' 'archive:archive project' 'unarchive:unarchive project' ;;
-      review) _describe 'review command' 'daily:daily review' 'weekly:weekly review' ;;
-      completions) _describe 'shell' 'bash:bash completion' 'zsh:zsh completion' 'fish:fish completion' ;;
-    esac
-    ;;
-  args)
-    case $words[2] in
-      config) _arguments '--json[emit JSON output]' '--upcoming-days=[set default upcoming window]:days:' '--task-sort=[set default task sort]:sort:(due priority updated title)' '--json-output[default to JSON]' '--plain-output[default to plain output]' ;;
-      import) _arguments '--source=[legacy root path]:path:_files' '--json[emit JSON output]' ;;
-      storage) _arguments '--json[emit JSON output]' '--output=[export destination]:path:_files' ;;
-      task) _arguments '--json[emit JSON output]' '--project=[project reference]:project:' '--status=[task status]:status:(todo next_action in_progress waiting blocked done archived)' '--priority=[task priority]:priority:(low medium high)' '--tag=[task tag]:tag:' '--due=[date expression]:date:' '--repeat=[recurrence]:repeat:(daily weekly monthly)' '--wait-until=[waiting until date]:date:' '--blocked-reason=[blocker reason]:reason:' '--depends-on=[dependency task id]:id:' '--days=[defer by days]:days:' '--until=[defer until date]:date:' '--all[include closed and archived tasks]' '--sort=[task sort]:sort:(due priority updated title)' ;;
-      project) _arguments '--name=[project name]:name:' '--description=[project description]:description:' '--deadline=[project deadline]:date:' '--clear-description[clear project description]' '--clear-deadline[clear project deadline]' '--archived[list archived projects]' '--json[emit JSON output]' ;;
-      today) _arguments '--json[emit JSON output]' ;;
-      upcoming) _arguments '--days=[upcoming window]:days:' '--json[emit JSON output]' ;;
-      review) _arguments '--json[emit JSON output]' '--next-action=[mark task as next action]:id:' '--start=[start task id]:id:' '--waiting=[mark task as waiting]:id:' '--blocked=[mark task as blocked]:id:' '--complete=[complete task id]:id:' '--archive=[archive task id]:id:' '--defer=[reschedule as id:date]:instruction:' '--plan=[create project next action as project:task]:instruction:' ;;
-      search) _arguments '--json[emit JSON output]' ;;
-    esac
-    ;;
-esac
-"#
-}
-
-fn fish_completion_script() -> &'static str {
-    r#"complete -c kelp -f
-complete -c kelp -n '__fish_use_subcommand' -a 'init config import storage task project today upcoming review search completions'
-
-complete -c kelp -n '__fish_seen_subcommand_from config; and not __fish_seen_subcommand_from show set' -a 'show set'
-complete -c kelp -n '__fish_seen_subcommand_from import; and not __fish_seen_subcommand_from legacy' -a 'legacy'
-complete -c kelp -n '__fish_seen_subcommand_from storage; and not __fish_seen_subcommand_from path export backup' -a 'path export backup'
-complete -c kelp -n '__fish_seen_subcommand_from task; and not __fish_seen_subcommand_from add list show edit bulk-edit next start wait block done reopen defer archive unarchive delete' -a 'add list show edit bulk-edit next start wait block done reopen defer archive unarchive delete'
-complete -c kelp -n '__fish_seen_subcommand_from project; and not __fish_seen_subcommand_from add list show edit archive unarchive' -a 'add list show edit archive unarchive'
-complete -c kelp -n '__fish_seen_subcommand_from review; and not __fish_seen_subcommand_from daily weekly' -a 'daily weekly'
-complete -c kelp -n '__fish_seen_subcommand_from completions; and not __fish_seen_subcommand_from bash zsh fish' -a 'bash zsh fish'
-
-complete -c kelp -n '__fish_seen_subcommand_from config' -l json -d 'Emit JSON output'
-complete -c kelp -n '__fish_seen_subcommand_from set' -l upcoming-days -d 'Set the default upcoming window'
-complete -c kelp -n '__fish_seen_subcommand_from set' -l task-sort -a 'due priority updated title' -d 'Set the default task sort'
-complete -c kelp -n '__fish_seen_subcommand_from set' -l json-output -d 'Default to JSON output'
-complete -c kelp -n '__fish_seen_subcommand_from set' -l plain-output -d 'Default to plain output'
-
-complete -c kelp -n '__fish_seen_subcommand_from legacy' -l source -r -d 'Legacy root path'
-complete -c kelp -n '__fish_seen_subcommand_from legacy' -l json -d 'Emit JSON output'
-complete -c kelp -n '__fish_seen_subcommand_from path export backup today upcoming search daily weekly show list' -l json -d 'Emit JSON output'
-complete -c kelp -n '__fish_seen_subcommand_from export' -l output -r -d 'Export destination'
-
-complete -c kelp -n '__fish_seen_subcommand_from add edit bulk-edit list' -l project -r -d 'Project reference'
-complete -c kelp -n '__fish_seen_subcommand_from add list edit bulk-edit' -l priority -a 'low medium high' -d 'Task priority'
-complete -c kelp -n '__fish_seen_subcommand_from add edit bulk-edit' -l due -r -d 'Date expression'
-complete -c kelp -n '__fish_seen_subcommand_from add edit' -l wait-until -r -d 'Waiting follow-up date'
-complete -c kelp -n '__fish_seen_subcommand_from add edit' -l blocked-reason -r -d 'Blocker reason'
-complete -c kelp -n '__fish_seen_subcommand_from add edit' -l depends-on -r -d 'Dependency task id'
-complete -c kelp -n '__fish_seen_subcommand_from add edit bulk-edit' -l repeat -a 'daily weekly monthly' -d 'Recurrence'
-complete -c kelp -n '__fish_seen_subcommand_from add edit bulk-edit list' -l tag -r -d 'Task tag'
-complete -c kelp -n '__fish_seen_subcommand_from list' -l status -a 'todo next_action in_progress waiting blocked done archived' -d 'Task status'
-complete -c kelp -n '__fish_seen_subcommand_from list' -l due-today -d 'Only show tasks due today'
-complete -c kelp -n '__fish_seen_subcommand_from list' -l overdue -d 'Only show overdue tasks'
-complete -c kelp -n '__fish_seen_subcommand_from list' -l all -d 'Include closed and archived tasks'
-complete -c kelp -n '__fish_seen_subcommand_from list' -l sort -a 'due priority updated title' -d 'Task sort order'
-complete -c kelp -n '__fish_seen_subcommand_from defer' -l until -r -d 'Defer until a date expression'
-complete -c kelp -n '__fish_seen_subcommand_from defer' -l days -r -d 'Defer by days'
-complete -c kelp -n '__fish_seen_subcommand_from wait' -l until -r -d 'Waiting follow-up date'
-complete -c kelp -n '__fish_seen_subcommand_from block' -l reason -r -d 'Blocker reason'
-
-complete -c kelp -n '__fish_seen_subcommand_from add' -l title -r -d 'Task title'
-complete -c kelp -n '__fish_seen_subcommand_from add edit' -l notes -r -d 'Task notes'
-complete -c kelp -n '__fish_seen_subcommand_from edit' -l clear-notes -d 'Remove task notes'
-complete -c kelp -n '__fish_seen_subcommand_from edit bulk-edit' -l clear-project -d 'Remove project association'
-complete -c kelp -n '__fish_seen_subcommand_from edit bulk-edit' -l clear-tags -d 'Clear tags'
-complete -c kelp -n '__fish_seen_subcommand_from edit bulk-edit' -l clear-due -d 'Clear due date'
-complete -c kelp -n '__fish_seen_subcommand_from edit bulk-edit' -l clear-repeat -d 'Clear recurrence'
-complete -c kelp -n '__fish_seen_subcommand_from edit' -l clear-wait-until -d 'Clear waiting follow-up date'
-complete -c kelp -n '__fish_seen_subcommand_from edit' -l clear-blocked-reason -d 'Clear blocker reason'
-complete -c kelp -n '__fish_seen_subcommand_from edit' -l clear-depends-on -d 'Clear task dependencies'
-
-complete -c kelp -n '__fish_seen_subcommand_from add' -l name -r -d 'Project name'
-complete -c kelp -n '__fish_seen_subcommand_from add edit' -l description -r -d 'Project description'
-complete -c kelp -n '__fish_seen_subcommand_from add edit' -l deadline -r -d 'Project deadline'
-complete -c kelp -n '__fish_seen_subcommand_from edit' -l clear-description -d 'Clear project description'
-complete -c kelp -n '__fish_seen_subcommand_from edit' -l clear-deadline -d 'Clear project deadline'
-complete -c kelp -n '__fish_seen_subcommand_from list' -l archived -d 'List archived projects'
-
-complete -c kelp -n '__fish_seen_subcommand_from daily weekly' -l start -r -d 'Mark a task in progress'
-complete -c kelp -n '__fish_seen_subcommand_from daily weekly' -l next-action -r -d 'Mark a task as the next action'
-complete -c kelp -n '__fish_seen_subcommand_from daily weekly' -l waiting -r -d 'Mark a task as waiting'
-complete -c kelp -n '__fish_seen_subcommand_from daily weekly' -l blocked -r -d 'Mark a task as blocked'
-complete -c kelp -n '__fish_seen_subcommand_from daily weekly' -l complete -r -d 'Complete a task'
-complete -c kelp -n '__fish_seen_subcommand_from daily weekly' -l archive -r -d 'Archive a task'
-complete -c kelp -n '__fish_seen_subcommand_from daily weekly' -l defer -r -d 'Reschedule as id:date'
-complete -c kelp -n '__fish_seen_subcommand_from daily weekly' -l plan -r -d 'Create next action as project:task'
-
-complete -c kelp -n '__fish_seen_subcommand_from upcoming' -l days -r -d 'Upcoming window'
-"#
 }
 
 fn task_view(task: &Task, state: &AppState) -> TaskView {
@@ -2052,19 +2467,21 @@ fn project_view(project: &Project, summary: ProjectSummary) -> ProjectView {
     }
 }
 
-fn to_pretty_json<T: Serialize>(value: &T) -> Result<String> {
-    Ok(serde_json::to_string_pretty(value)?)
+fn to_pretty_json<T: Serialize>(command: &str, value: &T) -> Result<String> {
+    success_json(command, value)
 }
 
 struct TaskFilter<'a> {
     project_id: Option<ProjectId>,
     status: Option<TaskStatus>,
     priority: Option<Priority>,
-    tag: Option<&'a str>,
+    tags: Vec<&'a str>,
+    query: Option<&'a str>,
     due_today: bool,
     overdue: bool,
     include_all_statuses: bool,
     include_archived_projects: bool,
+    ready_only: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -2154,6 +2571,24 @@ struct ProjectListResponse {
 struct ProjectDetailResponse {
     project: ProjectView,
     tasks: Vec<TaskView>,
+}
+
+#[derive(Debug, Serialize)]
+struct TaskMutationResponse {
+    task: TaskView,
+    spawned_task_id: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+struct BulkTaskMutationResponse {
+    updated_tasks: usize,
+    spawned_task_ids: Vec<u64>,
+}
+
+#[derive(Debug, Serialize)]
+struct DeleteResponse {
+    removed_id: u64,
+    removed_title: String,
 }
 
 #[derive(Debug, Serialize)]

@@ -22,6 +22,15 @@ fn run(args: &[&str], storage: &JsonFileStorage, clock: &FixedClock) -> String {
     run_with_args(args, storage, clock).expect("command should succeed")
 }
 
+fn run_json(args: &[&str], storage: &JsonFileStorage, clock: &FixedClock) -> Value {
+    let output = run(args, storage, clock);
+    let envelope: Value = serde_json::from_str(&output).expect("output should be valid JSON");
+    envelope
+        .get("data")
+        .cloned()
+        .expect("JSON output should include a data envelope")
+}
+
 #[test]
 fn legacy_import_command_migrates_old_project_files() {
     let storage_root = temp_root("import-storage");
@@ -41,7 +50,7 @@ fn legacy_import_command_migrates_old_project_files() {
 
     let storage = JsonFileStorage::at(storage_root.clone());
     let clock = FixedClock::new(date("2026-03-14"));
-    let imported = run(
+    let imported = run_json(
         &[
             "kelp",
             "import",
@@ -53,14 +62,12 @@ fn legacy_import_command_migrates_old_project_files() {
         &storage,
         &clock,
     );
-    let imported: Value =
-        serde_json::from_str(&imported).expect("import output should be valid JSON");
 
     assert_eq!(imported["imported_tasks"], 2);
     assert_eq!(imported["imported_projects"], 1);
     assert_eq!(imported["skipped_duplicates"], 0);
 
-    let reimported = run(
+    let reimported = run_json(
         &[
             "kelp",
             "import",
@@ -72,13 +79,10 @@ fn legacy_import_command_migrates_old_project_files() {
         &storage,
         &clock,
     );
-    let reimported: Value =
-        serde_json::from_str(&reimported).expect("reimport output should be valid JSON");
     assert_eq!(reimported["imported_tasks"], 0);
     assert_eq!(reimported["skipped_duplicates"], 2);
 
-    let list = run(&["kelp", "task", "list", "--json"], &storage, &clock);
-    let list: Value = serde_json::from_str(&list).expect("list output should be valid JSON");
+    let list = run_json(&["kelp", "task", "list", "--json"], &storage, &clock);
     assert_eq!(
         list["tasks"]
             .as_array()
@@ -111,8 +115,7 @@ fn storage_backup_and_export_commands_write_files() {
         &clock,
     );
 
-    let backup = run(&["kelp", "storage", "backup", "--json"], &storage, &clock);
-    let backup: Value = serde_json::from_str(&backup).expect("backup output should be valid JSON");
+    let backup = run_json(&["kelp", "storage", "backup", "--json"], &storage, &clock);
     assert!(PathBuf::from(
         backup["path"]
             .as_str()
@@ -121,20 +124,18 @@ fn storage_backup_and_export_commands_write_files() {
     .exists());
 
     let export_path = export_root.join("kelp-export.json");
-    let exported = run(
+    let exported = run_json(
         &[
             "kelp",
             "storage",
             "export",
-            "--output",
+            "--file",
             export_path.to_str().expect("export path should be UTF-8"),
             "--json",
         ],
         &storage,
         &clock,
     );
-    let exported: Value =
-        serde_json::from_str(&exported).expect("export output should be valid JSON");
     assert_eq!(
         exported["path"]
             .as_str()
@@ -195,7 +196,7 @@ fn review_actions_update_task_state_before_rendering() {
         &clock,
     );
 
-    let review = run(
+    let review = run_json(
         &[
             "kelp",
             "review",
@@ -211,7 +212,6 @@ fn review_actions_update_task_state_before_rendering() {
         &storage,
         &clock,
     );
-    let review: Value = serde_json::from_str(&review).expect("review output should be valid JSON");
 
     assert_eq!(
         review["applied_actions"]
@@ -221,24 +221,16 @@ fn review_actions_update_task_state_before_rendering() {
         3
     );
 
-    let task_one = run(&["kelp", "task", "show", "1", "--json"], &storage, &clock);
-    let task_one: Value =
-        serde_json::from_str(&task_one).expect("task one output should be valid JSON");
+    let task_one = run_json(&["kelp", "task", "show", "1", "--json"], &storage, &clock);
     assert_eq!(task_one["status"], "in_progress");
 
-    let task_two = run(&["kelp", "task", "show", "2", "--json"], &storage, &clock);
-    let task_two: Value =
-        serde_json::from_str(&task_two).expect("task two output should be valid JSON");
+    let task_two = run_json(&["kelp", "task", "show", "2", "--json"], &storage, &clock);
     assert_eq!(task_two["due_date"], "2026-03-20");
 
-    let task_three = run(&["kelp", "task", "show", "3", "--json"], &storage, &clock);
-    let task_three: Value =
-        serde_json::from_str(&task_three).expect("task three output should be valid JSON");
+    let task_three = run_json(&["kelp", "task", "show", "3", "--json"], &storage, &clock);
     assert_eq!(task_three["status"], "done");
 
-    let task_four = run(&["kelp", "task", "show", "4", "--json"], &storage, &clock);
-    let task_four: Value =
-        serde_json::from_str(&task_four).expect("task four output should be valid JSON");
+    let task_four = run_json(&["kelp", "task", "show", "4", "--json"], &storage, &clock);
     assert_eq!(task_four["status"], "todo");
 
     fs::remove_dir_all(storage_root).expect("storage cleanup should succeed");
@@ -293,8 +285,7 @@ fn archive_unarchive_and_bulk_edit_commands_work_together() {
         &clock,
     );
 
-    let task = run(&["kelp", "task", "show", "1", "--json"], &storage, &clock);
-    let task: Value = serde_json::from_str(&task).expect("task output should be valid JSON");
+    let task = run_json(&["kelp", "task", "show", "1", "--json"], &storage, &clock);
     assert_eq!(task["priority"], "high");
     assert_eq!(task["due_date"], "2026-03-18");
     assert_eq!(
@@ -302,9 +293,7 @@ fn archive_unarchive_and_bulk_edit_commands_work_together() {
         "launch"
     );
 
-    let projects = run(&["kelp", "project", "list", "--json"], &storage, &clock);
-    let projects: Value =
-        serde_json::from_str(&projects).expect("project list output should be valid JSON");
+    let projects = run_json(&["kelp", "project", "list", "--json"], &storage, &clock);
     assert_eq!(
         projects["projects"]
             .as_array()
@@ -352,15 +341,12 @@ fn config_defaults_drive_json_output_and_upcoming_windows() {
         &clock,
     );
 
-    let config = run(&["kelp", "config", "show", "--json"], &storage, &clock);
-    let config: Value = serde_json::from_str(&config).expect("config output should be valid JSON");
+    let config = run_json(&["kelp", "config", "show", "--json"], &storage, &clock);
     assert_eq!(config["default_upcoming_days"], 10);
     assert_eq!(config["default_task_sort"], "priority");
     assert_eq!(config["default_json_output"], true);
 
-    let upcoming = run(&["kelp", "upcoming"], &storage, &clock);
-    let upcoming: Value =
-        serde_json::from_str(&upcoming).expect("upcoming output should follow the JSON default");
+    let upcoming = run_json(&["kelp", "upcoming"], &storage, &clock);
     assert_eq!(
         upcoming["sections"][0]["tasks"][0]["title"],
         "Ship release notes"
@@ -407,7 +393,7 @@ fn review_planning_actions_and_date_shortcuts_work_together() {
         &clock,
     );
 
-    let review = run(
+    let review = run_json(
         &[
             "kelp",
             "review",
@@ -421,7 +407,6 @@ fn review_planning_actions_and_date_shortcuts_work_together() {
         &storage,
         &clock,
     );
-    let review: Value = serde_json::from_str(&review).expect("review output should be valid JSON");
     assert_eq!(
         review["applied_actions"]
             .as_array()
@@ -430,19 +415,13 @@ fn review_planning_actions_and_date_shortcuts_work_together() {
         2
     );
 
-    let first_task = run(&["kelp", "task", "show", "1", "--json"], &storage, &clock);
-    let first_task: Value =
-        serde_json::from_str(&first_task).expect("task output should be valid JSON");
+    let first_task = run_json(&["kelp", "task", "show", "1", "--json"], &storage, &clock);
     assert_eq!(first_task["due_date"], "2026-03-15");
 
-    let second_task = run(&["kelp", "task", "show", "2", "--json"], &storage, &clock);
-    let second_task: Value =
-        serde_json::from_str(&second_task).expect("task output should be valid JSON");
+    let second_task = run_json(&["kelp", "task", "show", "2", "--json"], &storage, &clock);
     assert_eq!(second_task["due_date"], "2026-03-17");
 
-    let planned_task = run(&["kelp", "task", "show", "3", "--json"], &storage, &clock);
-    let planned_task: Value =
-        serde_json::from_str(&planned_task).expect("planned task output should be valid JSON");
+    let planned_task = run_json(&["kelp", "task", "show", "3", "--json"], &storage, &clock);
     assert_eq!(planned_task["project"], "Launch");
     assert_eq!(planned_task["title"], "Ship launch checklist");
     assert_eq!(planned_task["status"], "next_action");
@@ -471,12 +450,11 @@ fn aliases_and_completion_generation_are_available() {
         &clock,
     );
 
-    let list = run(&["kelp", "task", "ls", "--json"], &storage, &clock);
-    let list: Value = serde_json::from_str(&list).expect("list output should be valid JSON");
+    let list = run_json(&["kelp", "task", "ls", "--json"], &storage, &clock);
     assert_eq!(list["tasks"][0]["title"], "Alias task");
 
     let bash = run(&["kelp", "completions", "bash"], &storage, &clock);
-    assert!(bash.contains("complete -F _kelp kelp"));
+    assert!(bash.contains("_kelp()"));
     assert!(bash.contains("review"));
     assert!(bash.contains("next"));
     assert!(bash.contains("blocked"));
@@ -507,24 +485,21 @@ fn explicit_next_wait_and_block_flows_are_available() {
     run(&["kelp", "task", "wait", "1"], &storage, &clock);
     run(&["kelp", "task", "block", "1"], &storage, &clock);
 
-    let task = run(&["kelp", "task", "show", "1", "--json"], &storage, &clock);
-    let task: Value = serde_json::from_str(&task).expect("task output should be valid JSON");
+    let task = run_json(&["kelp", "task", "show", "1", "--json"], &storage, &clock);
     assert_eq!(task["status"], "blocked");
 
-    let review = run(
+    let review = run_json(
         &["kelp", "review", "weekly", "--next-action", "1", "--json"],
         &storage,
         &clock,
     );
-    let review: Value = serde_json::from_str(&review).expect("review output should be valid JSON");
     assert!(review["sections"]
         .as_array()
         .expect("sections should be an array")
         .iter()
         .any(|section| section["name"] == "Next actions"));
 
-    let task = run(&["kelp", "task", "show", "1", "--json"], &storage, &clock);
-    let task: Value = serde_json::from_str(&task).expect("task output should be valid JSON");
+    let task = run_json(&["kelp", "task", "show", "1", "--json"], &storage, &clock);
     assert_eq!(task["status"], "next_action");
 
     fs::remove_dir_all(storage_root).expect("storage cleanup should succeed");
@@ -611,29 +586,22 @@ fn deadlines_and_blocker_metadata_roundtrip_through_the_cli() {
         &clock,
     );
 
-    let waiting_task = run(&["kelp", "task", "show", "1", "--json"], &storage, &clock);
-    let waiting_task: Value =
-        serde_json::from_str(&waiting_task).expect("task output should be valid JSON");
+    let waiting_task = run_json(&["kelp", "task", "show", "1", "--json"], &storage, &clock);
     assert_eq!(waiting_task["status"], "waiting");
     assert_eq!(waiting_task["waiting_until"], "2026-03-17");
 
-    let blocked_task = run(&["kelp", "task", "show", "2", "--json"], &storage, &clock);
-    let blocked_task: Value =
-        serde_json::from_str(&blocked_task).expect("task output should be valid JSON");
+    let blocked_task = run_json(&["kelp", "task", "show", "2", "--json"], &storage, &clock);
     assert_eq!(blocked_task["status"], "blocked");
     assert_eq!(blocked_task["blocked_reason"], "Waiting on legal sign-off");
 
-    let project = run(
+    let project = run_json(
         &["kelp", "project", "show", "Launch", "--json"],
         &storage,
         &clock,
     );
-    let project: Value =
-        serde_json::from_str(&project).expect("project output should be valid JSON");
     assert_eq!(project["project"]["deadline"], "2026-03-20");
 
-    let review = run(&["kelp", "review", "weekly", "--json"], &storage, &clock);
-    let review: Value = serde_json::from_str(&review).expect("review output should be valid JSON");
+    let review = run_json(&["kelp", "review", "weekly", "--json"], &storage, &clock);
     assert!(review["deadline_projects"]
         .as_array()
         .expect("deadline projects should be an array")
@@ -700,9 +668,7 @@ fn task_dependencies_drive_review_risk_and_clear_after_completion() {
         &clock,
     );
 
-    let dependent = run(&["kelp", "task", "show", "2", "--json"], &storage, &clock);
-    let dependent: Value =
-        serde_json::from_str(&dependent).expect("task output should be valid JSON");
+    let dependent = run_json(&["kelp", "task", "show", "2", "--json"], &storage, &clock);
     assert_eq!(
         dependent["depends_on"]
             .as_array()
@@ -716,8 +682,7 @@ fn task_dependencies_drive_review_risk_and_clear_after_completion() {
         1
     );
 
-    let review = run(&["kelp", "review", "weekly", "--json"], &storage, &clock);
-    let review: Value = serde_json::from_str(&review).expect("review output should be valid JSON");
+    let review = run_json(&["kelp", "review", "weekly", "--json"], &storage, &clock);
     assert!(review["sections"]
         .as_array()
         .expect("sections should be an array")
@@ -738,9 +703,7 @@ fn task_dependencies_drive_review_risk_and_clear_after_completion() {
 
     run(&["kelp", "task", "done", "1"], &storage, &clock);
 
-    let dependent = run(&["kelp", "task", "show", "2", "--json"], &storage, &clock);
-    let dependent: Value =
-        serde_json::from_str(&dependent).expect("task output should be valid JSON");
+    let dependent = run_json(&["kelp", "task", "show", "2", "--json"], &storage, &clock);
     assert!(dependent["unresolved_dependencies"]
         .as_array()
         .expect("unresolved deps should be an array")
@@ -887,18 +850,13 @@ fn project_next_actions_are_canonicalized_and_weekly_review_splits_project_signa
         &clock,
     );
 
-    let first_launch_task = run(&["kelp", "task", "show", "1", "--json"], &storage, &clock);
-    let first_launch_task: Value =
-        serde_json::from_str(&first_launch_task).expect("task output should be valid JSON");
+    let first_launch_task = run_json(&["kelp", "task", "show", "1", "--json"], &storage, &clock);
     assert_eq!(first_launch_task["status"], "todo");
 
-    let second_launch_task = run(&["kelp", "task", "show", "2", "--json"], &storage, &clock);
-    let second_launch_task: Value =
-        serde_json::from_str(&second_launch_task).expect("task output should be valid JSON");
+    let second_launch_task = run_json(&["kelp", "task", "show", "2", "--json"], &storage, &clock);
     assert_eq!(second_launch_task["status"], "next_action");
 
-    let review = run(&["kelp", "review", "weekly", "--json"], &storage, &clock);
-    let review: Value = serde_json::from_str(&review).expect("review output should be valid JSON");
+    let review = run_json(&["kelp", "review", "weekly", "--json"], &storage, &clock);
     assert!(review["projects_without_next_actions"]
         .as_array()
         .expect("projects without next actions should be an array")

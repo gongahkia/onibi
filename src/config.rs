@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const CURRENT_CONFIG_SCHEMA_VERSION: u32 = 1;
@@ -58,16 +58,35 @@ impl Default for AppConfig {
 #[derive(Debug, Clone)]
 pub struct JsonConfigStore {
     root: PathBuf,
+    legacy_data_root: Option<PathBuf>,
 }
 
 impl JsonConfigStore {
     pub fn at(root: PathBuf) -> Self {
-        Self { root }
+        Self {
+            root,
+            legacy_data_root: None,
+        }
     }
 
     pub fn from_env() -> Result<Self> {
         Ok(Self {
-            root: resolve_config_root()?,
+            root: resolve_config_root(None)?,
+            legacy_data_root: None,
+        })
+    }
+
+    pub fn from_env_with_data_root(
+        data_root: &Path,
+        colocate_with_data_root: bool,
+    ) -> Result<Self> {
+        let root = resolve_config_root(colocate_with_data_root.then_some(data_root))?;
+        let legacy_data_root =
+            (!colocate_with_data_root && root != data_root).then(|| data_root.to_path_buf());
+
+        Ok(Self {
+            root,
+            legacy_data_root,
         })
     }
 
@@ -76,6 +95,7 @@ impl JsonConfigStore {
     }
 
     pub fn init(&self) -> Result<PathBuf> {
+        self.migrate_legacy_config_if_needed()?;
         let file = self.config_file();
         if let Some(parent) = file.parent() {
             fs::create_dir_all(parent)
@@ -86,6 +106,33 @@ impl JsonConfigStore {
         }
 
         Ok(file)
+    }
+
+    fn migrate_legacy_config_if_needed(&self) -> Result<()> {
+        let Some(legacy_root) = &self.legacy_data_root else {
+            return Ok(());
+        };
+
+        let target = self.config_file();
+        let legacy = legacy_root.join("config.json");
+        if target == legacy || target.exists() || !legacy.exists() {
+            return Ok(());
+        }
+
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create {}", parent.display()))?;
+        }
+
+        fs::rename(&legacy, &target).with_context(|| {
+            format!(
+                "failed to migrate legacy config {} to {}",
+                legacy.display(),
+                target.display()
+            )
+        })?;
+
+        Ok(())
     }
 
     pub fn load(&self) -> Result<AppConfig> {
@@ -222,20 +269,25 @@ fn add_missing_config_fields(value: &mut Value) {
     }
 }
 
-fn resolve_config_root() -> Result<PathBuf> {
+fn resolve_config_root(data_root_hint: Option<&Path>) -> Result<PathBuf> {
+    if let Some(path) = env::var_os("KELP_CONFIG_DIR") {
+        return Ok(PathBuf::from(path));
+    }
+
+    if let Some(data_root) = data_root_hint {
+        return Ok(data_root.to_path_buf());
+    }
+
     if let Some(path) = env::var_os("KELP_DATA_DIR") {
         return Ok(PathBuf::from(path));
     }
 
-    if let Some(path) = env::var_os("XDG_DATA_HOME") {
+    if let Some(path) = env::var_os("XDG_CONFIG_HOME") {
         return Ok(PathBuf::from(path).join("kelp"));
     }
 
     if let Some(home) = env::var_os("HOME") {
-        return Ok(PathBuf::from(home)
-            .join(".local")
-            .join("share")
-            .join("kelp"));
+        return Ok(PathBuf::from(home).join(".config").join("kelp"));
     }
 
     Ok(env::current_dir()
