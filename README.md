@@ -1,6 +1,5 @@
 [![](https://img.shields.io/badge/kelp_1.0.0-passing-light_green)](https://github.com/gongahkia/kelp/releases/tag/1.0.0)
 [![](https://img.shields.io/badge/kelp_2.0.0-passing-green)](https://github.com/gongahkia/kelp/releases/tag/2.0.0)
-![](https://github.com/gongahkia/kelp/actions/workflows/ci-release.yml/badge.svg)
 
 # `Kelp` 🌿🌊
 
