@@ -2,7 +2,7 @@ class Kelp < Formula
   desc "Strict, local-first planner CLI for tasks, projects, and reviews"
   homepage "https://github.com/gongahkia/kelp"
   url "https://github.com/gongahkia/kelp/releases/download/v1.0.0/kelp-v1.0.0-source.tar.gz"
-  sha256 "266dcdded386bc55c599fa59bacc320396d73a46af95f1add5a2afd19f583846"
+  sha256 "97c99d06e920e5ce08a9e0dcb91ad6b03552996bb0ccbf2b49bdbc8113ee76da"
   license "MIT"
 
   depends_on "rust" => :build

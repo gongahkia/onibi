@@ -298,14 +298,21 @@ fn resolve_config_root(data_root_hint: Option<&Path>) -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
     fn temp_root() -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system time should be after the unix epoch")
             .as_nanos();
-        env::temp_dir().join(format!("kelp-config-test-{}-{nanos}", std::process::id()))
+        let unique = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
+        env::temp_dir().join(format!(
+            "kelp-config-test-{}-{nanos}-{unique}",
+            std::process::id()
+        ))
     }
 
     #[test]

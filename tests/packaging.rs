@@ -26,8 +26,16 @@ fn package_version(repo_root: &Path) -> String {
         .expect("Cargo.toml should define a package version")
 }
 
+fn shell_packaging_supported() -> bool {
+    !cfg!(windows)
+}
+
 #[test]
 fn package_release_script_generates_archives_and_formula() {
+    if !shell_packaging_supported() {
+        return;
+    }
+
     let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let output_dir = temp_root("dist");
     let version = package_version(&repo_root);
@@ -69,6 +77,10 @@ fn package_release_script_generates_archives_and_formula() {
 
 #[test]
 fn installer_falls_back_to_source_install_when_release_download_fails() {
+    if !shell_packaging_supported() {
+        return;
+    }
+
     let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let cargo_home = temp_root("cargo-home");
     let cargo_target_dir = temp_root("cargo-target");
