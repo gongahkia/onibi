@@ -13,13 +13,11 @@ The *K*ommand line h*elp*er.
 ## Install Kelp
 
 ```console
-$ wget https://raw.githubusercontent.com/gongahkia/Kelp/main/installer.sh
-
+$ curl -fsSL https://raw.githubusercontent.com/gongahkia/kelp/main/installer.sh -o installer.sh
 $ chmod +x installer.sh
-$ ./installer.sh
+$ ./installer.sh --build-from-source
+$ ./installer.sh --release-version 1.0.0
 $ ./installer.sh --with-completions
-
-$ ./scripts/package-release.sh
 ```
 
 After running the Rust installer, we have to add a line of code to the **bottom** of our `.bashrc` file to indicate the file path. Remember to **source** your `.bashrc` file. (Neovim is used below, but any other code editor can be used).
@@ -53,6 +51,17 @@ Additionally, remember to remove the line added to your `.bashrc` file.
 ```console
 $ nvim ~/.bashrc
 -- removes final line from file
+```
+
+## Usage
+
+```console
+$ kelp init
+$ kelp project add --name Launch --deadline next-week
+$ kelp task add --title "Draft release notes" --project Launch --priority high --due tomorrow
+$ kelp task ready
+$ kelp review daily
+$ kelp review weekly
 ```
 
 ## Support
