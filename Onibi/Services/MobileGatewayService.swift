@@ -442,11 +442,22 @@ private actor HostMobileGatewayDataProvider: MobileGatewayDataProvider {
         let recentActivityCount = logs.filter {
             $0.sortTimestamp > Date().addingTimeInterval(-3600)
         }.count
+        let assistantBreakdown = logs.reduce(into: [String: Int]()) { result, log in
+            result[log.assistantKind.rawValue, default: 0] += 1
+        }
+        let successfulCommandCount = logs.filter { $0.exitCode == 0 }.count
+        let failedCommandCount = logs.filter {
+            guard let exitCode = $0.exitCode else { return false }
+            return exitCode != 0
+        }.count
 
         return SummaryResponse(
             activeSessionCount: activeSessionCount,
             recentActivityCount: recentActivityCount,
-            latestEventAt: logs.map(\.sortTimestamp).max()
+            latestEventAt: logs.map(\.sortTimestamp).max(),
+            assistantBreakdown: assistantBreakdown,
+            successfulCommandCount: successfulCommandCount,
+            failedCommandCount: failedCommandCount
         )
     }
 
