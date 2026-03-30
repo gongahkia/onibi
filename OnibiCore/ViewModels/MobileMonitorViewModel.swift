@@ -18,6 +18,7 @@ public final class MobileMonitorViewModel {
     public private(set) var hasConfiguration: Bool
     public private(set) var health: HostHealth?
     public private(set) var summary: SummaryResponse?
+    public private(set) var diagnostics: DiagnosticsResponse?
     public private(set) var sessions: [SessionSnapshot] = []
     public private(set) var recentEvents: [EventPreview] = []
     public private(set) var sessionDetails: [String: SessionDetail] = [:]
@@ -100,7 +101,12 @@ public final class MobileMonitorViewModel {
             guard let self else { return }
             await self.refresh()
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: UInt64(self.pollInterval * 1_000_000_000))
+                do {
+                    try await Task.sleep(nanoseconds: UInt64(self.pollInterval * 1_000_000_000))
+                } catch {
+                    // Task.sleep only throws on cancellation in this context.
+                    break
+                }
                 await self.refresh()
             }
         }
@@ -128,16 +134,19 @@ public final class MobileMonitorViewModel {
             async let nextSummary = client.fetchSummary()
             async let nextSessions = client.fetchSessions()
             async let nextEvents = client.fetchEvents(cursor: latestCursor, limit: 25)
+            async let nextDiagnostics = client.fetchDiagnostics()
 
-            let (resolvedHealth, resolvedSummary, resolvedSessions, resolvedEvents) = try await (
+            let (resolvedHealth, resolvedSummary, resolvedSessions, resolvedEvents, resolvedDiagnostics) = try await (
                 nextHealth,
                 nextSummary,
                 nextSessions,
-                nextEvents
+                nextEvents,
+                nextDiagnostics
             )
 
             health = resolvedHealth
             summary = resolvedSummary
+            diagnostics = resolvedDiagnostics
             sessions = resolvedSessions
             syncSessionDetails(with: resolvedSessions)
 
@@ -206,6 +215,7 @@ private extension MobileMonitorViewModel {
     func resetRuntimeState() {
         health = nil
         summary = nil
+        diagnostics = nil
         sessions = []
         recentEvents = []
         sessionDetails = [:]
