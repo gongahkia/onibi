@@ -78,6 +78,11 @@ final class NotificationManager: NSObject, ObservableObject {
     func requestAuthorization() async -> Bool {
         guard let notificationCenter = center else {
             Log.notifications.debug("Skipping authorization request - notification center not available")
+            DiagnosticsStore.shared.record(
+                component: "NotificationManager",
+                level: .debug,
+                message: "authorization request skipped because notification center unavailable"
+            )
             return false
         }
         
@@ -95,6 +100,14 @@ final class NotificationManager: NSObject, ObservableObject {
             return granted
         } catch {
             Log.notifications.error("authorization error: \(error.localizedDescription)")
+            DiagnosticsStore.shared.record(
+                component: "NotificationManager",
+                level: .warning,
+                message: "notification authorization request failed",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
             return false
         }
     }
@@ -149,7 +162,18 @@ final class NotificationManager: NSObject, ObservableObject {
     
     /// Send a native notification from AppNotification
     func send(_ notification: AppNotification) async {
-        guard let notificationCenter = center, isAuthorized else { return }
+        guard let notificationCenter = center, isAuthorized else {
+            DiagnosticsStore.shared.record(
+                component: "NotificationManager",
+                level: .debug,
+                message: "notification dropped because center unavailable or unauthorized",
+                metadata: [
+                    "isAuthorized": String(isAuthorized),
+                    "type": notification.type.rawValue
+                ]
+            )
+            return
+        }
         
         let content = UNMutableNotificationContent()
         content.title = notification.title
@@ -178,6 +202,15 @@ final class NotificationManager: NSObject, ObservableObject {
             try await notificationCenter.add(request)
         } catch {
             Log.notifications.error("failed to send notification: \(error.localizedDescription)")
+            DiagnosticsStore.shared.record(
+                component: "NotificationManager",
+                level: .warning,
+                message: "failed to deliver native notification",
+                metadata: [
+                    "reason": error.localizedDescription,
+                    "type": notification.type.rawValue
+                ]
+            )
         }
     }
     
@@ -193,12 +226,28 @@ final class NotificationManager: NSObject, ObservableObject {
     
     /// Update badge count
     func setBadgeCount(_ count: Int) async {
-        guard let notificationCenter = center else { return }
+        guard let notificationCenter = center else {
+            DiagnosticsStore.shared.record(
+                component: "NotificationManager",
+                level: .debug,
+                message: "badge count update skipped because notification center unavailable"
+            )
+            return
+        }
         
         do {
             try await notificationCenter.setBadgeCount(count)
         } catch {
             Log.notifications.error("failed to set badge: \(error.localizedDescription)")
+            DiagnosticsStore.shared.record(
+                component: "NotificationManager",
+                level: .warning,
+                message: "failed to update application badge count",
+                metadata: [
+                    "reason": error.localizedDescription,
+                    "count": String(count)
+                ]
+            )
         }
     }
     
@@ -257,7 +306,21 @@ extension NotificationManager: UNUserNotificationCenterDelegate {
         case Action.openTerminal.rawValue:
             // Open Ghostty terminal
             if let ghosttyURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.mitchellh.ghostty") {
-                try? await NSWorkspace.shared.openApplication(at: ghosttyURL, configuration: NSWorkspace.OpenConfiguration())
+                do {
+                    try await NSWorkspace.shared.openApplication(
+                        at: ghosttyURL,
+                        configuration: NSWorkspace.OpenConfiguration()
+                    )
+                } catch {
+                    DiagnosticsStore.shared.record(
+                        component: "NotificationManager",
+                        level: .warning,
+                        message: "failed to open Ghostty from notification action",
+                        metadata: [
+                            "reason": error.localizedDescription
+                        ]
+                    )
+                }
             }
             
         case Action.dismiss.rawValue:
