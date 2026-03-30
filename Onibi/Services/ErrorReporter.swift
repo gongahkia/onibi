@@ -67,6 +67,15 @@ final class ErrorReporter: ObservableObject {
             severity: severity
         )
         
+        DiagnosticsStore.shared.record(
+            component: "ErrorReporter",
+            level: diagnosticsLevel(for: severity),
+            message: "\(appError.title): \(appError.message)",
+            metadata: [
+                "context": context ?? "none",
+                "severity": severity.rawValue
+            ]
+        )
         addError(appError)
         logToFile(appError)
         
@@ -85,11 +94,33 @@ final class ErrorReporter: ObservableObject {
             severity: severity
         )
         
+        DiagnosticsStore.shared.record(
+            component: "ErrorReporter",
+            level: diagnosticsLevel(for: severity),
+            message: "\(title): \(message)",
+            metadata: [
+                "context": context ?? "none",
+                "severity": severity.rawValue
+            ]
+        )
         addError(appError)
         logToFile(appError)
         
         if severity == .critical {
             showCriticalAlert(appError)
+        }
+    }
+
+    private func diagnosticsLevel(for severity: AppError.Severity) -> DiagnosticsLevel {
+        switch severity {
+        case .info:
+            return .info
+        case .warning:
+            return .warning
+        case .error:
+            return .error
+        case .critical:
+            return .critical
         }
     }
     
@@ -134,10 +165,22 @@ final class ErrorReporter: ObservableObject {
                 
                 if FileManager.default.fileExists(atPath: self.errorLogPath) {
                     let handle = try FileHandle(forWritingTo: URL(fileURLWithPath: self.errorLogPath))
-                    defer { try? handle.close() }
+                    defer {
+                        do {
+                            try handle.close()
+                        } catch {
+                            Log.errors.error("failed to close error log handle: \(error.localizedDescription, privacy: .public)")
+                        }
+                    }
                     try handle.seekToEnd()
                     if let data = entry.data(using: .utf8) {
                         try handle.write(contentsOf: data)
+                    } else {
+                        throw NSError(
+                            domain: "ErrorReporter",
+                            code: 1001,
+                            userInfo: [NSLocalizedDescriptionKey: "failed to encode error log entry"]
+                        )
                     }
                 } else {
                     try entry.write(toFile: self.errorLogPath, atomically: true, encoding: .utf8)
@@ -146,7 +189,15 @@ final class ErrorReporter: ObservableObject {
                 // Rotate if too large (> 1MB)
                 self.rotateLogIfNeeded()
             } catch {
-                Log.errors.error("failed to write error log: \(error.localizedDescription)")
+                Log.errors.error("failed to write error log: \(error.localizedDescription, privacy: .public)")
+                DiagnosticsStore.shared.record(
+                    component: "ErrorReporter",
+                    level: .error,
+                    message: "failed to persist error log",
+                    metadata: [
+                        "reason": error.localizedDescription
+                    ]
+                )
             }
         }
     }
@@ -157,9 +208,40 @@ final class ErrorReporter: ObservableObject {
         guard let attrs = try? fm.attributesOfItem(atPath: errorLogPath),
               let size = attrs[.size] as? Int64,
               size > maxSize else { return }
-        let backupPath = errorLogPath + ".1"
-        try? fm.removeItem(atPath: backupPath)
-        try? fm.moveItem(atPath: errorLogPath, toPath: backupPath)
+        let maxRotations = max(1, SettingsViewModel.shared.settings.errorLogMaxRotations)
+
+        do {
+            let oldestPath = "\(errorLogPath).\(maxRotations)"
+            if fm.fileExists(atPath: oldestPath) {
+                try fm.removeItem(atPath: oldestPath)
+            }
+
+            if maxRotations > 1 {
+                for index in stride(from: maxRotations - 1, through: 1, by: -1) {
+                    let currentPath = "\(errorLogPath).\(index)"
+                    let nextPath = "\(errorLogPath).\(index + 1)"
+                    if fm.fileExists(atPath: currentPath) {
+                        try fm.moveItem(atPath: currentPath, toPath: nextPath)
+                    }
+                }
+            }
+
+            let firstBackupPath = "\(errorLogPath).1"
+            if fm.fileExists(atPath: firstBackupPath) {
+                try fm.removeItem(atPath: firstBackupPath)
+            }
+            try fm.moveItem(atPath: errorLogPath, toPath: firstBackupPath)
+        } catch {
+            Log.errors.error("failed to rotate error log: \(error.localizedDescription, privacy: .public)")
+            DiagnosticsStore.shared.record(
+                component: "ErrorReporter",
+                level: .warning,
+                message: "failed to rotate error log",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
+        }
     }
     
     // MARK: - GitHub Integration
@@ -208,7 +290,14 @@ final class ErrorReporter: ObservableObject {
     
     /// Open GitHub issue in browser
     func openGitHubIssue(for error: AppError) {
-        guard let url = generateGitHubIssueURL(for: error) else { return }
+        guard let url = generateGitHubIssueURL(for: error) else {
+            DiagnosticsStore.shared.record(
+                component: "ErrorReporter",
+                level: .warning,
+                message: "failed to generate GitHub issue URL"
+            )
+            return
+        }
         NSWorkspace.shared.open(url)
     }
     
@@ -301,12 +390,27 @@ final class ErrorReporter: ObservableObject {
     
     private func loadRecentErrors() {
         // Load from file on startup (last 10 only for memory)
-        guard FileManager.default.fileExists(atPath: errorLogPath),
-              let content = try? String(contentsOfFile: errorLogPath, encoding: .utf8) else { return }
+        guard FileManager.default.fileExists(atPath: errorLogPath) else {
+            return
+        }
+        do {
+            let content = try String(contentsOfFile: errorLogPath, encoding: .utf8)
         
-        // Parse last entries (simplified)
-        let lines = content.components(separatedBy: "---\n").suffix(10)
-        // Note: Full parsing would require more complex logic
+            // Parse last entries (simplified)
+            let lines = content.components(separatedBy: "---\n").suffix(10)
+            Log.errors.debug("loaded \(lines.count, privacy: .public) historical error entries")
+            // Note: Full parsing would require more complex logic
+        } catch {
+            Log.errors.error("failed to load recent errors: \(error.localizedDescription, privacy: .public)")
+            DiagnosticsStore.shared.record(
+                component: "ErrorReporter",
+                level: .warning,
+                message: "failed to load persisted error entries",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
+        }
     }
     
     /// Clear all errors
