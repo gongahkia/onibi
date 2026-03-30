@@ -5,6 +5,14 @@ public enum MobileEventKind: String, Codable, Sendable {
     case assistantActivity
 }
 
+public enum DiagnosticsSeverity: String, Codable, Sendable {
+    case debug
+    case info
+    case warning
+    case error
+    case critical
+}
+
 public struct HostHealth: Codable, Equatable, Sendable {
     public let ghosttyRunning: Bool
     public let schedulerRunning: Bool
@@ -139,6 +147,71 @@ public struct EventPreview: Codable, Equatable, Identifiable, Sendable {
         self.title = title
         self.message = message
         self.exitCode = exitCode
+    }
+}
+
+public struct DiagnosticsEventPreview: Codable, Equatable, Sendable {
+    public let timestamp: Date
+    public let component: String
+    public let severity: DiagnosticsSeverity
+    public let message: String
+
+    public init(
+        timestamp: Date,
+        component: String,
+        severity: DiagnosticsSeverity,
+        message: String
+    ) {
+        self.timestamp = timestamp
+        self.component = component
+        self.severity = severity
+        self.message = message
+    }
+}
+
+public struct DiagnosticsResponse: Codable, Equatable, Sendable {
+    public let generatedAt: Date
+    public let hostVersion: String
+    public let diagnosticsEventCount: Int
+    public let warningCount: Int
+    public let errorCount: Int
+    public let criticalCount: Int
+    public let schedulerEventsProcessed: Int
+    public let storageLogCount: Int
+    public let storageBytes: Int64
+    public let tailscaleStatus: String
+    public let latestErrorTitle: String?
+    public let latestErrorTimestamp: Date?
+    public let recentEvents: [DiagnosticsEventPreview]
+
+    public init(
+        generatedAt: Date,
+        hostVersion: String,
+        diagnosticsEventCount: Int,
+        warningCount: Int,
+        errorCount: Int,
+        criticalCount: Int,
+        schedulerEventsProcessed: Int,
+        storageLogCount: Int,
+        storageBytes: Int64,
+        tailscaleStatus: String,
+        latestErrorTitle: String?,
+        latestErrorTimestamp: Date?,
+        recentEvents: [DiagnosticsEventPreview]
+    ) {
+        self.generatedAt = generatedAt
+        self.hostVersion = hostVersion
+        self.diagnosticsEventCount = diagnosticsEventCount
+        self.warningCount = warningCount
+        self.errorCount = errorCount
+        self.criticalCount = criticalCount
+        self.schedulerEventsProcessed = schedulerEventsProcessed
+        self.storageLogCount = storageLogCount
+        self.storageBytes = storageBytes
+        self.tailscaleStatus = tailscaleStatus
+        self.latestErrorTitle = latestErrorTitle
+        self.latestErrorTimestamp = latestErrorTimestamp
+        self.recentEvents = recentEvents
     }
 }
 
