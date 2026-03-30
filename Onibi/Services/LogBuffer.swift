@@ -21,11 +21,40 @@ final class LogBuffer {
             throw LogBufferError.cannotOpenFile
         }
         
-        defer { try? fileHandle.close() }
+        defer {
+            do {
+                try fileHandle.close()
+            } catch {
+                Log.storage.error("failed to close log file handle: \(error.localizedDescription, privacy: .public)")
+                DiagnosticsStore.shared.record(
+                    component: "LogBuffer",
+                    level: .warning,
+                    message: "failed to close log file handle",
+                    metadata: [
+                        "path": filePath,
+                        "reason": error.localizedDescription
+                    ]
+                )
+            }
+        }
         
         // Check for file rotation via inode
-        let attributes = try? FileManager.default.attributesOfItem(atPath: filePath)
-        let fileID = attributes?[.systemFileNumber] as? NSNumber
+        let attributes: [FileAttributeKey: Any]
+        do {
+            attributes = try FileManager.default.attributesOfItem(atPath: filePath)
+        } catch {
+            DiagnosticsStore.shared.record(
+                component: "LogBuffer",
+                level: .debug,
+                message: "unable to fetch file attributes while reading",
+                metadata: [
+                    "path": filePath,
+                    "reason": error.localizedDescription
+                ]
+            )
+            attributes = [:]
+        }
+        let fileID = attributes[.systemFileNumber] as? NSNumber
         
         if let currentID = currentFileID, let newID = fileID,  currentID != newID {
             // File rotated (new inode)
@@ -102,12 +131,40 @@ final class LogBuffer {
             throw LogBufferError.cannotOpenFile
         }
         
-        defer { try? fileHandle.close() }
+        defer {
+            do {
+                try fileHandle.close()
+            } catch {
+                Log.storage.error("failed to close log file handle: \(error.localizedDescription, privacy: .public)")
+                DiagnosticsStore.shared.record(
+                    component: "LogBuffer",
+                    level: .warning,
+                    message: "failed to close log file handle in seekToEnd",
+                    metadata: [
+                        "path": filePath,
+                        "reason": error.localizedDescription
+                    ]
+                )
+            }
+        }
         
         lastReadPosition = try fileHandle.seekToEnd()
         
-        let attributes = try? FileManager.default.attributesOfItem(atPath: filePath)
-        currentFileID = attributes?[.systemFileNumber] as? NSNumber
+        do {
+            let attributes = try FileManager.default.attributesOfItem(atPath: filePath)
+            currentFileID = attributes[.systemFileNumber] as? NSNumber
+        } catch {
+            DiagnosticsStore.shared.record(
+                component: "LogBuffer",
+                level: .debug,
+                message: "unable to fetch file attributes in seekToEnd",
+                metadata: [
+                    "path": filePath,
+                    "reason": error.localizedDescription
+                ]
+            )
+            currentFileID = nil
+        }
     }
 }
 
