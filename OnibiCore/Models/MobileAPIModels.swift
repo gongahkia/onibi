@@ -39,11 +39,24 @@ public struct SummaryResponse: Codable, Equatable, Sendable {
     public let activeSessionCount: Int
     public let recentActivityCount: Int
     public let latestEventAt: Date?
+    public let assistantBreakdown: [String: Int]
+    public let successfulCommandCount: Int
+    public let failedCommandCount: Int
 
-    public init(activeSessionCount: Int, recentActivityCount: Int, latestEventAt: Date?) {
+    public init(
+        activeSessionCount: Int,
+        recentActivityCount: Int,
+        latestEventAt: Date?,
+        assistantBreakdown: [String: Int] = [:],
+        successfulCommandCount: Int = 0,
+        failedCommandCount: Int = 0
+    ) {
         self.activeSessionCount = activeSessionCount
         self.recentActivityCount = recentActivityCount
         self.latestEventAt = latestEventAt
+        self.assistantBreakdown = assistantBreakdown
+        self.successfulCommandCount = successfulCommandCount
+        self.failedCommandCount = failedCommandCount
     }
 }
 
