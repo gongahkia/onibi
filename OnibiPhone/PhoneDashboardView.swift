@@ -25,6 +25,7 @@ struct PhoneDashboardView: View {
                     if viewModel.hasConfiguration {
                         summaryMetrics
                         hostServicesSection
+                        diagnosticsSection
                         recentEventsSection
                     } else {
                         onboardingSection
@@ -161,6 +162,90 @@ struct PhoneDashboardView: View {
                         EventCard(event: event)
                     }
                 }
+            }
+        }
+    }
+
+    private var diagnosticsSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            PhoneSectionHeader(
+                title: "Diagnostics",
+                subtitle: "Runtime health and failure signals from your Mac host."
+            )
+
+            if let diagnostics = viewModel.diagnostics {
+                PhoneCard {
+                    VStack(alignment: .leading, spacing: 16) {
+                        LazyVGrid(columns: metricColumns, spacing: 14) {
+                            PhoneMetricTile(
+                                title: "Warnings",
+                                value: String(diagnostics.warningCount),
+                                symbolName: "exclamationmark.triangle.fill",
+                                tint: PhonePalette.sunrise
+                            )
+                            PhoneMetricTile(
+                                title: "Errors",
+                                value: String(diagnostics.errorCount),
+                                symbolName: "xmark.octagon.fill",
+                                tint: PhonePalette.rose
+                            )
+                            PhoneMetricTile(
+                                title: "Critical",
+                                value: String(diagnostics.criticalCount),
+                                symbolName: "bolt.trianglebadge.exclamationmark.fill",
+                                tint: PhonePalette.rose
+                            )
+                            PhoneMetricTile(
+                                title: "Tailscale",
+                                value: diagnostics.tailscaleStatus == "serving" ? "Live" : "Idle",
+                                symbolName: "network",
+                                tint: diagnostics.tailscaleStatus == "serving" ? PhonePalette.moss : PhonePalette.cobalt
+                            )
+                        }
+
+                        if let latestErrorTitle = diagnostics.latestErrorTitle {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Latest Error")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(PhonePalette.charcoal)
+
+                                Text(latestErrorTitle)
+                                    .font(.subheadline)
+                                    .foregroundStyle(PhonePalette.smoke)
+                                    .fixedSize(horizontal: false, vertical: true)
+
+                                Text(PhoneFormats.dateTimeString(for: diagnostics.latestErrorTimestamp))
+                                    .font(.footnote.weight(.medium))
+                                    .foregroundStyle(PhonePalette.smoke)
+                            }
+                            .padding(14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.white.opacity(0.56), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        }
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Recent Diagnostics")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(PhonePalette.charcoal)
+
+                            if diagnostics.recentEvents.isEmpty {
+                                Text("No diagnostics events have been emitted yet.")
+                                    .font(.subheadline)
+                                    .foregroundStyle(PhonePalette.smoke)
+                            } else {
+                                ForEach(Array(diagnostics.recentEvents.prefix(5).enumerated()), id: \.offset) { _, event in
+                                    DiagnosticsEventRow(event: event)
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                PhoneEmptyStateCard(
+                    title: "Diagnostics warming up",
+                    message: "Pull to refresh once host diagnostics are available.",
+                    symbolName: "stethoscope"
+                )
             }
         }
     }
@@ -374,6 +459,72 @@ private struct EventCard: View {
                 }
             }
         }
+    }
+}
+
+private struct DiagnosticsEventRow: View {
+    let event: DiagnosticsEventPreview
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 10) {
+                PhoneBadge(
+                    title: event.severity.displayName,
+                    symbolName: event.severity.symbolName,
+                    tint: event.severity.tintColor
+                )
+
+                Spacer()
+
+                Text(PhoneFormats.relativeString(for: event.timestamp))
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(PhonePalette.smoke)
+            }
+
+            Text(event.component)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(PhonePalette.charcoal)
+
+            Text(event.message)
+                .font(.subheadline)
+                .foregroundStyle(PhonePalette.smoke)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.56), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+}
+
+private extension DiagnosticsSeverity {
+    var tintColor: Color {
+        switch self {
+        case .debug, .info:
+            return PhonePalette.cobalt
+        case .warning:
+            return PhonePalette.sunrise
+        case .error, .critical:
+            return PhonePalette.rose
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .debug:
+            return "ladybug.fill"
+        case .info:
+            return "info.circle.fill"
+        case .warning:
+            return "exclamationmark.triangle.fill"
+        case .error:
+            return "xmark.octagon.fill"
+        case .critical:
+            return "bolt.trianglebadge.exclamationmark.fill"
+        }
+    }
+
+    var displayName: String {
+        rawValue.capitalized
     }
 }
 
