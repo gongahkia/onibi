@@ -527,13 +527,23 @@ struct LogsSettingsTab: View {
     private func calculateStorageSize() {
         DispatchQueue.global(qos: .utility).async {
             let logsPath = OnibiConfig.appDataDirectory + "/logs.json"
-            if let attrs = try? FileManager.default.attributesOfItem(atPath: logsPath),
-               let size = attrs[.size] as? Int64 {
+            do {
+                let attrs = try FileManager.default.attributesOfItem(atPath: logsPath)
+                let size = attrs[.size] as? Int64 ?? 0
                 let sizeStr = ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
                 DispatchQueue.main.async {
                     storageSize = sizeStr
                 }
-            } else {
+            } catch {
+                DiagnosticsStore.shared.record(
+                    component: "SettingsView",
+                    level: .debug,
+                    message: "failed to calculate logs storage size",
+                    metadata: [
+                        "path": logsPath,
+                        "reason": error.localizedDescription
+                    ]
+                )
                 DispatchQueue.main.async {
                     storageSize = "0 bytes"
                 }
@@ -543,7 +553,22 @@ struct LogsSettingsTab: View {
     
     private func clearAllLogs() {
         let logsPath = OnibiConfig.appDataDirectory + "/logs.json"
-        try? FileManager.default.removeItem(atPath: logsPath)
+        do {
+            if FileManager.default.fileExists(atPath: logsPath) {
+                try FileManager.default.removeItem(atPath: logsPath)
+            }
+        } catch {
+            ErrorReporter.shared.report(error, context: "SettingsView.clearAllLogs", severity: .warning)
+            DiagnosticsStore.shared.record(
+                component: "SettingsView",
+                level: .warning,
+                message: "failed to clear logs from settings",
+                metadata: [
+                    "path": logsPath,
+                    "reason": error.localizedDescription
+                ]
+            )
+        }
         hasCalculatedStorage = false
         calculateStorageSize()
     }
