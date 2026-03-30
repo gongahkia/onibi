@@ -29,10 +29,28 @@ final class LogsViewModel: ObservableObject {
         isLoading = true
         Task { [weak self] in
             guard let self else { return }
-            let loadedLogs = (try? await storageManager.loadLogs()) ?? []
-            await MainActor.run {
-                self.logs = loadedLogs.sorted { $0.sortTimestamp > $1.sortTimestamp }
-                self.isLoading = false
+            do {
+                let loadedLogs = try await storageManager.loadLogs()
+                await MainActor.run {
+                    self.logs = loadedLogs.sorted { $0.sortTimestamp > $1.sortTimestamp }
+                    self.errorMessage = nil
+                    self.isLoading = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.logs = []
+                    self.errorMessage = error.localizedDescription
+                    self.isLoading = false
+                }
+                ErrorReporter.shared.report(error, context: "LogsViewModel.loadLogs", severity: .warning)
+                DiagnosticsStore.shared.record(
+                    component: "LogsViewModel",
+                    level: .warning,
+                    message: "failed to load logs for details view",
+                    metadata: [
+                        "reason": error.localizedDescription
+                    ]
+                )
             }
         }
     }
