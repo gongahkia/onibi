@@ -29,7 +29,19 @@ struct OnibiConfigParser {
     
     /// Parse config from specific path
     static func parse(at path: String) -> Config? {
-        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+        let contents: String
+        do {
+            contents = try String(contentsOfFile: path, encoding: .utf8)
+        } catch {
+            DiagnosticsStore.shared.record(
+                component: "OnibiConfigParser",
+                level: .warning,
+                message: "failed to read ghostty config file",
+                metadata: [
+                    "path": path,
+                    "reason": error.localizedDescription
+                ]
+            )
             return nil
         }
         return parse(contents: contents)
@@ -107,8 +119,18 @@ struct OnibiConfigParser {
     /// Fetch config asynchronously (CLI first, then file fallback)
     static func fetchConfig() async -> Config {
         // Try CLI first
-        if let cliConfig = try? await GhosttyCliService.shared.showConfig() {
+        do {
+            let cliConfig = try await GhosttyCliService.shared.showConfig()
             return parse(dictionary: cliConfig)
+        } catch {
+            DiagnosticsStore.shared.record(
+                component: "OnibiConfigParser",
+                level: .info,
+                message: "ghostty cli config fetch failed, falling back to file parsing",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
         }
         
         // Fallback to file parsing
