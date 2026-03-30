@@ -42,7 +42,14 @@ final class MobileGatewayService: ObservableObject {
     }
 
     func start() {
-        guard listener == nil else { return }
+        guard listener == nil else {
+            DiagnosticsStore.shared.record(
+                component: "MobileGatewayService",
+                level: .debug,
+                message: "start ignored because listener already running"
+            )
+            return
+        }
 
         loadToken()
         localURLString = "http://127.0.0.1:\(settings.mobileAccessPort)"
@@ -68,17 +75,43 @@ final class MobileGatewayService: ObservableObject {
                         self?.isRunning = true
                         self?.lastError = nil
                     }
+                    DiagnosticsStore.shared.record(
+                        component: "MobileGatewayService",
+                        level: .info,
+                        message: "gateway listener is ready",
+                        metadata: [
+                            "port": String(self?.settings.mobileAccessPort ?? 0)
+                        ]
+                    )
                 case .failed(let error):
                     DispatchQueue.main.async {
                         self?.isRunning = false
                         self?.lastError = error.localizedDescription
                     }
+                    DiagnosticsStore.shared.record(
+                        component: "MobileGatewayService",
+                        level: .error,
+                        message: "gateway listener failed",
+                        metadata: [
+                            "reason": error.localizedDescription
+                        ]
+                    )
+                    ErrorReporter.shared.report(
+                        error,
+                        context: "MobileGatewayService.listener.stateUpdateHandler",
+                        severity: .warning
+                    )
                     self?.listener?.cancel()
                     self?.listener = nil
                 case .cancelled:
                     DispatchQueue.main.async {
                         self?.isRunning = false
                     }
+                    DiagnosticsStore.shared.record(
+                        component: "MobileGatewayService",
+                        level: .info,
+                        message: "gateway listener cancelled"
+                    )
                 default:
                     break
                 }
@@ -96,6 +129,16 @@ final class MobileGatewayService: ObservableObject {
                 await refreshTailscaleStatus()
             }
         } catch {
+            DiagnosticsStore.shared.record(
+                component: "MobileGatewayService",
+                level: .critical,
+                message: "failed to start gateway listener",
+                metadata: [
+                    "reason": error.localizedDescription,
+                    "port": String(settings.mobileAccessPort)
+                ]
+            )
+            ErrorReporter.shared.report(error, context: "MobileGatewayService.start", severity: .critical)
             lastError = error.localizedDescription
             isRunning = false
         }
@@ -106,6 +149,11 @@ final class MobileGatewayService: ObservableObject {
         listener = nil
         router = nil
         isRunning = false
+        DiagnosticsStore.shared.record(
+            component: "MobileGatewayService",
+            level: .info,
+            message: "gateway listener stopped"
+        )
 
         Task {
             await tailscaleService.disableServe()
@@ -117,8 +165,22 @@ final class MobileGatewayService: ObservableObject {
         do {
             pairingToken = try tokenStore.rotateToken()
             lastError = nil
+            DiagnosticsStore.shared.record(
+                component: "MobileGatewayService",
+                level: .info,
+                message: "pairing token rotated"
+            )
         } catch {
             lastError = error.localizedDescription
+            DiagnosticsStore.shared.record(
+                component: "MobileGatewayService",
+                level: .error,
+                message: "pairing token rotation failed",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
+            ErrorReporter.shared.report(error, context: "MobileGatewayService.rotatePairingToken", severity: .warning)
         }
     }
 
@@ -142,10 +204,28 @@ final class MobileGatewayService: ObservableObject {
                     self.tailscaleStatus = status
                     self.lastError = nil
                 }
+                DiagnosticsStore.shared.record(
+                    component: "MobileGatewayService",
+                    level: .info,
+                    message: "tailscale serve enabled",
+                    metadata: [
+                        "port": String(self.settings.mobileAccessPort),
+                        "isServing": String(status.isServing)
+                    ]
+                )
             } catch {
                 await MainActor.run {
                     self.lastError = error.localizedDescription
                 }
+                DiagnosticsStore.shared.record(
+                    component: "MobileGatewayService",
+                    level: .warning,
+                    message: "tailscale serve enable failed",
+                    metadata: [
+                        "reason": error.localizedDescription
+                    ]
+                )
+                ErrorReporter.shared.report(error, context: "MobileGatewayService.enableTailscaleServe", severity: .warning)
             }
         }
     }
@@ -189,15 +269,41 @@ final class MobileGatewayService: ObservableObject {
         } catch {
             pairingToken = ""
             lastError = error.localizedDescription
+            DiagnosticsStore.shared.record(
+                component: "MobileGatewayService",
+                level: .error,
+                message: "failed to load pairing token",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
+            ErrorReporter.shared.report(error, context: "MobileGatewayService.loadToken", severity: .warning)
         }
     }
 
     private func handle(connection: NWConnection) {
         connection.start(queue: queue)
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, _, _ in
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isComplete, receiveError in
             guard let self else {
                 connection.cancel()
                 return
+            }
+            if let receiveError {
+                DiagnosticsStore.shared.record(
+                    component: "MobileGatewayService",
+                    level: .warning,
+                    message: "connection receive error",
+                    metadata: [
+                        "reason": receiveError.localizedDescription
+                    ]
+                )
+            }
+            if isComplete && data == nil {
+                DiagnosticsStore.shared.record(
+                    component: "MobileGatewayService",
+                    level: .debug,
+                    message: "connection completed without payload"
+                )
             }
 
             guard
@@ -205,6 +311,11 @@ final class MobileGatewayService: ObservableObject {
                 let request = self.parseRequest(from: data),
                 let router = self.router
             else {
+                DiagnosticsStore.shared.record(
+                    component: "MobileGatewayService",
+                    level: .warning,
+                    message: "rejected malformed gateway request"
+                )
                 self.send(
                     response: MobileGatewayResponse(
                         statusCode: 400,
@@ -241,7 +352,18 @@ final class MobileGatewayService: ObservableObject {
         var payload = Data(responseString.utf8)
         payload.append(response.body)
 
-        connection.send(content: payload, completion: .contentProcessed { _ in
+        connection.send(content: payload, completion: .contentProcessed { sendError in
+            if let sendError {
+                DiagnosticsStore.shared.record(
+                    component: "MobileGatewayService",
+                    level: .warning,
+                    message: "failed sending gateway response",
+                    metadata: [
+                        "reason": sendError.localizedDescription,
+                        "statusCode": String(response.statusCode)
+                    ]
+                )
+            }
             connection.cancel()
         })
     }
