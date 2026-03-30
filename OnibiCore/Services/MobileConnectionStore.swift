@@ -16,12 +16,18 @@ public final class MobileConnectionStore: @unchecked Sendable {
     }
 
     public func loadConfiguration() -> (configuration: MobileConnectionConfiguration, token: String)? {
-        guard
-            let data = defaults.data(forKey: configurationKey),
-            let configuration = try? JSONDecoder().decode(MobileConnectionConfiguration.self, from: data),
-            let token = tokenStore.loadToken(),
-            !token.isEmpty
-        else {
+        guard let data = defaults.data(forKey: configurationKey) else {
+            return nil
+        }
+        let configuration: MobileConnectionConfiguration
+        do {
+            configuration = try JSONDecoder().decode(MobileConnectionConfiguration.self, from: data)
+        } catch {
+            NSLog("MobileConnectionStore: failed to decode configuration: %@", error.localizedDescription)
+            return nil
+        }
+        guard let token = tokenStore.loadToken(), !token.isEmpty else {
+            NSLog("MobileConnectionStore: token missing or empty")
             return nil
         }
 
