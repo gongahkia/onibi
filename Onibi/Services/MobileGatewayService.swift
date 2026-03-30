@@ -537,7 +537,7 @@ private actor HostMobileGatewayDataProvider: MobileGatewayDataProvider {
         return DiagnosticsResponse(
             generatedAt: Date(),
             hostVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown",
-            diagnosticsEventCount: DiagnosticsStore.shared.recentEvents(limit: 500).count,
+            diagnosticsEventCount: DiagnosticsStore.shared.totalEventCount(),
             warningCount: DiagnosticsStore.shared.count(for: .warning),
             errorCount: DiagnosticsStore.shared.count(for: .error),
             criticalCount: DiagnosticsStore.shared.count(for: .critical),
