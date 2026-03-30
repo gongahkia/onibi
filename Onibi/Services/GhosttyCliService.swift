@@ -21,6 +21,14 @@ final class GhosttyCliService {
             let output = try await client.executeCommand(["+show-config", "--default-config=false"])
             return parseConfigOutput(output)
         } catch {
+            DiagnosticsStore.shared.record(
+                component: "GhosttyCliService",
+                level: .warning,
+                message: "ghostty show-config failed",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
             throw CliError.executionError(error)
         }
     }
@@ -36,6 +44,14 @@ final class GhosttyCliService {
                 .filter { !$0.isEmpty }
                 .sorted()
         } catch {
+            DiagnosticsStore.shared.record(
+                component: "GhosttyCliService",
+                level: .warning,
+                message: "ghostty list-themes failed",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
             throw CliError.executionError(error)
         }
     }
@@ -52,6 +68,14 @@ final class GhosttyCliService {
              }
              return "Unknown"
         } catch {
+            DiagnosticsStore.shared.record(
+                component: "GhosttyCliService",
+                level: .warning,
+                message: "ghostty version query failed",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
             throw CliError.executionError(error)
         }
     }
@@ -62,6 +86,14 @@ final class GhosttyCliService {
             let version = try await getVersion()
             return (true, version)
         } catch {
+            DiagnosticsStore.shared.record(
+                component: "GhosttyCliService",
+                level: .info,
+                message: "ghostty not detected",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
             return (false, nil)
         }
     }
