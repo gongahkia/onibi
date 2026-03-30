@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import Combine
+import ApplicationServices
 
 /// Client for Ghostty-specific integration
 /// Detects running Ghostty instances and communicates via available channels
@@ -102,29 +103,140 @@ final class GhosttyIPCClient: ObservableObject {
     
     /// Get active Ghostty windows
     func getActiveWindows() -> [GhosttySession] {
-        guard isGhosttyRunning else { return [] }
-        
-        // Use Accessibility API to get window info if authorized
-        // For now, return placeholder based on process detection
-        var sessions: [GhosttySession] = []
-        
-        if let app = getGhosttyApp() {
-            // Create a default session representing the running instance
-            let session = GhosttySession(
-                id: "\(app.processIdentifier)",
-                name: "Ghostty",
-                pid: app.processIdentifier,
-                isActive: app.isActive
-            )
-            sessions.append(session)
+        guard
+            isGhosttyRunning,
+            let app = getGhosttyApp()
+        else {
+            activeSessions = []
+            return []
         }
-        
+
+        let snapshots = accessibilityWindows(for: app.processIdentifier)
+        let hasFocusedWindow = snapshots.contains { $0.isFocused }
+
+        let sessions: [GhosttySession]
+        if snapshots.isEmpty {
+            sessions = [
+                GhosttySession(
+                    id: "\(app.processIdentifier)",
+                    name: "Ghostty",
+                    pid: app.processIdentifier,
+                    isActive: app.isActive
+                )
+            ]
+        } else {
+            sessions = snapshots.enumerated().map { index, snapshot in
+                let title = normalizedTitle(for: snapshot.title, fallbackIndex: index)
+                let isSessionActive: Bool
+                if hasFocusedWindow {
+                    isSessionActive = snapshot.isFocused
+                } else {
+                    isSessionActive = app.isActive && !snapshot.isMinimized && index == 0
+                }
+
+                return GhosttySession(
+                    id: sessionIdentifier(
+                        for: app.processIdentifier,
+                        snapshot: snapshot,
+                        fallbackIndex: index
+                    ),
+                    name: title,
+                    pid: app.processIdentifier,
+                    isActive: isSessionActive,
+                    windowTitle: snapshot.title
+                )
+            }
+        }
+
         activeSessions = sessions
         return sessions
     }
     
     // MARK: - Private
-    
+
+    private struct AccessibilityWindowSnapshot {
+        let windowNumber: Int?
+        let title: String?
+        let isFocused: Bool
+        let isMinimized: Bool
+    }
+
+    private func accessibilityWindows(for pid: pid_t) -> [AccessibilityWindowSnapshot] {
+        guard AXIsProcessTrusted() else {
+            return []
+        }
+
+        let applicationElement = AXUIElementCreateApplication(pid)
+        var windowsValue: CFTypeRef?
+        let status = AXUIElementCopyAttributeValue(
+            applicationElement,
+            kAXWindowsAttribute as CFString,
+            &windowsValue
+        )
+        guard
+            status == .success,
+            let windowElements = windowsValue as? [AXUIElement]
+        else {
+            return []
+        }
+
+        return windowElements.map { element in
+            AccessibilityWindowSnapshot(
+                windowNumber: intValue(for: "AXWindowNumber" as CFString, from: element),
+                title: stringValue(for: kAXTitleAttribute as CFString, from: element),
+                isFocused: boolValue(for: kAXFocusedAttribute as CFString, from: element)
+                    || boolValue(for: kAXMainAttribute as CFString, from: element),
+                isMinimized: boolValue(for: kAXMinimizedAttribute as CFString, from: element)
+            )
+        }
+    }
+
+    private func sessionIdentifier(
+        for pid: pid_t,
+        snapshot: AccessibilityWindowSnapshot,
+        fallbackIndex: Int
+    ) -> String {
+        if let windowNumber = snapshot.windowNumber {
+            return "\(pid)-\(windowNumber)"
+        }
+        return "\(pid)-\(fallbackIndex)"
+    }
+
+    private func normalizedTitle(for title: String?, fallbackIndex: Int) -> String {
+        let trimmedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmedTitle, !trimmedTitle.isEmpty {
+            return trimmedTitle
+        }
+        return "Ghostty Window \(fallbackIndex + 1)"
+    }
+
+    private func stringValue(for attribute: CFString, from element: AXUIElement) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success else {
+            return nil
+        }
+        return value as? String
+    }
+
+    private func boolValue(for attribute: CFString, from element: AXUIElement) -> Bool {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success else {
+            return false
+        }
+        return (value as? Bool) ?? false
+    }
+
+    private func intValue(for attribute: CFString, from element: AXUIElement) -> Int? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success else {
+            return nil
+        }
+        if let number = value as? NSNumber {
+            return number.intValue
+        }
+        return nil
+    }
+
     private func setupProcessMonitoring() {
         // Initial check
         _ = checkGhosttyRunning()
