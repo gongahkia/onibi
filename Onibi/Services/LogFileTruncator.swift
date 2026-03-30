@@ -37,13 +37,23 @@ final class LogFileTruncator: ObservableObject {
     /// Update current log file size
     func updateCurrentSize() {
         let logPath = SettingsViewModel.shared.settings.logFilePath
-        
-        if let attributes = try? fileManager.attributesOfItem(atPath: logPath),
-           let size = attributes[.size] as? Int64 {
+
+        do {
+            let attributes = try fileManager.attributesOfItem(atPath: logPath)
+            let size = attributes[.size] as? Int64 ?? 0
             DispatchQueue.main.async { [weak self] in
                 self?.currentLogSizeBytes = size
             }
-        } else {
+        } catch {
+            DiagnosticsStore.shared.record(
+                component: "LogFileTruncator",
+                level: .debug,
+                message: "failed to read log file attributes while updating size",
+                metadata: [
+                    "path": logPath,
+                    "reason": error.localizedDescription
+                ]
+            )
             DispatchQueue.main.async { [weak self] in
                 self?.currentLogSizeBytes = 0
             }
@@ -148,9 +158,20 @@ final class LogFileTruncator: ObservableObject {
         if let enumerator = fileManager.enumerator(atPath: logsDir) {
             while let file = enumerator.nextObject() as? String {
                 let fullPath = (logsDir as NSString).appendingPathComponent(file)
-                if let attributes = try? fileManager.attributesOfItem(atPath: fullPath),
-                   let size = attributes[.size] as? Int64 {
+                do {
+                    let attributes = try fileManager.attributesOfItem(atPath: fullPath)
+                    let size = attributes[.size] as? Int64 ?? 0
                     totalSize += size
+                } catch {
+                    DiagnosticsStore.shared.record(
+                        component: "LogFileTruncator",
+                        level: .debug,
+                        message: "failed to inspect log directory entry size",
+                        metadata: [
+                            "path": fullPath,
+                            "reason": error.localizedDescription
+                        ]
+                    )
                 }
             }
         }
