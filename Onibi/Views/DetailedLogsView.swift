@@ -589,38 +589,59 @@ struct ExportOptionsView: View {
         let logsToExport = logs
         
         Task.detached(priority: .userInitiated) {
-            let content: String
-            switch currentFormat {
-            case .json:
-                let encoder = JSONEncoder()
-                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-                encoder.dateEncodingStrategy = .iso8601
-                if let data = try? encoder.encode(logsToExport), let str = String(data: data, encoding: .utf8) {
-                    content = str
-                } else {
-                    content = "[]"
-                }
-            case .csv:
-                var csv = "timestamp,command,output,exit_code,duration\n"
-                for log in logsToExport {
-                    // RFC 4180: escape double quotes by doubling them; fields with commas, quotes, or newlines must be quoted
-                    func escapeCSVField(_ s: String) -> String {
-                        let escaped = s.replacingOccurrences(of: "\"", with: "\"\"")
-                        // Always quote fields to handle commas, newlines, and quotes safely
-                        return "\"\(escaped)\""
+            do {
+                let content: String
+                switch currentFormat {
+                case .json:
+                    let encoder = JSONEncoder()
+                    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                    encoder.dateEncodingStrategy = .iso8601
+                    let data = try encoder.encode(logsToExport)
+                    guard let str = String(data: data, encoding: .utf8) else {
+                        throw NSError(
+                            domain: "DetailedLogsView",
+                            code: 1001,
+                            userInfo: [NSLocalizedDescriptionKey: "failed to convert JSON export payload to UTF-8"]
+                        )
                     }
-                    csv += "\(escapeCSVField(log.timestamp.ISO8601Format())),\(escapeCSVField(log.command)),\(escapeCSVField(log.output)),\(log.exitCode ?? 0),\(log.duration ?? 0)\n"
+                    content = str
+                case .csv:
+                    var csv = "timestamp,command,output,exit_code,duration\n"
+                    for log in logsToExport {
+                        // RFC 4180: escape double quotes by doubling them; fields with commas, quotes, or newlines must be quoted
+                        func escapeCSVField(_ s: String) -> String {
+                            let escaped = s.replacingOccurrences(of: "\"", with: "\"\"")
+                            // Always quote fields to handle commas, newlines, and quotes safely
+                            return "\"\(escaped)\""
+                        }
+                        csv += "\(escapeCSVField(log.timestamp.ISO8601Format())),\(escapeCSVField(log.command)),\(escapeCSVField(log.output)),\(log.exitCode ?? 0),\(log.duration ?? 0)\n"
+                    }
+                    content = csv
+                case .txt:
+                    content = logsToExport.map { "[\($0.timestamp)] $ \($0.command)\n\($0.output)" }.joined(separator: "\n\n---\n\n")
                 }
-                content = csv
-            case .txt:
-                content = logsToExport.map { "[\($0.timestamp)] $ \($0.command)\n\($0.output)" }.joined(separator: "\n\n---\n\n")
-            }
-            
-            try? content.write(to: url, atomically: true, encoding: .utf8)
-            
-            await MainActor.run {
-                isExporting = false
-                dismiss()
+
+                try content.write(to: url, atomically: true, encoding: .utf8)
+
+                await MainActor.run {
+                    isExporting = false
+                    dismiss()
+                }
+            } catch {
+                ErrorReporter.shared.report(error, context: "DetailedLogsView.exportLogs", severity: .warning)
+                DiagnosticsStore.shared.record(
+                    component: "DetailedLogsView",
+                    level: .warning,
+                    message: "failed exporting logs",
+                    metadata: [
+                        "format": currentFormat.rawValue,
+                        "path": url.path,
+                        "reason": error.localizedDescription
+                    ]
+                )
+                await MainActor.run {
+                    isExporting = false
+                }
             }
         }
     }
