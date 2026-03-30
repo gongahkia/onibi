@@ -155,6 +155,16 @@ final class ShellHookInstaller: ObservableObject {
             }
             return .notInstalled
         } catch {
+            DiagnosticsStore.shared.record(
+                component: "ShellHookInstaller",
+                level: .warning,
+                message: "failed reading shell rc file status",
+                metadata: [
+                    "shell": shell.rawValue,
+                    "path": shell.rcFilePath,
+                    "reason": error.localizedDescription
+                ]
+            )
             return .error("Cannot read \(shell.rcFilePath)")
         }
     }
@@ -211,22 +221,22 @@ final class ShellHookInstaller: ObservableObject {
         
         // Delete oldest backup if exists
         if fm.fileExists(atPath: backup3) {
-            try? fm.removeItem(atPath: backup3)
+            try fm.removeItem(atPath: backup3)
         }
         
         // Rotate .2 -> .3
         if fm.fileExists(atPath: backup2) {
-            try? fm.moveItem(atPath: backup2, toPath: backup3)
+            try fm.moveItem(atPath: backup2, toPath: backup3)
         }
         
         // Rotate .1 -> .2
         if fm.fileExists(atPath: backup1) {
-            try? fm.moveItem(atPath: backup1, toPath: backup2)
+            try fm.moveItem(atPath: backup1, toPath: backup2)
         }
         
         // Rotate current backup -> .1
         if fm.fileExists(atPath: basePath) {
-            try? fm.moveItem(atPath: basePath, toPath: backup1)
+            try fm.moveItem(atPath: basePath, toPath: backup1)
         }
         
         // Create new backup
@@ -327,6 +337,15 @@ final class ShellHookInstaller: ObservableObject {
                 cleanupTestEntry(at: testPath, marker: testMarker)
                 return true
             } catch {
+                DiagnosticsStore.shared.record(
+                    component: "ShellHookInstaller",
+                    level: .warning,
+                    message: "hook verification failed while creating fallback test file",
+                    metadata: [
+                        "path": testPath,
+                        "reason": error.localizedDescription
+                    ]
+                )
                 return false
             }
         }
@@ -341,7 +360,15 @@ final class ShellHookInstaller: ObservableObject {
             let cleanedContents = filteredLines.joined(separator: "\n")
             try cleanedContents.write(toFile: path, atomically: true, encoding: .utf8)
         } catch {
-            // Cleanup is best-effort, don't fail verify if cleanup fails
+            DiagnosticsStore.shared.record(
+                component: "ShellHookInstaller",
+                level: .warning,
+                message: "failed cleaning temporary hook verification entry",
+                metadata: [
+                    "path": path,
+                    "reason": error.localizedDescription
+                ]
+            )
         }
     }
     
