@@ -14,7 +14,19 @@ private final class RegexCache {
             return cached
         }
         
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+        let regex: NSRegularExpression
+        do {
+            regex = try NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+        } catch {
+            DiagnosticsStore.shared.record(
+                component: "RegexCache",
+                level: .warning,
+                message: "failed to compile regex pattern",
+                metadata: [
+                    "pattern": pattern,
+                    "reason": error.localizedDescription
+                ]
+            )
             return nil
         }
         cache[pattern] = regex
