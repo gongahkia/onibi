@@ -43,8 +43,18 @@ public struct MobileGatewayRouter: Sendable {
             return jsonResponse(statusCode: 405, body: ["error": "method_not_allowed"])
         }
 
-        guard authorize(headers: headers) else {
-            return jsonResponse(statusCode: 401, body: ["error": "unauthorized"])
+        do {
+            guard try authorize(headers: headers) else {
+                return jsonResponse(statusCode: 401, body: ["error": "unauthorized"])
+            }
+        } catch {
+            return jsonResponse(
+                statusCode: 500,
+                body: [
+                    "error": "authorization_provider_failure",
+                    "reason": error.localizedDescription
+                ]
+            )
         }
 
         do {
@@ -82,9 +92,9 @@ public struct MobileGatewayRouter: Sendable {
         }
     }
 
-    private func authorize(headers: [String: String]) -> Bool {
+    private func authorize(headers: [String: String]) throws -> Bool {
         guard
-            let expectedToken = (try? tokenProvider()) ?? nil,
+            let expectedToken = try tokenProvider(),
             !expectedToken.isEmpty
         else {
             return false
