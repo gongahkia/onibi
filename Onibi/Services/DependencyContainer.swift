@@ -18,6 +18,7 @@ final class DependencyContainer {
         register(SessionManager.self) { SessionManager.shared }
         register(NotificationManager.self) { NotificationManager.shared }
         register(ErrorReporter.self) { ErrorReporter.shared }
+        register(DiagnosticsStore.self) { DiagnosticsStore.shared }
         register(BackgroundTaskScheduler.self) { BackgroundTaskScheduler.shared }
         register(GhosttyIPCClient.self) { GhosttyIPCClient.shared }
         register(GhosttyCliService.self) { GhosttyCliService.shared }
@@ -53,7 +54,20 @@ final class DependencyContainer {
     }
     /// Resolve a service with cycle detection
     func resolve<T>(_ type: T.Type) -> T? {
-        return try? resolveRequired(type)
+        do {
+            return try resolveRequired(type)
+        } catch {
+            DiagnosticsStore.shared.record(
+                component: "DependencyContainer",
+                level: .error,
+                message: "failed to resolve dependency",
+                metadata: [
+                    "type": String(describing: type),
+                    "reason": error.localizedDescription
+                ]
+            )
+            return nil
+        }
     }
     /// Resolve a service or throw if not found
     func resolveRequired<T>(_ type: T.Type) throws -> T {
@@ -85,13 +99,21 @@ struct Injected<T> {
     var wrappedValue: T {
         mutating get {
             if service == nil {
-                service = DependencyContainer.shared.resolve(T.self)
+            service = DependencyContainer.shared.resolve(T.self)
             }
             guard let resolved = service else {
                 ErrorReporter.shared.report(
                     title: "DependencyContainer",
                     message: "Service \(T.self) not registered",
                     severity: .critical
+                )
+                DiagnosticsStore.shared.record(
+                    component: "DependencyContainer",
+                    level: .critical,
+                    message: "fatal missing service dependency",
+                    metadata: [
+                        "type": String(describing: T.self)
+                    ]
                 )
                 fatalError("Service \(T.self) not registered") // unrecoverable: DI misconfiguration
             }
