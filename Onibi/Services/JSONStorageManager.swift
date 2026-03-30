@@ -22,7 +22,24 @@ final class JSONStorageManager: StorageManager {
         self.flushInterval = flushInterval
         
         // Ensure directory exists
-        try? OnibiConfig.ensureDirectoryExists()
+        do {
+            try OnibiConfig.ensureDirectoryExists()
+        } catch {
+            Log.storage.error("failed to create storage directory: \(error.localizedDescription, privacy: .public)")
+            DiagnosticsStore.shared.record(
+                component: "JSONStorageManager",
+                level: .critical,
+                message: "failed to initialize storage directory",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
+            ErrorReporter.shared.report(
+                error,
+                context: "JSONStorageManager.init.ensureDirectoryExists",
+                severity: .critical
+            )
+        }
         
         // Start periodic flush
         startPeriodicFlush()
@@ -31,7 +48,19 @@ final class JSONStorageManager: StorageManager {
     deinit {
         flushTimer?.invalidate()
         // Final synchronous flush
-        try? flushToDiskSync()
+        do {
+            try flushToDiskSync()
+        } catch {
+            Log.storage.error("failed to flush logs during deinit: \(error.localizedDescription, privacy: .public)")
+            DiagnosticsStore.shared.record(
+                component: "JSONStorageManager",
+                level: .error,
+                message: "failed to flush logs during deinit",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
+        }
     }
     
     // MARK: - StorageManager Protocol
@@ -57,11 +86,30 @@ final class JSONStorageManager: StorageManager {
             }
         } catch {
             ErrorReporter.shared.report(error, context: "JSONStorageManager.loadLogs", severity: .warning)
-            if let backup = try? queue.sync(execute: { try readLogs(from: backupPath) }) {
+            DiagnosticsStore.shared.record(
+                component: "JSONStorageManager",
+                level: .warning,
+                message: "failed to read primary logs; attempting backup",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
+            do {
+                let backup = try queue.sync(execute: { try readLogs(from: backupPath) })
                 queue.sync {
                     cache = backup
                 }
                 return backup
+            } catch {
+                Log.storage.error("failed to recover logs from backup: \(error.localizedDescription, privacy: .public)")
+                DiagnosticsStore.shared.record(
+                    component: "JSONStorageManager",
+                    level: .error,
+                    message: "backup log recovery failed",
+                    metadata: [
+                        "reason": error.localizedDescription
+                    ]
+                )
             }
             return []
         }
@@ -91,7 +139,19 @@ final class JSONStorageManager: StorageManager {
             try fileManager.removeItem(atPath: logsPath)
         }
         if fileManager.fileExists(atPath: backupPath) {
-            try? fileManager.removeItem(atPath: backupPath)
+            do {
+                try fileManager.removeItem(atPath: backupPath)
+            } catch {
+                Log.storage.error("failed to remove backup logs during clear: \(error.localizedDescription, privacy: .public)")
+                DiagnosticsStore.shared.record(
+                    component: "JSONStorageManager",
+                    level: .warning,
+                    message: "failed to remove backup logs during clear",
+                    metadata: [
+                        "reason": error.localizedDescription
+                    ]
+                )
+            }
         }
     }
     
@@ -126,7 +186,25 @@ final class JSONStorageManager: StorageManager {
     private func startPeriodicFlush() {
         flushTimer = Timer.scheduledTimer(withTimeInterval: flushInterval, repeats: true) { [weak self] _ in
             Task {
-                try? await self?.flushToDisk()
+                guard let self else { return }
+                do {
+                    try await self.flushToDisk()
+                } catch {
+                    Log.storage.error("periodic flush failed: \(error.localizedDescription, privacy: .public)")
+                    DiagnosticsStore.shared.record(
+                        component: "JSONStorageManager",
+                        level: .warning,
+                        message: "periodic flush failed",
+                        metadata: [
+                            "reason": error.localizedDescription
+                        ]
+                    )
+                    ErrorReporter.shared.report(
+                        error,
+                        context: "JSONStorageManager.startPeriodicFlush",
+                        severity: .warning
+                    )
+                }
             }
         }
     }
@@ -150,12 +228,26 @@ final class JSONStorageManager: StorageManager {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
-        if let wrapper = try? decoder.decode(StorageWrapper.self, from: data) {
+        do {
+            let wrapper = try decoder.decode(StorageWrapper.self, from: data)
             return wrapper.logs
+        } catch {
+            Log.storage.debug("failed to decode storage wrapper, attempting legacy format")
         }
 
-        if let legacyLogs = try? decoder.decode([LogEntry].self, from: data) {
+        do {
+            let legacyLogs = try decoder.decode([LogEntry].self, from: data)
             return legacyLogs
+        } catch {
+            DiagnosticsStore.shared.record(
+                component: "JSONStorageManager",
+                level: .warning,
+                message: "failed to decode logs in both modern and legacy formats",
+                metadata: [
+                    "path": filePath,
+                    "reason": error.localizedDescription
+                ]
+            )
         }
         
         throw StorageError.corruptedData
@@ -164,8 +256,22 @@ final class JSONStorageManager: StorageManager {
     private func writeLogsAtomic(_ logs: [LogEntry]) throws {
         // Create backup of existing file
         if fileManager.fileExists(atPath: logsPath) {
-            try? fileManager.removeItem(atPath: backupPath)
-            try? fileManager.copyItem(atPath: logsPath, toPath: backupPath)
+            do {
+                if fileManager.fileExists(atPath: backupPath) {
+                    try fileManager.removeItem(atPath: backupPath)
+                }
+                try fileManager.copyItem(atPath: logsPath, toPath: backupPath)
+            } catch {
+                Log.storage.error("failed to update logs backup: \(error.localizedDescription, privacy: .public)")
+                DiagnosticsStore.shared.record(
+                    component: "JSONStorageManager",
+                    level: .warning,
+                    message: "failed to update storage backup before write",
+                    metadata: [
+                        "reason": error.localizedDescription
+                    ]
+                )
+            }
         }
         
         let wrapper = StorageWrapper(version: JSONStorageManager.currentVersion, logs: logs)
@@ -181,7 +287,21 @@ final class JSONStorageManager: StorageManager {
         try data.write(to: tempURL, options: .atomic)
         
         // Rename temp to actual (atomic operation)
-        try? fileManager.removeItem(atPath: logsPath)
+        if fileManager.fileExists(atPath: logsPath) {
+            do {
+                try fileManager.removeItem(atPath: logsPath)
+            } catch {
+                Log.storage.error("failed removing previous logs before atomic move: \(error.localizedDescription, privacy: .public)")
+                DiagnosticsStore.shared.record(
+                    component: "JSONStorageManager",
+                    level: .warning,
+                    message: "failed removing previous logs before atomic move",
+                    metadata: [
+                        "reason": error.localizedDescription
+                    ]
+                )
+            }
+        }
         try fileManager.moveItem(atPath: tempPath, toPath: logsPath)
     }
     
@@ -222,6 +342,19 @@ extension UserDefaults {
     
     func loadSettings() -> AppSettings? {
         guard let data = data(forKey: Keys.settings) else { return nil }
-        return try? JSONDecoder().decode(AppSettings.self, from: data)
+        do {
+            return try JSONDecoder().decode(AppSettings.self, from: data)
+        } catch {
+            Log.settings.error("failed to decode settings from UserDefaults: \(error.localizedDescription, privacy: .public)")
+            DiagnosticsStore.shared.record(
+                component: "UserDefaults",
+                level: .warning,
+                message: "failed to decode persisted settings",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
+            return nil
+        }
     }
 }
