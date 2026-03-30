@@ -6,6 +6,7 @@ public protocol MobileGatewayDataProvider: Sendable {
     func sessions() async throws -> [SessionSnapshot]
     func session(id: String) async throws -> SessionDetail?
     func events(after cursor: Date?, limit: Int) async throws -> [EventPreview]
+    func diagnostics() async throws -> DiagnosticsResponse
 }
 
 public struct MobileGatewayResponse: Sendable {
@@ -65,11 +66,19 @@ public struct MobileGatewayRouter: Sendable {
                 let limit = parseLimit(from: queryItems)
                 let events = try await dataProvider.events(after: cursor, limit: limit)
                 return try jsonResponse(statusCode: 200, encodable: events)
+            case "/api/v1/diagnostics":
+                return try jsonResponse(statusCode: 200, encodable: await dataProvider.diagnostics())
             default:
                 return jsonResponse(statusCode: 404, body: ["error": "not_found"])
             }
         } catch {
-            return jsonResponse(statusCode: 500, body: ["error": "internal_error"])
+            return jsonResponse(
+                statusCode: 500,
+                body: [
+                    "error": "internal_error",
+                    "reason": error.localizedDescription
+                ]
+            )
         }
     }
 
@@ -115,7 +124,12 @@ public struct MobileGatewayRouter: Sendable {
     }
 
     private func jsonResponse(statusCode: Int, body: [String: String]) -> MobileGatewayResponse {
-        let data = (try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])) ?? Data()
+        let data: Data
+        do {
+            data = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
+        } catch {
+            data = Data("{\"error\":\"response_serialization_failed\"}".utf8)
+        }
         return MobileGatewayResponse(
             statusCode: statusCode,
             headers: [
