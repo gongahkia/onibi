@@ -218,13 +218,24 @@ final class FalsePositiveReducer: ObservableObject {
     }
     
     private func loadDismissalCounts() {
-        guard let data = UserDefaults.standard.data(forKey: dismissalCountsKey),
-              let decoded = try? JSONDecoder().decode([String: Int].self, from: data) else { return }
-        
-        dismissalCounts = decoded.reduce(into: [:]) { result, pair in
-            if let type = NotificationType(rawValue: pair.key) {
-                result[type] = pair.value
+        guard let data = UserDefaults.standard.data(forKey: dismissalCountsKey) else { return }
+
+        do {
+            let decoded = try JSONDecoder().decode([String: Int].self, from: data)
+            dismissalCounts = decoded.reduce(into: [:]) { result, pair in
+                if let type = NotificationType(rawValue: pair.key) {
+                    result[type] = pair.value
+                }
             }
+        } catch {
+            DiagnosticsStore.shared.record(
+                component: "FalsePositiveReducer",
+                level: .warning,
+                message: "failed to decode dismissal counts",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
         }
     }
     
@@ -232,8 +243,18 @@ final class FalsePositiveReducer: ObservableObject {
         let encoded: [String: Int] = dismissalCounts.reduce(into: [:]) { result, pair in
             result[pair.key.rawValue] = pair.value
         }
-        if let data = try? JSONEncoder().encode(encoded) {
+        do {
+            let data = try JSONEncoder().encode(encoded)
             UserDefaults.standard.set(data, forKey: dismissalCountsKey)
+        } catch {
+            DiagnosticsStore.shared.record(
+                component: "FalsePositiveReducer",
+                level: .warning,
+                message: "failed to encode dismissal counts",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
         }
     }
     
