@@ -21,35 +21,111 @@ final class TailscaleServeService {
 
     func refreshStatus(port: Int) async -> TailscaleServeStatus {
         guard let binaryPath = resolveBinaryPath() else {
+            DiagnosticsStore.shared.record(
+                component: "TailscaleServeService",
+                level: .info,
+                message: "tailscale binary unavailable"
+            )
             return .unavailable
         }
 
-        let statusOutput = try? await runProcess(binaryPath: binaryPath, arguments: ["status", "--json"])
-        let serveOutput = try? await runProcess(binaryPath: binaryPath, arguments: ["serve", "status", "--json"])
+        let statusOutput: String?
+        let serveOutput: String?
+        var statusCommandError: Error?
+        var serveCommandError: Error?
+
+        do {
+            statusOutput = try await runProcess(binaryPath: binaryPath, arguments: ["status", "--json"])
+        } catch {
+            statusOutput = nil
+            statusCommandError = error
+            DiagnosticsStore.shared.record(
+                component: "TailscaleServeService",
+                level: .warning,
+                message: "tailscale status command failed",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
+        }
+
+        do {
+            serveOutput = try await runProcess(binaryPath: binaryPath, arguments: ["serve", "status", "--json"])
+        } catch {
+            serveOutput = nil
+            serveCommandError = error
+            DiagnosticsStore.shared.record(
+                component: "TailscaleServeService",
+                level: .warning,
+                message: "tailscale serve status command failed",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
+        }
 
         let dnsName = parseDNSName(from: statusOutput)
         let isServing = parseServeEnabled(from: serveOutput)
+        let detail: String
+        if let serveCommandError {
+            detail = "Tailscale available, but `tailscale serve status` failed: \(serveCommandError.localizedDescription)"
+        } else if let statusCommandError {
+            detail = "Tailscale serve checked, but `tailscale status` failed: \(statusCommandError.localizedDescription)"
+        } else {
+            detail = isServing
+                ? "Serving local port \(port) over Tailscale"
+                : "Tailscale available but Serve is not active"
+        }
 
         return TailscaleServeStatus(
             isInstalled: true,
             isServing: isServing,
             baseURLString: dnsName.map { "https://\($0)" },
-            detail: isServing ? "Serving local port \(port) over Tailscale" : "Tailscale available but Serve is not active"
+            detail: detail
         )
     }
 
     func enableServe(port: Int) async throws -> TailscaleServeStatus {
         guard let binaryPath = resolveBinaryPath() else {
+            DiagnosticsStore.shared.record(
+                component: "TailscaleServeService",
+                level: .warning,
+                message: "cannot enable tailscale serve because binary is missing"
+            )
             return .unavailable
         }
 
-        _ = try await runProcess(binaryPath: binaryPath, arguments: ["serve", "--bg", String(port)])
+        do {
+            _ = try await runProcess(binaryPath: binaryPath, arguments: ["serve", "--bg", String(port)])
+        } catch {
+            DiagnosticsStore.shared.record(
+                component: "TailscaleServeService",
+                level: .error,
+                message: "tailscale serve enable failed",
+                metadata: [
+                    "reason": error.localizedDescription,
+                    "port": String(port)
+                ]
+            )
+            throw error
+        }
         return await refreshStatus(port: port)
     }
 
     func disableServe() async {
         guard let binaryPath = resolveBinaryPath() else { return }
-        _ = try? await runProcess(binaryPath: binaryPath, arguments: ["serve", "reset"])
+        do {
+            _ = try await runProcess(binaryPath: binaryPath, arguments: ["serve", "reset"])
+        } catch {
+            DiagnosticsStore.shared.record(
+                component: "TailscaleServeService",
+                level: .warning,
+                message: "tailscale serve reset failed",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
+        }
     }
 
     private func resolveBinaryPath() -> String? {
@@ -99,11 +175,21 @@ final class TailscaleServeService {
     }
 
     private func parseDNSName(from output: String?) -> String? {
-        guard
-            let output,
-            let data = output.data(using: .utf8),
-            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else {
+        guard let output, let data = output.data(using: .utf8) else {
+            return nil
+        }
+        let json: [String: Any]
+        do {
+            json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        } catch {
+            DiagnosticsStore.shared.record(
+                component: "TailscaleServeService",
+                level: .warning,
+                message: "failed to parse tailscale status JSON",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
             return nil
         }
 
