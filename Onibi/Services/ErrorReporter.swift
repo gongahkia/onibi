@@ -205,9 +205,23 @@ final class ErrorReporter: ObservableObject {
     private func rotateLogIfNeeded() {
         let fm = FileManager.default
         let maxSize = SettingsViewModel.shared.settings.maxErrorLogSizeBytes
-        guard let attrs = try? fm.attributesOfItem(atPath: errorLogPath),
-              let size = attrs[.size] as? Int64,
-              size > maxSize else { return }
+        let size: Int64
+        do {
+            let attrs = try fm.attributesOfItem(atPath: errorLogPath)
+            guard let resolvedSize = attrs[.size] as? Int64 else { return }
+            size = resolvedSize
+        } catch {
+            DiagnosticsStore.shared.record(
+                component: "ErrorReporter",
+                level: .warning,
+                message: "failed to read error log attributes",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
+            return
+        }
+        guard size > maxSize else { return }
         let maxRotations = max(1, SettingsViewModel.shared.settings.errorLogMaxRotations)
 
         do {
