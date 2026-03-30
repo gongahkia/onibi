@@ -504,6 +504,53 @@ private actor HostMobileGatewayDataProvider: MobileGatewayDataProvider {
             }
     }
 
+    func diagnostics() async throws -> DiagnosticsResponse {
+        let logs = try await storageManager.loadLogs()
+        let storageBytes: Int64
+        do {
+            storageBytes = try await storageManager.getStorageSize()
+        } catch {
+            DiagnosticsStore.shared.record(
+                component: "HostMobileGatewayDataProvider",
+                level: .warning,
+                message: "failed to retrieve storage size for diagnostics",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
+            storageBytes = 0
+        }
+
+        let schedulerEventsProcessed = await MainActor.run { BackgroundTaskScheduler.shared.eventsProcessed }
+        let tailscaleStatus = await MainActor.run { MobileGatewayService.shared.tailscaleStatus }
+        let latestError = await MainActor.run { ErrorReporter.shared.recentErrors.first }
+        let recentDiagnostics = DiagnosticsStore.shared.recentEvents(limit: 25)
+            .map {
+                DiagnosticsEventPreview(
+                    timestamp: $0.timestamp,
+                    component: $0.component,
+                    severity: mapSeverity($0.level),
+                    message: $0.message
+                )
+            }
+
+        return DiagnosticsResponse(
+            generatedAt: Date(),
+            hostVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown",
+            diagnosticsEventCount: DiagnosticsStore.shared.recentEvents(limit: 500).count,
+            warningCount: DiagnosticsStore.shared.count(for: .warning),
+            errorCount: DiagnosticsStore.shared.count(for: .error),
+            criticalCount: DiagnosticsStore.shared.count(for: .critical),
+            schedulerEventsProcessed: schedulerEventsProcessed,
+            storageLogCount: logs.count,
+            storageBytes: storageBytes,
+            tailscaleStatus: tailscaleStatus.isServing ? "serving" : "not_serving",
+            latestErrorTitle: latestError?.title,
+            latestErrorTimestamp: latestError?.timestamp,
+            recentEvents: recentDiagnostics
+        )
+    }
+
     private func buildSessionSnapshots(from logs: [LogEntry]) async -> [SessionSnapshot] {
         struct LocalSessionInfo: Sendable {
             let id: String
@@ -572,5 +619,20 @@ private actor HostMobileGatewayDataProvider: MobileGatewayDataProvider {
                 )
             }
             .sorted { $0.lastActivityAt > $1.lastActivityAt }
+    }
+
+    private func mapSeverity(_ level: DiagnosticsLevel) -> DiagnosticsSeverity {
+        switch level {
+        case .debug:
+            return .debug
+        case .info:
+            return .info
+        case .warning:
+            return .warning
+        case .error:
+            return .error
+        case .critical:
+            return .critical
+        }
     }
 }
