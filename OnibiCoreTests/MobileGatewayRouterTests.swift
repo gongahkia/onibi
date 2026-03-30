@@ -59,6 +59,18 @@ final class MobileGatewayRouterTests: XCTestCase {
         let payload = try JSONDateCodec.decoder.decode(DiagnosticsResponse.self, from: response.body)
         XCTAssertGreaterThanOrEqual(payload.storageLogCount, 0)
     }
+
+    func testAuthorizationProviderFailureReturnsServerError() async {
+        let router = MobileGatewayRouter(
+            tokenProvider: {
+                throw NSError(domain: "test", code: 500, userInfo: [NSLocalizedDescriptionKey: "token lookup failed"])
+            },
+            dataProvider: StubGatewayDataProvider()
+        )
+
+        let response = await router.route(method: "GET", path: "/api/v1/health")
+        XCTAssertEqual(response.statusCode, 500)
+    }
 }
 
 private actor StubGatewayDataProvider: MobileGatewayDataProvider {
