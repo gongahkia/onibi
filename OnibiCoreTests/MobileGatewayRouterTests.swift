@@ -42,6 +42,23 @@ final class MobileGatewayRouterTests: XCTestCase {
         XCTAssertEqual(lastLimit, 5)
         XCTAssertNotNil(lastCursor)
     }
+
+    func testDiagnosticsRouteReturnsPayload() async throws {
+        let router = MobileGatewayRouter(
+            tokenProvider: { "secret-token" },
+            dataProvider: StubGatewayDataProvider()
+        )
+
+        let response = await router.route(
+            method: "GET",
+            path: "/api/v1/diagnostics",
+            headers: ["Authorization": "Bearer secret-token"]
+        )
+
+        XCTAssertEqual(response.statusCode, 200)
+        let payload = try JSONDateCodec.decoder.decode(DiagnosticsResponse.self, from: response.body)
+        XCTAssertGreaterThanOrEqual(payload.storageLogCount, 0)
+    }
 }
 
 private actor StubGatewayDataProvider: MobileGatewayDataProvider {
@@ -111,6 +128,31 @@ private actor StubGatewayDataProvider: MobileGatewayDataProvider {
                 exitCode: 0
             )
         ]
+    }
+
+    func diagnostics() async throws -> DiagnosticsResponse {
+        DiagnosticsResponse(
+            generatedAt: Date(),
+            hostVersion: "test",
+            diagnosticsEventCount: 5,
+            warningCount: 1,
+            errorCount: 0,
+            criticalCount: 0,
+            schedulerEventsProcessed: 23,
+            storageLogCount: 12,
+            storageBytes: 2048,
+            tailscaleStatus: "not_serving",
+            latestErrorTitle: nil,
+            latestErrorTimestamp: nil,
+            recentEvents: [
+                DiagnosticsEventPreview(
+                    timestamp: Date(),
+                    component: "test",
+                    severity: .info,
+                    message: "ok"
+                )
+            ]
+        )
     }
 
     func recordedCursor() -> Date? {
