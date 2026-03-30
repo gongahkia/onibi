@@ -83,12 +83,32 @@ final class NotificationViewModel: ObservableObject {
             notifications = try JSONDecoder().decode([AppNotification].self, from: data)
         } catch {
             ErrorReporter.shared.report(error, context: "NotificationViewModel loadNotifications")
+            DiagnosticsStore.shared.record(
+                component: "NotificationViewModel",
+                level: .warning,
+                message: "failed to decode persisted notifications",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
         }
     }
     
     private func saveNotifications() {
-        guard let data = try? JSONEncoder().encode(notifications) else { return }
-        UserDefaults.standard.set(data, forKey: UserDefaultsKeys.notifications)
+        do {
+            let data = try JSONEncoder().encode(notifications)
+            UserDefaults.standard.set(data, forKey: UserDefaultsKeys.notifications)
+        } catch {
+            ErrorReporter.shared.report(error, context: "NotificationViewModel saveNotifications", severity: .warning)
+            DiagnosticsStore.shared.record(
+                component: "NotificationViewModel",
+                level: .warning,
+                message: "failed to encode notifications for persistence",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
+        }
     }
 }
 
