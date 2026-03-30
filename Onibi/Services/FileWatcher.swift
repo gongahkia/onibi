@@ -55,11 +55,30 @@ final class FileWatcher: ObservableObject {
             FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagUseCFTypes)
         ) else {
             retained.release() // stream creation failed, release the retained self
+            DiagnosticsStore.shared.record(
+                component: "FileWatcher",
+                level: .error,
+                message: "failed to create file event stream",
+                metadata: [
+                    "path": path
+                ]
+            )
             return
         }
         stream = newStream
         FSEventStreamScheduleWithRunLoop(newStream, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
-        FSEventStreamStart(newStream)
+        let didStart = FSEventStreamStart(newStream)
+        if !didStart {
+            DiagnosticsStore.shared.record(
+                component: "FileWatcher",
+                level: .error,
+                message: "failed to start file event stream",
+                metadata: [
+                    "path": path
+                ]
+            )
+            stop()
+        }
     }
     
     /// Stop watching
@@ -72,6 +91,16 @@ final class FileWatcher: ObservableObject {
     }
     
     private func handleEvents(numEvents: Int, eventPaths: UnsafeMutableRawPointer, eventFlags: UnsafePointer<FSEventStreamEventFlags>) {
+        if numEvents <= 0 {
+            DiagnosticsStore.shared.record(
+                component: "FileWatcher",
+                level: .debug,
+                message: "received empty file event batch",
+                metadata: [
+                    "path": path
+                ]
+            )
+        }
         // Trigger debounced callback
         debounceSubject.send()
     }
