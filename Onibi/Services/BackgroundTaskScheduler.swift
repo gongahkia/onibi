@@ -41,11 +41,46 @@ final class BackgroundTaskScheduler: ObservableObject {
     
     /// Start background monitoring
     func start() {
-        guard !isRunning else { return }
+        guard !isRunning else {
+            DiagnosticsStore.shared.record(
+                component: "BackgroundTaskScheduler",
+                level: .debug,
+                message: "start ignored because scheduler already running"
+            )
+            return
+        }
         isRunning = true
-        
-        setupLogBuffer()
+
+        do {
+            try setupLogBuffer()
+        } catch {
+            isRunning = false
+            Log.scheduler.error("failed to setup log buffer: \(error.localizedDescription, privacy: .public)")
+            DiagnosticsStore.shared.record(
+                component: "BackgroundTaskScheduler",
+                level: .critical,
+                message: "failed to setup log buffer",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
+            ErrorReporter.shared.report(
+                error,
+                context: "BackgroundTaskScheduler.start.setupLogBuffer",
+                severity: .critical
+            )
+            return
+        }
+
         setupFileWatcher()
+        DiagnosticsStore.shared.record(
+            component: "BackgroundTaskScheduler",
+            level: .info,
+            message: "started scheduler",
+            metadata: [
+                "profile": settings.logVolumeProfile.rawValue
+            ]
+        )
         
         Log.scheduler.info("started monitoring with profile: \(self.settings.logVolumeProfile.displayName)")
     }
@@ -60,7 +95,24 @@ final class BackgroundTaskScheduler: ObservableObject {
         // Final flush
         Task {
             await commandTracker.clear()
-            try? await storageManager.flushToDisk()
+            do {
+                try await storageManager.flushToDisk()
+            } catch {
+                Log.scheduler.error("failed to flush storage on stop: \(error.localizedDescription, privacy: .public)")
+                DiagnosticsStore.shared.record(
+                    component: "BackgroundTaskScheduler",
+                    level: .error,
+                    message: "failed to flush storage on stop",
+                    metadata: [
+                        "reason": error.localizedDescription
+                    ]
+                )
+                ErrorReporter.shared.report(
+                    error,
+                    context: "BackgroundTaskScheduler.stop.flushToDisk",
+                    severity: .warning
+                )
+            }
         }
         
         Log.scheduler.info("stopped")
@@ -73,15 +125,30 @@ final class BackgroundTaskScheduler: ObservableObject {
     
     // MARK: - Private
     
-    private func setupLogBuffer() {
+    private func setupLogBuffer() throws {
         logBuffer = LogBuffer(filePath: settings.logFilePath)
         // Skip existing content on startup
-        try? logBuffer?.seekToEnd()
+        do {
+            try logBuffer?.seekToEnd()
+        } catch {
+            logBuffer = nil
+            throw error
+        }
     }
     
     private func setupFileWatcher() {
         // Watch the log directory for changes
         let logDir = URL(fileURLWithPath: settings.logFilePath).deletingLastPathComponent().path
+        if !FileManager.default.fileExists(atPath: logDir) {
+            DiagnosticsStore.shared.record(
+                component: "BackgroundTaskScheduler",
+                level: .warning,
+                message: "log directory missing at watcher startup",
+                metadata: [
+                    "logDir": logDir
+                ]
+            )
+        }
         fileWatcher = FileWatcher(path: logDir, debounceInterval: settings.logVolumeProfile.debounceInterval) { [weak self] in
             self?.processNewLogContent()
         }
@@ -112,7 +179,14 @@ final class BackgroundTaskScheduler: ObservableObject {
     }
     
     private func processNewLogContent() {
-        guard let logBuffer = logBuffer else { return }
+        guard let logBuffer = logBuffer else {
+            DiagnosticsStore.shared.record(
+                component: "BackgroundTaskScheduler",
+                level: .warning,
+                message: "received file change while log buffer unavailable"
+            )
+            return
+        }
         
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self = self else { return }
@@ -132,6 +206,14 @@ final class BackgroundTaskScheduler: ObservableObject {
                 }
             } catch {
                 ErrorReporter.shared.report(error, context: "BackgroundTaskScheduler.processNewLogContent", severity: .warning)
+                DiagnosticsStore.shared.record(
+                    component: "BackgroundTaskScheduler",
+                    level: .warning,
+                    message: "failed to process new log content",
+                    metadata: [
+                        "reason": error.localizedDescription
+                    ]
+                )
             }
         }
     }
@@ -240,11 +322,27 @@ final class BackgroundTaskScheduler: ObservableObject {
                         metadata: completed.metadata
                     )
 
-                    try? await self.storageManager.appendLog(logEntry)
-                    try? await self.storageManager.flushToDisk()
-
-                    await MainActor.run {
-                        self.eventBus.publish(logEntry)
+                    do {
+                        try await self.storageManager.appendLog(logEntry)
+                        try await self.storageManager.flushToDisk()
+                        await MainActor.run {
+                            self.eventBus.publish(logEntry)
+                        }
+                    } catch {
+                        ErrorReporter.shared.report(
+                            error,
+                            context: "BackgroundTaskScheduler.processLogLine.appendFlush",
+                            severity: .warning
+                        )
+                        DiagnosticsStore.shared.record(
+                            component: "BackgroundTaskScheduler",
+                            level: .error,
+                            message: "failed to persist completed command",
+                            metadata: [
+                                "sessionId": sessionId,
+                                "reason": error.localizedDescription
+                            ]
+                        )
                     }
                 }
             default:
