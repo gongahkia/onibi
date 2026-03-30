@@ -217,15 +217,38 @@ final class CustomPatternDetector: ObservableObject {
     private let patternsKey = UserDefaultsKeys.customPatterns
     
     private func loadPatterns() {
-        if let data = UserDefaults.standard.data(forKey: patternsKey),
-           let patterns = try? JSONDecoder().decode([PatternRule].self, from: data) {
-            customPatterns = patterns
+        guard let data = UserDefaults.standard.data(forKey: patternsKey) else {
+            return
+        }
+        do {
+            customPatterns = try JSONDecoder().decode([PatternRule].self, from: data)
+        } catch {
+            ErrorReporter.shared.report(error, context: "CustomPatternDetector.loadPatterns", severity: .warning)
+            DiagnosticsStore.shared.record(
+                component: "CustomPatternDetector",
+                level: .warning,
+                message: "failed to decode persisted custom patterns",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
         }
     }
     
     private func savePatterns() {
-        if let data = try? JSONEncoder().encode(customPatterns) {
+        do {
+            let data = try JSONEncoder().encode(customPatterns)
             UserDefaults.standard.set(data, forKey: patternsKey)
+        } catch {
+            ErrorReporter.shared.report(error, context: "CustomPatternDetector.savePatterns", severity: .warning)
+            DiagnosticsStore.shared.record(
+                component: "CustomPatternDetector",
+                level: .warning,
+                message: "failed to encode custom patterns",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
         }
     }
 }
