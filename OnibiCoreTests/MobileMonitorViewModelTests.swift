@@ -44,6 +44,7 @@ final class MobileMonitorViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.connectionState, .online)
         XCTAssertEqual(viewModel.sessions.count, 1)
         XCTAssertEqual(viewModel.recentEvents.count, 1)
+        XCTAssertNotNil(viewModel.diagnostics)
         XCTAssertNotNil(viewModel.lastRefreshAt)
         XCTAssertEqual(viewModel.connectionDraft?.baseURLString, "https://example.ts.net")
     }
@@ -137,6 +138,24 @@ private struct StubMobileClient: MobileAPIClientProtocol {
             )
         ]
     }
+
+    func fetchDiagnostics() async throws -> DiagnosticsResponse {
+        DiagnosticsResponse(
+            generatedAt: Date(),
+            hostVersion: "test",
+            diagnosticsEventCount: 2,
+            warningCount: 0,
+            errorCount: 0,
+            criticalCount: 0,
+            schedulerEventsProcessed: 10,
+            storageLogCount: 5,
+            storageBytes: 1024,
+            tailscaleStatus: "not_serving",
+            latestErrorTitle: nil,
+            latestErrorTimestamp: nil,
+            recentEvents: []
+        )
+    }
 }
 
 private struct UnauthorizedMobileClient: MobileAPIClientProtocol {
@@ -157,6 +176,10 @@ private struct UnauthorizedMobileClient: MobileAPIClientProtocol {
     }
 
     func fetchEvents(cursor: Date?, limit: Int) async throws -> [EventPreview] {
+        throw MobileClientError.unauthorized
+    }
+
+    func fetchDiagnostics() async throws -> DiagnosticsResponse {
         throw MobileClientError.unauthorized
     }
 }
