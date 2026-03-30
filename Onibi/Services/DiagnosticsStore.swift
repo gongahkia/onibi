@@ -95,6 +95,12 @@ final class DiagnosticsStore: ObservableObject {
         return events.filter { $0.level == level }.count
     }
 
+    func totalEventCount() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return events.count
+    }
+
     private func emitToOSLog(_ event: DiagnosticsEvent) {
         let metadataString = event.metadata
             .sorted(by: { $0.key < $1.key })
