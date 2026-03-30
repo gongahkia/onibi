@@ -73,7 +73,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         
         // Ensure app data directory exists
-        try? OnibiConfig.ensureDirectoryExists()
+        do {
+            try OnibiConfig.ensureDirectoryExists()
+        } catch {
+            Log.general.error("failed to create app data directory: \(error.localizedDescription, privacy: .public)")
+            DiagnosticsStore.shared.record(
+                component: "OnibiApp",
+                level: .critical,
+                message: "failed to create app data directory",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
+            ErrorReporter.shared.report(
+                title: "Startup Error",
+                message: "Onibi could not create its data directory.",
+                context: error.localizedDescription,
+                severity: .critical
+            )
+        }
         
         // Set up menubar controller
         menuBarController = MenuBarController()
@@ -203,13 +221,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Format: onibi://log/{logId} or onibi://notification/{notificationId}
     @objc func handleURL(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
         guard let urlString = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
-              let url = URL(string: urlString) else { return }
+              let url = URL(string: urlString) else {
+            DiagnosticsStore.shared.record(
+                component: "OnibiApp",
+                level: .warning,
+                message: "received malformed deep link",
+                metadata: [
+                    "urlString": event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue ?? "missing"
+                ]
+            )
+            return
+        }
         
         handleDeepLink(url)
     }
     
     private func handleDeepLink(_ url: URL) {
-        guard url.scheme == "onibi" else { return }
+        guard url.scheme == "onibi" else {
+            DiagnosticsStore.shared.record(
+                component: "OnibiApp",
+                level: .debug,
+                message: "ignored unsupported deep link scheme",
+                metadata: [
+                    "scheme": url.scheme ?? "nil"
+                ]
+            )
+            return
+        }
         
         let host = url.host
         let pathComponents = url.pathComponents.filter { $0 != "/" }
@@ -242,6 +280,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             
         default:
+            DiagnosticsStore.shared.record(
+                component: "OnibiApp",
+                level: .info,
+                message: "received unsupported deep link host",
+                metadata: [
+                    "host": host ?? "nil",
+                    "url": url.absoluteString
+                ]
+            )
             break
         }
     }
