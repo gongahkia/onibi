@@ -80,15 +80,40 @@ final class SettingsViewModel: ObservableObject {
             let data = try encoder.encode(settings)
             UserDefaults.standard.set(data, forKey: settingsKey)
         } catch {
-            Log.settings.error("failed to save settings: \(error.localizedDescription)")
+            Log.settings.error("failed to save settings: \(error.localizedDescription, privacy: .public)")
+            DiagnosticsStore.shared.record(
+                component: "SettingsViewModel",
+                level: .error,
+                message: "failed to persist settings",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
+            ErrorReporter.shared.report(
+                error,
+                context: "SettingsViewModel.saveSettings",
+                severity: .warning
+            )
         }
     }
     
     private static func loadSettings() -> AppSettings {
-        guard let data = UserDefaults.standard.data(forKey: UserDefaultsKeys.settings),
-              let settings = try? JSONDecoder().decode(AppSettings.self, from: data) else {
+        guard let data = UserDefaults.standard.data(forKey: UserDefaultsKeys.settings) else {
             return AppSettings.default
         }
-        return settings
+        do {
+            return try JSONDecoder().decode(AppSettings.self, from: data)
+        } catch {
+            Log.settings.error("failed to decode persisted settings: \(error.localizedDescription, privacy: .public)")
+            DiagnosticsStore.shared.record(
+                component: "SettingsViewModel",
+                level: .warning,
+                message: "failed to decode persisted settings, falling back to defaults",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
+            return AppSettings.default
+        }
     }
 }
