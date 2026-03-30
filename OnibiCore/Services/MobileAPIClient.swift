@@ -35,6 +35,7 @@ public protocol MobileAPIClientProtocol: Sendable {
     func fetchSessions() async throws -> [SessionSnapshot]
     func fetchSessionDetail(id: String) async throws -> SessionDetail
     func fetchEvents(cursor: Date?, limit: Int) async throws -> [EventPreview]
+    func fetchDiagnostics() async throws -> DiagnosticsResponse
 }
 
 public final class MobileAPIClient: MobileAPIClientProtocol, @unchecked Sendable {
@@ -74,6 +75,10 @@ public final class MobileAPIClient: MobileAPIClientProtocol, @unchecked Sendable
         }
         components.queryItems = queryItems
         return try await perform(path: components.string ?? "/api/v1/events")
+    }
+
+    public func fetchDiagnostics() async throws -> DiagnosticsResponse {
+        try await perform(path: "/api/v1/diagnostics")
     }
 
     private func perform<T: Decodable>(path: String) async throws -> T {
