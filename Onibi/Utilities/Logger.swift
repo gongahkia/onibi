@@ -5,6 +5,7 @@ enum Log {
     static let general = os.Logger(subsystem: subsystem, category: "general")
     static let scheduler = os.Logger(subsystem: subsystem, category: "scheduler")
     static let storage = os.Logger(subsystem: subsystem, category: "storage")
+    static let diagnostics = os.Logger(subsystem: subsystem, category: "diagnostics")
     static let notifications = os.Logger(subsystem: subsystem, category: "notifications")
     static let sessions = os.Logger(subsystem: subsystem, category: "sessions")
     static let mobile = os.Logger(subsystem: subsystem, category: "mobile")
