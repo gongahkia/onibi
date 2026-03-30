@@ -289,7 +289,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     "url": url.absoluteString
                 ]
             )
-            break
         }
     }
 }
