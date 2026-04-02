@@ -71,11 +71,82 @@ final class MobileGatewayRouterTests: XCTestCase {
         let response = await router.route(method: "GET", path: "/api/v1/health")
         XCTAssertEqual(response.statusCode, 500)
     }
+
+    func testBootstrapRouteReturnsRealtimePayload() async throws {
+        let router = MobileGatewayRouter(
+            tokenProvider: { "secret-token" },
+            dataProvider: StubGatewayDataProvider()
+        )
+
+        let response = await router.route(
+            method: "GET",
+            path: "/api/v2/bootstrap",
+            headers: ["Authorization": "Bearer secret-token"]
+        )
+
+        XCTAssertEqual(response.statusCode, 200)
+        let payload = try JSONDateCodec.decoder.decode(GatewayBootstrapResponse.self, from: response.body)
+        XCTAssertTrue(payload.featureFlags.remoteControlEnabled)
+        XCTAssertEqual(payload.sessions.count, 1)
+        XCTAssertEqual(payload.sessions.first?.id, "control-session-1")
+    }
+
+    func testBufferRouteReturnsCurrentSessionBuffer() async throws {
+        let router = MobileGatewayRouter(
+            tokenProvider: { "secret-token" },
+            dataProvider: StubGatewayDataProvider()
+        )
+
+        let response = await router.route(
+            method: "GET",
+            path: "/api/v2/sessions/control-session-1/buffer",
+            headers: ["Authorization": "Bearer secret-token"]
+        )
+
+        XCTAssertEqual(response.statusCode, 200)
+        let payload = try JSONDateCodec.decoder.decode(SessionOutputBufferSnapshot.self, from: response.body)
+        XCTAssertEqual(payload.session.id, "control-session-1")
+        XCTAssertEqual(payload.chunks.count, 1)
+        XCTAssertEqual(String(data: payload.chunks[0].data, encoding: .utf8), "npm test\n")
+    }
+
+    func testInputRouteRejectsMalformedPayloadAndAcceptsValidInput() async throws {
+        let provider = StubGatewayDataProvider()
+        let router = MobileGatewayRouter(
+            tokenProvider: { "secret-token" },
+            dataProvider: provider
+        )
+
+        let malformed = await router.route(
+            method: "POST",
+            path: "/api/v2/sessions/control-session-1/input",
+            headers: ["Authorization": "Bearer secret-token"],
+            body: Data("{}".utf8)
+        )
+        XCTAssertEqual(malformed.statusCode, 400)
+
+        let validBody = try JSONDateCodec.encoder.encode(RemoteInputPayload.key(.enter))
+        let accepted = await router.route(
+            method: "POST",
+            path: "/api/v2/sessions/control-session-1/input",
+            headers: ["Authorization": "Bearer secret-token"],
+            body: validBody
+        )
+
+        XCTAssertEqual(accepted.statusCode, 200)
+        let payload = try JSONDateCodec.decoder.decode(RemoteInputAcceptance.self, from: accepted.body)
+        XCTAssertEqual(payload.sessionId, "control-session-1")
+
+        let lastInput = await provider.recordedInput()
+        XCTAssertEqual(lastInput?.sessionId, "control-session-1")
+        XCTAssertEqual(lastInput?.payload, .key(.enter))
+    }
 }
 
 private actor StubGatewayDataProvider: MobileGatewayDataProvider {
     private(set) var lastCursor: Date?
     private(set) var lastLimit: Int?
+    private(set) var lastInput: (sessionId: String, payload: RemoteInputPayload)?
 
     func health() async throws -> HostHealth {
         HostHealth(
@@ -167,11 +238,71 @@ private actor StubGatewayDataProvider: MobileGatewayDataProvider {
         )
     }
 
+    func featureFlags() async throws -> FeatureFlagsResponse {
+        FeatureFlagsResponse(
+            legacyMonitoringEnabled: true,
+            remoteControlEnabled: true,
+            realtimeSessionsEnabled: true,
+            websocketEnabled: false,
+            fallbackInputEnabled: true
+        )
+    }
+
+    func controllableSessions() async throws -> [ControllableSessionSnapshot] {
+        [
+            ControllableSessionSnapshot(
+                id: "control-session-1",
+                displayName: "Control Session",
+                startedAt: Date(),
+                lastActivityAt: Date(),
+                status: .running,
+                isControllable: true,
+                workingDirectory: "/tmp/onibi",
+                lastCommandPreview: "npm test",
+                bufferCursor: "chunk-1"
+            )
+        ]
+    }
+
+    func sessionOutputBuffer(id: String) async throws -> SessionOutputBufferSnapshot? {
+        guard let session = try await controllableSessions().first(where: { $0.id == id }) else {
+            return nil
+        }
+
+        return SessionOutputBufferSnapshot(
+            session: session,
+            bufferCursor: "chunk-1",
+            chunks: [
+                SessionOutputChunk(
+                    id: "chunk-1",
+                    sessionId: id,
+                    stream: .stdout,
+                    timestamp: Date(),
+                    data: Data("npm test\n".utf8)
+                )
+            ],
+            truncated: false
+        )
+    }
+
+    func sendInput(to sessionId: String, payload: RemoteInputPayload) async throws -> RemoteInputAcceptance? {
+        guard sessionId == "control-session-1" else {
+            throw RemoteControlError.sessionNotFound(sessionId)
+        }
+
+        lastInput = (sessionId, payload)
+        return RemoteInputAcceptance(sessionId: sessionId, acceptedAt: Date())
+    }
+
     func recordedCursor() -> Date? {
         lastCursor
     }
 
     func recordedLimit() -> Int? {
         lastLimit
+    }
+
+    func recordedInput() -> (sessionId: String, payload: RemoteInputPayload)? {
+        lastInput
     }
 }

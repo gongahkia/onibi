@@ -196,6 +196,11 @@ public struct DiagnosticsResponse: Codable, Equatable, Sendable {
     public let latestErrorTitle: String?
     public let latestErrorTimestamp: Date?
     public let recentEvents: [DiagnosticsEventPreview]
+    public let controllableSessionCount: Int?
+    public let connectedRealtimeClientCount: Int?
+    public let proxyRegistrationFailureCount: Int?
+    public let staleSessionCount: Int?
+    public let localProxySocketHealthy: Bool?
 
     public init(
         generatedAt: Date,
@@ -210,7 +215,12 @@ public struct DiagnosticsResponse: Codable, Equatable, Sendable {
         tailscaleStatus: String,
         latestErrorTitle: String?,
         latestErrorTimestamp: Date?,
-        recentEvents: [DiagnosticsEventPreview]
+        recentEvents: [DiagnosticsEventPreview],
+        controllableSessionCount: Int? = nil,
+        connectedRealtimeClientCount: Int? = nil,
+        proxyRegistrationFailureCount: Int? = nil,
+        staleSessionCount: Int? = nil,
+        localProxySocketHealthy: Bool? = nil
     ) {
         self.generatedAt = generatedAt
         self.hostVersion = hostVersion
@@ -225,6 +235,11 @@ public struct DiagnosticsResponse: Codable, Equatable, Sendable {
         self.latestErrorTitle = latestErrorTitle
         self.latestErrorTimestamp = latestErrorTimestamp
         self.recentEvents = recentEvents
+        self.controllableSessionCount = controllableSessionCount
+        self.connectedRealtimeClientCount = connectedRealtimeClientCount
+        self.proxyRegistrationFailureCount = proxyRegistrationFailureCount
+        self.staleSessionCount = staleSessionCount
+        self.localProxySocketHealthy = localProxySocketHealthy
     }
 }
 

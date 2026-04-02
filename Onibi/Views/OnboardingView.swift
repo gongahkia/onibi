@@ -161,8 +161,8 @@ struct OnboardingPageView: View {
     
     private func copyShellHook() {
         let settings = SettingsViewModel.shared.settings
-        let script = ShellHookInstaller.Shell.zsh.hookScript(logPath: settings.logFilePath)
-        
+        let script = SessionProxyCoordinator.shared.hookScript(for: .zsh, settings: settings)
+
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(script, forType: .string)
         showCopied = true

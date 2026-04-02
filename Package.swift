@@ -9,7 +9,8 @@ let package = Package(
     ],
     products: [
         .library(name: "OnibiCore", targets: ["OnibiCore"]),
-        .executable(name: "Onibi", targets: ["Onibi"])
+        .executable(name: "Onibi", targets: ["Onibi"]),
+        .executable(name: "OnibiSessionProxy", targets: ["OnibiSessionProxy"])
     ],
     dependencies: [
     ],
@@ -29,6 +30,11 @@ let package = Package(
                 "Onibi.entitlements"
             ]
         ),
+        .executableTarget(
+            name: "OnibiSessionProxy",
+            dependencies: ["OnibiCore"],
+            path: "OnibiSessionProxy"
+        ),
         .testTarget(
             name: "OnibiTests",
             dependencies: ["Onibi", "OnibiCore"],
@@ -38,6 +44,11 @@ let package = Package(
             name: "OnibiCoreTests",
             dependencies: ["OnibiCore"],
             path: "OnibiCoreTests"
+        ),
+        .testTarget(
+            name: "OnibiSessionProxyTests",
+            dependencies: ["OnibiSessionProxy", "OnibiCore"],
+            path: "OnibiSessionProxyTests"
         )
     ]
 )

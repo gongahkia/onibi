@@ -18,15 +18,51 @@ final class ShellHookInstaller: ObservableObject {
             case .fish: return NSHomeDirectory() + "/.config/fish/config.fish"
             }
         }
-        
-        func hookScript(logPath: String) -> String {
+
+        var defaultShellPath: String {
+            switch self {
+            case .zsh: return "/bin/zsh"
+            case .bash: return "/bin/bash"
+            case .fish: return "/opt/homebrew/bin/fish"
+            }
+        }
+
+        func hookScript(
+            logPath: String,
+            remoteControlEnabled: Bool = false,
+            proxyBinaryPath: String? = nil,
+            proxySocketPath: String? = nil,
+            proxyVersion: String? = nil,
+            shellArguments: [String] = []
+        ) -> String {
             switch self {
             case .zsh:
-                return Self.zshHookScript(logPath: logPath)
+                return Self.zshHookScript(
+                    logPath: logPath,
+                    remoteControlEnabled: remoteControlEnabled,
+                    proxyBinaryPath: proxyBinaryPath,
+                    proxySocketPath: proxySocketPath,
+                    proxyVersion: proxyVersion,
+                    shellArguments: shellArguments
+                )
             case .bash:
-                return Self.bashHookScript(logPath: logPath)
+                return Self.bashHookScript(
+                    logPath: logPath,
+                    remoteControlEnabled: remoteControlEnabled,
+                    proxyBinaryPath: proxyBinaryPath,
+                    proxySocketPath: proxySocketPath,
+                    proxyVersion: proxyVersion,
+                    shellArguments: shellArguments
+                )
             case .fish:
-                return Self.fishHookScript(logPath: logPath)
+                return Self.fishHookScript(
+                    logPath: logPath,
+                    remoteControlEnabled: remoteControlEnabled,
+                    proxyBinaryPath: proxyBinaryPath,
+                    proxySocketPath: proxySocketPath,
+                    proxyVersion: proxyVersion,
+                    shellArguments: shellArguments
+                )
             }
         }
         
@@ -36,9 +72,36 @@ final class ShellHookInstaller: ObservableObject {
         
         // Shell-specific scripts
         static func zshHookScript(logPath: String) -> String {
-            """
+            zshHookScript(
+                logPath: logPath,
+                remoteControlEnabled: false,
+                proxyBinaryPath: nil,
+                proxySocketPath: nil,
+                proxyVersion: nil,
+                shellArguments: []
+            )
+        }
+
+        static func zshHookScript(
+            logPath: String,
+            remoteControlEnabled: Bool,
+            proxyBinaryPath: String?,
+            proxySocketPath: String?,
+            proxyVersion: String?,
+            shellArguments: [String]
+        ) -> String {
+            let bootstrapBlock = zshProxyBootstrapBlock(
+                remoteControlEnabled: remoteControlEnabled,
+                proxyBinaryPath: proxyBinaryPath,
+                proxySocketPath: proxySocketPath,
+                proxyVersion: proxyVersion,
+                shellArguments: shellArguments
+            )
+
+            return """
             # >>> onibi >>>
             # Onibi Shell Integration - DO NOT EDIT
+            \(bootstrapBlock)
             _onibi_preexec() {
                 local session_id="${TERM_SESSION_ID:-$$}"
                 echo "$(date -Iseconds)|CMD_START|$session_id|$1" >> \(logPath)
@@ -56,11 +119,38 @@ final class ShellHookInstaller: ObservableObject {
             # <<< onibi <<<
             """
         }
-        
+
         static func bashHookScript(logPath: String) -> String {
-            """
+            bashHookScript(
+                logPath: logPath,
+                remoteControlEnabled: false,
+                proxyBinaryPath: nil,
+                proxySocketPath: nil,
+                proxyVersion: nil,
+                shellArguments: []
+            )
+        }
+
+        static func bashHookScript(
+            logPath: String,
+            remoteControlEnabled: Bool,
+            proxyBinaryPath: String?,
+            proxySocketPath: String?,
+            proxyVersion: String?,
+            shellArguments: [String]
+        ) -> String {
+            let bootstrapBlock = bashProxyBootstrapBlock(
+                remoteControlEnabled: remoteControlEnabled,
+                proxyBinaryPath: proxyBinaryPath,
+                proxySocketPath: proxySocketPath,
+                proxyVersion: proxyVersion,
+                shellArguments: shellArguments
+            )
+
+            return """
             # >>> onibi >>>
             # Onibi Shell Integration - DO NOT EDIT
+            \(bootstrapBlock)
             _onibi_preexec() {
                 local session_id="${TERM_SESSION_ID:-$$}"
                 echo "$(date -Iseconds)|CMD_START|$session_id|$BASH_COMMAND" >> \(logPath)
@@ -82,11 +172,38 @@ final class ShellHookInstaller: ObservableObject {
             # <<< onibi <<<
             """
         }
-        
+
         static func fishHookScript(logPath: String) -> String {
-            """
+            fishHookScript(
+                logPath: logPath,
+                remoteControlEnabled: false,
+                proxyBinaryPath: nil,
+                proxySocketPath: nil,
+                proxyVersion: nil,
+                shellArguments: []
+            )
+        }
+
+        static func fishHookScript(
+            logPath: String,
+            remoteControlEnabled: Bool,
+            proxyBinaryPath: String?,
+            proxySocketPath: String?,
+            proxyVersion: String?,
+            shellArguments: [String]
+        ) -> String {
+            let bootstrapBlock = fishProxyBootstrapBlock(
+                remoteControlEnabled: remoteControlEnabled,
+                proxyBinaryPath: proxyBinaryPath,
+                proxySocketPath: proxySocketPath,
+                proxyVersion: proxyVersion,
+                shellArguments: shellArguments
+            )
+
+            return """
             # >>> onibi >>>
             # Onibi Shell Integration - DO NOT EDIT
+            \(bootstrapBlock)
             function _onibi_preexec --on-event fish_preexec
                 set -l session_id (echo $TERM_SESSION_ID; or echo %self)
                 echo (date -Iseconds)"|CMD_START|$session_id|$argv" >> \(logPath)
@@ -98,6 +215,132 @@ final class ShellHookInstaller: ObservableObject {
             end
             # <<< onibi <<<
             """
+        }
+
+        private static func zshProxyBootstrapBlock(
+            remoteControlEnabled: Bool,
+            proxyBinaryPath: String?,
+            proxySocketPath: String?,
+            proxyVersion: String?,
+            shellArguments: [String]
+        ) -> String {
+            guard
+                remoteControlEnabled,
+                let proxyBinaryPath,
+                let proxySocketPath,
+                let proxyVersion
+            else {
+                return ""
+            }
+
+            let escapedBinary = shellDoubleQuoted(proxyBinaryPath)
+            let escapedSocket = shellDoubleQuoted(proxySocketPath)
+            let escapedVersion = shellDoubleQuoted(proxyVersion)
+            let escapedArgs = shellDoubleQuoted(shellArguments.joined(separator: " "))
+
+            return """
+            if [[ -o interactive ]] && [[ -z "$ONIBI_SESSION_PROXY_ACTIVE" ]] && ([[ "$TERM_PROGRAM" == "ghostty" ]] || [[ -n "$GHOSTTY_RESOURCES_DIR" ]]) && [[ -x \(escapedBinary) ]]; then
+                export ONIBI_SESSION_PROXY_ACTIVE=1
+                export ONIBI_PROXY_SOCKET_PATH=\(escapedSocket)
+                export ONIBI_HOST_SESSION_ID="${TERM_SESSION_ID:-$(uuidgen 2>/dev/null || echo $$)}"
+                export ONIBI_PARENT_SHELL="${SHELL:-/bin/zsh}"
+                export ONIBI_PARENT_SHELL_ARGS=\(escapedArgs)
+                export ONIBI_PROXY_VERSION=\(escapedVersion)
+                exec \(escapedBinary)
+            fi
+
+            """
+        }
+
+        private static func bashProxyBootstrapBlock(
+            remoteControlEnabled: Bool,
+            proxyBinaryPath: String?,
+            proxySocketPath: String?,
+            proxyVersion: String?,
+            shellArguments: [String]
+        ) -> String {
+            guard
+                remoteControlEnabled,
+                let proxyBinaryPath,
+                let proxySocketPath,
+                let proxyVersion
+            else {
+                return ""
+            }
+
+            let escapedBinary = shellDoubleQuoted(proxyBinaryPath)
+            let escapedSocket = shellDoubleQuoted(proxySocketPath)
+            let escapedVersion = shellDoubleQuoted(proxyVersion)
+            let escapedArgs = shellDoubleQuoted(shellArguments.joined(separator: " "))
+
+            return """
+            case $- in
+                *i*)
+                    if [[ -z "$ONIBI_SESSION_PROXY_ACTIVE" ]] && ([[ "$TERM_PROGRAM" == "ghostty" ]] || [[ -n "$GHOSTTY_RESOURCES_DIR" ]]) && [[ -x \(escapedBinary) ]]; then
+                        export ONIBI_SESSION_PROXY_ACTIVE=1
+                        export ONIBI_PROXY_SOCKET_PATH=\(escapedSocket)
+                        export ONIBI_HOST_SESSION_ID="${TERM_SESSION_ID:-$(uuidgen 2>/dev/null || echo $$)}"
+                        export ONIBI_PARENT_SHELL="${SHELL:-/bin/bash}"
+                        export ONIBI_PARENT_SHELL_ARGS=\(escapedArgs)
+                        export ONIBI_PROXY_VERSION=\(escapedVersion)
+                        exec \(escapedBinary)
+                    fi
+                    ;;
+            esac
+
+            """
+        }
+
+        private static func fishProxyBootstrapBlock(
+            remoteControlEnabled: Bool,
+            proxyBinaryPath: String?,
+            proxySocketPath: String?,
+            proxyVersion: String?,
+            shellArguments: [String]
+        ) -> String {
+            guard
+                remoteControlEnabled,
+                let proxyBinaryPath,
+                let proxySocketPath,
+                let proxyVersion
+            else {
+                return ""
+            }
+
+            let escapedBinary = shellDoubleQuoted(proxyBinaryPath)
+            let escapedSocket = shellDoubleQuoted(proxySocketPath)
+            let escapedVersion = shellDoubleQuoted(proxyVersion)
+            let escapedArgs = shellDoubleQuoted(shellArguments.joined(separator: " "))
+
+            return """
+            if status is-interactive; and test -z "$ONIBI_SESSION_PROXY_ACTIVE"; and begin; test "$TERM_PROGRAM" = "ghostty"; or test -n "$GHOSTTY_RESOURCES_DIR"; end; and test -x \(escapedBinary)
+                set -gx ONIBI_SESSION_PROXY_ACTIVE 1
+                set -gx ONIBI_PROXY_SOCKET_PATH \(escapedSocket)
+                if set -q TERM_SESSION_ID
+                    set -gx ONIBI_HOST_SESSION_ID "$TERM_SESSION_ID"
+                else
+                    set -gx ONIBI_HOST_SESSION_ID (uuidgen ^/dev/null; or echo %self)
+                end
+                if set -q SHELL
+                    set -gx ONIBI_PARENT_SHELL "$SHELL"
+                else
+                    set -gx ONIBI_PARENT_SHELL "/opt/homebrew/bin/fish"
+                end
+                set -gx ONIBI_PARENT_SHELL_ARGS \(escapedArgs)
+                set -gx ONIBI_PROXY_VERSION \(escapedVersion)
+                exec \(escapedBinary)
+            end
+
+            """
+        }
+
+        private static func shellDoubleQuoted(_ value: String) -> String {
+            let escaped = value
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+                .replacingOccurrences(of: "$", with: "\\$")
+                .replacingOccurrences(of: "`", with: "\\`")
+            return "\"\(escaped)\""
         }
     }
     
@@ -198,7 +441,7 @@ final class ShellHookInstaller: ObservableObject {
         
         // Append hook script
         let settings = SettingsViewModel.shared.settings
-        let newContent = existingContent + "\n\n" + shell.hookScript(logPath: settings.logFilePath) + "\n"
+        let newContent = existingContent + "\n\n" + SessionProxyCoordinator.shared.hookScript(for: shell, settings: settings) + "\n"
         try newContent.write(toFile: shell.rcFilePath, atomically: true, encoding: .utf8)
         
         // Update status

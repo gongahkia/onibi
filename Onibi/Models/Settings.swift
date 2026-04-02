@@ -74,6 +74,10 @@ struct AppSettings: Codable, Equatable {
     var menubarIconStyle: String  // SF Symbol name for menubar icon
     var mobileAccessEnabled: Bool
     var mobileAccessPort: Int
+    var remoteControlEnabled: Bool
+    var sessionProxySocketPath: String
+    var sessionOutputBufferLineLimit: Int
+    var sessionOutputBufferByteLimit: Int
     enum Defaults {
         static let logRetentionDays = 7
         static let maxStorageMB = 100
@@ -86,6 +90,10 @@ struct AppSettings: Codable, Equatable {
         static let errorLogMaxRotations = 3
         static let notificationDeduplicationWindow: TimeInterval = 5.0
         static let mobileAccessPort = 8787
+        static let remoteControlEnabled = false
+        static let sessionProxySocketPath = NSHomeDirectory() + "/.config/onibi/control.sock"
+        static let sessionOutputBufferLineLimit = 1000
+        static let sessionOutputBufferByteLimit = 256 * 1024
         static func maxNotificationCount(for persona: UserPersona) -> Int {
             switch persona {
             case .casual: return 100
@@ -120,7 +128,11 @@ struct AppSettings: Codable, Equatable {
         notificationDeduplicationWindow: TimeInterval = Defaults.notificationDeduplicationWindow,
         menubarIconStyle: String = "terminal",
         mobileAccessEnabled: Bool = false,
-        mobileAccessPort: Int = Defaults.mobileAccessPort
+        mobileAccessPort: Int = Defaults.mobileAccessPort,
+        remoteControlEnabled: Bool = Defaults.remoteControlEnabled,
+        sessionProxySocketPath: String = Defaults.sessionProxySocketPath,
+        sessionOutputBufferLineLimit: Int = Defaults.sessionOutputBufferLineLimit,
+        sessionOutputBufferByteLimit: Int = Defaults.sessionOutputBufferByteLimit
     ) {
         self.theme = theme
         self.syncThemeWithGhostty = syncThemeWithGhostty
@@ -148,6 +160,10 @@ struct AppSettings: Codable, Equatable {
         self.menubarIconStyle = menubarIconStyle
         self.mobileAccessEnabled = mobileAccessEnabled
         self.mobileAccessPort = mobileAccessPort
+        self.remoteControlEnabled = remoteControlEnabled
+        self.sessionProxySocketPath = sessionProxySocketPath
+        self.sessionOutputBufferLineLimit = sessionOutputBufferLineLimit
+        self.sessionOutputBufferByteLimit = sessionOutputBufferByteLimit
     }
     
     static let `default` = AppSettings()
@@ -164,6 +180,11 @@ struct AppSettings: Codable, Equatable {
             copy.logFilePath = Defaults.logFilePath
         }
         copy.mobileAccessPort = min(max(1, copy.mobileAccessPort), 65535)
+        if copy.sessionProxySocketPath.isEmpty {
+            copy.sessionProxySocketPath = Defaults.sessionProxySocketPath
+        }
+        copy.sessionOutputBufferLineLimit = max(100, copy.sessionOutputBufferLineLimit)
+        copy.sessionOutputBufferByteLimit = max(4 * 1024, copy.sessionOutputBufferByteLimit)
         return copy
     }
 }
@@ -196,6 +217,10 @@ extension AppSettings {
         case menubarIconStyle
         case mobileAccessEnabled
         case mobileAccessPort
+        case remoteControlEnabled
+        case sessionProxySocketPath
+        case sessionOutputBufferLineLimit
+        case sessionOutputBufferByteLimit
     }
 
     init(from decoder: Decoder) throws {
@@ -226,7 +251,11 @@ extension AppSettings {
             notificationDeduplicationWindow: try container.decodeIfPresent(TimeInterval.self, forKey: .notificationDeduplicationWindow) ?? Defaults.notificationDeduplicationWindow,
             menubarIconStyle: try container.decodeIfPresent(String.self, forKey: .menubarIconStyle) ?? "terminal",
             mobileAccessEnabled: try container.decodeIfPresent(Bool.self, forKey: .mobileAccessEnabled) ?? false,
-            mobileAccessPort: try container.decodeIfPresent(Int.self, forKey: .mobileAccessPort) ?? Defaults.mobileAccessPort
+            mobileAccessPort: try container.decodeIfPresent(Int.self, forKey: .mobileAccessPort) ?? Defaults.mobileAccessPort,
+            remoteControlEnabled: try container.decodeIfPresent(Bool.self, forKey: .remoteControlEnabled) ?? Defaults.remoteControlEnabled,
+            sessionProxySocketPath: try container.decodeIfPresent(String.self, forKey: .sessionProxySocketPath) ?? Defaults.sessionProxySocketPath,
+            sessionOutputBufferLineLimit: try container.decodeIfPresent(Int.self, forKey: .sessionOutputBufferLineLimit) ?? Defaults.sessionOutputBufferLineLimit,
+            sessionOutputBufferByteLimit: try container.decodeIfPresent(Int.self, forKey: .sessionOutputBufferByteLimit) ?? Defaults.sessionOutputBufferByteLimit
         )
     }
 
@@ -258,5 +287,9 @@ extension AppSettings {
         try container.encode(menubarIconStyle, forKey: .menubarIconStyle)
         try container.encode(mobileAccessEnabled, forKey: .mobileAccessEnabled)
         try container.encode(mobileAccessPort, forKey: .mobileAccessPort)
+        try container.encode(remoteControlEnabled, forKey: .remoteControlEnabled)
+        try container.encode(sessionProxySocketPath, forKey: .sessionProxySocketPath)
+        try container.encode(sessionOutputBufferLineLimit, forKey: .sessionOutputBufferLineLimit)
+        try container.encode(sessionOutputBufferByteLimit, forKey: .sessionOutputBufferByteLimit)
     }
 }

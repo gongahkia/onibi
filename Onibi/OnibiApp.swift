@@ -99,6 +99,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Start background monitoring immediately so the host is ready for local and mobile clients.
         BackgroundTaskScheduler.shared.start()
+        LocalSessionProxyListener.shared.bootstrap()
         MobileGatewayService.shared.bootstrap()
         
         // Register URL handler
@@ -213,6 +214,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     func applicationWillTerminate(_ notification: Notification) {
         BackgroundTaskScheduler.shared.stop()
+        LocalSessionProxyListener.shared.stop()
         MobileGatewayService.shared.stop()
         menuBarController?.cleanup()
     }

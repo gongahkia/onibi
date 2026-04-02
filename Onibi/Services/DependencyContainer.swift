@@ -22,6 +22,9 @@ final class DependencyContainer {
         register(BackgroundTaskScheduler.self) { BackgroundTaskScheduler.shared }
         register(GhosttyIPCClient.self) { GhosttyIPCClient.shared }
         register(GhosttyCliService.self) { GhosttyCliService.shared }
+        register(ControllableSessionRegistry.self) { ControllableSessionRegistry.shared }
+        register(LocalSessionProxyListener.self) { LocalSessionProxyListener.shared }
+        register(SessionProxyCoordinator.self) { SessionProxyCoordinator.shared }
         register(LogFileTruncator.self) { LogFileTruncator.shared }
         register(PerformanceMonitor.self) { PerformanceMonitor.shared }
     }

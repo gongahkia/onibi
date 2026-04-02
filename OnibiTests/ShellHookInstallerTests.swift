@@ -97,8 +97,31 @@ final class ShellHookInstallerTests: XCTestCase {
     func testHookScriptIncludesLogPath() {
         let logPath = "/custom/path/to/log.txt"
         let script = ShellHookInstaller.Shell.zshHookScript(logPath: logPath)
-        
+
         XCTAssertTrue(script.contains(logPath))
+    }
+
+    func testZshHookScriptIncludesProxyBootstrapWhenRemoteControlEnabled() {
+        let script = ShellHookInstaller.Shell.zshHookScript(
+            logPath: "/tmp/test.log",
+            remoteControlEnabled: true,
+            proxyBinaryPath: "/tmp/OnibiSessionProxy",
+            proxySocketPath: "/tmp/onibi.sock",
+            proxyVersion: "1.2.3",
+            shellArguments: ["-l"]
+        )
+
+        XCTAssertTrue(script.contains("ONIBI_SESSION_PROXY_ACTIVE"))
+        XCTAssertTrue(script.contains("ONIBI_PROXY_SOCKET_PATH"))
+        XCTAssertTrue(script.contains("/tmp/OnibiSessionProxy"))
+        XCTAssertTrue(script.contains("/tmp/onibi.sock"))
+        XCTAssertTrue(script.contains("ONIBI_PARENT_SHELL_ARGS"))
+    }
+
+    func testHookScriptOmitsProxyBootstrapWhenRemoteControlDisabled() {
+        let script = ShellHookInstaller.Shell.zshHookScript(logPath: "/tmp/test.log")
+        XCTAssertFalse(script.contains("ONIBI_PROXY_SOCKET_PATH"))
+        XCTAssertFalse(script.contains("ONIBI_SESSION_PROXY_ACTIVE=1"))
     }
     
     // MARK: - Status Checking Tests

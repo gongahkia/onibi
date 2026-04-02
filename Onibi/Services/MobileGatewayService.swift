@@ -17,6 +17,8 @@ final class MobileGatewayService: ObservableObject {
     private let tokenStore = PairingTokenStore(service: "com.onibi.mobile.host", account: "pairing-token")
     private let tailscaleService = TailscaleServeService.shared
     private let dataProvider = HostMobileGatewayDataProvider()
+    private let sessionRegistry = ControllableSessionRegistry.shared
+    private let realtimeGateway = RealtimeGatewayService.shared
     private var router: MobileGatewayRouter?
     private var listener: NWListener?
     private var settings: AppSettings
@@ -27,11 +29,13 @@ final class MobileGatewayService: ObservableObject {
         self.localURLString = "http://127.0.0.1:\(settings.mobileAccessPort)"
         setupSubscriptions()
         loadToken()
+        syncRegistrySettings()
     }
 
     func bootstrap() {
         loadToken()
         localURLString = "http://127.0.0.1:\(settings.mobileAccessPort)"
+        syncRegistrySettings()
         if settings.mobileAccessEnabled {
             start()
         } else {
@@ -53,6 +57,7 @@ final class MobileGatewayService: ObservableObject {
 
         loadToken()
         localURLString = "http://127.0.0.1:\(settings.mobileAccessPort)"
+        syncRegistrySettings()
 
         let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
@@ -67,6 +72,10 @@ final class MobileGatewayService: ObservableObject {
                 tokenProvider: { [tokenStore] in try tokenStore.ensureToken() },
                 dataProvider: dataProvider
             )
+
+            Task {
+                await realtimeGateway.start()
+            }
 
             listener.stateUpdateHandler = { [weak self] state in
                 switch state {
@@ -103,6 +112,12 @@ final class MobileGatewayService: ObservableObject {
                     )
                     self?.listener?.cancel()
                     self?.listener = nil
+                    Task { [weak self] in
+                        guard let self else {
+                            return
+                        }
+                        await self.realtimeGateway.stop()
+                    }
                 case .cancelled:
                     DispatchQueue.main.async {
                         self?.isRunning = false
@@ -112,6 +127,12 @@ final class MobileGatewayService: ObservableObject {
                         level: .info,
                         message: "gateway listener cancelled"
                     )
+                    Task { [weak self] in
+                        guard let self else {
+                            return
+                        }
+                        await self.realtimeGateway.stop()
+                    }
                 default:
                     break
                 }
@@ -141,6 +162,9 @@ final class MobileGatewayService: ObservableObject {
             ErrorReporter.shared.report(error, context: "MobileGatewayService.start", severity: .critical)
             lastError = error.localizedDescription
             isRunning = false
+            Task {
+                await realtimeGateway.stop()
+            }
         }
     }
 
@@ -156,6 +180,7 @@ final class MobileGatewayService: ObservableObject {
         )
 
         Task {
+            await realtimeGateway.stop()
             await tailscaleService.disableServe()
             await refreshTailscaleStatus()
         }
@@ -246,6 +271,7 @@ final class MobileGatewayService: ObservableObject {
                 let previousEnabled = self.settings.mobileAccessEnabled
                 self.settings = newSettings
                 self.localURLString = "http://127.0.0.1:\(newSettings.mobileAccessPort)"
+                self.syncRegistrySettings()
 
                 if newSettings.mobileAccessEnabled {
                     if !previousEnabled || previousPort != newSettings.mobileAccessPort {
@@ -281,6 +307,16 @@ final class MobileGatewayService: ObservableObject {
         }
     }
 
+    private func syncRegistrySettings() {
+        let settings = self.settings
+        Task {
+            await sessionRegistry.configure(
+                bufferLineLimit: settings.sessionOutputBufferLineLimit,
+                bufferByteLimit: settings.sessionOutputBufferByteLimit
+            )
+        }
+    }
+
     private func handle(connection: NWConnection) {
         connection.start(queue: queue)
         connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isComplete, receiveError in
@@ -308,8 +344,7 @@ final class MobileGatewayService: ObservableObject {
 
             guard
                 let data,
-                let request = self.parseRequest(from: data),
-                let router = self.router
+                let request = self.parseRequest(from: data)
             else {
                 DiagnosticsStore.shared.record(
                     component: "MobileGatewayService",
@@ -327,16 +362,124 @@ final class MobileGatewayService: ObservableObject {
                 return
             }
 
+            if self.handleRealtimeUpgradeIfNeeded(connection: connection, request: request) {
+                return
+            }
+
+            guard let router = self.router else {
+                self.send(
+                    response: MobileGatewayResponse(
+                        statusCode: 500,
+                        headers: ["Content-Type": "application/json"],
+                        body: Data("{\"error\":\"router_unavailable\"}".utf8)
+                    ),
+                    over: connection
+                )
+                return
+            }
+
             Task {
                 let response = await router.route(
                     method: request.method,
                     path: request.path,
                     queryItems: request.queryItems,
-                    headers: request.headers
+                    headers: request.headers,
+                    body: request.body
                 )
                 self.send(response: response, over: connection)
             }
         }
+    }
+
+    private func handleRealtimeUpgradeIfNeeded(
+        connection: NWConnection,
+        request: ParsedRequest
+    ) -> Bool {
+        guard GatewayWebSocketConnection.isUpgradeRequest(path: request.path, headers: request.headers) else {
+            return false
+        }
+
+        guard settings.remoteControlEnabled else {
+            send(
+                response: MobileGatewayResponse(
+                    statusCode: 409,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data("{\"error\":\"realtime_disabled\"}".utf8)
+                ),
+                over: connection
+            )
+            return true
+        }
+
+        guard
+            let secWebSocketKey = request.headers.first(where: {
+                $0.key.caseInsensitiveCompare("Sec-WebSocket-Key") == .orderedSame
+            })?.value,
+            !secWebSocketKey.isEmpty
+        else {
+            send(
+                response: MobileGatewayResponse(
+                    statusCode: 400,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data("{\"error\":\"invalid_websocket_upgrade\"}".utf8)
+                ),
+                over: connection
+            )
+            return true
+        }
+
+        let clientID = UUID()
+        let realtimeConnection = GatewayWebSocketConnection(
+            id: clientID,
+            connection: connection,
+            queue: queue,
+            onText: { [weak self] text in
+                guard let self else {
+                    return
+                }
+                Task {
+                    await self.realtimeGateway.receive(text: text, from: clientID)
+                }
+            },
+            onDisconnect: { [weak self] disconnectedClientID in
+                guard let self else {
+                    return
+                }
+                Task {
+                    await self.realtimeGateway.disconnect(clientID: disconnectedClientID)
+                }
+            }
+        )
+
+        connection.send(
+            content: GatewayWebSocketConnection.handshakeResponse(for: secWebSocketKey),
+            completion: .contentProcessed { [weak self] error in
+                guard let self else {
+                    connection.cancel()
+                    return
+                }
+
+                if let error {
+                    DiagnosticsStore.shared.record(
+                        component: "MobileGatewayService",
+                        level: .warning,
+                        message: "failed sending websocket upgrade response",
+                        metadata: [
+                            "reason": error.localizedDescription
+                        ]
+                    )
+                    connection.cancel()
+                    return
+                }
+
+                Task {
+                    await self.realtimeGateway.attach(realtimeConnection)
+                    realtimeConnection.start()
+                }
+            }
+        )
+
+        return true
     }
 
     private func send(response: MobileGatewayResponse, over connection: NWConnection) {
@@ -373,18 +516,20 @@ final class MobileGatewayService: ObservableObject {
             return nil
         }
 
-        let headerBlock = requestString.components(separatedBy: "\r\n\r\n").first ?? requestString
+        let requestParts = requestString.components(separatedBy: "\r\n\r\n")
+        let headerBlock = requestParts.first ?? requestString
         let lines = headerBlock.components(separatedBy: "\r\n")
         guard let requestLine = lines.first else { return nil }
 
-        let requestParts = requestLine.split(separator: " ")
-        guard requestParts.count >= 2 else { return nil }
+        let requestLineParts = requestLine.split(separator: " ")
+        guard requestLineParts.count >= 2 else { return nil }
 
-        let method = String(requestParts[0])
-        let target = String(requestParts[1])
+        let method = String(requestLineParts[0])
+        let target = String(requestLineParts[1])
         let url = URL(string: "http://localhost\(target)")
         let path = url?.path ?? target
         let queryItems = URLComponents(url: url ?? URL(string: "http://localhost")!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let bodyString = requestParts.count > 1 ? requestParts.dropFirst().joined(separator: "\r\n\r\n") : ""
 
         var headers: [String: String] = [:]
         for line in lines.dropFirst() {
@@ -394,7 +539,13 @@ final class MobileGatewayService: ObservableObject {
                 String(components[1]).trimmingCharacters(in: .whitespaces)
         }
 
-        return ParsedRequest(method: method, path: path, queryItems: queryItems, headers: headers)
+        return ParsedRequest(
+            method: method,
+            path: path,
+            queryItems: queryItems,
+            headers: headers,
+            body: Data(bodyString.utf8)
+        )
     }
 
     private func httpReasonPhrase(for statusCode: Int) -> String {
@@ -402,6 +553,7 @@ final class MobileGatewayService: ObservableObject {
         case 200: return "OK"
         case 400: return "Bad Request"
         case 401: return "Unauthorized"
+        case 409: return "Conflict"
         case 404: return "Not Found"
         case 405: return "Method Not Allowed"
         case 500: return "Internal Server Error"
@@ -415,10 +567,12 @@ private struct ParsedRequest {
     let path: String
     let queryItems: [URLQueryItem]
     let headers: [String: String]
+    let body: Data
 }
 
 private actor HostMobileGatewayDataProvider: MobileGatewayDataProvider {
     private let storageManager = JSONStorageManager.shared
+    private let sessionRegistry = ControllableSessionRegistry.shared
 
     func health() async throws -> HostHealth {
         let schedulerState = await MainActor.run { BackgroundTaskScheduler.shared.isRunning }
@@ -515,6 +669,32 @@ private actor HostMobileGatewayDataProvider: MobileGatewayDataProvider {
             }
     }
 
+    func featureFlags() async throws -> FeatureFlagsResponse {
+        let settings = await MainActor.run { SettingsViewModel.shared.settings }
+        return FeatureFlagsResponse(
+            legacyMonitoringEnabled: true,
+            remoteControlEnabled: settings.remoteControlEnabled,
+            realtimeSessionsEnabled: settings.remoteControlEnabled,
+            websocketEnabled: settings.remoteControlEnabled,
+            fallbackInputEnabled: settings.remoteControlEnabled
+        )
+    }
+
+    func controllableSessions() async throws -> [ControllableSessionSnapshot] {
+        await sessionRegistry.sessionsSnapshot()
+    }
+
+    func sessionOutputBuffer(id: String) async throws -> SessionOutputBufferSnapshot? {
+        await sessionRegistry.bufferSnapshot(for: id)
+    }
+
+    func sendInput(
+        to sessionId: String,
+        payload: RemoteInputPayload
+    ) async throws -> RemoteInputAcceptance? {
+        try await sessionRegistry.sendInput(payload, to: sessionId)
+    }
+
     func diagnostics() async throws -> DiagnosticsResponse {
         let logs = try await storageManager.loadLogs()
         let storageBytes: Int64
@@ -535,6 +715,9 @@ private actor HostMobileGatewayDataProvider: MobileGatewayDataProvider {
         let schedulerEventsProcessed = await MainActor.run { BackgroundTaskScheduler.shared.eventsProcessed }
         let tailscaleStatus = await MainActor.run { MobileGatewayService.shared.tailscaleStatus }
         let latestError = await MainActor.run { ErrorReporter.shared.recentErrors.first }
+        let settings = await MainActor.run { SettingsViewModel.shared.settings }
+        let registryDiagnostics = await sessionRegistry.diagnostics()
+        let connectedRealtimeClientCount = await RealtimeGatewayService.shared.connectedClientCount()
         let recentDiagnostics = DiagnosticsStore.shared.recentEvents(limit: 25)
             .map {
                 DiagnosticsEventPreview(
@@ -558,7 +741,12 @@ private actor HostMobileGatewayDataProvider: MobileGatewayDataProvider {
             tailscaleStatus: tailscaleStatus.isServing ? "serving" : "not_serving",
             latestErrorTitle: latestError?.title,
             latestErrorTimestamp: latestError?.timestamp,
-            recentEvents: recentDiagnostics
+            recentEvents: recentDiagnostics,
+            controllableSessionCount: registryDiagnostics.sessionCount,
+            connectedRealtimeClientCount: connectedRealtimeClientCount,
+            proxyRegistrationFailureCount: registryDiagnostics.proxyRegistrationFailureCount,
+            staleSessionCount: registryDiagnostics.staleSessionCount,
+            localProxySocketHealthy: FileManager.default.fileExists(atPath: settings.sessionProxySocketPath)
         )
     }
 

@@ -579,6 +579,7 @@ struct LogsSettingsTab: View {
 struct MobileAccessSettingsTab: View {
     @ObservedObject var viewModel: SettingsViewModel
     @ObservedObject private var gatewayService = MobileGatewayService.shared
+    @ObservedObject private var proxyListener = LocalSessionProxyListener.shared
     @State private var revealToken = false
 
     var body: some View {
@@ -612,6 +613,60 @@ struct MobileAccessSettingsTab: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .textSelection(.enabled)
+                }
+            }
+
+            Section("Remote Control") {
+                Toggle("Enable remote control", isOn: $viewModel.settings.remoteControlEnabled)
+
+                HStack {
+                    Text("Local proxy listener")
+                    Spacer()
+                    Label(
+                        proxyListener.isRunning ? "Running" : "Stopped",
+                        systemImage: proxyListener.isRunning ? "checkmark.circle.fill" : "xmark.circle.fill"
+                    )
+                    .foregroundColor(proxyListener.isRunning ? .green : .secondary)
+                }
+
+                HStack {
+                    Text("Proxy socket path")
+                    Spacer()
+                    TextField("Socket path", text: $viewModel.settings.sessionProxySocketPath)
+                        .frame(maxWidth: 280)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.caption)
+                }
+
+                Stepper(value: $viewModel.settings.sessionOutputBufferLineLimit, in: 100...5000, step: 100) {
+                    HStack {
+                        Text("Buffer line limit")
+                        Spacer()
+                        Text(String(viewModel.settings.sessionOutputBufferLineLimit))
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                Stepper(value: $viewModel.settings.sessionOutputBufferByteLimit, in: 4 * 1024...1024 * 1024, step: 4 * 1024) {
+                    HStack {
+                        Text("Buffer byte limit")
+                        Spacer()
+                        Text(ByteCountFormatter.string(
+                            fromByteCount: Int64(viewModel.settings.sessionOutputBufferByteLimit),
+                            countStyle: .binary
+                        ))
+                        .foregroundColor(.secondary)
+                    }
+                }
+
+                HStack {
+                    Text("Proxy binary")
+                    Spacer()
+                    Text(SessionProxyCoordinator.shared.resolvedProxyBinaryPath() ?? "Unavailable")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .textSelection(.enabled)
+                        .lineLimit(1)
                 }
             }
 
@@ -683,6 +738,15 @@ struct MobileAccessSettingsTab: View {
 
             if let error = gatewayService.lastError, !error.isEmpty {
                 Section("Last Error") {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                        .textSelection(.enabled)
+                }
+            }
+
+            if let error = proxyListener.lastError, !error.isEmpty {
+                Section("Remote Control Error") {
                     Text(error)
                         .font(.caption)
                         .foregroundColor(.red)
