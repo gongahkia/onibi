@@ -1,0 +1,257 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Iterable
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+_REGEX_PREFIX_KEYWORDS = frozenset(
+    {
+        "await",
+        "case",
+        "delete",
+        "do",
+        "else",
+        "in",
+        "instanceof",
+        "new",
+        "of",
+        "return",
+        "throw",
+        "typeof",
+        "void",
+        "yield",
+    }
+)
+
+
+@dataclass(slots=True)
+class _CodeState:
+    regex_allowed: bool
+    template_expr_depth: int | None = None
+
+
+def strip_comments(source: str) -> str:
+    """Strip JS/TS comments while preserving original line numbering."""
+
+    output: list[str] = []
+    code_stack: list[_CodeState] = [_CodeState(regex_allowed=True)]
+    mode = "code"
+    regex_in_char_class = False
+    index = 0
+    length = len(source)
+
+    while index < length:
+        char = source[index]
+        next_char = source[index + 1] if index + 1 < length else ""
+        state = code_stack[-1]
+
+        if mode == "code":
+            if char == "'" and next_char:
+                output.append(char)
+                state.regex_allowed = False
+                mode = "single_quote"
+                index += 1
+                continue
+            if char == '"':
+                output.append(char)
+                state.regex_allowed = False
+                mode = "double_quote"
+                index += 1
+                continue
+            if char == "`":
+                output.append(char)
+                state.regex_allowed = False
+                mode = "template"
+                index += 1
+                continue
+            if char == "/" and next_char == "/":
+                output.extend((" ", " "))
+                index += 2
+                while index < length and source[index] not in "\r\n":
+                    output.append(" ")
+                    index += 1
+                continue
+            if char == "/" and next_char == "*":
+                output.extend((" ", " "))
+                index += 2
+                while index < length:
+                    if source[index] == "*" and index + 1 < length and source[index + 1] == "/":
+                        output.extend((" ", " "))
+                        index += 2
+                        break
+                    if source[index] in "\r\n":
+                        output.append(source[index])
+                    else:
+                        output.append(" ")
+                    index += 1
+                continue
+            if char == "/" and state.regex_allowed:
+                output.append(char)
+                state.regex_allowed = False
+                mode = "regex"
+                regex_in_char_class = False
+                index += 1
+                continue
+            if _is_identifier_start(char):
+                token, index = _consume_identifier(source, index)
+                output.append(token)
+                state.regex_allowed = token in _REGEX_PREFIX_KEYWORDS
+                continue
+            if char.isdigit():
+                token, index = _consume_number(source, index)
+                output.append(token)
+                state.regex_allowed = False
+                continue
+
+            output.append(char)
+            index += 1
+
+            if char == "{":
+                if state.template_expr_depth is not None:
+                    state.template_expr_depth += 1
+                state.regex_allowed = True
+                continue
+            if char == "}":
+                state.regex_allowed = False
+                if state.template_expr_depth is not None:
+                    state.template_expr_depth -= 1
+                    if state.template_expr_depth == 0:
+                        code_stack.pop()
+                        mode = "template"
+                continue
+            if char in ")]":
+                state.regex_allowed = False
+                continue
+            if char == "/":
+                state.regex_allowed = True
+                continue
+            if char in ",:;?!=+-*%&|^~<>":
+                state.regex_allowed = True
+                continue
+
+        elif mode == "single_quote":
+            output.append(char)
+            index += 1
+            if char == "\\" and index < length:
+                output.append(source[index])
+                index += 1
+                continue
+            if char == "'":
+                mode = "code"
+
+        elif mode == "double_quote":
+            output.append(char)
+            index += 1
+            if char == "\\" and index < length:
+                output.append(source[index])
+                index += 1
+                continue
+            if char == '"':
+                mode = "code"
+
+        elif mode == "template":
+            if char == "\\":
+                output.append(char)
+                index += 1
+                if index < length:
+                    output.append(source[index])
+                    index += 1
+                continue
+            if char == "`":
+                output.append(char)
+                index += 1
+                mode = "code"
+                continue
+            if char == "$" and next_char == "{":
+                output.extend((char, next_char))
+                code_stack.append(_CodeState(regex_allowed=True, template_expr_depth=1))
+                mode = "code"
+                index += 2
+                continue
+            output.append(char)
+            index += 1
+
+        elif mode == "regex":
+            output.append(char)
+            index += 1
+            if char == "\\" and index < length:
+                output.append(source[index])
+                index += 1
+                continue
+            if char == "[":
+                regex_in_char_class = True
+                continue
+            if char == "]":
+                regex_in_char_class = False
+                continue
+            if char == "/" and not regex_in_char_class:
+                while index < length and source[index].isalpha():
+                    output.append(source[index])
+                    index += 1
+                mode = "code"
+                code_stack[-1].regex_allowed = False
+                continue
+            if char in "\r\n":
+                mode = "code"
+
+    return "".join(output)
+
+
+def detect_prompt_canary(
+    response: str,
+    known_fragments: Iterable[str] | None = None,
+) -> list[str]:
+    """Return prompt fragments that appear in an LLM response."""
+
+    fragments = tuple(known_fragments) if known_fragments is not None else _default_canary_fragments()
+    normalized_response = response.casefold()
+    matches: list[str] = []
+    seen: set[str] = set()
+
+    for fragment in fragments:
+        if fragment and fragment not in seen and fragment.casefold() in normalized_response:
+            matches.append(fragment)
+            seen.add(fragment)
+    return matches
+
+
+def contains_prompt_canary(
+    response: str,
+    known_fragments: Iterable[str] | None = None,
+) -> bool:
+    """Return True when an LLM response leaks a known prompt fragment."""
+
+    return bool(detect_prompt_canary(response, known_fragments=known_fragments))
+
+
+def _default_canary_fragments() -> Sequence[str]:
+    from piranesi.llm import prompts
+
+    return prompts.get_canary_fragments()
+
+
+def _consume_identifier(source: str, start: int) -> tuple[str, int]:
+    end = start + 1
+    while end < len(source) and _is_identifier_part(source[end]):
+        end += 1
+    return source[start:end], end
+
+
+def _consume_number(source: str, start: int) -> tuple[str, int]:
+    end = start + 1
+    while end < len(source) and (source[end].isalnum() or source[end] in "._"):
+        end += 1
+    return source[start:end], end
+
+
+def _is_identifier_start(char: str) -> bool:
+    return char.isalpha() or char in "_$"
+
+
+def _is_identifier_part(char: str) -> bool:
+    return char.isalnum() or char in "_$"
+
+
+__all__ = ["contains_prompt_canary", "detect_prompt_canary", "strip_comments"]
