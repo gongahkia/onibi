@@ -1,0 +1,30 @@
+# Piranesi Security Analysis Report
+
+**Target:** `{{ report.target }}`
+**Date:** {{ report.generated_at }}
+**Version:** piranesi v{{ report.appendix.piranesi_version }}
+
+{% include "executive_summary.j2" %}
+
+## Findings
+
+{% if report.findings %}
+{% for finding in report.findings %}
+{% include "finding.md.j2" %}
+
+{% endfor %}
+{% else %}
+No confirmed findings were produced by the pipeline.
+{% endif %}
+
+## Appendix
+
+- **Scan duration:** {{ "%.1f"|format(report.appendix.stage_timings_s.get("scan", 0.0)) }}s
+- **Detect duration:** {{ "%.1f"|format(report.appendix.stage_timings_s.get("detect", 0.0)) }}s
+- **Triage duration:** {{ "%.1f"|format(report.appendix.stage_timings_s.get("triage", 0.0)) }}s
+- **Verify duration:** {{ "%.1f"|format(report.appendix.stage_timings_s.get("verify", 0.0)) }}s
+- **Legal duration:** {{ "%.1f"|format(report.appendix.stage_timings_s.get("legal", 0.0)) }}s
+- **Patch duration:** {{ "%.1f"|format(report.appendix.stage_timings_s.get("patch", 0.0)) }}s
+- **Report duration:** {{ "%.1f"|format(report.appendix.stage_timings_s.get("report", 0.0)) }}s
+- **Total LLM cost:** ${{ "%.2f"|format(report.appendix.total_llm_cost_usd) }}
+- **Total duration:** {{ "%.1f"|format(report.appendix.duration_s) }}s

@@ -1,0 +1,26 @@
+## Executive Summary
+
+{% set severity_summary -%}
+{%- if report.executive_summary.severity_breakdown -%}
+{%- for severity, count in report.executive_summary.severity_breakdown.items() -%}
+{{ count }} {{ severity }}{% if not loop.last %}, {% endif %}
+{%- endfor -%}
+{%- else -%}
+none
+{%- endif -%}
+{%- endset %}
+{% set regulatory_summary -%}
+{%- if report.executive_summary.top_regulatory_concerns -%}
+{%- for concern in report.executive_summary.top_regulatory_concerns -%}
+{{ concern }}{% if not loop.last %}; {% endif %}
+{%- endfor -%}
+{%- else -%}
+none
+{%- endif -%}
+{%- endset %}
+- **Findings detected:** {{ report.executive_summary.findings_detected }}
+- **Findings confirmed:** {{ report.executive_summary.findings_confirmed }}
+- **Severity breakdown:** {{ severity_summary }}
+- **Top regulatory concerns:** {{ regulatory_summary }}
+- **Total LLM cost:** ${{ "%.2f"|format(report.executive_summary.total_llm_cost_usd) }}
+- **Duration:** {{ "%.1f"|format(report.executive_summary.duration_s) }}s

@@ -1,0 +1,39 @@
+## {{ finding.title }} (`{{ finding.finding_id }}`)
+
+**CWE:** {{ finding.cwe }}
+**Severity:** {{ finding.severity|upper }}
+**Confidence:** {{ "%.2f"|format(finding.confidence) }}
+**Verified:** {{ "Yes" if finding.verified else "No" }} ({{ finding.verification_method }})
+
+### Taint Path
+
+```text
+{{ finding.source_location.file }}:{{ finding.source_location.line }} {{ finding.source_location.snippet.strip() }}
+{% for step in finding.taint_path %}  -> {{ step.location.file }}:{{ step.location.line }} {{ step.operation }}{% if step.sanitizer_applied %} [{{ step.sanitizer_applied }}]{% endif %}
+{% endfor %}  -> {{ finding.sink_location.file }}:{{ finding.sink_location.line }} {{ finding.sink_location.snippet.strip() }}
+```
+
+### Exploit
+
+**Payload:** `{{ finding.exploit_payload or "n/a" }}`
+
+```bash
+{{ finding.reproducer_script or "No reproducer generated." }}
+```
+
+### Regulatory Obligations
+
+{% if finding.regulatory_obligations %}
+| Framework | Section | Obligation | Deadline | Penalty |
+|-----------|---------|------------|----------|---------|
+{% for obligation in finding.regulatory_obligations %}| {{ obligation.framework }} | {{ obligation.section }} | {{ obligation.obligation_text }} | {{ obligation.notification_timeline or "n/a" }} | {{ obligation.penalty_range }} |
+{% endfor %}
+{% else %}
+No regulatory obligations were attached to this finding.
+{% endif %}
+
+### Patch
+
+```diff
+{{ finding.patch_diff or "No patch generated." }}
+```
