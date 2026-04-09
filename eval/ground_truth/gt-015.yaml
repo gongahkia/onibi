@@ -1,0 +1,20 @@
+id: gt-015
+source_project: owasp-juice-shop
+commit_hash: "7380ce7120e289fc6bea861efd3fcba89261a6a8"
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+affected_files:
+  - routes/quarantineServer.ts
+line_numbers: [14]
+taint_source: params.file
+taint_sink: "res.sendFile(path.resolve('ftp/quarantine/', file))"
+taint_path:
+  - "params.file from URL route parameter"
+  - "only checks for '/' (forward slashes), no check for '..' or URL-encoded variants"
+  - "res.sendFile(path.resolve('ftp/quarantine/', file)) serves file"
+complexity: simple
+exploitable: true
+reference_exploit: "GET /quarantine/..%5C..%5Cpackage.json uses backslash-encoded traversal to escape quarantine directory on Windows"
+reference_fix_commit: null
+notes: "Limited path traversal in quarantine file server. Same pattern as keyServer.ts and logfileServer.ts. Forward-slash block limits but does not eliminate exploitation (backslash, URL encoding)."

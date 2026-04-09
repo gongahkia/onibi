@@ -1,0 +1,22 @@
+id: gt-009
+source_project: owasp-juice-shop
+commit_hash: "7380ce7120e289fc6bea861efd3fcba89261a6a8"
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting (Stored)
+label: true_positive
+affected_files:
+  - frontend/src/app/search-result/search-result.component.ts
+line_numbers: [96]
+taint_source: "product description field stored via PUT /api/Products/:id"
+taint_sink: "DomSanitizer.bypassSecurityTrustHtml(tableData[i].description)"
+taint_path:
+  - "attacker stores XSS payload in product description via REST API"
+  - "ProductService.search() fetches product data from backend"
+  - "trustProductDescription() iterates products (component.ts:96)"
+  - "this.sanitizer.bypassSecurityTrustHtml(description) bypasses Angular sanitization"
+  - "product grid renders trusted HTML in template"
+complexity: inter
+exploitable: true
+reference_exploit: "PUT /api/Products/1 with description=<iframe src='javascript:alert(`xss`)'> persists XSS payload rendered to all users browsing products"
+reference_fix_commit: null
+notes: "Persistent/stored XSS via product descriptions. Inter-procedural: API write -> DB -> frontend component rendering. Juice Shop challenge: restfulXssChallenge."

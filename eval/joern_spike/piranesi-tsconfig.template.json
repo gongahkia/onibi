@@ -1,0 +1,42 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "allowSyntheticDefaultImports": true,
+    "checkJs": false,
+    "declaration": false,
+    "emitDeclarationOnly": false,
+    "esModuleInterop": true,
+    "jsx": "preserve",
+    "lib": ["ES2020"],
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "noEmitOnError": false,
+    "outDir": "__OUTDIR__",
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "sourceMap": false,
+    "strict": false,
+    "target": "ES2020"
+  },
+  "include": [
+    "./**/*.ts",
+    "./**/*.tsx",
+    "./**/*.js",
+    "./**/*.jsx"
+  ],
+  "exclude": [
+    "./**/*.d.ts",
+    "./**/*.spec.ts",
+    "./**/*.spec.tsx",
+    "./**/*.test.ts",
+    "./**/*.test.tsx",
+    "./**/__tests__/**",
+    "./**/build/**",
+    "./**/coverage/**",
+    "./**/dist/**",
+    "./**/.next/**",
+    "./**/.turbo/**",
+    "./**/node_modules/**",
+    "./js/**"
+  ]
+}

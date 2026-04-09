@@ -1,0 +1,22 @@
+id: gt-010
+source_project: owasp-juice-shop
+commit_hash: "7380ce7120e289fc6bea861efd3fcba89261a6a8"
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting (Reflected)
+label: true_positive
+affected_files:
+  - routes/trackOrder.ts
+line_numbers: [14, 15, 19]
+taint_source: req.params.id
+taint_sink: "res.json() reflecting unsanitized id as orderId"
+taint_path:
+  - "req.params.id (routes/trackOrder.ts:14)"
+  - "id = utils.trunc(req.params.id, 60) truncates but does NOT sanitize HTML"
+  - "result.data[0] = { orderId: id } (line ~15)"
+  - "res.json(result) reflects unsanitized id back to client (line ~19)"
+  - "client renders orderId value as HTML"
+complexity: simple
+exploitable: true
+reference_exploit: "GET /rest/track-order/<iframe src='javascript:alert(`xss`)'> reflects XSS payload in order tracking response"
+reference_fix_commit: null
+notes: "Reflected XSS via order tracking endpoint. Simple taint flow within single route handler. Juice Shop challenge: reflectedXssChallenge."

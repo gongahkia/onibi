@@ -1,0 +1,23 @@
+id: gt-008
+source_project: owasp-juice-shop
+commit_hash: "7380ce7120e289fc6bea861efd3fcba89261a6a8"
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting (DOM)
+label: true_positive
+affected_files:
+  - frontend/src/app/search-result/search-result.component.ts
+  - frontend/src/app/search-result/search-result.component.html
+line_numbers: [137, 14]
+taint_source: route.snapshot.queryParams.q
+taint_sink: "DomSanitizer.bypassSecurityTrustHtml() -> [innerHTML] binding"
+taint_path:
+  - "URL query param ?q= read via this.route.snapshot.queryParams.q"
+  - "queryParam assigned to local variable in filterTable() (component.ts:137)"
+  - "this.sanitizer.bypassSecurityTrustHtml(queryParam) explicitly bypasses Angular XSS protection"
+  - "assigned to this.searchValue"
+  - "[innerHTML]='searchValue' renders as raw HTML in template (component.html:14)"
+complexity: ctx
+exploitable: true
+reference_exploit: "Navigate to /#/search?q=<iframe src='javascript:alert(`xss`)'> executes arbitrary JS in victim's browser"
+reference_fix_commit: null
+notes: "DOM-based XSS in Angular SPA. Context-sensitive: requires understanding that bypassSecurityTrustHtml() intentionally defeats Angular's built-in XSS protection. Juice Shop challenges: localXssChallenge, xssBonusChallenge."

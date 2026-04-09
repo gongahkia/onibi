@@ -1,0 +1,20 @@
+id: gt-013
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-78
+cwe_name: OS Command Injection
+label: true_positive
+affected_files:
+  - eval/synthetic/cmd-injection-exec.ts
+line_numbers: [12, 15]
+taint_source: req.query.filename
+taint_sink: "child_process.exec()"
+taint_path:
+  - "req.query.filename (Express route handler)"
+  - "const cmd = `convert ${req.query.filename} output.pdf`"
+  - "exec(cmd, callback) executes unsanitized shell command"
+complexity: simple
+exploitable: true
+reference_exploit: "GET /convert?filename=;cat /etc/passwd achieves arbitrary command execution via shell metacharacter injection"
+reference_fix_commit: null
+notes: "Hand-crafted synthetic. Classic CWE-78 pattern: user input concatenated into shell command string passed to exec(). Fix would use execFile() with argument array or validate/escape input."

@@ -1,0 +1,20 @@
+id: gt-016
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+affected_files:
+  - eval/synthetic/path-traversal-readfile.ts
+line_numbers: [8, 11]
+taint_source: req.params.filename
+taint_sink: "fs.readFile(path.join(uploadsDir, filename))"
+taint_path:
+  - "req.params.filename (Express route handler)"
+  - "const filepath = path.join('/app/uploads', req.params.filename)"
+  - "fs.readFile(filepath, callback) reads arbitrary file"
+complexity: simple
+exploitable: true
+reference_exploit: "GET /files/../../etc/passwd uses directory traversal to read system files outside uploads directory"
+reference_fix_commit: null
+notes: "Hand-crafted synthetic. Classic path traversal: user-controlled filename joined to base directory without canonicalization or containment check. Fix would use path.resolve() + startsWith() guard."

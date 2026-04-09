@@ -1,0 +1,19 @@
+id: gt-fp-001
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: false_positive
+affected_files:
+  - eval/synthetic/fp-parameterized-query.ts
+line_numbers: [15, 18]
+taint_source: req.query.userId
+taint_sink: "db.query() with parameterized placeholder"
+taint_path:
+  - "req.query.userId (Express route handler)"
+  - "const result = await db.query('SELECT * FROM users WHERE id = $1', [req.query.userId])"
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "Hand-crafted false positive. Parameterized query using positional placeholder ($1) with bind parameter array. Superficially resembles SQLi because user input reaches db.query(), but parameterization prevents injection. Static analyzers commonly flag this pattern incorrectly."

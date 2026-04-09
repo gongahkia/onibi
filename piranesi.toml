@@ -1,0 +1,29 @@
+[models]
+scanner = "gpt-4o-mini"
+detector = "gpt-4o-mini"
+triage = "gpt-4o"
+patcher = "claude-sonnet-4-20250514"
+legal_memo = "claude-sonnet-4-20250514"
+
+[budget]
+max_cost_usd = 5.00
+max_tokens = 500000
+
+[sandbox]
+docker_image = "piranesi-sandbox:latest"
+timeout_seconds = 30
+network_enabled = false
+
+[output]
+format = "both"
+output_dir = "./piranesi-output"
+
+[trace]
+enabled = true
+file_path = ".piranesi-trace.jsonl"
+log_prompts = false
+
+[scan]
+include_patterns = ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"]
+exclude_patterns = ["**/node_modules/**", "**/dist/**", "**/*.d.ts", "**/*.test.ts", "**/*.spec.ts"]
+max_file_size = 1048576

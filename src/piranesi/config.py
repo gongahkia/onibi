@@ -1,0 +1,267 @@
+from __future__ import annotations
+
+import json
+import os
+import tomllib
+import types
+from collections.abc import Mapping
+from copy import deepcopy
+from hashlib import sha256
+from pathlib import Path
+from typing import Any, Union, get_args, get_origin
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+
+class ConfigError(RuntimeError):
+    """Raised when Piranesi configuration cannot be loaded."""
+
+
+class ModelsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scanner: str = "gpt-4o-mini"
+    detector: str = "gpt-4o-mini"
+    triage: str = "gpt-4o"
+    skeptic: str | None = None
+    patcher: str = "claude-sonnet-4-20250514"
+    legal_memo: str = "claude-sonnet-4-20250514"
+
+
+class ModelFallbackConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    default: str | None = None
+    scanner: str | None = None
+    detector: str | None = None
+    triage: str | None = None
+    skeptic: str | None = None
+    patcher: str | None = None
+    legal_memo: str | None = None
+
+
+class BudgetConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    max_cost_usd: float = 5.0
+    warn_at_usd: float | None = None
+    max_tokens: int = 500_000
+
+
+class SandboxConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    docker_image: str = "piranesi-sandbox:latest"
+    timeout_seconds: int = 30
+    network_enabled: bool = False
+
+
+class OutputConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    format: str = "both"
+    output_dir: str = "./piranesi-output"
+
+
+class TraceConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    file_path: str = ".piranesi-trace.jsonl"
+    log_prompts: bool = False
+
+
+class JoernConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    binary_path: str = "joern"
+    server_port: int = 8080
+    startup_timeout_seconds: int = 30
+    query_timeout_seconds: int = 60
+    jvm_memory: str = "2g"
+
+
+class CustomSourceConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    patterns: list[str] = Field(default_factory=list)
+    source_type: str = "custom"
+
+
+class CustomSinkConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    patterns: list[str] = Field(default_factory=list)
+    sink_type: str = "custom"
+    cwe_id: str | None = None
+
+
+class ScanConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    include_patterns: list[str] = Field(
+        default_factory=lambda: ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"]
+    )
+    exclude_patterns: list[str] = Field(
+        default_factory=lambda: ["**/node_modules/**", "**/dist/**", "**/*.d.ts"]
+    )
+    max_file_size: int = 1_048_576
+    custom_sources: CustomSourceConfig = Field(default_factory=CustomSourceConfig)
+    custom_sinks: CustomSinkConfig = Field(default_factory=CustomSinkConfig)
+
+
+class PiranesiConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    models: ModelsConfig = Field(default_factory=ModelsConfig)
+    models_fallback: ModelFallbackConfig = Field(default_factory=ModelFallbackConfig)
+    budget: BudgetConfig = Field(default_factory=BudgetConfig)
+    sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
+    output: OutputConfig = Field(default_factory=OutputConfig)
+    trace: TraceConfig = Field(default_factory=TraceConfig)
+    joern: JoernConfig = Field(default_factory=JoernConfig)
+    scan: ScanConfig = Field(default_factory=ScanConfig)
+
+
+def load_config(
+    config_path: str | Path,
+    *,
+    env: Mapping[str, str] | None = None,
+    cli_overrides: Mapping[str, Any] | None = None,
+) -> PiranesiConfig:
+    path = Path(config_path)
+    data = _read_toml(path)
+    data = _normalize_file_data(data)
+    data = _apply_env_overrides(data, env or os.environ)
+    data = _apply_cli_overrides(data, cli_overrides or {})
+    try:
+        return PiranesiConfig.model_validate(data)
+    except ValidationError as exc:
+        raise ConfigError(f"invalid config at {path}: {exc}") from exc
+
+
+def config_hash(config: PiranesiConfig) -> str:
+    payload = json.dumps(config.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+    return sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _read_toml(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        raise ConfigError(f"config file not found: {path}")
+    try:
+        with path.open("rb") as handle:
+            loaded = tomllib.load(handle)
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigError(f"invalid TOML in {path}: {exc}") from exc
+    if not isinstance(loaded, dict):
+        raise ConfigError(f"invalid TOML structure in {path}: expected a table at the root")
+    return loaded
+
+
+def _normalize_file_data(data: dict[str, Any]) -> dict[str, Any]:
+    normalized = deepcopy(data)
+    models_section = normalized.get("models")
+    if (
+        isinstance(models_section, dict)
+        and "budget" in models_section
+        and "budget" not in normalized
+    ):
+        normalized["budget"] = models_section.pop("budget")
+    if (
+        isinstance(models_section, dict)
+        and "fallback" in models_section
+        and "models_fallback" not in normalized
+    ):
+        normalized["models_fallback"] = models_section.pop("fallback")
+    return normalized
+
+
+def _apply_env_overrides(data: dict[str, Any], env: Mapping[str, str]) -> dict[str, Any]:
+    merged = deepcopy(data)
+    for env_name, path, annotation in _iter_override_targets(PiranesiConfig):
+        if env_name in env:
+            _set_dotted_value(merged, path, _parse_env_value(annotation, env[env_name]))
+    return merged
+
+
+def _apply_cli_overrides(data: dict[str, Any], cli_overrides: Mapping[str, Any]) -> dict[str, Any]:
+    merged = deepcopy(data)
+    for path, value in cli_overrides.items():
+        if value is not None:
+            _set_dotted_value(merged, path, value)
+    return merged
+
+
+def _iter_override_targets(
+    model_type: type[BaseModel],
+    prefix: str = "",
+) -> list[tuple[str, str, Any]]:
+    targets: list[tuple[str, str, Any]] = []
+    for field_name, field_info in model_type.model_fields.items():
+        field_path = f"{prefix}.{field_name}" if prefix else field_name
+        annotation = field_info.annotation
+        nested_model = _extract_model_type(annotation)
+        if nested_model is not None:
+            targets.extend(_iter_override_targets(nested_model, field_path))
+            continue
+        env_name = f"PIRANESI_{field_path.replace('.', '_').upper()}"
+        targets.append((env_name, field_path, annotation))
+    return targets
+
+
+def _extract_model_type(annotation: Any) -> type[BaseModel] | None:
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return annotation
+    origin = get_origin(annotation)
+    if origin is None:
+        return None
+    for candidate in get_args(annotation):
+        if isinstance(candidate, type) and issubclass(candidate, BaseModel):
+            return candidate
+    return None
+
+
+def _parse_env_value(annotation: Any, raw_value: str) -> Any:
+    optional_annotation = _strip_optional(annotation)
+    origin = get_origin(optional_annotation)
+    if origin is list:
+        if raw_value.strip().startswith("["):
+            parsed = json.loads(raw_value)
+            if not isinstance(parsed, list):
+                raise ConfigError(f"expected a list override, got: {raw_value}")
+            return parsed
+        return [item.strip() for item in raw_value.split(",") if item.strip()]
+    if optional_annotation is bool:
+        lowered = raw_value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+        raise ConfigError(f"invalid boolean override: {raw_value}")
+    if optional_annotation is int:
+        return int(raw_value)
+    if optional_annotation is float:
+        return float(raw_value)
+    if optional_annotation is str:
+        return raw_value
+    if raw_value.strip().startswith(("{", "[")):
+        return json.loads(raw_value)
+    return raw_value
+
+
+def _strip_optional(annotation: Any) -> Any:
+    origin = get_origin(annotation)
+    if origin is None:
+        return annotation
+    if origin not in {types.UnionType, Union}:
+        return annotation
+    non_none = [candidate for candidate in get_args(annotation) if candidate is not type(None)]
+    return non_none[0] if len(non_none) == 1 else annotation
+
+
+def _set_dotted_value(data: dict[str, Any], dotted_path: str, value: Any) -> None:
+    current = data
+    parts = dotted_path.split(".")
+    for part in parts[:-1]:
+        current = current.setdefault(part, {})
+    current[parts[-1]] = value
