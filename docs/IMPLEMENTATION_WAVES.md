@@ -567,311 +567,43 @@ CWE-502 (deserialization), CWE-601 (open redirect), CWE-434 (file upload) specs 
 
 ---
 
-# Next Phases — v1.0 → v2.0 Roadmap
+## Wave 29 — Monorepo + Workspace Scanning (COMPLETED)
 
-All waves 1-28 (phases 0-19) are implemented. The following phases define the next expansion arcs for production hardening, ecosystem reach, and analytical depth.
-
----
-
-## Wave 29 — Monorepo + Workspace Scanning (v1.0)
-
-**Deps:** Wave 21 (incremental scanning)
-**Parallel agents:** Yes — monorepo detection and per-package scanning are independent
-**Docs:** `docs/PHASE_20_MONOREPO_AND_WORKSPACES.md`
-
-### Agent 61: Monorepo Detection + Package Graph
-
-**Prompt:**
-> You are implementing monorepo-aware scanning for Project Piranesi. Read `docs/PHASE_20_MONOREPO_AND_WORKSPACES.md` Section 2.
->
-> Implement `src/piranesi/scan/monorepo.py`:
-> 1. Detect monorepo structure: npm workspaces (`package.json` `workspaces` field), Yarn workspaces, pnpm workspaces (`pnpm-workspace.yaml`), Turborepo (`turbo.json`), Nx (`nx.json`), Lerna (`lerna.json`), Go multi-module (`go.work`), Maven multi-module (parent `pom.xml` with `<modules>`), Gradle multi-project (`settings.gradle` with `include`).
-> 2. Build package dependency graph: for each workspace package, resolve internal dependencies (packages that import other workspace packages).
-> 3. `MonorepoManifest` dataclass: root_path, packages (list of `WorkspacePackage`), dependency_edges, detected_tool.
-> 4. Update `pipeline.py`: when monorepo detected, scan each package independently, then merge findings. Cross-package taint flows create inter-package findings.
-> 5. `--package <name>` flag to scan a single package within a monorepo.
-> 6. `--changed-packages` flag: use git diff to detect which packages changed, scan only those (combines with `--incremental`).
-> 7. Report output: group findings by package, show cross-package findings separately.
-> 8. Tests: create a fixture with 3-package npm workspace (shared-lib, api, frontend), verify per-package + cross-package detection.
-
-### Agent 62: Per-Package Parallel Scanning
-
-**Prompt:**
-> You are implementing parallel per-package scanning for monorepo support. Read `docs/PHASE_20_MONOREPO_AND_WORKSPACES.md` Section 3.
->
-> Implement:
-> 1. Update `pipeline.py` to accept `MonorepoManifest`. For independent packages (no internal deps), scan in parallel using `concurrent.futures.ProcessPoolExecutor`.
-> 2. For dependent packages, respect dependency order (topological sort).
-> 3. Merge findings from all packages into a single `PiranesiReport`. Deduplicate cross-package findings.
-> 4. `--max-parallel <n>` flag (default: CPU count) to control parallelism.
-> 5. Progress display: per-package progress bars with Rich.
-> 6. Tests: verify parallel scan produces same findings as sequential. Verify topological ordering.
+`scan/monorepo.py` (933 lines): npm/Yarn/pnpm/Turborepo/Nx/Lerna/Go/Maven/Gradle workspace detection, package dependency graph, per-package parallel scanning, `--package` and `--changed-packages` flags. Cross-package taint flow merging.
 
 ---
 
-## Wave 30 — Custom Rule Authoring + Rule Marketplace (v1.0)
+## Wave 30 — Custom Rule Authoring + Rule Marketplace (COMPLETED)
 
-**Deps:** Wave 17 (community rules), Wave 18 (plugin system)
-**Parallel agents:** Yes — rule DSL, testing, and CLI are independent
-**Docs:** `docs/PHASE_21_CUSTOM_RULES_AND_MARKETPLACE.md`
-
-### Agent 63: Rule DSL + TOML Authoring
-
-**Prompt:**
-> You are implementing the custom rule authoring system for Project Piranesi. Read `docs/PHASE_21_CUSTOM_RULES_AND_MARKETPLACE.md` Section 2.
->
-> Implement `src/piranesi/rules/engine.py`:
-> 1. TOML-based rule format with fields: id, name, cwe_id, severity, description, source_pattern (CPGQL or regex), sink_pattern, sanitizer_patterns, message_template, tags, author, version.
-> 2. `load_rules(rules_dir) -> list[CustomRule]` — auto-discover `rules/**/*.toml`.
-> 3. `compile_rule(rule: CustomRule) -> CompiledRule` — validate CPGQL patterns, pre-compile regex patterns.
-> 4. Integration: custom rules execute alongside built-in specs in the detect stage.
-> 5. `piranesi rules validate <path>` CLI command — check rule syntax, pattern validity, required fields.
-> 6. `piranesi rules test <path> --fixture <dir>` CLI command — run a rule against a fixture directory, show matches.
-> 7. Rule inheritance: `extends: "builtin:sqli"` to modify a built-in rule's thresholds or add sanitizers.
-> 8. Tests: write 3 custom rules (NoSQL injection, LDAP injection, XML injection), validate and test them.
-
-### Agent 64: Rule Testing Framework
-
-**Prompt:**
-> You are implementing an inline testing framework for Piranesi custom rules. Read `docs/PHASE_21_CUSTOM_RULES_AND_MARKETPLACE.md` Section 3.
->
-> Implement `src/piranesi/rules/testing.py`:
-> 1. Inline test annotations in rule TOML files:
->    ```toml
->    [[tests]]
->    fixture = "tests/fixtures/nosql_injection.ts"
->    expect_finding = true
->    expect_cwe = "CWE-943"
->    expect_source_line = 12
->    expect_sink_line = 15
->
->    [[tests]]
->    fixture = "tests/fixtures/nosql_safe.ts"
->    expect_finding = false
->    ```
-> 2. `piranesi rules test-all` — run all rule inline tests, report pass/fail.
-> 3. Rule coverage report: which CWEs have custom rules, which ground truth entries are covered.
-> 4. Tests: verify test runner catches true positives and true negatives.
-
-### Agent 65: Rule Distribution via Git
-
-**Prompt:**
-> You are implementing rule distribution for Piranesi. Read `docs/PHASE_21_CUSTOM_RULES_AND_MARKETPLACE.md` Section 4.
->
-> Implement `src/piranesi/rules/registry.py`:
-> 1. `piranesi rules install <git-url>` — clone a git repo into `~/.piranesi/rules/<name>/`, validate all rules.
-> 2. `piranesi rules update` — git pull all installed rule repos.
-> 3. `piranesi rules remove <name>` — delete installed rule set.
-> 4. Configuration in `piranesi.toml`:
->    ```toml
->    [rules]
->    paths = ["./rules", "~/.piranesi/rules/*"]
->    disabled_rules = ["noisy-rule-001"]
->    ```
-> 5. Rule namespacing: `<repo-name>:<rule-id>` to avoid collisions.
-> 6. Signature verification: optional GPG signature check on rule repos.
-> 7. Tests: mock git clone, verify install/update/remove lifecycle.
+`rules/engine.py` (1013 lines): TOML-based rule DSL, CPGQL/regex pattern compilation, rule inheritance. `rules/testing.py` (425 lines): inline test annotations, `piranesi rules test-all`. `rules/registry.py` (606 lines): git-based rule distribution, install/update/remove lifecycle, GPG signature verification.
 
 ---
 
-## Wave 31 — Advanced Taint Analysis (v1.0)
+## Wave 31 — Advanced Taint Analysis (COMPLETED)
 
-**Deps:** Wave 25 (multi-language depth)
-**Parallel agents:** Yes — inter-procedural, alias, and prototype pollution are independent
-**Docs:** `docs/PHASE_22_ADVANCED_TAINT_ANALYSIS.md`
-
-### Agent 66: Deep Inter-Procedural Analysis
-
-**Prompt:**
-> You are implementing deep inter-procedural taint analysis for Project Piranesi. Read `docs/PHASE_22_ADVANCED_TAINT_ANALYSIS.md` Section 2.
->
-> Implement `src/piranesi/detect/interprocedural.py`:
-> 1. Current taint tracking follows `reachableByFlows` which handles basic inter-procedural flow. Extend to handle:
->    - Callback chains: `fetch(url, (err, data) => sink(data))` — taint through callback parameters.
->    - Promise chains: `fetch(url).then(data => sink(data))` — taint through `.then()` / `await`.
->    - Event emitter patterns: `emitter.on('data', handler)` + `emitter.emit('data', tainted)` — taint through event channels.
->    - Higher-order functions: `arr.map(fn)` where `fn` contains a sink.
-> 2. Build call-graph summary: for each function, compute `taint_summary: set[TaintTransfer]` — which parameters flow to which return values or sinks.
-> 3. Use summaries to accelerate cross-module analysis without re-querying Joern for every call site.
-> 4. Add 10+ ground truth entries for callback/promise/event patterns.
-> 5. Tests: fixtures with each pattern, verify detection.
-
-### Agent 67: Alias + Prototype Pollution Analysis
-
-**Prompt:**
-> You are implementing alias analysis and prototype pollution detection for Project Piranesi. Read `docs/PHASE_22_ADVANCED_TAINT_ANALYSIS.md` Section 3.
->
-> Implement:
-> 1. `src/piranesi/detect/alias.py` — alias-aware taint tracking:
->    - Detect when tainted values are assigned to object properties: `obj.x = tainted; sink(obj.x)`.
->    - Track through destructuring: `const {x} = tainted_obj; sink(x)`.
->    - Track through spread: `const merged = {...tainted, safe: 1}; sink(merged.key)`.
-> 2. `src/piranesi/detect/prototype_pollution.py` — CWE-1321 detection:
->    - Source: user-controlled key in property assignment (`obj[req.body.key] = req.body.value`).
->    - Sink: recursive merge functions (`_.merge`, `Object.assign`, `lodash.defaultsDeep`).
->    - Detect `__proto__`, `constructor.prototype` traversal.
-> 3. Add prototype pollution specs to `scan/specs.py`.
-> 4. Ground truth: 5+ entries for alias tracking, 5+ for prototype pollution.
-> 5. Tests: fixture apps with each pattern.
-
-### Agent 68: Context-Sensitive Sanitizer Validation
-
-**Prompt:**
-> You are implementing context-sensitive sanitizer validation for Project Piranesi. Read `docs/PHASE_22_ADVANCED_TAINT_ANALYSIS.md` Section 4.
->
-> Implement `src/piranesi/detect/sanitizer_validation.py`:
-> 1. Current sanitizer detection is binary (present/absent). Upgrade to context-sensitive:
->    - HTML escape sanitizes XSS but NOT SQLi — don't suppress SQLi findings that pass through `escapeHtml()`.
->    - Parameterized queries sanitize SQLi but NOT XSS — don't suppress XSS if data passes through `db.query($1, [input])`.
->    - URL encoding sanitizes some path traversal but NOT SSRF.
-> 2. Build a `SanitizerEffectiveness` matrix: sanitizer_name × CWE → {effective, ineffective, partial}.
-> 3. Adjust finding confidence based on sanitizer-CWE match: effective → suppress, ineffective → no change, partial → reduce confidence by 0.3.
-> 4. Detect sanitizer bypass patterns: double encoding, nested contexts (e.g., JSON inside HTML), charset tricks.
-> 5. Tests: verify context-sensitive suppression for each sanitizer-CWE combination.
+`detect/interprocedural.py` (2218 lines): callback chains, promise/await, event emitter, HOF taint propagation, call-graph summaries. `detect/alias.py` (552 lines): property assignment, destructuring, spread tracking. `detect/prototype_pollution.py` (421 lines): CWE-1321 detection, recursive merge tracking. `detect/sanitizer_validation.py` (185 lines): context-sensitive sanitizer-CWE matrix, bypass pattern detection.
 
 ---
 
-## Wave 32 — Reachability + Dead Code Pruning (v1.0)
+## Wave 32 — Reachability + Dead Code Pruning (COMPLETED)
 
-**Deps:** Wave 31 (inter-procedural analysis)
-**Docs:** `docs/PHASE_23_REACHABILITY_AND_DEAD_CODE.md`
-
-### Agent 69: Reachability Analysis
-
-**Prompt:**
-> You are implementing reachability-based finding pruning for Project Piranesi. Read `docs/PHASE_23_REACHABILITY_AND_DEAD_CODE.md` Section 2.
->
-> Implement `src/piranesi/detect/reachability.py`:
-> 1. Build a call graph from Joern CPG: `cpg.method.callOut` edges.
-> 2. Identify entry points: Express route handlers, exported functions, CLI entry points, test functions.
-> 3. Compute reachable set: BFS from entry points over call graph.
-> 4. For each CandidateFinding, check if the source function is reachable from an entry point.
-> 5. Unreachable findings: mark as `reachability: "unreachable"`, reduce severity to `informational`, separate section in report.
-> 6. `--include-unreachable` flag to include them in the main report anyway.
-> 7. Dead code report: list functions never called from any entry point.
-> 8. Tests: fixture with reachable and unreachable vulnerable code, verify pruning.
-
-### Agent 70: Dependency Reachability
-
-**Prompt:**
-> You are implementing dependency-level reachability analysis. Read `docs/PHASE_23_REACHABILITY_AND_DEAD_CODE.md` Section 3.
->
-> Implement `src/piranesi/detect/dep_reachability.py`:
-> 1. For each dependency vulnerability from `detect/dependencies.py`, check if the vulnerable function/module is actually imported and called in the project.
-> 2. Parse import statements and `require()` calls to build a module dependency graph.
-> 3. Cross-reference with the vulnerable function name from the advisory.
-> 4. Mark unreachable dependency vulnerabilities as `reachability: "dep_unreachable"`.
-> 5. This dramatically reduces SCA (Software Composition Analysis) noise.
-> 6. Tests: fixture with a vulnerable dep where the vulnerable function is unused vs used.
+`detect/reachability.py` (461 lines): call-graph BFS from entry points, dead code report, `--include-unreachable` flag. `detect/dep_reachability.py` (799 lines): import/require graph, dependency-level reachability, SCA noise reduction.
 
 ---
 
-## Wave 33 — IDE + Editor Integration (v1.1)
+## Wave 33 — IDE + Editor Integration (COMPLETED)
 
-**Deps:** Wave 24 (SARIF output)
-**Parallel agents:** Yes — LSP, watch mode, and pre-commit are independent
-**Docs:** `docs/PHASE_24_IDE_AND_EDITOR_INTEGRATION.md`
-
-### Agent 71: Language Server Protocol (LSP) Adapter
-
-**Prompt:**
-> You are implementing an LSP adapter for Project Piranesi. Read `docs/PHASE_24_IDE_AND_EDITOR_INTEGRATION.md` Section 2.
->
-> Implement `src/piranesi/lsp/server.py`:
-> 1. LSP server using `pygls` (Python LSP library). Runs as a subprocess.
-> 2. On `textDocument/didSave`: trigger incremental scan on the saved file.
-> 3. Publish diagnostics: map findings to LSP `Diagnostic` objects with severity, CWE code, taint path in `relatedInformation`.
-> 4. Code actions: for findings with patches, offer "Apply Piranesi fix" as a code action.
-> 5. Hover information: on hover over a taint source/sink, show finding summary.
-> 6. Configuration: `piranesi.toml` `[lsp]` section: `enabled`, `scan_on_save`, `debounce_ms`.
-> 7. `piranesi lsp` CLI command to start the LSP server.
-> 8. Tests: mock LSP client, verify diagnostics published on file save.
->
-> Add `pygls>=1.3.0` to optional deps (`[project.optional-dependencies] lsp = [...]`).
-
-### Agent 72: Watch Mode + File Watcher
-
-**Prompt:**
-> You are implementing watch mode for Project Piranesi. Read `docs/PHASE_24_IDE_AND_EDITOR_INTEGRATION.md` Section 3.
->
-> Implement `src/piranesi/watch.py`:
-> 1. `piranesi watch <dir>` CLI command: start a file watcher (using `watchfiles` library).
-> 2. On file change: debounce (500ms default), trigger incremental scan on changed files.
-> 3. Terminal UI (Rich Live display): show current findings count, last scan time, changed files.
-> 4. `--filter <glob>` to only watch specific patterns.
-> 5. `--on-finding <cmd>` hook: execute a shell command when new findings appear (e.g., desktop notification).
-> 6. Ctrl+C graceful shutdown with summary.
-> 7. Tests: mock file watcher events, verify incremental scan triggered.
->
-> Add `watchfiles>=0.21.0` to optional deps.
-
-### Agent 73: Git Pre-Commit Hook
-
-**Prompt:**
-> You are implementing a git pre-commit hook for Project Piranesi. Read `docs/PHASE_24_IDE_AND_EDITOR_INTEGRATION.md` Section 4.
->
-> Implement `src/piranesi/hooks/pre_commit.py`:
-> 1. `piranesi hook install` CLI command: write `.git/hooks/pre-commit` script that runs `piranesi run --incremental --fail-severity high` on staged files.
-> 2. `piranesi hook uninstall` CLI command: remove the hook.
-> 3. Pre-commit framework integration: generate `.pre-commit-hooks.yaml` for use with `pre-commit` tool.
-> 4. Staged-only scanning: only scan files in `git diff --cached --name-only`.
-> 5. `--hook-timeout <seconds>` config option (default 60s) — skip scan if it takes too long for a smooth dev experience.
-> 6. `[hooks]` section in `piranesi.toml`: `pre_commit = true`, `fail_severity = "high"`, `timeout = 60`.
-> 7. Tests: mock git staged files, verify only staged files scanned.
+`lsp/server.py` (820 lines): pygls-based LSP adapter, diagnostics on save, code actions, hover info. `watch.py` (525 lines): file watcher with debounce, Rich live display, `--on-finding` hook. `hooks/pre_commit.py` (165 lines): `piranesi hook install/uninstall`, `.pre-commit-hooks.yaml`, staged-only scanning.
 
 ---
 
-## Wave 34 — Advanced Reporting + Trend Analysis (v1.1)
+## Wave 34 — Advanced Reporting + Trend Analysis (COMPLETED)
 
-**Deps:** Wave 22 (baselines), Wave 24 (output formats)
-**Parallel agents:** Yes — trends, HTML, and compliance are independent
-**Docs:** `docs/PHASE_25_ADVANCED_REPORTING.md`
-
-### Agent 74: Historical Trend Analysis
-
-**Prompt:**
-> You are implementing historical trend analysis for Project Piranesi. Read `docs/PHASE_25_ADVANCED_REPORTING.md` Section 2.
->
-> Implement `src/piranesi/report/trends.py`:
-> 1. `piranesi trends <output_dir>` CLI command: scan all baseline artifacts in output_dir, compute historical metrics.
-> 2. Metrics: findings over time (total, by severity, by CWE), fix rate (findings resolved per scan), mean time to fix (from first detection to resolution), new finding velocity.
-> 3. Output: JSON time series (`trends.json`) + terminal sparkline chart (Rich).
-> 4. `--since <date>` and `--until <date>` filters.
-> 5. Trend alerts: if finding count increases >20% between scans, print warning.
-> 6. Tests: create 5 baseline artifacts with varying findings, verify trend computation.
-
-### Agent 75: TUI Report Viewer with Taint Visualization
-
-**Prompt:**
-> You are implementing an interactive TUI report viewer for Project Piranesi. Read `docs/PHASE_25_ADVANCED_REPORTING.md` Section 3.
->
-> Implement `src/piranesi/report/tui.py`:
-> 1. `--format tui` output option using `textual` (optional dep in `piranesi[tui]`).
-> 2. Finding list with vim-style navigation (j/k scroll, / search, Enter expand, q quit).
-> 3. Finding detail panel: severity, CWE, taint path (source → steps → sink), confidence, confirmation status.
-> 4. Keybindings: p=patch, l=legal, r=reproducer, s=suppress, e=export markdown, f=filter.
-> 5. Filter by severity, CWE, file — cycle with `f` key.
-> 6. Non-TTY fallback: when stdout is piped, fall back to `--format markdown`.
-> 7. When `textual` not installed, fall back to Rich tables (non-interactive).
-> 8. Tests: verify non-TTY fallback, verify finding count, mock textual app for keybinding dispatch.
-
-### Agent 76: Compliance Dashboard (CLI/TUI)
-
-**Prompt:**
-> You are implementing a compliance-focused CLI report for Project Piranesi. Read `docs/PHASE_25_ADVANCED_REPORTING.md` Section 4.
->
-> Implement `src/piranesi/report/compliance.py`:
-> 1. `--format compliance` output option — Rich tables to stdout (pipe-safe).
-> 2. Regulatory coverage matrix: Rich table with findings × frameworks (GDPR, CCPA, HIPAA, NIS2, PDPA, EU AI Act, MAS TRM).
-> 3. Per-framework Rich panel: total findings, severity breakdown, obligations, notification timelines, penalty exposure.
-> 4. Gap analysis: OWASP Top 10 coverage table showing blind spots.
-> 5. `--attestation` flag: output pre-filled Markdown attestation to stdout (redirect to file). Includes legal disclaimer.
-> 6. `--tui` flag: interactive TUI compliance dashboard (navigate by framework, drill into findings). Requires `piranesi[tui]`.
-> 7. Tests: verify compliance output includes all active regulatory frameworks, verify attestation metadata.
+`report/trends.py` (383 lines): historical metrics, fix rate, sparkline charts, trend alerts. `report/tui.py` (741 lines): Textual TUI with vim-style navigation, taint path visualization, filter/search/export. `report/compliance.py` (583 lines): regulatory coverage matrix, gap analysis, attestation generation.
 
 ---
 
-## Parallelization Summary (Full Roadmap)
+## Parallelization Summary (Waves 1-34)
 
 | Wave | Milestone | Agents | Parallel? | Target |
 |------|-----------|--------|-----------|--------|
@@ -886,9 +618,395 @@ All waves 1-28 (phases 0-19) are implemented. The following phases define the ne
 | 33 | IDE integration | 71-73 | 3 parallel | v1.1 |
 | 34 | Advanced reporting | 74-76 | 3 parallel | v1.1 |
 
+All waves 1-34 (phases 0-25) are **COMPLETE**. Current stats: 99 source files, ~101K LOC, 523 tests, 186 ground truth entries across 12 CWE classes, 11 CLI commands, 7 regulatory frameworks.
+
+---
+
+# Next Phases — v1.0 → v2.0 Roadmap
+
+**Priority order:** Web vuln gap closure → Depth → Ground truth → Compliance → Language breadth
+
+**Known gap (OWASP Top 10 2021):** Current 12 CWEs are strong on injection/traversal but miss A01 (Broken Access Control: IDOR, CSRF, privilege escalation), A02 (Cryptographic Failures: weak crypto, cleartext transport), A07 (Auth Failures: broken auth, session fixation), and injection variants (NoSQL, SSTI, ReDoS, LDAP). Phases 26-28 close these gaps.
+
+---
+
+## Wave 35 — Web Vulnerability Gap Closure (v1.0)
+
+**Deps:** Wave 28 (OWASP additional patterns)
+**Parallel agents:** Yes — all 3 phases are independent (different CWE families)
+**Docs:** `docs/PHASE_26_WEB_VULN_AUTH_ACCESS.md`, `docs/PHASE_27_WEB_VULN_INJECTION_VARIANTS.md`, `docs/PHASE_28_WEB_VULN_CRYPTO_TRANSPORT.md`
+
+### Agent 77: Auth & Access Control Detection (Phase 26)
+
+**Prompt:**
+> You are implementing authentication and access control vulnerability detection for Project Piranesi. Read `docs/PHASE_26_WEB_VULN_AUTH_ACCESS.md`.
+>
+> Implement `src/piranesi/detect/auth_access.py`:
+> 1. CSRF detection (CWE-352): identify POST/PUT/DELETE handlers without CSRF middleware in the middleware chain. Framework-specific: Express `csurf`, NestJS `@Guard`, Django `csrf_exempt` detection, Flask WTForms, Spring `CsrfFilter`.
+> 2. IDOR detection (CWE-639): heuristic — route param `:id` flows to `db.find(id)` without ownership check (`WHERE user_id = session.user`). Confidence 0.5-0.6 due to high FP risk.
+> 3. Broken auth (CWE-287): JWT `alg=none` acceptance, symmetric/asymmetric confusion, missing expiry validation, password comparison without timing-safe equality, cookie without `httpOnly`/`secure`/`sameSite`.
+> 4. Session fixation (CWE-384): session not regenerated after auth (`req.session.regenerate` absence after login).
+> 5. Mass assignment (CWE-915): `Model.create(req.body)` without field allowlist — Sequelize, Mongoose, Prisma, Django ModelForm, Spring `@RequestBody`.
+> 6. Privilege escalation (CWE-269): admin routes without auth middleware, heuristic `/admin/*` path matching.
+> 7. Missing auth for critical function (CWE-306): sensitive endpoints (user deletion, password reset, payment) without auth middleware.
+> 8. Add all specs to `scan/specs.py`. Tests: 35+ GT entries (5 per CWE), both vulnerable and safe patterns.
+
+### Agent 78: Injection Variant Detection (Phase 27)
+
+**Prompt:**
+> You are implementing injection variant detection for Project Piranesi. Read `docs/PHASE_27_WEB_VULN_INJECTION_VARIANTS.md`.
+>
+> Implement:
+> 1. `src/piranesi/detect/injection_variants.py` — taint-based detection for:
+>    - CWE-943 NoSQL injection: user input → MongoDB `find({field: input})`, `$where`, `$regex` operator injection. Sinks: Mongoose `Model.find(req.body)`, MongoDB native driver, PyMongo, mgo, Spring Data MongoDB. Sanitizer: mongo-sanitize, schema validation.
+>    - CWE-1336 SSTI: user input → template engine `compile(userInput)` or `Template(user_input).render()`. Cover Handlebars, EJS, Pug, Nunjucks, Jinja2, Mako, Thymeleaf, Freemarker. Key: `Template(user_string)` is vulnerable, `template.render(context={key: user_string})` is safe.
+>    - CWE-90 LDAP injection: user input concatenated into LDAP filter string. Sinks: `ldap.search(filter)`, `ldapjs`, `python-ldap`, `go-ldap`.
+>    - CWE-113 HTTP header injection: user input → `res.setHeader()`, `res.redirect()` without CRLF stripping.
+>    - CWE-917 Expression language injection: SpEL, OGNL, MVEL — `ExpressionParser.parseExpression(userInput)`.
+>    - CWE-643 XPath injection: user input concatenated into XPath query.
+> 2. `src/piranesi/detect/redos.py` — static regex analysis for CWE-1333:
+>    - Scan all regex literals and `new RegExp()` calls.
+>    - Detect catastrophic backtracking: nested quantifiers `(a+)+`, overlapping alternations.
+>    - Also taint: `new RegExp(userInput)` = regex injection.
+> 3. All specs in `scan/specs.py`. Tests: 35+ GT entries total.
+
+### Agent 79: Crypto & Transport Detection (Phase 28)
+
+**Prompt:**
+> You are implementing cryptographic and transport security detection for Project Piranesi. Read `docs/PHASE_28_WEB_VULN_CRYPTO_TRANSPORT.md`.
+>
+> Implement `src/piranesi/detect/crypto_transport.py`:
+> 1. Weak crypto (CWE-327/328): pattern scan for MD5, SHA1, DES, 3DES, RC4, ECB mode in security contexts. JS: `crypto.createHash('md5')`, `CryptoJS.MD5()`. Python: `hashlib.md5()`. Go: `crypto/md5`. Java: `MessageDigest.getInstance("MD5")`. Context-sensitive: MD5 for file checksums should NOT trigger.
+> 2. Inadequate key length (CWE-326): RSA < 2048, EC < 256, AES < 128.
+> 3. Cleartext transmission (CWE-319): `http://` in fetch/axios/request (excluding localhost), TLS < 1.2, `rejectUnauthorized: false`.
+> 4. Improper cert validation (CWE-295): `rejectUnauthorized: false`, `verify=False`, `InsecureSkipVerify: true`, custom TrustManager accepting all certs.
+> 5. Weak PRNG (CWE-338): `Math.random()` flowing to token/key/nonce generation. Taint: `Math.random()` → security-sensitive sink.
+> 6. JWT verification issues (CWE-347): `alg=none`, missing `algorithms` option, symmetric/asymmetric confusion, hardcoded secret.
+> 7. All specs in `scan/specs.py`. Tests: 40+ GT entries. Both vulnerable and safe patterns per CWE.
+
+---
+
+## Wave 36 — Ground Truth Research III: CVE Mining (v1.0)
+
+**Deps:** Wave 35 (new CWE specs must exist before GT for them)
+**Parallel agents:** Yes — 3 agents mining different CWE tiers simultaneously
+**Docs:** `docs/PHASE_29_GROUND_TRUTH_CVE_MINING.md`
+
+### Agent 80: Tier 1 CVE Mining — Core Injection CWEs
+
+**Prompt:**
+> You are expanding ground truth for Project Piranesi's core injection CWEs. Read `docs/PHASE_29_GROUND_TRUTH_CVE_MINING.md` Section 3 Tier 1.
+>
+> Tasks:
+> 1. Mine NVD/GHSA for real-world CVEs affecting TypeScript/JavaScript web apps for CWE-89 (SQLi), CWE-79 (XSS), CWE-78 (CmdInj), CWE-22 (PathTraversal).
+> 2. For each CVE: locate the fix commit, extract vulnerable code (parent commit), create minimal fixture (< 100 lines).
+> 3. Target: 40 new entries (10 per CWE) — focus on complex, multi-step, and inter-procedural patterns the existing GT doesn't cover.
+> 4. Include `cve_id`, `ghsa_id`, `fix_commit` fields in YAML entries.
+> 5. Both TP and FP entries (correctly patched versions = FP entries).
+> 6. Write entries as `eval/ground_truth/gt-187.yaml` through `gt-226.yaml`. Fixtures in `eval/cve_fixtures/`.
+> 7. Validate each fixture compiles and is self-contained.
+
+### Agent 81: Tier 2 CVE Mining — New CWE Categories
+
+**Prompt:**
+> You are creating ground truth for newly added CWE categories in Project Piranesi. Read `docs/PHASE_29_GROUND_TRUTH_CVE_MINING.md` Section 3 Tier 2.
+>
+> Tasks:
+> 1. Mine NVD/GHSA for CVEs matching: CWE-352 (CSRF), CWE-943 (NoSQL injection), CWE-327 (Weak crypto), CWE-502 (Deserialization), CWE-287 (Broken auth), CWE-1336 (SSTI), CWE-338 (Weak PRNG), CWE-295 (Cert validation).
+> 2. Target: 50 new entries (~6 per CWE).
+> 3. Focus on real CVEs from popular npm packages, Python libs, Go modules, Java Spring apps.
+> 4. Include CVE references, fix commits, minimal fixtures.
+> 5. Write entries as `eval/ground_truth/gt-227.yaml` through `gt-276.yaml`.
+
+### Agent 82: Tier 3 CVE Mining — Complex Patterns + Tooling
+
+**Prompt:**
+> You are creating complex-pattern ground truth and mining tooling for Project Piranesi. Read `docs/PHASE_29_GROUND_TRUTH_CVE_MINING.md` Sections 3 (Tier 3), 5.
+>
+> Tasks:
+> 1. Create 30 GT entries for complex patterns: multi-step vulns (3+ taint steps), cross-module flows, second-order injection (stored → retrieved → sink), framework-specific patterns (10 per framework: Express, NestJS, Django).
+> 2. Write entries as `eval/ground_truth/gt-277.yaml` through `gt-306.yaml`.
+> 3. Implement `eval/mine_cves.py`: NVD API v2 query script, filter by CWE + language, output candidate list as JSON.
+> 4. Implement `eval/extract_fixture.py`: given GitHub repo + commit range, extract minimal vulnerable code.
+> 5. Implement `eval/validate_fixture.py`: run Piranesi against a fixture, check detection matches GT.
+> 6. Implement `eval/validate_all.py`: batch validate all GT entries, report per-CWE detection rate.
+
+---
+
+## Wave 37 — Ground Truth Research IV: Multi-Language (v1.0)
+
+**Deps:** Wave 25 (multi-language Joern frontends)
+**Parallel agents:** Yes — 3 agents per language ecosystem
+**Docs:** `docs/PHASE_30_GROUND_TRUTH_MULTI_LANG.md`
+
+### Agent 83: Python Ground Truth (Phase 30)
+
+**Prompt:**
+> You are creating Python web security ground truth for Project Piranesi. Read `docs/PHASE_30_GROUND_TRUTH_MULTI_LANG.md` Section 2.
+>
+> Create 50 GT entries:
+> - 15 Flask: SQLi via `db.execute(f"...")`, XSS via `render_template_string()`, SSTI, CmdInj via `subprocess.run(f"...", shell=True)`, SSRF via `requests.get(user_url)`
+> - 15 Django: ORM bypass via `extra()`, `raw()`, mass assignment via ModelForm without `fields`, CSRF exempt views, debug mode detection
+> - 10 FastAPI: request body injection, Pydantic bypass, dependency injection misuse
+> - 10 General Python: `pickle.loads()`, `yaml.load()`, `eval()`, `exec()`, `os.system()`
+> - Each entry: self-contained fixture in `eval/fixtures/python/{framework}/`, YAML in `eval/ground_truth/gt-307.yaml` through `gt-356.yaml`
+
+### Agent 84: Go Ground Truth (Phase 30)
+
+**Prompt:**
+> You are creating Go web security ground truth for Project Piranesi. Read `docs/PHASE_30_GROUND_TRUTH_MULTI_LANG.md` Section 3.
+>
+> Create 40 GT entries:
+> - 12 Gin: SQLi via `db.Raw("..." + c.Query("id"))`, XSS via `c.Writer.Write([]byte(input))`, path traversal via `c.File(c.Param("path"))`, SSRF
+> - 10 Echo: similar patterns, middleware bypass
+> - 8 Chi: auth gaps, middleware analysis
+> - 10 net/http stdlib: direct handler vulns, template injection
+> - Each entry: fixture in `eval/fixtures/go/{framework}/`, YAML in `gt-357.yaml` through `gt-396.yaml`
+
+### Agent 85: Java + Advanced Patterns Ground Truth (Phase 30)
+
+**Prompt:**
+> You are creating Java and advanced-pattern ground truth for Project Piranesi. Read `docs/PHASE_30_GROUND_TRUTH_MULTI_LANG.md` Sections 4, 5.
+>
+> Create 70 GT entries:
+> - 20 Spring Boot: SQLi via JdbcTemplate, SpEL injection, mass assignment, SSRF via RestTemplate, deserialization via ObjectInputStream
+> - 10 Servlet: direct `request.getParameter()` → sink
+> - 10 General Java: `Runtime.exec()`, `ProcessBuilder`, `XMLDecoder`, `ObjectInputStream`
+> - 30 Advanced patterns (any language): race conditions (TOCTOU), second-order injection, multi-step chains (3+ steps), business logic flaws (price manipulation), timing attacks, prototype chain attacks
+> - YAML in `gt-397.yaml` through `gt-466.yaml`
+
+---
+
+## Wave 38 — Analysis Depth: Field-Sensitive Taint (v1.0)
+
+**Deps:** Wave 31 (advanced taint — existing alias/interprocedural analysis)
+**Parallel agents:** 2 — core engine + GT/testing are independent
+**Docs:** `docs/PHASE_31_FIELD_SENSITIVE_TAINT.md`
+
+### Agent 86: Field-Sensitive Taint Engine (Phase 31)
+
+**Prompt:**
+> You are implementing field-sensitive taint tracking for Project Piranesi. Read `docs/PHASE_31_FIELD_SENSITIVE_TAINT.md` Sections 2-6.
+>
+> Implement `src/piranesi/detect/field_taint.py`:
+> 1. Replace binary `tainted: bool` with `taint_labels: dict[str, TaintLabel]` per variable.
+> 2. Propagation rules: property read (`obj.x` → label for "x"), destructuring (`const {x,y} = obj` → separate labels), spread (`{...obj}` → all labels), computed property (`obj[key]` → conservative all).
+> 3. Post-process Joern flows: for each flow step, query AST for property access / destructuring, build field-level flow overlay, prune flows where specific field is NOT tainted at sink.
+> 4. Integration: `detect/flows.py` calls `prune_untainted_fields()` on each CandidateFinding.
+> 5. Performance: only analyze flows where source is multi-field (req.body, req.query). Skip single-field sources.
+> 6. Caching: field summaries per function, reuse across call sites.
+
+### Agent 87: Field-Sensitive GT + Testing (Phase 31)
+
+**Prompt:**
+> You are writing ground truth and tests for field-sensitive taint analysis. Read `docs/PHASE_31_FIELD_SENSITIVE_TAINT.md` Sections 7-8.
+>
+> Tasks:
+> 1. 20+ fixtures in `tests/fixtures/typescript/field_sensitive/`: destructuring with mixed safe/tainted fields, spread with override, nested property access, computed properties, JSON.parse/stringify propagation.
+> 2. 15 new GT entries specifically for field-sensitive patterns in `eval/ground_truth/`.
+> 3. FP reduction benchmark: fixtures that current analysis flags but field-sensitive should not.
+> 4. TP preservation: fixtures that field-sensitive must still detect.
+> 5. Test suite: `tests/test_detect/test_field_taint.py` — verify propagation rules, pruning logic, integration with flows.py.
+
+---
+
+## Wave 39 — Analysis Depth: Symbolic Execution + ML + Incremental CPG (v1.0)
+
+**Deps:** Wave 38 (field-sensitive taint — benefits from precision)
+**Parallel agents:** Yes — all 3 are independent analysis improvements
+**Docs:** `docs/PHASE_32_SYMBOLIC_EXECUTION.md`, `docs/PHASE_33_ML_FP_REDUCTION.md`, `docs/PHASE_34_INCREMENTAL_CPG.md`
+
+### Agent 88: Concolic Execution Engine (Phase 32)
+
+**Prompt:**
+> You are implementing a concolic execution engine for Project Piranesi. Read `docs/PHASE_32_SYMBOLIC_EXECUTION.md`.
+>
+> Implement `src/piranesi/verify/concolic.py`:
+> 1. Input: CandidateFinding with taint path + AST. Execute symbolically along taint path: concrete values where known, Z3 symbolic variables where tainted.
+> 2. At each branch: fork state, add path constraint. At sink: solve all constraints with Z3.
+> 3. JS/TS symbolic semantics: string concat → `Z3.Concat`, `.slice()` → `Z3.SubString`, `.indexOf()` → `Z3.IndexOf`, numeric ops → Z3 arithmetic, type coercion approximation.
+> 4. Loop handling: bounded unrolling (k=3 default), havoc for remaining iterations.
+> 5. Path explosion mitigation: prioritize sink-reaching paths (guided by Joern taint path), merge states at join points with ITE, timeout per finding (120s), max 100 paths.
+> 6. Integration: `solver.py` (fast, simple) → `concolic.py` (slow, thorough) for UNKNOWN findings.
+> 7. Tests: 15+ fixtures with complex path conditions, infeasible path pruning, timeout handling.
+
+### Agent 89: ML FP Classifier (Phase 33)
+
+**Prompt:**
+> You are implementing an ML-based false positive classifier for Project Piranesi. Read `docs/PHASE_33_ML_FP_REDUCTION.md`.
+>
+> Implement:
+> 1. `src/piranesi/triage/ml_classifier.py`: feature extraction (18 features: cwe_id, confidence, taint_path_length, has_sanitizer, source_type, sink_type, framework, etc.), model loading, prediction with calibrated probability.
+> 2. `eval/train_classifier.py`: load GT, extract features, train Random Forest + Logistic Regression + GBT, stratified k-fold CV, optimize for recall >= 95%, serialize to `models/fp_classifier.pkl`.
+> 3. `eval/active_learn.py`: run classifier on unlabeled findings, select uncertain (0.4-0.6 confidence), prompt user for label, retrain.
+> 4. Pipeline integration: ML pre-filter runs BEFORE LLM triage. Config: `[triage] ml_prefilter = true`.
+> 5. `piranesi model info` and `piranesi model train` CLI commands.
+> 6. scikit-learn as dev dependency only — not required for scanning.
+> 7. Tests: feature extraction from mock findings, model train/predict on GT subset, integration test.
+
+### Agent 90: Incremental CPG Engine (Phase 34)
+
+**Prompt:**
+> You are implementing incremental CPG updates for Project Piranesi. Read `docs/PHASE_34_INCREMENTAL_CPG.md`.
+>
+> Implement:
+> 1. `src/piranesi/scan/cpg_diff.py`: function-level AST diffing for changed files, selective Joern re-query for changed functions only.
+> 2. `PiranesiCPG`: lightweight Python graph of {functions, calls, dataflows} extracted from Joern. Cache in `.piranesi-cache/cpg/`. On incremental: update PiranesiCPG, only invoke Joern for new/changed function taint queries.
+> 3. Call graph invalidation: when function F changes, invalidate edges from/to F, taint flows through F, taint summaries for F. Transitive invalidation max depth 3.
+> 4. Cache management: `.piranesi-cache/cpg/{project_hash}/`, LRU eviction at 500MB. `piranesi cache info` and `piranesi cache clear` CLI commands.
+> 5. Correctness invariant: `piranesi scan --verify-incremental` runs both modes and compares. If mismatch: use full scan, invalidate cache.
+> 6. Performance targets: single file change < 3s, 5 files < 10s, 20+ files → full scan fallback.
+> 7. Tests: fixture project, modify 1/5/20 files, verify identical results to full scan, benchmark timing.
+
+---
+
+## Wave 40 — Compliance Expansion (v1.0)
+
+**Deps:** Wave 35 (new CWE detections feed into compliance mappings)
+**Parallel agents:** Yes — all 3 are independent framework mappings
+**Docs:** `docs/PHASE_35_COMPLIANCE_SOC2_PCIDSS.md`, `docs/PHASE_36_COMPLIANCE_ISO_NIST.md`, `docs/PHASE_37_VULN_DB_SYNC.md`
+
+### Agent 91: SOC 2 + PCI-DSS Compliance (Phase 35)
+
+**Prompt:**
+> You are implementing SOC 2 and PCI-DSS compliance mapping for Project Piranesi. Read `docs/PHASE_35_COMPLIANCE_SOC2_PCIDSS.md`.
+>
+> Implement:
+> 1. `src/piranesi/legal/rules/soc2.py` + `rules/soc2.toml`: 15 rules mapping CWE findings to SOC 2 Trust Services Criteria (CC6.1 logical access, CC6.6 external threats, CC6.7 asset restriction, CC6.8 malware, CC7.1 monitoring, CC8.1 change management).
+> 2. `src/piranesi/legal/rules/pci_dss.py` + `rules/pci_dss.toml`: 20 rules mapping to PCI-DSS v4.0 requirements (Req 3.4 stored data, Req 4.1 transit, Req 6.2-6.5 secure dev, Req 8.3 auth, Req 10.2 logs, Req 11.3 scanning).
+> 3. PCI-DSS scope detection: heuristic for payment processing code (keywords: stripe, payment, card, checkout, billing).
+> 4. Evidence generation: `piranesi compliance evidence --framework soc2 --output evidence/`. JSON bundles with finding count, affected files, scan date.
+> 5. Update `report/compliance.py` with SOC 2 and PCI-DSS sections.
+> 6. Tests: 20+ cases mapping findings to correct controls.
+
+### Agent 92: ISO 27001 + NIST CSF + CIS Compliance (Phase 36)
+
+**Prompt:**
+> You are implementing ISO 27001, NIST CSF 2.0, and CIS Benchmarks compliance for Project Piranesi. Read `docs/PHASE_36_COMPLIANCE_ISO_NIST.md`.
+>
+> Implement:
+> 1. `src/piranesi/legal/rules/iso27001.py` + `rules/iso27001.toml`: 18 rules mapping to ISO 27001:2022 Annex A controls (A.8.3 access restriction, A.8.7 malware, A.8.8 vuln management, A.8.24 cryptography, A.8.25 SDL, A.8.28 secure coding).
+> 2. `src/piranesi/legal/rules/nist_csf.py` + `rules/nist_csf.toml`: 15 rules mapping to NIST CSF 2.0 functions (IDENTIFY, PROTECT, DETECT, RESPOND) and subcategories (PR.DS, PR.AC, PR.IP, DE.CM).
+> 3. `src/piranesi/legal/rules/cis.py` + `rules/cis.toml`: 8 rules for CIS Controls v8 (Control 16 Application Security).
+> 4. Maturity scoring (0-5) per framework: `piranesi compliance maturity` CLI. Historical maturity via trends.py.
+> 5. Unified compliance dashboard: update `report/compliance.py` for 10+ total frameworks.
+> 6. Tests: per-framework rule tests, maturity scoring tests.
+
+### Agent 93: Vulnerability Database Live Sync (Phase 37)
+
+**Prompt:**
+> You are implementing a unified vulnerability database for Project Piranesi. Read `docs/PHASE_37_VULN_DB_SYNC.md`.
+>
+> Implement:
+> 1. `src/piranesi/advisory/db.py`: SQLite at `.piranesi-cache/advisory.db`. Schema: advisories (advisory_id, cve_id, ghsa_id, cwe_ids, affected_packages, affected_versions, severity, cvss_score, epss_score, exploit_available, fix_version, source). Incremental sync.
+> 2. Advisory sources: NVD REST API v2, GHSA GraphQL API, OSV REST API, Go vuln DB. Normalize all to common `Advisory` model.
+> 3. EPSS integration: query `api.first.org/data/v1/epss`, enrich advisories. EPSS > 0.5 = "actively exploited risk" label.
+> 4. Exploit availability: check Metasploit modules, PoC-in-GitHub. Labels: none/poc_available/weaponized/in_the_wild.
+> 5. Enhanced dep scanning: parse lockfiles (package-lock.json, yarn.lock, Pipfile.lock, go.sum, pom.xml), query local advisory DB instead of npm audit.
+> 6. Offline mode: `piranesi advisory export/import` for air-gapped environments.
+> 7. `piranesi advisory sync` CLI command.
+> 8. Tests: mock API responses, version range matching, EPSS enrichment.
+
+---
+
+## Wave 41 — Threat Modeling + Context-Sensitive Analysis (v1.1)
+
+**Deps:** Wave 40 (compliance data enriches threat models), Wave 38 (field-sensitive taint)
+**Parallel agents:** Yes — threat modeling and k-CFA are independent
+**Docs:** `docs/PHASE_38_THREAT_MODELING.md`, `docs/PHASE_41_CONTEXT_SENSITIVE_CFA.md`
+
+### Agent 94: Threat Modeling Engine (Phase 38)
+
+**Prompt:**
+> You are implementing automated threat modeling for Project Piranesi. Read `docs/PHASE_38_THREAT_MODELING.md`.
+>
+> Implement:
+> 1. `src/piranesi/threat/stride.py`: CWE → STRIDE mapping table. Classify each finding (Spoofing: CWE-287/306/352, Tampering: CWE-89/79/78/915, Repudiation: CWE-384, Info Disclosure: CWE-22/918/327, DoS: CWE-1333, Elevation: CWE-639/269/502).
+> 2. `src/piranesi/threat/dread.py`: DREAD scoring per finding (Damage, Reproducibility, Exploitability, Affected Users, Discoverability). Normalize 0-10.
+> 3. `src/piranesi/threat/attack_tree.py`: generate attack trees for high-severity findings. Root = attacker goal, branches = steps, leaves = techniques. Output: Markdown, JSON, Mermaid.
+> 4. `src/piranesi/threat/dfd.py`: extract data flow diagrams from Joern call graph. Elements: external entities, processes, data stores, trust boundaries. Output: Mermaid flowchart.
+> 5. `piranesi threat model` CLI: STRIDE classify → DREAD score → top-5 attack trees → DFD → Markdown report.
+> 6. Tests: STRIDE mapping, DREAD scoring, attack tree structure, DFD elements.
+
+### Agent 95: Context-Sensitive Call Graph (Phase 41)
+
+**Prompt:**
+> You are implementing k-CFA context-sensitive call graph analysis for Project Piranesi. Read `docs/PHASE_41_CONTEXT_SENSITIVE_CFA.md`.
+>
+> Implement `src/piranesi/detect/cfa.py`:
+> 1. 1-CFA: separate function summary per call site. Context string: `(caller_method, call_site_line)`.
+> 2. Per-context taint summaries: `TaintSummary` keyed by context. When analyzing `f` called from `a`, only propagate `a`'s taint.
+> 3. Dynamic dispatch resolution: JavaScript `obj.method()` resolved by constructor analysis. TypeScript leverages type annotations. Python MRO approximation.
+> 4. Performance: context budget (max 1000 per function), hot function fallback to 0-CFA, memoization for identical taint states, lazy context splitting.
+> 5. Config: `[detect] context_sensitivity = 1` (0=current, 1=1-CFA, 2=2-CFA). Fallback on time budget exceeded.
+> 6. Integration: replace call graph in `detect/interprocedural.py`.
+> 7. Tests: 15+ fixtures, FP comparison (0-CFA vs 1-CFA), performance benchmark, TP regression check.
+
+---
+
+## Wave 42 — Web Language Breadth: PHP + Ruby (v1.1)
+
+**Deps:** Wave 35 (CWE specs defined), Wave 25 (Joern multi-language)
+**Parallel agents:** Yes — PHP and Ruby are fully independent
+**Docs:** `docs/PHASE_39_PHP_WEB_SECURITY.md`, `docs/PHASE_40_RUBY_RAILS_SECURITY.md`
+
+### Agent 96: PHP Web Security (Phase 39)
+
+**Prompt:**
+> You are implementing PHP web security analysis for Project Piranesi. Read `docs/PHASE_39_PHP_WEB_SECURITY.md`.
+>
+> Implement:
+> 1. PHP source/sink specs in `scan/specs.py`: Sources (`$_GET`, `$_POST`, `$_REQUEST`, `$_COOKIE`, Laravel `$request->input()`, Symfony `$request->get()`). Sinks by CWE: `mysqli_query()`, `echo`, `exec()`, `include()`, `unserialize()`, `curl_exec()`.
+> 2. Framework plugins: Laravel (middleware chain, `$guarded`/`$fillable`, `@csrf`), Symfony (security.yaml, voters), WordPress (`esc_html()`, `wp_nonce_field()`, `$wpdb->prepare()`).
+> 3. PHP-specific: variable variables `$$var`, type juggling `==` vs `===` (CWE-1289), `extract()` mass assignment, deserialization gadget chains (`__wakeup`, `__destruct`).
+> 4. Sanitizer specs: `htmlspecialchars()`, `addslashes()`, PDO prepared statements, `filter_var()`, Laravel `e()`, WordPress `esc_html()`/`esc_attr()`/`esc_url()`.
+> 5. Joern PHP frontend: `php2cpg`. Update `scan/joern.py` LANGUAGE_TO_JOERN_FRONTEND.
+> 6. 25+ GT entries. Fixtures: Laravel app, WordPress plugin, Symfony controller, raw PHP.
+
+### Agent 97: Ruby/Rails Web Security (Phase 40)
+
+**Prompt:**
+> You are implementing Ruby/Rails web security analysis for Project Piranesi. Read `docs/PHASE_40_RUBY_RAILS_SECURITY.md`.
+>
+> Implement:
+> 1. Ruby source/sink specs: Sources (`params`, `request.body`, `cookies`, `ENV`). Sinks: ActiveRecord `.where("name = '#{params}'")`, `.find_by_sql()`, `raw()` helper, `html_safe`, `system()`, `IO.popen()`, `File.read(params[:path])`, `Marshal.load()`, `YAML.load()`.
+> 2. Rails-specific: Strong Parameters analysis (`params.require().permit()` vs `permit!`), CSRF `protect_from_forgery` checks, `skip_before_action :verify_authenticity_token` detection, render injection `render params[:action]`.
+> 3. Sanitizers: ERB auto-escaping `<%= %>`, `sanitize()`, `ActiveRecord::Base.sanitize_sql()`, `permit()`.
+> 4. Gem vulnerability scanning: parse `Gemfile.lock`, query advisory DB (Phase 37) + Ruby Advisory Database.
+> 5. Joern Ruby frontend: `rubysrc2cpg`. Update `scan/joern.py`.
+> 6. 20+ GT entries. Fixtures: Rails controller, Sinatra app, raw Ruby.
+
+---
+
+## Parallelization Summary (Full Roadmap)
+
+| Wave | Milestone | Agents | Parallel? | Target |
+|------|-----------|--------|-----------|--------|
+| 1-7 | Core pipeline (Phases 0-6) | 3-24 | Mixed | v0.1.0 |
+| 8-19 | Hardening + expansion | 25-45 | Mixed | v0.1.x |
+| 20 | v0.2.0 release | — | Sequential | v0.2.0 |
+| 21-28 | Incremental, OWASP, multi-lang | 46-60 | Mixed | v0.2.x |
+| 29-34 | Monorepo, rules, taint, LSP, reporting | 61-76 | Mixed | v1.0/1.1 |
+| **35** | **Web vuln gap closure** | **77-79** | **3 parallel** | **v1.0** |
+| **36** | **Ground truth CVE mining** | **80-82** | **3 parallel** | **v1.0** |
+| **37** | **Ground truth multi-language** | **83-85** | **3 parallel** | **v1.0** |
+| **38** | **Field-sensitive taint** | **86-87** | **2 parallel** | **v1.0** |
+| **39** | **Symbolic exec + ML + incr CPG** | **88-90** | **3 parallel** | **v1.0** |
+| **40** | **Compliance expansion** | **91-93** | **3 parallel** | **v1.0** |
+| **41** | **Threat modeling + k-CFA** | **94-95** | **2 parallel** | **v1.1** |
+| **42** | **PHP + Ruby** | **96-97** | **2 parallel** | **v1.1** |
+
 **Maximum parallelism for next sprints:**
-- v1.0: Waves 29+30+31+32 can all run simultaneously (10 agents). Wave 32 depends on 31 completing first.
-- v1.1: Waves 33+34 can run simultaneously (6 agents). Both are independent of each other.
+- **Sprint 1 (v1.0 foundation):** Wave 35 — 3 agents (web vuln gaps). Independent, no deps.
+- **Sprint 2 (v1.0 GT + depth):** Waves 36+37+38 can run simultaneously (8 agents). Wave 36/37 depend on Wave 35 specs. Wave 38 depends on Wave 31.
+- **Sprint 3 (v1.0 analysis + compliance):** Waves 39+40 run simultaneously (6 agents). Wave 39 benefits from Wave 38 precision. Wave 40 benefits from Wave 35 CWEs.
+- **Sprint 4 (v1.1 ecosystem):** Waves 41+42 run simultaneously (4 agents). Both independent.
 
-**Critical path to v1.0:** Wave 31 (advanced taint) → Wave 32 (reachability). Everything else is independent.
+**Critical path to v1.0:** Wave 35 (web vuln gaps) → Wave 36/37 (GT) → Wave 38 (field taint) → Wave 39 (depth). Compliance (Wave 40) runs in parallel with depth.
 
+**Total new agents:** 21 (agents 77-97)
+**Total new phases:** 16 (phases 26-41)
+**Target CWE expansion:** 12 → 25+ CWE classes
+**Target GT expansion:** 186 → 466+ entries
+**Target compliance frameworks:** 7 → 12+
+**Target languages:** 4 → 6 (adding PHP, Ruby)
