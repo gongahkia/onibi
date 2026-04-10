@@ -465,379 +465,367 @@ Expanded from 20 to 50 entries (36 TPs + 14 FPs) across 5 CWE categories.
 
 ---
 
-## Wave 12 — SARIF Output + Docker Image + CI Docs (v0.2.0)
+## Wave 12 — SARIF Output + Docker Image + CI Docs (COMPLETED)
 
-**Deps:** Wave 8 complete
-**Parallel agents:** Yes — SARIF and Docker/docs are independent
-
-### Agent 25: SARIF Report Generator
-
-**Docs:** `docs/PHASE_7_SARIF_AND_GITHUB.md` (Section 2)
-
-**Prompt:**
-> You are implementing SARIF 2.1.0 report output for Project Piranesi. Read `docs/PHASE_7_SARIF_AND_GITHUB.md` Section 2.
->
-> Implement:
-> 1. `src/piranesi/report/sarif.py` — Convert `PiranesiReport` to SARIF 2.1.0 JSON. Map: ConfirmedFinding → result, vuln_class → ruleId, severity → level, taint_path → codeFlows[].threadFlows[].locations[], source/sink → locations/relatedLocations, exploit_payload → message, patch_diff → fixes[].artifactChanges[], LegalAssessment → result.properties.regulatory (property bag), Piranesi version → run.tool.driver.version.
-> 2. Build `tool.driver.rules[]` from CWE definitions — one `reportingDescriptor` per CWE found. Include `shortDescription`, `fullDescription`, `helpUri` (cwe.mitre.org link), tags (owasp mapping).
-> 3. Add `--format sarif` option to CLI — update `cli.py` to support `sarif` in the format enum. When sarif, write `{output_dir}/report.sarif.json`.
-> 4. Tests in `tests/test_report/test_sarif.py`: validate output against SARIF 2.1.0 JSON schema (use `jsonschema`). Test code flow mapping preserves taint path order. Test all severity levels. Test regulatory properties in property bags.
->
-> Read `src/piranesi/report/renderer.py` for the existing report model. Read `src/piranesi/models/finding.py` for data model shapes.
-
-### Agent 26: Docker Runtime Image + CI Integration Docs
-
-**Docs:** `docs/PHASE_7_SARIF_AND_GITHUB.md` (Sections 3, 4)
-
-**Prompt:**
-> You are building the Docker runtime image and CI integration documentation for Project Piranesi. Read `docs/PHASE_7_SARIF_AND_GITHUB.md` Sections 3 and 4.
->
-> IMPORTANT: Piranesi is a provider-agnostic local CLI tool. It does NOT ship GitHub Actions, PR bots, or any provider-specific integrations. Users clone repos and run `piranesi run ./path` locally or in their own CI pipelines.
->
-> Implement:
-> 1. `Dockerfile` at project root — production Docker runtime image with Joern + JVM + Piranesi pre-installed. Base: `eclipse-temurin:17-jre-jammy`. Install Python 3.12+, Node.js, Joern, Piranesi. Set `ENTRYPOINT ["piranesi"]`. Users run: `docker run --rm -v $(pwd):/workspace ghcr.io/gongahkia/piranesi:latest run /workspace --authorized --yes`.
-> 2. `docs/ci-integration.md` — provider-agnostic CI integration guide. Include copy-pasteable configuration snippets for: GitHub Actions (pip install + run + optional SARIF upload), GitLab CI (Docker image + artifacts), generic CI (bare CLI invocation), Docker-based CI (mount volume). Document the fail-on-findings pattern (exit code 1 = findings detected). Document SARIF consumption by various tools (VS Code, DefectDojo, SonarQube). NO provider-specific code in the Piranesi codebase.
-> 3. Test: verify Dockerfile builds successfully. Verify `piranesi --version` works inside the container.
+SARIF 2.1.0 report generator (`report/sarif.py`, 349 lines), CWE metadata (`report/cwe.py`, 121 lines), Docker runtime image, CI integration docs. Tests: 261 lines.
 
 ---
 
-## Wave 13 — False Positive Reduction (v0.2.0)
+## Wave 13 — False Positive Reduction (COMPLETED)
 
-**Deps:** Wave 11 (ground truth for measurement)
-**Parallel agents:** Yes — SSRF, sanitizers, and pruning are independent
-
-### Agent 27: SSRF Sink Query Refinement
-
-**Docs:** `docs/PHASE_8_FP_REDUCTION.md` (Section 2)
-
-**Prompt:**
-> You are fixing SSRF false positives in Project Piranesi. Read `docs/PHASE_8_FP_REDUCTION.md` Section 2.
->
-> The problem: NodeGoat benchmark produces 17 SSRF false positives because Piranesi flags ANY call to `fetch()`/`axios.get()`/`http.get()` where any argument is tainted, even when the URL itself is hardcoded.
->
-> Implement:
-> 1. Update `src/piranesi/scan/specs.py` — split SSRF sinks into `ssrf_full_url` (user controls entire URL, severity HIGH) and `ssrf_path_segment` (user controls path/query only, severity MEDIUM).
-> 2. Update `src/piranesi/scan/queries.py` — add CPGQL query to check if the FIRST argument to `fetch`/`axios`/`http.get` is tainted (not just any argument). Add pattern: if URL is a template literal with hardcoded scheme+host, classify as `ssrf_path_segment`.
-> 3. Add 5+ ground truth entries in `eval/ground_truth/` for SSRF edge cases (hardcoded base + tainted path, URL from allowlist, protocol validation).
-> 4. Measure before/after on NodeGoat: target <= 3 SSRF FPs (down from 17).
-> 5. Tests: verify refined queries distinguish full-URL SSRF from path-segment SSRF.
-
-### Agent 28: Framework Sanitizer Recognition
-
-**Docs:** `docs/PHASE_8_FP_REDUCTION.md` (Section 3)
-
-**Prompt:**
-> You are adding framework sanitizer recognition to Project Piranesi. Read `docs/PHASE_8_FP_REDUCTION.md` Section 3.
->
-> Implement:
-> 1. Add new `SanitizerSpec` entries to `src/piranesi/scan/specs.py` for: `validator.escape()`, `sanitizeHtml()`, `DOMPurify.sanitize()`, `sqlstring.escape()`, pg parameterized queries (`$1` placeholder), `path.resolve()+startsWith()`, `parseInt()`/`Number()`, `encodeURIComponent()`. Each spec has: name, CPGQL pattern, mitigates (list of CWE IDs), confidence (0.0-1.0).
-> 2. Update `src/piranesi/detect/flows.py` — when extracting flows, check if the taint path passes through any sanitizer pattern. If yes, reduce finding confidence proportional to sanitizer confidence.
-> 3. Tests: hand-crafted fixtures with each sanitizer pattern. Verify sanitized flows get reduced confidence. Verify unsanitized flows are unaffected.
-
-### Agent 29: Taint Path Pruning Heuristics
-
-**Docs:** `docs/PHASE_8_FP_REDUCTION.md` (Section 4)
-
-**Prompt:**
-> You are implementing taint path pruning heuristics for Project Piranesi. Read `docs/PHASE_8_FP_REDUCTION.md` Section 4.
->
-> Implement three pruning heuristics in `src/piranesi/detect/flows.py`:
-> 1. **Dead code pruning**: If a taint path passes through a branch with a statically-false condition (`if (false)`, `if (0)`, `if ("")`), prune the path. Use Joern's `isCallTo` and `controlledBy` to detect.
-> 2. **Type narrowing pruning**: If a taint path passes through `typeof x === 'number'` or `Number.isInteger(x)`, and the sink expects a string (SQL concatenation, HTML output), prune the path. The type check prevents string-based injection.
-> 3. **Allowlist pruning**: Detect patterns like `const allowed = [...]; if (!allowed.includes(input)) return;` — the allowlist bounds the input space. If found on the path, reduce confidence to 0.1.
-> 4. Tests for each heuristic with positive and negative cases.
+SSRF sink specs split, framework sanitizer specs added for NestJS/Next.js/Fastify, taint path confidence scoring.
 
 ---
 
-## Wave 14 — Ground Truth Research (v0.2.0)
+## Wave 14 — Ground Truth Research (COMPLETED)
 
-**Deps:** Wave 11 (extends existing ground truth)
-**Parallel agents:** Yes — each source application is independent
-
-### Agent 30: Juice Shop Ground Truth
-
-**Prompt:**
-> You are extracting ground truth vulnerability data from OWASP Juice Shop for Project Piranesi's evaluation harness. Read `docs/PHASE_9_GROUND_TRUTH_RESEARCH.md` Section 4.
->
-> 1. Research OWASP Juice Shop (https://github.com/juice-shop/juice-shop) — it's an Express + Angular app with 100+ intentional vulnerabilities.
-> 2. Identify all backend-relevant taint flows (SQLi, XSS, CMDi, path traversal, SSRF, code injection) in the Express API routes.
-> 3. For each vulnerability found, create a YAML ground truth entry following the schema in `eval/ground_truth/schema.py`. Pin to a specific commit hash. Include exact file paths, line numbers, taint source, taint sink, and complete taint path.
-> 4. Target: 20+ entries from Juice Shop (mix of TPs and FPs).
-> 5. Write entries as `eval/ground_truth/gt-051.yaml` onward (continuing from existing numbering).
-
-### Agent 31: DVNA + CVE Mining Ground Truth
-
-**Prompt:**
-> You are extracting ground truth from DVNA and public CVEs for Project Piranesi. Read `docs/PHASE_9_GROUND_TRUTH_RESEARCH.md` Sections 3 and 4.
->
-> 1. Research Damn Vulnerable NodeJS Application (DVNA) — identify all taint flows beyond what's already in ground truth.
-> 2. Mine npm advisory database and Snyk vulnerability DB for real Express/Koa/Fastify CVEs with known taint flows. For each: clone the affected package at the vulnerable commit, identify the taint path, document as YAML.
-> 3. Target: 15+ entries from DVNA, 10+ entries from CVEs.
-> 4. Ensure diverse CWE coverage — prioritize CWE categories with < 15 entries.
-
-### Agent 32: Synthetic Edge Cases + FP Expansion
-
-**Prompt:**
-> You are creating synthetic test cases for Piranesi's evaluation harness. Read `docs/PHASE_9_GROUND_TRUTH_RESEARCH.md` Section 3.3.
->
-> Create hand-crafted TypeScript files in `eval/synthetic/` for edge cases:
-> 1. **TP edge cases**: nested template literals, dynamic property access (`obj[key]`), spread operators, destructuring, optional chaining with tainted values, async/await patterns, Promise.all with mixed taint, callback-based flows (fs.readFile callback).
-> 2. **FP patterns**: every sanitizer from Phase 8 (escape-html, DOMPurify, parameterized queries, parseInt, Number(), path containment), plus: allowlist guards, enum validation, schema validation (Joi, Zod), TypeScript type narrowing.
-> 3. For each file, create a corresponding YAML ground truth entry.
-> 4. Target: 15+ TP edge cases, 15+ FP patterns.
+149 entries (113 TPs + 36 FPs) across 7 CWE categories. 80+ synthetic TypeScript fixtures in `eval/synthetic/`.
 
 ---
 
-## Wave 15 — Multi-Framework TS/JS (v0.3.0)
+## Wave 15 — Multi-Framework TS/JS (COMPLETED)
 
-**Deps:** Wave 13 (clean FP baseline)
-**Parallel agents:** Yes — each framework is independent
-
-### Agent 33: NestJS Framework Support
-
-**Docs:** `docs/PHASE_10_MULTI_FRAMEWORK_TS.md` (Sections 2, 3)
-
-**Prompt:**
-> You are adding NestJS framework support to Project Piranesi. Read `docs/PHASE_10_MULTI_FRAMEWORK_TS.md` Sections 2 and 3.
->
-> Implement:
-> 1. `src/piranesi/scan/framework.py` — framework detection: check `package.json` for `@nestjs/core` in dependencies. Return `"nestjs"` in detected frameworks list.
-> 2. Add NestJS source specs to `scan/specs.py`: `@Body()` → request_body, `@Param('id')` → request_param, `@Query('q')` → url_param, `@Headers('auth')` → header, `@Req()` → request_body. CPGQL patterns match decorator annotations on method parameters.
-> 3. Update transpilation: ensure `experimentalDecorators: true` and `emitDecoratorMetadata: true` in generated tsconfig.
-> 4. Add 5+ NestJS ground truth entries (TypeORM raw query SQLi, decorator-sourced XSS, service-layer CMDi).
-> 5. Tests: NestJS fixture app with known vulnerabilities. Verify sources detected through decorators.
->
-> Do NOT implement deep NestJS features (DI container taint tracking, guard/pipe analysis, interceptor chains) — those are Phase 14.
-
-### Agent 34: Next.js API Route Support
-
-**Docs:** `docs/PHASE_10_MULTI_FRAMEWORK_TS.md` (Section 4)
-
-**Prompt:**
-> You are adding Next.js API route support to Project Piranesi. Read `docs/PHASE_10_MULTI_FRAMEWORK_TS.md` Section 4.
->
-> Implement:
-> 1. Framework detection: check for `next` in `package.json` + `next.config.*` exists.
-> 2. Route discovery: detect API routes by file path convention — `pages/api/**/*.{ts,js}` (Pages Router), `app/**/route.{ts,js}` (App Router), `app/**/actions.{ts,js}` (Server Actions).
-> 3. Source specs: Pages Router `req.body`/`req.query`, App Router `request.json()`/`request.text()`/`request.formData()`/`request.headers`/`NextRequest.nextUrl.searchParams`, Server Actions `FormData.get()`.
-> 4. Add 5+ Next.js ground truth entries (Server Action SQLi, API route path traversal, SSR XSS).
-> 5. Tests: Next.js fixture with Pages Router and App Router API routes.
-
-### Agent 35: Fastify Framework Support
-
-**Docs:** `docs/PHASE_10_MULTI_FRAMEWORK_TS.md` (Section 5)
-
-**Prompt:**
-> You are adding Fastify framework support to Project Piranesi. Read `docs/PHASE_10_MULTI_FRAMEWORK_TS.md` Section 5.
->
-> Implement:
-> 1. Framework detection: check `package.json` for `fastify`.
-> 2. Source specs: `request.body`, `request.params`, `request.query`, `request.headers`.
-> 3. Sink specs: `reply.send()`, `reply.header()`.
-> 4. Sanitizer: detect Fastify JSON Schema validation (`schema: { body: {...} }` in route options). If present, reduce confidence for flows from schema-validated inputs.
-> 5. Add 5+ Fastify ground truth entries.
-> 6. Tests: Fastify fixture app.
+NestJS (specs + tests 132 lines), Next.js (specs + tests 210 lines), Fastify (specs + tests 99 lines). All via plugin system.
 
 ---
 
-## Wave 16 — Regulatory Expansion (v0.3.0)
+## Wave 16 — Regulatory Expansion (COMPLETED)
 
-**Deps:** Wave 8 (rule engine working)
-**Parallel agents:** Yes — each regulation is independent
-
-### Agent 36: CCPA/CPRA Rules
-
-**Docs:** `docs/PHASE_11_REGULATORY_EXPANSION.md` (Section 2)
-
-**Prompt:**
-> You are encoding California Consumer Privacy Act (CCPA/CPRA) rules for Project Piranesi. Read `docs/PHASE_11_REGULATORY_EXPANSION.md` Section 2.
->
-> Implement:
-> 1. `rules/ccpa.toml` — 5+ rules: S1798.100 disclosure, S1798.105 deletion (sensitive PI), S1798.150 private right of action ($100-$750 per consumer), S1798.155 AG enforcement ($2,500/$7,500 per violation), S1798.185 sensitive PI heightened protections.
-> 2. `src/piranesi/legal/rules/ccpa.py` — loader following pdpa.py pattern.
-> 3. Map Piranesi data categories to CCPA definitions (nric/fin → government ID, biometric, health, financial, contact, race/religion → sensitive PI).
-> 4. Wire into `rules/__init__.py` and `memo.py` (add framework label and ordering).
-> 5. Tests: verify rules fire for correct data category + vuln class combinations.
-
-### Agent 37: HIPAA Rules
-
-**Docs:** `docs/PHASE_11_REGULATORY_EXPANSION.md` (Section 3)
-
-**Prompt:**
-> You are encoding HIPAA Security Rule provisions for Project Piranesi. Read `docs/PHASE_11_REGULATORY_EXPANSION.md` Section 3.
->
-> Implement:
-> 1. `rules/hipaa.toml` — 5+ rules gated on `is_healthcare_entity` boolean fact: 164.312(a) access control, 164.312(b) audit, 164.312(c) integrity, 164.312(e) transmission security, 164.408 breach notification (>= 500 individuals).
-> 2. `src/piranesi/legal/rules/hipaa.py` — loader.
-> 3. Add `is_healthcare_entity` boolean fact support — add field to `CandidateFinding` model, wire through pipeline.
-> 4. Tests.
-
-### Agent 38: GDPR Rules
-
-**Docs:** `docs/PHASE_11_REGULATORY_EXPANSION.md` (Section 5)
-
-**Prompt:**
-> You are encoding GDPR rules for Project Piranesi. Read `docs/PHASE_11_REGULATORY_EXPANSION.md` Section 5.
->
-> Implement:
-> 1. `rules/gdpr.toml` — 7+ rules: Art 32 security measures, Art 32(1)(a) encryption, Art 33 supervisory authority notification (72h), Art 34 data subject communication, Art 83(4) standard penalty (EUR 10M/2%), Art 83(5) aggravated (EUR 20M/4%), Art 83(5) special category data.
-> 2. `src/piranesi/legal/rules/gdpr.py` — loader.
-> 3. Extend `legal/taxonomy.py` with GDPR special category data: `political`, `trade_union`, `sexual_orientation` (new categories).
-> 4. Tests.
-
-### Agent 39: NIS2 Rules
-
-**Docs:** `docs/PHASE_11_REGULATORY_EXPANSION.md` (Section 4)
-
-**Prompt:**
-> You are encoding NIS2 Directive rules for Project Piranesi. Read `docs/PHASE_11_REGULATORY_EXPANSION.md` Section 4.
->
-> Implement:
-> 1. `rules/nis2.toml` — 6+ rules gated on `is_essential_entity`/`is_important_entity`: Art 21 risk management, Art 21(2)(d) supply chain, Art 23 incident reporting (24h early warning, 72h notification), Art 23 cross-border, Art 34 essential entity penalties (EUR 10M/2%), Art 34 important entity penalties (EUR 7M/1.4%).
-> 2. `src/piranesi/legal/rules/nis2.py` — loader.
-> 3. Add `is_essential_entity`, `is_important_entity` boolean facts.
-> 4. Tests.
+CCPA/CPRA (7 rules, 126-line TOML, 82-line loader), HIPAA (5 rules), GDPR (9 rules, 154-line TOML), NIS2 (6 rules). All wired into default engine. Tests: 694 lines.
 
 ---
 
-## Wave 17 — Community Contribution System (v0.3.0)
+## Wave 17 — Community Rules + Contributing Docs (COMPLETED)
 
-**Deps:** Wave 16 (proves the rule pattern across 7+ frameworks)
-
-### Agent 40: Rule Auto-Discovery + Community Directory
-
-**Docs:** `docs/PHASE_11_REGULATORY_EXPANSION.md` (Section 6)
-
-**Prompt:**
-> You are building the community rule contribution system for Project Piranesi. Read `docs/PHASE_11_REGULATORY_EXPANSION.md` Section 6.
->
-> Implement:
-> 1. Update `legal/memo.py` — auto-discover rule files: scan `rules/` and `rules/community/` for `*.toml` files. Load and validate each against `RegulatoryRuleSpec` schema.
-> 2. Create `rules/community/` directory with a `README.md` explaining the contribution process.
-> 3. Create `docs/contributing-rules.md` — step-by-step guide: TOML schema reference, template file, testing requirements, legal review process, PR checklist.
-> 4. Create `rules/community/_template.toml` — starter template with all fields documented.
-> 5. Tests: verify auto-discovery finds rules in `rules/community/`, verify malformed TOML is rejected with clear error.
+Rule auto-discovery (`rules/community/`), template TOML, `docs/contributing-rules.md` (76 lines).
 
 ---
 
-## Wave 18 — Plugin System (v0.3.0)
+## Wave 18 — Plugin System (COMPLETED)
 
-**Deps:** Wave 15 (multi-framework proves the pattern)
-
-### Agent 41: Plugin Architecture + ABC Interfaces
-
-**Docs:** `docs/PHASE_12_PLUGIN_SYSTEM.md` (Sections 2, 3)
-
-**Prompt:**
-> You are building the plugin system for Project Piranesi. Read `docs/PHASE_12_PLUGIN_SYSTEM.md` Sections 2 and 3.
->
-> Implement:
-> 1. `src/piranesi/plugin.py` — ABC interfaces: `FrameworkPlugin` (name, detect, source_specs, sink_specs, sanitizer_specs, tsconfig_overrides), `RulePlugin` (name, rule_files), `ReporterPlugin` (name, format_id, render). Discovery via `importlib.metadata.entry_points()`.
-> 2. Refactor Express support to implement `FrameworkPlugin` (built-in, not a separate package).
-> 3. Refactor NestJS/Next.js/Fastify from Wave 15 to use the plugin interface.
-> 4. Add `piranesi plugins list` CLI command.
-> 5. Add `[plugins] disabled = [...]` config option.
-> 6. Tests: mock plugin discovery, verify ABC enforcement, test disabled plugin filtering.
+`plugin.py` (558 lines) with 13 built-in framework plugins, ABC interfaces for FrameworkPlugin/RulePlugin/ReporterPlugin, entry-point discovery. Tests: 518 lines.
 
 ---
 
-## Wave 19 — Multi-Language Shallow (v1.0)
+## Wave 19 — Multi-Language Shallow (COMPLETED)
 
-**Deps:** Wave 18 (plugin system)
+Python (Flask/Django/FastAPI) specs + tests (282 lines), Go (Gin/Echo/Chi) specs, Java (Spring Boot) specs. Framework detection (`scan/framework.py`, 273 lines). Joern frontend mapping defined but not yet wired (see Wave 25).
+
+---
+
+## Wave 20 — v0.2.0 Release Prep
+
+**Status:** Pending
+**Deps:** Waves 12-19 complete
+
+Release checklist: update CHANGELOG, run full eval harness, verify `uv build`, tag release.
+---
+
+## Wave 21 — Incremental Scanning + CPG Caching (v0.3.0)
+
+**Deps:** Wave 20 (v0.2.0 release)
+**Parallel agents:** Yes — incremental and caching are independent
+
+### Agent 46: Incremental Scan Engine
+
+**Docs:** `docs/PHASE_14_INCREMENTAL_AND_PERFORMANCE.md` (Sections 2, 5)
+
+**Prompt:**
+> You are implementing incremental scanning for Project Piranesi. Read `docs/PHASE_14_INCREMENTAL_AND_PERFORMANCE.md` Section 2.
+>
+> Implement `src/piranesi/scan/incremental.py`:
+> 1. `FileManifest` dataclass: maps file paths to SHA-256 hashes + mtime.
+> 2. `write_manifest(target_dir, output_dir)` — scan all source files, compute hashes, write `{output_dir}/_manifest.json`.
+> 3. `diff_manifests(previous_manifest, current_manifest) -> IncrementalResult` — classify files as added/modified/deleted/unchanged.
+> 4. Update `scan/transpile.py` to accept `changed_files: set[Path] | None`. When set, only transpile changed files.
+> 5. Add `--incremental` flag to `piranesi run` and `piranesi scan` in cli.py.
+> 6. When `--incremental`: load previous manifest from output_dir, diff against current files, pass changed_files to transpile.
+> 7. Carry forward findings for unchanged files from previous scan's detect artifact.
+> 8. Tests: create a fixture with 5 files, run full scan, modify 1 file, run incremental, verify only 1 file re-transpiled.
+>
+> Read `pipeline.py` (scan stage, lines 366-414) and `scan/transpile.py` for context.
+
+### Agent 47: CPG Caching + Parallel Stages
+
+**Docs:** `docs/PHASE_14_INCREMENTAL_AND_PERFORMANCE.md` (Sections 3, 4)
+
+**Prompt:**
+> You are implementing CPG caching and stage parallelism for Project Piranesi. Read `docs/PHASE_14_INCREMENTAL_AND_PERFORMANCE.md` Sections 3 and 4.
+>
+> Implement:
+> 1. CPG cache key: SHA-256 of sorted file hashes + config hash. Store cached data at `{output_dir}/_cpg_cache/`.
+> 2. `--no-cache` flag to force full re-scan.
+> 3. Parallelize legal + patch stages in `pipeline.py` using `concurrent.futures.ThreadPoolExecutor`. Both consume verify output independently.
+> 4. Add `--profile` flag that prints per-stage timing breakdown table to stderr.
+> 5. Tests: verify cache hit skips transpile, verify parallel legal+patch produces same results as sequential.
+>
+> Read `scan/joern.py` (import_project method) and `pipeline.py` (stage runner functions).
+
+---
+
+## Wave 22 — Finding Suppression + Baselines (v0.3.0)
+
+**Deps:** Wave 20
+**Parallel agents:** Yes — suppression and diff are independent
+
+### Agent 48: Suppression System
+
+**Docs:** `docs/PHASE_15_SUPPRESSION_AND_BASELINES.md` (Section 2)
+
+**Prompt:**
+> You are implementing finding suppression for Project Piranesi. Read `docs/PHASE_15_SUPPRESSION_AND_BASELINES.md` Section 2.
+>
+> Implement:
+> 1. `src/piranesi/detect/suppression.py`:
+>    - `load_ignore_file(project_root) -> list[SuppressionRule]` — parse `.piranesi-ignore` YAML file.
+>    - `parse_inline_suppressions(source_file) -> list[InlineSuppression]` — scan source for `// piranesi:suppress CWE-XX reason:"..."` comments.
+>    - `apply_suppressions(findings, rules, inline) -> list[CandidateFinding]` — match findings against rules, mark `suppressed=True` on matches.
+> 2. Add `suppressed: bool = False` and `suppression_reason: str | None = None` fields to `CandidateFinding` model.
+> 3. Integrate into detect stage in `pipeline.py` — apply suppressions after finding extraction.
+> 4. `piranesi suppress <finding-id> --reason "..." --ticket SEC-123` CLI command — appends to `.piranesi-ignore`.
+> 5. Report shows: "6 findings (2 suppressed)" with suppressed findings in a separate section.
+> 6. Implement stable fingerprinting: hash vuln_class + source_function_name + sink_function_name + path_length (instead of line numbers).
+> 7. Tests: verify file-based suppression, inline suppression, stable fingerprints survive line shifts.
+
+### Agent 49: Baseline Comparison + `piranesi diff`
+
+**Docs:** `docs/PHASE_15_SUPPRESSION_AND_BASELINES.md` (Section 3)
+
+**Prompt:**
+> You are implementing baseline comparison for Project Piranesi. Read `docs/PHASE_15_SUPPRESSION_AND_BASELINES.md` Section 3.
+>
+> Implement:
+> 1. `src/piranesi/diff.py`:
+>    - `load_findings(artifact_path) -> list[Finding]` — load findings from a scan's detect/verify JSON artifact.
+>    - `diff_findings(baseline, current) -> DiffResult` — match by stable fingerprint, classify as new/fixed/unchanged.
+>    - `render_diff(diff_result) -> str` — human-readable diff output.
+> 2. `piranesi diff <baseline_dir> <current_dir>` CLI command — compare two scan outputs, print new/fixed/unchanged.
+> 3. `piranesi baseline save --from <results_dir> --to <baseline.json>` CLI command.
+> 4. `--baseline <path>` flag on `piranesi run` — auto-diff against baseline after scan.
+> 5. `--fail-on-new` flag — exit 1 only if NEW findings exist (unchanged findings don't fail).
+> 6. Tests: create baseline with 5 findings, modify to add 1 and fix 1, verify diff shows 1 new + 1 fixed + 4 unchanged.
+
+---
+
+## Wave 23 — OWASP Coverage: Secrets + Misconfiguration (v0.4.0)
+
+**Deps:** Wave 20
+**Parallel agents:** Yes — secrets, CORS/headers, and dependencies are independent
+
+### Agent 50: Secret Detection
+
+**Docs:** `docs/PHASE_16_OWASP_COVERAGE.md` (Section 2)
+
+**Prompt:**
+> You are implementing hardcoded secret detection for Project Piranesi. Read `docs/PHASE_16_OWASP_COVERAGE.md` Section 2.
+>
+> Implement `src/piranesi/detect/secrets.py`:
+> 1. Regex patterns for: AWS access keys (`AKIA[0-9A-Z]{16}`), Stripe keys (`sk_live_`), GitHub tokens (`ghp_`), Slack tokens (`xox[bpors]-`), SendGrid keys (`SG\.`), PEM private keys (`-----BEGIN.*PRIVATE KEY-----`).
+> 2. Shannon entropy analysis: flag strings with entropy > 4.5 and length > 20 as potential secrets.
+> 3. Exclusions: skip `node_modules/`, `vendor/`, `.git/`, test files (unless `--include-tests`), `.env.example`.
+> 4. Produce `CandidateFinding` with `vuln_class: "CWE-798"`. Severity: CRITICAL for private keys + cloud keys, HIGH for API tokens.
+> 5. Integrate as sub-stage within detect (not separate pipeline stage).
+> 6. Tests: fixture files with known secrets (redacted), verify detection. Test entropy analysis. Test exclusion patterns.
+
+### Agent 51: CORS + Security Header Detection
+
+**Docs:** `docs/PHASE_16_OWASP_COVERAGE.md` (Section 3)
+
+**Prompt:**
+> You are implementing CORS and security header misconfiguration detection for Project Piranesi. Read `docs/PHASE_16_OWASP_COVERAGE.md` Section 3.
+>
+> Implement:
+> 1. Add CORS source/sink specs to `scan/specs.py`: source `req.headers.origin`, sink `res.setHeader('Access-Control-Allow-Origin', origin)` — reflected origin without validation → CWE-942.
+> 2. Detect wildcard CORS (`Access-Control-Allow-Origin: *`) with credentials → CWE-942.
+> 3. Detect missing security headers: absence-of-pattern detection. Scan for `res.send()`/`res.render()` without upstream `res.setHeader('X-Frame-Options', ...)`. Flag missing X-Frame-Options (CWE-1021), CSP (CWE-693), HSTS (CWE-319).
+> 4. Detect insecure cookie settings: `cookie: { secure: false }` (CWE-614), `httpOnly: false` (CWE-1004).
+> 5. Detect missing `helmet()` middleware in Express apps.
+> 6. Tests for each pattern.
+
+### Agent 52: Dependency Vulnerability Scanning
+
+**Docs:** `docs/PHASE_16_OWASP_COVERAGE.md` (Section 4)
+
+**Prompt:**
+> You are implementing dependency vulnerability scanning for Project Piranesi. Read `docs/PHASE_16_OWASP_COVERAGE.md` Section 4.
+>
+> Implement `src/piranesi/detect/dependencies.py`:
+> 1. Run `npm audit --json` for Node.js projects, parse JSON output.
+> 2. Run `pip-audit --format json` for Python projects (if available).
+> 3. Map each advisory to a `CandidateFinding` with `vuln_class: "CWE-1395"`. Include CVE ID, affected package, version, patched version, severity.
+> 4. Integrate as sub-stage within scan (runs after transpilation, before detect).
+> 5. Optional `--sbom spdx` / `--sbom cyclonedx` flags to generate SBOM.
+> 6. Tests: mock `npm audit` JSON output, verify findings extracted. Test graceful fallback when audit tools unavailable.
+
+---
+
+## Wave 24 — Additional Output Formats (v0.3.0)
+
+**Deps:** Wave 20
+**Parallel agents:** Yes — JUnit, CSV, and init are independent
+
+### Agent 53: JUnit XML + CSV Output
+
+**Docs:** `docs/PHASE_17_OUTPUT_FORMATS.md` (Sections 2, 3)
+
+**Prompt:**
+> You are adding JUnit XML and CSV output formats to Project Piranesi. Read `docs/PHASE_17_OUTPUT_FORMATS.md` Sections 2 and 3.
+>
+> Implement:
+> 1. `src/piranesi/report/junit.py` — JUnit XML report. Each confirmed finding → `<testcase>` with `<failure>`. Suppressed findings → `<skipped>`. Include taint path + severity + exploit in failure message.
+> 2. `src/piranesi/report/csv.py` — CSV export with columns: id, cwe_id, cwe_name, severity, source_file, source_line, sink_file, sink_line, taint_source, taint_sink, exploit_payload, regulatory_frameworks, suppressed, suppression_reason.
+> 3. Add `--format junit` and `--format csv` to CLI format enum.
+> 4. Wire into `report/renderer.py`.
+> 5. Tests: validate JUnit XML against schema, verify CSV is importable.
+
+### Agent 54: `piranesi init` + Configurable Exit Codes
+
+**Docs:** `docs/PHASE_17_OUTPUT_FORMATS.md` (Sections 4, 5)
+
+**Prompt:**
+> You are adding the `piranesi init` command and configurable exit codes to Project Piranesi. Read `docs/PHASE_17_OUTPUT_FORMATS.md` Sections 4 and 5.
+>
+> Implement:
+> 1. `piranesi init` CLI command: detect framework via `scan/framework.py`, generate `piranesi.toml` from template with framework-appropriate defaults, generate empty `.piranesi-ignore` with format comments, print next steps.
+> 2. `--fail-severity {low,medium,high,critical}` flag on `piranesi run` — only exit 1 if findings at or above threshold exist.
+> 3. `--no-fail` flag — always exit 0 regardless of findings.
+> 4. Document exit codes 0-4 in CLI help and docs.
+> 5. Tests: verify init scaffolds correct config, verify exit codes.
+
+---
+
+## Wave 25 — Multi-Language Joern Frontends (v1.0)
+
+**Deps:** Wave 18 (plugin system), Wave 19 (shallow specs)
 **Parallel agents:** Yes — each language is independent
 
-### Agent 42: Python/Flask/Django/FastAPI Support
+### Agent 55: Python Joern Frontend Integration
 
-**Docs:** `docs/PHASE_13_MULTI_LANGUAGE.md` (Section 3)
-
-**Prompt:**
-> You are adding Python web framework support to Project Piranesi. Read `docs/PHASE_13_MULTI_LANGUAGE.md` Section 3.
->
-> Implement as a `FrameworkPlugin`:
-> 1. Language detection: `*.py` files, `requirements.txt`/`pyproject.toml`/`setup.py`.
-> 2. Framework detection: Flask (`flask` in deps), Django (`django`), FastAPI (`fastapi`).
-> 3. Source specs: Flask `request.form/args/json/headers`, Django `request.POST/GET/body`, FastAPI `Body()/Query()/Path()`.
-> 4. Sink specs: `cursor.execute(f"...")`, `os.system()`, `subprocess.run(shell=True)`, `eval()`, `open()`, `render_template_string()`, `requests.get()`.
-> 5. Sanitizer specs: parameterized queries, `shlex.quote()`, `markupsafe.escape()`, `bleach.clean()`, `os.path.realpath()+startswith()`.
-> 6. Skip transpilation (Python needs no tsc). Configure Joern with `pysrc2cpg`.
-> 7. 10+ Python ground truth entries.
-> 8. Tests with Flask/Django fixture apps.
-
-### Agent 43: Go/Gin/Echo/Chi Support
-
-**Docs:** `docs/PHASE_13_MULTI_LANGUAGE.md` (Section 4)
+**Docs:** `docs/PHASE_18_MULTI_LANGUAGE_DEPTH.md` (Sections 2, 3)
 
 **Prompt:**
-> You are adding Go web framework support to Project Piranesi. Read `docs/PHASE_13_MULTI_LANGUAGE.md` Section 4.
+> You are wiring the Python Joern frontend (`pysrc2cpg`) into Project Piranesi's pipeline. Read `docs/PHASE_18_MULTI_LANGUAGE_DEPTH.md` Sections 2 and 3.
 >
-> Implement as a `FrameworkPlugin`:
-> 1. Language detection: `*.go` files, `go.mod`.
-> 2. Framework detection: Gin (`github.com/gin-gonic/gin` in go.mod), Echo (`labstack/echo`), Chi (`go-chi/chi`).
-> 3. Source specs: Gin `c.Query/PostForm/Param/GetHeader`, Echo `c.QueryParam/FormValue/Param`, stdlib `r.URL.Query().Get/r.FormValue`.
-> 4. Sink specs: `db.Query(fmt.Sprintf(...))`, `exec.Command()`, `template.HTML()`, `os.Open()`, `http.Get()`.
-> 5. Sanitizer specs: parameterized DB queries, `html/template` auto-escaping, `filepath.Clean()+HasPrefix()`.
-> 6. Configure Joern with `gosrc2cpg`.
-> 7. 10+ Go ground truth entries.
+> Implement:
+> 1. Update `scan/joern.py` `import_project()` to accept a `language` parameter and select the correct Joern frontend (`pysrc2cpg` for Python).
+> 2. Update `pipeline.py` scan stage: if detected language is Python, skip tsc transpilation, pass source dir directly to Joern with pysrc2cpg.
+> 3. Add Python-specific CPGQL query patterns to `scan/queries.py`: `cursor.execute()` calls, `os.system()`, `subprocess.run(shell=True)`, `eval()`, Django `Model.objects.raw()` vs safe `filter()`.
+> 4. Exclude `venv/`, `.venv/`, `site-packages/` from Python scans.
+> 5. Test: create a Flask fixture app with known SQLi, run full pipeline with pysrc2cpg, verify finding detected.
+>
+> Read `scan/joern.py` (import_project, lines 120-140) and the LANGUAGE_TO_JOERN_FRONTEND mapping.
 
-### Agent 44: Java/Spring Boot Support
+### Agent 56: Go Joern Frontend Integration
 
-**Docs:** `docs/PHASE_13_MULTI_LANGUAGE.md` (Section 5)
+**Docs:** `docs/PHASE_18_MULTI_LANGUAGE_DEPTH.md` (Section 4)
 
 **Prompt:**
-> You are adding Java Spring Boot support to Project Piranesi. Read `docs/PHASE_13_MULTI_LANGUAGE.md` Section 5.
+> You are wiring the Go Joern frontend (`gosrc2cpg`) into Project Piranesi's pipeline. Read `docs/PHASE_18_MULTI_LANGUAGE_DEPTH.md` Section 4.
 >
-> Implement as a `FrameworkPlugin`:
-> 1. Language detection: `*.java` files, `pom.xml`/`build.gradle`.
-> 2. Framework detection: Spring Boot (`spring-boot-starter-web` in deps).
-> 3. Source specs: `@RequestBody`, `@RequestParam`, `@PathVariable`, `@RequestHeader`, `@CookieValue`, `HttpServletRequest.getParameter()`.
-> 4. Sink specs: `jdbcTemplate.query(sql+input)`, `Runtime.exec()`, `ProcessBuilder()`, `new File()`, `RestTemplate.getForObject()`, `response.getWriter().write()`.
-> 5. Sanitizer: detect `spring-boot-starter-security` in deps, reduce confidence for XSS in secured endpoints. Detect `@Valid` annotation for input validation.
-> 6. Configure Joern with `javasrc2cpg`.
-> 7. 10+ Java ground truth entries.
+> Implement:
+> 1. Update `scan/joern.py` to support `gosrc2cpg`.
+> 2. Skip transpilation for Go projects.
+> 3. Go-specific CPGQL patterns: `db.Query(fmt.Sprintf(...))`, `exec.Command()`, `template.HTML()`, `os.Open()`.
+> 4. Handle Go modules: exclude `vendor/` directory.
+> 5. Test with a Gin fixture app.
+
+### Agent 57: Java Joern Frontend Integration
+
+**Docs:** `docs/PHASE_18_MULTI_LANGUAGE_DEPTH.md` (Section 5)
+
+**Prompt:**
+> You are wiring the Java Joern frontend (`javasrc2cpg`) into Project Piranesi's pipeline. Read `docs/PHASE_18_MULTI_LANGUAGE_DEPTH.md` Section 5.
+>
+> Implement:
+> 1. Update `scan/joern.py` to support `javasrc2cpg`.
+> 2. Skip transpilation for Java projects.
+> 3. Spring-specific CPGQL patterns: `@RequestBody`/`@RequestParam` annotation sources, `jdbcTemplate.query(sql+input)` sinks, `@Query(nativeQuery=true)` with concatenation.
+> 4. Recognize `@PreAuthorize`/`@Secured` as access control (not sinks).
+> 5. Exclude `src/test/` from scans.
+> 6. Test with a Spring Boot fixture app.
 
 ---
 
-## Wave 20 — v0.2.0 Release (milestone)
+## Wave 26 — Cross-Language Taint Tracking (v1.0)
 
-**Deps:** Waves 12-14 complete
+**Deps:** Wave 25 (multi-language frontends working)
 
-### Agent 45: v0.2.0 Release Preparation
+### Agent 58: Cross-Language Finding Detection
+
+**Docs:** `docs/PHASE_18_MULTI_LANGUAGE_DEPTH.md` (Section 6)
 
 **Prompt:**
-> You are preparing Piranesi v0.2.0 for release. This version adds SARIF output, GitHub Action, false positive reduction, and expanded ground truth.
+> You are implementing cross-language taint tracking for Project Piranesi. Read `docs/PHASE_18_MULTI_LANGUAGE_DEPTH.md` Section 6.
 >
-> Tasks:
-> 1. Update `pyproject.toml` version to 0.2.0.
-> 2. Update `CHANGELOG.md` with v0.2.0 entries: SARIF output, GitHub Action, SSRF FP reduction, sanitizer recognition, ground truth expansion (50→150+ entries).
-> 3. Run full eval harness against ground truth. Document precision/recall/F1 improvements vs v0.1.0.
-> 4. Update `README.md` with SARIF and GitHub Action instructions.
-> 5. Verify all CI gates pass.
-> 6. Run `uv build` and verify clean wheel.
-> 7. Tag release and draft GitHub release notes.
+> Implement `src/piranesi/detect/cross_language.py`:
+> 1. Detect API boundaries: TypeScript `fetch('/api/endpoint')` → Python Flask route `/api/endpoint`. Match by URL path pattern.
+> 2. For multi-language projects, after scanning each language independently, cross-reference: if a TS frontend sends tainted data to a URL matching a Python/Go/Java backend route with a known sink, create a cross-language `CandidateFinding`.
+> 3. The finding's taint path spans both languages with a "cross-language API call" step in the middle.
+> 4. Add 5+ cross-language ground truth entries.
+> 5. Tests: TypeScript fixture calling a Flask API, verify cross-language finding created.
 
 ---
 
-## Parallelization Summary
+## Wave 27 — Ensemble Calibration (v1.0)
 
-| Wave | v0.2.0 (next) | Parallel? |
-|------|---------------|-----------|
-| 12 | SARIF + Docker + CI docs | Agents 25-26 parallel |
-| 13 | FP reduction | Agents 27-29 parallel |
-| 14 | Ground truth research | Agents 30-32 parallel |
-| 20 | v0.2.0 release | Sequential (after 12-14) |
+**Deps:** Wave 14 (ground truth), Wave 18 (ensemble voter)
 
-| Wave | v0.3.0 | Parallel? |
-|------|--------|-----------|
-| 15 | Multi-framework TS | Agents 33-35 parallel |
-| 16 | Regulatory expansion | Agents 36-39 parallel |
-| 17 | Community rules | Sequential |
-| 18 | Plugin system | Sequential |
+### Agent 59: Calibration Pipeline + Cost Optimization
 
-| Wave | v1.0 | Parallel? |
-|------|------|-----------|
-| 19 | Multi-language | Agents 42-44 parallel |
+**Docs:** `docs/PHASE_19_CALIBRATION_AND_LLM_OPT.md` (Sections 2, 3, 4)
+
+**Prompt:**
+> You are implementing ensemble calibration and cost-aware model routing for Project Piranesi. Read `docs/PHASE_19_CALIBRATION_AND_LLM_OPT.md`.
+>
+> Implement:
+> 1. `eval/calibrate.py` — run triage against all ground truth entries with each model. Record reported confidence vs actual correctness. Output `eval/calibration/{model}.json`.
+> 2. Fit Platt scaling (logistic regression) per model. Compute per-CWE correction factors when n >= 10.
+> 3. Update `triage/ensemble.py` to load and apply calibration data. Fall back to uncalibrated if no data.
+> 4. Cost-aware routing in `llm/router.py`: estimate finding difficulty (CWE class, path length, sanitizer count), route easy findings to cheap model, hard findings to expensive model.
+> 5. Optimal threshold search: find TP/FP thresholds that maximize F1 on ground truth.
+> 6. Tests: verify calibration improves accuracy on held-out ground truth split, verify cost reduction.
+>
+> NOTE: This requires real LLM API calls (~$5-20). Run with `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` set.
+
+---
+
+## Wave 28 — OWASP Additional Patterns (v0.4.0)
+
+**Deps:** Wave 23 (secrets + CORS done)
+**Parallel agents:** Yes — deserialization, redirect, file upload are independent
+
+### Agent 60: Unsafe Deserialization + Open Redirect + File Upload
+
+**Docs:** `docs/PHASE_16_OWASP_COVERAGE.md` (Sections 5, 6, 7)
+
+**Prompt:**
+> You are adding detection for unsafe deserialization, open redirect, and unrestricted file upload to Project Piranesi. Read `docs/PHASE_16_OWASP_COVERAGE.md` Sections 5, 6, and 7.
+>
+> Implement source/sink specs and ground truth for:
+> 1. **Unsafe deserialization** (CWE-502): `JSON.parse(userInput)` without schema validation, `yaml.load()` unsafe loader (Python), `pickle.loads()` (Python), `ObjectInputStream.readObject()` (Java).
+> 2. **Open redirect** (CWE-601): `res.redirect(req.query.url)`, `Location` header from user input.
+> 3. **Unrestricted file upload** (CWE-434): `multer()` without file type validation, `req.file.originalname` used in path without extension check.
+> 4. Add 5+ ground truth entries per CWE class.
+> 5. Tests for each pattern.
+
+---
+
+## Parallelization Summary (Updated)
+
+| Wave | Milestone | Agents | Parallel? |
+|------|-----------|--------|-----------|
+| 20 | v0.2.0 release | — | Sequential |
+| 21 | Incremental + caching | 46-47 | 2 parallel |
+| 22 | Suppression + baselines | 48-49 | 2 parallel |
+| 23 | OWASP secrets + misconfig | 50-52 | 3 parallel |
+| 24 | Output formats | 53-54 | 2 parallel |
+| 25 | Multi-language depth | 55-57 | 3 parallel |
+| 26 | Cross-language taint | 58 | Sequential |
+| 27 | Ensemble calibration | 59 | Sequential |
+| 28 | OWASP additional | 60 | Sequential |
 
 **Maximum parallelism per sprint:**
-- v0.2.0: 8 agents across 3 waves (12+13+14 can run simultaneously)
-- v0.3.0: 7 agents across waves 15+16 (can run simultaneously)
-- v1.0: 3 agents for multi-language (all parallel)
+- v0.3.0: Waves 21+22+24 can all run simultaneously (6 agents)
+- v0.4.0: Waves 23+28 can run simultaneously (4 agents)
+- v1.0: Waves 25+26+27 — Wave 25 parallel (3 agents), then 26+27 sequential
+
