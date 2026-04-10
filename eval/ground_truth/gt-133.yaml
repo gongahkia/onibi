@@ -1,0 +1,20 @@
+id: gt-133
+source_project: piranesi-owasp-fixture
+commit_hash: "0000000000000000000000000000000000000000"
+cwe_id: CWE-434
+cwe_name: Unrestricted File Upload (no MIME type check)
+label: true_positive
+affected_files:
+  - file_upload.ts
+line_numbers: [11, 14]
+taint_source: "req.file via multer"
+taint_sink: "fs.writeFileSync without mimetype check"
+taint_path:
+  - "upload.single('file') (file_upload.ts:11)"
+  - "req.file.originalname used as filename (file_upload.ts:12)"
+  - "fs.writeFileSync(destPath, req.file.buffer) (file_upload.ts:14)"
+complexity: simple
+exploitable: true
+reference_exploit: "Upload polyglot file with image header but .html extension for XSS via uploaded file"
+reference_fix_commit: null
+notes: "No MIME type validation on upload endpoint. Polyglot files can bypass client-side checks."

@@ -1,3 +1,5 @@
+from piranesi.report.csv import generate_csv
+from piranesi.report.junit import generate_junit_xml
 from piranesi.report.renderer import (
     CombinedFinding,
     ExecutiveSummary,
@@ -16,6 +18,8 @@ __all__ = [
     "PiranesiReport",
     "ReportAppendix",
     "build_report",
+    "generate_csv",
+    "generate_junit_xml",
     "generate_sarif",
     "render_markdown",
     "render_pr_body",

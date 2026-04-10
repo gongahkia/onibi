@@ -32,6 +32,7 @@ The full installation walkthrough is in [docs/getting-started.md](docs/getting-s
 ```bash
 uv sync
 uv run piranesi --version
+uv run piranesi init
 
 brew install joern openjdk@17
 npm install --global typescript
@@ -49,6 +50,8 @@ uv run piranesi run examples/vuln-express \
 ```
 
 `--no-execute` skips Docker exploit execution. That makes the first run deterministic and does not require an LLM API key.
+
+Use `--fail-severity high` to fail CI only on `high` or `critical` findings, or `--no-fail` to always exit `0` for findings while still writing artifacts.
 
 ## Real Output
 

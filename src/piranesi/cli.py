@@ -15,6 +15,8 @@ from pydantic import BaseModel
 
 from piranesi import __version__
 from piranesi.config import ConfigError, PiranesiConfig, load_config
+from piranesi.detect import append_ignore_file_suppression
+from piranesi.diff import build_baseline_artifact, diff_findings, load_findings, render_diff
 from piranesi.llm.cost import CostTracker
 from piranesi.llm.provider import LLMProvider
 from piranesi.llm.router import ModelRouter
@@ -32,11 +34,23 @@ from piranesi.pipeline import (
     build_default_stage_registry,
     discover_scan_targets,
     load_partial_summary,
+    prepare_incremental_state,
     run_pipeline,
 )
 from piranesi.report.renderer import PiranesiReport
+from piranesi.scaffold import scaffold_project
 from piranesi.trace import TraceBudgetExceededError, TraceWriter
 from piranesi.ui import console, print_summary_table, stage_header
+
+_RUN_HELP = """Run the full Piranesi pipeline.
+
+Exit codes:
+  0 = no findings (or --no-fail)
+  1 = findings at or above --fail-severity
+  2 = configuration or required-flag error
+  3 = runtime error
+  4 = budget exceeded
+"""
 
 app = typer.Typer(
     add_completion=False,
@@ -49,7 +63,13 @@ plugins_app = typer.Typer(
     help="Manage Piranesi plugins.",
     no_args_is_help=True,
 )
+baseline_app = typer.Typer(
+    add_completion=False,
+    help="Manage baseline artifacts.",
+    no_args_is_help=True,
+)
 app.add_typer(plugins_app, name="plugins")
+app.add_typer(baseline_app, name="baseline")
 
 
 def _version_callback(value: bool) -> None:
@@ -61,6 +81,10 @@ def _version_callback(value: bool) -> None:
 
 TargetDirArg = Annotated[Path, typer.Argument(help="Target directory.")]
 FindingsFileArg = Annotated[Path, typer.Argument(help="Findings artifact file.")]
+ComparisonTargetArg = Annotated[
+    Path,
+    typer.Argument(help="Baseline artifact, findings artifact, or scan output directory."),
+]
 
 IncludeOption = Annotated[
     list[str] | None,
@@ -113,11 +137,29 @@ class ReportFormat(StrEnum):
     MARKDOWN = "markdown"
     BOTH = "both"
     SARIF = "sarif"
+    JUNIT = "junit"
+    CSV = "csv"
+
+
+class SbomFormat(StrEnum):
+    SPDX = "spdx"
+    CYCLONEDX = "cyclonedx"
+
+
+class FailSeverity(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
 
 
 FormatOption = Annotated[
     ReportFormat | None,
     typer.Option("--format", help="Report format.", case_sensitive=False),
+]
+SbomOption = Annotated[
+    SbomFormat | None,
+    typer.Option("--sbom", help="Generate an SBOM during scan.", case_sensitive=False),
 ]
 TemplateOption = Annotated[
     Path | None,
@@ -130,6 +172,60 @@ ResumeOption = Annotated[
 DryRunOption = Annotated[
     bool,
     typer.Option("--dry-run", help="Show what would be scanned without executing the pipeline."),
+]
+IncrementalOption = Annotated[
+    bool | None,
+    typer.Option(
+        "--incremental/--no-incremental",
+        help="Reuse the current output directory as a baseline and only rescan changed files.",
+    ),
+]
+IncludeTestsOption = Annotated[
+    bool,
+    typer.Option(
+        "--include-tests",
+        help="Include test files during hardcoded secret detection.",
+    ),
+]
+NoCacheOption = Annotated[
+    bool,
+    typer.Option("--no-cache", help="Disable CPG cache reuse and force a full re-scan."),
+]
+ProfileOption = Annotated[
+    bool,
+    typer.Option("--profile", help="Print a per-stage timing breakdown to stderr."),
+]
+BaselineOption = Annotated[
+    Path | None,
+    typer.Option(
+        "--baseline",
+        help="Baseline artifact or scan output directory to diff against after the run.",
+    ),
+]
+FailOnNewOption = Annotated[
+    bool,
+    typer.Option(
+        "--fail-on-new",
+        help="Exit 1 only when the diff contains NEW findings.",
+    ),
+]
+FailSeverityOption = Annotated[
+    FailSeverity,
+    typer.Option(
+        "--fail-severity",
+        help="Exit 1 only when unsuppressed findings at or above this severity exist.",
+        case_sensitive=False,
+    ),
+]
+NoFailOption = Annotated[
+    bool,
+    typer.Option(
+        "--no-fail",
+        help=(
+            "Always exit 0 for findings; configuration and runtime errors still use "
+            "non-zero codes."
+        ),
+    ),
 ]
 
 ConfigOption = Annotated[
@@ -194,6 +290,8 @@ class CommonOptions:
     trace_path: Path
     authorized: bool
     assume_yes: bool
+    no_cache: bool = False
+    profile: bool = False
 
 
 def _format_override(report_format: ReportFormat | None) -> str | None:
@@ -202,9 +300,22 @@ def _format_override(report_format: ReportFormat | None) -> str | None:
     return report_format.value
 
 
+def _sbom_override(sbom_format: SbomFormat | None) -> str | None:
+    if sbom_format is None:
+        return None
+    return sbom_format.value
+
+
 def _report_output_path(output_dir: Path, report_format: str) -> Path:
-    if report_format.lower() == ReportFormat.SARIF.value:
+    format_name = report_format.lower()
+    if format_name == ReportFormat.MARKDOWN.value:
+        return output_dir / "report.md"
+    if format_name == ReportFormat.SARIF.value:
         return output_dir / "report.sarif.json"
+    if format_name == ReportFormat.JUNIT.value:
+        return output_dir / "report.junit.xml"
+    if format_name == ReportFormat.CSV.value:
+        return output_dir / "findings.csv"
     return output_dir / "report.json"
 
 
@@ -238,10 +349,10 @@ def _run_stubbed_stage(
             what="config_load",
             on_what=str(options.config_path),
             why=str(exc),
-            next_step="exiting_with_code_3",
+            next_step="exiting_with_code_2",
             debug="check TOML syntax and required fields",
         )
-        raise typer.Exit(code=3) from exc
+        raise typer.Exit(code=2) from exc
 
     if options.debug:
         config.trace.log_prompts = True
@@ -281,7 +392,7 @@ def _run_stubbed_stage(
             what=f"{stage}_pipeline",
             on_what=str(target),
             why="not implemented",
-            next_step="exit_code_1",
+            next_step="exit_code_3",
             debug=f"trace_file={trace_writer.path}",
             stage=stage,
         )
@@ -296,7 +407,7 @@ def _run_stubbed_stage(
                     "Trace": trace_writer.path,
                 },
             )
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=3)
     except TraceBudgetExceededError as exc:
         log_error_context(
             logger,
@@ -335,10 +446,10 @@ def _load_cli_config(
             what="config_load",
             on_what=str(options.config_path),
             why=str(exc),
-            next_step="exiting_with_code_3",
+            next_step="exiting_with_code_2",
             debug="check TOML syntax and required fields",
         )
-        raise typer.Exit(code=3) from exc
+        raise typer.Exit(code=2) from exc
 
     if options.debug:
         config.trace.log_prompts = True
@@ -423,6 +534,16 @@ def _run_single_stage(
             router=router,
             cost_tracker=cost_tracker,
             trace_writer=trace_writer,
+            use_cache=not options.no_cache,
+            incremental=(
+                prepare_incremental_state(
+                    target_dir,
+                    options.output_dir,
+                    manifest_write_stage="scan" if stage_name == "scan" else "detect",
+                )
+                if config_model.scan.incremental and is_dir_target
+                else None
+            ),
         )
         registry = build_default_stage_registry(context)
         stage = registry[stage_name]
@@ -447,7 +568,7 @@ def _run_single_stage(
                     what=f"load_{dep}_artifact",
                     on_what=str(dep_path),
                     why=f"prerequisite artifact {dep}.json not found in output directory",
-                    next_step="exiting_with_code_1",
+                    next_step="exiting_with_code_2",
                     debug=f"run 'piranesi {dep}' first or 'piranesi run' to generate all artifacts",
                 )
                 typer.echo(
@@ -468,12 +589,12 @@ def _run_single_stage(
                 what=f"{stage_name}_pipeline",
                 on_what=str(target),
                 why=str(exc),
-                next_step="exiting_with_code_1",
+                next_step="exiting_with_code_3",
                 debug=f"trace_file={trace_writer.path}",
                 stage=stage_name,
             )
             typer.echo(f"stage '{stage_name}' failed: {exc}")
-            raise typer.Exit(code=1) from exc
+            raise typer.Exit(code=3) from exc
         options.output_dir.mkdir(parents=True, exist_ok=True)
         artifact_path = options.output_dir / f"{stage_name}.json"
         artifact_path.write_text(
@@ -529,8 +650,124 @@ def _final_report(results: list[StageResult]) -> PiranesiReport | None:
     return None
 
 
-def _report_exit_code(report: PiranesiReport) -> int:
-    return 1 if report.executive_summary.findings_detected > 0 else 0
+def _report_exit_code(
+    report: PiranesiReport,
+    *,
+    fail_severity: FailSeverity = FailSeverity.LOW,
+    no_fail: bool = False,
+) -> int:
+    if no_fail:
+        return 0
+    threshold = _severity_rank(fail_severity.value)
+    findings_at_or_above_threshold = sum(
+        count
+        for severity, count in report.executive_summary.severity_breakdown.items()
+        if _severity_rank(severity) >= threshold
+    )
+    return 1 if findings_at_or_above_threshold > 0 else 0
+
+
+def _severity_rank(severity: str) -> int:
+    normalized = severity.lower()
+    if normalized == FailSeverity.LOW.value:
+        return 0
+    if normalized == FailSeverity.MEDIUM.value:
+        return 1
+    if normalized == FailSeverity.HIGH.value:
+        return 2
+    if normalized == FailSeverity.CRITICAL.value:
+        return 3
+    return -1
+
+
+def _print_diff(
+    baseline_path: Path,
+    current_path: Path,
+) -> tuple[int, int, int]:
+    try:
+        baseline_findings = load_findings(baseline_path)
+        current_findings = load_findings(current_path)
+    except ValueError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    diff_result = diff_findings(baseline_findings, current_findings)
+    typer.echo(f"Piranesi Diff: {baseline_path} -> {current_path}")
+    typer.echo(render_diff(diff_result))
+    return len(diff_result.new), len(diff_result.fixed), len(diff_result.unchanged)
+
+
+def _print_profile_breakdown(results: list[StageResult]) -> None:
+    results_by_stage = {result.stage: result for result in results}
+    lines = [
+        f"{'Stage':<10} {'Duration':<10} {'Findings':<10} {'Cache':<6}",
+    ]
+    for result in results:
+        lines.append(
+            f"{result.stage:<10} "
+            f"{result.elapsed_s:>7.2f}s   "
+            f"{_profile_findings_cell(result, results_by_stage):<10} "
+            f"{(result.cache_status or '-'):>6}"
+        )
+
+    confirmed = _profile_confirmed_findings(results_by_stage)
+    total_duration = sum(result.elapsed_s for result in results if result.success)
+    lines.append(
+        f"{'TOTAL':<10} {total_duration:>7.2f}s   {confirmed} confirmed".ljust(17) + "      -"
+    )
+    typer.echo("\n".join(lines), err=True)
+
+
+def _profile_findings_cell(
+    result: StageResult,
+    results_by_stage: Mapping[str, StageResult],
+) -> str:
+    if result.stage == "scan":
+        return "-"
+    if result.stage == "detect" and isinstance(result.artifact, DetectArtifact):
+        return str(len(result.artifact.findings))
+    if result.stage == "triage" and isinstance(result.artifact, TriageArtifact):
+        incoming = 0
+        detect_result = results_by_stage.get("detect")
+        if detect_result is not None and isinstance(detect_result.artifact, DetectArtifact):
+            incoming = sum(
+                1 for finding in detect_result.artifact.findings if not finding.suppressed
+            )
+        retained = sum(
+            1 for finding in result.artifact.findings if finding.triage_verdict != "false_positive"
+        )
+        return _format_transition(incoming, retained)
+    if result.stage == "verify" and isinstance(result.artifact, VerifyArtifact):
+        incoming = 0
+        triage_result = results_by_stage.get("triage")
+        if triage_result is not None and isinstance(triage_result.artifact, TriageArtifact):
+            incoming = sum(
+                1
+                for finding in triage_result.artifact.findings
+                if finding.triage_verdict != "false_positive"
+            )
+        return _format_transition(incoming, len(result.artifact.findings))
+    if result.stage == "legal" and isinstance(result.artifact, LegalArtifact):
+        return str(len(result.artifact.assessments))
+    if result.stage == "patch" and isinstance(result.artifact, PatchArtifact):
+        return str(len(result.artifact.patches))
+    return "-"
+
+
+def _profile_confirmed_findings(results_by_stage: Mapping[str, StageResult]) -> int:
+    report_result = results_by_stage.get("report")
+    if report_result is not None and isinstance(report_result.artifact, PiranesiReport):
+        return report_result.artifact.executive_summary.findings_confirmed
+    verify_result = results_by_stage.get("verify")
+    if verify_result is not None and isinstance(verify_result.artifact, VerifyArtifact):
+        return len(verify_result.artifact.findings)
+    return 0
+
+
+def _format_transition(incoming: int, outgoing: int) -> str:
+    if incoming <= 0:
+        return str(outgoing)
+    return f"{incoming}->{outgoing}" if incoming != outgoing else str(outgoing)
 
 
 def _validate_authorization(
@@ -606,6 +843,8 @@ def _common_options(
     trace: Path,
     authorized: bool,
     yes: bool,
+    no_cache: bool = False,
+    profile: bool = False,
 ) -> CommonOptions:
     return CommonOptions(
         config_path=config,
@@ -617,6 +856,8 @@ def _common_options(
         trace_path=trace,
         authorized=authorized,
         assume_yes=yes,
+        no_cache=no_cache,
+        profile=profile,
     )
 
 
@@ -641,11 +882,36 @@ def version_command() -> None:
     typer.echo(f"piranesi {__version__}")
 
 
+@app.command(help="Scaffold piranesi.toml and .piranesi-ignore for the current project.")
+def init(
+    framework: Annotated[
+        str | None,
+        typer.Option("--framework", help="Framework to scaffold instead of auto-detecting."),
+    ] = None,
+) -> None:
+    try:
+        scaffold = scaffold_project(Path("."), requested_framework=framework)
+    except ValueError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=2) from exc
+
+    typer.echo(scaffold.detection_message)
+    typer.echo(f"Created: {scaffold.config_path.name}")
+    typer.echo(f"Created: {scaffold.ignore_path.name}")
+    typer.echo("")
+    typer.echo("Next steps:")
+    typer.echo("  1. Review piranesi.toml and adjust the scan patterns if needed.")
+    typer.echo("  2. Run `piranesi run . --authorized --yes` to scan.")
+
+
 @app.command()
 def scan(
     target_dir: TargetDirArg,
     include: IncludeOption = None,
     exclude: ExcludeOption = None,
+    sbom: SbomOption = None,
+    incremental: IncrementalOption = None,
+    no_cache: NoCacheOption = False,
     config: ConfigOption = Path("./piranesi.toml"),
     output: OutputOption = Path("./piranesi-output"),
     verbose: VerboseOption = False,
@@ -669,10 +935,13 @@ def scan(
             trace=trace,
             authorized=authorized,
             yes=yes,
+            no_cache=no_cache,
         ),
         extra_cli_overrides={
             "scan.include_patterns": include,
             "scan.exclude_patterns": exclude,
+            "scan.sbom_format": _sbom_override(sbom),
+            "scan.incremental": incremental,
         },
         is_dir_target=True,
     )
@@ -683,6 +952,7 @@ def detect(
     target_dir: TargetDirArg,
     sources: SourcesOption = None,
     sinks: SinksOption = None,
+    include_tests: IncludeTestsOption = False,
     config: ConfigOption = Path("./piranesi.toml"),
     output: OutputOption = Path("./piranesi-output"),
     verbose: VerboseOption = False,
@@ -708,6 +978,7 @@ def detect(
             authorized=authorized,
             yes=yes,
         ),
+        extra_cli_overrides={"scan.include_tests": include_tests},
         is_dir_target=True,
     )
 
@@ -885,6 +1156,60 @@ def report(
     )
 
 
+@app.command()
+def suppress(
+    finding_id: Annotated[str, typer.Argument(help="Finding fingerprint to suppress.")],
+    reason: Annotated[str, typer.Option("--reason", help="Suppression rationale.")],
+    ticket: Annotated[
+        str | None, typer.Option("--ticket", help="Optional ticket reference.")
+    ] = None,
+    project_root: Annotated[
+        Path,
+        typer.Option("--project-root", help="Project root containing .piranesi-ignore."),
+    ] = Path("."),
+) -> None:
+    ignore_path = append_ignore_file_suppression(
+        project_root,
+        finding_id=finding_id,
+        reason=reason,
+        ticket=ticket,
+    )
+    typer.echo(f"added suppression for {finding_id} to {ignore_path}")
+
+
+@app.command("diff")
+def diff_command(
+    baseline_path: ComparisonTargetArg,
+    current_path: ComparisonTargetArg,
+    fail_on_new: FailOnNewOption = False,
+) -> None:
+    new_count, _, _ = _print_diff(baseline_path, current_path)
+    if fail_on_new and new_count > 0:
+        raise typer.Exit(code=1)
+
+
+@baseline_app.command("save")
+def baseline_save(
+    from_results: Annotated[
+        Path,
+        typer.Option("--from", help="Scan output directory or findings artifact to save."),
+    ],
+    to: Annotated[
+        Path,
+        typer.Option("--to", help="Destination baseline JSON file."),
+    ],
+) -> None:
+    try:
+        baseline_artifact = build_baseline_artifact(from_results)
+    except ValueError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    to.parent.mkdir(parents=True, exist_ok=True)
+    to.write_text(baseline_artifact.model_dump_json(indent=2), encoding="utf-8")
+    typer.echo(f"saved baseline with {len(baseline_artifact.findings)} findings to {to}")
+
+
 @plugins_app.command("list")
 def plugins_list(
     config: ConfigOption = Path("./piranesi.toml"),
@@ -923,11 +1248,18 @@ def plugins_list(
         typer.echo(f"reporter   {rep.name():<20s} [{status}]")
 
 
-@app.command()
+@app.command(help=_RUN_HELP)
 def run(
     target_dir: TargetDirArg,
     include: IncludeOption = None,
     exclude: ExcludeOption = None,
+    sbom: SbomOption = None,
+    include_tests: IncludeTestsOption = False,
+    baseline: BaselineOption = None,
+    fail_on_new: FailOnNewOption = False,
+    fail_severity: FailSeverityOption = FailSeverity.LOW,
+    no_fail: NoFailOption = False,
+    incremental: IncrementalOption = None,
     sources: SourcesOption = None,
     sinks: SinksOption = None,
     triage_model: TriageModelOption = None,
@@ -943,6 +1275,8 @@ def run(
     template: TemplateOption = None,
     resume: ResumeOption = False,
     dry_run: DryRunOption = False,
+    no_cache: NoCacheOption = False,
+    profile: ProfileOption = False,
     config: ConfigOption = Path("./piranesi.toml"),
     output: OutputOption = Path("./piranesi-output"),
     verbose: VerboseOption = False,
@@ -964,6 +1298,8 @@ def run(
         trace=trace,
         authorized=authorized,
         yes=yes,
+        no_cache=no_cache,
+        profile=profile,
     )
     setup_logging(
         verbose=options.verbose,
@@ -978,6 +1314,9 @@ def run(
         extra_cli_overrides={
             "scan.include_patterns": include,
             "scan.exclude_patterns": exclude,
+            "scan.sbom_format": _sbom_override(sbom),
+            "scan.include_tests": include_tests,
+            "scan.incremental": incremental,
             "models.triage": triage_model,
             "models.patcher": patch_model,
             "sandbox.docker_image": docker_image,
@@ -1028,6 +1367,16 @@ def run(
             resumed_cost_usd=0.0 if partial_summary is None else partial_summary.total_llm_cost_usd,
             apply_patches=apply,
             no_execute=no_execute,
+            use_cache=not options.no_cache,
+            incremental=(
+                prepare_incremental_state(
+                    target_dir.resolve(strict=False),
+                    options.output_dir,
+                    manifest_write_stage="detect",
+                )
+                if config_model.scan.incremental
+                else None
+            ),
         )
         pipeline_result = run_pipeline(
             config_model,
@@ -1051,6 +1400,8 @@ def run(
         trace_writer.close()
 
     if pipeline_result.failed_stage is not None:
+        if options.profile:
+            _print_profile_breakdown(pipeline_result.results)
         failed_result = pipeline_result.failed_result
         typer.echo(
             f"pipeline failed at stage '{pipeline_result.failed_stage}': "
@@ -1070,29 +1421,59 @@ def run(
                     "Trace": trace_writer.path,
                 },
             )
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=3)
 
     report = _final_report(pipeline_result.results)
+    if options.profile:
+        _print_profile_breakdown(pipeline_result.results)
     report_path = _report_output_path(options.output_dir, config_model.output.format)
     findings_detected = 0 if report is None else report.executive_summary.findings_detected
+    findings_suppressed = 0 if report is None else report.executive_summary.suppressed_findings
     findings_confirmed = 0 if report is None else report.executive_summary.findings_confirmed
     if sys.stderr.isatty() and not json_logs:
         print_summary_table(
             "Piranesi Run Summary",
             {
-                "Status": "completed" if findings_detected == 0 else "findings_detected",
+                "Status": (
+                    "completed"
+                    if findings_detected - findings_suppressed == 0
+                    else "findings_detected"
+                ),
                 "Stages": " -> ".join(result.stage for result in pipeline_result.results),
                 "Findings detected": findings_detected,
+                "Findings suppressed": findings_suppressed,
                 "Findings confirmed": findings_confirmed,
                 "Output": options.output_dir,
                 "Report": report_path,
                 "Trace": trace_writer.path,
             },
         )
-    if report is not None and _report_exit_code(report) != 0:
-        typer.echo(
-            "findings detected: "
-            f"{report.executive_summary.findings_detected} "
-            f"(confirmed: {report.executive_summary.findings_confirmed})"
+    if baseline is not None:
+        new_count, _, _ = _print_diff(baseline, options.output_dir)
+        if fail_on_new and not no_fail:
+            if new_count > 0:
+                raise typer.Exit(code=1)
+            return
+    if (
+        report is not None
+        and _report_exit_code(
+            report,
+            fail_severity=fail_severity,
+            no_fail=no_fail,
         )
+        != 0
+    ):
+        if findings_suppressed:
+            typer.echo(
+                "findings detected: "
+                f"{report.executive_summary.findings_detected} "
+                f"({findings_suppressed} suppressed, "
+                f"confirmed: {report.executive_summary.findings_confirmed})"
+            )
+        else:
+            typer.echo(
+                "findings detected: "
+                f"{report.executive_summary.findings_detected} "
+                f"(confirmed: {report.executive_summary.findings_confirmed})"
+            )
         raise typer.Exit(code=1)

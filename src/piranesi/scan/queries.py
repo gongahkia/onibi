@@ -16,6 +16,30 @@ _TRIPLE_QUOTED_STRING_PATTERN = re.compile(r'=\s*"""(?P<payload>.*)"""\s*$', re.
 _QUOTED_STRING_PATTERN = re.compile(r'=\s*"(?P<payload>(?:\\.|[^"\\])*)"\s*$', re.DOTALL)
 _SSRF_PATH_SEGMENT_SINK_NAME = "ssrf_path_segment"
 _SSRF_FULL_URL_SINK_NAME = "ssrf_full_url"
+_PYTHON_SQL_SINK_NAME = "python_sql_execute"
+_PYTHON_OS_SYSTEM_SINK_NAME = "python_os_system"
+_PYTHON_SUBPROCESS_RUN_SINK_NAME = "python_subprocess_run"
+_PYTHON_EVAL_SINK_NAME = "python_eval"
+_PYTHON_PARAMETERIZED_QUERY_SANITIZER_NAME = "python_parameterized_query"
+_PYTHON_SQL_SINK_PATTERN = (
+    'cpg.call.name("execute|raw|extra").filter(c => '
+    'c.code.contains("cursor.execute(") || '
+    'c.code.contains(".objects.raw(") || '
+    'c.code.contains(".objects.extra("))'
+)
+_PYTHON_OS_SYSTEM_SINK_PATTERN = (
+    'cpg.call.name("system").filter(c => c.code.startsWith("os.system("))'
+)
+_PYTHON_SUBPROCESS_RUN_SINK_PATTERN = (
+    'cpg.call.name("run").filter(c => '
+    'c.code.startsWith("subprocess.run(") && '
+    '(c.code.contains("shell = True") || c.code.contains("shell=True")))'
+)
+_PYTHON_EVAL_SINK_PATTERN = 'cpg.call.name("eval").filter(c => c.code.startsWith("eval("))'
+_PYTHON_PARAMETERIZED_QUERY_SANITIZER_PATTERN = (
+    'cpg.call.name("execute").filter(c => '
+    'c.code.contains("cursor.execute(") && c.argument.size >= 2)'
+)
 _HARDCODED_BASE_URL_TEMPLATE_PATTERN = re.compile(
     r"^`https?://[^/$?`]+(?::\d+)?[/?#][^`]*\$\{[^}]+\}[^`]*`$"
 )
@@ -27,6 +51,27 @@ _PARENT_CALL_QUERY_BY_NODE_TYPE = {
     "IDENTIFIER": "cpg.identifier.id({node_id}L).astParent.toJsonPretty",
     "LITERAL": "cpg.literal.id({node_id}L).astParent.toJsonPretty",
 }
+_SINK_NODES_PATTERN_OVERRIDES: dict[str, str] = {
+    _PYTHON_SQL_SINK_NAME: _PYTHON_SQL_SINK_PATTERN,
+    _PYTHON_OS_SYSTEM_SINK_NAME: _PYTHON_OS_SYSTEM_SINK_PATTERN,
+    _PYTHON_SUBPROCESS_RUN_SINK_NAME: _PYTHON_SUBPROCESS_RUN_SINK_PATTERN,
+    _PYTHON_EVAL_SINK_NAME: _PYTHON_EVAL_SINK_PATTERN,
+}
+_SINK_FLOW_PATTERN_OVERRIDES: dict[str, str] = {
+    _PYTHON_SQL_SINK_NAME: f"{_PYTHON_SQL_SINK_PATTERN}.argument(1)",
+    _PYTHON_SUBPROCESS_RUN_SINK_NAME: f"{_PYTHON_SUBPROCESS_RUN_SINK_PATTERN}.argument(1)",
+}
+_SANITIZER_NODES_PATTERN_OVERRIDES: dict[str, str] = {
+    _PYTHON_PARAMETERIZED_QUERY_SANITIZER_NAME: _PYTHON_PARAMETERIZED_QUERY_SANITIZER_PATTERN,
+}
+_SINKS_USING_PARENT_CALL = frozenset(
+    {
+        _SSRF_FULL_URL_SINK_NAME,
+        _SSRF_PATH_SEGMENT_SINK_NAME,
+        _PYTHON_SQL_SINK_NAME,
+        _PYTHON_SUBPROCESS_RUN_SINK_NAME,
+    }
+)
 
 
 class CPGQLQueryError(RuntimeError):
@@ -68,7 +113,7 @@ def build_nodes_query(pattern: str) -> str:
 
 
 def build_flow_query(source_spec: SourceSpec, sink_spec: SinkSpec) -> str:
-    sink_flow_pattern = sink_spec.flow_pattern or sink_spec.pattern
+    sink_flow_pattern = _sink_flow_pattern(sink_spec)
     return f"({sink_flow_pattern}).reachableByFlows({source_spec.pattern}).toJsonPretty"
 
 
@@ -77,14 +122,14 @@ def execute_source_query(server: JoernServer, source_spec: SourceSpec) -> tuple[
 
 
 def execute_sink_query(server: JoernServer, sink_spec: SinkSpec) -> tuple[QueryNode, ...]:
-    return _execute_nodes_query(server, sink_spec.pattern)
+    return _execute_nodes_query(server, _sink_nodes_pattern(sink_spec))
 
 
 def execute_sanitizer_query(
     server: JoernServer,
     sanitizer_spec: SanitizerSpec,
 ) -> tuple[QueryNode, ...]:
-    return _execute_nodes_query(server, sanitizer_spec.pattern)
+    return _execute_nodes_query(server, _sanitizer_nodes_pattern(sanitizer_spec))
 
 
 def execute_flow_query(
@@ -192,13 +237,32 @@ def normalize_flow_elements_for_sink_spec(
         if sink_spec.name == _SSRF_PATH_SEGMENT_SINK_NAME and not is_path_segment:
             return ()
 
-    if not sink_spec.flow_to_parent_call:
+    if not _sink_requires_parent_call(sink_spec):
         return tuple(elements)
 
     parent_call = _resolve_parent_call_node(server, elements[-1])
     if parent_call is None:
         return ()
     return (*elements, parent_call)
+
+
+def _sink_nodes_pattern(sink_spec: SinkSpec) -> str:
+    return _SINK_NODES_PATTERN_OVERRIDES.get(sink_spec.name, sink_spec.pattern)
+
+
+def _sink_flow_pattern(sink_spec: SinkSpec) -> str:
+    return _SINK_FLOW_PATTERN_OVERRIDES.get(
+        sink_spec.name,
+        sink_spec.flow_pattern or _sink_nodes_pattern(sink_spec),
+    )
+
+
+def _sanitizer_nodes_pattern(sanitizer_spec: SanitizerSpec) -> str:
+    return _SANITIZER_NODES_PATTERN_OVERRIDES.get(sanitizer_spec.name, sanitizer_spec.pattern)
+
+
+def _sink_requires_parent_call(sink_spec: SinkSpec) -> bool:
+    return sink_spec.flow_to_parent_call or sink_spec.name in _SINKS_USING_PARENT_CALL
 
 
 def execute_json_query(server: JoernServer, cpgql: str) -> object:

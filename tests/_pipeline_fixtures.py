@@ -28,7 +28,7 @@ from piranesi.pipeline import (
 )
 
 
-def fixture_artifacts(target_dir: Path) -> dict[str, BaseModel]:
+def fixture_artifacts(target_dir: Path, *, severity: str = "high") -> dict[str, BaseModel]:
     source_location = SourceLocation(
         file=str(target_dir / "src" / "routes" / "login.ts"),
         line=10,
@@ -71,7 +71,7 @@ def fixture_artifacts(target_dir: Path) -> dict[str, BaseModel]:
         ],
         path_conditions=[],
         confidence=0.97,
-        severity="high",
+        severity=severity,
         is_healthcare_entity=True,
     )
     triaged = TriagedFinding(

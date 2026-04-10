@@ -40,6 +40,13 @@ def exec_cmd():
     return "done"
 
 
+@app.route("/safe_exec")
+def safe_exec_cmd():
+    cmd = request.args.get("cmd")
+    subprocess.run(["echo", cmd], shell=False)
+    return "done"
+
+
 @app.route("/read")
 def read_file():
     path = request.args.get("path")  # tainted url_param

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import socket
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ from piranesi.scan.queries import (
     build_flow_query,
     build_nodes_query,
     execute_flow_query,
+    execute_sanitizer_query,
     execute_sink_query,
     execute_source_query,
 )
@@ -31,6 +33,8 @@ from piranesi.scan.specs import (
 )
 
 SCAN_QUERY_FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "scan_queries"
+PYTHON_FLASK_FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "python" / "flask_app"
+PYTHON_DJANGO_FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "python" / "django_app"
 
 
 class FakeJoernServer:
@@ -63,6 +67,12 @@ def _sanitizer_spec_by_name(specs: tuple[SanitizerSpec, ...], name: str) -> Sani
 
 def _codes(elements: tuple[object, ...]) -> set[str]:
     return {element.code for element in elements}  # type: ignore[attr-defined]
+
+
+def _find_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
 
 
 def test_build_flow_query_uses_reachable_by_flows_core_pattern() -> None:
@@ -489,6 +499,48 @@ def joern_server() -> Generator[JoernServer, None, None]:
         pytest.skip(str(exc))
 
 
+@pytest.fixture(scope="module")
+def python_flask_joern_server() -> Generator[JoernServer, None, None]:
+    if not is_joern_installed():
+        pytest.skip("Joern is not installed in PATH")
+
+    try:
+        with JoernServer(
+            port=_find_free_port(),
+            startup_timeout_seconds=30,
+            query_timeout_seconds=30,
+        ) as server:
+            server.import_project(
+                PYTHON_FLASK_FIXTURES_DIR,
+                language="python",
+                project_name="python-flask-query-fixture",
+            )
+            yield server
+    except JoernError as exc:
+        pytest.skip(str(exc))
+
+
+@pytest.fixture(scope="module")
+def python_django_joern_server() -> Generator[JoernServer, None, None]:
+    if not is_joern_installed():
+        pytest.skip("Joern is not installed in PATH")
+
+    try:
+        with JoernServer(
+            port=_find_free_port(),
+            startup_timeout_seconds=30,
+            query_timeout_seconds=30,
+        ) as server:
+            server.import_project(
+                PYTHON_DJANGO_FIXTURES_DIR,
+                language="python",
+                project_name="python-django-query-fixture",
+            )
+            yield server
+    except JoernError as exc:
+        pytest.skip(str(exc))
+
+
 @pytest.mark.joern
 @pytest.mark.integration
 def test_builtin_source_queries_detect_expected_patterns(joern_server: JoernServer) -> None:
@@ -661,6 +713,43 @@ def test_builtin_fastify_sink_queries_detect_expected_patterns(joern_server: Joe
 
     assert {"reply.send(markup)"} <= _codes(reply_send)
     assert {'reply.header("Location", redirectTo)'} <= _codes(reply_header)
+
+
+@pytest.mark.joern
+@pytest.mark.integration
+def test_builtin_python_sink_queries_detect_expected_patterns(
+    python_flask_joern_server: JoernServer,
+    python_django_joern_server: JoernServer,
+) -> None:
+    sink_specs = get_sink_specs(frameworks=("flask", "django"))
+    sanitizer_specs = get_sanitizer_specs(frameworks=("flask",))
+
+    sql_sink = _sink_spec_by_name(sink_specs, "python_sql_execute")
+    system_sink = _sink_spec_by_name(sink_specs, "python_os_system")
+    subprocess_sink = _sink_spec_by_name(sink_specs, "python_subprocess_run")
+    eval_sink = _sink_spec_by_name(sink_specs, "python_eval")
+    parameterized_query = _sanitizer_spec_by_name(sanitizer_specs, "python_parameterized_query")
+
+    flask_sql = execute_sink_query(python_flask_joern_server, sql_sink)
+    flask_system = execute_sink_query(python_flask_joern_server, system_sink)
+    flask_subprocess = execute_sink_query(python_flask_joern_server, subprocess_sink)
+    flask_eval = execute_sink_query(python_flask_joern_server, eval_sink)
+    flask_parameterized = execute_sanitizer_query(python_flask_joern_server, parameterized_query)
+    django_sql = execute_sink_query(python_django_joern_server, sql_sink)
+
+    assert {'cursor.execute(f"SELECT * FROM items WHERE name = \'{q}\'")'} <= _codes(flask_sql)
+    assert {"os.system(cmd)"} <= _codes(flask_system)
+    assert {"subprocess.run(cmd, shell = True)"} <= _codes(flask_subprocess)
+    assert "subprocess.run([\"echo\", cmd], shell = False)" not in _codes(flask_subprocess)
+    assert {"eval(expr)"} <= _codes(flask_eval)
+    assert {'cursor.execute("SELECT * FROM items WHERE name = ?", (q,))'} <= _codes(
+        flask_parameterized
+    )
+    assert {'User.objects.raw(f"SELECT * FROM users WHERE name = \'{q}\'")'} <= _codes(django_sql)
+    assert {'User.objects.extra(where = [f"name = \'{q}\'"])'} <= _codes(django_sql)
+    assert "User.objects.filter(name = q)" not in _codes(django_sql)
+    assert "User.objects.filter(Q(name = q))" not in _codes(django_sql)
+    assert 'User.objects.filter(score__gt = F("min_score"))' not in _codes(django_sql)
 
 
 @pytest.mark.joern

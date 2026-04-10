@@ -1,0 +1,19 @@
+id: gt-126
+source_project: piranesi-owasp-fixture
+commit_hash: "0000000000000000000000000000000000000000"
+cwe_id: CWE-601
+cwe_name: Open Redirect (res.redirect from POST body)
+label: true_positive
+affected_files:
+  - redirect.ts
+line_numbers: [13, 14]
+taint_source: "req.body.next"
+taint_sink: "res.redirect(next)"
+taint_path:
+  - "req.body.next (redirect.ts:13)"
+  - "res.redirect(next) (redirect.ts:14)"
+complexity: simple
+exploitable: true
+reference_exploit: "POST /auth/complete with next=https://evil.com for post-auth redirect hijack"
+reference_fix_commit: null
+notes: "Open redirect from POST body parameter. Less common but equally dangerous as query param variant."

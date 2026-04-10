@@ -19,13 +19,17 @@ Useful outputs from that directory:
 
 ## Exit codes
 
-- `0`: the pipeline completed and no findings were detected
-- `1`: findings were detected, or the pipeline failed before completion
-- `2`: the authorization gate was not satisfied
-- `3`: config loading failed
+- `0`: no findings met the current fail policy, or `--no-fail` was set
+- `1`: findings at or above `--fail-severity` were detected
+- `2`: configuration or required-flag error
+- `3`: runtime failure
 - `4`: the trace budget was exceeded
 
-If you need to distinguish "findings detected" from "runtime failure", check whether `report.json` exists. A completed run with findings writes the report and exits `1`. A failed run usually leaves only partial artifacts.
+Useful CI knobs:
+
+- `--fail-severity high`: only fail for `high` or `critical` findings
+- `--fail-severity medium`: fail for `medium`, `high`, or `critical`
+- `--no-fail`: always exit `0` for findings while still writing artifacts
 
 ## Generic CI
 
@@ -167,14 +171,24 @@ The image ships with Joern, JVM 17, Node.js, TypeScript, Python 3.12, and Pirane
 
 ## Fail-on-findings
 
-The default CLI contract is already CI-friendly:
+The default CLI contract fails on any unsuppressed finding:
 
 ```bash
 piranesi run . --authorized --yes --output piranesi-output
 ```
 
-- Exit code `0`: the run completed cleanly
-- Exit code `1`: findings were detected, or the run failed
+- Exit code `0`: no unsuppressed findings
+- Exit code `1`: one or more unsuppressed findings
+
+If you want to fail only on higher-severity issues:
+
+```bash
+piranesi run . \
+  --fail-severity high \
+  --authorized \
+  --yes \
+  --output piranesi-output
+```
 
 If you want to keep uploading artifacts even when Piranesi exits `1`, capture the exit code, publish `piranesi-output/`, then re-raise the failure:
 
@@ -189,7 +203,7 @@ set -e
 exit "$status"
 ```
 
-If you only want to fail on confirmed findings, inspect `report.json` and gate on `executive_summary.findings_confirmed` instead of relying on the default exit code.
+If you never want findings to fail the job, use `--no-fail`. Configuration and runtime errors still exit non-zero.
 
 ## SARIF consumers
 

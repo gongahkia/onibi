@@ -18,7 +18,7 @@ none
 none
 {%- endif -%}
 {%- endset %}
-- **Findings detected:** {{ report.executive_summary.findings_detected }}
+- **Findings detected:** {{ report.executive_summary.findings_detected }} findings{% if report.executive_summary.suppressed_findings %} ({{ report.executive_summary.suppressed_findings }} suppressed){% endif %}
 - **Findings confirmed:** {{ report.executive_summary.findings_confirmed }}
 - **Severity breakdown:** {{ severity_summary }}
 - **Top regulatory concerns:** {{ regulatory_summary }}

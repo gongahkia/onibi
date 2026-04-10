@@ -65,6 +65,69 @@ _CWE_METADATA: dict[str, CweMetadata] = {
         ),
         tags=("security", "ssrf", "owasp-a10"),
     ),
+    "CWE-942": CweMetadata(
+        name="PermissiveCrossDomainPolicy",
+        short_description="Permissive Cross-Domain Policy",
+        full_description=(
+            "The application reflects or overexposes cross-origin access rules in a way "
+            "that allows untrusted origins to access sensitive responses."
+        ),
+        tags=("security", "cors", "owasp-a05"),
+    ),
+    "CWE-1021": CweMetadata(
+        name="ImproperRestrictionOfRenderedUILayersOrFrames",
+        short_description="Missing X-Frame-Options",
+        full_description=(
+            "The application renders responses without a frame-embedding restriction, "
+            "increasing exposure to clickjacking."
+        ),
+        tags=("security", "headers", "clickjacking", "owasp-a05"),
+    ),
+    "CWE-693": CweMetadata(
+        name="ProtectionMechanismFailure",
+        short_description="Missing Security Protection",
+        full_description=(
+            "The application is missing a security protection such as CSP or hardened "
+            "middleware, reducing the effectiveness of defense-in-depth controls."
+        ),
+        tags=("security", "headers", "middleware", "owasp-a05"),
+    ),
+    "CWE-319": CweMetadata(
+        name="CleartextTransmissionOfSensitiveInformation",
+        short_description="Missing HSTS",
+        full_description=(
+            "The application does not enforce HTTPS transport protections such as HSTS, "
+            "which weakens resistance to downgrade and interception attacks."
+        ),
+        tags=("security", "headers", "transport", "owasp-a05"),
+    ),
+    "CWE-614": CweMetadata(
+        name="SensitiveCookieWithoutSecureFlag",
+        short_description="Cookie Missing Secure Flag",
+        full_description=(
+            "A session or sensitive cookie is configured without the Secure attribute, "
+            "allowing it to be sent over non-HTTPS requests."
+        ),
+        tags=("security", "cookies", "owasp-a05"),
+    ),
+    "CWE-1004": CweMetadata(
+        name="SensitiveCookieWithoutHttpOnlyFlag",
+        short_description="Cookie Missing HttpOnly Flag",
+        full_description=(
+            "A session or sensitive cookie is configured without the HttpOnly attribute, "
+            "making it accessible to client-side scripts."
+        ),
+        tags=("security", "cookies", "owasp-a05"),
+    ),
+    "CWE-1395": CweMetadata(
+        name="DependencyOnVulnerableThirdPartyComponent",
+        short_description="Vulnerable Dependency",
+        full_description=(
+            "The application depends on a third-party component with a known published "
+            "security advisory and an available remediated version."
+        ),
+        tags=("security", "dependencies", "owasp-a06", "owasp-a08"),
+    ),
 }
 
 

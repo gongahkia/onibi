@@ -26,6 +26,8 @@ def detect_framework(project_root: Path) -> list[str]:
     next_config_exists = any(path.is_file() for path in project_root.glob("next.config.*"))
     python_deps = _python_dependencies(project_root)
     java_deps = _java_dependencies(project_root)
+    go_deps = _go_dependencies(project_root)
+    has_go_files = _has_go_source_files(project_root)
 
     detected: list[str] = []
     if "@nestjs/core" in dependencies:
@@ -46,6 +48,14 @@ def detect_framework(project_root: Path) -> list[str]:
         detected.append("fastapi")
     if "spring-boot-starter-web" in java_deps and any(project_root.rglob("*.java")):
         detected.append("springboot")
+    if any(dep.startswith("github.com/gin-gonic/gin") for dep in go_deps):
+        detected.append("gin")
+    if any(dep.startswith("github.com/labstack/echo") for dep in go_deps):
+        detected.append("echo")
+    if any(dep.startswith("github.com/go-chi/chi") for dep in go_deps):
+        detected.append("chi")
+    if has_go_files and (project_root / "go.mod").is_file():
+        detected.append("go-stdlib")
     return detected
 
 
@@ -185,6 +195,30 @@ def _python_dependencies(project_root: Path) -> set[str]:
     return deps
 
 
+def _go_dependencies(project_root: Path) -> set[str]:
+    gomod = Path(project_root) / "go.mod"
+    if not gomod.is_file():
+        return set()
+
+    try:
+        content = gomod.read_text(encoding="utf-8")
+    except OSError:
+        return set()
+
+    deps: set[str] = set()
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("//"):
+            continue
+        parts = stripped.split()
+        if len(parts) >= 3 and parts[0] == "require" and "." in parts[1]:
+            deps.add(parts[1])
+            continue
+        if len(parts) >= 2 and "." in parts[0]:
+            deps.add(parts[0])
+    return deps
+
+
 def _package_dependencies(project_root: Path) -> set[str]:
     package_json_path = Path(project_root) / "package.json"
     if not package_json_path.is_file():
@@ -206,6 +240,10 @@ def _package_dependencies(project_root: Path) -> set[str]:
                 name for name, version in section.items() if isinstance(name, str) and version
             )
     return dependencies
+
+
+def _has_go_source_files(project_root: Path) -> bool:
+    return any(path.is_file() and "vendor" not in path.parts for path in project_root.rglob("*.go"))
 
 
 def _is_supported_route_file(path: Path) -> bool:

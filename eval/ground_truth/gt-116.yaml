@@ -1,0 +1,22 @@
+id: gt-116
+source_project: piranesi-cross-language-fixture
+commit_hash: "0000000000000000000000000000000000000000"
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting (Cross-Language TS→Flask)
+label: true_positive
+affected_files:
+  - frontend/app.tsx
+  - backend/app.py
+line_numbers: [23, 35]
+taint_source: "formData.get('username') via fetch('/api/login')"
+taint_sink: "render_template_string(f'<h1>Welcome {username}</h1>')"
+taint_path:
+  - "formData.get('username') (frontend/app.tsx:22)"
+  - "fetch('/api/login', {body: JSON.stringify({username})}) (frontend/app.tsx:23)"
+  - "cross-language API call: typescript → python via /api/login"
+  - "render_template_string(f-string) (backend/app.py:35)"
+complexity: inter
+exploitable: true
+reference_exploit: "POST /api/login with username=<script>alert(1)</script>"
+reference_fix_commit: null
+notes: "Cross-language reflected XSS: TS frontend posts username to Flask route that renders it unsanitized via render_template_string."

@@ -6,7 +6,7 @@
 
 {% include "executive_summary.j2" %}
 
-## Findings
+## Confirmed Findings
 
 {% if report.findings %}
 {% for finding in report.findings %}
@@ -15,6 +15,22 @@
 {% endfor %}
 {% else %}
 No confirmed findings were produced by the pipeline.
+{% endif %}
+
+## Suppressed Findings
+
+{% if report.suppressed_findings %}
+{% for finding in report.suppressed_findings %}
+### {{ finding.title }} (`{{ finding.finding_id }}`)
+
+- **CWE:** {{ finding.cwe }}
+- **Severity:** {{ finding.severity|upper }}
+- **Location:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}`
+- **Reason:** {{ finding.suppression_reason or "n/a" }}
+
+{% endfor %}
+{% else %}
+No suppressed findings were recorded.
 {% endif %}
 
 ## Appendix

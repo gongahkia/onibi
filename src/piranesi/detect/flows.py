@@ -82,9 +82,18 @@ _SEVERITY_BY_CWE = {
     "CWE-78": "critical",
     "CWE-89": "high",
     "CWE-94": "critical",
+    "CWE-502": "high",
     "CWE-918": "high",
+    "CWE-942": "high",
     "CWE-79": "medium",
     "CWE-22": "medium",
+    "CWE-434": "high",
+    "CWE-601": "medium",
+    "CWE-1021": "medium",
+    "CWE-693": "medium",
+    "CWE-319": "medium",
+    "CWE-614": "medium",
+    "CWE-1004": "medium",
 }
 
 
@@ -477,12 +486,13 @@ def extract_candidate_findings(
                     pruning_analyzer=pruning_analyzer,
                 )
             )
-    return classify_candidate_findings(
+    classified = classify_candidate_findings(
         findings,
         route_patterns_by_finding_id=route_patterns_by_finding_id,
         provider=category_provider,
         model=category_model,
     )
+    return tuple(_dedupe_candidate_findings(classified))
 
 
 def joern_flow_to_taint_steps(
@@ -542,14 +552,16 @@ def _severity_for_sink_spec(sink_spec: SinkSpec) -> str:
 def candidate_finding_id(
     *,
     vuln_class: str,
-    source_location: SourceLocation,
-    sink_location: SourceLocation,
+    source_function_name: str | None,
+    sink_function_name: str | None,
+    path_length: int,
 ) -> str:
     material = _LOCATION_SEPARATOR.join(
         [
             vuln_class,
-            _location_key(source_location),
-            _location_key(sink_location),
+            _stable_function_name(source_function_name, fallback="unknown_source"),
+            _stable_function_name(sink_function_name, fallback="unknown_sink"),
+            str(path_length),
         ]
     )
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
@@ -638,8 +650,9 @@ def _extract_findings_for_pair(
             CandidateFinding(
                 id=candidate_finding_id(
                     vuln_class=vuln_class,
-                    source_location=source_location,
-                    sink_location=sink_location,
+                    source_function_name=source_node.method_full_name,
+                    sink_function_name=sink_node.method_full_name,
+                    path_length=len(elements),
                 ),
                 vuln_class=vuln_class,
                 source=TaintSource(
@@ -679,6 +692,13 @@ def _path_is_unreachable(path_conditions: Sequence[PathCondition]) -> bool:
     return False
 
 
+def _stable_function_name(value: str | None, *, fallback: str) -> str:
+    if value is None:
+        return fallback
+    normalized = value.strip()
+    return normalized or fallback
+
+
 def _collect_sanitizer_lookup(
     server: JoernServer,
     sanitizer_specs: Sequence[SanitizerSpec],
@@ -707,6 +727,28 @@ def _reduced_confidence_for_path(
     ):
         confidence *= 1.0 - sanitizer_spec.confidence
     return max(0.0, min(1.0, confidence))
+
+
+def _dedupe_candidate_findings(findings: Sequence[CandidateFinding]) -> list[CandidateFinding]:
+    deduped: list[CandidateFinding] = []
+    seen: set[tuple[object, ...]] = set()
+    for finding in findings:
+        key = (
+            finding.vuln_class,
+            finding.source.location.file,
+            finding.source.location.line,
+            finding.source.location.column,
+            finding.source.parameter_name,
+            finding.sink.location.file,
+            finding.sink.location.line,
+            finding.sink.location.column,
+            finding.sink.api_name,
+        )
+        if key in seen:
+            continue
+        deduped.append(finding)
+        seen.add(key)
+    return deduped
 
 
 def _relevant_sanitizers_on_path(
@@ -983,16 +1025,6 @@ def _sanitizer_name(node: QueryNode, *, fallback: str) -> str:
     if prefix is not None:
         return prefix
     return fallback
-
-
-def _location_key(location: SourceLocation) -> str:
-    return _LOCATION_SEPARATOR.join(
-        [
-            location.file,
-            str(location.line),
-            str(location.column),
-        ]
-    )
 
 
 def _coerce_int(value: Any, *, default: int) -> int:

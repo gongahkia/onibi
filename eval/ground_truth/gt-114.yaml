@@ -1,0 +1,22 @@
+id: gt-114
+source_project: piranesi-cross-language-fixture
+commit_hash: "0000000000000000000000000000000000000000"
+cwe_id: CWE-89
+cwe_name: SQL Injection (Cross-Language TS→Flask)
+label: true_positive
+affected_files:
+  - frontend/app.tsx
+  - backend/app.py
+line_numbers: [5, 18]
+taint_source: "document.getElementById('search').value via fetch('/api/search')"
+taint_sink: "cursor.execute(f\"SELECT * FROM items WHERE name = '{q}'\")"
+taint_path:
+  - "document.getElementById('search').value (frontend/app.tsx:4)"
+  - "fetch('/api/search', {body: JSON.stringify({q: userInput})}) (frontend/app.tsx:5)"
+  - "cross-language API call: typescript → python via /api/search"
+  - "cursor.execute(f-string) (backend/app.py:18)"
+complexity: inter
+exploitable: true
+reference_exploit: "POST /api/search with q=' OR 1=1 -- from frontend form"
+reference_fix_commit: null
+notes: "Cross-language SQLi: TS frontend sends unsanitized user input to Flask route which builds SQL via f-string."

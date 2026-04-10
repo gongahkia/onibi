@@ -100,6 +100,220 @@ def test_import_project_uses_import_code_query(
     assert server._imported_project_path == project_dir.resolve()
 
 
+def test_import_project_uses_language_alias_when_requested(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    server = JoernServer(binary_path="joern")
+    captured: dict[str, object] = {}
+
+    def fake_execute(
+        cpgql: str,
+        *,
+        timeout_seconds: int,
+        event: str,
+        allow_restart: bool = True,
+    ) -> dict[str, object]:
+        captured["cpgql"] = cpgql
+        captured["timeout_seconds"] = timeout_seconds
+        captured["event"] = event
+        captured["allow_restart"] = allow_restart
+        return {"success": True}
+
+    monkeypatch.setattr(server, "_execute_cpgql", fake_execute)
+
+    response = server.import_project(project_dir, language="java")
+
+    assert response["success"] is True
+    assert captured["event"] == "joern_import"
+    assert captured["cpgql"] == f"importCode.java({json.dumps(str(project_dir.resolve()))})"
+    assert server._imported_project_path == project_dir.resolve()
+    assert server._imported_language == "java"
+
+
+def test_import_project_uses_language_alias_with_project_name(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    server = JoernServer(binary_path="joern")
+    captured: dict[str, object] = {}
+
+    def fake_execute(
+        cpgql: str,
+        *,
+        timeout_seconds: int,
+        event: str,
+        allow_restart: bool = True,
+    ) -> dict[str, object]:
+        captured["cpgql"] = cpgql
+        captured["timeout_seconds"] = timeout_seconds
+        captured["event"] = event
+        captured["allow_restart"] = allow_restart
+        return {"success": True}
+
+    monkeypatch.setattr(server, "_execute_cpgql", fake_execute)
+
+    response = server.import_project(project_dir, language="python", project_name="py-sample")
+
+    assert response["success"] is True
+    assert captured["event"] == "joern_import"
+    assert captured["timeout_seconds"] == server.query_timeout_seconds
+    assert captured["cpgql"] == (
+        f'importCode.python({json.dumps(str(project_dir.resolve()))}, "py-sample")'
+    )
+    assert server._imported_project_path == project_dir.resolve()
+    assert server._imported_language == "python"
+    assert server._imported_project_name == "py-sample"
+
+
+def test_import_project_with_frontend_args_generates_cpg_before_import(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    server = JoernServer(binary_path="joern", query_timeout_seconds=45)
+    server._resolved_binary_path = "/opt/homebrew/opt/joern/libexec/joern"
+    captured: dict[str, object] = {}
+
+    def fake_run_subprocess(
+        cmd: list[str],
+        *,
+        timeout: int,
+        logger: object,
+    ) -> subprocess.CompletedProcess[str]:
+        _ = (timeout, logger)
+        captured["cmd"] = cmd
+        output_index = cmd.index("--output") + 1
+        output_path = Path(cmd[output_index])
+        output_path.write_text("cpg", encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    def fake_execute(
+        cpgql: str,
+        *,
+        timeout_seconds: int,
+        event: str,
+        allow_restart: bool = True,
+    ) -> dict[str, object]:
+        captured["cpgql"] = cpgql
+        captured["timeout_seconds"] = timeout_seconds
+        captured["event"] = event
+        captured["allow_restart"] = allow_restart
+        return {"success": True}
+
+    monkeypatch.setattr("piranesi.scan.joern.run_subprocess", fake_run_subprocess)
+    monkeypatch.setattr(server, "_execute_cpgql", fake_execute)
+
+    response = server.import_project(
+        project_dir,
+        language="java",
+        frontend_args=["--exclude", "src/test"],
+    )
+
+    assert response["success"] is True
+    assert captured["event"] == "joern_import"
+    assert captured["timeout_seconds"] == server.query_timeout_seconds
+    assert str(captured["cmd"][0]).endswith("joern-parse")
+    assert captured["cmd"][1:5] == ["--output", str(server._imported_cpg_path), "--language", "javasrc"]
+    assert "--frontend-args" in captured["cmd"]
+    assert captured["cmd"][5] == str(project_dir.resolve())
+    assert captured["cmd"][-3:] == ["--frontend-args", "--exclude", "src/test"]
+    assert captured["cpgql"] == f'importCpg({json.dumps(str(server._imported_cpg_path))})'
+    assert server._imported_project_path is None
+    assert server._imported_language is None
+    assert server._imported_cpg_path is not None
+
+    server._cleanup_temporary_artifacts()
+    assert not server._temporary_artifacts
+
+
+def test_version_uses_joern_scan_help_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = JoernServer(binary_path="joern")
+    server._resolved_binary_path = "/opt/homebrew/bin/joern"
+
+    def fake_run_subprocess(
+        cmd: list[str],
+        *,
+        timeout: int,
+        logger: object,
+    ) -> subprocess.CompletedProcess[str]:
+        _ = (timeout, logger)
+        assert cmd == ["/opt/homebrew/bin/joern-scan", "--help"]
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            stdout="Version: `HEAD+20260325-0833`\nUsage: joern-scan [options] [src]\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr("piranesi.scan.joern.run_subprocess", fake_run_subprocess)
+
+    assert server.version() == "HEAD+20260325-0833"
+
+
+def test_import_project_with_go_frontend_args_uses_golang_parse_mode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    server = JoernServer(binary_path="joern", query_timeout_seconds=45)
+    server._resolved_binary_path = "/opt/homebrew/opt/joern/libexec/joern"
+    captured: dict[str, object] = {}
+
+    def fake_run_subprocess(
+        cmd: list[str],
+        *,
+        timeout: int,
+        logger: object,
+    ) -> subprocess.CompletedProcess[str]:
+        _ = (timeout, logger)
+        captured["cmd"] = cmd
+        output_index = cmd.index("--output") + 1
+        output_path = Path(cmd[output_index])
+        output_path.write_text("cpg", encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    def fake_execute(
+        cpgql: str,
+        *,
+        timeout_seconds: int,
+        event: str,
+        allow_restart: bool = True,
+    ) -> dict[str, object]:
+        captured["cpgql"] = cpgql
+        captured["timeout_seconds"] = timeout_seconds
+        captured["event"] = event
+        captured["allow_restart"] = allow_restart
+        return {"success": True}
+
+    monkeypatch.setattr("piranesi.scan.joern.run_subprocess", fake_run_subprocess)
+    monkeypatch.setattr(server, "_execute_cpgql", fake_execute)
+
+    response = server.import_project(
+        project_dir,
+        language="go",
+        frontend_args=["--exclude", "vendor"],
+    )
+
+    assert response["success"] is True
+    assert captured["cmd"][1:5] == [
+        "--output",
+        str(server._imported_cpg_path),
+        "--language",
+        "golang",
+    ]
+    assert captured["cmd"][-3:] == ["--frontend-args", "--exclude", "vendor"]
+    assert captured["cpgql"] == f'importCpg({json.dumps(str(server._imported_cpg_path))})'
+
+
 def test_query_timeout_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     server = JoernServer(binary_path="joern", port=8086)
     server._process = FakeProcess(alive=True)  # type: ignore[assignment]

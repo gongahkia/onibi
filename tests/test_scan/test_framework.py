@@ -57,6 +57,35 @@ def test_detect_frameworks_requires_next_dependency_and_next_config(tmp_path: Pa
     assert detect_frameworks(tmp_path) == ("nextjs",)
 
 
+def test_detect_frameworks_finds_gin_and_go_stdlib(tmp_path: Path) -> None:
+    (tmp_path / "go.mod").write_text(
+        "\n".join(
+            [
+                "module example.com/app",
+                "",
+                "go 1.21",
+                "",
+                "require github.com/gin-gonic/gin v1.10.0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "main.go").write_text("package main\n", encoding="utf-8")
+
+    assert detect_frameworks(tmp_path) == ("gin", "go-stdlib")
+
+
+def test_detect_frameworks_ignores_vendor_only_go_sources(tmp_path: Path) -> None:
+    (tmp_path / "go.mod").write_text("module example.com/app\n\ngo 1.21\n", encoding="utf-8")
+    (tmp_path / "vendor" / "example.com" / "dep").mkdir(parents=True)
+    (tmp_path / "vendor" / "example.com" / "dep" / "unsafe.go").write_text(
+        "package dep\n",
+        encoding="utf-8",
+    )
+
+    assert detect_frameworks(tmp_path) == ()
+
+
 def test_discover_nextjs_routes_finds_pages_app_and_server_action_files(tmp_path: Path) -> None:
     (tmp_path / "pages/api/admin").mkdir(parents=True)
     (tmp_path / "app/api/files").mkdir(parents=True)

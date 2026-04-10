@@ -59,7 +59,7 @@ class SandboxConfig(BaseModel):
 class OutputConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    format: Literal["json", "markdown", "both", "sarif"] = "both"
+    format: Literal["json", "markdown", "both", "sarif", "junit", "csv"] = "both"
     output_dir: str = "./piranesi-output"
 
 
@@ -100,13 +100,16 @@ class ScanConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     include_patterns: list[str] = Field(
-        default_factory=lambda: ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"]
+        default_factory=lambda: ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/*.go"]
     )
     exclude_patterns: list[str] = Field(
-        default_factory=lambda: ["**/node_modules/**", "**/dist/**", "**/*.d.ts"]
+        default_factory=lambda: ["**/node_modules/**", "**/dist/**", "**/*.d.ts", "**/vendor/**"]
     )
     max_file_size: int = 1_048_576
+    include_tests: bool = False
     frameworks: list[str] = Field(default_factory=lambda: ["auto"])
+    incremental: bool = False
+    sbom_format: Literal["spdx", "cyclonedx"] | None = None
     custom_sources: CustomSourceConfig = Field(default_factory=CustomSourceConfig)
     custom_sinks: CustomSinkConfig = Field(default_factory=CustomSinkConfig)
 

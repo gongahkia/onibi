@@ -138,6 +138,24 @@ def test_prepare_transpile_workspace_writes_isolated_tsconfig(tmp_path: Path) ->
         workspace.cleanup()
 
 
+def test_prepare_transpile_workspace_limits_tsconfig_to_changed_files(tmp_path: Path) -> None:
+    target_dir = tmp_path / "target"
+    target_dir.mkdir()
+    changed_file = target_dir / "app.ts"
+    unchanged_file = target_dir / "other.ts"
+    changed_file.write_text("export const value = 1;\n", encoding="utf-8")
+    unchanged_file.write_text("export const other = 2;\n", encoding="utf-8")
+
+    workspace = prepare_transpile_workspace(target_dir, changed_files={Path("app.ts")})
+    try:
+        payload = json.loads(workspace.tsconfig_path.read_text(encoding="utf-8"))
+
+        assert payload["files"] == [str(changed_file.resolve())]
+        assert "include" not in payload
+    finally:
+        workspace.cleanup()
+
+
 def test_source_map_parsing_builds_bidirectional_line_mapping(tmp_path: Path) -> None:
     ts_file, js_file, out_dir = _write_enum_fixture(tmp_path)
 

@@ -138,6 +138,7 @@ class SourceMap:
 def prepare_transpile_workspace(
     target_dir: Path,
     *,
+    changed_files: set[Path] | None = None,
     root_dir: Path | None = None,
     log: logging.Logger | None = None,
 ) -> TranspileWorkspace:
@@ -159,6 +160,11 @@ def prepare_transpile_workspace(
     npm_cache_dir = workspace_root / ".npm-cache"
     npm_cache_dir.mkdir(parents=True, exist_ok=True)
 
+    selected_files = (
+        None
+        if changed_files is None
+        else _normalize_changed_files(normalized_target, changed_files)
+    )
     tsconfig = {
         "compilerOptions": {
             "target": "ES2020",
@@ -176,14 +182,17 @@ def prepare_transpile_workspace(
             "skipLibCheck": True,
             "noEmit": False,
         },
-        "include": [
+        "exclude": [str(normalized_target / "node_modules" / "**")],
+    }
+    if selected_files is None:
+        tsconfig["include"] = [
             str(normalized_target / "**" / "*.ts"),
             str(normalized_target / "**" / "*.tsx"),
             str(normalized_target / "**" / "*.js"),
             str(normalized_target / "**" / "*.jsx"),
-        ],
-        "exclude": [str(normalized_target / "node_modules" / "**")],
-    }
+        ]
+    else:
+        tsconfig["files"] = [str(path) for path in selected_files]
 
     tsconfig_path = workspace_root / "tsconfig.json"
     tsconfig_path.write_text(json.dumps(tsconfig, indent=2), encoding="utf-8")
@@ -217,18 +226,31 @@ def prepare_transpile_workspace(
 def transpile_project(
     target_dir: Path,
     *,
+    changed_files: set[Path] | None = None,
     timeout: int = 300,
     log: logging.Logger | None = None,
 ) -> TranspiledProject:
     active_logger = log or logger
     normalized_target = target_dir.resolve(strict=False)
-    source_files = tuple(_collect_transpilable_files(normalized_target))
+    source_files = tuple(
+        collect_transpilable_files(normalized_target)
+        if changed_files is None
+        else _normalize_changed_files(normalized_target, changed_files)
+    )
     if not source_files:
         raise TranspilationError(
-            f"no TypeScript or JavaScript files found under {normalized_target}"
+            (
+                f"no changed TypeScript or JavaScript files found under {normalized_target}"
+                if changed_files is not None
+                else f"no TypeScript or JavaScript files found under {normalized_target}"
+            )
         )
 
-    workspace = prepare_transpile_workspace(normalized_target, log=active_logger)
+    workspace = prepare_transpile_workspace(
+        normalized_target,
+        changed_files=None if changed_files is None else set(source_files),
+        log=active_logger,
+    )
     compiler_env = _build_compiler_env(workspace)
 
     try:
@@ -401,7 +423,7 @@ def _compiler_not_found_error() -> TypeScriptCompilerNotFoundError:
     )
 
 
-def _collect_transpilable_files(target_dir: Path) -> list[Path]:
+def collect_transpilable_files(target_dir: Path) -> list[Path]:
     source_files: list[Path] = []
     for path in target_dir.rglob("*"):
         if not path.is_file():
@@ -414,6 +436,23 @@ def _collect_transpilable_files(target_dir: Path) -> list[Path]:
             continue
         source_files.append(path.resolve(strict=False))
     return sorted(source_files)
+
+
+def _normalize_changed_files(target_dir: Path, changed_files: set[Path]) -> list[Path]:
+    normalized: set[Path] = set()
+    for path in changed_files:
+        candidate = path if path.is_absolute() else target_dir / path
+        resolved = candidate.resolve(strict=False)
+        if not resolved.is_file():
+            continue
+        if "node_modules" in resolved.parts:
+            continue
+        if resolved.suffix not in _SOURCE_EXTENSIONS:
+            continue
+        if resolved.name.endswith(".d.ts"):
+            continue
+        normalized.add(resolved)
+    return sorted(normalized)
 
 
 def _combine_output(result: CompletedProcess[str]) -> str:

@@ -32,8 +32,11 @@ class CombinedFinding(BaseModel):
     title: str
     severity: str
     confidence: float
+    metadata: dict[str, object] = Field(default_factory=dict)
     verified: bool
     verification_method: str
+    taint_source: str
+    taint_sink: str
     source_location: SourceLocation
     sink_location: SourceLocation
     taint_path: list[TaintStep] = Field(default_factory=list)
@@ -51,10 +54,27 @@ class CombinedFinding(BaseModel):
     pr_body: str | None = None
 
 
+class SuppressedFinding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    finding_id: str
+    cwe: str
+    title: str
+    severity: str
+    confidence: float
+    metadata: dict[str, object] = Field(default_factory=dict)
+    taint_source: str
+    taint_sink: str
+    source_location: SourceLocation
+    sink_location: SourceLocation
+    suppression_reason: str | None = None
+
+
 class ExecutiveSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     findings_detected: int
+    suppressed_findings: int = 0
     findings_confirmed: int
     severity_breakdown: dict[str, int] = Field(default_factory=dict)
     top_regulatory_concerns: list[str] = Field(default_factory=list)
@@ -81,6 +101,7 @@ class PiranesiReport(BaseModel):
     scan_metadata: ScanMetadata
     executive_summary: ExecutiveSummary
     findings: list[CombinedFinding] = Field(default_factory=list)
+    suppressed_findings: list[SuppressedFinding] = Field(default_factory=list)
     appendix: ReportAppendix
 
 
@@ -101,6 +122,23 @@ def build_report(
         assessment.finding.finding.finding.id: assessment for assessment in legal_assessments
     }
     patch_by_id = {patch.finding.finding.finding.id: patch for patch in patch_results}
+    suppressed_findings = [
+        SuppressedFinding(
+            finding_id=candidate.id,
+            cwe=_extract_cwe_id(candidate.vuln_class),
+            title=_finding_title(candidate),
+            severity=candidate.severity,
+            confidence=candidate.confidence,
+            metadata=dict(candidate.metadata),
+            taint_source=candidate.source.source_type,
+            taint_sink=candidate.sink.api_name,
+            source_location=candidate.source.location,
+            sink_location=candidate.sink.location,
+            suppression_reason=candidate.suppression_reason,
+        )
+        for candidate in detected_findings
+        if candidate.suppressed
+    ]
 
     findings: list[CombinedFinding] = []
     for confirmed in confirmed_findings:
@@ -114,8 +152,11 @@ def build_report(
             title=_finding_title(candidate),
             severity=candidate.severity,
             confidence=candidate.confidence,
+            metadata=dict(candidate.metadata),
             verified=True,
             verification_method="smt+sandbox",
+            taint_source=candidate.source.source_type,
+            taint_sink=candidate.sink.api_name,
             source_location=candidate.source.location,
             sink_location=candidate.sink.location,
             taint_path=list(candidate.taint_path),
@@ -139,13 +180,15 @@ def build_report(
         scan_metadata=scan_result.metadata,
         executive_summary=ExecutiveSummary(
             findings_detected=len(detected_findings),
+            suppressed_findings=len(suppressed_findings),
             findings_confirmed=len(confirmed_findings),
-            severity_breakdown=_severity_breakdown(findings),
+            severity_breakdown=_candidate_severity_breakdown(detected_findings),
             top_regulatory_concerns=_top_regulatory_concerns(legal_assessments),
             total_llm_cost_usd=total_llm_cost_usd,
             duration_s=duration_s,
         ),
         findings=findings,
+        suppressed_findings=suppressed_findings,
         appendix=ReportAppendix(
             generated_at=generated_at,
             target=str(target_dir.resolve(strict=False)),
@@ -198,13 +241,25 @@ def write_report_outputs(
     (output_dir / "report.json").write_text(report.model_dump_json(indent=2), encoding="utf-8")
     (output_dir / "report.md").write_text(render_markdown(report), encoding="utf-8")
     (output_dir / "pr_body.md").write_text(render_pr_body(report), encoding="utf-8")
-    if report_format.lower() == "sarif":
+    format_name = report_format.lower()
+    if format_name == "sarif":
         from piranesi.report.sarif import generate_sarif
 
         (output_dir / "report.sarif.json").write_text(
             json.dumps(generate_sarif(report), indent=2),
             encoding="utf-8",
         )
+    if format_name == "junit":
+        from piranesi.report.junit import generate_junit_xml
+
+        (output_dir / "report.junit.xml").write_text(
+            generate_junit_xml(report),
+            encoding="utf-8",
+        )
+    if format_name == "csv":
+        from piranesi.report.csv import generate_csv
+
+        (output_dir / "findings.csv").write_text(generate_csv(report), encoding="utf-8")
 
 
 def render_markdown(report: PiranesiReport) -> str:
@@ -244,9 +299,11 @@ def _finding_title(candidate: CandidateFinding) -> str:
     return cwe_title(cwe, fallback=candidate.vuln_class)
 
 
-def _severity_breakdown(findings: list[CombinedFinding]) -> dict[str, int]:
+def _candidate_severity_breakdown(findings: list[CandidateFinding]) -> dict[str, int]:
     counts = dict.fromkeys(_SEVERITY_ORDER, 0)
     for finding in findings:
+        if finding.suppressed:
+            continue
         severity = finding.severity.lower()
         counts[severity] = counts.get(severity, 0) + 1
     return {severity: count for severity, count in counts.items() if count > 0}
@@ -280,6 +337,7 @@ __all__ = [
     "ExecutiveSummary",
     "PiranesiReport",
     "ReportAppendix",
+    "SuppressedFinding",
     "build_report",
     "render_markdown",
     "render_pr_body",

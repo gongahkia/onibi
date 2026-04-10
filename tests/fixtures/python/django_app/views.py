@@ -3,7 +3,13 @@ import sqlite3
 import subprocess
 
 import requests
+from django.db import models
+from django.db.models import F, Q
 from django.http import HttpResponse
+
+
+class User(models.Model):
+    pass
 
 
 def search(request):
@@ -47,3 +53,32 @@ def safe_query(request):
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM items WHERE name = ?", (q,))  # parameterized
     return HttpResponse(str(cursor.fetchall()))
+
+
+def orm_raw(request):
+    q = request.GET["q"]  # tainted url_param
+    rows = User.objects.raw(f"SELECT * FROM users WHERE name = '{q}'")
+    return HttpResponse(str(list(rows)))
+
+
+def orm_extra(request):
+    q = request.GET["q"]  # tainted url_param
+    rows = User.objects.extra(where=[f"name = '{q}'"])
+    return HttpResponse(str(list(rows)))
+
+
+def orm_filter(request):
+    q = request.GET["q"]
+    rows = User.objects.filter(name=q)
+    return HttpResponse(str(list(rows)))
+
+
+def orm_filter_q(request):
+    q = request.GET["q"]
+    rows = User.objects.filter(Q(name=q))
+    return HttpResponse(str(list(rows)))
+
+
+def orm_filter_f(request):
+    rows = User.objects.filter(score__gt=F("min_score"))
+    return HttpResponse(str(list(rows)))

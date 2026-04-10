@@ -26,6 +26,9 @@ class SinkType(StrEnum):
     FILE_READ = "file_read"
     FILE_WRITE = "file_write"
     HTTP_REQUEST = "http_request"
+    DESERIALIZATION = "deserialization"
+    REDIRECT = "redirect"
+    FILE_UPLOAD = "file_upload"
     CUSTOM = "custom"
 
 
@@ -141,6 +144,14 @@ BUILTIN_SOURCE_SPECS: tuple[SourceSpec, ...] = (
         name="express_req_params",
         pattern=_EXPRESS_ACCESS_PATTERN.format(code="req[.]params.*"),
         source_type=SourceType.REQUEST_PARAM,
+    ),
+    SourceSpec(
+        name="express_req_origin_header",
+        pattern=(
+            'cpg.call.name("<operator>.fieldAccess|<operator>.indexAccess")'
+            '.code("req[.]headers[.]origin|req[.]headers\\[[\\"\\\']origin[\\"\\\']\\]")'
+        ),
+        source_type=SourceType.HEADER,
     ),
     SourceSpec(
         name="express_req_headers",
@@ -332,6 +343,22 @@ BUILTIN_SINK_SPECS: tuple[SinkSpec, ...] = (
         cwe_id="CWE-79",
     ),
     SinkSpec(
+        name="cors_allow_origin_reflection",
+        pattern=(
+            'cpg.call.name("setHeader")'
+            '.code(".*setHeader[(][\\"\\\']Access-Control-Allow-Origin[\\"\\\'].*,.*")'
+        ),
+        sink_type=SinkType.HEADER_INJECTION,
+        cwe_id="CWE-942",
+        severity="high",
+        flow_pattern=(
+            'cpg.call.name("setHeader")'
+            '.code(".*setHeader[(][\\"\\\']Access-Control-Allow-Origin[\\"\\\'].*,.*")'
+            ".argument(2)"
+        ),
+        flow_to_parent_call=True,
+    ),
+    SinkSpec(
         name="filesystem_read",
         pattern='cpg.call.name("readFile|readFileSync")',
         sink_type=SinkType.FILE_READ,
@@ -351,6 +378,47 @@ BUILTIN_SINK_SPECS: tuple[SinkSpec, ...] = (
         severity="high",
         flow_pattern=_HTTP_REQUEST_URL_ARGUMENT_PATTERN,
         flow_to_parent_call=True,
+    ),
+    SinkSpec(
+        name="json_parse_user_input",
+        pattern='cpg.call.name("parse").code("JSON[.]parse[(].*")',
+        sink_type=SinkType.DESERIALIZATION,
+        cwe_id="CWE-502",
+        severity="medium",
+    ),
+    SinkSpec(
+        name="express_redirect",
+        pattern='cpg.call.name("redirect")',
+        sink_type=SinkType.REDIRECT,
+        cwe_id="CWE-601",
+        severity="medium",
+    ),
+    SinkSpec(
+        name="location_header_set",
+        pattern=(
+            'cpg.call.name("setHeader|writeHead")'
+            '.code(".*(?:setHeader|writeHead)[(].*[Ll]ocation.*")'
+        ),
+        sink_type=SinkType.REDIRECT,
+        cwe_id="CWE-601",
+        severity="medium",
+    ),
+    SinkSpec(
+        name="multer_file_write",
+        pattern='cpg.call.name("writeFile|writeFileSync").where(_.argument.code(".*(?:originalname|filename).*"))',
+        sink_type=SinkType.FILE_UPLOAD,
+        cwe_id="CWE-434",
+        severity="high",
+    ),
+    SinkSpec(
+        name="multer_file_path_concat",
+        pattern=(
+            'cpg.call.name("<operator>.addition|<operator>.formatString")'
+            '.where(_.argument.code(".*(?:originalname|filename).*"))'
+        ),
+        sink_type=SinkType.FILE_UPLOAD,
+        cwe_id="CWE-434",
+        severity="high",
     ),
     SinkSpec(
         name="ssrf_path_segment",
@@ -459,6 +527,34 @@ BUILTIN_SANITIZER_SPECS: tuple[SanitizerSpec, ...] = (
         mitigates=("CWE-79", "CWE-918"),
         confidence=0.55,
     ),
+    SanitizerSpec(
+        name="json_schema_validate",
+        pattern='cpg.call.name("validate|ajv|Joi|yup|zod").code(".*(?:validate|parse|safeParse)[(].*")',
+        kind=SanitizerKind.NORMALIZE,
+        mitigates=("CWE-502",),
+        confidence=0.9,
+    ),
+    SanitizerSpec(
+        name="url_origin_check",
+        pattern='cpg.call.name("startsWith|origin|hostname").code(".*(?:startsWith|origin|hostname).*")',
+        kind=SanitizerKind.NORMALIZE,
+        mitigates=("CWE-601",),
+        confidence=0.7,
+    ),
+    SanitizerSpec(
+        name="file_extension_check",
+        pattern='cpg.call.name("endsWith|extname|mimetype").code(".*(?:endsWith|extname|mimetype).*")',
+        kind=SanitizerKind.NORMALIZE,
+        mitigates=("CWE-434",),
+        confidence=0.8,
+    ),
+    SanitizerSpec(
+        name="multer_file_filter",
+        pattern='cpg.call.code(".*fileFilter.*")',
+        kind=SanitizerKind.NORMALIZE,
+        mitigates=("CWE-434",),
+        confidence=0.85,
+    ),
 )
 
 FASTIFY_SANITIZER_SPECS: tuple[SanitizerSpec, ...] = (
@@ -473,8 +569,16 @@ FASTIFY_SANITIZER_SPECS: tuple[SanitizerSpec, ...] = (
 
 # --- Java Spring Boot specs ---
 
-_JAVA_ANNOTATION_PARAM_PATTERN = 'cpg.method.parameter.where(_.annotation.name("{annotation}"))'
-_JAVA_METHOD_FULL_NAME_PATTERN = 'cpg.call.methodFullName(".*{class_pattern}[.]{method}.*")'
+_JAVA_ANNOTATION_PARAM_PATTERN = 'cpg.parameter.annotation.name("{annotation}").parameter'
+_JAVA_METHOD_FULL_NAME_PATTERN = 'cpg.call.methodFullName(".*{class_pattern}[.]({method}).*")'
+_JAVA_JDBC_TEMPLATE_CALL_PATTERN = _JAVA_METHOD_FULL_NAME_PATTERN.format(
+    class_pattern="JdbcTemplate",
+    method="query|queryForObject|queryForList|update",
+)
+_JAVA_STRING_CONCAT_ARGUMENT_PATTERN = (
+    'c.argument(1).ast.isCall.name("<operator>.addition").nonEmpty'
+)
+_JAVA_NATIVE_QUERY_TRUE_PREDICATE = '(a.code.contains("nativeQuery = true") || a.code.contains("nativeQuery=true"))'
 
 SPRINGBOOT_SOURCE_SPECS: tuple[SourceSpec, ...] = (
     SourceSpec(
@@ -515,9 +619,24 @@ SPRINGBOOT_SOURCE_SPECS: tuple[SourceSpec, ...] = (
 SPRINGBOOT_SINK_SPECS: tuple[SinkSpec, ...] = (
     SinkSpec(
         name="spring_jdbc_query",
-        pattern=_JAVA_METHOD_FULL_NAME_PATTERN.format(
-            class_pattern="JdbcTemplate",
-            method="query|queryForObject|queryForList|update",
+        pattern=(
+            f"{_JAVA_JDBC_TEMPLATE_CALL_PATTERN}.filter(c => "
+            f"{_JAVA_STRING_CONCAT_ARGUMENT_PATTERN})"
+        ),
+        sink_type=SinkType.SQL_QUERY,
+        cwe_id="CWE-89",
+        severity="high",
+        flow_pattern=(
+            f"{_JAVA_JDBC_TEMPLATE_CALL_PATTERN}.filter(c => "
+            f"{_JAVA_STRING_CONCAT_ARGUMENT_PATTERN}).argument(1)"
+        ),
+        flow_to_parent_call=True,
+    ),
+    SinkSpec(
+        name="spring_jpa_native_query_concat",
+        pattern=(
+            'cpg.method.annotation.name("Query").filter(a => '
+            f"{_JAVA_NATIVE_QUERY_TRUE_PREDICATE} && a.code.contains(\"+\"))"
         ),
         sink_type=SinkType.SQL_QUERY,
         cwe_id="CWE-89",
@@ -567,6 +686,50 @@ SPRINGBOOT_SINK_SPECS: tuple[SinkSpec, ...] = (
         cwe_id="CWE-79",
         severity="medium",
     ),
+    SinkSpec(
+        name="java_object_input_stream",
+        pattern=_JAVA_METHOD_FULL_NAME_PATTERN.format(
+            class_pattern="ObjectInputStream",
+            method="readObject|readUnshared",
+        ),
+        sink_type=SinkType.DESERIALIZATION,
+        cwe_id="CWE-502",
+        severity="critical",
+    ),
+    SinkSpec(
+        name="java_xml_decoder",
+        pattern=_JAVA_METHOD_FULL_NAME_PATTERN.format(
+            class_pattern="XMLDecoder",
+            method="readObject",
+        ),
+        sink_type=SinkType.DESERIALIZATION,
+        cwe_id="CWE-502",
+        severity="critical",
+    ),
+    SinkSpec(
+        name="java_yaml_load",
+        pattern='cpg.call.name("load").code(".*(?:Yaml|SnakeYaml)[.]load[(].*")',
+        sink_type=SinkType.DESERIALIZATION,
+        cwe_id="CWE-502",
+        severity="high",
+    ),
+    SinkSpec(
+        name="spring_redirect",
+        pattern='cpg.call.code(".*redirect:.*")',
+        sink_type=SinkType.REDIRECT,
+        cwe_id="CWE-601",
+        severity="medium",
+    ),
+    SinkSpec(
+        name="java_send_redirect",
+        pattern=_JAVA_METHOD_FULL_NAME_PATTERN.format(
+            class_pattern="HttpServletResponse",
+            method="sendRedirect",
+        ),
+        sink_type=SinkType.REDIRECT,
+        cwe_id="CWE-601",
+        severity="medium",
+    ),
 )
 
 SPRINGBOOT_SANITIZER_SPECS: tuple[SanitizerSpec, ...] = (
@@ -584,6 +747,20 @@ SPRINGBOOT_SANITIZER_SPECS: tuple[SanitizerSpec, ...] = (
         kind=SanitizerKind.NORMALIZE,
         mitigates=("CWE-89", "CWE-79", "CWE-78"),
         confidence=0.4,
+        blocks_flow=False,
+    ),
+    SanitizerSpec(
+        name="spring_pre_authorize_access_control",
+        pattern='cpg.method.annotation.name("PreAuthorize")',
+        kind=SanitizerKind.NORMALIZE,
+        confidence=0.0,
+        blocks_flow=False,
+    ),
+    SanitizerSpec(
+        name="spring_secured_access_control",
+        pattern='cpg.method.annotation.name("Secured")',
+        kind=SanitizerKind.NORMALIZE,
+        confidence=0.0,
         blocks_flow=False,
     ),
 )
@@ -746,6 +923,51 @@ PYTHON_SINK_SPECS: tuple[SinkSpec, ...] = (
         sink_type=SinkType.HTTP_REQUEST,
         cwe_id="CWE-918",
     ),
+    SinkSpec(
+        name="python_pickle_loads",
+        pattern=_PY_CALL_CODE_PATTERN.format(name="loads", code=".*pickle[.]loads[(].*"),
+        sink_type=SinkType.DESERIALIZATION,
+        cwe_id="CWE-502",
+        severity="critical",
+    ),
+    SinkSpec(
+        name="python_pickle_load",
+        pattern=_PY_CALL_CODE_PATTERN.format(name="load", code=".*pickle[.]load[(].*"),
+        sink_type=SinkType.DESERIALIZATION,
+        cwe_id="CWE-502",
+        severity="critical",
+    ),
+    SinkSpec(
+        name="python_yaml_load_unsafe",
+        pattern=_PY_CALL_CODE_PATTERN.format(name="load", code=".*yaml[.]load[(].*"),
+        sink_type=SinkType.DESERIALIZATION,
+        cwe_id="CWE-502",
+        severity="high",
+    ),
+    SinkSpec(
+        name="python_marshal_loads",
+        pattern=_PY_CALL_CODE_PATTERN.format(name="loads", code=".*marshal[.]loads[(].*"),
+        sink_type=SinkType.DESERIALIZATION,
+        cwe_id="CWE-502",
+        severity="critical",
+    ),
+    SinkSpec(
+        name="python_redirect",
+        pattern=_PY_CALL_PATTERN.format(name="redirect"),
+        sink_type=SinkType.REDIRECT,
+        cwe_id="CWE-601",
+        severity="medium",
+    ),
+    SinkSpec(
+        name="python_flask_make_response_location",
+        pattern=_PY_CALL_CODE_PATTERN.format(
+            name="__setitem__",
+            code=".*headers\\[.*[Ll]ocation.*\\].*",
+        ),
+        sink_type=SinkType.REDIRECT,
+        cwe_id="CWE-601",
+        severity="medium",
+    ),
 )
 
 PYTHON_SANITIZER_SPECS: tuple[SanitizerSpec, ...] = (
@@ -786,6 +1008,27 @@ PYTHON_SANITIZER_SPECS: tuple[SanitizerSpec, ...] = (
         kind=SanitizerKind.NORMALIZE,
         mitigates=("CWE-22",),
         confidence=0.85,
+    ),
+    SanitizerSpec(
+        name="python_yaml_safe_load",
+        pattern=_PY_CALL_CODE_PATTERN.format(name="safe_load", code=".*yaml[.]safe_load[(].*"),
+        kind=SanitizerKind.NORMALIZE,
+        mitigates=("CWE-502",),
+        confidence=0.95,
+    ),
+    SanitizerSpec(
+        name="python_json_loads_schema",
+        pattern=_PY_CALL_CODE_PATTERN.format(name="validate", code=".*(?:jsonschema[.]validate|pydantic)[(].*"),
+        kind=SanitizerKind.NORMALIZE,
+        mitigates=("CWE-502",),
+        confidence=0.9,
+    ),
+    SanitizerSpec(
+        name="python_url_startswith_check",
+        pattern=_PY_CALL_CODE_PATTERN.format(name="startswith", code=".*[.]startswith[(].*['\"/].*"),
+        kind=SanitizerKind.NORMALIZE,
+        mitigates=("CWE-601",),
+        confidence=0.7,
     ),
 )
 
@@ -885,13 +1128,16 @@ GO_SINK_SPECS: tuple[SinkSpec, ...] = (
     ),
     SinkSpec(
         name="go_exec_command",
-        pattern=_GO_CALL_PATTERN.format(method="Command"),
+        pattern=_GO_CALL_CODE_PATTERN.format(method="Command", code="exec[.]Command[(].*"),
         sink_type=SinkType.SHELL_EXEC,
         cwe_id="CWE-78",
     ),
     SinkSpec(
         name="go_exec_command_context",
-        pattern=_GO_CALL_PATTERN.format(method="CommandContext"),
+        pattern=_GO_CALL_CODE_PATTERN.format(
+            method="CommandContext",
+            code="exec[.]CommandContext[(].*",
+        ),
         sink_type=SinkType.SHELL_EXEC,
         cwe_id="CWE-78",
     ),
@@ -903,7 +1149,7 @@ GO_SINK_SPECS: tuple[SinkSpec, ...] = (
     ),
     SinkSpec(
         name="go_os_open",
-        pattern=_GO_CALL_PATTERN.format(method="Open|OpenFile"),
+        pattern=_GO_CALL_CODE_PATTERN.format(method="Open|OpenFile", code="os[.]Open(?:File)?[(].*"),
         sink_type=SinkType.FILE_READ,
         cwe_id="CWE-22",
     ),
@@ -922,6 +1168,34 @@ GO_SINK_SPECS: tuple[SinkSpec, ...] = (
         ),
         sink_type=SinkType.HTTP_REQUEST,
         cwe_id="CWE-918",
+        severity="medium",
+    ),
+    SinkSpec(
+        name="go_xml_unmarshal",
+        pattern=_GO_CALL_CODE_PATTERN.format(method="Unmarshal", code="xml[.]Unmarshal[(].*"),
+        sink_type=SinkType.DESERIALIZATION,
+        cwe_id="CWE-502",
+        severity="high",
+    ),
+    SinkSpec(
+        name="go_json_unmarshal",
+        pattern=_GO_CALL_CODE_PATTERN.format(method="Unmarshal", code="json[.]Unmarshal[(].*"),
+        sink_type=SinkType.DESERIALIZATION,
+        cwe_id="CWE-502",
+        severity="medium",
+    ),
+    SinkSpec(
+        name="go_gob_decode",
+        pattern=_GO_CALL_CODE_PATTERN.format(method="Decode", code="gob[.].*Decode[(].*"),
+        sink_type=SinkType.DESERIALIZATION,
+        cwe_id="CWE-502",
+        severity="high",
+    ),
+    SinkSpec(
+        name="go_http_redirect",
+        pattern=_GO_CALL_CODE_PATTERN.format(method="Redirect", code="http[.]Redirect[(].*"),
+        sink_type=SinkType.REDIRECT,
+        cwe_id="CWE-601",
         severity="medium",
     ),
 )
@@ -973,7 +1247,8 @@ def get_source_specs(
 ) -> tuple[SourceSpec, ...]:
     from piranesi.plugin import collect_source_specs
 
-    active = frozenset({"express"}) | frozenset(f.lower() for f in frameworks or ())
+    normalized_frameworks = frozenset(f.lower() for f in frameworks or ())
+    active = normalized_frameworks or frozenset({"express"})
     specs = collect_source_specs(active, disabled=disabled_plugins)
     if scan_config is not None:
         specs.extend(_custom_source_specs(scan_config))
@@ -988,7 +1263,8 @@ def get_sink_specs(
 ) -> tuple[SinkSpec, ...]:
     from piranesi.plugin import collect_sink_specs
 
-    active = frozenset({"express"}) | frozenset(f.lower() for f in frameworks or ())
+    normalized_frameworks = frozenset(f.lower() for f in frameworks or ())
+    active = normalized_frameworks or frozenset({"express"})
     specs = collect_sink_specs(active, disabled=disabled_plugins)
     if scan_config is not None:
         specs.extend(_custom_sink_specs(scan_config))
@@ -1002,7 +1278,8 @@ def get_sanitizer_specs(
 ) -> tuple[SanitizerSpec, ...]:
     from piranesi.plugin import collect_sanitizer_specs
 
-    active = frozenset({"express"}) | frozenset(f.lower() for f in frameworks or ())
+    normalized_frameworks = frozenset(f.lower() for f in frameworks or ())
+    active = normalized_frameworks or frozenset({"express"})
     return tuple(collect_sanitizer_specs(active, disabled=disabled_plugins))
 
 

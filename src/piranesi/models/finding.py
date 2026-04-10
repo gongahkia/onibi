@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from piranesi.models.taint import PathCondition, SourceLocation, TaintSink, TaintSource, TaintStep
 
@@ -46,6 +46,8 @@ class ScanResult(BaseModel):
     call_graph: dict[str, list[str]]
     entry_points: list[EntryPoint]
     attack_surface: list[AttackSurfaceNode]
+    dependency_findings: list[CandidateFinding] = Field(default_factory=list)
+    sbom_artifacts: dict[str, str] = Field(default_factory=dict)
     metadata: ScanMetadata
 
 
@@ -60,6 +62,9 @@ class CandidateFinding(BaseModel):
     path_conditions: list[PathCondition]
     confidence: float
     severity: str
+    metadata: dict[str, object] = Field(default_factory=dict)
+    suppressed: bool = False
+    suppression_reason: str | None = None
     affected_individuals_estimate: int | None = None
     cross_border: bool = False
     is_healthcare_entity: bool = False

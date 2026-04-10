@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shlex
 import shutil
 import socket
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -37,6 +39,22 @@ LANGUAGE_TO_JOERN_FRONTEND: dict[str, str] = {
     "go": "gosrc2cpg",
     "java": "javasrc2cpg",
 }
+LANGUAGE_TO_JOERN_IMPORT_MODULE: dict[str, str] = {
+    "typescript": "javascript",
+    "javascript": "javascript",
+    "python": "python",
+    "go": "golang",
+    "java": "java",
+}
+LANGUAGE_TO_JOERN_PARSE_LANGUAGE: dict[str, str] = {
+    "typescript": "jssrc",
+    "javascript": "javascript",
+    "python": "pythonsrc",
+    "go": "golang",
+    "java": "javasrc",
+}
+_TRIPLE_QUOTED_STRING_PATTERN = re.compile(r'=\s*"""(?P<payload>.*)"""\s*$', re.DOTALL)
+_QUOTED_STRING_PATTERN = re.compile(r'=\s*"(?P<payload>(?:\\.|[^"\\])*)"\s*$', re.DOTALL)
 
 
 class JoernError(RuntimeError):
@@ -95,8 +113,11 @@ class JoernServer:
         self._restart_count = 0
         self._imported_project_path: Path | None = None
         self._imported_language: str | None = None
+        self._imported_project_name: str | None = None
+        self._imported_cpg_path: Path | None = None
         self._captured_stdout = ""
         self._captured_stderr = ""
+        self._temporary_artifacts: set[Path] = set()
 
     @property
     def process(self) -> subprocess.Popen[str] | None:
@@ -113,13 +134,24 @@ class JoernServer:
 
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
         self._stop_server()
+        self._cleanup_temporary_artifacts()
 
-    def import_project(self, path: str | Path, *, language: str | None = None) -> JsonDict:
+    def import_project(
+        self,
+        path: str | Path,
+        *,
+        language: str | None = None,
+        project_name: str | None = None,
+        frontend_args: tuple[str, ...] | list[str] = (),
+    ) -> JsonDict:
         project_path = Path(path).expanduser().resolve()
         if not project_path.exists():
             raise FileNotFoundError(f"Joern import path does not exist: {project_path}")
 
         frontend = LANGUAGE_TO_JOERN_FRONTEND.get(language, "") if language else ""
+        import_module = LANGUAGE_TO_JOERN_IMPORT_MODULE.get(language or "")
+        parse_language = LANGUAGE_TO_JOERN_PARSE_LANGUAGE.get(language or "", import_module)
+        normalized_frontend_args = tuple(frontend_args)
         self._logger.info(
             "importing project into Joern",
             extra={
@@ -128,17 +160,133 @@ class JoernServer:
                 "port": self.port,
                 "language": language,
                 "frontend": frontend or "auto",
+                "frontend_args": list(normalized_frontend_args),
+                "project_name": project_name,
             },
         )
+        if normalized_frontend_args:
+            temp_cpg_path = self._generate_cpg_with_joern_parse(
+                project_path,
+                language=parse_language or language or "",
+                frontend_args=normalized_frontend_args,
+            )
+            response = self._execute_cpgql(
+                self._build_import_cpg_query(temp_cpg_path),
+                timeout_seconds=self.query_timeout_seconds,
+                event="joern_import",
+            )
+            if response.get("success") is True:
+                self._imported_project_path = None
+                self._imported_language = None
+                self._imported_project_name = None
+                self._imported_cpg_path = temp_cpg_path
+            return response
+
         response = self._execute_cpgql(
-            self._build_import_query(project_path, frontend=frontend),
+            self._build_import_query(
+                project_path,
+                import_module=import_module,
+                project_name=project_name,
+            ),
             timeout_seconds=self.query_timeout_seconds,
             event="joern_import",
         )
         if response.get("success") is True:
             self._imported_project_path = project_path
             self._imported_language = language
+            self._imported_project_name = project_name
+            self._imported_cpg_path = None
         return response
+
+    def import_cpg(self, path: str | Path) -> JsonDict:
+        cpg_path = Path(path).expanduser().resolve()
+        if not cpg_path.exists():
+            raise FileNotFoundError(f"Joern CPG path does not exist: {cpg_path}")
+
+        self._logger.info(
+            "importing cached CPG into Joern",
+            extra={
+                "event": "joern_import_cpg_start",
+                "path": str(cpg_path),
+                "port": self.port,
+            },
+        )
+        response = self._execute_cpgql(
+            self._build_import_cpg_query(cpg_path),
+            timeout_seconds=self.query_timeout_seconds,
+            event="joern_import_cpg",
+        )
+        if response.get("success") is True:
+            self._imported_project_path = None
+            self._imported_language = None
+            self._imported_project_name = None
+            self._imported_cpg_path = cpg_path
+        return response
+
+    def save(self) -> JsonDict:
+        return self._execute_cpgql(
+            "save",
+            timeout_seconds=self.query_timeout_seconds,
+            event="joern_save",
+        )
+
+    def workspace_path(self) -> Path:
+        response = self._execute_cpgql(
+            "workspace.getPath",
+            timeout_seconds=self.query_timeout_seconds,
+            event="joern_workspace_path",
+        )
+        stdout = _extract_string_stdout(response)
+        return Path(stdout).expanduser().resolve(strict=False)
+
+    def version(self) -> str:
+        self._ensure_prerequisites()
+        if self._resolved_binary_path is None:
+            raise JoernError("Joern binary has not been resolved")
+
+        resolved_binary = Path(self._resolved_binary_path)
+        version_probe = resolved_binary.with_name("joern-scan")
+        command = [self._resolved_binary_path, "--help"]
+        version_pattern = re.compile(r"^Version:\s*`?(?P<version>[^`\n]+)`?\s*$", re.MULTILINE)
+        if version_probe.is_file():
+            command = [str(version_probe), "--help"]
+
+        try:
+            result = run_subprocess(
+                command,
+                timeout=10,
+                logger=self._logger,
+            )
+        except FileNotFoundError as exc:
+            raise JoernError(JOERN_INSTALL_INSTRUCTIONS) from exc
+
+        if result.returncode != 0:
+            raise JoernError(
+                f"Unable to resolve Joern version using {' '.join(command)!r}"
+            )
+
+        version_text = (result.stdout or result.stderr).strip()
+        if not version_text:
+            raise JoernError("Joern did not report a version string")
+        match = version_pattern.search(version_text)
+        if match is not None:
+            return match.group("version").strip()
+        return version_text.splitlines()[0].strip()
+
+    def export_cpg(self, destination: str | Path, *, project_name: str) -> Path:
+        destination_path = Path(destination).expanduser().resolve(strict=False)
+        self.save()
+        workspace_path = self.workspace_path()
+        project_dir = workspace_path / project_name
+        cpg_source = _find_project_cpg(project_dir)
+        if destination_path.suffix:
+            final_path = destination_path
+            final_path.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            final_path = destination_path / cpg_source.name
+            final_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(cpg_source, final_path)
+        return final_path
 
     def query(self, cpgql: str) -> JsonDict:
         return self._execute_cpgql(
@@ -202,6 +350,58 @@ class JoernServer:
             raise JoernError(
                 f"Unable to execute Joern at {binary_path}. stderr={result.stderr.strip()}"
             )
+
+    def _resolve_joern_parse_path(self) -> str:
+        if self._resolved_binary_path is None:
+            raise JoernError("Joern prerequisites were not initialized before import")
+
+        sibling = Path(self._resolved_binary_path).with_name("joern-parse")
+        if sibling.is_file() and os.access(sibling, os.X_OK):
+            return str(sibling)
+
+        resolved = shutil.which("joern-parse")
+        if resolved is not None:
+            return resolved
+
+        raise JoernError(
+            "Joern parse binary was not found. Expected `joern-parse` next to the Joern binary "
+            "or on PATH."
+        )
+
+    def _generate_cpg_with_joern_parse(
+        self,
+        project_path: Path,
+        *,
+        language: str,
+        frontend_args: tuple[str, ...],
+    ) -> Path:
+        parse_binary = self._resolve_joern_parse_path()
+        handle, output_path_raw = tempfile.mkstemp(prefix="piranesi-joern-", suffix=".cpg.bin")
+        os.close(handle)
+        output_path = Path(output_path_raw).resolve(strict=False)
+        self._temporary_artifacts.add(output_path)
+
+        command = [parse_binary, "--output", str(output_path)]
+        if language:
+            command.extend(["--language", language])
+        command.append(str(project_path))
+        if frontend_args:
+            command.append("--frontend-args")
+            command.extend(frontend_args)
+
+        result = run_subprocess(
+            command,
+            timeout=max(self.query_timeout_seconds, 300),
+            logger=self._logger,
+        )
+        if result.returncode != 0 or not output_path.exists():
+            raise JoernError(
+                "Joern frontend parse failed. "
+                f"cmd={shlex.join(command)}; "
+                f"stdout={_truncate(result.stdout, 500)!r}; "
+                f"stderr={_truncate(result.stderr, 500)!r}"
+            )
+        return output_path
 
     def _start_server(self, *, preferred_port: int) -> None:
         last_error: Exception | None = None
@@ -435,6 +635,28 @@ class JoernServer:
         preferred_port = self.port
         self._stop_server()
         self._start_server(preferred_port=preferred_port)
+        if self._imported_cpg_path is not None:
+            self._logger.info(
+                "re-importing cached CPG after Joern restart",
+                extra={
+                    "event": "joern_reimport_cpg_after_restart",
+                    "path": str(self._imported_cpg_path),
+                    "port": self.port,
+                },
+            )
+            response = self._execute_cpgql(
+                self._build_import_cpg_query(self._imported_cpg_path),
+                timeout_seconds=self.query_timeout_seconds,
+                event="joern_import_cpg_after_restart",
+                allow_restart=False,
+            )
+            if response.get("success") is not True:
+                raise JoernError(
+                    "Joern server restarted but the cached CPG could not be re-imported. "
+                    f"response={response}"
+                )
+            return
+
         if self._imported_project_path is not None:
             self._logger.info(
                 "re-importing project after Joern restart",
@@ -444,13 +666,13 @@ class JoernServer:
                     "port": self.port,
                 },
             )
-            frontend = (
-                LANGUAGE_TO_JOERN_FRONTEND.get(self._imported_language, "")
-                if self._imported_language
-                else ""
-            )
+            import_module = LANGUAGE_TO_JOERN_IMPORT_MODULE.get(self._imported_language, "")
             response = self._execute_cpgql(
-                self._build_import_query(self._imported_project_path, frontend=frontend),
+                self._build_import_query(
+                    self._imported_project_path,
+                    import_module=import_module,
+                    project_name=self._imported_project_name,
+                ),
                 timeout_seconds=self.query_timeout_seconds,
                 event="joern_import_after_restart",
                 allow_restart=False,
@@ -619,6 +841,14 @@ class JoernServer:
         )
         self._process = None
 
+    def _cleanup_temporary_artifacts(self) -> None:
+        for path in sorted(self._temporary_artifacts):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                continue
+        self._temporary_artifacts.clear()
+
     def _collect_process_output(self, process: subprocess.Popen[str]) -> tuple[str, str]:
         try:
             stdout, stderr = process.communicate(timeout=0.1)
@@ -631,11 +861,24 @@ class JoernServer:
             self._captured_stderr += stderr
         return self._captured_stdout, self._captured_stderr
 
-    def _build_import_query(self, project_path: Path, *, frontend: str = "") -> str:
+    def _build_import_query(
+        self,
+        project_path: Path,
+        *,
+        import_module: str = "",
+        project_name: str | None = None,
+    ) -> str:
         path_arg = json.dumps(str(project_path))
-        if frontend:
-            return f"importCode.{frontend}({path_arg})"
+        if import_module:
+            if project_name is not None:
+                return f"importCode.{import_module}({path_arg}, {json.dumps(project_name)})"
+            return f"importCode.{import_module}({path_arg})"
+        if project_name is not None:
+            return f"importCode({path_arg}, {json.dumps(project_name)})"
         return f"importCode({path_arg})"
+
+    def _build_import_cpg_query(self, cpg_path: Path) -> str:
+        return f"importCpg({json.dumps(str(cpg_path))})"
 
     def _candidate_ports(self, preferred_port: int) -> list[int]:
         if JOERN_PORT_MIN <= preferred_port <= JOERN_PORT_MAX:
@@ -689,3 +932,32 @@ def _truncate(value: str, limit: int) -> str:
     if len(value) <= limit:
         return value
     return f"{value[:limit]}...<truncated>"
+
+
+def _extract_string_stdout(response: JsonDict) -> str:
+    stdout = str(response.get("stdout", "")).strip()
+    if not stdout:
+        raise JoernError(f"Joern returned empty stdout: {response}")
+
+    triple_quoted_match = _TRIPLE_QUOTED_STRING_PATTERN.search(stdout)
+    if triple_quoted_match is not None:
+        return triple_quoted_match.group("payload")
+
+    quoted_match = _QUOTED_STRING_PATTERN.search(stdout)
+    if quoted_match is not None:
+        encoded_payload = quoted_match.group("payload")
+        return str(json.loads(f'"{encoded_payload}"'))
+
+    return stdout
+
+
+def _find_project_cpg(project_dir: Path) -> Path:
+    if not project_dir.exists():
+        raise JoernError(f"Joern project directory does not exist: {project_dir}")
+
+    candidates = sorted(
+        path for path in project_dir.rglob("*") if path.is_file() and path.name.startswith("cpg.bin")
+    )
+    if not candidates:
+        raise JoernError(f"Unable to locate saved CPG under Joern project directory: {project_dir}")
+    return candidates[0]

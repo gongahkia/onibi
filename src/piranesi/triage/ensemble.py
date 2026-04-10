@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
+import logging
 import math
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -21,6 +24,7 @@ if TYPE_CHECKING:
 _EPSILON = 1e-6
 _TP_THRESHOLD = 0.7
 _FP_THRESHOLD = 0.3
+_logger = logging.getLogger(__name__)
 
 
 class _TriagePayload(BaseModel):
@@ -64,42 +68,50 @@ class CalibratedEnsembleVoter:
     historical_precision: Mapping[str, Mapping[str, float]] | None = None
     escalation_model: str | None = None
     max_workers: int | None = None
+    calibration_dir: Path | None = None
+    _calibration_cache: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
 
     def classify(self, finding: CandidateFinding) -> EnsembleDecision:
         models = self._resolve_models()
         if len(models) == 1:
             vote = self._run_model(models[0], finding)
+            vote = self._apply_platt_if_available(vote, finding)
             return EnsembleDecision(
                 verdict=vote.verdict,
-                ensemble_score=vote.raw_true_positive_score,
+                ensemble_score=vote.calibrated_true_positive_score or vote.raw_true_positive_score,
                 escalated=False,
                 votes=[vote],
             )
 
         votes = self._collect_votes(models, finding)
-        if not self._has_calibration(models):
-            tp_votes = sum(1 for vote in votes if vote.verdict == "true_positive")
-            fp_votes = len(votes) - tp_votes
-            score = tp_votes / len(votes)
+        # apply Platt calibration from eval/calibration/ if available
+        platt_votes = [self._apply_platt_if_available(v, finding) for v in votes]
+        has_platt = any(v.calibrated_true_positive_score is not None for v in platt_votes)
+        if not self._has_calibration(models) and not has_platt:
+            tp_votes = sum(1 for vote in platt_votes if vote.verdict == "true_positive")
+            fp_votes = len(platt_votes) - tp_votes
+            score = tp_votes / len(platt_votes)
             if tp_votes > fp_votes:
                 return EnsembleDecision(
                     verdict="true_positive",
                     ensemble_score=score,
                     escalated=False,
-                    votes=votes,
+                    votes=platt_votes,
                 )
             if fp_votes > tp_votes:
                 return EnsembleDecision(
                     verdict="false_positive",
                     ensemble_score=score,
                     escalated=False,
-                    votes=votes,
+                    votes=platt_votes,
                 )
-            return self._escalate_or_defer(finding, votes=votes, score=score)
+            return self._escalate_or_defer(finding, votes=platt_votes, score=score)
 
-        calibrated_votes = [self._apply_calibration(vote, finding.vuln_class) for vote in votes]
+        calibrated_votes = [self._apply_calibration(vote, finding.vuln_class) for vote in platt_votes]
         score = _weighted_average(calibrated_votes)
-        verdict = _threshold_verdict(score)
+        # use optimized thresholds from calibration data if available
+        tp_thresh, fp_thresh = self._resolve_thresholds(models)
+        verdict = _threshold_verdict(score, tp_threshold=tp_thresh, fp_threshold=fp_thresh)
         if verdict != "uncertain":
             return EnsembleDecision(
                 verdict=verdict,
@@ -208,6 +220,38 @@ class CalibratedEnsembleVoter:
             }
         )
 
+    def _load_platt_calibration(self, model: str) -> Any | None:
+        """Load Platt calibration data for a model from eval/calibration/."""
+        if model in self._calibration_cache:
+            return self._calibration_cache[model]
+        try:
+            from eval.calibrate import load_calibration
+            cal = load_calibration(model, self.calibration_dir)
+            self._calibration_cache[model] = cal
+            return cal
+        except (ImportError, Exception):
+            self._calibration_cache[model] = None
+            return None
+
+    def _apply_platt_if_available(self, vote: ModelVote, finding: CandidateFinding) -> ModelVote:
+        """Apply Platt scaling from calibration data if available."""
+        if vote.calibrated_true_positive_score is not None:
+            return vote # already calibrated
+        cal = self._load_platt_calibration(vote.model)
+        if cal is None:
+            return vote
+        cwe_id = finding.vuln_class.split(":")[0].strip() if ":" in finding.vuln_class else None
+        calibrated = cal.calibrate(vote.raw_true_positive_score, cwe_id)
+        return vote.model_copy(update={"calibrated_true_positive_score": calibrated})
+
+    def _resolve_thresholds(self, models: tuple[str, ...]) -> tuple[float, float]:
+        """Get optimized thresholds from calibration data, or defaults."""
+        for model in models:
+            cal = self._load_platt_calibration(model)
+            if cal is not None:
+                return cal.optimal_tp_threshold, cal.optimal_fp_threshold
+        return _TP_THRESHOLD, _FP_THRESHOLD
+
     def _escalate_or_defer(
         self,
         finding: CandidateFinding,
@@ -307,10 +351,15 @@ def _weighted_average(votes: list[ModelVote]) -> float:
     return numerator / denominator
 
 
-def _threshold_verdict(score: float) -> Literal["true_positive", "false_positive", "uncertain"]:
-    if score >= _TP_THRESHOLD:
+def _threshold_verdict(
+    score: float,
+    *,
+    tp_threshold: float = _TP_THRESHOLD,
+    fp_threshold: float = _FP_THRESHOLD,
+) -> Literal["true_positive", "false_positive", "uncertain"]:
+    if score >= tp_threshold:
         return "true_positive"
-    if score <= _FP_THRESHOLD:
+    if score <= fp_threshold:
         return "false_positive"
     return "uncertain"
 

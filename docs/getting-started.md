@@ -40,6 +40,14 @@ cd piranesi
 uv sync
 ```
 
+For a new target repository, scaffold the local config before the first run:
+
+```bash
+uv run piranesi init
+```
+
+That writes `piranesi.toml` plus an empty `.piranesi-ignore` template in the current directory.
+
 ## Runtime Validation
 
 Run these once before the first scan:
@@ -134,6 +142,23 @@ When you are ready to exercise the verify stage, remove `--no-execute`. That req
 - Explicit authorization via `--authorized`
 
 An end-to-end verified example already exists in [`tests/fixtures/verify/xss_app`](../tests/fixtures/verify/xss_app). On the test machine used for this release pass, it produced one confirmed XSS finding with payload `<script>alert(1)</script>`.
+
+## Exit Codes
+
+`piranesi run` uses these exit codes:
+
+- `0`: no findings met the current fail policy, or `--no-fail` was set
+- `1`: findings at or above `--fail-severity` were detected
+- `2`: configuration or required-flag error
+- `3`: runtime error
+- `4`: budget exceeded
+
+Examples:
+
+```bash
+piranesi run . --fail-severity high --authorized --yes
+piranesi run . --no-fail --authorized --yes
+```
 
 ## Common Issues
 
