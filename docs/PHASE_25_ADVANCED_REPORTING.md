@@ -93,107 +93,93 @@ Automatic warnings when:
 }
 ```
 
-## 3. HTML Report with Interactive Taint Visualization
+## 3. Interactive TUI Report Viewer
 
 ### 3.1 Design Principles
 
-- **Single file**: one self-contained `.html` file, no external dependencies.
-- **No JS framework**: vanilla JS + inline CSS. Keep it small (<200KB).
-- **Print-friendly**: CSS media queries for print layout.
-- **Accessible**: semantic HTML, ARIA labels, keyboard navigation.
+- **CLI-native**: Rich TUI via `textual` or plain Rich Live display. No browser, no HTML.
+- **Keyboard-driven**: vim-style navigation (j/k scroll, / search, q quit, Enter expand).
+- **Pipe-friendly**: `--format tui` for interactive, all other formats remain pipe-safe stdout.
 
-### 3.2 Report Structure
-
-```
-┌─────────────────────────────────────────────┐
-│ Executive Summary Dashboard                  │
-│ ┌──────────┐ ┌──────────┐ ┌──────────────┐ │
-│ │ Severity  │ │ Top CWEs │ │ Regulatory   │ │
-│ │ Donut     │ │ Bar Chart│ │ Coverage     │ │
-│ └──────────┘ └──────────┘ └──────────────┘ │
-├─────────────────────────────────────────────┤
-│ Filters: [Severity ▼] [CWE ▼] [File ▼]    │
-├─────────────────────────────────────────────┤
-│ Finding Card #1                              │
-│ ┌─ Source ─────────────────────────────────┐│
-│ │ req.body.userId  (line 12, app.ts)       ││
-│ └──────────┬──────────────────────────────┘│
-│            │ TaintStep: assignment           │
-│            ▼                                 │
-│ ┌─ Sink ───────────────────────────────────┐│
-│ │ db.query(sql)    (line 25, db.ts)        ││
-│ └──────────────────────────────────────────┘│
-│ Severity: HIGH | CWE-89 | Confidence: 0.92  │
-│ [Show Patch] [Show Legal] [Copy Markdown]    │
-├─────────────────────────────────────────────┤
-│ Finding Card #2 ...                          │
-└─────────────────────────────────────────────┘
-```
-
-### 3.3 Taint Path Visualization
-
-Each taint step rendered as a flow node:
-
-```html
-<div class="taint-flow">
-    <div class="taint-node taint-source">
-        <code>req.body.userId</code>
-        <span class="location">app.ts:12</span>
-    </div>
-    <div class="taint-edge">→ assignment</div>
-    <div class="taint-node">
-        <code>const userId = req.body.userId</code>
-        <span class="location">app.ts:12</span>
-    </div>
-    <div class="taint-edge">→ call_arg</div>
-    <div class="taint-node taint-sink">
-        <code>db.query(`SELECT * FROM users WHERE id = ${userId}`)</code>
-        <span class="location">db.ts:25</span>
-    </div>
-</div>
-```
-
-### 3.4 Client-Side Filtering
-
-Vanilla JS filtering without any framework:
-```javascript
-document.querySelectorAll('[data-filter]').forEach(el => {
-    el.addEventListener('change', () => {
-        const severity = getFilter('severity');
-        const cwe = getFilter('cwe');
-        document.querySelectorAll('.finding-card').forEach(card => {
-            card.hidden = !matchesFilters(card, severity, cwe);
-        });
-        updateCounts();
-    });
-});
-```
-
-### 3.5 Charts
-
-SVG-based charts (no D3, no Chart.js):
-- Severity donut chart: 4 arcs (critical/high/medium/low).
-- CWE bar chart: horizontal bars for top 5 CWEs.
-- Both generated server-side in Python, embedded as inline SVG.
-
-### 3.6 CLI
+### 3.2 TUI Layout
 
 ```
-piranesi report <findings.json> --format html --output report.html
-piranesi run <dir> --format html
+┌─ Piranesi Report ─────────────────────────────────────────┐
+│ Summary: 11 findings (3 HIGH, 6 MED, 2 LOW) | $2.40 LLM  │
+├───────────────────────────────────────────────────────────┤
+│ [Sev▼] [CWE▼] [File▼]  /search                          │
+├───────────────────────────────────────────────────────────┤
+│ ▸ HIGH  CWE-89  app.ts:12→db.ts:25   req.body → query() │
+│   MED   CWE-79  api.ts:8→api.ts:15   req.query → send() │
+│   MED   CWE-78  run.ts:3→run.ts:9    req.body → exec()  │
+│   ...                                                     │
+├───────────────────────────────────────────────────────────┤
+│ ┌─ Finding #1 ──────────────────────────────────────────┐ │
+│ │ CWE-89: SQL Injection                                 │ │
+│ │ Source: req.body.userId (app.ts:12)                   │ │
+│ │   → assignment: const userId = req.body.userId        │ │
+│ │   → call_arg: db.query(`SELECT ... ${userId}`)        │ │
+│ │ Sink: db.query (db.ts:25)                             │ │
+│ │ Confidence: 0.92 | Confirmed: yes                     │ │
+│ │ [p]atch  [l]egal  [r]eproducer  [s]uppress            │ │
+│ └───────────────────────────────────────────────────────┘ │
+└─ j/k:nav  Enter:expand  /:search  f:filter  q:quit ──────┘
 ```
 
-## 4. Compliance Dashboard Report
+### 3.3 Keybindings
 
-### 4.1 Regulatory Coverage Matrix
+| Key | Action |
+|-----|--------|
+| `j/k` or `↓/↑` | Navigate findings |
+| `Enter` | Expand/collapse finding detail |
+| `/` | Search findings (CWE, file, sink) |
+| `f` | Cycle filter (severity, CWE, file) |
+| `p` | Show patch diff for selected finding |
+| `l` | Show legal memo for selected finding |
+| `r` | Show reproducer script |
+| `s` | Suppress finding (prompts for reason) |
+| `e` | Export current view to markdown |
+| `q` | Quit |
+
+### 3.4 Non-Interactive Fallback
+
+When stdout is not a TTY (piped), `--format tui` falls back to `--format markdown`. This keeps scripts and CI pipelines working.
+
+### 3.5 CLI
 
 ```
-                GDPR  CCPA  HIPAA  NIS2  PDPA  EU AI  MAS TRM
-Finding #1       ●     ●     -      ●     ●     -      -
-Finding #2       ●     -     ●      -     -     -      -
-Finding #3       -     -     -      -     ●     -      ●
-────────────────────────────────────────────────────────────
-Affected:        2     1     1      1     2     0      1
+piranesi report <findings.json> --format tui    # interactive TUI
+piranesi run <dir> --format tui
+```
+
+### 3.6 Dependencies
+
+Add to `[project.optional-dependencies]`:
+```toml
+tui = ["textual>=0.50.0"]
+```
+
+Install: `uv pip install piranesi[tui]`. Falls back to Rich tables if textual not installed.
+
+## 4. Compliance Dashboard (CLI/TUI)
+
+### 4.1 Terminal Compliance Table
+
+Rendered via Rich tables to stdout (pipe-safe, no TUI required):
+
+```
+piranesi report <findings.json> --format compliance
+```
+
+Output:
+```
+Regulatory Coverage Matrix
+                 GDPR  CCPA  HIPAA  NIS2  PDPA  EU AI  MAS TRM
+Finding #1        *     *     -      *     *     -      -
+Finding #2        *     -     *      -     -     -      -
+Finding #3        -     -     -      -     *     -      *
+─────────────────────────────────────────────────────────────
+Affected:         2     1     1      1     2     0      1
 ```
 
 ### 4.2 Per-Framework Section
@@ -206,26 +192,29 @@ For each regulatory framework with findings:
 - **Penalty exposure**: maximum penalty range.
 - **Enforcement precedents**: relevant enforcement actions.
 
+All rendered as Rich panels/tables to terminal.
+
 ### 4.3 Gap Analysis
 
-OWASP Top 10 coverage assessment:
+OWASP Top 10 coverage assessment (Rich table):
 ```
 OWASP Top 10 2021 Coverage:
-  A01 Broken Access Control     - 0 findings (⚠ no detection rules)
-  A02 Cryptographic Failures    - 0 findings (⚠ no detection rules)
-  A03 Injection                 - 4 findings (✓ CWE-89, CWE-79, CWE-78)
-  A04 Insecure Design           - 0 findings (⚠ architectural, not detectable)
-  A05 Security Misconfiguration - 2 findings (✓ CWE-942, CWE-693)
-  A06 Vulnerable Components     - 3 findings (✓ SCA)
-  A07 Auth Failures             - 0 findings (⚠ no detection rules)
-  A08 Data Integrity            - 1 finding  (✓ CWE-502)
-  A09 Logging Failures          - 0 findings (⚠ no detection rules)
-  A10 SSRF                      - 1 finding  (✓ CWE-918)
+  A01 Broken Access Control     - 0 findings (! no detection rules)
+  A02 Cryptographic Failures    - 0 findings (! no detection rules)
+  A03 Injection                 - 4 findings (+ CWE-89, CWE-79, CWE-78)
+  A04 Insecure Design           - 0 findings (! architectural, not detectable)
+  A05 Security Misconfiguration - 2 findings (+ CWE-942, CWE-693)
+  A06 Vulnerable Components     - 3 findings (+ SCA)
+  A07 Auth Failures             - 0 findings (! no detection rules)
+  A08 Data Integrity            - 1 finding  (+ CWE-502)
+  A09 Logging Failures          - 0 findings (! no detection rules)
+  A10 SSRF                      - 1 finding  (+ CWE-918)
 ```
 
 ### 4.4 Attestation Template
 
-Pre-filled compliance attestation:
+`piranesi report <findings.json> --format compliance --attestation` outputs a pre-filled Markdown attestation to stdout:
+
 ```markdown
 # Security Scan Attestation
 
@@ -254,10 +243,22 @@ DISCLAIMER: This analysis is informational only. It is not legal advice.
 Consult qualified legal counsel for regulatory compliance decisions.
 ```
 
-### 4.5 CLI
+Redirect to file: `piranesi report ... --format compliance --attestation > attestation.md`
+
+### 4.5 TUI Compliance Mode
+
+When running `piranesi report --format compliance --tui` (requires `piranesi[tui]`):
+- Interactive compliance dashboard in terminal.
+- Navigate by framework (tab between GDPR/CCPA/HIPAA/etc.).
+- Expand per-framework obligations, drill into individual findings.
+- Same keybindings as Section 3.3.
+
+### 4.6 CLI
 
 ```
-piranesi report <findings.json> --format compliance
+piranesi report <findings.json> --format compliance              # Rich tables to stdout
+piranesi report <findings.json> --format compliance --tui        # interactive TUI
+piranesi report <findings.json> --format compliance --attestation # Markdown attestation
 piranesi run <dir> --format compliance
 ```
 
@@ -270,23 +271,21 @@ piranesi run <dir> --format compliance
 4. Verify trend alerts trigger on >20% increase.
 5. Verify JSON output schema.
 
-### HTML Report
-1. Generate HTML from fixture findings.
-2. Parse with `html.parser` — verify well-formed HTML.
-3. Verify finding count matches input.
-4. Verify SVG charts present.
-5. Verify client-side filter JS included.
-6. Verify file size <200KB.
+### TUI Report
+1. Verify non-TTY fallback renders markdown (no TUI crash).
+2. Verify finding count in output matches input.
+3. Verify keybindings dispatch correct actions (mock textual app).
+4. Verify `--format tui` without textual installed falls back to Rich tables.
 
 ### Compliance Report
 1. Generate compliance report from fixture findings with regulatory data.
-2. Verify coverage matrix includes all active frameworks.
+2. Verify coverage matrix includes all active regulatory frameworks.
 3. Verify gap analysis lists all OWASP categories.
 4. Verify attestation template filled with correct metadata.
 5. Verify disclaimer present.
 
 ## 6. Risks
 
-- **HTML report size**: large codebases with many findings may produce large HTML. Mitigation: paginate findings (show 20, "Load more" button).
 - **Trend accuracy**: scan-to-scan comparison depends on stable fingerprints. Mitigation: use stable fingerprinting from Phase 15.
+- **TUI compatibility**: terminal emulators vary. Mitigation: textual handles most terminals; fallback to Rich tables.
 - **Compliance completeness**: attestation template is not legally binding. Mitigation: prominent disclaimer, encourage legal review.

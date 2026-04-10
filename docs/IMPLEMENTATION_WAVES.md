@@ -840,33 +840,34 @@ All waves 1-28 (phases 0-19) are implemented. The following phases define the ne
 > 5. Trend alerts: if finding count increases >20% between scans, print warning.
 > 6. Tests: create 5 baseline artifacts with varying findings, verify trend computation.
 
-### Agent 75: HTML Report with Interactive Taint Visualization
+### Agent 75: TUI Report Viewer with Taint Visualization
 
 **Prompt:**
-> You are implementing an HTML report format for Project Piranesi. Read `docs/PHASE_25_ADVANCED_REPORTING.md` Section 3.
+> You are implementing an interactive TUI report viewer for Project Piranesi. Read `docs/PHASE_25_ADVANCED_REPORTING.md` Section 3.
 >
-> Implement `src/piranesi/report/html.py`:
-> 1. `--format html` output option.
-> 2. Single self-contained HTML file (no external deps, inline CSS/JS).
-> 3. Finding cards with: severity badge, CWE link, source/sink code snippets (syntax highlighted), taint path as a visual flow diagram (CSS-based, no JS framework).
-> 4. Executive summary dashboard: severity distribution pie chart (SVG), top CWEs bar chart, regulatory coverage table.
-> 5. Filtering: client-side JS filter by severity, CWE, file, suppressed status.
-> 6. Taint path visualization: source → intermediates → sink as a flow diagram with code snippets at each step.
-> 7. Export: "Copy as Markdown" button for each finding.
-> 8. Tests: verify HTML output parses correctly, contains expected finding count.
+> Implement `src/piranesi/report/tui.py`:
+> 1. `--format tui` output option using `textual` (optional dep in `piranesi[tui]`).
+> 2. Finding list with vim-style navigation (j/k scroll, / search, Enter expand, q quit).
+> 3. Finding detail panel: severity, CWE, taint path (source → steps → sink), confidence, confirmation status.
+> 4. Keybindings: p=patch, l=legal, r=reproducer, s=suppress, e=export markdown, f=filter.
+> 5. Filter by severity, CWE, file — cycle with `f` key.
+> 6. Non-TTY fallback: when stdout is piped, fall back to `--format markdown`.
+> 7. When `textual` not installed, fall back to Rich tables (non-interactive).
+> 8. Tests: verify non-TTY fallback, verify finding count, mock textual app for keybinding dispatch.
 
-### Agent 76: Compliance Dashboard Report
+### Agent 76: Compliance Dashboard (CLI/TUI)
 
 **Prompt:**
-> You are implementing a compliance-focused report for Project Piranesi. Read `docs/PHASE_25_ADVANCED_REPORTING.md` Section 4.
+> You are implementing a compliance-focused CLI report for Project Piranesi. Read `docs/PHASE_25_ADVANCED_REPORTING.md` Section 4.
 >
 > Implement `src/piranesi/report/compliance.py`:
-> 1. `--format compliance` output option.
-> 2. Regulatory coverage matrix: rows = findings, columns = regulatory frameworks (GDPR, CCPA, HIPAA, NIS2, PDPA, EU AI Act, MAS TRM). Cell = obligation triggered or "N/A".
-> 3. Per-framework section: total findings affecting this framework, severity breakdown, required actions, notification timelines, penalty exposure.
-> 4. Gap analysis: which OWASP Top 10 categories have zero findings (potential blind spots).
-> 5. Attestation template: pre-filled compliance attestation with scan metadata, framework coverage, finding summary. Includes the standard legal disclaimer.
-> 6. Tests: verify compliance report includes all active regulatory frameworks.
+> 1. `--format compliance` output option — Rich tables to stdout (pipe-safe).
+> 2. Regulatory coverage matrix: Rich table with findings × frameworks (GDPR, CCPA, HIPAA, NIS2, PDPA, EU AI Act, MAS TRM).
+> 3. Per-framework Rich panel: total findings, severity breakdown, obligations, notification timelines, penalty exposure.
+> 4. Gap analysis: OWASP Top 10 coverage table showing blind spots.
+> 5. `--attestation` flag: output pre-filled Markdown attestation to stdout (redirect to file). Includes legal disclaimer.
+> 6. `--tui` flag: interactive TUI compliance dashboard (navigate by framework, drill into findings). Requires `piranesi[tui]`.
+> 7. Tests: verify compliance output includes all active regulatory frameworks, verify attestation metadata.
 
 ---
 
