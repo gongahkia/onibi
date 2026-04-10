@@ -42,6 +42,21 @@ Documentation = "https://github.com/gongahkia/piranesi/tree/main/docs"
 [project.scripts]
 piranesi = "piranesi.cli:app"
 
+[project.entry-points."piranesi.frameworks"]
+express = "piranesi.plugin:ExpressPlugin"
+nestjs = "piranesi.plugin:NestJSPlugin"
+nextjs = "piranesi.plugin:NextJSPlugin"
+fastify = "piranesi.plugin:FastifyPlugin"
+flask = "piranesi.plugin:FlaskPlugin"
+django = "piranesi.plugin:DjangoPlugin"
+fastapi = "piranesi.plugin:FastAPIPlugin"
+gin = "piranesi.plugin:GinPlugin"
+echo = "piranesi.plugin:EchoPlugin"
+chi = "piranesi.plugin:ChiPlugin"
+spring = "piranesi.plugin:SpringBootPlugin"
+koa = "piranesi.plugin:KoaPlugin"
+generic_node = "piranesi.plugin:GenericNodePlugin"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
