@@ -14,14 +14,16 @@ from piranesi.models import (
     LegalAssessment,
     PatchResult,
     RegulatoryObligation,
+    ReachabilityResult,
     ScanMetadata,
     ScanResult,
+    ScannedFunction,
     SourceLocation,
     TaintStep,
 )
 from piranesi.report.cwe import cwe_title, extract_cwe_id
 
-_SEVERITY_ORDER = ("critical", "high", "medium", "low")
+_SEVERITY_ORDER = ("critical", "high", "medium", "low", "informational")
 
 
 class CombinedFinding(BaseModel):
@@ -52,6 +54,32 @@ class CombinedFinding(BaseModel):
     patch_explanation: str | None = None
     related_cves: list[str] = Field(default_factory=list)
     pr_body: str | None = None
+    package_name: str | None = None
+    cross_package: bool = False
+    source_package: str | None = None
+    sink_package: str | None = None
+
+
+class CandidateReportFinding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    finding_id: str
+    cwe: str
+    title: str
+    severity: str
+    original_severity: str | None = None
+    confidence: float
+    metadata: dict[str, object] = Field(default_factory=dict)
+    taint_source: str
+    taint_sink: str
+    source_location: SourceLocation
+    sink_location: SourceLocation
+    reachability: str = "reachable"
+    source_function_id: str | None = None
+    package_name: str | None = None
+    cross_package: bool = False
+    source_package: str | None = None
+    sink_package: str | None = None
 
 
 class SuppressedFinding(BaseModel):
@@ -68,6 +96,10 @@ class SuppressedFinding(BaseModel):
     source_location: SourceLocation
     sink_location: SourceLocation
     suppression_reason: str | None = None
+    package_name: str | None = None
+    cross_package: bool = False
+    source_package: str | None = None
+    sink_package: str | None = None
 
 
 class ExecutiveSummary(BaseModel):
@@ -76,6 +108,8 @@ class ExecutiveSummary(BaseModel):
     findings_detected: int
     suppressed_findings: int = 0
     findings_confirmed: int
+    reachable_findings: int = 0
+    unreachable_findings: int = 0
     severity_breakdown: dict[str, int] = Field(default_factory=dict)
     top_regulatory_concerns: list[str] = Field(default_factory=list)
     total_llm_cost_usd: float
@@ -98,10 +132,18 @@ class PiranesiReport(BaseModel):
 
     target: str
     generated_at: str
+    files_scanned: list[str] = Field(default_factory=list)
     scan_metadata: ScanMetadata
     executive_summary: ExecutiveSummary
+    active_findings: list[CandidateReportFinding] = Field(default_factory=list)
+    unreachable_findings: list[CandidateReportFinding] = Field(default_factory=list)
     findings: list[CombinedFinding] = Field(default_factory=list)
+    package_findings: dict[str, list[CombinedFinding]] = Field(default_factory=dict)
+    cross_package_findings: list[CombinedFinding] = Field(default_factory=list)
     suppressed_findings: list[SuppressedFinding] = Field(default_factory=list)
+    suppressed_findings_by_package: dict[str, list[SuppressedFinding]] = Field(default_factory=dict)
+    dead_code_functions: list[ScannedFunction] = Field(default_factory=list)
+    dead_code_by_file: dict[str, list[ScannedFunction]] = Field(default_factory=dict)
     appendix: ReportAppendix
 
 
@@ -116,12 +158,30 @@ def build_report(
     total_llm_cost_usd: float,
     duration_s: float,
     stage_timings_s: dict[str, float],
+    reachability: ReachabilityResult | None = None,
+    include_unreachable: bool = False,
+    dead_code_report: bool = False,
 ) -> PiranesiReport:
     generated_at = _utc_now()
     legal_by_id = {
         assessment.finding.finding.finding.id: assessment for assessment in legal_assessments
     }
     patch_by_id = {patch.finding.finding.finding.id: patch for patch in patch_results}
+    reachable_candidates = [
+        candidate
+        for candidate in detected_findings
+        if not candidate.suppressed and candidate.reachability == "reachable"
+    ]
+    unreachable_candidates = [
+        candidate
+        for candidate in detected_findings
+        if not candidate.suppressed and candidate.reachability != "reachable"
+    ]
+    active_candidates = (
+        [candidate for candidate in detected_findings if not candidate.suppressed]
+        if include_unreachable
+        else reachable_candidates
+    )
     suppressed_findings = [
         SuppressedFinding(
             finding_id=candidate.id,
@@ -135,6 +195,10 @@ def build_report(
             source_location=candidate.source.location,
             sink_location=candidate.sink.location,
             suppression_reason=candidate.suppression_reason,
+            package_name=_package_name(candidate),
+            cross_package=bool(candidate.metadata.get("cross_package")),
+            source_package=_metadata_string(candidate.metadata.get("source_package")),
+            sink_package=_metadata_string(candidate.metadata.get("sink_package")),
         )
         for candidate in detected_findings
         if candidate.suppressed
@@ -171,24 +235,48 @@ def build_report(
             patch_verified=None if patch is None else patch.patch_verified,
             patch_explanation=None if patch is None else patch.patch_explanation,
             related_cves=list(confirmed.related_cves),
+            package_name=_package_name(candidate),
+            cross_package=bool(candidate.metadata.get("cross_package")),
+            source_package=_metadata_string(candidate.metadata.get("source_package")),
+            sink_package=_metadata_string(candidate.metadata.get("sink_package")),
         )
         findings.append(finding)
 
     report = PiranesiReport(
         target=str(target_dir.resolve(strict=False)),
         generated_at=generated_at,
+        files_scanned=list(scan_result.files_scanned),
         scan_metadata=scan_result.metadata,
         executive_summary=ExecutiveSummary(
             findings_detected=len(detected_findings),
             suppressed_findings=len(suppressed_findings),
             findings_confirmed=len(confirmed_findings),
-            severity_breakdown=_candidate_severity_breakdown(detected_findings),
+            reachable_findings=len(reachable_candidates),
+            unreachable_findings=len(unreachable_candidates),
+            severity_breakdown=_candidate_severity_breakdown(active_candidates),
             top_regulatory_concerns=_top_regulatory_concerns(legal_assessments),
             total_llm_cost_usd=total_llm_cost_usd,
             duration_s=duration_s,
         ),
+        active_findings=[
+            _candidate_report_finding(candidate) for candidate in active_candidates
+        ],
+        unreachable_findings=[
+            _candidate_report_finding(candidate) for candidate in unreachable_candidates
+        ],
         findings=findings,
+        package_findings=_group_report_findings_by_package(findings),
+        cross_package_findings=[finding for finding in findings if finding.cross_package],
         suppressed_findings=suppressed_findings,
+        suppressed_findings_by_package=_group_suppressed_findings_by_package(suppressed_findings),
+        dead_code_functions=(
+            [] if not dead_code_report or reachability is None else list(reachability.dead_code_functions)
+        ),
+        dead_code_by_file=(
+            {}
+            if not dead_code_report or reachability is None
+            else _group_dead_code_by_file(reachability.dead_code_functions)
+        ),
         appendix=ReportAppendix(
             generated_at=generated_at,
             target=str(target_dir.resolve(strict=False)),
@@ -299,6 +387,29 @@ def _finding_title(candidate: CandidateFinding) -> str:
     return cwe_title(cwe, fallback=candidate.vuln_class)
 
 
+def _candidate_report_finding(candidate: CandidateFinding) -> CandidateReportFinding:
+    original_severity = candidate.metadata.get("reachability_original_severity")
+    return CandidateReportFinding(
+        finding_id=candidate.id,
+        cwe=_extract_cwe_id(candidate.vuln_class),
+        title=_finding_title(candidate),
+        severity=candidate.severity,
+        original_severity=original_severity if isinstance(original_severity, str) else None,
+        confidence=candidate.confidence,
+        metadata=dict(candidate.metadata),
+        taint_source=candidate.source.source_type,
+        taint_sink=candidate.sink.api_name,
+        source_location=candidate.source.location,
+        sink_location=candidate.sink.location,
+        reachability=candidate.reachability,
+        source_function_id=_metadata_string(candidate.metadata.get("source_function_id")),
+        package_name=_package_name(candidate),
+        cross_package=bool(candidate.metadata.get("cross_package")),
+        source_package=_metadata_string(candidate.metadata.get("source_package")),
+        sink_package=_metadata_string(candidate.metadata.get("sink_package")),
+    )
+
+
 def _candidate_severity_breakdown(findings: list[CandidateFinding]) -> dict[str, int]:
     counts = dict.fromkeys(_SEVERITY_ORDER, 0)
     for finding in findings:
@@ -307,6 +418,57 @@ def _candidate_severity_breakdown(findings: list[CandidateFinding]) -> dict[str,
         severity = finding.severity.lower()
         counts[severity] = counts.get(severity, 0) + 1
     return {severity: count for severity, count in counts.items() if count > 0}
+
+
+def _package_name(candidate: CandidateFinding) -> str | None:
+    package_name = _metadata_string(candidate.metadata.get("package"))
+    if package_name is not None:
+        return package_name
+    return _metadata_string(candidate.metadata.get("source_package"))
+
+
+def _metadata_string(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _group_report_findings_by_package(
+    findings: list[CombinedFinding],
+) -> dict[str, list[CombinedFinding]]:
+    grouped: dict[str, list[CombinedFinding]] = {}
+    for finding in findings:
+        if finding.cross_package or finding.package_name is None:
+            continue
+        grouped.setdefault(finding.package_name, []).append(finding)
+    return grouped
+
+
+def _group_suppressed_findings_by_package(
+    findings: list[SuppressedFinding],
+) -> dict[str, list[SuppressedFinding]]:
+    grouped: dict[str, list[SuppressedFinding]] = {}
+    for finding in findings:
+        if finding.cross_package or finding.package_name is None:
+            continue
+        grouped.setdefault(finding.package_name, []).append(finding)
+    return grouped
+
+
+def _group_dead_code_by_file(
+    functions: list[ScannedFunction],
+) -> dict[str, list[ScannedFunction]]:
+    grouped: dict[str, list[ScannedFunction]] = {}
+    for function in functions:
+        grouped.setdefault(function.location.file, []).append(function)
+    for file_name, file_functions in grouped.items():
+        grouped[file_name] = sorted(
+            file_functions,
+            key=lambda function: (
+                function.location.line,
+                function.location.column,
+                function.name,
+            ),
+        )
+    return grouped
 
 
 def _top_regulatory_concerns(assessments: list[LegalAssessment]) -> list[str]:
@@ -333,6 +495,7 @@ def _utc_now() -> str:
 
 
 __all__ = [
+    "CandidateReportFinding",
     "CombinedFinding",
     "ExecutiveSummary",
     "PiranesiReport",

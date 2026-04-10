@@ -14,6 +14,8 @@ from piranesi.models import ScanMetadata, ScanResult, SourceLocation, TaintSink,
 from piranesi.models.finding import CandidateFinding
 from piranesi.pipeline import PipelineContext, _run_detect_stage, _run_scan_stage
 
+_DEPENDENCY_FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "dependencies"
+
 
 def test_scan_dependency_findings_parses_npm_audit_output(
     tmp_path: Path,
@@ -106,6 +108,38 @@ def test_scan_dependency_findings_gracefully_skips_missing_tools(
 
     assert result.findings == ()
     assert result.sbom_artifacts == {}
+
+
+def test_scan_dependency_findings_marks_unused_vulnerable_api_as_dep_unreachable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root = _DEPENDENCY_FIXTURES / "npm_lodash_unused"
+    _mock_npm_audit(
+        monkeypatch,
+        project_root=project_root,
+        audit_payload=_lodash_defaultsdeep_audit_payload(),
+    )
+
+    result = scan_dependency_findings(project_root)
+
+    assert len(result.findings) == 1
+    assert result.findings[0].reachability == "dep_unreachable"
+
+
+def test_scan_dependency_findings_keeps_used_vulnerable_api_reachable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root = _DEPENDENCY_FIXTURES / "npm_lodash_used"
+    _mock_npm_audit(
+        monkeypatch,
+        project_root=project_root,
+        audit_payload=_lodash_defaultsdeep_audit_payload(),
+    )
+
+    result = scan_dependency_findings(project_root)
+
+    assert len(result.findings) == 1
+    assert result.findings[0].reachability == "reachable"
 
 
 def test_scan_stage_persists_dependency_findings_for_detect(
@@ -220,3 +254,55 @@ def _dependency_candidate(manifest_path: Path) -> CandidateFinding:
             "cve_id": "CVE-2024-0001",
         },
     )
+
+
+def _mock_npm_audit(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    project_root: Path,
+    audit_payload: dict[str, object],
+) -> None:
+    def _which(binary: str) -> str | None:
+        return "/usr/bin/npm" if binary == "npm" else None
+
+    def _run_subprocess(
+        cmd: list[str],
+        *,
+        cwd: str | Path | None = None,
+        timeout: int = 60,
+        env: dict[str, str] | None = None,
+        logger: object | None = None,
+    ) -> CompletedProcess[str]:
+        _ = (timeout, env, logger)
+        assert cwd == project_root
+        assert cmd == ["npm", "audit", "--json"]
+        return CompletedProcess(cmd, 1, stdout=json.dumps(audit_payload), stderr="")
+
+    monkeypatch.setattr("piranesi.detect.dependencies.shutil.which", _which)
+    monkeypatch.setattr("piranesi.detect.dependencies.run_subprocess", _run_subprocess)
+
+
+def _lodash_defaultsdeep_audit_payload() -> dict[str, object]:
+    return {
+        "auditReportVersion": 2,
+        "vulnerabilities": {
+            "lodash": {
+                "name": "lodash",
+                "severity": "high",
+                "range": "<4.17.21",
+                "fixAvailable": {"name": "lodash", "version": "4.17.21"},
+                "via": [
+                    {
+                        "source": 123456,
+                        "name": "lodash",
+                        "dependency": "lodash",
+                        "title": "Prototype Pollution in lodash.defaultsDeep()",
+                        "url": "https://github.com/advisories/GHSA-fvqr-27wr-82fm",
+                        "severity": "high",
+                        "range": "<4.17.21",
+                        "cve": "CVE-2024-0001",
+                    }
+                ],
+            }
+        },
+    }

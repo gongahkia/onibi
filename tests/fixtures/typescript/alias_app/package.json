@@ -1,0 +1,7 @@
+{
+  "name": "alias-app",
+  "private": true,
+  "dependencies": {
+    "express": "^4.19.0"
+  }
+}

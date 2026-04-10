@@ -18,6 +18,13 @@ def test_load_config_defaults(config_file: Callable[[str], Path]) -> None:
     assert config.joern.binary_path == "joern"
     assert config.joern.query_timeout_seconds == 60
     assert config.output.output_dir == "./piranesi-output"
+    assert config.hooks.pre_commit is True
+    assert config.hooks.fail_severity == "high"
+    assert config.hooks.timeout == 60
+    assert config.hooks.staged_only is True
+    assert config.lsp.enabled is True
+    assert config.lsp.scan_on_save is True
+    assert config.lsp.debounce_ms == 1000
 
 
 def test_load_config_from_file(fixtures_dir: Path) -> None:
@@ -28,6 +35,16 @@ def test_load_config_from_file(fixtures_dir: Path) -> None:
     assert config.models.scanner == "scanner-from-file"
     assert config.budget.max_cost_usd == 9.5
     assert config.output.output_dir == "./custom-output"
+
+
+def test_load_config_accepts_compliance_report_format(
+    config_file: Callable[[str], Path],
+) -> None:
+    path = config_file("[output]\nformat = 'compliance'\n")
+
+    config = load_config(path)
+
+    assert config.output.format == "compliance"
 
 
 def test_environment_override(
@@ -85,3 +102,68 @@ def test_load_joern_config_from_file(config_file: Callable[[str], Path]) -> None
     assert config.joern.startup_timeout_seconds == 45
     assert config.joern.query_timeout_seconds == 90
     assert config.joern.jvm_memory == "4g"
+
+
+def test_load_rules_config_from_file(config_file: Callable[[str], Path]) -> None:
+    path = config_file(
+        "\n".join(
+            [
+                "[rules]",
+                'paths = ["./rules", "~/.piranesi/rules/*"]',
+                'disabled_rules = ["noisy-rule-001", "org-rules:experimental-*"]',
+                "require_signatures = true",
+                'trusted_keys = ["~/.piranesi/trusted-keys"]',
+            ]
+        )
+    )
+
+    config = load_config(path)
+
+    assert config.rules.paths == ["./rules", "~/.piranesi/rules/*"]
+    assert config.rules.disabled_rules == ["noisy-rule-001", "org-rules:experimental-*"]
+    assert config.rules.require_signatures is True
+    assert config.rules.trusted_keys == ["~/.piranesi/trusted-keys"]
+
+
+def test_load_hooks_config_from_file(config_file: Callable[[str], Path]) -> None:
+    path = config_file(
+        "\n".join(
+            [
+                "[hooks]",
+                "pre_commit = false",
+                'fail_severity = "critical"',
+                "timeout = 15",
+                "staged_only = false",
+            ]
+        )
+    )
+
+    config = load_config(path)
+
+    assert config.hooks.pre_commit is False
+    assert config.hooks.fail_severity == "critical"
+    assert config.hooks.timeout == 15
+    assert config.hooks.staged_only is False
+
+
+def test_load_lsp_config_from_file(config_file: Callable[[str], Path]) -> None:
+    path = config_file(
+        "\n".join(
+            [
+                "[lsp]",
+                "enabled = false",
+                "scan_on_save = false",
+                "debounce_ms = 250",
+                "max_findings_per_file = 10",
+                'severity_filter = "high"',
+            ]
+        )
+    )
+
+    config = load_config(path)
+
+    assert config.lsp.enabled is False
+    assert config.lsp.scan_on_save is False
+    assert config.lsp.debounce_ms == 250
+    assert config.lsp.max_findings_per_file == 10
+    assert config.lsp.severity_filter == "high"

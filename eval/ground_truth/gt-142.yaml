@@ -1,0 +1,20 @@
+id: gt-142
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+  - eval/synthetic/interproc-hof-map-sqli.ts
+line_numbers: [8, 10]
+taint_source: req.body.items
+taint_sink: db.query()
+taint_path:
+  - "req.body.items populates the array iterated by items.map(...)"
+  - "the map callback receives each tainted item element"
+  - "db.query(item) executes the attacker-controlled element value"
+complexity: inter
+exploitable: true
+reference_exploit: "Send an array of SQL strings in req.body.items so each element reaches db.query() inside the map callback."
+reference_fix_commit: null
+notes: "Synthetic higher-order map SQLi case."

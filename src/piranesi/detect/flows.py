@@ -9,8 +9,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from piranesi.detect.alias import extract_alias_findings
 from piranesi.detect.categories import classify_candidate_findings
 from piranesi.detect.conditions import ConditionExtractionError, PathConditionExtractor
+from piranesi.detect.interprocedural import extract_interprocedural_findings
+from piranesi.detect.prototype_pollution import extract_prototype_pollution_findings
+from piranesi.detect.sanitizer_validation import (
+    PARTIAL_CONFIDENCE_REDUCTION,
+    SANITIZER_BYPASS_CONFIDENCE_BOOST,
+    SanitizerEffectiveness,
+    detect_sanitizer_bypass,
+    validate_sanitizer_spec,
+)
 from piranesi.models import (
     CandidateFinding,
     PathCondition,
@@ -94,6 +104,7 @@ _SEVERITY_BY_CWE = {
     "CWE-319": "medium",
     "CWE-614": "medium",
     "CWE-1004": "medium",
+    "CWE-1321": "high",
 }
 
 
@@ -158,6 +169,21 @@ class _AllowlistGuard:
     receiver: str
     argument: str
     truth_means_allowed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _SanitizerObservation:
+    spec_name: str
+    display_name: str
+    effectiveness: SanitizerEffectiveness
+
+
+@dataclass(frozen=True, slots=True)
+class _SanitizerPathAssessment:
+    confidence: float
+    suppressed: bool
+    suppression_reason: str | None
+    metadata: dict[str, object]
 
 
 @dataclass(slots=True)
@@ -455,6 +481,9 @@ def extract_candidate_findings(
     resolved_source_specs = tuple(source_specs or get_source_specs(frameworks=frameworks))
     resolved_sink_specs = tuple(sink_specs or get_sink_specs(frameworks=frameworks))
     resolved_sanitizer_specs = tuple(sanitizer_specs or get_sanitizer_specs(frameworks=frameworks))
+    flow_sink_specs = tuple(
+        spec for spec in resolved_sink_specs if spec.sink_type is not SinkType.PROTOTYPE_POLLUTION
+    )
     sanitizer_lookup = _collect_sanitizer_lookup(server, resolved_sanitizer_specs)
     file_resolver = _NodeFileResolver(server=server, joern_project_root=root, source_map=source_map)
     pruning_analyzer = _PathPruningAnalyzer(
@@ -473,7 +502,7 @@ def extract_candidate_findings(
 
     findings: list[CandidateFinding] = []
     for source_spec in resolved_source_specs:
-        for sink_spec in resolved_sink_specs:
+        for sink_spec in flow_sink_specs:
             findings.extend(
                 _extract_findings_for_pair(
                     server,
@@ -486,6 +515,30 @@ def extract_candidate_findings(
                     pruning_analyzer=pruning_analyzer,
                 )
             )
+    findings.extend(
+        extract_interprocedural_findings(
+            server,
+            joern_project_root=root,
+            source_map=source_map,
+            source_specs=resolved_source_specs,
+            sink_specs=flow_sink_specs,
+        )
+    )
+    findings.extend(
+        extract_alias_findings(
+            root,
+            source_map=source_map,
+            sink_specs=resolved_sink_specs,
+            source_specs=resolved_source_specs,
+        )
+    )
+    findings.extend(
+        extract_prototype_pollution_findings(
+            root,
+            source_map=source_map,
+            sink_specs=resolved_sink_specs,
+        )
+    )
     classified = classify_candidate_findings(
         findings,
         route_patterns_by_finding_id=route_patterns_by_finding_id,
@@ -507,13 +560,16 @@ def joern_flow_to_taint_steps(
     active_sanitizer: str | None = None
 
     for node in flow:
-        sanitizer_spec = _sanitizer_for_node(
+        sanitizer = _sanitizer_for_node(
             node,
             sanitizer_lookup=sanitizer_lookup,
             vuln_class=vuln_class,
         )
-        if sanitizer_spec is not None:
-            active_sanitizer = _sanitizer_name(node, fallback=sanitizer_spec.name)
+        if (
+            sanitizer is not None
+            and sanitizer.effectiveness is not SanitizerEffectiveness.INEFFECTIVE
+        ):
+            active_sanitizer = sanitizer.display_name
 
         location = _source_location_for_node(
             node,
@@ -634,12 +690,13 @@ def _extract_findings_for_pair(
             pass
 
         vuln_class = sink_spec.cwe_id or sink_spec.sink_type.value
-        confidence = _reduced_confidence_for_path(
+        sanitizer_assessment = _assess_sanitizers_for_path(
             _DEFAULT_CONFIDENCE,
             elements=elements,
             sanitizer_lookup=sanitizer_lookup,
             vuln_class=sink_spec.cwe_id,
         )
+        confidence = sanitizer_assessment.confidence
         with contextlib.suppress(CPGQLQueryError, FlowExtractionError):
             confidence = pruning_analyzer.reduce_confidence_for_allowlist(
                 confidence,
@@ -676,6 +733,9 @@ def _extract_findings_for_pair(
                 path_conditions=path_conditions,
                 confidence=confidence,
                 severity=_severity_for_sink_spec(sink_spec),
+                metadata=sanitizer_assessment.metadata,
+                suppressed=sanitizer_assessment.suppressed,
+                suppression_reason=sanitizer_assessment.suppression_reason,
             )
         )
 
@@ -719,13 +779,15 @@ def _reduced_confidence_for_path(
     sanitizer_lookup: Mapping[int, SanitizerSpec],
     vuln_class: str | None,
 ) -> float:
-    confidence = base_confidence
-    for sanitizer_spec in _relevant_sanitizers_on_path(
+    observations = _relevant_sanitizers_on_path(
         elements,
         sanitizer_lookup=sanitizer_lookup,
         vuln_class=vuln_class,
-    ):
-        confidence *= 1.0 - sanitizer_spec.confidence
+    )
+    partial_count = sum(
+        1 for sanitizer in observations if sanitizer.effectiveness is SanitizerEffectiveness.PARTIAL
+    )
+    confidence = base_confidence - (PARTIAL_CONFIDENCE_REDUCTION * partial_count)
     return max(0.0, min(1.0, confidence))
 
 
@@ -756,20 +818,20 @@ def _relevant_sanitizers_on_path(
     *,
     sanitizer_lookup: Mapping[int, SanitizerSpec],
     vuln_class: str | None,
-) -> tuple[SanitizerSpec, ...]:
-    relevant_sanitizers: list[SanitizerSpec] = []
+) -> tuple[_SanitizerObservation, ...]:
+    relevant_sanitizers: list[_SanitizerObservation] = []
     seen_names: set[str] = set()
 
     for node in elements:
-        sanitizer_spec = _sanitizer_for_node(
+        sanitizer = _sanitizer_for_node(
             node,
             sanitizer_lookup=sanitizer_lookup,
             vuln_class=vuln_class,
         )
-        if sanitizer_spec is None or sanitizer_spec.name in seen_names:
+        if sanitizer is None or sanitizer.spec_name in seen_names:
             continue
-        seen_names.add(sanitizer_spec.name)
-        relevant_sanitizers.append(sanitizer_spec)
+        seen_names.add(sanitizer.spec_name)
+        relevant_sanitizers.append(sanitizer)
 
     return tuple(relevant_sanitizers)
 
@@ -869,17 +931,101 @@ def _sanitizer_for_node(
     *,
     sanitizer_lookup: Mapping[int, SanitizerSpec],
     vuln_class: str | None,
-) -> SanitizerSpec | None:
+) -> _SanitizerObservation | None:
     if node.node_id < 0:
         return None
     sanitizer_spec = sanitizer_lookup.get(node.node_id)
     if sanitizer_spec is None:
         return None
-    if vuln_class is None:
-        return sanitizer_spec
-    if not sanitizer_spec.mitigates or vuln_class in sanitizer_spec.mitigates:
-        return sanitizer_spec
-    return None
+    effectiveness = (
+        SanitizerEffectiveness.EFFECTIVE
+        if vuln_class is None
+        else validate_sanitizer_spec(sanitizer_spec, vuln_class)
+    )
+    return _SanitizerObservation(
+        spec_name=sanitizer_spec.name,
+        display_name=_sanitizer_name(node, fallback=sanitizer_spec.name),
+        effectiveness=effectiveness,
+    )
+
+
+def _assess_sanitizers_for_path(
+    base_confidence: float,
+    *,
+    elements: Sequence[QueryNode],
+    sanitizer_lookup: Mapping[int, SanitizerSpec],
+    vuln_class: str | None,
+) -> _SanitizerPathAssessment:
+    observations = _relevant_sanitizers_on_path(
+        elements,
+        sanitizer_lookup=sanitizer_lookup,
+        vuln_class=vuln_class,
+    )
+    if not observations:
+        return _SanitizerPathAssessment(
+            confidence=base_confidence,
+            suppressed=False,
+            suppression_reason=None,
+            metadata={},
+        )
+
+    effectiveness_by_name = {
+        sanitizer.spec_name: sanitizer.effectiveness.value for sanitizer in observations
+    }
+    bypass_patterns = detect_sanitizer_bypass(elements)
+    if bypass_patterns:
+        return _SanitizerPathAssessment(
+            confidence=min(1.0, base_confidence + SANITIZER_BYPASS_CONFIDENCE_BOOST),
+            suppressed=False,
+            suppression_reason=None,
+            metadata={
+                "sanitizer_effectiveness": effectiveness_by_name,
+                "sanitizer_bypassed": True,
+                "sanitizer_bypass_patterns": list(bypass_patterns),
+            },
+        )
+
+    effective = [
+        sanitizer.display_name
+        for sanitizer in observations
+        if sanitizer.effectiveness is SanitizerEffectiveness.EFFECTIVE
+    ]
+    partial = [
+        sanitizer.display_name
+        for sanitizer in observations
+        if sanitizer.effectiveness is SanitizerEffectiveness.PARTIAL
+    ]
+    ineffective = [
+        sanitizer.display_name
+        for sanitizer in observations
+        if sanitizer.effectiveness is SanitizerEffectiveness.INEFFECTIVE
+    ]
+
+    metadata: dict[str, object] = {"sanitizer_effectiveness": effectiveness_by_name}
+    if partial:
+        metadata["partial_sanitizers"] = partial
+    if ineffective:
+        metadata["ineffective_sanitizers"] = ineffective
+    if effective:
+        metadata["effective_sanitizers"] = effective
+        return _SanitizerPathAssessment(
+            confidence=base_confidence,
+            suppressed=True,
+            suppression_reason=f"effective sanitizer for {vuln_class}: {', '.join(effective)}",
+            metadata=metadata,
+        )
+
+    return _SanitizerPathAssessment(
+        confidence=_reduced_confidence_for_path(
+            base_confidence,
+            elements=elements,
+            sanitizer_lookup=sanitizer_lookup,
+            vuln_class=vuln_class,
+        ),
+        suppressed=False,
+        suppression_reason=None,
+        metadata=metadata,
+    )
 
 
 def _source_location_for_node(

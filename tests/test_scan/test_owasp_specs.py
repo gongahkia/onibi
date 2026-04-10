@@ -174,6 +174,24 @@ def test_sink_type_has_file_upload() -> None:
     assert SinkType.FILE_UPLOAD == "file_upload"
 
 
+def test_sink_type_has_prototype_pollution() -> None:
+    assert SinkType.PROTOTYPE_POLLUTION == "prototype_pollution"
+
+
+def test_builtin_sinks_include_prototype_pollution_specs() -> None:
+    names = {s.name for s in BUILTIN_SINK_SPECS}
+    assert "prototype_pollution_object_assign" in names
+    assert "prototype_pollution_lodash_merge" in names
+    assert "prototype_pollution_defaults_deep" in names
+
+
+def test_prototype_pollution_specs_have_correct_cwe() -> None:
+    spec = next(s for s in BUILTIN_SINK_SPECS if s.name == "prototype_pollution_object_assign")
+    assert spec.cwe_id == "CWE-1321"
+    assert spec.sink_type == SinkType.PROTOTYPE_POLLUTION
+    assert spec.severity == "high"
+
+
 # --- Completeness checks ---
 
 def _all_sinks():

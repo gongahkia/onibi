@@ -134,6 +134,14 @@ class SourceMap:
         normalized_file = Path(ts_file).resolve(strict=False)
         return self._original_to_generated.get((normalized_file, ts_line), ())
 
+    def original_files(self) -> tuple[Path, ...]:
+        return tuple(
+            sorted(
+                {path for path, _line in self._original_to_generated},
+                key=str,
+            )
+        )
+
 
 def prepare_transpile_workspace(
     target_dir: Path,

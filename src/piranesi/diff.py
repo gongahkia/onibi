@@ -9,7 +9,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from piranesi import __version__
-from piranesi.models import CandidateFinding, ConfirmedFinding, SourceLocation
+from piranesi.models import CandidateFinding, ConfirmedFinding, ReachabilityResult, SourceLocation
 from piranesi.report.cwe import cwe_title, extract_cwe_id
 
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -65,6 +65,7 @@ class DetectArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     findings: list[CandidateFinding] = Field(default_factory=list)
+    reachability: ReachabilityResult | None = None
 
 
 class VerifyArtifact(BaseModel):

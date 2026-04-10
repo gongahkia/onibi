@@ -14,6 +14,10 @@ from piranesi.detect.flows import (
     extract_candidate_findings,
     joern_flow_to_taint_steps,
 )
+from piranesi.detect.sanitizer_validation import (
+    PARTIAL_CONFIDENCE_REDUCTION,
+    SanitizerEffectiveness,
+)
 from piranesi.scan.joern import JoernError, JoernServer, is_joern_installed
 from piranesi.scan.queries import QueryNode, build_flow_query, build_nodes_query
 from piranesi.scan.specs import (
@@ -134,15 +138,21 @@ def _joern_json_stdout(payload: object) -> str:
 
 
 def _source_spec_by_name(name: str) -> SourceSpec:
-    return next(spec for spec in get_source_specs(frameworks=("express", "fastify")) if spec.name == name)
+    return next(
+        spec for spec in get_source_specs(frameworks=("express", "fastify")) if spec.name == name
+    )
 
 
 def _sink_spec_by_name(name: str) -> SinkSpec:
-    return next(spec for spec in get_sink_specs(frameworks=("express", "fastify")) if spec.name == name)
+    return next(
+        spec for spec in get_sink_specs(frameworks=("express", "fastify")) if spec.name == name
+    )
 
 
 def _sanitizer_spec_by_name(name: str) -> SanitizerSpec:
-    return next(spec for spec in get_sanitizer_specs(frameworks=("express", "fastify")) if spec.name == name)
+    return next(
+        spec for spec in get_sanitizer_specs(frameworks=("express", "fastify")) if spec.name == name
+    )
 
 
 def _custom_source_spec(name: str) -> SourceSpec:
@@ -437,9 +447,9 @@ def test_extract_candidate_findings_reduces_confidence_for_sanitized_paths() -> 
 
     xss_finding = next(finding for finding in findings if finding.vuln_class == "CWE-79")
     assert xss_finding.sink.api_name == "res.send"
-    assert xss_finding.confidence == pytest.approx(
-        _DEFAULT_CONFIDENCE * (1.0 - sanitizer_spec.confidence)
-    )
+    assert xss_finding.confidence == pytest.approx(_DEFAULT_CONFIDENCE)
+    assert xss_finding.suppressed is True
+    assert xss_finding.suppression_reason == "effective sanitizer for CWE-79: escape"
     assert [step.taint_state for step in xss_finding.taint_path][-3:] == [
         "sanitized",
         "sanitized",
@@ -558,12 +568,20 @@ def test_joern_flow_to_taint_steps_marks_steps_after_sanitizer() -> None:
 
 
 @pytest.mark.parametrize(
-    ("sanitizer_name", "source_name", "sink_name", "flow", "sanitizer_nodes"),
+    (
+        "sanitizer_name",
+        "source_name",
+        "sink_name",
+        "expected_effectiveness",
+        "flow",
+        "sanitizer_nodes",
+    ),
     [
         (
             "validator_escape",
             "express_req_body",
             "response_output",
+            SanitizerEffectiveness.EFFECTIVE,
             [
                 _node(
                     1001,
@@ -618,6 +636,7 @@ def test_joern_flow_to_taint_steps_marks_steps_after_sanitizer() -> None:
             "sanitize_html",
             "express_req_body",
             "response_output",
+            SanitizerEffectiveness.EFFECTIVE,
             [
                 _node(
                     1101,
@@ -672,6 +691,7 @@ def test_joern_flow_to_taint_steps_marks_steps_after_sanitizer() -> None:
             "dompurify_sanitize",
             "express_req_body",
             "response_output",
+            SanitizerEffectiveness.EFFECTIVE,
             [
                 _node(
                     1201,
@@ -726,6 +746,7 @@ def test_joern_flow_to_taint_steps_marks_steps_after_sanitizer() -> None:
             "sqlstring_escape",
             "express_req_body",
             "raw_sql_query",
+            SanitizerEffectiveness.PARTIAL,
             [
                 _node(
                     1301,
@@ -775,6 +796,7 @@ def test_joern_flow_to_taint_steps_marks_steps_after_sanitizer() -> None:
             "pg_parameterized_query",
             "express_req_body",
             "raw_sql_query",
+            SanitizerEffectiveness.EFFECTIVE,
             [
                 _node(
                     1401,
@@ -809,9 +831,65 @@ def test_joern_flow_to_taint_steps_marks_steps_after_sanitizer() -> None:
             ],
         ),
         (
+            "pg_parameterized_query",
+            "express_req_body",
+            "response_output",
+            SanitizerEffectiveness.INEFFECTIVE,
+            [
+                _node(
+                    1451,
+                    label="CALL",
+                    name="<operator>.fieldAccess",
+                    code="req.body.comment",
+                    line=4,
+                    column=12,
+                    method_full_name="<operator>.fieldAccess",
+                ),
+                _node(1452, label="IDENTIFIER", name="comment", code="comment", line=4, column=8),
+                _node(
+                    1453,
+                    label="CALL",
+                    name="query",
+                    code='pool.query("SELECT $1", [comment])',
+                    line=5,
+                    column=2,
+                    method_full_name="<unknownFullName>",
+                ),
+                _node(
+                    1454,
+                    label="IDENTIFIER",
+                    name="comment",
+                    code="comment",
+                    line=6,
+                    column=8,
+                ),
+                _node(
+                    1455,
+                    label="CALL",
+                    name="send",
+                    code="res.send(comment)",
+                    line=7,
+                    column=2,
+                    method_full_name="<unknownFullName>",
+                ),
+            ],
+            [
+                _node(
+                    1453,
+                    label="CALL",
+                    name="query",
+                    code='pool.query("SELECT $1", [comment])',
+                    line=5,
+                    column=2,
+                    method_full_name="<unknownFullName>",
+                ),
+            ],
+        ),
+        (
             "path_resolve_startswith",
             "express_req_params",
             "filesystem_read",
+            SanitizerEffectiveness.EFFECTIVE,
             [
                 _node(
                     1501,
@@ -884,6 +962,7 @@ def test_joern_flow_to_taint_steps_marks_steps_after_sanitizer() -> None:
             "numeric_coercion",
             "express_req_query",
             "raw_sql_query",
+            SanitizerEffectiveness.PARTIAL,
             [
                 _node(
                     1601,
@@ -933,6 +1012,7 @@ def test_joern_flow_to_taint_steps_marks_steps_after_sanitizer() -> None:
             "uri_component_encoding",
             "express_req_query",
             "ssrf_full_url",
+            SanitizerEffectiveness.INEFFECTIVE,
             [
                 _node(
                     1701,
@@ -976,9 +1056,58 @@ def test_joern_flow_to_taint_steps_marks_steps_after_sanitizer() -> None:
             ],
         ),
         (
+            "uri_component_encoding",
+            "express_req_query",
+            "filesystem_read",
+            SanitizerEffectiveness.PARTIAL,
+            [
+                _node(
+                    1721,
+                    label="CALL",
+                    name="<operator>.fieldAccess",
+                    code="req.query.file",
+                    line=4,
+                    column=12,
+                    method_full_name="<operator>.fieldAccess",
+                ),
+                _node(1722, label="IDENTIFIER", name="file", code="file", line=4, column=8),
+                _node(
+                    1723,
+                    label="CALL",
+                    name="encodeURIComponent",
+                    code="encodeURIComponent(file)",
+                    line=5,
+                    column=16,
+                    method_full_name="encodeURIComponent",
+                ),
+                _node(1724, label="IDENTIFIER", name="safeFile", code="safeFile", line=5, column=8),
+                _node(
+                    1725,
+                    label="CALL",
+                    name="readFile",
+                    code="fs.readFile(safeFile)",
+                    line=6,
+                    column=2,
+                    method_full_name="<unknownFullName>",
+                ),
+            ],
+            [
+                _node(
+                    1723,
+                    label="CALL",
+                    name="encodeURIComponent",
+                    code="encodeURIComponent(file)",
+                    line=5,
+                    column=16,
+                    method_full_name="encodeURIComponent",
+                ),
+            ],
+        ),
+        (
             "fastify_schema_validation",
             "fastify_request_body",
             "fastify_reply_send",
+            SanitizerEffectiveness.PARTIAL,
             [
                 _node(
                     1751,
@@ -1018,6 +1147,7 @@ def test_extract_candidate_findings_reduces_confidence_for_framework_sanitizers(
     sanitizer_name: str,
     source_name: str,
     sink_name: str,
+    expected_effectiveness: SanitizerEffectiveness,
     flow: list[dict[str, object]],
     sanitizer_nodes: list[dict[str, object]],
 ) -> None:
@@ -1066,10 +1196,87 @@ def test_extract_candidate_findings_reduces_confidence_for_framework_sanitizers(
     assert len(findings) == 1
     finding = findings[0]
     assert finding.vuln_class == (sink_spec.cwe_id or sink_spec.sink_type.value)
-    assert finding.confidence == pytest.approx(
-        _DEFAULT_CONFIDENCE * (1.0 - sanitizer_spec.confidence)
+    if expected_effectiveness is SanitizerEffectiveness.EFFECTIVE:
+        assert finding.confidence == pytest.approx(_DEFAULT_CONFIDENCE)
+        assert finding.suppressed is True
+        assert any(step.taint_state == "sanitized" for step in finding.taint_path)
+    elif expected_effectiveness is SanitizerEffectiveness.PARTIAL:
+        assert finding.confidence == pytest.approx(
+            _DEFAULT_CONFIDENCE - PARTIAL_CONFIDENCE_REDUCTION
+        )
+        assert finding.suppressed is False
+        assert any(step.taint_state == "sanitized" for step in finding.taint_path)
+    else:
+        assert finding.confidence == pytest.approx(_DEFAULT_CONFIDENCE)
+        assert finding.suppressed is False
+        assert all(step.taint_state == "tainted" for step in finding.taint_path)
+
+
+def test_extract_candidate_findings_keeps_bypassed_sanitizer_paths() -> None:
+    source_spec = _source_spec_by_name("express_req_body")
+    sink_spec = _sink_spec_by_name("response_output")
+    sanitizer_spec = _sanitizer_spec_by_name("html_escape")
+    flow = [
+        _node(
+            1761,
+            label="CALL",
+            name="<operator>.fieldAccess",
+            code="req.body.comment",
+            line=4,
+            column=12,
+            method_full_name="<operator>.fieldAccess",
+        ),
+        _node(1762, label="IDENTIFIER", name="comment", code="comment", line=4, column=8),
+        _node(
+            1763,
+            label="CALL",
+            name="escape",
+            code='escape(JSON.stringify({"html":"<ScRiPt>alert(1)</ScRiPt>"}))',
+            line=5,
+            column=20,
+            method_full_name="escape",
+        ),
+        _node(1764, label="IDENTIFIER", name="safeComment", code="safeComment", line=5, column=8),
+        _node(
+            1765,
+            label="CALL",
+            name="send",
+            code="res.send(safeComment)",
+            line=6,
+            column=2,
+            method_full_name="<unknownFullName>",
+        ),
+    ]
+
+    responses: dict[str, dict[str, object]] = {
+        build_flow_query(source_spec, sink_spec): {
+            "success": True,
+            "stdout": _joern_json_stdout([{"elements": flow}]),
+        },
+        build_nodes_query(sanitizer_spec.pattern): {
+            "success": True,
+            "stdout": _joern_json_stdout([flow[2]]),
+        },
+    }
+    responses.update(_file_lookup_responses(*(int(node["_id"]) for node in flow)))  # type: ignore[call-overload]
+
+    findings = extract_candidate_findings(
+        FakeJoernServer(responses),  # type: ignore[arg-type]
+        joern_project_root=TAINT_APP_TRANSPILED_DIR,
+        source_specs=(source_spec,),
+        sink_specs=(sink_spec,),
+        sanitizer_specs=(sanitizer_spec,),
     )
-    assert any(step.taint_state == "sanitized" for step in finding.taint_path)
+
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.suppressed is False
+    assert finding.confidence == pytest.approx(0.9)
+    assert finding.metadata["sanitizer_bypassed"] is True
+    assert set(finding.metadata["sanitizer_bypass_patterns"]) >= {
+        "nested_contexts",
+        "case_variation",
+    }
 
 
 def test_extract_candidate_findings_leaves_unsanitized_confidence_untouched() -> None:
@@ -1697,7 +1904,6 @@ def test_extract_candidate_findings_with_real_joern(joern_server: JoernServer) -
     xss_finding = next(finding for finding in findings if finding.vuln_class == "CWE-79")
     assert xss_finding.sink.api_name == "res.send"
     assert xss_finding.sink.location.line == 12
-    assert xss_finding.confidence == pytest.approx(
-        _DEFAULT_CONFIDENCE * (1.0 - sanitizer_spec.confidence)
-    )
+    assert xss_finding.confidence == pytest.approx(_DEFAULT_CONFIDENCE)
+    assert xss_finding.suppressed is True
     assert any(step.sanitizer_applied == "escape" for step in xss_finding.taint_path)

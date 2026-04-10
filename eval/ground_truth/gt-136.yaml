@@ -1,0 +1,20 @@
+id: gt-136
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting (Reflected)
+label: true_positive
+affected_files:
+  - eval/synthetic/interproc-callback-xss.ts
+line_numbers: [13, 14]
+taint_source: req.body.preview
+taint_sink: res.send()
+taint_path:
+  - "req.body.preview is passed into fetchMarkup()"
+  - "the callback receives html derived from the original preview payload"
+  - "res.send(html) reflects the attacker-controlled markup"
+complexity: inter
+exploitable: true
+reference_exploit: "POST a preview payload like <img src=x onerror=alert(1)> and the callback reflects it through res.send()."
+reference_fix_commit: null
+notes: "Synthetic callback-chain reflected XSS case."

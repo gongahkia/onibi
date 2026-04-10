@@ -8,6 +8,7 @@ from typer.testing import CliRunner
 
 from piranesi.cli import app
 from piranesi.config import load_config
+from piranesi.watch import WatchModeSummary
 
 runner = CliRunner()
 
@@ -24,11 +25,15 @@ def test_help_shows_all_commands() -> None:
         "legal",
         "patch",
         "report",
+        "trends",
         "suppress",
         "diff",
+        "rules",
         "baseline",
+        "hook",
         "init",
         "run",
+        "watch",
     ]
     for command in commands:
         assert command in result.stdout
@@ -71,6 +76,9 @@ def test_scan_help_lists_incremental_flag() -> None:
 
     assert result.exit_code == 0
     assert "--incremental" in result.stdout
+    assert "--package" in result.stdout
+    assert "--changed-packag" in result.stdout
+    assert "--max-parallel" in result.stdout
     assert "--sbom" in result.stdout
 
 
@@ -79,7 +87,144 @@ def test_run_help_lists_incremental_flag() -> None:
 
     assert result.exit_code == 0
     assert "--incremental" in result.stdout
+    assert "--staged-only" in result.stdout
+    assert "--hook-timeout" in result.stdout
+    assert "--package" in result.stdout
+    assert "--changed-packag" in result.stdout
+    assert "--max-parallel" in result.stdout
     assert "--sbom" in result.stdout
+
+
+def test_watch_help_lists_watch_mode_flags() -> None:
+    result = runner.invoke(app, ["watch", "--help"])
+
+    assert result.exit_code == 0
+    assert "--filter" in result.stdout
+    assert "--debounce" in result.stdout
+    assert "--on-finding" in result.stdout
+    assert "--max-scans" in result.stdout
+
+
+def test_lsp_help_lists_lsp_flags() -> None:
+    result = runner.invoke(app, ["lsp", "--help"])
+
+    assert result.exit_code == 0
+    assert "--tcp" in result.stdout
+    assert "--port" in result.stdout
+    assert "--log" in result.stdout
+
+
+def test_lsp_command_invokes_server(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from piranesi.lsp import server as lsp_server
+
+    config_path = tmp_path / "piranesi.toml"
+    config_path.write_text("", encoding="utf-8")
+    recorded: dict[str, object] = {}
+
+    def _fake_serve(*, config_path: Path, tcp: bool, host: str, port: int) -> None:
+        recorded["config_path"] = config_path
+        recorded["tcp"] = tcp
+        recorded["host"] = host
+        recorded["port"] = port
+
+    monkeypatch.setattr(lsp_server, "serve", _fake_serve)
+
+    result = runner.invoke(
+        app,
+        [
+            "lsp",
+            "--config",
+            str(config_path),
+            "--tcp",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "9258",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert recorded == {
+        "config_path": config_path.resolve(strict=False),
+        "tcp": True,
+        "host": "127.0.0.1",
+        "port": 9258,
+    }
+
+
+def test_watch_command_invokes_watch_mode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "piranesi.toml"
+    target_dir = tmp_path / "project"
+    target_dir.mkdir()
+    config_path.write_text("", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    def _fake_watch_mode(
+        target_dir_arg: Path,
+        *,
+        config: object,
+        output_dir: Path,
+        debounce_ms: int,
+        filter_glob: str | None,
+        on_finding: str | None,
+        fail_severity: str,
+        max_scans: int | None,
+        use_cache: bool,
+        max_parallel: int | None,
+        render_ui: bool,
+    ) -> WatchModeSummary:
+        _ = (config, render_ui)
+        captured["target_dir"] = target_dir_arg
+        captured["output_dir"] = output_dir
+        captured["debounce_ms"] = debounce_ms
+        captured["filter_glob"] = filter_glob
+        captured["on_finding"] = on_finding
+        captured["fail_severity"] = fail_severity
+        captured["max_scans"] = max_scans
+        captured["use_cache"] = use_cache
+        captured["max_parallel"] = max_parallel
+        return WatchModeSummary(scans=1, findings_remaining=0, fixed_total=0, exit_code=0)
+
+    monkeypatch.setattr("piranesi.cli.run_watch_mode", _fake_watch_mode)
+
+    result = runner.invoke(
+        app,
+        [
+            "watch",
+            str(target_dir),
+            "--config",
+            str(config_path),
+            "--authorized",
+            "--yes",
+            "--filter",
+            "**/*.ts",
+            "--debounce",
+            "250",
+            "--on-finding",
+            "echo hook",
+            "--max-scans",
+            "2",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured == {
+        "target_dir": target_dir,
+        "output_dir": Path("./piranesi-output"),
+        "debounce_ms": 250,
+        "filter_glob": "**/*.ts",
+        "on_finding": "echo hook",
+        "fail_severity": "low",
+        "max_scans": 2,
+        "use_cache": True,
+        "max_parallel": None,
+    }
 
 
 def test_detect_help_lists_include_tests_flag() -> None:
@@ -94,6 +239,22 @@ def test_run_help_lists_include_tests_flag() -> None:
 
     assert result.exit_code == 0
     assert "--include-tests" in result.stdout
+
+
+def test_run_help_lists_reachability_flags() -> None:
+    result = runner.invoke(app, ["run", "--help"])
+
+    assert result.exit_code == 0
+    assert "--include-unreac" in result.stdout
+    assert "--dead-code-repo" in result.stdout
+
+
+def test_report_help_lists_reachability_flags() -> None:
+    result = runner.invoke(app, ["report", "--help"])
+
+    assert result.exit_code == 0
+    assert "--include-unreachable" in result.stdout
+    assert "--dead-code-report" in result.stdout
 
 
 def test_run_help_lists_exit_controls_and_exit_codes() -> None:

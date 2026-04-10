@@ -26,6 +26,15 @@ class AttackSurfaceNode(BaseModel):
     sanitizers_on_path: list[str]
 
 
+class ScannedFunction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    function_id: str
+    name: str
+    location: SourceLocation
+    parameters: list[str] = Field(default_factory=list)
+
+
 class ScanMetadata(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -38,16 +47,33 @@ class ScanMetadata(BaseModel):
     config_hash: str
 
 
+class PackageScanResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    path: str
+    language: str
+    frameworks: list[str] = Field(default_factory=list)
+    files_scanned: list[str] = Field(default_factory=list)
+    functions: list[ScannedFunction] = Field(default_factory=list)
+    entry_points: list[EntryPoint] = Field(default_factory=list)
+    attack_surface: list[AttackSurfaceNode] = Field(default_factory=list)
+    dependency_findings: list[CandidateFinding] = Field(default_factory=list)
+
+
 class ScanResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     project_root: str
     files_scanned: list[str]
     call_graph: dict[str, list[str]]
+    functions: list[ScannedFunction] = Field(default_factory=list)
     entry_points: list[EntryPoint]
     attack_surface: list[AttackSurfaceNode]
     dependency_findings: list[CandidateFinding] = Field(default_factory=list)
     sbom_artifacts: dict[str, str] = Field(default_factory=dict)
+    package_results: list[PackageScanResult] = Field(default_factory=list)
+    monorepo_detected_tool: str | None = None
     metadata: ScanMetadata
 
 
@@ -62,6 +88,7 @@ class CandidateFinding(BaseModel):
     path_conditions: list[PathCondition]
     confidence: float
     severity: str
+    reachability: str = "reachable"
     metadata: dict[str, object] = Field(default_factory=dict)
     suppressed: bool = False
     suppression_reason: str | None = None
@@ -77,6 +104,24 @@ class CandidateFinding(BaseModel):
     high_risk_to_individuals: bool = False
     basic_processing_principle_violation: bool = False
     willful_violation: bool = False
+
+
+class ReachabilityResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reachable_functions: set[str] = Field(default_factory=set)
+    unreachable_functions: set[str] = Field(default_factory=set)
+    entry_points: set[str] = Field(default_factory=set)
+    call_graph_edges: int = 0
+    dead_code_functions: list[ScannedFunction] = Field(default_factory=list)
+
+
+class DepReachabilityResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reachable_deps: set[str] = Field(default_factory=set)
+    unreachable_deps: set[str] = Field(default_factory=set)
+    import_graph_edges: int = 0
 
 
 class TriagedFinding(BaseModel):

@@ -6,21 +6,104 @@
 
 {% include "executive_summary.j2" %}
 
+## Active Findings
+
+{% if report.active_findings %}
+{% for finding in report.active_findings %}
+### {{ finding.title }} (`{{ finding.finding_id }}`)
+
+- **CWE:** {{ finding.cwe }}
+- **Severity:** {{ finding.severity|upper }}
+{% if finding.original_severity and finding.original_severity != finding.severity %}
+- **Original Severity:** {{ finding.original_severity|upper }}
+{% endif %}
+- **Reachability:** {{ finding.reachability }}
+{% if finding.source_function_id %}
+- **Source function:** `{{ finding.source_function_id }}`
+{% endif %}
+- **Source:** `{{ finding.source_location.file }}:{{ finding.source_location.line }}` ({{ finding.taint_source }})
+- **Sink:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}` ({{ finding.taint_sink }})
+
+{% endfor %}
+{% else %}
+No active findings remain after reachability pruning.
+{% endif %}
+
+## Unreachable Findings
+
+{% if report.unreachable_findings %}
+{% for finding in report.unreachable_findings %}
+### {{ finding.title }} (`{{ finding.finding_id }}`)
+
+- **CWE:** {{ finding.cwe }}
+- **Severity:** {{ finding.severity|upper }}
+{% if finding.original_severity and finding.original_severity != finding.severity %}
+- **Original Severity:** {{ finding.original_severity|upper }}
+{% endif %}
+{% if finding.source_function_id %}
+- **Source function:** `{{ finding.source_function_id }}`
+{% endif %}
+- **Source:** `{{ finding.source_location.file }}:{{ finding.source_location.line }}` ({{ finding.taint_source }})
+- **Sink:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}` ({{ finding.taint_sink }})
+
+{% endfor %}
+{% else %}
+No unreachable findings were identified.
+{% endif %}
+
 ## Confirmed Findings
 
 {% if report.findings %}
-{% for finding in report.findings %}
+{% if report.package_findings %}
+{% for package_name, findings in report.package_findings.items() %}
+### Package: `{{ package_name }}`
+
+{% for finding in findings %}
+{% include "finding.md.j2" %}
+
+{% endfor %}
+{% endfor %}
+{% else %}
+{% for finding in report.findings if not finding.cross_package %}
+{% include "finding.md.j2" %}
+
+{% endfor %}
+{% endif %}
+{% else %}
+No confirmed findings were produced by the pipeline.
+{% endif %}
+
+## Cross-Package Findings
+
+{% if report.cross_package_findings %}
+{% for finding in report.cross_package_findings %}
+### `{{ finding.source_package or finding.package_name or "unknown" }}` -> `{{ finding.sink_package or "unknown" }}`
+
 {% include "finding.md.j2" %}
 
 {% endfor %}
 {% else %}
-No confirmed findings were produced by the pipeline.
+No cross-package findings were produced by the pipeline.
 {% endif %}
 
 ## Suppressed Findings
 
 {% if report.suppressed_findings %}
-{% for finding in report.suppressed_findings %}
+{% if report.suppressed_findings_by_package %}
+{% for package_name, findings in report.suppressed_findings_by_package.items() %}
+### Package: `{{ package_name }}`
+
+{% for finding in findings %}
+### {{ finding.title }} (`{{ finding.finding_id }}`)
+
+- **CWE:** {{ finding.cwe }}
+- **Severity:** {{ finding.severity|upper }}
+- **Location:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}`
+- **Reason:** {{ finding.suppression_reason or "n/a" }}
+
+{% endfor %}
+{% endfor %}
+{% for finding in report.suppressed_findings if finding.cross_package %}
 ### {{ finding.title }} (`{{ finding.finding_id }}`)
 
 - **CWE:** {{ finding.cwe }}
@@ -30,7 +113,34 @@ No confirmed findings were produced by the pipeline.
 
 {% endfor %}
 {% else %}
+{% for finding in report.suppressed_findings %}
+### {{ finding.title }} (`{{ finding.finding_id }}`)
+
+- **CWE:** {{ finding.cwe }}
+- **Severity:** {{ finding.severity|upper }}
+- **Location:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}`
+- **Reason:** {{ finding.suppression_reason or "n/a" }}
+
+{% endfor %}
+{% endif %}
+{% else %}
 No suppressed findings were recorded.
+{% endif %}
+
+## Dead Code Report
+
+{% if report.dead_code_by_file %}
+{{ report.dead_code_functions|length }} functions unreachable from any entry point:
+
+{% for file_name, functions in report.dead_code_by_file.items() %}
+### `{{ file_name }}`
+
+{% for function in functions %}
+- `{{ function.name }}` (line {{ function.location.line }})
+{% endfor %}
+{% endfor %}
+{% else %}
+Dead code reporting was not requested or no unreachable functions were found.
 {% endif %}
 
 ## Appendix

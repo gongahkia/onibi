@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from piranesi.detect.flows import _DEFAULT_CONFIDENCE, extract_candidate_findings
+from piranesi.detect.sanitizer_validation import PARTIAL_CONFIDENCE_REDUCTION
 from piranesi.scan.framework import detect_frameworks, resolve_frameworks
 from piranesi.scan.joern import JoernServer, is_joern_installed
 from piranesi.scan.specs import get_sanitizer_specs, get_sink_specs, get_source_specs
@@ -35,9 +36,6 @@ def test_fastify_fixture_detects_sources_sinks_and_schema_validation() -> None:
     source_specs = get_source_specs(frameworks=frameworks)
     sink_specs = get_sink_specs(frameworks=frameworks)
     sanitizer_specs = get_sanitizer_specs(frameworks=frameworks)
-    schema_sanitizer = next(
-        spec for spec in sanitizer_specs if spec.name == "fastify_schema_validation"
-    )
 
     transpiled = _transpile_or_skip(FASTIFY_APP_DIR)
     try:
@@ -91,7 +89,7 @@ def test_fastify_fixture_detects_sources_sinks_and_schema_validation() -> None:
     assert redirect_param.vuln_class == "CWE-113"
     assert redirect_param.sink.sink_type == "header_injection"
     assert validated_body.confidence == pytest.approx(
-        _DEFAULT_CONFIDENCE * (1.0 - schema_sanitizer.confidence)
+        _DEFAULT_CONFIDENCE - PARTIAL_CONFIDENCE_REDUCTION
     )
     assert any(
         step.sanitizer_applied == "fastify_schema_validation" for step in validated_body.taint_path

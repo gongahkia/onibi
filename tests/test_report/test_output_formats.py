@@ -150,6 +150,41 @@ def test_cli_run_writes_requested_report_format(
         assert next(reader)["id"] == "finding-001"
 
 
+def test_cli_run_emits_compliance_report_to_stdout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "piranesi.toml"
+    output_dir = tmp_path / "out"
+    config_path.write_text("", encoding="utf-8")
+
+    def _registry(context: PipelineContext) -> OrderedDict[str, PipelineStage]:
+        artifacts = fixture_artifacts(context.target_dir)
+        return _build_fake_registry(context, artifacts=artifacts)
+
+    monkeypatch.setattr("piranesi.cli.build_default_stage_registry", _registry)
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            str(tmp_path),
+            "--config",
+            str(config_path),
+            "--output",
+            str(output_dir),
+            "--format",
+            "compliance",
+            "--authorized",
+            "--yes",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Regulatory Coverage Matrix" in result.stdout
+    assert "OWASP Top 10 2021 Coverage" in result.stdout
+
+
 def _build_report(tmp_path: Path, *, include_suppressed: bool) -> PiranesiReport:
     artifacts = fixture_artifacts(tmp_path)
     detected_findings = list(artifacts["detect"].findings)  # type: ignore[attr-defined]

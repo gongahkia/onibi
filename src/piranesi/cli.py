@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import json
 import logging
+import signal
 import sys
 import time
 from collections.abc import Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import date
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any
@@ -17,6 +20,13 @@ from piranesi import __version__
 from piranesi.config import ConfigError, PiranesiConfig, load_config
 from piranesi.detect import append_ignore_file_suppression
 from piranesi.diff import build_baseline_artifact, diff_findings, load_findings, render_diff
+from piranesi.hooks.pre_commit import (
+    HookError,
+    discover_staged_files,
+    install_pre_commit_hook,
+    pre_commit_hook_status,
+    uninstall_pre_commit_hook,
+)
 from piranesi.llm.cost import CostTracker
 from piranesi.llm.provider import LLMProvider
 from piranesi.llm.router import ModelRouter
@@ -37,10 +47,15 @@ from piranesi.pipeline import (
     prepare_incremental_state,
     run_pipeline,
 )
+from piranesi.report import launch_compliance_tui, print_compliance_report, render_attestation
 from piranesi.report.renderer import PiranesiReport
+from piranesi.report.trends import build_trend_report, render_terminal_trends, write_trend_report
+from piranesi.report.tui import display_report
 from piranesi.scaffold import scaffold_project
+from piranesi.scan.monorepo import detect_monorepo_manifest, select_packages
 from piranesi.trace import TraceBudgetExceededError, TraceWriter
 from piranesi.ui import console, print_summary_table, stage_header
+from piranesi.watch import WatchDependencyError, WatchModeError, run_watch_mode
 
 _RUN_HELP = """Run the full Piranesi pipeline.
 
@@ -63,13 +78,25 @@ plugins_app = typer.Typer(
     help="Manage Piranesi plugins.",
     no_args_is_help=True,
 )
+rules_app = typer.Typer(
+    add_completion=False,
+    help="Manage custom rules and rule repositories.",
+    no_args_is_help=True,
+)
 baseline_app = typer.Typer(
     add_completion=False,
     help="Manage baseline artifacts.",
     no_args_is_help=True,
 )
+hook_app = typer.Typer(
+    add_completion=False,
+    help="Manage git hook integration.",
+    no_args_is_help=True,
+)
 app.add_typer(plugins_app, name="plugins")
+app.add_typer(rules_app, name="rules")
 app.add_typer(baseline_app, name="baseline")
+app.add_typer(hook_app, name="hook")
 
 
 def _version_callback(value: bool) -> None:
@@ -85,6 +112,7 @@ ComparisonTargetArg = Annotated[
     Path,
     typer.Argument(help="Baseline artifact, findings artifact, or scan output directory."),
 ]
+RulesPathArg = Annotated[Path, typer.Argument(help="Rule file or directory.")]
 
 IncludeOption = Annotated[
     list[str] | None,
@@ -130,6 +158,10 @@ JurisdictionOption = Annotated[
     typer.Option("--jurisdiction", help="Jurisdiction override."),
 ]
 ApplyOption = Annotated[bool, typer.Option("--apply", help="Apply the generated patch.")]
+FixtureDirOption = Annotated[
+    Path,
+    typer.Option("--fixture", help="Fixture directory."),
+]
 
 
 class ReportFormat(StrEnum):
@@ -139,6 +171,13 @@ class ReportFormat(StrEnum):
     SARIF = "sarif"
     JUNIT = "junit"
     CSV = "csv"
+    TUI = "tui"
+    COMPLIANCE = "compliance"
+
+
+class TrendFormat(StrEnum):
+    JSON = "json"
+    TERMINAL = "terminal"
 
 
 class SbomFormat(StrEnum):
@@ -156,6 +195,24 @@ class FailSeverity(StrEnum):
 FormatOption = Annotated[
     ReportFormat | None,
     typer.Option("--format", help="Report format.", case_sensitive=False),
+]
+AttestationOption = Annotated[
+    bool,
+    typer.Option(
+        "--attestation",
+        help="Emit a pre-filled Markdown compliance attestation to stdout.",
+    ),
+]
+ComplianceTuiOption = Annotated[
+    bool,
+    typer.Option(
+        "--tui",
+        help="Launch the interactive compliance dashboard (requires piranesi[tui]).",
+    ),
+]
+TrendFormatOption = Annotated[
+    TrendFormat,
+    typer.Option("--format", help="Trend output format.", case_sensitive=False),
 ]
 SbomOption = Annotated[
     SbomFormat | None,
@@ -187,13 +244,46 @@ IncludeTestsOption = Annotated[
         help="Include test files during hardcoded secret detection.",
     ),
 ]
+IncludeUnreachableOption = Annotated[
+    bool,
+    typer.Option(
+        "--include-unreachable",
+        help="Include unreachable findings in the main report instead of appendix-only.",
+    ),
+]
+DeadCodeReportOption = Annotated[
+    bool,
+    typer.Option(
+        "--dead-code-report",
+        help="Include a dead code report listing functions unreachable from entry points.",
+    ),
+]
 NoCacheOption = Annotated[
     bool,
     typer.Option("--no-cache", help="Disable CPG cache reuse and force a full re-scan."),
 ]
+PackageOption = Annotated[
+    str | None,
+    typer.Option("--package", help="Scan a single package inside a detected monorepo."),
+]
+ChangedPackagesOption = Annotated[
+    bool,
+    typer.Option(
+        "--changed-packages",
+        help="In a monorepo, scan only git-changed packages plus affected dependents.",
+    ),
+]
 ProfileOption = Annotated[
     bool,
     typer.Option("--profile", help="Print a per-stage timing breakdown to stderr."),
+]
+MaxParallelOption = Annotated[
+    int | None,
+    typer.Option(
+        "--max-parallel",
+        min=1,
+        help="Maximum number of workspace packages to analyze in parallel. Defaults to CPU count.",
+    ),
 ]
 BaselineOption = Annotated[
     Path | None,
@@ -225,6 +315,18 @@ NoFailOption = Annotated[
             "Always exit 0 for findings; configuration and runtime errors still use "
             "non-zero codes."
         ),
+    ),
+]
+StagedOnlyOption = Annotated[
+    bool,
+    typer.Option("--staged-only", help="Only scan files currently staged in git."),
+]
+HookTimeoutOption = Annotated[
+    int | None,
+    typer.Option(
+        "--hook-timeout",
+        min=1,
+        help="Skip the run and exit 0 if a staged-only scan exceeds this many seconds.",
     ),
 ]
 
@@ -267,6 +369,22 @@ YesOption = Annotated[
     bool,
     typer.Option("--yes", help="Skip authorization prompt."),
 ]
+WatchFilterOption = Annotated[
+    str | None,
+    typer.Option("--filter", help="Only watch files matching this glob."),
+]
+DebounceOption = Annotated[
+    int,
+    typer.Option("--debounce", min=0, help="Debounce time in milliseconds."),
+]
+OnFindingOption = Annotated[
+    str | None,
+    typer.Option("--on-finding", help="Shell command to execute when new findings appear."),
+]
+MaxScansOption = Annotated[
+    int | None,
+    typer.Option("--max-scans", min=1, help="Exit after N completed scans."),
+]
 VersionOption = Annotated[
     bool,
     typer.Option(
@@ -292,6 +410,13 @@ class CommonOptions:
     assume_yes: bool
     no_cache: bool = False
     profile: bool = False
+    max_parallel: int | None = None
+    package_name: str | None = None
+    changed_packages_only: bool = False
+
+
+class HookTimeoutExceededError(RuntimeError):
+    """Raised when a staged-only hook run exceeds its time budget."""
 
 
 def _format_override(report_format: ReportFormat | None) -> str | None:
@@ -300,15 +425,49 @@ def _format_override(report_format: ReportFormat | None) -> str | None:
     return report_format.value
 
 
+@contextmanager
+def _hook_timeout(seconds: int | None) -> Any:
+    if seconds is None or not hasattr(signal, "SIGALRM") or not hasattr(signal, "setitimer"):
+        yield
+        return
+
+    previous_handler = signal.getsignal(signal.SIGALRM)
+
+    def _handle_timeout(_signum: int, _frame: Any) -> None:
+        raise HookTimeoutExceededError()
+
+    signal.signal(signal.SIGALRM, _handle_timeout)
+    signal.setitimer(signal.ITIMER_REAL, float(seconds))
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0.0)
+        signal.signal(signal.SIGALRM, previous_handler)
+
+
 def _sbom_override(sbom_format: SbomFormat | None) -> str | None:
     if sbom_format is None:
         return None
     return sbom_format.value
 
 
+def _parse_date_option(value: str | None, *, option_name: str) -> date | None:
+    if value is None:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise typer.BadParameter(
+            f"{option_name} must use YYYY-MM-DD format",
+            param_hint=option_name,
+        ) from exc
+
+
 def _report_output_path(output_dir: Path, report_format: str) -> Path:
     format_name = report_format.lower()
     if format_name == ReportFormat.MARKDOWN.value:
+        return output_dir / "report.md"
+    if format_name == ReportFormat.TUI.value:
         return output_dir / "report.md"
     if format_name == ReportFormat.SARIF.value:
         return output_dir / "report.sarif.json"
@@ -317,6 +476,38 @@ def _report_output_path(output_dir: Path, report_format: str) -> Path:
     if format_name == ReportFormat.CSV.value:
         return output_dir / "findings.csv"
     return output_dir / "report.json"
+
+
+def _validate_compliance_flags(
+    report_format: str,
+    *,
+    attestation: bool,
+    tui: bool,
+) -> None:
+    if attestation and tui:
+        typer.echo("error: --attestation and --tui cannot be used together")
+        raise typer.Exit(code=2)
+    if not attestation and not tui:
+        return
+    if report_format.lower() == ReportFormat.COMPLIANCE.value:
+        return
+    typer.echo("error: --attestation and --tui require --format compliance")
+    raise typer.Exit(code=2)
+
+
+def _emit_compliance_output(
+    report: PiranesiReport,
+    *,
+    attestation: bool,
+    tui: bool,
+) -> None:
+    if attestation:
+        typer.echo(render_attestation(report), nl=False)
+        return
+    if tui:
+        launch_compliance_tui(report)
+        return
+    print_compliance_report(report)
 
 
 def _run_stubbed_stage(
@@ -502,7 +693,7 @@ def _run_single_stage(
     options: CommonOptions,
     extra_cli_overrides: dict[str, Any] | None = None,
     is_dir_target: bool = False,
-) -> None:
+) -> StageResult:
     """Run a single pipeline stage, replacing the old stub."""
     setup_logging(
         verbose=options.verbose,
@@ -522,6 +713,11 @@ def _run_single_stage(
     trace_logger = TraceLogger(trace_writer, log_prompts=config_model.trace.log_prompts)
     provider = LLMProvider(trace_logger, cost_tracker, router=router)
     target_dir = target.resolve(strict=False) if is_dir_target else Path(".").resolve()
+    monorepo_manifest = (
+        detect_monorepo_manifest(target_dir, config_model.scan.frameworks)
+        if is_dir_target
+        else None
+    )
     try:
         trace_writer.open()
         _validate_authorization(stage=stage_name, target=target, options=options, logger=logger)
@@ -544,6 +740,11 @@ def _run_single_stage(
                 if config_model.scan.incremental and is_dir_target
                 else None
             ),
+            monorepo_manifest=monorepo_manifest,
+            monorepo_package_name=options.package_name,
+            changed_packages_only=options.changed_packages_only,
+            max_parallel=options.max_parallel,
+            render_ui=sys.stderr.isatty() and not options.json_logs,
         )
         registry = build_default_stage_registry(context)
         stage = registry[stage_name]
@@ -606,6 +807,12 @@ def _run_single_stage(
             if stage_name == "report"
             else artifact_path
         )
+        if (
+            stage_name == "report"
+            and isinstance(result.artifact, PiranesiReport)
+            and config_model.output.format == ReportFormat.TUI.value
+        ):
+            display_report(result.artifact, output_dir=options.output_dir)
         logger.info(
             "stage %s completed in %.2fs, artifact written to %s",
             stage_name,
@@ -628,6 +835,7 @@ def _run_single_stage(
                     "Trace": str(trace_writer.path),
                 },
             )
+        return result
     except TraceBudgetExceededError as exc:
         log_error_context(
             logger,
@@ -731,7 +939,9 @@ def _profile_findings_cell(
         detect_result = results_by_stage.get("detect")
         if detect_result is not None and isinstance(detect_result.artifact, DetectArtifact):
             incoming = sum(
-                1 for finding in detect_result.artifact.findings if not finding.suppressed
+                1
+                for finding in detect_result.artifact.findings
+                if not finding.suppressed and finding.reachability == "reachable"
             )
         retained = sum(
             1 for finding in result.artifact.findings if finding.triage_verdict != "false_positive"
@@ -845,6 +1055,9 @@ def _common_options(
     yes: bool,
     no_cache: bool = False,
     profile: bool = False,
+    max_parallel: int | None = None,
+    package_name: str | None = None,
+    changed_packages_only: bool = False,
 ) -> CommonOptions:
     return CommonOptions(
         config_path=config,
@@ -858,6 +1071,9 @@ def _common_options(
         assume_yes=yes,
         no_cache=no_cache,
         profile=profile,
+        max_parallel=max_parallel,
+        package_name=package_name,
+        changed_packages_only=changed_packages_only,
     )
 
 
@@ -870,6 +1086,26 @@ def _defaults(
     return config, output, trace
 
 
+def _load_rules_cli_config(config_path: Path) -> PiranesiConfig:
+    if not config_path.exists():
+        return PiranesiConfig()
+    try:
+        return load_config(config_path)
+    except ConfigError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=2) from exc
+
+
+def _load_hook_cli_config(config_path: Path) -> PiranesiConfig:
+    if not config_path.exists():
+        return PiranesiConfig()
+    try:
+        return load_config(config_path)
+    except ConfigError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=2) from exc
+
+
 @app.callback()
 def main(
     version: VersionOption = False,
@@ -880,6 +1116,50 @@ def main(
 @app.command("version")
 def version_command() -> None:
     typer.echo(f"piranesi {__version__}")
+
+
+@hook_app.command("install")
+def hook_install(
+    config: ConfigOption = Path("./piranesi.toml"),
+) -> None:
+    config_model = _load_hook_cli_config(config)
+    try:
+        hook_path = install_pre_commit_hook(
+            Path.cwd(),
+            fail_severity=config_model.hooks.fail_severity,
+            hook_timeout=config_model.hooks.timeout,
+        )
+    except HookError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"installed pre-commit hook: {hook_path}")
+
+
+@hook_app.command("uninstall")
+def hook_uninstall() -> None:
+    try:
+        removed = uninstall_pre_commit_hook(Path.cwd())
+    except HookError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    if removed:
+        typer.echo("removed pre-commit hook")
+        return
+    typer.echo("pre-commit hook not installed")
+
+
+@hook_app.command("status")
+def hook_status() -> None:
+    try:
+        installed, hook_path = pre_commit_hook_status(Path.cwd())
+    except HookError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"pre-commit hook: {'installed' if installed else 'not installed'}")
+    typer.echo(f"path: {hook_path}")
 
 
 @app.command(help="Scaffold piranesi.toml and .piranesi-ignore for the current project.")
@@ -911,6 +1191,9 @@ def scan(
     exclude: ExcludeOption = None,
     sbom: SbomOption = None,
     incremental: IncrementalOption = None,
+    package_name: PackageOption = None,
+    changed_packages: ChangedPackagesOption = False,
+    max_parallel: MaxParallelOption = None,
     no_cache: NoCacheOption = False,
     config: ConfigOption = Path("./piranesi.toml"),
     output: OutputOption = Path("./piranesi-output"),
@@ -936,6 +1219,9 @@ def scan(
             authorized=authorized,
             yes=yes,
             no_cache=no_cache,
+            max_parallel=max_parallel,
+            package_name=package_name,
+            changed_packages_only=changed_packages,
         ),
         extra_cli_overrides={
             "scan.include_patterns": include,
@@ -947,12 +1233,166 @@ def scan(
     )
 
 
+@app.command(help="Watch a directory and run incremental scans on file changes.")
+def watch(
+    target_dir: TargetDirArg,
+    filter_pattern: WatchFilterOption = None,
+    debounce: DebounceOption = 500,
+    on_finding: OnFindingOption = None,
+    fail_severity: FailSeverityOption = FailSeverity.LOW,
+    max_scans: MaxScansOption = None,
+    max_parallel: MaxParallelOption = None,
+    no_cache: NoCacheOption = False,
+    config: ConfigOption = Path("./piranesi.toml"),
+    output: OutputOption = Path("./piranesi-output"),
+    verbose: VerboseOption = False,
+    quiet: QuietOption = False,
+    debug: DebugOption = False,
+    json_logs: JsonLogsOption = False,
+    trace: TraceOption = Path(".piranesi-trace.jsonl"),
+    authorized: AuthorizedOption = False,
+    yes: YesOption = False,
+) -> None:
+    options = _common_options(
+        config=config,
+        output=output,
+        verbose=verbose,
+        quiet=quiet,
+        debug=debug,
+        json_logs=json_logs,
+        trace=trace,
+        authorized=authorized,
+        yes=yes,
+        no_cache=no_cache,
+        max_parallel=max_parallel,
+    )
+    setup_logging(
+        verbose=options.verbose,
+        quiet=options.quiet,
+        debug=options.debug,
+        json_logs=options.json_logs,
+    )
+    logger = logging.getLogger("piranesi.watch")
+    config_model = _load_cli_config(
+        stage="watch",
+        options=options,
+        extra_cli_overrides={"scan.incremental": True},
+    )
+
+    try:
+        _validate_authorization(stage="watch", target=target_dir, options=options, logger=logger)
+        summary = run_watch_mode(
+            target_dir,
+            config=config_model,
+            output_dir=options.output_dir,
+            debounce_ms=debounce,
+            filter_glob=filter_pattern,
+            on_finding=on_finding,
+            fail_severity=fail_severity.value,
+            max_scans=max_scans,
+            use_cache=not options.no_cache,
+            max_parallel=options.max_parallel,
+            render_ui=sys.stderr.isatty() and not json_logs,
+        )
+    except WatchDependencyError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=2) from exc
+    except WatchModeError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=2) from exc
+    except TraceBudgetExceededError as exc:
+        log_error_context(
+            logger,
+            event="trace_budget_exceeded",
+            what="trace_budget",
+            on_what=str(options.trace_path),
+            why=str(exc),
+            next_step="exiting_with_code_4",
+            debug="reduce LLM usage or raise budget.max_cost_usd",
+        )
+        raise typer.Exit(code=4) from exc
+    except Exception as exc:
+        log_error_context(
+            logger,
+            event="watch_mode_failed",
+            what="watch_mode",
+            on_what=str(target_dir),
+            why=str(exc),
+            next_step="exiting_with_code_3",
+            debug=f"output_dir={options.output_dir}",
+        )
+        typer.echo(f"watch mode failed: {exc}")
+        raise typer.Exit(code=3) from exc
+
+    if summary.exit_code != 0:
+        raise typer.Exit(code=summary.exit_code)
+
+
+@app.command(help="Start the Piranesi LSP server.")
+def lsp(
+    tcp: Annotated[
+        bool,
+        typer.Option("--tcp", help="Serve LSP over TCP instead of stdio."),
+    ] = False,
+    host: Annotated[
+        str,
+        typer.Option("--host", help="Host to bind when --tcp is enabled."),
+    ] = "127.0.0.1",
+    port: Annotated[
+        int,
+        typer.Option("--port", help="Port to bind when --tcp is enabled."),
+    ] = 9257,
+    log: Annotated[
+        Path | None,
+        typer.Option("--log", help="Write LSP logs to a file."),
+    ] = None,
+    config: ConfigOption = Path("./piranesi.toml"),
+) -> None:
+    if log is not None:
+        log.parent.mkdir(parents=True, exist_ok=True)
+        logging.basicConfig(
+            filename=log,
+            level=logging.DEBUG,
+            format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        )
+
+    try:
+        config_model = load_config(config)
+    except ConfigError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=2) from exc
+
+    if not config_model.lsp.enabled:
+        typer.echo(f"error: LSP support is disabled in {config}")
+        raise typer.Exit(code=2)
+
+    try:
+        from piranesi.lsp.server import serve
+    except ImportError as exc:
+        typer.echo("error: pygls is not installed. Install the optional extra: `piranesi[lsp]`.")
+        raise typer.Exit(code=2) from exc
+
+    try:
+        serve(
+            config_path=config.resolve(strict=False),
+            tcp=tcp,
+            host=host,
+            port=port,
+        )
+    except Exception as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=3) from exc
+
+
 @app.command()
 def detect(
     target_dir: TargetDirArg,
     sources: SourcesOption = None,
     sinks: SinksOption = None,
     include_tests: IncludeTestsOption = False,
+    package_name: PackageOption = None,
+    changed_packages: ChangedPackagesOption = False,
+    max_parallel: MaxParallelOption = None,
     config: ConfigOption = Path("./piranesi.toml"),
     output: OutputOption = Path("./piranesi-output"),
     verbose: VerboseOption = False,
@@ -977,6 +1417,9 @@ def detect(
             trace=trace,
             authorized=authorized,
             yes=yes,
+            max_parallel=max_parallel,
+            package_name=package_name,
+            changed_packages_only=changed_packages,
         ),
         extra_cli_overrides={"scan.include_tests": include_tests},
         is_dir_target=True,
@@ -1126,6 +1569,10 @@ def patch(
 def report(
     findings_file: FindingsFileArg,
     format: FormatOption = None,
+    attestation: AttestationOption = False,
+    tui: ComplianceTuiOption = False,
+    include_unreachable: IncludeUnreachableOption = False,
+    dead_code_report: DeadCodeReportOption = False,
     template: TemplateOption = None,
     config: ConfigOption = Path("./piranesi.toml"),
     output: OutputOption = Path("./piranesi-output"),
@@ -1138,22 +1585,73 @@ def report(
     yes: YesOption = False,
 ) -> None:
     _ = template
-    _run_single_stage(
+    options = _common_options(
+        config=config,
+        output=output,
+        verbose=verbose,
+        quiet=quiet,
+        debug=debug,
+        json_logs=json_logs,
+        trace=trace,
+        authorized=authorized,
+        yes=yes,
+    )
+    extra_cli_overrides = {
+        "output.format": _format_override(format),
+        "reachability.include_unreachable": include_unreachable,
+        "reachability.dead_code_report": dead_code_report,
+    }
+    config_model = _load_cli_config(
+        stage="report",
+        options=options,
+        extra_cli_overrides=extra_cli_overrides,
+    )
+    _validate_compliance_flags(
+        config_model.output.format,
+        attestation=attestation,
+        tui=tui,
+    )
+    result = _run_single_stage(
         "report",
         findings_file,
-        options=_common_options(
-            config=config,
-            output=output,
-            verbose=verbose,
-            quiet=quiet,
-            debug=debug,
-            json_logs=json_logs,
-            trace=trace,
-            authorized=authorized,
-            yes=yes,
-        ),
-        extra_cli_overrides={"output.format": _format_override(format)},
+        options=options,
+        extra_cli_overrides=extra_cli_overrides,
     )
+    if (
+        config_model.output.format == ReportFormat.COMPLIANCE.value
+        and isinstance(result.artifact, PiranesiReport)
+    ):
+        _emit_compliance_output(result.artifact, attestation=attestation, tui=tui)
+
+
+@app.command(help="Compute historical finding trends from saved baseline artifacts.")
+def trends(
+    output_dir: Annotated[Path, typer.Argument(help="Directory containing baseline artifacts.")],
+    since: Annotated[
+        str | None,
+        typer.Option("--since", help="Only include scans on or after YYYY-MM-DD."),
+    ] = None,
+    until: Annotated[
+        str | None,
+        typer.Option("--until", help="Only include scans on or before YYYY-MM-DD."),
+    ] = None,
+    format: TrendFormatOption = TrendFormat.TERMINAL,
+) -> None:
+    try:
+        trend_report = build_trend_report(
+            output_dir,
+            since=_parse_date_option(since, option_name="--since"),
+            until=_parse_date_option(until, option_name="--until"),
+        )
+    except ValueError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    write_trend_report(trend_report, output_dir / "trends.json")
+    if format == TrendFormat.JSON:
+        typer.echo(trend_report.model_dump_json(indent=2))
+        return
+    render_terminal_trends(trend_report)
 
 
 @app.command()
@@ -1248,6 +1746,208 @@ def plugins_list(
         typer.echo(f"reporter   {rep.name():<20s} [{status}]")
 
 
+@rules_app.command("validate")
+def rules_validate(
+    path: RulesPathArg,
+) -> None:
+    from piranesi.rules.engine import RuleValidationError, compile_rule, load_rules
+
+    try:
+        compiled_rules = [compile_rule(rule) for rule in load_rules(path)]
+    except RuleValidationError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    if not compiled_rules:
+        typer.echo(f"error: no custom rules found in {path}")
+        raise typer.Exit(code=1)
+
+    typer.echo(f"validated {len(compiled_rules)} rule(s)")
+    for rule in compiled_rules:
+        typer.echo(f"{rule.id} [{rule.kind}] {rule.cwe_id} severity={rule.severity}")
+
+
+@rules_app.command("test")
+def rules_test(
+    path: RulesPathArg,
+    fixture: FixtureDirOption,
+) -> None:
+    from piranesi.rules.engine import RuleValidationError, run_rules_against_fixture
+
+    try:
+        results = run_rules_against_fixture(path, fixture_dir=fixture)
+    except RuleValidationError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    if not results:
+        typer.echo(f"error: no custom rules found in {path}")
+        raise typer.Exit(code=1)
+
+    total_matches = 0
+    for result in results:
+        typer.echo(
+            f"{result.rule.id}: {len(result.findings)} match{'es' if len(result.findings) != 1 else ''}"
+        )
+        for finding in result.findings:
+            total_matches += 1
+            message = str(finding.metadata.get("custom_rule_message", "")).strip()
+            typer.echo(
+                "  "
+                f"{finding.sink.location.file}:{finding.sink.location.line}:{finding.sink.location.column} "
+                f"{message}"
+            )
+    typer.echo(f"total matches: {total_matches}")
+
+@rules_app.command("install")
+def rules_install(
+    git_url: Annotated[str, typer.Argument(help="Git URL of the rule repository.")],
+    name: Annotated[
+        str | None,
+        typer.Option("--name", help="Override the installed rule set name."),
+    ] = None,
+    config: ConfigOption = Path("./piranesi.toml"),
+) -> None:
+    from piranesi.rules.registry import RuleRegistryError, install_rule_repository
+
+    cfg = _load_rules_cli_config(config)
+    try:
+        installed = install_rule_repository(git_url, name=name, rules_config=cfg.rules)
+    except RuleRegistryError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(
+        f"installed {installed.name} ({installed.rule_count} rules) to {installed.path}"
+    )
+
+
+@rules_app.command("update")
+def rules_update(
+    name: Annotated[
+        str | None,
+        typer.Argument(help="Installed rule set name to update. Updates all when omitted."),
+    ] = None,
+    config: ConfigOption = Path("./piranesi.toml"),
+) -> None:
+    from piranesi.rules.registry import RuleRegistryError, update_rule_repositories
+
+    cfg = _load_rules_cli_config(config)
+    try:
+        updated = update_rule_repositories(name=name, rules_config=cfg.rules)
+    except RuleRegistryError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    if not updated:
+        typer.echo("no installed rule sets")
+        return
+
+    for rule_set in updated:
+        typer.echo(
+            f"updated {rule_set.name} ({rule_set.rule_count} rules) from {rule_set.remote_url or 'unknown remote'}"
+        )
+
+
+@rules_app.command("remove")
+def rules_remove(
+    name: Annotated[str, typer.Argument(help="Installed rule set name.")],
+    config: ConfigOption = Path("./piranesi.toml"),
+) -> None:
+    from piranesi.rules.registry import RuleRegistryError, remove_rule_repository
+
+    _ = _load_rules_cli_config(config)
+    try:
+        removed_path = remove_rule_repository(name)
+    except RuleRegistryError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"removed {name} from {removed_path}")
+
+
+@rules_app.command("list")
+def rules_list(
+    config: ConfigOption = Path("./piranesi.toml"),
+) -> None:
+    from piranesi.rules.registry import RuleRegistryError, list_installed_rule_sets
+
+    cfg = _load_rules_cli_config(config)
+    try:
+        installed = list_installed_rule_sets(rules_config=cfg.rules)
+    except RuleRegistryError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    if not installed:
+        typer.echo("no installed rule sets")
+        return
+
+    for rule_set in installed:
+        version = rule_set.version or "unknown"
+        remote = rule_set.remote_url or "unknown remote"
+        typer.echo(
+            f"{rule_set.name:<20} {rule_set.rule_count:>3} rules  version={version}  remote={remote}"
+        )
+
+
+@rules_app.command("test-all")
+def rules_test_all(
+    rules_dir: Annotated[
+        Path | None,
+        typer.Option("--rules-dir", help="Explicit rules file or directory to test."),
+    ] = None,
+    config: ConfigOption = Path("./piranesi.toml"),
+) -> None:
+    from piranesi.rules.engine import RuleValidationError
+    from piranesi.rules.testing import render_rule_test_summary, run_all_rule_tests
+
+    config_model = None if rules_dir is not None else _load_rules_cli_config(config)
+    try:
+        summary = run_all_rule_tests(
+            rules_dir,
+            rules_config=None if config_model is None else config_model.rules,
+            config_path=config if config.exists() else None,
+        )
+    except (FileNotFoundError, ValueError, RuleValidationError) as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(render_rule_test_summary(summary))
+    if summary.total == 0 or summary.failed > 0:
+        raise typer.Exit(code=1)
+
+
+@rules_app.command("coverage")
+def rules_coverage(
+    rules_dir: Annotated[
+        Path | None,
+        typer.Option("--rules-dir", help="Explicit rules file or directory to inspect."),
+    ] = None,
+    ground_truth: Annotated[
+        Path,
+        typer.Option("--ground-truth", help="Ground truth directory for coverage reporting."),
+    ] = Path("eval/ground_truth"),
+    config: ConfigOption = Path("./piranesi.toml"),
+) -> None:
+    from piranesi.rules.engine import RuleValidationError
+    from piranesi.rules.testing import build_rule_coverage_report, render_rule_coverage_report
+
+    config_model = None if rules_dir is not None else _load_rules_cli_config(config)
+    try:
+        report = build_rule_coverage_report(
+            rules_dir,
+            rules_config=None if config_model is None else config_model.rules,
+            config_path=config if config.exists() else None,
+            ground_truth_dir=ground_truth,
+        )
+    except (FileNotFoundError, ValueError, RuleValidationError) as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(render_rule_coverage_report(report))
+
+
 @app.command(help=_RUN_HELP)
 def run(
     target_dir: TargetDirArg,
@@ -1255,10 +1955,16 @@ def run(
     exclude: ExcludeOption = None,
     sbom: SbomOption = None,
     include_tests: IncludeTestsOption = False,
+    include_unreachable: IncludeUnreachableOption = False,
+    dead_code_report: DeadCodeReportOption = False,
+    package_name: PackageOption = None,
+    changed_packages: ChangedPackagesOption = False,
     baseline: BaselineOption = None,
     fail_on_new: FailOnNewOption = False,
     fail_severity: FailSeverityOption = FailSeverity.LOW,
     no_fail: NoFailOption = False,
+    staged_only: StagedOnlyOption = False,
+    hook_timeout: HookTimeoutOption = None,
     incremental: IncrementalOption = None,
     sources: SourcesOption = None,
     sinks: SinksOption = None,
@@ -1272,9 +1978,12 @@ def run(
     jurisdiction: JurisdictionOption = None,
     apply: ApplyOption = False,
     format: FormatOption = None,
+    attestation: AttestationOption = False,
+    tui: ComplianceTuiOption = False,
     template: TemplateOption = None,
     resume: ResumeOption = False,
     dry_run: DryRunOption = False,
+    max_parallel: MaxParallelOption = None,
     no_cache: NoCacheOption = False,
     profile: ProfileOption = False,
     config: ConfigOption = Path("./piranesi.toml"),
@@ -1300,6 +2009,9 @@ def run(
         yes=yes,
         no_cache=no_cache,
         profile=profile,
+        max_parallel=max_parallel,
+        package_name=package_name,
+        changed_packages_only=changed_packages,
     )
     setup_logging(
         verbose=options.verbose,
@@ -1317,6 +2029,8 @@ def run(
             "scan.sbom_format": _sbom_override(sbom),
             "scan.include_tests": include_tests,
             "scan.incremental": incremental,
+            "reachability.include_unreachable": include_unreachable,
+            "reachability.dead_code_report": dead_code_report,
             "models.triage": triage_model,
             "models.patcher": patch_model,
             "sandbox.docker_image": docker_image,
@@ -1324,11 +2038,49 @@ def run(
             "output.format": _format_override(format),
         },
     )
+    _validate_compliance_flags(
+        config_model.output.format,
+        attestation=attestation,
+        tui=tui,
+    )
+    selected_files: set[Path] | None = None
+    if staged_only:
+        try:
+            staged_files = discover_staged_files(target_dir.resolve(strict=False), config_model)
+        except HookError as exc:
+            typer.echo(f"error: {exc}")
+            raise typer.Exit(code=2) from exc
+        if not staged_files:
+            typer.echo("no staged files matched Piranesi scan patterns; skipping.")
+            return
+        selected_files = set(staged_files)
+    active_hook_timeout = hook_timeout
+    if active_hook_timeout is None and staged_only:
+        active_hook_timeout = config_model.hooks.timeout
 
     if dry_run:
         if sys.stderr.isatty() and not json_logs:
             stage_header("dry-run")
-        scan_targets = discover_scan_targets(target_dir, config_model)
+        monorepo_manifest = detect_monorepo_manifest(
+            target_dir.resolve(strict=False),
+            config_model.scan.frameworks,
+        )
+        if monorepo_manifest is not None and (package_name is not None or changed_packages):
+            scan_targets = [
+                file_path
+                for package in select_packages(
+                    monorepo_manifest,
+                    package_name=package_name,
+                    changed_only=changed_packages,
+                )
+                for file_path in discover_scan_targets(package.path, config_model)
+            ]
+        else:
+            scan_targets = discover_scan_targets(
+                target_dir,
+                config_model,
+                candidate_paths=selected_files,
+            )
         for path in scan_targets:
             typer.echo(str(path))
         if sys.stderr.isatty() and not json_logs:
@@ -1351,6 +2103,10 @@ def run(
     router = ModelRouter(config_model, cost_tracker)
     trace_logger = TraceLogger(trace_writer, log_prompts=config_model.trace.log_prompts)
     provider = LLMProvider(trace_logger, cost_tracker, router=router)
+    monorepo_manifest = detect_monorepo_manifest(
+        target_dir.resolve(strict=False),
+        config_model.scan.frameworks,
+    )
 
     try:
         trace_writer.open()
@@ -1377,14 +2133,26 @@ def run(
                 if config_model.scan.incremental
                 else None
             ),
-        )
-        pipeline_result = run_pipeline(
-            config_model,
-            context,
-            stage_registry=build_default_stage_registry(context),
-            resume=resume,
+            monorepo_manifest=monorepo_manifest,
+            monorepo_package_name=options.package_name,
+            changed_packages_only=options.changed_packages_only,
+            max_parallel=options.max_parallel,
+            selected_files=selected_files,
             render_ui=sys.stderr.isatty() and not json_logs,
         )
+        with _hook_timeout(active_hook_timeout):
+            pipeline_result = run_pipeline(
+                config_model,
+                context,
+                stage_registry=build_default_stage_registry(context),
+                resume=resume,
+                render_ui=sys.stderr.isatty() and not json_logs,
+            )
+    except HookTimeoutExceededError:
+        typer.echo(
+            f"scan exceeded {active_hook_timeout}s; skipping staged pre-commit scan."
+        )
+        return
     except TraceBudgetExceededError as exc:
         log_error_context(
             logger,
@@ -1448,6 +2216,10 @@ def run(
                 "Trace": trace_writer.path,
             },
         )
+    if report is not None and config_model.output.format == ReportFormat.TUI.value:
+        display_report(report, output_dir=options.output_dir)
+    if report is not None and config_model.output.format == ReportFormat.COMPLIANCE.value:
+        _emit_compliance_output(report, attestation=attestation, tui=tui)
     if baseline is not None:
         new_count, _, _ = _print_diff(baseline, options.output_dir)
         if fail_on_new and not no_fail:
@@ -1468,12 +2240,14 @@ def run(
                 "findings detected: "
                 f"{report.executive_summary.findings_detected} "
                 f"({findings_suppressed} suppressed, "
-                f"confirmed: {report.executive_summary.findings_confirmed})"
+                f"confirmed: {report.executive_summary.findings_confirmed})",
+                err=config_model.output.format == ReportFormat.TUI.value,
             )
         else:
             typer.echo(
                 "findings detected: "
                 f"{report.executive_summary.findings_detected} "
-                f"(confirmed: {report.executive_summary.findings_confirmed})"
+                f"(confirmed: {report.executive_summary.findings_confirmed})",
+                err=config_model.output.format == ReportFormat.TUI.value,
             )
         raise typer.Exit(code=1)

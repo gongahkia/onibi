@@ -29,6 +29,7 @@ class SinkType(StrEnum):
     DESERIALIZATION = "deserialization"
     REDIRECT = "redirect"
     FILE_UPLOAD = "file_upload"
+    PROTOTYPE_POLLUTION = "prototype_pollution"
     CUSTOM = "custom"
 
 
@@ -429,6 +430,34 @@ BUILTIN_SINK_SPECS: tuple[SinkSpec, ...] = (
         flow_pattern=_HTTP_REQUEST_URL_ARGUMENT_PATTERN,
         flow_to_parent_call=True,
     ),
+    SinkSpec(
+        name="prototype_pollution_object_assign",
+        pattern='cpg.call.name("assign").code(".*Object[.]assign[(].*")',
+        sink_type=SinkType.PROTOTYPE_POLLUTION,
+        cwe_id="CWE-1321",
+        severity="high",
+    ),
+    SinkSpec(
+        name="prototype_pollution_lodash_merge",
+        pattern='cpg.call.name("merge").code(".*(?:_|lodash)[.]merge[(].*")',
+        sink_type=SinkType.PROTOTYPE_POLLUTION,
+        cwe_id="CWE-1321",
+        severity="high",
+    ),
+    SinkSpec(
+        name="prototype_pollution_defaults_deep",
+        pattern='cpg.call.name("defaultsDeep").code(".*(?:_|lodash)[.]defaultsDeep[(].*")',
+        sink_type=SinkType.PROTOTYPE_POLLUTION,
+        cwe_id="CWE-1321",
+        severity="high",
+    ),
+    SinkSpec(
+        name="prototype_pollution_custom_merge",
+        pattern='cpg.call.name("merge|deepMerge|defaultsDeep")',
+        sink_type=SinkType.PROTOTYPE_POLLUTION,
+        cwe_id="CWE-1321",
+        severity="high",
+    ),
 )
 
 FASTIFY_SINK_SPECS: tuple[SinkSpec, ...] = (
@@ -524,7 +553,7 @@ BUILTIN_SANITIZER_SPECS: tuple[SanitizerSpec, ...] = (
         name="uri_component_encoding",
         pattern='cpg.call.name("encodeURIComponent")',
         kind=SanitizerKind.ESCAPE,
-        mitigates=("CWE-79", "CWE-918"),
+        mitigates=("CWE-79", "CWE-22"),
         confidence=0.55,
     ),
     SanitizerSpec(
@@ -578,7 +607,9 @@ _JAVA_JDBC_TEMPLATE_CALL_PATTERN = _JAVA_METHOD_FULL_NAME_PATTERN.format(
 _JAVA_STRING_CONCAT_ARGUMENT_PATTERN = (
     'c.argument(1).ast.isCall.name("<operator>.addition").nonEmpty'
 )
-_JAVA_NATIVE_QUERY_TRUE_PREDICATE = '(a.code.contains("nativeQuery = true") || a.code.contains("nativeQuery=true"))'
+_JAVA_NATIVE_QUERY_TRUE_PREDICATE = (
+    '(a.code.contains("nativeQuery = true") || a.code.contains("nativeQuery=true"))'
+)
 
 SPRINGBOOT_SOURCE_SPECS: tuple[SourceSpec, ...] = (
     SourceSpec(
@@ -636,7 +667,7 @@ SPRINGBOOT_SINK_SPECS: tuple[SinkSpec, ...] = (
         name="spring_jpa_native_query_concat",
         pattern=(
             'cpg.method.annotation.name("Query").filter(a => '
-            f"{_JAVA_NATIVE_QUERY_TRUE_PREDICATE} && a.code.contains(\"+\"))"
+            f'{_JAVA_NATIVE_QUERY_TRUE_PREDICATE} && a.code.contains("+"))'
         ),
         sink_type=SinkType.SQL_QUERY,
         cwe_id="CWE-89",
@@ -1018,14 +1049,18 @@ PYTHON_SANITIZER_SPECS: tuple[SanitizerSpec, ...] = (
     ),
     SanitizerSpec(
         name="python_json_loads_schema",
-        pattern=_PY_CALL_CODE_PATTERN.format(name="validate", code=".*(?:jsonschema[.]validate|pydantic)[(].*"),
+        pattern=_PY_CALL_CODE_PATTERN.format(
+            name="validate", code=".*(?:jsonschema[.]validate|pydantic)[(].*"
+        ),
         kind=SanitizerKind.NORMALIZE,
         mitigates=("CWE-502",),
         confidence=0.9,
     ),
     SanitizerSpec(
         name="python_url_startswith_check",
-        pattern=_PY_CALL_CODE_PATTERN.format(name="startswith", code=".*[.]startswith[(].*['\"/].*"),
+        pattern=_PY_CALL_CODE_PATTERN.format(
+            name="startswith", code=".*[.]startswith[(].*['\"/].*"
+        ),
         kind=SanitizerKind.NORMALIZE,
         mitigates=("CWE-601",),
         confidence=0.7,
@@ -1149,7 +1184,9 @@ GO_SINK_SPECS: tuple[SinkSpec, ...] = (
     ),
     SinkSpec(
         name="go_os_open",
-        pattern=_GO_CALL_CODE_PATTERN.format(method="Open|OpenFile", code="os[.]Open(?:File)?[(].*"),
+        pattern=_GO_CALL_CODE_PATTERN.format(
+            method="Open|OpenFile", code="os[.]Open(?:File)?[(].*"
+        ),
         sink_type=SinkType.FILE_READ,
         cwe_id="CWE-22",
     ),

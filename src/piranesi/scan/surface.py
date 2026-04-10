@@ -13,6 +13,7 @@ from piranesi.models import (
     AttackSurfaceNode,
     CandidateFinding,
     EntryPoint,
+    ScannedFunction,
     ScanMetadata,
     ScanResult,
 )
@@ -40,6 +41,16 @@ _METHOD_REFS_QUERY = (
 _CALL_GRAPH_QUERY = (
     'cpg.method.map(m => Map("method" -> m.fullName, '
     '"calls" -> m.callOut.map(c => c.methodFullName).dedup.l.mkString("||"))).toJsonPretty'
+)
+_FUNCTIONS_QUERY = (
+    "cpg.method.map(m => Map("
+    '"name" -> m.name, '
+    '"fullName" -> m.fullName, '
+    '"file" -> m.file.name.headOption.getOrElse(""), '
+    '"lineNumber" -> m.lineNumber, '
+    '"columnNumber" -> m.columnNumber, '
+    '"code" -> m.code'
+    ")).toJsonPretty"
 )
 _FILES_SCANNED_QUERY = "cpg.file.name.toJsonPretty"
 _NEXTJS_HTTP_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"})
@@ -185,6 +196,11 @@ def build_scan_result(
             source_map=source_map,
         ),
         call_graph=collect_call_graph(server),
+        functions=collect_functions(
+            server,
+            joern_project_root=resolved_joern_root,
+            source_map=source_map,
+        ),
         entry_points=entry_points,
         attack_surface=attack_surface,
         metadata=metadata,
@@ -239,6 +255,63 @@ def collect_call_graph(server: JoernServer) -> dict[str, list[str]]:
             continue
         call_graph[method] = [call for call in raw_calls.split("||") if call]
     return call_graph
+
+
+def collect_functions(
+    server: JoernServer,
+    *,
+    joern_project_root: Path,
+    source_map: SourceMap | None,
+) -> list[ScannedFunction]:
+    payload = execute_json_query(server, _FUNCTIONS_QUERY)
+    if not isinstance(payload, list):
+        raise SurfaceMappingError(f"Unexpected functions payload: {payload!r}")
+
+    functions: list[ScannedFunction] = []
+    seen_function_ids: set[str] = set()
+    for item in payload:
+        if not isinstance(item, dict):
+            raise SurfaceMappingError(f"Unexpected function entry: {item!r}")
+        function_id = item.get("fullName")
+        function_name = item.get("name")
+        file_name = item.get("file")
+        if (
+            not isinstance(function_id, str)
+            or not function_id
+            or not isinstance(function_name, str)
+            or not function_name
+            or not isinstance(file_name, str)
+            or not file_name
+        ):
+            continue
+        resolved_file = _first_path(
+            [file_name],
+            joern_project_root=joern_project_root,
+            source_map=source_map,
+        )
+        if resolved_file is None:
+            continue
+        resolved_line = item.get("lineNumber") if isinstance(item.get("lineNumber"), int) else 1
+        if source_map is not None:
+            with suppress(KeyError):
+                resolved_file, resolved_line = source_map.resolve(resolved_file, resolved_line)
+
+        if function_id in seen_function_ids:
+            continue
+        functions.append(
+            ScannedFunction(
+                function_id=function_id,
+                name=function_name,
+                location=SourceLocation(
+                    file=str(resolved_file),
+                    line=resolved_line,
+                    column=item.get("columnNumber") if isinstance(item.get("columnNumber"), int) else 0,
+                    snippet=item.get("code") if isinstance(item.get("code"), str) else function_name,
+                ),
+            )
+        )
+        seen_function_ids.add(function_id)
+    return functions
 
 
 def extract_entry_points(
@@ -611,6 +684,7 @@ __all__ = [
     "build_scan_result",
     "collect_call_graph",
     "collect_files_scanned",
+    "collect_functions",
     "extract_attack_surface",
     "extract_entry_points",
 ]

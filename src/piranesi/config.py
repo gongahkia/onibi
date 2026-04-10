@@ -59,7 +59,16 @@ class SandboxConfig(BaseModel):
 class OutputConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    format: Literal["json", "markdown", "both", "sarif", "junit", "csv"] = "both"
+    format: Literal[
+        "json",
+        "markdown",
+        "both",
+        "sarif",
+        "junit",
+        "csv",
+        "tui",
+        "compliance",
+    ] = "both"
     output_dir: str = "./piranesi-output"
 
 
@@ -120,6 +129,41 @@ class PluginsConfig(BaseModel):
     disabled: list[str] = Field(default_factory=list)
 
 
+class RulesConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    paths: list[str] = Field(default_factory=lambda: ["./rules", "~/.piranesi/rules/*"])
+    disabled_rules: list[str] = Field(default_factory=list)
+    require_signatures: bool = False
+    trusted_keys: list[str] = Field(default_factory=list)
+
+
+class HooksConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pre_commit: bool = True
+    fail_severity: Literal["low", "medium", "high", "critical"] = "high"
+    timeout: int = Field(default=60, ge=1)
+    staged_only: bool = True
+
+
+class ReachabilityConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    include_unreachable: bool = False
+    dead_code_report: bool = False
+
+
+class LspConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    scan_on_save: bool = True
+    debounce_ms: int = 1000
+    max_findings_per_file: int = 50
+    severity_filter: Literal["informational", "low", "medium", "high", "critical"] = "medium"
+
+
 class PiranesiConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -131,7 +175,11 @@ class PiranesiConfig(BaseModel):
     trace: TraceConfig = Field(default_factory=TraceConfig)
     joern: JoernConfig = Field(default_factory=JoernConfig)
     scan: ScanConfig = Field(default_factory=ScanConfig)
+    reachability: ReachabilityConfig = Field(default_factory=ReachabilityConfig)
+    lsp: LspConfig = Field(default_factory=LspConfig)
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
+    rules: RulesConfig = Field(default_factory=RulesConfig)
+    hooks: HooksConfig = Field(default_factory=HooksConfig)
 
 
 def load_config(

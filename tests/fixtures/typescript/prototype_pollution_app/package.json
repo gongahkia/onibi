@@ -1,0 +1,8 @@
+{
+  "name": "prototype-pollution-app",
+  "private": true,
+  "dependencies": {
+    "express": "^4.19.0",
+    "lodash": "^4.17.21"
+  }
+}

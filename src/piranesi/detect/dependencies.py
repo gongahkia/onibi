@@ -10,6 +10,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Literal
 
+from piranesi.detect.dep_reachability import apply_dependency_reachability
 from piranesi.models import CandidateFinding, SourceLocation, TaintSink, TaintSource
 from piranesi.observability import log_error_context, run_subprocess
 
@@ -44,29 +45,77 @@ def scan_dependency_findings(
     *,
     output_dir: Path | None = None,
     sbom_format: SbomFormat | None = None,
+    changed_files: set[Path] | None = None,
 ) -> DependencyScanResult:
     resolved_root = project_root.resolve(strict=False)
     findings: list[CandidateFinding] = []
     sbom_artifacts: dict[str, str] = {}
+    scan_node = changed_files is None or _dependency_files_changed(
+        resolved_root,
+        changed_files,
+        names=(*_NPM_LOCKFILES, "package.json"),
+    )
+    scan_python = changed_files is None or _dependency_files_changed(
+        resolved_root,
+        changed_files,
+        names=(*_PYTHON_PROJECT_FILES, "requirements.txt"),
+        prefix="requirements",
+        suffix=".txt",
+    )
 
-    if _is_node_project(resolved_root):
+    if scan_node and _is_node_project(resolved_root):
         findings.extend(_run_npm_audit(resolved_root))
         if sbom_format is not None and output_dir is not None:
             sbom_path = _generate_npm_sbom(resolved_root, output_dir, sbom_format)
             if sbom_path is not None:
                 sbom_artifacts["npm"] = str(sbom_path)
 
-    if _is_python_project(resolved_root):
+    if scan_python and _is_python_project(resolved_root):
         findings.extend(_run_pip_audit(resolved_root))
         if sbom_format is not None and output_dir is not None:
             sbom_path = _generate_python_sbom(resolved_root, output_dir, sbom_format)
             if sbom_path is not None:
                 sbom_artifacts["python"] = str(sbom_path)
 
+    deduped_findings = tuple(_dedupe_findings(findings))
+    annotated_findings = apply_dependency_reachability(resolved_root, deduped_findings)
+
     return DependencyScanResult(
-        findings=tuple(_dedupe_findings(findings)),
+        findings=annotated_findings,
         sbom_artifacts=sbom_artifacts,
     )
+
+
+def _dependency_files_changed(
+    project_root: Path,
+    changed_files: set[Path],
+    *,
+    names: Sequence[str] = (),
+    prefix: str | None = None,
+    suffix: str | None = None,
+) -> bool:
+    normalized_names = set(names)
+    for changed_file in changed_files:
+        candidate = (
+            changed_file.resolve(strict=False)
+            if changed_file.is_absolute()
+            else (project_root / changed_file).resolve(strict=False)
+        )
+        try:
+            relative = candidate.relative_to(project_root)
+        except ValueError:
+            continue
+        file_name = relative.name
+        if file_name in normalized_names:
+            return True
+        if (
+            prefix is not None
+            and suffix is not None
+            and file_name.startswith(prefix)
+            and file_name.endswith(suffix)
+        ):
+            return True
+    return False
 
 
 def parse_npm_audit_payload(

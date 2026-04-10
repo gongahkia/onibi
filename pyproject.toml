@@ -42,6 +42,11 @@ Documentation = "https://github.com/gongahkia/piranesi/tree/main/docs"
 [project.scripts]
 piranesi = "piranesi.cli:app"
 
+[project.optional-dependencies]
+watch = ["watchfiles>=0.21.0"]
+lsp = ["pygls>=1.3.0"]
+tui = ["textual>=0.50.0"]
+
 [project.entry-points."piranesi.frameworks"]
 # builtins are registered via _BUILTIN_FRAMEWORK_PLUGINS; add third-party plugins here
 

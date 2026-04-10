@@ -1,0 +1,21 @@
+id: gt-144
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+  - eval/synthetic/interproc-cross-module-entry.ts
+  - eval/synthetic/interproc-cross-module-helper.ts
+line_numbers: [4, 8]
+taint_source: req.body.sql
+taint_sink: db.query()
+taint_path:
+  - "runCrossModuleLookup(req.body.sql) forwards tainted input across a module boundary"
+  - "runCrossModuleLookup(sql) preserves the tainted parameter in the helper module"
+  - "db.query(sql) executes the attacker-controlled SQL in the imported helper"
+complexity: inter
+exploitable: true
+reference_exploit: "Send attacker-controlled SQL in req.body.sql so the imported helper forwards it into db.query()."
+reference_fix_commit: null
+notes: "Synthetic cross-module summary case showing parameter-to-sink propagation without re-querying call sites."

@@ -1,3 +1,17 @@
+from piranesi.detect.categories import (
+    classify_candidate_finding,
+    classify_candidate_findings,
+    classify_field_name_categories,
+    classify_route_context_categories,
+    classify_source_data_categories,
+)
+from piranesi.detect.alias import extract_alias_findings
+from piranesi.detect.conditions import (
+    ConditionExtractionError,
+    PathConditionExtractor,
+    extract_path_conditions,
+    parse_condition_text,
+)
 from piranesi.detect.cross_language import (
     ApiBoundary,
     CrossLanguageFlow,
@@ -6,25 +20,16 @@ from piranesi.detect.cross_language import (
     extract_api_boundaries,
     match_api_boundaries,
 )
-from piranesi.detect.categories import (
-    classify_candidate_finding,
-    classify_candidate_findings,
-    classify_field_name_categories,
-    classify_route_context_categories,
-    classify_source_data_categories,
-)
-from piranesi.detect.conditions import (
-    ConditionExtractionError,
-    PathConditionExtractor,
-    extract_path_conditions,
-    parse_condition_text,
-)
 from piranesi.detect.dependencies import (
     DependencyScanResult,
     SbomFormat,
     parse_npm_audit_payload,
     parse_pip_audit_payload,
     scan_dependency_findings,
+)
+from piranesi.detect.dep_reachability import (
+    analyze_dependency_reachability,
+    apply_dependency_reachability,
 )
 from piranesi.detect.flows import (
     FlowExtractionError,
@@ -34,7 +39,29 @@ from piranesi.detect.flows import (
     joern_flow_to_taint_steps,
     severity_for_cwe,
 )
+from piranesi.detect.interprocedural import (
+    FunctionSummary,
+    TaintTransfer,
+    build_function_summaries,
+    extract_interprocedural_findings,
+)
 from piranesi.detect.misconfigurations import extract_misconfiguration_findings
+from piranesi.detect.prototype_pollution import extract_prototype_pollution_findings
+from piranesi.detect.reachability import (
+    analyze_reachability,
+    build_call_graph,
+    compute_reachable,
+    identify_entry_points,
+)
+from piranesi.detect.sanitizer_validation import (
+    PARTIAL_CONFIDENCE_REDUCTION,
+    SANITIZER_BYPASS_CONFIDENCE_BOOST,
+    SANITIZER_EFFECTIVENESS,
+    SanitizerEffectiveness,
+    detect_sanitizer_bypass,
+    validate_sanitizer,
+    validate_sanitizer_spec,
+)
 from piranesi.detect.secrets import extract_secret_findings, shannon_entropy
 from piranesi.detect.suppression import (
     InlineSuppression,
@@ -46,30 +73,44 @@ from piranesi.detect.suppression import (
 )
 
 __all__ = [
+    "PARTIAL_CONFIDENCE_REDUCTION",
+    "SANITIZER_BYPASS_CONFIDENCE_BOOST",
+    "SANITIZER_EFFECTIVENESS",
     "ApiBoundary",
-    "CrossLanguageFlow",
     "ConditionExtractionError",
+    "CrossLanguageFlow",
     "DependencyScanResult",
     "FlowExtractionError",
+    "FunctionSummary",
     "InlineSuppression",
     "PathConditionExtractor",
+    "SanitizerEffectiveness",
     "SbomFormat",
     "SuppressionRule",
+    "TaintTransfer",
     "append_ignore_file_suppression",
+    "apply_dependency_reachability",
     "apply_suppressions",
+    "analyze_dependency_reachability",
+    "build_function_summaries",
     "candidate_finding_id",
-    "cross_language_findings",
     "classify_candidate_finding",
     "classify_candidate_findings",
     "classify_field_name_categories",
     "classify_operation",
     "classify_route_context_categories",
     "classify_source_data_categories",
+    "cross_language_findings",
     "detect_cross_language_flows",
+    "detect_sanitizer_bypass",
+    "extract_alias_findings",
     "extract_api_boundaries",
     "extract_candidate_findings",
+    "extract_interprocedural_findings",
     "extract_misconfiguration_findings",
     "extract_path_conditions",
+    "extract_prototype_pollution_findings",
+    "identify_entry_points",
     "extract_secret_findings",
     "joern_flow_to_taint_steps",
     "load_ignore_file",
@@ -78,7 +119,12 @@ __all__ = [
     "parse_inline_suppressions",
     "parse_npm_audit_payload",
     "parse_pip_audit_payload",
+    "analyze_reachability",
+    "build_call_graph",
+    "compute_reachable",
     "scan_dependency_findings",
     "severity_for_cwe",
     "shannon_entropy",
+    "validate_sanitizer",
+    "validate_sanitizer_spec",
 ]

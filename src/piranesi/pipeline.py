@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import tempfile
 import time
-from collections import OrderedDict
-from collections.abc import Callable, Mapping, Sequence
+from collections import OrderedDict, defaultdict
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -20,8 +21,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from piranesi import __version__
 from piranesi.config import PiranesiConfig, config_hash
+from piranesi.diff import stable_fingerprint
 from piranesi.detect import (
     InlineSuppression,
+    analyze_reachability,
     apply_suppressions,
     extract_candidate_findings,
     extract_misconfiguration_findings,
@@ -38,10 +41,16 @@ from piranesi.models import (
     CandidateFinding,
     ConfirmedFinding,
     LegalAssessment,
+    PackageScanResult,
     PatchResult,
+    ReachabilityResult,
     ScanMetadata,
     ScanResult,
+    ScannedFunction,
     SourceLocation,
+    TaintSink,
+    TaintSource,
+    TaintStep,
     TriagedFinding,
 )
 from piranesi.models.finding import SandboxResult
@@ -51,6 +60,12 @@ from piranesi.report.renderer import (
     build_report,
     update_report_metrics,
     write_report_outputs,
+)
+from piranesi.rules import (
+    compile_rule,
+    execute_custom_rules,
+    filter_builtin_specs_for_custom_rules,
+    load_rules,
 )
 from piranesi.scan.framework import resolve_frameworks
 from piranesi.scan.incremental import (
@@ -62,6 +77,12 @@ from piranesi.scan.incremental import (
     write_manifest,
 )
 from piranesi.scan.joern import JoernServer
+from piranesi.scan.monorepo import (
+    MonorepoManifest,
+    WorkspacePackage,
+    detect_monorepo,
+    select_packages,
+)
 from piranesi.scan.specs import get_sanitizer_specs, get_sink_specs, get_source_specs
 from piranesi.scan.surface import build_scan_result
 from piranesi.scan.transpile import SourceMap, transpile_project
@@ -151,6 +172,13 @@ class PipelineContext:
     no_execute: bool = False
     use_cache: bool = True
     incremental: IncrementalState | None = None
+    monorepo_manifest: MonorepoManifest | None = None
+    monorepo_package_name: str | None = None
+    changed_packages_only: bool = False
+    max_parallel: int | None = None
+    selected_files: set[Path] | None = None
+    render_ui: bool = False
+    ui_progress: Any = None
     started_at: float = field(default_factory=time.monotonic)
 
     @property
@@ -162,6 +190,7 @@ class DetectArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     findings: list[CandidateFinding] = Field(default_factory=list)
+    reachability: ReachabilityResult | None = None
 
 
 class TriageArtifact(BaseModel):
@@ -238,15 +267,40 @@ class PipelineRunResult:
         return None
 
 
-def discover_scan_targets(target_dir: Path, config: PiranesiConfig) -> list[Path]:
+def discover_scan_targets(
+    target_dir: Path,
+    config: PiranesiConfig,
+    *,
+    candidate_paths: Sequence[Path] | None = None,
+) -> list[Path]:
     target_root = target_dir.resolve(strict=False)
     include_patterns, exclude_patterns = _effective_scan_globs(target_root, config)
     files: list[Path] = []
 
-    for path in sorted(target_root.rglob("*")):
+    if candidate_paths is None:
+        candidates = sorted(target_root.rglob("*"))
+    else:
+        seen: set[Path] = set()
+        candidates = []
+        for candidate_path in candidate_paths:
+            candidate = (
+                candidate_path.resolve(strict=False)
+                if candidate_path.is_absolute()
+                else (target_root / candidate_path).resolve(strict=False)
+            )
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            candidates.append(candidate)
+        candidates.sort()
+
+    for path in candidates:
         if not path.is_file():
             continue
-        relative = path.relative_to(target_root).as_posix()
+        try:
+            relative = path.relative_to(target_root).as_posix()
+        except ValueError:
+            continue
         if not _matches_patterns(relative, include_patterns):
             continue
         if _matches_patterns(relative, exclude_patterns):
@@ -356,6 +410,7 @@ def run_pipeline(
     render_ui: bool = False,
 ) -> PipelineRunResult:
     context.output_dir.mkdir(parents=True, exist_ok=True)
+    context.render_ui = render_ui
     results: list[StageResult] = []
     prev_result: StageResult | None = None
     failed_stage: str | None = None
@@ -367,6 +422,7 @@ def run_pipeline(
         progress = file_progress(total=len(STAGE_ORDER), description="pipeline")
         progress.start()
         task_id = progress.add_task("pipeline", total=len(STAGE_ORDER))
+        context.ui_progress = progress
 
     try:
         stage_index = 0
@@ -469,6 +525,7 @@ def run_pipeline(
             if partial_path.exists():
                 partial_path.unlink()
     finally:
+        context.ui_progress = None
         if progress is not None:
             progress.stop()
 
@@ -552,12 +609,40 @@ def _scan_session(
     frameworks: Sequence[str] = (),
     changed_files: set[Path] | None = None,
 ) -> Any:
-    scan_language = _scan_language_for_project(context.target_dir, frameworks=frameworks)
+    with _scan_session_for_target(
+        context.target_dir,
+        context.output_dir,
+        config=config,
+        use_cache=context.use_cache,
+        frameworks=frameworks,
+        changed_files=changed_files,
+    ) as session:
+        yield session
+
+
+@contextmanager
+def _scan_session_for_target(
+    target_dir: Path,
+    output_dir: Path,
+    *,
+    config: PiranesiConfig,
+    use_cache: bool,
+    frameworks: Sequence[str] = (),
+    changed_files: set[Path] | None = None,
+) -> Any:
+    resolved_target = target_dir.resolve(strict=False)
+    resolved_output = output_dir.resolve(strict=False)
+    scan_language = _scan_language_for_project(resolved_target, frameworks=frameworks)
+    selected_targets = discover_scan_targets(
+        resolved_target,
+        config,
+        candidate_paths=changed_files,
+    )
     cache_key: str | None = None
     cache_entry_dir: Path | None = None
-    if context.use_cache and changed_files is None and scan_language == "javascript":
-        cache_key = cpg_cache_key(context.target_dir, config)
-        cache_entry_dir = _cache_entry_dir(context.output_dir, cache_key)
+    if use_cache and changed_files is None and scan_language == "javascript":
+        cache_key = cpg_cache_key(resolved_target, config)
+        cache_entry_dir = _cache_entry_dir(resolved_output, cache_key)
 
     with JoernServer(config=config.joern) as server:
         joern_version = server.version()
@@ -571,13 +656,13 @@ def _scan_session(
             return
 
         if scan_language == "javascript":
-            transpiled = transpile_project(context.target_dir, changed_files=changed_files)
+            transpiled = transpile_project(resolved_target, changed_files=changed_files)
             try:
                 project_name = _cache_project_name(
                     cache_key if cache_key is not None else sha256(os.urandom(16)).hexdigest()
                 )
                 server.import_project(transpiled.out_dir, project_name=project_name)
-                cache_status = "MISS" if context.use_cache else "BYPASS"
+                cache_status = "MISS" if use_cache else "BYPASS"
                 if cache_entry_dir is not None:
                     cache_status = _write_scan_cache_entry(
                         server=server,
@@ -599,16 +684,40 @@ def _scan_session(
                 transpiled.cleanup()
             return
 
+        if changed_files is not None:
+            direct_workspace = _prepare_direct_scan_workspace(
+                resolved_target,
+                selected_targets,
+            )
+            try:
+                server.import_project(
+                    direct_workspace.root_dir,
+                    language=scan_language,
+                    frontend_args=_joern_frontend_args_for_language(scan_language),
+                )
+                yield (
+                    server,
+                    _ScanSession(
+                        joern_project_root=direct_workspace.root_dir,
+                        source_map=None,
+                        cache_status="BYPASS",
+                        failed_files=(),
+                    ),
+                )
+            finally:
+                direct_workspace.cleanup()
+            return
+
         if scan_language != "python":
             server.import_project(
-                context.target_dir,
+                resolved_target,
                 language=scan_language,
                 frontend_args=_joern_frontend_args_for_language(scan_language),
             )
             yield (
                 server,
                 _ScanSession(
-                    joern_project_root=context.target_dir,
+                    joern_project_root=resolved_target,
                     source_map=None,
                     cache_status="BYPASS",
                     failed_files=(),
@@ -617,8 +726,8 @@ def _scan_session(
             return
 
         direct_workspace = _prepare_direct_scan_workspace(
-            context.target_dir,
-            discover_scan_targets(context.target_dir, config),
+            resolved_target,
+            selected_targets,
         )
         try:
             server.import_project(
@@ -629,7 +738,7 @@ def _scan_session(
             yield (
                 server,
                 _ScanSession(
-                    joern_project_root=context.target_dir,
+                    joern_project_root=resolved_target,
                     source_map=None,
                     cache_status="BYPASS",
                     failed_files=(),
@@ -750,6 +859,12 @@ def _incremental_changed_files(incremental: IncrementalState | None) -> set[Path
     return set(incremental.diff.changed_files) or None
 
 
+def _context_changed_files(context: PipelineContext) -> set[Path] | None:
+    if context.selected_files is not None:
+        return set(context.selected_files) or None
+    return _incremental_changed_files(context.incremental)
+
+
 def _carry_forward_findings(
     previous_detect: DetectArtifact | None,
     incremental: IncrementalState,
@@ -822,6 +937,20 @@ def _apply_project_suppressions(
     return apply_suppressions(findings, rules, inline)
 
 
+def _annotate_reachability_for_findings(
+    context: PipelineContext,
+    config: PiranesiConfig,
+    findings: Sequence[CandidateFinding],
+) -> tuple[list[CandidateFinding], ReachabilityResult]:
+    scan_artifact = _require_artifact(context.stage_outputs["scan"], ScanResult, "scan")
+    return analyze_reachability(
+        scan_artifact,
+        findings,
+        project_root=context.target_dir,
+        include_tests=config.scan.include_tests,
+    )
+
+
 def _load_inline_suppressions(
     project_root: Path,
     findings: Sequence[CandidateFinding],
@@ -854,6 +983,650 @@ def _candidate_locations(finding: CandidateFinding) -> tuple[SourceLocation, ...
     )
 
 
+_EXPORT_FUNCTION_PATTERN = re.compile(
+    r"export\s+(?:async\s+)?function\s+(?P<name>[A-Za-z_$][\w$]*)\s*\((?P<params>[^)]*)\)"
+)
+_NAMED_IMPORT_PATTERN = re.compile(
+    r'import\s*\{\s*(?P<imports>[^}]+)\s*\}\s*from\s*[\'"](?P<package>[^\'"]+)[\'"]'
+)
+_DESTRUCTURED_REQUIRE_PATTERN = re.compile(
+    r'const\s*\{\s*(?P<imports>[^}]+)\s*\}\s*=\s*require\([\'"](?P<package>[^\'"]+)[\'"]\)'
+)
+_REQUEST_SOURCE_PATTERN = re.compile(r"req\.(?:body|query|params)(?:\.[A-Za-z_$][\w$]*)?")
+_SQL_SINK_PATTERN = re.compile(r"(?P<api>[A-Za-z_$][\w$]*\.query|query|execute)\s*\(")
+_COMMAND_SINK_PATTERN = re.compile(r"(?P<api>exec|execSync|spawn|spawnSync)\s*\(")
+_WORKSPACE_SOURCE_EXCLUDE_PARTS = frozenset(
+    {"node_modules", ".venv", "venv", "__pycache__", "dist", "build", "target", "vendor"}
+)
+
+
+def _monorepo_selection(
+    context: PipelineContext,
+    config: PiranesiConfig,
+) -> tuple[MonorepoManifest, list[WorkspacePackage]] | None:
+    if context.monorepo_manifest is None:
+        context.monorepo_manifest = detect_monorepo(
+            context.target_dir,
+            requested_frameworks=config.scan.frameworks,
+        )
+
+    manifest = context.monorepo_manifest
+    if manifest is None or len(manifest.packages) <= 1:
+        return None
+
+    selected_packages = select_packages(
+        manifest,
+        package_name=context.monorepo_package_name,
+        changed_only=context.changed_packages_only,
+    )
+    if context.monorepo_package_name is not None and not selected_packages:
+        raise ValueError(f"package '{context.monorepo_package_name}' not found in monorepo")
+    return manifest, selected_packages
+
+
+def _empty_scan_result(
+    target_dir: Path,
+    config: PiranesiConfig,
+    *,
+    detected_tool: str | None = None,
+) -> ScanResult:
+    return ScanResult(
+        project_root=str(target_dir.resolve(strict=False)),
+        files_scanned=[],
+        call_graph={},
+        functions=[],
+        entry_points=[],
+        attack_surface=[],
+        dependency_findings=[],
+        sbom_artifacts={},
+        package_results=[],
+        monorepo_detected_tool=detected_tool,
+        metadata=ScanMetadata(
+            timestamp=_utc_now(),
+            duration_ms=0,
+            tree_sitter_version="unknown",
+            piranesi_version=__version__,
+            files_parsed=0,
+            parse_errors=0,
+            config_hash=config_hash(config),
+        ),
+    )
+
+
+def _package_changed_files(
+    context: PipelineContext,
+    package: WorkspacePackage,
+) -> set[Path] | None:
+    root_changed_files = _context_changed_files(context)
+    if root_changed_files is None:
+        return None
+
+    package_root = package.path.resolve(strict=False)
+    filtered: set[Path] = set()
+    for changed_file in root_changed_files:
+        candidate = (
+            changed_file.resolve(strict=False)
+            if changed_file.is_absolute()
+            else (context.target_dir / changed_file).resolve(strict=False)
+        )
+        try:
+            candidate.relative_to(package_root)
+        except ValueError:
+            continue
+        else:
+            filtered.add(candidate)
+    return filtered or None
+
+
+def _build_scan_artifact_for_target(
+    context: PipelineContext,
+    config: PiranesiConfig,
+    target_dir: Path,
+    *,
+    changed_files: set[Path] | None = None,
+) -> tuple[ScanResult, str, tuple[str, ...]]:
+    started_at = time.monotonic()
+    scanned_targets = discover_scan_targets(
+        target_dir,
+        config,
+        candidate_paths=changed_files,
+    )
+    frameworks = resolve_frameworks(target_dir, config.scan.frameworks)
+    source_specs = get_source_specs(config.scan, frameworks=frameworks)
+    sink_specs = get_sink_specs(config.scan, frameworks=frameworks)
+    sanitizer_specs = get_sanitizer_specs(frameworks=frameworks)
+    scan_session_cm = (
+        _scan_session(
+            context,
+            config,
+            frameworks=frameworks,
+            changed_files=changed_files,
+        )
+        if target_dir.resolve(strict=False) == context.target_dir.resolve(strict=False)
+        else _scan_session_for_target(
+            target_dir,
+            context.output_dir,
+            config=config,
+            use_cache=context.use_cache,
+            frameworks=frameworks,
+            changed_files=changed_files,
+        )
+    )
+
+    with scan_session_cm as (server, scan_session):
+        dependency_scan = scan_dependency_findings(
+            target_dir,
+            output_dir=context.output_dir,
+            sbom_format=config.scan.sbom_format,
+            changed_files=changed_files,
+        )
+        metadata = ScanMetadata(
+            timestamp=_utc_now(),
+            duration_ms=0,
+            tree_sitter_version="unknown",
+            piranesi_version=__version__,
+            files_parsed=len(scanned_targets),
+            parse_errors=len(scan_session.failed_files),
+            config_hash=config_hash(config),
+        )
+        artifact = build_scan_result(
+            server,
+            project_root=target_dir,
+            metadata=metadata,
+            joern_project_root=scan_session.joern_project_root,
+            source_map=scan_session.source_map,
+            source_specs=source_specs,
+            sink_specs=sink_specs,
+            sanitizer_specs=sanitizer_specs,
+        )
+        artifact = artifact.model_copy(
+            update={
+                "dependency_findings": list(dependency_scan.findings),
+                "sbom_artifacts": dict(dependency_scan.sbom_artifacts),
+            }
+        )
+
+    elapsed_s = time.monotonic() - started_at
+    return (
+        artifact.model_copy(
+            update={
+                "metadata": artifact.metadata.model_copy(
+                    update={
+                        "duration_ms": int(elapsed_s * 1000),
+                        "files_parsed": len(artifact.files_scanned),
+                    }
+                )
+            }
+        ),
+        scan_session.cache_status,
+        frameworks,
+    )
+
+
+def _detect_findings_for_target(
+    context: PipelineContext,
+    config: PiranesiConfig,
+    target_dir: Path,
+    *,
+    changed_files: set[Path] | None = None,
+) -> list[CandidateFinding]:
+    frameworks = resolve_frameworks(target_dir, config.scan.frameworks)
+    compiled_custom_rules = [compile_rule(rule) for rule in load_rules(target_dir / "rules")]
+    source_specs = get_source_specs(config.scan, frameworks=frameworks)
+    sink_specs = get_sink_specs(config.scan, frameworks=frameworks)
+    sanitizer_specs = get_sanitizer_specs(frameworks=frameworks)
+    source_specs, sink_specs, sanitizer_specs = filter_builtin_specs_for_custom_rules(
+        compiled_custom_rules,
+        source_specs=source_specs,
+        sink_specs=sink_specs,
+        sanitizer_specs=sanitizer_specs,
+    )
+    scanned_files = discover_scan_targets(
+        target_dir,
+        config,
+        candidate_paths=changed_files,
+    )
+    scan_session_cm = (
+        _scan_session(
+            context,
+            config,
+            frameworks=frameworks,
+            changed_files=changed_files,
+        )
+        if target_dir.resolve(strict=False) == context.target_dir.resolve(strict=False)
+        else _scan_session_for_target(
+            target_dir,
+            context.output_dir,
+            config=config,
+            use_cache=context.use_cache,
+            frameworks=frameworks,
+            changed_files=changed_files,
+        )
+    )
+
+    with scan_session_cm as (server, scan_session):
+        findings = list(
+            extract_candidate_findings(
+                server,
+                joern_project_root=scan_session.joern_project_root,
+                source_map=scan_session.source_map,
+                source_specs=source_specs,
+                sink_specs=sink_specs,
+                sanitizer_specs=sanitizer_specs,
+                category_provider=context.provider if _llm_is_configured() else None,
+                category_model=context.router.resolve("detector") if _llm_is_configured() else None,
+            )
+        )
+        findings.extend(
+            execute_custom_rules(
+                server,
+                compiled_rules=compiled_custom_rules,
+                project_root=target_dir,
+                joern_project_root=scan_session.joern_project_root,
+                source_map=scan_session.source_map,
+                source_specs=source_specs,
+                sink_specs=sink_specs,
+                sanitizer_specs=sanitizer_specs,
+                files=scanned_files,
+                category_provider=context.provider if _llm_is_configured() else None,
+                category_model=context.router.resolve("detector") if _llm_is_configured() else None,
+            )
+        )
+
+    findings.extend(
+        extract_secret_findings(
+            target_dir,
+            include_tests=config.scan.include_tests,
+            max_file_size=config.scan.max_file_size,
+            changed_files=changed_files,
+        )
+    )
+    findings.extend(
+        extract_misconfiguration_findings(
+            target_dir,
+            frameworks=frameworks,
+            files=scanned_files,
+        )
+    )
+    findings.extend(
+        scan_dependency_findings(
+            target_dir,
+            output_dir=context.output_dir,
+            sbom_format=config.scan.sbom_format,
+            changed_files=changed_files,
+        ).findings
+    )
+    return findings
+
+
+def _package_scan_result(
+    package: WorkspacePackage,
+    artifact: ScanResult,
+) -> PackageScanResult:
+    return PackageScanResult(
+        name=package.name,
+        path=str(package.path),
+        language=package.language,
+        frameworks=list(package.frameworks),
+        files_scanned=list(artifact.files_scanned),
+        functions=list(artifact.functions),
+        entry_points=list(artifact.entry_points),
+        attack_surface=list(artifact.attack_surface),
+        dependency_findings=[
+            _tag_finding_for_package(finding, package) for finding in artifact.dependency_findings
+        ],
+    )
+
+
+def _tag_finding_for_package(
+    finding: CandidateFinding,
+    package: WorkspacePackage,
+) -> CandidateFinding:
+    metadata = dict(finding.metadata)
+    metadata.setdefault("package", package.name)
+    metadata.setdefault("package_path", str(package.path))
+    return finding.model_copy(update={"metadata": metadata})
+
+
+def _merge_call_graphs(
+    call_graphs: Sequence[dict[str, list[str]]],
+) -> dict[str, list[str]]:
+    merged: dict[str, list[str]] = {}
+    for call_graph in call_graphs:
+        for method_name, calls in call_graph.items():
+            combined = set(merged.get(method_name, ()))
+            combined.update(calls)
+            merged[method_name] = sorted(combined)
+    return merged
+
+
+def _merge_functions(function_groups: Sequence[Sequence[ScannedFunction]]) -> list[ScannedFunction]:
+    merged: dict[str, ScannedFunction] = {}
+    for functions in function_groups:
+        for function in functions:
+            merged.setdefault(function.function_id, function)
+    return sorted(
+        merged.values(),
+        key=lambda function: (
+            function.location.file,
+            function.location.line,
+            function.location.column,
+            function.name,
+        ),
+    )
+
+
+def _dedupe_candidate_findings_by_fingerprint(
+    findings: Sequence[CandidateFinding],
+) -> list[CandidateFinding]:
+    deduped: dict[str, CandidateFinding] = {}
+    for finding in findings:
+        deduped.setdefault(stable_fingerprint(finding), finding)
+    return list(deduped.values())
+
+
+def _merge_monorepo_scan_artifacts(
+    context: PipelineContext,
+    config: PiranesiConfig,
+    manifest: MonorepoManifest,
+    package_results: Sequence[tuple[WorkspacePackage, ScanResult]],
+) -> ScanResult:
+    merged_files: list[str] = []
+    merged_entry_points = []
+    merged_attack_surface = []
+    merged_dependency_findings: list[CandidateFinding] = []
+    merged_sbom_artifacts: dict[str, str] = {}
+
+    for package, artifact in package_results:
+        for file_name in artifact.files_scanned:
+            if file_name not in merged_files:
+                merged_files.append(file_name)
+        merged_entry_points.extend(artifact.entry_points)
+        merged_attack_surface.extend(artifact.attack_surface)
+        merged_dependency_findings.extend(
+            _tag_finding_for_package(finding, package) for finding in artifact.dependency_findings
+        )
+        for sbom_name, sbom_path in artifact.sbom_artifacts.items():
+            merged_sbom_artifacts.setdefault(sbom_name, sbom_path)
+
+    metadata = ScanMetadata(
+        timestamp=_utc_now(),
+        duration_ms=0,
+        tree_sitter_version="unknown",
+        piranesi_version=__version__,
+        files_parsed=len(merged_files),
+        parse_errors=sum(artifact.metadata.parse_errors for _, artifact in package_results),
+        config_hash=config_hash(config),
+    )
+
+    return ScanResult(
+        project_root=str(context.target_dir.resolve(strict=False)),
+        files_scanned=merged_files,
+        call_graph=_merge_call_graphs([artifact.call_graph for _, artifact in package_results]),
+        functions=_merge_functions([artifact.functions for _, artifact in package_results]),
+        entry_points=merged_entry_points,
+        attack_surface=merged_attack_surface,
+        dependency_findings=_dedupe_candidate_findings_by_fingerprint(merged_dependency_findings),
+        sbom_artifacts=merged_sbom_artifacts,
+        package_results=[
+            _package_scan_result(package, artifact) for package, artifact in package_results
+        ],
+        monorepo_detected_tool=manifest.detected_tool,
+        metadata=metadata,
+    )
+
+
+def _workspace_source_files(package_path: Path) -> list[Path]:
+    files: list[Path] = []
+    for path in sorted(package_path.rglob("*")):
+        if not path.is_file() or path.suffix not in {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}:
+            continue
+        if any(part in _WORKSPACE_SOURCE_EXCLUDE_PARTS for part in path.parts):
+            continue
+        files.append(path.resolve(strict=False))
+    return files
+
+
+def _exported_sink_findings(package: WorkspacePackage) -> list[CandidateFinding]:
+    findings: list[CandidateFinding] = []
+    for source_file in _workspace_source_files(package.path):
+        try:
+            lines = source_file.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        line_index = 0
+        while line_index < len(lines):
+            line = lines[line_index]
+            match = _EXPORT_FUNCTION_PATTERN.search(line)
+            if match is None:
+                line_index += 1
+                continue
+
+            function_name = match.group("name")
+            parameters = [
+                parameter.strip().split("=", 1)[0].strip()
+                for parameter in match.group("params").split(",")
+                if parameter.strip()
+            ]
+            body_lines = [line]
+            brace_balance = line.count("{") - line.count("}")
+            body_index = line_index + 1
+            saw_open_brace = "{" in line
+            while body_index < len(lines):
+                body_line = lines[body_index]
+                body_lines.append(body_line)
+                brace_balance += body_line.count("{") - body_line.count("}")
+                saw_open_brace = saw_open_brace or "{" in body_line
+                body_index += 1
+                if saw_open_brace and brace_balance <= 0:
+                    break
+
+            body_text = "\n".join(body_lines)
+            sink_match = _SQL_SINK_PATTERN.search(body_text) or _COMMAND_SINK_PATTERN.search(body_text)
+            if sink_match is not None and any(parameter and parameter in body_text for parameter in parameters):
+                parameter_name = next(
+                    (parameter for parameter in parameters if parameter and parameter in body_text),
+                    "input",
+                )
+                vuln_class = (
+                    "CWE-89: SQL Injection"
+                    if sink_match.re is _SQL_SINK_PATTERN
+                    else "CWE-78: Command Injection"
+                )
+                severity = "high" if sink_match.re is _SQL_SINK_PATTERN else "critical"
+                sink_line_offset = next(
+                    (
+                        offset
+                        for offset, body_line in enumerate(body_lines)
+                        if sink_match.group("api") in body_line
+                    ),
+                    0,
+                )
+                sink_line_number = line_index + sink_line_offset + 1
+                sink_line = body_lines[sink_line_offset]
+                finding_id = sha256(
+                    (
+                        f"export|{package.name}|{source_file.as_posix()}|"
+                        f"{function_name}|{sink_line_number}|{vuln_class}"
+                    ).encode("utf-8")
+                ).hexdigest()[:16]
+                source_location = SourceLocation(
+                    file=str(source_file),
+                    line=line_index + 1,
+                    column=1,
+                    snippet=line.strip(),
+                )
+                sink_location = SourceLocation(
+                    file=str(source_file),
+                    line=sink_line_number,
+                    column=1,
+                    snippet=sink_line.strip(),
+                )
+                findings.append(
+                    CandidateFinding(
+                        id=finding_id,
+                        vuln_class=vuln_class,
+                        source=TaintSource(
+                            location=source_location,
+                            source_type="exported_parameter",
+                            data_categories=["user_input"],
+                            parameter_name=parameter_name,
+                        ),
+                        sink=TaintSink(
+                            location=sink_location,
+                            sink_type="sql_query"
+                            if sink_match.re is _SQL_SINK_PATTERN
+                            else "command_execution",
+                            api_name=sink_match.group("api"),
+                        ),
+                        taint_path=[
+                            TaintStep(
+                                location=sink_location,
+                                operation="exported_function_summary",
+                                taint_state="tainted",
+                                through_function=function_name,
+                            )
+                        ],
+                        path_conditions=[],
+                        confidence=0.82,
+                        severity=severity,
+                        metadata={
+                            "package": package.name,
+                            "package_path": str(package.path),
+                            "workspace_export": True,
+                            "exported_function": function_name,
+                        },
+                    )
+                )
+            line_index = max(body_index, line_index + 1)
+    return findings
+
+
+def _parse_named_imports(source_text: str) -> list[tuple[str, dict[str, str]]]:
+    parsed: list[tuple[str, dict[str, str]]] = []
+    for pattern in (_NAMED_IMPORT_PATTERN, _DESTRUCTURED_REQUIRE_PATTERN):
+        for match in pattern.finditer(source_text):
+            raw_imports = match.group("imports")
+            bindings: dict[str, str] = {}
+            for raw_binding in raw_imports.split(","):
+                binding = raw_binding.strip()
+                if not binding:
+                    continue
+                if " as " in binding:
+                    imported_name, local_name = [part.strip() for part in binding.split(" as ", 1)]
+                elif ":" in binding:
+                    imported_name, local_name = [part.strip() for part in binding.split(":", 1)]
+                else:
+                    imported_name = binding
+                    local_name = binding
+                bindings[local_name] = imported_name
+            if bindings:
+                parsed.append((match.group("package"), bindings))
+    return parsed
+
+
+def _cross_package_findings(
+    manifest: MonorepoManifest,
+    selected_packages: Sequence[WorkspacePackage],
+    package_findings: Mapping[str, Sequence[CandidateFinding]],
+) -> list[CandidateFinding]:
+    export_summaries: dict[tuple[str, str], list[CandidateFinding]] = defaultdict(list)
+    selected_names = {package.name for package in selected_packages}
+    for package_name, findings in package_findings.items():
+        if package_name not in selected_names:
+            continue
+        for finding in findings:
+            exported_function = finding.metadata.get("exported_function")
+            if not finding.metadata.get("workspace_export") or not isinstance(exported_function, str):
+                continue
+            export_summaries[(package_name, exported_function)].append(finding)
+
+    findings: list[CandidateFinding] = []
+    for package in selected_packages:
+        dependency_names = set(package.internal_deps)
+        if not dependency_names:
+            continue
+        for source_file in _workspace_source_files(package.path):
+            try:
+                source_text = source_file.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            import_bindings = _parse_named_imports(source_text)
+            if not import_bindings:
+                continue
+            lines = source_text.splitlines()
+            for imported_package, bindings in import_bindings:
+                dependency_package = next(
+                    (
+                        dependency_name
+                        for dependency_name in dependency_names
+                        if dependency_name == imported_package
+                    ),
+                    None,
+                )
+                if dependency_package is None:
+                    continue
+                for line_no, line in enumerate(lines, start=1):
+                    source_match = _REQUEST_SOURCE_PATTERN.search(line)
+                    if source_match is None:
+                        continue
+                    for local_name, imported_name in bindings.items():
+                        call_pattern = re.compile(rf"\b{re.escape(local_name)}\s*\((?P<args>[^)]*)\)")
+                        call_match = call_pattern.search(line)
+                        if call_match is None:
+                            continue
+                        summary_findings = export_summaries.get((dependency_package, imported_name), ())
+                        for summary in summary_findings:
+                            source_location = SourceLocation(
+                                file=str(source_file),
+                                line=line_no,
+                                column=1,
+                                snippet=line.strip(),
+                            )
+                            finding_id = sha256(
+                                (
+                                    f"xpkg|{package.name}|{dependency_package}|"
+                                    f"{source_file.as_posix()}|{line_no}|{imported_name}|{summary.id}"
+                                ).encode("utf-8")
+                            ).hexdigest()[:16]
+                            findings.append(
+                                CandidateFinding(
+                                    id=finding_id,
+                                    vuln_class=summary.vuln_class,
+                                    source=TaintSource(
+                                        location=source_location,
+                                        source_type=source_match.group(0),
+                                        data_categories=["user_input"],
+                                        parameter_name=source_match.group(0),
+                                    ),
+                                    sink=summary.sink,
+                                    taint_path=[
+                                        TaintStep(
+                                            location=source_location,
+                                            operation="internal_dependency_call",
+                                            taint_state="tainted",
+                                            through_function=(
+                                                f"{package.name} -> {dependency_package}:{imported_name}"
+                                            ),
+                                        ),
+                                        *summary.taint_path,
+                                    ],
+                                    path_conditions=[],
+                                    confidence=max(summary.confidence, 0.74),
+                                    severity=summary.severity,
+                                    metadata={
+                                        "package": package.name,
+                                        "package_path": str(package.path),
+                                        "cross_package": True,
+                                        "source_package": package.name,
+                                        "sink_package": dependency_package,
+                                        "exported_function": imported_name,
+                                    },
+                                )
+                            )
+    return findings
+
+
 def _run_scan_stage(
     context: PipelineContext,
     config: PiranesiConfig,
@@ -861,10 +1634,6 @@ def _run_scan_stage(
 ) -> StageResult:
     _ = prev_result
     started_at = time.monotonic()
-    frameworks = resolve_frameworks(context.target_dir, config.scan.frameworks)
-    source_specs = get_source_specs(config.scan, frameworks=frameworks)
-    sink_specs = get_sink_specs(config.scan, frameworks=frameworks)
-    sanitizer_specs = get_sanitizer_specs(frameworks=frameworks)
     incremental = context.incremental
     previous_scan = (
         _load_artifact(context.output_dir / "scan.json", ScanResult)
@@ -876,6 +1645,9 @@ def _run_scan_stage(
         and incremental.previous_manifest is not None
         and not incremental.diff.has_changes
         and previous_scan is not None
+        and not context.changed_packages_only
+        and context.monorepo_package_name is None
+        and context.selected_files is None
     ):
         elapsed_s = time.monotonic() - started_at
         artifact = previous_scan.model_copy(
@@ -899,62 +1671,84 @@ def _run_scan_stage(
             cache_status="BYPASS",
         )
 
-    changed_files = _incremental_changed_files(incremental)
-    with _scan_session(
-        context,
-        config,
-        frameworks=frameworks,
-        changed_files=changed_files,
-    ) as (server, scan_session):
-        dependency_scan = scan_dependency_findings(
-            context.target_dir,
-            output_dir=context.output_dir,
-            sbom_format=config.scan.sbom_format,
-        )
-        metadata = ScanMetadata(
-            timestamp=_utc_now(),
-            duration_ms=0,
-            tree_sitter_version="unknown",
-            piranesi_version=__version__,
-            files_parsed=len(discover_scan_targets(context.target_dir, config)),
-            parse_errors=len(scan_session.failed_files),
-            config_hash=config_hash(config),
-        )
-        artifact = build_scan_result(
-            server,
-            project_root=context.target_dir,
-            metadata=metadata,
-            joern_project_root=scan_session.joern_project_root,
-            source_map=scan_session.source_map,
-            source_specs=source_specs,
-            sink_specs=sink_specs,
-            sanitizer_specs=sanitizer_specs,
-        )
-        artifact = artifact.model_copy(
-            update={
-                "dependency_findings": list(dependency_scan.findings),
-                "sbom_artifacts": dict(dependency_scan.sbom_artifacts),
-            }
-        )
-
-    elapsed_s = time.monotonic() - started_at
-    artifact = artifact.model_copy(
-        update={
-            "metadata": artifact.metadata.model_copy(
+    monorepo_selection = _monorepo_selection(context, config)
+    if monorepo_selection is not None:
+        manifest, selected_packages = monorepo_selection
+        if not selected_packages:
+            artifact = _empty_scan_result(
+                context.target_dir,
+                config,
+                detected_tool=manifest.detected_tool,
+            )
+            elapsed_s = time.monotonic() - started_at
+            artifact = artifact.model_copy(
                 update={
-                    "duration_ms": int(elapsed_s * 1000),
-                    "files_parsed": len(artifact.files_scanned),
+                    "metadata": artifact.metadata.model_copy(
+                        update={"duration_ms": int(elapsed_s * 1000)}
+                    )
                 }
             )
-        }
+            _finalize_incremental_manifest(context, "scan")
+            return StageResult(
+                stage="scan",
+                success=True,
+                artifact=artifact,
+                elapsed_s=elapsed_s,
+                cache_status="BYPASS",
+            )
+
+        package_artifacts: list[tuple[WorkspacePackage, ScanResult]] = []
+        cache_states: list[str] = []
+        for package in selected_packages:
+            package_artifact, cache_status, _ = _build_scan_artifact_for_target(
+                context,
+                config,
+                package.path,
+                changed_files=_package_changed_files(context, package),
+            )
+            package_artifacts.append((package, package_artifact))
+            cache_states.append(cache_status)
+
+        artifact = _merge_monorepo_scan_artifacts(context, config, manifest, package_artifacts)
+        elapsed_s = time.monotonic() - started_at
+        artifact = artifact.model_copy(
+            update={
+                "metadata": artifact.metadata.model_copy(
+                    update={
+                        "duration_ms": int(elapsed_s * 1000),
+                        "files_parsed": len(artifact.files_scanned),
+                    }
+                )
+            }
+        )
+        _finalize_incremental_manifest(context, "scan")
+        return StageResult(
+            stage="scan",
+            success=True,
+            artifact=artifact,
+            elapsed_s=elapsed_s,
+            cache_status="HIT"
+            if cache_states and all(state == "HIT" for state in cache_states)
+            else "MISS"
+            if cache_states and any(state == "MISS" for state in cache_states)
+            else "BYPASS",
+        )
+
+    changed_files = _context_changed_files(context)
+    artifact, cache_status, _ = _build_scan_artifact_for_target(
+        context,
+        config,
+        context.target_dir,
+        changed_files=changed_files,
     )
+    elapsed_s = time.monotonic() - started_at
     _finalize_incremental_manifest(context, "scan")
     return StageResult(
         stage="scan",
         success=True,
         artifact=artifact,
         elapsed_s=elapsed_s,
-        cache_status=scan_session.cache_status,
+        cache_status=cache_status,
     )
 
 
@@ -965,10 +1759,6 @@ def _run_detect_stage(
 ) -> StageResult:
     _ = prev_result
     started_at = time.monotonic()
-    frameworks = resolve_frameworks(context.target_dir, config.scan.frameworks)
-    source_specs = get_source_specs(config.scan, frameworks=frameworks)
-    sink_specs = get_sink_specs(config.scan, frameworks=frameworks)
-    sanitizer_specs = get_sanitizer_specs(frameworks=frameworks)
     incremental = context.incremental
     previous_detect = (
         _load_artifact(context.output_dir / "detect.json", DetectArtifact)
@@ -977,7 +1767,12 @@ def _run_detect_stage(
     )
     carried_findings = (
         _carry_forward_findings(previous_detect, incremental, context.target_dir)
-        if incremental is not None
+        if (
+            incremental is not None
+            and not context.changed_packages_only
+            and context.monorepo_package_name is None
+            and context.selected_files is None
+        )
         else []
     )
     if (
@@ -985,60 +1780,88 @@ def _run_detect_stage(
         and incremental.previous_manifest is not None
         and not incremental.diff.changed_files
         and previous_detect is not None
+        and not context.changed_packages_only
+        and context.monorepo_package_name is None
+        and context.selected_files is None
     ):
+        annotated_findings, reachability_result = _annotate_reachability_for_findings(
+            context,
+            config,
+            carried_findings,
+        )
         _finalize_incremental_manifest(context, "detect")
         return StageResult(
             stage="detect",
             success=True,
             artifact=DetectArtifact(
-                findings=_apply_project_suppressions(context.target_dir, carried_findings)
+                findings=_apply_project_suppressions(context.target_dir, annotated_findings),
+                reachability=reachability_result,
             ),
             elapsed_s=time.monotonic() - started_at,
         )
 
-    changed_files = _incremental_changed_files(incremental)
-    with _scan_session(
-        context,
-        config,
-        frameworks=frameworks,
-        changed_files=changed_files,
-    ) as (server, scan_session):
-        findings = list(
-            extract_candidate_findings(
-                server,
-                joern_project_root=scan_session.joern_project_root,
-                source_map=scan_session.source_map,
-                source_specs=source_specs,
-                sink_specs=sink_specs,
-                sanitizer_specs=sanitizer_specs,
-                category_provider=context.provider if _llm_is_configured() else None,
-                category_model=context.router.resolve("detector") if _llm_is_configured() else None,
-            )
+    monorepo_selection = _monorepo_selection(context, config)
+    if monorepo_selection is not None:
+        manifest, selected_packages = monorepo_selection
+        package_findings: dict[str, list[CandidateFinding]] = {}
+        findings: list[CandidateFinding] = []
+        for package in selected_packages:
+            local_findings = [
+                _tag_finding_for_package(finding, package)
+                for finding in _detect_findings_for_target(
+                    context,
+                    config,
+                    package.path,
+                    changed_files=_package_changed_files(context, package),
+                )
+            ]
+            exported_findings = _exported_sink_findings(package)
+            package_findings[package.name] = [*local_findings, *exported_findings]
+            findings.extend(package_findings[package.name])
+        findings.extend(_cross_package_findings(manifest, selected_packages, package_findings))
+        _finalize_incremental_manifest(context, "detect")
+        merged_findings = _dedupe_candidate_findings_by_fingerprint(
+            [*carried_findings, *findings]
+        )
+        annotated_findings, reachability_result = _annotate_reachability_for_findings(
+            context,
+            config,
+            merged_findings,
+        )
+        suppressed_findings = _apply_project_suppressions(context.target_dir, annotated_findings)
+        return StageResult(
+            stage="detect",
+            success=True,
+            artifact=DetectArtifact(
+                findings=suppressed_findings,
+                reachability=reachability_result,
+            ),
+            elapsed_s=time.monotonic() - started_at,
         )
 
-    findings.extend(
-        extract_secret_findings(
-            context.target_dir,
-            include_tests=config.scan.include_tests,
-            max_file_size=config.scan.max_file_size,
-        )
+    changed_files = _context_changed_files(context)
+    findings = _detect_findings_for_target(
+        context,
+        config,
+        context.target_dir,
+        changed_files=changed_files,
     )
-    findings.extend(
-        extract_misconfiguration_findings(
-            context.target_dir,
-            frameworks=frameworks,
-            files=discover_scan_targets(context.target_dir, config),
-        )
-    )
-    findings.extend(_current_dependency_findings(context))
 
     _finalize_incremental_manifest(context, "detect")
     merged_findings = _merge_candidate_findings(carried_findings, findings)
-    suppressed_findings = _apply_project_suppressions(context.target_dir, merged_findings)
+    annotated_findings, reachability_result = _annotate_reachability_for_findings(
+        context,
+        config,
+        merged_findings,
+    )
+    suppressed_findings = _apply_project_suppressions(context.target_dir, annotated_findings)
     return StageResult(
         stage="detect",
         success=True,
-        artifact=DetectArtifact(findings=suppressed_findings),
+        artifact=DetectArtifact(
+            findings=suppressed_findings,
+            reachability=reachability_result,
+        ),
         elapsed_s=time.monotonic() - started_at,
     )
 
@@ -1129,6 +1952,9 @@ def _run_triage_stage(
     detect_artifact = _extract_stage_artifact(prev_result, DetectArtifact, "detect")
     started_at = time.monotonic()
     active_findings = [finding for finding in detect_artifact.findings if not finding.suppressed]
+    active_findings = [
+        finding for finding in active_findings if finding.reachability == "reachable"
+    ]
     if not _llm_is_configured():
         findings = [
             TriagedFinding(
@@ -1292,6 +2118,9 @@ def _run_report_stage(
         total_llm_cost_usd=context.total_cost_usd,
         duration_s=sum(context.stage_timings_s.values()),
         stage_timings_s=context.stage_timings_s,
+        reachability=detect_artifact.reachability,
+        include_unreachable=config.reachability.include_unreachable,
+        dead_code_report=config.reachability.dead_code_report,
     )
     write_report_outputs(
         report,

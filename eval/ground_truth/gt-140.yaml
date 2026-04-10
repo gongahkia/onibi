@@ -1,0 +1,20 @@
+id: gt-140
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+  - eval/synthetic/interproc-event-emitter-sqli.ts
+line_numbers: [17, 21]
+taint_source: req.body.sql
+taint_sink: db.query()
+taint_path:
+  - "emitter.emit('data', req.body.sql) publishes attacker-controlled SQL on the event channel"
+  - "emitter.on('data', payload => ...) receives the tainted payload"
+  - "db.query(payload) executes the attacker-controlled SQL"
+complexity: inter
+exploitable: true
+reference_exploit: "Send attacker-controlled SQL in req.body.sql so the data event listener forwards it into db.query()."
+reference_fix_commit: null
+notes: "Synthetic EventEmitter SQLi case using a literal event name."

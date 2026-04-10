@@ -128,6 +128,15 @@ _CWE_METADATA: dict[str, CweMetadata] = {
         ),
         tags=("security", "dependencies", "owasp-a06", "owasp-a08"),
     ),
+    "CWE-1321": CweMetadata(
+        name="PrototypePollution",
+        short_description="Prototype Pollution",
+        full_description=(
+            "User-controlled object keys reach unsafe merge or assignment logic that can "
+            "modify JavaScript object prototypes."
+        ),
+        tags=("security", "prototype-pollution", "owasp-a03"),
+    ),
 }
 
 

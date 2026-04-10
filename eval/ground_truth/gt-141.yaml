@@ -1,0 +1,20 @@
+id: gt-141
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting (Reflected)
+label: true_positive
+affected_files:
+  - eval/synthetic/interproc-event-emitter-xss.ts
+line_numbers: [17, 21]
+taint_source: req.body.preview
+taint_sink: res.send()
+taint_path:
+  - "emitter.emit('preview', req.body.preview) places attacker-controlled markup on the event channel"
+  - "the preview event handler receives the tainted payload"
+  - "res.send(payload) reflects the attacker-controlled content"
+complexity: inter
+exploitable: true
+reference_exploit: "Send <img src=x onerror=alert(1)> in req.body.preview so the preview listener reflects it through res.send()."
+reference_fix_commit: null
+notes: "Synthetic EventEmitter reflected XSS case."

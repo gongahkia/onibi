@@ -1,0 +1,20 @@
+id: gt-139
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting (Reflected)
+label: true_positive
+affected_files:
+  - eval/synthetic/interproc-promise-then-xss.ts
+line_numbers: [10, 11]
+taint_source: req.body.preview
+taint_sink: res.send()
+taint_path:
+  - "renderPreview(req.body.preview) resolves a tainted HTML string"
+  - "the .then(html => ...) handler receives that tainted markup"
+  - "res.send(html) reflects the attacker-controlled content"
+complexity: inter
+exploitable: true
+reference_exploit: "Send <svg/onload=alert(1)> in req.body.preview so the promise handler reflects it through res.send()."
+reference_fix_commit: null
+notes: "Synthetic Promise.then reflected XSS case."
