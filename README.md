@@ -6,7 +6,7 @@ Piranesi is an alpha CLI for security analysis of TypeScript and JavaScript code
 
 ## Status
 
-`v0.1.0` is an alpha release. The end-to-end CLI works on small Express targets, the verify stage is validated on the bundled XSS fixture, and the example docs include real runs on both a hand-crafted vulnerable app and OWASP NodeGoat. Real-world projects still produce misses and false positives, so the example writeups call those out explicitly.
+`v0.2.0` is an alpha release. The end-to-end CLI works on small Express targets, the verify stage is validated on the bundled XSS fixture, and the example docs include real runs on both a hand-crafted vulnerable app and OWASP NodeGoat. v0.2.0 adds SARIF 2.1.0 output, sanitizer-aware FP reduction, and an expanded ground truth (185 entries). Real-world projects still produce misses and false positives, so the example writeups call those out explicitly.
 
 ## What It Does
 
@@ -86,6 +86,68 @@ Full writeups:
 - [Getting Started](docs/getting-started.md)
 - [Configuration Reference](docs/configuration.md)
 
+## SARIF Output
+
+Generate SARIF 2.1.0 reports with `--format sarif`:
+
+```bash
+uv run piranesi run examples/vuln-express \
+  --format sarif \
+  --authorized \
+  --yes \
+  --output .piranesi-out/vuln-express
+```
+
+This writes `report.sarif.json` alongside the standard JSON and Markdown reports. The SARIF output includes taint-flow `codeFlows`, inline `fixes` from patch diffs, and regulatory metadata.
+
+## GitHub Actions
+
+Add Piranesi to your CI pipeline and upload results to GitHub code scanning:
+
+```yaml
+name: piranesi
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Piranesi
+        run: pip install piranesi
+      - name: Run Piranesi
+        id: piranesi
+        continue-on-error: true
+        run: |
+          piranesi run . \
+            --format sarif \
+            --authorized \
+            --yes \
+            --output .piranesi-output
+      - name: Upload SARIF
+        if: always() && hashFiles('.piranesi-output/report.sarif.json') != ''
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: .piranesi-output/report.sarif.json
+          category: piranesi
+      - name: Fail on findings
+        if: steps.piranesi.outcome == 'failure'
+        run: exit 1
+```
+
+See [docs/ci-integration.md](docs/ci-integration.md) for GitLab CI, Docker-based, and generic CI examples.
+
 ## Development
 
 ```bash
@@ -100,7 +162,7 @@ uv run pytest
 - [Architecture](docs/ARCHITECTURE.md)
 - [Getting Started](docs/getting-started.md)
 - [Configuration Reference](docs/configuration.md)
-- [Phase 6: Integration and Release](docs/PHASE_6_INTEGRATION_AND_RELEASE.md)
+- [CI Integration](docs/ci-integration.md)
 
 ## License
 

@@ -12,7 +12,9 @@ from typing import Any
 try:
     from eval.baselines.opengrep_normalizer import normalize_opengrep_output
 except ImportError:  # pragma: no cover - supports `python eval/baselines/opengrep_runner.py`
-    from opengrep_normalizer import normalize_opengrep_output
+    from opengrep_normalizer import (  # type: ignore[import-not-found,no-redef]
+        normalize_opengrep_output,
+    )
 
 DEFAULT_CONFIGS: tuple[str, ...] = ("p/typescript", "p/javascript")
 DEFAULT_TIMEOUT_SECONDS = 600
@@ -59,7 +61,10 @@ def build_scan_command(
     return tuple(command)
 
 
-def _run_command(command: tuple[str, ...], timeout_seconds: int) -> subprocess.CompletedProcess[str]:
+def _run_command(
+    command: tuple[str, ...],
+    timeout_seconds: int,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         list(command),
         capture_output=True,
@@ -94,7 +99,12 @@ def _execute_with_optional_dataflow(
         dataflow_traces=dataflow_traces,
     )
     completed = _run_command(command, timeout_seconds)
-    if completed.returncode == 0 or not dataflow_traces or not _looks_like_dataflow_flag_error(completed.stderr):
+    no_retry = (
+        completed.returncode == 0
+        or not dataflow_traces
+        or not _looks_like_dataflow_flag_error(completed.stderr)
+    )
+    if no_retry:
         return completed, command
 
     fallback_command = build_scan_command(
@@ -103,7 +113,10 @@ def _execute_with_optional_dataflow(
         configs=configs,
         dataflow_traces=False,
     )
-    LOGGER.warning("scanner %s does not support --dataflow-traces; retrying without it", selection.tool)
+    LOGGER.warning(
+        "scanner %s does not support --dataflow-traces; retrying without it",
+        selection.tool,
+    )
     return _run_command(fallback_command, timeout_seconds), fallback_command
 
 
@@ -182,7 +195,9 @@ def run_opengrep_scan(
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run OpenGrep with Semgrep fallback against a project.")
+    parser = argparse.ArgumentParser(
+        description="Run OpenGrep with Semgrep fallback against a project.",
+    )
     parser.add_argument("project_dir", type=Path, help="Ground truth project directory to scan.")
     parser.add_argument("--output", type=Path, help="Path to raw JSON output.")
     parser.add_argument("--normalized-output", type=Path, help="Path to normalized JSON output.")

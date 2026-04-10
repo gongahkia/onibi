@@ -1,0 +1,19 @@
+id: gt-020
+source_project: dvna
+commit_hash: "4ebb28abcab1f1b35dc40dde7d1a3fe5e3a8b2"
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+affected_files:
+  - core/appHandler.js
+line_numbers: [142]
+taint_source: req.query.file
+taint_sink: "res.sendFile()"
+taint_path:
+  - "req.query.file (GET /file handler)"
+  - "res.sendFile(path.join(__dirname, '..', 'uploads', req.query.file))"
+complexity: simple
+exploitable: true
+reference_exploit: "GET /file?file=../../etc/passwd reads arbitrary files via directory traversal"
+reference_fix_commit: null
+notes: "DVNA path traversal via unsanitized filename in sendFile(). No containment check or path canonicalization."

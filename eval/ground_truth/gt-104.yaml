@@ -1,0 +1,19 @@
+id: gt-104
+source_project: spring-petclinic
+commit_hash: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+cwe_id: CWE-79
+cwe_name: Reflected XSS via response.getWriter().write()
+label: true_positive
+affected_files:
+  - src/main/java/org/example/controller/SearchController.java
+line_numbers: [27, 33]
+taint_source: "@RequestParam String q"
+taint_sink: "response.getWriter().write(\"<h1>Results for: \" + q + \"</h1>\")"
+taint_path:
+  - "@RequestParam String q (SearchController.java:27)"
+  - "response.getWriter().write(html) (SearchController.java:33)"
+complexity: simple
+exploitable: true
+reference_exploit: "GET /search?q=<script>alert(1)</script> triggers XSS in browser"
+reference_fix_commit: null
+notes: "Reflected XSS via unescaped user input written directly to response. Fix: use HtmlUtils.htmlEscape() or return via template engine."

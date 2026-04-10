@@ -1,0 +1,21 @@
+id: gt-fp-035
+source_project: synthetic-go-chi
+commit_hash: "0000000000000000000000000000000000000000"
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: false_positive
+affected_files:
+  - handlers/download.go
+line_numbers: [20, 26]
+taint_source: chi.URLParam(r, "file")
+taint_sink: "os.Open(cleanPath)"
+taint_path:
+  - "chi.URLParam(r, \"file\") (handlers/download.go:20)"
+  - "cleanPath := filepath.Clean(filepath.Join(baseDir, file))"
+  - "strings.HasPrefix(cleanPath, baseDir) check (handlers/download.go:24)"
+  - "os.Open(cleanPath) (handlers/download.go:26)"
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "filepath.Clean + strings.HasPrefix guard prevents directory traversal. The cleaned path is verified to start with the base directory before os.Open. Not vulnerable."

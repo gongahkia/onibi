@@ -1,0 +1,25 @@
+id: gt-043
+source_project: dvna
+commit_hash: 9ba473add536f66ac9007966acb2a775dd31277a
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting (Stored)
+label: true_positive
+affected_files:
+- core/appHandler.js
+- views/app/products.ejs
+line_numbers:
+- 117
+- 119
+- 53
+taint_source: req.body.description
+taint_sink: EJS raw product table cell in views/app/products.ejs
+taint_path:
+- req.body.description (POST /app/modifyproduct)
+- product.description = req.body.description (core/appHandler.js:117)
+- product.save() persists attacker-controlled description to the Products table (core/appHandler.js:119)
+- views/app/products.ejs:53 renders <%- output.products[i].description %> without escaping
+complexity: inter
+exploitable: true
+reference_exploit: POST /app/modifyproduct with description=<img src=x onerror=alert(document.domain)> stores the payload; visiting /app/products executes it
+reference_fix_commit: null
+notes: Second-order stored XSS through the product edit form. The description column is rendered with raw EJS output.

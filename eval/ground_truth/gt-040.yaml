@@ -1,0 +1,23 @@
+id: gt-040
+source_project: dvna
+commit_hash: 9ba473add536f66ac9007966acb2a775dd31277a
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting (Reflected)
+label: true_positive
+affected_files:
+- core/appHandler.js
+- views/app/products.ejs
+line_numbers:
+- 68
+- 20
+taint_source: req.body.name
+taint_sink: EJS unescaped output in views/app/products.ejs
+taint_path:
+- req.body.name (POST /app/products handled by productSearch in core/appHandler.js)
+- output.searchTerm = req.body.name (core/appHandler.js:68)
+- views/app/products.ejs:20 renders <%- output.searchTerm %> without escaping
+complexity: simple
+exploitable: true
+reference_exploit: POST /app/products with name=<img src=x onerror=alert(document.domain)> executes when the search results banner is rendered
+reference_fix_commit: null
+notes: Net-new DVNA reflected XSS flow beyond the existing ground-truth set. The status banner disables EJS escaping with <%- ... %>.

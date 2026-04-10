@@ -1,0 +1,20 @@
+id: gt-039
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery
+label: true_positive
+affected_files:
+  - eval/synthetic/ssrf-path-segment-http.ts
+line_numbers: [13]
+taint_source: req.query.file
+taint_sink: "http.get() with hardcoded base URL and tainted query string"
+taint_path:
+  - "req.query.file (Express GET handler)"
+  - "const endpoint = `http://internal.service.local/export?file=${file}`"
+  - "http.get(endpoint, callback)"
+complexity: simple
+exploitable: true
+reference_exploit: "GET /proxy/export?file=secrets.csv requests an attacker-selected export from an internal service"
+reference_fix_commit: null
+notes: "Hand-crafted synthetic. User input controls the internal query string while the destination origin remains fixed, so this should be classified as path-segment SSRF rather than full URL SSRF."

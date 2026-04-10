@@ -1,0 +1,21 @@
+id: gt-030
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery
+label: true_positive
+affected_files:
+  - eval/synthetic/ssrf-axios-inter.ts
+line_numbers: [8, 18]
+taint_source: req.query.endpoint
+taint_sink: "axios.get()"
+taint_path:
+  - "req.query.endpoint (Express GET handler)"
+  - "fetchData(req.query.endpoint) passes URL to helper function"
+  - "async function fetchData(url) { return axios.get(url) }"
+  - "axios.get() makes outbound request to attacker-controlled URL"
+complexity: inter
+exploitable: true
+reference_exploit: "GET /data?endpoint=http://localhost:6379/ probes internal Redis via SSRF"
+reference_fix_commit: null
+notes: "Hand-crafted synthetic. Inter-procedural SSRF: taint crosses function boundary from route handler to fetchData helper. Axios is a common HTTP client in Node.js apps."

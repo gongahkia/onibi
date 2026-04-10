@@ -1,0 +1,20 @@
+id: gt-056
+source_project: owasp-juice-shop
+commit_hash: "7380ce7120e289fc6bea861efd3fcba89261a6a8"
+cwe_id: CWE-89
+cwe_name: SQL Injection (NoSQL variant)
+label: true_positive
+affected_files:
+  - routes/showProductReviews.ts
+line_numbers: [31, 36]
+taint_source: req.params.id
+taint_sink: "db.reviewsCollection.find() with $where JavaScript expression"
+taint_path:
+  - "req.params.id (routes/showProductReviews.ts:31)"
+  - "id = utils.trunc(req.params.id, 40) when the dangerous challenge path is enabled"
+  - "db.reviewsCollection.find({ $where: 'this.product == ' + id }) (routes/showProductReviews.ts:36)"
+complexity: ctx
+exploitable: true
+reference_exploit: "GET /rest/products/sleep(2000)/reviews injects the global sleep() call into the $where clause and blocks the server for roughly two seconds."
+reference_fix_commit: null
+notes: "NoSQL command injection / DoS. The route concatenates attacker input into a JavaScript predicate executed by the Mongo-style backend."

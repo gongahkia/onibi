@@ -1,0 +1,20 @@
+id: gt-038
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery
+label: true_positive
+affected_files:
+  - eval/synthetic/ssrf-path-segment-axios.ts
+line_numbers: [13]
+taint_source: req.query.reportId
+taint_sink: "axios.get() with hardcoded base URL and tainted path segment"
+taint_path:
+  - "req.query.reportId (Express GET handler)"
+  - "const endpoint = `https://internal.service.local/reports/${reportId}`"
+  - "axios.get(endpoint)"
+complexity: simple
+exploitable: true
+reference_exploit: "GET /proxy/report?reportId=finance/quarterly reveals a chosen internal report path"
+reference_fix_commit: null
+notes: "Hand-crafted synthetic. Axios request destination keeps a fixed origin but attacker input selects the internal resource path."

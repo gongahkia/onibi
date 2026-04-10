@@ -1,0 +1,24 @@
+id: gt-086
+source_project: fastify-reply-from
+commit_hash: bb232f5ce03bc5f24ef4d3a42ba42c9a4d45c754
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+affected_files:
+- index.js
+- lib/utils.js
+line_numbers:
+- 74
+- 82
+- 178
+taint_source: req.url
+taint_sink: requestImpl({ url, ... }) upstream proxy request
+taint_path:
+- When no explicit source is provided, reply.from() defaults source = req.url (index.js:73-75)
+- buildURL(source, dest) normalizes the attacker-controlled URL component against the upstream base (index.js:82, lib/utils.js:65-87)
+- requestImpl({ method, url, ... }) forwards the resulting URL to the upstream service (index.js:178)
+complexity: ctx
+exploitable: true
+reference_exploit: Request a protected reply.from route using a path segment containing .. or %2e%2e to reach an upstream path that was meant to stay inaccessible
+reference_fix_commit: e740e22f55d14cfb53d32d4f1060ffca3ae1879e
+notes: CVE-2025-66415 / GHSA-2q7r-29rg-6m5h. Snyk classifies the issue as directory traversal; the upstream advisory states that adding .. (curl 8.7.1 emits %2e%2e) can bypass reply forwarding restrictions.

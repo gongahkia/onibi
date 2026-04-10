@@ -1,0 +1,20 @@
+id: gt-fp-019
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting
+label: false_positive
+affected_files:
+  - eval/synthetic/fp-sanitize-html.ts
+line_numbers: [13]
+taint_source: req.query.snippet
+taint_sink: "res.send() with sanitize-html output"
+taint_path:
+  - "req.query.snippet (Express GET handler)"
+  - "const clean = sanitizeHtml(snippet, options)"
+  - "res.send(`<section>${clean}</section>`)"
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "Hand-crafted false positive. sanitize-html strips unsafe markup and attributes before rendering."

@@ -1,0 +1,27 @@
+id: gt-078
+source_project: ejs
+commit_hash: 253db95e25aa4bd60243916442367b89822fa02f
+cwe_id: CWE-94
+cwe_name: Code Injection
+label: true_positive
+affected_files:
+- lib/ejs.js
+line_numbers:
+- 473
+- 475
+- 530
+- 590
+- 662
+taint_source: data.settings['view options'].outputFunctionName
+taint_sink: new Function()
+taint_path:
+- data.settings['view options'] in renderFile() is treated as trusted Express compatibility configuration (lib/ejs.js:463-476)
+- utils.shallowCopy(opts, viewOpts) copies attacker-controlled outputFunctionName into opts (lib/ejs.js:475)
+- Template() assigns options.outputFunctionName = opts.outputFunctionName (lib/ejs.js:530)
+- 'compile() appends attacker-controlled JavaScript into the generated template prelude: `var ${opts.outputFunctionName} = __append;` (lib/ejs.js:589-590)'
+- new Function(opts.localsName + ", escapeFn, include, rethrow", src) compiles the attacker-controlled source string (lib/ejs.js:662)
+complexity: ctx
+exploitable: true
+reference_exploit: Render an EJS template through Express with settings[view options][outputFunctionName]=x;process.mainModule.require('child_process').execSync('id');s to inject arbitrary code into the compiled template
+reference_fix_commit: c69b9520f7a5dadb07d8a9b1b436d4a0ef305c9b
+notes: CVE-2022-29078. Vulnerable release v3.1.6, fixed in v3.1.7 by validating that outputFunctionName is a legal JavaScript identifier.

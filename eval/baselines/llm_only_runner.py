@@ -75,19 +75,24 @@ def _build_messages(relative_path: str, source_code: str) -> list[dict[str, str]
         {
             "role": "system",
             "content": (
-                "You are auditing a single TypeScript/JavaScript source file for concrete security vulnerabilities. "
-                "Return strict JSON only. Report only likely security vulnerabilities in this file. "
-                "Use line_numbers as a JSON array. If no vulnerabilities are present, return "
-                '{"findings":[]}.'
+                "You are auditing a single TypeScript/JavaScript source file "
+                "for concrete security vulnerabilities. "
+                "Return strict JSON only. "
+                "Report only likely security vulnerabilities in this file. "
+                "Use line_numbers as a JSON array. "
+                'If no vulnerabilities are present, return {"findings":[]}.'
             ),
         },
         {
             "role": "user",
             "content": (
-                "Identify all security vulnerabilities in the following TypeScript/JavaScript code. "
-                "For each vulnerability, specify: file, line number(s), CWE ID, description, and severity. "
+                "Identify all security vulnerabilities in the following "
+                "TypeScript/JavaScript code. "
+                "For each vulnerability, specify: file, line number(s), "
+                "CWE ID, description, and severity. "
                 "Include taint_source and taint_sink when you can infer them. "
-                f"Use this JSON shape exactly: {json.dumps(schema, ensure_ascii=True)}\n\n"
+                "Use this JSON shape exactly: "
+                f"{json.dumps(schema, ensure_ascii=True)}\n\n"
                 f"File: {relative_path}\n\n"
                 f"```ts\n{source_code}\n```"
             ),
@@ -129,9 +134,8 @@ def _normalize_line_numbers(line_numbers: list[int]) -> list[int]:
 
 
 def _finding_id(file_path: str, cwe_id: str, line_numbers: list[int], description: str) -> str:
-    digest = hashlib.sha256(
-        "|".join([file_path, cwe_id, ",".join(str(line) for line in line_numbers), description]).encode("utf-8")
-    ).hexdigest()
+    parts = [file_path, cwe_id, ",".join(str(line) for line in line_numbers), description]
+    digest = hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
     return digest
 
 
@@ -145,7 +149,10 @@ def _normalize_llm_finding(
     file_path = Path(file_value)
     try:
         root = project_root.resolve(strict=False)
-        resolved_file = file_path.resolve(strict=False) if file_path.is_absolute() else (root / file_path).resolve(strict=False)
+        if file_path.is_absolute():
+            resolved_file = file_path.resolve(strict=False)
+        else:
+            resolved_file = (root / file_path).resolve(strict=False)
         relative_file = resolved_file.relative_to(root).as_posix()
     except ValueError:
         relative_file = file_path.as_posix()
@@ -257,7 +264,9 @@ def run_llm_only_baseline(
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the single-model LLM-only evaluation baseline.")
+    parser = argparse.ArgumentParser(
+        description="Run the single-model LLM-only evaluation baseline.",
+    )
     parser.add_argument("project_dir", type=Path, help="Ground truth project directory to audit.")
     parser.add_argument(
         "--config",

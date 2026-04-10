@@ -1,0 +1,20 @@
+id: gt-018
+source_project: dvna
+commit_hash: "4ebb28abcab1f1b35dc40dde7d1a3fe5e3a8b2"
+cwe_id: CWE-78
+cwe_name: OS Command Injection
+label: true_positive
+affected_files:
+  - core/appHandler.js
+line_numbers: [124]
+taint_source: req.body.ping
+taint_sink: "child_process.exec()"
+taint_path:
+  - "req.body.ping (POST /ping handler)"
+  - "exec('ping -c 2 ' + req.body.ping, callback)"
+  - "child_process.exec() runs OS command with unsanitized input"
+complexity: simple
+exploitable: true
+reference_exploit: "POST /ping with ping=127.0.0.1;cat /etc/passwd chains arbitrary command via semicolon"
+reference_fix_commit: null
+notes: "DVNA command injection via string concatenation into exec(). Classic CWE-78 pattern."

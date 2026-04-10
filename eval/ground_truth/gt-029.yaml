@@ -1,0 +1,20 @@
+id: gt-029
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery
+label: true_positive
+affected_files:
+  - eval/synthetic/ssrf-http-get.ts
+line_numbers: [10, 14]
+taint_source: req.body.target
+taint_sink: "http.get()"
+taint_path:
+  - "req.body.target (Express POST handler)"
+  - "const parsed = new URL(req.body.target)"
+  - "http.get(parsed, callback) makes outbound request"
+complexity: simple
+exploitable: true
+reference_exploit: "POST /fetch with target=http://internal-service:8080/admin accesses internal services"
+reference_fix_commit: null
+notes: "Hand-crafted synthetic. Node http.get() with URL parsed from user input. URL constructor does not prevent SSRF; only protocol/host allowlisting would."

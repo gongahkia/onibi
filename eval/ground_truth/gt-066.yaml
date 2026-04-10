@@ -1,0 +1,20 @@
+id: gt-066
+source_project: owasp-juice-shop
+commit_hash: "7380ce7120e289fc6bea861efd3fcba89261a6a8"
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+affected_files:
+  - routes/keyServer.ts
+line_numbers: [13, 14]
+taint_source: req.params.file
+taint_sink: "res.sendFile(path.resolve('encryptionkeys/', file))"
+taint_path:
+  - "req.params.file (routes/keyServer.ts:11)"
+  - "only forward slashes are blocked; backslashes and platform-specific separators are still accepted (routes/keyServer.ts:13)"
+  - "res.sendFile(path.resolve('encryptionkeys/', file)) serves the resolved path (routes/keyServer.ts:14)"
+complexity: simple
+exploitable: true
+reference_exploit: "GET /encryptionkeys/..%5C..%5Cpackage.json escapes the key directory on Windows-style path semantics and exposes application files."
+reference_fix_commit: null
+notes: "Same limited backslash traversal pattern already present in Juice Shop's other file-serving helpers. Exploitable on separator-normalizing platforms."

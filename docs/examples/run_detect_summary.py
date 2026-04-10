@@ -11,7 +11,7 @@ from piranesi.scan.transpile import transpile_project
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run Piranesi's implemented transpile + detect path and print a compact summary.",
+        description="Run Piranesi's transpile + detect path and print a compact summary.",
     )
     parser.add_argument("target", type=Path, help="Target project directory.")
     parser.add_argument(

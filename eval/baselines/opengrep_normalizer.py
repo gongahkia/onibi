@@ -9,7 +9,10 @@ from typing import Any
 try:
     from eval.scoring import normalize_cwe_id, normalize_file_path
 except ImportError:  # pragma: no cover - supports `python eval/baselines/opengrep_normalizer.py`
-    from scoring import normalize_cwe_id, normalize_file_path
+    from scoring import (  # type: ignore[import-not-found,no-redef]
+        normalize_cwe_id,
+        normalize_file_path,
+    )
 
 _KEYWORD_TO_CWE: tuple[tuple[str, str], ...] = (
     ("server-side request forgery", "CWE-918"),
@@ -92,7 +95,10 @@ def _normalize_result_path(raw_path: str | None, project_root: Path | None) -> s
     candidate = Path(raw_path)
     if project_root is not None:
         root = project_root.resolve(strict=False)
-        resolved_candidate = candidate.resolve(strict=False) if candidate.is_absolute() else (root / candidate).resolve(strict=False)
+        if candidate.is_absolute():
+            resolved_candidate = candidate.resolve(strict=False)
+        else:
+            resolved_candidate = (root / candidate).resolve(strict=False)
         try:
             candidate = resolved_candidate.relative_to(root)
         except ValueError:
@@ -162,13 +168,13 @@ def _find_location_payload(payload: Any) -> dict[str, Any] | None:
         if any(key in mapping for key in ("path", "file", "start", "line")):
             return mapping
         for nested in mapping.values():
-            location = _find_location_payload(nested)
-            if location is not None:
-                return location
+            nested_location = _find_location_payload(nested)
+            if nested_location is not None:
+                return nested_location
     for nested in _coerce_list(payload):
-        location = _find_location_payload(nested)
-        if location is not None:
-            return location
+        nested_location = _find_location_payload(nested)
+        if nested_location is not None:
+            return nested_location
     return None
 
 
@@ -250,9 +256,8 @@ def _extract_taint_path(trace: dict[str, Any], project_root: Path | None) -> lis
 
 
 def _finding_id(tool: str, rule_id: str, file_path: str, line_numbers: list[int]) -> str:
-    digest = hashlib.sha256(
-        "|".join([tool, rule_id, file_path, ",".join(str(line) for line in line_numbers)]).encode("utf-8")
-    ).hexdigest()
+    parts = [tool, rule_id, file_path, ",".join(str(line) for line in line_numbers)]
+    digest = hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
     return digest
 
 
@@ -332,10 +337,27 @@ def normalize_opengrep_output(
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Normalize OpenGrep or Semgrep JSON output.")
-    parser.add_argument("--input", required=True, type=Path, help="Path to raw OpenGrep/Semgrep JSON output.")
-    parser.add_argument("--output", required=True, type=Path, help="Path to normalized output JSON.")
-    parser.add_argument("--project-root", type=Path, help="Project root used to relativize result paths.")
-    parser.add_argument("--tool", help="Explicit tool name override, for example opengrep or semgrep.")
+    parser.add_argument(
+        "--input",
+        required=True,
+        type=Path,
+        help="Path to raw OpenGrep/Semgrep JSON output.",
+    )
+    parser.add_argument(
+        "--output",
+        required=True,
+        type=Path,
+        help="Path to normalized output JSON.",
+    )
+    parser.add_argument(
+        "--project-root",
+        type=Path,
+        help="Project root used to relativize result paths.",
+    )
+    parser.add_argument(
+        "--tool",
+        help="Explicit tool name override, for example opengrep or semgrep.",
+    )
     return parser.parse_args(argv)
 
 

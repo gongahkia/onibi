@@ -1,0 +1,20 @@
+id: gt-037
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery
+label: true_positive
+affected_files:
+  - eval/synthetic/ssrf-path-segment-fetch.ts
+line_numbers: [10]
+taint_source: req.query.userId
+taint_sink: "fetch() with hardcoded base URL and tainted path segment"
+taint_path:
+  - "req.query.userId (Express GET handler)"
+  - "fetch(`https://internal.service.local/api/users/${userId}`)"
+  - "Attacker controls the internal resource path while scheme and host stay fixed"
+complexity: simple
+exploitable: true
+reference_exploit: "GET /proxy/user?userId=../../admin reads a different internal resource path"
+reference_fix_commit: null
+notes: "Hand-crafted synthetic. This is still SSRF-relevant because attacker input steers which internal endpoint is requested, but risk is lower than full URL control because origin is fixed."

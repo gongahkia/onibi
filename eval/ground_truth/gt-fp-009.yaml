@@ -1,0 +1,21 @@
+id: gt-fp-009
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: false_positive
+affected_files:
+  - eval/synthetic/fp-parseint-coerce.ts
+line_numbers: [9, 12]
+taint_source: req.params.id
+taint_sink: "db.query() with parseInt-coerced value"
+taint_path:
+  - "req.params.id (Express GET handler)"
+  - "const id = parseInt(req.params.id, 10)"
+  - "if (isNaN(id)) return 400"
+  - "db.query(`SELECT * FROM users WHERE id = ${id}`)"
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "Hand-crafted false positive. parseInt() with NaN check coerces input to integer, eliminating string-based SQL injection. The interpolated value is always a numeric literal. Type coercion breaks the taint chain."

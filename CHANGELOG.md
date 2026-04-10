@@ -2,6 +2,29 @@
 
 All notable changes to Piranesi are documented in this file.
 
+## [0.2.0] - 2026-04-10
+
+### Added
+
+- SARIF 2.1.0 output via `--format sarif`, with taint-flow `codeFlows`, inline `fixes` from patch diffs, and regulatory metadata in `properties`.
+- CI integration guide (`docs/ci-integration.md`) with ready-to-use workflow examples for GitHub Actions, GitLab CI, and Docker-based pipelines.
+- Sanitizer recognition engine: 11 built-in sanitizer specs (DOMPurify, parameterized queries, `encodeURIComponent`, `sanitize-html`, `path.resolve` + `startsWith`, and more) that automatically reduce finding confidence when a recognized sanitizer sits on the taint path.
+- Path-pruning analyzer with type-narrowing detection (`typeof x === 'number'` guards) and allowlist pruning (`allowed.includes(input)` + early return).
+- Expanded ground truth from ~50 entries to 185 entries (149 true positives, 36 labeled false positives).
+- CWE reporting descriptor helper (`report/cwe.py`) for SARIF rule metadata.
+- Fastify schema-validation sanitizer spec for framework-specific FP reduction.
+
+### Changed
+
+- SSRF sink specs now detect hardcoded-scheme template literals (`fetch(\`https://host/${id}\`)`) and reduce confidence accordingly.
+- Finding confidence is now multiplicatively reduced by matched sanitizer effectiveness, rather than being binary pass/fail.
+- `OutputConfig.format` accepts `"sarif"` as a first-class format option alongside `"json"`, `"markdown"`, and `"both"`.
+
+### Fixed
+
+- Reduced SSRF false-positive cluster on route-registration patterns (`app.get(...)`, `app.post(...)`) through refined sink predicate matching.
+- Eliminated spurious path-traversal findings where `path.resolve()` + `startsWith()` guards were present on the taint path.
+
 ## [0.1.0] - 2026-04-09
 
 Initial alpha release.

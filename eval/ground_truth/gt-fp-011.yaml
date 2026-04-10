@@ -1,0 +1,19 @@
+id: gt-fp-011
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting
+label: false_positive
+affected_files:
+  - eval/synthetic/fp-json-response.ts
+line_numbers: [8, 11]
+taint_source: req.query.search
+taint_sink: "res.json() with user input"
+taint_path:
+  - "req.query.search (Express GET handler)"
+  - "res.json({ query: req.query.search, results: [] })"
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "Hand-crafted false positive. res.json() sets Content-Type: application/json and JSON-encodes output. Browser will not execute JS from JSON response. Superficially resembles reflection but JSON serialization prevents XSS."

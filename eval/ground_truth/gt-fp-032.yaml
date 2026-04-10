@@ -1,0 +1,20 @@
+id: gt-fp-032
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: false_positive
+affected_files:
+  - eval/synthetic/fp-typeof-number-narrowing.ts
+line_numbers: [15]
+taint_source: req.body.id
+taint_sink: "client.query() after typeof number narrowing"
+taint_path:
+  - "req.body.id (Express POST handler)"
+  - "if (typeof candidate !== 'number') return 400"
+  - "client.query(`SELECT * FROM audit_log WHERE id = ${candidate}`)"
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "Hand-crafted false positive. Runtime type narrowing guarantees the interpolated value is numeric, so string-based SQL injection is impossible."

@@ -1,0 +1,27 @@
+id: gt-080
+source_project: express
+commit_hash: cb59086305367d9fcd7d63b53cfca1a3e4ef77d7
+cwe_id: CWE-601
+cwe_name: Open Redirect
+label: true_positive
+affected_files:
+- lib/response.js
+line_numbers:
+- 708
+- 711
+- 714
+- 716
+- 725
+taint_source: request pathname beginning with // plus attacker-controlled relative redirect argument
+taint_sink: Location header via this.set('Location', url)
+taint_path:
+- An attacker controls the request path so parseUrl.original(req).pathname begins with // (for example, //evil.example/...)
+- The application passes a user-controlled relative redirect such as ./login into res.redirect()
+- res.location() enters the relative-path branch and uses parseUrl.original(req).pathname as the base path (lib/response.js:711-716)
+- resolve(path, url) produces a protocol-relative redirect target
+- this.set('Location', url) emits an attacker-controlled external redirect (lib/response.js:725)
+complexity: ctx
+exploitable: true
+reference_exploit: Request a route via a path beginning with //evil.example/ and trigger res.redirect('./login'); the resulting Location header points at the attacker-controlled host
+reference_fix_commit: 21df421ebc7a5249bb31101da666bbf22adc3f18
+notes: CVE-2024-9266. Affected versions are Express 3.x; the supported fix path is to upgrade to Express 4.x or newer.

@@ -5,18 +5,20 @@ import json
 import re
 import subprocess
 import sys
-from collections import defaultdict
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 try:
     from eval.ground_truth.schema import GroundTruthEntry, Label
 except ImportError:  # pragma: no cover - supports `python eval/scoring.py`
-    from ground_truth.schema import GroundTruthEntry, Label
+    from ground_truth.schema import (  # type: ignore[import-not-found,no-redef]
+        GroundTruthEntry,
+        Label,
+    )
 
 _CWE_PATTERN = re.compile(r"cwe[-_ ]?(\d+)", re.IGNORECASE)
 _WHITESPACE_PATTERN = re.compile(r"\s+")
@@ -198,7 +200,7 @@ def normalize_cwe_id(value: str | None) -> str:
 def _format_count(value: float | int) -> str:
     numeric = float(value)
     if abs(numeric - round(numeric)) < _FLOAT_TOLERANCE:
-        return str(int(round(numeric)))
+        return str(round(numeric))
     return f"{numeric:.1f}"
 
 
@@ -220,7 +222,11 @@ def _safe_divide(numerator: float, denominator: float) -> float | None:
     return numerator / denominator
 
 
-def _compute_prf(tp_weight: float, fp_weight: float, fn_weight: float) -> tuple[float | None, float | None, float | None]:
+def _compute_prf(
+    tp_weight: float,
+    fp_weight: float,
+    fn_weight: float,
+) -> tuple[float | None, float | None, float | None]:
     precision = _safe_divide(tp_weight, tp_weight + fp_weight)
     recall = _safe_divide(tp_weight, tp_weight + fn_weight)
     if precision is None or recall is None:
@@ -275,7 +281,7 @@ def _extract_file_from_mapping(payload: dict[str, Any]) -> str | None:
 
 def _extract_source_text(payload: dict[str, Any]) -> str:
     if isinstance(payload.get("taint_source"), str):
-        return payload["taint_source"]
+        return str(payload["taint_source"])
     source = payload.get("source")
     if isinstance(source, str):
         return source
@@ -291,7 +297,7 @@ def _extract_source_text(payload: dict[str, Any]) -> str:
 
 def _extract_sink_text(payload: dict[str, Any]) -> str:
     if isinstance(payload.get("taint_sink"), str):
-        return payload["taint_sink"]
+        return str(payload["taint_sink"])
     sink = payload.get("sink")
     if isinstance(sink, str):
         return sink
@@ -399,10 +405,16 @@ def _unwrap_finding(payload: Any) -> dict[str, Any]:
 
 def _is_finding_like(payload: Any) -> bool:
     finding = _unwrap_finding(payload)
-    return any(
-        key in finding
-        for key in ("source", "sink", "affected_files", "taint_source", "taint_sink", "cwe_id", "vuln_class")
+    finding_keys = (
+        "source",
+        "sink",
+        "affected_files",
+        "taint_source",
+        "taint_sink",
+        "cwe_id",
+        "vuln_class",
     )
+    return any(key in finding for key in finding_keys)
 
 
 def normalize_finding(payload: Any) -> NormalizedFinding | None:
@@ -452,7 +464,10 @@ def _extract_list_container(payload: Any) -> list[Any] | None:
     return None
 
 
-def _extract_findings_from_keys(payload: dict[str, Any], *keys: str) -> tuple[NormalizedFinding, ...]:
+def _extract_findings_from_keys(
+    payload: dict[str, Any],
+    *keys: str,
+) -> tuple[NormalizedFinding, ...]:
     for key in keys:
         value = payload.get(key)
         container = _extract_list_container(value)
@@ -465,7 +480,8 @@ def _triage_survives(payload: Any) -> bool:
     mapping = _coerce_mapping(payload)
     verdict = mapping.get("triage_verdict") or mapping.get("verdict")
     if isinstance(verdict, str):
-        return verdict.casefold() not in {"rejected", "false_positive", "false positive", "filtered"}
+        rejected = {"rejected", "false_positive", "false positive", "filtered"}
+        return verdict.casefold() not in rejected
     return True
 
 
@@ -558,7 +574,12 @@ def load_pipeline_results(pipeline_output_path: Path) -> PipelineResults:
         or []
     )
 
-    detect_findings = _extract_findings_from_keys(payload, "detect", "detect_findings", "candidate_findings")
+    detect_findings = _extract_findings_from_keys(
+        payload,
+        "detect",
+        "detect_findings",
+        "candidate_findings",
+    )
 
     triage_raw = (
         _extract_list_container(payload.get("triage"))
@@ -574,8 +595,10 @@ def load_pipeline_results(pipeline_output_path: Path) -> PipelineResults:
     )
     verify_findings = _normalize_findings([item for item in verify_raw if _verify_confirmed(item)])
 
-    final_findings = ()
-    report_payload = _coerce_mapping(payload.get("report")) or _coerce_mapping(payload.get("final_report"))
+    final_findings: tuple[NormalizedFinding, ...] = ()
+    report_payload = _coerce_mapping(payload.get("report")) or _coerce_mapping(
+        payload.get("final_report")
+    )
     report_findings_raw = _extract_list_container(report_payload.get("findings")) or []
     if report_findings_raw:
         final_findings = _normalize_findings(report_findings_raw)
@@ -643,7 +666,9 @@ def _line_match_weight(
     entry_set = set(entry_lines)
     if finding_set.intersection(entry_set):
         return 1.0
-    nearest = min(abs(finding_line - entry_line) for finding_line in finding_set for entry_line in entry_set)
+    nearest = min(
+        abs(finding_line - entry_line) for finding_line in finding_set for entry_line in entry_set
+    )
     if nearest <= _NEARBY_LINE_DISTANCE:
         return 0.5
     return 0.0
@@ -676,7 +701,7 @@ def summarize_matches(
         )
 
     class _Edge:
-        __slots__ = ("to", "reverse_index", "capacity", "cost")
+        __slots__ = ("capacity", "cost", "reverse_index", "to")
 
         def __init__(self, to: int, reverse_index: int, capacity: int, cost: int) -> None:
             self.to = to
@@ -804,14 +829,20 @@ def _build_stage_score(summary: MatchSummary) -> StageScore:
     )
 
 
-def _count_scan_hits(observations: tuple[ScanObservation, ...], entries: list[GroundTruthEntry], *, kind: str) -> int:
+def _count_scan_hits(
+    observations: tuple[ScanObservation, ...],
+    entries: list[GroundTruthEntry],
+    *,
+    kind: str,
+) -> int:
     hits = 0
     for entry in entries:
         target = entry.taint_source if kind == "source" else entry.taint_sink
         normalized_target = normalize_text(target)
         affected_files = {normalize_file_path(file_path) for file_path in entry.affected_files}
         matched = any(
-            normalize_text(observation.value) == normalized_target and observation.file in affected_files
+            normalize_text(observation.value) == normalized_target
+            and observation.file in affected_files
             for observation in observations
         )
         if matched:
@@ -834,15 +865,26 @@ def _git_commit_fallback() -> str:
     return result.stdout.strip() or "unknown"
 
 
-def build_report(pipeline_results: PipelineResults, ground_truth_entries: list[GroundTruthEntry]) -> EvaluationReport:
-    true_positive_entries = [entry for entry in ground_truth_entries if entry.label == Label.TRUE_POSITIVE]
-    false_positive_entries = [entry for entry in ground_truth_entries if entry.label == Label.FALSE_POSITIVE]
+def build_report(
+    pipeline_results: PipelineResults,
+    ground_truth_entries: list[GroundTruthEntry],
+) -> EvaluationReport:
+    true_positive_entries = [
+        entry for entry in ground_truth_entries if entry.label == Label.TRUE_POSITIVE
+    ]
+    false_positive_entries = [
+        entry for entry in ground_truth_entries if entry.label == Label.FALSE_POSITIVE
+    ]
 
     overall_summary = summarize_matches(pipeline_results.final_findings, true_positive_entries)
     overall = _build_stage_score(overall_summary)
 
     if pipeline_results.scan_sources or pipeline_results.scan_sinks:
-        source_hits = _count_scan_hits(pipeline_results.scan_sources, ground_truth_entries, kind="source")
+        source_hits = _count_scan_hits(
+            pipeline_results.scan_sources,
+            ground_truth_entries,
+            kind="source",
+        )
         sink_hits = _count_scan_hits(pipeline_results.scan_sinks, ground_truth_entries, kind="sink")
         scan = ScanScore(
             available=True,
@@ -857,7 +899,9 @@ def build_report(pipeline_results: PipelineResults, ground_truth_entries: list[G
         scan = ScanScore(available=False)
 
     if pipeline_results.detect_findings:
-        detect = _build_stage_score(summarize_matches(pipeline_results.detect_findings, true_positive_entries))
+        detect = _build_stage_score(
+            summarize_matches(pipeline_results.detect_findings, true_positive_entries),
+        )
     else:
         detect = StageScore(available=False)
 
@@ -907,10 +951,18 @@ def build_report(pipeline_results: PipelineResults, ground_truth_entries: list[G
     predicted_cwes = {finding.cwe_id for finding in pipeline_results.final_findings}
     cwe_ids = sorted(set(cwe_names) | predicted_cwes, key=_cwe_sort_key)
     for cwe_id in cwe_ids:
-        cwe_truth = [entry for entry in true_positive_entries if normalize_cwe_id(entry.cwe_id) == cwe_id]
-        cwe_predictions = [finding for finding in pipeline_results.final_findings if finding.cwe_id == cwe_id]
+        cwe_truth = [
+            entry for entry in true_positive_entries if normalize_cwe_id(entry.cwe_id) == cwe_id
+        ]
+        cwe_predictions = [
+            finding for finding in pipeline_results.final_findings if finding.cwe_id == cwe_id
+        ]
         summary = summarize_matches(cwe_predictions, cwe_truth)
-        precision, recall, f1 = _compute_prf(summary.tp_weight, summary.fp_weight, summary.fn_weight)
+        precision, recall, f1 = _compute_prf(
+            summary.tp_weight,
+            summary.fp_weight,
+            summary.fn_weight,
+        )
         per_cwe[cwe_id] = {
             "cwe_name": cwe_names.get(cwe_id, ""),
             "precision": precision,
@@ -925,7 +977,9 @@ def build_report(pipeline_results: PipelineResults, ground_truth_entries: list[G
         }
 
     fp_leak_summary = summarize_matches(pipeline_results.final_findings, false_positive_entries)
-    leaked_fp_ids = sorted({assignment.ground_truth_id for assignment in fp_leak_summary.assignments})
+    leaked_fp_ids = sorted(
+        {assignment.ground_truth_id for assignment in fp_leak_summary.assignments},
+    )
     leaked_entries = [entry for entry in false_positive_entries if entry.id in leaked_fp_ids]
     false_positive_handling = {
         "known_fp_entries": len(false_positive_entries),
@@ -937,7 +991,10 @@ def build_report(pipeline_results: PipelineResults, ground_truth_entries: list[G
         ],
     }
 
-    cost_per_finding = _safe_divide(pipeline_results.total_cost_usd or 0.0, len(pipeline_results.final_findings))
+    cost_per_finding = _safe_divide(
+        pipeline_results.total_cost_usd or 0.0,
+        len(pipeline_results.final_findings),
+    )
     cost_per_true_positive = _safe_divide(pipeline_results.total_cost_usd or 0.0, overall.tp_weight)
     total_cost = pipeline_results.total_cost_usd
     if total_cost is None:
@@ -988,7 +1045,8 @@ def render_report(report: EvaluationReport) -> str:
         "Overall Metrics:",
         (
             f"  Precision:  {_format_metric(report.overall.precision)} "
-            f"({_format_count(report.overall.tp_weight)}/{_format_count(report.overall.predictions)} "
+            f"({_format_count(report.overall.tp_weight)}"
+            f"/{_format_count(report.overall.predictions)} "
             "confirmed findings are real)"
         ),
         (
@@ -1061,7 +1119,8 @@ def render_report(report: EvaluationReport) -> str:
         lines.append(
             "  "
             f"Triage:  {report.triage.fp_filtered} FPs filtered, "
-            f"{_format_count(report.triage.tp_incorrectly_filtered_weight)} TPs incorrectly filtered"
+            f"{_format_count(report.triage.tp_incorrectly_filtered_weight)} "
+            "TPs incorrectly filtered"
         )
     else:
         lines.append("  Triage:  n/a")
@@ -1157,14 +1216,30 @@ def build_comparison_report(
 def render_comparison_report(comparison: dict[str, Any]) -> str:
     tools = comparison.get("tools", [])
     rows = comparison.get("rows", [])
-    tool_labels = [tool["label"] for tool in tools if isinstance(tool, dict) and isinstance(tool.get("label"), str)]
-    first_column_width = max([len("Metric"), *(len(row["label"]) for row in rows if isinstance(row, dict) and isinstance(row.get("label"), str))], default=18)
-    tool_column_width = max([10, *(len(label) + 2 for label in tool_labels)], default=10)
+    tool_labels = [
+        tool["label"]
+        for tool in tools
+        if isinstance(tool, dict) and isinstance(tool.get("label"), str)
+    ]
+    row_label_widths = [
+        len(row["label"])
+        for row in rows
+        if isinstance(row, dict) and isinstance(row.get("label"), str)
+    ]
+    first_column_width = max(
+        [len("Metric"), *row_label_widths],
+        default=18,
+    )
+    tool_column_width = max(
+        [10, *(len(label) + 2 for label in tool_labels)],
+        default=10,
+    )
 
+    header_cols = "  ".join(f"{label:>{tool_column_width}}" for label in tool_labels)
     lines = [
         "Baseline Comparison",
         "===================",
-        f"{'':<{first_column_width}}  " + "  ".join(f"{label:>{tool_column_width}}" for label in tool_labels),
+        f"{'':<{first_column_width}}  " + header_cols,
     ]
 
     for row in rows:
@@ -1175,8 +1250,7 @@ def render_comparison_report(comparison: dict[str, Any]) -> str:
         if not isinstance(label, str) or not isinstance(values, list):
             continue
         rendered_values = [
-            f"{_render_comparison_value(label, value):>{tool_column_width}}"
-            for value in values
+            f"{_render_comparison_value(label, value):>{tool_column_width}}" for value in values
         ]
         lines.append(f"{label:<{first_column_width}}  " + "  ".join(rendered_values))
 
@@ -1233,7 +1307,12 @@ def score_multiple_outputs(
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Score Piranesi eval output against ground truth.")
     parser.add_argument("--pipeline-output", required=True, type=Path, help="Path to results.json.")
-    parser.add_argument("--ground-truth", required=True, type=Path, help="Directory containing YAML ground truth entries.")
+    parser.add_argument(
+        "--ground-truth",
+        required=True,
+        type=Path,
+        help="Directory containing YAML ground truth entries.",
+    )
     parser.add_argument(
         "--output",
         type=Path,

@@ -1,0 +1,27 @@
+id: gt-053
+source_project: dvna
+commit_hash: 9ba473add536f66ac9007966acb2a775dd31277a
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting (Stored DOM)
+label: true_positive
+affected_files:
+- core/appHandler.js
+- views/app/adminusers.ejs
+line_numbers:
+- 173
+- 175
+- 210
+- 42
+taint_source: req.body.email
+taint_sink: innerHTML assignment in views/app/adminusers.ejs
+taint_path:
+- req.body.email (POST /app/useredit)
+- user.email = req.body.email (core/appHandler.js:173)
+- user.save() persists the modified email (core/appHandler.js:175)
+- listUsersAPI serializes stored User rows to JSON for /app/admin/usersapi (core/appHandler.js:206-211)
+- views/app/adminusers.ejs:42 assigns users[i].email into innerHTML, creating a DOM XSS sink
+complexity: ctx
+exploitable: true
+reference_exploit: Update your profile so email=<img src=x onerror=alert(document.domain)> and then visit /app/admin/users
+reference_fix_commit: null
+notes: Stored DOM XSS via the profile edit flow. The admin user list populates the email column with innerHTML.

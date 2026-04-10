@@ -1,0 +1,19 @@
+id: gt-074
+source_project: owasp-juice-shop
+commit_hash: "7380ce7120e289fc6bea861efd3fcba89261a6a8"
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: false_positive
+affected_files:
+  - routes/delivery.ts
+line_numbers: [34]
+taint_source: req.params.id
+taint_sink: "DeliveryModel.findOne() Sequelize model method"
+taint_path:
+  - "req.params.id (routes/delivery.ts:34)"
+  - "DeliveryModel.findOne({ where: { id: req.params.id } })"
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "False positive for SQLi. This route uses a normal Sequelize where clause, which parameterizes the id lookup internally."

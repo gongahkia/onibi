@@ -1,0 +1,23 @@
+id: gt-083
+source_project: koa
+commit_hash: 3efab9df2743502c3ca1869cf430e0cc8ccca494
+cwe_id: CWE-601
+cwe_name: Open Redirect
+label: true_positive
+affected_files:
+- lib/response.js
+line_numbers:
+- 262
+- 264
+- 269
+taint_source: Referrer header consumed by ctx.redirect('back')
+taint_sink: Location header via this.set('Location', ...)
+taint_path:
+- A route calls ctx.redirect('back')
+- response.redirect() substitutes url = this.ctx.get('Referrer') || alt || '/' (lib/response.js:264)
+- this.set('Location', encodeUrl(url)) forwards the attacker-controlled external URL into the Location header (lib/response.js:269)
+complexity: simple
+exploitable: true
+reference_exploit: 'Send `Referrer: https://evil.example/phish` to a route that calls ctx.redirect(''back'')'
+reference_fix_commit: 979f5e448082b16ac5efa7a101e869e8bed357db
+notes: CVE-2025-8129. Fixed in 2.16.2 by introducing _getBackReferrer() and same-origin checks for back redirects.
