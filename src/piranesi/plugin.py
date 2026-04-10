@@ -207,13 +207,13 @@ class NestJSFramework(FrameworkPlugin):
         return _check_package_dep(project_root, "@nestjs/core")
 
     def source_specs(self) -> list[SourceSpec]:
-        return list(NESTJS_SOURCE_SPECS)
+        return list(BUILTIN_SOURCE_SPECS) + list(NESTJS_SOURCE_SPECS)
 
     def sink_specs(self) -> list[SinkSpec]:
-        return []
+        return list(BUILTIN_SINK_SPECS)
 
     def sanitizer_specs(self) -> list[SanitizerSpec]:
-        return []
+        return list(BUILTIN_SANITIZER_SPECS)
 
 
 class NextJSFramework(FrameworkPlugin):
@@ -226,13 +226,13 @@ class NextJSFramework(FrameworkPlugin):
         return any(p.is_file() for p in project_root.glob("next.config.*"))
 
     def source_specs(self) -> list[SourceSpec]:
-        return list(NEXTJS_SOURCE_SPECS)
+        return list(BUILTIN_SOURCE_SPECS) + list(NEXTJS_SOURCE_SPECS)
 
     def sink_specs(self) -> list[SinkSpec]:
-        return []
+        return list(BUILTIN_SINK_SPECS)
 
     def sanitizer_specs(self) -> list[SanitizerSpec]:
-        return []
+        return list(BUILTIN_SANITIZER_SPECS)
 
 
 class FastifyFramework(FrameworkPlugin):
@@ -243,13 +243,13 @@ class FastifyFramework(FrameworkPlugin):
         return _check_package_dep(project_root, "fastify")
 
     def source_specs(self) -> list[SourceSpec]:
-        return list(FASTIFY_SOURCE_SPECS)
+        return list(BUILTIN_SOURCE_SPECS) + list(FASTIFY_SOURCE_SPECS)
 
     def sink_specs(self) -> list[SinkSpec]:
-        return list(FASTIFY_SINK_SPECS)
+        return list(BUILTIN_SINK_SPECS) + list(FASTIFY_SINK_SPECS)
 
     def sanitizer_specs(self) -> list[SanitizerSpec]:
-        return list(FASTIFY_SANITIZER_SPECS)
+        return list(BUILTIN_SANITIZER_SPECS) + list(FASTIFY_SANITIZER_SPECS)
 
 
 def _check_java_dep(project_root: Path, artifact_id: str) -> bool:
@@ -309,7 +309,7 @@ def _check_gomod_dep(project_root: Path, module_path: str) -> bool:
 
 
 def _has_go_files(project_root: Path) -> bool:
-    return any(project_root.rglob("*.go"))
+    return any(path.is_file() and "vendor" not in path.parts for path in project_root.rglob("*.go"))
 
 
 class GinFramework(FrameworkPlugin):

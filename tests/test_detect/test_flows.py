@@ -134,15 +134,15 @@ def _joern_json_stdout(payload: object) -> str:
 
 
 def _source_spec_by_name(name: str) -> SourceSpec:
-    return next(spec for spec in get_source_specs(frameworks=("fastify",)) if spec.name == name)
+    return next(spec for spec in get_source_specs(frameworks=("express", "fastify")) if spec.name == name)
 
 
 def _sink_spec_by_name(name: str) -> SinkSpec:
-    return next(spec for spec in get_sink_specs(frameworks=("fastify",)) if spec.name == name)
+    return next(spec for spec in get_sink_specs(frameworks=("express", "fastify")) if spec.name == name)
 
 
 def _sanitizer_spec_by_name(name: str) -> SanitizerSpec:
-    return next(spec for spec in get_sanitizer_specs(frameworks=("fastify",)) if spec.name == name)
+    return next(spec for spec in get_sanitizer_specs(frameworks=("express", "fastify")) if spec.name == name)
 
 
 def _custom_source_spec(name: str) -> SourceSpec:
@@ -207,6 +207,73 @@ def _register_file_queries(
 ) -> None:
     for node_id in node_ids:
         exact_payloads[f"cpg.id({node_id}L).file.name.toJsonPretty"] = [str(file_path)]
+
+
+def test_extract_candidate_findings_detects_reflected_cors_origin() -> None:
+    source_spec = _source_spec_by_name("express_req_origin_header")
+    sink_spec = _sink_spec_by_name("cors_allow_origin_reflection")
+    exact_payloads: dict[str, object] = {}
+    app_file = TAINT_APP_DIR / "app.ts"
+
+    flow = [
+        _node(
+            201,
+            label="CALL",
+            name="<operator>.fieldAccess",
+            code="req.headers.origin",
+            line=4,
+            column=18,
+            method_full_name="<operator>.fieldAccess",
+        ),
+        _node(
+            202,
+            label="IDENTIFIER",
+            name="origin",
+            code="origin",
+            line=4,
+            column=9,
+            method_full_name="app.js::program:corsHandler",
+        ),
+        _node(
+            203,
+            label="IDENTIFIER",
+            name="origin",
+            code="origin",
+            line=5,
+            column=50,
+            method_full_name="app.js::program:corsHandler",
+        ),
+    ]
+    parent_call = _node(
+        204,
+        label="CALL",
+        name="setHeader",
+        code="res.setHeader('Access-Control-Allow-Origin', origin)",
+        line=5,
+        column=3,
+        method_full_name="app.js::program:corsHandler",
+    )
+
+    exact_payloads[build_flow_query(source_spec, sink_spec)] = [{"elements": flow}]
+    exact_payloads["cpg.identifier.id(203L).astParent.toJsonPretty"] = [parent_call]
+    _register_file_queries(exact_payloads, app_file, 201, 203, 204)
+
+    findings = extract_candidate_findings(
+        FakeJoernServer(exact_payloads=exact_payloads),  # type: ignore[arg-type]
+        joern_project_root=TAINT_APP_DIR,
+        source_map=None,
+        source_specs=(source_spec,),
+        sink_specs=(sink_spec,),
+        sanitizer_specs=(),
+    )
+
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.vuln_class == "CWE-942"
+    assert finding.source.parameter_name == "origin"
+    assert finding.sink.api_name == "res.setHeader"
+    assert finding.sink.location.line == 5
+    assert finding.severity == "high"
 
 
 def test_extract_candidate_findings_reduces_confidence_for_sanitized_paths() -> None:
@@ -362,8 +429,9 @@ def test_extract_candidate_findings_reduces_confidence_for_sanitized_paths() -> 
     assert all(step.taint_state == "tainted" for step in sql_finding.taint_path)
     assert sql_finding.id == candidate_finding_id(
         vuln_class="CWE-89",
-        source_location=sql_finding.source.location,
-        sink_location=sql_finding.sink.location,
+        source_function_name=sql_finding.taint_path[0].through_function,
+        sink_function_name=sql_finding.taint_path[-1].through_function,
+        path_length=len(sql_finding.taint_path),
     )
     assert sql_finding.confidence == pytest.approx(_DEFAULT_CONFIDENCE)
 
@@ -382,6 +450,30 @@ def test_extract_candidate_findings_reduces_confidence_for_sanitized_paths() -> 
         "escape",
         "escape",
     ]
+
+
+def test_candidate_finding_id_is_stable_across_line_shifts() -> None:
+    baseline = candidate_finding_id(
+        vuln_class="CWE-89",
+        source_function_name="routes.login",
+        sink_function_name="db.query",
+        path_length=4,
+    )
+    shifted = candidate_finding_id(
+        vuln_class="CWE-89",
+        source_function_name="routes.login",
+        sink_function_name="db.query",
+        path_length=4,
+    )
+    different_shape = candidate_finding_id(
+        vuln_class="CWE-89",
+        source_function_name="routes.login",
+        sink_function_name="db.query",
+        path_length=5,
+    )
+
+    assert baseline == shifted
+    assert baseline != different_shape
 
 
 def test_joern_flow_to_taint_steps_marks_steps_after_sanitizer() -> None:

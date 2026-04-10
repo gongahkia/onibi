@@ -90,23 +90,45 @@ def test_express_plugin_provides_builtin_specs() -> None:
 def test_nestjs_plugin_provides_nestjs_specs() -> None:
     p = NestJSFramework()
     assert p.name() == "nestjs"
-    assert p.source_specs() == list(NESTJS_SOURCE_SPECS)
-    assert p.sink_specs() == []
-    assert p.sanitizer_specs() == []
+    names = {s.name for s in p.source_specs()}
+    for spec in NESTJS_SOURCE_SPECS:
+        assert spec.name in names
+    for spec in BUILTIN_SOURCE_SPECS:
+        assert spec.name in names
+    assert p.sink_specs() == list(BUILTIN_SINK_SPECS)
+    assert p.sanitizer_specs() == list(BUILTIN_SANITIZER_SPECS)
 
 
 def test_nextjs_plugin_provides_nextjs_specs() -> None:
     p = NextJSFramework()
     assert p.name() == "nextjs"
-    assert p.source_specs() == list(NEXTJS_SOURCE_SPECS)
+    names = {s.name for s in p.source_specs()}
+    for spec in NEXTJS_SOURCE_SPECS:
+        assert spec.name in names
+    for spec in BUILTIN_SOURCE_SPECS:
+        assert spec.name in names
+    assert p.sink_specs() == list(BUILTIN_SINK_SPECS)
+    assert p.sanitizer_specs() == list(BUILTIN_SANITIZER_SPECS)
 
 
 def test_fastify_plugin_provides_fastify_specs() -> None:
     p = FastifyFramework()
     assert p.name() == "fastify"
-    assert p.source_specs() == list(FASTIFY_SOURCE_SPECS)
-    assert p.sink_specs() == list(FASTIFY_SINK_SPECS)
-    assert p.sanitizer_specs() == list(FASTIFY_SANITIZER_SPECS)
+    src_names = {s.name for s in p.source_specs()}
+    for spec in FASTIFY_SOURCE_SPECS:
+        assert spec.name in src_names
+    for spec in BUILTIN_SOURCE_SPECS:
+        assert spec.name in src_names
+    sink_names = {s.name for s in p.sink_specs()}
+    for spec in FASTIFY_SINK_SPECS:
+        assert spec.name in sink_names
+    for spec in BUILTIN_SINK_SPECS:
+        assert spec.name in sink_names
+    san_names = {s.name for s in p.sanitizer_specs()}
+    for spec in FASTIFY_SANITIZER_SPECS:
+        assert spec.name in san_names
+    for spec in BUILTIN_SANITIZER_SPECS:
+        assert spec.name in san_names
 
 
 # --- detect ---
@@ -239,6 +261,13 @@ def test_get_source_specs_default_returns_express_base() -> None:
     specs = get_source_specs()
     names = {s.name for s in specs}
     assert "express_req_body" in names
+    assert "express_req_origin_header" in names
+
+
+def test_get_sink_specs_default_includes_cors_reflection_sink() -> None:
+    specs = get_sink_specs()
+    names = {s.name for s in specs}
+    assert "cors_allow_origin_reflection" in names
 
 
 def test_get_source_specs_with_nestjs_adds_nestjs() -> None:
@@ -390,11 +419,11 @@ def test_springboot_source_spec_count() -> None:
 
 
 def test_springboot_sink_spec_count() -> None:
-    assert len(SPRINGBOOT_SINK_SPECS) == 6
+    assert len(SPRINGBOOT_SINK_SPECS) == 12
 
 
 def test_springboot_sanitizer_spec_count() -> None:
-    assert len(SPRINGBOOT_SANITIZER_SPECS) == 2
+    assert len(SPRINGBOOT_SANITIZER_SPECS) == 4
 
 
 # --- Spring Boot detect ---
@@ -468,6 +497,7 @@ def test_get_sink_specs_with_springboot() -> None:
     specs = get_sink_specs(frameworks=("springboot",))
     names = {s.name for s in specs}
     assert "spring_jdbc_query" in names
+    assert "spring_jpa_native_query_concat" in names
     assert "java_runtime_exec" in names
     assert "spring_rest_template" in names
 
@@ -477,6 +507,8 @@ def test_get_sanitizer_specs_with_springboot() -> None:
     names = {s.name for s in specs}
     assert "spring_security_context" in names
     assert "spring_valid_annotation" in names
+    assert "spring_pre_authorize_access_control" in names
+    assert "spring_secured_access_control" in names
 
 
 def test_springboot_disabled() -> None:
