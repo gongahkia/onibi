@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import subprocess
 import sys
 import types
+from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -16,12 +16,13 @@ if str(REPO_ROOT) not in sys.path:
 if str(REPO_ROOT / "eval") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "eval"))
 
-from eval import scoring
-from eval.baselines.llm_only_runner import run_llm_only_baseline
-from eval.baselines.opengrep_normalizer import normalize_opengrep_output
-from eval.baselines.opengrep_runner import run_opengrep_scan
-from eval.ground_truth.schema import Complexity, GroundTruthEntry, Label
-from piranesi.config import ModelsConfig, PiranesiConfig, TraceConfig
+from eval import scoring  # noqa: E402
+from eval.baselines.llm_only_runner import run_llm_only_baseline  # noqa: E402
+from eval.baselines.opengrep_normalizer import normalize_opengrep_output  # noqa: E402
+from eval.baselines.opengrep_runner import run_opengrep_scan  # noqa: E402
+from eval.ground_truth.schema import Complexity, GroundTruthEntry, Label  # noqa: E402
+
+from piranesi.config import ModelsConfig, PiranesiConfig, TraceConfig  # noqa: E402
 
 
 def _ground_truth_entry(
@@ -66,9 +67,15 @@ def _write_ground_truth(ground_truth_dir: Path, entries: list[GroundTruthEntry])
 
 
 def test_opengrep_normalizer_extracts_cwe_lines_and_trace(fixtures_dir: Path) -> None:
-    raw_payload = json.loads((fixtures_dir / "eval" / "opengrep_raw_output.json").read_text(encoding="utf-8"))
+    raw_payload = json.loads(
+        (fixtures_dir / "eval" / "opengrep_raw_output.json").read_text(encoding="utf-8")
+    )
 
-    normalized = normalize_opengrep_output(raw_payload, project_root=Path("/tmp/project"), tool_name="opengrep")
+    normalized = normalize_opengrep_output(
+        raw_payload,
+        project_root=Path("/tmp/project"),  # noqa: S108
+        tool_name="opengrep",
+    )
 
     assert normalized["tool"] == "opengrep"
     assert normalized["pipeline_findings"] == 2
@@ -89,8 +96,12 @@ def test_opengrep_normalizer_extracts_cwe_lines_and_trace(fixtures_dir: Path) ->
 
 
 def test_scoring_handles_line_based_baseline_findings(tmp_path: Path, fixtures_dir: Path) -> None:
-    raw_payload = json.loads((fixtures_dir / "eval" / "opengrep_raw_output.json").read_text(encoding="utf-8"))
-    normalized = normalize_opengrep_output(raw_payload, project_root=tmp_path / "project", tool_name="opengrep")
+    raw_payload = json.loads(
+        (fixtures_dir / "eval" / "opengrep_raw_output.json").read_text(encoding="utf-8")
+    )
+    normalized = normalize_opengrep_output(
+        raw_payload, project_root=tmp_path / "project", tool_name="opengrep"
+    )
 
     normalized_output_path = tmp_path / "opengrep-normalized.json"
     normalized_output_path.write_text(json.dumps(normalized), encoding="utf-8")
@@ -294,7 +305,9 @@ def test_llm_only_runner_uses_detector_model_and_normalizes_findings(
                                         "file": "src/app.ts",
                                         "line_numbers": [1],
                                         "cwe_id": "CWE-89",
-                                        "description": "Unsanitized request input reaches a SQL query sink.",
+                                        "description": (
+                                            "Unsanitized request input reaches a SQL query sink."
+                                        ),
                                         "severity": "high",
                                     }
                                 ]
@@ -306,9 +319,10 @@ def test_llm_only_runner_uses_detector_model_and_normalizes_findings(
         }
 
     fake_litellm = types.ModuleType("litellm")
-    fake_litellm.completion = _completion
-    fake_litellm.completion_cost = lambda response: 0.0
+    fake_litellm.completion = _completion  # type: ignore[attr-defined]
+    fake_litellm.completion_cost = lambda response: 0.0  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "litellm", fake_litellm)
+    monkeypatch.setattr("piranesi.llm.provider.litellm", fake_litellm)
 
     config = PiranesiConfig(
         models=ModelsConfig(detector="detector-model"),

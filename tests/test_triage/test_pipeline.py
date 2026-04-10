@@ -43,9 +43,12 @@ def test_full_triage_pipeline_errs_on_side_of_caution_when_skeptic_disagrees() -
             ],
         }
     )
-    voter = CalibratedEnsembleVoter(provider=provider, models=("m1", "m2", "m3"))
+    voter = CalibratedEnsembleVoter(
+        provider=provider,  # type: ignore[arg-type]
+        models=("m1", "m2", "m3"),
+    )
     skeptic = SkepticAgent(
-        provider=provider,
+        provider=provider,  # type: ignore[arg-type]
         model="skeptic-model",
         detector_model="detector-model",
     )
@@ -98,9 +101,12 @@ def test_full_triage_pipeline_filters_when_ensemble_and_skeptic_both_call_false_
             ],
         }
     )
-    voter = CalibratedEnsembleVoter(provider=provider, models=("m1", "m2", "m3"))
+    voter = CalibratedEnsembleVoter(
+        provider=provider,  # type: ignore[arg-type]
+        models=("m1", "m2", "m3"),
+    )
     skeptic = SkepticAgent(
-        provider=provider,
+        provider=provider,  # type: ignore[arg-type]
         model="skeptic-model",
         detector_model="detector-model",
     )

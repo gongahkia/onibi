@@ -31,7 +31,7 @@ def mock_llm(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         "calls": [],
     }
 
-    def _completion(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    def _completion(*args: Any, **kwargs: Any) -> Any:
         state["calls"].append({"args": args, "kwargs": kwargs})
         return state["response"]
 

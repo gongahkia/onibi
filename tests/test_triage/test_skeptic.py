@@ -25,7 +25,7 @@ def test_skeptic_builds_prompt_with_sanitized_code_and_required_fields() -> None
         }
     )
     skeptic = SkepticAgent(
-        provider=provider,
+        provider=provider,  # type: ignore[arg-type]
         model="skeptic-model",
         detector_model="detector-model",
     )
@@ -72,7 +72,7 @@ def test_skeptic_parses_each_supported_verdict(verdict: str) -> None:
         }
     )
     skeptic = SkepticAgent(
-        provider=provider,
+        provider=provider,  # type: ignore[arg-type]
         model="skeptic-model",
         detector_model="detector-model",
     )
@@ -88,7 +88,7 @@ def test_skeptic_gracefully_degrades_on_malformed_json_response() -> None:
     finding = build_candidate_finding()
     provider = RecordingProvider({("skeptic", "skeptic-model"): ["not-json-at-all"]})
     skeptic = SkepticAgent(
-        provider=provider,
+        provider=provider,  # type: ignore[arg-type]
         model="skeptic-model",
         detector_model="detector-model",
     )
@@ -104,7 +104,7 @@ def test_skeptic_gracefully_degrades_on_malformed_json_response() -> None:
 def test_skeptic_enforces_different_model_from_detector() -> None:
     finding = build_candidate_finding()
     skeptic = SkepticAgent(
-        provider=RecordingProvider({}),
+        provider=RecordingProvider({}),  # type: ignore[arg-type]
         model="shared-model",
         detector_model="shared-model",
     )

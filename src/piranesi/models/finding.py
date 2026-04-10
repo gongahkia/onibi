@@ -62,9 +62,16 @@ class CandidateFinding(BaseModel):
     severity: str
     affected_individuals_estimate: int | None = None
     cross_border: bool = False
+    is_healthcare_entity: bool = False
     is_high_risk_ai: bool = False
+    is_essential_entity: bool = False
+    is_important_entity: bool = False
     third_party_processor: bool = False
     no_encryption_at_rest: bool = False
+    likely_risk_to_rights: bool = False
+    high_risk_to_individuals: bool = False
+    basic_processing_principle_violation: bool = False
+    willful_violation: bool = False
 
 
 class TriagedFinding(BaseModel):

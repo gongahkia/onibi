@@ -1,6 +1,6 @@
 [project]
 name = "piranesi"
-version = "0.1.0"
+version = "0.2.0"
 description = "CLI-native cybersecurity analysis tool for TypeScript/JavaScript source code"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -64,6 +64,7 @@ packages = ["src/piranesi"]
 
 [dependency-groups]
 dev = [
+    "jsonschema>=4.23.0",
     "pytest>=8.0.0",
     "pytest-cov>=5.0.0",
     "pytest-asyncio>=0.23.0",
@@ -81,6 +82,7 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks integration tests requiring external services",
     "joern: marks tests requiring a local Joern installation",
+    "e2e: marks live end-to-end tests requiring Joern and Docker",
 ]
 
 [tool.mypy]

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import re
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -19,16 +19,9 @@ from piranesi.models import (
     SourceLocation,
     TaintStep,
 )
+from piranesi.report.cwe import cwe_title, extract_cwe_id
 
-_CWE_PATTERN = re.compile(r"(CWE-\d+)", re.IGNORECASE)
 _SEVERITY_ORDER = ("critical", "high", "medium", "low")
-_CWE_TITLES = {
-    "CWE-22": "Path Traversal",
-    "CWE-78": "Command Injection",
-    "CWE-79": "Cross-Site Scripting",
-    "CWE-89": "SQL Injection",
-    "CWE-918": "Server-Side Request Forgery",
-}
 
 
 class CombinedFinding(BaseModel):
@@ -195,11 +188,23 @@ def update_report_metrics(
     )
 
 
-def write_report_outputs(report: PiranesiReport, output_dir: Path) -> None:
+def write_report_outputs(
+    report: PiranesiReport,
+    output_dir: Path,
+    *,
+    report_format: str = "both",
+) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "report.json").write_text(report.model_dump_json(indent=2), encoding="utf-8")
     (output_dir / "report.md").write_text(render_markdown(report), encoding="utf-8")
     (output_dir / "pr_body.md").write_text(render_pr_body(report), encoding="utf-8")
+    if report_format.lower() == "sarif":
+        from piranesi.report.sarif import generate_sarif
+
+        (output_dir / "report.sarif.json").write_text(
+            json.dumps(generate_sarif(report), indent=2),
+            encoding="utf-8",
+        )
 
 
 def render_markdown(report: PiranesiReport) -> str:
@@ -223,7 +228,7 @@ def _template_env() -> Environment:
     templates_dir = Path(__file__).resolve().parents[1] / "templates"
     env = Environment(
         loader=FileSystemLoader(str(templates_dir)),
-        autoescape=False,
+        autoescape=False,  # noqa: S701
         trim_blocks=True,
         lstrip_blocks=True,
     )
@@ -231,19 +236,16 @@ def _template_env() -> Environment:
 
 
 def _extract_cwe_id(vuln_class: str) -> str:
-    match = _CWE_PATTERN.search(vuln_class)
-    if match is None:
-        return vuln_class
-    return match.group(1).upper()
+    return extract_cwe_id(vuln_class)
 
 
 def _finding_title(candidate: CandidateFinding) -> str:
     cwe = _extract_cwe_id(candidate.vuln_class)
-    return _CWE_TITLES.get(cwe, candidate.vuln_class)
+    return cwe_title(cwe, fallback=candidate.vuln_class)
 
 
 def _severity_breakdown(findings: list[CombinedFinding]) -> dict[str, int]:
-    counts = {severity: 0 for severity in _SEVERITY_ORDER}
+    counts = dict.fromkeys(_SEVERITY_ORDER, 0)
     for finding in findings:
         severity = finding.severity.lower()
         counts[severity] = counts.get(severity, 0) + 1

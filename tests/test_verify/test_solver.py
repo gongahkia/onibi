@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-import z3
+import z3  # type: ignore[import-untyped]
 
 from piranesi.verify.constraints import (
     ExploitTemplate,
@@ -260,16 +260,14 @@ def _template(
     endpoint: str = "/",
     constraint_sets: Sequence[Sequence[object]] | None = None,
 ) -> ExploitTemplate:
-    resolved_sets = tuple(
-        tuple(constraint_set) for constraint_set in (constraint_sets or [()])
-    )
+    resolved_sets = tuple(tuple(constraint_set) for constraint_set in (constraint_sets or [()]))
     return ExploitTemplate(
         vuln_class=vuln_class,
         http_method=method,
         endpoint=endpoint,
         payload_slots=(slot,),
         path_conditions=(),
-        constraint_sets=resolved_sets,
+        constraint_sets=resolved_sets,  # type: ignore[arg-type]
         unsat_reason=None,
     )
 
@@ -283,8 +281,8 @@ def _slot(
 ) -> PayloadSlot:
     return PayloadSlot(
         name=name,
-        carrier=carrier,
+        carrier=carrier,  # type: ignore[arg-type]
         field_path=field_path or (name,),
         source=f"req.{carrier}.{name}",
-        encoding=encoding,
+        encoding=encoding,  # type: ignore[arg-type]
     )

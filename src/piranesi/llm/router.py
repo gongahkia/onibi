@@ -6,9 +6,7 @@ from dataclasses import dataclass, field
 from piranesi.config import PiranesiConfig
 from piranesi.llm.cost import CostTracker
 
-VALID_STAGES = frozenset(
-    {"scanner", "detector", "triage", "skeptic", "patcher", "legal_memo"}
-)
+VALID_STAGES = frozenset({"scanner", "detector", "triage", "skeptic", "patcher", "legal_memo"})
 
 
 class BudgetExceededError(RuntimeError):

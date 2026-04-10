@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import json
 import logging
 import sys
+import time
+from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Any, Mapping
+from typing import Annotated, Any
 
 import typer
+from pydantic import BaseModel
 
 from piranesi import __version__
 from piranesi.config import ConfigError, PiranesiConfig, load_config
@@ -14,14 +19,22 @@ from piranesi.llm.cost import CostTracker
 from piranesi.llm.provider import LLMProvider
 from piranesi.llm.router import ModelRouter
 from piranesi.llm.trace import TraceLogger
+from piranesi.models import ScanResult
 from piranesi.observability import log_error_context, setup_logging
 from piranesi.pipeline import (
+    DetectArtifact,
+    LegalArtifact,
+    PatchArtifact,
     PipelineContext,
+    StageResult,
+    TriageArtifact,
+    VerifyArtifact,
     build_default_stage_registry,
     discover_scan_targets,
     load_partial_summary,
     run_pipeline,
 )
+from piranesi.report.renderer import PiranesiReport
 from piranesi.trace import TraceBudgetExceededError, TraceWriter
 from piranesi.ui import console, print_summary_table, stage_header
 
@@ -31,12 +44,20 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
+plugins_app = typer.Typer(
+    add_completion=False,
+    help="Manage Piranesi plugins.",
+    no_args_is_help=True,
+)
+app.add_typer(plugins_app, name="plugins")
+
 
 def _version_callback(value: bool) -> None:
     if not value:
         return
     typer.echo(f"piranesi {__version__}")
     raise typer.Exit()
+
 
 TargetDirArg = Annotated[Path, typer.Argument(help="Target directory.")]
 FindingsFileArg = Annotated[Path, typer.Argument(help="Findings artifact file.")]
@@ -85,7 +106,19 @@ JurisdictionOption = Annotated[
     typer.Option("--jurisdiction", help="Jurisdiction override."),
 ]
 ApplyOption = Annotated[bool, typer.Option("--apply", help="Apply the generated patch.")]
-FormatOption = Annotated[str | None, typer.Option("--format", help="Report format.")]
+
+
+class ReportFormat(StrEnum):
+    JSON = "json"
+    MARKDOWN = "markdown"
+    BOTH = "both"
+    SARIF = "sarif"
+
+
+FormatOption = Annotated[
+    ReportFormat | None,
+    typer.Option("--format", help="Report format.", case_sensitive=False),
+]
 TemplateOption = Annotated[
     Path | None,
     typer.Option("--template", help="Custom report template."),
@@ -161,6 +194,18 @@ class CommonOptions:
     trace_path: Path
     authorized: bool
     assume_yes: bool
+
+
+def _format_override(report_format: ReportFormat | None) -> str | None:
+    if report_format is None:
+        return None
+    return report_format.value
+
+
+def _report_output_path(output_dir: Path, report_format: str) -> Path:
+    if report_format.lower() == ReportFormat.SARIF.value:
+        return output_dir / "report.sarif.json"
+    return output_dir / "report.json"
 
 
 def _run_stubbed_stage(
@@ -300,6 +345,194 @@ def _load_cli_config(
     return config
 
 
+_STAGE_ARTIFACT_TYPES: dict[str, type] = {
+    "scan": ScanResult,
+    "detect": DetectArtifact,
+    "triage": TriageArtifact,
+    "verify": VerifyArtifact,
+    "legal": LegalArtifact,
+    "patch": PatchArtifact,
+    "report": PiranesiReport,
+}
+_STAGE_PREV: dict[str, str | None] = {  # stage -> which stage's artifact is passed as prev_result
+    "scan": None,
+    "detect": None,
+    "triage": "detect",
+    "verify": "triage",
+    "legal": "verify",
+    "patch": "legal",
+    "report": None,
+}
+_STAGE_CONTEXT_DEPS: dict[str, tuple[str, ...]] = {  # stage -> context.stage_outputs keys needed
+    "scan": (),
+    "detect": (),
+    "triage": (),
+    "verify": (),
+    "legal": (),
+    "patch": ("verify",),
+    "report": ("scan", "detect", "verify", "legal", "patch"),
+}
+
+
+def _load_artifact_file(path: Path, artifact_type: type[BaseModel]) -> Any:
+    """Load a Pydantic artifact from a JSON file."""
+    from pydantic import ValidationError
+
+    try:
+        return artifact_type.model_validate_json(path.read_text(encoding="utf-8"))
+    except (OSError, ValidationError, json.JSONDecodeError) as exc:
+        raise ValueError(f"failed to load {artifact_type.__name__} from {path}: {exc}") from exc
+
+
+def _run_single_stage(
+    stage_name: str,
+    target: Path,
+    *,
+    options: CommonOptions,
+    extra_cli_overrides: dict[str, Any] | None = None,
+    is_dir_target: bool = False,
+) -> None:
+    """Run a single pipeline stage, replacing the old stub."""
+    setup_logging(
+        verbose=options.verbose,
+        quiet=options.quiet,
+        debug=options.debug,
+        json_logs=options.json_logs,
+    )
+    logger = logging.getLogger(f"piranesi.{stage_name}")
+    config_model = _load_cli_config(
+        stage=stage_name,
+        options=options,
+        extra_cli_overrides=extra_cli_overrides,
+    )
+    cost_tracker = CostTracker()
+    trace_writer = TraceWriter(config_model.trace, config_model.budget)
+    router = ModelRouter(config_model, cost_tracker)
+    trace_logger = TraceLogger(trace_writer, log_prompts=config_model.trace.log_prompts)
+    provider = LLMProvider(trace_logger, cost_tracker, router=router)
+    target_dir = target.resolve(strict=False) if is_dir_target else Path(".").resolve()
+    try:
+        trace_writer.open()
+        _validate_authorization(stage=stage_name, target=target, options=options, logger=logger)
+        if sys.stderr.isatty() and not options.json_logs:
+            stage_header(stage_name)
+        context = PipelineContext(
+            target_dir=target_dir,
+            output_dir=options.output_dir,
+            provider=provider,
+            router=router,
+            cost_tracker=cost_tracker,
+            trace_writer=trace_writer,
+        )
+        registry = build_default_stage_registry(context)
+        stage = registry[stage_name]
+        prev_result: StageResult | None = None
+        prev_stage_name = _STAGE_PREV.get(stage_name)
+        if prev_stage_name is not None and not is_dir_target:
+            prev_type = _STAGE_ARTIFACT_TYPES[prev_stage_name]
+            artifact = _load_artifact_file(target, prev_type)
+            prev_result = StageResult(
+                stage=prev_stage_name,
+                success=True,
+                artifact=artifact,
+                elapsed_s=0.0,
+                resumed=True,
+            )
+        for dep in _STAGE_CONTEXT_DEPS.get(stage_name, ()):
+            dep_path = options.output_dir / f"{dep}.json"
+            if not dep_path.exists():
+                log_error_context(
+                    logger,
+                    event="missing_prerequisite_artifact",
+                    what=f"load_{dep}_artifact",
+                    on_what=str(dep_path),
+                    why=f"prerequisite artifact {dep}.json not found in output directory",
+                    next_step="exiting_with_code_1",
+                    debug=f"run 'piranesi {dep}' first or 'piranesi run' to generate all artifacts",
+                )
+                typer.echo(
+                    f"error: prerequisite artifact '{dep}.json' not found in {options.output_dir}. "
+                    f"Run 'piranesi {dep}' first or use 'piranesi run' for the full pipeline."
+                )
+                raise typer.Exit(code=1)
+            dep_type = _STAGE_ARTIFACT_TYPES[dep]
+            context.stage_outputs[dep] = _load_artifact_file(dep_path, dep_type)
+        started_at = time.monotonic()
+        try:
+            result = stage.runner(config_model, prev_result)
+        except Exception as exc:
+            _ = time.monotonic() - started_at
+            log_error_context(
+                logger,
+                event="stage_failed",
+                what=f"{stage_name}_pipeline",
+                on_what=str(target),
+                why=str(exc),
+                next_step="exiting_with_code_1",
+                debug=f"trace_file={trace_writer.path}",
+                stage=stage_name,
+            )
+            typer.echo(f"stage '{stage_name}' failed: {exc}")
+            raise typer.Exit(code=1) from exc
+        options.output_dir.mkdir(parents=True, exist_ok=True)
+        artifact_path = options.output_dir / f"{stage_name}.json"
+        artifact_path.write_text(
+            result.artifact.model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+        public_output_path = (
+            _report_output_path(options.output_dir, config_model.output.format)
+            if stage_name == "report"
+            else artifact_path
+        )
+        logger.info(
+            "stage %s completed in %.2fs, artifact written to %s",
+            stage_name,
+            result.elapsed_s,
+            public_output_path,
+            extra={
+                "event": "stage_completed",
+                "stage": stage_name,
+                "elapsed_s": result.elapsed_s,
+                "artifact": str(public_output_path),
+            },
+        )
+        if sys.stderr.isatty() and not options.json_logs:
+            print_summary_table(
+                f"Piranesi {stage_name.title()} Summary",
+                {
+                    "Status": "completed",
+                    "Output": str(public_output_path),
+                    "Elapsed": f"{result.elapsed_s:.2f}s",
+                    "Trace": str(trace_writer.path),
+                },
+            )
+    except TraceBudgetExceededError as exc:
+        log_error_context(
+            logger,
+            event="trace_budget_exceeded",
+            what="trace_budget",
+            on_what=str(trace_writer.path),
+            why=str(exc),
+            next_step="exiting_with_code_4",
+            debug="reduce LLM usage or raise budget.max_cost_usd",
+        )
+        raise typer.Exit(code=4) from exc
+    finally:
+        trace_writer.close()
+
+
+def _final_report(results: list[StageResult]) -> PiranesiReport | None:
+    for result in reversed(results):
+        if result.stage == "report" and isinstance(result.artifact, PiranesiReport):
+            return result.artifact
+    return None
+
+
+def _report_exit_code(report: PiranesiReport) -> int:
+    return 1 if report.executive_summary.findings_detected > 0 else 0
+
+
 def _validate_authorization(
     *,
     stage: str,
@@ -423,7 +656,7 @@ def scan(
     authorized: AuthorizedOption = False,
     yes: YesOption = False,
 ) -> None:
-    _run_stubbed_stage(
+    _run_single_stage(
         "scan",
         target_dir,
         options=_common_options(
@@ -441,6 +674,7 @@ def scan(
             "scan.include_patterns": include,
             "scan.exclude_patterns": exclude,
         },
+        is_dir_target=True,
     )
 
 
@@ -460,7 +694,7 @@ def detect(
     yes: YesOption = False,
 ) -> None:
     _ = (sources, sinks)
-    _run_stubbed_stage(
+    _run_single_stage(
         "detect",
         target_dir,
         options=_common_options(
@@ -474,6 +708,7 @@ def detect(
             authorized=authorized,
             yes=yes,
         ),
+        is_dir_target=True,
     )
 
 
@@ -493,7 +728,7 @@ def triage(
     yes: YesOption = False,
 ) -> None:
     _ = threshold
-    _run_stubbed_stage(
+    _run_single_stage(
         "triage",
         findings_file,
         options=_common_options(
@@ -528,7 +763,7 @@ def verify(
     yes: YesOption = False,
 ) -> None:
     _ = no_execute
-    _run_stubbed_stage(
+    _run_single_stage(
         "verify",
         findings_file,
         options=_common_options(
@@ -565,7 +800,7 @@ def legal(
     yes: YesOption = False,
 ) -> None:
     _ = (frameworks, jurisdiction)
-    _run_stubbed_stage(
+    _run_single_stage(
         "legal",
         findings_file,
         options=_common_options(
@@ -598,7 +833,7 @@ def patch(
     yes: YesOption = False,
 ) -> None:
     _ = apply
-    _run_stubbed_stage(
+    _run_single_stage(
         "patch",
         findings_file,
         options=_common_options(
@@ -632,7 +867,7 @@ def report(
     yes: YesOption = False,
 ) -> None:
     _ = template
-    _run_stubbed_stage(
+    _run_single_stage(
         "report",
         findings_file,
         options=_common_options(
@@ -646,8 +881,46 @@ def report(
             authorized=authorized,
             yes=yes,
         ),
-        extra_cli_overrides={"output.format": format},
+        extra_cli_overrides={"output.format": _format_override(format)},
     )
+
+
+@plugins_app.command("list")
+def plugins_list(
+    config: ConfigOption = Path("./piranesi.toml"),
+) -> None:
+    from piranesi.plugin import (
+        discover_framework_plugins,
+        discover_reporter_plugins,
+        discover_rule_plugins,
+    )
+
+    disabled: frozenset[str] = frozenset()
+    config_path = Path(config)
+    if config_path.exists():
+        try:
+            cfg = load_config(config_path)
+            disabled = frozenset(cfg.plugins.disabled)
+        except ConfigError:
+            pass
+
+    fw_plugins = discover_framework_plugins(disabled=frozenset())
+    rule_plugins = discover_rule_plugins(disabled=frozenset())
+    reporter_plugins = discover_reporter_plugins(disabled=frozenset())
+
+    if not fw_plugins and not rule_plugins and not reporter_plugins:
+        typer.echo("no plugins found")
+        return
+
+    for fw in fw_plugins:
+        status = "disabled" if fw.name() in disabled else "enabled"
+        typer.echo(f"framework  {fw.name():<20s} [{status}]")
+    for rp in rule_plugins:
+        status = "disabled" if rp.name() in disabled else "enabled"
+        typer.echo(f"rule       {rp.name():<20s} [{status}]")
+    for rep in reporter_plugins:
+        status = "disabled" if rep.name() in disabled else "enabled"
+        typer.echo(f"reporter   {rep.name():<20s} [{status}]")
 
 
 @app.command()
@@ -709,7 +982,7 @@ def run(
             "models.patcher": patch_model,
             "sandbox.docker_image": docker_image,
             "sandbox.timeout_seconds": timeout,
-            "output.format": format,
+            "output.format": _format_override(format),
         },
     )
 
@@ -799,15 +1072,27 @@ def run(
             )
         raise typer.Exit(code=1)
 
-    report_path = options.output_dir / "report.json"
+    report = _final_report(pipeline_result.results)
+    report_path = _report_output_path(options.output_dir, config_model.output.format)
+    findings_detected = 0 if report is None else report.executive_summary.findings_detected
+    findings_confirmed = 0 if report is None else report.executive_summary.findings_confirmed
     if sys.stderr.isatty() and not json_logs:
         print_summary_table(
             "Piranesi Run Summary",
             {
-                "Status": "completed",
+                "Status": "completed" if findings_detected == 0 else "findings_detected",
                 "Stages": " -> ".join(result.stage for result in pipeline_result.results),
+                "Findings detected": findings_detected,
+                "Findings confirmed": findings_confirmed,
                 "Output": options.output_dir,
                 "Report": report_path,
                 "Trace": trace_writer.path,
             },
         )
+    if report is not None and _report_exit_code(report) != 0:
+        typer.echo(
+            "findings detected: "
+            f"{report.executive_summary.findings_detected} "
+            f"(confirmed: {report.executive_summary.findings_confirmed})"
+        )
+        raise typer.Exit(code=1)

@@ -30,8 +30,8 @@ def test_scanner_augment_prompt_renders_expected_fields() -> None:
     assert sanitize.strip_comments(code) in messages[1]["content"]
     assert "tainted comment" not in messages[1]["content"]
     assert scanner_augment.TOOL_SPEC["type"] == "function"
-    assert scanner_augment.TOOL_SPEC["function"]["parameters"] == scanner_augment.RESPONSE_SCHEMA
-    assert set(scanner_augment.RESPONSE_SCHEMA["required"]) == {
+    assert scanner_augment.TOOL_SPEC["function"]["parameters"] == scanner_augment.RESPONSE_SCHEMA  # type: ignore[index]
+    assert set(scanner_augment.RESPONSE_SCHEMA["required"]) == {  # type: ignore[call-overload]
         "additional_sources",
         "additional_sinks",
         "reasoning",
@@ -51,7 +51,7 @@ def test_triage_classify_prompt_renders_expected_fields() -> None:
     assert "req.query.id -> sql -> db.query" in messages[1]["content"]
     assert sanitize.strip_comments(code) in messages[1]["content"]
     assert "injection bait" not in messages[1]["content"]
-    assert set(triage_classify.RESPONSE_SCHEMA["required"]) == {
+    assert set(triage_classify.RESPONSE_SCHEMA["required"]) == {  # type: ignore[call-overload]
         "verdict",
         "confidence",
         "explanation",
@@ -76,7 +76,7 @@ def test_skeptic_challenge_prompt_renders_expected_fields() -> None:
     assert "req.query.name -> ... -> res.send" in messages[1]["content"]
     assert sanitize.strip_comments(code) in messages[1]["content"]
     assert "maybe escaped elsewhere" not in messages[1]["content"]
-    assert set(skeptic_challenge.RESPONSE_SCHEMA["required"]) == {
+    assert set(skeptic_challenge.RESPONSE_SCHEMA["required"]) == {  # type: ignore[call-overload]
         "verdict",
         "confidence",
         "reasoning",
@@ -98,7 +98,7 @@ def test_patcher_fix_prompt_renders_expected_fields() -> None:
     assert "CWE-89" in messages[1]["content"]
     assert sanitize.strip_comments(code) in messages[1]["content"]
     assert "fix me" not in messages[1]["content"]
-    assert set(patcher_fix.RESPONSE_SCHEMA["required"]) == {
+    assert set(patcher_fix.RESPONSE_SCHEMA["required"]) == {  # type: ignore[call-overload]
         "patched_code",
         "explanation",
         "mitigation_type",
@@ -123,7 +123,7 @@ def test_legal_memo_prompt_renders_expected_fields() -> None:
     assert "MAS TRM" in messages[1]["content"]
     assert sanitize.strip_comments(code) in messages[1]["content"]
     assert "should not affect legal memo rendering" not in messages[1]["content"]
-    assert set(legal_memo_draft.RESPONSE_SCHEMA["required"]) == {
+    assert set(legal_memo_draft.RESPONSE_SCHEMA["required"]) == {  # type: ignore[call-overload]
         "obligations",
         "risk_level",
         "recommended_actions",

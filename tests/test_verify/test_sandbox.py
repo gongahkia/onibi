@@ -10,7 +10,9 @@ import piranesi.verify.sandbox as sandbox
 
 
 class FakeImage:
-    def __init__(self, *, image_id: str = "sha256:test", labels: dict[str, str] | None = None) -> None:
+    def __init__(
+        self, *, image_id: str = "sha256:test", labels: dict[str, str] | None = None
+    ) -> None:
         self.id = image_id
         self.labels = labels or {}
         self.attrs = {"Config": {"Labels": dict(self.labels)}}
@@ -51,7 +53,7 @@ class FakeContainer:
         return b"stdout\nstderr"
 
     def diff(self) -> list[dict[str, object]]:
-        return [{"Kind": 1, "Path": "/tmp/pwned.txt"}]
+        return [{"Kind": 1, "Path": "/tmp/pwned.txt"}]  # noqa: S108
 
     def stop(self, *, timeout: int) -> None:
         self.stop_calls.append(timeout)
@@ -104,7 +106,9 @@ class FakeNetworks:
         self._network = network
         self.create_calls: list[dict[str, Any]] = []
 
-    def create(self, name: str, *, driver: str, internal: bool, labels: dict[str, str]) -> FakeNetwork:
+    def create(
+        self, name: str, *, driver: str, internal: bool, labels: dict[str, str]
+    ) -> FakeNetwork:
         self.create_calls.append(
             {"name": name, "driver": driver, "internal": internal, "labels": labels}
         )
@@ -182,7 +186,10 @@ def test_build_image_generates_hardened_dockerfile(
         "npm install --production --ignore-scripts --registry https://registry.npmjs.org/"
         in client.images.captured["dockerfile_text"]
     )
-    assert "RUN rm -f Dockerfile* docker-compose* .npmrc .env" in client.images.captured["dockerfile_text"]
+    assert (
+        "RUN rm -f Dockerfile* docker-compose* .npmrc .env"
+        in client.images.captured["dockerfile_text"]
+    )
     assert 'CMD ["npm", "start"]' in client.images.captured["dockerfile_text"]
     assert "EXPOSE 4310" in client.images.captured["dockerfile_text"]
     assert client.images.captured["package_json"]["scripts"]["start"] == "node server.js"
@@ -199,7 +206,7 @@ def test_start_container_uses_hardened_security_config(monkeypatch: pytest.Monke
 
     container = sandbox.start_container("piranesi-target:test")
 
-    assert container is client.container
+    assert container is client.container  # type: ignore[comparison-overlap]
     assert len(client.networks.create_calls) == 1
     create_call = client.networks.create_calls[0]
     assert create_call["name"].startswith("piranesi-sandbox-")
@@ -211,7 +218,7 @@ def test_start_container_uses_hardened_security_config(monkeypatch: pytest.Monke
     assert run_kwargs is not None
     assert run_kwargs["network"] == client.network.id
     assert run_kwargs["read_only"] is True
-    assert run_kwargs["tmpfs"] == {"/tmp": "size=64m"}
+    assert run_kwargs["tmpfs"] == {"/tmp": "size=64m"}  # noqa: S108
     assert run_kwargs["cap_drop"] == ["ALL"]
     assert run_kwargs["security_opt"] == ["no-new-privileges"]
     assert run_kwargs["mem_limit"] == "512m"
@@ -237,10 +244,14 @@ def test_run_in_sandbox_tears_down_container_and_network_on_failure(
     payload = sandbox.SynthesizedPayload(method="GET", url="/health")
 
     monkeypatch.setattr(sandbox, "_docker_client", lambda: client)
-    monkeypatch.setattr(sandbox, "_build_image", lambda docker_client, target_path: "piranesi-target:test")
+    monkeypatch.setattr(
+        sandbox, "_build_image", lambda docker_client, target_path: "piranesi-target:test"
+    )
     monkeypatch.setattr(sandbox, "_start_container", lambda docker_client, image: client.container)
     monkeypatch.setattr(sandbox, "_get_host_port", lambda container: 49152)
-    monkeypatch.setattr(sandbox, "wait_for_ready", lambda host_port, max_wait=sandbox.DEFAULT_READY_WAIT: True)
+    monkeypatch.setattr(
+        sandbox, "wait_for_ready", lambda host_port, max_wait=sandbox.DEFAULT_READY_WAIT: True
+    )
 
     def _boom(request_payload: sandbox.SynthesizedPayload, host_port: int) -> sandbox.ExploitResult:
         raise RuntimeError("request failed")
@@ -248,7 +259,7 @@ def test_run_in_sandbox_tears_down_container_and_network_on_failure(
     monkeypatch.setattr(sandbox, "fire_payload", _boom)
 
     with pytest.raises(RuntimeError, match="request failed"):
-        sandbox.run_in_sandbox("/tmp/target", [payload])
+        sandbox.run_in_sandbox("/tmp/target", [payload])  # noqa: S108
 
     assert client.container.stop_calls == [5]
     assert client.container.remove_calls == [True]

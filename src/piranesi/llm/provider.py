@@ -17,10 +17,11 @@ from piranesi.llm.trace import TraceLogger
 try:
     import litellm
 except ImportError:  # pragma: no cover - depends on local environment.
+
     def _missing_completion(*args: Any, **kwargs: Any) -> Any:
         raise ImportError("litellm is required to execute LLM-backed pipeline stages")
 
-    litellm = SimpleNamespace(completion=_missing_completion)
+    litellm = SimpleNamespace(completion=_missing_completion)  # type: ignore[assignment]
 
 if TYPE_CHECKING:
     from piranesi.llm.router import ModelRouter
@@ -35,7 +36,7 @@ def _litellm_exception_types(*names: str) -> tuple[type[BaseException], ...]:
     return tuple(exception_types)
 
 
-RETRYABLE_EXCEPTIONS = (
+RETRYABLE_EXCEPTIONS: tuple[type[BaseException], ...] = (
     *_litellm_exception_types(
         "RateLimitError",
         "Timeout",

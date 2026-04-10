@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 from collections import OrderedDict
 from pathlib import Path
+from typing import Any
 
+import pytest
 from typer.testing import CliRunner
 
 from piranesi.cli import app
@@ -12,6 +14,7 @@ from piranesi.pipeline import (
     DetectArtifact,
     LegalArtifact,
     PatchArtifact,
+    PipelineContext,
     PipelineStage,
     StageResult,
     TriageArtifact,
@@ -24,7 +27,7 @@ runner = CliRunner()
 
 
 def test_run_executes_mocked_pipeline_and_writes_reports(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "piranesi.toml"
@@ -33,9 +36,113 @@ def test_run_executes_mocked_pipeline_and_writes_reports(
 
     calls: list[str] = []
 
-    def _registry(context):
+    def _registry(context: PipelineContext) -> OrderedDict[str, PipelineStage]:
         artifacts = fixture_artifacts(context.target_dir)
         return _build_fake_registry(context, artifacts=artifacts, calls=calls)
+
+    monkeypatch.setattr("piranesi.cli.build_default_stage_registry", _registry)
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            str(tmp_path),
+            "--config",
+            str(config_path),
+            "--output",
+            str(output_dir),
+            "--authorized",
+            "--yes",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert calls == ["scan", "detect", "triage", "verify", "legal", "patch", "report"]
+    assert "findings detected: 1 (confirmed: 1)" in result.stdout
+
+    report_payload = json.loads((output_dir / "report.json").read_text(encoding="utf-8"))
+    assert report_payload["executive_summary"]["findings_detected"] == 1
+    assert report_payload["executive_summary"]["findings_confirmed"] == 1
+    assert report_payload["findings"][0]["cwe"] == "CWE-89"
+    assert report_payload["findings"][0]["regulatory_obligations"][0]["framework"] == "PDPA"
+    assert "--- a/src/routes/login.ts" in report_payload["findings"][0]["patch_diff"]
+
+    markdown = (output_dir / "report.md").read_text(encoding="utf-8")
+    assert "# Piranesi Security Analysis Report" in markdown
+    assert "## Executive Summary" in markdown
+    assert "### Patch" in markdown
+
+    pr_body = (output_dir / "pr_body.md").read_text(encoding="utf-8")
+    assert "## SQL Injection" in pr_body
+    assert "```diff" in pr_body
+
+
+def test_run_resume_skips_completed_stages(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "piranesi.toml"
+    output_dir = tmp_path / "out"
+    config_path.write_text("", encoding="utf-8")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    artifacts = fixture_artifacts(tmp_path)
+    (output_dir / "scan.json").write_text(
+        artifacts["scan"].model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    (output_dir / "detect.json").write_text(
+        artifacts["detect"].model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+
+    calls: list[str] = []
+
+    def _registry(context: PipelineContext) -> OrderedDict[str, PipelineStage]:
+        return _build_fake_registry(context, artifacts=artifacts, calls=calls)
+
+    monkeypatch.setattr("piranesi.cli.build_default_stage_registry", _registry)
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            str(tmp_path),
+            "--config",
+            str(config_path),
+            "--output",
+            str(output_dir),
+            "--resume",
+            "--authorized",
+            "--yes",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert calls == ["triage", "verify", "legal", "patch", "report"]
+
+
+def test_run_returns_zero_when_report_is_clean(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "piranesi.toml"
+    output_dir = tmp_path / "out"
+    config_path.write_text("", encoding="utf-8")
+
+    calls: list[str] = []
+
+    def _registry(context: PipelineContext) -> OrderedDict[str, PipelineStage]:
+        artifacts = fixture_artifacts(context.target_dir)
+        return _build_fake_registry(
+            context,
+            artifacts={
+                **artifacts,
+                "detect": artifacts["detect"].model_copy(update={"findings": []}),
+                "triage": artifacts["triage"].model_copy(update={"findings": []}),
+                "verify": artifacts["verify"].model_copy(update={"findings": []}),
+                "legal": artifacts["legal"].model_copy(update={"assessments": []}),
+                "patch": artifacts["patch"].model_copy(update={"patches": []}),
+            },
+            calls=calls,
+        )
 
     monkeypatch.setattr("piranesi.cli.build_default_stage_registry", _registry)
 
@@ -56,73 +163,17 @@ def test_run_executes_mocked_pipeline_and_writes_reports(
     assert result.exit_code == 0
     assert calls == ["scan", "detect", "triage", "verify", "legal", "patch", "report"]
 
-    report_payload = json.loads((output_dir / "report.json").read_text(encoding="utf-8"))
-    assert report_payload["executive_summary"]["findings_detected"] == 1
-    assert report_payload["executive_summary"]["findings_confirmed"] == 1
-    assert report_payload["findings"][0]["cwe"] == "CWE-89"
-    assert report_payload["findings"][0]["regulatory_obligations"][0]["framework"] == "PDPA"
-    assert "--- a/src/routes/login.ts" in report_payload["findings"][0]["patch_diff"]
 
-    markdown = (output_dir / "report.md").read_text(encoding="utf-8")
-    assert "# Piranesi Security Analysis Report" in markdown
-    assert "## Executive Summary" in markdown
-    assert "### Patch" in markdown
-
-    pr_body = (output_dir / "pr_body.md").read_text(encoding="utf-8")
-    assert "## SQL Injection" in pr_body
-    assert "```diff" in pr_body
-
-
-def test_run_resume_skips_completed_stages(monkeypatch, tmp_path: Path) -> None:
-    config_path = tmp_path / "piranesi.toml"
-    output_dir = tmp_path / "out"
-    config_path.write_text("", encoding="utf-8")
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    artifacts = fixture_artifacts(tmp_path)
-    (output_dir / "scan.json").write_text(
-        artifacts["scan"].model_dump_json(indent=2),
-        encoding="utf-8",
-    )
-    (output_dir / "detect.json").write_text(
-        artifacts["detect"].model_dump_json(indent=2),
-        encoding="utf-8",
-    )
-
-    calls: list[str] = []
-
-    def _registry(context):
-        return _build_fake_registry(context, artifacts=artifacts, calls=calls)
-
-    monkeypatch.setattr("piranesi.cli.build_default_stage_registry", _registry)
-
-    result = runner.invoke(
-        app,
-        [
-            "run",
-            str(tmp_path),
-            "--config",
-            str(config_path),
-            "--output",
-            str(output_dir),
-            "--resume",
-            "--authorized",
-            "--yes",
-        ],
-    )
-
-    assert result.exit_code == 0
-    assert calls == ["triage", "verify", "legal", "patch", "report"]
-
-
-def test_run_saves_partial_results_when_stage_fails(monkeypatch, tmp_path: Path) -> None:
+def test_run_saves_partial_results_when_stage_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     config_path = tmp_path / "piranesi.toml"
     output_dir = tmp_path / "out"
     config_path.write_text("", encoding="utf-8")
 
     calls: list[str] = []
 
-    def _registry(context):
+    def _registry(context: PipelineContext) -> OrderedDict[str, PipelineStage]:
         artifacts = fixture_artifacts(context.target_dir)
         return _build_fake_registry(
             context,
@@ -181,15 +232,24 @@ def test_run_dry_run_lists_matching_scan_targets(tmp_path: Path) -> None:
     assert str(excluded_file) not in result.stdout
 
 
+def test_detect_artifact_round_trips_healthcare_entity_fact(tmp_path: Path) -> None:
+    artifacts = fixture_artifacts(tmp_path)
+    detect_artifact = artifacts["detect"]
+
+    restored = DetectArtifact.model_validate_json(detect_artifact.model_dump_json())
+
+    assert restored.findings[0].is_healthcare_entity is True
+
+
 def _build_fake_registry(
-    context,
+    context: PipelineContext,
     *,
-    artifacts: dict[str, object],
+    artifacts: dict[str, Any],
     calls: list[str],
     fail_stage: str | None = None,
 ) -> OrderedDict[str, PipelineStage]:
-    def _runner(stage_name: str, artifact):
-        def _run(config, prev):
+    def _runner(stage_name: str, artifact: Any) -> Any:
+        def _run(config: Any, prev: Any) -> StageResult:
             _ = (config, prev)
             calls.append(stage_name)
             if fail_stage == stage_name:
@@ -215,9 +275,18 @@ def _build_fake_registry(
     return OrderedDict(
         (
             ("scan", PipelineStage("scan", ScanResult, _runner("scan", artifacts["scan"]))),
-            ("detect", PipelineStage("detect", DetectArtifact, _runner("detect", artifacts["detect"]))),
-            ("triage", PipelineStage("triage", TriageArtifact, _runner("triage", artifacts["triage"]))),
-            ("verify", PipelineStage("verify", VerifyArtifact, _runner("verify", artifacts["verify"]))),
+            (
+                "detect",
+                PipelineStage("detect", DetectArtifact, _runner("detect", artifacts["detect"])),
+            ),
+            (
+                "triage",
+                PipelineStage("triage", TriageArtifact, _runner("triage", artifacts["triage"])),
+            ),
+            (
+                "verify",
+                PipelineStage("verify", VerifyArtifact, _runner("verify", artifacts["verify"])),
+            ),
             ("legal", PipelineStage("legal", LegalArtifact, _runner("legal", artifacts["legal"]))),
             ("patch", PipelineStage("patch", PatchArtifact, _runner("patch", artifacts["patch"]))),
             ("report", PipelineStage("report", PiranesiReport, _runner("report", None))),

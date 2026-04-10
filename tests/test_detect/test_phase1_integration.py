@@ -117,4 +117,6 @@ def test_phase1_fixture_annotations_match_real_findings() -> None:
     }
 
     assert actual_keys == expected_keys
-    assert all(Path(finding.source.location.file).resolve() not in clean_files for finding in findings)
+    assert all(
+        Path(finding.source.location.file).resolve() not in clean_files for finding in findings
+    )

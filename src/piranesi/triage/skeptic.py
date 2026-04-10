@@ -105,9 +105,8 @@ class SkepticAgent:
                 continue
             if detector_model is None:
                 return candidate
-            if (
-                candidate != detector_model
-                and _provider_family(candidate) != _provider_family(detector_model)
+            if candidate != detector_model and _provider_family(candidate) != _provider_family(
+                detector_model
             ):
                 return candidate
         raise ValueError("unable to resolve a skeptic model distinct from the detector model")

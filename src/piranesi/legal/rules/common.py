@@ -27,6 +27,7 @@ class RegulatoryRuleSpec(BaseModel):
     data_categories: list[str] = Field(default_factory=list)
     requires_rule_ids: list[str] = Field(default_factory=list)
     requires_boolean_facts: list[str] = Field(default_factory=list)
+    requires_any_boolean_facts: list[str] = Field(default_factory=list)
     affected_individuals_gte: int | None = None
 
 
@@ -36,8 +37,18 @@ class RegulatoryRuleDocument(BaseModel):
     rules: list[RegulatoryRuleSpec]
 
 
+def default_rules_dir() -> Path:
+    return Path(__file__).resolve().parents[4] / "rules"
+
+
 def default_rules_path(filename: str) -> Path:
-    return Path(__file__).resolve().parents[4] / "rules" / filename
+    return default_rules_dir() / filename
+
+
+def discover_rule_files(rules_dir: Path | None = None) -> list[Path]:
+    """Find all *.toml files in rules/ and rules/community/."""
+    base = rules_dir or default_rules_dir()
+    return sorted(p for p in base.glob("**/*.toml") if not p.name.startswith("_"))
 
 
 def load_rule_specs(path: Path) -> list[RegulatoryRuleSpec]:
@@ -47,11 +58,34 @@ def load_rule_specs(path: Path) -> list[RegulatoryRuleSpec]:
     return document.rules
 
 
+def load_all_rule_specs(rules_dir: Path | None = None) -> list[RegulatoryRuleSpec]:
+    """Load and validate all discovered rule files."""
+    specs: list[RegulatoryRuleSpec] = []
+    for path in discover_rule_files(rules_dir):
+        try:
+            specs.extend(load_rule_specs(path))
+        except Exception as exc:
+            raise ValueError(f"Failed to load rule file {path.name}: {exc}") from exc
+    return specs
+
+
 def compile_rule_specs(rule_specs: Sequence[RegulatoryRuleSpec]) -> list[Rule]:
     compiled: list[Rule] = []
     for rule_spec in rule_specs:
         compiled.extend(compile_rule_spec(rule_spec))
     return compiled
+
+
+def extract_thresholds(rule_specs: Iterable[RegulatoryRuleSpec]) -> tuple[int, ...]:
+    return tuple(
+        sorted(
+            {
+                rule_spec.affected_individuals_gte
+                for rule_spec in rule_specs
+                if rule_spec.affected_individuals_gte is not None
+            }
+        )
+    )
 
 
 def compile_rule_spec(rule_spec: RegulatoryRuleSpec) -> list[Rule]:
@@ -82,6 +116,16 @@ def compile_rule_spec(rule_spec: RegulatoryRuleSpec) -> list[Rule]:
         )
 
     variable_dimensions: list[list[FactPattern]] = []
+    if rule_spec.requires_any_boolean_facts:
+        variable_dimensions.append(
+            [
+                FactPattern(
+                    predicate=boolean_fact,
+                    args={"finding_id": "?finding_id", "value": True},
+                )
+                for boolean_fact in rule_spec.requires_any_boolean_facts
+            ]
+        )
     if rule_spec.vuln_classes:
         variable_dimensions.append(
             [
@@ -273,7 +317,10 @@ __all__ = [
     "build_finding_facts",
     "compile_rule_spec",
     "compile_rule_specs",
+    "default_rules_dir",
     "default_rules_path",
+    "discover_rule_files",
+    "load_all_rule_specs",
     "load_rule_specs",
     "query_consequences",
     "query_obligations",

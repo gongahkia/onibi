@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -7,7 +8,7 @@ import pytest
 from piranesi.config import ConfigError, load_config
 
 
-def test_load_config_defaults(config_file) -> None:
+def test_load_config_defaults(config_file: Callable[[str], Path]) -> None:
     path = config_file("")
 
     config = load_config(path)
@@ -29,7 +30,9 @@ def test_load_config_from_file(fixtures_dir: Path) -> None:
     assert config.output.output_dir == "./custom-output"
 
 
-def test_environment_override(config_file, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_environment_override(
+    config_file: Callable[[str], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
     path = config_file("[models]\nscanner = 'base-model'\n")
     monkeypatch.setenv("PIRANESI_MODELS_SCANNER", "override-model")
 
@@ -38,7 +41,7 @@ def test_environment_override(config_file, monkeypatch: pytest.MonkeyPatch) -> N
     assert config.models.scanner == "override-model"
 
 
-def test_invalid_toml_raises(config_file) -> None:
+def test_invalid_toml_raises(config_file: Callable[[str], Path]) -> None:
     path = config_file("[models\nscanner = 'oops'\n")
 
     with pytest.raises(ConfigError):
@@ -52,7 +55,7 @@ def test_missing_file_raises(tmp_path: Path) -> None:
         load_config(missing)
 
 
-def test_nested_budget_block_is_normalized(config_file) -> None:
+def test_nested_budget_block_is_normalized(config_file: Callable[[str], Path]) -> None:
     path = config_file("[models.budget]\nmax_cost_usd = 7.25\nmax_tokens = 123\n")
 
     config = load_config(path)
@@ -61,7 +64,7 @@ def test_nested_budget_block_is_normalized(config_file) -> None:
     assert config.budget.max_tokens == 123
 
 
-def test_load_joern_config_from_file(config_file) -> None:
+def test_load_joern_config_from_file(config_file: Callable[[str], Path]) -> None:
     path = config_file(
         "\n".join(
             [

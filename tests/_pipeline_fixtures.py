@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pydantic import BaseModel
+
 from piranesi.models import (
     ConfirmedFinding,
     LegalAssessment,
@@ -17,10 +19,16 @@ from piranesi.models import (
     TriagedFinding,
 )
 from piranesi.models.finding import CandidateFinding
-from piranesi.pipeline import DetectArtifact, LegalArtifact, PatchArtifact, TriageArtifact, VerifyArtifact
+from piranesi.pipeline import (
+    DetectArtifact,
+    LegalArtifact,
+    PatchArtifact,
+    TriageArtifact,
+    VerifyArtifact,
+)
 
 
-def fixture_artifacts(target_dir: Path) -> dict[str, object]:
+def fixture_artifacts(target_dir: Path) -> dict[str, BaseModel]:
     source_location = SourceLocation(
         file=str(target_dir / "src" / "routes" / "login.ts"),
         line=10,
@@ -64,6 +72,7 @@ def fixture_artifacts(target_dir: Path) -> dict[str, object]:
         path_conditions=[],
         confidence=0.97,
         severity="high",
+        is_healthcare_entity=True,
     )
     triaged = TriagedFinding(
         finding=candidate,
@@ -89,7 +98,9 @@ def fixture_artifacts(target_dir: Path) -> dict[str, object]:
             network_isolated=True,
             confirmed=True,
         ),
-        reproducer_script="curl -X POST http://127.0.0.1:3000/login -d 'username=%27%20OR%201%3D1--'",
+        reproducer_script=(
+            "curl -X POST http://127.0.0.1:3000/login -d 'username=%27%20OR%201%3D1--'"
+        ),
         related_cves=[],
     )
     legal = LegalAssessment(

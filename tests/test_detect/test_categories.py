@@ -91,7 +91,7 @@ def test_classify_candidate_finding_uses_llm_fallback() -> None:
     classified = classify_candidate_finding(
         finding,
         route_pattern="/api/export",
-        provider=provider,
+        provider=provider,  # type: ignore[arg-type]
         model="mock-model",
     )
 

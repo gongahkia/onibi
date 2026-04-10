@@ -36,7 +36,7 @@ def test_candidate_finding_constraints_solve_to_a_valid_payload(tmp_path: Path) 
                 "  if (query.length < 8) {",
                 '    return res.status(400).send("short");',
                 "  }",
-                '  return res.send(`<html>${query}</html>`);',
+                "  return res.send(`<html>${query}</html>`);",
                 "});",
             ]
         ),
@@ -111,7 +111,7 @@ def test_generate_reproducer_script_renders_hardened_bash(tmp_path: Path) -> Non
     assert "--cap-drop ALL" in script
     assert "--security-opt no-new-privileges" in script
     assert "db.query at line 1" in script
-    assert "--data '{\"username\":\"'\"'\"' OR 1=1--\",\"password\":\"anything\"}'" in script
+    assert '--data \'{"username":"\'"\'"\' OR 1=1--","password":"anything"}\'' in script
 
     subprocess.run(["bash", "-n", str(script_path)], check=True)
 

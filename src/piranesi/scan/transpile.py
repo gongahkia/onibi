@@ -83,7 +83,9 @@ class SourceMap:
     @classmethod
     def from_map_files(cls, map_files: Iterable[Path]) -> SourceMap:
         generated_to_original: dict[tuple[Path, int], tuple[Path, int]] = {}
-        original_to_generated: defaultdict[tuple[Path, int], set[tuple[Path, int]]] = defaultdict(set)
+        original_to_generated: defaultdict[tuple[Path, int], set[tuple[Path, int]]] = defaultdict(
+            set
+        )
         generated_lines: defaultdict[Path, set[int]] = defaultdict(set)
 
         for map_path in map_files:
@@ -93,11 +95,12 @@ class SourceMap:
                 generated_lines[generated_location[0]].add(generated_location[1])
 
         normalized_generated_lines = {
-            js_file: tuple(sorted(lines))
-            for js_file, lines in generated_lines.items()
+            js_file: tuple(sorted(lines)) for js_file, lines in generated_lines.items()
         }
         normalized_original_to_generated = {
-            location: tuple(sorted(generated_locations, key=lambda value: (str(value[0]), value[1])))
+            location: tuple(
+                sorted(generated_locations, key=lambda value: (str(value[0]), value[1]))
+            )
             for location, generated_locations in original_to_generated.items()
         }
 
@@ -143,9 +146,11 @@ def prepare_transpile_workspace(
     if not normalized_target.is_dir():
         raise ValueError(f"target_dir must be an existing directory: {normalized_target}")
 
-    workspace_root = root_dir.resolve(strict=False) if root_dir is not None else Path(
-        tempfile.mkdtemp(prefix="piranesi-tsconfig-")
-    ).resolve(strict=False)
+    workspace_root = (
+        root_dir.resolve(strict=False)
+        if root_dir is not None
+        else Path(tempfile.mkdtemp(prefix="piranesi-tsconfig-")).resolve(strict=False)
+    )
     workspace_root.mkdir(parents=True, exist_ok=True)
 
     out_dir = workspace_root / "out"
@@ -164,6 +169,8 @@ def prepare_transpile_workspace(
             "sourceMap": True,
             "allowJs": True,
             "esModuleInterop": True,
+            "experimentalDecorators": True,
+            "emitDecoratorMetadata": True,
             "resolveJsonModule": True,
             "strict": False,
             "skipLibCheck": True,
@@ -217,7 +224,9 @@ def transpile_project(
     normalized_target = target_dir.resolve(strict=False)
     source_files = tuple(_collect_transpilable_files(normalized_target))
     if not source_files:
-        raise TranspilationError(f"no TypeScript or JavaScript files found under {normalized_target}")
+        raise TranspilationError(
+            f"no TypeScript or JavaScript files found under {normalized_target}"
+        )
 
     workspace = prepare_transpile_workspace(normalized_target, log=active_logger)
     compiler_env = _build_compiler_env(workspace)
@@ -293,7 +302,9 @@ def transpile_project(
                 next_step="raising transpilation error",
                 debug=f"out_dir={workspace.out_dir}",
             )
-            raise TranspilationError("TypeScript transpilation completed without usable source maps.")
+            raise TranspilationError(
+                "TypeScript transpilation completed without usable source maps."
+            )
 
         _warn_if_failure_ratio_exceeds_threshold(
             failed_files=failed_files,
@@ -383,8 +394,9 @@ def _build_compiler_env(workspace: TranspileWorkspace) -> dict[str, str]:
 
 def _compiler_not_found_error() -> TypeScriptCompilerNotFoundError:
     return TypeScriptCompilerNotFoundError(
-        "TypeScript compiler is required. Tried `tsc` and `npx tsc`, but neither produced a usable "
-        "compiler. Install TypeScript with `npm install --save-dev typescript` in a trusted environment "
+        "TypeScript compiler is required. Tried `tsc` and `npx tsc`, "
+        "but neither produced a usable compiler. Install TypeScript with "
+        "`npm install --save-dev typescript` in a trusted environment "
         "or `npm install -g typescript`, then rerun Piranesi."
     )
 
@@ -488,7 +500,9 @@ def _parse_source_map_file(map_path: Path) -> list[tuple[tuple[Path, int], tuple
         raise TranspilationError(f"invalid sourceRoot in {map_path}")
 
     resolved_sources = [
-        _resolve_source_reference(map_path=map_path, source_root=source_root, source_reference=source)
+        _resolve_source_reference(
+            map_path=map_path, source_root=source_root, source_reference=source
+        )
         for source in raw_sources
         if isinstance(source, str)
     ]
@@ -576,8 +590,8 @@ def _decode_vlq_segment(segment: str) -> list[int]:
 
 __all__ = [
     "SourceMap",
-    "TranspileWorkspace",
     "TranspilationError",
+    "TranspileWorkspace",
     "TranspiledProject",
     "TypeScriptCompilerNotFoundError",
     "prepare_transpile_workspace",

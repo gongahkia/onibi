@@ -55,7 +55,7 @@ class FakeProcess:
 
     def wait(self, timeout: float | None = None) -> int:
         if self._alive and self._wait_raises_timeout:
-            raise subprocess.TimeoutExpired(cmd="fake-joern", timeout=timeout)
+            raise subprocess.TimeoutExpired(cmd="fake-joern", timeout=timeout or 0.0)
         self._alive = False
         if self.returncode is None:
             self.returncode = 0
@@ -63,7 +63,7 @@ class FakeProcess:
 
     def communicate(self, timeout: float | None = None) -> tuple[str, str]:
         if self._alive:
-            raise subprocess.TimeoutExpired(cmd="fake-joern", timeout=timeout)
+            raise subprocess.TimeoutExpired(cmd="fake-joern", timeout=timeout or 0.0)
         return self._stdout, self._stderr
 
 
@@ -102,7 +102,7 @@ def test_import_project_uses_import_code_query(
 
 def test_query_timeout_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     server = JoernServer(binary_path="joern", port=8086)
-    server._process = FakeProcess(alive=True)
+    server._process = FakeProcess(alive=True)  # type: ignore[assignment]
 
     def fake_request_json(*args: object, **kwargs: object) -> dict[str, object]:
         raise JoernQueryTimeoutError("timed out")
@@ -115,12 +115,12 @@ def test_query_timeout_raises(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_query_restarts_once_after_server_crash(monkeypatch: pytest.MonkeyPatch) -> None:
     server = JoernServer(binary_path="joern", port=8086)
-    server._process = FakeProcess(alive=False, returncode=1, stderr="boom")
+    server._process = FakeProcess(alive=False, returncode=1, stderr="boom")  # type: ignore[assignment]
     restart_calls: list[int] = []
 
     def fake_restart() -> None:
         restart_calls.append(server.port)
-        server._process = FakeProcess(alive=True)
+        server._process = FakeProcess(alive=True)  # type: ignore[assignment]
 
     def fake_request_json(*args: object, **kwargs: object) -> dict[str, object]:
         return {"success": True, "stdout": "ok"}
@@ -137,7 +137,7 @@ def test_query_restarts_once_after_server_crash(monkeypatch: pytest.MonkeyPatch)
 
 def test_query_fails_after_restart_budget_is_spent() -> None:
     server = JoernServer(binary_path="joern", port=8086)
-    server._process = FakeProcess(alive=False, returncode=1, stderr="boom")
+    server._process = FakeProcess(alive=False, returncode=1, stderr="boom")  # type: ignore[assignment]
     server._restart_count = 1
 
     with pytest.raises(JoernError, match="restart limit"):
@@ -147,7 +147,7 @@ def test_query_fails_after_restart_budget_is_spent() -> None:
 def test_stop_server_kills_hung_process() -> None:
     server = JoernServer(binary_path="joern", port=8086)
     process = FakeProcess(alive=True, wait_raises_timeout=True)
-    server._process = process
+    server._process = process  # type: ignore[assignment]
 
     server._stop_server()
 

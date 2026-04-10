@@ -8,6 +8,7 @@ from piranesi.report.renderer import (
     render_pr_body,
     write_report_outputs,
 )
+from piranesi.report.sarif import generate_sarif
 
 __all__ = [
     "CombinedFinding",
@@ -15,6 +16,7 @@ __all__ = [
     "PiranesiReport",
     "ReportAppendix",
     "build_report",
+    "generate_sarif",
     "render_markdown",
     "render_pr_body",
     "write_report_outputs",

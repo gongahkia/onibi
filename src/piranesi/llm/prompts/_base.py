@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from typing import TypeAlias
 
 from piranesi.llm.sanitize import strip_comments
 
-Message: TypeAlias = dict[str, str]
+type Message = dict[str, str]
 
 
 def build_tool_spec(

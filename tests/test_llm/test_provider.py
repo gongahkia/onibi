@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import litellm
 import pytest
@@ -124,9 +125,9 @@ def test_provider_uses_router_fallback_after_retryable_failure(
     provider, cost_tracker, _ = _build_provider(tmp_path, router=router)
     calls: list[str] = []
 
-    monkeypatch.setattr(LLMProvider._complete_with_retry.retry, "wait", wait_none())
+    monkeypatch.setattr(LLMProvider._complete_with_retry.retry, "wait", wait_none())  # type: ignore[attr-defined]
 
-    def _completion(*, model: str, messages: list[dict[str, str]], **kwargs: object):
+    def _completion(*, model: str, messages: list[dict[str, str]], **kwargs: Any) -> Any:
         calls.append(model)
         if model == "openai/gpt-4o-mini":
             return litellm.mock_completion(

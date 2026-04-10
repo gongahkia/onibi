@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 from collections.abc import Sequence
 from contextlib import suppress
@@ -16,17 +17,21 @@ from piranesi.models import (
     ScanResult,
 )
 from piranesi.models.taint import SourceLocation
+from piranesi.scan.framework import detect_frameworks, discover_nextjs_routes
 from piranesi.scan.joern import JoernServer
 from piranesi.scan.queries import QueryNode, execute_json_query, execute_source_query
-from piranesi.scan.specs import SourceSpec, get_source_specs
+from piranesi.scan.specs import SanitizerSpec, SinkSpec, SourceSpec, get_source_specs
 from piranesi.scan.transpile import SourceMap
 
-_ENTRY_POINT_CALLS_QUERY = 'cpg.call.name("get|post|put|delete|patch").toJsonPretty'
+_EXPRESS_ROUTE_CALLS_QUERY = (
+    'cpg.call.name("get|post|put|delete|patch").filter(c => c.argument.size >= 2)'
+)
+_ENTRY_POINT_CALLS_QUERY = f"{_EXPRESS_ROUTE_CALLS_QUERY}.toJsonPretty"
 _ENTRY_POINT_HANDLER_CODES_QUERY = (
-    'cpg.call.name("get|post|put|delete|patch").map(c => c.argument(2).code).toJsonPretty'
+    f"{_EXPRESS_ROUTE_CALLS_QUERY}.map(c => c.argument(2).code).toJsonPretty"
 )
 _ENTRY_POINT_ROUTE_PATTERNS_QUERY = (
-    'cpg.call.name("get|post|put|delete|patch").map(c => c.argument(1).code).toJsonPretty'
+    f"{_EXPRESS_ROUTE_CALLS_QUERY}.map(c => c.argument(1).code).toJsonPretty"
 )
 _METHOD_REFS_QUERY = (
     "cpg.methodRef.map(m => "
@@ -37,6 +42,7 @@ _CALL_GRAPH_QUERY = (
     '"calls" -> m.callOut.map(c => c.methodFullName).dedup.l.mkString("||"))).toJsonPretty'
 )
 _FILES_SCANNED_QUERY = "cpg.file.name.toJsonPretty"
+_NEXTJS_HTTP_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"})
 
 
 class SurfaceMappingError(RuntimeError):
@@ -109,6 +115,16 @@ class _NodeResolver:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class _MethodEntryPointSummary:
+    name: str
+    full_name: str
+    file_name: str
+    line_number: int | None
+    column_number: int | None
+    code: str
+
+
 def build_scan_result(
     server: JoernServer,
     *,
@@ -117,7 +133,10 @@ def build_scan_result(
     joern_project_root: str | Path | None = None,
     source_map: SourceMap | None = None,
     source_specs: Sequence[SourceSpec] | None = None,
+    sink_specs: Sequence[SinkSpec] | None = None,
+    sanitizer_specs: Sequence[SanitizerSpec] | None = None,
     candidate_findings: Sequence[CandidateFinding] | None = None,
+    frameworks: Sequence[str] | None = None,
 ) -> ScanResult:
     resolved_project_root = Path(project_root).resolve(strict=False)
     resolved_joern_root = (
@@ -125,7 +144,8 @@ def build_scan_result(
         if joern_project_root is not None
         else resolved_project_root
     )
-    resolved_source_specs = tuple(source_specs or get_source_specs())
+    resolved_frameworks = tuple(frameworks or detect_frameworks(resolved_project_root))
+    resolved_source_specs = tuple(source_specs or get_source_specs(frameworks=resolved_frameworks))
     resolver = _NodeResolver(
         server=server,
         joern_project_root=resolved_joern_root,
@@ -139,9 +159,17 @@ def build_scan_result(
             joern_project_root=resolved_joern_root,
             source_map=source_map,
             source_specs=resolved_source_specs,
+            sink_specs=sink_specs,
+            sanitizer_specs=sanitizer_specs,
+            frameworks=resolved_frameworks,
         )
     )
-    entry_points = extract_entry_points(server, resolver=resolver)
+    entry_points = extract_entry_points(
+        server,
+        resolver=resolver,
+        project_root=resolved_project_root,
+        frameworks=resolved_frameworks,
+    )
     attack_surface = extract_attack_surface(
         server,
         resolver=resolver,
@@ -217,6 +245,24 @@ def extract_entry_points(
     server: JoernServer,
     *,
     resolver: _NodeResolver,
+    project_root: Path | None = None,
+    frameworks: Sequence[str] | None = None,
+) -> list[EntryPoint]:
+    normalized_frameworks = {framework.lower() for framework in frameworks or ()}
+    entry_points: list[EntryPoint] = []
+    if not normalized_frameworks or normalized_frameworks & {"express", "fastify", "koa", "nestjs"}:
+        entry_points.extend(_extract_express_entry_points(server, resolver=resolver))
+    if project_root is not None and "nextjs" in normalized_frameworks:
+        entry_points.extend(
+            _extract_nextjs_entry_points(server, resolver=resolver, project_root=project_root)
+        )
+    return _dedupe_entry_points(entry_points)
+
+
+def _extract_express_entry_points(
+    server: JoernServer,
+    *,
+    resolver: _NodeResolver,
 ) -> list[EntryPoint]:
     raw_calls = execute_json_query(server, _ENTRY_POINT_CALLS_QUERY)
     handler_codes = execute_json_query(server, _ENTRY_POINT_HANDLER_CODES_QUERY)
@@ -266,6 +312,66 @@ def extract_entry_points(
                 parameters=list(resolver.parameters_for_method(function_id)) if function_id else [],
             )
         )
+    return entry_points
+
+
+def _extract_nextjs_entry_points(
+    server: JoernServer,
+    *,
+    resolver: _NodeResolver,
+    project_root: Path,
+) -> list[EntryPoint]:
+    entry_points: list[EntryPoint] = []
+
+    for route in discover_nextjs_routes(project_root):
+        transpiled_relative_file = (
+            route.file.relative_to(project_root).with_suffix(".js").as_posix()
+        )
+        method_summaries = _query_methods_for_file(server, transpiled_relative_file)
+        if route.kind == "pages_router":
+            method_summary = _select_pages_router_method(method_summaries)
+            if method_summary is None:
+                continue
+            entry_points.append(
+                _entry_point_from_method_summary(
+                    method_summary,
+                    resolver=resolver,
+                    kind="route_handler",
+                    route_pattern=route.route_pattern,
+                    http_method=None,
+                )
+            )
+            continue
+
+        if route.kind == "app_router":
+            for method_summary in method_summaries:
+                if method_summary.name.upper() not in _NEXTJS_HTTP_METHODS:
+                    continue
+                entry_points.append(
+                    _entry_point_from_method_summary(
+                        method_summary,
+                        resolver=resolver,
+                        kind="route_handler",
+                        route_pattern=route.route_pattern,
+                        http_method=method_summary.name.upper(),
+                    )
+                )
+            continue
+
+        if route.kind == "server_action":
+            for method_summary in method_summaries:
+                if method_summary.name == ":program":
+                    continue
+                entry_points.append(
+                    _entry_point_from_method_summary(
+                        method_summary,
+                        resolver=resolver,
+                        kind="server_action",
+                        route_pattern=route.route_pattern,
+                        http_method=None,
+                    )
+                )
+
     return entry_points
 
 
@@ -328,6 +434,126 @@ def _index_findings_by_source(
         )
         indexed[key].append(finding)
     return {key: tuple(values) for key, values in indexed.items()}
+
+
+def _query_methods_for_file(
+    server: JoernServer,
+    transpiled_relative_file: str,
+) -> tuple[_MethodEntryPointSummary, ...]:
+    file_pattern = f".*{re.escape(transpiled_relative_file)}"
+    payload = execute_json_query(
+        server,
+        "cpg.file.name("
+        f"{json.dumps(file_pattern)}"
+        ").method.map(m => Map("
+        '"name" -> m.name, '
+        '"fullName" -> m.fullName, '
+        '"file" -> m.file.name.headOption.getOrElse(""), '
+        '"lineNumber" -> m.lineNumber, '
+        '"columnNumber" -> m.columnNumber, '
+        '"code" -> m.code'
+        ")).toJsonPretty",
+    )
+    if not isinstance(payload, list) or not all(isinstance(item, dict) for item in payload):
+        raise SurfaceMappingError(f"Unexpected Next.js method payload: {payload!r}")
+
+    summaries: list[_MethodEntryPointSummary] = []
+    for item in payload:
+        name = item.get("name")
+        full_name = item.get("fullName")
+        file_name = item.get("file")
+        if (
+            not isinstance(name, str)
+            or not isinstance(full_name, str)
+            or not isinstance(file_name, str)
+        ):
+            continue
+        summaries.append(
+            _MethodEntryPointSummary(
+                name=name,
+                full_name=full_name,
+                file_name=file_name,
+                line_number=item.get("lineNumber")
+                if isinstance(item.get("lineNumber"), int)
+                else None,
+                column_number=item.get("columnNumber")
+                if isinstance(item.get("columnNumber"), int)
+                else None,
+                code=item.get("code") if isinstance(item.get("code"), str) else name,
+            )
+        )
+    return tuple(summaries)
+
+
+def _select_pages_router_method(
+    method_summaries: Sequence[_MethodEntryPointSummary],
+) -> _MethodEntryPointSummary | None:
+    candidates = [summary for summary in method_summaries if summary.name != ":program"]
+    if not candidates:
+        return None
+    for preferred_name in ("handler", "default_1", "default"):
+        for summary in candidates:
+            if summary.name == preferred_name:
+                return summary
+    return candidates[0]
+
+
+def _entry_point_from_method_summary(
+    summary: _MethodEntryPointSummary,
+    *,
+    resolver: _NodeResolver,
+    kind: str,
+    route_pattern: str,
+    http_method: str | None,
+) -> EntryPoint:
+    location = _location_for_method_summary(summary, resolver=resolver)
+    return EntryPoint(
+        function_id=summary.full_name,
+        location=location,
+        kind=kind,
+        http_method=http_method,
+        route_pattern=route_pattern,
+        parameters=list(resolver.parameters_for_method(summary.full_name)),
+    )
+
+
+def _location_for_method_summary(
+    summary: _MethodEntryPointSummary,
+    *,
+    resolver: _NodeResolver,
+) -> SourceLocation:
+    generated_file = _first_path(
+        [summary.file_name],
+        joern_project_root=resolver.joern_project_root,
+        source_map=resolver.source_map,
+    )
+    resolved_file = generated_file
+    resolved_line = summary.line_number or 1
+    if resolver.source_map is not None and generated_file is not None:
+        with suppress(KeyError):
+            resolved_file, resolved_line = resolver.source_map.resolve(
+                generated_file,
+                summary.line_number or 1,
+            )
+    return SourceLocation(
+        file=str(resolved_file) if resolved_file is not None else "<unknown>",
+        line=resolved_line,
+        column=summary.column_number or 0,
+        snippet=summary.code,
+    )
+
+
+def _dedupe_entry_points(entry_points: Sequence[EntryPoint]) -> list[EntryPoint]:
+    deduped: dict[tuple[str, str, str | None, str | None], EntryPoint] = {}
+    for entry_point in entry_points:
+        key = (
+            entry_point.function_id,
+            entry_point.kind,
+            entry_point.http_method,
+            entry_point.route_pattern,
+        )
+        deduped.setdefault(key, entry_point)
+    return list(deduped.values())
 
 
 def _first_string(payload: object) -> str | None:

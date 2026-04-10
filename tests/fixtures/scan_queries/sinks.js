@@ -12,6 +12,11 @@ function triggerSinks(
   res,
   fs,
   axios,
+  http,
+  https,
+  needle,
+  app,
+  handlers,
 ) {
   db.query(userId);
   prisma.$queryRaw(userId);
@@ -39,5 +44,18 @@ function triggerSinks(
   fetch(url);
   axios.get(url);
   axios.post(url);
+  http.get(url);
+  https.get(url);
+  needle.get(url);
   request(url);
+  request.get(url);
+  fetch(`https://internal.service.local/api/users/${userId}`);
+
+  app.get("/health", handlers.health);
+  app.post("/users", handlers.createUser);
+}
+
+function triggerFastifySinks(markup, redirectTo, reply) {
+  reply.send(markup);
+  reply.header("Location", redirectTo);
 }

@@ -98,8 +98,8 @@ def test_xss_likely_on_transformed_markup() -> None:
     payload = SynthesizedPayload(
         method="GET",
         url="/search",
-        body={"q": "\"><img src=x onerror=alert(1)>"},
-        payload_values={"q": "\"><img src=x onerror=alert(1)>"},
+        body={"q": '"><img src=x onerror=alert(1)>'},
+        payload_values={"q": '"><img src=x onerror=alert(1)>'},
         encoding="query",
     )
     result = confirm_responses(

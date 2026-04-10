@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import pytest
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -13,8 +13,8 @@ if str(REPO_ROOT) not in sys.path:
 if str(REPO_ROOT / "eval") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "eval"))
 
-from eval import scoring
-from eval.ground_truth.schema import Complexity, GroundTruthEntry, Label
+from eval import scoring  # noqa: E402
+from eval.ground_truth.schema import Complexity, GroundTruthEntry, Label  # noqa: E402
 
 
 def _ground_truth_entry(
@@ -91,8 +91,15 @@ def test_match_weight_exact_partial_and_none() -> None:
 
 def test_precision_recall_f1_with_partial_credit() -> None:
     ground_truth = [
-        _ground_truth_entry(entry_id="gt-001", affected_files=["src/one.ts"], taint_sink="db.query()"),
-        _ground_truth_entry(entry_id="gt-002", affected_files=["src/two.ts"], taint_source="req.body.name", taint_sink="res.send()"),
+        _ground_truth_entry(
+            entry_id="gt-001", affected_files=["src/one.ts"], taint_sink="db.query()"
+        ),
+        _ground_truth_entry(
+            entry_id="gt-002",
+            affected_files=["src/two.ts"],
+            taint_source="req.body.name",
+            taint_sink="res.send()",
+        ),
     ]
     predictions = [
         _finding(finding_id="f-1", affected_files=("src/one.ts",), taint_sink="db.query()"),
@@ -111,7 +118,9 @@ def test_precision_recall_f1_with_partial_credit() -> None:
     ]
 
     summary = scoring.summarize_matches(predictions, ground_truth)
-    precision, recall, f1 = scoring._compute_prf(summary.tp_weight, summary.fp_weight, summary.fn_weight)
+    precision, recall, f1 = scoring._compute_prf(
+        summary.tp_weight, summary.fp_weight, summary.fn_weight
+    )
 
     assert summary.tp_weight == pytest.approx(1.5)
     assert summary.fp_weight == pytest.approx(1.5)
@@ -155,7 +164,9 @@ def test_edge_cases_for_metric_calculation() -> None:
     assert f1 is None
 
 
-def test_scoring_cli_writes_json_and_prints_table(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_scoring_cli_writes_json_and_prints_table(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     ground_truth_dir = tmp_path / "ground_truth"
     ground_truth_dir.mkdir()
     entries = [

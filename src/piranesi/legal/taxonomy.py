@@ -11,6 +11,9 @@ _CATEGORY_TIERS: dict[str, int] = {
     "biometric": 1,
     "genetic": 1,
     "health": 1,
+    "political": 1,
+    "trade_union": 1,
+    "sexual_orientation": 1,
     "credentials": 2,
     "financial": 2,
     "financial_bank": 2,
@@ -162,6 +165,39 @@ def classify_field(field_name: str) -> list[str]:
         add("race")
     if _has_token(tokens, "religion", "faith", "belief"):
         add("religion")
+    if _has_token(tokens, "political") or _contains_phrase(
+        normalized,
+        "political_opinion",
+        "political_view",
+        "party_affiliation",
+        "voter_preference",
+        "voting_preference",
+    ):
+        add("political")
+    if (
+        {"trade", "union"} <= tokens
+        or {"labor", "union"} <= tokens
+        or {"labour", "union"} <= tokens
+        or _contains_phrase(
+            normalized,
+            "trade_union",
+            "union_membership",
+            "labor_union",
+            "labour_union",
+        )
+    ):
+        add("trade_union")
+    if (
+        {"sexual", "orientation"} <= tokens
+        or _has_token(tokens, "sexuality", "lgbt", "lgbtq")
+        or _contains_phrase(
+            normalized,
+            "sexual_orientation",
+            "sexual_preference",
+            "sex_life",
+        )
+    ):
+        add("sexual_orientation")
 
     username_detected = _has_token(tokens, "username", "handle") or _contains_phrase(
         normalized,

@@ -35,7 +35,8 @@ def test_strip_comments_preserves_line_numbers() -> None:
 def test_strip_comments_keeps_strings_regexes_and_template_literals() -> None:
     source = (
         'const url = "https://example.com/api"; // real comment\n'
-        r"const pattern = /https?:\/\/example\.com\/api/;" "\n"
+        r"const pattern = /https?:\/\/example\.com\/api/;"
+        "\n"
         "const template = `literal /* not a comment */ and // also not a comment`;\n"
         "const nested = `${value /* real block comment */}`;\n"
     )

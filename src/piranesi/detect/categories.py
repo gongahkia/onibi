@@ -57,10 +57,19 @@ _FIELD_ALIAS_CATEGORIES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("ic", "ic_no", "ic_num", "ic_number"), "nric"),
 )
 _ROUTE_ALIAS_CATEGORIES: tuple[tuple[frozenset[str], str], ...] = (
-    (frozenset({"address", "addresses", "postal", "postcode", "zip", "zipcode"}), "contact_address"),
+    (
+        frozenset({"address", "addresses", "postal", "postcode", "zip", "zipcode"}),
+        "contact_address",
+    ),
     (frozenset({"bank", "banks", "banking", "iban", "routing", "swift"}), "financial_bank"),
-    (frozenset({"billing", "card", "cards", "checkout", "payment", "payments", "wallet"}), "financial_credit_card"),
-    (frozenset({"criminal", "crime", "offence", "offences", "offense", "offenses", "police"}), "criminal"),
+    (
+        frozenset({"billing", "card", "cards", "checkout", "payment", "payments", "wallet"}),
+        "financial_credit_card",
+    ),
+    (
+        frozenset({"criminal", "crime", "offence", "offences", "offense", "offenses", "police"}),
+        "criminal",
+    ),
     (frozenset({"dob", "birthday", "birthdays"}), "dob"),
     (frozenset({"email", "emails", "mail"}), "contact_email"),
     (frozenset({"employee", "employees", "employer", "employment", "hr"}), "employment"),
@@ -68,12 +77,17 @@ _ROUTE_ALIAS_CATEGORIES: tuple[tuple[frozenset[str], str], ...] = (
     (frozenset({"health", "healthcare", "medical", "medicine", "patient", "patients"}), "health"),
     (frozenset({"nationality", "nationalities", "citizenship"}), "nationality"),
     (frozenset({"nric", "identity_card"}), "nric"),
-    (frozenset({"payroll", "salary", "salaries", "wage", "wages", "income", "bonus", "bonuses"}), "financial_income"),
+    (
+        frozenset({"payroll", "salary", "salaries", "wage", "wages", "income", "bonus", "bonuses"}),
+        "financial_income",
+    ),
     (frozenset({"phone", "phones", "mobile", "mobiles", "tel", "telephone"}), "contact_phone"),
     (frozenset({"race", "races", "ethnicity", "ethnicities"}), "race"),
     (frozenset({"religion", "religions", "faith"}), "religion"),
 )
-_CREDENTIAL_EXCLUSION_TOKENS = frozenset({"digest", "hash", "hashed", "jwt", "salt", "signature", "token"})
+_CREDENTIAL_EXCLUSION_TOKENS = frozenset(
+    {"digest", "hash", "hashed", "jwt", "salt", "signature", "token"}
+)
 _DIRECT_CREDENTIAL_FIELDS = frozenset({"otp", "passcode", "password", "passwd", "pin"})
 _CREDENTIAL_PHRASES = (
     "account_password",
@@ -229,8 +243,8 @@ def _classify_with_llm(
                     "Return strict JSON matching the response schema. "
                     "Only use supported categories from this taxonomy: "
                     f"{supported}. "
-                    "Return an empty categories list when the field is unlikely to be personal data "
-                    "or the context is too ambiguous."
+                    "Return an empty categories list when the field is unlikely "
+                    "to be personal data or the context is too ambiguous."
                 ),
             },
             {

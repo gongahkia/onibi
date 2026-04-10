@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from copy import deepcopy
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, Union, get_args, get_origin
+from typing import Any, Literal, Union, get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -59,7 +59,7 @@ class SandboxConfig(BaseModel):
 class OutputConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    format: str = "both"
+    format: Literal["json", "markdown", "both", "sarif"] = "both"
     output_dir: str = "./piranesi-output"
 
 
@@ -106,8 +106,15 @@ class ScanConfig(BaseModel):
         default_factory=lambda: ["**/node_modules/**", "**/dist/**", "**/*.d.ts"]
     )
     max_file_size: int = 1_048_576
+    frameworks: list[str] = Field(default_factory=lambda: ["auto"])
     custom_sources: CustomSourceConfig = Field(default_factory=CustomSourceConfig)
     custom_sinks: CustomSinkConfig = Field(default_factory=CustomSinkConfig)
+
+
+class PluginsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    disabled: list[str] = Field(default_factory=list)
 
 
 class PiranesiConfig(BaseModel):
@@ -121,6 +128,7 @@ class PiranesiConfig(BaseModel):
     trace: TraceConfig = Field(default_factory=TraceConfig)
     joern: JoernConfig = Field(default_factory=JoernConfig)
     scan: ScanConfig = Field(default_factory=ScanConfig)
+    plugins: PluginsConfig = Field(default_factory=PluginsConfig)
 
 
 def load_config(

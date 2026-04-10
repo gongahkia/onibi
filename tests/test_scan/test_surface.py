@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Generator
 from pathlib import Path
 
 import pytest
@@ -7,7 +8,14 @@ import pytest
 from piranesi.detect.flows import extract_candidate_findings
 from piranesi.models import ScanMetadata
 from piranesi.scan.joern import JoernServer, is_joern_installed
-from piranesi.scan.specs import get_sanitizer_specs, get_sink_specs, get_source_specs
+from piranesi.scan.specs import (
+    SanitizerSpec,
+    SinkSpec,
+    SourceSpec,
+    get_sanitizer_specs,
+    get_sink_specs,
+    get_source_specs,
+)
 from piranesi.scan.surface import build_scan_result
 from piranesi.scan.transpile import SourceMap
 
@@ -15,24 +23,24 @@ TAINT_APP_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "typescript" 
 TAINT_APP_TRANSPILED_DIR = TAINT_APP_DIR / "transpiled"
 
 
-def _source_spec_by_name(name: str):
+def _source_spec_by_name(name: str) -> SourceSpec:
     return next(spec for spec in get_source_specs() if spec.name == name)
 
 
-def _sink_spec_by_name(name: str):
+def _sink_spec_by_name(name: str) -> SinkSpec:
     return next(spec for spec in get_sink_specs() if spec.name == name)
 
 
-def _sanitizer_spec_by_name(name: str):
+def _sanitizer_spec_by_name(name: str) -> SanitizerSpec:
     return next(spec for spec in get_sanitizer_specs() if spec.name == name)
 
 
 @pytest.fixture(scope="module")
-def joern_server() -> JoernServer:
+def joern_server() -> Generator[JoernServer, None, None]:
     if not is_joern_installed():
         pytest.skip("Joern is not installed in PATH")
 
-    with JoernServer(startup_timeout_seconds=30, query_timeout_seconds=30) as server:
+    with JoernServer(port=8128, startup_timeout_seconds=30, query_timeout_seconds=30) as server:
         server.import_project(TAINT_APP_TRANSPILED_DIR)
         yield server
 
@@ -89,10 +97,7 @@ def test_build_scan_result_maps_entry_points_and_attack_surface(joern_server: Jo
     assert entry_points["/cmd"].function_id == "app.js::program:commandHandler"
     assert entry_points["/cmd"].parameters == ["req", "child"]
 
-    attack_surface = {
-        (node.function_id, node.source_type): node
-        for node in result.attack_surface
-    }
+    attack_surface = {(node.function_id, node.source_type): node for node in result.attack_surface}
     user_surface = attack_surface[("app.js::program:userHandler", "request_body")]
     assert user_surface.location.file.endswith("app.ts")
     assert user_surface.location.line == 8

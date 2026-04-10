@@ -18,8 +18,8 @@ LocationResolver = Callable[[QueryNode], SourceLocation]
 _VARIABLE_PATTERN = r"[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*|\[['\"][^'\"]+['\"]\])*"
 _STRING_LITERAL_PATTERN = r"(?:\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*')"
 _TYPEOF_PATTERN = re.compile(
-    rf'^\s*typeof\s+(?P<var>{_VARIABLE_PATTERN})\s*(?P<op>===|==|!==|!=)\s*'
-    rf'(?P<literal>{_STRING_LITERAL_PATTERN})\s*$'
+    rf"^\s*typeof\s+(?P<var>{_VARIABLE_PATTERN})\s*(?P<op>===|==|!==|!=)\s*"
+    rf"(?P<literal>{_STRING_LITERAL_PATTERN})\s*$"
 )
 _STRING_LENGTH_PATTERN = re.compile(
     rf"^\s*(?P<var>{_VARIABLE_PATTERN})\.length\s*(?P<op>===|==|!==|!=|>=|>|<=|<)\s*"
@@ -30,8 +30,8 @@ _STRING_CONTAINS_PATTERN = re.compile(
     rf"(?P<substr>{_STRING_LITERAL_PATTERN})\)\s*$"
 )
 _STRING_EQ_PATTERN = re.compile(
-    rf'^\s*(?P<var>{_VARIABLE_PATTERN})\s*(?P<op>===|==|!==|!=)\s*'
-    rf'(?P<literal>{_STRING_LITERAL_PATTERN})\s*$'
+    rf"^\s*(?P<var>{_VARIABLE_PATTERN})\s*(?P<op>===|==|!==|!=)\s*"
+    rf"(?P<literal>{_STRING_LITERAL_PATTERN})\s*$"
 )
 _INT_BOUND_PATTERN = re.compile(
     rf"^\s*(?P<var>{_VARIABLE_PATTERN})\s*(?P<op>===|==|!==|!=|>=|>|<=|<)\s*"
@@ -242,9 +242,11 @@ class PathConditionExtractor:
             raise ConditionExtractionError(
                 f"Unexpected control structure payload for control {control_id}: {payload!r}"
             )
-        control = _ControlStructure.from_json(payload[0]) if payload else None
-        self._control_by_id_cache[control_id] = control
-        return control
+        resolved: _ControlStructure | None = (
+            _ControlStructure.from_json(payload[0]) if payload else None
+        )
+        self._control_by_id_cache[control_id] = resolved
+        return resolved
 
     def _controls_for_method(
         self,
@@ -586,7 +588,7 @@ def _symbolic_call(name: str, **fields: object) -> str:
             rendered_fields.append(f"{key}={json.dumps(value)}")
         else:
             rendered_fields.append(f"{key}={value}")
-    return f'{name}({", ".join(rendered_fields)})'
+    return f"{name}({', '.join(rendered_fields)})"
 
 
 def _operator_name(operator: str) -> str:

@@ -42,7 +42,7 @@ class FakeJoernServer:
             return self.exact_payloads[cpgql]
 
         controlled_by_match = re.fullmatch(
-            r'cpg\.(?:call|identifier|parameter|returns|fieldIdentifier|literal)\.id\((?P<node_id>\d+)L\)'
+            r"cpg\.(?:call|identifier|parameter|returns|fieldIdentifier|literal)\.id\((?P<node_id>\d+)L\)"
             r'\.controlledBy\.map\(c => Map\("'
             r'_id" -> c\.id, "methodName" -> c\.method\.name, '
             r'"methodFullName" -> c\.method\.fullName\)\)\.toJsonPretty',
@@ -291,7 +291,7 @@ def test_extract_candidate_findings_populates_nested_path_conditions() -> None:
     )
 
     findings = extract_candidate_findings(
-        server,
+        server,  # type: ignore[arg-type]
         joern_project_root=FIXTURE_PATH.parent,
         source_specs=(source_spec,),
         sink_specs=(sink_spec,),
@@ -396,7 +396,7 @@ def test_extract_candidate_findings_handles_ternary_conditions() -> None:
     )
 
     findings = extract_candidate_findings(
-        server,
+        server,  # type: ignore[arg-type]
         joern_project_root=FIXTURE_PATH.parent,
         source_specs=(source_spec,),
         sink_specs=(sink_spec,),

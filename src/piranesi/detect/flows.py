@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import json
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -24,6 +26,7 @@ from piranesi.scan.queries import (
     build_flow_query,
     execute_json_query,
     execute_sanitizer_query,
+    normalize_flow_elements_for_sink_spec,
 )
 from piranesi.scan.specs import (
     SanitizerSpec,
@@ -42,10 +45,30 @@ _DEFAULT_DATA_CATEGORIES = ["unknown"]
 _DEFAULT_CONFIDENCE = 0.7
 _DEFAULT_SEVERITY = "medium"
 _LOCATION_SEPARATOR = "|"
+_VARIABLE_PATTERN = r"[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*|\[['\"][^'\"]+['\"]\])*"
 _FIELD_SEGMENT_PATTERN = re.compile(r"\.([A-Za-z_$][\w$]*)|\[['\"]([^'\"]+)['\"]\]")
 _CALL_PREFIX_PATTERN = re.compile(r"^\s*(?:new\s+)?([^(]+?)\s*\(")
-_SQL_PLACEHOLDER_PATTERN = re.compile(r"\$(?:\d+)\b|\?")
-_MULTI_ARG_QUERY_PATTERN = re.compile(r"\bquery\s*\([^,]+,\s*(?:\[|[A-Za-z_$])", re.DOTALL)
+_IDENTIFIER_SUFFIX_PATTERN = re.compile(r"[A-Za-z_$][\w$]*$")
+_STATIC_FALSE_PATTERN = re.compile(
+    r'^\s*(?:false|0|""|\'\'|\(\s*false\s*\)|\(\s*0\s*\)|\(\s*""\s*\)|\(\s*\'\'\s*\))\s*$',
+    re.IGNORECASE,
+)
+_STATIC_TRUE_PATTERN = re.compile(
+    r"^\s*(?:true|1|\(\s*true\s*\)|\(\s*1\s*\))\s*$",
+    re.IGNORECASE,
+)
+_TYPEOF_NUMBER_PATTERN = re.compile(
+    rf"^\s*typeof\s+(?P<var>{_VARIABLE_PATTERN})\s*(?P<op>===|==|!==|!=)\s*"
+    r'(?P<quote>["\'])number(?P=quote)\s*$'
+)
+_INTEGER_GUARD_PATTERN = re.compile(
+    rf"^\s*(?P<neg>!)?\s*(?:Number\.)?isInteger\(\s*(?P<var>{_VARIABLE_PATTERN})\s*\)\s*$"
+)
+_ALLOWLIST_GUARD_PATTERN = re.compile(
+    rf"^\s*(?P<neg>!)?\s*(?P<receiver>{_VARIABLE_PATTERN})\.includes\(\s*"
+    rf"(?P<argument>{_VARIABLE_PATTERN})\s*\)\s*$"
+)
+_STRING_EXPECTING_SQL_OPERATIONS = frozenset({"<operator>.addition", "<operator>.formatString"})
 
 _OPERATION_BY_NODE_TYPE = {
     "CALL": "call_arg",
@@ -67,6 +90,65 @@ _SEVERITY_BY_CWE = {
 
 class FlowExtractionError(RuntimeError):
     """Raised when Joern returns an unexpected data-flow payload."""
+
+
+@dataclass(frozen=True, slots=True)
+class _MethodSummary:
+    method_name: str | None
+    method_full_name: str | None
+
+    @classmethod
+    def from_json(cls, payload: JsonDict) -> _MethodSummary:
+        return cls(
+            method_name=_coerce_optional_str(payload.get("name")),
+            method_full_name=_coerce_optional_str(payload.get("fullName")),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _ControlStructureSummary:
+    control_id: int
+    code: str
+    condition_code: str
+    control_type: str | None
+    line_number: int | None
+    column_number: int | None
+
+    @classmethod
+    def from_json(cls, payload: JsonDict) -> _ControlStructureSummary:
+        return cls(
+            control_id=_coerce_int(payload.get("_id"), default=-1),
+            code=_coerce_optional_str(payload.get("code")) or "",
+            condition_code=_coerce_optional_str(payload.get("condition")) or "",
+            control_type=_coerce_optional_str(payload.get("controlStructureType")),
+            line_number=_coerce_optional_int(payload.get("lineNumber")),
+            column_number=_coerce_optional_int(payload.get("columnNumber")),
+        )
+
+    def to_query_node(self) -> QueryNode:
+        return QueryNode(
+            node_id=self.control_id,
+            name=None,
+            code=self.code,
+            node_type="CONTROL_STRUCTURE",
+            line_number=self.line_number,
+            column_number=self.column_number,
+            method_full_name=None,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _TruthGuard:
+    variable: str
+    truth_means_match: bool
+    requires_call: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _AllowlistGuard:
+    receiver: str
+    argument: str
+    truth_means_allowed: bool
 
 
 @dataclass(slots=True)
@@ -100,6 +182,253 @@ class _NodeFileResolver:
         )
 
 
+@dataclass(slots=True)
+class _PathPruningAnalyzer:
+    server: JoernServer
+    source_map: SourceMap | None
+    file_resolver: _NodeFileResolver
+    _method_for_node_cache: dict[int, _MethodSummary | None] = field(default_factory=dict)
+    _method_controls_cache: dict[str, tuple[_ControlStructureSummary, ...]] = field(
+        default_factory=dict
+    )
+    _branch_ast_cache: dict[tuple[int, int], frozenset[int]] = field(default_factory=dict)
+    _branch_return_cache: dict[tuple[int, int], bool] = field(default_factory=dict)
+    _control_call_cache: dict[tuple[int, str], bool] = field(default_factory=dict)
+    _control_location_cache: dict[int, SourceLocation] = field(default_factory=dict)
+    _source_lines_cache: dict[Path, tuple[str, ...]] = field(default_factory=dict)
+
+    def prune_for_type_narrowing(
+        self,
+        *,
+        elements: Sequence[QueryNode],
+        sink_spec: SinkSpec,
+        sink_location: SourceLocation,
+        path_conditions: Sequence[PathCondition],
+    ) -> bool:
+        if not _sink_expects_string(elements, sink_spec):
+            return False
+
+        flow_variables = _flow_variable_names(elements)
+        if _path_conditions_narrow_to_number(path_conditions, flow_variables):
+            return True
+
+        sink_node = elements[-1]
+        for control in self._controls_before_sink(sink_node, sink_location):
+            guard = _parse_numeric_guard(control.condition_code or control.code)
+            if guard is None or not _matches_flow_variable(guard.variable, flow_variables):
+                continue
+            if guard.requires_call is not None and not self._control_uses_call(
+                control.control_id,
+                guard.requires_call,
+            ):
+                continue
+            if self._condition_holds_on_path(control.control_id, elements, guard.truth_means_match):
+                return True
+        return False
+
+    def reduce_confidence_for_allowlist(
+        self,
+        base_confidence: float,
+        *,
+        elements: Sequence[QueryNode],
+        sink_location: SourceLocation,
+    ) -> float:
+        flow_variables = _flow_variable_names(elements)
+        sink_node = elements[-1]
+        for control in self._controls_before_sink(sink_node, sink_location):
+            guard = _parse_allowlist_guard(control.condition_code or control.code)
+            if guard is None or not _matches_flow_variable(guard.argument, flow_variables):
+                continue
+            if not self._control_uses_call(control.control_id, "includes"):
+                continue
+            control_location = self._control_location(control)
+            if not self._receiver_is_allowlist_array(guard.receiver, control_location):
+                continue
+            if self._condition_holds_on_path(
+                control.control_id, elements, guard.truth_means_allowed
+            ):
+                return min(base_confidence, 0.1)
+        return base_confidence
+
+    def _controls_before_sink(
+        self,
+        sink_node: QueryNode,
+        sink_location: SourceLocation,
+    ) -> tuple[_ControlStructureSummary, ...]:
+        method = self._method_for_node(sink_node)
+        if method is None or not method.method_full_name:
+            return ()
+
+        relevant_controls: list[_ControlStructureSummary] = []
+        for control in self._controls_for_method(method.method_full_name):
+            control_location = self._control_location(control)
+            if control_location.file != sink_location.file:
+                continue
+            if control_location.line >= sink_location.line:
+                continue
+            relevant_controls.append(control)
+        return tuple(relevant_controls)
+
+    def _method_for_node(self, node: QueryNode) -> _MethodSummary | None:
+        if node.node_id < 0:
+            return None
+        if node.node_id in self._method_for_node_cache:
+            return self._method_for_node_cache[node.node_id]
+
+        query = _node_method_query(node)
+        if query is None:
+            self._method_for_node_cache[node.node_id] = None
+            return None
+
+        payload = execute_json_query(self.server, query)
+        if not isinstance(payload, list) or not all(isinstance(item, dict) for item in payload):
+            raise FlowExtractionError(
+                f"Unexpected enclosing method payload for node {node.node_id}: {payload!r}"
+            )
+
+        resolved = _MethodSummary.from_json(payload[0]) if payload else None
+        self._method_for_node_cache[node.node_id] = resolved
+        return resolved
+
+    def _controls_for_method(self, method_full_name: str) -> tuple[_ControlStructureSummary, ...]:
+        if method_full_name in self._method_controls_cache:
+            return self._method_controls_cache[method_full_name]
+
+        payload = execute_json_query(self.server, _method_controls_query(method_full_name))
+        if not isinstance(payload, list) or not all(isinstance(item, dict) for item in payload):
+            raise FlowExtractionError(
+                f"Unexpected method control payload for {method_full_name}: {payload!r}"
+            )
+
+        controls = tuple(
+            control
+            for control in (_ControlStructureSummary.from_json(item) for item in payload)
+            if control.control_id >= 0
+        )
+        self._method_controls_cache[method_full_name] = controls
+        return controls
+
+    def _control_location(self, control: _ControlStructureSummary) -> SourceLocation:
+        if control.control_id not in self._control_location_cache:
+            self._control_location_cache[control.control_id] = _source_location_for_node(
+                control.to_query_node(),
+                source_map=self.source_map,
+                file_resolver=self.file_resolver,
+            )
+        return self._control_location_cache[control.control_id]
+
+    def _control_uses_call(self, control_id: int, call_name: str) -> bool:
+        cache_key = (control_id, call_name)
+        if cache_key in self._control_call_cache:
+            return self._control_call_cache[cache_key]
+
+        payload = execute_json_query(self.server, _control_call_query(control_id, call_name))
+        if not isinstance(payload, list):
+            raise FlowExtractionError(
+                f"Unexpected control-call payload for control {control_id}: {payload!r}"
+            )
+        result = bool(payload)
+        self._control_call_cache[cache_key] = result
+        return result
+
+    def _condition_holds_on_path(
+        self,
+        control_id: int,
+        elements: Sequence[QueryNode],
+        truth_means_match: bool,
+    ) -> bool:
+        outcome = self._branch_outcome_for_elements(control_id, elements)
+        if outcome is None:
+            outcome = self._fallthrough_outcome(control_id)
+        return outcome is truth_means_match
+
+    def _branch_outcome_for_elements(
+        self,
+        control_id: int,
+        elements: Sequence[QueryNode],
+    ) -> bool | None:
+        affected_node_ids = {node.node_id for node in elements if node.node_id >= 0}
+        if not affected_node_ids:
+            return None
+
+        true_ids = self._branch_ast_ids(control_id, order=2)
+        false_ids = self._branch_ast_ids(control_id, order=3)
+        in_true = bool(affected_node_ids & true_ids)
+        in_false = bool(affected_node_ids & false_ids)
+        if in_true and not in_false:
+            return True
+        if in_false and not in_true:
+            return False
+        return None
+
+    def _branch_ast_ids(self, control_id: int, *, order: int) -> frozenset[int]:
+        cache_key = (control_id, order)
+        if cache_key in self._branch_ast_cache:
+            return self._branch_ast_cache[cache_key]
+
+        payload = execute_json_query(self.server, _branch_ast_ids_query(control_id, order))
+        if not isinstance(payload, list):
+            raise FlowExtractionError(
+                f"Unexpected branch AST payload for control {control_id} order {order}: {payload!r}"
+            )
+
+        node_ids = frozenset(_coerce_int(item, default=-1) for item in payload)
+        cleaned = frozenset(node_id for node_id in node_ids if node_id >= 0)
+        self._branch_ast_cache[cache_key] = cleaned
+        return cleaned
+
+    def _fallthrough_outcome(self, control_id: int) -> bool | None:
+        true_returns = self._branch_has_return(control_id, order=2)
+        false_returns = self._branch_has_return(control_id, order=3)
+        if true_returns == false_returns:
+            return None
+        return not true_returns
+
+    def _branch_has_return(self, control_id: int, *, order: int) -> bool:
+        cache_key = (control_id, order)
+        if cache_key in self._branch_return_cache:
+            return self._branch_return_cache[cache_key]
+
+        payload = execute_json_query(self.server, _branch_return_query(control_id, order))
+        if not isinstance(payload, list):
+            raise FlowExtractionError(
+                f"Unexpected branch return payload for control "
+                f"{control_id} order {order}: {payload!r}"
+            )
+
+        result = bool(payload)
+        self._branch_return_cache[cache_key] = result
+        return result
+
+    def _receiver_is_allowlist_array(
+        self,
+        receiver: str,
+        control_location: SourceLocation,
+    ) -> bool:
+        if not control_location.file or control_location.file.startswith("<"):
+            return False
+
+        receiver_name = _identifier_suffix(receiver)
+        if receiver_name is None:
+            return False
+
+        source_path = Path(control_location.file)
+        if not source_path.exists():
+            return False
+
+        lines = self._source_lines(source_path)
+        start_line = max(0, control_location.line - 13)
+        pattern = re.compile(rf"\b(?:const|let|var)\s+{re.escape(receiver_name)}\s*=\s*\[")
+        return any(pattern.search(line) for line in lines[start_line : control_location.line - 1])
+
+    def _source_lines(self, source_path: Path) -> tuple[str, ...]:
+        if source_path not in self._source_lines_cache:
+            self._source_lines_cache[source_path] = tuple(
+                source_path.read_text(encoding="utf-8").splitlines()
+            )
+        return self._source_lines_cache[source_path]
+
+
 def extract_candidate_findings(
     server: JoernServer,
     *,
@@ -108,16 +437,22 @@ def extract_candidate_findings(
     source_specs: Sequence[SourceSpec] | None = None,
     sink_specs: Sequence[SinkSpec] | None = None,
     sanitizer_specs: Sequence[SanitizerSpec] | None = None,
+    frameworks: Sequence[str] | None = None,
     route_patterns_by_finding_id: Mapping[str, str | None] | None = None,
     category_provider: Any | None = None,
     category_model: str | None = None,
 ) -> tuple[CandidateFinding, ...]:
     root = Path(joern_project_root).resolve(strict=False)
-    resolved_source_specs = tuple(source_specs or get_source_specs())
-    resolved_sink_specs = tuple(sink_specs or get_sink_specs())
-    resolved_sanitizer_specs = tuple(sanitizer_specs or get_sanitizer_specs())
+    resolved_source_specs = tuple(source_specs or get_source_specs(frameworks=frameworks))
+    resolved_sink_specs = tuple(sink_specs or get_sink_specs(frameworks=frameworks))
+    resolved_sanitizer_specs = tuple(sanitizer_specs or get_sanitizer_specs(frameworks=frameworks))
     sanitizer_lookup = _collect_sanitizer_lookup(server, resolved_sanitizer_specs)
     file_resolver = _NodeFileResolver(server=server, joern_project_root=root, source_map=source_map)
+    pruning_analyzer = _PathPruningAnalyzer(
+        server=server,
+        source_map=source_map,
+        file_resolver=file_resolver,
+    )
     condition_extractor = PathConditionExtractor(
         server,
         location_for_node=lambda node: _source_location_for_node(
@@ -139,6 +474,7 @@ def extract_candidate_findings(
                     file_resolver=file_resolver,
                     sanitizer_lookup=sanitizer_lookup,
                     condition_extractor=condition_extractor,
+                    pruning_analyzer=pruning_analyzer,
                 )
             )
     return classify_candidate_findings(
@@ -154,15 +490,20 @@ def joern_flow_to_taint_steps(
     *,
     source_map: SourceMap | None,
     file_resolver: _NodeFileResolver,
-    sanitizer_lookup: dict[int, str],
+    sanitizer_lookup: Mapping[int, SanitizerSpec],
+    vuln_class: str | None = None,
 ) -> list[TaintStep]:
     steps: list[TaintStep] = []
     active_sanitizer: str | None = None
 
     for node in flow:
-        sanitizer_name = sanitizer_lookup.get(node.node_id)
-        if sanitizer_name is not None:
-            active_sanitizer = sanitizer_name
+        sanitizer_spec = _sanitizer_for_node(
+            node,
+            sanitizer_lookup=sanitizer_lookup,
+            vuln_class=vuln_class,
+        )
+        if sanitizer_spec is not None:
+            active_sanitizer = _sanitizer_name(node, fallback=sanitizer_spec.name)
 
         location = _source_location_for_node(
             node,
@@ -192,6 +533,12 @@ def severity_for_cwe(cwe_id: str | None) -> str:
     return _SEVERITY_BY_CWE.get(cwe_id, _DEFAULT_SEVERITY)
 
 
+def _severity_for_sink_spec(sink_spec: SinkSpec) -> str:
+    if sink_spec.severity is not None:
+        return sink_spec.severity
+    return severity_for_cwe(sink_spec.cwe_id)
+
+
 def candidate_finding_id(
     *,
     vuln_class: str,
@@ -215,8 +562,9 @@ def _extract_findings_for_pair(
     sink_spec: SinkSpec,
     source_map: SourceMap | None,
     file_resolver: _NodeFileResolver,
-    sanitizer_lookup: dict[int, str],
+    sanitizer_lookup: Mapping[int, SanitizerSpec],
     condition_extractor: PathConditionExtractor,
+    pruning_analyzer: _PathPruningAnalyzer,
 ) -> list[CandidateFinding]:
     payload = execute_json_query(server, build_flow_query(source_spec, sink_spec))
     if not isinstance(payload, list):
@@ -238,7 +586,9 @@ def _extract_findings_for_pair(
         elements = tuple(QueryNode.from_json(node) for node in raw_elements)
         if not elements:
             continue
-        if _path_contains_sanitizer(elements, sanitizer_lookup):
+
+        elements = normalize_flow_elements_for_sink_spec(server, sink_spec, elements)
+        if not elements:
             continue
 
         source_node = elements[0]
@@ -253,8 +603,6 @@ def _extract_findings_for_pair(
             source_map=source_map,
             file_resolver=file_resolver,
         )
-        if _is_parameterized_query_sink(elements, sink_spec):
-            continue
 
         try:
             path_conditions = condition_extractor.extract(elements)
@@ -262,8 +610,30 @@ def _extract_findings_for_pair(
             path_conditions = []
         if _path_is_unreachable(path_conditions):
             continue
+        try:
+            if pruning_analyzer.prune_for_type_narrowing(
+                elements=elements,
+                sink_spec=sink_spec,
+                sink_location=sink_location,
+                path_conditions=path_conditions,
+            ):
+                continue
+        except (CPGQLQueryError, FlowExtractionError):
+            pass
 
         vuln_class = sink_spec.cwe_id or sink_spec.sink_type.value
+        confidence = _reduced_confidence_for_path(
+            _DEFAULT_CONFIDENCE,
+            elements=elements,
+            sanitizer_lookup=sanitizer_lookup,
+            vuln_class=sink_spec.cwe_id,
+        )
+        with contextlib.suppress(CPGQLQueryError, FlowExtractionError):
+            confidence = pruning_analyzer.reduce_confidence_for_allowlist(
+                confidence,
+                elements=elements,
+                sink_location=sink_location,
+            )
         findings.append(
             CandidateFinding(
                 id=candidate_finding_id(
@@ -288,45 +658,23 @@ def _extract_findings_for_pair(
                     source_map=source_map,
                     file_resolver=file_resolver,
                     sanitizer_lookup=sanitizer_lookup,
+                    vuln_class=sink_spec.cwe_id,
                 ),
                 path_conditions=path_conditions,
-                confidence=_DEFAULT_CONFIDENCE,
-                severity=severity_for_cwe(sink_spec.cwe_id),
+                confidence=confidence,
+                severity=_severity_for_sink_spec(sink_spec),
             )
         )
 
     return findings
 
 
-def _path_contains_sanitizer(
-    elements: Sequence[QueryNode],
-    sanitizer_lookup: Mapping[int, str],
-) -> bool:
-    return any(node.node_id in sanitizer_lookup for node in elements if node.node_id >= 0)
-
-
-def _is_parameterized_query_sink(
-    elements: Sequence[QueryNode],
-    sink_spec: SinkSpec,
-) -> bool:
-    if sink_spec.sink_type is not SinkType.SQL_QUERY or not elements:
-        return False
-
-    sink_node = elements[-1]
-    code = sink_node.code
-    return bool(
-        code
-        and _SQL_PLACEHOLDER_PATTERN.search(code)
-        and _MULTI_ARG_QUERY_PATTERN.search(code)
-    )
-
-
 def _path_is_unreachable(path_conditions: Sequence[PathCondition]) -> bool:
     for condition in path_conditions:
-        expression = condition.expression.strip().lower()
-        if condition.required_value and expression == "false":
+        expression = condition.expression.strip()
+        if condition.required_value and _is_statically_false(expression):
             return True
-        if not condition.required_value and expression == "true":
+        if not condition.required_value and _is_statically_true(expression):
             return True
     return False
 
@@ -334,14 +682,162 @@ def _path_is_unreachable(path_conditions: Sequence[PathCondition]) -> bool:
 def _collect_sanitizer_lookup(
     server: JoernServer,
     sanitizer_specs: Sequence[SanitizerSpec],
-) -> dict[int, str]:
-    sanitizer_lookup: dict[int, str] = {}
+) -> dict[int, SanitizerSpec]:
+    sanitizer_lookup: dict[int, SanitizerSpec] = {}
     for sanitizer_spec in sanitizer_specs:
         for node in execute_sanitizer_query(server, sanitizer_spec):
             if node.node_id < 0:
                 continue
-            sanitizer_lookup[node.node_id] = _sanitizer_name(node, fallback=sanitizer_spec.name)
+            sanitizer_lookup[node.node_id] = sanitizer_spec
     return sanitizer_lookup
+
+
+def _reduced_confidence_for_path(
+    base_confidence: float,
+    *,
+    elements: Sequence[QueryNode],
+    sanitizer_lookup: Mapping[int, SanitizerSpec],
+    vuln_class: str | None,
+) -> float:
+    confidence = base_confidence
+    for sanitizer_spec in _relevant_sanitizers_on_path(
+        elements,
+        sanitizer_lookup=sanitizer_lookup,
+        vuln_class=vuln_class,
+    ):
+        confidence *= 1.0 - sanitizer_spec.confidence
+    return max(0.0, min(1.0, confidence))
+
+
+def _relevant_sanitizers_on_path(
+    elements: Sequence[QueryNode],
+    *,
+    sanitizer_lookup: Mapping[int, SanitizerSpec],
+    vuln_class: str | None,
+) -> tuple[SanitizerSpec, ...]:
+    relevant_sanitizers: list[SanitizerSpec] = []
+    seen_names: set[str] = set()
+
+    for node in elements:
+        sanitizer_spec = _sanitizer_for_node(
+            node,
+            sanitizer_lookup=sanitizer_lookup,
+            vuln_class=vuln_class,
+        )
+        if sanitizer_spec is None or sanitizer_spec.name in seen_names:
+            continue
+        seen_names.add(sanitizer_spec.name)
+        relevant_sanitizers.append(sanitizer_spec)
+
+    return tuple(relevant_sanitizers)
+
+
+def _path_conditions_narrow_to_number(
+    path_conditions: Sequence[PathCondition],
+    flow_variables: frozenset[str],
+) -> bool:
+    for condition in path_conditions:
+        guard = _parse_numeric_guard(condition.expression)
+        if guard is None or not _matches_flow_variable(guard.variable, flow_variables):
+            continue
+        if condition.required_value == guard.truth_means_match:
+            return True
+    return False
+
+
+def _sink_expects_string(elements: Sequence[QueryNode], sink_spec: SinkSpec) -> bool:
+    if sink_spec.sink_type is SinkType.HTML_OUTPUT:
+        return True
+    if sink_spec.sink_type is not SinkType.SQL_QUERY:
+        return False
+    return any(node.name in _STRING_EXPECTING_SQL_OPERATIONS for node in elements)
+
+
+def _parse_numeric_guard(expression: str) -> _TruthGuard | None:
+    typeof_match = _TYPEOF_NUMBER_PATTERN.match(expression.strip())
+    if typeof_match is not None:
+        return _TruthGuard(
+            variable=typeof_match.group("var"),
+            truth_means_match=typeof_match.group("op") in {"==", "==="},
+        )
+
+    integer_match = _INTEGER_GUARD_PATTERN.match(expression.strip())
+    if integer_match is not None:
+        return _TruthGuard(
+            variable=integer_match.group("var"),
+            truth_means_match=integer_match.group("neg") is None,
+            requires_call="isInteger",
+        )
+
+    return None
+
+
+def _parse_allowlist_guard(expression: str) -> _AllowlistGuard | None:
+    match = _ALLOWLIST_GUARD_PATTERN.match(expression.strip())
+    if match is None:
+        return None
+
+    return _AllowlistGuard(
+        receiver=match.group("receiver"),
+        argument=match.group("argument"),
+        truth_means_allowed=match.group("neg") is None,
+    )
+
+
+def _flow_variable_names(elements: Sequence[QueryNode]) -> frozenset[str]:
+    names: set[str] = set()
+    for node in elements:
+        if node.name and not node.name.startswith("<operator>"):
+            names.add(node.name)
+        if node.code:
+            names.add(node.code.strip())
+            suffix = _identifier_suffix(node.code)
+            if suffix is not None:
+                names.add(suffix)
+    return frozenset(name for name in names if name)
+
+
+def _matches_flow_variable(candidate: str, flow_variables: frozenset[str]) -> bool:
+    if candidate in flow_variables:
+        return True
+    suffix = _identifier_suffix(candidate)
+    return suffix is not None and suffix in flow_variables
+
+
+def _identifier_suffix(value: str) -> str | None:
+    extracted = _extract_parameter_name(value)
+    if extracted is not None:
+        return extracted
+    match = _IDENTIFIER_SUFFIX_PATTERN.search(value.strip())
+    if match is None:
+        return None
+    return match.group(0)
+
+
+def _is_statically_false(expression: str) -> bool:
+    return _STATIC_FALSE_PATTERN.fullmatch(expression.strip()) is not None
+
+
+def _is_statically_true(expression: str) -> bool:
+    return _STATIC_TRUE_PATTERN.fullmatch(expression.strip()) is not None
+
+
+def _sanitizer_for_node(
+    node: QueryNode,
+    *,
+    sanitizer_lookup: Mapping[int, SanitizerSpec],
+    vuln_class: str | None,
+) -> SanitizerSpec | None:
+    if node.node_id < 0:
+        return None
+    sanitizer_spec = sanitizer_lookup.get(node.node_id)
+    if sanitizer_spec is None:
+        return None
+    if vuln_class is None:
+        return sanitizer_spec
+    if not sanitizer_spec.mitigates or vuln_class in sanitizer_spec.mitigates:
+        return sanitizer_spec
+    return None
 
 
 def _source_location_for_node(
@@ -398,6 +894,56 @@ def _resolve_joern_file(
     return rooted_candidate
 
 
+def _node_method_query(node: QueryNode) -> str | None:
+    node_root = _node_query_root(node)
+    if node_root is None:
+        return None
+    return (
+        f'{node_root}.method.map(m => Map("name" -> m.name, "fullName" -> m.fullName)).toJsonPretty'
+    )
+
+
+def _method_controls_query(method_full_name: str) -> str:
+    method = json.dumps(method_full_name)
+    return (
+        f"cpg.method.fullNameExact({method})"
+        ".ast.isControlStructure.map(c => Map("
+        '"_id" -> c.id, '
+        '"code" -> c.code, '
+        '"lineNumber" -> c.lineNumber, '
+        '"columnNumber" -> c.columnNumber, '
+        '"controlStructureType" -> c.controlStructureType, '
+        '"condition" -> c.condition.code'
+        ")).toJsonPretty"
+    )
+
+
+def _branch_ast_ids_query(control_id: int, order: int) -> str:
+    return f"cpg.id({control_id}L).astChildren.order({order}).ast.id.toJsonPretty"
+
+
+def _branch_return_query(control_id: int, order: int) -> str:
+    return f"cpg.id({control_id}L).astChildren.order({order}).ast.isReturn.id.toJsonPretty"
+
+
+def _control_call_query(control_id: int, call_name: str) -> str:
+    return f"cpg.id({control_id}L).condition.ast.isCallTo({json.dumps(call_name)}).id.toJsonPretty"
+
+
+def _node_query_root(node: QueryNode) -> str | None:
+    step_name = {
+        "CALL": "call",
+        "IDENTIFIER": "identifier",
+        "METHOD_PARAMETER_IN": "parameter",
+        "RETURN": "methodReturn",
+        "FIELD_IDENTIFIER": "fieldIdentifier",
+        "LITERAL": "literal",
+    }.get(node.node_type)
+    if step_name is None:
+        return None
+    return f"cpg.{step_name}.id({node.node_id}L)"
+
+
 def _extract_api_name(node: QueryNode) -> str:
     if node.name is not None and node.name != "<operator>.fieldAccess":
         if "." in node.code:
@@ -422,6 +968,9 @@ def _extract_api_prefix(code: str) -> str | None:
 def _extract_parameter_name(code: str) -> str | None:
     matches = list(_FIELD_SEGMENT_PATTERN.finditer(code))
     if not matches:
+        stripped = code.strip()
+        if _IDENTIFIER_SUFFIX_PATTERN.fullmatch(stripped) is not None:
+            return stripped
         return None
     last_match = matches[-1]
     return last_match.group(1) or last_match.group(2)
@@ -444,6 +993,29 @@ def _location_key(location: SourceLocation) -> str:
             str(location.column),
         ]
     )
+
+
+def _coerce_int(value: Any, *, default: int) -> int:
+    coerced = _coerce_optional_int(value)
+    return default if coerced is None else coerced
+
+
+def _coerce_optional_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def _coerce_optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    return str(value)
 
 
 __all__ = [

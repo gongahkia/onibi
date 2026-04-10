@@ -21,6 +21,9 @@ ignore = [
     "S607",
 ]
 
+[lint.per-file-ignores]
+"tests/fixtures/**" = ["S"]
+
 [lint.isort]
 known-first-party = ["piranesi"]
 

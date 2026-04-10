@@ -36,7 +36,10 @@ def test_ensemble_uses_majority_vote_without_calibration_data() -> None:
         }
     )
 
-    voter = CalibratedEnsembleVoter(provider=provider, models=("m1", "m2", "m3"))
+    voter = CalibratedEnsembleVoter(
+        provider=provider,  # type: ignore[arg-type]
+        models=("m1", "m2", "m3"),
+    )
 
     decision = voter.classify(finding)
 
@@ -74,7 +77,7 @@ def test_ensemble_applies_temperature_scaling_and_precision_weights() -> None:
     )
 
     voter = CalibratedEnsembleVoter(
-        provider=provider,
+        provider=provider,  # type: ignore[arg-type]
         models=("m1", "m2", "m3"),
         calibration_temperatures={"m1": 2.0, "m2": 1.0, "m3": 1.0},
         historical_precision={"CWE-89: SQL Injection": {"m1": 0.8, "m2": 0.2, "m3": 1.0}},
@@ -128,7 +131,7 @@ def test_ensemble_escalates_when_score_is_uncertain() -> None:
     )
 
     voter = CalibratedEnsembleVoter(
-        provider=provider,
+        provider=provider,  # type: ignore[arg-type]
         models=("m1", "m2", "m3"),
         calibration_temperatures={"m1": 2.0, "m2": 1.0, "m3": 1.0},
         escalation_model="expensive-model",
@@ -182,7 +185,10 @@ def test_ensemble_handles_unanimous_votes(
             ],
         }
     )
-    voter = CalibratedEnsembleVoter(provider=provider, models=("m1", "m2", "m3"))
+    voter = CalibratedEnsembleVoter(
+        provider=provider,  # type: ignore[arg-type]
+        models=("m1", "m2", "m3"),
+    )
 
     decision = voter.classify(finding)
 
@@ -211,7 +217,11 @@ def test_ensemble_returns_uncertain_for_perfect_split_without_escalation_model()
             ],
         }
     )
-    voter = CalibratedEnsembleVoter(provider=provider, models=("m1", "m2"), num_models=2)
+    voter = CalibratedEnsembleVoter(
+        provider=provider,  # type: ignore[arg-type]
+        models=("m1", "m2"),
+        num_models=2,
+    )
 
     decision = voter.classify(finding)
 
@@ -256,9 +266,12 @@ def test_z3_verified_findings_cannot_be_suppressed() -> None:
             ],
         }
     )
-    voter = CalibratedEnsembleVoter(provider=provider, models=("m1", "m2", "m3"))
+    voter = CalibratedEnsembleVoter(
+        provider=provider,  # type: ignore[arg-type]
+        models=("m1", "m2", "m3"),
+    )
     skeptic = SkepticAgent(
-        provider=provider,
+        provider=provider,  # type: ignore[arg-type]
         model="skeptic-model",
         detector_model="detector-model",
     )

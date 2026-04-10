@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -21,6 +22,7 @@ class SinkType(StrEnum):
     SHELL_EXEC = "shell_exec"
     EVAL = "eval"
     HTML_OUTPUT = "html_output"
+    HEADER_INJECTION = "header_injection"
     FILE_READ = "file_read"
     FILE_WRITE = "file_write"
     HTTP_REQUEST = "http_request"
@@ -47,6 +49,9 @@ class SinkSpec:
     pattern: str
     sink_type: SinkType
     cwe_id: str | None
+    severity: str | None = None
+    flow_pattern: str | None = None
+    flow_to_parent_call: bool = False
     is_custom: bool = False
 
 
@@ -55,10 +60,71 @@ class SanitizerSpec:
     name: str
     pattern: str
     kind: SanitizerKind
+    mitigates: tuple[str, ...] = ()
+    confidence: float = 1.0
+    blocks_flow: bool = True
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.confidence <= 1.0:
+            raise ValueError("Sanitizer confidence must be between 0.0 and 1.0")
 
 
-_EXPRESS_ACCESS_PATTERN = 'cpg.call.name("<operator>.fieldAccess|<operator>.indexAccess").code("{code}")'
+_EXPRESS_ACCESS_PATTERN = (
+    'cpg.call.name("<operator>.fieldAccess|<operator>.indexAccess").code("{code}")'
+)
+_FASTIFY_ROUTE_CALL_PATTERN = 'cpg.call.name("get|post|put|delete|patch|options|head")'
 _NEW_CALL_PATTERN = 'cpg.call.name("<operator>.new").code("{code}")'
+_SCOPED_PATTERN = '({pattern}).where(_.file.name("{file_pattern}"))'
+_HTTP_REQUEST_CALL_PATTERN = (
+    "cpg.call.filter(c => ("
+    'c.name == "fetch" || '
+    'c.code.startsWith("axios.") || '
+    'c.code.startsWith("http.") || '
+    'c.code.startsWith("https.") || '
+    'c.code.startsWith("needle.") || '
+    'c.code.startsWith("got.") || '
+    'c.code.startsWith("superagent.") || '
+    'c.code.startsWith("undici.") || '
+    'c.code.startsWith("request(") || '
+    'c.code.startsWith("request.")'
+    ')).filter(c => c.code.contains("("))'
+)
+_HTTP_REQUEST_URL_ARGUMENT_PATTERN = f"{_HTTP_REQUEST_CALL_PATTERN}.argument(1)"
+_HTTP_REQUEST_INLINE_TEMPLATE_PREDICATE = (
+    'c.argument(1).code.startsWith("<operator>.formatString(\\"http://") || '
+    'c.argument(1).code.startsWith("<operator>.formatString(\\"https://") || '
+    'c.argument(1).code.startsWith("`http://") || '
+    'c.argument(1).code.startsWith("`https://")'
+)
+_HTTP_REQUEST_INLINE_TEMPLATE_PATTERN = (
+    f"{_HTTP_REQUEST_CALL_PATTERN}.filter(c => {_HTTP_REQUEST_INLINE_TEMPLATE_PREDICATE})"
+)
+_HTTP_REQUEST_NON_TEMPLATE_PATTERN = (
+    f"{_HTTP_REQUEST_CALL_PATTERN}.filter(c => !({_HTTP_REQUEST_INLINE_TEMPLATE_PREDICATE}))"
+)
+_FASTIFY_SCHEMA_BODY_ROUTE_PATTERN = (
+    f'{_FASTIFY_ROUTE_CALL_PATTERN}.filter(c => c.argument(2).code.contains("schema") && '
+    'c.argument(2).code.contains("body"))'
+)
+_FASTIFY_SCHEMA_VALIDATED_BODY_PATTERN = (
+    f"{_FASTIFY_SCHEMA_BODY_ROUTE_PATTERN}.argument(3).code.flatMap(code => "
+    "cpg.methodRef.codeExact(code).referencedMethod.ast.isCall"
+    '.name("<operator>.fieldAccess|<operator>.indexAccess").code("request[.]body.*"))'
+)
+_NEXTJS_PAGES_API_FILE_PATTERN = ".*pages/api/.*[.]js"
+_NEXTJS_APP_ROUTE_FILE_PATTERN = ".*app(?:/.*)?/route[.]js"
+_NEXTJS_SERVER_ACTION_FILE_PATTERN = ".*app(?:/.*)?/actions[.]js"
+_NESTJS_DECORATED_TYPE_NAME_EXPR = (
+    'p.inAst.isCall.name("__decorate")'
+    '.argument.order(4).code.mkString("")'
+    '.replace(".prototype", "")'
+)
+_NESTJS_DECORATED_METHOD_NAME_EXPR = (
+    'p.inAst.isCall.name("__decorate").argument.order(5).code.mkString("").replace("\\"", "")'
+)
+_NESTJS_DECORATED_PARAMETER_INDEX_EXPR = (
+    'java.lang.Integer.parseInt(p.argument(1).code.mkString("")) + 1'
+)
 
 BUILTIN_SOURCE_SPECS: tuple[SourceSpec, ...] = (
     SourceSpec(
@@ -95,6 +161,136 @@ BUILTIN_SOURCE_SPECS: tuple[SourceSpec, ...] = (
         name="url_and_url_search_params",
         pattern=_NEW_CALL_PATTERN.format(code="new URL.*|new URLSearchParams.*"),
         source_type=SourceType.URL_PARAM,
+    ),
+)
+
+FASTIFY_SOURCE_SPECS: tuple[SourceSpec, ...] = (
+    SourceSpec(
+        name="fastify_request_body",
+        pattern=_EXPRESS_ACCESS_PATTERN.format(code="request[.]body.*"),
+        source_type=SourceType.REQUEST_BODY,
+    ),
+    SourceSpec(
+        name="fastify_request_params",
+        pattern=_EXPRESS_ACCESS_PATTERN.format(code="request[.]params.*"),
+        source_type=SourceType.REQUEST_PARAM,
+    ),
+    SourceSpec(
+        name="fastify_request_query",
+        pattern=_EXPRESS_ACCESS_PATTERN.format(code="request[.]query.*"),
+        source_type=SourceType.URL_PARAM,
+    ),
+    SourceSpec(
+        name="fastify_request_headers",
+        pattern=_EXPRESS_ACCESS_PATTERN.format(code="request[.]headers.*"),
+        source_type=SourceType.HEADER,
+    ),
+)
+
+NEXTJS_SOURCE_SPECS: tuple[SourceSpec, ...] = (
+    SourceSpec(
+        name="nextjs_pages_req_body",
+        pattern=_SCOPED_PATTERN.format(
+            pattern=_EXPRESS_ACCESS_PATTERN.format(code="req[.]body.*"),
+            file_pattern=_NEXTJS_PAGES_API_FILE_PATTERN,
+        ),
+        source_type=SourceType.REQUEST_BODY,
+    ),
+    SourceSpec(
+        name="nextjs_pages_req_query",
+        pattern=_SCOPED_PATTERN.format(
+            pattern=_EXPRESS_ACCESS_PATTERN.format(code="req[.]query.*"),
+            file_pattern=_NEXTJS_PAGES_API_FILE_PATTERN,
+        ),
+        source_type=SourceType.URL_PARAM,
+    ),
+    SourceSpec(
+        name="nextjs_app_request_json",
+        pattern=_SCOPED_PATTERN.format(
+            pattern='cpg.call.name("json").code("request[.]json[(].*")',
+            file_pattern=_NEXTJS_APP_ROUTE_FILE_PATTERN,
+        ),
+        source_type=SourceType.REQUEST_BODY,
+    ),
+    SourceSpec(
+        name="nextjs_app_request_text",
+        pattern=_SCOPED_PATTERN.format(
+            pattern='cpg.call.name("text").code("request[.]text[(].*")',
+            file_pattern=_NEXTJS_APP_ROUTE_FILE_PATTERN,
+        ),
+        source_type=SourceType.REQUEST_BODY,
+    ),
+    SourceSpec(
+        name="nextjs_app_request_form_data",
+        pattern=_SCOPED_PATTERN.format(
+            pattern='cpg.call.name("formData").code("request[.]formData[(].*")',
+            file_pattern=_NEXTJS_APP_ROUTE_FILE_PATTERN,
+        ),
+        source_type=SourceType.REQUEST_BODY,
+    ),
+    SourceSpec(
+        name="nextjs_app_request_headers",
+        pattern=_SCOPED_PATTERN.format(
+            pattern=_EXPRESS_ACCESS_PATTERN.format(code="request[.]headers.*"),
+            file_pattern=_NEXTJS_APP_ROUTE_FILE_PATTERN,
+        ),
+        source_type=SourceType.HEADER,
+    ),
+    SourceSpec(
+        name="nextjs_app_nexturl_search_params",
+        pattern=_SCOPED_PATTERN.format(
+            pattern=_EXPRESS_ACCESS_PATTERN.format(code=".*nextUrl[.]searchParams.*"),
+            file_pattern=_NEXTJS_APP_ROUTE_FILE_PATTERN,
+        ),
+        source_type=SourceType.URL_PARAM,
+    ),
+    SourceSpec(
+        name="nextjs_server_action_formdata_get",
+        pattern=_SCOPED_PATTERN.format(
+            pattern='cpg.call.name("get").code("formData[.]get[(].*")',
+            file_pattern=_NEXTJS_SERVER_ACTION_FILE_PATTERN,
+        ),
+        source_type=SourceType.REQUEST_BODY,
+    ),
+)
+
+
+def _nestjs_decorated_parameter_pattern(decorator_name: str) -> str:
+    # NestJS decorators are lowered by tsc into __decorate/__param helper calls.
+    # Resolve those helper calls back to the original decorated parameter node so
+    # data flow starts at the actual controller argument.
+    return (
+        f'cpg.call.name("__param").filter(p => p.code.contains("{decorator_name}(")).flatMap(p => '
+        f"cpg.typeDecl.nameExact({_NESTJS_DECORATED_TYPE_NAME_EXPR}).method.nameExact({_NESTJS_DECORATED_METHOD_NAME_EXPR}).parameter.index("
+        f"{_NESTJS_DECORATED_PARAMETER_INDEX_EXPR}))"
+    )
+
+
+NESTJS_SOURCE_SPECS: tuple[SourceSpec, ...] = (
+    SourceSpec(
+        name="nestjs_body",
+        pattern=_nestjs_decorated_parameter_pattern("Body"),
+        source_type=SourceType.REQUEST_BODY,
+    ),
+    SourceSpec(
+        name="nestjs_param",
+        pattern=_nestjs_decorated_parameter_pattern("Param"),
+        source_type=SourceType.REQUEST_PARAM,
+    ),
+    SourceSpec(
+        name="nestjs_query",
+        pattern=_nestjs_decorated_parameter_pattern("Query"),
+        source_type=SourceType.URL_PARAM,
+    ),
+    SourceSpec(
+        name="nestjs_headers",
+        pattern=_nestjs_decorated_parameter_pattern("Headers"),
+        source_type=SourceType.HEADER,
+    ),
+    SourceSpec(
+        name="nestjs_req",
+        pattern=_nestjs_decorated_parameter_pattern("Req"),
+        source_type=SourceType.REQUEST_BODY,
     ),
 )
 
@@ -148,10 +344,40 @@ BUILTIN_SINK_SPECS: tuple[SinkSpec, ...] = (
         cwe_id="CWE-22",
     ),
     SinkSpec(
-        name="http_request",
-        pattern='cpg.call.name("fetch|get|post|request")',
+        name="ssrf_full_url",
+        pattern=_HTTP_REQUEST_NON_TEMPLATE_PATTERN,
         sink_type=SinkType.HTTP_REQUEST,
         cwe_id="CWE-918",
+        severity="high",
+        flow_pattern=_HTTP_REQUEST_URL_ARGUMENT_PATTERN,
+        flow_to_parent_call=True,
+    ),
+    SinkSpec(
+        name="ssrf_path_segment",
+        pattern=_HTTP_REQUEST_INLINE_TEMPLATE_PATTERN,
+        sink_type=SinkType.HTTP_REQUEST,
+        cwe_id="CWE-918",
+        severity="medium",
+        flow_pattern=_HTTP_REQUEST_URL_ARGUMENT_PATTERN,
+        flow_to_parent_call=True,
+    ),
+)
+
+FASTIFY_SINK_SPECS: tuple[SinkSpec, ...] = (
+    SinkSpec(
+        name="fastify_reply_send",
+        pattern='cpg.call.name("send").code(".*reply[.]send[(].*")',
+        sink_type=SinkType.HTML_OUTPUT,
+        cwe_id="CWE-79",
+    ),
+    SinkSpec(
+        name="fastify_reply_header",
+        pattern='cpg.call.name("header").code(".*reply[.]header[(][\\"\\\']Location[\\"\\\'].*,.*")',
+        sink_type=SinkType.HEADER_INJECTION,
+        cwe_id="CWE-113",
+        severity="medium",
+        flow_pattern='cpg.call.name("header").code(".*reply[.]header[(][\\"\\\']Location[\\"\\\'].*,.*").argument(2)',
+        flow_to_parent_call=True,
     ),
 )
 
@@ -160,34 +386,624 @@ BUILTIN_SANITIZER_SPECS: tuple[SanitizerSpec, ...] = (
         name="html_escape",
         pattern='cpg.call.name("escape|escapeHtml|sanitize|encode")',
         kind=SanitizerKind.ESCAPE,
+        mitigates=("CWE-79",),
+        confidence=0.5,
     ),
     SanitizerSpec(
         name="parameterized_query",
         pattern='cpg.call.name("prepare|parameterize|[$]query")',
         kind=SanitizerKind.PARAMETERIZE,
+        mitigates=("CWE-89",),
+        confidence=0.9,
     ),
     SanitizerSpec(
         name="path_normalization",
         pattern='cpg.call.name("normalize|resolve")',
         kind=SanitizerKind.NORMALIZE,
+        mitigates=("CWE-22",),
+        confidence=0.4,
+    ),
+    SanitizerSpec(
+        name="validator_escape",
+        pattern='cpg.call.name("escape").code(".*validator[.]escape[(].*")',
+        kind=SanitizerKind.ESCAPE,
+        mitigates=("CWE-79",),
+        confidence=0.7,
+    ),
+    SanitizerSpec(
+        name="sanitize_html",
+        pattern='cpg.call.name("sanitizeHtml")',
+        kind=SanitizerKind.ESCAPE,
+        mitigates=("CWE-79",),
+        confidence=0.9,
+    ),
+    SanitizerSpec(
+        name="dompurify_sanitize",
+        pattern='cpg.call.name("sanitize").code(".*DOMPurify[.]sanitize[(].*")',
+        kind=SanitizerKind.ESCAPE,
+        mitigates=("CWE-79",),
+        confidence=0.95,
+    ),
+    SanitizerSpec(
+        name="sqlstring_escape",
+        pattern='cpg.call.name("escape").code(".*(?:sqlstring|SqlString)[.]escape[(].*")',
+        kind=SanitizerKind.ESCAPE,
+        mitigates=("CWE-89",),
+        confidence=0.75,
+    ),
+    SanitizerSpec(
+        name="pg_parameterized_query",
+        pattern='cpg.call.name("query").code(".*[$][0-9]+.*")',
+        kind=SanitizerKind.PARAMETERIZE,
+        mitigates=("CWE-89",),
+        confidence=0.95,
+    ),
+    SanitizerSpec(
+        name="path_resolve_startswith",
+        pattern='cpg.call.name("resolve|startsWith").code(".*(?:path[.]resolve|[.]startsWith)[(].*")',
+        kind=SanitizerKind.NORMALIZE,
+        mitigates=("CWE-22",),
+        confidence=0.9,
+    ),
+    SanitizerSpec(
+        name="numeric_coercion",
+        pattern='cpg.call.name("parseInt|Number")',
+        kind=SanitizerKind.NORMALIZE,
+        mitigates=("CWE-89",),
+        confidence=0.6,
+    ),
+    SanitizerSpec(
+        name="uri_component_encoding",
+        pattern='cpg.call.name("encodeURIComponent")',
+        kind=SanitizerKind.ESCAPE,
+        mitigates=("CWE-79", "CWE-918"),
+        confidence=0.55,
+    ),
+)
+
+FASTIFY_SANITIZER_SPECS: tuple[SanitizerSpec, ...] = (
+    SanitizerSpec(
+        name="fastify_schema_validation",
+        pattern=_FASTIFY_SCHEMA_VALIDATED_BODY_PATTERN,
+        kind=SanitizerKind.NORMALIZE,
+        confidence=0.25,
+        blocks_flow=False,
+    ),
+)
+
+# --- Java Spring Boot specs ---
+
+_JAVA_ANNOTATION_PARAM_PATTERN = 'cpg.method.parameter.where(_.annotation.name("{annotation}"))'
+_JAVA_METHOD_FULL_NAME_PATTERN = 'cpg.call.methodFullName(".*{class_pattern}[.]{method}.*")'
+
+SPRINGBOOT_SOURCE_SPECS: tuple[SourceSpec, ...] = (
+    SourceSpec(
+        name="spring_request_body",
+        pattern=_JAVA_ANNOTATION_PARAM_PATTERN.format(annotation="RequestBody"),
+        source_type=SourceType.REQUEST_BODY,
+    ),
+    SourceSpec(
+        name="spring_request_param",
+        pattern=_JAVA_ANNOTATION_PARAM_PATTERN.format(annotation="RequestParam"),
+        source_type=SourceType.URL_PARAM,
+    ),
+    SourceSpec(
+        name="spring_path_variable",
+        pattern=_JAVA_ANNOTATION_PARAM_PATTERN.format(annotation="PathVariable"),
+        source_type=SourceType.REQUEST_PARAM,
+    ),
+    SourceSpec(
+        name="spring_request_header",
+        pattern=_JAVA_ANNOTATION_PARAM_PATTERN.format(annotation="RequestHeader"),
+        source_type=SourceType.HEADER,
+    ),
+    SourceSpec(
+        name="spring_cookie_value",
+        pattern=_JAVA_ANNOTATION_PARAM_PATTERN.format(annotation="CookieValue"),
+        source_type=SourceType.COOKIE,
+    ),
+    SourceSpec(
+        name="spring_servlet_get_parameter",
+        pattern=_JAVA_METHOD_FULL_NAME_PATTERN.format(
+            class_pattern="HttpServletRequest",
+            method="getParameter",
+        ),
+        source_type=SourceType.URL_PARAM,
+    ),
+)
+
+SPRINGBOOT_SINK_SPECS: tuple[SinkSpec, ...] = (
+    SinkSpec(
+        name="spring_jdbc_query",
+        pattern=_JAVA_METHOD_FULL_NAME_PATTERN.format(
+            class_pattern="JdbcTemplate",
+            method="query|queryForObject|queryForList|update",
+        ),
+        sink_type=SinkType.SQL_QUERY,
+        cwe_id="CWE-89",
+        severity="high",
+    ),
+    SinkSpec(
+        name="java_runtime_exec",
+        pattern=_JAVA_METHOD_FULL_NAME_PATTERN.format(
+            class_pattern="Runtime",
+            method="exec",
+        ),
+        sink_type=SinkType.SHELL_EXEC,
+        cwe_id="CWE-78",
+        severity="high",
+    ),
+    SinkSpec(
+        name="java_process_builder",
+        pattern='cpg.call.name("<operator>.new").code("new ProcessBuilder.*")',
+        sink_type=SinkType.SHELL_EXEC,
+        cwe_id="CWE-78",
+        severity="high",
+    ),
+    SinkSpec(
+        name="java_new_file",
+        pattern='cpg.call.name("<operator>.new").code("new File.*")',
+        sink_type=SinkType.FILE_READ,
+        cwe_id="CWE-22",
+        severity="medium",
+    ),
+    SinkSpec(
+        name="spring_rest_template",
+        pattern=_JAVA_METHOD_FULL_NAME_PATTERN.format(
+            class_pattern="RestTemplate",
+            method="getForObject|getForEntity|postForObject|postForEntity|exchange",
+        ),
+        sink_type=SinkType.HTTP_REQUEST,
+        cwe_id="CWE-918",
+        severity="high",
+    ),
+    SinkSpec(
+        name="spring_response_writer",
+        pattern=_JAVA_METHOD_FULL_NAME_PATTERN.format(
+            class_pattern="PrintWriter|ServletOutputStream",
+            method="write|print|println",
+        ),
+        sink_type=SinkType.HTML_OUTPUT,
+        cwe_id="CWE-79",
+        severity="medium",
+    ),
+)
+
+SPRINGBOOT_SANITIZER_SPECS: tuple[SanitizerSpec, ...] = (
+    SanitizerSpec(
+        name="spring_security_context",
+        pattern='cpg.dependency.name(".*spring-boot-starter-security.*")',
+        kind=SanitizerKind.ESCAPE,
+        mitigates=("CWE-79", "CWE-352"),
+        confidence=0.3,
+        blocks_flow=False,
+    ),
+    SanitizerSpec(
+        name="spring_valid_annotation",
+        pattern='cpg.method.parameter.where(_.annotation.name("Valid|Validated"))',
+        kind=SanitizerKind.NORMALIZE,
+        mitigates=("CWE-89", "CWE-79", "CWE-78"),
+        confidence=0.4,
+        blocks_flow=False,
+    ),
+)
+
+# --- Python framework specs ---
+
+_PY_FIELD_ACCESS_PATTERN = (
+    'cpg.call.name("<operator>.fieldAccess|<operator>.indexAccess").code("{code}")'
+)
+_PY_CALL_PATTERN = 'cpg.call.name("{name}")'
+_PY_CALL_CODE_PATTERN = 'cpg.call.name("{name}").code("{code}")'
+
+FLASK_SOURCE_SPECS: tuple[SourceSpec, ...] = (
+    SourceSpec(
+        name="flask_request_form",
+        pattern=_PY_FIELD_ACCESS_PATTERN.format(code="request[.]form.*"),
+        source_type=SourceType.REQUEST_BODY,
+    ),
+    SourceSpec(
+        name="flask_request_args",
+        pattern=_PY_FIELD_ACCESS_PATTERN.format(code="request[.]args.*"),
+        source_type=SourceType.URL_PARAM,
+    ),
+    SourceSpec(
+        name="flask_request_json",
+        pattern=_PY_FIELD_ACCESS_PATTERN.format(code="request[.]json.*"),
+        source_type=SourceType.REQUEST_BODY,
+    ),
+    SourceSpec(
+        name="flask_request_headers",
+        pattern=_PY_FIELD_ACCESS_PATTERN.format(code="request[.]headers.*"),
+        source_type=SourceType.HEADER,
+    ),
+    SourceSpec(
+        name="flask_request_data",
+        pattern=_PY_FIELD_ACCESS_PATTERN.format(code="request[.]data"),
+        source_type=SourceType.REQUEST_BODY,
+    ),
+    SourceSpec(
+        name="flask_request_cookies",
+        pattern=_PY_FIELD_ACCESS_PATTERN.format(code="request[.]cookies.*"),
+        source_type=SourceType.COOKIE,
+    ),
+)
+
+DJANGO_SOURCE_SPECS: tuple[SourceSpec, ...] = (
+    SourceSpec(
+        name="django_request_post",
+        pattern=_PY_FIELD_ACCESS_PATTERN.format(code="request[.]POST.*"),
+        source_type=SourceType.REQUEST_BODY,
+    ),
+    SourceSpec(
+        name="django_request_get",
+        pattern=_PY_FIELD_ACCESS_PATTERN.format(code="request[.]GET.*"),
+        source_type=SourceType.URL_PARAM,
+    ),
+    SourceSpec(
+        name="django_request_body",
+        pattern=_PY_FIELD_ACCESS_PATTERN.format(code="request[.]body"),
+        source_type=SourceType.REQUEST_BODY,
+    ),
+    SourceSpec(
+        name="django_request_headers",
+        pattern=_PY_FIELD_ACCESS_PATTERN.format(code="request[.]headers.*"),
+        source_type=SourceType.HEADER,
+    ),
+    SourceSpec(
+        name="django_request_cookies",
+        pattern=_PY_FIELD_ACCESS_PATTERN.format(code="request[.]COOKIES.*"),
+        source_type=SourceType.COOKIE,
+    ),
+)
+
+FASTAPI_SOURCE_SPECS: tuple[SourceSpec, ...] = (
+    SourceSpec(
+        name="fastapi_body",
+        pattern=_PY_CALL_PATTERN.format(name="Body"),
+        source_type=SourceType.REQUEST_BODY,
+    ),
+    SourceSpec(
+        name="fastapi_query",
+        pattern=_PY_CALL_PATTERN.format(name="Query"),
+        source_type=SourceType.URL_PARAM,
+    ),
+    SourceSpec(
+        name="fastapi_path",
+        pattern=_PY_CALL_PATTERN.format(name="Path"),
+        source_type=SourceType.REQUEST_PARAM,
+    ),
+    SourceSpec(
+        name="fastapi_header",
+        pattern=_PY_CALL_PATTERN.format(name="Header"),
+        source_type=SourceType.HEADER,
+    ),
+    SourceSpec(
+        name="fastapi_cookie",
+        pattern=_PY_CALL_PATTERN.format(name="Cookie"),
+        source_type=SourceType.COOKIE,
+    ),
+)
+
+PYTHON_SINK_SPECS: tuple[SinkSpec, ...] = (
+    SinkSpec(
+        name="python_sql_execute",
+        pattern=_PY_CALL_CODE_PATTERN.format(name="execute", code=".*cursor[.]execute[(].*"),
+        sink_type=SinkType.SQL_QUERY,
+        cwe_id="CWE-89",
+    ),
+    SinkSpec(
+        name="python_os_system",
+        pattern=_PY_CALL_PATTERN.format(name="system"),
+        sink_type=SinkType.SHELL_EXEC,
+        cwe_id="CWE-78",
+    ),
+    SinkSpec(
+        name="python_subprocess_run",
+        pattern=_PY_CALL_CODE_PATTERN.format(name="run", code=".*subprocess[.]run[(].*"),
+        sink_type=SinkType.SHELL_EXEC,
+        cwe_id="CWE-78",
+    ),
+    SinkSpec(
+        name="python_subprocess_popen",
+        pattern=_PY_CALL_CODE_PATTERN.format(name="Popen", code=".*subprocess[.]Popen[(].*"),
+        sink_type=SinkType.SHELL_EXEC,
+        cwe_id="CWE-78",
+    ),
+    SinkSpec(
+        name="python_eval",
+        pattern=_PY_CALL_PATTERN.format(name="eval"),
+        sink_type=SinkType.EVAL,
+        cwe_id="CWE-94",
+    ),
+    SinkSpec(
+        name="python_open",
+        pattern=_PY_CALL_PATTERN.format(name="open"),
+        sink_type=SinkType.FILE_READ,
+        cwe_id="CWE-22",
+    ),
+    SinkSpec(
+        name="python_render_template_string",
+        pattern=_PY_CALL_PATTERN.format(name="render_template_string"),
+        sink_type=SinkType.HTML_OUTPUT,
+        cwe_id="CWE-79",
+    ),
+    SinkSpec(
+        name="python_markup",
+        pattern=_PY_CALL_PATTERN.format(name="Markup"),
+        sink_type=SinkType.HTML_OUTPUT,
+        cwe_id="CWE-79",
+    ),
+    SinkSpec(
+        name="python_requests_get",
+        pattern=_PY_CALL_CODE_PATTERN.format(name="get", code=".*requests[.]get[(].*"),
+        sink_type=SinkType.HTTP_REQUEST,
+        cwe_id="CWE-918",
+    ),
+    SinkSpec(
+        name="python_requests_post",
+        pattern=_PY_CALL_CODE_PATTERN.format(name="post", code=".*requests[.]post[(].*"),
+        sink_type=SinkType.HTTP_REQUEST,
+        cwe_id="CWE-918",
+    ),
+)
+
+PYTHON_SANITIZER_SPECS: tuple[SanitizerSpec, ...] = (
+    SanitizerSpec(
+        name="python_parameterized_query",
+        pattern=_PY_CALL_CODE_PATTERN.format(
+            name="execute",
+            code=".*cursor[.]execute[(].*,.*[(\\[].*[)\\]].*",
+        ),
+        kind=SanitizerKind.PARAMETERIZE,
+        mitigates=("CWE-89",),
+        confidence=0.95,
+    ),
+    SanitizerSpec(
+        name="python_shlex_quote",
+        pattern=_PY_CALL_CODE_PATTERN.format(name="quote", code=".*shlex[.]quote[(].*"),
+        kind=SanitizerKind.ESCAPE,
+        mitigates=("CWE-78",),
+        confidence=0.9,
+    ),
+    SanitizerSpec(
+        name="python_markupsafe_escape",
+        pattern=_PY_CALL_CODE_PATTERN.format(name="escape", code=".*markupsafe[.]escape[(].*"),
+        kind=SanitizerKind.ESCAPE,
+        mitigates=("CWE-79",),
+        confidence=0.9,
+    ),
+    SanitizerSpec(
+        name="python_bleach_clean",
+        pattern=_PY_CALL_CODE_PATTERN.format(name="clean", code=".*bleach[.]clean[(].*"),
+        kind=SanitizerKind.ESCAPE,
+        mitigates=("CWE-79",),
+        confidence=0.85,
+    ),
+    SanitizerSpec(
+        name="python_path_realpath_startswith",
+        pattern='cpg.call.name("startswith|realpath").code(".*(?:os[.]path[.]realpath|[.]startswith)[(].*")',
+        kind=SanitizerKind.NORMALIZE,
+        mitigates=("CWE-22",),
+        confidence=0.85,
+    ),
+)
+
+# --- Go framework specs ---
+
+_GO_CALL_PATTERN = 'cpg.call.name("{method}")'
+_GO_CALL_CODE_PATTERN = 'cpg.call.name("{method}").code("{code}")'
+_GO_RECEIVER_CALL_PATTERN = 'cpg.call.code("{code}")'
+
+GIN_SOURCE_SPECS: tuple[SourceSpec, ...] = (
+    SourceSpec(
+        name="gin_query",
+        pattern=_GO_CALL_CODE_PATTERN.format(method="Query", code="c[.]Query[(].*"),
+        source_type=SourceType.URL_PARAM,
+    ),
+    SourceSpec(
+        name="gin_post_form",
+        pattern=_GO_CALL_CODE_PATTERN.format(method="PostForm", code="c[.]PostForm[(].*"),
+        source_type=SourceType.REQUEST_BODY,
+    ),
+    SourceSpec(
+        name="gin_param",
+        pattern=_GO_CALL_CODE_PATTERN.format(method="Param", code="c[.]Param[(].*"),
+        source_type=SourceType.REQUEST_PARAM,
+    ),
+    SourceSpec(
+        name="gin_get_header",
+        pattern=_GO_CALL_CODE_PATTERN.format(method="GetHeader", code="c[.]GetHeader[(].*"),
+        source_type=SourceType.HEADER,
+    ),
+    SourceSpec(
+        name="gin_bind_json",
+        pattern=_GO_CALL_CODE_PATTERN.format(
+            method="BindJSON|ShouldBindJSON",
+            code="c[.](?:Bind|ShouldBind)JSON[(].*",
+        ),
+        source_type=SourceType.REQUEST_BODY,
+    ),
+)
+
+ECHO_SOURCE_SPECS: tuple[SourceSpec, ...] = (
+    SourceSpec(
+        name="echo_query_param",
+        pattern=_GO_CALL_CODE_PATTERN.format(method="QueryParam", code="c[.]QueryParam[(].*"),
+        source_type=SourceType.URL_PARAM,
+    ),
+    SourceSpec(
+        name="echo_form_value",
+        pattern=_GO_CALL_CODE_PATTERN.format(method="FormValue", code="c[.]FormValue[(].*"),
+        source_type=SourceType.REQUEST_BODY,
+    ),
+    SourceSpec(
+        name="echo_param",
+        pattern=_GO_CALL_CODE_PATTERN.format(method="Param", code="c[.]Param[(].*"),
+        source_type=SourceType.REQUEST_PARAM,
+    ),
+)
+
+CHI_SOURCE_SPECS: tuple[SourceSpec, ...] = (
+    SourceSpec(
+        name="chi_url_param",
+        pattern=_GO_CALL_CODE_PATTERN.format(method="URLParam", code="chi[.]URLParam[(].*"),
+        source_type=SourceType.REQUEST_PARAM,
+    ),
+)
+
+GO_STDLIB_SOURCE_SPECS: tuple[SourceSpec, ...] = (
+    SourceSpec(
+        name="go_url_query_get",
+        pattern=_GO_RECEIVER_CALL_PATTERN.format(code="r[.]URL[.]Query[(][)][.]Get[(].*"),
+        source_type=SourceType.URL_PARAM,
+    ),
+    SourceSpec(
+        name="go_form_value",
+        pattern=_GO_CALL_CODE_PATTERN.format(method="FormValue", code="r[.]FormValue[(].*"),
+        source_type=SourceType.REQUEST_BODY,
+    ),
+    SourceSpec(
+        name="go_header_get",
+        pattern=_GO_RECEIVER_CALL_PATTERN.format(code="r[.]Header[.]Get[(].*"),
+        source_type=SourceType.HEADER,
+    ),
+)
+
+GO_SINK_SPECS: tuple[SinkSpec, ...] = (
+    SinkSpec(
+        name="go_sql_query_sprintf",
+        pattern='cpg.call.name("Query|QueryRow|QueryContext").where(_.argument.isCall.name("Sprintf"))',
+        sink_type=SinkType.SQL_QUERY,
+        cwe_id="CWE-89",
+    ),
+    SinkSpec(
+        name="go_sql_exec_sprintf",
+        pattern='cpg.call.name("Exec|ExecContext").where(_.argument.isCall.name("Sprintf"))',
+        sink_type=SinkType.SQL_QUERY,
+        cwe_id="CWE-89",
+    ),
+    SinkSpec(
+        name="go_exec_command",
+        pattern=_GO_CALL_PATTERN.format(method="Command"),
+        sink_type=SinkType.SHELL_EXEC,
+        cwe_id="CWE-78",
+    ),
+    SinkSpec(
+        name="go_exec_command_context",
+        pattern=_GO_CALL_PATTERN.format(method="CommandContext"),
+        sink_type=SinkType.SHELL_EXEC,
+        cwe_id="CWE-78",
+    ),
+    SinkSpec(
+        name="go_template_html",
+        pattern=_GO_CALL_CODE_PATTERN.format(method="HTML", code="template[.]HTML[(].*"),
+        sink_type=SinkType.HTML_OUTPUT,
+        cwe_id="CWE-79",
+    ),
+    SinkSpec(
+        name="go_os_open",
+        pattern=_GO_CALL_PATTERN.format(method="Open|OpenFile"),
+        sink_type=SinkType.FILE_READ,
+        cwe_id="CWE-22",
+    ),
+    SinkSpec(
+        name="go_http_get",
+        pattern=_GO_CALL_CODE_PATTERN.format(method="Get", code="http[.]Get[(].*"),
+        sink_type=SinkType.HTTP_REQUEST,
+        cwe_id="CWE-918",
+        severity="high",
+    ),
+    SinkSpec(
+        name="go_http_newrequest",
+        pattern=_GO_CALL_CODE_PATTERN.format(
+            method="NewRequest|NewRequestWithContext",
+            code="http[.]New(?:Request|RequestWithContext)[(].*",
+        ),
+        sink_type=SinkType.HTTP_REQUEST,
+        cwe_id="CWE-918",
+        severity="medium",
+    ),
+)
+
+GO_SANITIZER_SPECS: tuple[SanitizerSpec, ...] = (
+    SanitizerSpec(
+        name="go_parameterized_query",
+        pattern='cpg.call.name("Query|QueryRow|Exec|QueryContext|ExecContext").where(_.argument.order(2).isLiteral)',
+        kind=SanitizerKind.PARAMETERIZE,
+        mitigates=("CWE-89",),
+        confidence=0.95,
+    ),
+    SanitizerSpec(
+        name="go_html_template_execute",
+        pattern='cpg.call.name("Execute|ExecuteTemplate").where(_.file.name(".*[.]go"))',
+        kind=SanitizerKind.ESCAPE,
+        mitigates=("CWE-79",),
+        confidence=0.85,
+    ),
+    SanitizerSpec(
+        name="go_filepath_clean",
+        pattern=_GO_CALL_CODE_PATTERN.format(method="Clean", code="filepath[.]Clean[(].*"),
+        kind=SanitizerKind.NORMALIZE,
+        mitigates=("CWE-22",),
+        confidence=0.5,
+    ),
+    SanitizerSpec(
+        name="go_filepath_clean_hasprefix",
+        pattern='cpg.call.name("HasPrefix").where(_.argument.isCall.name("Clean"))',
+        kind=SanitizerKind.NORMALIZE,
+        mitigates=("CWE-22",),
+        confidence=0.9,
+    ),
+    SanitizerSpec(
+        name="go_strconv_atoi",
+        pattern=_GO_CALL_CODE_PATTERN.format(method="Atoi", code="strconv[.]Atoi[(].*"),
+        kind=SanitizerKind.NORMALIZE,
+        mitigates=("CWE-89",),
+        confidence=0.7,
     ),
 )
 
 
-def get_source_specs(scan_config: ScanConfig | None = None) -> tuple[SourceSpec, ...]:
-    if scan_config is None:
-        return BUILTIN_SOURCE_SPECS
-    return BUILTIN_SOURCE_SPECS + _custom_source_specs(scan_config)
+def get_source_specs(
+    scan_config: ScanConfig | None = None,
+    *,
+    frameworks: Sequence[str] | None = None,
+    disabled_plugins: frozenset[str] = frozenset(),
+) -> tuple[SourceSpec, ...]:
+    from piranesi.plugin import collect_source_specs
+
+    active = frozenset({"express"}) | frozenset(f.lower() for f in frameworks or ())
+    specs = collect_source_specs(active, disabled=disabled_plugins)
+    if scan_config is not None:
+        specs.extend(_custom_source_specs(scan_config))
+    return tuple(specs)
 
 
-def get_sink_specs(scan_config: ScanConfig | None = None) -> tuple[SinkSpec, ...]:
-    if scan_config is None:
-        return BUILTIN_SINK_SPECS
-    return BUILTIN_SINK_SPECS + _custom_sink_specs(scan_config)
+def get_sink_specs(
+    scan_config: ScanConfig | None = None,
+    *,
+    frameworks: Sequence[str] | None = None,
+    disabled_plugins: frozenset[str] = frozenset(),
+) -> tuple[SinkSpec, ...]:
+    from piranesi.plugin import collect_sink_specs
+
+    active = frozenset({"express"}) | frozenset(f.lower() for f in frameworks or ())
+    specs = collect_sink_specs(active, disabled=disabled_plugins)
+    if scan_config is not None:
+        specs.extend(_custom_sink_specs(scan_config))
+    return tuple(specs)
 
 
-def get_sanitizer_specs() -> tuple[SanitizerSpec, ...]:
-    return BUILTIN_SANITIZER_SPECS
+def get_sanitizer_specs(
+    *,
+    frameworks: Sequence[str] | None = None,
+    disabled_plugins: frozenset[str] = frozenset(),
+) -> tuple[SanitizerSpec, ...]:
+    from piranesi.plugin import collect_sanitizer_specs
+
+    active = frozenset({"express"}) | frozenset(f.lower() for f in frameworks or ())
+    return tuple(collect_sanitizer_specs(active, disabled=disabled_plugins))
 
 
 def _custom_source_specs(scan_config: ScanConfig) -> tuple[SourceSpec, ...]:
@@ -235,6 +1051,25 @@ __all__ = [
     "BUILTIN_SANITIZER_SPECS",
     "BUILTIN_SINK_SPECS",
     "BUILTIN_SOURCE_SPECS",
+    "CHI_SOURCE_SPECS",
+    "DJANGO_SOURCE_SPECS",
+    "ECHO_SOURCE_SPECS",
+    "FASTAPI_SOURCE_SPECS",
+    "FASTIFY_SANITIZER_SPECS",
+    "FASTIFY_SINK_SPECS",
+    "FASTIFY_SOURCE_SPECS",
+    "FLASK_SOURCE_SPECS",
+    "GIN_SOURCE_SPECS",
+    "GO_SANITIZER_SPECS",
+    "GO_SINK_SPECS",
+    "GO_STDLIB_SOURCE_SPECS",
+    "NESTJS_SOURCE_SPECS",
+    "NEXTJS_SOURCE_SPECS",
+    "PYTHON_SANITIZER_SPECS",
+    "PYTHON_SINK_SPECS",
+    "SPRINGBOOT_SANITIZER_SPECS",
+    "SPRINGBOOT_SINK_SPECS",
+    "SPRINGBOOT_SOURCE_SPECS",
     "SanitizerKind",
     "SanitizerSpec",
     "SinkSpec",

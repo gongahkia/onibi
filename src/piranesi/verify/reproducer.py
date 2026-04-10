@@ -23,7 +23,9 @@ def generate_reproducer_script(
     candidate = _candidate_finding(finding)
     resolved_payload = payload or _payload_from_confirmed_finding(finding)
     if resolved_payload is None:
-        raise ValueError("payload is required unless a ConfirmedFinding provides a captured request")
+        raise ValueError(
+            "payload is required unless a ConfirmedFinding provides a captured request"
+        )
 
     generated_timestamp = (generated_at or datetime.now(UTC)).isoformat().replace("+00:00", "Z")
     target_path_value = (
@@ -94,7 +96,8 @@ def generate_reproducer_script(
         '  -p 0:"${INTERNAL_PORT}" \\',
         '  "$IMAGE_NAME" >/dev/null',
         "",
-        'HOST_PORT=$(docker port "$CONTAINER_NAME" "${INTERNAL_PORT}/tcp" | tail -n 1 | awk -F: \'{print $NF}\')',
+        'HOST_PORT=$(docker port "$CONTAINER_NAME" '
+        "\"${INTERNAL_PORT}/tcp\" | tail -n 1 | awk -F: '{print $NF}')",
         'if [ -z "$HOST_PORT" ]; then',
         '  echo "[FAIL] Unable to determine mapped host port."',
         "  exit 1",
@@ -215,7 +218,7 @@ def _request_path(payload: SynthesizedPayload) -> str:
 
 
 def _curl_command_lines(payload: SynthesizedPayload) -> list[str]:
-    request_url = f'http://127.0.0.1:${{HOST_PORT}}{_request_path(payload)}'
+    request_url = f"http://127.0.0.1:${{HOST_PORT}}{_request_path(payload)}"
     lines = [
         "HTTP_CODE=$(curl -sS -o \"$HTTP_BODY_FILE\" -w '%{http_code}' \\",
         f"  -X {shlex.quote(payload.method.upper())} \\",
@@ -249,7 +252,8 @@ def _confirmation_lines(vuln_class: str, expected_value: str) -> list[str]:
     normalized = vuln_class.upper()
     if "CWE-89" in normalized or "SQL" in normalized:
         return [
-            "if printf '%s' \"$HTTP_BODY\" | grep -qiE '(syntax error|mysql_fetch|pg_query|ORA-|sqlite|multiple rows)'; then",
+            "if printf '%s' \"$HTTP_BODY\" | grep -qiE "
+            "'(syntax error|mysql_fetch|pg_query|ORA-|sqlite|multiple rows)'; then",
             '  echo "[CONFIRMED] SQL injection indicators detected in the response."',
             "  PASS=$((PASS + 1))",
             'elif [ "$HTTP_CODE" = "200" ]; then',
@@ -282,7 +286,8 @@ def _confirmation_lines(vuln_class: str, expected_value: str) -> list[str]:
         ]
     if "CWE-22" in normalized or "TRAVERS" in normalized:
         return [
-            "if printf '%s' \"$HTTP_BODY\" | grep -qiE '(root:.*:0:0|daemon:.*:1:1|/bin/bash)'; then",
+            "if printf '%s' \"$HTTP_BODY\" | grep -qiE "
+            "'(root:.*:0:0|daemon:.*:1:1|/bin/bash)'; then",
             '  echo "[CONFIRMED] Traversed file contents were returned."',
             "  PASS=$((PASS + 1))",
             "else",
@@ -302,8 +307,8 @@ def _confirmation_lines(vuln_class: str, expected_value: str) -> list[str]:
 
 
 def _normalize_encoding(value: object) -> PayloadEncoding:
-    if value in {"json", "urlencoded", "query", "path"}:
-        return value
+    if isinstance(value, str) and value in {"json", "urlencoded", "query", "path"}:
+        return value  # type: ignore[return-value]
     return "json"
 
 

@@ -44,7 +44,8 @@ SYSTEM_PROMPT = "\n".join(
     [
         CANARY_FRAGMENTS[0],
         CANARY_FRAGMENTS[1],
-        "Preserve behavior, match the repository's style, and avoid introducing new security issues.",
+        "Preserve behavior, match the repository's style, "
+        "and avoid introducing new security issues.",
         schema_instruction(TOOL_NAME, RESPONSE_SCHEMA),
     ]
 )

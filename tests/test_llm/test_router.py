@@ -1,15 +1,22 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import pytest
 
-from piranesi.config import BudgetConfig, ModelsConfig, PiranesiConfig, load_config
+from piranesi.config import (
+    BudgetConfig,
+    ModelFallbackConfig,
+    ModelsConfig,
+    PiranesiConfig,
+    load_config,
+)
 from piranesi.llm.cost import CostTracker
 from piranesi.llm.router import BudgetExceededError, ModelRouter
 
 
-def test_router_resolves_models_from_stage_config_and_fallback(config_file) -> None:
+def test_router_resolves_models_from_stage_config_and_fallback(config_file: Any) -> None:
     path = config_file(
         """
 [models]
@@ -86,10 +93,10 @@ def test_router_prefers_stage_specific_fallback_over_default() -> None:
     router = ModelRouter(
         config=PiranesiConfig(
             models=ModelsConfig(skeptic=None),
-            models_fallback={
-                "default": "fallback-default",
-                "skeptic": "skeptic-fallback",
-            },
+            models_fallback=ModelFallbackConfig(
+                default="fallback-default",
+                skeptic="skeptic-fallback",
+            ),
         ),
         cost_tracker=CostTracker(),
     )
@@ -102,7 +109,7 @@ def test_router_raises_when_no_stage_model_or_fallback_exists() -> None:
     router = ModelRouter(
         config=PiranesiConfig(
             models=ModelsConfig(skeptic=None),
-            models_fallback={},
+            models_fallback=ModelFallbackConfig(),
         ),
         cost_tracker=CostTracker(),
     )

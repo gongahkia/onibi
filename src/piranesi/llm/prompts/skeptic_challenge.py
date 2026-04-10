@@ -12,7 +12,8 @@ VERSION = "1.0.0"
 TOOL_NAME = "submit_skeptic_challenge"
 CANARY_FRAGMENTS = (
     "You are Project Piranesi's skeptic challenge stage.",
-    "Your job is to disprove the reported vulnerability whenever the code supports that conclusion.",
+    "Your job is to disprove the reported vulnerability "
+    "whenever the code supports that conclusion.",
 )
 RESPONSE_SCHEMA: dict[str, object] = {
     "type": "object",
@@ -51,7 +52,8 @@ SYSTEM_PROMPT = "\n".join(
     [
         CANARY_FRAGMENTS[0],
         CANARY_FRAGMENTS[1],
-        "Look for sanitization, framework protections, unreachable paths, and exploitability limits.",
+        "Look for sanitization, framework protections, "
+        "unreachable paths, and exploitability limits.",
         schema_instruction(TOOL_NAME, RESPONSE_SCHEMA),
     ]
 )

@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import difflib
 import json
 import os
-import re
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Mapping, Sequence
@@ -20,7 +18,6 @@ from piranesi.config import PiranesiConfig, config_hash
 from piranesi.detect import extract_candidate_findings
 from piranesi.legal import assess_finding, build_default_engine
 from piranesi.llm.cost import CostTracker
-from piranesi.llm.prompts import patcher_fix
 from piranesi.llm.provider import LLMProvider
 from piranesi.llm.router import ModelRouter
 from piranesi.models import (
@@ -32,13 +29,21 @@ from piranesi.models import (
     ScanResult,
     TriagedFinding,
 )
-from piranesi.report.renderer import PiranesiReport, build_report, update_report_metrics, write_report_outputs
+from piranesi.models.finding import SandboxResult
+from piranesi.patch.generator import generate_patches
+from piranesi.report.renderer import (
+    PiranesiReport,
+    build_report,
+    update_report_metrics,
+    write_report_outputs,
+)
+from piranesi.scan.framework import resolve_frameworks
 from piranesi.scan.joern import JoernServer
+from piranesi.scan.specs import get_sanitizer_specs, get_sink_specs, get_source_specs
 from piranesi.scan.surface import build_scan_result
 from piranesi.scan.transpile import transpile_project
 from piranesi.trace import TraceWriter
 from piranesi.triage import CalibratedEnsembleVoter, SkepticAgent
-from piranesi.models.finding import SandboxResult
 from piranesi.ui import file_progress, stage_header
 from piranesi.verify import (
     build_baseline_payload,
@@ -51,14 +56,6 @@ from piranesi.verify import (
 
 STAGE_ORDER = ("scan", "detect", "triage", "verify", "legal", "patch", "report")
 PARTIAL_SUMMARY_FILENAME = "_partial.json"
-_CWE_PATTERN = re.compile(r"(CWE-\d+)", re.IGNORECASE)
-_CWE_TITLES = {
-    "CWE-22": "Path Traversal",
-    "CWE-78": "Command Injection",
-    "CWE-79": "Cross-Site Scripting",
-    "CWE-89": "SQL Injection",
-    "CWE-918": "Server-Side Request Forgery",
-}
 _LLM_API_ENV_VARS = (
     "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY",
@@ -164,14 +161,6 @@ class PipelineRunResult:
             if result.stage == self.failed_stage:
                 return result
         return None
-
-
-class _PatchPayload(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    patched_code: str
-    explanation: str
-    mitigation_type: str
 
 
 def discover_scan_targets(target_dir: Path, config: PiranesiConfig) -> list[Path]:
@@ -282,7 +271,7 @@ def run_pipeline(
     partial_summary_path: Path | None = None
 
     progress = None
-    task_id: int | None = None
+    task_id: Any = None
     if render_ui:
         progress = file_progress(total=len(STAGE_ORDER), description="pipeline")
         progress.start()
@@ -351,7 +340,11 @@ def run_pipeline(
             )
             context.stage_outputs["report"] = report
             _write_artifact(context.output_dir / "report.json", report)
-            write_report_outputs(report, context.output_dir)
+            write_report_outputs(
+                report,
+                context.output_dir,
+                report_format=config.output.format,
+            )
             for result in reversed(results):
                 if result.stage == "report":
                     result.artifact = report
@@ -377,6 +370,10 @@ def _run_scan_stage(
 ) -> StageResult:
     _ = prev_result
     started_at = time.monotonic()
+    frameworks = resolve_frameworks(context.target_dir, config.scan.frameworks)
+    source_specs = get_source_specs(config.scan, frameworks=frameworks)
+    sink_specs = get_sink_specs(config.scan, frameworks=frameworks)
+    sanitizer_specs = get_sanitizer_specs(frameworks=frameworks)
     transpiled = transpile_project(context.target_dir)
     try:
         with JoernServer(config=config.joern) as server:
@@ -396,6 +393,9 @@ def _run_scan_stage(
                 metadata=metadata,
                 joern_project_root=transpiled.out_dir,
                 source_map=transpiled.source_map,
+                source_specs=source_specs,
+                sink_specs=sink_specs,
+                sanitizer_specs=sanitizer_specs,
             )
     finally:
         transpiled.cleanup()
@@ -421,6 +421,10 @@ def _run_detect_stage(
 ) -> StageResult:
     _ = prev_result
     started_at = time.monotonic()
+    frameworks = resolve_frameworks(context.target_dir, config.scan.frameworks)
+    source_specs = get_source_specs(config.scan, frameworks=frameworks)
+    sink_specs = get_sink_specs(config.scan, frameworks=frameworks)
+    sanitizer_specs = get_sanitizer_specs(frameworks=frameworks)
     transpiled = transpile_project(context.target_dir)
     try:
         with JoernServer(config=config.joern) as server:
@@ -429,6 +433,9 @@ def _run_detect_stage(
                 server,
                 joern_project_root=transpiled.out_dir,
                 source_map=transpiled.source_map,
+                source_specs=source_specs,
+                sink_specs=sink_specs,
+                sanitizer_specs=sanitizer_specs,
                 category_provider=context.provider if _llm_is_configured() else None,
                 category_model=context.router.resolve("detector") if _llm_is_configured() else None,
             )
@@ -471,7 +478,9 @@ def _run_triage_stage(
 
     voter = CalibratedEnsembleVoter(provider=context.provider, router=context.router)
     skeptic = SkepticAgent(provider=context.provider, router=context.router)
-    findings = [voter.triage_finding(finding, skeptic=skeptic) for finding in detect_artifact.findings]
+    findings = [
+        voter.triage_finding(finding, skeptic=skeptic) for finding in detect_artifact.findings
+    ]
     return StageResult(
         stage="triage",
         success=True,
@@ -551,7 +560,9 @@ def _run_legal_stage(
     _ = (context, config)
     verify_artifact = _extract_stage_artifact(prev_result, VerifyArtifact, "verify")
     started_at = time.monotonic()
-    assessments = [assess_finding(finding, build_default_engine()) for finding in verify_artifact.findings]
+    assessments = [
+        assess_finding(finding, build_default_engine()) for finding in verify_artifact.findings
+    ]
     return StageResult(
         stage="legal",
         success=True,
@@ -576,37 +587,11 @@ def _run_patch_stage(
             artifact=PatchArtifact(patches=[]),
             elapsed_s=time.monotonic() - started_at,
         )
-
-    patches: list[PatchResult] = []
-
-    for finding in verify_artifact.findings:
-        source_path = Path(finding.finding.finding.sink.location.file)
-        original_code = _patch_source_text(source_path, finding)
-        response = context.provider.complete(
-            stage="patcher",
-            messages=patcher_fix.render(
-                vuln_description=_finding_summary(finding.finding.finding),
-                cwe_id=_extract_cwe_id(finding.finding.finding.vuln_class),
-                vulnerable_code=original_code,
-                language=_language_for_path(source_path),
-            ),
-        )
-        payload = _parse_patch_payload(response.content)
-        patch_diff = _unified_diff(
-            original_code=original_code,
-            patched_code=payload.patched_code,
-            file_path=source_path,
-            target_dir=context.target_dir,
-        )
-        patches.append(
-            PatchResult(
-                finding=finding,
-                patch_diff=patch_diff,
-                patch_verified=False,
-                patch_explanation=payload.explanation,
-            )
-        )
-
+    patches = generate_patches(
+        findings=verify_artifact.findings,
+        provider=context.provider,
+        target_dir=context.target_dir,
+    )
     return StageResult(
         stage="patch",
         success=True,
@@ -639,7 +624,11 @@ def _run_report_stage(
         duration_s=sum(context.stage_timings_s.values()),
         stage_timings_s=context.stage_timings_s,
     )
-    write_report_outputs(report, context.output_dir)
+    write_report_outputs(
+        report,
+        context.output_dir,
+        report_format=config.output.format,
+    )
     return StageResult(
         stage="report",
         success=True,
@@ -677,20 +666,22 @@ def _save_partial_summary(
     return path
 
 
-def _extract_stage_artifact(
+def _extract_stage_artifact[T: BaseModel](
     prev_result: StageResult | None,
-    artifact_type: type[BaseModel],
+    artifact_type: type[T],
     stage_name: str,
-) -> BaseModel:
+) -> T:
     if prev_result is None:
         raise ValueError(f"{stage_name} stage requires a prior stage artifact")
     return _require_artifact(prev_result.artifact, artifact_type, stage_name)
 
 
-def _require_artifact(artifact: Any, artifact_type: type[BaseModel], stage_name: str) -> BaseModel:
+def _require_artifact[T: BaseModel](artifact: Any, artifact_type: type[T], stage_name: str) -> T:
     if isinstance(artifact, artifact_type):
         return artifact
-    raise TypeError(f"{stage_name} stage expected {artifact_type.__name__}, got {type(artifact).__name__}")
+    raise TypeError(
+        f"{stage_name} stage expected {artifact_type.__name__}, got {type(artifact).__name__}"
+    )
 
 
 def _normalize_globs(patterns: Sequence[str]) -> list[str]:
@@ -745,94 +736,20 @@ def _first_payload_value(payload: Any) -> str:
     return ""
 
 
-def _patch_source_text(source_path: Path, finding: ConfirmedFinding) -> str:
-    if source_path.exists():
-        return source_path.read_text(encoding="utf-8")
-    snippets: list[str] = []
-    candidate = finding.finding.finding
-    snippets.append(candidate.source.location.snippet)
-    snippets.extend(step.location.snippet for step in candidate.taint_path)
-    snippets.append(candidate.sink.location.snippet)
-    return "\n".join(snippets)
-
-
-def _parse_patch_payload(content: str) -> _PatchPayload:
-    try:
-        return _PatchPayload.model_validate_json(content)
-    except (ValidationError, ValueError):
-        return _PatchPayload(
-            patched_code=content,
-            explanation="Patch model returned an unstructured response.",
-            mitigation_type="other",
-        )
-
-
-def _unified_diff(
-    *,
-    original_code: str,
-    patched_code: str,
-    file_path: Path,
-    target_dir: Path,
-) -> str:
-    rendered_path = _relative_render_path(file_path, target_dir)
-    original_lines = original_code.splitlines(keepends=True)
-    patched_lines = patched_code.splitlines(keepends=True)
-    diff = difflib.unified_diff(
-        original_lines,
-        patched_lines,
-        fromfile=f"a/{rendered_path}",
-        tofile=f"b/{rendered_path}",
-    )
-    rendered = "".join(diff)
-    return rendered or f"--- a/{rendered_path}\n+++ b/{rendered_path}\n"
-
-
-def _relative_render_path(file_path: Path, target_dir: Path) -> str:
-    try:
-        return file_path.resolve(strict=False).relative_to(target_dir.resolve(strict=False)).as_posix()
-    except ValueError:
-        return file_path.as_posix()
-
-
-def _finding_summary(finding: CandidateFinding) -> str:
-    title = _CWE_TITLES.get(_extract_cwe_id(finding.vuln_class), finding.vuln_class)
-    return f"{title} from {finding.source.source_type} to {finding.sink.api_name}"
-
-
-def _extract_cwe_id(vuln_class: str) -> str:
-    match = _CWE_PATTERN.search(vuln_class)
-    if match is None:
-        return vuln_class
-    return match.group(1).upper()
-
-
-def _language_for_path(path: Path) -> str:
-    suffix = path.suffix.lower()
-    if suffix == ".tsx":
-        return "tsx"
-    if suffix == ".ts":
-        return "typescript"
-    if suffix == ".jsx":
-        return "jsx"
-    if suffix == ".js":
-        return "javascript"
-    return "text"
-
-
 def _llm_is_configured() -> bool:
     return any(os.getenv(name) for name in _LLM_API_ENV_VARS)
 
 
 __all__ = [
+    "PARTIAL_SUMMARY_FILENAME",
+    "STAGE_ORDER",
     "DetectArtifact",
     "LegalArtifact",
-    "PARTIAL_SUMMARY_FILENAME",
     "PartialRunSummary",
     "PatchArtifact",
     "PipelineContext",
     "PipelineRunResult",
     "PipelineStage",
-    "STAGE_ORDER",
     "StageResult",
     "TriageArtifact",
     "VerifyArtifact",

@@ -30,6 +30,14 @@ JOERN_INSTALL_INSTRUCTIONS = (
 JVM_INSTALL_INSTRUCTIONS = "JVM 11+ is required. Install via: brew install openjdk@11"
 _HEALTHCHECK_QUERY = "val __piranesi_healthcheck = 1"
 
+LANGUAGE_TO_JOERN_FRONTEND: dict[str, str] = {
+    "typescript": "jssrc2cpg",
+    "javascript": "jssrc2cpg",
+    "python": "pysrc2cpg",
+    "go": "gosrc2cpg",
+    "java": "javasrc2cpg",
+}
+
 
 class JoernError(RuntimeError):
     """Raised when the Joern server lifecycle or API interaction fails."""
@@ -86,6 +94,7 @@ class JoernServer:
         self._resolved_binary_path: str | None = None
         self._restart_count = 0
         self._imported_project_path: Path | None = None
+        self._imported_language: str | None = None
         self._captured_stdout = ""
         self._captured_stderr = ""
 
@@ -105,26 +114,30 @@ class JoernServer:
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
         self._stop_server()
 
-    def import_project(self, path: str | Path) -> JsonDict:
+    def import_project(self, path: str | Path, *, language: str | None = None) -> JsonDict:
         project_path = Path(path).expanduser().resolve()
         if not project_path.exists():
             raise FileNotFoundError(f"Joern import path does not exist: {project_path}")
 
+        frontend = LANGUAGE_TO_JOERN_FRONTEND.get(language, "") if language else ""
         self._logger.info(
             "importing project into Joern",
             extra={
                 "event": "joern_import_start",
                 "path": str(project_path),
                 "port": self.port,
+                "language": language,
+                "frontend": frontend or "auto",
             },
         )
         response = self._execute_cpgql(
-            self._build_import_query(project_path),
+            self._build_import_query(project_path, frontend=frontend),
             timeout_seconds=self.query_timeout_seconds,
             event="joern_import",
         )
         if response.get("success") is True:
             self._imported_project_path = project_path
+            self._imported_language = language
         return response
 
     def query(self, cpgql: str) -> JsonDict:
@@ -155,9 +168,7 @@ class JoernServer:
                     },
                 )
                 return str(resolved_candidate)
-            raise JoernError(
-                f"{JOERN_INSTALL_INSTRUCTIONS}. configured_binary_path={candidate}"
-            )
+            raise JoernError(f"{JOERN_INSTALL_INSTRUCTIONS}. configured_binary_path={candidate}")
 
         resolved = shutil.which(self.binary_path)
         if resolved is None:
@@ -237,8 +248,7 @@ class JoernServer:
 
         if last_error is not None:
             raise JoernError(
-                "Unable to start Joern server after trying ports "
-                f"{attempted_ports}: {last_error}"
+                f"Unable to start Joern server after trying ports {attempted_ports}: {last_error}"
             ) from last_error
 
         raise JoernError(
@@ -434,8 +444,13 @@ class JoernServer:
                     "port": self.port,
                 },
             )
+            frontend = (
+                LANGUAGE_TO_JOERN_FRONTEND.get(self._imported_language, "")
+                if self._imported_language
+                else ""
+            )
             response = self._execute_cpgql(
-                self._build_import_query(self._imported_project_path),
+                self._build_import_query(self._imported_project_path, frontend=frontend),
                 timeout_seconds=self.query_timeout_seconds,
                 event="joern_import_after_restart",
                 allow_restart=False,
@@ -616,8 +631,11 @@ class JoernServer:
             self._captured_stderr += stderr
         return self._captured_stdout, self._captured_stderr
 
-    def _build_import_query(self, project_path: Path) -> str:
-        return f"importCode({json.dumps(str(project_path))})"
+    def _build_import_query(self, project_path: Path, *, frontend: str = "") -> str:
+        path_arg = json.dumps(str(project_path))
+        if frontend:
+            return f"importCode.{frontend}({path_arg})"
+        return f"importCode({path_arg})"
 
     def _candidate_ports(self, preferred_port: int) -> list[int]:
         if JOERN_PORT_MIN <= preferred_port <= JOERN_PORT_MAX:

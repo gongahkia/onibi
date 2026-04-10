@@ -4,15 +4,13 @@ import re
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 
-from piranesi.legal.engine import ForwardChainingEngine
+from piranesi.legal.engine import Fact, ForwardChainingEngine
 from piranesi.legal.rules import (
     RegulatoryRuleSpec,
     add_finding_facts,
-    load_mas_trm_rule_specs,
-    load_mas_trm_rules,
-    load_pdpa_rule_specs,
-    load_pdpa_rules,
-    pdpa_thresholds,
+    compile_rule_specs,
+    extract_thresholds,
+    load_all_rule_specs,
     query_consequences,
     query_obligations,
 )
@@ -31,8 +29,21 @@ _KNOWN_CATEGORY_ALIASES = {"public": "public_info"}
 _FRAMEWORK_LABELS = {
     "PDPA": "Personal Data Protection Act 2012 (PDPA)",
     "MAS_TRM": "MAS Technology Risk Management Guidelines (MAS TRM)",
+    "CCPA": "California Consumer Privacy Act / California Privacy Rights Act (CCPA/CPRA)",
+    "HIPAA": "Health Insurance Portability and Accountability Act (HIPAA)",
+    "GDPR": "General Data Protection Regulation (GDPR)",
+    "EU_AI_ACT": "EU Artificial Intelligence Act (EU AI Act)",
+    "NIS2": "NIS2 Directive (Directive (EU) 2022/2555)",
 }
-_FRAMEWORK_ORDER = {"PDPA": 0, "MAS_TRM": 1}
+_FRAMEWORK_ORDER = {
+    "PDPA": 0,
+    "MAS_TRM": 1,
+    "CCPA": 2,
+    "HIPAA": 3,
+    "GDPR": 4,
+    "EU_AI_ACT": 5,
+    "NIS2": 6,
+}
 _VULNERABILITY_LABELS = {
     "CWE-22": "Path Traversal",
     "CWE-78": "Command Injection",
@@ -40,9 +51,18 @@ _VULNERABILITY_LABELS = {
     "CWE-89": "SQL Injection",
 }
 _CONSEQUENCE_LABELS = {
-    "document": "Document the finding, remediation status, and regulatory assessment for compliance records.",
-    "notify_individuals": "Prepare communications for affected individuals if the breach assessment confirms individual notification is required.",
-    "review": "Review adjacent systems and controls for the same vulnerability pattern and strengthen preventive controls.",
+    "document": (
+        "Document the finding, remediation status, and regulatory "
+        "assessment for compliance records."
+    ),
+    "notify_individuals": (
+        "Prepare communications for affected individuals if the breach "
+        "assessment confirms individual notification is required."
+    ),
+    "review": (
+        "Review adjacent systems and controls for the same vulnerability "
+        "pattern and strengthen preventive controls."
+    ),
 }
 
 
@@ -53,7 +73,7 @@ def build_default_engine() -> ForwardChainingEngine:
 
 
 def register_default_rules(engine: ForwardChainingEngine) -> None:
-    for rule in [*load_pdpa_rules(), *load_mas_trm_rules()]:
+    for rule in compile_rule_specs(load_all_rule_specs()):
         engine.add_rule(rule)
 
 
@@ -62,6 +82,7 @@ def assess_finding(
     engine: ForwardChainingEngine,
 ) -> LegalAssessment:
     candidate = finding.finding.finding
+    rule_specs = _load_rule_catalog()
     finding_id = candidate.id
     vuln_class = _normalize_vuln_class(candidate.vuln_class)
     severity = _normalize_severity(candidate.severity)
@@ -76,11 +97,10 @@ def assess_finding(
         severity=severity,
         affected_individuals=candidate.affected_individuals_estimate,
         boolean_facts=boolean_facts,
-        thresholds=pdpa_thresholds(),
+        thresholds=extract_thresholds(rule_specs.values()),
     )
     engine.run()
 
-    rule_specs = _load_rule_catalog()
     obligation_facts = query_obligations(engine, finding_id=finding_id)
     consequence_facts = query_consequences(engine, finding_id=finding_id)
     obligations = [
@@ -115,7 +135,7 @@ def render_legal_memo(
     *,
     finding: ConfirmedFinding,
     assessment: LegalAssessment,
-    consequence_facts: Sequence[object] | None = None,
+    consequence_facts: Sequence[Fact] | None = None,
 ) -> str:
     candidate = finding.finding.finding
     vuln_class = _normalize_vuln_class(candidate.vuln_class)
@@ -219,12 +239,12 @@ def _render_obligation_section(obligation: RegulatoryObligation) -> list[str]:
 
 
 def _obligation_from_fact(
-    fact: object,
+    fact: Fact,
     *,
     finding_categories: Sequence[str],
     rule_specs: dict[str, RegulatoryRuleSpec],
 ) -> RegulatoryObligation:
-    args = getattr(fact, "args")
+    args = fact.args
     rule_id = _string_or_none(args.get("rule_id"))
     rule_spec = rule_specs.get(rule_id or "")
     relevant_categories = _relevant_categories(
@@ -272,20 +292,17 @@ def _risk_assessment_points(
     candidate = finding.finding.finding
     items = [
         f"Confirmed finding severity is {_normalize_severity(candidate.severity)}.",
-        f"Impacted data categories: {_format_data_categories(_extract_data_categories(candidate))}.",
+        f"Impacted data categories: "
+        f"{_format_data_categories(_extract_data_categories(candidate))}.",
     ]
     tier = _highest_sensitivity_tier(_extract_data_categories(candidate))
     items.append(f"Highest detected personal-data sensitivity tier: Tier {tier}.")
     if any(obligation.notification_timeline for obligation in obligations):
         items.append("A mandatory or time-bound notification obligation was triggered.")
     if len(frameworks) > 1:
-        items.append(
-            "The finding creates exposure under multiple encoded regulatory frameworks."
-        )
+        items.append("The finding creates exposure under multiple encoded regulatory frameworks.")
     if candidate.affected_individuals_estimate is not None:
-        items.append(
-            f"Estimated affected individuals: {candidate.affected_individuals_estimate}."
-        )
+        items.append(f"Estimated affected individuals: {candidate.affected_individuals_estimate}.")
     return items
 
 
@@ -293,11 +310,14 @@ def _recommended_actions(
     *,
     finding: ConfirmedFinding,
     obligations: Sequence[RegulatoryObligation],
-    consequence_facts: Sequence[object] | None,
+    consequence_facts: Sequence[Fact] | None,
 ) -> list[str]:
     candidate = finding.finding.finding
+    vuln_label = _format_vulnerability(_normalize_vuln_class(candidate.vuln_class))
+    location = _format_location(candidate)
     actions: list[str] = [
-        f"Immediate: remediate the {_format_vulnerability(_normalize_vuln_class(candidate.vuln_class))} path at {_format_location(candidate)} and verify the exploit is closed.",
+        f"Immediate: remediate the {vuln_label} path at "
+        f"{location} and verify the exploit is closed.",
     ]
     seen = {actions[0]}
 
@@ -318,11 +338,7 @@ def _recommended_actions(
             seen.add(action)
 
     consequence_actions = sorted(
-        {
-            str(getattr(fact, "args")["action"])
-            for fact in (consequence_facts or [])
-            if "action" in getattr(fact, "args")
-        },
+        {str(fact.args["action"]) for fact in (consequence_facts or []) if "action" in fact.args},
         key=_consequence_priority,
     )
     if not consequence_actions:
@@ -379,20 +395,23 @@ def _normalize_category_value(raw_value: str) -> list[str]:
     try:
         tier_for_category(canonical)
     except ValueError:
-        return [
-            category
-            for category in classify_field(raw_value)
-            if _is_known_category(category)
-        ]
+        return [category for category in classify_field(raw_value) if _is_known_category(category)]
     return [canonical]
 
 
 def _extract_boolean_facts(candidate: CandidateFinding) -> dict[str, bool]:
     return {
+        "basic_processing_principle_violation": candidate.basic_processing_principle_violation,
         "cross_border": candidate.cross_border,
+        "high_risk_to_individuals": candidate.high_risk_to_individuals,
+        "is_healthcare_entity": candidate.is_healthcare_entity,
         "is_high_risk_ai": candidate.is_high_risk_ai,
+        "is_essential_entity": candidate.is_essential_entity,
+        "is_important_entity": candidate.is_important_entity,
+        "likely_risk_to_rights": candidate.likely_risk_to_rights,
         "no_encryption_at_rest": candidate.no_encryption_at_rest,
         "third_party_processor": candidate.third_party_processor,
+        "willful_violation": candidate.willful_violation,
     }
 
 
@@ -486,10 +505,7 @@ def _consequence_priority(consequence: str) -> tuple[int, str]:
 
 
 def _load_rule_catalog() -> dict[str, RegulatoryRuleSpec]:
-    return {
-        rule_spec.rule_id: rule_spec
-        for rule_spec in [*load_pdpa_rule_specs(), *load_mas_trm_rule_specs()]
-    }
+    return {spec.rule_id: spec for spec in load_all_rule_specs()}
 
 
 def _is_known_category(value: str) -> bool:

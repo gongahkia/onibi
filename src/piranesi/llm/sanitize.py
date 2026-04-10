@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -205,7 +206,9 @@ def detect_prompt_canary(
 ) -> list[str]:
     """Return prompt fragments that appear in an LLM response."""
 
-    fragments = tuple(known_fragments) if known_fragments is not None else _default_canary_fragments()
+    fragments = (
+        tuple(known_fragments) if known_fragments is not None else _default_canary_fragments()
+    )
     normalized_response = response.casefold()
     matches: list[str] = []
     seen: set[str] = set()

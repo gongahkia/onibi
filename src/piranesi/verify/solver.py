@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 from urllib.parse import quote
 
-import z3
+import z3  # type: ignore[import-untyped]
 
 from piranesi.verify.constraints import (
     ExploitTemplate,
@@ -48,7 +48,7 @@ _SQLI_SAFE_PAYLOADS = (
 )
 _XSS_SAFE_PAYLOADS = (
     "<script>alert(1)</script>",
-    "\"><img src=x onerror=alert(1)>",
+    '"><img src=x onerror=alert(1)>',
     "'><svg/onload=alert(1)>",
 )
 _CMDI_SAFE_PAYLOADS = (
@@ -259,13 +259,9 @@ def translate_condition(
 def vulnerability_constraints(vuln_class: str, payload_var: z3.ExprRef) -> tuple[z3.BoolRef, ...]:
     normalized = vuln_class.upper()
     if "CWE-89" in normalized or "SQL" in normalized:
-        return (
-            z3.Contains(payload_var, z3.StringVal("'")),
-        )
+        return (z3.Contains(payload_var, z3.StringVal("'")),)
     if "CWE-79" in normalized or "XSS" in normalized:
-        return (
-            z3.Contains(payload_var, z3.StringVal("<script>")),
-        )
+        return (z3.Contains(payload_var, z3.StringVal("<script>")),)
     if "CWE-78" in normalized or "CMD" in normalized or "COMMAND" in normalized:
         return (
             z3.Or(
@@ -274,9 +270,7 @@ def vulnerability_constraints(vuln_class: str, payload_var: z3.ExprRef) -> tuple
             ),
         )
     if "CWE-22" in normalized or "TRAVERS" in normalized:
-        return (
-            z3.Contains(payload_var, z3.StringVal("../")),
-        )
+        return (z3.Contains(payload_var, z3.StringVal("../")),)
     return ()
 
 
@@ -375,7 +369,7 @@ def _compare_expr(expression: z3.ExprRef, operator: str, number: int) -> z3.Bool
 def _model_value_to_string(value: z3.ExprRef, expression: z3.ExprRef) -> str:
     sort = expression.sort()
     if sort == z3.StringSort():
-        return value.as_string()
+        return str(value.as_string())
     if sort == z3.IntSort():
         return str(value.as_long())
     if sort == z3.BoolSort():

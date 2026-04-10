@@ -493,12 +493,16 @@ def _comparison_constraint(
     left_int = _int_literal(left_text)
     right_int = _int_literal(right_text)
     if right_int is not None:
-        constraint = _int_constraint(left_text, normalized_operator, right_int)
-        return negate_constraint(constraint) if operator in {"!=", "!=="} else constraint
+        int_constraint = _int_constraint(left_text, normalized_operator, right_int)
+        if int_constraint is None:
+            return None
+        return negate_constraint(int_constraint) if operator in {"!=", "!=="} else int_constraint
     if left_int is not None:
         reversed_operator = _reverse_operator(normalized_operator)
-        constraint = _int_constraint(right_text, reversed_operator, left_int)
-        return negate_constraint(constraint) if operator in {"!=", "!=="} else constraint
+        int_constraint = _int_constraint(right_text, reversed_operator, left_int)
+        if int_constraint is None:
+            return None
+        return negate_constraint(int_constraint) if operator in {"!=", "!=="} else int_constraint
     return None
 
 
@@ -986,44 +990,51 @@ def _int_literal(text: str) -> int | None:
         return None
 
 
+_JS_OPERATOR_MAP: dict[str, ConstraintOperator] = {
+    "==": "eq",
+    "===": "eq",
+    "!=": "eq",
+    "!==": "eq",
+    ">": "gt",
+    ">=": "ge",
+    "<": "lt",
+    "<=": "le",
+}
+_CONSTRAINT_OPERATOR_MAP: dict[str, ConstraintOperator] = {
+    "eq": "eq",
+    "lt": "lt",
+    "le": "le",
+    "gt": "gt",
+    "ge": "ge",
+}
+_REVERSE_OPERATOR_MAP: dict[ConstraintOperator, ConstraintOperator] = {
+    "eq": "eq",
+    "lt": "gt",
+    "le": "ge",
+    "gt": "lt",
+    "ge": "le",
+}
+
+
 def _normalize_js_operator(operator: str) -> ConstraintOperator | None:
-    return {
-        "==": "eq",
-        "===": "eq",
-        "!=": "eq",
-        "!==": "eq",
-        ">": "gt",
-        ">=": "ge",
-        "<": "lt",
-        "<=": "le",
-    }.get(operator)
+    return _JS_OPERATOR_MAP.get(operator)
 
 
 def _normalize_constraint_operator(operator: object) -> ConstraintOperator | None:
     if not isinstance(operator, str):
         return None
-    return {
-        "eq": "eq",
-        "lt": "lt",
-        "le": "le",
-        "gt": "gt",
-        "ge": "ge",
-    }.get(operator)
+    return _CONSTRAINT_OPERATOR_MAP.get(operator)
 
 
 def _normalize_type_name(type_name: str) -> ConstraintValueType | None:
     normalized = _TYPE_ALIASES.get(type_name.strip().lower(), type_name.strip().lower())
-    return normalized if normalized in {"string", "int", "float", "bool"} else None
+    if normalized in {"string", "int", "float", "bool"}:
+        return normalized  # type: ignore[return-value]
+    return None
 
 
 def _reverse_operator(operator: ConstraintOperator) -> ConstraintOperator:
-    return {
-        "eq": "eq",
-        "lt": "gt",
-        "le": "ge",
-        "gt": "lt",
-        "ge": "le",
-    }[operator]
+    return _REVERSE_OPERATOR_MAP[operator]
 
 
 def _normalize_var(value: str) -> str:
@@ -1034,11 +1045,10 @@ def _normalize_var(value: str) -> str:
 
 def _last_field_segment(value: str) -> str:
     matches = tuple(
-        segment_a or segment_b
-        for segment_a, segment_b in _FIELD_SEGMENT_PATTERN.findall(value)
+        segment_a or segment_b for segment_a, segment_b in _FIELD_SEGMENT_PATTERN.findall(value)
     )
     if matches:
-        return matches[-1]
+        return str(matches[-1])
     if "." in value:
         return value.rsplit(".", 1)[-1]
     return value
@@ -1092,7 +1102,13 @@ def _satisfies_upper(value: int, upper: tuple[int, bool]) -> bool:
     return value <= bound if inclusive else value < bound
 
 
-def _atomic_types() -> tuple[type[StringEq], ...]:
+def _atomic_types() -> tuple[
+    type[StringEq],
+    type[StringContains],
+    type[StringLength],
+    type[IntBound],
+    type[TypeCheck],
+]:
     return (StringEq, StringContains, StringLength, IntBound, TypeCheck)
 
 

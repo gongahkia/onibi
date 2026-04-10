@@ -7,6 +7,7 @@ from piranesi.legal.rules.common import (
     RegulatoryRuleSpec,
     compile_rule_specs,
     default_rules_path,
+    extract_thresholds,
     load_rule_specs,
 )
 
@@ -22,15 +23,7 @@ def load_pdpa_rules(path: Path | None = None) -> list[Rule]:
 
 
 def pdpa_thresholds(path: Path | None = None) -> tuple[int, ...]:
-    return tuple(
-        sorted(
-            {
-                rule_spec.affected_individuals_gte
-                for rule_spec in load_pdpa_rule_specs(path)
-                if rule_spec.affected_individuals_gte is not None
-            }
-        )
-    )
+    return extract_thresholds(load_pdpa_rule_specs(path))
 
 
 __all__ = [

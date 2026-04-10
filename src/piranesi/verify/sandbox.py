@@ -18,16 +18,14 @@ from urllib.parse import urlsplit, urlunsplit
 try:
     import docker as _docker
 except ImportError:  # pragma: no cover - exercised only in underspecified local envs.
-    _docker = None
+    _docker = None  # type: ignore[assignment]
 
 try:
     import requests as _requests
 except ImportError:  # pragma: no cover - exercised only in underspecified local envs.
-    _requests = None
+    _requests = None  # type: ignore[assignment]
 
 if TYPE_CHECKING:
-    import docker
-    import requests
     from docker.models.containers import Container
 else:  # pragma: no cover - runtime-only fallback for missing optional deps.
     Container = Any
@@ -376,7 +374,9 @@ def capture_results(container: Container, exploit_result: ExploitResult) -> Sand
     )
 
 
-def run_in_sandbox(target_path: str, payloads: Sequence[SynthesizedPayload]) -> list[SandboxCapture]:
+def run_in_sandbox(
+    target_path: str, payloads: Sequence[SynthesizedPayload]
+) -> list[SandboxCapture]:
     if not payloads:
         return []
 
@@ -397,18 +397,25 @@ def run_in_sandbox(target_path: str, payloads: Sequence[SynthesizedPayload]) -> 
                     SandboxCapture.app_not_ready(container_id=getattr(container, "id", None))
                     for _ in payloads
                 ]
-            request_executor = lambda payload: _fire_payload_in_container(
-                container,
-                payload,
-                internal_port=internal_port,
-            )
+
+            def request_executor(
+                payload: SynthesizedPayload,
+                _c: Any = container,
+                _p: int = internal_port,
+            ) -> ExploitResult:
+                return _fire_payload_in_container(_c, payload, internal_port=_p)
         else:
             if not wait_for_ready(host_port):
                 return [
                     SandboxCapture.app_not_ready(container_id=getattr(container, "id", None))
                     for _ in payloads
                 ]
-            request_executor = lambda payload: fire_payload(payload, host_port)
+
+            def request_executor(
+                payload: SynthesizedPayload,
+                _hp: int = host_port,
+            ) -> ExploitResult:
+                return fire_payload(payload, _hp)
 
         captures: list[SandboxCapture] = []
         for payload in payloads:
@@ -462,7 +469,7 @@ def _start_container(client: Any, image: str) -> Container:
     network = client.networks.create(
         (
             "piranesi-sandbox-"
-            f"{hashlib.sha256(f'{image}-{time.time_ns()}'.encode('utf-8')).hexdigest()[:8]}"
+            f"{hashlib.sha256(f'{image}-{time.time_ns()}'.encode()).hexdigest()[:8]}"
         ),
         driver="bridge",
         internal=True,
@@ -479,7 +486,9 @@ def _start_container(client: Any, image: str) -> Container:
     )
 
     try:
-        run_kwargs = _container_run_kwargs(image=image, network=network, internal_port=internal_port)
+        run_kwargs = _container_run_kwargs(
+            image=image, network=network, internal_port=internal_port
+        )
         _assert_no_host_mounts(run_kwargs)
         LOGGER.info(
             "starting sandbox container",
@@ -490,7 +499,7 @@ def _start_container(client: Any, image: str) -> Container:
                 "port": internal_port,
             },
         )
-        container = client.containers.run(**run_kwargs)
+        container: Container = client.containers.run(**run_kwargs)
         _assert_runtime_mounts(container)
         return container
     except Exception:
@@ -669,7 +678,7 @@ def _container_run_kwargs(*, image: str, network: Any, internal_port: int) -> di
         "detach": True,
         "network": getattr(network, "id", None) or getattr(network, "name", None),
         "read_only": True,
-        "tmpfs": {"/tmp": "size=64m"},
+        "tmpfs": {"/tmp": "size=64m"},  # noqa: S108
         "cap_drop": ["ALL"],
         "security_opt": ["no-new-privileges"],
         "mem_limit": "512m",
@@ -689,11 +698,11 @@ def _container_run_kwargs(*, image: str, network: Any, internal_port: int) -> di
 
 
 def _assert_no_host_mounts(run_kwargs: Mapping[str, object]) -> None:
-    for field in ("volumes", "mounts"):
-        if field in run_kwargs and run_kwargs[field]:
+    for mount_key in ("volumes", "mounts"):
+        if run_kwargs.get(mount_key):
             raise AssertionError("sandbox containers must not use host or named volume mounts")
-    for field in ("volumes", "mounts"):
-        if _contains_docker_socket(run_kwargs.get(field)):
+    for mount_key in ("volumes", "mounts"):
+        if _contains_docker_socket(run_kwargs.get(mount_key)):
             raise AssertionError("sandbox containers must never mount the Docker socket")
 
 
@@ -737,7 +746,9 @@ def _image_internal_port(client: Any, image: str) -> int:
 
 def _get_host_port(container: Container) -> int:
     container.reload()
-    ports = ((getattr(container, "attrs", {}) or {}).get("NetworkSettings") or {}).get("Ports") or {}
+    ports = ((getattr(container, "attrs", {}) or {}).get("NetworkSettings") or {}).get(
+        "Ports"
+    ) or {}
     for bindings in ports.values():
         if not bindings:
             continue
@@ -758,7 +769,7 @@ def _wait_for_ready_in_container(
 
     while (time.perf_counter() - started_at) < max_wait:
         exec_result = container.exec_run(["node", "-e", _READY_PROBE_SCRIPT, str(internal_port)])
-        if int(getattr(exec_result, "exit_code", exec_result[0])) == 0:
+        if int(getattr(exec_result, "exit_code", exec_result[0])) == 0:  # type: ignore[arg-type]
             return True
         time.sleep(delay)
         delay = min(delay * 2, _READY_DELAY_MAX)
@@ -780,9 +791,15 @@ def _fire_payload_in_container(
         "payload_values": dict(payload.payload_values),
     }
     exec_result = container.exec_run(
-        ["node", "-e", _IN_CONTAINER_REQUEST_SCRIPT, json.dumps(request_details), str(internal_port)]
+        [
+            "node",
+            "-e",
+            _IN_CONTAINER_REQUEST_SCRIPT,
+            json.dumps(request_details),
+            str(internal_port),
+        ]
     )
-    exit_code = int(getattr(exec_result, "exit_code", exec_result[0]))
+    exit_code = int(getattr(exec_result, "exit_code", exec_result[0]))  # type: ignore[arg-type]
     raw_output = _decode_exec_output(exec_result)
     payload_data = _parse_in_container_payload(raw_output, request_details)
     if exit_code != 0 and payload_data["error"] is None:
@@ -793,10 +810,10 @@ def _fire_payload_in_container(
             request=request_details,
         )
     return ExploitResult(
-        status_code=int(payload_data["status_code"]),
-        headers=dict(payload_data["headers"]),
+        status_code=int(payload_data["status_code"]),  # type: ignore[call-overload]
+        headers=dict(payload_data["headers"]),  # type: ignore[call-overload]
         body=str(payload_data["body"]),
-        elapsed_ms=float(payload_data["elapsed_ms"]),
+        elapsed_ms=float(payload_data["elapsed_ms"]),  # type: ignore[arg-type]
         request=request_details,
         error=None,
     )
@@ -804,7 +821,9 @@ def _fire_payload_in_container(
 
 def _container_network_ids(container: Container) -> list[str]:
     container.reload()
-    networks = ((getattr(container, "attrs", {}) or {}).get("NetworkSettings") or {}).get("Networks") or {}
+    networks = ((getattr(container, "attrs", {}) or {}).get("NetworkSettings") or {}).get(
+        "Networks"
+    ) or {}
     return [details["NetworkID"] for details in networks.values() if details.get("NetworkID")]
 
 
@@ -837,7 +856,9 @@ def _build_request_url(path: str, host_port: int) -> str:
     if parsed.scheme or parsed.netloc:
         raise ValueError("payload.url must be a relative path inside the sandbox target")
     normalized_path = parsed.path if parsed.path.startswith("/") else f"/{parsed.path}"
-    return urlunsplit(("http", f"127.0.0.1:{host_port}", normalized_path, parsed.query, parsed.fragment))
+    return urlunsplit(
+        ("http", f"127.0.0.1:{host_port}", normalized_path, parsed.query, parsed.fragment)
+    )
 
 
 def _container_exit_code(container: Container) -> int | None:
@@ -856,7 +877,7 @@ def _serialize_container_diff(diff_entries: Sequence[Mapping[str, object]]) -> l
     for entry in diff_entries:
         kind = entry.get("Kind")
         path = entry.get("Path", "")
-        serialized.append(f"{_DIFF_KIND_MAP.get(kind, kind)}:{path}")
+        serialized.append(f"{_DIFF_KIND_MAP.get(kind, kind)}:{path}")  # type: ignore[call-overload]
     return serialized
 
 
@@ -876,7 +897,7 @@ def _decode_docker_output(output: object) -> str:
 
 def _decode_exec_output(result: object) -> str:
     if hasattr(result, "output"):
-        return _decode_docker_output(getattr(result, "output"))
+        return _decode_docker_output(result.output)
     if isinstance(result, tuple) and len(result) == 2:
         return _decode_docker_output(result[1])
     return ""

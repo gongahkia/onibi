@@ -66,7 +66,8 @@ SYSTEM_PROMPT = "\n".join(
     [
         CANARY_FRAGMENTS[0],
         CANARY_FRAGMENTS[1],
-        "Do not invent laws, deadlines, or obligations that are unsupported by the supplied regulations.",
+        "Do not invent laws, deadlines, or obligations "
+        "that are unsupported by the supplied regulations.",
         schema_instruction(TOOL_NAME, RESPONSE_SCHEMA),
     ]
 )

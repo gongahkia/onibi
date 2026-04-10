@@ -10,8 +10,8 @@ import pytest
 
 from piranesi.scan.transpile import (
     SourceMap,
-    TypeScriptCompilerNotFoundError,
     TranspiledProject,
+    TypeScriptCompilerNotFoundError,
     prepare_transpile_workspace,
     transpile_project,
 )
@@ -20,7 +20,7 @@ from piranesi.scan.transpile import (
 def _write_enum_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     ts_file = tmp_path / "sample.ts"
     ts_file.write_text(
-        'export enum Direction {\n'
+        "export enum Direction {\n"
         '  Up = "UP",\n'
         '  Down = "DOWN",\n'
         "}\n"
@@ -64,8 +64,8 @@ def _write_enum_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     (out_dir / "sample.js.map").write_text(
         '{"version":3,"file":"sample.js","sourceRoot":"","sources":["../sample.ts"],'
         '"names":[],"mappings":";;;AAKA,4BAOC;AAZD,IAAY,SAGX;AAHD,WAAY,SAAS;'
-        'IACnB,sBAAS,CAAA;IACT,0BAAa,CAAA;AACf,CAAC,EAHW,SAAS,yBAAT,SAAS,QAGpB;'
-        'AAED,SAAgB,QAAQ,CAAC,SAAoB;IAC3C,QAAQ,SAAS,EAAE,CAAC;QAClB,KAAK,SAAS,CAAC,EAAE;'
+        "IACnB,sBAAS,CAAA;IACT,0BAAa,CAAA;AACf,CAAC,EAHW,SAAS,yBAAT,SAAS,QAGpB;"
+        "AAED,SAAgB,QAAQ,CAAC,SAAoB;IAC3C,QAAQ,SAAS,EAAE,CAAC;QAClB,KAAK,SAAS,CAAC,EAAE;"
         'YACf,OAAO,IAAI,CAAC;QACd;YACE,OAAO,MAAM,CAAC;IAClB,CAAC;AACH,CAAC"}',
         encoding="utf-8",
     )
@@ -96,7 +96,9 @@ def test_prepare_transpile_workspace_writes_isolated_tsconfig(tmp_path: Path) ->
     target_dir = tmp_path / "target"
     target_dir.mkdir()
     (target_dir / "app.ts").write_text("export const value = 1;\n", encoding="utf-8")
-    (target_dir / "tsconfig.json").write_text('{"compilerOptions":{"plugins":["evil"]}}', encoding="utf-8")
+    (target_dir / "tsconfig.json").write_text(
+        '{"compilerOptions":{"plugins":["evil"]}}', encoding="utf-8"
+    )
     for filename in [".npmrc", ".node-version", ".nvmrc", ".tool-versions"]:
         (target_dir / filename).write_text("ignored\n", encoding="utf-8")
 
@@ -109,11 +111,14 @@ def test_prepare_transpile_workspace_writes_isolated_tsconfig(tmp_path: Path) ->
         assert payload["compilerOptions"] == {
             "target": "ES2020",
             "module": "commonjs",
+            "rootDir": str(target_dir.resolve()),
             "outDir": str(workspace.out_dir),
             "declaration": False,
             "sourceMap": True,
             "allowJs": True,
             "esModuleInterop": True,
+            "experimentalDecorators": True,
+            "emitDecoratorMetadata": True,
             "resolveJsonModule": True,
             "strict": False,
             "skipLibCheck": True,
@@ -196,9 +201,13 @@ def test_transpile_project_logs_failed_files_and_warning_threshold(
     for name in ["a.ts", "b.ts", "c.ts", "d.ts"]:
         (target_dir / name).write_text("export const value = 1;\n", encoding="utf-8")
 
+    a_ts = target_dir / "a.ts"
+    b_ts = target_dir / "b.ts"
     failure_output = (
-        f"{target_dir / 'a.ts'}(1,1): error TS2322: Type 'number' is not assignable to type 'string'.\n"
-        f"{target_dir / 'b.ts'}(1,1): error TS7006: Parameter 'value' implicitly has an 'any' type.\n"
+        f"{a_ts}(1,1): error TS2322: "
+        "Type 'number' is not assignable to type 'string'.\n"
+        f"{b_ts}(1,1): error TS7006: "
+        "Parameter 'value' implicitly has an 'any' type.\n"
     )
     calls: list[tuple[str, ...]] = []
 
@@ -236,10 +245,12 @@ def test_transpile_project_logs_failed_files_and_warning_threshold(
         assert any("reported 2 failed files" in message for message in messages)
         assert any("exceed 20% of source files" in message for message in messages)
         failed_file_records = [
-            record for record in caplog.records if getattr(record, "event", "") == "transpile_failed_files"
+            record
+            for record in caplog.records
+            if getattr(record, "event", "") == "transpile_failed_files"
         ]
         assert failed_file_records
-        assert failed_file_records[-1].failed_files == [
+        assert failed_file_records[-1].failed_files == [  # type: ignore[attr-defined]
             str((target_dir / "a.ts").resolve()),
             str((target_dir / "b.ts").resolve()),
         ]

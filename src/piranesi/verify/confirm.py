@@ -70,13 +70,12 @@ def build_baseline_payload(
         for raw_value in payload.payload_values.values()
     }
     baseline_values = {
-        name: replacements[raw_value]
-        for name, raw_value in payload.payload_values.items()
+        name: replacements[raw_value] for name, raw_value in payload.payload_values.items()
     }
     return SynthesizedPayload(
         method=payload.method,
         url=_replace_url_values(payload.url, replacements),
-        headers=_replace_object(payload.headers, replacements),
+        headers=_replace_object(payload.headers, replacements),  # type: ignore[arg-type]
         body=_replace_object(payload.body, replacements),
         payload_values=baseline_values,
         encoding=payload.encoding,
@@ -189,11 +188,7 @@ def _confirm_sqli(
 
     baseline_rows = _extract_row_count(baseline_body)
     exploit_rows = _extract_row_count(exploit_body)
-    if (
-        baseline_rows is not None
-        and exploit_rows is not None
-        and baseline_rows != exploit_rows
-    ):
+    if baseline_rows is not None and exploit_rows is not None and baseline_rows != exploit_rows:
         return ConfirmationResult(
             level="CONFIRMED",
             evidence=f"response row count changed from {baseline_rows} to {exploit_rows}",
@@ -482,9 +477,7 @@ def _is_active_xss_markup(raw_payload: str) -> bool:
 def _contains_unescaped_xss(body: str) -> bool:
     lowered = body.lower()
     return (
-        "<script" in lowered
-        or "onerror=" in lowered
-        or "onload=" in lowered
+        "<script" in lowered or "onerror=" in lowered or "onload=" in lowered
     ) and "&lt;script" not in lowered
 
 
@@ -502,8 +495,10 @@ def _looks_like_whoami_output(
         return False
     exploit_body = exploit_response.body.strip()
     baseline_body = baseline_response.body.strip()
-    return bool(exploit_body) and exploit_body != baseline_body and bool(
-        _USERNAME_PATTERN.fullmatch(exploit_body)
+    return (
+        bool(exploit_body)
+        and exploit_body != baseline_body
+        and bool(_USERNAME_PATTERN.fullmatch(exploit_body))
     )
 
 
@@ -513,8 +508,7 @@ def _looks_like_path_content(
     exploit_response: ExploitResult,
 ) -> bool:
     if not any(
-        "../" in value or "..%2f" in value.lower()
-        for value in payload.payload_values.values()
+        "../" in value or "..%2f" in value.lower() for value in payload.payload_values.values()
     ):
         return False
     if exploit_response.body == baseline_response.body:

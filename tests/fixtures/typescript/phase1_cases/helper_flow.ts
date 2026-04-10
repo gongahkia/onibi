@@ -10,6 +10,6 @@ function executeLookup(userId: string) {
 
 export function helperFlow(req: { body: { userId: string } }) {
   const userId = req.body.userId;
-  // @piranesi-expect: CWE-89, source=req.body.userId, sink=db.query
+  // @piranesi-expect: CWE-89, source=req.body.userId, sink=db_1.db.query
   return executeLookup(userId);
 }
