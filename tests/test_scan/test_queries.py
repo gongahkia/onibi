@@ -393,17 +393,17 @@ def test_execute_flow_query_reclassifies_hardcoded_base_templates_as_path_segmen
     )
 
     full_url_flows = execute_flow_query(
-        server,
+        server,  # type: ignore[arg-type]
         source_spec,
         full_url_sink,
         sanitizer_specs=(noop_sanitizer,),
-    )  # type: ignore[arg-type]
+    )
     path_segment_flows = execute_flow_query(
-        server,
+        server,  # type: ignore[arg-type]
         source_spec,
         path_segment_sink,
         sanitizer_specs=(noop_sanitizer,),
-    )  # type: ignore[arg-type]
+    )
 
     assert full_url_flows == ()
     assert len(path_segment_flows) == 1

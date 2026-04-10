@@ -37,7 +37,7 @@ def test_generate_sarif_validates_against_schema(tmp_path: Path) -> None:
     sarif = generate_sarif(report)
 
     _validate_sarif(sarif)
-    run = sarif["runs"][0]
+    run = sarif["runs"][0]  # type: ignore[index]
     result = run["results"][0]
     rule = run["tool"]["driver"]["rules"][0]
 
@@ -85,7 +85,7 @@ def test_generate_sarif_preserves_taint_path_order(tmp_path: Path) -> None:
 
     sarif = generate_sarif(report)
 
-    thread_flow_locations = sarif["runs"][0]["results"][0]["codeFlows"][0]["threadFlows"][0][
+    thread_flow_locations = sarif["runs"][0]["results"][0]["codeFlows"][0]["threadFlows"][0][  # type: ignore[index]
         "locations"
     ]
     assert [
@@ -114,7 +114,7 @@ def test_generate_sarif_maps_all_severity_levels(tmp_path: Path) -> None:
 
     sarif = generate_sarif(report)
 
-    assert [result["level"] for result in sarif["runs"][0]["results"]] == [
+    assert [result["level"] for result in sarif["runs"][0]["results"]] == [  # type: ignore[index]
         "error",
         "error",
         "warning",
@@ -127,7 +127,7 @@ def test_generate_sarif_includes_regulatory_property_bags(tmp_path: Path) -> Non
 
     sarif = generate_sarif(report)
 
-    regulatory = sarif["runs"][0]["results"][0]["properties"]["regulatory"]
+    regulatory = sarif["runs"][0]["results"][0]["properties"]["regulatory"]  # type: ignore[index]
     assert regulatory["riskTier"] == "high"
     assert regulatory["memoMarkdown"] == "## Legal memo"
     assert regulatory["obligations"][0]["framework"] == "PDPA"

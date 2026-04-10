@@ -124,7 +124,7 @@ class FakeJoernServer:
                 int(control_call_match.group("control_id")),
                 json.loads(control_call_match.group("call")),
             )
-            return self.control_calls.get(key, [])
+            return self.control_calls.get(key, [])  # type: ignore[arg-type]
 
         return []
 
@@ -943,7 +943,7 @@ def test_extract_candidate_findings_reduces_confidence_for_framework_sanitizers(
             "stdout": _joern_json_stdout(sanitizer_nodes),
         },
     }
-    responses.update(_file_lookup_responses(*(int(node["_id"]) for node in flow)))
+    responses.update(_file_lookup_responses(*(int(node["_id"]) for node in flow)))  # type: ignore[call-overload]
     if sink_name == "ssrf_full_url":
         responses["cpg.identifier.id(1705L).astParent.toJsonPretty"] = {
             "success": True,
@@ -1141,11 +1141,11 @@ def test_extract_candidate_findings_prunes_dead_code_branch(tmp_path: Path) -> N
     exact_payloads = {
         build_flow_query(source_spec, sink_spec): [{"elements": flow}],
     }
-    _register_file_queries(exact_payloads, fixture_path, 2001, 2002, 2003, 2900)
+    _register_file_queries(exact_payloads, fixture_path, 2001, 2002, 2003, 2900)  # type: ignore[arg-type]
 
     findings = extract_candidate_findings(
         FakeJoernServer(
-            exact_payloads=exact_payloads,
+            exact_payloads=exact_payloads,  # type: ignore[arg-type]
             controlled_by={
                 2001: [],
                 2002: [{"_id": 2900, "methodName": "handle", "methodFullName": "fixtures.handle"}],
@@ -1153,7 +1153,7 @@ def test_extract_candidate_findings_prunes_dead_code_branch(tmp_path: Path) -> N
             },
             method_controls={"fixtures.handle": [control]},
             branch_ast_ids={(2900, 2): [2002, 2003], (2900, 3): []},
-        ),  # type: ignore[arg-type]
+        ),
         joern_project_root=tmp_path,
         source_specs=(source_spec,),
         sink_specs=(sink_spec,),
@@ -1199,11 +1199,11 @@ def test_extract_candidate_findings_keeps_reachable_else_branch(tmp_path: Path) 
     exact_payloads = {
         build_flow_query(source_spec, sink_spec): [{"elements": flow}],
     }
-    _register_file_queries(exact_payloads, fixture_path, 2011, 2012, 2013, 2901)
+    _register_file_queries(exact_payloads, fixture_path, 2011, 2012, 2013, 2901)  # type: ignore[arg-type]
 
     findings = extract_candidate_findings(
         FakeJoernServer(
-            exact_payloads=exact_payloads,
+            exact_payloads=exact_payloads,  # type: ignore[arg-type]
             controlled_by={
                 2011: [],
                 2012: [{"_id": 2901, "methodName": "handle", "methodFullName": "fixtures.handle"}],
@@ -1211,7 +1211,7 @@ def test_extract_candidate_findings_keeps_reachable_else_branch(tmp_path: Path) 
             },
             method_controls={"fixtures.handle": [control]},
             branch_ast_ids={(2901, 2): [], (2901, 3): [2012, 2013]},
-        ),  # type: ignore[arg-type]
+        ),
         joern_project_root=tmp_path,
         source_specs=(source_spec,),
         sink_specs=(sink_spec,),
@@ -1275,11 +1275,11 @@ def test_extract_candidate_findings_prunes_typeof_number_guard_for_string_sink(
     exact_payloads = {
         build_flow_query(source_spec, sink_spec): [{"elements": flow}],
     }
-    _register_file_queries(exact_payloads, fixture_path, 2021, 2022, 2023, 2024, 2025, 2902)
+    _register_file_queries(exact_payloads, fixture_path, 2021, 2022, 2023, 2024, 2025, 2902)  # type: ignore[arg-type]
 
     findings = extract_candidate_findings(
         FakeJoernServer(
-            exact_payloads=exact_payloads,
+            exact_payloads=exact_payloads,  # type: ignore[arg-type]
             controlled_by={
                 2021: [],
                 2022: [],
@@ -1289,7 +1289,7 @@ def test_extract_candidate_findings_prunes_typeof_number_guard_for_string_sink(
             },
             method_controls={"fixtures.handle": [control]},
             branch_ast_ids={(2902, 2): [2024, 2025], (2902, 3): []},
-        ),  # type: ignore[arg-type]
+        ),
         joern_project_root=tmp_path,
         source_specs=(source_spec,),
         sink_specs=(sink_spec,),
@@ -1351,17 +1351,17 @@ def test_extract_candidate_findings_prunes_number_is_integer_guard_for_string_si
     exact_payloads = {
         build_flow_query(source_spec, sink_spec): [{"elements": flow}],
     }
-    _register_file_queries(exact_payloads, fixture_path, 2031, 2032, 2033, 2034, 2035, 2903)
+    _register_file_queries(exact_payloads, fixture_path, 2031, 2032, 2033, 2034, 2035, 2903)  # type: ignore[arg-type]
 
     findings = extract_candidate_findings(
         FakeJoernServer(
-            exact_payloads=exact_payloads,
+            exact_payloads=exact_payloads,  # type: ignore[arg-type]
             method_controls={"fixtures.handle": [control]},
             node_methods={2035: [{"name": "handle", "fullName": "fixtures.handle"}]},
             branch_ast_ids={(2903, 2): [], (2903, 3): []},
             branch_returns={(2903, 2): [2990], (2903, 3): []},
             control_calls={(2903, "isInteger"): [2991]},
-        ),  # type: ignore[arg-type]
+        ),
         joern_project_root=tmp_path,
         source_specs=(source_spec,),
         sink_specs=(sink_spec,),
@@ -1407,11 +1407,11 @@ def test_extract_candidate_findings_keeps_numeric_guard_for_non_string_sink(tmp_
     exact_payloads = {
         build_flow_query(source_spec, sink_spec): [{"elements": flow}],
     }
-    _register_file_queries(exact_payloads, fixture_path, 2041, 2042, 2043, 2904)
+    _register_file_queries(exact_payloads, fixture_path, 2041, 2042, 2043, 2904)  # type: ignore[arg-type]
 
     findings = extract_candidate_findings(
         FakeJoernServer(
-            exact_payloads=exact_payloads,
+            exact_payloads=exact_payloads,  # type: ignore[arg-type]
             controlled_by={
                 2041: [],
                 2042: [{"_id": 2904, "methodName": "handle", "methodFullName": "fixtures.handle"}],
@@ -1419,7 +1419,7 @@ def test_extract_candidate_findings_keeps_numeric_guard_for_non_string_sink(tmp_
             },
             method_controls={"fixtures.handle": [control]},
             branch_ast_ids={(2904, 2): [2042, 2043], (2904, 3): []},
-        ),  # type: ignore[arg-type]
+        ),
         joern_project_root=tmp_path,
         source_specs=(source_spec,),
         sink_specs=(sink_spec,),
@@ -1470,17 +1470,17 @@ def test_extract_candidate_findings_reduces_confidence_for_allowlist_guard(tmp_p
     exact_payloads = {
         build_flow_query(source_spec, sink_spec): [{"elements": flow}],
     }
-    _register_file_queries(exact_payloads, fixture_path, 2051, 2052, 2053, 2905)
+    _register_file_queries(exact_payloads, fixture_path, 2051, 2052, 2053, 2905)  # type: ignore[arg-type]
 
     findings = extract_candidate_findings(
         FakeJoernServer(
-            exact_payloads=exact_payloads,
+            exact_payloads=exact_payloads,  # type: ignore[arg-type]
             method_controls={"fixtures.handle": [control]},
             node_methods={2053: [{"name": "handle", "fullName": "fixtures.handle"}]},
             branch_ast_ids={(2905, 2): [], (2905, 3): []},
             branch_returns={(2905, 2): [2992], (2905, 3): []},
             control_calls={(2905, "includes"): [2993]},
-        ),  # type: ignore[arg-type]
+        ),
         joern_project_root=tmp_path,
         source_specs=(source_spec,),
         sink_specs=(sink_spec,),
@@ -1533,17 +1533,17 @@ def test_extract_candidate_findings_keeps_default_confidence_for_non_allowlist_i
     exact_payloads = {
         build_flow_query(source_spec, sink_spec): [{"elements": flow}],
     }
-    _register_file_queries(exact_payloads, fixture_path, 2061, 2062, 2063, 2906)
+    _register_file_queries(exact_payloads, fixture_path, 2061, 2062, 2063, 2906)  # type: ignore[arg-type]
 
     findings = extract_candidate_findings(
         FakeJoernServer(
-            exact_payloads=exact_payloads,
+            exact_payloads=exact_payloads,  # type: ignore[arg-type]
             method_controls={"fixtures.handle": [control]},
             node_methods={2063: [{"name": "handle", "fullName": "fixtures.handle"}]},
             branch_ast_ids={(2906, 2): [], (2906, 3): []},
             branch_returns={(2906, 2): [2994], (2906, 3): []},
             control_calls={(2906, "includes"): [2995]},
-        ),  # type: ignore[arg-type]
+        ),
         joern_project_root=tmp_path,
         source_specs=(source_spec,),
         sink_specs=(sink_spec,),
