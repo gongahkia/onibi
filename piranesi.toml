@@ -3,7 +3,6 @@ scanner = "gpt-4o-mini"
 detector = "gpt-4o-mini"
 triage = "gpt-4o"
 patcher = "claude-sonnet-4-20250514"
-legal_memo = "claude-sonnet-4-20250514"
 
 [budget]
 max_cost_usd = 5.00

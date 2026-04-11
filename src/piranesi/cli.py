@@ -122,8 +122,6 @@ ExcludeOption = Annotated[
     list[str] | None,
     typer.Option("--exclude", help="Glob patterns to exclude."),
 ]
-SourcesOption = Annotated[Path | None, typer.Option("--sources", help="Custom sources file.")]
-SinksOption = Annotated[Path | None, typer.Option("--sinks", help="Custom sinks file.")]
 ModelOption = Annotated[str | None, typer.Option("--model", help="Override model.")]
 TriageModelOption = Annotated[
     str | None,
@@ -132,10 +130,6 @@ TriageModelOption = Annotated[
 PatchModelOption = Annotated[
     str | None,
     typer.Option("--patch-model", help="Override patch model."),
-]
-ThresholdOption = Annotated[
-    float | None,
-    typer.Option("--threshold", help="Confidence threshold."),
 ]
 DockerImageOption = Annotated[
     str | None,
@@ -148,14 +142,6 @@ TimeoutOption = Annotated[
 NoExecuteOption = Annotated[
     bool,
     typer.Option("--no-execute", help="Generate only, do not execute."),
-]
-FrameworksOption = Annotated[
-    str | None,
-    typer.Option("--frameworks", help="Comma-separated frameworks."),
-]
-JurisdictionOption = Annotated[
-    str | None,
-    typer.Option("--jurisdiction", help="Jurisdiction override."),
 ]
 ApplyOption = Annotated[bool, typer.Option("--apply", help="Apply the generated patch.")]
 FixtureDirOption = Annotated[
@@ -217,10 +203,6 @@ TrendFormatOption = Annotated[
 SbomOption = Annotated[
     SbomFormat | None,
     typer.Option("--sbom", help="Generate an SBOM during scan.", case_sensitive=False),
-]
-TemplateOption = Annotated[
-    Path | None,
-    typer.Option("--template", help="Custom report template."),
 ]
 ResumeOption = Annotated[
     bool,
@@ -627,20 +609,33 @@ def _load_cli_config(
     if extra_cli_overrides is not None:
         cli_overrides.update(extra_cli_overrides)
 
-    try:
-        config = load_config(options.config_path, cli_overrides=cli_overrides)
-    except ConfigError as exc:
-        logger = logging.getLogger(f"piranesi.{stage}")
-        log_error_context(
-            logger,
-            event="config_load_failed",
-            what="config_load",
-            on_what=str(options.config_path),
-            why=str(exc),
-            next_step="exiting_with_code_2",
-            debug="check TOML syntax and required fields",
+    logger = logging.getLogger(f"piranesi.{stage}")
+    if not options.config_path.exists():
+        logger.warning(
+            "config file %s not found — using defaults. "
+            "run `piranesi init` to generate a configuration file.",
+            options.config_path,
         )
-        raise typer.Exit(code=2) from exc
+        from piranesi.config import _apply_cli_overrides
+        data = _apply_cli_overrides({}, cli_overrides)
+        try:
+            config = PiranesiConfig.model_validate(data)
+        except ValidationError:
+            config = PiranesiConfig()
+    else:
+        try:
+            config = load_config(options.config_path, cli_overrides=cli_overrides)
+        except ConfigError as exc:
+            log_error_context(
+                logger,
+                event="config_load_failed",
+                what="config_load",
+                on_what=str(options.config_path),
+                why=str(exc),
+                next_step="exiting_with_code_2",
+                debug="check TOML syntax and required fields",
+            )
+            raise typer.Exit(code=2) from exc
 
     if options.debug:
         config.trace.log_prompts = True
@@ -873,6 +868,59 @@ def _report_exit_code(
         if _severity_rank(severity) >= threshold
     )
     return 1 if findings_at_or_above_threshold > 0 else 0
+
+
+def _generate_threat_model_for_run(
+    report: PiranesiReport,
+    output_dir: Path,
+    logger: logging.Logger,
+) -> None:
+    detect_path = output_dir / "detect.json"
+    if not detect_path.exists():
+        logger.debug("skipping threat model — detect.json not found in %s", output_dir)
+        return
+    try:
+        detect_artifact = DetectArtifact.model_validate_json(
+            detect_path.read_text(encoding="utf-8")
+        )
+        findings = list(detect_artifact.findings)
+        if not findings:
+            logger.info("no findings for threat model generation")
+            return
+        verify_path = output_dir / "verify.json"
+        verification_results: dict[str, object] = {}
+        if verify_path.exists():
+            verify_artifact = VerifyArtifact.model_validate_json(
+                verify_path.read_text(encoding="utf-8")
+            )
+            verification_results = {
+                c.finding.finding.id: c for c in verify_artifact.findings
+            }
+        scan_path = output_dir / "scan.json"
+        scan_result = None
+        if scan_path.exists():
+            scan_result = ScanResult.model_validate_json(
+                scan_path.read_text(encoding="utf-8")
+            )
+        entry_points = scan_result.entry_points if scan_result else None
+        attack_surface = scan_result.attack_surface if scan_result else None
+        functions = scan_result.functions if scan_result else None
+        model = build_threat_model(
+            findings,
+            entry_points=entry_points,
+            attack_surface=attack_surface,
+            functions=functions,
+            verification_results=verification_results,
+        )
+        import json as _json
+        threat_out = output_dir / "threat_model.json"
+        from dataclasses import asdict
+        threat_out.write_text(
+            _json.dumps(asdict(model), indent=2, default=str), encoding="utf-8",
+        )
+        logger.info("threat model written to %s", threat_out)
+    except Exception:
+        logger.warning("threat model generation failed", exc_info=True)
 
 
 def _severity_rank(severity: str) -> int:
@@ -1387,8 +1435,6 @@ def lsp(
 @app.command()
 def detect(
     target_dir: TargetDirArg,
-    sources: SourcesOption = None,
-    sinks: SinksOption = None,
     include_tests: IncludeTestsOption = False,
     package_name: PackageOption = None,
     changed_packages: ChangedPackagesOption = False,
@@ -1403,7 +1449,6 @@ def detect(
     authorized: AuthorizedOption = False,
     yes: YesOption = False,
 ) -> None:
-    _ = (sources, sinks)
     _run_single_stage(
         "detect",
         target_dir,
@@ -1430,7 +1475,6 @@ def detect(
 def triage(
     findings_file: FindingsFileArg,
     model: ModelOption = None,
-    threshold: ThresholdOption = None,
     config: ConfigOption = Path("./piranesi.toml"),
     output: OutputOption = Path("./piranesi-output"),
     verbose: VerboseOption = False,
@@ -1441,7 +1485,6 @@ def triage(
     authorized: AuthorizedOption = False,
     yes: YesOption = False,
 ) -> None:
-    _ = threshold
     _run_single_stage(
         "triage",
         findings_file,
@@ -1501,8 +1544,6 @@ def verify(
 @app.command()
 def legal(
     findings_file: FindingsFileArg,
-    frameworks: FrameworksOption = None,
-    jurisdiction: JurisdictionOption = None,
     config: ConfigOption = Path("./piranesi.toml"),
     output: OutputOption = Path("./piranesi-output"),
     verbose: VerboseOption = False,
@@ -1513,7 +1554,6 @@ def legal(
     authorized: AuthorizedOption = False,
     yes: YesOption = False,
 ) -> None:
-    _ = (frameworks, jurisdiction)
     _run_single_stage(
         "legal",
         findings_file,
@@ -1573,7 +1613,6 @@ def report(
     tui: ComplianceTuiOption = False,
     include_unreachable: IncludeUnreachableOption = False,
     dead_code_report: DeadCodeReportOption = False,
-    template: TemplateOption = None,
     config: ConfigOption = Path("./piranesi.toml"),
     output: OutputOption = Path("./piranesi-output"),
     verbose: VerboseOption = False,
@@ -1584,7 +1623,6 @@ def report(
     authorized: AuthorizedOption = False,
     yes: YesOption = False,
 ) -> None:
-    _ = template
     options = _common_options(
         config=config,
         output=output,
@@ -1966,21 +2004,15 @@ def run(
     staged_only: StagedOnlyOption = False,
     hook_timeout: HookTimeoutOption = None,
     incremental: IncrementalOption = None,
-    sources: SourcesOption = None,
-    sinks: SinksOption = None,
     triage_model: TriageModelOption = None,
     patch_model: PatchModelOption = None,
-    threshold: ThresholdOption = None,
     docker_image: DockerImageOption = None,
     timeout: TimeoutOption = None,
     no_execute: NoExecuteOption = False,
-    frameworks: FrameworksOption = None,
-    jurisdiction: JurisdictionOption = None,
     apply: ApplyOption = False,
     format: FormatOption = None,
     attestation: AttestationOption = False,
     tui: ComplianceTuiOption = False,
-    template: TemplateOption = None,
     resume: ResumeOption = False,
     dry_run: DryRunOption = False,
     max_parallel: MaxParallelOption = None,
@@ -1996,7 +2028,6 @@ def run(
     authorized: AuthorizedOption = False,
     yes: YesOption = False,
 ) -> None:
-    _ = (sources, sinks, threshold, frameworks, jurisdiction, template)
     options = _common_options(
         config=config,
         output=output,
@@ -2216,6 +2247,8 @@ def run(
                 "Trace": trace_writer.path,
             },
         )
+    if report is not None:
+        _generate_threat_model_for_run(report, options.output_dir, logger)
     if report is not None and config_model.output.format == ReportFormat.TUI.value:
         display_report(report, output_dir=options.output_dir)
     if report is not None and config_model.output.format == ReportFormat.COMPLIANCE.value:

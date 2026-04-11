@@ -130,7 +130,6 @@ def render_config_template(
         f'detector = "{defaults.models.detector}"',
         f'triage = "{defaults.models.triage}"',
         f'patcher = "{defaults.models.patcher}"',
-        f'legal_memo = "{defaults.models.legal_memo}"',
         "",
         "[budget]",
         f"max_cost_usd = {defaults.budget.max_cost_usd!r}",

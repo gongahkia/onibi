@@ -25,7 +25,6 @@ class ModelsConfig(BaseModel):
     triage: str = "gpt-4o"
     skeptic: str | None = None
     patcher: str = "claude-sonnet-4-20250514"
-    legal_memo: str = "claude-sonnet-4-20250514"
 
 
 class ModelFallbackConfig(BaseModel):
@@ -37,7 +36,6 @@ class ModelFallbackConfig(BaseModel):
     triage: str | None = None
     skeptic: str | None = None
     patcher: str | None = None
-    legal_memo: str | None = None
 
 
 class BudgetConfig(BaseModel):
@@ -118,9 +116,21 @@ class ScanConfig(BaseModel):
     include_tests: bool = False
     frameworks: list[str] = Field(default_factory=lambda: ["auto"])
     incremental: bool = False
+    incremental_threshold: int = 20
+    incremental_invalidation_depth: int = 3
+    cpg_cache_max_mb: int = 500
     sbom_format: Literal["spdx", "cyclonedx"] | None = None
     custom_sources: CustomSourceConfig = Field(default_factory=CustomSourceConfig)
     custom_sinks: CustomSinkConfig = Field(default_factory=CustomSinkConfig)
+
+
+class DetectConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    context_sensitivity: Literal[0, 1, 2] = 1
+    max_contexts: int = Field(default=1000, ge=1)
+    hot_threshold: int = Field(default=50, ge=1)
+    context_timeout: int = Field(default=300, ge=1)
 
 
 class PluginsConfig(BaseModel):
@@ -145,6 +155,15 @@ class HooksConfig(BaseModel):
     fail_severity: Literal["low", "medium", "high", "critical"] = "high"
     timeout: int = Field(default=60, ge=1)
     staged_only: bool = True
+
+
+class TriageConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ml_prefilter: bool = True
+    ml_threshold: float = 0.5
+    ml_model_path: str | None = None
+    ml_conservative: bool = False
 
 
 class ReachabilityConfig(BaseModel):
@@ -175,6 +194,8 @@ class PiranesiConfig(BaseModel):
     trace: TraceConfig = Field(default_factory=TraceConfig)
     joern: JoernConfig = Field(default_factory=JoernConfig)
     scan: ScanConfig = Field(default_factory=ScanConfig)
+    detect: DetectConfig = Field(default_factory=DetectConfig)
+    triage: TriageConfig = Field(default_factory=TriageConfig)
     reachability: ReachabilityConfig = Field(default_factory=ReachabilityConfig)
     lsp: LspConfig = Field(default_factory=LspConfig)
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
@@ -206,7 +227,10 @@ def config_hash(config: PiranesiConfig) -> str:
 
 def _read_toml(path: Path) -> dict[str, Any]:
     if not path.exists():
-        raise ConfigError(f"config file not found: {path}")
+        raise ConfigError(
+            f"config file not found: {path}. "
+            "run `piranesi init` to generate a default configuration."
+        )
     try:
         with path.open("rb") as handle:
             loaded = tomllib.load(handle)

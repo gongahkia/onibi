@@ -3,7 +3,6 @@ scanner = "scanner-from-file"
 detector = "detector-from-file"
 triage = "triage-from-file"
 patcher = "patcher-from-file"
-legal_memo = "legal-from-file"
 
 [models.budget]
 max_cost_usd = 9.5

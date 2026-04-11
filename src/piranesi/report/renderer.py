@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
+
+_logger = logging.getLogger(__name__)
 
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, ConfigDict, Field
@@ -348,6 +351,13 @@ def write_report_outputs(
         from piranesi.report.csv import generate_csv
 
         (output_dir / "findings.csv").write_text(generate_csv(report), encoding="utf-8")
+    from piranesi.plugin import discover_reporter_plugins
+    for reporter in discover_reporter_plugins():
+        try:
+            reporter.render(report, output_dir)
+            _logger.info("reporter plugin '%s' wrote to %s", reporter.name(), output_dir)
+        except Exception:
+            _logger.warning("reporter plugin '%s' failed", reporter.name(), exc_info=True)
 
 
 def render_markdown(report: PiranesiReport) -> str:

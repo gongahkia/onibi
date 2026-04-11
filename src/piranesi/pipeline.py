@@ -61,6 +61,7 @@ from piranesi.report.renderer import (
     update_report_metrics,
     write_report_outputs,
 )
+from piranesi.plugin import discover_reporter_plugins, discover_rule_plugins
 from piranesi.rules import (
     compile_rule,
     execute_custom_rules,
@@ -411,6 +412,13 @@ def run_pipeline(
 ) -> PipelineRunResult:
     context.output_dir.mkdir(parents=True, exist_ok=True)
     context.render_ui = render_ui
+    if not _llm_is_configured():
+        raise RuntimeError(
+            "no LLM API key configured. set one of: "
+            + ", ".join(_LLM_API_ENV_VARS)
+            + ". piranesi requires an LLM provider to run."
+        )
+    _logger.info("LLM provider configured — pipeline starting")
     results: list[StageResult] = []
     prev_result: StageResult | None = None
     failed_stage: str | None = None
@@ -448,26 +456,43 @@ def run_pipeline(
                     stage_registry=stage_registry,
                     verify_result=prev_result,
                 )
+                failed_parallel: list[StageResult] = []
                 for parallel_result in parallel_results:
                     if not parallel_result.success:
-                        results.append(parallel_result)
-                        failed_stage = parallel_result.stage
-                        partial_summary_path = _save_partial_summary(
+                        failed_parallel.append(parallel_result)
+                        _logger.error(
+                            "parallel stage '%s' failed: %s",
+                            parallel_result.stage,
+                            parallel_result.error,
+                        )
+                    else:
+                        _record_stage_success(
                             context,
                             results,
                             parallel_result,
+                            artifact_path=context.output_dir / f"{parallel_result.stage}.json",
                         )
-                        break
-                    _record_stage_success(
+                        prev_result = parallel_result
+                        if progress is not None and task_id is not None:
+                            progress.advance(task_id)
+                if failed_parallel:
+                    for fail_result in failed_parallel:
+                        results.append(fail_result)
+                    failed_stage = failed_parallel[0].stage
+                    combined_error = "; ".join(
+                        f"{r.stage}: {r.error}" for r in failed_parallel
+                    )
+                    partial_summary_path = _save_partial_summary(
                         context,
                         results,
-                        parallel_result,
-                        artifact_path=context.output_dir / f"{parallel_result.stage}.json",
+                        StageResult(
+                            stage=failed_stage,
+                            success=False,
+                            artifact=None,
+                            elapsed_s=0.0,
+                            error=combined_error,
+                        ),
                     )
-                    prev_result = parallel_result
-                    if progress is not None and task_id is not None:
-                        progress.advance(task_id)
-                if failed_stage is not None:
                     break
                 stage_index += 2
                 continue
@@ -541,20 +566,24 @@ def _execute_stage(
     config: PiranesiConfig,
     prev_result: StageResult | None,
 ) -> StageResult:
+    _logger.info("stage '%s' starting", stage.name)
     started_at = time.monotonic()
     try:
         result = stage.runner(config, prev_result)
     except Exception as exc:
+        elapsed = time.monotonic() - started_at
+        _logger.error("stage '%s' failed after %.1fs: %s", stage.name, elapsed, exc)
         return StageResult(
             stage=stage.name,
             success=False,
             artifact=None,
-            elapsed_s=time.monotonic() - started_at,
+            elapsed_s=elapsed,
             error=str(exc),
         )
 
     if result.elapsed_s <= 0:
         result.elapsed_s = time.monotonic() - started_at
+    _logger.info("stage '%s' completed in %.1fs (success=%s)", stage.name, result.elapsed_s, result.success)
     return result
 
 
@@ -569,6 +598,7 @@ def _record_stage_success(
     context.stage_outputs[result.stage] = result.artifact
     _write_artifact(artifact_path, result.artifact)
     results.append(result)
+    _logger.info("stage '%s' artifact written to %s", result.stage, artifact_path)
 
 
 def _run_parallel_post_verify_stages(
@@ -1171,7 +1201,13 @@ def _detect_findings_for_target(
     changed_files: set[Path] | None = None,
 ) -> list[CandidateFinding]:
     frameworks = resolve_frameworks(target_dir, config.scan.frameworks)
-    compiled_custom_rules = [compile_rule(rule) for rule in load_rules(target_dir / "rules")]
+    local_rules = list(load_rules(target_dir / "rules"))
+    disabled_plugins = frozenset(config.plugins.disabled)
+    for rule_plugin in discover_rule_plugins(disabled=disabled_plugins):
+        _logger.info("loading rules from plugin '%s'", rule_plugin.name())
+        for rule_path in rule_plugin.rule_files():
+            local_rules.extend(load_rules(rule_path))
+    compiled_custom_rules = [compile_rule(rule) for rule in local_rules]
     source_specs = get_source_specs(config.scan, frameworks=frameworks)
     sink_specs = get_sink_specs(config.scan, frameworks=frameworks)
     sanitizer_specs = get_sanitizer_specs(frameworks=frameworks)
@@ -1213,8 +1249,8 @@ def _detect_findings_for_target(
                 source_specs=source_specs,
                 sink_specs=sink_specs,
                 sanitizer_specs=sanitizer_specs,
-                category_provider=context.provider if _llm_is_configured() else None,
-                category_model=context.router.resolve("detector") if _llm_is_configured() else None,
+                category_provider=context.provider,
+                category_model=context.router.resolve("detector"),
             )
         )
         findings.extend(
@@ -1228,8 +1264,8 @@ def _detect_findings_for_target(
                 sink_specs=sink_specs,
                 sanitizer_specs=sanitizer_specs,
                 files=scanned_files,
-                category_provider=context.provider if _llm_is_configured() else None,
-                category_model=context.router.resolve("detector") if _llm_is_configured() else None,
+                category_provider=context.provider,
+                category_model=context.router.resolve("detector"),
             )
         )
 
@@ -1956,21 +1992,10 @@ def _run_triage_stage(
         finding for finding in active_findings if finding.reachability == "reachable"
     ]
     if not _llm_is_configured():
-        findings = [
-            TriagedFinding(
-                finding=finding,
-                triage_verdict="true_positive",
-                skeptic_analysis="LLM triage skipped because no API key is configured.",
-                ensemble_score=finding.confidence,
-                escalated=False,
-            )
-            for finding in active_findings
-        ]
-        return StageResult(
-            stage="triage",
-            success=True,
-            artifact=TriageArtifact(findings=findings),
-            elapsed_s=time.monotonic() - started_at,
+        raise RuntimeError(
+            "no LLM API key configured. set one of: "
+            + ", ".join(_LLM_API_ENV_VARS)
+            + ". piranesi requires an LLM provider to run."
         )
 
     voter = CalibratedEnsembleVoter(provider=context.provider, router=context.router)
@@ -2003,6 +2028,10 @@ def _run_verify_stage(
             continue
         payload = solve_result.solutions[0].payload
         if context.no_execute:
+            _logger.warning(
+                "verify: --no-execute set, skipping sandbox execution for finding %s",
+                triaged.finding.id,
+            )
             continue
 
         baseline_payload = build_baseline_payload(payload, vuln_class=triaged.finding.vuln_class)
@@ -2076,11 +2105,10 @@ def _run_patch_stage(
     _ = prev_result
     started_at = time.monotonic()
     if not _llm_is_configured():
-        return StageResult(
-            stage="patch",
-            success=True,
-            artifact=PatchArtifact(patches=[]),
-            elapsed_s=time.monotonic() - started_at,
+        raise RuntimeError(
+            "no LLM API key configured. set one of: "
+            + ", ".join(_LLM_API_ENV_VARS)
+            + ". piranesi requires an LLM provider to run."
         )
     patches = generate_patches(
         findings=verify_artifact.findings,

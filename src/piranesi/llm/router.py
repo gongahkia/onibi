@@ -10,7 +10,7 @@ from piranesi.llm.cost import CostTracker
 if TYPE_CHECKING:
     from piranesi.models import CandidateFinding
 
-VALID_STAGES = frozenset({"scanner", "detector", "triage", "skeptic", "patcher", "legal_memo"})
+VALID_STAGES = frozenset({"scanner", "detector", "triage", "skeptic", "patcher"})
 
 # CWE difficulty: well-understood vulns are "easy", context-dependent are "hard"
 _CWE_DIFFICULTY: dict[str, float] = {
@@ -94,7 +94,6 @@ class ModelRouter:
             "triage": self.config.models.triage,
             "skeptic": self.config.models.skeptic,
             "patcher": self.config.models.patcher,
-            "legal_memo": self.config.models.legal_memo,
         }
 
     def _fallback_models(self) -> dict[str, str | None]:
@@ -105,7 +104,6 @@ class ModelRouter:
             "triage": self.config.models_fallback.triage,
             "skeptic": self.config.models_fallback.skeptic,
             "patcher": self.config.models_fallback.patcher,
-            "legal_memo": self.config.models_fallback.legal_memo,
         }
 
     def select_triage_model(self, finding: CandidateFinding) -> str:

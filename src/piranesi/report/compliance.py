@@ -118,6 +118,27 @@ def print_compliance_report(report: PiranesiReport, *, file: TextIO | None = Non
     _console(target).print(_compliance_renderable(report))
 
 
+def render_compliance_summary(report: PiranesiReport, *, include_all: bool = False) -> str:
+    summaries = _framework_summaries(report)
+    all_frameworks = _FRAMEWORKS if include_all else [fw for fw in _FRAMEWORKS if any(s.framework.key == fw.key for s in summaries)]
+    lines: list[str] = []
+    lines.append(f"Frameworks assessed:  {len(all_frameworks)}")
+    lines.append("")
+    for fw in all_frameworks:
+        matching = [s for s in summaries if s.framework.key == fw.key]
+        count = matching[0].total_findings if matching else 0
+        lines.append(f"  {fw.label}: {count} finding(s)")
+    lines.append("")
+    lines.append("Top 3 Remediation Priorities:")
+    priority_findings = sorted(
+        report.findings,
+        key=lambda f: (_SEVERITY_RANK.get(f.severity.lower(), len(_SEVERITY_ORDER)), f.finding_id),
+    )[:3]
+    for i, finding in enumerate(priority_findings, 1):
+        lines.append(f"  {i}. [{finding.severity.upper()}] {finding.cwe} — {finding.title}")
+    return "\n".join(lines)
+
+
 def render_attestation(report: PiranesiReport) -> str:
     file_count = report.scan_metadata.files_parsed or len(report.files_scanned)
     languages = ", ".join(_scan_languages(report)) or "Unknown"

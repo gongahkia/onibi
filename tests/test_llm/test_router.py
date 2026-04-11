@@ -24,7 +24,6 @@ scanner = "scanner-model"
 detector = "detector-model"
 triage = "triage-model"
 patcher = "patcher-model"
-legal_memo = "legal-model"
 
 [models.fallback]
 default = "fallback-default"
@@ -42,7 +41,6 @@ warn_at_usd = 4.25
     assert config.budget.warn_at_usd == 4.25
     assert router.resolve("scanner") == "scanner-model"
     assert router.resolve("detector") == "detector-model"
-    assert router.resolve("legal_memo") == "legal-model"
     assert router.resolve("skeptic") == "skeptic-fallback"
     assert router.resolve_fallback("triage") == "fallback-default"
 
