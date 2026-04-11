@@ -11,6 +11,7 @@ coverage.xml
 .piranesi-trace*.jsonl
 .env
 piranesi-output/
+.piranesi-cache/
 .piranesi-out/
 workspace/
 .DS_Store
