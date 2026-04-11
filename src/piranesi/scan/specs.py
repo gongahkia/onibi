@@ -30,13 +30,19 @@ class SinkType(StrEnum):
     REDIRECT = "redirect"
     FILE_UPLOAD = "file_upload"
     PROTOTYPE_POLLUTION = "prototype_pollution"
+    STATE_CHANGE_HANDLER = "state_change_handler"
+    COMMAND_EXECUTION = "command_execution"
+    TEMPLATE_INJECTION = "template_injection"
     CUSTOM = "custom"
 
 
 class SanitizerKind(StrEnum):
     ESCAPE = "escape"
+    ENCODE = "encode"
+    SANITIZE = "sanitize"
     PARAMETERIZE = "parameterize"
     NORMALIZE = "normalize"
+    VALIDATE = "validate"
 
 
 @dataclass(frozen=True, slots=True)
@@ -1393,4 +1399,115 @@ __all__ = [
     "get_sanitizer_specs",
     "get_sink_specs",
     "get_source_specs",
+    "CRYPTO_TRANSPORT_JWT_PUBLIC_KEY_HINTS",
+    "CRYPTO_TRANSPORT_NON_SECURITY_HASH_HINTS",
+    "CRYPTO_TRANSPORT_NON_SECURITY_PRNG_HINTS",
+    "CRYPTO_TRANSPORT_SECURITY_CONTEXT_HINTS",
+    "CRYPTO_TRANSPORT_SECURITY_IDENTIFIER_HINTS",
+    "CRYPTO_TRANSPORT_WEAK_EC_CURVES",
 ]
+
+PHP_SOURCE_SPECS: tuple[SourceSpec, ...] = (
+    SourceSpec(name="php-get", pattern="$_GET", source_type=SourceType.REQUEST_PARAM),
+    SourceSpec(name="php-post", pattern="$_POST", source_type=SourceType.REQUEST_BODY),
+    SourceSpec(name="php-request", pattern="$_REQUEST", source_type=SourceType.REQUEST_PARAM),
+    SourceSpec(name="php-cookie", pattern="$_COOKIE", source_type=SourceType.COOKIE),
+    SourceSpec(name="php-server", pattern="$_SERVER", source_type=SourceType.HEADER),
+)
+PHP_SINK_SPECS: tuple[SinkSpec, ...] = (
+    SinkSpec(name="php-query", pattern="mysqli_query", sink_type=SinkType.SQL_QUERY, cwe_id="CWE-89"),
+    SinkSpec(name="php-exec", pattern="exec", sink_type=SinkType.SHELL_EXEC, cwe_id="CWE-78"),
+    SinkSpec(name="php-system", pattern="system", sink_type=SinkType.SHELL_EXEC, cwe_id="CWE-78"),
+    SinkSpec(name="php-echo", pattern="echo", sink_type=SinkType.HTML_OUTPUT, cwe_id="CWE-79"),
+    SinkSpec(name="php-eval", pattern="eval", sink_type=SinkType.EVAL, cwe_id="CWE-94"),
+)
+PHP_SANITIZER_SPECS: tuple[SanitizerSpec, ...] = (
+    SanitizerSpec(name="php-htmlspecialchars", pattern="htmlspecialchars", kind=SanitizerKind.ESCAPE, mitigates=("CWE-79",)),
+    SanitizerSpec(name="php-prepared", pattern="prepare", kind=SanitizerKind.PARAMETERIZE, mitigates=("CWE-89",)),
+)
+
+LARAVEL_SOURCE_SPECS: tuple[SourceSpec, ...] = (
+    SourceSpec(name="laravel-request-input", pattern="$request->input", source_type=SourceType.REQUEST_PARAM),
+    SourceSpec(name="laravel-request-all", pattern="$request->all", source_type=SourceType.REQUEST_BODY),
+    SourceSpec(name="laravel-request-query", pattern="$request->query", source_type=SourceType.REQUEST_PARAM),
+)
+LARAVEL_SINK_SPECS: tuple[SinkSpec, ...] = (
+    SinkSpec(name="laravel-db-raw", pattern="DB::raw", sink_type=SinkType.SQL_QUERY, cwe_id="CWE-89"),
+    SinkSpec(name="laravel-db-select", pattern="DB::select", sink_type=SinkType.SQL_QUERY, cwe_id="CWE-89"),
+)
+LARAVEL_SANITIZER_SPECS: tuple[SanitizerSpec, ...] = (
+    SanitizerSpec(name="laravel-e", pattern="e(", kind=SanitizerKind.ESCAPE, mitigates=("CWE-79",)),
+    SanitizerSpec(name="laravel-binding", pattern="DB::select(?, ?)", kind=SanitizerKind.PARAMETERIZE, mitigates=("CWE-89",)),
+)
+
+SYMFONY_SOURCE_SPECS: tuple[SourceSpec, ...] = (
+    SourceSpec(name="symfony-request-get", pattern="$request->get", source_type=SourceType.REQUEST_PARAM),
+    SourceSpec(name="symfony-request-content", pattern="$request->getContent", source_type=SourceType.REQUEST_BODY),
+)
+SYMFONY_SINK_SPECS: tuple[SinkSpec, ...] = (
+    SinkSpec(name="symfony-dbal-query", pattern="$connection->query", sink_type=SinkType.SQL_QUERY, cwe_id="CWE-89"),
+    SinkSpec(name="symfony-process", pattern="Process(", sink_type=SinkType.SHELL_EXEC, cwe_id="CWE-78"),
+)
+SYMFONY_SANITIZER_SPECS: tuple[SanitizerSpec, ...] = (
+    SanitizerSpec(name="symfony-twig-escape", pattern="twig_escape_filter", kind=SanitizerKind.ESCAPE, mitigates=("CWE-79",)),
+)
+
+WORDPRESS_SOURCE_SPECS: tuple[SourceSpec, ...] = (
+    SourceSpec(name="wp-get", pattern="$_GET", source_type=SourceType.REQUEST_PARAM),
+    SourceSpec(name="wp-post", pattern="$_POST", source_type=SourceType.REQUEST_BODY),
+)
+WORDPRESS_SINK_SPECS: tuple[SinkSpec, ...] = (
+    SinkSpec(name="wp-wpdb-query", pattern="$wpdb->query", sink_type=SinkType.SQL_QUERY, cwe_id="CWE-89"),
+    SinkSpec(name="wp-wpdb-prepare", pattern="$wpdb->get_results", sink_type=SinkType.SQL_QUERY, cwe_id="CWE-89"),
+)
+WORDPRESS_SANITIZER_SPECS: tuple[SanitizerSpec, ...] = (
+    SanitizerSpec(name="wp-esc-html", pattern="esc_html", kind=SanitizerKind.ESCAPE, mitigates=("CWE-79",)),
+    SanitizerSpec(name="wp-esc-sql", pattern="esc_sql", kind=SanitizerKind.ESCAPE, mitigates=("CWE-89",)),
+    SanitizerSpec(name="wp-prepare", pattern="$wpdb->prepare", kind=SanitizerKind.PARAMETERIZE, mitigates=("CWE-89",)),
+)
+
+RUBY_SOURCE_SPECS: tuple[SourceSpec, ...] = (
+    SourceSpec(name="ruby-params", pattern="params", source_type=SourceType.REQUEST_PARAM),
+    SourceSpec(name="ruby-request-body", pattern="request.body", source_type=SourceType.REQUEST_BODY),
+    SourceSpec(name="ruby-request-env", pattern="request.env", source_type=SourceType.HEADER),
+    SourceSpec(name="ruby-cookies", pattern="cookies", source_type=SourceType.COOKIE),
+)
+RUBY_SINK_SPECS: tuple[SinkSpec, ...] = (
+    SinkSpec(name="ruby-ar-execute", pattern="ActiveRecord::Base.connection.execute", sink_type=SinkType.SQL_QUERY, cwe_id="CWE-89"),
+    SinkSpec(name="ruby-find-by-sql", pattern="find_by_sql", sink_type=SinkType.SQL_QUERY, cwe_id="CWE-89"),
+    SinkSpec(name="ruby-where", pattern="where", sink_type=SinkType.SQL_QUERY, cwe_id="CWE-89"),
+    SinkSpec(name="ruby-system", pattern="system", sink_type=SinkType.SHELL_EXEC, cwe_id="CWE-78"),
+    SinkSpec(name="ruby-exec", pattern="exec", sink_type=SinkType.SHELL_EXEC, cwe_id="CWE-78"),
+    SinkSpec(name="ruby-render-inline", pattern="render inline:", sink_type=SinkType.HTML_OUTPUT, cwe_id="CWE-79"),
+    SinkSpec(name="ruby-erb-new", pattern="ERB.new", sink_type=SinkType.HTML_OUTPUT, cwe_id="CWE-79"),
+)
+RUBY_SANITIZER_SPECS: tuple[SanitizerSpec, ...] = (
+    SanitizerSpec(name="ruby-html-escape", pattern="ERB::Util.html_escape", kind=SanitizerKind.ESCAPE, mitigates=("CWE-79",)),
+    SanitizerSpec(name="ruby-sanitize", pattern="sanitize", kind=SanitizerKind.ESCAPE, mitigates=("CWE-79",)),
+    SanitizerSpec(name="ruby-sanitize-sql", pattern="ActiveRecord::Base.sanitize_sql", kind=SanitizerKind.PARAMETERIZE, mitigates=("CWE-89",)),
+)
+
+CRYPTO_TRANSPORT_JWT_PUBLIC_KEY_HINTS = (
+    "publicKey", "public_key", "pubkey", "pub_key", "verifyKey", "verify_key",
+    "signingKey", "signing_key", "jwtPublicKey", "jwt_public_key",
+)
+CRYPTO_TRANSPORT_NON_SECURITY_HASH_HINTS = (
+    "checksum", "etag", "fingerprint", "cache_key", "dedup",
+    "content_hash", "file_hash", "asset_hash", "build_hash",
+)
+CRYPTO_TRANSPORT_NON_SECURITY_PRNG_HINTS = (
+    "shuffle", "sample", "jitter", "delay", "color", "placeholder",
+    "mock", "test", "seed", "demo", "example",
+)
+CRYPTO_TRANSPORT_SECURITY_CONTEXT_HINTS = (
+    "password", "token", "secret", "credential", "auth", "session",
+    "api_key", "apiKey", "private_key", "privateKey",
+)
+CRYPTO_TRANSPORT_SECURITY_IDENTIFIER_HINTS = (
+    "userId", "user_id", "accountId", "account_id", "sessionId",
+    "session_id", "transactionId", "transaction_id",
+)
+CRYPTO_TRANSPORT_WEAK_EC_CURVES = (
+    "secp112r1", "secp128r1", "secp160r1", "prime192v1", "secp192r1",
+    "prime192v2", "prime192v3", "secp192k1",
+)

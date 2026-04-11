@@ -42,11 +42,37 @@ from piranesi.legal.rules.nis2 import (
     load_nis2_rule_specs,
     load_nis2_rules,
 )
+from piranesi.legal.rules.pci_dss import (
+    PCI_DSS_RULES_PATH,
+    detect_payment_processing_scope,
+    load_pci_dss_rule_specs,
+    load_pci_dss_rules,
+)
 from piranesi.legal.rules.pdpa import (
     PDPA_RULES_PATH,
     load_pdpa_rule_specs,
     load_pdpa_rules,
     pdpa_thresholds,
+)
+from piranesi.legal.rules.soc2 import (
+    SOC2_RULES_PATH,
+    load_soc2_rule_specs,
+    load_soc2_rules,
+)
+from piranesi.legal.rules.cis import (
+    CIS_V8_RULES_PATH,
+    load_cis_rule_specs,
+    load_cis_rules,
+)
+from piranesi.legal.rules.iso27001 import (
+    ISO_27001_RULES_PATH,
+    load_iso27001_rule_specs,
+    load_iso27001_rules,
+)
+from piranesi.legal.rules.nist_csf import (
+    NIST_CSF_RULES_PATH,
+    load_nist_csf_rule_specs,
+    load_nist_csf_rules,
 )
 
 __all__ = [

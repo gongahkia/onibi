@@ -12,6 +12,14 @@ class Complexity(StrEnum):
     SIMPLE = "simple"  # direct taint flow, single function
     INTERPROCEDURAL = "inter"  # crosses function boundaries
     CONTEXT_SENSITIVE = "ctx"  # requires context-sensitive analysis
+    CROSS_MODULE = "cross_module"  # spans import boundaries
+    MULTI_STEP = "multi_step"  # 3+ taint steps
+
+
+class DiscoveryMethod(StrEnum):
+    MANUAL = "manual"
+    SYNTHETIC = "synthetic"
+    CVE_MINING = "cve_mining"
 
 
 class GroundTruthEntry(BaseModel):
@@ -31,3 +39,15 @@ class GroundTruthEntry(BaseModel):
     reference_exploit: str | None  # exploit description or script path
     reference_fix_commit: str | None  # commit that fixed the vuln
     notes: str  # additional context
+    cve_id: str | None = None
+    ghsa_id: str | None = None
+    fix_commit: str | None = None
+    vulnerable_commit: str | None = None
+    patch_diff: str | None = None
+    discovery_method: DiscoveryMethod = DiscoveryMethod.MANUAL
+    language: str | None = None
+    framework: str | None = None
+    cvss_score: float | None = None
+    taint_step_count: int | None = None
+    taint_field_path: str | None = None
+    field_sensitive_label: Label | None = None
