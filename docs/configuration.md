@@ -15,7 +15,6 @@ scanner = "gpt-4o-mini"
 detector = "gpt-4o-mini"
 triage = "gpt-4o"
 patcher = "claude-sonnet-4-20250514"
-legal_memo = "claude-sonnet-4-20250514"
 
 [models_fallback]
 default = "gpt-4o-mini"
@@ -80,7 +79,6 @@ Primary model routing for LLM-backed stages.
 | `triage` | `str` | `gpt-4o` | Model used by triage. |
 | `skeptic` | `str | null` | `null` | Optional second model for skeptical review during triage. |
 | `patcher` | `str` | `claude-sonnet-4-20250514` | Model used for patch generation. |
-| `legal_memo` | `str` | `claude-sonnet-4-20250514` | Model used for legal memo generation. |
 
 ### `[models_fallback]`
 
@@ -94,7 +92,6 @@ Fallback models used when the primary model fails.
 | `triage` | `str | null` | `null` |
 | `skeptic` | `str | null` | `null` |
 | `patcher` | `str | null` | `null` |
-| `legal_memo` | `str | null` | `null` |
 
 If a stage-specific fallback is unset, Piranesi falls back to `models_fallback.default`.
 
