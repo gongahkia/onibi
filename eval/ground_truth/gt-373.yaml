@@ -1,0 +1,24 @@
+id: gt-373
+source_project: synthetic-phase30-go
+commit_hash: synthetic-no-commit
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+affected_files:
+- eval/fixtures/go/echo/gt-373/main.go
+line_numbers:
+- 8
+taint_source: c.Param("path")
+taint_sink: c.File()
+taint_path:
+- c.Param("path") supplies an attacker-controlled path.
+- c.File(c.Param("path")) serves the path directly without containment checks.
+complexity: simple
+exploitable: true
+reference_exploit: GET /files/../../etc/passwd
+reference_fix_commit: null
+notes: Echo serves a route parameter directly as a file path.
+discovery_method: synthetic
+language: go
+framework: echo
+taint_step_count: 2

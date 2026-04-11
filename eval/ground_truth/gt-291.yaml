@@ -1,0 +1,28 @@
+id: gt-291
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery
+label: true_positive
+affected_files:
+- eval/synthetic/phase29/nestjs/gt-291/client.ts
+- eval/synthetic/phase29/nestjs/gt-291/service.ts
+- eval/synthetic/phase29/nestjs/gt-291/controller.ts
+line_numbers:
+- 5
+taint_source: '@Query("url")'
+taint_sink: fetch()
+taint_path:
+- '@Query("url") provides attacker-controlled input to the controller method'
+- ProxyService.proxy() trims and stringifies the query value
+- HttpClient.request() receives the normalized endpoint string
+- fetch(endpoint) makes the attacker-controlled outbound request
+complexity: cross_module
+exploitable: true
+reference_exploit: Call the endpoint with url=http://169.254.169.254/latest/meta-data/.
+reference_fix_commit: null
+notes: NestJS SSRF across controller, proxy service, and HTTP client helper.
+discovery_method: synthetic
+language: typescript
+framework: nestjs
+taint_step_count: 4

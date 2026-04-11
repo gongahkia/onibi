@@ -1,0 +1,26 @@
+id: gt-296
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-79
+cwe_name: Cross-Site Scripting
+label: false_positive
+affected_files:
+- eval/synthetic/phase29/nestjs/gt-296/service.ts
+- eval/synthetic/phase29/nestjs/gt-296/controller.ts
+line_numbers:
+- 19
+taint_source: '@Query("term")'
+taint_sink: res.send()
+taint_path:
+- '@Query("term") provides input to the controller method'
+- ViewService.renderTerm() escapes the value before building HTML
+- res.send(markup) returns encoded content rather than executable HTML
+complexity: cross_module
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: NestJS reflected XSS-safe flow using escape-html inside the view service.
+discovery_method: synthetic
+language: typescript
+framework: nestjs
+taint_step_count: 3

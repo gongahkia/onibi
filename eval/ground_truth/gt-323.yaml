@@ -1,0 +1,26 @@
+id: gt-323
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/fixtures/python/django/gt-323/views.py
+line_numbers:
+- 5
+taint_source: request.POST["status"]
+taint_sink: User.objects.raw()
+taint_path:
+- request.POST["status"] reads attacker-controlled body data
+- status_view() forwards the trimmed value into run_status_lookup()
+- run_status_lookup() builds raw SQL from the untrusted status
+- User.objects.raw() evaluates the injected query
+complexity: inter
+exploitable: true
+reference_exploit: POST status=active' OR '1'='1 returns every user row.
+reference_fix_commit: null
+notes: Django raw() SQL injection through a helper that receives request.POST data.
+discovery_method: synthetic
+language: python
+framework: django
+taint_step_count: 4

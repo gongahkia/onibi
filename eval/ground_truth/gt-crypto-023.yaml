@@ -1,0 +1,19 @@
+id: gt-crypto-023
+source_project: piranesi-crypto-transport-fixtures
+commit_hash: '0000000000000000000000000000000000000000'
+cwe_id: CWE-319
+cwe_name: Cleartext transmission of sensitive information
+label: false_positive
+affected_files:
+- eval/synthetic/crypto_transport/cwe319_node_tls12_safe.ts
+line_numbers:
+- 2
+taint_source: tls_config
+taint_sink: tls.createServer(minVersion=TLSv1.2)
+taint_path:
+- 'minVersion: "TLSv1.2" (eval/synthetic/crypto_transport/cwe319_node_tls12_safe.ts:2)'
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: TLS 1.2 minimum should not trigger CWE-319.

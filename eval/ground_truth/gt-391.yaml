@@ -1,0 +1,24 @@
+id: gt-391
+source_project: synthetic-phase30-go
+commit_hash: synthetic-no-commit
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+affected_files:
+- eval/fixtures/go/stdlib/gt-391/main.go
+line_numbers:
+- 6
+taint_source: r.URL.Query().Get("path")
+taint_sink: http.ServeFile()
+taint_path:
+- r.URL.Query().Get("path") supplies an attacker-controlled file path.
+- http.ServeFile(...) serves the path directly without containment checks.
+complexity: simple
+exploitable: true
+reference_exploit: GET /files?path=../../etc/passwd
+reference_fix_commit: null
+notes: net/http handler passes a query parameter directly into ServeFile.
+discovery_method: synthetic
+language: go
+framework: go-stdlib
+taint_step_count: 2

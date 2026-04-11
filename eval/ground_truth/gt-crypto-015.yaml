@@ -1,0 +1,19 @@
+id: gt-crypto-015
+source_project: piranesi-crypto-transport-fixtures
+commit_hash: '0000000000000000000000000000000000000000'
+cwe_id: CWE-328
+cwe_name: Weak cryptographic hash
+label: false_positive
+affected_files:
+- eval/synthetic/crypto_transport/cwe328_py_md5_checksum_safe.py
+line_numbers:
+- 3
+taint_source: file_hash
+taint_sink: hashlib.md5
+taint_path:
+- hashlib.md5(blob) (eval/synthetic/crypto_transport/cwe328_py_md5_checksum_safe.py:3)
+complexity: ctx
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: MD5 in file hash context should not trigger CWE-328.

@@ -1,0 +1,25 @@
+id: gt-496
+source_project: synthetic-phase39
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/fixtures/php/laravel/controller_raw_query.php
+line_numbers:
+- 4
+taint_source: $_POST['sort']
+taint_sink: orderByRaw()
+taint_path:
+- $_POST['sort'] is attacker-controlled input.
+- The sort expression flows into DB::table()->orderByRaw().
+- Laravel executes the raw SQL fragment without parameterization.
+complexity: simple
+exploitable: true
+reference_exploit: POST sort=id desc, sleep(5) injects a raw sort expression.
+reference_fix_commit: null
+notes: Laravel raw query builder expression with user input.
+discovery_method: synthetic
+language: php
+framework: laravel
+taint_step_count: 3

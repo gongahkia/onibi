@@ -1,0 +1,34 @@
+id: gt-261
+source_project: OpenMetadata
+commit_hash: ffb09cc2ed29fbb8cf18365961f2d194cf8f99a5
+cwe_id: CWE-1336
+cwe_name: Improper Neutralization of Special Elements Used in a Template Engine
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe1336-CVE-2026-22244-openmetadata-freemarker-vuln.java
+line_numbers:
+- 9
+taint_source: adminTemplate string configured for outbound email rendering
+taint_sink: new Template("mail", adminTemplate, cfg)
+taint_path:
+- an administrative user controls the FreeMarker template body
+- MailRenderer compiles that body directly into a live template
+- template.process() evaluates attacker-controlled server-side expressions
+complexity: ctx
+exploitable: true
+reference_exploit: Store a FreeMarker payload such as ${"freemarker.template.utility.Execute"?new()("id")}
+  in the email template.
+reference_fix_commit: bffe7c45807763f9b682021d4211c478d2a08bb3
+notes: CVE-2026-22244 / GHSA-5f29-2333-h9c7. OpenMetadata before 1.11.4 compiled admin-controlled
+  FreeMarker email templates without hardening.
+cve_id: CVE-2026-22244
+ghsa_id: GHSA-5f29-2333-h9c7
+fix_commit: bffe7c45807763f9b682021d4211c478d2a08bb3
+vulnerable_commit: ffb09cc2ed29fbb8cf18365961f2d194cf8f99a5
+discovery_method: cve_mining
+language: java
+framework: spring
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2026-22244
+- https://github.com/advisories/GHSA-5f29-2333-h9c7
+- https://github.com/open-metadata/OpenMetadata/commit/bffe7c45807763f9b682021d4211c478d2a08bb3

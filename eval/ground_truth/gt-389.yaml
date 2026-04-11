@@ -1,0 +1,24 @@
+id: gt-389
+source_project: synthetic-phase30-go
+commit_hash: synthetic-no-commit
+cwe_id: CWE-79
+cwe_name: Cross-Site Scripting
+label: true_positive
+affected_files:
+- eval/fixtures/go/stdlib/gt-389/main.go
+line_numbers:
+- 6
+taint_source: r.URL.Query().Get("html")
+taint_sink: w.Write()
+taint_path:
+- r.URL.Query().Get("html") reads attacker-controlled response content.
+- w.Write([]byte(...)) reflects the bytes without HTML escaping.
+complexity: simple
+exploitable: true
+reference_exploit: GET /preview?html=<script>alert(1)</script>
+reference_fix_commit: null
+notes: net/http handler writes query-controlled HTML directly to the response.
+discovery_method: synthetic
+language: go
+framework: go-stdlib
+taint_step_count: 2

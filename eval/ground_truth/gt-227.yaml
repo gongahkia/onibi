@@ -1,0 +1,35 @@
+id: gt-227
+source_project: '@fastify/csrf-protection'
+commit_hash: f60148c948e974c9459599d15c25c9e942db964b
+cwe_id: CWE-352
+cwe_name: Cross-Site Request Forgery
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe352-CVE-2023-27495-fastify-csrf-bypass-vuln.js
+line_numbers:
+- 5
+taint_source: attacker-fixated _csrf cookie value and predictable or missing user
+  identity
+taint_sink: generateToken() derives a valid CSRF token without a server-held secret
+taint_path:
+- a same-site or network attacker can plant a chosen _csrf cookie in the victim browser
+- generateToken() hashes only the cookie value and optional user identity
+- acceptsForgedToken() accepts an attacker-computed token as valid
+complexity: ctx
+exploitable: true
+reference_exploit: Fixate _csrf for the victim, predict or omit userInfo, then submit
+  a forged x-csrf-token with the cross-site request.
+reference_fix_commit: be3e5761f37aa05c7c1ac8ed44499c51ecec8058
+notes: CVE-2023-27495 / GHSA-qrgf-9gpc-vrxw. Fastify CSRF tokens were spoofable until
+  6.3.0 and 4.1.0 because they were not HMAC-bound to a server secret.
+cve_id: CVE-2023-27495
+ghsa_id: GHSA-qrgf-9gpc-vrxw
+fix_commit: be3e5761f37aa05c7c1ac8ed44499c51ecec8058
+vulnerable_commit: f60148c948e974c9459599d15c25c9e942db964b
+discovery_method: cve_mining
+language: javascript
+framework: fastify
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2023-27495
+- https://github.com/advisories/GHSA-qrgf-9gpc-vrxw
+- https://github.com/fastify/csrf-protection/commit/be3e5761f37aa05c7c1ac8ed44499c51ecec8058

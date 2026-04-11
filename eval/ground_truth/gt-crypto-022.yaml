@@ -1,0 +1,19 @@
+id: gt-crypto-022
+source_project: piranesi-crypto-transport-fixtures
+commit_hash: '0000000000000000000000000000000000000000'
+cwe_id: CWE-319
+cwe_name: Cleartext transmission of sensitive information
+label: false_positive
+affected_files:
+- eval/synthetic/crypto_transport/cwe319_js_fetch_localhost_safe.ts
+line_numbers:
+- 1
+taint_source: http_literal
+taint_sink: fetch(http://localhost:3000/health)
+taint_path:
+- fetch("http://localhost:3000/health") (eval/synthetic/crypto_transport/cwe319_js_fetch_localhost_safe.ts:1)
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: Localhost cleartext should be excluded.

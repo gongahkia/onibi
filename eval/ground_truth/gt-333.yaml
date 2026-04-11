@@ -1,0 +1,26 @@
+id: gt-333
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-352
+cwe_name: Cross-Site Request Forgery
+label: true_positive
+affected_files:
+- eval/fixtures/python/django/gt-333/views.py
+line_numbers:
+- 7
+taint_source: cross-site POST request to close()
+taint_sink: '@csrf_exempt'
+taint_path:
+- the attacker triggers a cross-site POST from the victim browser
+- '@csrf_exempt disables CSRF validation on close()'
+- close() forwards the body into a state-changing helper with no CSRF gate
+complexity: ctx
+exploitable: true
+reference_exploit: An attacker-controlled page can auto-submit order_id to POST /close
+  while the victim is logged in.
+reference_fix_commit: null
+notes: Django CSRF bypass on a state-changing function view explicitly marked csrf_exempt.
+discovery_method: synthetic
+language: python
+framework: django
+taint_step_count: 3

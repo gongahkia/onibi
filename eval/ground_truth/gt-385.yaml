@@ -1,0 +1,25 @@
+id: gt-385
+source_project: synthetic-phase30-go
+commit_hash: synthetic-no-commit
+cwe_id: CWE-285
+cwe_name: Improper Authorization
+label: true_positive
+affected_files:
+- eval/fixtures/go/chi/gt-385/main.go
+line_numbers:
+- 22
+taint_source: authenticated non-admin DELETE request to /admin/users/{id}
+taint_sink: r.Delete("/admin/users/{id}", deleteUser)
+taint_path:
+- Any logged-in user satisfies authMiddleware.
+- No role or permission middleware protects /admin/users/{id}.
+- deleteUser performs an admin-only action for a non-admin caller.
+complexity: ctx
+exploitable: true
+reference_exploit: Send DELETE /admin/users/7 as a regular authenticated user.
+reference_fix_commit: null
+notes: Chi uses authentication but omits an authorization check on an admin route.
+discovery_method: synthetic
+language: go
+framework: chi
+taint_step_count: 3

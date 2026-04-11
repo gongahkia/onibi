@@ -1,0 +1,29 @@
+id: gt-329
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-915
+cwe_name: Improperly Controlled Modification of Dynamically-Determined Object Attributes
+  (Mass Assignment)
+label: true_positive
+affected_files:
+- eval/fixtures/python/django/gt-329/views.py
+line_numbers:
+- 12
+taint_source: request.POST
+taint_sink: form.save()
+taint_path:
+- request.POST contains attacker-controlled profile fields
+- profile_view() forwards the body into persist_profile()
+- ProfileForm still has no field allowlist in Meta
+- form.save() writes every submitted attribute onto the model instance
+complexity: ctx
+exploitable: true
+reference_exploit: POST is_staff=true or billing_plan=enterprise updates sensitive
+  model fields.
+reference_fix_commit: null
+notes: Django mass assignment through a helper that saves a ModelForm without any
+  field restriction.
+discovery_method: synthetic
+language: python
+framework: django
+taint_step_count: 4

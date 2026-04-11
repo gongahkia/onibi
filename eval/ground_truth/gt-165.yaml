@@ -1,0 +1,21 @@
+id: gt-165
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-90
+cwe_name: LDAP Injection
+label: true_positive
+affected_files:
+- eval/synthetic/ldapi-go-ldap.go
+line_numbers:
+- 7
+taint_source: r.FormValue("username")
+taint_sink: ldap.NewSearchRequest()
+taint_path:
+- r.FormValue("username") is interpolated into an LDAP filter
+- ldap.NewSearchRequest(..., filter, ...) receives attacker-controlled LDAP syntax
+complexity: simple
+exploitable: true
+reference_exploit: Trigger ldap.NewSearchRequest() with attacker-controlled input
+  described in r.FormValue("username").
+reference_fix_commit: null
+notes: go-ldap search request filter is built from unescaped input.

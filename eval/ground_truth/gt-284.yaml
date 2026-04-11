@@ -1,0 +1,29 @@
+id: gt-284
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+affected_files:
+- eval/synthetic/phase29/express/gt-284/selection.ts
+- eval/synthetic/phase29/express/gt-284/app.ts
+line_numbers:
+- 20
+taint_source: req.body.doc
+taint_sink: res.sendFile()
+taint_path:
+- req.body.doc is stored as a saved document selection
+- openSelection() loads the stored selection in a later request
+- The loaded value is joined onto the report root without containment checks
+- res.sendFile(candidate) resolves and serves the stored attacker-controlled path
+complexity: multi_step
+exploitable: true
+reference_exploit: Store ../../../../etc/passwd as the doc choice and then load the
+  saved selection.
+reference_fix_commit: null
+notes: Express second-order path traversal where a stored document choice is reused
+  later.
+discovery_method: synthetic
+language: typescript
+framework: express
+taint_step_count: 4

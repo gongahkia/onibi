@@ -1,0 +1,28 @@
+id: gt-449
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-434
+cwe_name: Unrestricted Upload of File with Dangerous Type
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-449.java
+line_numbers:
+- 13
+taint_source: '@RequestParam String name and MultipartFile file'
+taint_sink: Files.copy()
+taint_path:
+- the attacker controls both the uploaded file content and the destination name
+- the upload path is built under a template directory without path normalization
+- Files.copy(...) writes attacker-controlled content into an executable template location
+- a later admin page render executes the uploaded template and yields code execution
+complexity: multi_step
+exploitable: true
+reference_exploit: Upload a server-side template payload with name=../templates/admin.ftl
+  and wait for an admin page render.
+reference_fix_commit: null
+notes: 'Multi-step upload chain: traversal into a template directory followed by later
+  code execution.'
+discovery_method: synthetic
+language: java
+framework: spring-boot
+taint_step_count: 4

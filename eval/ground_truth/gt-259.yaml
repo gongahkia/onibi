@@ -1,0 +1,34 @@
+id: gt-259
+source_project: dynaconf
+commit_hash: 8547454cdf46dcc032a2fb46dad57fdb0235ec22
+cwe_id: CWE-1336
+cwe_name: Improper Neutralization of Special Elements Used in a Template Engine
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe1336-CVE-2026-33154-dynaconf-jinja-vuln.py
+line_numbers:
+- 5
+taint_source: raw configuration value using the @jinja resolver
+taint_sink: Template(raw).render(env)
+taint_path:
+- an attacker controls a configuration string that is marked for Jinja evaluation
+- resolve_value() compiles that string into a live template
+- Template.render() evaluates attacker-controlled expressions on the server
+complexity: simple
+exploitable: true
+reference_exploit: Supply a Jinja expression such as {{ cycler.__init__.__globals__.os.popen("id").read()
+  }} in a configuration value.
+reference_fix_commit: 2fbb45ee36b8c0caa5b924fe19f3c1a5e8603fa7
+notes: CVE-2026-33154 / GHSA-pxrr-hq57-q35p. Dynaconf before 3.2.13 evaluated @jinja
+  values without a sandbox.
+cve_id: CVE-2026-33154
+ghsa_id: GHSA-pxrr-hq57-q35p
+fix_commit: 2fbb45ee36b8c0caa5b924fe19f3c1a5e8603fa7
+vulnerable_commit: 8547454cdf46dcc032a2fb46dad57fdb0235ec22
+discovery_method: cve_mining
+language: python
+framework: python
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2026-33154
+- https://github.com/advisories/GHSA-pxrr-hq57-q35p
+- https://github.com/dynaconf/dynaconf/commit/2fbb45ee36b8c0caa5b924fe19f3c1a5e8603fa7

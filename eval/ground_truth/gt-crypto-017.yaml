@@ -1,0 +1,19 @@
+id: gt-crypto-017
+source_project: piranesi-crypto-transport-fixtures
+commit_hash: '0000000000000000000000000000000000000000'
+cwe_id: CWE-319
+cwe_name: Cleartext transmission of sensitive information
+label: true_positive
+affected_files:
+- eval/synthetic/crypto_transport/cwe319_js_fetch_http.ts
+line_numbers:
+- 1
+taint_source: http_literal
+taint_sink: fetch(http://api.example.com/users)
+taint_path:
+- fetch("http://api.example.com/users") (eval/synthetic/crypto_transport/cwe319_js_fetch_http.ts:1)
+complexity: simple
+exploitable: true
+reference_exploit: null
+reference_fix_commit: null
+notes: CWE-319 true positive fixture for crypto/transport detection.

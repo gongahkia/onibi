@@ -1,0 +1,22 @@
+id: gt-172
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-917
+cwe_name: Expression Language Injection
+label: true_positive
+affected_files:
+- eval/synthetic/eli-mvel-eval.java
+line_numbers:
+- 5
+taint_source: request.getParameter("expr")
+taint_sink: MVEL.eval()
+taint_path:
+- request.getParameter("expr") supplies MVEL source
+- MVEL.eval(request.getParameter("expr")) evaluates attacker-controlled expression
+  text
+complexity: simple
+exploitable: true
+reference_exploit: Trigger MVEL.eval() with attacker-controlled input described in
+  request.getParameter("expr").
+reference_fix_commit: null
+notes: MVEL evaluates attacker-controlled expression text.

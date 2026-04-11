@@ -1,0 +1,25 @@
+id: gt-491
+source_project: synthetic-phase39
+commit_hash: synthetic-no-commit
+cwe_id: CWE-915
+cwe_name: Mass Assignment
+label: true_positive
+affected_files:
+- eval/fixtures/php/raw/extract_post.php
+line_numbers:
+- 2
+taint_source: $_POST
+taint_sink: extract()
+taint_path:
+- $_POST is attacker-controlled form data.
+- extract() converts request keys into local variables in the current scope.
+- The attacker can set privileged variables such as $is_admin.
+complexity: simple
+exploitable: true
+reference_exploit: Submit is_admin=1 in the POST body to populate the local privilege flag.
+reference_fix_commit: null
+notes: extract($_POST) creates mass-assignment-like local variable corruption.
+discovery_method: synthetic
+language: php
+framework: php
+taint_step_count: 3

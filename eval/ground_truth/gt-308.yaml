@@ -1,0 +1,27 @@
+id: gt-308
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/fixtures/python/flask/gt-308/app.py
+line_numbers:
+- 9
+taint_source: request.form["email"]
+taint_sink: cursor.execute()
+taint_path:
+- request.form["email"] loads attacker input from the POST body
+- lookup() strips the string but does not parameterize it
+- run_lookup() embeds email into the SQL query text
+- cursor.execute() evaluates the tainted query
+complexity: inter
+exploitable: true
+reference_exploit: POST email=x' OR '1'='1 causes the customer lookup to broaden.
+reference_fix_commit: null
+notes: Flask SQL injection through a helper function that forwards request.form into
+  cursor.execute.
+discovery_method: synthetic
+language: python
+framework: flask
+taint_step_count: 4

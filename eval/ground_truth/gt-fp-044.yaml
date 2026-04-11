@@ -1,0 +1,21 @@
+id: gt-fp-044
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-1336
+cwe_name: Server-Side Template Injection
+label: false_positive
+affected_files:
+- eval/synthetic/ssti-jinja2-sandbox.py
+line_numbers:
+- 5
+taint_source: request.form["tpl"]
+taint_sink: env.from_string()
+taint_path:
+- request.form["tpl"] reaches a sandboxed template environment
+- SandboxedEnvironment().from_string(request.form["tpl"]) restricts available template
+  capabilities
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: The template source is evaluated inside Jinja2 sandbox restrictions.

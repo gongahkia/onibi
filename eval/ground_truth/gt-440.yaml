@@ -1,0 +1,27 @@
+id: gt-440
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-362
+cwe_name: Concurrent Execution using Shared Resource with Improper Synchronization
+  ('Race Condition')
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-440.ts
+line_numbers:
+- 13
+taint_source: req.body.sku
+taint_sink: db.write()
+taint_path:
+- req.body.sku selects the attacker-targeted inventory record
+- reserve() reads the current stock count without locking or an atomic update
+- concurrent requests can both observe stock > 0 before either write commits
+- db.write(sku, stock - 1) applies a stale decrement and oversells inventory
+complexity: ctx
+exploitable: true
+reference_exploit: Send two concurrent reserve requests for the same last item.
+reference_fix_commit: null
+notes: TypeScript race condition on read-then-write inventory reservation.
+discovery_method: synthetic
+language: typescript
+framework: node
+taint_step_count: 4

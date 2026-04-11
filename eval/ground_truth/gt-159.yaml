@@ -1,0 +1,21 @@
+id: gt-159
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-1333
+cwe_name: Regular Expression Denial of Service
+label: true_positive
+affected_files:
+- eval/synthetic/redos-regexp-injection.ts
+line_numbers:
+- 2
+taint_source: req.query.q
+taint_sink: new RegExp()
+taint_path:
+- req.query.q controls the regular expression source
+- new RegExp(req.query.q) constructs an attacker-controlled backtracking regex
+complexity: simple
+exploitable: true
+reference_exploit: Trigger new RegExp() with attacker-controlled input described in
+  req.query.q.
+reference_fix_commit: null
+notes: User input controls a JavaScript RegExp constructor.

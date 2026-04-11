@@ -1,0 +1,27 @@
+id: gt-403
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-917
+cwe_name: Expression Language Injection
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/spring/gt-403.java
+line_numbers:
+- 14
+taint_source: '@RequestParam String rule'
+taint_sink: SpelExpressionParser.parseExpression().getValue(context, Boolean.class)
+taint_path:
+- '@RequestParam exposes attacker-controlled authorization rules to the controller'
+- the controller builds an evaluation context that exposes application methods
+- parseExpression(rule) and getValue(ctx) execute attacker-controlled SpEL with that
+  context
+complexity: ctx
+exploitable: true
+reference_exploit: GET /policy?rule=T(java.lang.Runtime).getRuntime().exec('id') ==
+  null
+reference_fix_commit: null
+notes: Context-sensitive SpEL injection against a populated evaluation context.
+discovery_method: synthetic
+language: java
+framework: spring-boot
+taint_step_count: 3

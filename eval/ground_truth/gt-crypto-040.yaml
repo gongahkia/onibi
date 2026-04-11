@@ -1,0 +1,19 @@
+id: gt-crypto-040
+source_project: piranesi-crypto-transport-fixtures
+commit_hash: '0000000000000000000000000000000000000000'
+cwe_id: CWE-338
+cwe_name: Weak pseudo-random number generator
+label: true_positive
+affected_files:
+- eval/synthetic/crypto_transport/cwe338_py_password.py
+line_numbers:
+- 2
+taint_source: random.randint()
+taint_sink: password = random.randint(...)
+taint_path:
+- password = random.randint (eval/synthetic/crypto_transport/cwe338_py_password.py:2)
+complexity: simple
+exploitable: true
+reference_exploit: null
+reference_fix_commit: null
+notes: CWE-338 true positive fixture for crypto/transport detection.

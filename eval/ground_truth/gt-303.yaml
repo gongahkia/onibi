@@ -1,0 +1,26 @@
+id: gt-303
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-79
+cwe_name: Cross-Site Scripting
+label: true_positive
+affected_files:
+- eval/synthetic/phase29/django/gt-303/presenter.py
+- eval/synthetic/phase29/django/gt-303/views.py
+line_numbers:
+- 5
+taint_source: request.GET["notice"]
+taint_sink: Markup()
+taint_path:
+- request.GET["notice"] is forwarded from the view into a presenter helper
+- render_notice() interpolates the query value into an HTML fragment
+- Markup(markup) marks the attacker-controlled HTML as safe
+complexity: cross_module
+exploitable: true
+reference_exploit: Pass notice=<svg/onload=alert(1)> in the query string.
+reference_fix_commit: null
+notes: Django reflected XSS through a presenter helper and markupsafe.Markup.
+discovery_method: synthetic
+language: python
+framework: django
+taint_step_count: 3

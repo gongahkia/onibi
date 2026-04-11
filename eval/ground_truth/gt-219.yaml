@@ -1,0 +1,31 @@
+id: gt-219
+source_project: serve
+commit_hash: ce95709c74873040308c88771821bfdaa569be52
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe22-CVE-2018-3712-serve-working-directory-vuln.ts
+line_numbers:
+- 15
+taint_source: req.query.path
+taint_sink: fs.readFile()
+taint_path:
+- req.query.path enters sendFile()
+- resolveRelated() decodes the joined path without checking scope
+- sendFile() forwards the decoded path to the file-reading sink
+- fs.readFile(related) can read files outside the working directory
+complexity: ctx
+exploitable: true
+reference_exploit: Use a traversal like `%2e%2e/%2e%2e/etc/passwd` to decode a path
+  outside the serving directory.
+reference_fix_commit: 6adad6881c61991da61ebc857857c53409544575
+notes: CVE-2018-3712 (GHSA-q2qh-cgc2-qhr3). serve added a path-inside check after
+  decoding the candidate path back into a filesystem location.
+cve_id: CVE-2018-3712
+ghsa_id: GHSA-q2qh-cgc2-qhr3
+fix_commit: 6adad6881c61991da61ebc857857c53409544575
+vulnerable_commit: ce95709c74873040308c88771821bfdaa569be52
+discovery_method: cve_mining
+language: typescript
+taint_step_count: 3

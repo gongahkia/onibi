@@ -1,0 +1,19 @@
+id: gt-crypto-029
+source_project: piranesi-crypto-transport-fixtures
+commit_hash: '0000000000000000000000000000000000000000'
+cwe_id: CWE-326
+cwe_name: Inadequate encryption strength
+label: false_positive
+affected_files:
+- eval/synthetic/crypto_transport/cwe326_js_rsa_2048_safe.ts
+line_numbers:
+- 2
+taint_source: keygen
+taint_sink: generateKeyPairSync(rsa, 2048)
+taint_path:
+- 'modulusLength: 2048 (eval/synthetic/crypto_transport/cwe326_js_rsa_2048_safe.ts:2)'
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: RSA 2048 meets the minimum requirement.

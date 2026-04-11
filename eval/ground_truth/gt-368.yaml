@@ -1,0 +1,25 @@
+id: gt-368
+source_project: synthetic-phase30-go
+commit_hash: synthetic-no-commit
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery
+label: true_positive
+affected_files:
+- eval/fixtures/go/gin/gt-368/main.go
+line_numbers:
+- 10
+taint_source: c.Query("url")
+taint_sink: http.Get()
+taint_path:
+- c.Query("url") provides the outbound request target.
+- fetchURL() forwards the value into http.Get(url).
+- The helper issues a server-side request to the attacker-controlled URL.
+complexity: inter
+exploitable: true
+reference_exploit: GET /mirror?url=http://169.254.169.254/latest/user-data
+reference_fix_commit: null
+notes: Gin forwards a URL parameter through a helper into http.Get.
+discovery_method: synthetic
+language: go
+framework: gin
+taint_step_count: 3

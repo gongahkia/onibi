@@ -1,0 +1,29 @@
+id: gt-210
+source_project: systeminformation
+commit_hash: f7af0a67b78e7894335a6cad510566a25e06ae41
+cwe_id: CWE-78
+cwe_name: OS Command Injection
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe78-CVE-2024-56334-systeminformation-ssid-windows-fixed.ts
+line_numbers:
+- 16
+taint_source: req.body.iface
+taint_sink: shell.exec()
+taint_path:
+- req.body.iface enters read8021x()
+- getWindowsIEEE8021x() sanitizes the SSID first
+- shell.exec(command) receives a constrained profile name
+complexity: inter
+exploitable: false
+reference_exploit: null
+reference_fix_commit: f7af0a67b78e7894335a6cad510566a25e06ae41
+notes: Fixed variant for CVE-2024-56334 (GHSA-cvv5-9h9w-qp2m). The Windows IEEE 802.1X
+  helper reused the discovered SSID inside netsh profile lookups without sanitization.
+cve_id: CVE-2024-56334
+ghsa_id: GHSA-cvv5-9h9w-qp2m
+fix_commit: f7af0a67b78e7894335a6cad510566a25e06ae41
+vulnerable_commit: 51c7698b91789e00d2308c9f95249ca3bb27a176
+discovery_method: cve_mining
+language: typescript
+taint_step_count: 2

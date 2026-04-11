@@ -1,0 +1,25 @@
+id: gt-427
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-78
+cwe_name: OS Command Injection
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/java/gt-427.java
+line_numbers:
+- 6
+taint_source: args[0]
+taint_sink: Runtime.getRuntime().exec()
+taint_path:
+- args[0] carries attacker-controlled command text into main()
+- the program forwards command directly into Runtime.exec()
+- Runtime.exec(command) launches the attacker-controlled OS command
+complexity: simple
+exploitable: true
+reference_exploit: Run with args[0] set to sh -c id
+reference_fix_commit: null
+notes: General Java command injection via Runtime.exec() and CLI arguments.
+discovery_method: synthetic
+language: java
+framework: java
+taint_step_count: 3

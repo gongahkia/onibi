@@ -1,0 +1,25 @@
+id: gt-504
+source_project: synthetic-phase39
+commit_hash: synthetic-no-commit
+cwe_id: CWE-79
+cwe_name: Cross-Site Scripting
+label: true_positive
+affected_files:
+- eval/fixtures/php/wordpress/plugin_xss.php
+line_numbers:
+- 2
+taint_source: $_GET['name']
+taint_sink: echo
+taint_path:
+- $_GET['name'] is attacker-controlled input.
+- The plugin forwards the value directly to output.
+- echo renders attacker-controlled HTML into the response.
+complexity: simple
+exploitable: true
+reference_exploit: GET /?name=<script>alert(1)</script> triggers reflected XSS in the plugin output.
+reference_fix_commit: null
+notes: WordPress plugin reflected XSS through raw echo.
+discovery_method: synthetic
+language: php
+framework: wordpress
+taint_step_count: 3

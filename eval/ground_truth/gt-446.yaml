@@ -1,0 +1,25 @@
+id: gt-446
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-807
+cwe_name: Reliance on Untrusted Inputs in a Security Decision
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-446.java
+line_numbers:
+- 13
+taint_source: request.getParameter("paid")
+taint_sink: Gt446Orders.markExpedited()
+taint_path:
+- request.getParameter("paid") carries an attacker-controlled payment decision flag
+- the servlet trusts paid instead of consulting server-side payment records
+- markExpedited(orderId) grants premium fulfillment based on attacker-controlled input
+complexity: ctx
+exploitable: true
+reference_exploit: POST paid=true for an order that never purchased expedited shipping.
+reference_fix_commit: null
+notes: Java business logic flaw where expedited shipping depends on a client flag.
+discovery_method: synthetic
+language: java
+framework: servlet
+taint_step_count: 3

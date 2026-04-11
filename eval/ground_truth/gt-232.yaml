@@ -1,0 +1,34 @@
+id: gt-232
+source_project: gorilla/csrf
+commit_hash: 9dd6af1f6d30fc79fb0d972394deebdabad6b5eb
+cwe_id: CWE-352
+cwe_name: Cross-Site Request Forgery
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe352-CVE-2025-24358-gorilla-csrf-origin-safe.go
+line_numbers:
+- 7
+taint_source: cross-site POST request carrying a malicious Origin header
+taint_sink: checkSameOrigin() validates Origin when r.TLS indicates HTTPS
+taint_path:
+- the forged request still reaches middleware with the victim cookies attached
+- checkSameOrigin() now keys off r.TLS for server-side HTTPS detection
+- the request is rejected unless Origin matches the allowlist
+complexity: ctx
+exploitable: false
+reference_exploit: Repeat the cross-site POST; the middleware rejects the forged Origin
+  on HTTPS requests.
+reference_fix_commit: 9dd6af1f6d30fc79fb0d972394deebdabad6b5eb
+notes: Fixed variant for CVE-2025-24358. The patch validates Origin/Referer for real
+  HTTPS server requests instead of trusting URL.Scheme.
+cve_id: CVE-2025-24358
+ghsa_id: GHSA-rq77-p4h8-4crw
+fix_commit: 9dd6af1f6d30fc79fb0d972394deebdabad6b5eb
+vulnerable_commit: a009743572494ccbc9d159005bdc58b86a44ddba
+discovery_method: cve_mining
+language: go
+framework: gorilla
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2025-24358
+- https://github.com/advisories/GHSA-rq77-p4h8-4crw
+- https://github.com/gorilla/csrf/commit/9dd6af1f6d30fc79fb0d972394deebdabad6b5eb

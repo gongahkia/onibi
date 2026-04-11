@@ -1,0 +1,25 @@
+id: gt-431
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-78
+cwe_name: OS Command Injection
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/java/gt-431.java
+line_numbers:
+- 8
+taint_source: BufferedReader.readLine()
+taint_sink: ProcessBuilder.start()
+taint_path:
+- readLine() reads attacker-controlled command text from stdin
+- the program feeds the value into a bash -lc ProcessBuilder
+- ProcessBuilder.start() executes the attacker-controlled shell command
+complexity: simple
+exploitable: true
+reference_exploit: Provide whoami on stdin to run an attacker-selected command
+reference_fix_commit: null
+notes: General Java command injection via ProcessBuilder and stdin.
+discovery_method: synthetic
+language: java
+framework: java
+taint_step_count: 3

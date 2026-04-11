@@ -1,0 +1,30 @@
+id: gt-277
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/synthetic/phase29/express/gt-277/app.ts
+- eval/synthetic/phase29/express/gt-277/middleware.ts
+- eval/synthetic/phase29/express/gt-277/service.ts
+- eval/synthetic/phase29/express/gt-277/repo.ts
+line_numbers:
+- 9
+taint_source: req.body.name
+taint_sink: db.query()
+taint_path:
+- req.body.name is copied into res.locals.lookup by the Express middleware
+- buildLookup() normalizes the middleware value in the service layer
+- queryUsers() interpolates the normalized value into a raw SQL string
+- db.query(sql) executes the attacker-controlled query text
+complexity: cross_module
+exploitable: true
+reference_exploit: Submit a body name such as %' OR 1=1 -- so the repository builds
+  attacker-controlled SQL.
+reference_fix_commit: null
+notes: Express middleware -> service -> repository SQLi chain with four taint steps.
+discovery_method: synthetic
+language: typescript
+framework: express
+taint_step_count: 4

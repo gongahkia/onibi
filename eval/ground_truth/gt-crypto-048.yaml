@@ -1,0 +1,19 @@
+id: gt-crypto-048
+source_project: piranesi-crypto-transport-fixtures
+commit_hash: '0000000000000000000000000000000000000000'
+cwe_id: CWE-347
+cwe_name: Improper verification of cryptographic signature
+label: true_positive
+affected_files:
+- eval/synthetic/crypto_transport/cwe347_java_alg_none.java
+line_numbers:
+- 5
+taint_source: jwt_algorithm
+taint_sink: Algorithm.none()
+taint_path:
+- Algorithm.none() (eval/synthetic/crypto_transport/cwe347_java_alg_none.java:5)
+complexity: simple
+exploitable: true
+reference_exploit: null
+reference_fix_commit: null
+notes: CWE-347 true positive fixture for crypto/transport detection.

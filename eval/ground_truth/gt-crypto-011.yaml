@@ -1,0 +1,19 @@
+id: gt-crypto-011
+source_project: piranesi-crypto-transport-fixtures
+commit_hash: '0000000000000000000000000000000000000000'
+cwe_id: CWE-328
+cwe_name: Weak cryptographic hash
+label: true_positive
+affected_files:
+- eval/synthetic/crypto_transport/cwe328_py_md5_token.py
+line_numbers:
+- 3
+taint_source: token
+taint_sink: hashlib.md5
+taint_path:
+- hashlib.md5(user.encode()) (eval/synthetic/crypto_transport/cwe328_py_md5_token.py:3)
+complexity: simple
+exploitable: true
+reference_exploit: null
+reference_fix_commit: null
+notes: CWE-328 true positive fixture for crypto/transport detection.

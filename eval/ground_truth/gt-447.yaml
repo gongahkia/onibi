@@ -1,0 +1,27 @@
+id: gt-447
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-384
+cwe_name: Session Fixation
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-447.ts
+line_numbers:
+- 7
+taint_source: attacker-supplied pre-auth session identifier
+taint_sink: req.session.user = user
+taint_path:
+- the attacker sets or predicts the victim session identifier before login
+- the victim authenticates on a session that is not regenerated
+- login() binds the authenticated user and role onto the pre-existing session identifier
+- the attacker reuses the fixed session identifier to access the authenticated account
+complexity: multi_step
+exploitable: true
+reference_exploit: Pre-seed the victim with a known session cookie, then wait for
+  login and reuse the same cookie value.
+reference_fix_commit: null
+notes: Three-step session fixation chain ending in account takeover.
+discovery_method: synthetic
+language: typescript
+framework: express
+taint_step_count: 4

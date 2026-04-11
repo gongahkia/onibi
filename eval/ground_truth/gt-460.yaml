@@ -1,0 +1,28 @@
+id: gt-460
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-1321
+cwe_name: Improperly Controlled Modification of Object Prototype Attributes ('Prototype
+  Pollution')
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-460.ts
+line_numbers:
+- 5
+taint_source: req.body.payload
+taint_sink: settings[key] = parsed[key]
+taint_path:
+- req.body.payload carries attacker-controlled JSON text
+- JSON.parse() materializes attacker-controlled object keys such as __proto__
+- the for-in assignment copies attacker-controlled keys onto a normal object and pollutes
+  the prototype chain
+complexity: simple
+exploitable: true
+reference_exploit: POST payload={"__proto__":{"polluted":true}} to poison later object
+  lookups.
+reference_fix_commit: null
+notes: Prototype chain pollution through JSON import and unchecked property copy.
+discovery_method: synthetic
+language: typescript
+framework: node
+taint_step_count: 3

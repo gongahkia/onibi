@@ -1,0 +1,25 @@
+id: gt-312
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-79
+cwe_name: Cross-Site Scripting
+label: true_positive
+affected_files:
+- eval/fixtures/python/flask/gt-312/app.py
+line_numbers:
+- 12
+taint_source: request.headers.get("X-Banner")
+taint_sink: render_template_string()
+taint_path:
+- request.headers.get("X-Banner") accepts attacker-controlled header content
+- wrap_notice() turns the header value into HTML
+- render_template_string() emits the unescaped banner markup
+complexity: inter
+exploitable: true
+reference_exploit: 'Send X-Banner: <svg/onload=alert(1)> to trigger reflected XSS.'
+reference_fix_commit: null
+notes: Flask reflected XSS driven by a tainted header rendered with render_template_string.
+discovery_method: synthetic
+language: python
+framework: flask
+taint_step_count: 3

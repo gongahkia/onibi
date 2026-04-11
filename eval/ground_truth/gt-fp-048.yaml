@@ -1,0 +1,20 @@
+id: gt-fp-048
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-113
+cwe_name: HTTP Header Injection
+label: false_positive
+affected_files:
+- eval/synthetic/header-inj-crlf-stripped.ts
+line_numbers:
+- 3
+taint_source: req.query.val
+taint_sink: res.setHeader()
+taint_path:
+- req.query.val is stripped of CRLF before header write
+- res.setHeader("X-Custom", safe) receives header-safe content
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: CRLF characters are removed before the header is set.

@@ -1,0 +1,26 @@
+id: gt-313
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-1336
+cwe_name: Server-Side Template Injection
+label: true_positive
+affected_files:
+- eval/fixtures/python/flask/gt-313/app.py
+line_numbers:
+- 9
+taint_source: request.args.get("template")
+taint_sink: Template().render()
+taint_path:
+- request.args.get("template") reads an attacker-supplied template body
+- render() builds a Jinja2 Template from the untrusted string
+- Template().render() evaluates attacker-controlled template syntax
+complexity: simple
+exploitable: true
+reference_exploit: GET /render?template={{7*7}} confirms template execution and can
+  be extended into SSTI gadget chains.
+reference_fix_commit: null
+notes: Flask SSTI through direct construction of a Jinja2 Template from request data.
+discovery_method: synthetic
+language: python
+framework: flask
+taint_step_count: 3

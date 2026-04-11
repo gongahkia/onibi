@@ -1,0 +1,26 @@
+id: gt-433
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-502
+cwe_name: Deserialization of Untrusted Data
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/java/gt-433.java
+line_numbers:
+- 7
+taint_source: System.in
+taint_sink: XMLDecoder.readObject()
+taint_path:
+- the program reads attacker-controlled XML from standard input
+- XMLDecoder is initialized on the untrusted stream without a type allowlist
+- readObject() instantiates attacker-controlled object graphs
+complexity: simple
+exploitable: true
+reference_exploit: Feed an XMLDecoder gadget payload on stdin to trigger arbitrary
+  object construction
+reference_fix_commit: null
+notes: General Java unsafe XMLDecoder deserialization from standard input.
+discovery_method: synthetic
+language: java
+framework: java
+taint_step_count: 3

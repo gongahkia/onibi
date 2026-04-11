@@ -1,0 +1,29 @@
+id: gt-281
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery
+label: true_positive
+affected_files:
+- eval/synthetic/phase29/express/gt-281/app.ts
+- eval/synthetic/phase29/express/gt-281/normalizer.ts
+- eval/synthetic/phase29/express/gt-281/proxy.ts
+line_numbers:
+- 4
+taint_source: req.query.url
+taint_sink: fetch()
+taint_path:
+- req.query.url is forwarded into normalizeEndpoint() from the route entry point
+- normalizeEndpoint() turns the raw query value into a string target
+- requestRemote() forwards the normalized value into the HTTP client helper
+- fetch(endpoint) performs an attacker-controlled outbound request
+complexity: cross_module
+exploitable: true
+reference_exploit: Pass http://169.254.169.254/latest/meta-data/ as the url query
+  value.
+reference_fix_commit: null
+notes: Express SSRF across route, normalizer, and HTTP client helper.
+discovery_method: synthetic
+language: typescript
+framework: express
+taint_step_count: 4

@@ -1,0 +1,35 @@
+id: gt-228
+source_project: '@fastify/csrf-protection'
+commit_hash: be3e5761f37aa05c7c1ac8ed44499c51ecec8058
+cwe_id: CWE-352
+cwe_name: Cross-Site Request Forgery
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe352-CVE-2023-27495-fastify-csrf-bypass-safe.js
+line_numbers:
+- 7
+taint_source: attacker-fixated _csrf cookie value and predictable or missing user
+  identity
+taint_sink: crypto.createHmac(..., hmacKey) binds the token to a server-only secret
+taint_path:
+- the request still carries an attacker-controlled _csrf cookie
+- generateToken() mixes the cookie and user identity with a server-held hmacKey
+- a forged token no longer matches the server-computed value
+complexity: ctx
+exploitable: false
+reference_exploit: Repeat the fixation attack; the attacker cannot compute the HMAC-backed
+  token without the server secret.
+reference_fix_commit: be3e5761f37aa05c7c1ac8ed44499c51ecec8058
+notes: Fixed variant for CVE-2023-27495. The patch adds an hmacKey so the client cannot
+  mint valid CSRF tokens from cookie state alone.
+cve_id: CVE-2023-27495
+ghsa_id: GHSA-qrgf-9gpc-vrxw
+fix_commit: be3e5761f37aa05c7c1ac8ed44499c51ecec8058
+vulnerable_commit: f60148c948e974c9459599d15c25c9e942db964b
+discovery_method: cve_mining
+language: javascript
+framework: fastify
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2023-27495
+- https://github.com/advisories/GHSA-qrgf-9gpc-vrxw
+- https://github.com/fastify/csrf-protection/commit/be3e5761f37aa05c7c1ac8ed44499c51ecec8058

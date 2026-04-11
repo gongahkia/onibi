@@ -1,0 +1,25 @@
+id: gt-494
+source_project: synthetic-phase39
+commit_hash: synthetic-no-commit
+cwe_id: CWE-1336
+cwe_name: Server-Side Template Injection
+label: true_positive
+affected_files:
+- eval/fixtures/php/raw/ssti_twig.php
+line_numbers:
+- 2
+taint_source: $_GET['tpl']
+taint_sink: Twig::createTemplate()
+taint_path:
+- $_GET['tpl'] is attacker-controlled input.
+- Twig compiles the attacker-controlled template string.
+- render() executes the injected template expression on the server.
+complexity: simple
+exploitable: true
+reference_exploit: GET /?tpl={{7*7}} renders attacker-controlled Twig syntax on the server.
+reference_fix_commit: null
+notes: Dynamic template compilation from user input is SSTI.
+discovery_method: synthetic
+language: php
+framework: php
+taint_step_count: 3

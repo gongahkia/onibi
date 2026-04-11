@@ -1,0 +1,25 @@
+id: gt-379
+source_project: synthetic-phase30-go
+commit_hash: synthetic-no-commit
+cwe_id: CWE-306
+cwe_name: Missing Authentication for Critical Function
+label: true_positive
+affected_files:
+- eval/fixtures/go/chi/gt-379/main.go
+line_numbers:
+- 15
+taint_source: unauthenticated POST request to /payments/transfer
+taint_sink: r.Post("/payments/transfer", transferFunds)
+taint_path:
+- An attacker can send a POST directly to /payments/transfer.
+- The route is registered on the base chi router with no auth middleware.
+- transferFunds executes a state-changing operation for an unauthenticated caller.
+complexity: ctx
+exploitable: true
+reference_exploit: Send POST /payments/transfer without authentication.
+reference_fix_commit: null
+notes: Chi exposes a critical transfer route without any authentication guard.
+discovery_method: synthetic
+language: go
+framework: chi
+taint_step_count: 3

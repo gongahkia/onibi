@@ -1,0 +1,30 @@
+id: gt-287
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/synthetic/phase29/nestjs/gt-287/controller.ts
+- eval/synthetic/phase29/nestjs/gt-287/service.ts
+- eval/synthetic/phase29/nestjs/gt-287/repository.ts
+line_numbers:
+- 10
+taint_source: '@Body("name")'
+taint_sink: db.query()
+taint_path:
+- '@Body("name") injects attacker-controlled input into the controller method'
+- UserService.lookup() normalizes the body value before forwarding it
+- UserRepository.findByName() builds raw SQL with the normalized value
+- db.query(sql) executes the attacker-controlled SQL string
+complexity: cross_module
+exploitable: true
+reference_exploit: Post a body name like %' OR 1=1 -- so the repository emits raw
+  SQL.
+reference_fix_commit: null
+notes: NestJS controller -> service -> repository SQLi chain using decorator-based
+  sources.
+discovery_method: synthetic
+language: typescript
+framework: nestjs
+taint_step_count: 4

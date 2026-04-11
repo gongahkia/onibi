@@ -1,0 +1,21 @@
+id: gt-162
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-90
+cwe_name: LDAP Injection
+label: true_positive
+affected_files:
+- eval/synthetic/ldapi-ldapjs-search.ts
+line_numbers:
+- 4
+taint_source: req.body.username
+taint_sink: client.search()
+taint_path:
+- req.body.username is interpolated into an LDAP filter string
+- client.search(..., { filter }) evaluates attacker-controlled LDAP syntax
+complexity: simple
+exploitable: true
+reference_exploit: Trigger client.search() with attacker-controlled input described
+  in req.body.username.
+reference_fix_commit: null
+notes: LDAP filter concatenation in ldapjs search options.

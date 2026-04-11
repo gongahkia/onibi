@@ -1,0 +1,35 @@
+id: gt-230
+source_project: Flask-Security-Too
+commit_hash: 64a7a6680568a10b39e8b8f17bdcf4593a0875ca
+cwe_id: CWE-352
+cwe_name: Cross-Site Request Forgery
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe352-CVE-2021-21241-flask-security-token-get-safe.py
+line_numbers:
+- 9
+taint_source: cross-site request to the login endpoint
+taint_sink: token issuance is restricted to POST requests that already passed CSRF
+  validation
+taint_path:
+- the attacker can still trigger a GET request from another origin
+- login_view() no longer emits auth_token on GET
+- token issuance only happens on POST requests after csrf_ok is true
+complexity: ctx
+exploitable: false
+reference_exploit: Repeat the cross-site GET; the response only returns the login
+  form state and no usable token.
+reference_fix_commit: 64a7a6680568a10b39e8b8f17bdcf4593a0875ca
+notes: Fixed variant for CVE-2021-21241. Token issuance is confined to CSRF-protected
+  POST flows.
+cve_id: CVE-2021-21241
+ghsa_id: GHSA-hh7m-rx4f-4vpv
+fix_commit: 64a7a6680568a10b39e8b8f17bdcf4593a0875ca
+vulnerable_commit: 1f13d368e679ae9cc324f39393eb3dd4c57d5aac
+discovery_method: cve_mining
+language: python
+framework: flask
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2021-21241
+- https://github.com/advisories/GHSA-hh7m-rx4f-4vpv
+- https://github.com/pallets-eco/flask-security/releases/tag/3.4.5

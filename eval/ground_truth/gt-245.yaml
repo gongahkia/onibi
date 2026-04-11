@@ -1,0 +1,34 @@
+id: gt-245
+source_project: OneDev
+commit_hash: 3674eaf4330e37836889669019ce0f19278bdf2b
+cwe_id: CWE-502
+cwe_name: Deserialization of Untrusted Data
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe502-CVE-2021-21249-onedev-yaml-vuln.java
+line_numbers:
+- 8
+taint_source: yamlText supplied by an authenticated user
+taint_sink: yaml.load(yamlText) with SnakeYAML Constructor
+taint_path:
+- the application receives attacker-controlled YAML text
+- BuildSpecService constructs SnakeYAML with the permissive Constructor
+- yaml.load() instantiates attacker-chosen classes during deserialization
+complexity: simple
+exploitable: true
+reference_exploit: Upload YAML containing a gadget such as javax.script.ScriptEngineManager
+  to trigger post-auth RCE during parsing.
+reference_fix_commit: d6fc4212b1ac1e9bbe3ce444e95f9af1e3ab8b66
+notes: CVE-2021-21249 / GHSA-7xhq-m2q9-6hpm. OneDev before 4.0.3 parsed untrusted
+  YAML with the default SnakeYAML constructor.
+cve_id: CVE-2021-21249
+ghsa_id: GHSA-7xhq-m2q9-6hpm
+fix_commit: d6fc4212b1ac1e9bbe3ce444e95f9af1e3ab8b66
+vulnerable_commit: 3674eaf4330e37836889669019ce0f19278bdf2b
+discovery_method: cve_mining
+language: java
+framework: spring
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2021-21249
+- https://github.com/theonedev/onedev/security/advisories/GHSA-7xhq-m2q9-6hpm
+- https://github.com/theonedev/onedev/commit/d6fc4212b1ac1e9bbe3ce444e95f9af1e3ab8b66

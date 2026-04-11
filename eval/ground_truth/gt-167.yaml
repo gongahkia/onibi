@@ -1,0 +1,21 @@
+id: gt-167
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-113
+cwe_name: HTTP Header Injection
+label: true_positive
+affected_files:
+- eval/synthetic/header-inj-redirect-crlf.ts
+line_numbers:
+- 2
+taint_source: req.query.url
+taint_sink: res.redirect()
+taint_path:
+- req.query.url becomes a redirect target
+- res.redirect(req.query.url) allows attacker-controlled CRLF in the Location header
+complexity: simple
+exploitable: true
+reference_exploit: Trigger res.redirect() with attacker-controlled input described
+  in req.query.url.
+reference_fix_commit: null
+notes: Redirect target is attacker-controlled and not stripped of CRLF characters.

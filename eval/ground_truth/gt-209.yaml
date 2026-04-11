@@ -1,0 +1,31 @@
+id: gt-209
+source_project: systeminformation
+commit_hash: 51c7698b91789e00d2308c9f95249ca3bb27a176
+cwe_id: CWE-78
+cwe_name: OS Command Injection
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe78-CVE-2024-56334-systeminformation-ssid-windows-vuln.ts
+line_numbers:
+- 12
+taint_source: req.body.iface
+taint_sink: shell.exec()
+taint_path:
+- req.body.iface enters read8021x()
+- getWindowsWirelessIfaceSSID() returns an attacker-controlled SSID
+- getWindowsIEEE8021x() splices the SSID into a netsh command
+- shell.exec(command) executes the attacker-controlled profile name
+complexity: inter
+exploitable: true
+reference_exploit: Use a wireless profile name like `" & calc.exe & "` to inject a
+  second Windows shell command.
+reference_fix_commit: f7af0a67b78e7894335a6cad510566a25e06ae41
+notes: CVE-2024-56334 (GHSA-cvv5-9h9w-qp2m). The Windows IEEE 802.1X helper reused
+  the discovered SSID inside netsh profile lookups without sanitization.
+cve_id: CVE-2024-56334
+ghsa_id: GHSA-cvv5-9h9w-qp2m
+fix_commit: f7af0a67b78e7894335a6cad510566a25e06ae41
+vulnerable_commit: 51c7698b91789e00d2308c9f95249ca3bb27a176
+discovery_method: cve_mining
+language: typescript
+taint_step_count: 3

@@ -1,0 +1,25 @@
+id: gt-498
+source_project: synthetic-phase39
+commit_hash: synthetic-no-commit
+cwe_id: CWE-79
+cwe_name: Cross-Site Scripting
+label: true_positive
+affected_files:
+- eval/fixtures/php/laravel/blade_unescaped.blade.php
+line_numbers:
+- 1
+taint_source: $userInput
+taint_sink: Blade raw echo
+taint_path:
+- $userInput is attacker-controlled view data.
+- "{!! !!} disables Blade's default escaping."
+- The template emits raw HTML into the rendered response.
+complexity: simple
+exploitable: true
+reference_exploit: Render the template with userInput=<script>alert(1)</script>.
+reference_fix_commit: null
+notes: Laravel Blade raw echo bypasses output encoding.
+discovery_method: synthetic
+language: php
+framework: laravel
+taint_step_count: 3

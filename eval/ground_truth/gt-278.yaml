@@ -1,0 +1,28 @@
+id: gt-278
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-79
+cwe_name: Cross-Site Scripting
+label: true_positive
+affected_files:
+- eval/synthetic/phase29/express/gt-278/app.ts
+line_numbers:
+- 21
+taint_source: req.body.bio
+taint_sink: res.send()
+taint_path:
+- req.body.bio is trimmed before it is written into the profile store
+- showProfile() loads the stored value back out of the map
+- The retrieved value is embedded into an HTML fragment
+- res.send(markup) renders the stored attacker-controlled HTML
+complexity: multi_step
+exploitable: true
+reference_exploit: Save a bio like <img src=x onerror=alert(1)> and then load the
+  same profile.
+reference_fix_commit: null
+notes: Express stored XSS pattern using an in-memory profile map to model second-order
+  retrieval.
+discovery_method: synthetic
+language: typescript
+framework: express
+taint_step_count: 4

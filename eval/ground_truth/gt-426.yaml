@@ -1,0 +1,25 @@
+id: gt-426
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-90
+cwe_name: LDAP Injection
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/servlet/gt-426.java
+line_numbers:
+- 15
+taint_source: request.getParameter("user")
+taint_sink: DirContext.search()
+taint_path:
+- request.getParameter("user") reads attacker-controlled LDAP filter data
+- the servlet concatenates user directly into an LDAP search filter
+- DirContext.search(...) executes the attacker-controlled LDAP query
+complexity: simple
+exploitable: true
+reference_exploit: GET /ldap?user=*)(uid=*))(|(uid=*
+reference_fix_commit: null
+notes: Servlet LDAP injection with direct request parameter flow to the LDAP sink.
+discovery_method: synthetic
+language: java
+framework: servlet
+taint_step_count: 3

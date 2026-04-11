@@ -1,0 +1,34 @@
+id: gt-262
+source_project: OpenMetadata
+commit_hash: bffe7c45807763f9b682021d4211c478d2a08bb3
+cwe_id: CWE-1336
+cwe_name: Improper Neutralization of Special Elements Used in a Template Engine
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe1336-CVE-2026-22244-openmetadata-freemarker-safe.java
+line_numbers:
+- 10
+taint_source: adminTemplate string configured for outbound email rendering
+taint_sink: Template compilation after ALLOWS_NOTHING_RESOLVER is installed
+taint_path:
+- the admin still controls the template body
+- the configuration disables FreeMarker builtins that resolve arbitrary classes
+- template compilation no longer exposes the SSTI gadget path used by the CVE
+complexity: ctx
+exploitable: false
+reference_exploit: Retry the FreeMarker payload; the hardened class resolver prevents
+  arbitrary Execute-style gadgets.
+reference_fix_commit: bffe7c45807763f9b682021d4211c478d2a08bb3
+notes: Fixed variant for CVE-2026-22244. The patched renderer constrains FreeMarker
+  class resolution before compiling templates.
+cve_id: CVE-2026-22244
+ghsa_id: GHSA-5f29-2333-h9c7
+fix_commit: bffe7c45807763f9b682021d4211c478d2a08bb3
+vulnerable_commit: ffb09cc2ed29fbb8cf18365961f2d194cf8f99a5
+discovery_method: cve_mining
+language: java
+framework: spring
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2026-22244
+- https://github.com/advisories/GHSA-5f29-2333-h9c7
+- https://github.com/open-metadata/OpenMetadata/commit/bffe7c45807763f9b682021d4211c478d2a08bb3

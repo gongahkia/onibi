@@ -1,0 +1,21 @@
+id: gt-169
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-113
+cwe_name: HTTP Header Injection
+label: true_positive
+affected_files:
+- eval/synthetic/header-inj-go-set.go
+line_numbers:
+- 4
+taint_source: r.URL.Query().Get("v")
+taint_sink: w.Header().Set()
+taint_path:
+- r.URL.Query().Get("v") becomes a response header value
+- w.Header().Set("X-Custom", ...) accepts attacker-controlled CRLF data
+complexity: simple
+exploitable: true
+reference_exploit: Trigger w.Header().Set() with attacker-controlled input described
+  in r.URL.Query().Get("v").
+reference_fix_commit: null
+notes: Response header is set directly from user input.

@@ -1,0 +1,25 @@
+id: gt-500
+source_project: synthetic-phase39
+commit_hash: synthetic-no-commit
+cwe_id: CWE-915
+cwe_name: Mass Assignment
+label: true_positive
+affected_files:
+- eval/fixtures/php/laravel/model_unguarded.php
+line_numbers:
+- 5
+taint_source: request body
+taint_sink: $guarded = []
+taint_path:
+- The model accepts mass assignment from request-backed attribute arrays.
+- $guarded = [] disables field protection for every attribute.
+- Sensitive fields can be written during model hydration.
+complexity: simple
+exploitable: true
+reference_exploit: Submit is_admin=1 in a create or update request that hydrates the model.
+reference_fix_commit: null
+notes: Unguarded Eloquent model opens mass assignment on every field.
+discovery_method: synthetic
+language: php
+framework: laravel
+taint_step_count: 3

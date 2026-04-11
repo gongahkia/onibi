@@ -1,0 +1,33 @@
+id: gt-272
+source_project: engine.io-client
+commit_hash: 2c55b278a491bf45313ecc0825cf800e2f7ff5c1
+cwe_id: CWE-295
+cwe_name: Improper Certificate Validation
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe295-CVE-2016-10536-engineio-rejectunauthorized-safe.js
+line_numbers:
+- 3
+taint_source: caller-provided TLS options for the websocket transport
+taint_sink: opts.rejectUnauthorized = true
+taint_path:
+- the transport layer still prepares HTTPS or WSS client options
+- buildTLSOptions() keeps rejectUnauthorized enabled
+- the client rejects untrusted certificates during the handshake
+complexity: simple
+exploitable: false
+reference_exploit: Retry the MITM handshake; the client rejects the forged certificate
+  once verification stays enabled.
+reference_fix_commit: 2c55b278a491bf45313ecc0825cf800e2f7ff5c1
+notes: Fixed variant for CVE-2016-10536. Certificate validation remains enabled on
+  the TLS transport.
+cve_id: CVE-2016-10536
+ghsa_id: null
+fix_commit: 2c55b278a491bf45313ecc0825cf800e2f7ff5c1
+vulnerable_commit: 6045ccf5aa3ad5dbd976acb1e722a9692a5d55fb
+discovery_method: cve_mining
+language: javascript
+framework: null
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2016-10536
+- https://github.com/socketio/engine.io-client/commit/2c55b278a491bf45313ecc0825cf800e2f7ff5c1

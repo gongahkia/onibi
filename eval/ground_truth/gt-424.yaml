@@ -1,0 +1,26 @@
+id: gt-424
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-643
+cwe_name: Improper Neutralization of Data within XPath Expressions
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/servlet/gt-424.java
+line_numbers:
+- 17
+taint_source: request.getParameter("name")
+taint_sink: XPath.evaluate()
+taint_path:
+- request.getParameter("name") reads attacker-controlled XPath data
+- the servlet concatenates name into an XPath expression
+- XPath.evaluate(...) executes the attacker-controlled expression against the XML
+  document
+complexity: simple
+exploitable: true
+reference_exploit: GET /directory?name=' or '1'='1
+reference_fix_commit: null
+notes: Servlet XPath injection with direct request parameter flow.
+discovery_method: synthetic
+language: java
+framework: servlet
+taint_step_count: 3

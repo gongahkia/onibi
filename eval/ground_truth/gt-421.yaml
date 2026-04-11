@@ -1,0 +1,25 @@
+id: gt-421
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery (SSRF)
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/servlet/gt-421.java
+line_numbers:
+- 11
+taint_source: request.getParameter("url")
+taint_sink: URL.openStream()
+taint_path:
+- request.getParameter("url") reads an attacker-controlled destination URL
+- the servlet creates a URL object directly from attacker input
+- openStream() performs a server-side request to the attacker-selected host
+complexity: simple
+exploitable: true
+reference_exploit: GET /fetch?url=http://169.254.169.254/latest/meta-data/
+reference_fix_commit: null
+notes: Servlet SSRF with direct request parameter flow to URL.openStream().
+discovery_method: synthetic
+language: java
+framework: servlet
+taint_step_count: 3

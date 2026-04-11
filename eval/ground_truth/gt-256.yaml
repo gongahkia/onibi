@@ -1,0 +1,34 @@
+id: gt-256
+source_project: django-mfa3
+commit_hash: 32f656e22df120b84bdf010e014bb19bd97971de
+cwe_id: CWE-287
+cwe_name: Improper Authentication
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe287-CVE-2022-24857-django-mfa3-admin-bypass-safe.py
+line_numbers:
+- 6
+taint_source: request to the Django admin login route
+taint_sink: admin_login() delegates to the MFA-enforcing login() flow
+taint_path:
+- the admin login endpoint still accepts the incoming request
+- admin_login() now calls the same MFA-enforcing login() helper as the primary route
+- a second factor is required before an admin session is issued
+complexity: ctx
+exploitable: false
+reference_exploit: Retry the admin-login bypass; the request is forced through MFA
+  before a session is created.
+reference_fix_commit: 32f656e22df120b84bdf010e014bb19bd97971de
+notes: Fixed variant for CVE-2022-24857. The admin login route is tied back into the
+  MFA-protected authentication flow.
+cve_id: CVE-2022-24857
+ghsa_id: GHSA-3r7g-wrpr-j5g4
+fix_commit: 32f656e22df120b84bdf010e014bb19bd97971de
+vulnerable_commit: d8f7f3a754829579e0cc0e4287b0c79edce914fb
+discovery_method: cve_mining
+language: python
+framework: django
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2022-24857
+- https://github.com/advisories/GHSA-3r7g-wrpr-j5g4
+- https://github.com/xi/django-mfa3/commit/32f656e22df120b84bdf010e014bb19bd97971de

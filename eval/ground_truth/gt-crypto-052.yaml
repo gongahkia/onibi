@@ -1,0 +1,19 @@
+id: gt-crypto-052
+source_project: piranesi-crypto-transport-fixtures
+commit_hash: '0000000000000000000000000000000000000000'
+cwe_id: CWE-347
+cwe_name: Improper verification of cryptographic signature
+label: false_positive
+affected_files:
+- eval/synthetic/crypto_transport/cwe347_go_parse_with_check_safe.go
+line_numbers:
+- 7
+taint_source: jwt_token
+taint_sink: jwt.Parse(with signing method check)
+taint_path:
+- token.Method != jwt.SigningMethodHS256 (eval/synthetic/crypto_transport/cwe347_go_parse_with_check_safe.go:7)
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: Signing method validation should suppress CWE-347.

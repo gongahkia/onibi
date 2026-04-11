@@ -1,0 +1,28 @@
+id: gt-461
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-1321
+cwe_name: Improperly Controlled Modification of Object Prototype Attributes ('Prototype
+  Pollution')
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-461.ts
+line_numbers:
+- 12
+taint_source: req.body.updates
+taint_sink: applyUpdates()
+taint_path:
+- req.body.updates carries attacker-controlled property paths and values
+- applyUpdates() iterates the attacker-controlled path segments without filtering
+  prototype-bearing names
+- the final assignment can write attacker data onto __proto__ or constructor.prototype
+complexity: inter
+exploitable: true
+reference_exploit: POST {"updates":[["__proto__.canImpersonate",true]]} to pollute
+  the prototype chain.
+reference_fix_commit: null
+notes: Prototype chain pollution through a batched patch helper.
+discovery_method: synthetic
+language: typescript
+framework: node
+taint_step_count: 3

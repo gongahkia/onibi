@@ -1,0 +1,19 @@
+id: gt-crypto-051
+source_project: piranesi-crypto-transport-fixtures
+commit_hash: '0000000000000000000000000000000000000000'
+cwe_id: CWE-347
+cwe_name: Improper verification of cryptographic signature
+label: false_positive
+affected_files:
+- eval/synthetic/crypto_transport/cwe347_js_verify_with_alg_safe.ts
+line_numbers:
+- 2
+taint_source: jwt_token
+taint_sink: 'jwt.verify(token, secret, { algorithms: ["HS256"] })'
+taint_path:
+- 'algorithms: ["HS256"] (eval/synthetic/crypto_transport/cwe347_js_verify_with_alg_safe.ts:2)'
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: Explicit algorithms allowlist should suppress CWE-347.

@@ -1,0 +1,25 @@
+id: gt-367
+source_project: synthetic-phase30-go
+commit_hash: synthetic-no-commit
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+affected_files:
+- eval/fixtures/go/gin/gt-367/main.go
+line_numbers:
+- 9
+taint_source: c.Param("path")
+taint_sink: c.File()
+taint_path:
+- c.Param("path") reads an attacker-controlled path segment.
+- The handler stores the value in a local variable and forwards it to c.File().
+- c.File(path) serves the attacker-controlled file path without validation.
+complexity: simple
+exploitable: true
+reference_exploit: GET /download/../../etc/passwd
+reference_fix_commit: null
+notes: Gin copies a route parameter into a local variable before serving it.
+discovery_method: synthetic
+language: go
+framework: gin
+taint_step_count: 3

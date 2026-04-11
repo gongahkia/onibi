@@ -1,0 +1,27 @@
+id: gt-406
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-915
+cwe_name: Improperly Controlled Modification of Dynamically-Determined Object Attributes
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/spring/gt-406.java
+line_numbers:
+- 11
+taint_source: '@RequestBody Gt406Patch payload'
+taint_sink: BeanUtils.copyProperties()
+taint_path:
+- '@RequestBody binds every JSON field into the patch DTO'
+- BeanUtils.copyProperties() copies all attacker-controlled bean properties into the
+  domain object
+- the copied role field changes authorization-relevant state without a server-side
+  allowlist
+complexity: simple
+exploitable: true
+reference_exploit: PATCH /users with {"email":"a@b.c","role":"ADMIN"}
+reference_fix_commit: null
+notes: Spring Boot mass assignment through BeanUtils.copyProperties().
+discovery_method: synthetic
+language: java
+framework: spring-boot
+taint_step_count: 3

@@ -1,0 +1,26 @@
+id: gt-399
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/spring/gt-399.java
+line_numbers:
+- 16
+taint_source: '@RequestParam String email'
+taint_sink: JdbcTemplate.queryForList()
+taint_path:
+- '@RequestParam injects the attacker-controlled email into the controller'
+- the controller forwards email to the helper service unchanged except for trim()
+- Gt399QueryBuilder.byEmail() concatenates the normalized value into SQL
+- JdbcTemplate.queryForList(sql) executes the attacker-controlled SQL string
+complexity: inter
+exploitable: true
+reference_exploit: GET /accounts?email=' OR '1'='1
+reference_fix_commit: null
+notes: Interprocedural Spring JdbcTemplate SQL injection through a query helper.
+discovery_method: synthetic
+language: java
+framework: spring-boot
+taint_step_count: 4

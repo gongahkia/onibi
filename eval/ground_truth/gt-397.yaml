@@ -1,0 +1,25 @@
+id: gt-397
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/spring/gt-397.java
+line_numbers:
+- 14
+taint_source: '@RequestParam String id'
+taint_sink: JdbcTemplate.queryForList()
+taint_path:
+- '@RequestParam binds the attacker-controlled id string in the controller'
+- the controller concatenates id into a raw SELECT statement
+- JdbcTemplate.queryForList(sql) executes the attacker-controlled SQL text
+complexity: simple
+exploitable: true
+reference_exploit: GET /users?id=' OR '1'='1
+reference_fix_commit: null
+notes: Spring Boot JdbcTemplate SQL injection via direct string concatenation.
+discovery_method: synthetic
+language: java
+framework: spring-boot
+taint_step_count: 3

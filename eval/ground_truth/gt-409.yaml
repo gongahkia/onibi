@@ -1,0 +1,26 @@
+id: gt-409
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery (SSRF)
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/spring/gt-409.java
+line_numbers:
+- 13
+taint_source: '@RequestParam String url'
+taint_sink: RestTemplate.getForObject()
+taint_path:
+- '@RequestParam binds the attacker-controlled target URL'
+- the controller forwards the URL directly to RestTemplate
+- RestTemplate.getForObject(url, String.class) issues a server-side request to the
+  attacker-selected host
+complexity: simple
+exploitable: true
+reference_exploit: GET /fetch?url=http://169.254.169.254/latest/meta-data/
+reference_fix_commit: null
+notes: Direct Spring Boot SSRF through RestTemplate.getForObject().
+discovery_method: synthetic
+language: java
+framework: spring-boot
+taint_step_count: 3

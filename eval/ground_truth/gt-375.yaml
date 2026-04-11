@@ -1,0 +1,24 @@
+id: gt-375
+source_project: synthetic-phase30-go
+commit_hash: synthetic-no-commit
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery
+label: true_positive
+affected_files:
+- eval/fixtures/go/echo/gt-375/main.go
+line_numbers:
+- 12
+taint_source: c.QueryParam("url")
+taint_sink: http.Get()
+taint_path:
+- c.QueryParam("url") reads an attacker-controlled URL.
+- http.Get(...) sends a server-side request to that URL.
+complexity: simple
+exploitable: true
+reference_exploit: GET /fetch?url=http://169.254.169.254/latest/meta-data/
+reference_fix_commit: null
+notes: Echo fetch endpoint proxies arbitrary URLs with http.Get.
+discovery_method: synthetic
+language: go
+framework: echo
+taint_step_count: 2

@@ -1,0 +1,27 @@
+id: gt-334
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-215
+cwe_name: Insertion of Sensitive Information Into Debugging Code
+label: true_positive
+affected_files:
+- eval/fixtures/python/django/gt-334/settings.py
+line_numbers:
+- 2
+taint_source: production request that triggers an unhandled exception
+taint_sink: DEBUG = True
+taint_path:
+- the deployed settings module leaves DEBUG enabled
+- an attacker triggers any unhandled exception in production
+- Django returns verbose debug output containing stack traces and local state
+complexity: ctx
+exploitable: true
+reference_exploit: Request a missing object or malformed route that raises an exception
+  and inspect the debug page.
+reference_fix_commit: null
+notes: Django production settings expose the interactive debug page and sensitive
+  state.
+discovery_method: synthetic
+language: python
+framework: django
+taint_step_count: 3

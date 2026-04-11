@@ -1,0 +1,28 @@
+id: gt-295
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: false_positive
+affected_files:
+- eval/synthetic/phase29/nestjs/gt-295/controller.ts
+- eval/synthetic/phase29/nestjs/gt-295/service.ts
+- eval/synthetic/phase29/nestjs/gt-295/repository.ts
+line_numbers:
+- 9
+taint_source: '@Body("name")'
+taint_sink: db.query()
+taint_path:
+- '@Body("name") still crosses controller and service layers'
+- UserRepository.findByName() keeps the SQL text static and binds the value separately
+- db.query(sql, [name]) does not expose the SQL structure to attacker input
+complexity: cross_module
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: NestJS SQL-safe repository pattern using parameter binding across controller
+  and repository boundaries.
+discovery_method: synthetic
+language: typescript
+framework: nestjs
+taint_step_count: 3

@@ -1,0 +1,21 @@
+id: gt-154
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-1336
+cwe_name: Server-Side Template Injection
+label: true_positive
+affected_files:
+- eval/synthetic/ssti-jinja2-template.py
+line_numbers:
+- 5
+taint_source: request.form["tpl"]
+taint_sink: Template()
+taint_path:
+- request.form["tpl"] becomes Jinja2 template source
+- Template(request.form["tpl"]).render() evaluates attacker-controlled template text
+complexity: simple
+exploitable: true
+reference_exploit: Trigger Template() with attacker-controlled input described in
+  request.form["tpl"].
+reference_fix_commit: null
+notes: Jinja2 Template constructor receives attacker-controlled source.

@@ -1,0 +1,34 @@
+id: gt-239
+source_project: crypto-js
+commit_hash: d1f4f4daec4f053be3eea4f6233d1d05ccec22fa
+cwe_id: CWE-327
+cwe_name: Use of a Broken or Risky Cryptographic Algorithm
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe327-CVE-2023-46233-cryptojs-pbkdf2-vuln.js
+line_numbers:
+- 12
+taint_source: user password material sent to PBKDF2
+taint_sink: CryptoJS.PBKDF2(password, salt) with insecure defaults
+taint_path:
+- password input is handed to PBKDF2 without an explicit configuration object
+- crypto-js falls back to SHA1 and a single iteration
+- the resulting derived key is too weak for password or token protection
+complexity: simple
+exploitable: true
+reference_exploit: Recover password-derived material faster because the default PBKDF2
+  configuration uses SHA1 and one iteration.
+reference_fix_commit: 421dd538b2d34e7c24a5b72cc64dc2b9167db40a
+notes: CVE-2023-46233 / GHSA-xwcq-pm8m-c4vf. crypto-js before 4.2.0 used dangerously
+  weak PBKDF2 defaults.
+cve_id: CVE-2023-46233
+ghsa_id: GHSA-xwcq-pm8m-c4vf
+fix_commit: 421dd538b2d34e7c24a5b72cc64dc2b9167db40a
+vulnerable_commit: d1f4f4daec4f053be3eea4f6233d1d05ccec22fa
+discovery_method: cve_mining
+language: javascript
+framework: null
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2023-46233
+- https://github.com/advisories/GHSA-xwcq-pm8m-c4vf
+- https://github.com/brix/crypto-js/commit/421dd538b2d34e7c24a5b72cc64dc2b9167db40a

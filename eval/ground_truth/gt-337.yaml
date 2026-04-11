@@ -1,0 +1,25 @@
+id: gt-337
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/fixtures/python/fastapi/gt-337/main.py
+line_numbers:
+- 10
+taint_source: 'term: str = Body(..., embed=True)'
+taint_sink: cursor.execute()
+taint_path:
+- FastAPI binds request JSON into the Body() parameter term
+- search() interpolates term into SQL text
+- cursor.execute() runs the attacker-controlled query
+complexity: simple
+exploitable: true
+reference_exploit: 'POST {"term": "%'' OR 1=1 --"} broadens the SQL predicate.'
+reference_fix_commit: null
+notes: FastAPI request body injection into sqlite3 cursor.execute via Body().
+discovery_method: synthetic
+language: python
+framework: fastapi
+taint_step_count: 3

@@ -1,0 +1,29 @@
+id: gt-288
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-79
+cwe_name: Cross-Site Scripting
+label: true_positive
+affected_files:
+- eval/synthetic/phase29/nestjs/gt-288/service.ts
+- eval/synthetic/phase29/nestjs/gt-288/controller.ts
+line_numbers:
+- 31
+taint_source: '@Body("bio")'
+taint_sink: res.send()
+taint_path:
+- '@Body("bio") writes attacker-controlled HTML into the profile service store'
+- show() loads the previously stored bio back from the service layer
+- The loaded bio is embedded into an HTML fragment
+- res.send(markup) reflects the stored HTML to the client
+complexity: multi_step
+exploitable: true
+reference_exploit: Store <img src=x onerror=alert(1)> in the bio body field and then
+  load the profile.
+reference_fix_commit: null
+notes: NestJS stored XSS pattern modeled as save and show controller methods sharing
+  a service store.
+discovery_method: synthetic
+language: typescript
+framework: nestjs
+taint_step_count: 4

@@ -1,0 +1,26 @@
+id: gt-338
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/fixtures/python/fastapi/gt-338/main.py
+line_numbers:
+- 11
+taint_source: 'payload: dict = Body(...)'
+taint_sink: cursor.execute()
+taint_path:
+- FastAPI parses attacker JSON into the Body() payload dictionary
+- reports() extracts payload["sort"] without validation
+- cursor.execute() evaluates the resulting ORDER BY injection
+complexity: simple
+exploitable: true
+reference_exploit: 'POST {"sort": "id DESC, (SELECT sqlite_version())"} injects SQL
+  through ORDER BY.'
+reference_fix_commit: null
+notes: FastAPI body-driven SQL injection where a JSON field becomes raw SQL syntax.
+discovery_method: synthetic
+language: python
+framework: fastapi
+taint_step_count: 3

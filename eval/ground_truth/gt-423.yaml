@@ -1,0 +1,25 @@
+id: gt-423
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-113
+cwe_name: Improper Neutralization of CRLF Sequences in HTTP Headers
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/servlet/gt-423.java
+line_numbers:
+- 10
+taint_source: request.getParameter("file")
+taint_sink: HttpServletResponse.setHeader()
+taint_path:
+- request.getParameter("file") reads attacker-controlled header data
+- the servlet concatenates file into the Content-Disposition header
+- setHeader(...) emits an attacker-controlled header value
+complexity: simple
+exploitable: true
+reference_exploit: GET /attachment?file=report.txt%0d%0aX-Injected:%20yes
+reference_fix_commit: null
+notes: Servlet header injection with direct parameter flow to setHeader().
+discovery_method: synthetic
+language: java
+framework: servlet
+taint_step_count: 3

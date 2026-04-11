@@ -1,0 +1,20 @@
+id: gt-fp-049
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-917
+cwe_name: Expression Language Injection
+label: false_positive
+affected_files:
+- eval/synthetic/eli-spel-simple-ctx.java
+line_numbers:
+- 8
+taint_source: request.getParameter("expr")
+taint_sink: parser.parseExpression()
+taint_path:
+- request.getParameter("expr") is evaluated under SimpleEvaluationContext
+- The restricted evaluation context constrains accessible types and methods
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: SimpleEvaluationContext restricts high-risk SpEL capabilities.

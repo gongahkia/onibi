@@ -1,0 +1,29 @@
+id: gt-222
+source_project: unzipper
+commit_hash: 2220ddd5b58f6252069a4f99f9475441ad0b50cd
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe22-CVE-2018-1002203-unzipper-zip-slip-fixed.ts
+line_numbers:
+- 13
+taint_source: req.body.entry
+taint_sink: writer.write()
+taint_path:
+- req.body.entry enters unzip()
+- extractEntry() rejects joined paths that escape the intended base directory
+- writer.write(extractPath) only receives in-scope extraction targets
+complexity: inter
+exploitable: false
+reference_exploit: null
+reference_fix_commit: 2220ddd5b58f6252069a4f99f9475441ad0b50cd
+notes: Fixed variant for CVE-2018-1002203 (GHSA-884w-698f-927f). unzipper added an
+  extraction-path prefix check to stop zip-slip writes outside the destination directory.
+cve_id: CVE-2018-1002203
+ghsa_id: GHSA-884w-698f-927f
+fix_commit: 2220ddd5b58f6252069a4f99f9475441ad0b50cd
+vulnerable_commit: 48bd69eaa3cbd30558bd218327ac103d1457e919
+discovery_method: cve_mining
+language: typescript
+taint_step_count: 2

@@ -1,0 +1,25 @@
+id: gt-362
+source_project: synthetic-phase30-go
+commit_hash: synthetic-no-commit
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+affected_files:
+- eval/fixtures/go/gin/gt-362/main.go
+line_numbers:
+- 8
+taint_source: c.Param("path")
+taint_sink: c.File()
+taint_path:
+- c.Param("path") reads an attacker-controlled relative path.
+- The handler concatenates the value onto a trusted base directory.
+- c.File(...) serves the resulting path without verifying it stays under /srv/www.
+complexity: simple
+exploitable: true
+reference_exploit: GET /static/../../etc/passwd
+reference_fix_commit: null
+notes: Gin joins a route parameter onto a static root without normalization.
+discovery_method: synthetic
+language: go
+framework: gin
+taint_step_count: 3

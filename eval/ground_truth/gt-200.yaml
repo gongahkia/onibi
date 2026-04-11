@@ -1,0 +1,30 @@
+id: gt-200
+source_project: send
+commit_hash: ae4f2989491b392ae2ef3b0015a019770ae65d35
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe79-CVE-2024-43799-send-redirect-template-fixed.ts
+line_numbers:
+- 21
+taint_source: req.query.path
+taint_sink: res.send()
+taint_path:
+- req.query.path enters redirect()
+- redirectBody() emits only escaped text without an anchor tag
+- res.send(html) cannot emit a clickable attacker-controlled href
+complexity: inter
+exploitable: false
+reference_exploit: null
+reference_fix_commit: ae4f2989491b392ae2ef3b0015a019770ae65d35
+notes: Fixed variant for CVE-2024-43799 (GHSA-m6fv-jmcg-4jfg). send used the same
+  redirect-template pattern as serve-static, rendering attacker-controlled locations
+  inside an anchor tag.
+cve_id: CVE-2024-43799
+ghsa_id: GHSA-m6fv-jmcg-4jfg
+fix_commit: ae4f2989491b392ae2ef3b0015a019770ae65d35
+vulnerable_commit: b69cbb3dc4c09c37917d08a4c13fcd1bac97ade5
+discovery_method: cve_mining
+language: typescript
+taint_step_count: 2

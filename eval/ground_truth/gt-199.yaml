@@ -1,0 +1,32 @@
+id: gt-199
+source_project: send
+commit_hash: b69cbb3dc4c09c37917d08a4c13fcd1bac97ade5
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe79-CVE-2024-43799-send-redirect-template-vuln.ts
+line_numbers:
+- 21
+taint_source: req.query.path
+taint_sink: res.send()
+taint_path:
+- req.query.path enters redirect()
+- redirectBody() collapses slashes and places the result inside an anchor href
+- the returned HTML contains attacker-controlled link text and target
+- res.send(html) reflects the redirect template to the browser
+complexity: inter
+exploitable: true
+reference_exploit: Use a path like `javascript:alert(1)` so the redirect page renders
+  an executable link.
+reference_fix_commit: ae4f2989491b392ae2ef3b0015a019770ae65d35
+notes: CVE-2024-43799 (GHSA-m6fv-jmcg-4jfg). send used the same redirect-template
+  pattern as serve-static, rendering attacker-controlled locations inside an anchor
+  tag.
+cve_id: CVE-2024-43799
+ghsa_id: GHSA-m6fv-jmcg-4jfg
+fix_commit: ae4f2989491b392ae2ef3b0015a019770ae65d35
+vulnerable_commit: b69cbb3dc4c09c37917d08a4c13fcd1bac97ade5
+discovery_method: cve_mining
+language: typescript
+taint_step_count: 3

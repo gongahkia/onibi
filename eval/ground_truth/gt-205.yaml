@@ -1,0 +1,31 @@
+id: gt-205
+source_project: remarkable
+commit_hash: 232a5547a843487529ef9f5b665aa6e238b8e75a
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe79-CVE-2019-12043-remarkable-control-char-link-vuln.ts
+line_numbers:
+- 24
+taint_source: req.body.link
+taint_sink: res.send()
+taint_path:
+- req.body.link enters renderMarkdown()
+- parseLinkDestination() accepts ASCII control characters that browsers ignore
+- renderMarkdown() turns the parsed destination into an anchor href
+- res.send(html) reflects a browser-interpreted javascript URL
+complexity: ctx
+exploitable: true
+reference_exploit: Prefix a javascript URL with an ASCII control character that the
+  parser preserves but the browser ignores.
+reference_fix_commit: 49e87b7ae2dc323d83606792a749fb207595249e
+notes: CVE-2019-12043 (GHSA-36m4-6v6m-4vpr). remarkable only rejected a narrow range
+  of control characters when parsing markdown link destinations.
+cve_id: CVE-2019-12043
+ghsa_id: GHSA-36m4-6v6m-4vpr
+fix_commit: 49e87b7ae2dc323d83606792a749fb207595249e
+vulnerable_commit: 232a5547a843487529ef9f5b665aa6e238b8e75a
+discovery_method: cve_mining
+language: typescript
+taint_step_count: 3

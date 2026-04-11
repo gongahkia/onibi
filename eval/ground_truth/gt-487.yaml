@@ -1,0 +1,25 @@
+id: gt-487
+source_project: synthetic-phase39
+commit_hash: synthetic-no-commit
+cwe_id: CWE-78
+cwe_name: OS Command Injection
+label: false_positive
+affected_files:
+- eval/fixtures/php/raw/cmdi_escaped.php
+line_numbers:
+- 2
+taint_source: $_GET['dir']
+taint_sink: escapeshellarg()
+taint_path:
+- $_GET['dir'] is attacker-controlled.
+- escapeshellarg() quotes the argument before shell execution.
+- exec() receives a single escaped shell argument.
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: Shell argument escaping should reduce this to a false positive.
+discovery_method: synthetic
+language: php
+framework: php
+taint_step_count: 3

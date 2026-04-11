@@ -1,0 +1,25 @@
+id: gt-425
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/servlet/gt-425.java
+line_numbers:
+- 16
+taint_source: request.getParameter("sort")
+taint_sink: Statement.executeQuery()
+taint_path:
+- request.getParameter("sort") reads an attacker-controlled ORDER BY fragment
+- the servlet appends sort directly to the SQL statement
+- Statement.executeQuery(...) executes the attacker-controlled SQL fragment
+complexity: ctx
+exploitable: true
+reference_exploit: GET /orders?sort=id DESC, (SELECT pg_sleep(5))
+reference_fix_commit: null
+notes: Servlet SQL injection through dynamic ORDER BY built from request.getParameter().
+discovery_method: synthetic
+language: java
+framework: servlet
+taint_step_count: 3

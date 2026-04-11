@@ -1,0 +1,28 @@
+id: gt-438
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-362
+cwe_name: Concurrent Execution using Shared Resource with Improper Synchronization
+  ('Race Condition')
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-438.java
+line_numbers:
+- 15
+taint_source: request.getParameter("coupon")
+taint_sink: applyCoupon()
+taint_path:
+- request.getParameter("coupon") chooses the attacker-controlled coupon code
+- the servlet checks the shared coupon_redeemed session flag before any synchronization
+- concurrent requests can both observe the flag as false
+- applyCoupon(code) runs more than once for the same supposedly single-use coupon
+complexity: ctx
+exploitable: true
+reference_exploit: Send two concurrent POST /redeem requests with the same coupon
+  before the session flag update is observed.
+reference_fix_commit: null
+notes: Java servlet race condition allowing double redemption of a single-use coupon.
+discovery_method: synthetic
+language: java
+framework: servlet
+taint_step_count: 4

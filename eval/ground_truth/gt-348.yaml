@@ -1,0 +1,25 @@
+id: gt-348
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-502
+cwe_name: Unsafe Deserialization
+label: true_positive
+affected_files:
+- eval/fixtures/python/general/gt-348/script.py
+line_numbers:
+- 6
+taint_source: function argument payload
+taint_sink: pickle.loads()
+taint_path:
+- attacker-controlled text is base64-decoded into raw pickle bytes
+- restore() forwards the decoded bytes into pickle.loads()
+- pickle.loads() executes the malicious deserialization payload
+complexity: inter
+exploitable: true
+reference_exploit: Provide a base64-encoded pickle gadget chain to trigger code execution.
+reference_fix_commit: null
+notes: General Python unsafe deserialization after base64 decoding attacker input.
+discovery_method: synthetic
+language: python
+framework: general
+taint_step_count: 3

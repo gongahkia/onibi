@@ -1,0 +1,25 @@
+id: gt-415
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-502
+cwe_name: Deserialization of Untrusted Data
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/spring/gt-415.java
+line_numbers:
+- 12
+taint_source: '@RequestParam MultipartFile file'
+taint_sink: ObjectInputStream.readObject()
+taint_path:
+- '@RequestParam binds the attacker-controlled uploaded file'
+- the controller opens ObjectInputStream on the untrusted upload stream
+- readObject() deserializes attacker-controlled data from the upload
+complexity: simple
+exploitable: true
+reference_exploit: POST /upload with a serialized gadget chain as the uploaded file
+reference_fix_commit: null
+notes: Spring Boot unsafe deserialization from multipart upload content.
+discovery_method: synthetic
+language: java
+framework: spring-boot
+taint_step_count: 3

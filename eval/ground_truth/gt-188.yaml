@@ -1,0 +1,30 @@
+id: gt-188
+source_project: sequelize
+commit_hash: d3f5b5a65e297f4b6861e6a6ce335a9830b28781
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe89-CVE-2023-22578-sequelize-raw-attributes-fixed.ts
+line_numbers:
+- 20
+taint_source: req.body.attribute
+taint_sink: db.query()
+taint_path:
+- req.body.attribute enters listUsers()
+- renderAttribute() rejects parentheses before SQL assembly
+- only quoted identifiers reach db.query(sql)
+complexity: ctx
+exploitable: false
+reference_exploit: null
+reference_fix_commit: d3f5b5a65e297f4b6861e6a6ce335a9830b28781
+notes: Fixed variant for CVE-2023-22578 (GHSA-f598-mfpv-gmfx). Sequelize 6 treated
+  attributes containing parentheses as raw SQL unless callers made the raw intent
+  explicit.
+cve_id: CVE-2023-22578
+ghsa_id: GHSA-f598-mfpv-gmfx
+fix_commit: d3f5b5a65e297f4b6861e6a6ce335a9830b28781
+vulnerable_commit: 53bd9b78c18992765a5a078e3d759199c4de69a7
+discovery_method: cve_mining
+language: typescript
+taint_step_count: 2

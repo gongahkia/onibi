@@ -1,0 +1,27 @@
+id: gt-343
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-78
+cwe_name: Command Injection
+label: true_positive
+affected_files:
+- eval/fixtures/python/fastapi/gt-343/main.py
+line_numbers:
+- 16
+taint_source: 'payload: JobRequest = Body(...)'
+taint_sink: subprocess.run()
+taint_path:
+- FastAPI binds the request body into a Pydantic model
+- JobRequest.Config.extra = "allow" preserves attacker-provided command data
+- jobs() reads command from payload.__dict__ without validation
+- subprocess.run(..., shell=True) executes the extra field as shell input
+complexity: ctx
+exploitable: true
+reference_exploit: 'POST {"name": "backup", "command": "id"} turns an extra field
+  into shell execution.'
+reference_fix_commit: null
+notes: FastAPI Pydantic bypass where extra model fields feed subprocess.run(shell=True).
+discovery_method: synthetic
+language: python
+framework: fastapi
+taint_step_count: 4

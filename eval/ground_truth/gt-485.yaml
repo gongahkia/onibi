@@ -1,0 +1,25 @@
+id: gt-485
+source_project: synthetic-phase39
+commit_hash: synthetic-no-commit
+cwe_id: CWE-79
+cwe_name: Cross-Site Scripting
+label: false_positive
+affected_files:
+- eval/fixtures/php/raw/xss_escaped.php
+line_numbers:
+- 2
+taint_source: $_GET['name']
+taint_sink: htmlspecialchars()
+taint_path:
+- $_GET['name'] remains attacker-controlled.
+- htmlspecialchars(..., ENT_QUOTES, 'UTF-8') encodes the dangerous characters.
+- The encoded string is safe to emit to HTML output.
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: ENT_QUOTES escaping should suppress reflected XSS reporting.
+discovery_method: synthetic
+language: php
+framework: php
+taint_step_count: 3

@@ -1,0 +1,28 @@
+id: gt-317
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-78
+cwe_name: Command Injection
+label: true_positive
+affected_files:
+- eval/fixtures/python/flask/gt-317/app.py
+line_numbers:
+- 7
+taint_source: request.form["path"]
+taint_sink: subprocess.run()
+taint_path:
+- request.form["path"] reads attacker input from the POST body
+- archive_view() forwards the path into archive()
+- archive() interpolates the path into a shell command
+- subprocess.run(..., shell=True) executes the injected command text
+complexity: inter
+exploitable: true
+reference_exploit: POST path=docs;cat /etc/passwd appends a second shell command to
+  the tar invocation.
+reference_fix_commit: null
+notes: Flask command injection through a helper that shells out with attacker-controlled
+  form data.
+discovery_method: synthetic
+language: python
+framework: flask
+taint_step_count: 4

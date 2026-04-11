@@ -1,0 +1,25 @@
+id: gt-386
+source_project: synthetic-phase30-go
+commit_hash: synthetic-no-commit
+cwe_id: CWE-306
+cwe_name: Missing Authentication for Critical Function
+label: true_positive
+affected_files:
+- eval/fixtures/go/chi/gt-386/main.go
+line_numbers:
+- 21
+taint_source: unauthenticated GET request to /admin/metrics
+taint_sink: r.Get("/admin/metrics", metricsHandler)
+taint_path:
+- The attacker requests /admin/metrics directly.
+- The route is registered before r.Use(authMiddleware).
+- The sensitive handler remains reachable without authentication because the middleware order is wrong.
+complexity: ctx
+exploitable: true
+reference_exploit: Send GET /admin/metrics without authentication.
+reference_fix_commit: null
+notes: Chi middleware registration order leaves a sensitive route unprotected.
+discovery_method: synthetic
+language: go
+framework: chi
+taint_step_count: 3

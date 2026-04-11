@@ -1,0 +1,25 @@
+id: gt-493
+source_project: synthetic-phase39
+commit_hash: synthetic-no-commit
+cwe_id: CWE-94
+cwe_name: Code Injection
+label: true_positive
+affected_files:
+- eval/fixtures/php/raw/eval_post.php
+line_numbers:
+- 2
+taint_source: $_POST['code']
+taint_sink: eval()
+taint_path:
+- $_POST['code'] is attacker-controlled input.
+- The request body is passed directly into PHP source evaluation.
+- eval() executes attacker-controlled code in process.
+complexity: simple
+exploitable: true
+reference_exploit: POST code=phpinfo(); executes arbitrary PHP in the target process.
+reference_fix_commit: null
+notes: Direct eval on request data is full code execution.
+discovery_method: synthetic
+language: php
+framework: php
+taint_step_count: 3

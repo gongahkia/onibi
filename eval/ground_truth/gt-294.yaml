@@ -1,0 +1,28 @@
+id: gt-294
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+affected_files:
+- eval/synthetic/phase29/nestjs/gt-294/service.ts
+- eval/synthetic/phase29/nestjs/gt-294/controller.ts
+line_numbers:
+- 15
+taint_source: '@Body("doc")'
+taint_sink: readFileSync()
+taint_path:
+- '@Body("doc") stores attacker-controlled file selection state in the document service'
+- show() loads the stored value back out for the same user id
+- DocumentService.show() joins the stored value onto the docs root
+- readFileSync(fullPath, "utf8") opens the stored attacker-controlled path
+complexity: multi_step
+exploitable: true
+reference_exploit: Store ../../../../etc/passwd as the doc value and then fetch the
+  same document later.
+reference_fix_commit: null
+notes: NestJS second-order path traversal using stored document selections.
+discovery_method: synthetic
+language: typescript
+framework: nestjs
+taint_step_count: 4

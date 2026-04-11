@@ -1,0 +1,27 @@
+id: gt-462
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-208
+cwe_name: Observable Timing Discrepancy
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-462.java
+line_numbers:
+- 11
+taint_source: request.getParameter("token")
+taint_sink: String.equals()
+taint_path:
+- request.getParameter("token") supplies an attacker-controlled secret guess
+- the servlet loads the expected token for the chosen user
+- String.equals() compares byte-by-byte and returns on the first mismatch, leaking
+  timing information
+complexity: ctx
+exploitable: true
+reference_exploit: Measure response times while guessing the token one character at
+  a time.
+reference_fix_commit: null
+notes: Java servlet timing leak from String.equals() on a secret token.
+discovery_method: synthetic
+language: java
+framework: servlet
+taint_step_count: 3

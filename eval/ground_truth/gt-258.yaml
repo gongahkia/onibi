@@ -1,0 +1,34 @@
+id: gt-258
+source_project: Vikunja
+commit_hash: b642b2a4536a3846e627a78dce2fdd1be425e6a1
+cwe_id: CWE-287
+cwe_name: Improper Authentication
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe287-CVE-2026-34727-vikunja-oidc-totp-safe.go
+line_numbers:
+- 16
+taint_source: OIDC-authenticated user object returned by the callback flow
+taint_sink: session issuance occurs only after the TOTP state is satisfied
+taint_path:
+- OIDC authentication still resolves the target user
+- oidcCallback() checks TOTPEnabled before creating a session
+- users with a pending second factor are rejected until totpPassed is true
+complexity: ctx
+exploitable: false
+reference_exploit: Retry the OIDC login; the callback now rejects users with pending
+  TOTP verification.
+reference_fix_commit: b642b2a4536a3846e627a78dce2fdd1be425e6a1
+notes: Fixed variant for CVE-2026-34727. The callback path now enforces TOTP before
+  issuing a session.
+cve_id: CVE-2026-34727
+ghsa_id: GHSA-8jvc-mcx6-r4cg
+fix_commit: b642b2a4536a3846e627a78dce2fdd1be425e6a1
+vulnerable_commit: 546db0dc219c736a34336dab9f3411ee7b821fde
+discovery_method: cve_mining
+language: go
+framework: go
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2026-34727
+- https://github.com/advisories/GHSA-8jvc-mcx6-r4cg
+- https://github.com/go-vikunja/vikunja/commit/b642b2a4536a3846e627a78dce2fdd1be425e6a1

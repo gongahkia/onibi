@@ -1,0 +1,21 @@
+id: gt-171
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-917
+cwe_name: Expression Language Injection
+label: true_positive
+affected_files:
+- eval/synthetic/eli-ognl-getvalue.java
+line_numbers:
+- 6
+taint_source: request.getParameter("expr")
+taint_sink: Ognl.getValue()
+taint_path:
+- request.getParameter("expr") supplies OGNL source
+- Ognl.getValue(request.getParameter("expr"), ...) evaluates attacker-controlled OGNL
+complexity: simple
+exploitable: true
+reference_exploit: Trigger Ognl.getValue() with attacker-controlled input described
+  in request.getParameter("expr").
+reference_fix_commit: null
+notes: OGNL expression is fully attacker-controlled.

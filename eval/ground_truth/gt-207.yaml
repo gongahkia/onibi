@@ -1,0 +1,31 @@
+id: gt-207
+source_project: systeminformation
+commit_hash: d93a0ce510b861b4f65f888a81b12108ddc82db3
+cwe_id: CWE-78
+cwe_name: OS Command Injection
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe78-CVE-2023-42810-systeminformation-ssid-linux-vuln.ts
+line_numbers:
+- 7
+taint_source: req.body.ssid
+taint_sink: shell.exec()
+taint_path:
+- req.body.ssid enters readConnection()
+- wifiConnections() forwards the SSID into nmiConnectionLinux()
+- nmiConnectionLinux() embeds the SSID inside an nmcli shell command
+- shell.exec(command) executes the attacker-controlled command fragment
+complexity: inter
+exploitable: true
+reference_exploit: 'Use an SSID like `"; touch /tmp/pwned; #` to inject a second shell
+  command.'
+reference_fix_commit: 7972565812ccb2a610a22911c54c3446f4171392
+notes: CVE-2023-42810 (GHSA-gx6r-qc2v-3p3v). The Linux Wi-Fi helper reused the SSID
+  as a shell argument when resolving the active NetworkManager connection.
+cve_id: CVE-2023-42810
+ghsa_id: GHSA-gx6r-qc2v-3p3v
+fix_commit: 7972565812ccb2a610a22911c54c3446f4171392
+vulnerable_commit: d93a0ce510b861b4f65f888a81b12108ddc82db3
+discovery_method: cve_mining
+language: typescript
+taint_step_count: 3

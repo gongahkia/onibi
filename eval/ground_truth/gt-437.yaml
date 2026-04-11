@@ -1,0 +1,29 @@
+id: gt-437
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-362
+cwe_name: Concurrent Execution using Shared Resource with Improper Synchronization
+  ('Race Condition')
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-437.go
+line_numbers:
+- 11
+taint_source: r.FormValue("name") and r.FormValue("body")
+taint_sink: os.WriteFile()
+taint_path:
+- r.FormValue("name") chooses the filesystem path under attacker control
+- os.Stat(path) performs a separate existence check before the write
+- a concurrent attacker can replace the checked path before the write occurs
+- os.WriteFile(...) uses the stale decision and writes attacker-controlled data to
+  the raced path
+complexity: ctx
+exploitable: true
+reference_exploit: Race a symlink into /tmp/<name> after the Stat call but before
+  the WriteFile call.
+reference_fix_commit: null
+notes: Go TOCTOU file race between a path check and a later write.
+discovery_method: synthetic
+language: go
+framework: go
+taint_step_count: 4

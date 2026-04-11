@@ -1,0 +1,28 @@
+id: gt-290
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+affected_files:
+- eval/synthetic/phase29/nestjs/gt-290/service.ts
+- eval/synthetic/phase29/nestjs/gt-290/controller.ts
+line_numbers:
+- 18
+taint_source: '@Query("file")'
+taint_sink: readFileSync()
+taint_path:
+- '@Query("file") injects attacker-controlled input into the controller'
+- FileService.loadDocument() strips null bytes but preserves traversal tokens
+- buildPath() joins the attacker-controlled segment onto the docs root
+- readFileSync(fullPath, "utf8") opens the attacker-controlled path
+complexity: multi_step
+exploitable: true
+reference_exploit: Request file=../../../../etc/passwd to read a file outside the
+  docs root.
+reference_fix_commit: null
+notes: NestJS multi-step path traversal ending in a filesystem read.
+discovery_method: synthetic
+language: typescript
+framework: nestjs
+taint_step_count: 4

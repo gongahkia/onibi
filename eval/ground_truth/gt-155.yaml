@@ -1,0 +1,22 @@
+id: gt-155
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-1336
+cwe_name: Server-Side Template Injection
+label: true_positive
+affected_files:
+- eval/synthetic/ssti-mako-template.py
+line_numbers:
+- 5
+taint_source: request.json["tpl"]
+taint_sink: MakoTemplate()
+taint_path:
+- request.json["tpl"] becomes Mako template source
+- MakoTemplate(request.json["tpl"]).render() evaluates attacker-controlled template
+  content
+complexity: simple
+exploitable: true
+reference_exploit: Trigger MakoTemplate() with attacker-controlled input described
+  in request.json["tpl"].
+reference_fix_commit: null
+notes: Mako Template constructor receives attacker-controlled source.

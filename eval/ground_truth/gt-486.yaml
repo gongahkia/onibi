@@ -1,0 +1,25 @@
+id: gt-486
+source_project: synthetic-phase39
+commit_hash: synthetic-no-commit
+cwe_id: CWE-78
+cwe_name: OS Command Injection
+label: true_positive
+affected_files:
+- eval/fixtures/php/raw/cmdi_exec.php
+line_numbers:
+- 3
+taint_source: $_GET['dir']
+taint_sink: exec()
+taint_path:
+- $_GET['dir'] is attacker-controlled.
+- The shell command string concatenates the tainted directory argument.
+- exec() passes the attacker-controlled command to the shell.
+complexity: simple
+exploitable: true
+reference_exploit: GET /?dir=.;cat /etc/passwd executes a second shell command.
+reference_fix_commit: null
+notes: Raw exec call with unsanitized request data.
+discovery_method: synthetic
+language: php
+framework: php
+taint_step_count: 3

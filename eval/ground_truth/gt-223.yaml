@@ -1,0 +1,30 @@
+id: gt-223
+source_project: adm-zip
+commit_hash: e116bc18df51e4e50c493cede82ae7696954b511
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe22-CVE-2018-1002204-adm-zip-resolve-target-vuln.ts
+line_numbers:
+- 10
+taint_source: req.body.entry
+taint_sink: writer.write()
+taint_path:
+- req.body.entry enters unzip()
+- extractEntry() resolves the target directly from the archive entry name
+- writer.write(target) writes the resolved path without checking the extraction root
+complexity: inter
+exploitable: true
+reference_exploit: Use an entry like `../../../../var/tmp/pwned` to escape the extraction
+  directory.
+reference_fix_commit: 62f64004fefb894c523a7143e8a88ebe6c84df25
+notes: CVE-2018-1002204 (GHSA-3v6h-hqm4-2rg6). adm-zip fixed the zip-slip issue by
+  validating resolved extraction targets before any write occurred.
+cve_id: CVE-2018-1002204
+ghsa_id: GHSA-3v6h-hqm4-2rg6
+fix_commit: 62f64004fefb894c523a7143e8a88ebe6c84df25
+vulnerable_commit: e116bc18df51e4e50c493cede82ae7696954b511
+discovery_method: cve_mining
+language: typescript
+taint_step_count: 2

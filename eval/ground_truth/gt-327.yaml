@@ -1,0 +1,26 @@
+id: gt-327
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/fixtures/python/django/gt-327/views.py
+line_numbers:
+- 6
+taint_source: request.GET["sort"]
+taint_sink: User.objects.extra()
+taint_path:
+- request.GET["sort"] accepts an attacker-controlled ORDER BY fragment
+- ordered() passes the string into extra(order_by=[...])
+- extra() injects the untrusted SQL fragment into query generation
+complexity: simple
+exploitable: true
+reference_exploit: GET /ordered?sort=id DESC, (SELECT current_user) abuses extra(order_by=...)
+  for SQL injection.
+reference_fix_commit: null
+notes: Django extra() ORDER BY injection via request.GET data.
+discovery_method: synthetic
+language: python
+framework: django
+taint_step_count: 3

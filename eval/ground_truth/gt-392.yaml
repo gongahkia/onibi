@@ -1,0 +1,25 @@
+id: gt-392
+source_project: synthetic-phase30-go
+commit_hash: synthetic-no-commit
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+affected_files:
+- eval/fixtures/go/stdlib/gt-392/main.go
+line_numbers:
+- 9
+taint_source: r.URL.Query().Get("name")
+taint_sink: os.ReadFile()
+taint_path:
+- r.URL.Query().Get("name") reads an attacker-controlled relative path.
+- The handler concatenates the value onto /srv/docs.
+- os.ReadFile(...) opens the resulting path without verifying it stays inside the docs root.
+complexity: simple
+exploitable: true
+reference_exploit: GET /docs?name=../../etc/passwd
+reference_fix_commit: null
+notes: net/http handler joins a query parameter onto a trusted directory path.
+discovery_method: synthetic
+language: go
+framework: go-stdlib
+taint_step_count: 3

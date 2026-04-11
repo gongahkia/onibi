@@ -1,0 +1,31 @@
+id: gt-279
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-78
+cwe_name: OS Command Injection
+label: true_positive
+affected_files:
+- eval/synthetic/phase29/express/gt-279/app.ts
+- eval/synthetic/phase29/express/gt-279/middleware.ts
+- eval/synthetic/phase29/express/gt-279/service.ts
+- eval/synthetic/phase29/express/gt-279/shell.ts
+line_numbers:
+- 6
+taint_source: req.headers["x-target"]
+taint_sink: exec()
+taint_path:
+- The Express middleware copies req.headers["x-target"] into res.locals.target
+- launchProbe() turns the header value into a shell fragment in the service layer
+- runShell() receives the composed shell command string
+- exec(command) runs the attacker-controlled shell command
+complexity: cross_module
+exploitable: true
+reference_exploit: Send X-Target as 127.0.0.1; whoami so the helper executes an extra
+  shell command.
+reference_fix_commit: null
+notes: Express header-driven command injection across middleware, service, and shell
+  helper modules.
+discovery_method: synthetic
+language: typescript
+framework: express
+taint_step_count: 4

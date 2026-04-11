@@ -1,0 +1,20 @@
+id: gt-crypto-050
+source_project: piranesi-crypto-transport-fixtures
+commit_hash: '0000000000000000000000000000000000000000'
+cwe_id: CWE-347
+cwe_name: Improper verification of cryptographic signature
+label: true_positive
+affected_files:
+- eval/synthetic/crypto_transport/cwe347_js_pubkey_confusion.ts
+line_numbers:
+- 2
+taint_source: jwt_token
+taint_sink: jwt.verify(token, publicKey)
+taint_path:
+- jwt.verify(token, publicKey) (eval/synthetic/crypto_transport/cwe347_js_pubkey_confusion.ts:2)
+complexity: ctx
+exploitable: true
+reference_exploit: null
+reference_fix_commit: null
+notes: Public-key variable without explicit algorithm restriction should trigger key
+  confusion review.

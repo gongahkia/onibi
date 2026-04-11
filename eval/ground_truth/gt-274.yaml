@@ -1,0 +1,34 @@
+id: gt-274
+source_project: xmlhttprequest-ssl
+commit_hash: bf53329b61ca6afc5d28f6b8d2dc2e3ca740a9b2
+cwe_id: CWE-295
+cwe_name: Improper Certificate Validation
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe295-CVE-2021-31597-xmlhttprequest-ssl-safe.js
+line_numbers:
+- 3
+taint_source: caller-provided request options for an outbound HTTPS request
+taint_sink: 'rejectUnauthorized: opts.rejectUnauthorized !== false'
+taint_path:
+- callers can still omit rejectUnauthorized from the request options
+- buildRequestOptions() now defaults that case to true
+- certificate validation only turns off when the caller explicitly requests it
+complexity: simple
+exploitable: false
+reference_exploit: Retry the forged-certificate request; the client now keeps verification
+  enabled by default.
+reference_fix_commit: bf53329b61ca6afc5d28f6b8d2dc2e3ca740a9b2
+notes: Fixed variant for CVE-2021-31597. Missing rejectUnauthorized no longer disables
+  certificate checks.
+cve_id: CVE-2021-31597
+ghsa_id: null
+fix_commit: bf53329b61ca6afc5d28f6b8d2dc2e3ca740a9b2
+vulnerable_commit: ae38832a0f1347c5e96dda665402509a3458e302
+discovery_method: cve_mining
+language: javascript
+framework: null
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2021-31597
+- https://github.com/mjwwit/node-XMLHttpRequest/commit/bf53329b61ca6afc5d28f6b8d2dc2e3ca740a9b2
+- https://github.com/mjwwit/node-XMLHttpRequest/compare/v1.6.0...1.6.1

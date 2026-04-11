@@ -1,0 +1,33 @@
+id: gt-266
+source_project: Ratpack
+commit_hash: f2b63eb82dd71194319fd3945f5edf29b8f3a42d
+cwe_id: CWE-338
+cwe_name: Use of Cryptographically Weak Pseudo-Random Number Generator
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe338-CVE-2019-11808-ratpack-sessionid-safe.java
+line_numbers:
+- 9
+taint_source: session creation path that needs a new identifier
+taint_sink: SecureRandom.nextBytes(bytes)
+taint_path:
+- the session subsystem still needs a new identifier
+- Sessions.newSessionId() now fills bytes from SecureRandom
+- the generated session ids are no longer predictable from a weak PRNG sequence
+complexity: simple
+exploitable: false
+reference_exploit: Retry the prediction attack; SecureRandom removes the weak PRNG
+  sequence used by the CVE.
+reference_fix_commit: f2b63eb82dd71194319fd3945f5edf29b8f3a42d
+notes: Fixed variant for CVE-2019-11808. Session ids are generated from SecureRandom.
+cve_id: CVE-2019-11808
+ghsa_id: null
+fix_commit: f2b63eb82dd71194319fd3945f5edf29b8f3a42d
+vulnerable_commit: 259717a78b6e7c2ac60698a9085cc7bf2b986b8b
+discovery_method: cve_mining
+language: java
+framework: ratpack
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2019-11808
+- https://github.com/ratpack/ratpack/commit/f2b63eb82dd71194319fd3945f5edf29b8f3a42d
+- https://github.com/ratpack/ratpack/releases/tag/v1.6.1

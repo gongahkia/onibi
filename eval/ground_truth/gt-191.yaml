@@ -1,0 +1,30 @@
+id: gt-191
+source_project: sequelize
+commit_hash: 83e263bd4f97860e37cfd8c4a69995a3901b9264
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe89-CVE-2019-10752-sequelize-json-fn-path-vuln.ts
+line_numbers:
+- 18
+taint_source: req.body.path
+taint_sink: db.query()
+taint_path:
+- req.body.path enters readPreference()
+- jsonExtract() joins raw segments into a JSON path expression
+- the JSON path is embedded in json_extract(...)
+- db.query(sql) executes the attacker-controlled path grammar
+complexity: inter
+exploitable: true
+reference_exploit: Use a malicious JSON path so raw path grammar is spliced into json_extract().
+reference_fix_commit: 9bd0bc111b6f502223edf7e902680f7cc2ed541e
+notes: CVE-2019-10752 (GHSA-m9jw-237r-gvfv). The shared json.fn path builder did not
+  quote untrusted sub-paths before building MySQL/MariaDB/SQLite JSON paths.
+cve_id: CVE-2019-10752
+ghsa_id: GHSA-m9jw-237r-gvfv
+fix_commit: 9bd0bc111b6f502223edf7e902680f7cc2ed541e
+vulnerable_commit: 83e263bd4f97860e37cfd8c4a69995a3901b9264
+discovery_method: cve_mining
+language: typescript
+taint_step_count: 3

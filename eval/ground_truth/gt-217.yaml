@@ -1,0 +1,31 @@
+id: gt-217
+source_project: send
+commit_hash: 463d1c92267d0b84e5df27f2aecad62859d5a57b
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe22-CVE-2014-6394-send-root-prefix-vuln.ts
+line_numbers:
+- 19
+taint_source: req.query.path
+taint_sink: fs.readFile()
+taint_path:
+- req.query.path enters serveFile()
+- resolvePath() joins and normalizes the root with the requested path
+- the prefix check uses the bare normalized root without a trailing separator
+- fs.readFile(filePath) can read a sibling path outside the intended root
+complexity: ctx
+exploitable: true
+reference_exploit: Use a path like `../public-secret.txt` so the normalized result
+  still shares the `/public` prefix.
+reference_fix_commit: 9c6ca9b2c0b880afd3ff91ce0d211213c5fa5f9a
+notes: CVE-2014-6394 (GHSA-xwg4-93c6-3h42). send fixed the root-prefix check by normalizing
+  `root + sep` before comparing path prefixes.
+cve_id: CVE-2014-6394
+ghsa_id: GHSA-xwg4-93c6-3h42
+fix_commit: 9c6ca9b2c0b880afd3ff91ce0d211213c5fa5f9a
+vulnerable_commit: 463d1c92267d0b84e5df27f2aecad62859d5a57b
+discovery_method: cve_mining
+language: typescript
+taint_step_count: 3

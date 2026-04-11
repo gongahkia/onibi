@@ -1,0 +1,26 @@
+id: gt-326
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/fixtures/python/django/gt-326/views.py
+line_numbers:
+- 5
+taint_source: request.POST["team"]
+taint_sink: User.objects.extra()
+taint_path:
+- request.POST["team"] reads attacker body data
+- team_members() forwards the value into load_team()
+- load_team() builds an extra() clause from the tainted value
+- extra() injects the attacker string into SQL generation
+complexity: inter
+exploitable: true
+reference_exploit: POST team=ops' OR '1'='1 returns every team member row.
+reference_fix_commit: null
+notes: Django extra() SQL injection routed through a helper function.
+discovery_method: synthetic
+language: python
+framework: django
+taint_step_count: 4

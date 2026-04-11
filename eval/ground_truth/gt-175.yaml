@@ -1,0 +1,21 @@
+id: gt-175
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-643
+cwe_name: XPath Injection
+label: true_positive
+affected_files:
+- eval/synthetic/xpathi-lxml-xpath.py
+line_numbers:
+- 5
+taint_source: request.form["username"]
+taint_sink: tree.xpath()
+taint_path:
+- request.form["username"] is concatenated into an XPath predicate
+- tree.xpath(f"//user[name=...]") evaluates attacker-controlled XPath
+complexity: simple
+exploitable: true
+reference_exploit: Trigger tree.xpath() with attacker-controlled input described in
+  request.form["username"].
+reference_fix_commit: null
+notes: lxml xpath expression is attacker-controlled.

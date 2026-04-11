@@ -1,0 +1,30 @@
+id: gt-220
+source_project: serve
+commit_hash: 6adad6881c61991da61ebc857857c53409544575
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe22-CVE-2018-3712-serve-working-directory-fixed.ts
+line_numbers:
+- 24
+taint_source: req.query.path
+taint_sink: fs.readFile()
+taint_path:
+- req.query.path enters sendFile()
+- resolveRelated() resolves the candidate and verifies it stays inside the serving
+  directory
+- fs.readFile(related) only runs on in-scope paths
+complexity: ctx
+exploitable: false
+reference_exploit: null
+reference_fix_commit: 6adad6881c61991da61ebc857857c53409544575
+notes: Fixed variant for CVE-2018-3712 (GHSA-q2qh-cgc2-qhr3). serve added a path-inside
+  check after decoding the candidate path back into a filesystem location.
+cve_id: CVE-2018-3712
+ghsa_id: GHSA-q2qh-cgc2-qhr3
+fix_commit: 6adad6881c61991da61ebc857857c53409544575
+vulnerable_commit: ce95709c74873040308c88771821bfdaa569be52
+discovery_method: cve_mining
+language: typescript
+taint_step_count: 2

@@ -1,0 +1,26 @@
+id: gt-413
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-502
+cwe_name: Deserialization of Untrusted Data
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/spring/gt-413.java
+line_numbers:
+- 12
+taint_source: '@RequestBody byte[] body'
+taint_sink: ObjectInputStream.readObject()
+taint_path:
+- '@RequestBody exposes attacker-controlled serialized bytes to the controller'
+- the controller wraps those bytes in ObjectInputStream without a type allowlist
+- readObject() deserializes attacker-controlled object graphs
+complexity: simple
+exploitable: true
+reference_exploit: POST /import with a gadget-chain serialized payload in the raw
+  body
+reference_fix_commit: null
+notes: Spring Boot unsafe deserialization from a raw request body.
+discovery_method: synthetic
+language: java
+framework: spring-boot
+taint_step_count: 3

@@ -1,0 +1,21 @@
+id: gt-153
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-1336
+cwe_name: Server-Side Template Injection
+label: true_positive
+affected_files:
+- eval/synthetic/ssti-nunjucks-renderstring.ts
+line_numbers:
+- 4
+taint_source: req.body.tpl
+taint_sink: nunjucks.renderString()
+taint_path:
+- req.body.tpl becomes Nunjucks template source
+- nunjucks.renderString(req.body.tpl, {}) evaluates attacker-controlled template text
+complexity: simple
+exploitable: true
+reference_exploit: Trigger nunjucks.renderString() with attacker-controlled input
+  described in req.body.tpl.
+reference_fix_commit: null
+notes: Attacker controls server-side Nunjucks template content.

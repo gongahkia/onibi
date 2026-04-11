@@ -1,0 +1,29 @@
+id: gt-190
+source_project: sequelize
+commit_hash: ee4017379db0059566ecb5424274ad4e2d66bc68
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe89-CVE-2019-10749-sequelize-postgres-json-path-fixed.ts
+line_numbers:
+- 23
+taint_source: req.body.path
+taint_sink: db.query()
+taint_path:
+- req.body.path enters readProfile()
+- jsonPathSelector() escapes the full Postgres path literal
+- db.query(sql) sees a quoted path literal
+complexity: inter
+exploitable: false
+reference_exploit: null
+reference_fix_commit: ee4017379db0059566ecb5424274ad4e2d66bc68
+notes: 'Fixed variant for CVE-2019-10749 (GHSA-2598-2f59-rmhq). The Postgres JSON-path
+  helper concatenated raw path segments directly into the #>> literal.'
+cve_id: CVE-2019-10749
+ghsa_id: GHSA-2598-2f59-rmhq
+fix_commit: ee4017379db0059566ecb5424274ad4e2d66bc68
+vulnerable_commit: 75c1fdbc676d73a28a5e0bca49b2a6d4a9f8708c
+discovery_method: cve_mining
+language: typescript
+taint_step_count: 2

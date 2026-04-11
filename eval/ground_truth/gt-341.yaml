@@ -1,0 +1,27 @@
+id: gt-341
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/fixtures/python/fastapi/gt-341/main.py
+line_numbers:
+- 18
+taint_source: 'payload: SearchRequest = Body(...)'
+taint_sink: cursor.execute()
+taint_path:
+- FastAPI parses the request body into a Pydantic model
+- SearchRequest.Config.extra = "allow" preserves attacker-supplied extra fields
+- items() reads the unvalidated order_by attribute from payload.__dict__
+- cursor.execute() embeds that extra field into SQL syntax
+complexity: ctx
+exploitable: true
+reference_exploit: 'POST {"term": "x", "order_by": "id DESC, (SELECT sqlite_version())"}
+  injects SQL via an extra field.'
+reference_fix_commit: null
+notes: FastAPI Pydantic bypass where extra=allow exposes an unvalidated SQL fragment.
+discovery_method: synthetic
+language: python
+framework: fastapi
+taint_step_count: 4

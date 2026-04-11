@@ -1,0 +1,26 @@
+id: gt-336
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-215
+cwe_name: Insertion of Sensitive Information Into Debugging Code
+label: true_positive
+affected_files:
+- eval/fixtures/python/django/gt-336/settings.py
+line_numbers:
+- 4
+taint_source: production deployment environment
+taint_sink: DEBUG = ENVIRONMENT == "production"
+taint_path:
+- the settings file derives DEBUG from the deployment environment
+- production deployments satisfy the ENVIRONMENT == "production" condition
+- Django serves verbose debug traces in the very environment that should be hardened
+complexity: ctx
+exploitable: true
+reference_exploit: Deploy with ENVIRONMENT=production and trigger an unhandled exception
+  to reveal stack traces.
+reference_fix_commit: null
+notes: Django debug mode is inverted so production explicitly enables DEBUG output.
+discovery_method: synthetic
+language: python
+framework: django
+taint_step_count: 3

@@ -1,0 +1,27 @@
+id: gt-442
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-472
+cwe_name: External Control of Assumed-Immutable Web Parameter
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-442.ts
+line_numbers:
+- 9
+taint_source: req.body.price
+taint_sink: billing.charge()
+taint_path:
+- req.body.price carries the attacker-controlled client-side item price
+- checkout() multiplies the client-supplied price by quantity without a server-side
+  lookup
+- billing.charge(user, total) processes the attacker-controlled payment amount
+complexity: ctx
+exploitable: true
+reference_exploit: Submit {"itemId":"premium","price":0.01,"quantity":1} to buy a
+  premium item for one cent.
+reference_fix_commit: null
+notes: Business logic flaw where checkout trusts a client-supplied price.
+discovery_method: synthetic
+language: typescript
+framework: express
+taint_step_count: 3

@@ -1,0 +1,28 @@
+id: gt-283
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-79
+cwe_name: Cross-Site Scripting
+label: true_positive
+affected_files:
+- eval/synthetic/phase29/express/gt-283/app.ts
+- eval/synthetic/phase29/express/gt-283/flash.ts
+- eval/synthetic/phase29/express/gt-283/view.ts
+line_numbers:
+- 10
+taint_source: req.query.notice
+taint_sink: res.send()
+taint_path:
+- captureNotice() copies req.query.notice into res.locals.notice
+- renderNotice() wraps the locals value in HTML in a separate view helper
+- The rendered string returns to the route entry point unchanged
+- res.send(markup) reflects the attacker-controlled HTML
+complexity: cross_module
+exploitable: true
+reference_exploit: Pass notice=<svg/onload=alert(1)> in the query string.
+reference_fix_commit: null
+notes: Express cross-module reflected XSS using middleware locals and a view helper.
+discovery_method: synthetic
+language: typescript
+framework: express
+taint_step_count: 4

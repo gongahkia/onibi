@@ -1,0 +1,24 @@
+id: gt-390
+source_project: synthetic-phase30-go
+commit_hash: synthetic-no-commit
+cwe_id: CWE-79
+cwe_name: Cross-Site Scripting
+label: true_positive
+affected_files:
+- eval/fixtures/go/stdlib/gt-390/main.go
+line_numbers:
+- 9
+taint_source: r.URL.Query().Get("q")
+taint_sink: fmt.Fprintf()
+taint_path:
+- r.URL.Query().Get("q") reads attacker-controlled HTML content.
+- fmt.Fprintf(w, "<p>%s</p>", ...) injects the value into raw HTML output.
+complexity: simple
+exploitable: true
+reference_exploit: GET /search?q=<img src=x onerror=alert(1)>
+reference_fix_commit: null
+notes: net/http search endpoint formats query input into HTML without escaping.
+discovery_method: synthetic
+language: go
+framework: go-stdlib
+taint_step_count: 2

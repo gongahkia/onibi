@@ -1,0 +1,26 @@
+id: gt-353
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-94
+cwe_name: Code Injection
+label: true_positive
+affected_files:
+- eval/fixtures/python/general/gt-353/script.py
+line_numbers:
+- 2
+taint_source: function argument code
+taint_sink: exec()
+taint_path:
+- attacker-controlled program text reaches run_script()
+- exec() runs the untrusted code with full interpreter privileges
+complexity: simple
+exploitable: true
+reference_exploit: 'Pass import os
+
+  os.system("id") to execute arbitrary commands.'
+reference_fix_commit: null
+notes: General Python code injection through direct exec on attacker input.
+discovery_method: synthetic
+language: python
+framework: general
+taint_step_count: 2

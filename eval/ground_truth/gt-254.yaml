@@ -1,0 +1,34 @@
+id: gt-254
+source_project: node-jsonwebtoken
+commit_hash: e1fa9dcc12054a8681db4e6373da1b30cf7016e3
+cwe_id: CWE-287
+cwe_name: Improper Authentication
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe287-CVE-2022-23540-jsonwebtoken-alg-none-safe.js
+line_numbers:
+- 9
+taint_source: untrusted JWT from a password reset or login flow
+taint_sink: 'jwt.verify(token, secret, { algorithms: ["HS256"] })'
+taint_path:
+- the attacker still controls the token bytes presented to verification
+- verifyResetToken() now supplies an explicit algorithm allowlist
+- unsigned or mismatched-algorithm tokens are rejected during verification
+complexity: simple
+exploitable: false
+reference_exploit: Retry the alg:none token; verification fails because only HS256
+  is accepted.
+reference_fix_commit: e1fa9dcc12054a8681db4e6373da1b30cf7016e3
+notes: Fixed variant for CVE-2022-23540. The caller now pins the expected algorithm
+  instead of relying on unsafe defaults.
+cve_id: CVE-2022-23540
+ghsa_id: GHSA-qwph-4952-7xr6
+fix_commit: e1fa9dcc12054a8681db4e6373da1b30cf7016e3
+vulnerable_commit: 5eaedbf2b01676d952336e73b4d2efba847d2d1b
+discovery_method: cve_mining
+language: javascript
+framework: null
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2022-23540
+- https://github.com/advisories/GHSA-qwph-4952-7xr6
+- https://github.com/auth0/node-jsonwebtoken/commit/e1fa9dcc12054a8681db4e6373da1b30cf7016e3

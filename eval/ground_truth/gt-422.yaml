@@ -1,0 +1,25 @@
+id: gt-422
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-601
+cwe_name: URL Redirection to Untrusted Site ('Open Redirect')
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/servlet/gt-422.java
+line_numbers:
+- 10
+taint_source: request.getParameter("next")
+taint_sink: HttpServletResponse.sendRedirect()
+taint_path:
+- request.getParameter("next") reads the attacker-controlled redirect target
+- the servlet forwards next directly into sendRedirect()
+- sendRedirect(next) sends the browser to the attacker-selected destination
+complexity: simple
+exploitable: true
+reference_exploit: GET /jump?next=https://attacker.example/phish
+reference_fix_commit: null
+notes: Servlet open redirect with a direct parameter-to-sink flow.
+discovery_method: synthetic
+language: java
+framework: servlet
+taint_step_count: 3

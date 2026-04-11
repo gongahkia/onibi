@@ -1,0 +1,21 @@
+id: gt-160
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-1333
+cwe_name: Regular Expression Denial of Service
+label: true_positive
+affected_files:
+- eval/synthetic/redos-python-compile.py
+line_numbers:
+- 4
+taint_source: request.args["pattern"]
+taint_sink: re.compile()
+taint_path:
+- request.args["pattern"] controls the Python regex source
+- re.compile(request.args["pattern"]) constructs attacker-controlled regex state
+complexity: simple
+exploitable: true
+reference_exploit: Trigger re.compile() with attacker-controlled input described in
+  request.args["pattern"].
+reference_fix_commit: null
+notes: User input controls a Python regex compile call.

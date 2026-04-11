@@ -1,0 +1,27 @@
+id: gt-286
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-79
+cwe_name: Cross-Site Scripting
+label: false_positive
+affected_files:
+- eval/synthetic/phase29/express/gt-286/app.ts
+- eval/synthetic/phase29/express/gt-286/flash.ts
+- eval/synthetic/phase29/express/gt-286/view.ts
+line_numbers:
+- 9
+taint_source: req.query.notice
+taint_sink: res.send()
+taint_path:
+- req.query.notice is copied into res.locals.notice by middleware
+- renderNotice() escapes the locals value before it becomes HTML
+- res.send(markup) returns encoded content rather than executable HTML
+complexity: cross_module
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: Express cross-module XSS-safe flow using escape-html before rendering.
+discovery_method: synthetic
+language: typescript
+framework: express
+taint_step_count: 3

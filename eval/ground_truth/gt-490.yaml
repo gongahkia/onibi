@@ -1,0 +1,25 @@
+id: gt-490
+source_project: synthetic-phase39
+commit_hash: synthetic-no-commit
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery
+label: true_positive
+affected_files:
+- eval/fixtures/php/raw/ssrf_file_get_contents.php
+line_numbers:
+- 2
+taint_source: $_GET['url']
+taint_sink: file_get_contents()
+taint_path:
+- $_GET['url'] is attacker-controlled input.
+- The value is used as a remote URL target.
+- file_get_contents() performs a server-side fetch to the attacker-chosen destination.
+complexity: simple
+exploitable: true
+reference_exploit: GET /?url=http://169.254.169.254/latest/meta-data/ reaches an internal host.
+reference_fix_commit: null
+notes: SSRF through unvalidated URL fetch.
+discovery_method: synthetic
+language: php
+framework: php
+taint_step_count: 3

@@ -1,0 +1,34 @@
+id: gt-253
+source_project: node-jsonwebtoken
+commit_hash: 5eaedbf2b01676d952336e73b4d2efba847d2d1b
+cwe_id: CWE-287
+cwe_name: Improper Authentication
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe287-CVE-2022-23540-jsonwebtoken-alg-none-vuln.js
+line_numbers:
+- 9
+taint_source: untrusted JWT from a password reset or login flow
+taint_sink: jwt.verify(token, secret) without algorithms
+taint_path:
+- the application receives a JWT from an untrusted client
+- verifyResetToken() forwards it into jwt.verify() without constraining algorithms
+- the library may accept a token using alg:none or another unintended algorithm path
+complexity: simple
+exploitable: true
+reference_exploit: Supply a token using alg:none to bypass signature verification
+  where the caller omitted algorithms.
+reference_fix_commit: e1fa9dcc12054a8681db4e6373da1b30cf7016e3
+notes: CVE-2022-23540 / GHSA-qwph-4952-7xr6. jsonwebtoken before 9.0.0 could accept
+  unsigned tokens when callers omitted the algorithms option.
+cve_id: CVE-2022-23540
+ghsa_id: GHSA-qwph-4952-7xr6
+fix_commit: e1fa9dcc12054a8681db4e6373da1b30cf7016e3
+vulnerable_commit: 5eaedbf2b01676d952336e73b4d2efba847d2d1b
+discovery_method: cve_mining
+language: javascript
+framework: null
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2022-23540
+- https://github.com/advisories/GHSA-qwph-4952-7xr6
+- https://github.com/auth0/node-jsonwebtoken/commit/e1fa9dcc12054a8681db4e6373da1b30cf7016e3

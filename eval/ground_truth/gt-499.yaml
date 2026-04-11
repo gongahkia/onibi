@@ -1,0 +1,25 @@
+id: gt-499
+source_project: synthetic-phase39
+commit_hash: synthetic-no-commit
+cwe_id: CWE-79
+cwe_name: Cross-Site Scripting
+label: false_positive
+affected_files:
+- eval/fixtures/php/laravel/blade_escaped.blade.php
+line_numbers:
+- 1
+taint_source: $userInput
+taint_sink: Blade escaped echo
+taint_path:
+- $userInput is attacker-controlled view data.
+- "{{ }} uses Blade's default HTML escaping."
+- The rendered response contains encoded text rather than active markup.
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: Standard Blade echo should not be flagged as XSS.
+discovery_method: synthetic
+language: php
+framework: laravel
+taint_step_count: 3

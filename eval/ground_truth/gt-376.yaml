@@ -1,0 +1,25 @@
+id: gt-376
+source_project: synthetic-phase30-go
+commit_hash: synthetic-no-commit
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery
+label: true_positive
+affected_files:
+- eval/fixtures/go/echo/gt-376/main.go
+line_numbers:
+- 12
+taint_source: c.QueryParam("url")
+taint_sink: http.NewRequest()
+taint_path:
+- c.QueryParam("url") provides the outbound request target.
+- http.NewRequest(...) stores the attacker-controlled URL in a request object.
+- http.DefaultClient.Do(req) dispatches the server-side request.
+complexity: simple
+exploitable: true
+reference_exploit: GET /proxy?url=http://127.0.0.1:2375/containers/json
+reference_fix_commit: null
+notes: Echo constructs outbound requests from an untrusted URL parameter.
+discovery_method: synthetic
+language: go
+framework: echo
+taint_step_count: 3

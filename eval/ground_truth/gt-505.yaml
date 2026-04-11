@@ -1,0 +1,25 @@
+id: gt-505
+source_project: synthetic-phase39
+commit_hash: synthetic-no-commit
+cwe_id: CWE-79
+cwe_name: Cross-Site Scripting
+label: false_positive
+affected_files:
+- eval/fixtures/php/wordpress/plugin_xss_safe.php
+line_numbers:
+- 2
+taint_source: $_GET['name']
+taint_sink: esc_html()
+taint_path:
+- $_GET['name'] is attacker-controlled input.
+- esc_html() encodes HTML metacharacters before rendering.
+- The response emits escaped text instead of executable markup.
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: WordPress esc_html() should suppress reflected XSS reporting.
+discovery_method: synthetic
+language: php
+framework: wordpress
+taint_step_count: 3

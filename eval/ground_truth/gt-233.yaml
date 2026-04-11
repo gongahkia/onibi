@@ -1,0 +1,34 @@
+id: gt-233
+source_project: parse-server
+commit_hash: f376abb60e38a7bce723163ec7ab4fb9697df79d
+cwe_id: CWE-943
+cwe_name: Improper Neutralization of Special Elements in Data Query Logic
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe943-CVE-2026-30941-parse-token-query-vuln.js
+line_numbers:
+- 7
+taint_source: body.token from password reset or email verification endpoints
+taint_sink: 'findToken({ token: body.token, ... })'
+taint_path:
+- the endpoint accepts attacker-controlled body.token without validating its type
+- body.token flows unchanged into the query filter object
+- 'MongoDB interprets an object value such as {$ne: null} as an operator payload'
+complexity: simple
+exploitable: true
+reference_exploit: Send {"token":{"$ne":null}} to the resend endpoint to turn an equality
+  lookup into an operator query.
+reference_fix_commit: c97554fc4a2ad27131928cdace3b04823a6c2642
+notes: CVE-2026-30941 / GHSA-vgjh-hmwf-c588. Parse Server fixed this by enforcing
+  string input for token fields before query construction.
+cve_id: CVE-2026-30941
+ghsa_id: GHSA-vgjh-hmwf-c588
+fix_commit: c97554fc4a2ad27131928cdace3b04823a6c2642
+vulnerable_commit: f376abb60e38a7bce723163ec7ab4fb9697df79d
+discovery_method: cve_mining
+language: javascript
+framework: node
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2026-30941
+- https://github.com/advisories/GHSA-vgjh-hmwf-c588
+- https://github.com/parse-community/parse-server/releases/tag/8.6.14

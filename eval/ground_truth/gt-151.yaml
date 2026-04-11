@@ -1,0 +1,21 @@
+id: gt-151
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-1336
+cwe_name: Server-Side Template Injection
+label: true_positive
+affected_files:
+- eval/synthetic/ssti-ejs-render.ts
+line_numbers:
+- 4
+taint_source: req.body.template
+taint_sink: ejs.render()
+taint_path:
+- req.body.template is used as the EJS template source
+- ejs.render(req.body.template, ...) compiles attacker-controlled template text
+complexity: simple
+exploitable: true
+reference_exploit: Trigger ejs.render() with attacker-controlled input described in
+  req.body.template.
+reference_fix_commit: null
+notes: User-controlled EJS template source is rendered on the server.

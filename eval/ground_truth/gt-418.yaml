@@ -1,0 +1,25 @@
+id: gt-418
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-79
+cwe_name: Cross-Site Scripting
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/servlet/gt-418.java
+line_numbers:
+- 11
+taint_source: request.getParameter("name")
+taint_sink: HttpServletResponse.getWriter().write()
+taint_path:
+- request.getParameter("name") reads attacker-controlled HTML from the request
+- the servlet interpolates name into an HTML response body
+- resp.getWriter().write(...) returns attacker-controlled markup to the browser
+complexity: simple
+exploitable: true
+reference_exploit: GET /hello?name=<script>alert(1)</script>
+reference_fix_commit: null
+notes: Servlet reflected XSS with direct request parameter flow to the response writer.
+discovery_method: synthetic
+language: java
+framework: servlet
+taint_step_count: 3

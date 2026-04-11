@@ -1,0 +1,34 @@
+id: gt-229
+source_project: Flask-Security-Too
+commit_hash: 1f13d368e679ae9cc324f39393eb3dd4c57d5aac
+cwe_id: CWE-352
+cwe_name: Cross-Site Request Forgery
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe352-CVE-2021-21241-flask-security-token-get-vuln.py
+line_numbers:
+- 9
+taint_source: cross-site GET request to the login or change endpoint
+taint_sink: GET response includes the authenticated user token
+taint_path:
+- the browser automatically sends the victim session on a third-party GET request
+- login_view() treats GET as token-issuing traffic
+- the response body leaks user.auth_token to the attacker-controlled origin
+complexity: ctx
+exploitable: true
+reference_exploit: Embed an image or script tag that triggers GET /login on the victim
+  session and captures the leaked auth token.
+reference_fix_commit: 64a7a6680568a10b39e8b8f17bdcf4593a0875ca
+notes: CVE-2021-21241 / GHSA-hh7m-rx4f-4vpv. Flask-Security-Too before 3.4.5 and 4.0.0
+  could leak auth tokens on CSRF-prone GET requests.
+cve_id: CVE-2021-21241
+ghsa_id: GHSA-hh7m-rx4f-4vpv
+fix_commit: 64a7a6680568a10b39e8b8f17bdcf4593a0875ca
+vulnerable_commit: 1f13d368e679ae9cc324f39393eb3dd4c57d5aac
+discovery_method: cve_mining
+language: python
+framework: flask
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2021-21241
+- https://github.com/advisories/GHSA-hh7m-rx4f-4vpv
+- https://github.com/pallets-eco/flask-security/releases/tag/3.4.5

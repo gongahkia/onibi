@@ -1,0 +1,24 @@
+id: gt-387
+source_project: synthetic-phase30-go
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/fixtures/go/stdlib/gt-387/main.go
+line_numbers:
+- 11
+taint_source: r.URL.Query().Get("id")
+taint_sink: db.QueryRow()
+taint_path:
+- r.URL.Query().Get("id") is concatenated into SQL text.
+- db.QueryRow(...) executes the attacker-controlled query string.
+complexity: simple
+exploitable: true
+reference_exploit: GET /user?id=' OR '1'='1
+reference_fix_commit: null
+notes: net/http handler concatenates a query parameter into QueryRow SQL.
+discovery_method: synthetic
+language: go
+framework: go-stdlib
+taint_step_count: 2

@@ -1,0 +1,25 @@
+id: gt-419
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-78
+cwe_name: OS Command Injection
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/servlet/gt-419.java
+line_numbers:
+- 11
+taint_source: request.getParameter("cmd")
+taint_sink: Runtime.getRuntime().exec()
+taint_path:
+- request.getParameter("cmd") reads attacker-controlled command text
+- the servlet forwards cmd directly into Runtime.exec()
+- Runtime.exec(cmd) launches the attacker-controlled operating system command
+complexity: simple
+exploitable: true
+reference_exploit: GET /run?cmd=sh -c id
+reference_fix_commit: null
+notes: Servlet command injection with direct request parameter flow.
+discovery_method: synthetic
+language: java
+framework: servlet
+taint_step_count: 3

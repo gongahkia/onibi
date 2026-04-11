@@ -1,0 +1,25 @@
+id: gt-365
+source_project: synthetic-phase30-go
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/fixtures/go/gin/gt-365/main.go
+line_numbers:
+- 19
+taint_source: c.Query("id")
+taint_sink: db.Raw()
+taint_path:
+- c.Query("id") reads the attacker-controlled id from the request.
+- buildUserQuery() concatenates the id into SQL text.
+- db.Raw(...).Rows() executes the helper-generated attacker-controlled query.
+complexity: inter
+exploitable: true
+reference_exploit: GET /lookup?id=' UNION SELECT password FROM users --
+reference_fix_commit: null
+notes: Taint crosses a helper before reaching a Gorm Raw sink.
+discovery_method: synthetic
+language: go
+framework: gin
+taint_step_count: 3

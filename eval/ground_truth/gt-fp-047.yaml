@@ -1,0 +1,20 @@
+id: gt-fp-047
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-90
+cwe_name: LDAP Injection
+label: false_positive
+affected_files:
+- eval/synthetic/ldapi-escaped.ts
+line_numbers:
+- 4
+taint_source: req.body.user
+taint_sink: client.search()
+taint_path:
+- req.body.user is escaped before filter construction
+- client.search(..., { filter }) receives an escaped LDAP filter value
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: LDAP escaping neutralizes filter metacharacters before search.

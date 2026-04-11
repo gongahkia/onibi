@@ -1,0 +1,24 @@
+id: gt-351
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-94
+cwe_name: Code Injection
+label: true_positive
+affected_files:
+- eval/fixtures/python/general/gt-351/script.py
+line_numbers:
+- 2
+taint_source: function argument expr
+taint_sink: eval()
+taint_path:
+- attacker-controlled source text reaches calculate()
+- eval() executes the expression in the current interpreter context
+complexity: simple
+exploitable: true
+reference_exploit: Pass __import__("os").system("id") to turn eval() into code execution.
+reference_fix_commit: null
+notes: General Python code injection through direct eval on untrusted input.
+discovery_method: synthetic
+language: python
+framework: general
+taint_step_count: 2

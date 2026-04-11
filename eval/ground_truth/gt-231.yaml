@@ -1,0 +1,36 @@
+id: gt-231
+source_project: gorilla/csrf
+commit_hash: a009743572494ccbc9d159005bdc58b86a44ddba
+cwe_id: CWE-352
+cwe_name: Cross-Site Request Forgery
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe352-CVE-2025-24358-gorilla-csrf-origin-vuln.go
+line_numbers:
+- 7
+taint_source: cross-site POST request carrying a malicious Origin or Referer header
+taint_sink: checkSameOrigin() skips CSRF origin validation because URL.Scheme is empty
+taint_path:
+- the attacker sends a cross-origin form submission against a gorilla/csrf-protected
+  handler
+- checkSameOrigin() decides whether to validate based on r.URL.Scheme
+- server requests leave URL.Scheme empty, so the middleware returns true without enforcing
+  origin checks
+complexity: ctx
+exploitable: true
+reference_exploit: Abuse a same-site XSS or sibling-domain foothold to send an authenticated
+  POST that bypasses referer validation.
+reference_fix_commit: 9dd6af1f6d30fc79fb0d972394deebdabad6b5eb
+notes: CVE-2025-24358 / GHSA-rq77-p4h8-4crw. gorilla/csrf before 1.7.2 relied on URL.Scheme
+  and skipped same-origin validation in practice.
+cve_id: CVE-2025-24358
+ghsa_id: GHSA-rq77-p4h8-4crw
+fix_commit: 9dd6af1f6d30fc79fb0d972394deebdabad6b5eb
+vulnerable_commit: a009743572494ccbc9d159005bdc58b86a44ddba
+discovery_method: cve_mining
+language: go
+framework: gorilla
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2025-24358
+- https://github.com/advisories/GHSA-rq77-p4h8-4crw
+- https://github.com/gorilla/csrf/commit/9dd6af1f6d30fc79fb0d972394deebdabad6b5eb

@@ -1,0 +1,29 @@
+id: gt-285
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: false_positive
+affected_files:
+- eval/synthetic/phase29/express/gt-285/app.ts
+- eval/synthetic/phase29/express/gt-285/middleware.ts
+- eval/synthetic/phase29/express/gt-285/service.ts
+- eval/synthetic/phase29/express/gt-285/repo.ts
+line_numbers:
+- 8
+taint_source: req.body.name
+taint_sink: db.query()
+taint_path:
+- req.body.name still crosses middleware and service boundaries unchanged
+- queryUsers() keeps the SQL text static and sends the value as a separate bind parameter
+- db.query(sql, [input]) receives data but not attacker-controlled SQL structure
+complexity: cross_module
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: Express cross-module SQL flow that stays safe because the repository uses parameter
+  binding.
+discovery_method: synthetic
+language: typescript
+framework: express
+taint_step_count: 3

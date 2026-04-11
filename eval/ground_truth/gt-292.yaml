@@ -1,0 +1,30 @@
+id: gt-292
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/synthetic/phase29/nestjs/gt-292/repository.ts
+- eval/synthetic/phase29/nestjs/gt-292/service.ts
+- eval/synthetic/phase29/nestjs/gt-292/controller.ts
+line_numbers:
+- 10
+taint_source: '@Body("sort")'
+taint_sink: db.query()
+taint_path:
+- '@Body("sort") stores attacker-controlled SQL syntax in the report service'
+- show() loads the stored clause back out for the same report id
+- ReportRepository.run() inserts the stored clause into raw SQL
+- db.query(sql) executes the stored attacker-controlled fragment
+complexity: multi_step
+exploitable: true
+reference_exploit: Store sort as total DESC; DROP TABLE invoices -- and then render
+  the same report.
+reference_fix_commit: null
+notes: NestJS second-order SQLi using a stored report preference and a later repository
+  query.
+discovery_method: synthetic
+language: typescript
+framework: nestjs
+taint_step_count: 4

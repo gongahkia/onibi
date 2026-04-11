@@ -1,0 +1,27 @@
+id: gt-445
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-472
+cwe_name: External Control of Assumed-Immutable Web Parameter
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-445.ts
+line_numbers:
+- 8
+taint_source: req.body.amount
+taint_sink: wallet.credit()
+taint_path:
+- req.body.amount carries an attacker-controlled gift-card value
+- the redemption flow trusts the client-supplied amount instead of looking up cardId
+  on the server
+- wallet.credit(user, amount) credits the attacker-controlled value into the wallet
+complexity: ctx
+exploitable: true
+reference_exploit: Submit {"cardId":"used-card","amount":100000} to credit an arbitrary
+  balance.
+reference_fix_commit: null
+notes: TypeScript business logic flaw where gift-card value is client-controlled.
+discovery_method: synthetic
+language: typescript
+framework: express
+taint_step_count: 3

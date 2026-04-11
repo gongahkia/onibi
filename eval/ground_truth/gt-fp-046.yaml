@@ -1,0 +1,20 @@
+id: gt-fp-046
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-1333
+cwe_name: Regular Expression Denial of Service
+label: false_positive
+affected_files:
+- eval/synthetic/redos-escaped-input.ts
+line_numbers:
+- 2
+taint_source: req.query.q
+taint_sink: new RegExp()
+taint_path:
+- req.query.q is escaped before regex construction
+- new RegExp(escapeStringRegexp(req.query.q)) receives literal-safe regex text
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: The escaping helper neutralizes regex meta characters before compilation.

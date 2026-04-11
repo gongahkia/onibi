@@ -1,0 +1,19 @@
+id: gt-crypto-049
+source_project: piranesi-crypto-transport-fixtures
+commit_hash: '0000000000000000000000000000000000000000'
+cwe_id: CWE-347
+cwe_name: Improper verification of cryptographic signature
+label: true_positive
+affected_files:
+- eval/synthetic/crypto_transport/cwe347_js_hardcoded_secret.ts
+line_numbers:
+- 2
+taint_source: jwt_secret
+taint_sink: jwt.sign(payload, hardcoded_secret)
+taint_path:
+- jwt.sign(payload, "ghp_ (eval/synthetic/crypto_transport/cwe347_js_hardcoded_secret.ts:2)
+complexity: simple
+exploitable: true
+reference_exploit: null
+reference_fix_commit: null
+notes: CWE-347 true positive fixture for crypto/transport detection.

@@ -1,0 +1,21 @@
+id: gt-176
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-643
+cwe_name: XPath Injection
+label: true_positive
+affected_files:
+- eval/synthetic/xpathi-java-compile.java
+line_numbers:
+- 8
+taint_source: request.getParameter("username")
+taint_sink: xpath.compile()
+taint_path:
+- request.getParameter("username") is concatenated into an XPath predicate
+- xpath.compile(expr) evaluates attacker-controlled XPath
+complexity: simple
+exploitable: true
+reference_exploit: Trigger xpath.compile() with attacker-controlled input described
+  in request.getParameter("username").
+reference_fix_commit: null
+notes: Java XPath compile call receives attacker-controlled query text.

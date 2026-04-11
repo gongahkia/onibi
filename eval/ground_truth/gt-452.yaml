@@ -1,0 +1,27 @@
+id: gt-452
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-452.ts
+line_numbers:
+- 17
+taint_source: req.body.name
+taint_sink: db.query()
+taint_path:
+- the attacker stores a crafted name through saveProfile()
+- the application persists the attacker-controlled value for later use
+- buildReport() loads the stored name from persistence
+- db.query(...) interpolates the stored value into a later SQL statement
+complexity: multi_step
+exploitable: true
+reference_exploit: Store name=attacker' OR '1'='1 and wait for the reporting job to
+  run.
+reference_fix_commit: null
+notes: Second-order SQL injection where safe storage is followed by unsafe later reuse.
+discovery_method: synthetic
+language: typescript
+framework: express
+taint_step_count: 4

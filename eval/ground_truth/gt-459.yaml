@@ -1,0 +1,28 @@
+id: gt-459
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-1321
+cwe_name: Improperly Controlled Modification of Object Prototype Attributes ('Prototype
+  Pollution')
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-459.ts
+line_numbers:
+- 11
+taint_source: req.body.path and req.body.value
+taint_sink: setPath()
+taint_path:
+- req.body.path carries an attacker-controlled property path such as constructor.prototype.isAdmin
+- setPath() walks the attacker-controlled path without blocking prototype-bearing
+  segments
+- the final write assigns attacker-controlled data onto the prototype chain
+complexity: inter
+exploitable: true
+reference_exploit: POST {"path":"constructor.prototype.isAdmin","value":true} to poison
+  all objects.
+reference_fix_commit: null
+notes: Prototype chain pollution through a dotted-path setter.
+discovery_method: synthetic
+language: typescript
+framework: node
+taint_step_count: 3

@@ -1,0 +1,27 @@
+id: gt-335
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-215
+cwe_name: Insertion of Sensitive Information Into Debugging Code
+label: true_positive
+affected_files:
+- eval/fixtures/python/django/gt-335/settings.py
+line_numbers:
+- 4
+taint_source: production deployment using the insecure default DJANGO_DEBUG value
+taint_sink: DEBUG = os.environ.get(..., "true")
+taint_path:
+- the production process omits DJANGO_DEBUG and falls back to the default string "true"
+- DEBUG remains enabled in a non-development environment
+- requests that raise exceptions disclose Django debug output and environment details
+complexity: ctx
+exploitable: true
+reference_exploit: Leave DJANGO_DEBUG unset in production and trigger an exception
+  to retrieve the debug page.
+reference_fix_commit: null
+notes: Django debug mode is enabled by an unsafe environment default that resolves
+  to true.
+discovery_method: synthetic
+language: python
+framework: django
+taint_step_count: 3

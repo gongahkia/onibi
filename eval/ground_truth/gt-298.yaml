@@ -1,0 +1,27 @@
+id: gt-298
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-79
+cwe_name: Cross-Site Scripting
+label: true_positive
+affected_files:
+- eval/synthetic/phase29/django/gt-298/views.py
+line_numbers:
+- 16
+taint_source: request.POST["bio"]
+taint_sink: Markup()
+taint_path:
+- request.POST["bio"] is trimmed before it is stored in the profile cache
+- show_profile() loads the stored value back from the cache
+- The loaded bio is wrapped in an HTML fragment
+- Markup(card) marks the attacker-controlled HTML as safe
+complexity: multi_step
+exploitable: true
+reference_exploit: Store <img src=x onerror=alert(1)> in bio and then request the
+  same profile.
+reference_fix_commit: null
+notes: Django stored XSS pattern using markupsafe.Markup as the HTML sink.
+discovery_method: synthetic
+language: python
+framework: django
+taint_step_count: 4

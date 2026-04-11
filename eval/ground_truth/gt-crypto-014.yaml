@@ -1,0 +1,19 @@
+id: gt-crypto-014
+source_project: piranesi-crypto-transport-fixtures
+commit_hash: '0000000000000000000000000000000000000000'
+cwe_id: CWE-328
+cwe_name: Weak cryptographic hash
+label: false_positive
+affected_files:
+- eval/synthetic/crypto_transport/cwe328_js_sha1_checksum_safe.ts
+line_numbers:
+- 3
+taint_source: file_checksum
+taint_sink: crypto.createHash("sha1")
+taint_path:
+- createHash("sha1") (eval/synthetic/crypto_transport/cwe328_js_sha1_checksum_safe.ts:3)
+complexity: ctx
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: Checksum context should suppress CWE-328.

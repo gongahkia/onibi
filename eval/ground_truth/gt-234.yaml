@@ -1,0 +1,34 @@
+id: gt-234
+source_project: parse-server
+commit_hash: c97554fc4a2ad27131928cdace3b04823a6c2642
+cwe_id: CWE-943
+cwe_name: Improper Neutralization of Special Elements in Data Query Logic
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe943-CVE-2026-30941-parse-token-query-safe.js
+line_numbers:
+- 7
+taint_source: body.token from password reset or email verification endpoints
+taint_sink: type validation rejects non-string token values before findToken()
+taint_path:
+- the attacker still controls body.token in the request body
+- the endpoint validates that token is a string
+- operator objects are rejected before any query filter is created
+complexity: simple
+exploitable: false
+reference_exploit: Repeat the operator-injection request; the endpoint throws before
+  building the Mongo query.
+reference_fix_commit: c97554fc4a2ad27131928cdace3b04823a6c2642
+notes: Fixed variant for CVE-2026-30941. Endpoint-level type checks block Mongo operator
+  injection through token fields.
+cve_id: CVE-2026-30941
+ghsa_id: GHSA-vgjh-hmwf-c588
+fix_commit: c97554fc4a2ad27131928cdace3b04823a6c2642
+vulnerable_commit: f376abb60e38a7bce723163ec7ab4fb9697df79d
+discovery_method: cve_mining
+language: javascript
+framework: node
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2026-30941
+- https://github.com/advisories/GHSA-vgjh-hmwf-c588
+- https://github.com/parse-community/parse-server/releases/tag/8.6.14

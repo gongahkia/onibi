@@ -1,0 +1,22 @@
+id: gt-170
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-917
+cwe_name: Expression Language Injection
+label: true_positive
+affected_files:
+- eval/synthetic/eli-spel-parse.java
+line_numbers:
+- 7
+taint_source: request.getParameter("expr")
+taint_sink: parser.parseExpression()
+taint_path:
+- request.getParameter("expr") supplies expression source
+- parser.parseExpression(request.getParameter("expr")) evaluates attacker-controlled
+  SpEL
+complexity: simple
+exploitable: true
+reference_exploit: Trigger parser.parseExpression() with attacker-controlled input
+  described in request.getParameter("expr").
+reference_fix_commit: null
+notes: SpEL parser evaluates user-controlled expression text.

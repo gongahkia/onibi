@@ -1,0 +1,25 @@
+id: gt-488
+source_project: synthetic-phase39
+commit_hash: synthetic-no-commit
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+affected_files:
+- eval/fixtures/php/raw/path_traversal_include.php
+line_numbers:
+- 2
+taint_source: $_GET['page']
+taint_sink: include()
+taint_path:
+- $_GET['page'] is attacker-controlled input.
+- The include path is used without normalization or allowlisting.
+- include() loads an attacker-chosen file path.
+complexity: simple
+exploitable: true
+reference_exploit: GET /?page=../../../../etc/passwd attempts local file inclusion.
+reference_fix_commit: null
+notes: Raw include on request input is a file inclusion primitive.
+discovery_method: synthetic
+language: php
+framework: php
+taint_step_count: 3

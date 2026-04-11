@@ -1,0 +1,34 @@
+id: gt-241
+source_project: crypto-es
+commit_hash: aa48d48413549addc06cd737a272466d5fc1b5e6
+cwe_id: CWE-327
+cwe_name: Use of a Broken or Risky Cryptographic Algorithm
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe327-CVE-2023-46133-cryptoes-pbkdf2-vuln.js
+line_numbers:
+- 12
+taint_source: user password material sent to PBKDF2
+taint_sink: CryptoES.PBKDF2(password, salt) with insecure defaults
+taint_path:
+- password input is passed into PBKDF2 without an explicit hasher or iteration count
+- CryptoES uses SHA1 and one iteration by default
+- the derived key is far weaker than intended for authentication or secret storage
+complexity: simple
+exploitable: true
+reference_exploit: Attackers can brute-force API-key derivation faster because the
+  default PBKDF2 settings are too weak.
+reference_fix_commit: d506677fae3d03a454b37ad126e0c119d416b757
+notes: CVE-2023-46133 / GHSA-mpj8-q39x-wq5h. CryptoES before 2.1.0 inherited weak
+  PBKDF2 defaults.
+cve_id: CVE-2023-46133
+ghsa_id: GHSA-mpj8-q39x-wq5h
+fix_commit: d506677fae3d03a454b37ad126e0c119d416b757
+vulnerable_commit: aa48d48413549addc06cd737a272466d5fc1b5e6
+discovery_method: cve_mining
+language: javascript
+framework: null
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2023-46133
+- https://github.com/advisories/GHSA-mpj8-q39x-wq5h
+- https://github.com/entronad/crypto-es/commit/d506677fae3d03a454b37ad126e0c119d416b757

@@ -1,0 +1,25 @@
+id: gt-482
+source_project: synthetic-phase39
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/fixtures/php/raw/sqli_concat.php
+line_numbers:
+- 5
+taint_source: $_GET['id']
+taint_sink: mysqli_query()
+taint_path:
+- $_GET['id'] is attacker-controlled input.
+- The query string concatenates the tainted id directly into SQL.
+- mysqli_query() executes the attacker-controlled statement.
+complexity: simple
+exploitable: true
+reference_exploit: GET /?id=0 OR 1=1 returns every user row.
+reference_fix_commit: null
+notes: Raw PHP SQL injection via concatenated mysqli query.
+discovery_method: synthetic
+language: php
+framework: php
+taint_step_count: 3

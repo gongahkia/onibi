@@ -1,0 +1,26 @@
+id: gt-412
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery (SSRF)
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/spring/gt-412.java
+line_numbers:
+- 24
+taint_source: '@RequestParam String feed'
+taint_sink: RestTemplate.getForEntity()
+taint_path:
+- '@RequestParam binds the attacker-controlled feed URL in the controller'
+- the controller forwards the value into the proxy service
+- the service normalizes feed with trim() but keeps attacker control over the destination
+- RestTemplate.getForEntity(target, String.class) performs the server-side request
+complexity: inter
+exploitable: true
+reference_exploit: GET /preview?feed=http://127.0.0.1:2375/version
+reference_fix_commit: null
+notes: Interprocedural Spring Boot SSRF through a proxy service.
+discovery_method: synthetic
+language: java
+framework: spring-boot
+taint_step_count: 4

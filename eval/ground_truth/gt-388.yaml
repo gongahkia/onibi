@@ -1,0 +1,24 @@
+id: gt-388
+source_project: synthetic-phase30-go
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/fixtures/go/stdlib/gt-388/main.go
+line_numbers:
+- 11
+taint_source: r.FormValue("id")
+taint_sink: db.Exec()
+taint_path:
+- r.FormValue("id") reads attacker-controlled form input.
+- db.Exec(...) concatenates the value into a DELETE statement and executes it.
+complexity: simple
+exploitable: true
+reference_exploit: POST /sessions/delete with id=0 OR 1=1
+reference_fix_commit: null
+notes: net/http delete handler feeds a form value into Exec SQL text.
+discovery_method: synthetic
+language: go
+framework: go-stdlib
+taint_step_count: 2

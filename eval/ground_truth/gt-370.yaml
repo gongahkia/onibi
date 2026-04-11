@@ -1,0 +1,25 @@
+id: gt-370
+source_project: synthetic-phase30-go
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/fixtures/go/echo/gt-370/main.go
+line_numbers:
+- 19
+taint_source: c.QueryParam("id")
+taint_sink: db.Raw()
+taint_path:
+- c.QueryParam("id") reads the attacker-controlled order identifier.
+- buildOrderQuery() concatenates the value into raw SQL text.
+- db.Raw(...).Rows() executes the helper-built attacker-controlled query.
+complexity: inter
+exploitable: true
+reference_exploit: GET /orders?id=' UNION SELECT password FROM users --
+reference_fix_commit: null
+notes: Echo taint crosses a helper before reaching a Raw SQL sink.
+discovery_method: synthetic
+language: go
+framework: echo
+taint_step_count: 3

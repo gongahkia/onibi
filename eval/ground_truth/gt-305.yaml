@@ -1,0 +1,28 @@
+id: gt-305
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: false_positive
+affected_files:
+- eval/synthetic/phase29/django/gt-305/repo.py
+- eval/synthetic/phase29/django/gt-305/services.py
+- eval/synthetic/phase29/django/gt-305/views.py
+line_numbers:
+- 8
+taint_source: request.GET["name"]
+taint_sink: cursor.execute()
+taint_path:
+- request.GET["name"] still crosses the Django view and service boundary
+- run_query() keeps the SQL text static and passes the name as a separate parameter
+  list
+- cursor.execute(sql, [name]) binds data without exposing SQL structure
+complexity: cross_module
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: Django SQL-safe flow using parameterized cursor.execute across modules.
+discovery_method: synthetic
+language: python
+framework: django
+taint_step_count: 3

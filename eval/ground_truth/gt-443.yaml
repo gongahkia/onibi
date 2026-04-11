@@ -1,0 +1,26 @@
+id: gt-443
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-472
+cwe_name: External Control of Assumed-Immutable Web Parameter
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-443.java
+line_numbers:
+- 11
+taint_source: '@RequestBody Gt443Order.total'
+taint_sink: Gt443Gateway.charge()
+taint_path:
+- '@RequestBody binds the attacker-controlled total field from JSON'
+- the controller trusts the client-supplied total instead of pricing sku on the server
+- gateway.charge(order.total) bills the attacker-controlled order amount
+complexity: ctx
+exploitable: true
+reference_exploit: POST /checkout with {"sku":"pro-plan","total":1} to underpay for
+  the premium plan.
+reference_fix_commit: null
+notes: Spring business logic flaw where the client controls the billed total.
+discovery_method: synthetic
+language: java
+framework: spring-boot
+taint_step_count: 3

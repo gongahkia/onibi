@@ -1,0 +1,34 @@
+id: gt-237
+source_project: '@feathersjs/mongodb'
+commit_hash: ddb9b9c558563ebd60ac1596da38b05bb54592db
+cwe_id: CWE-943
+cwe_name: Improper Neutralization of Special Elements in Data Query Logic
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe943-CVE-2026-29793-feathers-mongodb-id-vuln.js
+line_numbers:
+- 7
+taint_source: Socket.IO service id argument supplied by the client
+taint_sink: 'getById({ _id: id })'
+taint_path:
+- a Socket.IO client passes an arbitrary JavaScript object as the service id
+- getMessage() forwards that id directly into a MongoDB selector
+- 'an operator object such as {$ne: null} changes the semantics of the record lookup'
+complexity: simple
+exploitable: true
+reference_exploit: 'Call the service with {$ne: null} as id so the Mongo adapter matches
+  arbitrary records.'
+reference_fix_commit: fe1f2bc8bb2b55762be1a676ac98eb89f2f2ab9d
+notes: CVE-2026-29793 / GHSA-p9xr-7p9p-gpqx. @feathersjs/mongodb before 5.0.42 failed
+  to enforce a scalar id type on Socket.IO service methods.
+cve_id: CVE-2026-29793
+ghsa_id: GHSA-p9xr-7p9p-gpqx
+fix_commit: fe1f2bc8bb2b55762be1a676ac98eb89f2f2ab9d
+vulnerable_commit: ddb9b9c558563ebd60ac1596da38b05bb54592db
+discovery_method: cve_mining
+language: javascript
+framework: feathers
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2026-29793
+- https://github.com/advisories/GHSA-p9xr-7p9p-gpqx
+- https://github.com/feathersjs/feathers/releases/tag/v5.0.42

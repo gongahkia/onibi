@@ -1,0 +1,26 @@
+id: gt-311
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-79
+cwe_name: Cross-Site Scripting
+label: true_positive
+affected_files:
+- eval/fixtures/python/flask/gt-311/app.py
+line_numbers:
+- 12
+taint_source: request.form["bio"]
+taint_sink: render_template_string()
+taint_path:
+- request.form["bio"] reads attacker input from the POST body
+- build_card() wraps the unescaped bio in HTML
+- profile() passes the resulting markup to render_template_string()
+complexity: inter
+exploitable: true
+reference_exploit: POST bio=<img src=x onerror=alert(1)> injects executable markup
+  into the profile card.
+reference_fix_commit: null
+notes: Flask XSS where a helper builds HTML that is later rendered directly.
+discovery_method: synthetic
+language: python
+framework: flask
+taint_step_count: 3

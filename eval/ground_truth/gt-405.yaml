@@ -1,0 +1,25 @@
+id: gt-405
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-915
+cwe_name: Improperly Controlled Modification of Dynamically-Determined Object Attributes
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/spring/gt-405.java
+line_numbers:
+- 11
+taint_source: '@RequestBody Gt405User user'
+taint_sink: Gt405Repository.save()
+taint_path:
+- '@RequestBody binds every JSON field into the entity, including admin'
+- the controller forwards the attacker-controlled entity directly to persistence
+- save(user) persists the attacker-controlled privileged fields
+complexity: simple
+exploitable: true
+reference_exploit: PUT /profile with {"name":"attacker","admin":true}
+reference_fix_commit: null
+notes: Spring Boot mass assignment through direct entity binding.
+discovery_method: synthetic
+language: java
+framework: spring-boot
+taint_step_count: 3

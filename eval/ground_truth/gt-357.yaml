@@ -1,0 +1,25 @@
+id: gt-357
+source_project: synthetic-phase30-go
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/fixtures/go/gin/gt-357/main.go
+line_numbers:
+- 15
+taint_source: c.Query("id")
+taint_sink: db.Raw()
+taint_path:
+- c.Query("id") reads the attacker-controlled id from the URL.
+- The handler concatenates the id into a raw SQL statement.
+- db.Raw(...).Rows() executes attacker-controlled SQL text.
+complexity: simple
+exploitable: true
+reference_exploit: GET /users/raw?id=' OR '1'='1
+reference_fix_commit: null
+notes: Gin handler passes a query parameter directly into Gorm Raw.
+discovery_method: synthetic
+language: go
+framework: gin
+taint_step_count: 3

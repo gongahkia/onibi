@@ -1,0 +1,35 @@
+id: gt-235
+source_project: parse-server
+commit_hash: 5990ad9245c4aae80489f234a1c3cf6ab4abc92e
+cwe_id: CWE-943
+cwe_name: Improper Neutralization of Special Elements in Data Query Logic
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe943-CVE-2026-32248-parse-authdata-id-vuln.js
+line_numbers:
+- 7
+taint_source: body.authData.anonymous.id from the crafted login request
+taint_sink: 'findUser({ "authData.anonymous.id": body.authData.anonymous.id })'
+taint_path:
+- the login endpoint accepts authData.anonymous.id from an unauthenticated request
+- the identifier is inserted directly into the database lookup object
+- 'an object payload such as {$regex: ".*"} matches an existing account instead of
+  performing an exact lookup'
+complexity: simple
+exploitable: true
+reference_exploit: Send an authData.anonymous.id object with a Mongo operator to match
+  an existing user and obtain that user session.
+reference_fix_commit: ae8d8e3b098ec45d3f2c670b88a4ebefe7bb221e
+notes: CVE-2026-32248 / GHSA-5fw2-8jcv-xh87. Parse Server patched anonymous-auth lookups
+  by forcing identifier values to be strings.
+cve_id: CVE-2026-32248
+ghsa_id: GHSA-5fw2-8jcv-xh87
+fix_commit: ae8d8e3b098ec45d3f2c670b88a4ebefe7bb221e
+vulnerable_commit: 5990ad9245c4aae80489f234a1c3cf6ab4abc92e
+discovery_method: cve_mining
+language: javascript
+framework: node
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2026-32248
+- https://github.com/advisories/GHSA-5fw2-8jcv-xh87
+- https://github.com/parse-community/parse-server/releases/tag/8.6.38

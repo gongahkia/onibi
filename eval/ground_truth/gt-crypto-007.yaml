@@ -1,0 +1,19 @@
+id: gt-crypto-007
+source_project: piranesi-crypto-transport-fixtures
+commit_hash: '0000000000000000000000000000000000000000'
+cwe_id: CWE-327
+cwe_name: Broken or risky cryptographic algorithm
+label: false_positive
+affected_files:
+- eval/synthetic/crypto_transport/cwe327_js_aes_gcm_safe.ts
+line_numbers:
+- 2
+taint_source: static_crypto_config
+taint_sink: crypto.createCipheriv("aes-256-gcm")
+taint_path:
+- createCipheriv("aes-256-gcm" (eval/synthetic/crypto_transport/cwe327_js_aes_gcm_safe.ts:2)
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: Safe AES-GCM configuration should not trigger CWE-327.

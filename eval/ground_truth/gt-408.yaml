@@ -1,0 +1,25 @@
+id: gt-408
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-915
+cwe_name: Improperly Controlled Modification of Dynamically-Determined Object Attributes
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/spring/gt-408.java
+line_numbers:
+- 15
+taint_source: '@RequestBody Map<String, Object> body'
+taint_sink: BeanWrapper.setPropertyValues()
+taint_path:
+- '@RequestBody captures attacker-controlled property names and values from JSON'
+- MutablePropertyValues forwards the attacker-controlled map into the Spring binder
+- BeanWrapper.setPropertyValues() writes approval fields without an allowlist
+complexity: ctx
+exploitable: true
+reference_exploit: POST /tickets with {"subject":"x","approved":true}
+reference_fix_commit: null
+notes: Spring Boot mass assignment through manual property binding.
+discovery_method: synthetic
+language: java
+framework: spring-boot
+taint_step_count: 3

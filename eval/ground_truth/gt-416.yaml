@@ -1,0 +1,26 @@
+id: gt-416
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-502
+cwe_name: Deserialization of Untrusted Data
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/spring/gt-416.java
+line_numbers:
+- 22
+taint_source: '@RequestBody byte[] payload'
+taint_sink: ObjectInputStream.readObject()
+taint_path:
+- '@RequestBody binds the attacker-controlled serialized payload in the controller'
+- the controller forwards the bytes into the import service
+- the service wraps the bytes in ObjectInputStream without validation
+- readObject() deserializes attacker-controlled object data
+complexity: inter
+exploitable: true
+reference_exploit: POST /jobs with a Java serialization gadget payload in the body
+reference_fix_commit: null
+notes: Interprocedural Spring Boot unsafe deserialization through a service layer.
+discovery_method: synthetic
+language: java
+framework: spring-boot
+taint_step_count: 4

@@ -1,0 +1,19 @@
+id: gt-crypto-036
+source_project: piranesi-crypto-transport-fixtures
+commit_hash: '0000000000000000000000000000000000000000'
+cwe_id: CWE-295
+cwe_name: Improper certificate validation
+label: false_positive
+affected_files:
+- eval/synthetic/crypto_transport/cwe295_py_default_context_safe.py
+line_numbers:
+- 2
+taint_source: tls_config
+taint_sink: ssl.create_default_context()
+taint_path:
+- ssl.create_default_context() (eval/synthetic/crypto_transport/cwe295_py_default_context_safe.py:2)
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: Default verified SSL context should not trigger CWE-295.

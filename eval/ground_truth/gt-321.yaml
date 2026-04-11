@@ -1,0 +1,27 @@
+id: gt-321
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery
+label: true_positive
+affected_files:
+- eval/fixtures/python/flask/gt-321/app.py
+line_numbers:
+- 13
+taint_source: request.json["target"]
+taint_sink: requests.get()
+taint_path:
+- request.json["target"] reads an attacker-controlled JSON URL
+- normalize_target() trims whitespace but preserves the destination
+- mirror() forwards the URL to requests.get()
+- requests.get() reaches the attacker-selected host
+complexity: inter
+exploitable: true
+reference_exploit: 'POST {"target": "http://localhost:2375/version"} can hit internal
+  admin endpoints.'
+reference_fix_commit: null
+notes: Flask SSRF through request JSON passed into requests.get after cosmetic normalization.
+discovery_method: synthetic
+language: python
+framework: flask
+taint_step_count: 4

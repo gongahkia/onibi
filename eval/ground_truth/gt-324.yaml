@@ -1,0 +1,27 @@
+id: gt-324
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/fixtures/python/django/gt-324/views.py
+line_numbers:
+- 10
+taint_source: request.GET["team"]
+taint_sink: User.objects.raw()
+taint_path:
+- request.GET["team"] accepts attacker input from the query string
+- build_query() embeds the value into raw SQL text
+- team_view() forwards the full SQL string into User.objects.raw()
+- raw() runs the attacker-controlled statement
+complexity: inter
+exploitable: true
+reference_exploit: GET /teams?team=a' UNION SELECT * FROM app_user -- modifies the
+  raw query.
+reference_fix_commit: null
+notes: Django raw() injection where taint is preserved through a query builder helper.
+discovery_method: synthetic
+language: python
+framework: django
+taint_step_count: 4

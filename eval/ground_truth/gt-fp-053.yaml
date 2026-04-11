@@ -1,0 +1,19 @@
+id: "gt-fp-053"
+source_project: "synthetic"
+commit_hash: "synthetic-no-commit"
+cwe_id: "CWE-306"
+cwe_name: "Missing Authentication for Critical Function (public route)"
+label: "false_positive"
+affected_files:
+  - "eval/synthetic/missing-auth-public-reset.ts"
+line_numbers: [1]
+taint_source: "unauthenticated reset-password request"
+taint_sink: "POST /reset-password initial public flow"
+taint_path:
+  - "the route name sounds sensitive"
+  - "the endpoint is a public-by-design reset initiation route"
+complexity: "simple"
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "Public reset-password initiation should not count as missing auth."

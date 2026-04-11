@@ -1,0 +1,27 @@
+id: gt-342
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery
+label: true_positive
+affected_files:
+- eval/fixtures/python/fastapi/gt-342/main.py
+line_numbers:
+- 16
+taint_source: 'payload: ProxyRequest = Body(...)'
+taint_sink: requests.get()
+taint_path:
+- FastAPI parses attacker JSON into a Pydantic model
+- ProxyRequest accepts arbitrary extra fields because extra = "allow"
+- proxy() reads the unvalidated url value from payload.__dict__
+- requests.get() performs SSRF to the attacker-chosen URL
+complexity: ctx
+exploitable: true
+reference_exploit: 'POST {"route": "/", "url": "http://127.0.0.1:8000/internal"} forces
+  a server-side request.'
+reference_fix_commit: null
+notes: FastAPI Pydantic bypass where an extra field reaches requests.get().
+discovery_method: synthetic
+language: python
+framework: fastapi
+taint_step_count: 4

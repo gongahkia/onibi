@@ -1,0 +1,19 @@
+id: gt-crypto-003
+source_project: piranesi-crypto-transport-fixtures
+commit_hash: '0000000000000000000000000000000000000000'
+cwe_id: CWE-327
+cwe_name: Broken or risky cryptographic algorithm
+label: true_positive
+affected_files:
+- eval/synthetic/crypto_transport/cwe327_js_static_iv.ts
+line_numbers:
+- 2
+taint_source: static_crypto_config
+taint_sink: crypto.createCipheriv(static_iv)
+taint_path:
+- Buffer.from("0123456789abcdef") (eval/synthetic/crypto_transport/cwe327_js_static_iv.ts:2)
+complexity: simple
+exploitable: true
+reference_exploit: null
+reference_fix_commit: null
+notes: CWE-327 true positive fixture for crypto/transport detection.

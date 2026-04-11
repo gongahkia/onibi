@@ -1,0 +1,26 @@
+id: gt-316
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-78
+cwe_name: Command Injection
+label: true_positive
+affected_files:
+- eval/fixtures/python/flask/gt-316/app.py
+line_numbers:
+- 9
+taint_source: request.args.get("host")
+taint_sink: subprocess.run()
+taint_path:
+- request.args.get("host") loads an attacker-controlled shell fragment
+- ping() inserts host into a shell command string
+- subprocess.run(..., shell=True) executes the tainted command
+complexity: simple
+exploitable: true
+reference_exploit: GET /ping?host=127.0.0.1;id executes an extra shell command.
+reference_fix_commit: null
+notes: Flask command injection through subprocess.run with shell=True and f-string
+  interpolation.
+discovery_method: synthetic
+language: python
+framework: flask
+taint_step_count: 3

@@ -1,0 +1,25 @@
+id: gt-402
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-917
+cwe_name: Expression Language Injection
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/spring/gt-402.java
+line_numbers:
+- 16
+taint_source: '@RequestParam String fragment'
+taint_sink: SpelExpressionParser.parseExpression(..., TemplateParserContext).getValue()
+taint_path:
+- '@RequestParam binds the attacker-controlled template fragment'
+- the controller treats the fragment as a SpEL template without validation
+- getValue(ctx) evaluates the attacker-controlled template expression
+complexity: simple
+exploitable: true
+reference_exploit: GET /render?fragment=#{T(java.lang.Runtime).getRuntime().exec('id')}
+reference_fix_commit: null
+notes: Spring SpEL injection through TemplateParserContext.
+discovery_method: synthetic
+language: java
+framework: spring-boot
+taint_step_count: 3

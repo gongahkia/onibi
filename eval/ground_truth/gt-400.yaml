@@ -1,0 +1,25 @@
+id: gt-400
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/spring/gt-400.java
+line_numbers:
+- 14
+taint_source: '@RequestParam String sort'
+taint_sink: JdbcTemplate.queryForList()
+taint_path:
+- '@RequestParam binds the attacker-controlled sort clause'
+- the controller appends sort directly into the ORDER BY fragment
+- JdbcTemplate.queryForList(sql) sends the attacker-controlled statement to the database
+complexity: ctx
+exploitable: true
+reference_exploit: GET /audit?sort=id DESC, (SELECT pg_sleep(5))
+reference_fix_commit: null
+notes: Context-sensitive Spring JdbcTemplate SQL injection through ORDER BY concatenation.
+discovery_method: synthetic
+language: java
+framework: spring-boot
+taint_step_count: 3

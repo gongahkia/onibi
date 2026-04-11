@@ -1,0 +1,20 @@
+id: gt-fp-050
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-643
+cwe_name: XPath Injection
+label: false_positive
+affected_files:
+- eval/synthetic/xpathi-parameterized.java
+line_numbers:
+- 11
+taint_source: request.getParameter("username")
+taint_sink: xpath.evaluate()
+taint_path:
+- request.getParameter("username") is bound as an XPath variable
+- xpath.evaluate("//user[name=$username]", ...) keeps the query structure static
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: XPath variable binding keeps the query structure static.

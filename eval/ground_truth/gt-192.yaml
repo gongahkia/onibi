@@ -1,0 +1,30 @@
+id: gt-192
+source_project: sequelize
+commit_hash: 9bd0bc111b6f502223edf7e902680f7cc2ed541e
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe89-CVE-2019-10752-sequelize-json-fn-path-fixed.ts
+line_numbers:
+- 26
+taint_source: req.body.path
+taint_sink: db.query()
+taint_path:
+- req.body.path enters readPreference()
+- jsonExtract() quotes non-numeric segments first
+- db.query(sql) receives a constrained path literal
+complexity: inter
+exploitable: false
+reference_exploit: null
+reference_fix_commit: 9bd0bc111b6f502223edf7e902680f7cc2ed541e
+notes: Fixed variant for CVE-2019-10752 (GHSA-m9jw-237r-gvfv). The shared json.fn
+  path builder did not quote untrusted sub-paths before building MySQL/MariaDB/SQLite
+  JSON paths.
+cve_id: CVE-2019-10752
+ghsa_id: GHSA-m9jw-237r-gvfv
+fix_commit: 9bd0bc111b6f502223edf7e902680f7cc2ed541e
+vulnerable_commit: 83e263bd4f97860e37cfd8c4a69995a3901b9264
+discovery_method: cve_mining
+language: typescript
+taint_step_count: 2

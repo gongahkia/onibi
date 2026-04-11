@@ -1,0 +1,34 @@
+id: gt-269
+source_project: JHipster
+commit_hash: b22fb1dd31646561243812fb1ae51becaf0317e4
+cwe_id: CWE-338
+cwe_name: Use of Cryptographically Weak Pseudo-Random Number Generator
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe338-CVE-2019-16303-jhipster-resetkey-vuln.java
+line_numbers:
+- 6
+taint_source: password reset flow requesting a new reset key
+taint_sink: RandomStringUtils.randomAlphanumeric(20)
+taint_path:
+- the application needs a reset key for a user account
+- ResetKeys.newResetKey() calls RandomStringUtils.randomAlphanumeric()
+- the resulting reset keys are predictable enough to threaten account recovery flows
+complexity: simple
+exploitable: true
+reference_exploit: Obtain one reset URL and use the weak random sequence to predict
+  reset keys for other accounts.
+reference_fix_commit: 88448b85fd3e8e49df103f0061359037c2c68ea7
+notes: CVE-2019-16303 / GHSA-mwp6-j9wf-968c. JHipster before 6.3.0 generated password
+  reset keys with RandomStringUtils.
+cve_id: CVE-2019-16303
+ghsa_id: GHSA-mwp6-j9wf-968c
+fix_commit: 88448b85fd3e8e49df103f0061359037c2c68ea7
+vulnerable_commit: b22fb1dd31646561243812fb1ae51becaf0317e4
+discovery_method: cve_mining
+language: java
+framework: spring
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2019-16303
+- https://github.com/advisories/GHSA-mwp6-j9wf-968c
+- https://github.com/jhipster/generator-jhipster/commit/88448b85fd3e8e49df103f0061359037c2c68ea7

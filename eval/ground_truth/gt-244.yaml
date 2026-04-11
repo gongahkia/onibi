@@ -1,0 +1,34 @@
+id: gt-244
+source_project: Opencast
+commit_hash: 32bfbe5f78e214e2d589f92050228b91d704758e
+cwe_id: CWE-327
+cwe_name: Use of a Broken or Risky Cryptographic Algorithm
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe327-CVE-2020-5229-opencast-md5-password-safe.java
+line_numbers:
+- 9
+taint_source: raw user password passed into the password encoder
+taint_sink: BCrypt.hashpw(password, BCrypt.gensalt())
+taint_path:
+- the password still reaches the encoder in cleartext
+- the code now derives a random salt and hashes with bcrypt
+- the password is no longer stored with the vulnerable MD5 scheme
+complexity: simple
+exploitable: false
+reference_exploit: Repeat the hash-recovery workflow; bcrypt with a random salt removes
+  the MD5 weakness.
+reference_fix_commit: 32bfbe5f78e214e2d589f92050228b91d704758e
+notes: Fixed variant for CVE-2020-5229. The patched encoder migrates password storage
+  to bcrypt.
+cve_id: CVE-2020-5229
+ghsa_id: GHSA-h362-m8f2-5x7c
+fix_commit: 32bfbe5f78e214e2d589f92050228b91d704758e
+vulnerable_commit: 22188197be11f7c6b694647b0d23d83042b45755
+discovery_method: cve_mining
+language: java
+framework: spring
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2020-5229
+- https://github.com/advisories/GHSA-h362-m8f2-5x7c
+- https://github.com/opencast/opencast/commit/32bfbe5f78e214e2d589f92050228b91d704758e

@@ -1,0 +1,25 @@
+id: gt-374
+source_project: synthetic-phase30-go
+commit_hash: synthetic-no-commit
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+affected_files:
+- eval/fixtures/go/echo/gt-374/main.go
+line_numbers:
+- 8
+taint_source: c.Param("path")
+taint_sink: c.File()
+taint_path:
+- c.Param("path") reads an attacker-controlled relative path.
+- The handler concatenates the value onto /srv/archive.
+- c.File(...) serves the resulting path without checking that it stays inside the archive root.
+complexity: simple
+exploitable: true
+reference_exploit: GET /archive/../../etc/passwd
+reference_fix_commit: null
+notes: Echo joins a route parameter onto a trusted base path without normalization.
+discovery_method: synthetic
+language: go
+framework: echo
+taint_step_count: 3

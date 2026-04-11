@@ -1,0 +1,18 @@
+id: "gt-fp-052"
+source_project: "synthetic"
+commit_hash: "synthetic-no-commit"
+cwe_id: "CWE-306"
+cwe_name: "Missing Authentication for Critical Function (safe pattern)"
+label: "false_positive"
+affected_files:
+  - "eval/synthetic/missing-auth-with-auth.ts"
+line_numbers: [1]
+taint_source: "authenticated request body"
+taint_sink: "POST /payment protected by requireAuth"
+taint_path:
+  - "requireAuth runs before the payment handler"
+complexity: "simple"
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "Critical payment route includes explicit auth middleware."

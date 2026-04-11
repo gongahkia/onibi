@@ -1,0 +1,19 @@
+id: gt-crypto-033
+source_project: piranesi-crypto-transport-fixtures
+commit_hash: '0000000000000000000000000000000000000000'
+cwe_id: CWE-295
+cwe_name: Improper certificate validation
+label: true_positive
+affected_files:
+- eval/synthetic/crypto_transport/cwe295_py_verify_false.py
+line_numbers:
+- 2
+taint_source: tls_config
+taint_sink: requests.get(verify=False)
+taint_path:
+- verify=False (eval/synthetic/crypto_transport/cwe295_py_verify_false.py:2)
+complexity: simple
+exploitable: true
+reference_exploit: null
+reference_fix_commit: null
+notes: CWE-295 true positive fixture for crypto/transport detection.

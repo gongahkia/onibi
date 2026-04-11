@@ -1,0 +1,26 @@
+id: gt-404
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-917
+cwe_name: Expression Language Injection
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/spring/gt-404.java
+line_numbers:
+- 22
+taint_source: '@RequestParam String expr'
+taint_sink: SpelExpressionParser.parseExpression().getValue()
+taint_path:
+- '@RequestParam binds attacker-controlled expr in the controller'
+- the controller forwards expr into the expression service
+- Gt404ExpressionService passes expr directly to the SpEL parser
+- getValue() evaluates attacker-controlled SpEL
+complexity: inter
+exploitable: true
+reference_exploit: GET /selector?expr=T(java.lang.Runtime).getRuntime().exec('id')
+reference_fix_commit: null
+notes: Interprocedural Spring SpEL injection through a service layer.
+discovery_method: synthetic
+language: java
+framework: spring-boot
+taint_step_count: 4

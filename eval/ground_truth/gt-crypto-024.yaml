@@ -1,0 +1,19 @@
+id: gt-crypto-024
+source_project: piranesi-crypto-transport-fixtures
+commit_hash: '0000000000000000000000000000000000000000'
+cwe_id: CWE-326
+cwe_name: Inadequate encryption strength
+label: true_positive
+affected_files:
+- eval/synthetic/crypto_transport/cwe326_js_rsa_1024.ts
+line_numbers:
+- 2
+taint_source: keygen
+taint_sink: generateKeyPairSync(rsa, 1024)
+taint_path:
+- 'modulusLength: 1024 (eval/synthetic/crypto_transport/cwe326_js_rsa_1024.ts:2)'
+complexity: simple
+exploitable: true
+reference_exploit: null
+reference_fix_commit: null
+notes: CWE-326 true positive fixture for crypto/transport detection.

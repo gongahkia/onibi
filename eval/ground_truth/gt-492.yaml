@@ -1,0 +1,25 @@
+id: gt-492
+source_project: synthetic-phase39
+commit_hash: synthetic-no-commit
+cwe_id: CWE-1289
+cwe_name: PHP Type Juggling
+label: true_positive
+affected_files:
+- eval/fixtures/php/raw/type_juggling.php
+line_numbers:
+- 2
+taint_source: $_GET['token']
+taint_sink: loose comparison
+taint_path:
+- $_GET['token'] is attacker-controlled input.
+- The comparison uses ==, which triggers PHP type coercion.
+- The coerced value can satisfy a security gate unexpectedly.
+complexity: simple
+exploitable: true
+reference_exploit: GET /?token=abc can coerce into the loose == 0 check on older PHP runtimes.
+reference_fix_commit: null
+notes: Loose comparison against zero is a type-juggling anti-pattern.
+discovery_method: synthetic
+language: php
+framework: php
+taint_step_count: 3

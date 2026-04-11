@@ -1,0 +1,25 @@
+id: gt-497
+source_project: synthetic-phase39
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: false_positive
+affected_files:
+- eval/fixtures/php/laravel/controller_eloquent_safe.php
+line_numbers:
+- 3
+taint_source: $request->input('email')
+taint_sink: User::where()
+taint_path:
+- $request->input('email') is attacker-controlled.
+- Eloquent binds the email as a query parameter.
+- first() executes a parameterized ORM query rather than raw SQL.
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: Eloquent where() should be treated as a safe parameterized query path.
+discovery_method: synthetic
+language: php
+framework: laravel
+taint_step_count: 3

@@ -1,0 +1,19 @@
+id: gt-crypto-037
+source_project: piranesi-crypto-transport-fixtures
+commit_hash: '0000000000000000000000000000000000000000'
+cwe_id: CWE-295
+cwe_name: Improper certificate validation
+label: false_positive
+affected_files:
+- eval/synthetic/crypto_transport/cwe295_js_default_agent_safe.ts
+line_numbers:
+- 2
+taint_source: tls_config
+taint_sink: https.Agent({})
+taint_path:
+- https.Agent({}) (eval/synthetic/crypto_transport/cwe295_js_default_agent_safe.ts:2)
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: Default HTTPS agent should not trigger CWE-295.

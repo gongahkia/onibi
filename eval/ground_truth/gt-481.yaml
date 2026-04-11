@@ -1,0 +1,24 @@
+id: gt-481
+source_project: synthetic-phase40
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- tests/fixtures/ruby/rails_app/app/controllers/insecure_controller.rb
+line_numbers: [5]
+taint_source: params[:name]
+taint_sink: User.where()
+taint_path:
+- params[:name] is attacker-controlled request data
+- search interpolates params into a SQL fragment
+- User.where() executes the unsafe clause
+complexity: simple
+exploitable: true
+reference_exploit: GET /search?name=' OR 1=1 --
+reference_fix_commit: null
+notes: Rails SQL injection through string interpolation inside ActiveRecord where.
+discovery_method: synthetic
+language: ruby
+framework: rails
+taint_step_count: 3

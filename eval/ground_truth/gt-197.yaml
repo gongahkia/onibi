@@ -1,0 +1,31 @@
+id: gt-197
+source_project: serve-static
+commit_hash: 9b5a12a76f4d70530d2d2a8c7742e9158ed3c0a4
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe79-CVE-2024-43800-serve-static-redirect-template-vuln.ts
+line_numbers:
+- 21
+taint_source: req.query.path
+taint_sink: res.send()
+taint_path:
+- req.query.path enters renderDirectoryRedirect()
+- redirectBody() embeds the location into an anchor href
+- createHtmlDocument() returns HTML containing attacker-controlled markup
+- res.send(html) reflects the HTML to the browser
+complexity: inter
+exploitable: true
+reference_exploit: Use a path like `javascript:alert(1)` so the redirect body renders
+  a clickable executable URL.
+reference_fix_commit: 0c11fad159898cdc69fd9ab63269b72468ecaf6b
+notes: CVE-2024-43800 (GHSA-cm22-4g7w-348p). serve-static generated an HTML redirect
+  body with an attacker-controlled anchor element for directory redirects.
+cve_id: CVE-2024-43800
+ghsa_id: GHSA-cm22-4g7w-348p
+fix_commit: 0c11fad159898cdc69fd9ab63269b72468ecaf6b
+vulnerable_commit: 9b5a12a76f4d70530d2d2a8c7742e9158ed3c0a4
+discovery_method: cve_mining
+language: typescript
+taint_step_count: 3

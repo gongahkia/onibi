@@ -1,0 +1,25 @@
+id: gt-420
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/servlet/gt-420.java
+line_numbers:
+- 12
+taint_source: request.getParameter("file")
+taint_sink: Files.readString()
+taint_path:
+- request.getParameter("file") reads an attacker-controlled filename
+- the servlet appends file directly onto the export directory path
+- Files.readString(...) reads attacker-selected filesystem content
+complexity: simple
+exploitable: true
+reference_exploit: GET /download?file=../../etc/passwd
+reference_fix_commit: null
+notes: Servlet path traversal with direct request parameter flow to file access.
+discovery_method: synthetic
+language: java
+framework: servlet
+taint_step_count: 3

@@ -1,0 +1,21 @@
+id: gt-146
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-943
+cwe_name: NoSQL Injection
+label: true_positive
+affected_files:
+- eval/synthetic/nosqli-mongodb-findone.ts
+line_numbers:
+- 4
+taint_source: req.body.user
+taint_sink: users.findOne()
+taint_path:
+- req.body.user is copied into a Mongo query value
+- 'users.findOne({ user: req.body.user }) evaluates operator input'
+complexity: simple
+exploitable: true
+reference_exploit: Trigger users.findOne() with attacker-controlled input described
+  in req.body.user.
+reference_fix_commit: null
+notes: A JSON body field can carry Mongo operators like $ne or $gt.

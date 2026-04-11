@@ -1,0 +1,20 @@
+id: gt-fp-042
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-1336
+cwe_name: Server-Side Template Injection
+label: false_positive
+affected_files:
+- eval/synthetic/ssti-ejs-context-safe.ts
+line_numbers:
+- 4
+taint_source: req.body.name
+taint_sink: ejs.render()
+taint_path:
+- req.body.name is placed into template context only
+- 'ejs.render(staticTemplate, { name: req.body.name }) keeps template source static'
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: User data reaches the template context, not the template source.

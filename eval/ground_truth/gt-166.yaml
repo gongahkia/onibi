@@ -1,0 +1,21 @@
+id: gt-166
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-113
+cwe_name: HTTP Header Injection
+label: true_positive
+affected_files:
+- eval/synthetic/header-inj-setHeader.ts
+line_numbers:
+- 2
+taint_source: req.query.val
+taint_sink: res.setHeader()
+taint_path:
+- req.query.val flows into a response header value
+- res.setHeader("X-Custom", req.query.val) accepts attacker-controlled CRLF data
+complexity: simple
+exploitable: true
+reference_exploit: Trigger res.setHeader() with attacker-controlled input described
+  in req.query.val.
+reference_fix_commit: null
+notes: User input is written directly into a response header.

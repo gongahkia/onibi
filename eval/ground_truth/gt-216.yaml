@@ -1,0 +1,29 @@
+id: gt-216
+source_project: simple-git
+commit_hash: 2040de601c894363050fef9f28af367b169a56c5
+cwe_id: CWE-78
+cwe_name: OS Command Injection
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe78-CVE-2022-24066-simple-git-upload-pack-fixed.ts
+line_numbers:
+- 7
+taint_source: req.body.option
+taint_sink: shell.exec()
+taint_path:
+- req.body.option enters cloneMirror()
+- cloneTask() blocks disallowed clone options such as --upload-pack
+- shell.exec(command) only runs an allowlisted git clone command
+complexity: ctx
+exploitable: false
+reference_exploit: null
+reference_fix_commit: 2040de601c894363050fef9f28af367b169a56c5
+notes: Fixed variant for CVE-2022-24066 (GHSA-28xr-mwxg-3qc8). simple-git added explicit
+  argument blocking for options that can cause git clone to execute arbitrary commands.
+cve_id: CVE-2022-24066
+ghsa_id: GHSA-28xr-mwxg-3qc8
+fix_commit: 2040de601c894363050fef9f28af367b169a56c5
+vulnerable_commit: 9bf9baa54b9389e797992d717afdfc05dceaa524
+discovery_method: cve_mining
+language: typescript
+taint_step_count: 2

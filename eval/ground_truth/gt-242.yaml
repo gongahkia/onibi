@@ -1,0 +1,35 @@
+id: gt-242
+source_project: crypto-es
+commit_hash: d506677fae3d03a454b37ad126e0c119d416b757
+cwe_id: CWE-327
+cwe_name: Use of a Broken or Risky Cryptographic Algorithm
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe327-CVE-2023-46133-cryptoes-pbkdf2-safe.js
+line_numbers:
+- 12
+taint_source: user password material sent to PBKDF2
+taint_sink: 'CryptoES.PBKDF2(password, salt, { hasher: SHA256, iterations: 250000
+  })'
+taint_path:
+- the same password material still reaches PBKDF2
+- the caller now supplies a strong hasher and a large iteration count
+- the vulnerable default configuration is no longer used
+complexity: simple
+exploitable: false
+reference_exploit: Repeat the brute-force scenario; the explicit SHA256 plus high-iteration
+  settings remove the weak-default condition.
+reference_fix_commit: d506677fae3d03a454b37ad126e0c119d416b757
+notes: Fixed variant for CVE-2023-46133. Stronger explicit PBKDF2 parameters replace
+  the vulnerable defaults.
+cve_id: CVE-2023-46133
+ghsa_id: GHSA-mpj8-q39x-wq5h
+fix_commit: d506677fae3d03a454b37ad126e0c119d416b757
+vulnerable_commit: aa48d48413549addc06cd737a272466d5fc1b5e6
+discovery_method: cve_mining
+language: javascript
+framework: null
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2023-46133
+- https://github.com/advisories/GHSA-mpj8-q39x-wq5h
+- https://github.com/entronad/crypto-es/commit/d506677fae3d03a454b37ad126e0c119d416b757

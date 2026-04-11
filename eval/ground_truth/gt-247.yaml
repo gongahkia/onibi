@@ -1,0 +1,34 @@
+id: gt-247
+source_project: cwlviewer
+commit_hash: 7b8eb67642222b84da6425b1c6ebdf864aa779df
+cwe_id: CWE-502
+cwe_name: Deserialization of Untrusted Data
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe502-CVE-2021-41110-cwlviewer-yaml-vuln.java
+line_numbers:
+- 8
+taint_source: workflowText uploaded to the workflow viewer
+taint_sink: yaml.load(workflowText) with SnakeYAML Constructor
+taint_path:
+- user-controlled workflow YAML is submitted for parsing
+- WorkflowLoader builds SnakeYAML with Constructor(Object.class)
+- yaml.load() deserializes attacker-controlled objects during import
+complexity: simple
+exploitable: true
+reference_exploit: Upload a CWL document containing a SnakeYAML gadget so code executes
+  while parsing the workflow.
+reference_fix_commit: f6066f09edb70033a2ce80200e9fa9e70a5c29de
+notes: CVE-2021-41110 / GHSA-7g7j-f5g3-fqp7. cwlviewer before 1.3.1 used SnakeYAML
+  without SafeConstructor.
+cve_id: CVE-2021-41110
+ghsa_id: GHSA-7g7j-f5g3-fqp7
+fix_commit: f6066f09edb70033a2ce80200e9fa9e70a5c29de
+vulnerable_commit: 7b8eb67642222b84da6425b1c6ebdf864aa779df
+discovery_method: cve_mining
+language: java
+framework: java
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2021-41110
+- https://github.com/common-workflow-language/cwlviewer/security/advisories/GHSA-7g7j-f5g3-fqp7
+- https://github.com/common-workflow-language/cwlviewer/commit/f6066f09edb70033a2ce80200e9fa9e70a5c29de

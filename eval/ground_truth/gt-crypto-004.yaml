@@ -1,0 +1,19 @@
+id: gt-crypto-004
+source_project: piranesi-crypto-transport-fixtures
+commit_hash: '0000000000000000000000000000000000000000'
+cwe_id: CWE-327
+cwe_name: Broken or risky cryptographic algorithm
+label: true_positive
+affected_files:
+- eval/synthetic/crypto_transport/cwe327_py_des.py
+line_numbers:
+- 3
+taint_source: static_crypto_config
+taint_sink: DES.new
+taint_path:
+- DES.new(secret, DES.MODE_ECB) (eval/synthetic/crypto_transport/cwe327_py_des.py:3)
+complexity: simple
+exploitable: true
+reference_exploit: null
+reference_fix_commit: null
+notes: CWE-327 true positive fixture for crypto/transport detection.

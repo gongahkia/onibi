@@ -1,0 +1,29 @@
+id: gt-196
+source_project: knex
+commit_hash: e145322da92749be7749f9ade5b5f5a66d6586a4
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe89-CVE-2016-20018-knex-raw-bindings-fixed.ts
+line_numbers:
+- 21
+taint_source: req.body.login
+taint_sink: db.query()
+taint_path:
+- req.body.login enters findAccounts()
+- whereRaw() rejects object and array bindings
+- db.query(sql) only sees quoted scalar values
+complexity: inter
+exploitable: false
+reference_exploit: null
+reference_fix_commit: e145322da92749be7749f9ade5b5f5a66d6586a4
+notes: Fixed variant for CVE-2016-20018 (GHSA-4jv9-3563-23j3). The MySQL compiler
+  fix added guards so object and array values cannot flow into raw where bindings.
+cve_id: CVE-2016-20018
+ghsa_id: GHSA-4jv9-3563-23j3
+fix_commit: e145322da92749be7749f9ade5b5f5a66d6586a4
+vulnerable_commit: 962bb0a635ed40a240021379521814b5bd36d438
+discovery_method: cve_mining
+language: typescript
+taint_step_count: 2

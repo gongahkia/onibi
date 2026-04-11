@@ -1,0 +1,21 @@
+id: gt-148
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-943
+cwe_name: NoSQL Injection
+label: true_positive
+affected_files:
+- eval/synthetic/nosqli-regex-user.ts
+line_numbers:
+- 3
+taint_source: req.query.q
+taint_sink: users.find()
+taint_path:
+- req.query.q flows into a $regex operator
+- 'users.find({ name: { $regex: ... } }) evaluates attacker-controlled regex content'
+complexity: simple
+exploitable: true
+reference_exploit: Trigger users.find() with attacker-controlled input described in
+  req.query.q.
+reference_fix_commit: null
+notes: User input is placed directly into a Mongo $regex operator.

@@ -1,0 +1,20 @@
+id: gt-fp-045
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-1333
+cwe_name: Regular Expression Denial of Service
+label: false_positive
+affected_files:
+- eval/synthetic/redos-safe-regex.ts
+line_numbers:
+- 1
+taint_source: regex literal
+taint_sink: regex engine
+taint_path:
+- A simple linear-time regex literal is defined
+- The regex does not contain nested or overlapping quantified branches
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: This regex is linear time and should not be flagged as ReDoS.

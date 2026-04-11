@@ -1,0 +1,28 @@
+id: gt-300
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+affected_files:
+- eval/synthetic/phase29/django/gt-300/services.py
+- eval/synthetic/phase29/django/gt-300/views.py
+line_numbers:
+- 14
+taint_source: request.GET["doc"]
+taint_sink: open()
+taint_path:
+- request.GET["doc"] is trimmed before partial cleanup
+- scrub_name() removes null bytes but not traversal tokens
+- build_path() joins the attacker-controlled segment onto the docs root
+- open(full_path) reads the attacker-controlled path
+complexity: multi_step
+exploitable: true
+reference_exploit: Pass doc=../../../../etc/passwd to read a file outside the docs
+  directory.
+reference_fix_commit: null
+notes: Django multi-step path traversal through open() after incomplete cleanup.
+discovery_method: synthetic
+language: python
+framework: django
+taint_step_count: 4

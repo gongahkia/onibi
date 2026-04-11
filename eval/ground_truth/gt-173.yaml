@@ -1,0 +1,22 @@
+id: gt-173
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-917
+cwe_name: Expression Language Injection
+label: true_positive
+affected_files:
+- eval/synthetic/eli-jakarta-el.java
+line_numbers:
+- 6
+taint_source: request.getParameter("expr")
+taint_sink: factory.createValueExpression()
+taint_path:
+- request.getParameter("expr") is concatenated into EL source
+- factory.createValueExpression(ctx, "${" + input + "}", ...) evaluates attacker-controlled
+  EL
+complexity: simple
+exploitable: true
+reference_exploit: Trigger factory.createValueExpression() with attacker-controlled
+  input described in request.getParameter("expr").
+reference_fix_commit: null
+notes: Jakarta EL expression source is attacker-controlled.

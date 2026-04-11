@@ -1,0 +1,27 @@
+id: gt-318
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-78
+cwe_name: Command Injection
+label: true_positive
+affected_files:
+- eval/fixtures/python/flask/gt-318/app.py
+line_numbers:
+- 7
+taint_source: request.headers.get("X-Interface")
+taint_sink: subprocess.run()
+taint_path:
+- request.headers.get("X-Interface") accepts attacker input in a header
+- diag() forwards the header value into inspect_iface()
+- inspect_iface() turns the value into shell syntax
+- subprocess.run(..., shell=True) executes the injected command
+complexity: inter
+exploitable: true
+reference_exploit: 'Send X-Interface: eth0;uname -a to execute a second command.'
+reference_fix_commit: null
+notes: Flask command injection via a tainted header passed into subprocess.run with
+  shell=True.
+discovery_method: synthetic
+language: python
+framework: flask
+taint_step_count: 4

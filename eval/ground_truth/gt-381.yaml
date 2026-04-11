@@ -1,0 +1,25 @@
+id: gt-381
+source_project: synthetic-phase30-go
+commit_hash: synthetic-no-commit
+cwe_id: CWE-306
+cwe_name: Missing Authentication for Critical Function
+label: true_positive
+affected_files:
+- eval/fixtures/go/chi/gt-381/main.go
+line_numbers:
+- 21
+taint_source: unauthenticated POST request to /admin/keys/rotate
+taint_sink: r.Mount("/admin", adminRoutes())
+taint_path:
+- The attacker reaches /admin/keys/rotate through the mounted subrouter.
+- adminRoutes() defines the sensitive handler with no auth middleware.
+- r.Mount("/admin", adminRoutes()) exposes the admin subtree without protection.
+complexity: ctx
+exploitable: true
+reference_exploit: Send POST /admin/keys/rotate without authentication.
+reference_fix_commit: null
+notes: Chi mounts an admin subrouter but never wraps it with authentication.
+discovery_method: synthetic
+language: go
+framework: chi
+taint_step_count: 3

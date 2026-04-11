@@ -1,0 +1,33 @@
+id: gt-270
+source_project: JHipster
+commit_hash: 88448b85fd3e8e49df103f0061359037c2c68ea7
+cwe_id: CWE-338
+cwe_name: Use of Cryptographically Weak Pseudo-Random Number Generator
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe338-CVE-2019-16303-jhipster-resetkey-safe.java
+line_numbers:
+- 11
+taint_source: password reset flow requesting a new reset key
+taint_sink: SecureRandom-backed key generation loop
+taint_path:
+- the reset flow still needs a new secret key
+- ResetKeys.newResetKey() now samples characters with SecureRandom
+- the reset key is no longer derived from the weak commons-lang generator
+complexity: simple
+exploitable: false
+reference_exploit: Retry the reset-key prediction attack; SecureRandom removes the
+  weak PRNG dependency.
+reference_fix_commit: 88448b85fd3e8e49df103f0061359037c2c68ea7
+notes: Fixed variant for CVE-2019-16303. Password reset keys are generated from SecureRandom.
+cve_id: CVE-2019-16303
+ghsa_id: GHSA-mwp6-j9wf-968c
+fix_commit: 88448b85fd3e8e49df103f0061359037c2c68ea7
+vulnerable_commit: b22fb1dd31646561243812fb1ae51becaf0317e4
+discovery_method: cve_mining
+language: java
+framework: spring
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2019-16303
+- https://github.com/advisories/GHSA-mwp6-j9wf-968c
+- https://github.com/jhipster/generator-jhipster/commit/88448b85fd3e8e49df103f0061359037c2c68ea7

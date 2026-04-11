@@ -1,0 +1,19 @@
+id: gt-crypto-030
+source_project: piranesi-crypto-transport-fixtures
+commit_hash: '0000000000000000000000000000000000000000'
+cwe_id: CWE-326
+cwe_name: Inadequate encryption strength
+label: false_positive
+affected_files:
+- eval/synthetic/crypto_transport/cwe326_js_ec_p256_safe.ts
+line_numbers:
+- 2
+taint_source: keygen
+taint_sink: generateKeyPairSync(ec, prime256v1)
+taint_path:
+- 'namedCurve: "prime256v1" (eval/synthetic/crypto_transport/cwe326_js_ec_p256_safe.ts:2)'
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: P-256 strength should not trigger CWE-326.

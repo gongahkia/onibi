@@ -1,0 +1,27 @@
+id: gt-480
+source_project: synthetic-phase31
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+field_sensitive_label: true_positive
+affected_files:
+- eval/synthetic/field-user-email-sqli.ts
+line_numbers:
+- 7
+taint_source: req.body
+taint_sink: db.query()
+taint_field_path: body.user.email
+taint_path:
+- req.body contains a nested user object
+- property access narrows the flow to user.email
+- db.query() receives the nested field
+complexity: multi_step
+exploitable: true
+reference_exploit: POST /field-user-email with user.email=' OR 1=1 -- injects SQL.
+reference_fix_commit: null
+notes: Nested property reads must preserve the full field path.
+discovery_method: synthetic
+language: typescript
+framework: express
+taint_step_count: 3

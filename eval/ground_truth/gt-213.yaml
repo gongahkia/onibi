@@ -1,0 +1,30 @@
+id: gt-213
+source_project: bestzip
+commit_hash: fcea252e52b6078eff6caf5531bd32c53fccb59f
+cwe_id: CWE-78
+cwe_name: OS Command Injection
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe78-CVE-2020-7730-bestzip-native-zip-vuln.ts
+line_numbers:
+- 11
+taint_source: req.body.source
+taint_sink: shell.exec()
+taint_path:
+- req.body.source enters archive()
+- nativeZip() concatenates destination and source into one shell command string
+- shell.exec(command) executes the combined string under a shell
+complexity: inter
+exploitable: true
+reference_exploit: 'Use a source like `docs; touch /tmp/pwned #` so the injected shell
+  fragment runs after zip.'
+reference_fix_commit: 45d4a901478c6a8f396c8b959dd6cf8fd3f955b6
+notes: CVE-2020-7730 (GHSA-6xv6-jpvw-cx6q). bestzip fixed the issue by switching from
+  exec(commandString) to spawn(command, args).
+cve_id: CVE-2020-7730
+ghsa_id: GHSA-6xv6-jpvw-cx6q
+fix_commit: 45d4a901478c6a8f396c8b959dd6cf8fd3f955b6
+vulnerable_commit: fcea252e52b6078eff6caf5531bd32c53fccb59f
+discovery_method: cve_mining
+language: typescript
+taint_step_count: 2

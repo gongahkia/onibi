@@ -1,0 +1,28 @@
+id: gt-454
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery (SSRF)
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-454.java
+line_numbers:
+- 20
+taint_source: '@RequestParam String url'
+taint_sink: RestTemplate.getForObject()
+taint_path:
+- the attacker stores a webhook URL through the add() endpoint
+- the application persists the attacker-controlled URL for later delivery
+- triggerAll() loads the stored URL from the webhook list
+- RestTemplate.getForObject(url, String.class) performs a server-side request to the
+  stored attacker URL
+complexity: multi_step
+exploitable: true
+reference_exploit: Store http://169.254.169.254/latest/meta-data/ as a webhook URL
+  and wait for the scheduled trigger.
+reference_fix_commit: null
+notes: Second-order SSRF through stored webhook destinations.
+discovery_method: synthetic
+language: java
+framework: spring-boot
+taint_step_count: 4

@@ -1,0 +1,25 @@
+id: gt-417
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/servlet/gt-417.java
+line_numbers:
+- 16
+taint_source: request.getParameter("id")
+taint_sink: Statement.executeQuery()
+taint_path:
+- request.getParameter("id") reads attacker-controlled input from the query string
+- the servlet concatenates id into a SQL statement
+- Statement.executeQuery(...) executes the attacker-controlled SQL
+complexity: simple
+exploitable: true
+reference_exploit: GET /user?id=' OR '1'='1
+reference_fix_commit: null
+notes: Servlet SQL injection with a direct request.getParameter() to JDBC sink.
+discovery_method: synthetic
+language: java
+framework: servlet
+taint_step_count: 3

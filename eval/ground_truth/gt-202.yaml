@@ -1,0 +1,29 @@
+id: gt-202
+source_project: serialize-javascript
+commit_hash: f27d65d3de42affe2aac14607066c293891cec4e
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe79-CVE-2024-11831-serialize-javascript-url-fixed.ts
+line_numbers:
+- 12
+taint_source: req.query.next
+taint_sink: res.send()
+taint_path:
+- req.query.next enters renderBootstrap()
+- serializeUrl() serializes the URL string with JSON quoting
+- res.send(script) emits a quoted JavaScript literal
+complexity: inter
+exploitable: false
+reference_exploit: null
+reference_fix_commit: f27d65d3de42affe2aac14607066c293891cec4e
+notes: Fixed variant for CVE-2024-11831 (GHSA-76p7-773f-r4q5). serialize-javascript
+  treated URL objects as raw string contents when generating bootstrap JavaScript.
+cve_id: CVE-2024-11831
+ghsa_id: GHSA-76p7-773f-r4q5
+fix_commit: f27d65d3de42affe2aac14607066c293891cec4e
+vulnerable_commit: 02499c0adfb40f48e1ebdcbe6fffc83b162b95e9
+discovery_method: cve_mining
+language: typescript
+taint_step_count: 2

@@ -1,0 +1,21 @@
+id: gt-157
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-1333
+cwe_name: Regular Expression Denial of Service
+label: true_positive
+affected_files:
+- eval/synthetic/redos-overlapping-alt.ts
+line_numbers:
+- 2
+taint_source: regex literal
+taint_sink: regex engine
+taint_path:
+- A quantified regex contains overlapping optional branches
+- The backtracking engine can revisit the same prefixes exponentially
+complexity: simple
+exploitable: true
+reference_exploit: Trigger regex engine with attacker-controlled input described in
+  regex literal.
+reference_fix_commit: null
+notes: Overlapping quantified regex pattern.

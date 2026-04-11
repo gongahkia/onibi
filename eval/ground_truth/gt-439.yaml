@@ -1,0 +1,28 @@
+id: gt-439
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-362
+cwe_name: Concurrent Execution using Shared Resource with Improper Synchronization
+  ('Race Condition')
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-439.py
+line_numbers:
+- 9
+taint_source: request.form["code"]
+taint_sink: invites[code] = remaining - 1
+taint_path:
+- request.form["code"] selects an attacker-controlled invite counter
+- claim_invite() reads the shared remaining count without locking
+- concurrent requests can both observe remaining > 0 before either write occurs
+- the shared counter write uses a stale value and allows over-redemption
+complexity: ctx
+exploitable: true
+reference_exploit: Send two concurrent POST requests with code=alpha while only one
+  invite remains.
+reference_fix_commit: null
+notes: Python race condition on a shared invite counter.
+discovery_method: synthetic
+language: python
+framework: flask
+taint_step_count: 4

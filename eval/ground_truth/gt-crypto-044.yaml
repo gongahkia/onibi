@@ -1,0 +1,19 @@
+id: gt-crypto-044
+source_project: piranesi-crypto-transport-fixtures
+commit_hash: '0000000000000000000000000000000000000000'
+cwe_id: CWE-338
+cwe_name: Weak pseudo-random number generator
+label: false_positive
+affected_files:
+- eval/synthetic/crypto_transport/cwe338_java_secure_random_safe.java
+line_numbers:
+- 4
+taint_source: secure_rng
+taint_sink: new SecureRandom()
+taint_path:
+- new SecureRandom() (eval/synthetic/crypto_transport/cwe338_java_secure_random_safe.java:4)
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: SecureRandom should not trigger CWE-338.

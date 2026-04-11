@@ -1,0 +1,2 @@
+import random
+password = random.randint(100000, 999999)

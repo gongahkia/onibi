@@ -1,0 +1,27 @@
+id: gt-473
+source_project: synthetic-phase31
+commit_hash: synthetic-no-commit
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery
+label: true_positive
+field_sensitive_label: false_positive
+affected_files:
+- eval/synthetic/field-body-url-allowlist.ts
+line_numbers:
+- 7
+taint_source: req.body
+taint_sink: fetch()
+taint_field_path: body.url
+taint_path:
+- req.body.url is attacker-controlled
+- allowlistUrl() constrains the destination
+- fetch() receives the allowlisted URL
+complexity: multi_step
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: Field-sensitive pruning should keep only unsafe URL fields and drop the allowlisted one.
+discovery_method: synthetic
+language: typescript
+framework: express
+taint_step_count: 3

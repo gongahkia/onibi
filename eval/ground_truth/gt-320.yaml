@@ -1,0 +1,27 @@
+id: gt-320
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery
+label: true_positive
+affected_files:
+- eval/fixtures/python/flask/gt-320/app.py
+line_numbers:
+- 7
+taint_source: request.form["endpoint"]
+taint_sink: requests.get()
+taint_path:
+- request.form["endpoint"] loads a remote URL from the POST body
+- profile() passes the URL into load_profile()
+- requests.get() issues the server-side request without origin checks
+complexity: inter
+exploitable: true
+reference_exploit: POST endpoint=http://127.0.0.1:8000/admin probes internal services
+  from the Flask host.
+reference_fix_commit: null
+notes: Flask SSRF through a helper that calls requests.get on attacker-provided form
+  data.
+discovery_method: synthetic
+language: python
+framework: flask
+taint_step_count: 3

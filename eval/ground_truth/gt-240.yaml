@@ -1,0 +1,35 @@
+id: gt-240
+source_project: crypto-js
+commit_hash: 421dd538b2d34e7c24a5b72cc64dc2b9167db40a
+cwe_id: CWE-327
+cwe_name: Use of a Broken or Risky Cryptographic Algorithm
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe327-CVE-2023-46233-cryptojs-pbkdf2-safe.js
+line_numbers:
+- 12
+taint_source: user password material sent to PBKDF2
+taint_sink: 'CryptoJS.PBKDF2(password, salt, { hasher: SHA256, iterations: 250000
+  })'
+taint_path:
+- password input still reaches PBKDF2
+- the caller now overrides the weak defaults with SHA256 and a high iteration count
+- the derived value is no longer generated with the vulnerable configuration
+complexity: simple
+exploitable: false
+reference_exploit: Repeat the offline cracking scenario; the strengthened PBKDF2 settings
+  remove the weak-default issue.
+reference_fix_commit: 421dd538b2d34e7c24a5b72cc64dc2b9167db40a
+notes: Fixed variant for CVE-2023-46233. The patched configuration avoids SHA1 and
+  one-iteration PBKDF2.
+cve_id: CVE-2023-46233
+ghsa_id: GHSA-xwcq-pm8m-c4vf
+fix_commit: 421dd538b2d34e7c24a5b72cc64dc2b9167db40a
+vulnerable_commit: d1f4f4daec4f053be3eea4f6233d1d05ccec22fa
+discovery_method: cve_mining
+language: javascript
+framework: null
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2023-46233
+- https://github.com/advisories/GHSA-xwcq-pm8m-c4vf
+- https://github.com/brix/crypto-js/commit/421dd538b2d34e7c24a5b72cc64dc2b9167db40a

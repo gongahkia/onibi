@@ -1,0 +1,27 @@
+id: gt-309
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/fixtures/python/flask/gt-309/app.py
+line_numbers:
+- 15
+taint_source: request.args.get("sort")
+taint_sink: cursor.execute()
+taint_path:
+- request.args.get("sort") reads an attacker-chosen sort key
+- build_clause() turns the untrusted value into SQL syntax
+- reports() appends the clause onto the query text
+- cursor.execute() runs the modified statement
+complexity: inter
+exploitable: true
+reference_exploit: GET /reports?sort=id DESC, (SELECT sql FROM sqlite_master LIMIT
+  1) leaks schema text through ORDER BY injection.
+reference_fix_commit: null
+notes: Flask SQL injection in an ORDER BY clause built from request.args data.
+discovery_method: synthetic
+language: python
+framework: flask
+taint_step_count: 4

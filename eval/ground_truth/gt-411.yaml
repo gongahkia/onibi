@@ -1,0 +1,26 @@
+id: gt-411
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery (SSRF)
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/spring/gt-411.java
+line_numbers:
+- 14
+taint_source: '@RequestParam String callbackUrl'
+taint_sink: RestTemplate.postForEntity()
+taint_path:
+- '@RequestParam binds the attacker-controlled callback URL'
+- the controller uses that URL as the postForEntity destination without validation
+- RestTemplate.postForEntity() sends a server-side request to the attacker-selected
+  endpoint
+complexity: simple
+exploitable: true
+reference_exploit: POST /callback?callbackUrl=http://169.254.169.254/latest/user-data
+reference_fix_commit: null
+notes: Spring Boot SSRF through RestTemplate.postForEntity().
+discovery_method: synthetic
+language: java
+framework: spring-boot
+taint_step_count: 3

@@ -1,0 +1,28 @@
+id: gt-453
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-1336
+cwe_name: Improper Neutralization of Special Elements Used in a Template Engine
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-453.py
+line_numbers:
+- 10
+taint_source: request.form["body"]
+taint_sink: render_template_string()
+taint_path:
+- the attacker stores a template body through save_template()
+- the application persists the attacker-controlled template for later rendering
+- render(name) retrieves the stored template body by name
+- render_template_string(...) executes the stored attacker-controlled template
+complexity: multi_step
+exploitable: true
+reference_exploit: Store body={{ cycler.__init__.__globals__.os.popen("id").read()
+  }} and later request /render/<name>.
+reference_fix_commit: null
+notes: Second-order template injection through later rendering of stored template
+  text.
+discovery_method: synthetic
+language: python
+framework: flask
+taint_step_count: 4

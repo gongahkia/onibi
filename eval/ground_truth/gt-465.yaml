@@ -1,0 +1,27 @@
+id: gt-465
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-208
+cwe_name: Observable Timing Discrepancy
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-465.ts
+line_numbers:
+- 4
+taint_source: req.headers["x-signature"]
+taint_sink: === equality on the secret signature
+taint_path:
+- req.headers["x-signature"] supplies an attacker-controlled signature guess
+- authorize() loads the expected secret from process configuration
+- the === comparison leaks timing information because matching prefixes take longer
+  to compare
+complexity: ctx
+exploitable: true
+reference_exploit: Send many webhook requests with progressively refined signature
+  guesses and compare response times.
+reference_fix_commit: null
+notes: TypeScript timing leak from direct secret comparison in webhook auth.
+discovery_method: synthetic
+language: typescript
+framework: express
+taint_step_count: 3

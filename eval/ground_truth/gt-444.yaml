@@ -1,0 +1,27 @@
+id: gt-444
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-840
+cwe_name: Business Logic Errors
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-444.py
+line_numbers:
+- 5
+taint_source: request.form["amount"]
+taint_sink: wallet.credit()
+taint_path:
+- request.form["amount"] carries the attacker-controlled refund amount
+- refund() trusts the client value instead of looking up the original charge amount
+- wallet.credit(amount) applies the attacker-controlled refund to the account balance
+complexity: ctx
+exploitable: true
+reference_exploit: POST amount=5000 to claim an arbitrary refund larger than the original
+  purchase.
+reference_fix_commit: null
+notes: Python business logic flaw where refund amounts are taken directly from the
+  client.
+discovery_method: synthetic
+language: python
+framework: flask
+taint_step_count: 3

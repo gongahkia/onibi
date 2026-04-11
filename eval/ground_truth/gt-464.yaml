@@ -1,0 +1,26 @@
+id: gt-464
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-208
+cwe_name: Observable Timing Discrepancy
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-464.py
+line_numbers:
+- 4
+taint_source: provided argument
+taint_sink: string equality with ==
+taint_path:
+- the provided argument carries an attacker-controlled HMAC guess
+- verify() compares the guess against the expected secret using ==
+- the equality check returns on the first mismatch and leaks timing information
+complexity: ctx
+exploitable: true
+reference_exploit: Time repeated calls to infer the expected signature one character
+  at a time instead of using hmac.compare_digest().
+reference_fix_commit: null
+notes: Python timing leak from non-constant-time secret comparison.
+discovery_method: synthetic
+language: python
+framework: python
+taint_step_count: 3

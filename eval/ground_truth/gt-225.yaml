@@ -1,0 +1,30 @@
+id: gt-225
+source_project: node-tar
+commit_hash: 394ece6ad8d81742a4e4058af227c616cd947a25
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe22-CVE-2026-24842-node-tar-hardlink-vuln.ts
+line_numbers:
+- 22
+taint_source: req.body.linkpath
+taint_sink: archive.link()
+taint_path:
+- req.body.linkpath enters unpack()
+- checkPath() rejects `..` only for entry.path and not hard-link targets
+- archive.link(linkpath) accepts a target outside the extraction root
+complexity: ctx
+exploitable: true
+reference_exploit: Use a hard-link entry whose linkpath is `../outside/secret.txt`
+  to escape the extraction directory.
+reference_fix_commit: f4a7aa9bc3d717c987fdf1480ff7a64e87ffdb46
+notes: CVE-2026-24842 (GHSA-34x7-hfp2-rc4v). node-tar tightened the `..` check so
+  hard-link targets are treated like regular paths during unpack.
+cve_id: CVE-2026-24842
+ghsa_id: GHSA-34x7-hfp2-rc4v
+fix_commit: f4a7aa9bc3d717c987fdf1480ff7a64e87ffdb46
+vulnerable_commit: 394ece6ad8d81742a4e4058af227c616cd947a25
+discovery_method: cve_mining
+language: typescript
+taint_step_count: 2

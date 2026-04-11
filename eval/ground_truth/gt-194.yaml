@@ -1,0 +1,29 @@
+id: gt-194
+source_project: sequelize
+commit_hash: f93af43a1d86400487f5e3d9762f1a4b7cf6b1e1
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe89-CVE-2016-1000225-sequelize-geometry-stringify-fixed.ts
+line_numbers:
+- 17
+taint_source: req.body.geometry
+taint_sink: db.query()
+taint_path:
+- req.body.geometry enters insertPlace()
+- geometryValue() escapes the JSON literal first
+- db.query(sql) receives an escaped geometry value
+complexity: inter
+exploitable: false
+reference_exploit: null
+reference_fix_commit: f93af43a1d86400487f5e3d9762f1a4b7cf6b1e1
+notes: Fixed variant for CVE-2016-1000225 (GHSA-5v9h-q3gj-c32x). The Postgres GEOMETRY/GEOGRAPHY
+  stringifier built SQL function calls by concatenating raw JSON into a quoted literal.
+cve_id: CVE-2016-1000225
+ghsa_id: GHSA-5v9h-q3gj-c32x
+fix_commit: f93af43a1d86400487f5e3d9762f1a4b7cf6b1e1
+vulnerable_commit: 57c8a727f622f272053b8a451e821c18df31bb7a
+discovery_method: cve_mining
+language: typescript
+taint_step_count: 2

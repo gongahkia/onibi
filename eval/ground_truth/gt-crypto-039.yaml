@@ -1,0 +1,19 @@
+id: gt-crypto-039
+source_project: piranesi-crypto-transport-fixtures
+commit_hash: '0000000000000000000000000000000000000000'
+cwe_id: CWE-338
+cwe_name: Weak pseudo-random number generator
+label: true_positive
+affected_files:
+- eval/synthetic/crypto_transport/cwe338_js_flow.ts
+line_numbers:
+- 2
+taint_source: Math.random()
+taint_sink: resetToken = String(seed)
+taint_path:
+- resetToken = String(seed) (eval/synthetic/crypto_transport/cwe338_js_flow.ts:2)
+complexity: ctx
+exploitable: true
+reference_exploit: null
+reference_fix_commit: null
+notes: CWE-338 true positive fixture for crypto/transport detection.

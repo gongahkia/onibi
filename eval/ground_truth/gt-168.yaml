@@ -1,0 +1,21 @@
+id: gt-168
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-113
+cwe_name: HTTP Header Injection
+label: true_positive
+affected_files:
+- eval/synthetic/header-inj-django.py
+line_numbers:
+- 5
+taint_source: request.GET["val"]
+taint_sink: response["X-Custom"]
+taint_path:
+- request.GET["val"] becomes a response header value
+- response["X-Custom"] = request.GET["val"] writes attacker-controlled header content
+complexity: simple
+exploitable: true
+reference_exploit: Trigger response["X-Custom"] with attacker-controlled input described
+  in request.GET["val"].
+reference_fix_commit: null
+notes: Django response header is set from unstripped user input.

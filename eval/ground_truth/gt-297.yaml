@@ -1,0 +1,28 @@
+id: gt-297
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/synthetic/phase29/django/gt-297/repo.py
+- eval/synthetic/phase29/django/gt-297/services.py
+- eval/synthetic/phase29/django/gt-297/views.py
+line_numbers:
+- 9
+taint_source: request.GET["name"]
+taint_sink: User.objects.raw()
+taint_path:
+- request.GET["name"] is forwarded into the Django service layer
+- normalize_name() trims the query value before forwarding it again
+- run_raw_lookup() interpolates the normalized value into raw SQL
+- User.objects.raw(query) executes the attacker-controlled SQL
+complexity: cross_module
+exploitable: true
+reference_exploit: Pass name=%' OR 1=1 -- in the query string to control the raw SQL.
+reference_fix_commit: null
+notes: Django cross-module SQLi using request.GET and User.objects.raw().
+discovery_method: synthetic
+language: python
+framework: django
+taint_step_count: 4

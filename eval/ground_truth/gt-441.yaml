@@ -1,0 +1,28 @@
+id: gt-441
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-362
+cwe_name: Concurrent Execution using Shared Resource with Improper Synchronization
+  ('Race Condition')
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-441.go
+line_numbers:
+- 12
+taint_source: r.URL.Query().Get("path")
+taint_sink: os.Remove()
+taint_path:
+- r.URL.Query().Get("path") selects the attacker-controlled filesystem target
+- os.Stat(path) checks the file before any synchronization or handle pinning
+- a concurrent attacker can swap the checked file for a more sensitive path
+- os.Remove(path) acts on the stale result and deletes the attacker-swapped target
+complexity: ctx
+exploitable: true
+reference_exploit: Replace the checked world-writable file with a symlink before os.Remove()
+  executes.
+reference_fix_commit: null
+notes: Go TOCTOU delete race between a permission check and a later remove.
+discovery_method: synthetic
+language: go
+framework: go
+taint_step_count: 4

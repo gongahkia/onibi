@@ -1,0 +1,30 @@
+id: gt-289
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-78
+cwe_name: OS Command Injection
+label: true_positive
+affected_files:
+- eval/synthetic/phase29/nestjs/gt-289/controller.ts
+- eval/synthetic/phase29/nestjs/gt-289/service.ts
+- eval/synthetic/phase29/nestjs/gt-289/shell.ts
+line_numbers:
+- 7
+taint_source: '@Headers("x-command")'
+taint_sink: exec()
+taint_path:
+- '@Headers("x-command") provides attacker-controlled text to the controller'
+- CommandService.runProbe() trims and embeds the header value into a shell fragment
+- ShellRunner.run() receives the composed command string
+- exec(command) executes the attacker-controlled shell fragment
+complexity: cross_module
+exploitable: true
+reference_exploit: Send x-command as 127.0.0.1; id so the shell runner executes a
+  second command.
+reference_fix_commit: null
+notes: NestJS header-based command injection across controller, service, and runner
+  modules.
+discovery_method: synthetic
+language: typescript
+framework: nestjs
+taint_step_count: 4

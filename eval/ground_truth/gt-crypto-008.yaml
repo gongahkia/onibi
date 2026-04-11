@@ -1,0 +1,19 @@
+id: gt-crypto-008
+source_project: piranesi-crypto-transport-fixtures
+commit_hash: '0000000000000000000000000000000000000000'
+cwe_id: CWE-327
+cwe_name: Broken or risky cryptographic algorithm
+label: false_positive
+affected_files:
+- eval/synthetic/crypto_transport/cwe327_py_aes_gcm_safe.py
+line_numbers:
+- 3
+taint_source: static_crypto_config
+taint_sink: AESGCM(key)
+taint_path:
+- AESGCM(key) (eval/synthetic/crypto_transport/cwe327_py_aes_gcm_safe.py:3)
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: Safe AES-GCM primitive should not trigger CWE-327.

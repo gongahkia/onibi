@@ -1,0 +1,34 @@
+id: gt-243
+source_project: Opencast
+commit_hash: 22188197be11f7c6b694647b0d23d83042b45755
+cwe_id: CWE-327
+cwe_name: Use of a Broken or Risky Cryptographic Algorithm
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe327-CVE-2020-5229-opencast-md5-password-vuln.java
+line_numbers:
+- 7
+taint_source: raw user password passed into the password encoder
+taint_sink: MessageDigest.getInstance("MD5")
+taint_path:
+- the encoder receives username and password as raw inputs
+- it uses MD5 for hashing and salts with the predictable username value
+- the resulting password digest is weak against offline cracking
+complexity: simple
+exploitable: true
+reference_exploit: Crack database password hashes faster because the encoder uses
+  MD5 and predictable salts.
+reference_fix_commit: 32bfbe5f78e214e2d589f92050228b91d704758e
+notes: CVE-2020-5229 / GHSA-h362-m8f2-5x7c. Opencast before 8.1 stored passwords with
+  salted MD5 instead of bcrypt.
+cve_id: CVE-2020-5229
+ghsa_id: GHSA-h362-m8f2-5x7c
+fix_commit: 32bfbe5f78e214e2d589f92050228b91d704758e
+vulnerable_commit: 22188197be11f7c6b694647b0d23d83042b45755
+discovery_method: cve_mining
+language: java
+framework: spring
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2020-5229
+- https://github.com/advisories/GHSA-h362-m8f2-5x7c
+- https://github.com/opencast/opencast/commit/32bfbe5f78e214e2d589f92050228b91d704758e

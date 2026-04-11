@@ -1,0 +1,35 @@
+id: gt-276
+source_project: Dogtag PKI
+commit_hash: 50c23ec146ee9abf28c9de87a5f7787d495f0b72
+cwe_id: CWE-295
+cwe_name: Improper Certificate Validation
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe295-CVE-2020-15720-dogtag-pki-verify-false-safe.py
+line_numbers:
+- 5
+taint_source: administrator-supplied remote PKI endpoint URL and request payload
+taint_sink: requests.post(..., verify="/etc/pki/ca.crt")
+taint_path:
+- the client still prepares the same outbound HTTPS request
+- submit() now points requests at a trusted CA bundle
+- the connection fails if the server certificate cannot be validated against that
+  trust anchor
+complexity: simple
+exploitable: false
+reference_exploit: Retry the MITM certificate; requests rejects the forged peer when
+  verify points to a trusted CA bundle.
+reference_fix_commit: 50c23ec146ee9abf28c9de87a5f7787d495f0b72
+notes: Fixed variant for CVE-2020-15720. The client no longer hard-codes verify=False
+  for requests.
+cve_id: CVE-2020-15720
+ghsa_id: null
+fix_commit: 50c23ec146ee9abf28c9de87a5f7787d495f0b72
+vulnerable_commit: e39d5978db53553a12dd43afd8b38dfadd4f1cec
+discovery_method: cve_mining
+language: python
+framework: python
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2020-15720
+- https://github.com/dogtagpki/pki/commit/50c23ec146ee9abf28c9de87a5f7787d495f0b72
+- https://github.com/dogtagpki/pki/compare/v10.9.0-a2...v10.9.0-b1

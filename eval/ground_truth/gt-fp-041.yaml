@@ -1,0 +1,20 @@
+id: gt-fp-041
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-943
+cwe_name: NoSQL Injection
+label: false_positive
+affected_files:
+- eval/synthetic/nosqli-schema-validated.ts
+line_numbers:
+- 4
+taint_source: req.body
+taint_sink: User.find()
+taint_path:
+- req.body passes through schema validation before it is used as a filter
+- User.find(schema.parse(req.body)) receives validated shape data
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: Schema validation constrains the request shape before query execution.

@@ -1,0 +1,29 @@
+id: gt-301
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery
+label: true_positive
+affected_files:
+- eval/synthetic/phase29/django/gt-301/client.py
+- eval/synthetic/phase29/django/gt-301/services.py
+- eval/synthetic/phase29/django/gt-301/views.py
+line_numbers:
+- 4
+taint_source: request.GET["url"]
+taint_sink: requests.get()
+taint_path:
+- request.GET["url"] is forwarded from the view into the proxy service
+- normalize_url() trims and stringifies the input
+- fetch_remote() receives the normalized endpoint string
+- requests.get(endpoint) performs the attacker-controlled outbound request
+complexity: cross_module
+exploitable: true
+reference_exploit: Pass url=http://169.254.169.254/latest/meta-data/ in the query
+  string.
+reference_fix_commit: null
+notes: Django SSRF across a view, URL normalizer, and requests client helper.
+discovery_method: synthetic
+language: python
+framework: django
+taint_step_count: 4

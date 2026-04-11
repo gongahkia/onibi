@@ -1,0 +1,26 @@
+id: gt-470
+source_project: synthetic-phase31
+commit_hash: synthetic-no-commit
+cwe_id: CWE-78
+cwe_name: OS Command Injection
+label: true_positive
+field_sensitive_label: true_positive
+affected_files:
+- eval/synthetic/field-query-cmd-exec.ts
+line_numbers:
+- 7
+taint_source: req.query
+taint_sink: exec()
+taint_field_path: query.cmd
+taint_path:
+- req.query is attacker-controlled
+- the cmd field flows directly to exec()
+complexity: simple
+exploitable: true
+reference_exploit: GET /field-cmd?cmd=touch+/tmp/pwned executes a shell command.
+reference_fix_commit: null
+notes: Computation does not sanitize the command field.
+discovery_method: synthetic
+language: typescript
+framework: express
+taint_step_count: 2

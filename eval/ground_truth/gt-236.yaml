@@ -1,0 +1,34 @@
+id: gt-236
+source_project: parse-server
+commit_hash: ae8d8e3b098ec45d3f2c670b88a4ebefe7bb221e
+cwe_id: CWE-943
+cwe_name: Improper Neutralization of Special Elements in Data Query Logic
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe943-CVE-2026-32248-parse-authdata-id-safe.js
+line_numbers:
+- 8
+taint_source: body.authData.anonymous.id from the crafted login request
+taint_sink: type validation blocks non-string auth identifiers before the lookup
+taint_path:
+- the request still reaches the anonymous login endpoint
+- the handler extracts authData.anonymous.id into a local variable
+- non-string identifier values are rejected before any database query is built
+complexity: simple
+exploitable: false
+reference_exploit: Repeat the account-takeover payload; the endpoint rejects the operator
+  object before query execution.
+reference_fix_commit: ae8d8e3b098ec45d3f2c670b88a4ebefe7bb221e
+notes: Fixed variant for CVE-2026-32248. The patched flow validates auth-provider
+  identifiers before query construction.
+cve_id: CVE-2026-32248
+ghsa_id: GHSA-5fw2-8jcv-xh87
+fix_commit: ae8d8e3b098ec45d3f2c670b88a4ebefe7bb221e
+vulnerable_commit: 5990ad9245c4aae80489f234a1c3cf6ab4abc92e
+discovery_method: cve_mining
+language: javascript
+framework: node
+reference_urls:
+- https://nvd.nist.gov/vuln/detail/CVE-2026-32248
+- https://github.com/advisories/GHSA-5fw2-8jcv-xh87
+- https://github.com/parse-community/parse-server/releases/tag/8.6.38

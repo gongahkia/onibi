@@ -1,0 +1,20 @@
+id: gt-fp-040
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-943
+cwe_name: NoSQL Injection
+label: false_positive
+affected_files:
+- eval/synthetic/nosqli-sanitized.ts
+line_numbers:
+- 4
+taint_source: req.body
+taint_sink: User.find()
+taint_path:
+- req.body is sanitized before it becomes a Mongo filter
+- User.find(sanitize(req.body)) receives a sanitized filter object
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: mongo-sanitize strips operator keys before the query executes.

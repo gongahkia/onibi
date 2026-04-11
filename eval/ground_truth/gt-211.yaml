@@ -1,0 +1,31 @@
+id: gt-211
+source_project: systeminformation
+commit_hash: 41c7ea4ff87f7135db2232cce55cca77c9fa21f3
+cwe_id: CWE-78
+cwe_name: OS Command Injection
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe78-CVE-2026-26280-systeminformation-retry-path-vuln.ts
+line_numbers:
+- 15
+taint_source: req.body.iface
+taint_sink: shell.exec()
+taint_path:
+- req.body.iface enters scanNetworks()
+- scanNetworks() sanitizes the first attempt but reuses the raw iface on retry
+- retryScan() forwards the original iface into getWifiNetworkListIw()
+- shell.exec(command) executes the attacker-controlled interface name
+complexity: ctx
+exploitable: true
+reference_exploit: 'Use an interface name like `wlan0; touch /tmp/pwned #` to exploit
+  the unsanitized retry path.'
+reference_fix_commit: 22242aa56188f2bffcbd7d265a11e1ebb808b460
+notes: CVE-2026-26280 (GHSA-9c88-49p5-5ggf). The Linux Wi-Fi retry branch accidentally
+  closed over the unsanitized interface instead of the sanitized one.
+cve_id: CVE-2026-26280
+ghsa_id: GHSA-9c88-49p5-5ggf
+fix_commit: 22242aa56188f2bffcbd7d265a11e1ebb808b460
+vulnerable_commit: 41c7ea4ff87f7135db2232cce55cca77c9fa21f3
+discovery_method: cve_mining
+language: typescript
+taint_step_count: 3

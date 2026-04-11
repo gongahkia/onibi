@@ -1,0 +1,28 @@
+id: gt-354
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-94
+cwe_name: Code Injection
+label: true_positive
+affected_files:
+- eval/fixtures/python/general/gt-354/script.py
+line_numbers:
+- 3
+taint_source: function argument code
+taint_sink: exec()
+taint_path:
+- attacker-controlled text is compiled into a code object
+- compile() preserves the attacker program semantics
+- exec() executes the compiled untrusted code object
+complexity: inter
+exploitable: true
+reference_exploit: 'Pass import os
+
+  os.system("id") to execute arbitrary code through compile()+exec().'
+reference_fix_commit: null
+notes: General Python code injection through compile followed by exec on untrusted
+  input.
+discovery_method: synthetic
+language: python
+framework: general
+taint_step_count: 3

@@ -1,0 +1,28 @@
+id: gt-304
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+affected_files:
+- eval/synthetic/phase29/django/gt-304/services.py
+- eval/synthetic/phase29/django/gt-304/views.py
+line_numbers:
+- 12
+taint_source: request.POST["doc"]
+taint_sink: open()
+taint_path:
+- request.POST["doc"] is stored as a saved document choice
+- show_document() loads the stored choice in a later request
+- load_saved_doc() joins the stored value onto the docs root without containment checks
+- open(full_path) reads the stored attacker-controlled path
+complexity: multi_step
+exploitable: true
+reference_exploit: Store ../../../../etc/passwd as doc and then request the same saved
+  document.
+reference_fix_commit: null
+notes: Django second-order path traversal using a stored document selection.
+discovery_method: synthetic
+language: python
+framework: django
+taint_step_count: 4

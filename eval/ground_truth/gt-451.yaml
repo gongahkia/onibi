@@ -1,0 +1,29 @@
+id: gt-451
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-451.ts
+line_numbers:
+- 9
+taint_source: req.query.email
+taint_sink: db.query()
+taint_path:
+- req.query.email carries attacker-controlled data into the forgot-password flow
+- the handler interpolates email into raw SQL without parameterization
+- db.query(...) allows the attacker to exfiltrate a victim reset token via SQL injection
+- the attacker uses the leaked token in a later password-reset step to take over the
+  account
+complexity: multi_step
+exploitable: true
+reference_exploit: Use email=' UNION SELECT 'victim@example.com','stolen-token' --
+  to leak or replace the reset token used in the next step.
+reference_fix_commit: null
+notes: 'Four-step chain: SQL injection leaks a reset token that is then used for account
+  takeover.'
+discovery_method: synthetic
+language: typescript
+framework: express
+taint_step_count: 4

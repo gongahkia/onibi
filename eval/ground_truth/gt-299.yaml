@@ -1,0 +1,30 @@
+id: gt-299
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-78
+cwe_name: OS Command Injection
+label: true_positive
+affected_files:
+- eval/synthetic/phase29/django/gt-299/shell.py
+- eval/synthetic/phase29/django/gt-299/services.py
+- eval/synthetic/phase29/django/gt-299/views.py
+line_numbers:
+- 4
+taint_source: request.headers["X-Command"]
+taint_sink: subprocess.run()
+taint_path:
+- request.headers["X-Command"] is forwarded from the view into the service layer
+- build_probe() trims and embeds the header value into a shell command
+- run_command() receives the composed shell command string
+- subprocess.run(command, shell=True) executes the attacker-controlled shell fragment
+complexity: cross_module
+exploitable: true
+reference_exploit: Send X-Command as 127.0.0.1; id so the subprocess call executes
+  a second command.
+reference_fix_commit: null
+notes: Django header-based command injection across view, service, and shell helper
+  modules.
+discovery_method: synthetic
+language: python
+framework: django
+taint_step_count: 4

@@ -1,0 +1,26 @@
+id: gt-407
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-915
+cwe_name: Improperly Controlled Modification of Dynamically-Determined Object Attributes
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/spring/gt-407.java
+line_numbers:
+- 13
+taint_source: '@RequestBody Map<String, Object> payload'
+taint_sink: ObjectMapper.convertValue()
+taint_path:
+- '@RequestBody accepts attacker-controlled key/value pairs from JSON'
+- ObjectMapper.convertValue() materializes every supplied property into the domain
+  type
+- security-sensitive fields such as staff and locked are set from attacker input
+complexity: simple
+exploitable: true
+reference_exploit: POST /members with {"username":"eve","staff":true}
+reference_fix_commit: null
+notes: Spring Boot mass assignment through ObjectMapper.convertValue().
+discovery_method: synthetic
+language: java
+framework: spring-boot
+taint_step_count: 3

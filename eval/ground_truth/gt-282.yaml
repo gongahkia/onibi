@@ -1,0 +1,29 @@
+id: gt-282
+source_project: synthetic-phase29
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/synthetic/phase29/express/gt-282/store.ts
+- eval/synthetic/phase29/express/gt-282/app.ts
+line_numbers:
+- 20
+taint_source: req.body.sort
+taint_sink: db.query()
+taint_path:
+- req.body.sort is trimmed before it is stored as a saved report preference
+- runReport() loads the stored sort clause for the same user later
+- The loaded clause is inserted into an ORDER BY fragment
+- db.query(sql) executes the stored attacker-controlled SQL fragment
+complexity: multi_step
+exploitable: true
+reference_exploit: Store sort as total DESC; DROP TABLE invoices -- and then trigger
+  the report endpoint.
+reference_fix_commit: null
+notes: Express second-order SQLi where a stored report preference is later reused
+  in a raw query.
+discovery_method: synthetic
+language: typescript
+framework: express
+taint_step_count: 4

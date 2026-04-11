@@ -1,0 +1,30 @@
+id: gt-204
+source_project: mustache.js
+commit_hash: 378bcca8a5cfe4058f294a3dbb78e8755e8e0da5
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe79-CVE-2015-8862-mustache-attribute-escape-fixed.ts
+line_numbers:
+- 23
+taint_source: req.query.value
+taint_sink: res.send()
+taint_path:
+- req.query.value enters renderTemplate()
+- escapeHtml() also encodes backticks and equals
+- res.send(html) receives an inert attribute value
+complexity: ctx
+exploitable: false
+reference_exploit: null
+reference_fix_commit: 378bcca8a5cfe4058f294a3dbb78e8755e8e0da5
+notes: Fixed variant for CVE-2015-8862 (GHSA-w3w8-37jv-2c58). mustache.js improved
+  escaping for unquoted HTML attribute contexts by adding backtick and equals to the
+  encoded set.
+cve_id: CVE-2015-8862
+ghsa_id: GHSA-w3w8-37jv-2c58
+fix_commit: 378bcca8a5cfe4058f294a3dbb78e8755e8e0da5
+vulnerable_commit: 53b1c955f94308eb4f78216557a901c988e09a1a
+discovery_method: cve_mining
+language: typescript
+taint_step_count: 2

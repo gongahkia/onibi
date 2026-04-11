@@ -1,0 +1,27 @@
+id: gt-467
+source_project: synthetic-phase31
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+field_sensitive_label: true_positive
+affected_files:
+- eval/synthetic/field-body-id-sqli.ts
+line_numbers:
+- 6
+taint_source: req.body
+taint_sink: db.query()
+taint_field_path: body.id
+taint_path:
+- req.body is a multi-field attacker-controlled object
+- destructuring narrows the flow to id
+- db.query() receives the unsanitized id field
+complexity: simple
+exploitable: true
+reference_exploit: POST /field-id with id=' OR 1=1 -- executes injected SQL.
+reference_fix_commit: null
+notes: Field-sensitive analysis should preserve the SQLi finding on the id field.
+discovery_method: synthetic
+language: typescript
+framework: express
+taint_step_count: 3

@@ -1,0 +1,21 @@
+id: gt-174
+source_project: synthetic
+commit_hash: synthetic-no-commit
+cwe_id: CWE-643
+cwe_name: XPath Injection
+label: true_positive
+affected_files:
+- eval/synthetic/xpathi-xpath-select.ts
+line_numbers:
+- 4
+taint_source: req.body.username
+taint_sink: xpath.select()
+taint_path:
+- req.body.username is concatenated into an XPath predicate
+- xpath.select(query, doc) evaluates attacker-controlled XPath
+complexity: simple
+exploitable: true
+reference_exploit: Trigger xpath.select() with attacker-controlled input described
+  in req.body.username.
+reference_fix_commit: null
+notes: XPath query string is built by string interpolation.

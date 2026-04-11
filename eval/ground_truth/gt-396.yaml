@@ -1,0 +1,25 @@
+id: gt-396
+source_project: synthetic-phase30-go
+commit_hash: synthetic-no-commit
+cwe_id: CWE-1336
+cwe_name: Improper Neutralization of Special Elements Used in a Template Engine
+label: true_positive
+affected_files:
+- eval/fixtures/go/stdlib/gt-396/main.go
+line_numbers:
+- 9
+taint_source: r.URL.Query().Get("tpl")
+taint_sink: template.New("mail").Parse()
+taint_path:
+- r.URL.Query().Get("tpl") reads attacker-controlled template text.
+- inviteHandler() forwards the value into parseUserTemplate(raw).
+- template.New("mail").Parse(raw) compiles the untrusted template on the server.
+complexity: inter
+exploitable: true
+reference_exploit: GET /invite?tpl={{printf "%q" .}}
+reference_fix_commit: null
+notes: net/http helper compiles a user-controlled template string before execution.
+discovery_method: synthetic
+language: go
+framework: go-stdlib
+taint_step_count: 3

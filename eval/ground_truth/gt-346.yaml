@@ -1,0 +1,27 @@
+id: gt-346
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-78
+cwe_name: Command Injection
+label: true_positive
+affected_files:
+- eval/fixtures/python/fastapi/gt-346/main.py
+line_numbers:
+- 11
+taint_source: 'host: str = Query(...) in dependency build_command()'
+taint_sink: subprocess.run()
+taint_path:
+- FastAPI binds query data into the dependency parameter host
+- build_command() turns the value into shell syntax
+- Depends(build_command) injects the command string into diag()
+- subprocess.run(..., shell=True) executes the tainted dependency result
+complexity: inter
+exploitable: true
+reference_exploit: GET /diag?host=127.0.0.1;id executes a second shell command through
+  the dependency output.
+reference_fix_commit: null
+notes: FastAPI dependency injection misuse where a dependency constructs a shell command.
+discovery_method: synthetic
+language: python
+framework: fastapi
+taint_step_count: 4

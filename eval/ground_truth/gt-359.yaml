@@ -1,0 +1,24 @@
+id: gt-359
+source_project: synthetic-phase30-go
+commit_hash: synthetic-no-commit
+cwe_id: CWE-79
+cwe_name: Cross-Site Scripting
+label: true_positive
+affected_files:
+- eval/fixtures/go/gin/gt-359/main.go
+line_numbers:
+- 9
+taint_source: c.Query("input")
+taint_sink: c.Writer.Write()
+taint_path:
+- c.Query("input") reads attacker-controlled response content.
+- c.Writer.Write([]byte(input)) reflects the bytes without HTML escaping.
+complexity: simple
+exploitable: true
+reference_exploit: GET /preview?input=<script>alert(1)</script>
+reference_fix_commit: null
+notes: Gin writes unescaped user input straight to the response body.
+discovery_method: synthetic
+language: go
+framework: gin
+taint_step_count: 2

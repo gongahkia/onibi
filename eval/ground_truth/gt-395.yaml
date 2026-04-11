@@ -1,0 +1,24 @@
+id: gt-395
+source_project: synthetic-phase30-go
+commit_hash: synthetic-no-commit
+cwe_id: CWE-1336
+cwe_name: Improper Neutralization of Special Elements Used in a Template Engine
+label: true_positive
+affected_files:
+- eval/fixtures/go/stdlib/gt-395/main.go
+line_numbers:
+- 9
+taint_source: r.FormValue("tpl")
+taint_sink: template.New("page").Parse()
+taint_path:
+- r.FormValue("tpl") reads attacker-controlled template source.
+- template.New("page").Parse(...) compiles the untrusted template on the server.
+complexity: simple
+exploitable: true
+reference_exploit: POST /render with tpl={{printf "%q" .}}
+reference_fix_commit: null
+notes: net/http handler parses untrusted template text at request time.
+discovery_method: synthetic
+language: go
+framework: go-stdlib
+taint_step_count: 2
