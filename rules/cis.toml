@@ -1,0 +1,71 @@
+[[rules]]
+rule_id = "cis_16_1_sdl_evidence"
+framework = "CIS_V8"
+section = "Control 16.1 Secure Development Process"
+requires_boolean_facts = ["scan_executed"]
+obligation_text = "CIS Controls v8 safeguard 16.1 expects a secure application development process to be established and maintained. Evidence that a SAST scan was executed supports this control, while missing evidence indicates a process gap."
+consequences = ["document", "review"]
+penalty_range = "CIS Control 16 evidence gap; corrective action and documented process evidence required."
+
+[[rules]]
+rule_id = "cis_16_3_root_cause"
+framework = "CIS_V8"
+section = "Control 16.3 Root Cause Analysis"
+requires_boolean_facts = ["cwe_classified"]
+obligation_text = "CIS Controls v8 safeguard 16.3 expects security vulnerabilities to be categorized so root causes can be analyzed and addressed. A finding with a CWE classification provides root-cause evidence; missing classification indicates the analysis step is incomplete."
+consequences = ["document", "review"]
+penalty_range = "CIS Control 16 evidence gap; corrective action and documented process evidence required."
+
+[[rules]]
+rule_id = "cis_16_4_sca_inventory"
+framework = "CIS_V8"
+section = "Control 16.4 Third-Party Component Inventory"
+requires_boolean_facts = ["dependency_scan_executed"]
+obligation_text = "CIS Controls v8 safeguard 16.4 expects an inventory of third-party software components to be maintained. Evidence that dependency scanning was executed supports this inventory control."
+consequences = ["document", "review"]
+penalty_range = "CIS Control 16 evidence gap; corrective action and documented process evidence required."
+
+[[rules]]
+rule_id = "cis_16_5_outdated_deps"
+framework = "CIS_V8"
+section = "Control 16.5 Up-to-Date Third-Party Components"
+requires_boolean_facts = ["outdated_dependency"]
+obligation_text = "CIS Controls v8 safeguard 16.5 expects third-party software components to be kept up to date. Outdated dependency findings show that component patching and version currency are not being maintained."
+consequences = ["remediate", "document", "review"]
+penalty_range = "CIS Control 16 safeguard gap; remediation evidence required."
+
+[[rules]]
+rule_id = "cis_16_5_known_cve"
+framework = "CIS_V8"
+section = "Control 16.5 Up-to-Date Third-Party Components"
+requires_boolean_facts = ["has_cve"]
+obligation_text = "CIS Controls v8 safeguard 16.5 expects third-party software components to be kept up to date. CVE-backed dependency findings show that a known vulnerable component remains deployed."
+consequences = ["remediate", "document", "review"]
+penalty_range = "CIS Control 16 safeguard gap; remediation evidence required."
+
+[[rules]]
+rule_id = "cis_16_6_severity_applied"
+framework = "CIS_V8"
+section = "Control 16.6 Severity Rating Process"
+requires_boolean_facts = ["severity_assigned"]
+obligation_text = "CIS Controls v8 safeguard 16.6 expects a severity rating system and response process to be established. Evidence that a finding has been severity-rated supports this safeguard."
+consequences = ["document", "review"]
+penalty_range = "CIS Control 16 evidence gap; corrective action and documented process evidence required."
+
+[[rules]]
+rule_id = "cis_16_9_training_gap"
+framework = "CIS_V8"
+section = "Control 16.9 Developer Security Training"
+requires_boolean_facts = ["repeated_cwe_pattern"]
+obligation_text = "CIS Controls v8 safeguard 16.9 expects developers to be trained in secure coding concepts. Repeated findings in the same CWE family indicate that secure coding training or reinforcement may be insufficient."
+consequences = ["document", "review"]
+penalty_range = "CIS Control 16 evidence gap; corrective action and documented process evidence required."
+
+[[rules]]
+rule_id = "cis_16_12_sast_evidence"
+framework = "CIS_V8"
+section = "Control 16.12 Code-Level Security Checks"
+requires_boolean_facts = ["scan_executed"]
+obligation_text = "CIS Controls v8 safeguard 16.12 expects code-level security checks to be implemented. Evidence that a Piranesi SAST scan executed supports this safeguard."
+consequences = ["document", "review"]
+penalty_range = "CIS Control 16 evidence gap; corrective action and documented process evidence required."
