@@ -13,6 +13,7 @@ from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
 
+from piranesi.legal.frameworks import FRAMEWORK_BY_KEY, FRAMEWORKS, FrameworkSpec
 from piranesi.models import RegulatoryObligation
 from piranesi.report.renderer import CombinedFinding, PiranesiReport
 
@@ -37,13 +38,6 @@ _CONSEQUENCE_ACTIONS = {
 
 
 @dataclass(frozen=True)
-class FrameworkSpec:
-    key: str
-    short_label: str
-    long_label: str
-
-
-@dataclass(frozen=True)
 class OwaspCategorySpec:
     key: str
     title: str
@@ -51,28 +45,8 @@ class OwaspCategorySpec:
     blind_spot_note: str
 
 
-_FRAMEWORKS: tuple[FrameworkSpec, ...] = (
-    FrameworkSpec("GDPR", "GDPR", "General Data Protection Regulation (GDPR)"),
-    FrameworkSpec(
-        "CCPA",
-        "CCPA",
-        "California Consumer Privacy Act / California Privacy Rights Act (CCPA/CPRA)",
-    ),
-    FrameworkSpec(
-        "HIPAA",
-        "HIPAA",
-        "Health Insurance Portability and Accountability Act (HIPAA)",
-    ),
-    FrameworkSpec("NIS2", "NIS2", "NIS2 Directive (Directive (EU) 2022/2555)"),
-    FrameworkSpec("PDPA", "PDPA", "Personal Data Protection Act 2012 (PDPA)"),
-    FrameworkSpec("EU_AI_ACT", "EU AI", "EU Artificial Intelligence Act (EU AI Act)"),
-    FrameworkSpec(
-        "MAS_TRM",
-        "MAS TRM",
-        "MAS Technology Risk Management Guidelines (MAS TRM)",
-    ),
-)
-_FRAMEWORK_BY_KEY = {framework.key: framework for framework in _FRAMEWORKS}
+_FRAMEWORKS: tuple[FrameworkSpec, ...] = FRAMEWORKS
+_FRAMEWORK_BY_KEY = FRAMEWORK_BY_KEY
 _OWASP_TOP_10: tuple[OwaspCategorySpec, ...] = (
     OwaspCategorySpec("A01", "Broken Access Control", ("CWE-22",), "review access-control coverage"),
     OwaspCategorySpec("A02", "Cryptographic Failures", (), "no encoded detection rules"),
@@ -127,7 +101,7 @@ def render_compliance_summary(report: PiranesiReport, *, include_all: bool = Fal
     for fw in all_frameworks:
         matching = [s for s in summaries if s.framework.key == fw.key]
         count = matching[0].total_findings if matching else 0
-        lines.append(f"  {fw.label}: {count} finding(s)")
+        lines.append(f"  {fw.short_label}: {count} finding(s)")
     lines.append("")
     lines.append("Top 3 Remediation Priorities:")
     priority_findings = sorted(

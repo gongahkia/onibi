@@ -17,7 +17,17 @@ def _canonicalize(value: object) -> Any:
         return tuple(_canonicalize(item) for item in value)
     if isinstance(value, set):
         return tuple(_canonicalize(item) for item in sorted(value, key=repr))
-    return value
+    if value is None:
+        return ("none", "")
+    if isinstance(value, bool):
+        return ("bool", value)
+    if isinstance(value, int):
+        return ("int", value)
+    if isinstance(value, float):
+        return ("float", value)
+    if isinstance(value, str):
+        return ("str", value)
+    return ("repr", repr(value))
 
 
 def _canonical_items(args: dict[str, object]) -> tuple[tuple[str, object], ...]:

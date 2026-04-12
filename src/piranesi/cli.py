@@ -88,6 +88,11 @@ baseline_app = typer.Typer(
     help="Manage baseline artifacts.",
     no_args_is_help=True,
 )
+compliance_app = typer.Typer(
+    add_completion=False,
+    help="Generate compliance-focused artifacts.",
+    no_args_is_help=True,
+)
 hook_app = typer.Typer(
     add_completion=False,
     help="Manage git hook integration.",
@@ -96,6 +101,7 @@ hook_app = typer.Typer(
 app.add_typer(plugins_app, name="plugins")
 app.add_typer(rules_app, name="rules")
 app.add_typer(baseline_app, name="baseline")
+app.add_typer(compliance_app, name="compliance")
 app.add_typer(hook_app, name="hook")
 
 
@@ -166,6 +172,11 @@ class TrendFormat(StrEnum):
     TERMINAL = "terminal"
 
 
+class ComplianceFormat(StrEnum):
+    JSON = "json"
+    TERMINAL = "terminal"
+
+
 class SbomFormat(StrEnum):
     SPDX = "spdx"
     CYCLONEDX = "cyclonedx"
@@ -199,6 +210,10 @@ ComplianceTuiOption = Annotated[
 TrendFormatOption = Annotated[
     TrendFormat,
     typer.Option("--format", help="Trend output format.", case_sensitive=False),
+]
+ComplianceFormatOption = Annotated[
+    ComplianceFormat,
+    typer.Option("--format", help="Compliance output format.", case_sensitive=False),
 ]
 SbomOption = Annotated[
     SbomFormat | None,
@@ -492,6 +507,37 @@ def _emit_compliance_output(
     print_compliance_report(report)
 
 
+def _load_report_from_artifacts_dir(artifacts_dir: Path) -> PiranesiReport:
+    report_path = artifacts_dir / "report.json"
+    if not report_path.exists():
+        raise ValueError(f"report artifact not found: {report_path}")
+    return _load_artifact_file(report_path, PiranesiReport)
+
+
+def _resolve_framework_keys(value: str | None) -> list[str] | None:
+    if value is None:
+        return None
+
+    from piranesi.legal.frameworks import resolve_framework_key
+
+    resolved: list[str] = []
+    invalid: list[str] = []
+    for raw_item in value.split(","):
+        candidate = raw_item.strip()
+        if not candidate:
+            continue
+        framework_key = resolve_framework_key(candidate)
+        if framework_key is None:
+            invalid.append(candidate)
+            continue
+        if framework_key not in resolved:
+            resolved.append(framework_key)
+
+    if invalid:
+        raise ValueError(f"unsupported framework key(s): {', '.join(invalid)}")
+    return resolved or None
+
+
 def _run_stubbed_stage(
     stage: str,
     target: Path,
@@ -611,6 +657,19 @@ def _load_cli_config(
 
     logger = logging.getLogger(f"piranesi.{stage}")
     if not options.config_path.exists():
+        default_config_path = Path("./piranesi.toml").resolve(strict=False)
+        requested_config_path = options.config_path.resolve(strict=False)
+        if requested_config_path != default_config_path:
+            log_error_context(
+                logger,
+                event="config_missing",
+                what="config_path",
+                on_what=str(options.config_path),
+                why="configured file does not exist",
+                next_step="exiting_with_code_2",
+                debug="use an existing --config path or run without --config to use defaults",
+            )
+            raise typer.Exit(code=2)
         logger.warning(
             "config file %s not found — using defaults. "
             "run `piranesi init` to generate a configuration file.",
@@ -1690,6 +1749,115 @@ def trends(
         typer.echo(trend_report.model_dump_json(indent=2))
         return
     render_terminal_trends(trend_report)
+
+
+@compliance_app.command("maturity")
+def compliance_maturity(
+    artifacts_dir: Annotated[
+        Path,
+        typer.Argument(help="Directory containing report.json."),
+    ],
+    framework: Annotated[
+        str | None,
+        typer.Option(
+            "--framework",
+            help="Optional framework key or comma-separated framework keys (for example: iso27001,pci).",
+        ),
+    ] = None,
+    format: ComplianceFormatOption = ComplianceFormat.TERMINAL,
+) -> None:
+    from piranesi.legal.maturity import assess_report_maturity, render_maturity_assessment
+
+    try:
+        report = _load_report_from_artifacts_dir(artifacts_dir)
+        framework_keys = _resolve_framework_keys(framework)
+    except ValueError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=2) from exc
+
+    assessment = assess_report_maturity(report, framework_keys=framework_keys)
+    if format == ComplianceFormat.JSON:
+        typer.echo(assessment.model_dump_json(indent=2))
+        return
+    typer.echo(render_maturity_assessment(assessment), nl=False)
+
+
+@compliance_app.command("summary")
+def compliance_summary(
+    artifacts_dir: Annotated[
+        Path,
+        typer.Argument(help="Directory containing report.json."),
+    ],
+    include_all: Annotated[
+        bool,
+        typer.Option("--all", help="Include all framework categories and frameworks."),
+    ] = False,
+) -> None:
+    from piranesi.legal.frameworks import FRAMEWORK_BY_KEY, FRAMEWORK_CATEGORY_GROUPS
+    from piranesi.report.compliance import render_compliance_summary
+
+    try:
+        report = _load_report_from_artifacts_dir(artifacts_dir)
+    except ValueError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=2) from exc
+
+    rendered = render_compliance_summary(report, include_all=include_all)
+    if not include_all:
+        typer.echo(rendered)
+        return
+
+    framework_counts = {framework.key: 0 for framework in FRAMEWORK_BY_KEY.values()}
+    for finding in report.findings:
+        obligations = getattr(finding, "regulatory_obligations", []) or []
+        matched = {
+            obligation.framework
+            for obligation in obligations
+            if getattr(obligation, "framework", None) in framework_counts
+        }
+        for framework_key in matched:
+            framework_counts[framework_key] += 1
+
+    lines = [rendered, "", "Framework Groups:"]
+    for category, framework_keys in FRAMEWORK_CATEGORY_GROUPS:
+        lines.append(f"{category}:")
+        for framework_key in framework_keys:
+            framework = FRAMEWORK_BY_KEY[framework_key]
+            lines.append(f"  {framework.short_label}: {framework_counts[framework_key]} finding(s)")
+        lines.append("")
+    typer.echo("\n".join(lines).rstrip())
+
+
+@compliance_app.command("evidence")
+def compliance_evidence(
+    framework: Annotated[
+        str,
+        typer.Option("--framework", help="Compliance framework key (for example: soc2, pci_dss, all)."),
+    ],
+    artifacts_dir: Annotated[
+        Path,
+        typer.Option("--artifacts-dir", help="Directory containing scan.json and legal.json/report.json."),
+    ],
+    output: Annotated[
+        Path,
+        typer.Option("--output", "-o", help="Directory to write evidence bundles."),
+    ],
+) -> None:
+    from piranesi.legal.evidence import load_evidence_artifacts, write_evidence_bundles
+
+    try:
+        scan, assessments = load_evidence_artifacts(artifacts_dir)
+        written = write_evidence_bundles(
+            scan=scan,
+            assessments=assessments,
+            framework=framework,
+            output_dir=output,
+        )
+    except ValueError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=2) from exc
+
+    typer.echo(f"wrote {len(written)} evidence bundle(s) to {output}")
 
 
 @app.command()

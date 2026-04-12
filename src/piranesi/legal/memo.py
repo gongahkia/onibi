@@ -64,6 +64,7 @@ _CONSEQUENCE_LABELS = {
         "pattern and strengthen preventive controls."
     ),
 }
+_COMPLIANCE_CONTROL_FRAMEWORKS = {"SOC2", "PCI_DSS", "ISO_27001", "NIST_CSF", "CIS_V8"}
 
 
 def build_default_engine() -> ForwardChainingEngine:
@@ -80,6 +81,8 @@ def register_default_rules(engine: ForwardChainingEngine) -> None:
 def assess_finding(
     finding: ConfirmedFinding,
     engine: ForwardChainingEngine,
+    *,
+    extra_boolean_facts: dict[str, bool] | None = None,
 ) -> LegalAssessment:
     candidate = finding.finding.finding
     rule_specs = _load_rule_catalog()
@@ -87,7 +90,10 @@ def assess_finding(
     vuln_class = _normalize_vuln_class(candidate.vuln_class)
     severity = _normalize_severity(candidate.severity)
     data_categories = _extract_data_categories(candidate)
-    boolean_facts = _extract_boolean_facts(candidate)
+    boolean_facts = {
+        **_extract_boolean_facts(candidate),
+        **(extra_boolean_facts or {}),
+    }
 
     add_finding_facts(
         engine,
@@ -111,6 +117,12 @@ def assess_finding(
         )
         for fact in obligation_facts
     ]
+    if candidate.is_essential_entity or candidate.is_important_entity:
+        obligations = [
+            obligation
+            for obligation in obligations
+            if obligation.framework not in _COMPLIANCE_CONTROL_FRAMEWORKS
+        ]
     risk_tier = _determine_risk_tier(
         severity=severity,
         data_categories=data_categories,
@@ -400,9 +412,17 @@ def _normalize_category_value(raw_value: str) -> list[str]:
 
 
 def _extract_boolean_facts(candidate: CandidateFinding) -> dict[str, bool]:
+    metadata = candidate.metadata
+    has_cve = bool(str(metadata.get("cve_id", "")).strip())
+    dependency_outdated = _is_dependency_outdated(metadata)
     return {
         "basic_processing_principle_violation": candidate.basic_processing_principle_violation,
+        "cwe_classified": _CWE_PATTERN.search(candidate.vuln_class) is not None,
         "cross_border": candidate.cross_border,
+        "dependency_outdated": dependency_outdated,
+        "dependency_scan_executed": candidate.source.source_type == "dependency_manifest",
+        "has_cve": has_cve,
+        "has_known_cve": has_cve,
         "high_risk_to_individuals": candidate.high_risk_to_individuals,
         "is_healthcare_entity": candidate.is_healthcare_entity,
         "is_high_risk_ai": candidate.is_high_risk_ai,
@@ -410,9 +430,43 @@ def _extract_boolean_facts(candidate: CandidateFinding) -> dict[str, bool]:
         "is_important_entity": candidate.is_important_entity,
         "likely_risk_to_rights": candidate.likely_risk_to_rights,
         "no_encryption_at_rest": candidate.no_encryption_at_rest,
+        "outdated_dependency": dependency_outdated,
+        "public_facing_http_input": _is_public_facing_http_input(candidate),
+        "scan_executed": True,
+        "severity_assigned": bool(candidate.severity.strip()),
+        "severity_high_or_above": _SEVERITY_ORDER.get(_normalize_severity(candidate.severity), 1)
+        >= _SEVERITY_ORDER["HIGH"],
         "third_party_processor": candidate.third_party_processor,
         "willful_violation": candidate.willful_violation,
     }
+
+
+def _is_public_facing_http_input(candidate: CandidateFinding) -> bool:
+    source_type = candidate.source.source_type.lower()
+    if any(
+        marker in source_type
+        for marker in ("req.", "request.", "query", "param", "header", "cookie", "body")
+    ):
+        return True
+    file_path = candidate.sink.location.file.lower()
+    return any(marker in file_path for marker in ("/routes/", "/controller", "/handlers/"))
+
+
+def _is_dependency_outdated(metadata: dict[str, object]) -> bool:
+    current_major = _major_version(metadata.get("package_version"))
+    patched_major = _major_version(metadata.get("patched_version"))
+    if current_major is None or patched_major is None:
+        return False
+    return patched_major > current_major
+
+
+def _major_version(value: object) -> int | None:
+    if not isinstance(value, str):
+        return None
+    match = re.match(r"\D*(\d+)", value.strip())
+    if match is None:
+        return None
+    return int(match.group(1))
 
 
 def _normalize_vuln_class(value: str) -> str:

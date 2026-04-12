@@ -16,6 +16,7 @@ class RegulatoryRuleSpec(BaseModel):
     rule_id: str
     framework: str
     section: str
+    control_name: str | None = None
     obligation_text: str
     consequences: list[str]
     penalty_range: str
@@ -23,6 +24,10 @@ class RegulatoryRuleSpec(BaseModel):
     enforcement_precedents: list[str] = Field(default_factory=list)
     cross_references: list[str] = Field(default_factory=list)
     severity_modifier: str | None = None
+    severity_gte: str | None = None
+    scope_guard: str | None = None
+    meta_only: bool = False
+    evidence_template: str | None = None
     vuln_classes: list[str] = Field(default_factory=list)
     data_categories: list[str] = Field(default_factory=list)
     requires_rule_ids: list[str] = Field(default_factory=list)
@@ -89,6 +94,9 @@ def extract_thresholds(rule_specs: Iterable[RegulatoryRuleSpec]) -> tuple[int, .
 
 
 def compile_rule_spec(rule_spec: RegulatoryRuleSpec) -> list[Rule]:
+    if rule_spec.meta_only:
+        return []
+
     fixed_preconditions: list[FactPattern] = [
         FactPattern(
             predicate="rule_fired",
@@ -103,6 +111,13 @@ def compile_rule_spec(rule_spec: RegulatoryRuleSpec) -> list[Rule]:
         )
         for boolean_fact in rule_spec.requires_boolean_facts
     )
+    if rule_spec.scope_guard is not None:
+        fixed_preconditions.append(
+            FactPattern(
+                predicate=rule_spec.scope_guard,
+                args={"finding_id": "?finding_id", "value": True},
+            )
+        )
     if rule_spec.affected_individuals_gte is not None:
         fixed_preconditions.append(
             FactPattern(
@@ -124,6 +139,17 @@ def compile_rule_spec(rule_spec: RegulatoryRuleSpec) -> list[Rule]:
                     args={"finding_id": "?finding_id", "value": True},
                 )
                 for boolean_fact in rule_spec.requires_any_boolean_facts
+            ]
+        )
+    severity_values = _severity_values_at_or_above(rule_spec.severity_gte)
+    if severity_values:
+        variable_dimensions.append(
+            [
+                FactPattern(
+                    predicate="severity",
+                    args={"finding_id": "?finding_id", "value": severity},
+                )
+                for severity in severity_values
             ]
         )
     if rule_spec.vuln_classes:
@@ -173,6 +199,9 @@ def _build_conclusions(rule_spec: RegulatoryRuleSpec) -> list[Fact]:
             "enforcement_precedents": list(rule_spec.enforcement_precedents),
             "cross_references": list(rule_spec.cross_references),
             "severity_modifier": rule_spec.severity_modifier,
+            "control_name": rule_spec.control_name,
+            "evidence_template": rule_spec.evidence_template,
+            "meta_only": rule_spec.meta_only,
         },
     )
     conclusions = [
@@ -309,6 +338,17 @@ def query_consequences(
     if finding_id is None:
         return consequences
     return [fact for fact in consequences if fact.args.get("finding_id") == finding_id]
+
+
+def _severity_values_at_or_above(severity_gte: str | None) -> tuple[str, ...]:
+    if severity_gte is None:
+        return ()
+    ranked = ("LOW", "MEDIUM", "HIGH", "CRITICAL")
+    normalized = severity_gte.strip().upper()
+    if normalized not in ranked:
+        return ()
+    threshold = ranked.index(normalized)
+    return ranked[threshold:]
 
 
 __all__ = [
