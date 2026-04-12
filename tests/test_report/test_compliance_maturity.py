@@ -3,9 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from typer.testing import CliRunner
-
 from tests._pipeline_fixtures import fixture_artifacts
+from typer.testing import CliRunner
 
 from piranesi.cli import app
 from piranesi.legal.maturity import TrendSignals, build_maturity_history, compute_maturity_level

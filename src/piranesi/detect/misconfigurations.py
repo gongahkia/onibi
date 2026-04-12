@@ -27,9 +27,7 @@ _HELMET_IMPORT_PATTERN = re.compile(
     r'(?m)^\s*(?:import\s+.+\s+from\s+[\'"]helmet[\'"]|'
     r'(?:const|let|var)\s+\w+\s*=\s*require\([\'"]helmet[\'"]\))'
 )
-_RESPONSE_PATTERN = re.compile(
-    r"\b(?P<receiver>[A-Za-z_$][\w$]*)\.(?P<method>send|render)\s*\("
-)
+_RESPONSE_PATTERN = re.compile(r"\b(?P<receiver>[A-Za-z_$][\w$]*)\.(?P<method>send|render)\s*\(")
 _CORS_WILDCARD_HEADER_PATTERN = re.compile(
     r"\b(?P<receiver>[A-Za-z_$][\w$]*)\.(?P<api>setHeader|header|set)\s*"
     r"\(\s*['\"]Access-Control-Allow-Origin['\"]\s*,\s*['\"]\*['\"]\s*\)"
@@ -203,7 +201,7 @@ def _detect_missing_security_headers(scanned_file: _ScannedFile) -> list[Candida
     for match in _RESPONSE_PATTERN.finditer(scanned_file.text):
         receiver = match.group("receiver")
         block_start, _ = scanned_file.containing_block(match.start())
-        prior_text = scanned_file.text[block_start:match.start()]
+        prior_text = scanned_file.text[block_start : match.start()]
         location = scanned_file.location_for_index(match.start())
         api_name = f"{receiver}.{match.group('method')}"
         for header_name, cwe_id in _MISSING_SECURITY_HEADERS:

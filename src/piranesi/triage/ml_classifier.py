@@ -63,8 +63,7 @@ class MLClassifier:
         if not findings:
             return []
         rows = [
-            feature_vector(finding, ordered_features=self.ordered_features)
-            for finding in findings
+            feature_vector(finding, ordered_features=self.ordered_features) for finding in findings
         ]
         raw_probabilities = self.model.predict_proba(rows)
         return [_positive_class_probability(row) for row in raw_probabilities]
@@ -222,8 +221,7 @@ def predict(
     loaded_classifier = classifier if classifier is not None else load_model(model_path)
     if loaded_classifier is None:
         return [
-            MLPrediction(finding=finding, true_positive_probability=0.5)
-            for finding in findings
+            MLPrediction(finding=finding, true_positive_probability=0.5) for finding in findings
         ]
 
     probabilities = loaded_classifier.predict_probabilities(findings)

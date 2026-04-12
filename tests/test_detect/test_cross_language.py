@@ -3,8 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from piranesi.detect.cross_language import (
-    ApiBoundary,
-    CrossLanguageFlow,
     cross_language_findings,
     detect_cross_language_flows,
     extract_api_boundaries,
@@ -42,7 +40,7 @@ def test_match_api_boundaries_cross_language_only() -> None:
     matched = match_api_boundaries(boundaries)
     assert len(matched) >= 5
     for client, server in matched:
-        assert client.language != server.language # cross-language
+        assert client.language != server.language  # cross-language
         assert client.direction == "client"
         assert server.direction == "server"
 
@@ -116,7 +114,7 @@ def test_no_finding_for_safe_route() -> None:
     """safe_search uses parameterized query => no cross-language sink should match."""
     findings = cross_language_findings(FIXTURE_DIR)
     safe_ids = [f for f in findings if f.metadata.get("api_path") == "/api/safe_search"]
-    assert len(safe_ids) == 0 # no frontend calls /api/safe_search in fixture
+    assert len(safe_ids) == 0  # no frontend calls /api/safe_search in fixture
 
 
 def test_finding_ids_are_unique() -> None:

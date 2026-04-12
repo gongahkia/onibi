@@ -3,14 +3,14 @@ from __future__ import annotations
 import json
 import re
 import xml.etree.ElementTree as ET
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 
 from piranesi.advisory.db import AdvisoryDB
 from piranesi.advisory.epss import epss_label
-from piranesi.advisory.models import Advisory, ExploitStatus, severity_rank
+from piranesi.advisory.models import Advisory, AffectedPackage, ExploitStatus, severity_rank
 from piranesi.advisory.version_match import is_vulnerable
 from piranesi.models import CandidateFinding, SourceLocation, TaintSink, TaintSource
 
@@ -39,7 +39,9 @@ def lookup_dependencies(
             matched_package = _matching_package(advisory, dependency.ecosystem, dependency.name)
             if matched_package is None:
                 continue
-            effective_ranges = _effective_ranges(matched_package.vulnerable_ranges, matched_package.fixed_versions)
+            effective_ranges = _effective_ranges(
+                matched_package.vulnerable_ranges, matched_package.fixed_versions
+            )
             if effective_ranges and not is_vulnerable(
                 dependency.version,
                 list(effective_ranges),
@@ -107,7 +109,7 @@ def _parse_yarn_lock(project_root: Path) -> list[ResolvedDependency]:
     dependencies: list[ResolvedDependency] = []
     selectors: list[str] = []
     version: str | None = None
-    for line in content + [""]:
+    for line in [*content, ""]:
         if not line.strip():
             if version is not None:
                 for selector in selectors:
@@ -226,7 +228,7 @@ def _parse_pom_xml(project_root: Path) -> list[ResolvedDependency]:
     if not path.exists():
         return []
     try:
-        tree = ET.parse(path)
+        tree = ET.parse(path)  # noqa: S314 - parses local project metadata, not remote XML.
     except (OSError, ET.ParseError):
         return []
     root = tree.getroot()
@@ -285,7 +287,7 @@ def _parse_gemfile_lock(project_root: Path) -> list[ResolvedDependency]:
     return list(dependencies.values())
 
 
-def _matching_package(advisory: Advisory, ecosystem: str, name: str):
+def _matching_package(advisory: Advisory, ecosystem: str, name: str) -> AffectedPackage | None:
     for package in advisory.affected_packages:
         if package.ecosystem == ecosystem and package.name == name:
             return package
@@ -384,7 +386,10 @@ def _build_lookup_finding(
 
 def _adjusted_severity(severity: str, exploit_status: ExploitStatus) -> str:
     rank = severity_rank(severity)
-    if exploit_status in {ExploitStatus.IN_THE_WILD, ExploitStatus.WEAPONIZED} and rank < severity_rank("high"):
+    if exploit_status in {
+        ExploitStatus.IN_THE_WILD,
+        ExploitStatus.WEAPONIZED,
+    } and rank < severity_rank("high"):
         return "high"
     if exploit_status is ExploitStatus.IN_THE_WILD and rank == severity_rank("high"):
         return "critical"
@@ -423,7 +428,7 @@ def _dependency_finding_id(
     advisory_id: str,
 ) -> str:
     digest = sha256(
-        f"{ecosystem}:{package_name}:{package_version}:{advisory_id}".encode("utf-8")
+        f"{ecosystem}:{package_name}:{package_version}:{advisory_id}".encode()
     ).hexdigest()[:16]
     return f"dep-{digest}"
 

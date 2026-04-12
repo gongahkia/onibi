@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
-from typing import Literal
+from typing import Literal, cast
 
 from piranesi.models import AttackSurfaceNode, CandidateFinding, EntryPoint, ScannedFunction
 from piranesi.report.cwe import cwe_title, extract_cwe_id
@@ -98,8 +98,7 @@ def build_threat_model(
     summary = {
         "findings_analyzed": len(findings),
         "stride_breakdown": {
-            stride_label(category): len(stride_groups[category])
-            for category in STRIDE_ORDER
+            stride_label(category): len(stride_groups[category]) for category in STRIDE_ORDER
         },
         "dread_critical": sum(
             1 for score in dread_scores.values() if score.risk_level == "critical"
@@ -136,10 +135,7 @@ def build_threat_model(
     risk_matrix = _risk_matrix(findings, stride_classifications, dread_scores)
     return ThreatModelResult(
         summary=summary,
-        stride={
-            stride_label(category): stride_groups[category]
-            for category in STRIDE_ORDER
-        },
+        stride={stride_label(category): stride_groups[category] for category in STRIDE_ORDER},
         dread=dread_entries,
         attack_trees=attack_trees,
         dfd=dfd,
@@ -187,16 +183,14 @@ def generate_threat_model(
 
 def _render_markdown(model: ThreatModelResult) -> str:
     lines = ["# Threat Model", "", "## Threat Model Summary", ""]
+    stride_counts = cast(dict[str, int], model.summary["stride_breakdown"])
     lines.extend(
         [
             f"- Findings analyzed: {model.summary['findings_analyzed']}",
             "- STRIDE breakdown: "
             + "  ".join(
                 f"{label[0]}:{count}"
-                for label, count in (
-                    (label, int(count))
-                    for label, count in model.summary["stride_breakdown"].items()
-                )
+                for label, count in ((label, int(count)) for label, count in stride_counts.items())
             ),
             f"- DREAD critical (>= 8.0): {model.summary['dread_critical']}",
             f"- DREAD high (>= 6.0): {model.summary['dread_high']}",

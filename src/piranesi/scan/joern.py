@@ -155,7 +155,7 @@ class JoernServer:
             raise FileNotFoundError(f"Joern import path does not exist: {project_path}")
 
         frontend = LANGUAGE_TO_JOERN_FRONTEND.get(language, "") if language else ""
-        import_module = LANGUAGE_TO_JOERN_IMPORT_MODULE.get(language or "")
+        import_module = LANGUAGE_TO_JOERN_IMPORT_MODULE.get(language or "", "")
         parse_language = LANGUAGE_TO_JOERN_PARSE_LANGUAGE.get(language or "", import_module)
         normalized_frontend_args = tuple(frontend_args)
         self._logger.info(
@@ -267,9 +267,7 @@ class JoernServer:
             raise JoernError(JOERN_INSTALL_INSTRUCTIONS) from exc
 
         if result.returncode != 0:
-            raise JoernError(
-                f"Unable to resolve Joern version using {' '.join(command)!r}"
-            )
+            raise JoernError(f"Unable to resolve Joern version using {' '.join(command)!r}")
 
         version_text = (result.stdout or result.stderr).strip()
         if not version_text:
@@ -672,7 +670,7 @@ class JoernServer:
                     "port": self.port,
                 },
             )
-            import_module = LANGUAGE_TO_JOERN_IMPORT_MODULE.get(self._imported_language, "")
+            import_module = LANGUAGE_TO_JOERN_IMPORT_MODULE.get(self._imported_language or "", "")
             response = self._execute_cpgql(
                 self._build_import_query(
                     self._imported_project_path,
@@ -962,7 +960,9 @@ def _find_project_cpg(project_dir: Path) -> Path:
         raise JoernError(f"Joern project directory does not exist: {project_dir}")
 
     candidates = sorted(
-        path for path in project_dir.rglob("*") if path.is_file() and path.name.startswith("cpg.bin")
+        path
+        for path in project_dir.rglob("*")
+        if path.is_file() and path.name.startswith("cpg.bin")
     )
     if not candidates:
         raise JoernError(f"Unable to locate saved CPG under Joern project directory: {project_dir}")

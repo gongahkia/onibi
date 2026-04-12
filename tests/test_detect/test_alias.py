@@ -51,7 +51,9 @@ def test_extract_alias_findings_detects_property_destructuring_and_spread_patter
 
 def test_extract_candidate_findings_merges_alias_detector_results() -> None:
     body_source = next(
-        spec for spec in get_source_specs(frameworks=("express",)) if spec.name == "express_req_body"
+        spec
+        for spec in get_source_specs(frameworks=("express",))
+        if spec.name == "express_req_body"
     )
 
     findings = extract_candidate_findings(

@@ -55,10 +55,7 @@ def extract_dfd(
     functions: Sequence[ScannedFunction] | None = None,
     taint_overlay: bool = True,
 ) -> DfdDiagram:
-    indexed_functions = {
-        function.function_id: function
-        for function in functions or ()
-    }
+    indexed_functions = {function.function_id: function for function in functions or ()}
     entry_points = tuple(entry_points or ())
     attack_surface = tuple(attack_surface or ())
 
@@ -537,9 +534,7 @@ def _render_mermaid(dfd: DfdDiagram) -> str:
     lines = ["graph LR"]
     rendered_nodes: set[str] = set()
     zone_boundaries = [
-        boundary
-        for boundary in dfd.trust_boundaries
-        if boundary.metadata.get("kind") == "zone"
+        boundary for boundary in dfd.trust_boundaries if boundary.metadata.get("kind") == "zone"
     ]
 
     def render_node(element: DfdElement) -> str:

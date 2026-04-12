@@ -10,8 +10,9 @@ from rich import box
 from rich.console import Console
 from rich.table import Table
 
-from piranesi.legal.frameworks import FRAMEWORKS, FRAMEWORK_BY_KEY, FrameworkSpec
+from piranesi.legal.frameworks import FRAMEWORK_BY_KEY, FRAMEWORKS, FrameworkSpec
 from piranesi.legal.rules import RegulatoryRuleSpec, load_all_rule_specs
+
 _SEVERITY_RANK = {"critical": 3, "high": 2, "medium": 1, "low": 0, "informational": -1}
 _MATURITY_LABELS = {
     0: "None",
@@ -162,9 +163,7 @@ def assess_report_maturity(
     summary = getattr(report, "executive_summary", None)
     findings_detected = int(getattr(summary, "findings_detected", 0) or 0)
     suppressed_findings = int(getattr(summary, "suppressed_findings", 0) or 0)
-    suppressed_ratio = (
-        suppressed_findings / findings_detected if findings_detected > 0 else 0.0
-    )
+    suppressed_ratio = suppressed_findings / findings_detected if findings_detected > 0 else 0.0
 
     selected_frameworks = [
         FRAMEWORK_BY_KEY[key]
@@ -183,9 +182,7 @@ def assess_report_maturity(
         for framework in selected_frameworks
     ]
     overall_score = (
-        round(sum(item.score for item in assessments) / len(assessments), 2)
-        if assessments
-        else 0.0
+        round(sum(item.score for item in assessments) / len(assessments), 2) if assessments else 0.0
     )
     overall_label = _MATURITY_LABELS.get(int(overall_score), "None")
     return ComplianceMaturityAssessment(
@@ -245,7 +242,8 @@ def build_maturity_history(
             current = scores[index]
             if current < previous and index < len(scan_dates):
                 regressions.append(
-                    f"{scan_dates[index]}: {framework_key} maturity regressed {previous} -> {current}"
+                    f"{scan_dates[index]}: {framework_key} maturity regressed "
+                    f"{previous} -> {current}"
                 )
     return ComplianceMaturityHistory(
         scan_dates=list(scan_dates),
@@ -276,7 +274,7 @@ def render_maturity_assessment(assessment: ComplianceMaturityAssessment) -> str:
         )
     console.print(table)
     console.print(
-        f"[bold]Overall:[/bold] {_score_bar(int(round(assessment.overall_score)))} "
+        f"[bold]Overall:[/bold] {_score_bar(round(assessment.overall_score))} "
         f"{assessment.overall_score:.2f}/5.0 ({assessment.overall_label})"
     )
     if assessment.regressions:
@@ -342,7 +340,7 @@ def _normalize_finding(finding: object) -> _FindingContext:
     related_cves = [str(item) for item in raw_cves] if isinstance(raw_cves, Iterable) else []
     obligations = getattr(finding, "regulatory_obligations", [])
     frameworks_from_obligations = [
-        str(getattr(obligation, "framework"))
+        str(obligation.framework)
         for obligation in obligations
         if getattr(obligation, "framework", None)
     ]
@@ -377,9 +375,10 @@ def _match_rule_spec_directly(
         return False
     if rule_spec.vuln_classes and context.cwe not in set(rule_spec.vuln_classes):
         return False
-    if rule_spec.data_categories:
-        if not set(context.data_categories) & {value.strip().lower() for value in rule_spec.data_categories}:
-            return False
+    if rule_spec.data_categories and not set(context.data_categories) & {
+        value.strip().lower() for value in rule_spec.data_categories
+    }:
+        return False
     boolean_facts = _derived_boolean_facts(context, include_meta=include_meta)
     if any(not boolean_facts.get(name, False) for name in rule_spec.requires_boolean_facts):
         return False
@@ -387,14 +386,12 @@ def _match_rule_spec_directly(
         boolean_facts.get(name, False) for name in rule_spec.requires_any_boolean_facts
     ):
         return False
-    if (
+    return not (
         not rule_spec.vuln_classes
         and not rule_spec.requires_boolean_facts
         and not rule_spec.requires_any_boolean_facts
         and not rule_spec.data_categories
-    ):
-        return False
-    return True
+    )
 
 
 def _derived_boolean_facts(
@@ -413,7 +410,9 @@ def _derived_boolean_facts(
         isinstance(context.metadata.get(key), str) and bool(str(context.metadata.get(key)).strip())
         for key in ("patched_version", "fixed_versions")
     )
-    dependency_finding = context.cwe == "CWE-1395" or isinstance(context.metadata.get("package"), str)
+    dependency_finding = context.cwe == "CWE-1395" or isinstance(
+        context.metadata.get("package"), str
+    )
     facts = {
         "dependency_outdated": outdated_dependency,
         "has_cve": has_cve,
@@ -435,7 +434,9 @@ def _derived_boolean_facts(
 
 
 def _is_meta_only_rule(rule_spec: RegulatoryRuleSpec) -> bool:
-    required_flags = set(rule_spec.requires_boolean_facts) | set(rule_spec.requires_any_boolean_facts)
+    required_flags = set(rule_spec.requires_boolean_facts) | set(
+        rule_spec.requires_any_boolean_facts
+    )
     return (
         not rule_spec.vuln_classes
         and not rule_spec.data_categories

@@ -19,7 +19,14 @@ def test_epss_enrichment_updates_db(tmp_path: Path) -> None:
                     cwe_ids=("CWE-79",),
                     title="Test advisory",
                     description="Description",
-                    affected_packages=(AffectedPackage(ecosystem="npm", name="demo", vulnerable_ranges=("<1.2.3",), fixed_versions=("1.2.3",)),),
+                    affected_packages=(
+                        AffectedPackage(
+                            ecosystem="npm",
+                            name="demo",
+                            vulnerable_ranges=("<1.2.3",),
+                            fixed_versions=("1.2.3",),
+                        ),
+                    ),
                     severity="high",
                     sources=("osv",),
                 ),

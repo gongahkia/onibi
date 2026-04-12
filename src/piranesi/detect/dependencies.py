@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from hashlib import sha256
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 from piranesi.detect.dep_reachability import apply_dependency_reachability
 from piranesi.models import CandidateFinding, SourceLocation, TaintSink, TaintSource
@@ -186,19 +186,19 @@ def parse_npm_audit_payload(
                 )
         return _dedupe_findings(findings)
 
-    advisories = payload.get("advisories")
-    if not isinstance(advisories, Mapping):
+    legacy_advisories = payload.get("advisories")
+    if not isinstance(legacy_advisories, Mapping):
         return []
 
-    for raw_advisory_id, raw_advisory in advisories.items():
+    for raw_advisory_id, raw_advisory in legacy_advisories.items():
         if not isinstance(raw_advisory, Mapping):
             continue
-        package_name = (
+        legacy_package_name = (
             _string_value(raw_advisory.get("module_name"))
             or _string_value(raw_advisory.get("name"))
             or _string_value(raw_advisory.get("module"))
         )
-        if package_name is None:
+        if legacy_package_name is None:
             continue
         advisory_id = _string_value(raw_advisory_id) or _npm_advisory_id(raw_advisory)
         patched_versions = raw_advisory.get("patched_versions")
@@ -216,9 +216,9 @@ def parse_npm_audit_payload(
                     _build_dependency_finding(
                         ecosystem="npm",
                         manifest_path=manifest_path,
-                        package_name=package_name,
+                        package_name=legacy_package_name,
                         package_version=_string_value(raw_finding.get("version"))
-                        or versions.get(package_name)
+                        or versions.get(legacy_package_name)
                         or "unknown",
                         severity=_normalize_severity(raw_advisory.get("severity")),
                         advisory_id=advisory_id,
@@ -228,7 +228,7 @@ def parse_npm_audit_payload(
                         aliases=tuple(
                             str(item) for item in cve_candidates if isinstance(item, str)
                         ),
-                        title=_string_value(raw_advisory.get("title")) or package_name,
+                        title=_string_value(raw_advisory.get("title")) or legacy_package_name,
                         advisory_url=_string_value(raw_advisory.get("url")),
                     )
                 )
@@ -238,15 +238,15 @@ def parse_npm_audit_payload(
             _build_dependency_finding(
                 ecosystem="npm",
                 manifest_path=manifest_path,
-                package_name=package_name,
-                package_version=versions.get(package_name) or "unknown",
+                package_name=legacy_package_name,
+                package_version=versions.get(legacy_package_name) or "unknown",
                 severity=_normalize_severity(raw_advisory.get("severity")),
                 advisory_id=advisory_id,
                 cve_id=_extract_cve_id(cve_candidates),
                 patched_version=_string_value(patched_versions),
                 vulnerable_range=_string_value(raw_advisory.get("vulnerable_versions")),
                 aliases=tuple(str(item) for item in cve_candidates if isinstance(item, str)),
-                title=_string_value(raw_advisory.get("title")) or package_name,
+                title=_string_value(raw_advisory.get("title")) or legacy_package_name,
                 advisory_url=_string_value(raw_advisory.get("url")),
             )
         )
@@ -388,7 +388,7 @@ def _run_json_command(
     if json_fragment is None:
         return None
     try:
-        return json.loads(json_fragment)
+        return cast(object, json.loads(json_fragment))
     except json.JSONDecodeError as exc:
         log_error_context(
             logger,

@@ -10,7 +10,12 @@ from piranesi.config import OutputConfig, PiranesiConfig, ScanConfig, TraceConfi
 from piranesi.llm.cost import CostTracker
 from piranesi.models import ScanMetadata, ScanResult, SourceLocation, TaintSink, TaintSource
 from piranesi.models.finding import CandidateFinding
-from piranesi.pipeline import PipelineContext, _run_detect_stage, _run_scan_stage, prepare_incremental_state
+from piranesi.pipeline import (
+    PipelineContext,
+    _run_detect_stage,
+    _run_scan_stage,
+    prepare_incremental_state,
+)
 from piranesi.scan.incremental import diff_manifests, write_manifest
 
 
@@ -210,7 +215,9 @@ def test_incremental_scan_only_retranspiles_modified_file(
     monkeypatch.setattr("piranesi.pipeline.transpile_project", _fake_transpile_project)
     monkeypatch.setattr("piranesi.pipeline.JoernServer", _FakeJoernServer)
     monkeypatch.setattr("piranesi.pipeline.build_scan_result", _fake_build_scan_result)
-    monkeypatch.setattr("piranesi.pipeline.extract_candidate_findings", _fake_extract_candidate_findings)
+    monkeypatch.setattr(
+        "piranesi.pipeline.extract_candidate_findings", _fake_extract_candidate_findings
+    )
     monkeypatch.setattr("piranesi.pipeline.resolve_frameworks", lambda *_args, **_kwargs: [])
     monkeypatch.setattr("piranesi.pipeline.get_source_specs", lambda *_args, **_kwargs: [])
     monkeypatch.setattr("piranesi.pipeline.get_sink_specs", lambda *_args, **_kwargs: [])
@@ -236,7 +243,9 @@ def test_incremental_scan_only_retranspiles_modified_file(
     first_scan = _run_scan_stage(first_context, config, None)
     first_detect = _run_detect_stage(first_context, config, None)
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "scan.json").write_text(first_scan.artifact.model_dump_json(indent=2), encoding="utf-8")
+    (output_dir / "scan.json").write_text(
+        first_scan.artifact.model_dump_json(indent=2), encoding="utf-8"
+    )
     (output_dir / "detect.json").write_text(
         first_detect.artifact.model_dump_json(indent=2),
         encoding="utf-8",

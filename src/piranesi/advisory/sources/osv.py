@@ -4,7 +4,13 @@ from collections.abc import Mapping, Sequence
 
 import requests
 
-from piranesi.advisory.models import Advisory, AffectedPackage, ExploitStatus, canonical_advisory_id, normalize_severity, severity_rank
+from piranesi.advisory.models import (
+    Advisory,
+    AffectedPackage,
+    ExploitStatus,
+    canonical_advisory_id,
+    severity_rank,
+)
 
 OSV_INDEX_URL = "https://osv.dev/advisories/all.json"
 OSV_ADVISORY_BASE_URL = "https://osv.dev/advisories"

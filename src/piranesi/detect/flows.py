@@ -110,7 +110,19 @@ _SEVERITY_BY_CWE = {
 }
 _FIELD_SENSITIVE_PRUNING_CWES = frozenset({"CWE-79", "CWE-89"})
 _GENERIC_SOURCE_PARAMETER_NAMES = frozenset(
-    {"body", "query", "params", "param", "headers", "cookies", "request", "req", "payload", "input", "data"}
+    {
+        "body",
+        "query",
+        "params",
+        "param",
+        "headers",
+        "cookies",
+        "request",
+        "req",
+        "payload",
+        "input",
+        "data",
+    }
 )
 
 

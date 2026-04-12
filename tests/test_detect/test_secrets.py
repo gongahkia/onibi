@@ -65,10 +65,8 @@ def test_extract_secret_findings_skips_excluded_paths_and_test_files(tmp_path: P
         tmp_path / "vendor" / "secrets.txt": 'token="STRIPE_API_KEY_REDACTED"\n',
         tmp_path / ".git" / "config": 'token="GITHUB_TOKEN_REDACTED"\n',
         tmp_path / ".env.example": "SLACK=SLACK_TOKEN_REDACTED\n",
-        tmp_path
-        / "src"
-        / "auth.test.ts": (
-            'const sendgrid = '
+        tmp_path / "src" / "auth.test.ts": (
+            "const sendgrid = "
             '"SENDGRID_API_KEY_REDACTED";\n'
         ),
     }

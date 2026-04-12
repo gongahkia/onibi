@@ -125,13 +125,17 @@ _SINK_PATTERNS: tuple[_SinkPattern, ...] = (
     ),
     _SinkPattern(
         sink_name="child_process_exec",
-        pattern=re.compile(r"(?P<api>(?:[A-Za-z_$][\w$]*\.)?(?:exec|execSync))\(\s*(?P<expr>[^,\n]+)"),
+        pattern=re.compile(
+            r"(?P<api>(?:[A-Za-z_$][\w$]*\.)?(?:exec|execSync))\(\s*(?P<expr>[^,\n]+)"
+        ),
         api_group="api",
         expression_group="expr",
     ),
     _SinkPattern(
         sink_name="child_process_spawn",
-        pattern=re.compile(r"(?P<api>(?:[A-Za-z_$][\w$]*\.)?(?:spawn|spawnSync))\(\s*(?P<expr>[^,\n]+)"),
+        pattern=re.compile(
+            r"(?P<api>(?:[A-Za-z_$][\w$]*\.)?(?:spawn|spawnSync))\(\s*(?P<expr>[^,\n]+)"
+        ),
         api_group="api",
         expression_group="expr",
     ),
@@ -143,7 +147,9 @@ _SINK_PATTERNS: tuple[_SinkPattern, ...] = (
     ),
     _SinkPattern(
         sink_name="response_output",
-        pattern=re.compile(r"(?P<api>[A-Za-z_$][\w$]*\.(?:send|render|write))\(\s*(?P<expr>[^,\n]+)"),
+        pattern=re.compile(
+            r"(?P<api>[A-Za-z_$][\w$]*\.(?:send|render|write))\(\s*(?P<expr>[^,\n]+)"
+        ),
         api_group="api",
         expression_group="expr",
     ),
@@ -155,13 +161,17 @@ _SINK_PATTERNS: tuple[_SinkPattern, ...] = (
     ),
     _SinkPattern(
         sink_name="filesystem_read",
-        pattern=re.compile(r"(?P<api>(?:[A-Za-z_$][\w$]*\.)?(?:readFile|readFileSync))\(\s*(?P<expr>[^,\n]+)"),
+        pattern=re.compile(
+            r"(?P<api>(?:[A-Za-z_$][\w$]*\.)?(?:readFile|readFileSync))\(\s*(?P<expr>[^,\n]+)"
+        ),
         api_group="api",
         expression_group="expr",
     ),
     _SinkPattern(
         sink_name="filesystem_write",
-        pattern=re.compile(r"(?P<api>(?:[A-Za-z_$][\w$]*\.)?(?:writeFile|writeFileSync))\(\s*(?P<expr>[^,\n]+)"),
+        pattern=re.compile(
+            r"(?P<api>(?:[A-Za-z_$][\w$]*\.)?(?:writeFile|writeFileSync))\(\s*(?P<expr>[^,\n]+)"
+        ),
         api_group="api",
         expression_group="expr",
     ),
@@ -239,7 +249,9 @@ def extract_alias_findings(
     return tuple(_dedupe_findings(findings))
 
 
-def _scan_file(scanned_file: ScannedSourceFile, *, sink_specs: Sequence[SinkSpec]) -> list[CandidateFinding]:
+def _scan_file(
+    scanned_file: ScannedSourceFile, *, sink_specs: Sequence[SinkSpec]
+) -> list[CandidateFinding]:
     sink_specs_by_name = {spec.name: spec for spec in sink_specs}
     state = _AliasState(variables={}, properties={}, objects={}, object_safe_properties={})
     findings: list[CandidateFinding] = []
@@ -479,7 +491,7 @@ def _build_finding(*, origin: _TaintOrigin, sink_match: _SinkMatch) -> Candidate
             f"alias|{vuln_class}|{source_location.file}:{source_location.line}:{source_location.column}|"
             f"{sink_match.location.file}:{sink_match.location.line}:{sink_match.location.column}|"
             f"{sink_match.api_name}"
-        ).encode("utf-8")
+        ).encode()
     ).hexdigest()
     taint_path = [
         TaintStep(
@@ -524,7 +536,8 @@ def _build_finding(*, origin: _TaintOrigin, sink_match: _SinkMatch) -> Candidate
         taint_path=taint_path,
         path_conditions=[],
         confidence=_DEFAULT_CONFIDENCE,
-        severity=sink_match.sink_spec.severity or _SEVERITY_BY_CWE.get(vuln_class, _DEFAULT_SEVERITY),
+        severity=sink_match.sink_spec.severity
+        or _SEVERITY_BY_CWE.get(vuln_class, _DEFAULT_SEVERITY),
         metadata={"detector": "alias"},
     )
 

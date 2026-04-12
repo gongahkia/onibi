@@ -133,9 +133,7 @@ def _iter_candidate_files(
 
     for current_root, directories, filenames in os.walk(project_root, topdown=True):
         directories[:] = sorted(
-            directory
-            for directory in directories
-            if directory not in _DIRECTORY_EXCLUSIONS
+            directory for directory in directories if directory not in _DIRECTORY_EXCLUSIONS
         )
         base_dir = Path(current_root)
         for filename in sorted(filenames):

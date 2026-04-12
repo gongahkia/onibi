@@ -20,7 +20,7 @@ def render_pre_commit_hook_script(*, fail_severity: str, hook_timeout: int) -> s
             _HOOK_MARKER,
             (
                 "exec piranesi run . --incremental --staged-only "
-                f"--fail-severity {fail_severity} --hook-timeout {hook_timeout} \"$@\""
+                f'--fail-severity {fail_severity} --hook-timeout {hook_timeout} "$@"'
             ),
             "",
         ]

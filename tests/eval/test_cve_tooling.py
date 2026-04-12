@@ -17,7 +17,12 @@ if str(REPO_ROOT / "src") not in sys.path:
 
 from eval.extract_fixture import extract_fixture  # noqa: E402
 from eval.fixture_validation import validation_result_from_findings  # noqa: E402
-from eval.ground_truth.schema import Complexity, DiscoveryMethod, GroundTruthEntry, Label  # noqa: E402
+from eval.ground_truth.schema import (  # noqa: E402
+    Complexity,
+    DiscoveryMethod,
+    GroundTruthEntry,
+    Label,
+)
 from eval.mine_cves import query_nvd  # noqa: E402
 from eval.scoring import NormalizedFinding  # noqa: E402
 
@@ -95,7 +100,10 @@ def test_query_nvd_filters_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
                                 {
                                     "cpeMatch": [
                                         {
-                                            "criteria": "cpe:2.3:a:example:express-app:1.0:*:*:*:*:node.js:*:*"
+                                            "criteria": (
+                                                "cpe:2.3:a:example:express-app:1.0:"
+                                                "*:*:*:*:node.js:*:*"
+                                            )
                                         }
                                     ]
                                 }
@@ -108,7 +116,9 @@ def test_query_nvd_filters_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
             {
                 "cve": {
                     "id": "CVE-2024-2222",
-                    "descriptions": [{"lang": "en", "value": "Python issue with no GitHub reference."}],
+                    "descriptions": [
+                        {"lang": "en", "value": "Python issue with no GitHub reference."}
+                    ],
                     "weaknesses": [{"description": [{"value": "CWE-89"}]}],
                     "references": [{"url": "https://nvd.nist.gov/vuln/detail/CVE-2024-2222"}],
                     "metrics": {
@@ -169,7 +179,9 @@ def test_extract_fixture_creates_stub_from_local_repo(tmp_path: Path) -> None:
         "}\n",
         encoding="utf-8",
     )
-    subprocess.run(["git", "add", "app.ts"], cwd=repo_dir, check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "add", "app.ts"], cwd=repo_dir, check=True, capture_output=True, text=True
+    )
     subprocess.run(
         ["git", "commit", "-m", "vulnerable"],
         cwd=repo_dir,
@@ -177,25 +189,24 @@ def test_extract_fixture_creates_stub_from_local_repo(tmp_path: Path) -> None:
         capture_output=True,
         text=True,
     )
-    vulnerable_commit = (
-        subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=repo_dir,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        .stdout.strip()
-    )
+    vulnerable_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
 
     source_path.write_text(
         "const db = { query(sql: string, params: string[]) { return { sql, params }; } };\n"
         "export function run(input: string) {\n"
-        "  return db.query(\"SELECT * FROM users WHERE name = ?\", [input]);\n"
+        '  return db.query("SELECT * FROM users WHERE name = ?", [input]);\n'
         "}\n",
         encoding="utf-8",
     )
-    subprocess.run(["git", "add", "app.ts"], cwd=repo_dir, check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "add", "app.ts"], cwd=repo_dir, check=True, capture_output=True, text=True
+    )
     subprocess.run(
         ["git", "commit", "-m", "fix"],
         cwd=repo_dir,
@@ -203,16 +214,13 @@ def test_extract_fixture_creates_stub_from_local_repo(tmp_path: Path) -> None:
         capture_output=True,
         text=True,
     )
-    fix_commit = (
-        subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=repo_dir,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        .stdout.strip()
-    )
+    fix_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
 
     output_path = tmp_path / "fixture.ts"
     extract_fixture(
@@ -232,7 +240,7 @@ def test_extract_fixture_creates_stub_from_local_repo(tmp_path: Path) -> None:
     assert "CVE: CVE-2024-1111 | CWE: CWE-89 | Package: fixture-app" in text
     assert "SELECT * FROM users WHERE name" in text
     assert "--- FIX DIFF ---" in text
-    assert "+  return db.query(\"SELECT * FROM users WHERE name = ?\", [input]);" in text
+    assert '+  return db.query("SELECT * FROM users WHERE name = ?", [input]);' in text
 
 
 def test_validation_result_from_findings_detects_true_positive(tmp_path: Path) -> None:

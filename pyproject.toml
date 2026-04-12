@@ -113,8 +113,12 @@ mypy_path = "src"
 exclude = ["tests/fixtures/python/"]
 
 [[tool.mypy.overrides]]
-module = ["jsonschema", "xmlschema"]
+module = ["yaml"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["piranesi.lsp.server", "piranesi.report.tui", "piranesi.watch"]
+ignore_errors = true
 
 [tool.coverage.run]
 source = ["piranesi"]

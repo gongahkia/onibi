@@ -73,7 +73,9 @@ def extract_prototype_pollution_findings(
     return tuple(_dedupe_findings(findings))
 
 
-def _scan_file(scanned_file: ScannedSourceFile, *, sink_specs: Sequence[SinkSpec]) -> list[CandidateFinding]:
+def _scan_file(
+    scanned_file: ScannedSourceFile, *, sink_specs: Sequence[SinkSpec]
+) -> list[CandidateFinding]:
     sink_specs_by_name = {spec.name: spec for spec in sink_specs}
     findings: list[CandidateFinding] = []
     tainted_variables: dict[str, _UserControlledOrigin] = {}
@@ -321,7 +323,7 @@ def _finding_for_sink(
             f"prototype-pollution|{source_location.file}:{source_location.line}:{source_location.column}|"
             f"{sink_match.location.file}:{sink_match.location.line}:{sink_match.location.column}|"
             f"{sink_match.api_name}"
-        ).encode("utf-8")
+        ).encode()
     ).hexdigest()
 
     return CandidateFinding(

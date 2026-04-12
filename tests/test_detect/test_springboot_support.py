@@ -54,7 +54,9 @@ def test_springboot_fixture_detects_java_sources_sinks_and_excludes_tests() -> N
         request_body = execute_source_query(server, _source_spec("spring_request_body"))
         request_param = execute_source_query(server, _source_spec("spring_request_param"))
         jdbc_sinks = execute_sink_query(server, _sink_spec("spring_jdbc_query"))
-        native_query_sinks = execute_sink_query(server, _sink_spec("spring_jpa_native_query_concat"))
+        native_query_sinks = execute_sink_query(
+            server, _sink_spec("spring_jpa_native_query_concat")
+        )
         pre_authorize = execute_sanitizer_query(
             server,
             _sanitizer_spec("spring_pre_authorize_access_control"),
@@ -78,13 +80,16 @@ def test_springboot_fixture_detects_java_sources_sinks_and_excludes_tests() -> N
     assert _codes(request_body) == {"@RequestBody String email"}
     assert _codes(request_param) == {"@RequestParam String name"}
     assert {
-        'this.jdbcTemplate.query("SELECT name FROM users WHERE name = \'" + name + "\'", USER_ROW_MAPPER)',
+        (
+            'this.jdbcTemplate.query("SELECT name FROM users WHERE name = \'" '
+            '+ name + "\'", USER_ROW_MAPPER)'
+        ),
         'this.jdbcTemplate.queryForList("SELECT * FROM users WHERE email = \'" + email + "\'")',
     } <= _codes(jdbc_sinks)
     assert _codes(native_query_sinks) == {
         '@Query(value = "SELECT * " + "FROM users WHERE active = true", nativeQuery = true)'
     }
-    assert _codes(pre_authorize) == {'@PreAuthorize("hasRole(\'ADMIN\')")'}
+    assert _codes(pre_authorize) == {"@PreAuthorize(\"hasRole('ADMIN')\")"}
     assert _codes(secured) == {'@Secured("ROLE_WRITER")'}
 
     finding_keys = {

@@ -4,7 +4,6 @@ from collections import Counter
 from pathlib import Path
 
 import yaml
-
 from eval.ground_truth.schema import GroundTruthEntry
 
 ROOT = Path(__file__).resolve().parents[2]

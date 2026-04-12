@@ -255,15 +255,9 @@ class DispatchResolver:
                 continue
             methods_by_name[function.name].append(function)
             methods_by_class[(function.class_name, function.name)].append(function)
-        self._functions_by_name = {
-            name: tuple(entries) for name, entries in direct_by_name.items()
-        }
-        self._methods_by_name = {
-            name: tuple(entries) for name, entries in methods_by_name.items()
-        }
-        self._methods_by_class = {
-            key: tuple(entries) for key, entries in methods_by_class.items()
-        }
+        self._functions_by_name = {name: tuple(entries) for name, entries in direct_by_name.items()}
+        self._methods_by_name = {name: tuple(entries) for name, entries in methods_by_name.items()}
+        self._methods_by_class = {key: tuple(entries) for key, entries in methods_by_class.items()}
 
     def resolve(self, call: DispatchCall) -> tuple[DispatchFunction, ...]:
         if call.receiver is None:

@@ -33,8 +33,12 @@ from piranesi.scan.specs import (
 )
 
 SCAN_QUERY_FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "scan_queries"
-PYTHON_FLASK_FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "python" / "flask_app"
-PYTHON_DJANGO_FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "python" / "django_app"
+PYTHON_FLASK_FIXTURES_DIR = (
+    Path(__file__).resolve().parents[1] / "fixtures" / "python" / "flask_app"
+)
+PYTHON_DJANGO_FIXTURES_DIR = (
+    Path(__file__).resolve().parents[1] / "fixtures" / "python" / "django_app"
+)
 
 
 class FakeJoernServer:
@@ -737,16 +741,16 @@ def test_builtin_python_sink_queries_detect_expected_patterns(
     flask_parameterized = execute_sanitizer_query(python_flask_joern_server, parameterized_query)
     django_sql = execute_sink_query(python_django_joern_server, sql_sink)
 
-    assert {'cursor.execute(f"SELECT * FROM items WHERE name = \'{q}\'")'} <= _codes(flask_sql)
+    assert {"cursor.execute(f\"SELECT * FROM items WHERE name = '{q}'\")"} <= _codes(flask_sql)
     assert {"os.system(cmd)"} <= _codes(flask_system)
     assert {"subprocess.run(cmd, shell = True)"} <= _codes(flask_subprocess)
-    assert "subprocess.run([\"echo\", cmd], shell = False)" not in _codes(flask_subprocess)
+    assert 'subprocess.run(["echo", cmd], shell = False)' not in _codes(flask_subprocess)
     assert {"eval(expr)"} <= _codes(flask_eval)
     assert {'cursor.execute("SELECT * FROM items WHERE name = ?", (q,))'} <= _codes(
         flask_parameterized
     )
-    assert {'User.objects.raw(f"SELECT * FROM users WHERE name = \'{q}\'")'} <= _codes(django_sql)
-    assert {'User.objects.extra(where = [f"name = \'{q}\'"])'} <= _codes(django_sql)
+    assert {"User.objects.raw(f\"SELECT * FROM users WHERE name = '{q}'\")"} <= _codes(django_sql)
+    assert {"User.objects.extra(where = [f\"name = '{q}'\"])"} <= _codes(django_sql)
     assert "User.objects.filter(name = q)" not in _codes(django_sql)
     assert "User.objects.filter(Q(name = q))" not in _codes(django_sql)
     assert 'User.objects.filter(score__gt = F("min_score"))' not in _codes(django_sql)

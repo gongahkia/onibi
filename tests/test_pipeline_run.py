@@ -658,7 +658,9 @@ def test_scan_stage_skips_transpile_for_java_projects(
         _ = (server, source_map)
         return ScanResult(
             project_root=str(project_root),
-            files_scanned=[str(joern_project_root / "src" / "main" / "java" / "com" / "example" / "App.java")],
+            files_scanned=[
+                str(joern_project_root / "src" / "main" / "java" / "com" / "example" / "App.java")
+            ],
             call_graph={},
             entry_points=[],
             attack_surface=[],
@@ -668,7 +670,9 @@ def test_scan_stage_skips_transpile_for_java_projects(
     monkeypatch.setattr(pipeline_module, "JoernServer", FakeJoernServer)
     monkeypatch.setattr(pipeline_module, "transpile_project", _transpile_project)
     monkeypatch.setattr(pipeline_module, "build_scan_result", _build_scan_result)
-    monkeypatch.setattr(pipeline_module, "resolve_frameworks", lambda *_args, **_kwargs: ("springboot",))
+    monkeypatch.setattr(
+        pipeline_module, "resolve_frameworks", lambda *_args, **_kwargs: ("springboot",)
+    )
     monkeypatch.setattr(pipeline_module, "get_source_specs", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(pipeline_module, "get_sink_specs", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(pipeline_module, "get_sanitizer_specs", lambda *_args, **_kwargs: [])

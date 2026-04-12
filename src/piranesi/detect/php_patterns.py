@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 from bisect import bisect_right
 from collections.abc import Sequence
@@ -48,7 +47,9 @@ _PHP_AUTH_FUNCTION = re.compile(
     r"\([^)]*\)\s*\{(?P<body>.*?)\}",
 )
 _PHP_UNSERIALIZE_CALL = re.compile(r"\bunserialize\s*\(\s*(?P<arg>[^)]+)\)", re.IGNORECASE)
-_PHP_MAGIC_METHOD = re.compile(r"function\s+(?P<name>__wakeup|__destruct)\s*\([^)]*\)\s*\{", re.IGNORECASE)
+_PHP_MAGIC_METHOD = re.compile(
+    r"function\s+(?P<name>__wakeup|__destruct)\s*\([^)]*\)\s*\{", re.IGNORECASE
+)
 _PHP_DANGEROUS_CALL = re.compile(
     r"\b(?:exec|system|passthru|shell_exec|include|require|unlink|file_put_contents|"
     r"mysqli_query|curl_exec|eval)\s*\(",
@@ -64,12 +65,16 @@ _LARAVEL_ROUTE_AUTH = re.compile(
     r"(?:middleware\s*\(|['\"]auth['\"]|['\"]can:[^'\"]+['\"]|->middleware\s*\()",
     re.IGNORECASE,
 )
-_LARAVEL_SENSITIVE_ROUTE = re.compile(r"/(?:admin|internal|manage|settings|users|roles)\b", re.IGNORECASE)
+_LARAVEL_SENSITIVE_ROUTE = re.compile(
+    r"/(?:admin|internal|manage|settings|users|roles)\b", re.IGNORECASE
+)
 _LARAVEL_GUARDED_EMPTY = re.compile(r"\$guarded\s*=\s*\[\s*\]\s*;", re.IGNORECASE)
 _LARAVEL_FILLABLE = re.compile(r"\$fillable\s*=\s*\[(?P<body>.*?)\]\s*;", re.IGNORECASE | re.DOTALL)
 _BLADE_FORM = re.compile(r"(?is)<form\b(?P<attrs>[^>]*)>(?P<body>.*?)</form>")
 _BLADE_STATE_METHOD = re.compile(r"method\s*=\s*['\"](?P<method>post|get)['\"]", re.IGNORECASE)
-_BLADE_METHOD_OVERRIDE = re.compile(r"@method\s*\(\s*['\"](?P<method>put|patch|delete)['\"]\s*\)", re.IGNORECASE)
+_BLADE_METHOD_OVERRIDE = re.compile(
+    r"@method\s*\(\s*['\"](?P<method>put|patch|delete)['\"]\s*\)", re.IGNORECASE
+)
 _BLADE_CSRF = re.compile(r"@csrf|csrf_field\s*\(", re.IGNORECASE)
 _BLADE_UNESCAPED = re.compile(r"\{!!\s*.+?\s*!!\}", re.DOTALL)
 
@@ -174,7 +179,7 @@ def _load_scanned_files(
     if files is None:
         candidate_paths = sorted(path for path in project_root.rglob("*") if path.is_file())
     else:
-        candidate_paths = list(Path(path).resolve(strict=False) for path in files)
+        candidate_paths = [Path(path).resolve(strict=False) for path in files]
         if "symfony" in frameworks:
             for extra in (
                 project_root / "config" / "packages" / "security.yaml",
@@ -480,7 +485,9 @@ def _detect_laravel_patterns(scanned_files: Sequence[_ScannedFile]) -> list[Cand
 def _detect_symfony_patterns(scanned_files: Sequence[_ScannedFile]) -> list[CandidateFinding]:
     findings: list[CandidateFinding] = []
     for scanned_file in scanned_files:
-        if scanned_file.path.suffix in {".yaml", ".yml"} and scanned_file.path.name.startswith("security."):
+        if scanned_file.path.suffix in {".yaml", ".yml"} and scanned_file.path.name.startswith(
+            "security."
+        ):
             for match in _SYMFONY_ANONYMOUS_ADMIN.finditer(scanned_file.text):
                 findings.append(
                     _build_static_finding(

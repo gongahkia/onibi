@@ -89,7 +89,9 @@ unserialize($_COOKIE['payload']);
 
     assert cwe_findings
     assert any(finding.metadata.get("gadget_chain") is True for finding in cwe_findings)
-    assert any("__destruct" in finding.metadata.get("magic_methods", []) for finding in cwe_findings)
+    assert any(
+        "__destruct" in finding.metadata.get("magic_methods", []) for finding in cwe_findings
+    )
 
 
 def test_laravel_guarded_empty_is_detected(tmp_path: Path) -> None:

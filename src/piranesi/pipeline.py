@@ -8,7 +8,7 @@ import shutil
 import tempfile
 import time
 from collections import OrderedDict, defaultdict
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -22,13 +22,12 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from piranesi import __version__
 from piranesi.config import PiranesiConfig, config_hash
-from piranesi.diff import stable_fingerprint
 from piranesi.detect import (
     InlineSuppression,
     analyze_reachability,
     apply_suppressions,
-    extract_candidate_findings,
     extract_auth_access_findings,
+    extract_candidate_findings,
     extract_crypto_transport_findings,
     extract_misconfiguration_findings,
     extract_redos_findings,
@@ -37,6 +36,7 @@ from piranesi.detect import (
     parse_inline_suppressions,
     scan_dependency_findings,
 )
+from piranesi.diff import stable_fingerprint
 from piranesi.legal import assess_finding, build_default_engine
 from piranesi.llm.cost import CostTracker
 from piranesi.llm.provider import LLMProvider
@@ -49,8 +49,8 @@ from piranesi.models import (
     PatchResult,
     ReachabilityResult,
     ScanMetadata,
-    ScanResult,
     ScannedFunction,
+    ScanResult,
     SourceLocation,
     TaintSink,
     TaintSource,
@@ -59,13 +59,13 @@ from piranesi.models import (
 )
 from piranesi.models.finding import SandboxResult
 from piranesi.patch.generator import generate_patches
+from piranesi.plugin import discover_rule_plugins
 from piranesi.report.renderer import (
     PiranesiReport,
     build_report,
     update_report_metrics,
     write_report_outputs,
 )
-from piranesi.plugin import discover_reporter_plugins, discover_rule_plugins
 from piranesi.rules import (
     compile_rule,
     execute_custom_rules,
@@ -486,9 +486,7 @@ def run_pipeline(
                     for fail_result in failed_parallel:
                         results.append(fail_result)
                     failed_stage = failed_parallel[0].stage
-                    combined_error = "; ".join(
-                        f"{r.stage}: {r.error}" for r in failed_parallel
-                    )
+                    combined_error = "; ".join(f"{r.stage}: {r.error}" for r in failed_parallel)
                     partial_summary_path = _save_partial_summary(
                         context,
                         results,
@@ -590,7 +588,9 @@ def _execute_stage(
 
     if result.elapsed_s <= 0:
         result.elapsed_s = time.monotonic() - started_at
-    _logger.info("stage '%s' completed in %.1fs (success=%s)", stage.name, result.elapsed_s, result.success)
+    _logger.info(
+        "stage '%s' completed in %.1fs (success=%s)", stage.name, result.elapsed_s, result.success
+    )
     return result
 
 
@@ -673,7 +673,7 @@ def _scan_session_for_target(
     selected_targets = discover_scan_targets(
         resolved_target,
         config,
-        candidate_paths=changed_files,
+        candidate_paths=None if changed_files is None else tuple(changed_files),
     )
     cache_key: str | None = None
     cache_entry_dir: Path | None = None
@@ -1172,7 +1172,7 @@ def _build_scan_artifact_for_target(
     scanned_targets = discover_scan_targets(
         target_dir,
         config,
-        candidate_paths=changed_files,
+        candidate_paths=None if changed_files is None else tuple(changed_files),
     )
     frameworks = resolve_frameworks(target_dir, config.scan.frameworks)
     source_specs = get_source_specs(config.scan, frameworks=frameworks)
@@ -1273,7 +1273,7 @@ def _detect_findings_for_target(
     scanned_files = discover_scan_targets(
         target_dir,
         config,
-        candidate_paths=changed_files,
+        candidate_paths=None if changed_files is None else tuple(changed_files),
     )
     scan_session_cm = (
         _scan_session(
@@ -1529,8 +1529,12 @@ def _exported_sink_findings(package: WorkspacePackage) -> list[CandidateFinding]
                     break
 
             body_text = "\n".join(body_lines)
-            sink_match = _SQL_SINK_PATTERN.search(body_text) or _COMMAND_SINK_PATTERN.search(body_text)
-            if sink_match is not None and any(parameter and parameter in body_text for parameter in parameters):
+            sink_match = _SQL_SINK_PATTERN.search(body_text) or _COMMAND_SINK_PATTERN.search(
+                body_text
+            )
+            if sink_match is not None and any(
+                parameter and parameter in body_text for parameter in parameters
+            ):
                 parameter_name = next(
                     (parameter for parameter in parameters if parameter and parameter in body_text),
                     "input",
@@ -1555,7 +1559,7 @@ def _exported_sink_findings(package: WorkspacePackage) -> list[CandidateFinding]
                     (
                         f"export|{package.name}|{source_file.as_posix()}|"
                         f"{function_name}|{sink_line_number}|{vuln_class}"
-                    ).encode("utf-8")
+                    ).encode()
                 ).hexdigest()[:16]
                 source_location = SourceLocation(
                     file=str(source_file),
@@ -1639,12 +1643,14 @@ def _cross_package_findings(
 ) -> list[CandidateFinding]:
     export_summaries: dict[tuple[str, str], list[CandidateFinding]] = defaultdict(list)
     selected_names = {package.name for package in selected_packages}
-    for package_name, findings in package_findings.items():
+    for package_name, package_candidate_findings in package_findings.items():
         if package_name not in selected_names:
             continue
-        for finding in findings:
+        for finding in package_candidate_findings:
             exported_function = finding.metadata.get("exported_function")
-            if not finding.metadata.get("workspace_export") or not isinstance(exported_function, str):
+            if not finding.metadata.get("workspace_export") or not isinstance(
+                exported_function, str
+            ):
                 continue
             export_summaries[(package_name, exported_function)].append(finding)
 
@@ -1678,11 +1684,15 @@ def _cross_package_findings(
                     if source_match is None:
                         continue
                     for local_name, imported_name in bindings.items():
-                        call_pattern = re.compile(rf"\b{re.escape(local_name)}\s*\((?P<args>[^)]*)\)")
+                        call_pattern = re.compile(
+                            rf"\b{re.escape(local_name)}\s*\((?P<args>[^)]*)\)"
+                        )
                         call_match = call_pattern.search(line)
                         if call_match is None:
                             continue
-                        summary_findings = export_summaries.get((dependency_package, imported_name), ())
+                        summary_findings = export_summaries.get(
+                            (dependency_package, imported_name), ()
+                        )
                         for summary in summary_findings:
                             source_location = SourceLocation(
                                 file=str(source_file),
@@ -1694,7 +1704,7 @@ def _cross_package_findings(
                                 (
                                     f"xpkg|{package.name}|{dependency_package}|"
                                     f"{source_file.as_posix()}|{line_no}|{imported_name}|{summary.id}"
-                                ).encode("utf-8")
+                                ).encode()
                             ).hexdigest()[:16]
                             findings.append(
                                 CandidateFinding(
@@ -1713,7 +1723,8 @@ def _cross_package_findings(
                                             operation="internal_dependency_call",
                                             taint_state="tainted",
                                             through_function=(
-                                                f"{package.name} -> {dependency_package}:{imported_name}"
+                                                f"{package.name} -> "
+                                                f"{dependency_package}:{imported_name}"
                                             ),
                                         ),
                                         *summary.taint_path,
@@ -1931,9 +1942,7 @@ def _run_detect_stage(
             findings.extend(package_findings[package.name])
         findings.extend(_cross_package_findings(manifest, selected_packages, package_findings))
         _finalize_incremental_manifest(context, "detect")
-        merged_findings = _dedupe_candidate_findings_by_fingerprint(
-            [*carried_findings, *findings]
-        )
+        merged_findings = _dedupe_candidate_findings_by_fingerprint([*carried_findings, *findings])
         annotated_findings, reachability_result = _annotate_reachability_for_findings(
             context,
             config,
@@ -2280,7 +2289,7 @@ def _current_dependency_findings(context: PipelineContext) -> list[CandidateFind
     return list(scan_dependency_findings(context.target_dir).findings)
 
 
-def _load_artifact(path: Path, artifact_type: type[BaseModel]) -> BaseModel | None:
+def _load_artifact[T: BaseModel](path: Path, artifact_type: type[T]) -> T | None:
     try:
         return artifact_type.model_validate_json(path.read_text(encoding="utf-8"))
     except (OSError, ValidationError, json.JSONDecodeError):

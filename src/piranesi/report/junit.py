@@ -27,8 +27,8 @@ def generate_junit_xml(report: PiranesiReport) -> str:
 
     for finding in report.findings:
         testsuite.append(_testcase_for_finding(finding, target_root=target_root))
-    for finding in report.suppressed_findings:
-        testsuite.append(_testcase_for_suppressed(finding, target_root=target_root))
+    for suppressed in report.suppressed_findings:
+        testsuite.append(_testcase_for_suppressed(suppressed, target_root=target_root))
 
     tree = ET.ElementTree(testsuite)
     ET.indent(tree, space="  ")

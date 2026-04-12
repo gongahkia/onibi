@@ -8,6 +8,7 @@ from collections import defaultdict, deque
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 import yaml
 
@@ -149,7 +150,7 @@ def topologically_sorted_packages(
     if not selected:
         return []
 
-    indegree = {name: 0 for name in selected}
+    indegree = dict.fromkeys(selected, 0)
     dependents: dict[str, list[str]] = defaultdict(list)
     for source_name, dependency_name in manifest.dependency_edges:
         if source_name not in selected or dependency_name not in selected:
@@ -198,7 +199,6 @@ def topological_package_batches(
         }
         for package in ordered_packages
     }
-    packages_by_name = {package.name: package for package in ordered_packages}
     processed: set[str] = set()
     batches: list[list[WorkspacePackage]] = []
 
@@ -228,7 +228,9 @@ def transitive_dependents(
     for source_name, dependency_name in manifest.dependency_edges:
         reverse_edges[dependency_name].add(source_name)
 
-    selected = {name for name in package_names if any(pkg.name == name for pkg in manifest.packages)}
+    selected = {
+        name for name in package_names if any(pkg.name == name for pkg in manifest.packages)
+    }
     queue = deque(selected)
     while queue:
         current = queue.popleft()
@@ -287,7 +289,9 @@ def select_packages(
     if package_name is not None:
         selector = package_name.strip()
         selected_names = {
-            package.name for package in manifest.packages if _package_matches_selector(package, selector)
+            package.name
+            for package in manifest.packages
+            if _package_matches_selector(package, selector)
         } & selected_names
     return topologically_sorted_packages(manifest, selected_names=selected_names)
 
@@ -400,7 +404,7 @@ def _detect_maven_workspace(
         return None
 
     try:
-        pom_tree = ET.parse(pom_path)
+        pom_tree = ET.parse(pom_path)  # noqa: S314 - parses local project metadata.
     except (ET.ParseError, OSError):
         return None
 
@@ -526,14 +530,22 @@ def _pnpm_workspace_records(root: Path) -> list[_PackageRecord]:
     except (OSError, yaml.YAMLError):
         return []
     packages = payload.get("packages") if isinstance(payload, dict) else None
-    patterns = [pattern for pattern in packages if isinstance(pattern, str)] if isinstance(packages, list) else []
+    patterns = (
+        [pattern for pattern in packages if isinstance(pattern, str)]
+        if isinstance(packages, list)
+        else []
+    )
     return _node_workspace_records_from_patterns(root, patterns)
 
 
 def _lerna_workspace_records(root: Path) -> list[_PackageRecord]:
     payload = _load_json(root / "lerna.json")
     packages = payload.get("packages") if isinstance(payload, dict) else None
-    patterns = [pattern for pattern in packages if isinstance(pattern, str)] if isinstance(packages, list) else []
+    patterns = (
+        [pattern for pattern in packages if isinstance(pattern, str)]
+        if isinstance(packages, list)
+        else []
+    )
     return _node_workspace_records_from_patterns(root, patterns)
 
 
@@ -557,7 +569,9 @@ def _node_workspace_records(root: Path) -> list[_PackageRecord]:
     return _node_workspace_records_from_patterns(root, patterns)
 
 
-def _node_workspace_records_from_patterns(root: Path, patterns: Sequence[str]) -> list[_PackageRecord]:
+def _node_workspace_records_from_patterns(
+    root: Path, patterns: Sequence[str]
+) -> list[_PackageRecord]:
     package_dirs = _glob_workspace_directories(
         root,
         patterns=patterns,
@@ -581,7 +595,9 @@ def _node_workspace_records_from_patterns(root: Path, patterns: Sequence[str]) -
     return records
 
 
-def _package_record_from_directory(project_root: Path, default_name: str | None = None) -> _PackageRecord:
+def _package_record_from_directory(
+    project_root: Path, default_name: str | None = None
+) -> _PackageRecord:
     normalized_root = project_root.resolve(strict=False)
     package_json = _load_json(normalized_root / "package.json")
     if isinstance(package_json, dict):
@@ -631,11 +647,16 @@ def _glob_workspace_directories(
     for pattern in include_patterns:
         for candidate in root.glob(pattern):
             resolved_candidate = candidate.resolve(strict=False)
-            candidate_dir = resolved_candidate if resolved_candidate.is_dir() else resolved_candidate.parent
+            candidate_dir = (
+                resolved_candidate if resolved_candidate.is_dir() else resolved_candidate.parent
+            )
             if not (candidate_dir / manifest_name).is_file():
                 continue
             relative = candidate_dir.relative_to(root).as_posix()
-            if any(candidate_dir.match(excluded) or relative == excluded for excluded in exclude_patterns):
+            if any(
+                candidate_dir.match(excluded) or relative == excluded
+                for excluded in exclude_patterns
+            ):
                 continue
             matched.add(candidate_dir)
     return sorted(matched)
@@ -741,7 +762,7 @@ def _pom_artifact_id(pom_path: Path) -> str | None:
     if not pom_path.is_file():
         return None
     try:
-        root = ET.parse(pom_path).getroot()
+        root = ET.parse(pom_path).getroot()  # noqa: S314 - parses local project metadata.
     except (ET.ParseError, OSError):
         return None
     project_root = root
@@ -755,7 +776,7 @@ def _pom_dependency_artifact_ids(pom_path: Path) -> tuple[str, ...]:
     if not pom_path.is_file():
         return ()
     try:
-        root = ET.parse(pom_path).getroot()
+        root = ET.parse(pom_path).getroot()  # noqa: S314 - parses local project metadata.
     except (ET.ParseError, OSError):
         return ()
     dependencies: set[str] = set()
@@ -805,7 +826,7 @@ def _load_json(path: Path) -> dict[str, object] | object:
     if not path.is_file():
         return {}
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return cast(dict[str, object] | object, json.loads(path.read_text(encoding="utf-8")))
     except (OSError, json.JSONDecodeError):
         return {}
 
@@ -835,9 +856,7 @@ def _git_changed_files(root: Path) -> set[Path]:
         if result.returncode not in {0, 1, 128}:
             continue
         changed_files.update(
-            Path(line.strip())
-            for line in result.stdout.splitlines()
-            if line.strip()
+            Path(line.strip()) for line in result.stdout.splitlines() if line.strip()
         )
     return changed_files
 

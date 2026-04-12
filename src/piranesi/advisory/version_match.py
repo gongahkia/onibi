@@ -96,7 +96,9 @@ def parse_semver(value: str) -> SemverVersion:
         parts.append("0")
     if len(parts) < 3:
         raise ValueError(f"invalid semver: {value}")
-    return SemverVersion(major=int(parts[0]), minor=int(parts[1]), patch=int(parts[2]), prerelease=prerelease)
+    return SemverVersion(
+        major=int(parts[0]), minor=int(parts[1]), patch=int(parts[2]), prerelease=prerelease
+    )
 
 
 def _match_semver_range(version: str, range_str: str) -> bool:
@@ -132,7 +134,11 @@ def _expand_semver_token(token: str) -> list[str]:
         return [f">={_render_semver(lower)}", f"<{_render_semver(upper)}"]
     if stripped.startswith("~"):
         lower = parse_semver(stripped[1:])
-        upper = SemverVersion(lower.major, lower.minor + 1, 0) if "." in stripped[1:] else SemverVersion(lower.major + 1, 0, 0)
+        upper = (
+            SemverVersion(lower.major, lower.minor + 1, 0)
+            if "." in stripped[1:]
+            else SemverVersion(lower.major + 1, 0, 0)
+        )
         return [f">={_render_semver(lower)}", f"<{_render_semver(upper)}"]
     if stripped.endswith(".x") or stripped.endswith(".*"):
         prefix = stripped[:-2]
@@ -187,7 +193,11 @@ def _compare_prerelease(lhs: tuple[int | str, ...], rhs: tuple[int | str, ...]) 
             return -1
         if isinstance(left, str) and isinstance(right, int):
             return 1
-        return -1 if left < right else 1
+        if isinstance(left, int) and isinstance(right, int):
+            return -1 if left < right else 1
+        if isinstance(left, str) and isinstance(right, str):
+            return -1 if left < right else 1
+        return -1 if str(left) < str(right) else 1
     return 0
 
 

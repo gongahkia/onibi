@@ -103,9 +103,7 @@ def test_xss_pipeline_confirms_payload_in_docker(tmp_path: Path) -> None:
             exploit_response = sandbox._fire_payload_in_container(
                 container, payload, internal_port=internal_port
             )
-            confirmation = confirm_responses(
-                "CWE-79", payload, baseline_response, exploit_response
-            )
+            confirmation = confirm_responses("CWE-79", payload, baseline_response, exploit_response)
             capture = sandbox.capture_results(container, exploit_response)
         else:
             assert sandbox.wait_for_ready(host_port)

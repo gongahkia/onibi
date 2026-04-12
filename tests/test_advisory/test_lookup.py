@@ -77,7 +77,9 @@ def test_lockfile_parsing_go_sum(tmp_path: Path) -> None:
 
     dependencies = parse_lockfiles(tmp_path)
 
-    assert any(dep.name == "github.com/example/lib" and dep.version == "v1.2.3" for dep in dependencies)
+    assert any(
+        dep.name == "github.com/example/lib" and dep.version == "v1.2.3" for dep in dependencies
+    )
 
 
 def test_lockfile_parsing_gemfile_lock(tmp_path: Path) -> None:
@@ -110,15 +112,7 @@ def test_lockfile_parsing_gemfile_lock(tmp_path: Path) -> None:
 
 def test_lookup_rubygems_package(populated_db: AdvisoryDB, tmp_path: Path) -> None:
     (tmp_path / "Gemfile.lock").write_text(
-        (
-            "GEM\n"
-            "  remote: https://rubygems.org/\n"
-            "  specs:\n"
-            "    rack (2.2.4)\n"
-            "\n"
-            "PLATFORMS\n"
-            "  ruby\n"
-        ),
+        ("GEM\n  remote: https://rubygems.org/\n  specs:\n    rack (2.2.4)\n\nPLATFORMS\n  ruby\n"),
         encoding="utf-8",
     )
 

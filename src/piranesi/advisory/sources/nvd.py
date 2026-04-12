@@ -5,7 +5,13 @@ from datetime import UTC, datetime
 
 import requests
 
-from piranesi.advisory.models import Advisory, AffectedPackage, ExploitStatus, canonical_advisory_id, normalize_severity
+from piranesi.advisory.models import (
+    Advisory,
+    AffectedPackage,
+    ExploitStatus,
+    canonical_advisory_id,
+    normalize_severity,
+)
 
 NVD_API_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 
@@ -26,7 +32,7 @@ def fetch_nvd_advisories(
         headers["apiKey"] = api_key
 
     while True:
-        params: dict[str, object] = {"startIndex": start_index}
+        params: dict[str, str | int] = {"startIndex": start_index}
         if since is not None and not full:
             params["lastModStartDate"] = since
             params["lastModEndDate"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
@@ -42,7 +48,9 @@ def fetch_nvd_advisories(
                     cve = item.get("cve")
                     if isinstance(cve, Mapping):
                         modified = cve.get("lastModified")
-                        if isinstance(modified, str) and (latest_cursor is None or modified > latest_cursor):
+                        if isinstance(modified, str) and (
+                            latest_cursor is None or modified > latest_cursor
+                        ):
                             latest_cursor = modified
         total_results = payload.get("totalResults")
         results_per_page = payload.get("resultsPerPage")
@@ -93,7 +101,9 @@ def parse_nvd_cve_item(cve: Mapping[str, object]) -> Advisory | None:
         epss_percentile=None,
         exploit_status=ExploitStatus.NONE,
         exploit_sources=(),
-        fix_available=any(pkg.fixed_versions for pkg in _extract_affected_packages(cve.get("configurations"))),
+        fix_available=any(
+            pkg.fixed_versions for pkg in _extract_affected_packages(cve.get("configurations"))
+        ),
         fix_version=_first_fix_version(_extract_affected_packages(cve.get("configurations"))),
         published_date=_string_value(cve.get("published")),
         modified_date=_string_value(cve.get("lastModified")),
@@ -117,7 +127,9 @@ def _extract_cvss(metrics: object) -> tuple[str, float | None, str | None]:
             continue
         score = cvss_data.get("baseScore")
         vector = _string_value(cvss_data.get("vectorString"))
-        severity = _string_value(first.get("baseSeverity")) or _string_value(cvss_data.get("baseSeverity"))
+        severity = _string_value(first.get("baseSeverity")) or _string_value(
+            cvss_data.get("baseSeverity")
+        )
         try:
             parsed_score = float(score) if score is not None else None
         except (TypeError, ValueError):

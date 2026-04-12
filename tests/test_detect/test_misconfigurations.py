@@ -88,9 +88,7 @@ def test_extract_misconfiguration_findings_skips_headers_when_set_upstream(
         files=(app_file,),
     )
 
-    send_cwes = {
-        finding.vuln_class for finding in findings if finding.sink.api_name == "res.send"
-    }
+    send_cwes = {finding.vuln_class for finding in findings if finding.sink.api_name == "res.send"}
     assert "CWE-1021" not in send_cwes
     assert "CWE-693" not in send_cwes
     assert "CWE-319" not in send_cwes

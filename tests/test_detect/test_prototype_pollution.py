@@ -50,7 +50,9 @@ def test_extract_prototype_pollution_findings_detects_merge_sinks_and_magic_path
 
 def test_extract_candidate_findings_merges_prototype_pollution_results() -> None:
     body_source = next(
-        spec for spec in get_source_specs(frameworks=("express",)) if spec.name == "express_req_body"
+        spec
+        for spec in get_source_specs(frameworks=("express",))
+        if spec.name == "express_req_body"
     )
 
     findings = extract_candidate_findings(

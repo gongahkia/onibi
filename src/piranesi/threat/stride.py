@@ -104,7 +104,7 @@ def classify_all(findings: Sequence[CandidateFinding]) -> dict[str, StrideCatego
 def stride_breakdown(
     classifications: dict[str, StrideCategory],
 ) -> dict[StrideCategory, list[str]]:
-    breakdown = {category: [] for category in STRIDE_ORDER}
+    breakdown: dict[StrideCategory, list[str]] = {category: [] for category in STRIDE_ORDER}
     for finding_id, classification in classifications.items():
         for category in stride_members(classification):
             breakdown[category].append(finding_id)

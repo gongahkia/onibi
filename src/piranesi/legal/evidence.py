@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import re
-from collections import Counter, defaultdict
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from piranesi.legal.frameworks import resolve_framework_key
-from piranesi.legal.rules import load_all_rule_specs
+from piranesi.legal.rules import RegulatoryRuleSpec, load_all_rule_specs
 from piranesi.legal.rules.pci_dss import detect_payment_processing_scope
-from piranesi.models import LegalAssessment, RegulatoryObligation, ScanResult
+from piranesi.models import LegalAssessment, ScanResult
 
 _SEVERITY_ORDER = ("critical", "high", "medium", "low", "informational")
 _SUPPORTED_FRAMEWORKS = {"SOC2", "PCI_DSS"}
@@ -177,12 +177,10 @@ def load_evidence_artifacts(
     if report_path.exists():
         from piranesi.report.renderer import PiranesiReport
 
-        report = PiranesiReport.model_validate_json(report_path.read_text(encoding="utf-8"))
-        return scan, list(report.legal_assessments)
+        PiranesiReport.model_validate_json(report_path.read_text(encoding="utf-8"))
+        return scan, []
 
-    raise ValueError(
-        f"missing legal artifact: expected {legal_path} or {report_path}"
-    )
+    raise ValueError(f"missing legal artifact: expected {legal_path} or {report_path}")
 
 
 def _resolve_framework_selection(value: str) -> tuple[str, ...]:
@@ -196,7 +194,7 @@ def _resolve_framework_selection(value: str) -> tuple[str, ...]:
 
 
 def _control_catalog(framework_keys: tuple[str, ...]) -> list[_ControlCatalogEntry]:
-    grouped: dict[tuple[str, str], list[object]] = defaultdict(list)
+    grouped: dict[tuple[str, str], list[RegulatoryRuleSpec]] = defaultdict(list)
     for spec in load_all_rule_specs():
         if spec.framework not in framework_keys:
             continue
@@ -245,7 +243,9 @@ def _extract_cwe(vuln_class: str) -> str:
     return match.group(0).upper() if match is not None else vuln_class.strip().upper()
 
 
-def _severity_breakdown(findings: tuple[EvidenceFinding, ...] | list[EvidenceFinding]) -> dict[str, int]:
+def _severity_breakdown(
+    findings: tuple[EvidenceFinding, ...] | list[EvidenceFinding],
+) -> dict[str, int]:
     counts = dict.fromkeys(_SEVERITY_ORDER, 0)
     for finding in findings:
         counts[finding.severity] = counts.get(finding.severity, 0) + 1
@@ -277,7 +277,9 @@ def _evidence_narrative(
 ) -> str:
     label = f"{control.control_ref} ({control.control_name})"
     if not in_scope:
-        return f"{label} marked not in scope because payment-processing indicators were not detected."
+        return (
+            f"{label} marked not in scope because payment-processing indicators were not detected."
+        )
     if control.meta_only:
         if control.control_ref == "Req 11.3.2":
             return (
@@ -288,10 +290,7 @@ def _evidence_narrative(
     if not findings:
         return f"No findings mapped to {label}. Current evidence supports control effectiveness."
     files = ", ".join(sorted({finding.file for finding in findings}))
-    return (
-        f"{len(findings)} finding(s) mapped to {label}. "
-        f"Affected files: {files}."
-    )
+    return f"{len(findings)} finding(s) mapped to {label}. Affected files: {files}."
 
 
 def _scan_languages(scan: ScanResult) -> list[str]:

@@ -199,7 +199,7 @@ def render_ignore_template() -> str:
             '#     reason: "accepted risk"',
             '#     ticket: "SEC-123"',
             "# Suppress by CWE and path:",
-            '#   - cwe: CWE-79',
+            "#   - cwe: CWE-79",
             '#     path: "src/admin/**"',
             '#     reason: "admin-only surface"',
             "suppressions: []",

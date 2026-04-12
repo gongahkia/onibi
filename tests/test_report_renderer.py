@@ -82,7 +82,9 @@ def test_report_renderer_separates_suppressed_findings(tmp_path: Path) -> None:
 def test_report_renderer_groups_package_and_cross_package_findings(tmp_path: Path) -> None:
     artifacts = fixture_artifacts(tmp_path)
     base_candidate = artifacts["detect"].findings[0]  # type: ignore[attr-defined]
-    local_candidate = base_candidate.model_copy(update={"metadata": {"package": "@test/shared-lib"}})
+    local_candidate = base_candidate.model_copy(
+        update={"metadata": {"package": "@test/shared-lib"}}
+    )
     cross_candidate = base_candidate.model_copy(
         update={
             "id": "finding-cross-package",
@@ -95,17 +97,21 @@ def test_report_renderer_groups_package_and_cross_package_findings(tmp_path: Pat
         }
     )
 
-    local_confirmed = artifacts["verify"].findings[0].model_copy(  # type: ignore[attr-defined]
-        update={
-            "finding": artifacts["verify"].findings[0].finding.model_copy(  # type: ignore[attr-defined]
-                update={"finding": local_candidate}
-            )
-        }
+    local_confirmed = (
+        artifacts["verify"]
+        .findings[0]
+        .model_copy(  # type: ignore[attr-defined]
+            update={
+                "finding": artifacts["verify"]
+                .findings[0]
+                .finding.model_copy(  # type: ignore[attr-defined]
+                    update={"finding": local_candidate}
+                )
+            }
+        )
     )
     cross_confirmed = local_confirmed.model_copy(
-        update={
-            "finding": local_confirmed.finding.model_copy(update={"finding": cross_candidate})
-        }
+        update={"finding": local_confirmed.finding.model_copy(update={"finding": cross_candidate})}
     )
 
     report = build_report(

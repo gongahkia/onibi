@@ -103,7 +103,12 @@ def test_install_update_remove_rule_repository_lifecycle(
         "acme-rules:shared-rule",
         "acme-rules:noisy-rule-001",
     }
-    assert ["git", "clone", "https://example.com/acme-rules.git", str(installed_root / "acme-rules")] in calls
+    assert [
+        "git",
+        "clone",
+        "https://example.com/acme-rules.git",
+        str(installed_root / "acme-rules"),
+    ] in calls
 
     updated = update_rule_repositories(rules_root=installed_root, rules_config=RulesConfig())
 
@@ -185,7 +190,9 @@ def test_validate_rule_repository_requires_signed_tag_when_enabled(
             seen_verify_tag = True
             return subprocess.CompletedProcess(args, 0, "", "")
         if args == ["git", "-C", str(repo_dir), "remote", "get-url", "origin"]:
-            return subprocess.CompletedProcess(args, 0, "https://example.com/signed-rules.git\n", "")
+            return subprocess.CompletedProcess(
+                args, 0, "https://example.com/signed-rules.git\n", ""
+            )
         raise AssertionError(f"unexpected command: {args}")
 
     monkeypatch.setattr("piranesi.rules.registry.run_subprocess", fake_run_subprocess)

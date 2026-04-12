@@ -25,12 +25,27 @@ def test_render_compliance_report_includes_all_supported_frameworks(tmp_path: Pa
         )
         for framework, section, timeline, penalty in (
             ("GDPR", "Art. 32", "72 hours", "Up to EUR 20M or 4% global annual turnover"),
-            ("CCPA", "Section 1798.100", "Without unreasonable delay", "Up to $7,500 per intentional violation"),
-            ("HIPAA", "45 CFR 164.312(a)", "Without unreasonable delay", "Tiered civil monetary penalties"),
+            (
+                "CCPA",
+                "Section 1798.100",
+                "Without unreasonable delay",
+                "Up to $7,500 per intentional violation",
+            ),
+            (
+                "HIPAA",
+                "45 CFR 164.312(a)",
+                "Without unreasonable delay",
+                "Tiered civil monetary penalties",
+            ),
             ("NIS2", "Article 23", "24 hours", "Up to EUR 10M or 2% global annual turnover"),
             ("PDPA", "Section 24", "3 calendar days", "Up to SGD 1M"),
             ("EU_AI_ACT", "Article 9", None, "Up to EUR 35M or 7% global annual turnover"),
-            ("MAS_TRM", "Section 11.1", None, "Supervisory action and direct financial penalty exposure"),
+            (
+                "MAS_TRM",
+                "Section 11.1",
+                None,
+                "Supervisory action and direct financial penalty exposure",
+            ),
         )
     ]
     enriched_report = report.model_copy(

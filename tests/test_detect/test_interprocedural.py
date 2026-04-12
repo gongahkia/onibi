@@ -162,11 +162,7 @@ def test_extract_candidate_findings_detects_interprocedural_patterns(
 def test_build_function_summaries_tracks_callback_parameter_flow(tmp_path: Path) -> None:
     fixture_path = tmp_path / "callback_wrapper.ts"
     fixture_path.write_text(
-        (
-            "export function forwardToCallback(sql, cb) {\n"
-            "  cb(null, sql);\n"
-            "}\n"
-        ),
+        ("export function forwardToCallback(sql, cb) {\n  cb(null, sql);\n}\n"),
         encoding="utf-8",
     )
 
@@ -180,12 +176,15 @@ def test_build_function_summaries_tracks_callback_parameter_flow(tmp_path: Path)
     summary = next(
         value for key, value in summaries.items() if key.endswith(":forwardToCallback:1")
     )
-    assert TaintTransfer(
-        from_param_index=0,
-        via_callback_param_index=1,
-        to_callback_argument_index=1,
-        confidence=0.9,
-    ) in summary.transfers
+    assert (
+        TaintTransfer(
+            from_param_index=0,
+            via_callback_param_index=1,
+            to_callback_argument_index=1,
+            confidence=0.9,
+        )
+        in summary.transfers
+    )
 
 
 @pytest.mark.joern

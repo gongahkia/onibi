@@ -132,7 +132,9 @@ def is_nosql_operator_position(
         "spring_mongo_template_find",
     }:
         return any(
-            marker in snippet for snippet in snippets for marker in ("req.body", "request.json", "BasicQuery")
+            marker in snippet
+            for snippet in snippets
+            for marker in ("req.body", "request.json", "BasicQuery")
         )
     return False
 
@@ -148,11 +150,16 @@ def is_template_source_position(flow_path: Sequence[_FlowStep]) -> bool:
     if render_index != -1:
         comma_index = terminal.find(",", render_index)
         source_slice = terminal if comma_index == -1 else terminal[render_index:comma_index]
-        if any(marker in source_slice for marker in ("req.", "request.", ".template", "[\"tpl\"]", "['tpl']")):
+        if any(
+            marker in source_slice
+            for marker in ("req.", "request.", ".template", '["tpl"]', "['tpl']")
+        ):
             return True
     if terminal.strip().startswith("{") or "Context(" in terminal:
         return False
-    has_source_marker = any(token in snippet for snippet in snippets for token in _TEMPLATE_SOURCE_TOKENS)
+    has_source_marker = any(
+        token in snippet for snippet in snippets for token in _TEMPLATE_SOURCE_TOKENS
+    )
     has_context_marker = any(token in terminal for token in _TEMPLATE_CONTEXT_TOKENS)
     return has_source_marker and not has_context_marker
 
@@ -169,7 +176,7 @@ def is_header_value_position(flow_path: Sequence[_FlowStep]) -> bool:
     if not snippets:
         return False
     terminal = snippets[-1]
-    if terminal.startswith(("\"X-", "'X-", "\"Location", "'Location")):
+    if terminal.startswith(('"X-', "'X-", '"Location', "'Location")):
         return False
     return any(token in terminal for token in _HEADER_VALUE_CALLS) or len(snippets) == 1
 

@@ -58,8 +58,7 @@ _SEVERITY_RANK = {
 
 
 class FindingScanner(Protocol):
-    def scan_uri(self, uri: str) -> Sequence[CandidateFinding]:
-        ...
+    def scan_uri(self, uri: str) -> Sequence[CandidateFinding]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -628,8 +627,7 @@ def _finding_uris(finding: CandidateFinding, project_root: Path) -> set[str]:
     }
     uris.update(_uri_for_location(step.location, project_root) for step in finding.taint_path)
     uris.update(
-        _uri_for_location(condition.location, project_root)
-        for condition in finding.path_conditions
+        _uri_for_location(condition.location, project_root) for condition in finding.path_conditions
     )
     return uris
 
@@ -717,9 +715,7 @@ def _position_in_range(position: types.Position, range_: types.Range) -> bool:
         return False
     if position.line == range_.start.line and position.character < range_.start.character:
         return False
-    return not (
-        position.line == range_.end.line and position.character > range_.end.character
-    )
+    return not (position.line == range_.end.line and position.character > range_.end.character)
 
 
 def _ranges_overlap(left: types.Range, right: types.Range) -> bool:

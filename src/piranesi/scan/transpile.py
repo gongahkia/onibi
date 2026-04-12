@@ -247,11 +247,9 @@ def transpile_project(
     )
     if not source_files:
         raise TranspilationError(
-            (
-                f"no changed TypeScript or JavaScript files found under {normalized_target}"
-                if changed_files is not None
-                else f"no TypeScript or JavaScript files found under {normalized_target}"
-            )
+            f"no changed TypeScript or JavaScript files found under {normalized_target}"
+            if changed_files is not None
+            else f"no TypeScript or JavaScript files found under {normalized_target}"
         )
 
     workspace = prepare_transpile_workspace(

@@ -6,7 +6,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 
 from piranesi.config import RulesConfig
 from piranesi.models import CandidateFinding
@@ -273,7 +273,9 @@ def _discover_rule_test_targets(
         raise ValueError(str(exc)) from exc
 
     return [
-        _RuleTestTarget(display_rule_id=rule.rule_id, file_path=rule.file_path.resolve(strict=False))
+        _RuleTestTarget(
+            display_rule_id=rule.rule_id, file_path=rule.file_path.resolve(strict=False)
+        )
         for rule in discovered
     ]
 
@@ -337,8 +339,10 @@ def _evaluate_inline_test(
 ) -> RuleInlineTestResult:
     if not expect_finding:
         passed = not matches
-        message = "expected no finding and got none" if passed else (
-            "expected no finding, observed " + _format_matches(matches)
+        message = (
+            "expected no finding and got none"
+            if passed
+            else ("expected no finding, observed " + _format_matches(matches))
         )
         return RuleInlineTestResult(
             rule_id=rule_id,
@@ -387,9 +391,7 @@ def _match_satisfies_expectation(
         return False
     if expect_source_line is not None and match.source_line != expect_source_line:
         return False
-    if expect_sink_line is not None and match.sink_line != expect_sink_line:
-        return False
-    return True
+    return not (expect_sink_line is not None and match.sink_line != expect_sink_line)
 
 
 def _load_ground_truth_entries(ground_truth_dir: Path) -> tuple[_GroundTruthEntry, ...]:
@@ -412,9 +414,7 @@ def _load_ground_truth_entries(ground_truth_dir: Path) -> tuple[_GroundTruthEntr
 
 
 def _format_matches(matches: tuple[RuleMatch, ...]) -> str:
-    return ", ".join(
-        f"{match.cwe_id}@{match.source_line}->{match.sink_line}" for match in matches
-    )
+    return ", ".join(f"{match.cwe_id}@{match.source_line}->{match.sink_line}" for match in matches)
 
 
 def _cwe_sort_key(cwe_id: str) -> tuple[int, str]:
@@ -422,4 +422,3 @@ def _cwe_sort_key(cwe_id: str) -> tuple[int, str]:
     if normalized.startswith("CWE-") and normalized[4:].isdigit():
         return int(normalized[4:]), normalized
     return 2**31 - 1, normalized
-

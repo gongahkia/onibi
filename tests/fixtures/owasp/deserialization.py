@@ -2,7 +2,7 @@ import marshal
 import pickle
 
 import yaml
-from flask import Flask, redirect, request
+from flask import Flask, request
 
 app = Flask(__name__)
 

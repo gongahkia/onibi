@@ -1,12 +1,11 @@
 """Tests for ensemble calibration and cost-aware routing."""
+
 from __future__ import annotations
 
-import json
 import math
 from pathlib import Path
 
 import pytest
-
 from eval.calibrate import (
     CalibrationData,
     PlattParams,
@@ -17,15 +16,15 @@ from eval.calibrate import (
     load_calibration,
     save_calibration,
 )
+
 from piranesi.config import BudgetConfig, ModelsConfig, PiranesiConfig
 from piranesi.llm.cost import CostTracker
 from piranesi.llm.router import ModelRouter, estimate_difficulty
-from piranesi.triage.ensemble import CalibratedEnsembleVoter, _temperature_scale
-
+from piranesi.triage.ensemble import CalibratedEnsembleVoter
 from tests.test_triage._helpers import RecordingProvider, build_candidate_finding
 
-
 # --- Platt scaling ---
+
 
 def test_platt_params_identity_when_a1_b0() -> None:
     p = PlattParams(a=1.0, b=0.0)
@@ -44,8 +43,8 @@ def test_fit_platt_scaling_separable_data() -> None:
     confidences = [0.9, 0.85, 0.8, 0.1, 0.15, 0.2]
     labels = [True, True, True, False, False, False]
     params = fit_platt_scaling(confidences, labels)
-    assert params.transform(0.9) > 0.5 # high conf → high prob
-    assert params.transform(0.1) < 0.5 # low conf → low prob
+    assert params.transform(0.9) > 0.5  # high conf → high prob
+    assert params.transform(0.1) < 0.5  # low conf → low prob
 
 
 def test_fit_platt_scaling_empty_data() -> None:
@@ -58,10 +57,11 @@ def test_fit_platt_scaling_all_correct() -> None:
     confidences = [0.8, 0.9, 0.7, 0.85]
     labels = [True, True, True, True]
     params = fit_platt_scaling(confidences, labels)
-    assert params.transform(0.8) > 0.7 # should map high confidence → high calibrated
+    assert params.transform(0.8) > 0.7  # should map high confidence → high calibrated
 
 
 # --- threshold search ---
+
 
 def test_find_optimal_thresholds_returns_valid_bounds() -> None:
     scores = [0.9, 0.85, 0.1, 0.15, 0.5]
@@ -81,11 +81,12 @@ def test_find_optimal_thresholds_empty() -> None:
 def test_find_optimal_thresholds_perfect_separation() -> None:
     scores = [0.95, 0.90, 0.85, 0.05, 0.10, 0.15]
     labels = [True, True, True, False, False, False]
-    tp_thresh, fp_thresh = find_optimal_thresholds(scores, labels)
-    assert tp_thresh <= 0.90 # should find threshold that captures all TPs
+    tp_thresh, _fp_thresh = find_optimal_thresholds(scores, labels)
+    assert tp_thresh <= 0.90  # should find threshold that captures all TPs
 
 
 # --- build_calibration ---
+
 
 def test_build_calibration_from_trials() -> None:
     trials = [
@@ -101,12 +102,14 @@ def test_build_calibration_from_trials() -> None:
     assert cal.n_correct == 3
     assert cal.raw_accuracy == pytest.approx(0.6)
     assert cal.gt_version == "gt-5"
-    assert cal.cwe_params == {} # < 10 samples per CWE
+    assert cal.cwe_params == {}  # < 10 samples per CWE
 
 
 def test_build_calibration_per_cwe_when_enough_samples() -> None:
     trials = [
-        TrialResult(f"gt-{i}", "CWE-89", "true_positive", "m1", 0.8 + i * 0.01, "true_positive", True)
+        TrialResult(
+            f"gt-{i}", "CWE-89", "true_positive", "m1", 0.8 + i * 0.01, "true_positive", True
+        )
         for i in range(12)
     ]
     cal = build_calibration("m1", trials)
@@ -121,6 +124,7 @@ def test_build_calibration_empty_model() -> None:
 
 # --- save/load roundtrip ---
 
+
 def test_calibration_save_load_roundtrip(tmp_path: Path) -> None:
     cal = CalibrationData(
         model="gpt-4o",
@@ -133,7 +137,7 @@ def test_calibration_save_load_roundtrip(tmp_path: Path) -> None:
         optimal_fp_threshold=0.25,
         gt_version="gt-149",
     )
-    path = save_calibration(cal, tmp_path)
+    save_calibration(cal, tmp_path)
     loaded = load_calibration("gpt-4o", tmp_path)
     assert loaded is not None
     assert loaded.model == "gpt-4o"
@@ -153,22 +157,26 @@ def test_calibration_data_calibrate_uses_cwe_override() -> None:
         model="m1",
         global_params=PlattParams(a=1.0, b=0.0),
         cwe_params={"CWE-89": PlattParams(a=3.0, b=-1.0)},
-        n_samples=50, n_correct=40, raw_accuracy=0.8,
-        optimal_tp_threshold=0.7, optimal_fp_threshold=0.3,
+        n_samples=50,
+        n_correct=40,
+        raw_accuracy=0.8,
+        optimal_tp_threshold=0.7,
+        optimal_fp_threshold=0.3,
         gt_version="gt-50",
     )
     global_result = cal.calibrate(0.8)
     cwe_result = cal.calibrate(0.8, "CWE-89")
-    assert global_result != cwe_result # CWE-specific params differ
+    assert global_result != cwe_result  # CWE-specific params differ
 
 
 # --- difficulty estimation ---
+
 
 def test_estimate_difficulty_simple_sqli() -> None:
     finding = build_candidate_finding("CWE-89: SQL Injection")
     d = estimate_difficulty(finding)
     assert 0.0 <= d <= 1.0
-    assert d < 0.4 # sqli with short path = easy
+    assert d < 0.4  # sqli with short path = easy
 
 
 def test_estimate_difficulty_ssrf_higher() -> None:
@@ -180,10 +188,11 @@ def test_estimate_difficulty_ssrf_higher() -> None:
 def test_estimate_difficulty_no_cwe_prefix() -> None:
     finding = build_candidate_finding("sql_injection")
     d = estimate_difficulty(finding)
-    assert 0.0 <= d <= 1.0 # should not crash
+    assert 0.0 <= d <= 1.0  # should not crash
 
 
 # --- cost-aware routing ---
+
 
 def test_select_triage_model_cheap_for_easy() -> None:
     config = PiranesiConfig(
@@ -191,6 +200,7 @@ def test_select_triage_model_cheap_for_easy() -> None:
         budget=BudgetConfig(max_cost_usd=10.0),
     )
     from piranesi.config import ModelFallbackConfig
+
     config = PiranesiConfig(
         models=ModelsConfig(triage="expensive-model"),
         models_fallback=ModelFallbackConfig(default="cheap-model"),
@@ -198,7 +208,7 @@ def test_select_triage_model_cheap_for_easy() -> None:
     )
     tracker = CostTracker()
     router = ModelRouter(config=config, cost_tracker=tracker)
-    finding = build_candidate_finding("CWE-89: SQL Injection") # easy
+    finding = build_candidate_finding("CWE-89: SQL Injection")  # easy
     selected = router.select_triage_model(finding)
     assert selected == "cheap-model"
 
@@ -210,13 +220,14 @@ def test_select_triage_model_expensive_for_hard() -> None:
     )
     tracker = CostTracker()
     router = ModelRouter(config=config, cost_tracker=tracker)
-    finding = build_candidate_finding("CWE-918: SSRF") # hard
+    finding = build_candidate_finding("CWE-918: SSRF")  # hard
     selected = router.select_triage_model(finding)
     assert selected == "expensive-model"
 
 
 def test_select_triage_model_respects_budget() -> None:
     from piranesi.llm.router import BudgetExceededError
+
     config = PiranesiConfig(
         models=ModelsConfig(triage="model"),
         budget=BudgetConfig(max_cost_usd=1.0),
@@ -231,23 +242,31 @@ def test_select_triage_model_respects_budget() -> None:
 
 # --- ensemble with calibration ---
 
+
 def test_ensemble_loads_platt_calibration(tmp_path: Path) -> None:
     cal = CalibrationData(
         model="m1",
         global_params=PlattParams(a=2.0, b=-0.5),
         cwe_params={},
-        n_samples=50, n_correct=40, raw_accuracy=0.8,
-        optimal_tp_threshold=0.65, optimal_fp_threshold=0.35,
+        n_samples=50,
+        n_correct=40,
+        raw_accuracy=0.8,
+        optimal_tp_threshold=0.65,
+        optimal_fp_threshold=0.35,
         gt_version="gt-50",
     )
     save_calibration(cal, tmp_path)
-    provider = RecordingProvider({
-        ("triage", "m1"): [{
-            "verdict": "true_positive",
-            "confidence": 0.85,
-            "explanation": "Direct interpolation.",
-        }],
-    })
+    provider = RecordingProvider(
+        {
+            ("triage", "m1"): [
+                {
+                    "verdict": "true_positive",
+                    "confidence": 0.85,
+                    "explanation": "Direct interpolation.",
+                }
+            ],
+        }
+    )
     voter = CalibratedEnsembleVoter(
         provider=provider,  # type: ignore[arg-type]
         models=("m1",),
@@ -259,13 +278,17 @@ def test_ensemble_loads_platt_calibration(tmp_path: Path) -> None:
 
 
 def test_ensemble_falls_back_without_calibration() -> None:
-    provider = RecordingProvider({
-        ("triage", "m1"): [{
-            "verdict": "true_positive",
-            "confidence": 0.85,
-            "explanation": "Direct interpolation.",
-        }],
-    })
+    provider = RecordingProvider(
+        {
+            ("triage", "m1"): [
+                {
+                    "verdict": "true_positive",
+                    "confidence": 0.85,
+                    "explanation": "Direct interpolation.",
+                }
+            ],
+        }
+    )
     voter = CalibratedEnsembleVoter(
         provider=provider,  # type: ignore[arg-type]
         models=("m1",),
@@ -279,12 +302,17 @@ def test_ensemble_falls_back_without_calibration() -> None:
 
 # --- serialization ---
 
+
 def test_calibration_data_dict_roundtrip() -> None:
     cal = CalibrationData(
-        model="test", global_params=PlattParams(a=1.2, b=-0.3),
+        model="test",
+        global_params=PlattParams(a=1.2, b=-0.3),
         cwe_params={"CWE-89": PlattParams(a=1.5, b=-0.1)},
-        n_samples=100, n_correct=85, raw_accuracy=0.85,
-        optimal_tp_threshold=0.72, optimal_fp_threshold=0.28,
+        n_samples=100,
+        n_correct=85,
+        raw_accuracy=0.85,
+        optimal_tp_threshold=0.72,
+        optimal_fp_threshold=0.28,
         gt_version="gt-100",
     )
     d = cal.to_dict()

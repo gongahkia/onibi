@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from piranesi.models import CandidateFinding, ScanResult, ScannedFunction
+from piranesi.models import CandidateFinding, ScannedFunction, ScanResult
 from piranesi.models.taint import SourceLocation
 from piranesi.scan.cpg_diff import ParsedFunction, function_body_hash, parse_functions_from_file
 
@@ -176,7 +176,7 @@ def build_cpg_from_scan_result(
     functions: dict[str, CPGFunction] = {}
     joern_to_stable: dict[str, str] = {}
     entry_point_ids = {entry_point.function_id for entry_point in scan_result.entry_points}
-    source_types = {}
+    source_types: dict[str, str] = {}
     for attack_surface in scan_result.attack_surface:
         source_types.setdefault(attack_surface.function_id, attack_surface.source_type)
 
@@ -462,7 +462,9 @@ def _from_serializable(payload: dict[str, Any]) -> PiranesiCPG:
         if isinstance(taint_summary_payload, dict):
             param_to_sink = {
                 int(index): [SinkReference(**reference) for reference in references]
-                for index, references in dict(taint_summary_payload.get("param_to_sink", {})).items()
+                for index, references in dict(
+                    taint_summary_payload.get("param_to_sink", {})
+                ).items()
             }
             function_payload["taint_summary"] = TaintSummary(
                 param_to_return={
@@ -485,7 +487,9 @@ def _from_serializable(payload: dict[str, Any]) -> PiranesiCPG:
         functions=functions,
         call_edges=call_edges,
         taint_flows=taint_flows,
-        file_hashes={str(key): str(value) for key, value in dict(payload.get("file_hashes", {})).items()},
+        file_hashes={
+            str(key): str(value) for key, value in dict(payload.get("file_hashes", {})).items()
+        },
         created_at=str(payload.get("created_at", "")),
         updated_at=str(payload.get("updated_at", "")),
         last_accessed=str(payload.get("last_accessed"))
@@ -525,7 +529,9 @@ def _match_parsed_function(
         return None
     same_name = [candidate for candidate in candidates if candidate.name == scanned_function.name]
     line = scanned_function.location.line
-    containing = [candidate for candidate in same_name if candidate.line_start <= line <= candidate.line_end]
+    containing = [
+        candidate for candidate in same_name if candidate.line_start <= line <= candidate.line_end
+    ]
     if containing:
         containing.sort(key=lambda candidate: abs(candidate.line_start - line))
         return containing[0]
@@ -567,8 +573,7 @@ def _call_edges_from_scan_result(
     functions: dict[str, CPGFunction],
 ) -> list[CallEdge]:
     line_by_stable = {
-        function_id: function.line_start
-        for function_id, function in functions.items()
+        function_id: function.line_start for function_id, function in functions.items()
     }
     edges: dict[tuple[str, str], CallEdge] = {}
     for caller_joern_id, callees in scan_result.call_graph.items():
@@ -648,7 +653,9 @@ def _function_for_location(cpg: PiranesiCPG, location: SourceLocation) -> str | 
         if function.line_start <= location.line <= function.line_end
     ]
     if matches:
-        matches.sort(key=lambda function: (function.line_end - function.line_start, function.line_start))
+        matches.sort(
+            key=lambda function: (function.line_end - function.line_start, function.line_start)
+        )
         return matches[0].function_id
     return None
 

@@ -28,7 +28,8 @@ _JS_FUNCTION_EXPRESSION = (
 
 _PYTHON_FUNCTION = re.compile(
     r"(?ms)(?P<decorators>(?:^[ \t]*@[^\n]+\n)*)"
-    r"^[ \t]*def\s+(?P<name>[A-Za-z_]\w*)\s*\([^)]*\):(?P<body>.*?)(?=^(?:[ \t]*def|[ \t]*class)\s+|\Z)"
+    r"^[ \t]*def\s+(?P<name>[A-Za-z_]\w*)\s*\([^)]*\):(?P<body>.*?)"
+    r"(?=^(?:[ \t]*def|[ \t]*class)\s+|\Z)"
 )
 _FLASK_ROUTE_DECORATOR = re.compile(
     r"@(?:\w+\.)?route\(\s*['\"](?P<path>[^'\"]+)['\"](?P<args>[^)]*)\)",
@@ -155,7 +156,9 @@ _MASS_ASSIGN_SAFE_HINT = re.compile(
     r"(?:zod|joi|class-validator|pydantic|schema)\b)",
     re.IGNORECASE,
 )
-_REQUEST_BODY_PARAM = re.compile(r"@RequestBody(?:\s+@Valid)?\s+(?P<type>[A-Za-z_]\w*)\s+(?P<var>[A-Za-z_]\w*)")
+_REQUEST_BODY_PARAM = re.compile(
+    r"@RequestBody(?:\s+@Valid)?\s+(?P<type>[A-Za-z_]\w*)\s+(?P<var>[A-Za-z_]\w*)"
+)
 
 _ADMIN_ROUTE_PATTERNS = re.compile(
     r"(?:"
@@ -225,7 +228,9 @@ _PUBLIC_BY_DESIGN = frozenset(
         "/oauth/callback",
     }
 )
-_FINANCIAL_KEYWORDS = frozenset({"transfer", "payment", "purchase", "withdraw", "deposit", "charge"})
+_FINANCIAL_KEYWORDS = frozenset(
+    {"transfer", "payment", "purchase", "withdraw", "deposit", "charge"}
+)
 _SENSITIVE_FIELDS = frozenset(
     {
         "isAdmin",
@@ -315,9 +320,12 @@ class _AuthAccessContext:
 
     @classmethod
     def build(cls, scanned_files: Sequence[_ScannedFile]) -> _AuthAccessContext:
-        has_global_js_csrf = any(_CSRF_MIDDLEWARE_PRESENT.search(file.text) for file in scanned_files)
+        has_global_js_csrf = any(
+            _CSRF_MIDDLEWARE_PRESENT.search(file.text) for file in scanned_files
+        )
         has_flask_csrf = any(
-            file.path.suffix == ".py" and re.search(r"(?:CSRFProtect|csrf\.init_app)\s*\(", file.text)
+            file.path.suffix == ".py"
+            and re.search(r"(?:CSRFProtect|csrf\.init_app)\s*\(", file.text)
             for file in scanned_files
         )
         django_settings = [file for file in scanned_files if file.path.name.endswith("settings.py")]
@@ -328,7 +336,9 @@ class _AuthAccessContext:
             django_csrf_enabled = not middleware_files or any(
                 "CsrfViewMiddleware" in file.text for file in middleware_files
             )
-        has_global_js_auth = any(_GLOBAL_AUTH_MIDDLEWARE.search(file.text) for file in scanned_files)
+        has_global_js_auth = any(
+            _GLOBAL_AUTH_MIDDLEWARE.search(file.text) for file in scanned_files
+        )
         spring_entity_names = frozenset(
             match.group("name")
             for file in scanned_files
@@ -547,12 +557,11 @@ def _detect_idor(scanned_files: Sequence[_ScannedFile]) -> list[CandidateFinding
                 if _has_strong_ownership_check(route.handler_text):
                     continue
                 confidence = 0.45
-                if route.path and re.search(r"/:[A-Za-z_]\w*id\b|/:id\b", route.path, re.IGNORECASE):
+                if route.path and re.search(
+                    r"/:[A-Za-z_]\w*id\b|/:id\b", route.path, re.IGNORECASE
+                ):
                     confidence = 0.55
-                if not _has_user_context(route.handler_text):
-                    confidence = 0.6
-                else:
-                    confidence = 0.3
+                confidence = 0.6 if not _has_user_context(route.handler_text) else 0.3
                 findings.append(
                     _build_static_finding(
                         cwe_id="CWE-639",
@@ -718,9 +727,9 @@ def _detect_broken_auth(scanned_files: Sequence[_ScannedFile]) -> list[Candidate
                     missing_flags.append("secure")
                 if "sameSite" not in body:
                     missing_flags.append("sameSite")
-                if re.search(r"sameSite\s*:\s*['\"]none['\"]", body, re.IGNORECASE) and not re.search(
-                    r"secure\s*:\s*true", body, re.IGNORECASE
-                ):
+                if re.search(
+                    r"sameSite\s*:\s*['\"]none['\"]", body, re.IGNORECASE
+                ) and not re.search(r"secure\s*:\s*true", body, re.IGNORECASE):
                     missing_flags.append("sameSite=none_without_secure")
                 if not missing_flags:
                     continue
@@ -757,9 +766,9 @@ def _detect_broken_auth(scanned_files: Sequence[_ScannedFile]) -> list[Candidate
                 )
         elif suffix == ".py":
             for function in _iter_python_functions(scanned_file):
-                if _DJANGO_RAW_PASSWORD_CHECK.search(function.full_text) and not _DJANGO_PASSWORD_SAFE.search(
+                if _DJANGO_RAW_PASSWORD_CHECK.search(
                     function.full_text
-                ):
+                ) and not _DJANGO_PASSWORD_SAFE.search(function.full_text):
                     findings.append(
                         _build_static_finding(
                             cwe_id="CWE-287",
@@ -773,15 +782,17 @@ def _detect_broken_auth(scanned_files: Sequence[_ScannedFile]) -> list[Candidate
                             metadata={"framework": "django"},
                         )
                     )
-                elif _TIMING_UNSAFE_COMPARE.search(function.full_text) and not _SAFE_SECRET_COMPARE.search(
+                elif _TIMING_UNSAFE_COMPARE.search(
                     function.full_text
-                ):
-                    match = _TIMING_UNSAFE_COMPARE.search(function.full_text)
-                    assert match is not None
+                ) and not _SAFE_SECRET_COMPARE.search(function.full_text):
+                    timing_match = _TIMING_UNSAFE_COMPARE.search(function.full_text)
+                    assert timing_match is not None
                     findings.append(
                         _build_static_finding(
                             cwe_id="CWE-287",
-                            location=scanned_file.location_for_index(function.start_index + match.start()),
+                            location=scanned_file.location_for_index(
+                                function.start_index + timing_match.start()
+                            ),
                             source_type="security_configuration",
                             sink_type=SinkType.AUTH_SENSITIVE.value,
                             api_name=function.name,
@@ -804,7 +815,9 @@ def _detect_session_fixation(scanned_files: Sequence[_ScannedFile]) -> list[Cand
                 handler_text = route.handler_text
                 if not handler_text:
                     continue
-                if not _LOGIN_ROUTE.search(route.path or "") and not _LOGIN_HINT.search(handler_text):
+                if not _LOGIN_ROUTE.search(route.path or "") and not _LOGIN_HINT.search(
+                    handler_text
+                ):
                     continue
                 if not _SESSION_ASSIGNMENT_JS.search(handler_text):
                     continue
@@ -826,9 +839,9 @@ def _detect_session_fixation(scanned_files: Sequence[_ScannedFile]) -> list[Cand
             for function in _iter_python_functions(scanned_file):
                 route_path, methods = _flask_route_info(function.decorators)
                 if route_path and "POST" in methods and _LOGIN_ROUTE.search(route_path):
-                    if _SESSION_ASSIGNMENT_PY.search(function.full_text) and not _FLASK_SESSION_CLEAR.search(
+                    if _SESSION_ASSIGNMENT_PY.search(
                         function.full_text
-                    ):
+                    ) and not _FLASK_SESSION_CLEAR.search(function.full_text):
                         findings.append(
                             _build_static_finding(
                                 cwe_id="CWE-384",
@@ -923,16 +936,18 @@ def _detect_mass_assignment(
                     )
         elif suffix == ".java":
             for method in _iter_java_methods(scanned_file):
-                match = _REQUEST_BODY_PARAM.search(method.signature)
-                if match is None:
+                request_body_match = _REQUEST_BODY_PARAM.search(method.signature)
+                if request_body_match is None:
                     continue
-                body_type = match.group("type")
-                body_var = match.group("var")
+                body_type = request_body_match.group("type")
+                body_var = request_body_match.group("var")
                 if body_type.endswith(("Dto", "DTO", "Request", "Payload")):
                     continue
                 if context.spring_entity_names and body_type not in context.spring_entity_names:
                     continue
-                if not re.search(rf"\bsave(?:AndFlush)?\s*\(\s*{re.escape(body_var)}\s*\)", method.body):
+                if not re.search(
+                    rf"\bsave(?:AndFlush)?\s*\(\s*{re.escape(body_var)}\s*\)", method.body
+                ):
                     continue
                 findings.append(
                     _build_static_finding(
@@ -962,11 +977,16 @@ def _detect_privilege_escalation(
                     continue
                 if _route_has_auth(route.middleware):
                     continue
-                confidence = 0.6 if route.method == "delete" or re.search(
-                    r"\.(?:destroy|delete|remove)\s*\(",
-                    route.handler_text,
-                    re.IGNORECASE,
-                ) else 0.45
+                confidence = (
+                    0.6
+                    if route.method == "delete"
+                    or re.search(
+                        r"\.(?:destroy|delete|remove)\s*\(",
+                        route.handler_text,
+                        re.IGNORECASE,
+                    )
+                    else 0.45
+                )
                 if context.has_global_js_auth:
                     confidence = 0.3
                 findings.append(
@@ -986,7 +1006,9 @@ def _detect_privilege_escalation(
                 and re.search(r"@(?:Delete|Post|Put|Patch)\s*\(", scanned_file.text)
                 and not _NEST_ROLE_HINT.search(scanned_file.text)
             ):
-                match = re.search(r"@Controller\s*\(\s*['\"]admin", scanned_file.text, re.IGNORECASE)
+                match = re.search(
+                    r"@Controller\s*\(\s*['\"]admin", scanned_file.text, re.IGNORECASE
+                )
                 assert match is not None
                 findings.append(
                     _build_static_finding(
@@ -1054,12 +1076,18 @@ def _detect_missing_auth(
                     continue
                 if _route_has_auth(route.middleware):
                     continue
-                confidence = 0.6 if _is_financial_route(route.path, route.handler_text) or route.method in {
-                    "post",
-                    "put",
-                    "delete",
-                    "patch",
-                } else 0.45
+                confidence = (
+                    0.6
+                    if _is_financial_route(route.path, route.handler_text)
+                    or route.method
+                    in {
+                        "post",
+                        "put",
+                        "delete",
+                        "patch",
+                    }
+                    else 0.45
+                )
                 if context.has_global_js_auth:
                     confidence = 0.3
                 findings.append(
@@ -1076,7 +1104,11 @@ def _detect_missing_auth(
                 )
             if (
                 "@Controller" in scanned_file.text
-                and re.search(r"@(?:Post|Put|Delete|Patch)\s*\(\s*['\"](?:payment|charge|transfer|delete)", scanned_file.text, re.IGNORECASE)
+                and re.search(
+                    r"@(?:Post|Put|Delete|Patch)\s*\(\s*['\"](?:payment|charge|transfer|delete)",
+                    scanned_file.text,
+                    re.IGNORECASE,
+                )
                 and not _NEST_GUARD_HINT.search(scanned_file.text)
             ):
                 match = re.search(
@@ -1104,7 +1136,9 @@ def _detect_missing_auth(
                 if route_path is not None:
                     if _path_is_public_by_design(route_path):
                         continue
-                    if _is_critical_path(route_path) or _CRITICAL_HANDLER_KEYWORDS.search(full_text):
+                    if _is_critical_path(route_path) or _CRITICAL_HANDLER_KEYWORDS.search(
+                        full_text
+                    ):
                         if _DJANGO_PERMISSION_DECORATOR.search(function.decorators):
                             continue
                         findings.append(
@@ -1120,10 +1154,9 @@ def _detect_missing_auth(
                             )
                         )
                     continue
-                if (
-                    _function_is_critical(function.name, function.full_text)
-                    and not _DJANGO_PERMISSION_DECORATOR.search(function.decorators)
-                ):
+                if _function_is_critical(
+                    function.name, function.full_text
+                ) and not _DJANGO_PERMISSION_DECORATOR.search(function.decorators):
                     findings.append(
                         _build_static_finding(
                             cwe_id="CWE-306",
@@ -1152,7 +1185,9 @@ def _detect_missing_auth(
                         sink_type=SinkType.AUTH_SENSITIVE.value,
                         api_name=f"{method.name}({method.path or ''})",
                         parameter_name=method.path,
-                        confidence=0.6 if _is_financial_route(method.path, method.full_text) else 0.45,
+                        confidence=0.6
+                        if _is_financial_route(method.path, method.full_text)
+                        else 0.45,
                         metadata={"framework": "spring"},
                     )
                 )
@@ -1259,7 +1294,9 @@ def _resolve_js_handler(scanned_file: _ScannedFile, handler_argument: str) -> st
     return stripped
 
 
-def _extract_enclosed(text: str, start_index: int, open_char: str, close_char: str) -> tuple[str, int]:
+def _extract_enclosed(
+    text: str, start_index: int, open_char: str, close_char: str
+) -> tuple[str, int]:
     depth = 0
     quote: str | None = None
     escape = False
@@ -1352,21 +1389,33 @@ def _brace_scoped_text(scanned_file: _ScannedFile, index: int) -> str:
 
 def _has_strong_ownership_check(text: str) -> bool:
     lowered = text.lower()
-    if ("user_id" in lowered or "userid" in lowered or "owner_id" in lowered or "ownerid" in lowered) and (
+    if (
+        "user_id" in lowered or "userid" in lowered or "owner_id" in lowered or "ownerid" in lowered
+    ) and (
         "req.user" in lowered
         or "request.user" in lowered
         or "session.user" in lowered
         or "principal" in lowered
     ):
         return True
-    return bool(_DJANGO_OWNERSHIP.search(text) or re.search(r"@PreAuthorize\s*\([^)]*owner", text, re.IGNORECASE))
+    return bool(
+        _DJANGO_OWNERSHIP.search(text)
+        or re.search(r"@PreAuthorize\s*\([^)]*owner", text, re.IGNORECASE)
+    )
 
 
 def _has_user_context(text: str) -> bool:
     lowered = text.lower()
     return any(
         token in lowered
-        for token in ("req.user", "request.user", "session.user", "req.session", "currentuser", "principal")
+        for token in (
+            "req.user",
+            "request.user",
+            "session.user",
+            "req.session",
+            "currentuser",
+            "principal",
+        )
     )
 
 
@@ -1393,14 +1442,21 @@ def _function_is_critical(name: str, body: str) -> bool:
     lowered_name = name.lower()
     if any(keyword.replace("-", "") in lowered_name for keyword in _CRITICAL_ROUTE_KEYWORDS):
         return True
-    return bool(_CRITICAL_HANDLER_KEYWORDS.search(body) or re.search(r"\.(?:delete|destroy|remove)\s*\(", body))
+    return bool(
+        _CRITICAL_HANDLER_KEYWORDS.search(body)
+        or re.search(r"\.(?:delete|destroy|remove)\s*\(", body)
+    )
 
 
 def _route_is_critical(route: _JsRoute) -> bool:
     if route.path and _is_critical_path(route.path):
         return True
-    if route.method == "delete" and route.path and any(
-        token in route.path.lower() for token in ("/user", "/account", "/profile", "/admin")
+    if (
+        route.method == "delete"
+        and route.path
+        and any(
+            token in route.path.lower() for token in ("/user", "/account", "/profile", "/admin")
+        )
     ):
         return True
     return bool(
@@ -1419,9 +1475,9 @@ def _java_method_is_critical(method: _JavaMethod) -> bool:
 
 def _mass_assignment_confidence(file_text: str, block_text: str) -> float:
     lowered = f"{file_text}\n{block_text}".lower()
-    if any(field.lower() in lowered for field in _SENSITIVE_FIELDS) and not _MASS_ASSIGN_SAFE_HINT.search(
-        block_text
-    ):
+    if any(
+        field.lower() in lowered for field in _SENSITIVE_FIELDS
+    ) and not _MASS_ASSIGN_SAFE_HINT.search(block_text):
         return 0.65
     return 0.5
 

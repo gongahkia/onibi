@@ -21,7 +21,9 @@ from piranesi.scan.specs import (
 _SOURCE_FILE_EXTENSIONS = frozenset(
     {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".py", ".go", ".java"}
 )
-_DIRECTORY_EXCLUSIONS = frozenset({"node_modules", "vendor", ".git", "__pycache__", ".venv", "venv"})
+_DIRECTORY_EXCLUSIONS = frozenset(
+    {"node_modules", "vendor", ".git", "__pycache__", ".venv", "venv"}
+)
 _TEST_FILENAME_PATTERNS = (
     re.compile(r".*\.test\.[^.]+$", re.IGNORECASE),
     re.compile(r".*\.spec\.[^.]+$", re.IGNORECASE),
@@ -38,7 +40,9 @@ _MIN_AES_BITS = 128
 _NON_SECURITY_CONTEXT_INDICATORS = (
     re.compile(
         r"\b(?:"
-        + "|".join(re.escape(hint).replace("_", ".?") for hint in CRYPTO_TRANSPORT_NON_SECURITY_HASH_HINTS)
+        + "|".join(
+            re.escape(hint).replace("_", ".?") for hint in CRYPTO_TRANSPORT_NON_SECURITY_HASH_HINTS
+        )
         + r")\b",
         re.IGNORECASE,
     ),
@@ -47,7 +51,10 @@ _NON_SECURITY_CONTEXT_INDICATORS = (
 _SECURITY_CONTEXT_INDICATORS = (
     re.compile(
         r"\b(?:"
-        + "|".join(re.escape(hint).replace("_", "[_-]?") for hint in CRYPTO_TRANSPORT_SECURITY_CONTEXT_HINTS)
+        + "|".join(
+            re.escape(hint).replace("_", "[_-]?")
+            for hint in CRYPTO_TRANSPORT_SECURITY_CONTEXT_HINTS
+        )
         + r")\b",
         re.IGNORECASE,
     ),
@@ -57,7 +64,9 @@ _PRNG_SECURITY_SINKS = (
         r"\b(?:token|session[_-]?id|csrf|nonce|otp|api[_-]?key|secret|salt|password|passwd|key|iv|initialization.?vector|reset[_-]?token|verification[_-]?code|auth[_-]?code|invite[_-]?code)\b",
         re.IGNORECASE,
     ),
-    re.compile(r"\b(?:encrypt|decrypt|sign|hmac|jwt[.]sign|jwt[.]verify|createHmac)\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:encrypt|decrypt|sign|hmac|jwt[.]sign|jwt[.]verify|createHmac)\b", re.IGNORECASE
+    ),
 )
 _NON_SECURITY_PRNG_CONTEXT = (
     re.compile(
@@ -79,9 +88,7 @@ _LOCALHOST_HTTP_PATTERN = re.compile(
 )
 _WEAK_EC_CURVES = frozenset(CRYPTO_TRANSPORT_WEAK_EC_CURVES)
 _JWT_PUBLIC_KEY_NAMES = re.compile(
-    r"\b(?:"
-    + "|".join(re.escape(hint) for hint in CRYPTO_TRANSPORT_JWT_PUBLIC_KEY_HINTS)
-    + r")\b"
+    r"\b(?:" + "|".join(re.escape(hint) for hint in CRYPTO_TRANSPORT_JWT_PUBLIC_KEY_HINTS) + r")\b"
 )
 _JWT_NONE_ALG_PATTERN = re.compile(
     r"\b(?:algorithms?|algorithm|alg)\s*[:=]\s*(?:\[[^\]]*['\"]none['\"]|['\"]none['\"])",
@@ -171,7 +178,9 @@ class _WeakPrngAssignmentPattern:
 
 _WEAK_HASH_PATTERNS: tuple[_WeakHashPattern, ...] = (
     _WeakHashPattern(
-        pattern=re.compile(r"""crypto\.createHash\s*\(\s*['"](?P<alg>md5|sha1|md4|ripemd160)['"]\s*\)"""),
+        pattern=re.compile(
+            r"""crypto\.createHash\s*\(\s*['"](?P<alg>md5|sha1|md4|ripemd160)['"]\s*\)"""
+        ),
         algorithm="dynamic",
         library="crypto",
         api_name="crypto.createHash",
@@ -198,7 +207,9 @@ _WEAK_HASH_PATTERNS: tuple[_WeakHashPattern, ...] = (
         api_name="hashlib",
     ),
     _WeakHashPattern(
-        pattern=re.compile(r"""(?:Crypto|Cryptodome)\.Hash\.(?P<alg>MD5|SHA|MD4|MD2|RIPEMD)\.new\s*\("""),
+        pattern=re.compile(
+            r"""(?:Crypto|Cryptodome)\.Hash\.(?P<alg>MD5|SHA|MD4|MD2|RIPEMD)\.new\s*\("""
+        ),
         algorithm="dynamic",
         library="Crypto.Hash",
         api_name="Crypto.Hash.new",
@@ -216,13 +227,17 @@ _WEAK_HASH_PATTERNS: tuple[_WeakHashPattern, ...] = (
         api_name="sha1.New",
     ),
     _WeakHashPattern(
-        pattern=re.compile(r"""MessageDigest\.getInstance\s*\(\s*["'](?P<alg>MD5|MD2|SHA-1|SHA1)["']\s*\)"""),
+        pattern=re.compile(
+            r"""MessageDigest\.getInstance\s*\(\s*["'](?P<alg>MD5|MD2|SHA-1|SHA1)["']\s*\)"""
+        ),
         algorithm="dynamic",
         library="MessageDigest",
         api_name="MessageDigest.getInstance",
     ),
     _WeakHashPattern(
-        pattern=re.compile(r"""DigestUtils\.(?P<alg>md5|sha1|md5Hex|sha1Hex)\s*\(""", re.IGNORECASE),
+        pattern=re.compile(
+            r"""DigestUtils\.(?P<alg>md5|sha1|md5Hex|sha1Hex)\s*\(""", re.IGNORECASE
+        ),
         algorithm="dynamic",
         library="DigestUtils",
         api_name="DigestUtils",
@@ -240,7 +255,9 @@ _WEAK_CIPHER_PATTERNS: tuple[_WeakCipherPattern, ...] = (
         api_name="crypto.createCipher",
     ),
     _WeakCipherPattern(
-        pattern=re.compile(r"""CryptoJS\.(?P<alg>DES|TripleDES|RC4|Rabbit)\.(?:encrypt|decrypt)\s*\("""),
+        pattern=re.compile(
+            r"""CryptoJS\.(?P<alg>DES|TripleDES|RC4|Rabbit)\.(?:encrypt|decrypt)\s*\("""
+        ),
         algorithm="dynamic",
         library="CryptoJS",
         api_name="CryptoJS.cipher",
@@ -469,7 +486,8 @@ _HTTP_LITERAL_PATTERNS = (
         re.IGNORECASE,
     ),
     re.compile(
-        r"""http\.(?:Get|Post)\s*\(\s*"(http://[^"\s]+)"|http\.New(?:Request|RequestWithContext)\s*\(\s*"[^"]+"\s*,\s*"(http://[^"\s]+)" """,
+        r"""http\.(?:Get|Post)\s*\(\s*"(http://[^"\s]+)"|"""
+        r"""http\.New(?:Request|RequestWithContext)\s*\(\s*"[^"]+"\s*,\s*"(http://[^"\s]+)" """,
         re.IGNORECASE,
     ),
     re.compile(
@@ -489,19 +507,34 @@ _WEAK_TLS_PATTERNS = (
         re.compile(r"""minimum_version\s*=\s*ssl\.TLSVersion\.(?:TLSv1|TLSv1_1|SSLv3)\b"""),
         "ssl.minimum_version",
     ),
-    (re.compile(r"""MinVersion\s*:\s*tls\.(?:VersionTLS10|VersionTLS11|VersionSSL30)\b"""), "tls.MinVersion"),
     (
-        re.compile(r"""SSLContext\.getInstance\s*\(\s*["'](?:TLSv1|TLSv1[.]1|SSLv3|SSL)["']\s*\)"""),
+        re.compile(r"""MinVersion\s*:\s*tls\.(?:VersionTLS10|VersionTLS11|VersionSSL30)\b"""),
+        "tls.MinVersion",
+    ),
+    (
+        re.compile(
+            r"""SSLContext\.getInstance\s*\(\s*["'](?:TLSv1|TLSv1[.]1|SSLv3|SSL)["']\s*\)"""
+        ),
         "SSLContext.getInstance",
     ),
 )
 
 _CERT_VALIDATION_PATTERNS = (
     (re.compile(r"""rejectUnauthorized\s*:\s*false"""), "rejectUnauthorized"),
-    (re.compile(r"""NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*['"]?0['"]?"""), "NODE_TLS_REJECT_UNAUTHORIZED"),
-    (re.compile(r"""process\.env(?:\[['"]NODE_TLS_REJECT_UNAUTHORIZED['"]\]|\.NODE_TLS_REJECT_UNAUTHORIZED)\s*=\s*['"]0['"]"""), "NODE_TLS_REJECT_UNAUTHORIZED"),
     (
-        re.compile(r"""new\s+https?\.Agent\s*\(\s*\{[^}]*rejectUnauthorized\s*:\s*false""", re.DOTALL),
+        re.compile(r"""NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*['"]?0['"]?"""),
+        "NODE_TLS_REJECT_UNAUTHORIZED",
+    ),
+    (
+        re.compile(
+            r"""process\.env(?:\[['"]NODE_TLS_REJECT_UNAUTHORIZED['"]\]|\.NODE_TLS_REJECT_UNAUTHORIZED)\s*=\s*['"]0['"]"""
+        ),
+        "NODE_TLS_REJECT_UNAUTHORIZED",
+    ),
+    (
+        re.compile(
+            r"""new\s+https?\.Agent\s*\(\s*\{[^}]*rejectUnauthorized\s*:\s*false""", re.DOTALL
+        ),
         "https.Agent",
     ),
     (
@@ -652,9 +685,7 @@ def _should_scan_file(path: Path, *, project_root: Path, include_tests: bool) ->
         relative_path = path
     if any(part in _DIRECTORY_EXCLUSIONS for part in relative_path.parts[:-1]):
         return False
-    if not include_tests and _is_test_file(relative_path):
-        return False
-    return True
+    return include_tests or not _is_test_file(relative_path)
 
 
 def _is_test_file(relative_path: Path) -> bool:
@@ -669,11 +700,15 @@ def _detect_weak_hash(scanned_file: _ScannedFile) -> list[CandidateFinding]:
         for match in spec.pattern.finditer(scanned_file.text):
             block_start, block_end = scanned_file.containing_block(match.start())
             block_text = scanned_file.text[block_start:block_end]
-            line_text = _line_text(scanned_file.text, scanned_file.location_for_index(match.start()).line)
+            line_text = _line_text(
+                scanned_file.text, scanned_file.location_for_index(match.start()).line
+            )
             security_context = _classify_security_context("\n".join((line_text, block_text)))
             if security_context == "checksum":
                 continue
-            algorithm = _normalize_algorithm(match.groupdict().get("alg") or match.groupdict().get("alg_new") or spec.algorithm)
+            algorithm = _normalize_algorithm(
+                match.groupdict().get("alg") or match.groupdict().get("alg_new") or spec.algorithm
+            )
             findings.append(
                 _build_crypto_finding(
                     cwe_id="CWE-328",
@@ -794,7 +829,11 @@ def _detect_cert_validation_disabled(scanned_file: _ScannedFile) -> list[Candida
     findings: list[CandidateFinding] = []
     for pattern, api_name in _CERT_VALIDATION_PATTERNS:
         for match in pattern.finditer(scanned_file.text):
-            confidence = 0.8 if api_name in {"X509TrustManager.checkServerTrusted", "HostnameVerifier"} else 0.95
+            confidence = (
+                0.8
+                if api_name in {"X509TrustManager.checkServerTrusted", "HostnameVerifier"}
+                else 0.95
+            )
             findings.append(
                 _build_crypto_finding(
                     cwe_id="CWE-295",
@@ -920,7 +959,11 @@ def _detect_jwt_issues(scanned_file: _ScannedFile) -> list[CandidateFinding]:
                             metadata={"sub_type": "no_algorithm_restriction"},
                         )
                     )
-                if len(args) >= 2 and _JWT_PUBLIC_KEY_NAMES.search(args[1]) and not _options_has_algorithms(options):
+                if (
+                    len(args) >= 2
+                    and _JWT_PUBLIC_KEY_NAMES.search(args[1])
+                    and not _options_has_algorithms(options)
+                ):
                     findings.append(
                         _build_crypto_finding(
                             cwe_id="CWE-347",
@@ -1004,7 +1047,9 @@ def _detect_jwt_issues(scanned_file: _ScannedFile) -> list[CandidateFinding]:
                         )
                     )
 
-    for match in re.finditer(r"""Algorithm\.HMAC(?:256|384|512)\s*\(\s*['"][^'"]+['"]\s*\)""", scanned_file.text):
+    for match in re.finditer(
+        r"""Algorithm\.HMAC(?:256|384|512)\s*\(\s*['"][^'"]+['"]\s*\)""", scanned_file.text
+    ):
         findings.append(
             _build_crypto_finding(
                 cwe_id="CWE-347",

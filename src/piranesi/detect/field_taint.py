@@ -21,9 +21,7 @@ _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_$][\w$]*$")
 _VARIABLE_ASSIGNMENT_PATTERN = re.compile(
     r"^\s*(?:const|let|var)\s+(?P<name>[A-Za-z_$][\w$]*)\s*=\s*(?P<expr>.+?)\s*;?\s*$"
 )
-_REASSIGNMENT_PATTERN = re.compile(
-    r"^\s*(?P<name>[A-Za-z_$][\w$]*)\s*=\s*(?P<expr>.+?)\s*;?\s*$"
-)
+_REASSIGNMENT_PATTERN = re.compile(r"^\s*(?P<name>[A-Za-z_$][\w$]*)\s*=\s*(?P<expr>.+?)\s*;?\s*$")
 _DESTRUCTURING_PATTERN = re.compile(
     r"^\s*(?:const|let|var)\s*{\s*(?P<bindings>[^}]+)\s*}\s*=\s*(?P<expr>.+?)\s*;?\s*$"
 )
@@ -313,8 +311,7 @@ def annotate_flow_with_fields(
 
     for step in finding.taint_path:
         line_text = (
-            cache.read_source_line(step.location.file, step.location.line)
-            or step.location.snippet
+            cache.read_source_line(step.location.file, step.location.line) or step.location.snippet
         )
         summary = (
             cache.get_or_query(step.through_function, joern_server)
@@ -411,7 +408,10 @@ def propagate_field_taint(
                 )
             for explicit_key in classification.explicit_keys:
                 _mark_safe_object_field(state, classification.target, explicit_key, method=method)
-        elif classification.op in {FieldOp.ASSIGNMENT, FieldOp.SANITIZER} and classification.target is not None:
+        elif (
+            classification.op in {FieldOp.ASSIGNMENT, FieldOp.SANITIZER}
+            and classification.target is not None
+        ):
             _assign_target_from_expression(
                 state,
                 classification.target,
@@ -474,14 +474,17 @@ def prune_untainted_fields(
         return finding.model_copy(update={"metadata": metadata})
 
     try:
-        resolved_steps = list(
-            field_steps
-            or annotate_flow_with_fields(
-                finding,
-                joern_server,
-                field_summary_cache=cache,
+        if field_steps is not None:
+            resolved_steps = list(field_steps)
+        else:
+            assert joern_server is not None
+            resolved_steps = list(
+                annotate_flow_with_fields(
+                    finding,
+                    joern_server,
+                    field_summary_cache=cache,
+                )
             )
-        )
         resolved_state = state or propagate_field_taint(
             resolved_steps,
             finding.source,

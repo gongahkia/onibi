@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Generator
 
 import pytest
 from typer.testing import CliRunner
@@ -43,7 +43,7 @@ def test_compile_rule_supports_builtin_inheritance(tmp_path: Path) -> None:
                 'override_severity = "critical"',
                 "",
                 "[rule.additional_sanitizers]",
-                'patterns = [\'cpg.call.name("companySanitizeSql")\']',
+                "patterns = ['cpg.call.name(\"companySanitizeSql\")']",
             ]
         ),
         encoding="utf-8",
@@ -77,8 +77,8 @@ def test_rules_validate_command_catches_malformed_rule(tmp_path: Path) -> None:
                 'cwe_id = "CWE-79"',
                 'severity = "high"',
                 'description = "Broken CPGQL pattern"',
-                'source_pattern = \'cpg.call.name("req"\'',
-                'sink_pattern = \'cpg.call.name("send")\'',
+                "source_pattern = 'cpg.call.name(\"req\"'",
+                "sink_pattern = 'cpg.call.name(\"send\")'",
                 'message_template = "Broken"',
                 'author = "piranesi-tests"',
                 'version = "1.0.0"',

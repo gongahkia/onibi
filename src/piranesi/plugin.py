@@ -21,20 +21,14 @@ from piranesi.scan.specs import (
     GO_SANITIZER_SPECS,
     GO_SINK_SPECS,
     GO_STDLIB_SOURCE_SPECS,
+    LARAVEL_SANITIZER_SPECS,
+    LARAVEL_SINK_SPECS,
+    LARAVEL_SOURCE_SPECS,
     NESTJS_SOURCE_SPECS,
     NEXTJS_SOURCE_SPECS,
     PHP_SANITIZER_SPECS,
     PHP_SINK_SPECS,
     PHP_SOURCE_SPECS,
-    LARAVEL_SANITIZER_SPECS,
-    LARAVEL_SINK_SPECS,
-    LARAVEL_SOURCE_SPECS,
-    SYMFONY_SANITIZER_SPECS,
-    SYMFONY_SINK_SPECS,
-    SYMFONY_SOURCE_SPECS,
-    WORDPRESS_SANITIZER_SPECS,
-    WORDPRESS_SINK_SPECS,
-    WORDPRESS_SOURCE_SPECS,
     PYTHON_SANITIZER_SPECS,
     PYTHON_SINK_SPECS,
     RUBY_SANITIZER_SPECS,
@@ -43,6 +37,12 @@ from piranesi.scan.specs import (
     SPRINGBOOT_SANITIZER_SPECS,
     SPRINGBOOT_SINK_SPECS,
     SPRINGBOOT_SOURCE_SPECS,
+    SYMFONY_SANITIZER_SPECS,
+    SYMFONY_SINK_SPECS,
+    SYMFONY_SOURCE_SPECS,
+    WORDPRESS_SANITIZER_SPECS,
+    WORDPRESS_SINK_SPECS,
+    WORDPRESS_SOURCE_SPECS,
     SanitizerSpec,
     SinkSpec,
     SourceSpec,
@@ -401,6 +401,7 @@ class GoStdlibFramework(FrameworkPlugin):
 class PhpFramework(FrameworkPlugin):
     def name(self) -> str:
         return "php"
+
     def detect(self, project_root: Path) -> bool:
         if WordPressFramework().detect(project_root):
             return False
@@ -411,10 +412,13 @@ class PhpFramework(FrameworkPlugin):
         if any(project_root.rglob("*.php")):
             return True
         return (project_root / "composer.json").is_file()
+
     def source_specs(self) -> list[SourceSpec]:
         return list(PHP_SOURCE_SPECS)
+
     def sink_specs(self) -> list[SinkSpec]:
         return list(PHP_SINK_SPECS)
+
     def sanitizer_specs(self) -> list[SanitizerSpec]:
         return list(PHP_SANITIZER_SPECS)
 
@@ -422,6 +426,7 @@ class PhpFramework(FrameworkPlugin):
 class LaravelFramework(FrameworkPlugin):
     def name(self) -> str:
         return "laravel"
+
     def detect(self, project_root: Path) -> bool:
         composer = project_root / "composer.json"
         if not composer.is_file():
@@ -430,10 +435,13 @@ class LaravelFramework(FrameworkPlugin):
             return "laravel" in composer.read_text(encoding="utf-8").lower()
         except OSError:
             return False
+
     def source_specs(self) -> list[SourceSpec]:
         return list(LARAVEL_SOURCE_SPECS)
+
     def sink_specs(self) -> list[SinkSpec]:
         return list(LARAVEL_SINK_SPECS)
+
     def sanitizer_specs(self) -> list[SanitizerSpec]:
         return list(LARAVEL_SANITIZER_SPECS)
 
@@ -441,6 +449,7 @@ class LaravelFramework(FrameworkPlugin):
 class SymfonyFramework(FrameworkPlugin):
     def name(self) -> str:
         return "symfony"
+
     def detect(self, project_root: Path) -> bool:
         composer = project_root / "composer.json"
         if not composer.is_file():
@@ -449,10 +458,13 @@ class SymfonyFramework(FrameworkPlugin):
             return "symfony" in composer.read_text(encoding="utf-8").lower()
         except OSError:
             return False
+
     def source_specs(self) -> list[SourceSpec]:
         return list(SYMFONY_SOURCE_SPECS)
+
     def sink_specs(self) -> list[SinkSpec]:
         return list(SYMFONY_SINK_SPECS)
+
     def sanitizer_specs(self) -> list[SanitizerSpec]:
         return list(SYMFONY_SANITIZER_SPECS)
 
@@ -460,12 +472,16 @@ class SymfonyFramework(FrameworkPlugin):
 class WordPressFramework(FrameworkPlugin):
     def name(self) -> str:
         return "wordpress"
+
     def detect(self, project_root: Path) -> bool:
         return (project_root / "wp-config.php").is_file() or (project_root / "wp-content").is_dir()
+
     def source_specs(self) -> list[SourceSpec]:
         return list(WORDPRESS_SOURCE_SPECS)
+
     def sink_specs(self) -> list[SinkSpec]:
         return list(WORDPRESS_SINK_SPECS)
+
     def sanitizer_specs(self) -> list[SanitizerSpec]:
         return list(WORDPRESS_SANITIZER_SPECS)
 
@@ -473,16 +489,20 @@ class WordPressFramework(FrameworkPlugin):
 class RubyFramework(FrameworkPlugin):
     def name(self) -> str:
         return "ruby"
+
     def detect(self, project_root: Path) -> bool:
         if RailsFramework().detect(project_root) or SinatraFramework().detect(project_root):
             return False
         if any(project_root.rglob("*.rb")):
             return True
         return (project_root / "Gemfile").is_file()
+
     def source_specs(self) -> list[SourceSpec]:
         return list(RUBY_SOURCE_SPECS)
+
     def sink_specs(self) -> list[SinkSpec]:
         return list(RUBY_SINK_SPECS)
+
     def sanitizer_specs(self) -> list[SanitizerSpec]:
         return list(RUBY_SANITIZER_SPECS)
 
@@ -490,6 +510,7 @@ class RubyFramework(FrameworkPlugin):
 class RailsFramework(FrameworkPlugin):
     def name(self) -> str:
         return "rails"
+
     def detect(self, project_root: Path) -> bool:
         gemfile = project_root / "Gemfile"
         if not gemfile.is_file():
@@ -498,10 +519,13 @@ class RailsFramework(FrameworkPlugin):
             return "rails" in gemfile.read_text(encoding="utf-8").lower()
         except OSError:
             return False
+
     def source_specs(self) -> list[SourceSpec]:
         return list(RUBY_SOURCE_SPECS)
+
     def sink_specs(self) -> list[SinkSpec]:
         return list(RUBY_SINK_SPECS)
+
     def sanitizer_specs(self) -> list[SanitizerSpec]:
         return list(RUBY_SANITIZER_SPECS)
 
@@ -509,6 +533,7 @@ class RailsFramework(FrameworkPlugin):
 class SinatraFramework(FrameworkPlugin):
     def name(self) -> str:
         return "sinatra"
+
     def detect(self, project_root: Path) -> bool:
         gemfile = project_root / "Gemfile"
         if not gemfile.is_file():
@@ -517,10 +542,13 @@ class SinatraFramework(FrameworkPlugin):
             return "sinatra" in gemfile.read_text(encoding="utf-8").lower()
         except OSError:
             return False
+
     def source_specs(self) -> list[SourceSpec]:
         return list(RUBY_SOURCE_SPECS)
+
     def sink_specs(self) -> list[SinkSpec]:
         return list(RUBY_SINK_SPECS)
+
     def sanitizer_specs(self) -> list[SanitizerSpec]:
         return list(RUBY_SANITIZER_SPECS)
 

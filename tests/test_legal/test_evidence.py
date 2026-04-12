@@ -27,7 +27,9 @@ from piranesi.pipeline import LegalArtifact
 runner = CliRunner()
 
 
-def test_generate_evidence_bundles_for_soc2_include_counts_and_affected_files(tmp_path: Path) -> None:
+def test_generate_evidence_bundles_for_soc2_include_counts_and_affected_files(
+    tmp_path: Path,
+) -> None:
     source_file = tmp_path / "src" / "routes" / "orders.ts"
     source_file.parent.mkdir(parents=True)
     source_file.write_text("export const orders = true;\n", encoding="utf-8")
@@ -74,8 +76,7 @@ def test_generate_evidence_bundles_emit_meta_pci_controls_for_in_scope_zero_find
     source_file = tmp_path / "src" / "checkout.ts"
     source_file.parent.mkdir(parents=True)
     source_file.write_text(
-        "import Stripe from 'stripe';\n"
-        "const route = '/checkout';\n",
+        "import Stripe from 'stripe';\nconst route = '/checkout';\n",
         encoding="utf-8",
     )
     scan = _scan_artifact(tmp_path, files=[source_file])
@@ -125,9 +126,7 @@ def test_load_evidence_artifacts_reads_legal_json(tmp_path: Path) -> None:
     scan, assessments = load_evidence_artifacts(artifacts_dir)
 
     assert scan.project_root == str(tmp_path)
-    assert any(
-        obligation.framework == "SOC2" for obligation in assessments[0].obligations
-    )
+    assert any(obligation.framework == "SOC2" for obligation in assessments[0].obligations)
 
 
 def test_cli_compliance_evidence_writes_output_directory(tmp_path: Path) -> None:

@@ -208,4 +208,4 @@ def _run_rules(
 
 
 def _obligation_ids(obligations: list[object]) -> set[str]:
-    return {str(getattr(obligation, "args")["rule_id"]) for obligation in obligations}
+    return {str(obligation.args["rule_id"]) for obligation in obligations}

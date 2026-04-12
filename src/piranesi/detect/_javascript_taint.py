@@ -75,7 +75,11 @@ def property_reference(expression: str) -> tuple[str, str] | None:
 
 def candidate_references(expression: str) -> tuple[str, ...]:
     normalized = normalize_expression(expression)
-    return tuple(dict.fromkeys(match.group(0) for match in _IDENTIFIER_OR_PROPERTY_PATTERN.finditer(normalized)))
+    return tuple(
+        dict.fromkeys(
+            match.group(0) for match in _IDENTIFIER_OR_PROPERTY_PATTERN.finditer(normalized)
+        )
+    )
 
 
 def detect_magic_prototype_path(text: str) -> str | None:

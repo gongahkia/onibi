@@ -140,7 +140,7 @@ def test_monorepo_changed_packages_scans_only_changed_frontend_package(
     _init_git_repo(npm_workspace)
     frontend_file = npm_workspace / "packages" / "frontend" / "src" / "index.js"
     frontend_file.write_text(
-        'export function renderUser(id) {\n  return `<section>${id}</section>`;\n}\n',
+        "export function renderUser(id) {\n  return `<section>${id}</section>`;\n}\n",
         encoding="utf-8",
     )
 

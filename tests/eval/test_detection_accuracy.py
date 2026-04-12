@@ -4,21 +4,17 @@ These tests validate detection accuracy without requiring Joern. They exercise
 the scoring framework end-to-end against real fixture files to catch regressions
 in detection precision/recall.
 """
+
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 import yaml
-
 from eval.ground_truth.schema import GroundTruthEntry
 from eval.scoring import (
-    EvaluationReport,
-    MatchSummary,
     NormalizedFinding,
     load_ground_truth_entries,
-    match_weight,
     normalize_cwe_id,
     summarize_matches,
 )
@@ -36,17 +32,11 @@ def _load_gt(entry_id: str) -> GroundTruthEntry:
 def _gt_entries_with_fixtures() -> list[GroundTruthEntry]:
     """Load all ground truth entries whose fixture files actually exist."""
     entries = load_ground_truth_entries(GT_DIR)
-    return [
-        entry for entry in entries
-        if all((ROOT / f).is_file() for f in entry.affected_files)
-    ]
+    return [entry for entry in entries if all((ROOT / f).is_file() for f in entry.affected_files)]
 
 
 def _gt_by_language(entries: list[GroundTruthEntry], ext: str) -> list[GroundTruthEntry]:
-    return [
-        e for e in entries
-        if any(f.endswith(ext) for f in e.affected_files)
-    ]
+    return [e for e in entries if any(f.endswith(ext) for f in e.affected_files)]
 
 
 class TestGroundTruthIntegrity:
@@ -60,9 +50,7 @@ class TestGroundTruthIntegrity:
         entries = load_ground_truth_entries(GT_DIR)
         for entry in entries:
             normalized = normalize_cwe_id(entry.cwe_id)
-            assert normalized.startswith("CWE-"), (
-                f"{entry.id} has invalid CWE: {entry.cwe_id}"
-            )
+            assert normalized.startswith("CWE-"), f"{entry.id} has invalid CWE: {entry.cwe_id}"
 
     def test_fixture_files_exist(self) -> None:
         entries = load_ground_truth_entries(GT_DIR)
@@ -123,5 +111,5 @@ class TestScoringFramework:
 
     def test_cwe_alias_normalization(self) -> None:
         assert normalize_cwe_id("CWE-943") == "CWE-89"  # nosqli -> sqli alias
-        assert normalize_cwe_id("CWE-77") == "CWE-78"   # cmdi alias
-        assert normalize_cwe_id("cwe-79") == "CWE-79"    # case insensitive
+        assert normalize_cwe_id("CWE-77") == "CWE-78"  # cmdi alias
+        assert normalize_cwe_id("cwe-79") == "CWE-79"  # case insensitive

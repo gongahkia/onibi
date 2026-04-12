@@ -29,9 +29,7 @@ _IGNORED_PATH_SEGMENTS = frozenset(
 _JS_IMPORT_FROM_RE = re.compile(
     r"(?m)^\s*import\s+(?P<clause>[^;\n]+?)\s+from\s+['\"](?P<module>[^'\"]+)['\"]\s*;?"
 )
-_JS_SIDE_EFFECT_IMPORT_RE = re.compile(
-    r"(?m)^\s*import\s+['\"](?P<module>[^'\"]+)['\"]\s*;?"
-)
+_JS_SIDE_EFFECT_IMPORT_RE = re.compile(r"(?m)^\s*import\s+['\"](?P<module>[^'\"]+)['\"]\s*;?")
 _JS_REQUIRE_DESTRUCTURED_RE = re.compile(
     r"(?m)^\s*(?:const|let|var)\s+\{(?P<names>[^}]+)\}\s*=\s*require\(\s*['\"](?P<module>[^'\"]+)['\"]\s*\)\s*;?"
 )
@@ -186,9 +184,7 @@ def _finding_reachability(
             return "reachable"
 
         matching_bindings = [
-            binding
-            for binding in bindings
-            if _binding_matches_target(binding, target)
+            binding for binding in bindings if _binding_matches_target(binding, target)
         ]
         if not matching_bindings:
             continue
@@ -552,7 +548,9 @@ def _parse_js_import_clause(
     if "," in normalized_clause:
         default_part, remainder = normalized_clause.split(",", 1)
         bindings.extend(
-            _parse_js_default_binding(file_path, package_name, module_specifier, subpath, default_part)
+            _parse_js_default_binding(
+                file_path, package_name, module_specifier, subpath, default_part
+            )
         )
         remainder = remainder.strip()
         if remainder.startswith("{") and remainder.endswith("}"):
@@ -780,7 +778,9 @@ def _blank_spans(text: str, spans: Sequence[tuple[int, int]]) -> str:
 
 
 def _strip_js_comments(text: str) -> str:
-    without_blocks = _JS_BLOCK_COMMENT_RE.sub(lambda match: _preserve_newlines(match.group(0)), text)
+    without_blocks = _JS_BLOCK_COMMENT_RE.sub(
+        lambda match: _preserve_newlines(match.group(0)), text
+    )
     return _JS_LINE_COMMENT_RE.sub("", without_blocks)
 
 

@@ -252,9 +252,7 @@ class _InterproceduralAnalyzer:
         self._masked_text_by_file = {
             path: _mask_non_code(path.read_text(encoding="utf-8")) for path in self._files
         }
-        self._text_by_file = {
-            path: path.read_text(encoding="utf-8") for path in self._files
-        }
+        self._text_by_file = {path: path.read_text(encoding="utf-8") for path in self._files}
         self._line_starts_by_file = {
             path: _line_starts(self._text_by_file[path]) for path in self._files
         }
@@ -327,11 +325,19 @@ class _InterproceduralAnalyzer:
             if "SafeService" not in text:
                 continue
             source = next(
-                (fact for fact in self._sources if Path(fact.location.file).resolve(strict=False) == path),
+                (
+                    fact
+                    for fact in self._sources
+                    if Path(fact.location.file).resolve(strict=False) == path
+                ),
                 None,
             )
             sink = next(
-                (fact for fact in self._sinks if Path(fact.location.file).resolve(strict=False) == path),
+                (
+                    fact
+                    for fact in self._sinks
+                    if Path(fact.location.file).resolve(strict=False) == path
+                ),
                 None,
             )
             if source is None or sink is None:
@@ -938,9 +944,7 @@ class _InterproceduralAnalyzer:
         summary = self._summary_for_name(identifier, owner.file_path, summaries)
         if summary is None:
             return _SummaryEffect()
-        seeded_args = [
-            set(seeded.get(parameter, set())) for parameter in summary.parameter_names
-        ]
+        seeded_args = [set(seeded.get(parameter, set())) for parameter in summary.parameter_names]
         return self._apply_summary_effect(
             owner,
             summary,
@@ -995,14 +999,9 @@ class _InterproceduralAnalyzer:
                 callback = call.args[transfer.via_callback_param_index]
                 seeded_params = _callback_seed_params(callback, skip_error=False)
                 if transfer.to_callback_argument_index < len(seeded_params):
-                    seeded = {
-                        seeded_params[transfer.to_callback_argument_index]: set(origins)
-                    }
+                    seeded = {seeded_params[transfer.to_callback_argument_index]: set(origins)}
                 else:
-                    seeded = {
-                        parameter: set(origins)
-                        for parameter in seeded_params
-                    }
+                    seeded = {parameter: set(origins) for parameter in seeded_params}
                 effect.extend(
                     self._summary_effect_for_callback(
                         owner,
@@ -1431,9 +1430,7 @@ class _InterproceduralAnalyzer:
         summary = self._summary_for_name(identifier, owner.file_path)
         if summary is None:
             return _ConcreteEffect()
-        actual_arg_origins: list[set[_SourceFact]] = [
-            set() for _ in summary.parameter_names
-        ]
+        actual_arg_origins: list[set[_SourceFact]] = [set() for _ in summary.parameter_names]
         for index, parameter in enumerate(summary.parameter_names):
             if index < len(actual_arg_origins):
                 actual_arg_origins[index].update(seeded.get(parameter, set()))
@@ -1926,12 +1923,7 @@ def _split_top_level(text: str, delimiter: str = ",") -> tuple[str, ...]:
             brace_depth += 1
         elif char == "}":
             brace_depth = max(0, brace_depth - 1)
-        elif (
-            char == delimiter
-            and paren_depth == 0
-            and bracket_depth == 0
-            and brace_depth == 0
-        ):
+        elif char == delimiter and paren_depth == 0 and bracket_depth == 0 and brace_depth == 0:
             parts.append(text[segment_start:index])
             segment_start = index + 1
     parts.append(text[segment_start:])
@@ -1978,7 +1970,7 @@ def _parse_call(text: str, start_index: int) -> _CallExpression | None:
         close_index = _find_matching(masked, call_open, "(", ")")
         if close_index < 0:
             return None
-        callee_expr = _normalize_callee_expression(stripped[:callee_close + 1].strip())
+        callee_expr = _normalize_callee_expression(stripped[: callee_close + 1].strip())
         open_index = call_open
     else:
         close_index = _find_matching(masked, open_index, "(", ")")

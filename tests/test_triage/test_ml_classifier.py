@@ -55,8 +55,9 @@ def test_extract_features_from_candidate_finding(tmp_path: Path) -> None:
     taint_path = [
         base.taint_path[0].model_copy(
             update={
-                "location": base.taint_path[0]
-                .location.model_copy(update={"file": str(source_file)}),
+                "location": base.taint_path[0].location.model_copy(
+                    update={"file": str(source_file)}
+                ),
                 "sanitizer_applied": "parameterized_query",
                 "through_function": "loadUser",
             }

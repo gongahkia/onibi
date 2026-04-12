@@ -10,15 +10,20 @@ from piranesi.config import OutputConfig, PiranesiConfig, ScanConfig, TraceConfi
 from piranesi.llm.cost import CostTracker
 from piranesi.models import (
     ScanMetadata,
-    ScanResult,
     ScannedFunction,
+    ScanResult,
     SourceLocation,
     TaintSink,
     TaintSource,
     TaintStep,
 )
 from piranesi.models.finding import CandidateFinding
-from piranesi.pipeline import PipelineContext, _run_detect_stage, _run_scan_stage, prepare_incremental_state
+from piranesi.pipeline import (
+    PipelineContext,
+    _run_detect_stage,
+    _run_scan_stage,
+    prepare_incremental_state,
+)
 from piranesi.scan.cpg_cache import clear_cache, load_cached_cpg
 
 
@@ -34,7 +39,7 @@ def incremental_cpg_project(tmp_path: Path) -> tuple[Path, list[Path]]:
                 [
                     f"export function handler_{index}(value) {{",
                     f"  const local_{index} = value;",
-                    f'  return `file_{index}:${{local_{index}}}`;',
+                    f"  return `file_{index}:${{local_{index}}}`;",
                     "}",
                     "",
                 ]
@@ -59,8 +64,8 @@ def test_cpg_cache_round_trip_preserves_graph(
     assert project_hash
     assert cpg is None
 
-    from piranesi.scan.cpg_graph import apply_findings_to_cpg, build_cpg_from_scan_result
     from piranesi.scan.cpg_cache import write_cached_cpg
+    from piranesi.scan.cpg_graph import apply_findings_to_cpg, build_cpg_from_scan_result
 
     file_a = files[0]
     file_b = files[1]
@@ -172,7 +177,9 @@ def test_cpg_cache_round_trip_preserves_graph(
     _, loaded = load_cached_cpg(target_dir, config, joern_version="test")
     assert loaded is not None
     assert set(loaded.functions) == {function_a, function_b}
-    assert {(edge.caller_id, edge.callee_id) for edge in loaded.call_edges} == {(function_a, function_b)}
+    assert {(edge.caller_id, edge.callee_id) for edge in loaded.call_edges} == {
+        (function_a, function_b)
+    }
     assert [flow.finding_id for flow in loaded.taint_flows] == ["finding-1"]
     clear_cache(target_dir)
 
@@ -381,7 +388,9 @@ def test_incremental_cpg_matches_full_scan_results_for_1_5_and_20_file_changes(
     monkeypatch.setattr("piranesi.pipeline.transpile_project", _fake_transpile_project)
     monkeypatch.setattr("piranesi.pipeline.JoernServer", _FakeJoernServer)
     monkeypatch.setattr("piranesi.pipeline.build_scan_result", _fake_build_scan_result)
-    monkeypatch.setattr("piranesi.pipeline.extract_candidate_findings", _fake_extract_candidate_findings)
+    monkeypatch.setattr(
+        "piranesi.pipeline.extract_candidate_findings", _fake_extract_candidate_findings
+    )
     monkeypatch.setattr("piranesi.pipeline.resolve_frameworks", lambda *_args, **_kwargs: [])
     monkeypatch.setattr("piranesi.pipeline.get_source_specs", lambda *_args, **_kwargs: [])
     monkeypatch.setattr("piranesi.pipeline.get_sink_specs", lambda *_args, **_kwargs: [])
@@ -447,7 +456,7 @@ def test_incremental_cpg_matches_full_scan_results_for_1_5_and_20_file_changes(
                 [
                     f"export function handler_{path.stem.split('_')[-1]}(value) {{",
                     f"  const changed_{index} = value;",
-                    f'  return `changed_{index}:${{changed_{index}}}`;',
+                    f"  return `changed_{index}:${{changed_{index}}}`;",
                     "}",
                     "",
                 ]

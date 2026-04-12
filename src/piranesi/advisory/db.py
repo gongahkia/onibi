@@ -128,7 +128,8 @@ class AdvisoryDB:
 
     def get_sync_metadata(self, source: str) -> SyncMetadata | None:
         row = self._conn.execute(
-            "SELECT source, last_sync, last_cursor, record_count FROM sync_metadata WHERE source = ?",
+            "SELECT source, last_sync, last_cursor, record_count "
+            "FROM sync_metadata WHERE source = ?",
             (source,),
         ).fetchone()
         if row is None:
@@ -181,7 +182,9 @@ class AdvisoryDB:
             advisory_id = str(row["advisory_id"])
             advisories.append(
                 AdvisoryRow(
-                    advisory=_advisory_from_row(row, packages=self._load_affected_packages(advisory_id)),
+                    advisory=_advisory_from_row(
+                        row, packages=self._load_affected_packages(advisory_id)
+                    ),
                     fetched_at=str(row["fetched_at"]),
                 )
             )
@@ -285,7 +288,9 @@ class AdvisoryDB:
                 fetched_at,
             ),
         )
-        self._conn.execute("DELETE FROM affected_packages WHERE advisory_id = ?", (advisory.advisory_id,))
+        self._conn.execute(
+            "DELETE FROM affected_packages WHERE advisory_id = ?", (advisory.advisory_id,)
+        )
         for pkg in advisory.affected_packages:
             self._conn.execute(
                 """
@@ -511,9 +516,7 @@ def merge_advisories(existing: Advisory | None, incoming: Advisory) -> Advisory:
             packages_by_key[key] = pkg
             continue
         vulnerable_ranges = current.vulnerable_ranges
-        if incoming_is_ghsa and pkg.vulnerable_ranges:
-            vulnerable_ranges = pkg.vulnerable_ranges
-        elif not vulnerable_ranges:
+        if (incoming_is_ghsa and pkg.vulnerable_ranges) or not vulnerable_ranges:
             vulnerable_ranges = pkg.vulnerable_ranges
         fixed_versions = tuple(sorted(set(current.fixed_versions) | set(pkg.fixed_versions)))
         packages_by_key[key] = AffectedPackage(
@@ -524,6 +527,7 @@ def merge_advisories(existing: Advisory | None, incoming: Advisory) -> Advisory:
         )
 
     prefer_nvd_cvss = "nvd" in incoming.sources or "nvd" not in existing.sources
+    cvss_score: float | None
     if prefer_nvd_cvss and incoming.cvss_score is not None:
         cvss_score = incoming.cvss_score
         cvss_vector = incoming.cvss_vector
@@ -536,10 +540,13 @@ def merge_advisories(existing: Advisory | None, incoming: Advisory) -> Advisory:
         if severity_rank(incoming.severity) >= severity_rank(existing.severity)
         else existing.severity
     )
-    modified_date = max(filter(None, [existing.modified_date, incoming.modified_date]), default=None)
+    modified_date = max(
+        filter(None, [existing.modified_date, incoming.modified_date]), default=None
+    )
     exploit_status = (
         incoming.exploit_status
-        if exploit_status_rank(incoming.exploit_status) >= exploit_status_rank(existing.exploit_status)
+        if exploit_status_rank(incoming.exploit_status)
+        >= exploit_status_rank(existing.exploit_status)
         else existing.exploit_status
     )
 
@@ -566,7 +573,9 @@ def merge_advisories(existing: Advisory | None, incoming: Advisory) -> Advisory:
             if len(incoming.description) > len(existing.description)
             else existing.description
         ),
-        affected_packages=tuple(sorted(packages_by_key.values(), key=lambda item: (item.ecosystem, item.name))),
+        affected_packages=tuple(
+            sorted(packages_by_key.values(), key=lambda item: (item.ecosystem, item.name))
+        ),
         severity=severity,
         cvss_score=cvss_score,
         cvss_vector=cvss_vector,
@@ -597,9 +606,12 @@ def _advisory_from_row(row: sqlite3.Row, *, packages: Sequence[AffectedPackage])
         cvss_vector=_nullable_text(row["cvss_vector"]),
         epss_score=_nullable_float(row["epss_score"]),
         epss_percentile=_nullable_float(row["epss_percentile"]),
-        exploit_status=ExploitStatus(_nullable_text(row["exploit_available"]) or ExploitStatus.NONE.value),
+        exploit_status=ExploitStatus(
+            _nullable_text(row["exploit_available"]) or ExploitStatus.NONE.value
+        ),
         exploit_sources=tuple(_json_loads(row["exploit_sources"])),
-        fix_available=bool(_nullable_text(row["fix_version"])) or any(pkg.fixed_versions for pkg in packages),
+        fix_available=bool(_nullable_text(row["fix_version"]))
+        or any(pkg.fixed_versions for pkg in packages),
         fix_version=_nullable_text(row["fix_version"]),
         published_date=_nullable_text(row["published_date"]),
         modified_date=_nullable_text(row["modified_date"]),

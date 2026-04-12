@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import math
 from concurrent.futures import ThreadPoolExecutor
@@ -107,7 +106,9 @@ class CalibratedEnsembleVoter:
                 )
             return self._escalate_or_defer(finding, votes=platt_votes, score=score)
 
-        calibrated_votes = [self._apply_calibration(vote, finding.vuln_class) for vote in platt_votes]
+        calibrated_votes = [
+            self._apply_calibration(vote, finding.vuln_class) for vote in platt_votes
+        ]
         score = _weighted_average(calibrated_votes)
         # use optimized thresholds from calibration data if available
         tp_thresh, fp_thresh = self._resolve_thresholds(models)
@@ -226,6 +227,7 @@ class CalibratedEnsembleVoter:
             return self._calibration_cache[model]
         try:
             from eval.calibrate import load_calibration
+
             cal = load_calibration(model, self.calibration_dir)
             self._calibration_cache[model] = cal
             return cal
@@ -236,7 +238,7 @@ class CalibratedEnsembleVoter:
     def _apply_platt_if_available(self, vote: ModelVote, finding: CandidateFinding) -> ModelVote:
         """Apply Platt scaling from calibration data if available."""
         if vote.calibrated_true_positive_score is not None:
-            return vote # already calibrated
+            return vote  # already calibrated
         cal = self._load_platt_calibration(vote.model)
         if cal is None:
             return vote

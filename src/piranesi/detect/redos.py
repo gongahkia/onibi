@@ -182,9 +182,7 @@ def _candidate_from_regex_finding(finding: RegexFinding) -> CandidateFinding:
         snippet=finding.code,
     )
     fingerprint = hashlib.sha256(
-        f"{finding.file_path}|{finding.line_number}|{finding.pattern}|{finding.vulnerability_type}".encode(
-            "utf-8"
-        )
+        f"{finding.file_path}|{finding.line_number}|{finding.pattern}|{finding.vulnerability_type}".encode()
     ).hexdigest()
     return CandidateFinding(
         id=fingerprint,

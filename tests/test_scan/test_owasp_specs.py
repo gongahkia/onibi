@@ -1,4 +1,5 @@
 """Tests for CWE-502, CWE-601, CWE-434 source/sink/sanitizer specs."""
+
 from __future__ import annotations
 
 from piranesi.scan.specs import (
@@ -11,8 +12,8 @@ from piranesi.scan.specs import (
     SinkType,
 )
 
-
 # --- CWE-502: Unsafe Deserialization ---
+
 
 def test_builtin_sinks_include_json_parse() -> None:
     names = {s.name for s in BUILTIN_SINK_SPECS}
@@ -76,6 +77,7 @@ def test_java_object_input_stream_severity() -> None:
 
 # --- CWE-601: Open Redirect ---
 
+
 def test_builtin_sinks_include_redirect() -> None:
     names = {s.name for s in BUILTIN_SINK_SPECS}
     assert "express_redirect" in names
@@ -113,6 +115,7 @@ def test_java_send_redirect_cwe() -> None:
 
 # --- CWE-434: Unrestricted File Upload ---
 
+
 def test_builtin_sinks_include_file_upload() -> None:
     names = {s.name for s in BUILTIN_SINK_SPECS}
     assert "multer_file_write" in names
@@ -127,6 +130,7 @@ def test_multer_file_write_sink_cwe() -> None:
 
 
 # --- Sanitizers ---
+
 
 def test_python_sanitizers_include_yaml_safe_load() -> None:
     spec = next(s for s in PYTHON_SANITIZER_SPECS if s.name == "python_yaml_safe_load")
@@ -162,6 +166,7 @@ def test_builtin_sanitizers_include_multer_file_filter() -> None:
 
 # --- SinkType enum ---
 
+
 def test_sink_type_has_deserialization() -> None:
     assert SinkType.DESERIALIZATION == "deserialization"
 
@@ -194,8 +199,14 @@ def test_prototype_pollution_specs_have_correct_cwe() -> None:
 
 # --- Completeness checks ---
 
+
 def _all_sinks():
-    return list(BUILTIN_SINK_SPECS) + list(PYTHON_SINK_SPECS) + list(GO_SINK_SPECS) + list(SPRINGBOOT_SINK_SPECS)
+    return (
+        list(BUILTIN_SINK_SPECS)
+        + list(PYTHON_SINK_SPECS)
+        + list(GO_SINK_SPECS)
+        + list(SPRINGBOOT_SINK_SPECS)
+    )
 
 
 def test_at_least_3_deserialization_sinks_per_language() -> None:
@@ -207,7 +218,7 @@ def test_at_least_3_deserialization_sinks_per_language() -> None:
 def test_redirect_sinks_across_languages() -> None:
     sinks = _all_sinks()
     redirect_sinks = [s for s in sinks if s.cwe_id == "CWE-601"]
-    assert len(redirect_sinks) >= 4 # JS + Python + Go + Java
+    assert len(redirect_sinks) >= 4  # JS + Python + Go + Java
 
 
 def test_file_upload_sinks_exist() -> None:

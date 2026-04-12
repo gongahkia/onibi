@@ -81,8 +81,7 @@ def load_baseline_history(
 ) -> list[HistoricalScan]:
     if since is not None and until is not None and since > until:
         raise ValueError(
-            f"--since {since.isoformat()} must be on or before "
-            f"--until {until.isoformat()}"
+            f"--since {since.isoformat()} must be on or before --until {until.isoformat()}"
         )
 
     if not output_dir.exists():
@@ -110,9 +109,7 @@ def load_baseline_history(
                 path=candidate,
                 created_at=created_at,
                 artifact=artifact,
-                fingerprints=frozenset(
-                    finding.stable_fingerprint for finding in artifact.findings
-                ),
+                fingerprints=frozenset(finding.stable_fingerprint for finding in artifact.findings),
             )
         )
 
@@ -194,10 +191,7 @@ def compute_trend_report(history: list[HistoricalScan]) -> TrendReport:
             active_since[fingerprint] = scan.created_at
 
     ordered_cwes = sorted(cwe_totals, key=lambda cwe: (-cwe_totals[cwe], cwe))
-    by_cwe = {
-        cwe: [counts.get(cwe, 0) for counts in cwe_counts_per_scan]
-        for cwe in ordered_cwes
-    }
+    by_cwe = {cwe: [counts.get(cwe, 0) for counts in cwe_counts_per_scan] for cwe in ordered_cwes}
 
     transition_count = max(len(history) - 1, 1)
     return TrendReport(
@@ -300,10 +294,7 @@ def _sparkline(values: list[int]) -> str:
 
     lower_bound = min(values)
     scale = (len(_SPARKLINE_GLYPHS) - 1) / (max(values) - lower_bound)
-    return "".join(
-        _SPARKLINE_GLYPHS[round((value - lower_bound) * scale)]
-        for value in values
-    )
+    return "".join(_SPARKLINE_GLYPHS[round((value - lower_bound) * scale)] for value in values)
 
 
 def _format_change(values: list[int]) -> str:

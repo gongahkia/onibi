@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 import requests
@@ -8,6 +7,7 @@ import requests
 from piranesi.advisory.db import AdvisoryDB, utc_now
 from piranesi.advisory.epss import enrich_epss
 from piranesi.advisory.exploit import check_exploit_availability
+from piranesi.advisory.models import Advisory
 from piranesi.advisory.sources import (
     fetch_ghsa_advisories,
     fetch_go_vuln_advisories,
@@ -37,7 +37,9 @@ def sync_advisories(
     http = session or requests.Session()
     source_counts: dict[str, int] = {}
     total_upserted = 0
-    normalized_ecosystems = None if ecosystems is None else tuple(item.lower() for item in ecosystems)
+    normalized_ecosystems = (
+        None if ecosystems is None else tuple(item.lower() for item in ecosystems)
+    )
 
     for source_name in sources:
         last_sync = None if full else _last_sync_for(db, source_name)
@@ -86,7 +88,7 @@ def _fetch_source(
     session: requests.Session,
     github_token: str | None,
     nvd_api_key: str | None,
-) -> tuple[list[object], str | None]:
+) -> tuple[list[Advisory], str | None]:
     if source_name == "osv":
         return fetch_osv_advisories(since=since, session=session, ecosystems=ecosystems, full=full)
     if source_name == "ghsa":

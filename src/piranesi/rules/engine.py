@@ -3,9 +3,8 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import re
-import tempfile
 import tomllib
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
@@ -276,13 +275,13 @@ def compile_rule(rule: CustomRule) -> CompiledRule:
                     sanitizer_regexes.append(compiled_regex)
             compiled_sanitizer_regexes = tuple(sanitizer_regexes)
         else:
-            for label, pattern in (
+            for label, raw_pattern in (
                 ("source_pattern", rule.source_pattern),
                 ("sink_pattern", rule.sink_pattern),
             ):
-                if pattern is None:
+                if raw_pattern is None:
                     continue
-                cpgql_error = _validate_cpgql_pattern(pattern, label=label)
+                cpgql_error = _validate_cpgql_pattern(raw_pattern, label=label)
                 if cpgql_error is not None:
                     errors.append(cpgql_error)
             for index, pattern in enumerate(sanitizer_patterns, start=1):
@@ -464,7 +463,7 @@ def _rule_test_scan_session(
     *,
     config: PiranesiConfig,
     frameworks: Sequence[str],
-) -> Iterable[tuple[JoernServer, Path, SourceMap | None]]:
+) -> Iterator[tuple[JoernServer, Path, SourceMap | None]]:
     language = _project_language_for_rule_testing(fixture_root, frameworks=frameworks)
     transpiled: TranspiledProject | None = None
     joern_project_root = fixture_root
@@ -526,12 +525,12 @@ def _execute_regex_rules(
             if not source_matches or not sink_matches:
                 continue
             sanitizer_matches = [
-                match
-                for regex in rule.compiled_sanitizer_regexes
-                for match in regex.finditer(text)
+                match for regex in rule.compiled_sanitizer_regexes for match in regex.finditer(text)
             ]
             for sink_match in sink_matches:
-                source_match = _nearest_source_before_sink(source_matches, sink_start=sink_match.start())
+                source_match = _nearest_source_before_sink(
+                    source_matches, sink_start=sink_match.start()
+                )
                 if source_match is None:
                     continue
                 if _path_sanitized(
@@ -567,7 +566,9 @@ def _build_regex_finding(
     source_value = source_match.group(0)
     sink_value = sink_match.group(0)
     message = _render_message(rule.message_template, source_value, sink_value)
-    relative_path = str(file_path.resolve(strict=False).relative_to(project_root.resolve(strict=False)))
+    relative_path = str(
+        file_path.resolve(strict=False).relative_to(project_root.resolve(strict=False))
+    )
 
     return CandidateFinding(
         id=_custom_rule_finding_id(
@@ -671,7 +672,9 @@ def _resolve_cpgql_specs(
     if rule.extends is not None:
         builtin = _BUILTIN_RULES[rule.extends]
         base_sources = builtin.resolve_sources(source_specs)
-        base_sinks = tuple(replace(spec, severity=rule.severity) for spec in builtin.resolve_sinks(sink_specs))
+        base_sinks = tuple(
+            replace(spec, severity=rule.severity) for spec in builtin.resolve_sinks(sink_specs)
+        )
         base_sanitizers = list(builtin.resolve_sanitizers(sanitizer_specs))
         for index, pattern in enumerate(rule.sanitizer_patterns, start=1):
             base_sanitizers.append(
@@ -817,9 +820,8 @@ def _balanced_delimiters(text: str) -> bool:
             continue
         if char in "([{":
             stack.append(char)
-        elif char in ")]}":
-            if not stack or stack.pop() != pairs[char]:
-                return False
+        elif char in ")]}" and (not stack or stack.pop() != pairs[char]):
+            return False
     return not stack and not in_single and not in_double
 
 
@@ -844,8 +846,7 @@ def _rule_pattern_kinds(
     source_kind = rule.source_pattern_type or _infer_pattern_kind(rule.source_pattern or "")
     sink_kind = rule.sink_pattern_type or _infer_pattern_kind(rule.sink_pattern or "")
     sanitizer_kind = (
-        rule.sanitizer_pattern_type
-        or source_kind
+        rule.sanitizer_pattern_type or source_kind
         if not rule.sanitizer_patterns
         else rule.sanitizer_pattern_type or _infer_pattern_kind(rule.sanitizer_patterns[0])
     )
@@ -860,7 +861,11 @@ def _rule_pattern_kinds(
 
 def _infer_pattern_kind(pattern: str) -> PatternKind:
     normalized = pattern.strip()
-    if normalized.startswith("cpg.") or normalized.startswith("(cpg.") or ".reachableBy" in normalized:
+    if (
+        normalized.startswith("cpg.")
+        or normalized.startswith("(cpg.")
+        or ".reachableBy" in normalized
+    ):
         return PatternKind.CPGQL
     return PatternKind.REGEX
 
@@ -907,7 +912,9 @@ def _parse_rule_document(document: Mapping[str, Any], *, path: Path) -> CustomRu
         source_pattern=_optional_string(
             rule_section.get("source_pattern") or source_section.get("pattern")
         ),
-        sink_pattern=_optional_string(rule_section.get("sink_pattern") or sink_section.get("pattern")),
+        sink_pattern=_optional_string(
+            rule_section.get("sink_pattern") or sink_section.get("pattern")
+        ),
         sanitizer_patterns=_string_list(
             rule_section.get("sanitizer_patterns") or sanitizers_section.get("patterns")
         ),
@@ -984,7 +991,9 @@ def _pattern_kind(value: Any, *, path: Path, field: str) -> PatternKind | None:
     try:
         return PatternKind(normalized.lower())
     except ValueError as exc:
-        raise RuleValidationError(f"{path}: invalid pattern type for {field}: {normalized}") from exc
+        raise RuleValidationError(
+            f"{path}: invalid pattern type for {field}: {normalized}"
+        ) from exc
 
 
 def _discover_text_files(root: Path) -> list[Path]:

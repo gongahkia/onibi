@@ -208,7 +208,9 @@ def load_repository_metadata(repo_dir: Path) -> RuleRepositoryMetadata:
         with metadata_path.open("rb") as handle:
             payload = tomllib.load(handle)
     except (OSError, tomllib.TOMLDecodeError) as exc:
-        raise RuleRegistryError(f"failed to parse repository metadata {metadata_path}: {exc}") from exc
+        raise RuleRegistryError(
+            f"failed to parse repository metadata {metadata_path}: {exc}"
+        ) from exc
     if isinstance(payload.get("ruleset"), dict):
         payload = payload["ruleset"]
     try:
@@ -260,7 +262,9 @@ def list_installed_rule_sets(
     if not root.exists():
         return []
     installed: list[InstalledRuleSet] = []
-    for repo_dir in sorted(path for path in root.iterdir() if path.is_dir() and (path / ".git").exists()):
+    for repo_dir in sorted(
+        path for path in root.iterdir() if path.is_dir() and (path / ".git").exists()
+    ):
         installed.append(validate_rule_repository(repo_dir, rules_config=rules_config))
     return installed
 
@@ -272,7 +276,9 @@ def install_rule_repository(
     rules_root: Path | None = None,
     rules_config: RulesConfig | None = None,
 ) -> InstalledRuleSet:
-    repo_name = _require_repository_name(name) if name is not None else derive_repository_name(git_url)
+    repo_name = (
+        _require_repository_name(name) if name is not None else derive_repository_name(git_url)
+    )
     root = (rules_root or default_rules_home()).expanduser().resolve(strict=False)
     destination = root / repo_name
     if destination.exists():
@@ -294,7 +300,9 @@ def update_rule_repositories(
     rules_config: RulesConfig | None = None,
 ) -> list[InstalledRuleSet]:
     root = (rules_root or default_rules_home()).expanduser().resolve(strict=False)
-    targets = [_installed_repo_path(root, name)] if name is not None else _installed_repo_paths(root)
+    targets = (
+        [_installed_repo_path(root, name)] if name is not None else _installed_repo_paths(root)
+    )
     updated: list[InstalledRuleSet] = []
     for repo_dir in targets:
         _run_checked(["git", "-C", str(repo_dir), "pull", "--ff-only"])
@@ -336,7 +344,9 @@ def is_rule_disabled(
     raw_rule_id: str,
     disabled_patterns: Sequence[str],
 ) -> bool:
-    return any(fnmatch(rule_id, pattern) or fnmatch(raw_rule_id, pattern) for pattern in disabled_patterns)
+    return any(
+        fnmatch(rule_id, pattern) or fnmatch(raw_rule_id, pattern) for pattern in disabled_patterns
+    )
 
 
 def verify_repository_signature(
@@ -346,11 +356,14 @@ def verify_repository_signature(
 ) -> None:
     if not metadata.version:
         raise RuleRegistryError(
-            f"signature verification for {repo_dir.name} requires version in {REPOSITORY_METADATA_FILE}"
+            f"signature verification for {repo_dir.name} requires version in "
+            f"{REPOSITORY_METADATA_FILE}"
         )
     tags_at_head = {
         line.strip()
-        for line in _run_checked(["git", "-C", str(repo_dir), "tag", "--points-at", "HEAD"]).stdout.splitlines()
+        for line in _run_checked(
+            ["git", "-C", str(repo_dir), "tag", "--points-at", "HEAD"]
+        ).stdout.splitlines()
         if line.strip()
     }
     expected_tags = (metadata.version, f"v{metadata.version}")
@@ -565,7 +578,14 @@ def _trusted_key_environment(trusted_keys: Sequence[str]) -> Iterator[dict[str, 
         env = dict(os.environ)
         env["GNUPGHOME"] = str(gnupg_home)
         _run_checked(
-            ["gpg", "--homedir", str(gnupg_home), "--batch", "--import", *[str(path) for path in key_files]],
+            [
+                "gpg",
+                "--homedir",
+                str(gnupg_home),
+                "--batch",
+                "--import",
+                *[str(path) for path in key_files],
+            ],
             env=env,
         )
         yield env

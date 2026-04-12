@@ -494,9 +494,7 @@ def test_context_sensitive_small_benchmark_stays_bounded(tmp_path: Path) -> None
         )
         for index in range(40)
     )
-    route_calls = "\n".join(
-        f"  helper{index}(service, req.body.sql);" for index in range(40)
-    )
+    route_calls = "\n".join(f"  helper{index}(service, req.body.sql);" for index in range(40))
     code = _precision_fixture(
         helper_blocks
         + "\n\n"

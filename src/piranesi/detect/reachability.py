@@ -7,7 +7,7 @@ from collections import defaultdict, deque
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from piranesi.models import CandidateFinding, ReachabilityResult, ScanResult, ScannedFunction
+from piranesi.models import CandidateFinding, ReachabilityResult, ScannedFunction, ScanResult
 
 _TEST_FILE_PATTERN = re.compile(
     r"(^|/)(tests?/|__tests__/|test_.*|.*_test\.(?:go|py)$|.*\.(?:test|spec)\.[^.]+$)",
@@ -93,7 +93,9 @@ def analyze_reachability(
     else:
         reachable_functions = compute_reachable(entry_points, call_graph)
         unreachable_functions = {
-            function_id for function_id in indexed_functions.function_ids if function_id not in reachable_functions
+            function_id
+            for function_id in indexed_functions.function_ids
+            if function_id not in reachable_functions
         }
 
     annotated_findings: list[CandidateFinding] = []
@@ -198,7 +200,13 @@ class _FunctionIndex:
         for function in self.functions:
             self.by_file[_normalize_path(function.location.file)].append(function)
         for file_functions in self.by_file.values():
-            file_functions.sort(key=lambda function: (function.location.line, function.location.column, function.name))
+            file_functions.sort(
+                key=lambda function: (
+                    function.location.line,
+                    function.location.column,
+                    function.name,
+                )
+            )
 
 
 def _index_functions(functions: Sequence[ScannedFunction]) -> _FunctionIndex:
@@ -265,7 +273,10 @@ def _finding_source_function_id(
         return enclosing_function.function_id
 
     for step in finding.taint_path:
-        if isinstance(step.through_function, str) and step.through_function in indexed_functions.function_ids:
+        if (
+            isinstance(step.through_function, str)
+            and step.through_function in indexed_functions.function_ids
+        ):
             return step.through_function
     return None
 
@@ -289,9 +300,7 @@ def _dead_code_functions(
 def _is_dead_code_candidate(function: ScannedFunction, *, include_tests: bool) -> bool:
     if function.name in _NON_USER_CODE_NAMES or function.name.startswith("<operator>"):
         return False
-    if not include_tests and _is_test_file(function.location.file):
-        return False
-    return True
+    return include_tests or not _is_test_file(function.location.file)
 
 
 def _is_explicit_main(function: ScannedFunction) -> bool:
@@ -299,7 +308,9 @@ def _is_explicit_main(function: ScannedFunction) -> bool:
 
 
 def _is_test_entry_point(function: ScannedFunction) -> bool:
-    return _is_test_file(function.location.file) or bool(_TEST_FUNCTION_PATTERN.match(function.name))
+    return _is_test_file(function.location.file) or bool(
+        _TEST_FUNCTION_PATTERN.match(function.name)
+    )
 
 
 def _is_exported_entry_point(
@@ -318,8 +329,7 @@ def _is_exported_entry_point(
         return False
     escaped_name = re.escape(function.name)
     return any(
-        re.search(pattern.format(name=escaped_name), source_text)
-        for pattern in _JS_EXPORT_PATTERNS
+        re.search(pattern.format(name=escaped_name), source_text) for pattern in _JS_EXPORT_PATTERNS
     )
 
 
@@ -358,7 +368,10 @@ def _cli_entry_points(
         for function in _functions_for_path(indexed_functions, project_root / bin_target):
             if function.name == ":program" or function.name == "main":
                 entry_points.add(function.function_id)
-        if not any(function.function_id in entry_points for function in _functions_for_path(indexed_functions, project_root / bin_target)):
+        if not any(
+            function.function_id in entry_points
+            for function in _functions_for_path(indexed_functions, project_root / bin_target)
+        ):
             stem = Path(bin_target).stem
             for function in indexed_functions.functions:
                 if function.name == stem:
@@ -393,12 +406,20 @@ def _package_bin_targets(project_root: Path) -> tuple[Path, ...]:
             continue
         raw_bin = payload.get("bin")
         if isinstance(raw_bin, str) and raw_bin:
-            targets.append((package_json.parent / raw_bin).resolve(strict=False).relative_to(project_root.resolve(strict=False)))
+            targets.append(
+                (package_json.parent / raw_bin)
+                .resolve(strict=False)
+                .relative_to(project_root.resolve(strict=False))
+            )
             continue
         if isinstance(raw_bin, dict):
             for value in raw_bin.values():
                 if isinstance(value, str) and value:
-                    targets.append((package_json.parent / value).resolve(strict=False).relative_to(project_root.resolve(strict=False)))
+                    targets.append(
+                        (package_json.parent / value)
+                        .resolve(strict=False)
+                        .relative_to(project_root.resolve(strict=False))
+                    )
     return tuple(dict.fromkeys(targets))
 
 

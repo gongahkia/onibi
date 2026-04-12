@@ -11,10 +11,10 @@ from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 import typer
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from piranesi import __version__
 from piranesi.config import ConfigError, PiranesiConfig, load_config
@@ -53,6 +53,7 @@ from piranesi.report.trends import build_trend_report, render_terminal_trends, w
 from piranesi.report.tui import display_report
 from piranesi.scaffold import scaffold_project
 from piranesi.scan.monorepo import detect_monorepo_manifest, select_packages
+from piranesi.threat import build_threat_model
 from piranesi.trace import TraceBudgetExceededError, TraceWriter
 from piranesi.ui import console, print_summary_table, stage_header
 from piranesi.watch import WatchDependencyError, WatchModeError, run_watch_mode
@@ -309,8 +310,7 @@ NoFailOption = Annotated[
     typer.Option(
         "--no-fail",
         help=(
-            "Always exit 0 for findings; configuration and runtime errors still use "
-            "non-zero codes."
+            "Always exit 0 for findings; configuration and runtime errors still use non-zero codes."
         ),
     ),
 ]
@@ -511,7 +511,7 @@ def _load_report_from_artifacts_dir(artifacts_dir: Path) -> PiranesiReport:
     report_path = artifacts_dir / "report.json"
     if not report_path.exists():
         raise ValueError(f"report artifact not found: {report_path}")
-    return _load_artifact_file(report_path, PiranesiReport)
+    return cast(PiranesiReport, _load_artifact_file(report_path, PiranesiReport))
 
 
 def _resolve_framework_keys(value: str | None) -> list[str] | None:
@@ -676,6 +676,7 @@ def _load_cli_config(
             options.config_path,
         )
         from piranesi.config import _apply_cli_overrides
+
         data = _apply_cli_overrides({}, cli_overrides)
         try:
             config = PiranesiConfig.model_validate(data)
@@ -952,15 +953,11 @@ def _generate_threat_model_for_run(
             verify_artifact = VerifyArtifact.model_validate_json(
                 verify_path.read_text(encoding="utf-8")
             )
-            verification_results = {
-                c.finding.finding.id: c for c in verify_artifact.findings
-            }
+            verification_results = {c.finding.finding.id: c for c in verify_artifact.findings}
         scan_path = output_dir / "scan.json"
         scan_result = None
         if scan_path.exists():
-            scan_result = ScanResult.model_validate_json(
-                scan_path.read_text(encoding="utf-8")
-            )
+            scan_result = ScanResult.model_validate_json(scan_path.read_text(encoding="utf-8"))
         entry_points = scan_result.entry_points if scan_result else None
         attack_surface = scan_result.attack_surface if scan_result else None
         functions = scan_result.functions if scan_result else None
@@ -972,10 +969,13 @@ def _generate_threat_model_for_run(
             verification_results=verification_results,
         )
         import json as _json
+
         threat_out = output_dir / "threat_model.json"
         from dataclasses import asdict
+
         threat_out.write_text(
-            _json.dumps(asdict(model), indent=2, default=str), encoding="utf-8",
+            _json.dumps(asdict(model), indent=2, default=str),
+            encoding="utf-8",
         )
         logger.info("threat model written to %s", threat_out)
     except Exception:
@@ -1714,9 +1714,8 @@ def report(
         options=options,
         extra_cli_overrides=extra_cli_overrides,
     )
-    if (
-        config_model.output.format == ReportFormat.COMPLIANCE.value
-        and isinstance(result.artifact, PiranesiReport)
+    if config_model.output.format == ReportFormat.COMPLIANCE.value and isinstance(
+        result.artifact, PiranesiReport
     ):
         _emit_compliance_output(result.artifact, attestation=attestation, tui=tui)
 
@@ -1761,7 +1760,10 @@ def compliance_maturity(
         str | None,
         typer.Option(
             "--framework",
-            help="Optional framework key or comma-separated framework keys (for example: iso27001,pci).",
+            help=(
+                "Optional framework key or comma-separated framework keys "
+                "(for example: iso27001,pci)."
+            ),
         ),
     ] = None,
     format: ComplianceFormatOption = ComplianceFormat.TERMINAL,
@@ -1832,11 +1834,15 @@ def compliance_summary(
 def compliance_evidence(
     framework: Annotated[
         str,
-        typer.Option("--framework", help="Compliance framework key (for example: soc2, pci_dss, all)."),
+        typer.Option(
+            "--framework", help="Compliance framework key (for example: soc2, pci_dss, all)."
+        ),
     ],
     artifacts_dir: Annotated[
         Path,
-        typer.Option("--artifacts-dir", help="Directory containing scan.json and legal.json/report.json."),
+        typer.Option(
+            "--artifacts-dir", help="Directory containing scan.json and legal.json/report.json."
+        ),
     ],
     output: Annotated[
         Path,
@@ -1992,18 +1998,18 @@ def rules_test(
 
     total_matches = 0
     for result in results:
-        typer.echo(
-            f"{result.rule.id}: {len(result.findings)} match{'es' if len(result.findings) != 1 else ''}"
-        )
+        suffix = "es" if len(result.findings) != 1 else ""
+        typer.echo(f"{result.rule.id}: {len(result.findings)} match{suffix}")
         for finding in result.findings:
             total_matches += 1
             message = str(finding.metadata.get("custom_rule_message", "")).strip()
-            typer.echo(
-                "  "
-                f"{finding.sink.location.file}:{finding.sink.location.line}:{finding.sink.location.column} "
-                f"{message}"
+            location = (
+                f"{finding.sink.location.file}:{finding.sink.location.line}:"
+                f"{finding.sink.location.column}"
             )
+            typer.echo(f"  {location} {message}")
     typer.echo(f"total matches: {total_matches}")
+
 
 @rules_app.command("install")
 def rules_install(
@@ -2023,9 +2029,7 @@ def rules_install(
         typer.echo(f"error: {exc}")
         raise typer.Exit(code=1) from exc
 
-    typer.echo(
-        f"installed {installed.name} ({installed.rule_count} rules) to {installed.path}"
-    )
+    typer.echo(f"installed {installed.name} ({installed.rule_count} rules) to {installed.path}")
 
 
 @rules_app.command("update")
@@ -2050,9 +2054,8 @@ def rules_update(
         return
 
     for rule_set in updated:
-        typer.echo(
-            f"updated {rule_set.name} ({rule_set.rule_count} rules) from {rule_set.remote_url or 'unknown remote'}"
-        )
+        remote = rule_set.remote_url or "unknown remote"
+        typer.echo(f"updated {rule_set.name} ({rule_set.rule_count} rules) from {remote}")
 
 
 @rules_app.command("remove")
@@ -2092,9 +2095,11 @@ def rules_list(
     for rule_set in installed:
         version = rule_set.version or "unknown"
         remote = rule_set.remote_url or "unknown remote"
-        typer.echo(
-            f"{rule_set.name:<20} {rule_set.rule_count:>3} rules  version={version}  remote={remote}"
+        line = (
+            f"{rule_set.name:<20} {rule_set.rule_count:>3} rules  "
+            f"version={version}  remote={remote}"
         )
+        typer.echo(line)
 
 
 @rules_app.command("test-all")
@@ -2278,7 +2283,7 @@ def run(
             scan_targets = discover_scan_targets(
                 target_dir,
                 config_model,
-                candidate_paths=selected_files,
+                candidate_paths=None if selected_files is None else tuple(selected_files),
             )
         for path in scan_targets:
             typer.echo(str(path))
@@ -2348,9 +2353,7 @@ def run(
                 render_ui=sys.stderr.isatty() and not json_logs,
             )
     except HookTimeoutExceededError:
-        typer.echo(
-            f"scan exceeded {active_hook_timeout}s; skipping staged pre-commit scan."
-        )
+        typer.echo(f"scan exceeded {active_hook_timeout}s; skipping staged pre-commit scan.")
         return
     except TraceBudgetExceededError as exc:
         log_error_context(

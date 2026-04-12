@@ -39,7 +39,9 @@ def generate_attack_tree(
                     node_type="or",
                     children=[
                         AttackNode("UNION-based injection (extract additional tables)", "leaf"),
-                        AttackNode("Boolean-based blind injection (binary search extraction)", "leaf"),
+                        AttackNode(
+                            "Boolean-based blind injection (binary search extraction)", "leaf"
+                        ),
                         AttackNode("Time-based blind injection (SLEEP/BENCHMARK timing)", "leaf"),
                         AttackNode("Error-based injection (verbose SQL error messages)", "leaf"),
                     ],
@@ -57,8 +59,12 @@ def generate_attack_tree(
                     node_type="and",
                     children=[
                         AttackNode("Read sensitive tables (users, credentials, tokens)", "leaf"),
-                        AttackNode("Write or modify data (UPDATE or INSERT via stacked queries)", "leaf"),
-                        AttackNode("OS command execution (xp_cmdshell or INTO OUTFILE paths)", "leaf"),
+                        AttackNode(
+                            "Write or modify data (UPDATE or INSERT via stacked queries)", "leaf"
+                        ),
+                        AttackNode(
+                            "OS command execution (xp_cmdshell or INTO OUTFILE paths)", "leaf"
+                        ),
                     ],
                 ),
             ],
@@ -74,15 +80,21 @@ def generate_attack_tree(
                     node_type="or",
                     children=[
                         AttackNode("Reflected XSS (URL parameter to response body)", "leaf"),
-                        AttackNode("Stored XSS (persist payload and render to other users)", "leaf"),
-                        AttackNode("DOM-based XSS (client-side sink without server round-trip)", "leaf"),
+                        AttackNode(
+                            "Stored XSS (persist payload and render to other users)", "leaf"
+                        ),
+                        AttackNode(
+                            "DOM-based XSS (client-side sink without server round-trip)", "leaf"
+                        ),
                     ],
                 ),
                 AttackNode(
                     label="Bypass output encoding",
                     node_type="and",
                     children=[
-                        AttackNode("Context escape (HTML attribute, JS string, or CSS context)", "leaf"),
+                        AttackNode(
+                            "Context escape (HTML attribute, JS string, or CSS context)", "leaf"
+                        ),
                         AttackNode("Encoding bypass (HTML entities or JS Unicode escapes)", "leaf"),
                     ],
                 ),
@@ -110,7 +122,10 @@ def generate_attack_tree(
                     children=[
                         AttackNode("Shell metacharacter injection (; | && || ` $())", "leaf"),
                         AttackNode("Argument injection (-- prefix or flag smuggling)", "leaf"),
-                        AttackNode("Environment variable injection (PATH or shell option manipulation)", "leaf"),
+                        AttackNode(
+                            "Environment variable injection (PATH or shell option manipulation)",
+                            "leaf",
+                        ),
                     ],
                 ),
                 AttackNode(
@@ -127,7 +142,9 @@ def generate_attack_tree(
                     children=[
                         AttackNode("Reverse shell (nc, bash, or python one-liner)", "leaf"),
                         AttackNode("File read or write (cat secrets or drop a webshell)", "leaf"),
-                        AttackNode("Privilege escalation (sudo misconfig or SUID binaries)", "leaf"),
+                        AttackNode(
+                            "Privilege escalation (sudo misconfig or SUID binaries)", "leaf"
+                        ),
                     ],
                 ),
             ],
@@ -143,7 +160,9 @@ def generate_attack_tree(
                     node_type="or",
                     children=[
                         AttackNode("Dot-dot traversal (../) to escape the base directory", "leaf"),
-                        AttackNode("Absolute path injection (/etc/passwd or Windows drive paths)", "leaf"),
+                        AttackNode(
+                            "Absolute path injection (/etc/passwd or Windows drive paths)", "leaf"
+                        ),
                         AttackNode("Archive or symlink abuse to pivot reads and writes", "leaf"),
                     ],
                 ),
@@ -151,7 +170,9 @@ def generate_attack_tree(
                     label="Bypass normalization",
                     node_type="and",
                     children=[
-                        AttackNode("Mixed separators or double-decoding to defeat path cleanup", "leaf"),
+                        AttackNode(
+                            "Mixed separators or double-decoding to defeat path cleanup", "leaf"
+                        ),
                         AttackNode("Unicode or percent-encoded traversal sequences", "leaf"),
                     ],
                 ),
@@ -160,7 +181,11 @@ def generate_attack_tree(
                     node_type="and",
                     children=[
                         AttackNode("Read credentials, keys, and configuration files", "leaf"),
-                        AttackNode("Overwrite application files or authorized_keys when write access exists", "leaf"),
+                        AttackNode(
+                            "Overwrite application files or authorized_keys when write "
+                            "access exists",
+                            "leaf",
+                        ),
                     ],
                 ),
             ],
@@ -175,9 +200,17 @@ def generate_attack_tree(
                     label=f"Control outbound destination via {source_label}",
                     node_type="or",
                     children=[
-                        AttackNode("Direct internal host access (RFC1918, localhost, or link-local)", "leaf"),
-                        AttackNode("Cloud metadata access (169.254.169.254 or provider equivalents)", "leaf"),
-                        AttackNode("Protocol smuggling (gopher, file, or redirect chaining)", "leaf"),
+                        AttackNode(
+                            "Direct internal host access (RFC1918, localhost, or link-local)",
+                            "leaf",
+                        ),
+                        AttackNode(
+                            "Cloud metadata access (169.254.169.254 or provider equivalents)",
+                            "leaf",
+                        ),
+                        AttackNode(
+                            "Protocol smuggling (gopher, file, or redirect chaining)", "leaf"
+                        ),
                     ],
                 ),
                 AttackNode(
@@ -192,7 +225,10 @@ def generate_attack_tree(
                     label="Achieve impact",
                     node_type="and",
                     children=[
-                        AttackNode("Query internal admin interfaces and service discovery endpoints", "leaf"),
+                        AttackNode(
+                            "Query internal admin interfaces and service discovery endpoints",
+                            "leaf",
+                        ),
                         AttackNode("Exfiltrate tokens from metadata services", "leaf"),
                         AttackNode("Scan internal ports and map reachable services", "leaf"),
                     ],
@@ -210,14 +246,18 @@ def generate_attack_tree(
                     node_type="or",
                     children=[
                         AttackNode("Serialized object with attacker-chosen type metadata", "leaf"),
-                        AttackNode("Gadget chain embedded in YAML, JSON, or binary payload", "leaf"),
+                        AttackNode(
+                            "Gadget chain embedded in YAML, JSON, or binary payload", "leaf"
+                        ),
                     ],
                 ),
                 AttackNode(
                     label="Satisfy gadget prerequisites",
                     node_type="and",
                     children=[
-                        AttackNode("Identify available gadget classes and library versions", "leaf"),
+                        AttackNode(
+                            "Identify available gadget classes and library versions", "leaf"
+                        ),
                         AttackNode("Shape the object graph to trigger dangerous callbacks", "leaf"),
                     ],
                 ),
@@ -251,7 +291,9 @@ def generate_attack_tree(
                     node_type="and",
                     children=[
                         AttackNode("Find endpoints that query by user-supplied key only", "leaf"),
-                        AttackNode("Exploit missing tenant or account scoping in repository calls", "leaf"),
+                        AttackNode(
+                            "Exploit missing tenant or account scoping in repository calls", "leaf"
+                        ),
                     ],
                 ),
                 AttackNode(
@@ -274,14 +316,19 @@ def generate_attack_tree(
                 node_type="or",
                 children=[
                     AttackNode("Send crafted input that reaches the vulnerable code path", "leaf"),
-                    AttackNode("Trigger edge cases through alternate encodings or request shapes", "leaf"),
+                    AttackNode(
+                        "Trigger edge cases through alternate encodings or request shapes", "leaf"
+                    ),
                 ],
             ),
             AttackNode(
                 label="Reach the vulnerable sink",
                 node_type="and",
                 children=[
-                    AttackNode(f"Traverse the observed taint path ({len(finding.taint_path)} steps)", "leaf"),
+                    AttackNode(
+                        f"Traverse the observed taint path ({len(finding.taint_path)} steps)",
+                        "leaf",
+                    ),
                     AttackNode(f"Exploit sanitizer gaps ({sanitizer_gaps})", "leaf"),
                 ],
             ),

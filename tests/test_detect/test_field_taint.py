@@ -227,7 +227,10 @@ def test_propagate_spread_with_override() -> None:
     field_steps, state = _annotated_state(finding)
 
     assert "safe" in state.object_safe_fields["merged"]
-    assert prune_untainted_fields(finding, field_steps, state, field_summary_cache=FieldSummaryCache()) is None
+    assert (
+        prune_untainted_fields(finding, field_steps, state, field_summary_cache=FieldSummaryCache())
+        is None
+    )
 
 
 def test_propagate_computed_access_conservative() -> None:
@@ -385,7 +388,9 @@ def test_wrong_cwe_sanitizer_not_pruned() -> None:
     assert kept[0].id == finding.id
 
 
-def test_extract_candidate_findings_runs_field_sensitive_pruning(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_extract_candidate_findings_runs_field_sensitive_pruning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     body_source = SourceSpec(
         name="express_req_body",
         pattern="",
@@ -412,17 +417,25 @@ def test_extract_candidate_findings_runs_field_sensitive_pruning(monkeypatch: py
         metadata={"effective_sanitizers": ["escapeHtml"]},
     )
 
-    def _fake_extract_findings_for_pair(*_args: object, **_kwargs: object) -> list[CandidateFinding]:
+    def _fake_extract_findings_for_pair(
+        *_args: object, **_kwargs: object
+    ) -> list[CandidateFinding]:
         return [finding]
 
-    monkeypatch.setattr("piranesi.detect.flows._extract_findings_for_pair", _fake_extract_findings_for_pair)
-    monkeypatch.setattr("piranesi.detect.flows.extract_interprocedural_findings", lambda *_a, **_k: ())
+    monkeypatch.setattr(
+        "piranesi.detect.flows._extract_findings_for_pair", _fake_extract_findings_for_pair
+    )
+    monkeypatch.setattr(
+        "piranesi.detect.flows.extract_interprocedural_findings", lambda *_a, **_k: ()
+    )
     monkeypatch.setattr("piranesi.detect.flows.extract_alias_findings", lambda *_a, **_k: ())
     monkeypatch.setattr(
         "piranesi.detect.flows.extract_prototype_pollution_findings",
         lambda *_a, **_k: (),
     )
-    monkeypatch.setattr("piranesi.detect.flows.classify_candidate_findings", lambda findings, **_k: findings)
+    monkeypatch.setattr(
+        "piranesi.detect.flows.classify_candidate_findings", lambda findings, **_k: findings
+    )
 
     pruned = extract_candidate_findings(
         DummyJoernServer(),  # type: ignore[arg-type]

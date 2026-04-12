@@ -51,7 +51,7 @@ def _node(
 def test_nosql_query_param_scalar_flow_is_filtered() -> None:
     source_spec = _source_spec("express_req_query")
     sink_spec = _sink_spec("mongodb_collection_find")
-    project_root = Path("/tmp")
+    project_root = Path.cwd()
     flow = [
         _node(10, label="CALL", name="<operator>.fieldAccess", code="req.query.user", line=4),
         _node(11, label="IDENTIFIER", name="user", code="user", line=4),
@@ -87,7 +87,7 @@ def test_nosql_query_param_scalar_flow_is_filtered() -> None:
 def test_nosql_request_body_object_flow_is_reported() -> None:
     source_spec = _source_spec("express_req_body")
     sink_spec = _sink_spec("mongodb_collection_find")
-    project_root = Path("/tmp")
+    project_root = Path.cwd()
     flow = [
         _node(20, label="CALL", name="<operator>.fieldAccess", code="req.body.user", line=4),
         _node(21, label="IDENTIFIER", name="user", code="user", line=4),
@@ -124,18 +124,20 @@ def test_nosql_request_body_object_flow_is_reported() -> None:
 
 def test_template_source_position_distinguishes_context_payload() -> None:
     source_flow = [
-        QueryNode(1, "render", "ejs.render(req.body.template, { name: 'test' })", "CALL", 1, 1, None)
+        QueryNode(
+            1, "render", "ejs.render(req.body.template, { name: 'test' })", "CALL", 1, 1, None
+        )
     ]
-    context_flow = [
-        QueryNode(2, "identifier", "{ name: req.body.name }", "IDENTIFIER", 1, 1, None)
-    ]
+    context_flow = [QueryNode(2, "identifier", "{ name: req.body.name }", "IDENTIFIER", 1, 1, None)]
 
     assert is_template_source_position(source_flow) is True
     assert is_template_source_position(context_flow) is False
 
 
 def test_header_value_position_rejects_header_name_literals() -> None:
-    value_flow = [QueryNode(3, "identifier", "res.setHeader('X-Custom', value)", "CALL", 1, 1, None)]
+    value_flow = [
+        QueryNode(3, "identifier", "res.setHeader('X-Custom', value)", "CALL", 1, 1, None)
+    ]
     name_flow = [QueryNode(4, "literal", "'X-Custom'", "LITERAL", 1, 1, None)]
 
     assert is_header_value_position(value_flow) is True

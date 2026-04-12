@@ -3,13 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 
 from piranesi.detect.reachability import analyze_reachability
-from piranesi.models import EntryPoint, ReachabilityResult, ScanMetadata, ScanResult, ScannedFunction
+from piranesi.models import (
+    EntryPoint,
+    ReachabilityResult,
+    ScanMetadata,
+    ScannedFunction,
+    ScanResult,
+)
 from piranesi.models.finding import CandidateFinding
 from piranesi.models.taint import SourceLocation, TaintSink, TaintSource, TaintStep
 
-FIXTURE_DIR = (
-    Path(__file__).resolve().parents[1] / "fixtures" / "typescript" / "reachability_app"
-)
+FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "typescript" / "reachability_app"
 
 
 def test_analyze_reachability_prunes_unreachable_findings() -> None:
@@ -133,7 +137,10 @@ def _candidate_findings() -> list[CandidateFinding]:
             sink_snippet='return db.query("SELECT * FROM users WHERE name = \'" + input + "\'");',
             source_type="request_body",
             sink_api="db.query",
-            through_functions=("app.js::program:reachableHandler", "app.js::program:dangerousQuery"),
+            through_functions=(
+                "app.js::program:reachableHandler",
+                "app.js::program:dangerousQuery",
+            ),
         ),
         _finding(
             finding_id="dead-route",

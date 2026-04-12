@@ -34,10 +34,12 @@ def test_run_all_rule_tests_reports_failed_expectations(
     shutil.copytree(custom_root / "tests", tmp_path / "tests")
 
     bad_rule = (
-        custom_root / "rules" / "nosql-injection.toml"
-    ).read_text(encoding="utf-8").replace(
-        "expect_sink_line = 16",
-        "expect_sink_line = 99",
+        (custom_root / "rules" / "nosql-injection.toml")
+        .read_text(encoding="utf-8")
+        .replace(
+            "expect_sink_line = 16",
+            "expect_sink_line = 99",
+        )
     )
     (rules_dir / "nosql-injection.toml").write_text(bad_rule, encoding="utf-8")
 
@@ -46,7 +48,11 @@ def test_run_all_rule_tests_reports_failed_expectations(
     assert summary.total == 2
     assert summary.passed == 1
     assert summary.failed == 1
-    assert any("did not match observed" in result.message for result in summary.results if not result.passed)
+    assert any(
+        "did not match observed" in result.message
+        for result in summary.results
+        if not result.passed
+    )
 
 
 def test_build_rule_coverage_report_maps_cwe_aliases(

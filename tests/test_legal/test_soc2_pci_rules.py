@@ -237,8 +237,7 @@ def test_payment_scope_detection_requires_two_real_code_hits(tmp_path: Path) -> 
     payment_file = tmp_path / "src" / "checkout.ts"
     payment_file.parent.mkdir(parents=True)
     payment_file.write_text(
-        "import Stripe from 'stripe';\n"
-        "const checkout = '/checkout';\n",
+        "import Stripe from 'stripe';\nconst checkout = '/checkout';\n",
         encoding="utf-8",
     )
 
@@ -252,8 +251,7 @@ def test_payment_scope_detection_ignores_comment_only_hits(tmp_path: Path) -> No
     payment_file = tmp_path / "src" / "notes.ts"
     payment_file.parent.mkdir(parents=True)
     payment_file.write_text(
-        "// stripe payment checkout billing\n"
-        "const label = 'orders';\n",
+        "// stripe payment checkout billing\nconst label = 'orders';\n",
         encoding="utf-8",
     )
 
@@ -333,7 +331,7 @@ def _assess(
 
 
 def _rule_ids(assessment: object, framework: str) -> set[str]:
-    obligations = getattr(assessment, "obligations")
+    obligations = assessment.obligations
     return {
         obligation.rule_id
         for obligation in obligations

@@ -10,7 +10,13 @@ from piranesi.scan.joern import (
     LANGUAGE_TO_JOERN_IMPORT_MODULE,
     LANGUAGE_TO_JOERN_PARSE_LANGUAGE,
 )
-from piranesi.scan.specs import SinkType, SourceType, get_sanitizer_specs, get_sink_specs, get_source_specs
+from piranesi.scan.specs import (
+    SinkType,
+    SourceType,
+    get_sanitizer_specs,
+    get_sink_specs,
+    get_source_specs,
+)
 
 
 def _source_spec_by_name(specs, name: str):
@@ -101,7 +107,10 @@ def test_symfony_specs_include_request_get_and_execute_query() -> None:
     sink_specs = get_sink_specs(frameworks=("symfony",))
     sanitizer_specs = get_sanitizer_specs(frameworks=("symfony",))
 
-    assert _source_spec_by_name(source_specs, "symfony_request_get").source_type is SourceType.REQUEST_PARAM
+    assert (
+        _source_spec_by_name(source_specs, "symfony_request_get").source_type
+        is SourceType.REQUEST_PARAM
+    )
     assert _sink_spec_by_name(sink_specs, "symfony_execute_query").sink_type is SinkType.SQL_QUERY
     assert "CWE-89" in _sanitizer_spec_by_name(sanitizer_specs, "symfony_set_parameter").mitigates
 
@@ -118,9 +127,9 @@ def test_wordpress_specs_include_prepare_escaping_and_nonce_helpers() -> None:
     assert _sink_spec_by_name(sink_specs, "wordpress_wpdb_query").sink_type is SinkType.SQL_QUERY
     assert "CWE-79" in _sanitizer_spec_by_name(sanitizer_specs, "wordpress_esc_html").mitigates
     assert "CWE-89" in _sanitizer_spec_by_name(sanitizer_specs, "wordpress_wpdb_prepare").mitigates
-    assert "CWE-352" in _sanitizer_spec_by_name(
-        sanitizer_specs, "wordpress_wp_nonce_field"
-    ).mitigates
+    assert (
+        "CWE-352" in _sanitizer_spec_by_name(sanitizer_specs, "wordpress_wp_nonce_field").mitigates
+    )
 
 
 def test_php_sink_specs_cover_required_php_sinks() -> None:

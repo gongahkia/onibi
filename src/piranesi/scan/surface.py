@@ -13,8 +13,8 @@ from piranesi.models import (
     AttackSurfaceNode,
     CandidateFinding,
     EntryPoint,
-    ScannedFunction,
     ScanMetadata,
+    ScannedFunction,
     ScanResult,
 )
 from piranesi.models.taint import SourceLocation
@@ -291,10 +291,15 @@ def collect_functions(
         )
         if resolved_file is None:
             continue
-        resolved_line = item.get("lineNumber") if isinstance(item.get("lineNumber"), int) else 1
+        raw_line = item.get("lineNumber")
+        resolved_line = raw_line if isinstance(raw_line, int) else 1
         if source_map is not None:
             with suppress(KeyError):
                 resolved_file, resolved_line = source_map.resolve(resolved_file, resolved_line)
+        raw_column = item.get("columnNumber")
+        raw_code = item.get("code")
+        resolved_column = raw_column if isinstance(raw_column, int) else 0
+        resolved_snippet = raw_code if isinstance(raw_code, str) else function_name
 
         if function_id in seen_function_ids:
             continue
@@ -305,8 +310,8 @@ def collect_functions(
                 location=SourceLocation(
                     file=str(resolved_file),
                     line=resolved_line,
-                    column=item.get("columnNumber") if isinstance(item.get("columnNumber"), int) else 0,
-                    snippet=item.get("code") if isinstance(item.get("code"), str) else function_name,
+                    column=resolved_column,
+                    snippet=resolved_snippet,
                 ),
             )
         )

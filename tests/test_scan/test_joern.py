@@ -219,11 +219,16 @@ def test_import_project_with_frontend_args_generates_cpg_before_import(
     assert captured["event"] == "joern_import"
     assert captured["timeout_seconds"] == server.query_timeout_seconds
     assert str(captured["cmd"][0]).endswith("joern-parse")
-    assert captured["cmd"][1:5] == ["--output", str(server._imported_cpg_path), "--language", "javasrc"]
+    assert captured["cmd"][1:5] == [
+        "--output",
+        str(server._imported_cpg_path),
+        "--language",
+        "javasrc",
+    ]
     assert "--frontend-args" in captured["cmd"]
     assert captured["cmd"][5] == str(project_dir.resolve())
     assert captured["cmd"][-3:] == ["--frontend-args", "--exclude", "src/test"]
-    assert captured["cpgql"] == f'importCpg({json.dumps(str(server._imported_cpg_path))})'
+    assert captured["cpgql"] == f"importCpg({json.dumps(str(server._imported_cpg_path))})"
     assert server._imported_project_path is None
     assert server._imported_language is None
     assert server._imported_cpg_path is not None
@@ -311,7 +316,7 @@ def test_import_project_with_go_frontend_args_uses_golang_parse_mode(
         "golang",
     ]
     assert captured["cmd"][-3:] == ["--frontend-args", "--exclude", "vendor"]
-    assert captured["cpgql"] == f'importCpg({json.dumps(str(server._imported_cpg_path))})'
+    assert captured["cpgql"] == f"importCpg({json.dumps(str(server._imported_cpg_path))})"
 
 
 def test_query_timeout_raises(monkeypatch: pytest.MonkeyPatch) -> None:

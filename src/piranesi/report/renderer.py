@@ -5,8 +5,6 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
-_logger = logging.getLogger(__name__)
-
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -16,16 +14,17 @@ from piranesi.models import (
     ConfirmedFinding,
     LegalAssessment,
     PatchResult,
-    RegulatoryObligation,
     ReachabilityResult,
+    RegulatoryObligation,
     ScanMetadata,
-    ScanResult,
     ScannedFunction,
+    ScanResult,
     SourceLocation,
     TaintStep,
 )
 from piranesi.report.cwe import cwe_title, extract_cwe_id
 
+_logger = logging.getLogger(__name__)
 _SEVERITY_ORDER = ("critical", "high", "medium", "low", "informational")
 
 
@@ -261,9 +260,7 @@ def build_report(
             total_llm_cost_usd=total_llm_cost_usd,
             duration_s=duration_s,
         ),
-        active_findings=[
-            _candidate_report_finding(candidate) for candidate in active_candidates
-        ],
+        active_findings=[_candidate_report_finding(candidate) for candidate in active_candidates],
         unreachable_findings=[
             _candidate_report_finding(candidate) for candidate in unreachable_candidates
         ],
@@ -273,7 +270,9 @@ def build_report(
         suppressed_findings=suppressed_findings,
         suppressed_findings_by_package=_group_suppressed_findings_by_package(suppressed_findings),
         dead_code_functions=(
-            [] if not dead_code_report or reachability is None else list(reachability.dead_code_functions)
+            []
+            if not dead_code_report or reachability is None
+            else list(reachability.dead_code_functions)
         ),
         dead_code_by_file=(
             {}
@@ -352,6 +351,7 @@ def write_report_outputs(
 
         (output_dir / "findings.csv").write_text(generate_csv(report), encoding="utf-8")
     from piranesi.plugin import discover_reporter_plugins
+
     for reporter in discover_reporter_plugins():
         try:
             reporter.render(report, output_dir)

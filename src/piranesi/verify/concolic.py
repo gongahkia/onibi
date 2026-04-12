@@ -1094,9 +1094,7 @@ class _ConcolicEngine:
             alternate = self._eval_expr(expression.alternate, state)
             if isinstance(consequent, SymbolicObject) or isinstance(alternate, SymbolicObject):
                 return (
-                    consequent
-                    if self._is_feasible([*state.constraints, condition])
-                    else alternate
+                    consequent if self._is_feasible([*state.constraints, condition]) else alternate
                 )
             return z3.If(
                 condition,
@@ -1433,8 +1431,7 @@ class _ConcolicEngine:
     def _depends_on_input(self, expr: z3.ExprRef) -> bool:
         if expr.num_args() == 0:
             return expr.decl().name() in {
-                variable.decl().name()
-                for variable in self._input_vars.values()
+                variable.decl().name() for variable in self._input_vars.values()
             }
         return any(self._depends_on_input(child) for child in expr.children())
 
@@ -1460,7 +1457,7 @@ class _ConcolicEngine:
         solver.set("timeout", 250)
         for constraint in constraints:
             solver.add(constraint)
-        return solver.check() != z3.unsat
+        return bool(solver.check() != z3.unsat)
 
     def _havoc_targets(self, state: SymbolicState, targets: set[str]) -> None:
         for target in targets:
@@ -1660,9 +1657,7 @@ def _parse_block(text: str, *, base_line: int) -> list[Statement]:
         if text.startswith("while", index) and _word_boundary(text, index + 5):
             start = index
             condition, index = _extract_parenthesized(text, _skip_ws(text, index + 5))
-            body, index, _raw_body = _extract_statement_or_block(
-                text, index, base_line=base_line
-            )
+            body, index, _raw_body = _extract_statement_or_block(text, index, base_line=base_line)
             raw = text[start:index]
             statements.append(
                 WhileStmt(
@@ -1678,18 +1673,16 @@ def _parse_block(text: str, *, base_line: int) -> list[Statement]:
             header, index = _extract_parenthesized(text, _skip_ws(text, index + 3))
             parts = _split_top_level(header, ";")
             init = parts[0].strip() if parts and parts[0].strip() else None
-            condition = parts[1].strip() if len(parts) > 1 and parts[1].strip() else None
+            for_condition = parts[1].strip() if len(parts) > 1 and parts[1].strip() else None
             update = parts[2].strip() if len(parts) > 2 and parts[2].strip() else None
-            body, index, _raw_body = _extract_statement_or_block(
-                text, index, base_line=base_line
-            )
+            body, index, _raw_body = _extract_statement_or_block(text, index, base_line=base_line)
             raw = text[start:index]
             statements.append(
                 ForStmt(
                     line=line,
                     text=" ".join(raw.split()),
                     init_text=init,
-                    condition_text=condition,
+                    condition_text=for_condition,
                     update_text=update,
                     body=tuple(body),
                 )
@@ -2169,7 +2162,7 @@ def _concrete_string(value: SymValue) -> str | None:
     if isinstance(value, SymbolicObject):
         return None
     if z3.is_string_value(value):
-        return value.as_string()
+        return str(value.as_string())
     return None
 
 

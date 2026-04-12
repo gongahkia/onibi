@@ -65,10 +65,7 @@ class ReportFindingRecord:
     def list_location(self) -> str:
         source_name = Path(self.source_location.file).name
         sink_name = Path(self.sink_location.file).name
-        return (
-            f"{source_name}:{self.source_location.line}"
-            f" -> {sink_name}:{self.sink_location.line}"
-        )
+        return f"{source_name}:{self.source_location.line} -> {sink_name}:{self.sink_location.line}"
 
     def list_flow(self) -> str:
         return f"{self.taint_source} -> {self.taint_sink}"
@@ -323,14 +320,10 @@ class ReportTUIController:
             return finding.patch_diff or "No patch generated for the selected finding."
         if self.detail_mode == DetailMode.LEGAL:
             return (
-                finding.legal_memo_markdown
-                or "No legal memo generated for the selected finding."
+                finding.legal_memo_markdown or "No legal memo generated for the selected finding."
             )
         if self.detail_mode == DetailMode.REPRODUCER:
-            return (
-                finding.reproducer_script
-                or "No reproducer generated for the selected finding."
-            )
+            return finding.reproducer_script or "No reproducer generated for the selected finding."
         return _finding_detail_text(finding, expanded=self.expanded)
 
     def _clamp_selection(self) -> None:
@@ -353,11 +346,7 @@ class ReportTUIController:
             for package_name, package_findings in (
                 (
                     package_name,
-                    [
-                        finding
-                        for finding in findings
-                        if finding.finding_id in visible_ids
-                    ],
+                    [finding for finding in findings if finding.finding_id in visible_ids],
                 )
                 for package_name, findings in self.report.package_findings.items()
             )
@@ -691,19 +680,14 @@ def _finding_detail_text(finding: ReportFindingRecord, *, expanded: bool) -> str
     ]
     if expanded:
         for step in finding.taint_path:
-            step_line = (
-                f"  -> {step.operation} "
-                f"({step.location.file}:{step.location.line})"
-            )
+            step_line = f"  -> {step.operation} ({step.location.file}:{step.location.line})"
             if step.sanitizer_applied:
                 step_line += f" [{step.sanitizer_applied}]"
             lines.append(step_line)
     elif finding.taint_path:
         lines.append(f"  -> {len(finding.taint_path)} intermediate step(s)")
     lines.append(
-        "Sink: "
-        f"{finding.taint_sink} "
-        f"({finding.sink_location.file}:{finding.sink_location.line})"
+        f"Sink: {finding.taint_sink} ({finding.sink_location.file}:{finding.sink_location.line})"
     )
     return "\n".join(lines)
 

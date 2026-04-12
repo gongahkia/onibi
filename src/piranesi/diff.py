@@ -182,8 +182,7 @@ def _resolve_artifact_path(artifact_path: Path) -> Path:
             if candidate_path.exists():
                 return candidate_path
         raise ValueError(
-            f"no findings artifact found in {artifact_path}. "
-            "Expected detect.json or verify.json."
+            f"no findings artifact found in {artifact_path}. Expected detect.json or verify.json."
         )
 
     if artifact_path.exists():

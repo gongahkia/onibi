@@ -29,7 +29,7 @@ _JS_FUNCTION_PATTERN = re.compile(
         (?P<expr_name>[A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?function(?:\s+[A-Za-z_$][\w$]*)?\s*
         \((?P<expr_params>[^)]*)\)\s*\{)
       |
-        (?P<method>(?:^|\n)\s*(?:public\s+|private\s+|protected\s+|static\s+|async\s+)* 
+        (?P<method>(?:^|\n)\s*(?:public\s+|private\s+|protected\s+|static\s+|async\s+)*
         (?P<method_name>[A-Za-z_$][\w$]*)\s*\((?P<method_params>[^)]*)\)\s*\{)
     )
     """,
@@ -182,11 +182,11 @@ def _parse_python_functions(source: str, relative_path: str) -> tuple[ParsedFunc
     parent_stack: list[tuple[int, int, str]] = []
 
     class _Visitor(ast.NodeVisitor):
-        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
             _handle_function(node)
             self.generic_visit(node)
 
-        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:  # noqa: N802
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
             _handle_function(node)
             self.generic_visit(node)
 
@@ -258,7 +258,9 @@ def _parse_js_like_functions(source: str, relative_path: str) -> tuple[ParsedFun
         line_start = _line_number_for_offset(line_starts, match.start())
         line_end = _line_number_for_offset(line_starts, end_index)
         source_segment = source[match.start() : end_index]
-        parameters = tuple(_normalize_parameter_name(item) for item in params.split(",") if item.strip())
+        parameters = tuple(
+            _normalize_parameter_name(item) for item in params.split(",") if item.strip()
+        )
         parameter_signature = ",".join(parameter for parameter in parameters if parameter)
 
         parsed.append(

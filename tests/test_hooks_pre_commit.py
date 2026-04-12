@@ -124,7 +124,7 @@ def test_run_staged_only_uses_only_staged_files(
     staged_file.parent.mkdir(parents=True, exist_ok=True)
     staged_file.write_text("print('staged')\n", encoding="utf-8")
     unstaged_file.write_text("print('unstaged')\n", encoding="utf-8")
-    config_path.write_text("[scan]\ninclude_patterns = [\"**/*.py\"]\n", encoding="utf-8")
+    config_path.write_text('[scan]\ninclude_patterns = ["**/*.py"]\n', encoding="utf-8")
 
     seen: dict[str, Any] = {}
 
@@ -177,7 +177,7 @@ def test_run_staged_only_timeout_exits_zero(
     staged_file = tmp_path / "src" / "staged.py"
     staged_file.parent.mkdir(parents=True, exist_ok=True)
     staged_file.write_text("print('staged')\n", encoding="utf-8")
-    config_path.write_text("[scan]\ninclude_patterns = [\"**/*.py\"]\n", encoding="utf-8")
+    config_path.write_text('[scan]\ninclude_patterns = ["**/*.py"]\n', encoding="utf-8")
 
     monkeypatch.setattr(
         "piranesi.cli.discover_staged_files",

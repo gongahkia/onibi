@@ -63,7 +63,7 @@ def parse_epss_response(payload: object) -> dict[str, tuple[float, float]]:
         cve = item.get("cve")
         epss = item.get("epss")
         percentile = item.get("percentile")
-        if not isinstance(cve, str):
+        if not isinstance(cve, str) or epss is None or percentile is None:
             continue
         try:
             scores[cve] = (float(epss), float(percentile))

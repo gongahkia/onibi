@@ -293,10 +293,7 @@ from piranesi.pipeline import DetectArtifact, PipelineContext
         ),
         (
             "src/jwt_verify_no_alg.ts",
-            (
-                'import jwt from "jsonwebtoken";\n'
-                "jwt.verify(token, secret);\n"
-            ),
+            ('import jwt from "jsonwebtoken";\njwt.verify(token, secret);\n'),
             "CWE-347",
         ),
         (
@@ -309,10 +306,7 @@ from piranesi.pipeline import DetectArtifact, PipelineContext
         ),
         (
             "src/jwt_public_key.ts",
-            (
-                'import jwt from "jsonwebtoken";\n'
-                "jwt.verify(token, publicKey);\n"
-            ),
+            ('import jwt from "jsonwebtoken";\njwt.verify(token, publicKey);\n'),
             "CWE-347",
         ),
         (
@@ -325,10 +319,7 @@ from piranesi.pipeline import DetectArtifact, PipelineContext
         ),
         (
             "src/pyjwt_decode.py",
-            (
-                "import jwt\n\n"
-                "claims = jwt.decode(token, secret)\n"
-            ),
+            ("import jwt\n\nclaims = jwt.decode(token, secret)\n"),
             "CWE-347",
         ),
         (
@@ -338,7 +329,7 @@ from piranesi.pipeline import DetectArtifact, PipelineContext
                 'import "github.com/golang-jwt/jwt/v5"\n\n'
                 "func parse(tokenString string) {\n"
                 "    _, _ = jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {\n"
-                "        return []byte(\"secret\"), nil\n"
+                '        return []byte("secret"), nil\n'
                 "    })\n"
                 "}\n"
             ),
@@ -442,10 +433,7 @@ def test_extract_crypto_transport_findings_detects_expected_cases(
         ),
         (
             "src/pyjwt_decode_safe.py",
-            (
-                "import jwt\n\n"
-                'claims = jwt.decode(token, secret, algorithms=["HS256"])\n'
-            ),
+            ('import jwt\n\nclaims = jwt.decode(token, secret, algorithms=["HS256"])\n'),
         ),
         (
             "src/go_jwt_parse_safe.go",
@@ -457,7 +445,7 @@ def test_extract_crypto_transport_findings_detects_expected_cases(
                 "        if token.Method != jwt.SigningMethodHS256 {\n"
                 "            return nil, jwt.ErrTokenSignatureInvalid\n"
                 "        }\n"
-                "        return []byte(\"secret\"), nil\n"
+                '        return []byte("secret"), nil\n'
                 "    })\n"
                 "}\n"
             ),
@@ -485,7 +473,9 @@ def test_extract_crypto_transport_findings_marks_jwt_subtypes(tmp_path: Path) ->
         ),
     )
 
-    subtypes = {finding.metadata.get("sub_type") for finding in findings if finding.vuln_class == "CWE-347"}
+    subtypes = {
+        finding.metadata.get("sub_type") for finding in findings if finding.vuln_class == "CWE-347"
+    }
     assert "alg_none" in subtypes
     assert "hardcoded_jwt_secret" in subtypes
 
@@ -551,8 +541,12 @@ def test_detect_stage_deduplicates_jwt_secret_findings(
     result = pipeline_module._run_detect_stage(context, config, None)
 
     assert isinstance(result.artifact, DetectArtifact)
-    jwt_findings = [finding for finding in result.artifact.findings if finding.vuln_class == "CWE-347"]
-    secret_findings = [finding for finding in result.artifact.findings if finding.vuln_class == "CWE-798"]
+    jwt_findings = [
+        finding for finding in result.artifact.findings if finding.vuln_class == "CWE-347"
+    ]
+    secret_findings = [
+        finding for finding in result.artifact.findings if finding.vuln_class == "CWE-798"
+    ]
     assert len(jwt_findings) == 1
     assert secret_findings == []
     assert jwt_findings[0].metadata.get("suppressed_cwe_798") is True

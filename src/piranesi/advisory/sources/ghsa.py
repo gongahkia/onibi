@@ -4,7 +4,14 @@ from collections.abc import Mapping, Sequence
 
 import requests
 
-from piranesi.advisory.models import Advisory, AffectedPackage, ExploitStatus, canonical_advisory_id, normalize_severity, severity_rank
+from piranesi.advisory.models import (
+    Advisory,
+    AffectedPackage,
+    ExploitStatus,
+    canonical_advisory_id,
+    normalize_severity,
+    severity_rank,
+)
 
 GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
 GHSA_QUERY = """
@@ -146,7 +153,9 @@ def parse_ghsa_advisory(payload: Mapping[str, object]) -> Advisory | None:
     cve_id = _extract_identifier(payload.get("identifiers"), "CVE")
     packages = _extract_packages(payload.get("vulnerabilities"))
     advisory_severity = normalize_severity(_string_value(payload.get("severity")))
-    vuln_severity = max((severity_rank(pkg[0]) for pkg in packages), default=severity_rank(advisory_severity))
+    vuln_severity = max(
+        (severity_rank(pkg[0]) for pkg in packages), default=severity_rank(advisory_severity)
+    )
     severity = advisory_severity
     for candidate in ("critical", "high", "medium", "low"):
         if severity_rank(candidate) == vuln_severity:

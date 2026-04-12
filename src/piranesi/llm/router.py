@@ -19,9 +19,9 @@ _CWE_DIFFICULTY: dict[str, float] = {
     "CWE-79": 0.4,  # xss — context matters
     "CWE-22": 0.3,  # path traversal
     "CWE-94": 0.5,  # code injection
-    "CWE-918": 0.7, # ssrf — context-dependent
-    "CWE-942": 0.6, # cors
-    "CWE-1021": 0.5, # clickjacking
+    "CWE-918": 0.7,  # ssrf — context-dependent
+    "CWE-942": 0.6,  # cors
+    "CWE-1021": 0.5,  # clickjacking
 }
 _DEFAULT_CWE_DIFFICULTY = 0.5
 
@@ -116,10 +116,14 @@ class ModelRouter:
         cheap_model = fallback or triage_model
         expensive_model = triage_model
         if difficulty < 0.3 and budget_remaining > 0.5:
-            self._logger.debug("routing easy finding (d=%.2f) to cheap model %s", difficulty, cheap_model)
+            self._logger.debug(
+                "routing easy finding (d=%.2f) to cheap model %s", difficulty, cheap_model
+            )
             return cheap_model
         if difficulty > 0.7 or budget_remaining > 2.0:
-            self._logger.debug("routing hard finding (d=%.2f) to expensive model %s", difficulty, expensive_model)
+            self._logger.debug(
+                "routing hard finding (d=%.2f) to expensive model %s", difficulty, expensive_model
+            )
             return expensive_model
         return triage_model
 
@@ -139,9 +143,7 @@ def estimate_difficulty(finding: CandidateFinding) -> float:
         path_score = 0.3
     else:
         path_score = min(0.5 + (path_len - 4) * 0.1, 1.0)
-    sanitizer_count = sum(
-        1 for step in finding.taint_path if step.sanitizer_applied is not None
-    )
+    sanitizer_count = sum(1 for step in finding.taint_path if step.sanitizer_applied is not None)
     if sanitizer_count == 0:
         sanitizer_score = 0.0
     elif sanitizer_count == 1:

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
-
 from piranesi.advisory.sources.ghsa import parse_ghsa_response
 from piranesi.advisory.sources.go_vuln import fetch_go_vuln_advisories
 from piranesi.advisory.sources.nvd import parse_nvd_cve_item
@@ -71,7 +69,9 @@ def test_ghsa_parse_graphql_response() -> None:
                                 {"type": "GHSA", "value": "GHSA-fvqr-27wr-82fm"},
                                 {"type": "CVE", "value": "CVE-2026-1111"},
                             ],
-                            "references": [{"url": "https://github.com/advisories/GHSA-fvqr-27wr-82fm"}],
+                            "references": [
+                                {"url": "https://github.com/advisories/GHSA-fvqr-27wr-82fm"}
+                            ],
                             "cvss": {
                                 "score": 8.8,
                                 "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
@@ -151,9 +151,7 @@ def test_go_vuln_fetches_incremental_entries() -> None:
                     [
                         {
                             "path": "github.com/example/lib",
-                            "vulns": [
-                                {"id": "GO-2026-0001", "modified": "2026-04-02T00:00:00Z"}
-                            ],
+                            "vulns": [{"id": "GO-2026-0001", "modified": "2026-04-02T00:00:00Z"}],
                         }
                     ]
                 )

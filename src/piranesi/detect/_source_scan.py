@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from bisect import bisect_right
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -103,7 +103,9 @@ def _candidate_files(
         return tuple(path.resolve(strict=False) for path in files if path.exists())
     if source_map is not None:
         return source_map.original_files()
-    return tuple(path.resolve(strict=False) for path in sorted(project_root.rglob("*")) if path.is_file())
+    return tuple(
+        path.resolve(strict=False) for path in sorted(project_root.rglob("*")) if path.is_file()
+    )
 
 
 def _line_starts(text: str) -> tuple[int, ...]:

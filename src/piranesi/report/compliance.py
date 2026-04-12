@@ -6,7 +6,7 @@ from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, ClassVar, TextIO
 
 from rich import box
 from rich.console import Console, Group
@@ -30,10 +30,14 @@ _LANGUAGE_LABELS = {
 }
 _CONSEQUENCE_ACTIONS = {
     "document": "Document the finding and the remediation decision in compliance records.",
-    "notify_individuals": "Prepare affected-individual communications where notification is required.",
+    "notify_individuals": (
+        "Prepare affected-individual communications where notification is required."
+    ),
     "review": "Review adjacent systems and harden related preventive controls.",
     "remediate": "Remediate the vulnerable code path and verify the exploit is closed.",
-    "notify_regulator": "Prepare regulator notification materials for the applicable reporting window.",
+    "notify_regulator": (
+        "Prepare regulator notification materials for the applicable reporting window."
+    ),
 }
 
 
@@ -48,7 +52,9 @@ class OwaspCategorySpec:
 _FRAMEWORKS: tuple[FrameworkSpec, ...] = FRAMEWORKS
 _FRAMEWORK_BY_KEY = FRAMEWORK_BY_KEY
 _OWASP_TOP_10: tuple[OwaspCategorySpec, ...] = (
-    OwaspCategorySpec("A01", "Broken Access Control", ("CWE-22",), "review access-control coverage"),
+    OwaspCategorySpec(
+        "A01", "Broken Access Control", ("CWE-22",), "review access-control coverage"
+    ),
     OwaspCategorySpec("A02", "Cryptographic Failures", (), "no encoded detection rules"),
     OwaspCategorySpec(
         "A03",
@@ -69,14 +75,18 @@ _OWASP_TOP_10: tuple[OwaspCategorySpec, ...] = (
         ("CWE-1395",),
         "no confirmed SCA findings",
     ),
-    OwaspCategorySpec("A07", "Identification and Authentication Failures", (), "no encoded detection rules"),
+    OwaspCategorySpec(
+        "A07", "Identification and Authentication Failures", (), "no encoded detection rules"
+    ),
     OwaspCategorySpec(
         "A08",
         "Software and Data Integrity Failures",
         ("CWE-502", "CWE-1321", "CWE-1395"),
         "review integrity rule coverage",
     ),
-    OwaspCategorySpec("A09", "Security Logging and Monitoring Failures", (), "no encoded detection rules"),
+    OwaspCategorySpec(
+        "A09", "Security Logging and Monitoring Failures", (), "no encoded detection rules"
+    ),
     OwaspCategorySpec("A10", "Server-Side Request Forgery", ("CWE-918",), "no confirmed findings"),
 )
 
@@ -94,7 +104,11 @@ def print_compliance_report(report: PiranesiReport, *, file: TextIO | None = Non
 
 def render_compliance_summary(report: PiranesiReport, *, include_all: bool = False) -> str:
     summaries = _framework_summaries(report)
-    all_frameworks = _FRAMEWORKS if include_all else [fw for fw in _FRAMEWORKS if any(s.framework.key == fw.key for s in summaries)]
+    all_frameworks = (
+        _FRAMEWORKS
+        if include_all
+        else [fw for fw in _FRAMEWORKS if any(s.framework.key == fw.key for s in summaries)]
+    )
     lines: list[str] = []
     lines.append(f"Frameworks assessed:  {len(all_frameworks)}")
     lines.append("")
@@ -164,17 +178,17 @@ def launch_compliance_tui(report: PiranesiReport) -> None:
         print_compliance_report(report)
         return
 
-    App = getattr(app_module, "App")
-    Binding = getattr(binding_module, "Binding")
-    Horizontal = getattr(containers_module, "Horizontal")
-    Vertical = getattr(containers_module, "Vertical")
-    DataTable = getattr(widgets_module, "DataTable")
-    Footer = getattr(widgets_module, "Footer")
-    Header = getattr(widgets_module, "Header")
-    Label = getattr(widgets_module, "Label")
-    ListItem = getattr(widgets_module, "ListItem")
-    ListView = getattr(widgets_module, "ListView")
-    Static = getattr(widgets_module, "Static")
+    App = app_module.App
+    Binding = binding_module.Binding
+    Horizontal = containers_module.Horizontal
+    Vertical = containers_module.Vertical
+    DataTable = widgets_module.DataTable
+    Footer = widgets_module.Footer
+    Header = widgets_module.Header
+    Label = widgets_module.Label
+    ListItem = widgets_module.ListItem
+    ListView = widgets_module.ListView
+    Static = widgets_module.Static
 
     framework_summaries = _framework_summaries(report)
     if not framework_summaries:
@@ -183,7 +197,7 @@ def launch_compliance_tui(report: PiranesiReport) -> None:
 
     class ComplianceDashboard(App):  # type: ignore[misc,valid-type]
         TITLE = "Piranesi Compliance Dashboard"
-        BINDINGS = [
+        BINDINGS: ClassVar[list[Any]] = [
             Binding("q", "quit", "Quit"),
             Binding("j", "cursor_down", "Down", show=False),
             Binding("k", "cursor_up", "Up", show=False),
@@ -228,7 +242,9 @@ def launch_compliance_tui(report: PiranesiReport) -> None:
         def compose(self) -> Iterable[Any]:
             yield Header()
             framework_items = [
-                ListItem(Label(summary.framework.short_label), id=f"framework-{summary.framework.key}")
+                ListItem(
+                    Label(summary.framework.short_label), id=f"framework-{summary.framework.key}"
+                )
                 for summary in framework_summaries
             ]
             with Horizontal(id="main"):
@@ -259,7 +275,9 @@ def launch_compliance_tui(report: PiranesiReport) -> None:
 
         def _refresh_framework(self) -> None:
             summary = next(
-                item for item in framework_summaries if item.framework.key == self._current_framework
+                item
+                for item in framework_summaries
+                if item.framework.key == self._current_framework
             )
             summary_widget = self.query_one("#summary")
             summary_widget.update(
@@ -320,7 +338,10 @@ def launch_compliance_tui(report: PiranesiReport) -> None:
                         f"{finding.title} ({finding.finding_id})",
                         f"Location: {finding.source_location.file}:{finding.source_location.line}",
                         "Obligations:",
-                        *[f"- {obligation.section}: {obligation.obligation_text}" for obligation in obligations],
+                        *[
+                            f"- {obligation.section}: {obligation.obligation_text}"
+                            for obligation in obligations
+                        ],
                     ]
                 )
             )
@@ -336,7 +357,8 @@ def _compliance_renderable(report: PiranesiReport) -> Group:
     else:
         renderables.append(
             Panel(
-                "No regulatory obligations were triggered for the confirmed findings in this report.",
+                "No regulatory obligations were triggered for the confirmed findings "
+                "in this report.",
                 title="Per-Framework Summary",
                 border_style="yellow",
             )
@@ -348,8 +370,8 @@ def _compliance_renderable(report: PiranesiReport) -> Group:
 def _coverage_matrix_table(findings: Sequence[CombinedFinding]) -> Table:
     table = Table(title="Regulatory Coverage Matrix", box=box.ROUNDED, expand=True)
     table.add_column("Finding", style="bold")
-    for framework in _FRAMEWORKS:
-        table.add_column(framework.short_label, justify="center")
+    for framework_spec in _FRAMEWORKS:
+        table.add_column(framework_spec.short_label, justify="center")
 
     affected_counts = {framework.key: 0 for framework in _FRAMEWORKS}
     for finding in findings:
@@ -358,8 +380,8 @@ def _coverage_matrix_table(findings: Sequence[CombinedFinding]) -> Table:
             for obligation in finding.regulatory_obligations
             if obligation.framework in _FRAMEWORK_BY_KEY
         }
-        for framework in frameworks:
-            affected_counts[framework] += 1
+        for framework_key in frameworks:
+            affected_counts[framework_key] += 1
         table.add_row(
             f"{finding.finding_id} ({finding.cwe})",
             *["*" if framework.key in frameworks else "-" for framework in _FRAMEWORKS],
@@ -382,12 +404,16 @@ def _framework_panels(report: PiranesiReport) -> list[Panel]:
         metrics.add_column("Metric", style="bold")
         metrics.add_column("Value")
         metrics.add_row("Total findings", str(summary.total_findings))
-        metrics.add_row("Severity breakdown", _format_severity_breakdown(summary.severity_breakdown))
+        metrics.add_row(
+            "Severity breakdown", _format_severity_breakdown(summary.severity_breakdown)
+        )
         metrics.add_row("Obligations", summary.obligations or "None")
         metrics.add_row("Required actions", summary.required_actions or "None")
         metrics.add_row("Notification timelines", summary.notification_timelines or "Not specified")
         metrics.add_row("Penalty exposure", summary.penalty_exposure or "Not specified")
-        metrics.add_row("Enforcement precedents", summary.enforcement_precedents or "None specified")
+        metrics.add_row(
+            "Enforcement precedents", summary.enforcement_precedents or "None specified"
+        )
         panels.append(Panel(metrics, title=summary.framework.long_label, border_style="cyan"))
     return panels
 
@@ -434,7 +460,10 @@ def _framework_summaries(report: PiranesiReport) -> list[FrameworkSummary]:
         findings = [
             finding
             for finding in report.findings
-            if any(obligation.framework == framework.key for obligation in finding.regulatory_obligations)
+            if any(
+                obligation.framework == framework.key
+                for obligation in finding.regulatory_obligations
+            )
         ]
         if not findings:
             continue
@@ -470,7 +499,13 @@ def _framework_summaries(report: PiranesiReport) -> list[FrameworkSummary]:
                     )
                 ),
                 penalty_exposure="\n".join(
-                    sorted({obligation.penalty_range for obligation in obligations if obligation.penalty_range})
+                    sorted(
+                        {
+                            obligation.penalty_range
+                            for obligation in obligations
+                            if obligation.penalty_range
+                        }
+                    )
                 ),
                 enforcement_precedents="\n".join(
                     sorted(

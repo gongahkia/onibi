@@ -36,8 +36,8 @@ def generate_csv(report: PiranesiReport) -> str:
     writer.writeheader()
     for finding in report.findings:
         writer.writerow(_row_for_finding(finding, target_root=target_root))
-    for finding in report.suppressed_findings:
-        writer.writerow(_row_for_suppressed(finding, target_root=target_root))
+    for suppressed in report.suppressed_findings:
+        writer.writerow(_row_for_suppressed(suppressed, target_root=target_root))
     return buffer.getvalue()
 
 

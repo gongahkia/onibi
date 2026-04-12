@@ -124,7 +124,11 @@ def write_cached_cpg(
 
 
 def invalidate_cache(project_root: Path, *, project_hash: str | None = None) -> None:
-    target = entry_dir(project_root, project_hash) if project_hash is not None else cache_root(project_root)
+    target = (
+        entry_dir(project_root, project_hash)
+        if project_hash is not None
+        else cache_root(project_root)
+    )
     shutil.rmtree(target, ignore_errors=True)
 
 
@@ -255,8 +259,8 @@ __all__ = [
     "cache_root",
     "clear_cache",
     "compute_cache_key",
-    "entry_dir",
     "enforce_cache_limit",
+    "entry_dir",
     "invalidate_cache",
     "load_cached_cpg",
     "write_cached_cpg",
