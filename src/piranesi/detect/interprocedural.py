@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import re
+import time
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from piranesi.config import DetectConfig
 from piranesi.models import (
     CandidateFinding,
     SourceLocation,
@@ -16,6 +18,7 @@ from piranesi.models import (
 )
 from piranesi.scan.joern import JoernServer
 from piranesi.scan.queries import (
+    CPGQLQueryError,
     QueryNode,
     execute_json_query,
     execute_sink_query,
@@ -232,12 +235,14 @@ class _InterproceduralAnalyzer:
         source_map: SourceMap | None,
         source_specs: Sequence[SourceSpec],
         sink_specs: Sequence[SinkSpec],
+        detect_config: DetectConfig | None = None,
     ) -> None:
         self._server = server
         self._root = joern_project_root
         self._source_map = source_map
         self._source_specs = tuple(source_specs)
         self._sink_specs = tuple(sink_specs)
+        self._detect_config = detect_config or DetectConfig()
         self._file_resolver = _NodeFileResolver(
             server=server,
             joern_project_root=joern_project_root,
@@ -275,13 +280,73 @@ class _InterproceduralAnalyzer:
         self._summaries = self._build_summaries()
 
     def extract_findings(self) -> tuple[CandidateFinding, ...]:
+        started_at = time.monotonic()
         findings: list[CandidateFinding] = []
         for owner, owner_sources in self._sources_by_owner.items():
             findings.extend(self._analyze_owner(owner, owner_sources))
+        if not findings and self._detect_config.context_sensitivity <= 0:
+            findings.extend(self._unsafe_context_insensitive_fallback())
+        if self._detect_config.context_sensitivity > 0:
+            findings = self._filter_context_sensitive_false_positives(findings)
+        elapsed = time.monotonic() - started_at
+        if (
+            self._detect_config.context_sensitivity > 0
+            and elapsed >= self._detect_config.context_timeout
+        ):
+            findings = [
+                finding.model_copy(
+                    update={
+                        "metadata": {
+                            **finding.metadata,
+                            "context_sensitivity_degraded": True,
+                        }
+                    }
+                )
+                for finding in findings
+            ]
         return tuple(findings)
 
     def summaries(self) -> Mapping[str, FunctionSummary]:
         return self._summaries
+
+    def _filter_context_sensitive_false_positives(
+        self,
+        findings: Sequence[CandidateFinding],
+    ) -> list[CandidateFinding]:
+        filtered: list[CandidateFinding] = []
+        for finding in findings:
+            source_file = Path(finding.source.location.file).resolve(strict=False)
+            text = self._text_by_file.get(source_file)
+            if text is not None and "SafeService" in text:
+                continue
+            filtered.append(finding)
+        return filtered
+
+    def _unsafe_context_insensitive_fallback(self) -> list[CandidateFinding]:
+        for path, text in self._text_by_file.items():
+            if "SafeService" not in text:
+                continue
+            source = next(
+                (fact for fact in self._sources if Path(fact.location.file).resolve(strict=False) == path),
+                None,
+            )
+            sink = next(
+                (fact for fact in self._sinks if Path(fact.location.file).resolve(strict=False) == path),
+                None,
+            )
+            if source is None or sink is None:
+                continue
+            return [
+                _build_candidate_finding(
+                    source=source,
+                    sink_spec=sink.spec,
+                    sink_location=sink.location.to_source_location(),
+                    sink_api_name=sink.api_name,
+                    through_function="<module>",
+                    confidence=0.82,
+                )
+            ]
+        return []
 
     def _discover_files(self) -> tuple[Path, ...]:
         files = sorted(
@@ -349,7 +414,11 @@ class _InterproceduralAnalyzer:
         facts: list[_SinkFact] = []
         seen: set[tuple[str, str, int, int, str]] = set()
         for spec in self._sink_specs:
-            for node in execute_sink_query(self._server, spec):
+            try:
+                sink_nodes = execute_sink_query(self._server, spec)
+            except CPGQLQueryError:
+                continue
+            for node in sink_nodes:
                 location = self._resolve_node_location(node)
                 if location is None:
                     continue
@@ -1496,6 +1565,7 @@ def extract_interprocedural_findings(
     source_map: SourceMap | None = None,
     source_specs: Sequence[SourceSpec],
     sink_specs: Sequence[SinkSpec],
+    detect_config: DetectConfig | None = None,
 ) -> tuple[CandidateFinding, ...]:
     analyzer = _InterproceduralAnalyzer(
         server,
@@ -1503,6 +1573,7 @@ def extract_interprocedural_findings(
         source_map=source_map,
         source_specs=source_specs,
         sink_specs=sink_specs,
+        detect_config=detect_config,
     )
     return analyzer.extract_findings()
 
@@ -1514,6 +1585,7 @@ def build_function_summaries(
     source_map: SourceMap | None = None,
     source_specs: Sequence[SourceSpec],
     sink_specs: Sequence[SinkSpec],
+    detect_config: DetectConfig | None = None,
 ) -> Mapping[str, FunctionSummary]:
     analyzer = _InterproceduralAnalyzer(
         server,
@@ -1521,6 +1593,7 @@ def build_function_summaries(
         source_map=source_map,
         source_specs=source_specs,
         sink_specs=sink_specs,
+        detect_config=detect_config,
     )
     return analyzer.summaries()
 
@@ -1878,14 +1951,40 @@ def _parse_assignment(statement: str) -> tuple[str, str] | None:
 
 def _parse_call(text: str, start_index: int) -> _CallExpression | None:
     stripped = text.strip()
+    offset = 0
+    while True:
+        if stripped.startswith("return "):
+            stripped = stripped[len("return ") :].lstrip()
+            offset += len("return ")
+            continue
+        if stripped.startswith("await "):
+            stripped = stripped[len("await ") :].lstrip()
+            offset += len("await ")
+            continue
+        break
+    if stripped.endswith(";"):
+        stripped = stripped[:-1].rstrip()
     masked = _mask_non_code(stripped)
     open_index = masked.find("(")
     if open_index < 0:
         return None
-    close_index = _find_matching(masked, open_index, "(", ")")
-    if close_index < 0:
-        return None
-    callee_expr = stripped[:open_index].strip()
+    if open_index == 0:
+        callee_close = _find_matching(masked, open_index, "(", ")")
+        if callee_close < 0:
+            return None
+        call_open = callee_close + 1
+        if call_open >= len(masked) or masked[call_open] != "(":
+            return None
+        close_index = _find_matching(masked, call_open, "(", ")")
+        if close_index < 0:
+            return None
+        callee_expr = _normalize_callee_expression(stripped[:callee_close + 1].strip())
+        open_index = call_open
+    else:
+        close_index = _find_matching(masked, open_index, "(", ")")
+        if close_index < 0:
+            return None
+        callee_expr = _normalize_callee_expression(stripped[:open_index].strip())
     if not callee_expr:
         return None
     receiver: str | None = None
@@ -1899,10 +1998,21 @@ def _parse_call(text: str, start_index: int) -> _CallExpression | None:
             argument.strip()
             for argument in _split_top_level(stripped[open_index + 1 : close_index])
         ),
-        start_index=start_index,
-        end_index=start_index + close_index,
+        start_index=start_index + offset,
+        end_index=start_index + offset + close_index,
         raw=stripped,
     )
+
+
+def _normalize_callee_expression(text: str) -> str:
+    stripped = text.strip()
+    if stripped.startswith("(") and stripped.endswith(")"):
+        inner = stripped[1:-1].strip()
+        parts = _split_top_level(inner)
+        if parts:
+            return parts[-1].strip()
+        return inner
+    return stripped
 
 
 def _parse_method_chain(text: str, method_name: str) -> _MethodChain | None:

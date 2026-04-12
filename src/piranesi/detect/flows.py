@@ -12,6 +12,8 @@ from typing import Any
 from piranesi.detect.alias import extract_alias_findings
 from piranesi.detect.categories import classify_candidate_findings
 from piranesi.detect.conditions import ConditionExtractionError, PathConditionExtractor
+from piranesi.detect.field_taint import apply_field_sensitive_pruning
+from piranesi.detect.injection_variants import should_report_injection_variant
 from piranesi.detect.interprocedural import extract_interprocedural_findings
 from piranesi.detect.prototype_pollution import extract_prototype_pollution_findings
 from piranesi.detect.sanitizer_validation import (
@@ -106,6 +108,10 @@ _SEVERITY_BY_CWE = {
     "CWE-1004": "medium",
     "CWE-1321": "high",
 }
+_FIELD_SENSITIVE_PRUNING_CWES = frozenset({"CWE-79", "CWE-89"})
+_GENERIC_SOURCE_PARAMETER_NAMES = frozenset(
+    {"body", "query", "params", "param", "headers", "cookies", "request", "req", "payload", "input", "data"}
+)
 
 
 class FlowExtractionError(RuntimeError):
@@ -476,6 +482,7 @@ def extract_candidate_findings(
     route_patterns_by_finding_id: Mapping[str, str | None] | None = None,
     category_provider: Any | None = None,
     category_model: str | None = None,
+    field_sensitive: bool = True,
 ) -> tuple[CandidateFinding, ...]:
     root = Path(joern_project_root).resolve(strict=False)
     resolved_source_specs = tuple(source_specs or get_source_specs(frameworks=frameworks))
@@ -515,15 +522,16 @@ def extract_candidate_findings(
                     pruning_analyzer=pruning_analyzer,
                 )
             )
-    findings.extend(
-        extract_interprocedural_findings(
-            server,
-            joern_project_root=root,
-            source_map=source_map,
-            source_specs=resolved_source_specs,
-            sink_specs=flow_sink_specs,
+    if source_map is not None:
+        findings.extend(
+            extract_interprocedural_findings(
+                server,
+                joern_project_root=root,
+                source_map=source_map,
+                source_specs=resolved_source_specs,
+                sink_specs=flow_sink_specs,
+            )
         )
-    )
     findings.extend(
         extract_alias_findings(
             root,
@@ -539,6 +547,25 @@ def extract_candidate_findings(
             sink_specs=resolved_sink_specs,
         )
     )
+    if field_sensitive:
+        prunable = [
+            finding for finding in findings if finding.vuln_class in _FIELD_SENSITIVE_PRUNING_CWES
+        ]
+        non_prunable = [
+            finding
+            for finding in findings
+            if finding.vuln_class not in _FIELD_SENSITIVE_PRUNING_CWES
+        ]
+        if prunable:
+            findings = [
+                *apply_field_sensitive_pruning(
+                    prunable,
+                    server,
+                    source_specs=resolved_source_specs,
+                ),
+                *non_prunable,
+            ]
+    findings = _suppress_interprocedural_generic_source_duplicates(findings)
     classified = classify_candidate_findings(
         findings,
         route_patterns_by_finding_id=route_patterns_by_finding_id,
@@ -657,6 +684,12 @@ def _extract_findings_for_pair(
 
         elements = normalize_flow_elements_for_sink_spec(server, sink_spec, elements)
         if not elements:
+            continue
+        if not should_report_injection_variant(
+            source_spec=source_spec,
+            sink_spec=sink_spec,
+            elements=elements,
+        ):
             continue
 
         source_node = elements[0]
@@ -811,6 +844,40 @@ def _dedupe_candidate_findings(findings: Sequence[CandidateFinding]) -> list[Can
         deduped.append(finding)
         seen.add(key)
     return deduped
+
+
+def _suppress_interprocedural_generic_source_duplicates(
+    findings: Sequence[CandidateFinding],
+) -> list[CandidateFinding]:
+    by_sink: dict[tuple[object, ...], list[CandidateFinding]] = {}
+    for finding in findings:
+        key = (
+            finding.vuln_class,
+            finding.sink.location.file,
+            finding.sink.location.line,
+            finding.sink.location.column,
+            finding.sink.api_name,
+        )
+        by_sink.setdefault(key, []).append(finding)
+
+    drop_instances: set[int] = set()
+    for sink_findings in by_sink.values():
+        has_specific_source = any(
+            not _is_generic_source_parameter_name(finding.source.parameter_name)
+            for finding in sink_findings
+        )
+        for finding in sink_findings:
+            is_generic = _is_generic_source_parameter_name(finding.source.parameter_name)
+            if has_specific_source and is_generic:
+                drop_instances.add(id(finding))
+
+    return [finding for finding in findings if id(finding) not in drop_instances]
+
+
+def _is_generic_source_parameter_name(parameter_name: str | None) -> bool:
+    if parameter_name is None:
+        return False
+    return parameter_name.strip().lower() in _GENERIC_SOURCE_PARAMETER_NAMES
 
 
 def _relevant_sanitizers_on_path(

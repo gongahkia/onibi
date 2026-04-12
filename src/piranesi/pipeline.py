@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -27,7 +28,10 @@ from piranesi.detect import (
     analyze_reachability,
     apply_suppressions,
     extract_candidate_findings,
+    extract_auth_access_findings,
+    extract_crypto_transport_findings,
     extract_misconfiguration_findings,
+    extract_redos_findings,
     extract_secret_findings,
     load_ignore_file,
     parse_inline_suppressions,
@@ -89,6 +93,7 @@ from piranesi.scan.surface import build_scan_result
 from piranesi.scan.transpile import SourceMap, transpile_project
 from piranesi.trace import TraceWriter
 from piranesi.triage import CalibratedEnsembleVoter, SkepticAgent
+from piranesi.triage.ml_classifier import load_model, predict
 from piranesi.ui import file_progress, stage_header
 from piranesi.verify import (
     build_baseline_payload,
@@ -136,6 +141,8 @@ _LLM_API_ENV_VARS = (
     "LITELLM_API_KEY",
 )
 
+_logger = logging.getLogger("piranesi.pipeline")
+
 
 @dataclass(slots=True)
 class StageResult:
@@ -163,7 +170,7 @@ class PipelineContext:
     target_dir: Path
     output_dir: Path
     provider: LLMProvider
-    router: ModelRouter
+    router: ModelRouter | None
     cost_tracker: CostTracker
     trace_writer: TraceWriter
     stage_outputs: dict[str, BaseModel] = field(default_factory=dict)
@@ -895,6 +902,22 @@ def _context_changed_files(context: PipelineContext) -> set[Path] | None:
     return _incremental_changed_files(context.incremental)
 
 
+def _apply_incremental_threshold(
+    changed_files: set[Path] | None,
+    *,
+    config: PiranesiConfig,
+    context: PipelineContext,
+) -> set[Path] | None:
+    if changed_files is None:
+        return None
+    if context.selected_files is not None:
+        return changed_files
+    threshold = config.scan.incremental_threshold
+    if threshold > 0 and len(changed_files) >= threshold:
+        return None
+    return changed_files
+
+
 def _carry_forward_findings(
     previous_detect: DetectArtifact | None,
     incremental: IncrementalState,
@@ -967,12 +990,42 @@ def _apply_project_suppressions(
     return apply_suppressions(findings, rules, inline)
 
 
+def _location_key(location: SourceLocation) -> tuple[Path, int]:
+    return (Path(location.file).resolve(strict=False), location.line)
+
+
+def _suppress_secret_findings_with_crypto(
+    secret_findings: Sequence[CandidateFinding],
+    crypto_findings: Sequence[CandidateFinding],
+) -> list[CandidateFinding]:
+    suppressed_locations = {
+        _location_key(crypto.source.location)
+        for crypto in crypto_findings
+        if crypto.metadata.get("suppressed_cwe_798") is True
+    }
+    if not suppressed_locations:
+        return list(secret_findings)
+
+    filtered: list[CandidateFinding] = []
+    for finding in secret_findings:
+        if finding.vuln_class != "CWE-798":
+            filtered.append(finding)
+            continue
+        if _location_key(finding.source.location) in suppressed_locations:
+            continue
+        filtered.append(finding)
+    return filtered
+
+
 def _annotate_reachability_for_findings(
     context: PipelineContext,
     config: PiranesiConfig,
     findings: Sequence[CandidateFinding],
 ) -> tuple[list[CandidateFinding], ReachabilityResult]:
-    scan_artifact = _require_artifact(context.stage_outputs["scan"], ScanResult, "scan")
+    scan_artifact_raw = context.stage_outputs.get("scan")
+    if scan_artifact_raw is None:
+        return list(findings), ReachabilityResult()
+    scan_artifact = _require_artifact(scan_artifact_raw, ScanResult, "scan")
     return analyze_reachability(
         scan_artifact,
         findings,
@@ -1250,7 +1303,7 @@ def _detect_findings_for_target(
                 sink_specs=sink_specs,
                 sanitizer_specs=sanitizer_specs,
                 category_provider=context.provider,
-                category_model=context.router.resolve("detector"),
+                category_model=_resolve_stage_model(context, "detector"),
             )
         )
         findings.extend(
@@ -1265,11 +1318,20 @@ def _detect_findings_for_target(
                 sanitizer_specs=sanitizer_specs,
                 files=scanned_files,
                 category_provider=context.provider,
-                category_model=context.router.resolve("detector"),
+                category_model=_resolve_stage_model(context, "detector"),
             )
         )
 
-    findings.extend(
+    crypto_findings = list(
+        extract_crypto_transport_findings(
+            target_dir,
+            frameworks=frameworks,
+            files=scanned_files,
+            include_tests=config.scan.include_tests,
+        )
+    )
+    findings.extend(crypto_findings)
+    secret_findings = list(
         extract_secret_findings(
             target_dir,
             include_tests=config.scan.include_tests,
@@ -1277,8 +1339,17 @@ def _detect_findings_for_target(
             changed_files=changed_files,
         )
     )
+    findings.extend(_suppress_secret_findings_with_crypto(secret_findings, crypto_findings))
     findings.extend(
         extract_misconfiguration_findings(
+            target_dir,
+            frameworks=frameworks,
+            files=scanned_files,
+        )
+    )
+    findings.extend(extract_redos_findings(target_dir, files=scanned_files))
+    findings.extend(
+        extract_auth_access_findings(
             target_dir,
             frameworks=frameworks,
             files=scanned_files,
@@ -1770,7 +1841,11 @@ def _run_scan_stage(
             else "BYPASS",
         )
 
-    changed_files = _context_changed_files(context)
+    changed_files = _apply_incremental_threshold(
+        _context_changed_files(context),
+        config=config,
+        context=context,
+    )
     artifact, cache_status, _ = _build_scan_artifact_for_target(
         context,
         config,
@@ -1875,7 +1950,11 @@ def _run_detect_stage(
             elapsed_s=time.monotonic() - started_at,
         )
 
-    changed_files = _context_changed_files(context)
+    changed_files = _apply_incremental_threshold(
+        _context_changed_files(context),
+        config=config,
+        context=context,
+    )
     findings = _detect_findings_for_target(
         context,
         config,
@@ -1984,7 +2063,6 @@ def _run_triage_stage(
     config: PiranesiConfig,
     prev_result: StageResult | None,
 ) -> StageResult:
-    _ = config
     detect_artifact = _extract_stage_artifact(prev_result, DetectArtifact, "detect")
     started_at = time.monotonic()
     active_findings = [finding for finding in detect_artifact.findings if not finding.suppressed]
@@ -2000,7 +2078,39 @@ def _run_triage_stage(
 
     voter = CalibratedEnsembleVoter(provider=context.provider, router=context.router)
     skeptic = SkepticAgent(provider=context.provider, router=context.router)
-    findings = [voter.triage_finding(finding, skeptic=skeptic) for finding in active_findings]
+    ml_scores: dict[str, float] = {}
+    if config.triage.ml_prefilter and active_findings:
+        classifier = load_model(config.triage.ml_model_path)
+        for prediction in predict(
+            active_findings,
+            classifier=classifier,
+            model_path=config.triage.ml_model_path,
+        ):
+            ml_scores[prediction.finding.id] = prediction.true_positive_probability
+
+    findings: list[TriagedFinding] = []
+    for finding in active_findings:
+        probability = ml_scores.get(finding.id)
+        if (
+            config.triage.ml_prefilter
+            and probability is not None
+            and probability < config.triage.ml_threshold
+            and not config.triage.ml_conservative
+        ):
+            findings.append(
+                TriagedFinding(
+                    finding=finding,
+                    triage_verdict="false_positive",
+                    skeptic_analysis=(
+                        "ML pre-filter flagged likely false positive "
+                        f"(p={probability:.2f} < threshold={config.triage.ml_threshold:.2f})."
+                    ),
+                    ensemble_score=probability,
+                    escalated=False,
+                )
+            )
+            continue
+        findings.append(voter.triage_finding(finding, skeptic=skeptic))
     return StageResult(
         stage="triage",
         success=True,
@@ -2271,6 +2381,12 @@ def _first_payload_value(payload: Any) -> str:
 
 def _llm_is_configured() -> bool:
     return any(os.getenv(name) for name in _LLM_API_ENV_VARS)
+
+
+def _resolve_stage_model(context: PipelineContext, stage: str) -> str | None:
+    if context.router is None:
+        return None
+    return context.router.resolve(stage)
 
 
 __all__ = [

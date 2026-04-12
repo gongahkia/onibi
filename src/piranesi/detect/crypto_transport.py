@@ -87,7 +87,16 @@ _JWT_NONE_ALG_PATTERN = re.compile(
     r"\b(?:algorithms?|algorithm|alg)\s*[:=]\s*(?:\[[^\]]*['\"]none['\"]|['\"]none['\"])",
     re.IGNORECASE | re.DOTALL,
 )
-_SECURITY_IDENTIFIER_TERMS = tuple(CRYPTO_TRANSPORT_SECURITY_IDENTIFIER_HINTS)
+
+
+def _normalize_identifier_hint(value: str) -> str:
+    expanded = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", value)
+    return re.sub(r"[^A-Za-z0-9]+", "_", expanded).strip("_").lower()
+
+
+_SECURITY_IDENTIFIER_TERMS = tuple(
+    _normalize_identifier_hint(hint) for hint in CRYPTO_TRANSPORT_SECURITY_IDENTIFIER_HINTS
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -813,11 +822,14 @@ def _detect_weak_prng(scanned_file: _ScannedFile) -> list[CandidateFinding]:
             line_number = scanned_file.location_for_index(match.start()).line
             line_text = _line_text(scanned_file.text, line_number)
             context_text = "\n".join((line_text, rhs, block_text))
-            if _matches_any(context_text, _NON_SECURITY_PRNG_CONTEXT):
+            has_security_context = (
+                _text_has_security_term(lhs)
+                or _text_has_security_term(context_text)
+                or _matches_any(context_text, _PRNG_SECURITY_SINKS)
+            )
+            if _matches_any(context_text, _NON_SECURITY_PRNG_CONTEXT) and not has_security_context:
                 continue
-            if _text_has_security_term(lhs) or _text_has_security_term(context_text) or _matches_any(
-                context_text, _PRNG_SECURITY_SINKS
-            ):
+            if has_security_context:
                 findings.append(
                     _build_crypto_finding(
                         cwe_id="CWE-338",

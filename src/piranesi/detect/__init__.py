@@ -6,6 +6,7 @@ from piranesi.detect.categories import (
     classify_source_data_categories,
 )
 from piranesi.detect.alias import extract_alias_findings
+from piranesi.detect.auth_access import AuthAccessConfig, extract_auth_access_findings
 from piranesi.detect.conditions import (
     ConditionExtractionError,
     PathConditionExtractor,
@@ -20,6 +21,7 @@ from piranesi.detect.cross_language import (
     extract_api_boundaries,
     match_api_boundaries,
 )
+from piranesi.detect.crypto_transport import extract_crypto_transport_findings
 from piranesi.detect.dependencies import (
     DependencyScanResult,
     SbomFormat,
@@ -47,6 +49,7 @@ from piranesi.detect.interprocedural import (
 )
 from piranesi.detect.misconfigurations import extract_misconfiguration_findings
 from piranesi.detect.prototype_pollution import extract_prototype_pollution_findings
+from piranesi.detect.redos import extract_redos_findings
 from piranesi.detect.reachability import (
     analyze_reachability,
     build_call_graph,
@@ -77,6 +80,7 @@ __all__ = [
     "SANITIZER_BYPASS_CONFIDENCE_BOOST",
     "SANITIZER_EFFECTIVENESS",
     "ApiBoundary",
+    "AuthAccessConfig",
     "ConditionExtractionError",
     "CrossLanguageFlow",
     "DependencyScanResult",
@@ -104,12 +108,15 @@ __all__ = [
     "detect_cross_language_flows",
     "detect_sanitizer_bypass",
     "extract_alias_findings",
+    "extract_auth_access_findings",
     "extract_api_boundaries",
     "extract_candidate_findings",
+    "extract_crypto_transport_findings",
     "extract_interprocedural_findings",
     "extract_misconfiguration_findings",
     "extract_path_conditions",
     "extract_prototype_pollution_findings",
+    "extract_redos_findings",
     "identify_entry_points",
     "extract_secret_findings",
     "joern_flow_to_taint_steps",
