@@ -65,11 +65,11 @@ Notes:
 
 - Some Joern installs do not support `joern --version`. `joern --help` plus a successful Joern-backed scan is the practical validation path in this repository.
 - The first `docker info` may fail if Docker Desktop is still starting.
-- Without an LLM API key, Piranesi still runs scan and detect. Triage falls back to pass-through mode and patch generation is skipped.
+- Piranesi requires a configured LLM API key to run the full pipeline.
 
-## Optional LLM Configuration
+## Required LLM Configuration
 
-Piranesi will use LiteLLM-compatible credentials when they are present. The current runtime checks look for these environment variables:
+Piranesi requires a LiteLLM-compatible credential before `piranesi run`. The runtime checks for at least one of these environment variables:
 
 - `OPENAI_API_KEY`
 - `ANTHROPIC_API_KEY`
@@ -78,8 +78,6 @@ Piranesi will use LiteLLM-compatible credentials when they are present. The curr
 - `GEMINI_API_KEY`
 - `GOOGLE_API_KEY`
 - `LITELLM_API_KEY`
-
-You do not need any of them for the first detect-only walkthrough below.
 
 ## First Scan Walkthrough
 
@@ -97,11 +95,10 @@ uv run piranesi run examples/vuln-express \
   --no-execute
 ```
 
-This does four useful things for a first run:
+This does three useful things for a first run:
 
 - Exercises the real `piranesi run` entry point.
 - Avoids Docker-side exploit execution while you are still validating the host.
-- Avoids any LLM dependency.
 - Produces all stage artifacts in a single output directory.
 
 For a compact human-readable summary, run:
@@ -116,10 +113,10 @@ After the first run, the output directory contains:
 
 - `scan.json`: file list, call graph, entry points, and attack-surface summary.
 - `detect.json`: candidate findings from the taint analysis stage.
-- `triage.json`: triage verdicts. Without an API key, the current fallback marks findings as `true_positive` with a note that LLM triage was skipped.
+- `triage.json`: triage verdicts generated via the configured LLM provider.
 - `verify.json`: confirmed findings. With `--no-execute`, this stays empty by design.
 - `legal.json`: regulatory obligations for confirmed findings.
-- `patch.json`: generated fixes for confirmed findings when an LLM is configured.
+- `patch.json`: generated fixes for confirmed findings.
 - `report.json`: machine-readable combined report.
 - `report.md`: human-readable markdown report.
 - `pr_body.md`: per-finding GitHub-flavored markdown.

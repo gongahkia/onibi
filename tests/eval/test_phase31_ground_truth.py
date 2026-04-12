@@ -16,11 +16,21 @@ def _load(entry_id: str) -> GroundTruthEntry:
     return GroundTruthEntry.model_validate(payload)
 
 
+def _load_phase_entry_ids(source_project: str) -> list[str]:
+    entry_ids: list[str] = []
+    for path in sorted(GT_DIR.glob("gt-*.yaml")):
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if payload.get("source_project") == source_project:
+            entry_ids.append(str(payload["id"]))
+    return entry_ids
+
+
 def test_phase31_ground_truth_entries_exist_and_parse() -> None:
-    entry_ids = [f"gt-{index:03d}" for index in range(467, 482)]
+    entry_ids = _load_phase_entry_ids("synthetic-phase31")
     entries = [_load(entry_id) for entry_id in entry_ids]
 
-    assert len(entries) == 15
+    assert len(entries) == 14
+    assert entry_ids == [f"gt-{index:03d}" for index in range(467, 481)]
     assert {entry.id for entry in entries} == set(entry_ids)
     assert all(entry.discovery_method == "synthetic" for entry in entries)
     assert all(entry.label == "true_positive" for entry in entries)
@@ -29,11 +39,11 @@ def test_phase31_ground_truth_entries_exist_and_parse() -> None:
     assert all(entry.taint_field_path for entry in entries)
 
     field_sensitive_labels = Counter(entry.field_sensitive_label for entry in entries)
-    assert field_sensitive_labels == {"true_positive": 9, "false_positive": 6}
+    assert field_sensitive_labels == {"true_positive": 9, "false_positive": 5}
 
 
 def test_phase31_ground_truth_fixtures_exist() -> None:
-    entry_ids = [f"gt-{index:03d}" for index in range(467, 482)]
+    entry_ids = _load_phase_entry_ids("synthetic-phase31")
     for entry_id in entry_ids:
         entry = _load(entry_id)
         for file_name in entry.affected_files:

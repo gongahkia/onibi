@@ -7,8 +7,11 @@ Piranesi is a provider-agnostic local CLI. It does not ship GitHub Actions, GitL
 Every CI integration follows the same basic shape:
 
 ```bash
+export OPENAI_API_KEY="$OPENAI_API_KEY"
 piranesi run ./target --authorized --yes --output ./piranesi-output
 ```
+
+`piranesi run` requires one LiteLLM-compatible credential in the environment (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `AZURE_OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, or `LITELLM_API_KEY`).
 
 Useful outputs from that directory:
 
@@ -39,6 +42,7 @@ Use this in any CI system that gives you Python and a checked-out repository:
 python -m pip install --upgrade pip
 python -m pip install piranesi
 
+export OPENAI_API_KEY="$OPENAI_API_KEY"
 piranesi run . \
   --authorized \
   --yes \
@@ -48,6 +52,7 @@ piranesi run . \
 To emit SARIF as well:
 
 ```bash
+export OPENAI_API_KEY="$OPENAI_API_KEY"
 piranesi run . \
   --format sarif \
   --authorized \
@@ -70,6 +75,8 @@ on:
 jobs:
   scan:
     runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     permissions:
       contents: read
       actions: read
@@ -132,6 +139,8 @@ stages:
 piranesi:
   stage: security
   image: ghcr.io/gongahkia/piranesi:latest
+  variables:
+    OPENAI_API_KEY: $OPENAI_API_KEY
   script:
     - piranesi run . --format sarif --authorized --yes --output piranesi-output
   artifacts:
@@ -153,6 +162,7 @@ If your CI system can run Docker but you do not want a package install on the ru
 
 ```bash
 docker run --rm \
+  -e OPENAI_API_KEY \
   -v "$PWD":/workspace \
   ghcr.io/gongahkia/piranesi:latest \
   run /workspace --authorized --yes
@@ -162,6 +172,7 @@ To emit SARIF in the mounted workspace:
 
 ```bash
 docker run --rm \
+  -e OPENAI_API_KEY \
   -v "$PWD":/workspace \
   ghcr.io/gongahkia/piranesi:latest \
   run /workspace --format sarif --authorized --yes --output /workspace/piranesi-output
@@ -174,6 +185,7 @@ The image ships with Joern, JVM 17, Node.js, TypeScript, Python 3.12, and Pirane
 The default CLI contract fails on any unsuppressed finding:
 
 ```bash
+export OPENAI_API_KEY="$OPENAI_API_KEY"
 piranesi run . --authorized --yes --output piranesi-output
 ```
 
@@ -183,6 +195,7 @@ piranesi run . --authorized --yes --output piranesi-output
 If you want to fail only on higher-severity issues:
 
 ```bash
+export OPENAI_API_KEY="$OPENAI_API_KEY"
 piranesi run . \
   --fail-severity high \
   --authorized \
@@ -194,6 +207,7 @@ If you want to keep uploading artifacts even when Piranesi exits `1`, capture th
 
 ```bash
 set +e
+export OPENAI_API_KEY="$OPENAI_API_KEY"
 piranesi run . --authorized --yes --output piranesi-output
 status=$?
 set -e

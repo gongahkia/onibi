@@ -23,7 +23,7 @@ Piranesi is an alpha CLI for security analysis of TypeScript and JavaScript code
 - Joern plus a working JVM
 - TypeScript compiler (`tsc`)
 - Docker for the verify stage
-- Optional LLM API key for triage and patch generation
+- LLM API key for the full pipeline (`triage`, `legal`, and `patch`)
 
 The full installation walkthrough is in [docs/getting-started.md](docs/getting-started.md).
 
@@ -42,6 +42,8 @@ cd examples/vuln-express
 npm install
 cd ../..
 
+export OPENAI_API_KEY="<your_key>"
+
 uv run piranesi run examples/vuln-express \
   --authorized \
   --yes \
@@ -49,7 +51,9 @@ uv run piranesi run examples/vuln-express \
   --no-execute
 ```
 
-`--no-execute` skips Docker exploit execution. That makes the first run deterministic and does not require an LLM API key.
+`--no-execute` skips Docker exploit execution. It does not bypass LLM credential requirements.
+
+`piranesi run` requires one LiteLLM-compatible credential in the environment: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `AZURE_OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, or `LITELLM_API_KEY`.
 
 Use `--fail-severity high` to fail CI only on `high` or `critical` findings, or `--no-fail` to always exit `0` for findings while still writing artifacts.
 
@@ -118,6 +122,8 @@ on:
 jobs:
   scan:
     runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     permissions:
       contents: read
       actions: read

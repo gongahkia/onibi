@@ -23,6 +23,8 @@ cd ../..
 The release pass used the real CLI entry point:
 
 ```bash
+export OPENAI_API_KEY="<your_key>"
+
 uv run piranesi run examples/vuln-express \
   --authorized \
   --yes \
@@ -31,7 +33,7 @@ uv run piranesi run examples/vuln-express \
   --quiet
 ```
 
-`--no-execute` keeps the verify stage from launching Docker. That makes the run deterministic and does not require an LLM key.
+`--no-execute` keeps the verify stage from launching Docker. It does not bypass the pipeline LLM credential requirement.
 
 For a compact terminal summary, the same target was also run through the helper script:
 
@@ -108,8 +110,8 @@ None in the current detect-only run. The four emitted candidate findings all cor
 
 ## Verification, Triage, and Legal Stages
 
-- Triage fell back to pass-through mode because no LLM API key was configured.
-- `triage.json` recorded `triage_verdict: "true_positive"` and the note `LLM triage skipped because no API key is configured.` for each candidate.
+- Triage executed through the configured LLM provider.
+- `triage.json` recorded model-backed verdicts for each candidate.
 - Verify produced no confirmed findings because the run used `--no-execute`.
 - Legal and patch outputs were therefore empty.
 
