@@ -241,7 +241,7 @@ class NextJSFramework(FrameworkPlugin):
         return any(p.is_file() for p in project_root.glob("next.config.*"))
 
     def source_specs(self) -> list[SourceSpec]:
-        return list(BUILTIN_SOURCE_SPECS) + list(NEXTJS_SOURCE_SPECS)
+        return list(NEXTJS_SOURCE_SPECS) + list(BUILTIN_SOURCE_SPECS)
 
     def sink_specs(self) -> list[SinkSpec]:
         return list(BUILTIN_SINK_SPECS)
@@ -402,6 +402,14 @@ class PhpFramework(FrameworkPlugin):
     def name(self) -> str:
         return "php"
     def detect(self, project_root: Path) -> bool:
+        if WordPressFramework().detect(project_root):
+            return False
+        if LaravelFramework().detect(project_root):
+            return False
+        if SymfonyFramework().detect(project_root):
+            return False
+        if any(project_root.rglob("*.php")):
+            return True
         return (project_root / "composer.json").is_file()
     def source_specs(self) -> list[SourceSpec]:
         return list(PHP_SOURCE_SPECS)
@@ -466,6 +474,10 @@ class RubyFramework(FrameworkPlugin):
     def name(self) -> str:
         return "ruby"
     def detect(self, project_root: Path) -> bool:
+        if RailsFramework().detect(project_root) or SinatraFramework().detect(project_root):
+            return False
+        if any(project_root.rglob("*.rb")):
+            return True
         return (project_root / "Gemfile").is_file()
     def source_specs(self) -> list[SourceSpec]:
         return list(RUBY_SOURCE_SPECS)

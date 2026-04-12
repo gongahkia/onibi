@@ -23,7 +23,7 @@ JsonDict = dict[str, Any]
 
 JOERN_HOST = "127.0.0.1"
 JOERN_PORT_MIN = 8080
-JOERN_PORT_MAX = 8089
+JOERN_PORT_MAX = 8189
 JOERN_SHUTDOWN_TIMEOUT_SECONDS = 5
 JOERN_INSTALL_INSTRUCTIONS = (
     "Joern is required. Install via: brew install joern (macOS) "
@@ -38,6 +38,8 @@ LANGUAGE_TO_JOERN_FRONTEND: dict[str, str] = {
     "python": "pysrc2cpg",
     "go": "gosrc2cpg",
     "java": "javasrc2cpg",
+    "php": "php2cpg",
+    "ruby": "rubysrc2cpg",
 }
 LANGUAGE_TO_JOERN_IMPORT_MODULE: dict[str, str] = {
     "typescript": "javascript",
@@ -45,6 +47,8 @@ LANGUAGE_TO_JOERN_IMPORT_MODULE: dict[str, str] = {
     "python": "python",
     "go": "golang",
     "java": "java",
+    "php": "php",
+    "ruby": "ruby",
 }
 LANGUAGE_TO_JOERN_PARSE_LANGUAGE: dict[str, str] = {
     "typescript": "jssrc",
@@ -52,6 +56,8 @@ LANGUAGE_TO_JOERN_PARSE_LANGUAGE: dict[str, str] = {
     "python": "pythonsrc",
     "go": "golang",
     "java": "javasrc",
+    "php": "php",
+    "ruby": "ruby",
 }
 _TRIPLE_QUOTED_STRING_PATTERN = re.compile(r'=\s*"""(?P<payload>.*)"""\s*$', re.DOTALL)
 _QUOTED_STRING_PATTERN = re.compile(r'=\s*"(?P<payload>(?:\\.|[^"\\])*)"\s*$', re.DOTALL)

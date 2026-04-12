@@ -28,6 +28,8 @@ def detect_framework(project_root: Path) -> list[str]:
     java_deps = _java_dependencies(project_root)
     go_deps = _go_dependencies(project_root)
     has_go_files = _has_go_source_files(project_root)
+    php_framework = _php_framework(project_root)
+    ruby_framework = _ruby_framework(project_root)
 
     detected: list[str] = []
     if "@nestjs/core" in dependencies:
@@ -56,6 +58,10 @@ def detect_framework(project_root: Path) -> list[str]:
         detected.append("chi")
     if has_go_files and (project_root / "go.mod").is_file():
         detected.append("go-stdlib")
+    if php_framework is not None:
+        detected.append(php_framework)
+    if ruby_framework is not None:
+        detected.append(ruby_framework)
     return detected
 
 
@@ -248,6 +254,45 @@ def _has_go_source_files(project_root: Path) -> bool:
 
 def _is_supported_route_file(path: Path) -> bool:
     return path.is_file() and path.suffix in _SUPPORTED_ROUTE_EXTENSIONS
+
+
+def _php_framework(project_root: Path) -> str | None:
+    if (project_root / "wp-config.php").is_file() or (project_root / "wp-content").is_dir():
+        return "wordpress"
+
+    composer_path = project_root / "composer.json"
+    if composer_path.is_file():
+        try:
+            payload = json.loads(composer_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            payload = {}
+        flattened = json.dumps(payload).lower() if isinstance(payload, dict) else ""
+        if "laravel" in flattened:
+            return "laravel"
+        if "symfony" in flattened:
+            return "symfony"
+
+    if any(path.is_file() for path in project_root.rglob("*.php")):
+        return "php"
+    return None
+
+
+def _ruby_framework(project_root: Path) -> str | None:
+    gemfile_path = project_root / "Gemfile"
+    if gemfile_path.is_file():
+        try:
+            content = gemfile_path.read_text(encoding="utf-8").lower()
+        except OSError:
+            content = ""
+        if "rails" in content:
+            return "rails"
+        if "sinatra" in content:
+            return "sinatra"
+        return "ruby"
+
+    if any(path.is_file() for path in project_root.rglob("*.rb")):
+        return "ruby"
+    return None
 
 
 def _pages_api_route_pattern(project_root: Path, path: Path) -> str:

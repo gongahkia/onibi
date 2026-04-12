@@ -14,6 +14,7 @@ class EntryPoint(BaseModel):
     http_method: str | None = None
     route_pattern: str | None = None
     parameters: list[str]
+    middleware: list[str] = Field(default_factory=list)
 
 
 class AttackSurfaceNode(BaseModel):
