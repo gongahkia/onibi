@@ -8,7 +8,7 @@ import pytest
 
 import piranesi.verify.sandbox as sandbox
 from piranesi.models import CandidateFinding, SourceLocation, TaintSink, TaintSource, TaintStep
-from piranesi.verify.confirm import confirm_exploit
+from piranesi.verify.confirm import build_baseline_payload, confirm_exploit, confirm_responses
 from piranesi.verify.constraints import extract_exploit_template
 from piranesi.verify.reproducer import generate_reproducer_script, write_reproducer_script
 from piranesi.verify.solver import solve_exploit_template
@@ -91,11 +91,26 @@ def test_xss_pipeline_confirms_payload_in_docker(tmp_path: Path) -> None:
     try:
         container = sandbox._start_container(client, image)
         network_ids = sandbox._container_network_ids(container)
-        host_port = sandbox._get_host_port(container)
-        assert sandbox.wait_for_ready(host_port)
-
-        confirmation = confirm_exploit("CWE-79", payload, host_port)
-        capture = sandbox.capture_results(container, confirmation.exploit_response)
+        try:
+            host_port = sandbox._get_host_port(container)
+        except RuntimeError:
+            internal_port = sandbox._image_internal_port(client, image)
+            assert sandbox._wait_for_ready_in_container(container, internal_port)
+            baseline_payload = build_baseline_payload(payload, vuln_class="CWE-79")
+            baseline_response = sandbox._fire_payload_in_container(
+                container, baseline_payload, internal_port=internal_port
+            )
+            exploit_response = sandbox._fire_payload_in_container(
+                container, payload, internal_port=internal_port
+            )
+            confirmation = confirm_responses(
+                "CWE-79", payload, baseline_response, exploit_response
+            )
+            capture = sandbox.capture_results(container, exploit_response)
+        else:
+            assert sandbox.wait_for_ready(host_port)
+            confirmation = confirm_exploit("CWE-79", payload, host_port)
+            capture = sandbox.capture_results(container, confirmation.exploit_response)
     finally:
         if container is not None:
             sandbox._teardown_container(container)

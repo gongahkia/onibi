@@ -744,17 +744,57 @@ def _image_internal_port(client: Any, image: str) -> int:
     return port if 1 <= port <= 65535 else DEFAULT_PORT
 
 
-def _get_host_port(container: Container) -> int:
-    container.reload()
-    ports = ((getattr(container, "attrs", {}) or {}).get("NetworkSettings") or {}).get(
-        "Ports"
-    ) or {}
-    for bindings in ports.values():
+def _extract_host_port(bindings_map: object) -> int | None:
+    if not isinstance(bindings_map, Mapping):
+        return None
+    for bindings in bindings_map.values():
         if not bindings:
             continue
-        host_port = bindings[0].get("HostPort")
-        if host_port:
-            return int(host_port)
+        if isinstance(bindings, Mapping):
+            binding_items: Sequence[object] = (bindings,)
+        elif isinstance(bindings, Sequence) and not isinstance(bindings, (str, bytes, bytearray)):
+            binding_items = bindings
+        else:
+            continue
+        for binding in binding_items:
+            if not isinstance(binding, Mapping):
+                continue
+            raw_host_port = binding.get("HostPort")
+            if raw_host_port is None:
+                continue
+            try:
+                host_port = int(str(raw_host_port).strip())
+            except (TypeError, ValueError):
+                continue
+            if 1 <= host_port <= 65535:
+                return host_port
+    return None
+
+
+def _get_host_port(
+    container: Container,
+    *,
+    max_wait: float = 5.0,
+    poll_interval: float = 0.1,
+) -> int:
+    deadline = time.perf_counter() + max_wait
+    while True:
+        container.reload()
+        attrs = getattr(container, "attrs", {}) or {}
+        network_settings = attrs.get("NetworkSettings") or {}
+        host_config = attrs.get("HostConfig") or {}
+
+        port = _extract_host_port(network_settings.get("Ports"))
+        if port is None:
+            port = _extract_host_port(host_config.get("PortBindings"))
+        if port is not None:
+            return port
+
+        state = attrs.get("State") or {}
+        is_running = bool(state.get("Running", True))
+        if not is_running or time.perf_counter() >= deadline:
+            break
+        time.sleep(poll_interval)
     raise RuntimeError("sandbox container did not expose a host port")
 
 

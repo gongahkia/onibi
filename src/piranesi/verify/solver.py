@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import quote
 
 import z3  # type: ignore[import-untyped]
 
+from piranesi.models import CandidateFinding
 from piranesi.verify.constraints import (
     ExploitTemplate,
     IntBound,
@@ -20,6 +21,9 @@ from piranesi.verify.constraints import (
     VerifierConstraint,
 )
 from piranesi.verify.sandbox import SynthesizedPayload
+
+if TYPE_CHECKING:
+    from piranesi.verify.concolic import ConcolicInput, ConcolicResult
 
 DEFAULT_TIMEOUT_MS = 30_000
 SolveStatus = Literal["SAT", "UNVERIFIABLE"]
@@ -84,6 +88,7 @@ class SolverResult:
     status: SolveStatus
     reason: str | None = None
     solutions: tuple[PayloadSolution, ...] = field(default_factory=tuple)
+    concolic_result: ConcolicResult | None = None
 
 
 class ConstraintTypeConflict(ValueError):
@@ -121,6 +126,8 @@ def solve_exploit_template(
     *,
     timeout_ms: int = DEFAULT_TIMEOUT_MS,
     solver_factory: SolverFactory | None = None,
+    concolic_input: ConcolicInput | None = None,
+    finding: CandidateFinding | None = None,
 ) -> SolverResult:
     if template.unsat_reason is not None:
         return SolverResult(status="UNVERIFIABLE", reason=template.unsat_reason)
@@ -146,6 +153,52 @@ def solve_exploit_template(
 
     if solutions:
         return SolverResult(status="SAT", solutions=tuple(solutions))
+
+    resolved_concolic_input = concolic_input
+    if resolved_concolic_input is None and finding is not None:
+        from piranesi.verify.concolic import build_concolic_input
+
+        resolved_concolic_input = build_concolic_input(finding)
+
+    if resolved_concolic_input is not None:
+        from piranesi.verify.concolic import concolic_verify
+
+        concolic_result = concolic_verify(
+            resolved_concolic_input,
+            template=template,
+            timeout_ms=timeout_ms,
+        )
+        if concolic_result.status == "SAT" and concolic_result.payload is not None:
+            if not template.payload_slots:
+                return SolverResult(
+                    status="UNVERIFIABLE",
+                    reason="MISSING_PAYLOAD_SLOT",
+                    concolic_result=concolic_result,
+                )
+            slot = template.payload_slots[0]
+            model_values = (
+                dict(concolic_result.model_values)
+                if concolic_result.model_values is not None
+                else dict(concolic_result.payload.payload_values)
+            )
+            return SolverResult(
+                status="SAT",
+                solutions=(
+                    PayloadSolution(
+                        slot=slot,
+                        constraint_set_index=0,
+                        payload=concolic_result.payload,
+                        model_values=model_values,
+                    ),
+                ),
+                concolic_result=concolic_result,
+            )
+        return SolverResult(
+            status="UNVERIFIABLE",
+            reason=_reason_from_concolic(concolic_result),
+            concolic_result=concolic_result,
+        )
+
     return SolverResult(status="UNVERIFIABLE", reason=last_reason)
 
 
@@ -203,6 +256,14 @@ def solve_constraint_set(
             last_reason = "SOLVER_UNKNOWN"
 
     return SolveAttempt(status="UNVERIFIABLE", reason=last_reason)
+
+
+def _reason_from_concolic(result: ConcolicResult) -> str:
+    if result.status == "UNSAT":
+        return "path constraints unsatisfiable at sink"
+    if result.status == "TIMEOUT":
+        return "CONCOLIC_TIMEOUT"
+    return result.infeasible_reason or "CONCOLIC_UNVERIFIABLE"
 
 
 def build_z3_query(
