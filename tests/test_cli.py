@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,11 @@ from piranesi.config import load_config
 from piranesi.watch import WatchModeSummary
 
 runner = CliRunner()
+_ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def _plain_output(output: str) -> str:
+    return _ANSI_RE.sub("", output)
 
 
 def test_help_shows_all_commands() -> None:
@@ -73,45 +79,49 @@ def test_scan_authorized_yes_runs_stage_and_creates_trace(tmp_path: Path) -> Non
 
 def test_scan_help_lists_incremental_flag() -> None:
     result = runner.invoke(app, ["scan", "--help"])
+    output = _plain_output(result.stdout)
 
     assert result.exit_code == 0
-    assert "--incremental" in result.stdout
-    assert "--package" in result.stdout
-    assert "--changed-packag" in result.stdout
-    assert "--max-parallel" in result.stdout
-    assert "--sbom" in result.stdout
+    assert "--incremental" in output
+    assert "--package" in output
+    assert "--changed-packag" in output
+    assert "--max-parallel" in output
+    assert "--sbom" in output
 
 
 def test_run_help_lists_incremental_flag() -> None:
     result = runner.invoke(app, ["run", "--help"])
+    output = _plain_output(result.stdout)
 
     assert result.exit_code == 0
-    assert "--incremental" in result.stdout
-    assert "--staged-only" in result.stdout
-    assert "--hook-timeout" in result.stdout
-    assert "--package" in result.stdout
-    assert "--changed-packag" in result.stdout
-    assert "--max-parallel" in result.stdout
-    assert "--sbom" in result.stdout
+    assert "--incremental" in output
+    assert "--staged-only" in output
+    assert "--hook-timeout" in output
+    assert "--package" in output
+    assert "--changed-packag" in output
+    assert "--max-parallel" in output
+    assert "--sbom" in output
 
 
 def test_watch_help_lists_watch_mode_flags() -> None:
     result = runner.invoke(app, ["watch", "--help"])
+    output = _plain_output(result.stdout)
 
     assert result.exit_code == 0
-    assert "--filter" in result.stdout
-    assert "--debounce" in result.stdout
-    assert "--on-finding" in result.stdout
-    assert "--max-scans" in result.stdout
+    assert "--filter" in output
+    assert "--debounce" in output
+    assert "--on-finding" in output
+    assert "--max-scans" in output
 
 
 def test_lsp_help_lists_lsp_flags() -> None:
     result = runner.invoke(app, ["lsp", "--help"])
+    output = _plain_output(result.stdout)
 
     assert result.exit_code == 0
-    assert "--tcp" in result.stdout
-    assert "--port" in result.stdout
-    assert "--log" in result.stdout
+    assert "--tcp" in output
+    assert "--port" in output
+    assert "--log" in output
 
 
 def test_lsp_command_invokes_server(
@@ -229,43 +239,48 @@ def test_watch_command_invokes_watch_mode(
 
 def test_detect_help_lists_include_tests_flag() -> None:
     result = runner.invoke(app, ["detect", "--help"])
+    output = _plain_output(result.stdout)
 
     assert result.exit_code == 0
-    assert "--include-tests" in result.stdout
+    assert "--include-tests" in output
 
 
 def test_run_help_lists_include_tests_flag() -> None:
     result = runner.invoke(app, ["run", "--help"])
+    output = _plain_output(result.stdout)
 
     assert result.exit_code == 0
-    assert "--include-tests" in result.stdout
+    assert "--include-tests" in output
 
 
 def test_run_help_lists_reachability_flags() -> None:
     result = runner.invoke(app, ["run", "--help"])
+    output = _plain_output(result.stdout)
 
     assert result.exit_code == 0
-    assert "--include-unreac" in result.stdout
-    assert "--dead-code-repo" in result.stdout
+    assert "--include-unreac" in output
+    assert "--dead-code-repo" in output
 
 
 def test_report_help_lists_reachability_flags() -> None:
     result = runner.invoke(app, ["report", "--help"])
+    output = _plain_output(result.stdout)
 
     assert result.exit_code == 0
-    assert "--include-unreachable" in result.stdout
-    assert "--dead-code-report" in result.stdout
+    assert "--include-unreachable" in output
+    assert "--dead-code-report" in output
 
 
 def test_run_help_lists_exit_controls_and_exit_codes() -> None:
     result = runner.invoke(app, ["run", "--help"])
+    output = _plain_output(result.stdout)
 
     assert result.exit_code == 0
-    assert "--fail-severity" in result.stdout
-    assert "--no-fail" in result.stdout
-    assert "Exit codes:" in result.stdout
-    assert "0 = no findings" in result.stdout
-    assert "4 = budget exceeded" in result.stdout
+    assert "--fail-severity" in output
+    assert "--no-fail" in output
+    assert "Exit codes:" in output
+    assert "0 = no findings" in output
+    assert "4 = budget exceeded" in output
 
 
 def test_init_scaffolds_detected_framework_defaults(

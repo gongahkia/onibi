@@ -100,7 +100,11 @@ def _iter_ruby_source_files(
     for path in candidates:
         if not path.is_file() or path.suffix.lower() not in _RUBY_EXTENSIONS:
             continue
-        if any(part in _IGNORED_PATH_SEGMENTS for part in path.parts):
+        try:
+            relative_path = path.relative_to(project_root)
+        except ValueError:
+            relative_path = path
+        if any(part in _IGNORED_PATH_SEGMENTS for part in relative_path.parts):
             continue
         loaded = ScannedSourceFile.load(path, root=project_root)
         if loaded is not None:
