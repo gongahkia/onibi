@@ -44,6 +44,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: uv sync --frozen
       - run: uv run pytest --cov=piranesi --cov-report=xml
+        env:
+          OPENAI_API_KEY: test
       - uses: codecov/codecov-action@v4
         if: matrix.python-version == '3.12'
         with:

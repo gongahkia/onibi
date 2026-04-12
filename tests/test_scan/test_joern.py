@@ -67,6 +67,13 @@ class FakeProcess:
         return self._stdout, self._stderr
 
 
+def _fake_executable(path: Path) -> str:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    path.chmod(0o755)
+    return str(path)
+
+
 def test_import_project_uses_import_code_query(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -177,7 +184,9 @@ def test_import_project_with_frontend_args_generates_cpg_before_import(
     project_dir = tmp_path / "project"
     project_dir.mkdir()
     server = JoernServer(binary_path="joern", query_timeout_seconds=45)
-    server._resolved_binary_path = "/opt/homebrew/opt/joern/libexec/joern"
+    joern_dir = tmp_path / "joern" / "bin"
+    server._resolved_binary_path = _fake_executable(joern_dir / "joern")
+    joern_parse_path = _fake_executable(joern_dir / "joern-parse")
     captured: dict[str, object] = {}
 
     def fake_run_subprocess(
@@ -218,7 +227,7 @@ def test_import_project_with_frontend_args_generates_cpg_before_import(
     assert response["success"] is True
     assert captured["event"] == "joern_import"
     assert captured["timeout_seconds"] == server.query_timeout_seconds
-    assert str(captured["cmd"][0]).endswith("joern-parse")
+    assert captured["cmd"][0] == joern_parse_path
     assert captured["cmd"][1:5] == [
         "--output",
         str(server._imported_cpg_path),
@@ -238,10 +247,13 @@ def test_import_project_with_frontend_args_generates_cpg_before_import(
 
 
 def test_version_uses_joern_scan_help_output(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     server = JoernServer(binary_path="joern")
-    server._resolved_binary_path = "/opt/homebrew/bin/joern"
+    joern_dir = tmp_path / "joern" / "bin"
+    server._resolved_binary_path = _fake_executable(joern_dir / "joern")
+    joern_scan_path = _fake_executable(joern_dir / "joern-scan")
 
     def fake_run_subprocess(
         cmd: list[str],
@@ -250,7 +262,7 @@ def test_version_uses_joern_scan_help_output(
         logger: object,
     ) -> subprocess.CompletedProcess[str]:
         _ = (timeout, logger)
-        assert cmd == ["/opt/homebrew/bin/joern-scan", "--help"]
+        assert cmd == [joern_scan_path, "--help"]
         return subprocess.CompletedProcess(
             cmd,
             0,
@@ -270,7 +282,9 @@ def test_import_project_with_go_frontend_args_uses_golang_parse_mode(
     project_dir = tmp_path / "project"
     project_dir.mkdir()
     server = JoernServer(binary_path="joern", query_timeout_seconds=45)
-    server._resolved_binary_path = "/opt/homebrew/opt/joern/libexec/joern"
+    joern_dir = tmp_path / "joern" / "bin"
+    server._resolved_binary_path = _fake_executable(joern_dir / "joern")
+    joern_parse_path = _fake_executable(joern_dir / "joern-parse")
     captured: dict[str, object] = {}
 
     def fake_run_subprocess(
@@ -309,6 +323,7 @@ def test_import_project_with_go_frontend_args_uses_golang_parse_mode(
     )
 
     assert response["success"] is True
+    assert captured["cmd"][0] == joern_parse_path
     assert captured["cmd"][1:5] == [
         "--output",
         str(server._imported_cpg_path),
