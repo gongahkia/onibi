@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 from piranesi.models import CandidateFinding, DepReachabilityResult
@@ -61,48 +63,69 @@ _MODULE_CONTEXT_RE = re.compile(
     re.IGNORECASE,
 )
 
-# curated CVE / GHSA -> vulnerable function map (fallback when advisory title is thin)
-# id is lowercased; targets are symbol names matched against import bindings.
-_CVE_FUNCTION_MAP: dict[str, tuple[str, ...]] = {
-    "cve-2021-23337": ("template",),                    # lodash template
-    "cve-2021-44906": ("_",),                           # minimist prototype pollution
-    "cve-2020-28500": ("toNumber", "trim", "trimEnd", "trimStart"),  # lodash ReDoS
-    "cve-2019-10744": ("defaultsDeep",),                # lodash
-    "cve-2020-8203": ("zipObjectDeep", "set", "setWith"),  # lodash prototype pollution
-    "cve-2018-3728": ("setPath", "mixin"),              # hoek prototype pollution
-    "cve-2022-0536": ("resolve",),                      # follow-redirects
-    "cve-2020-7598": ("parse",),                        # minimist
-    "cve-2022-25883": ("validRange", "satisfies"),      # semver ReDoS
-    "cve-2022-24999": ("parse",),                       # qs prototype pollution
-    "cve-2021-3918": ("validate",),                     # json-schema
-    "cve-2018-16487": ("merge", "mergeWith"),           # lodash
-    "cve-2020-7788": ("parse",),                        # ini prototype pollution
-    "cve-2022-46175": ("parse",),                       # json5
-}
+_CVE_FUNCTION_DATA_PATH = Path(__file__).parents[3] / "data" / "cve_functions.json"
 
-# package name -> symbol(s) used by CVE map lookups when only package is known
-_PACKAGE_HIGH_RISK_SYMBOLS: dict[str, tuple[str, ...]] = {
-    "lodash": ("template", "merge", "mergeWith", "defaultsDeep", "set", "setWith", "zipObjectDeep"),
-    "minimist": ("parse", "_"),
-    "qs": ("parse",),
-    "semver": ("validRange", "satisfies"),
-    "json5": ("parse",),
-    "ini": ("parse",),
-    "follow-redirects": ("resolve",),
-    "handlebars": ("compile", "precompile", "template"),
-    "jsonwebtoken": ("verify", "sign", "decode"),
-    "node-fetch": ("fetch",),
-}
+
+@dataclass(frozen=True, slots=True)
+class _CveFunctionEntry:
+    package: str
+    functions: tuple[str, ...]
+
+
+def _symbol_tuple(value: object) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        return ()
+    return tuple(item for item in value if isinstance(item, str) and item.strip())
+
+
+@lru_cache(maxsize=1)
+def _load_cve_function_maps() -> tuple[
+    dict[str, _CveFunctionEntry],
+    dict[str, tuple[str, ...]],
+]:
+    try:
+        raw_data = json.loads(_CVE_FUNCTION_DATA_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}, {}
+    if not isinstance(raw_data, dict):
+        return {}, {}
+
+    cve_map: dict[str, _CveFunctionEntry] = {}
+    raw_cves = raw_data.get("cves")
+    if isinstance(raw_cves, dict):
+        for raw_cve, raw_entry in raw_cves.items():
+            if not isinstance(raw_cve, str) or not isinstance(raw_entry, dict):
+                continue
+            functions = _symbol_tuple(raw_entry.get("functions"))
+            if not functions:
+                continue
+            raw_package = raw_entry.get("package")
+            package = _normalize_package_name(raw_package) if isinstance(raw_package, str) else ""
+            cve_map[raw_cve.lower()] = _CveFunctionEntry(package=package, functions=functions)
+
+    package_symbols: dict[str, tuple[str, ...]] = {}
+    raw_packages = raw_data.get("packages")
+    if isinstance(raw_packages, dict):
+        for raw_package, raw_functions in raw_packages.items():
+            if not isinstance(raw_package, str):
+                continue
+            functions = _symbol_tuple(raw_functions)
+            if functions:
+                package_symbols[_normalize_package_name(raw_package)] = functions
+
+    return cve_map, package_symbols
 
 
 def _curated_targets_for_finding(package_name: str, cve_ids: Sequence[str]) -> tuple[str, ...]:
     out: list[str] = []
+    cve_map, package_symbols = _load_cve_function_maps()
+    normalized_package = _normalize_package_name(package_name)
     for cve in cve_ids:
-        hits = _CVE_FUNCTION_MAP.get(cve.lower())
-        if hits:
-            out.extend(hits)
+        entry = cve_map.get(cve.lower())
+        if entry and (not entry.package or entry.package == normalized_package):
+            out.extend(entry.functions)
     if not out:
-        out.extend(_PACKAGE_HIGH_RISK_SYMBOLS.get(package_name.lower(), ()))
+        out.extend(package_symbols.get(normalized_package, ()))
     seen: set[str] = set()
     deduped: list[str] = []
     for sym in out:
