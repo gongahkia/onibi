@@ -1168,6 +1168,14 @@ class _ConcolicEngine:
                 return self._to_string(args[0] if args else z3.StringVal(""), state)
             if func.name == "Boolean":
                 return self._to_bool(args[0] if args else z3.BoolVal(False), state)
+            # URI/percent encode+decode modeled as identity so taint still flows
+            # through. Enables reasoning about double-encoding bypass: a sink
+            # guarded by Contains("'") still sees the payload after decodeURIComponent.
+            if func.name in {
+                "encodeURIComponent", "encodeURI", "escape",
+                "decodeURIComponent", "decodeURI", "unescape",
+            }:
+                return self._to_string(args[0] if args else z3.StringVal(""), state)
             called = self._get_function(func.name)
             if called is not None:
                 return self._call_function(called, args, state)
@@ -1213,6 +1221,23 @@ class _ConcolicEngine:
                     self._to_string(args[0] if args else z3.StringVal(""), state),
                     self._to_string(args[1] if len(args) > 1 else z3.StringVal(""), state),
                 )
+            # RegExp.test / String.match / String.search of a literal pattern.
+            # For literal substrings use Z3 Contains; otherwise fresh bool.
+            if method in {"test", "match", "search"}:
+                target = self._to_string(receiver, state)
+                if args and expression.args:
+                    raw_pattern = None
+                    first_raw = expression.args[0]
+                    if isinstance(first_raw, LiteralExpr) and isinstance(first_raw.value, str):
+                        raw_pattern = first_raw.value
+                    if raw_pattern is not None:
+                        if raw_pattern.startswith("/") and raw_pattern.endswith("/"):
+                            raw_pattern = raw_pattern[1:-1]
+                        if raw_pattern and all(
+                            c not in raw_pattern for c in ".*+?^$()[]{}\\|"
+                        ):
+                            return z3.Contains(target, z3.StringVal(raw_pattern))
+                return self._fresh_bool(method or "regex")
             if method == "trim":
                 result = self._fresh_string("trim")
                 state.constraints.append(
@@ -1505,6 +1530,9 @@ class _ConcolicEngine:
 
     def _fresh_string(self, prefix: str) -> z3.ExprRef:
         return z3.String(f"{prefix}_{self._next_symbol_id()}")
+
+    def _fresh_bool(self, prefix: str) -> z3.ExprRef:
+        return z3.Bool(f"{prefix}_{self._next_symbol_id()}")
 
     def _next_symbol_id(self) -> int:
         self._symbol_counter += 1
