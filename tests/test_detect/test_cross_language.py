@@ -128,3 +128,30 @@ def test_custom_boundaries_input() -> None:
     boundaries = extract_api_boundaries(FIXTURE_DIR)
     findings = cross_language_findings(FIXTURE_DIR, boundaries=boundaries)
     assert len(findings) >= 5
+
+
+def test_ruby_rails_route_detected(tmp_path):
+    from piranesi.detect.cross_language import extract_api_boundaries
+
+    (tmp_path / "routes.rb").write_text("get '/api/users', to: 'users#index'\n")
+    boundaries = extract_api_boundaries(tmp_path)
+    rb_server = [b for b in boundaries if b.language == "ruby" and b.direction == "server"]
+    assert any(b.url_path == "/api/users" for b in rb_server)
+
+
+def test_php_laravel_route_detected(tmp_path):
+    from piranesi.detect.cross_language import extract_api_boundaries
+
+    (tmp_path / "web.php").write_text("Route::get('/api/items', [ItemController::class, 'index']);\n")
+    boundaries = extract_api_boundaries(tmp_path)
+    php_server = [b for b in boundaries if b.language == "php" and b.direction == "server"]
+    assert any(b.url_path == "/api/items" for b in php_server)
+
+
+def test_php_symfony_route_detected(tmp_path):
+    from piranesi.detect.cross_language import extract_api_boundaries
+
+    (tmp_path / "Ctrl.php").write_text("#[Route('/api/sym', methods: ['GET'])]\n")
+    boundaries = extract_api_boundaries(tmp_path)
+    php_server = [b for b in boundaries if b.language == "php" and b.direction == "server"]
+    assert any(b.url_path == "/api/sym" for b in php_server)

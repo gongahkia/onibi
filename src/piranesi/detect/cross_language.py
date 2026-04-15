@@ -34,6 +34,21 @@ _GO_MUX_PATTERN = re.compile(  # http.HandleFunc("/api/foo", ...)
 _SPRING_MAPPING_PATTERN = re.compile(  # @GetMapping("/api/foo") @PostMapping(...)
     r"""@(?:Get|Post|Put|Delete|Patch|Request)Mapping\(\s*(?:value\s*=\s*)?['"]([^'"]+)['"]"""
 )
+_RAILS_ROUTE_PATTERN = re.compile(  # get '/api/foo', to: 'ctrl#act'  OR match '/foo' => 'c#a'
+    r"""\b(?:get|post|put|patch|delete|match|resources?)\s+['"]([^'"]+)['"]"""
+)
+_SINATRA_ROUTE_PATTERN = re.compile(  # get '/api/foo' do ... end
+    r"""^\s*(?:get|post|put|patch|delete)\s+['"]([^'"]+)['"]\s*do\b"""
+)
+_PHP_LARAVEL_ROUTE_PATTERN = re.compile(  # Route::get('/api/foo', ...)
+    r"""Route::(?:get|post|put|patch|delete|any|match)\(\s*['"]([^'"]+)['"]"""
+)
+_PHP_SYMFONY_ROUTE_PATTERN = re.compile(  # #[Route('/api/foo')]  OR  @Route("/api/foo")
+    r"""(?:#\[Route|@Route)\(\s*['"]([^'"]+)['"]"""
+)
+_PHP_SLIM_ROUTE_PATTERN = re.compile(  # $app->get('/api/foo', ...)
+    r"""\$\w+->(?:get|post|put|patch|delete|any|map)\(\s*['"]([^'"]+)['"]"""
+)
 _TAINT_SOURCE_PATTERNS_TS = re.compile(  # tainted data flowing into fetch body
     r"""(?:req\.body|req\.query|req\.params|document\.getElementById|"""
     r"""(?:use|get)(?:State|Input|Form)|\.value|formData|searchParams)"""
@@ -49,12 +64,26 @@ _JAVA_SINK_PATTERNS = re.compile(
     r"""(?:jdbcTemplate\.(?:query|update|execute)|statement\.execute|"""
     r"""Runtime\.getRuntime\(\)\.exec|ProcessBuilder)"""
 )
+_RUBY_SINK_PATTERNS = re.compile(
+    r"""(?:ActiveRecord::Base\.connection\.execute|find_by_sql|\.where\(|"""
+    r"""system\(|IO\.popen|File\.read|YAML\.load|Marshal\.load|"""
+    r"""render\b|redirect_to|\.html_safe|\braw\b)"""
+)
+_PHP_SINK_PATTERNS = re.compile(
+    r"""(?:mysql(?:i)?_query|->query\(|->exec\(|PDO::query|DB::raw|"""
+    r"""selectRaw|whereRaw|exec\(|shell_exec|system\(|passthru|"""
+    r"""\beval\b|unserialize|file_get_contents|fopen|include|require)"""
+)
 
 _TS_EXTENSIONS = frozenset({".ts", ".tsx", ".js", ".jsx", ".mjs"})
 _PYTHON_EXTENSIONS = frozenset({".py"})
 _GO_EXTENSIONS = frozenset({".go"})
 _JAVA_EXTENSIONS = frozenset({".java"})
-_BACKEND_EXTENSIONS = _PYTHON_EXTENSIONS | _GO_EXTENSIONS | _JAVA_EXTENSIONS
+_RUBY_EXTENSIONS = frozenset({".rb"})
+_PHP_EXTENSIONS = frozenset({".php"})
+_BACKEND_EXTENSIONS = (
+    _PYTHON_EXTENSIONS | _GO_EXTENSIONS | _JAVA_EXTENSIONS | _RUBY_EXTENSIONS | _PHP_EXTENSIONS
+)
 
 _DEFAULT_CONFIDENCE = 0.6
 _SEVERITY_MAP = {
@@ -106,6 +135,10 @@ def _detect_language(file_path: str) -> str | None:
         return "go"
     if suffix in _JAVA_EXTENSIONS:
         return "java"
+    if suffix in _RUBY_EXTENSIONS:
+        return "ruby"
+    if suffix in _PHP_EXTENSIONS:
+        return "php"
     return None
 
 
@@ -206,6 +239,36 @@ def _extract_line_boundaries(
                     direction="server",
                 )
             )
+    elif lang == "ruby":
+        for pattern in (_RAILS_ROUTE_PATTERN, _SINATRA_ROUTE_PATTERN):
+            for m in pattern.finditer(line):
+                out.append(
+                    ApiBoundary(
+                        url_path=m.group(1),
+                        file=rel_path,
+                        line=line_no,
+                        snippet=line.strip(),
+                        language=lang,
+                        direction="server",
+                    )
+                )
+    elif lang == "php":
+        for pattern in (
+            _PHP_LARAVEL_ROUTE_PATTERN,
+            _PHP_SYMFONY_ROUTE_PATTERN,
+            _PHP_SLIM_ROUTE_PATTERN,
+        ):
+            for m in pattern.finditer(line):
+                out.append(
+                    ApiBoundary(
+                        url_path=m.group(1),
+                        file=rel_path,
+                        line=line_no,
+                        snippet=line.strip(),
+                        language=lang,
+                        direction="server",
+                    )
+                )
 
 
 def match_api_boundaries(boundaries: list[ApiBoundary]) -> list[tuple[ApiBoundary, ApiBoundary]]:
@@ -229,6 +292,12 @@ _FUNCTION_START_PATTERNS = {
     "python": re.compile(r"^\s*(?:@\w+\.route\(|def\s+)"),
     "go": re.compile(r"^func\s+"),
     "java": re.compile(r"^\s*(?:@\w+Mapping|public\s|private\s|protected\s)"),
+    "ruby": re.compile(
+        r"^\s*(?:def\s+|(?:get|post|put|patch|delete|match|resources?)\s+['\"])"
+    ),
+    "php": re.compile(
+        r"^\s*(?:function\s+|public\s|private\s|protected\s|Route::|#\[Route|@Route)"
+    ),
 }
 
 
@@ -269,7 +338,15 @@ def _find_taint_in_context(
         else _GO_SINK_PATTERNS
         if lang == "go"
         else _JAVA_SINK_PATTERNS
+        if lang == "java"
+        else _RUBY_SINK_PATTERNS
+        if lang == "ruby"
+        else _PHP_SINK_PATTERNS
+        if lang == "php"
+        else None
     )
+    if pattern is None:
+        return None
     m = pattern.search(context)
     return m.group(0) if m else None
 
@@ -277,22 +354,54 @@ def _find_taint_in_context(
 def _classify_sink(sink_snippet: str) -> tuple[str, str]:
     """Return (vuln_class, cwe_id) for a detected sink."""
     s = sink_snippet.lower()
-    if "execute" in s and (
-        "cursor" in s or "query" in s or "jdbc" in s or "statement" in s or "db." in s
+    if any(
+        k in s
+        for k in (
+            "mysql_query",
+            "mysqli_query",
+            "pdo::query",
+            "->query(",
+            "activerecord",
+            "find_by_sql",
+            "db::raw",
+            "selectraw",
+            "whereraw",
+        )
+    ) or (
+        "execute" in s and ("cursor" in s or "query" in s or "jdbc" in s or "statement" in s or "db." in s)
     ):
         return "sql_injection", "CWE-89"
     if any(
-        k in s for k in ("os.system", "subprocess", "exec.command", "processbuilder", "runtime")
-    ):
+        k in s
+        for k in (
+            "os.system",
+            "subprocess",
+            "exec.command",
+            "processbuilder",
+            "runtime",
+            "shell_exec",
+            "passthru",
+            "io.popen",
+        )
+    ) or s.strip().startswith("system("):
         return "command_injection", "CWE-78"
-    if "render_template_string" in s:
+    if "render_template_string" in s or ".html_safe" in s or "\braw" in s or s.strip() == "raw":
         return "xss", "CWE-79"
-    if "eval(" in s or "exec(" in s:
+    if "eval(" in s or "exec(" in s or "unserialize" in s or "marshal.load" in s or "yaml.load" in s:
         return "code_injection", "CWE-94"
-    if "open(" in s or "os.create" in s or "os.open" in s:
+    if (
+        "open(" in s
+        or "os.create" in s
+        or "os.open" in s
+        or "file_get_contents" in s
+        or "fopen" in s
+        or "file.read" in s
+    ):
         return "path_traversal", "CWE-22"
     if "requests.get" in s or "http.get" in s:
         return "ssrf", "CWE-918"
+    if "redirect_to" in s:
+        return "open_redirect", "CWE-601"
     return "taint_flow", "CWE-20"
 
 
