@@ -29,6 +29,9 @@ _SOURCE_EXPR_RE = re.compile(
 _COMPOUND_ASSIGNMENT_RE = re.compile(
     r"^(?P<target>.+?)\s*(?P<op>\+=|-=|\*=|/=|%=)\s*(?P<value>.+)$"
 )
+_REGEX_META_CHARS = frozenset(".*+?^$()[]{}\\|")
+_REGEX_FLAGS_RE = re.compile(r"[A-Za-z]*$")
+_REGEX_EXCLUSION_LITERALS = ("'", "<script>", ";", "|", "../")
 
 
 @dataclass(slots=True)
@@ -225,6 +228,439 @@ type ExprNode = (
 )
 
 
+def _compile_js_regex_to_z3(pattern: str) -> z3.ReRef | None:
+    # Supports anchors, top-level alternation, char classes, \d/\w/\s, and simple quantifiers.
+    if pattern == "":
+        return _regex_zero_or_more_any()
+    anchored_start = pattern.startswith("^")
+    anchored_end = pattern.endswith("$") and not _is_regex_escaped(pattern, len(pattern) - 1)
+    body_start = 1 if anchored_start else 0
+    body_end = len(pattern) - 1 if anchored_end else len(pattern)
+    body = pattern[body_start:body_end]
+    if _has_unescaped_anchor(body) or _has_unsupported_regex_construct(body):
+        return None
+    compiled = _compile_regex_body_to_z3(body)
+    if compiled is None:
+        return None
+    parts: list[z3.ReRef] = []
+    if not anchored_start:
+        parts.append(_regex_zero_or_more_any())
+    parts.append(compiled)
+    if not anchored_end:
+        parts.append(_regex_zero_or_more_any())
+    return _regex_concat(parts)
+
+
+def _compile_regex_body_to_z3(pattern: str) -> z3.ReRef | None:
+    alternatives = _split_regex_alternatives(pattern)
+    if alternatives is None:
+        return None
+    if len(alternatives) > 1:
+        compiled_alternatives = [_compile_regex_sequence_to_z3(part) for part in alternatives]
+        if any(part is None for part in compiled_alternatives):
+            return None
+        return _regex_union([part for part in compiled_alternatives if part is not None])
+    return _compile_regex_sequence_to_z3(pattern)
+
+
+def _compile_regex_sequence_to_z3(pattern: str) -> z3.ReRef | None:
+    atoms: list[z3.ReRef] = []
+    index = 0
+    while index < len(pattern):
+        atom, index = _parse_regex_atom(pattern, index)
+        if atom is None:
+            return None
+        atom, index = _parse_regex_quantifier(pattern, index, atom)
+        if atom is None:
+            return None
+        atoms.append(atom)
+    return _regex_concat(atoms)
+
+
+def _parse_regex_atom(pattern: str, index: int) -> tuple[z3.ReRef | None, int]:
+    char = pattern[index]
+    if char == "[":
+        return _parse_regex_char_class(pattern, index)
+    if char == "\\":
+        return _parse_regex_escape(pattern, index)
+    if char == ".":
+        return _regex_any_char(), index + 1
+    if char in _REGEX_META_CHARS:
+        return None, index
+    return z3.Re(z3.StringVal(char)), index + 1
+
+
+def _parse_regex_escape(pattern: str, index: int) -> tuple[z3.ReRef | None, int]:
+    if index + 1 >= len(pattern):
+        return None, index
+    escaped = pattern[index + 1]
+    if escaped.isdigit():
+        return None, index
+    shorthand = _regex_shorthand(escaped)
+    if shorthand is not None:
+        return shorthand, index + 2
+    literal = _regex_escape_literal(escaped)
+    if literal is None:
+        return None, index
+    return z3.Re(z3.StringVal(literal)), index + 2
+
+
+def _parse_regex_char_class(pattern: str, index: int) -> tuple[z3.ReRef | None, int]:
+    index += 1
+    negated = index < len(pattern) and pattern[index] == "^"
+    if negated:
+        index += 1
+    items: list[z3.ReRef] = []
+    while index < len(pattern):
+        if pattern[index] == "]":
+            if not items:
+                return None, index
+            inner = _regex_union(items)
+            if negated:
+                return z3.Intersect(_regex_any_char(), z3.Complement(inner)), index + 1
+            return inner, index + 1
+        left, index = _parse_regex_class_item(pattern, index)
+        if left is None:
+            return None, index
+        if (
+            not left.startswith("\\")
+            and len(left) == 1
+            and index + 1 < len(pattern)
+            and pattern[index] == "-"
+            and pattern[index + 1] != "]"
+        ):
+            right, next_index = _parse_regex_class_item(pattern, index + 1)
+            if right is None or len(right) != 1 or ord(left) > ord(right):
+                return None, index
+            items.append(z3.Range(left, right))
+            index = next_index
+            continue
+        item = (
+            _regex_shorthand(left[1:])
+            if left.startswith("\\")
+            else z3.Re(z3.StringVal(left))
+        )
+        if item is None:
+            return None, index
+        items.append(item)
+    return None, index
+
+
+def _parse_regex_class_item(pattern: str, index: int) -> tuple[str | None, int]:
+    if pattern[index] == "\\":
+        if index + 1 >= len(pattern) or pattern[index + 1].isdigit():
+            return None, index
+        escaped = pattern[index + 1]
+        if escaped in {"d", "w", "s"}:
+            return f"\\{escaped}", index + 2
+        literal = _regex_escape_literal(escaped)
+        return literal, index + 2
+    return pattern[index], index + 1
+
+
+def _parse_regex_quantifier(
+    pattern: str, index: int, atom: z3.ReRef
+) -> tuple[z3.ReRef | None, int]:
+    if index >= len(pattern):
+        return atom, index
+    quantifier = pattern[index]
+    if quantifier == "+":
+        return z3.Plus(atom), index + 1
+    if quantifier == "*":
+        return z3.Star(atom), index + 1
+    if quantifier == "?":
+        return z3.Option(atom), index + 1
+    if quantifier != "{":
+        return atom, index
+    close = pattern.find("}", index + 1)
+    if close == -1:
+        return None, index
+    spec = pattern[index + 1 : close]
+    match = re.fullmatch(r"(\d+)(?:,(\d+))?", spec)
+    if match is None:
+        return None, index
+    lower = int(match.group(1))
+    upper = int(match.group(2)) if match.group(2) is not None else lower
+    if upper < lower or upper > 64:
+        return None, index
+    return _regex_repeat(atom, lower, upper), close + 1
+
+
+def _regex_repeat(atom: z3.ReRef, lower: int, upper: int) -> z3.ReRef:
+    repeated = [_regex_concat([atom] * count) for count in range(lower, upper + 1)]
+    return _regex_union(repeated)
+
+
+def _regex_shorthand(char: str) -> z3.ReRef | None:
+    if char == "d":
+        return z3.Range("0", "9")
+    if char == "w":
+        return _regex_union(
+            [z3.Range("a", "z"), z3.Range("A", "Z"), z3.Range("0", "9"), z3.Re("_")]
+        )
+    if char == "s":
+        return _regex_union([z3.Re(z3.StringVal(ch)) for ch in " \t\n\r\f\v"])
+    return None
+
+
+def _regex_escape_literal(char: str) -> str | None:
+    escapes = {"n": "\n", "r": "\r", "t": "\t", "f": "\f", "v": "\v"}
+    if char in escapes:
+        return escapes[char]
+    if char in _REGEX_META_CHARS or char in {"/", "-"}:
+        return char
+    if char.isalpha():
+        return None
+    return char
+
+
+def _regex_concat(parts: Sequence[z3.ReRef]) -> z3.ReRef:
+    if not parts:
+        return z3.Re(z3.StringVal(""))
+    if len(parts) == 1:
+        return parts[0]
+    result = parts[0]
+    for part in parts[1:]:
+        result = z3.Concat(result, part)
+    return result
+
+
+def _regex_union(parts: Sequence[z3.ReRef]) -> z3.ReRef:
+    if not parts:
+        return z3.Re(z3.StringVal(""))
+    if len(parts) == 1:
+        return parts[0]
+    result = parts[0]
+    for part in parts[1:]:
+        result = z3.Union(result, part)
+    return result
+
+
+def _regex_any_char() -> z3.ReRef:
+    return z3.AllChar(z3.ReSort(z3.StringSort()))
+
+
+def _regex_zero_or_more_any() -> z3.ReRef:
+    return z3.Star(_regex_any_char())
+
+
+def _split_regex_alternatives(pattern: str) -> list[str] | None:
+    parts: list[str] = []
+    class_depth = 0
+    start = 0
+    index = 0
+    while index < len(pattern):
+        char = pattern[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char == "[":
+            class_depth += 1
+        elif char == "]" and class_depth > 0:
+            class_depth -= 1
+        elif char == "|" and class_depth == 0:
+            parts.append(pattern[start:index])
+            start = index + 1
+        index += 1
+    if class_depth != 0:
+        return None
+    parts.append(pattern[start:])
+    return parts
+
+
+def _has_unescaped_anchor(pattern: str) -> bool:
+    index = 0
+    while index < len(pattern):
+        char = pattern[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char in {"^", "$"}:
+            return True
+        index += 1
+    return False
+
+
+def _has_unsupported_regex_construct(pattern: str) -> bool:
+    index = 0
+    while index < len(pattern):
+        char = pattern[index]
+        if char == "\\":
+            if index + 1 < len(pattern) and pattern[index + 1].isdigit():
+                return True
+            index += 2
+            continue
+        if char in {"(", ")"}:
+            return True
+        index += 1
+    return False
+
+
+def _is_regex_escaped(pattern: str, index: int) -> bool:
+    backslashes = 0
+    index -= 1
+    while index >= 0 and pattern[index] == "\\":
+        backslashes += 1
+        index -= 1
+    return backslashes % 2 == 1
+
+
+def _regex_literal_body(raw_pattern: str) -> str | None:
+    if not raw_pattern.startswith("/"):
+        return None
+    index = 1
+    in_class = False
+    while index < len(raw_pattern):
+        char = raw_pattern[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char == "[":
+            in_class = True
+            index += 1
+            continue
+        if char == "]":
+            in_class = False
+            index += 1
+            continue
+        if char == "/" and not in_class:
+            flags = raw_pattern[index + 1 :]
+            if _REGEX_FLAGS_RE.fullmatch(flags) is None or flags:
+                return None
+            return raw_pattern[1:index]
+        index += 1
+    return None
+
+
+def _regex_exclusion_constraints(pattern: str, target: z3.ExprRef) -> list[z3.BoolRef]:
+    constraints: list[z3.BoolRef] = []
+    for literal in _REGEX_EXCLUSION_LITERALS:
+        if any(_anchored_regex_excludes_char(pattern, char) for char in set(literal)):
+            constraints.append(z3.Not(z3.Contains(target, z3.StringVal(literal))))
+    return constraints
+
+
+def _anchored_regex_excludes_char(pattern: str, forbidden: str) -> bool:
+    if not (
+        pattern.startswith("^")
+        and pattern.endswith("$")
+        and not _is_regex_escaped(pattern, len(pattern) - 1)
+    ):
+        return False
+    body = pattern[1:-1]
+    alternatives = _split_regex_alternatives(body)
+    if alternatives is None:
+        return False
+    return all(_regex_sequence_excludes_char(part, forbidden) for part in alternatives)
+
+
+def _regex_sequence_excludes_char(pattern: str, forbidden: str) -> bool:
+    index = 0
+    while index < len(pattern):
+        excludes, index = _regex_atom_excludes_char(pattern, index, forbidden)
+        if not excludes:
+            return False
+        index = _skip_regex_quantifier(pattern, index)
+        if index is None:
+            return False
+    return True
+
+
+def _regex_atom_excludes_char(
+    pattern: str, index: int, forbidden: str
+) -> tuple[bool | None, int]:
+    char = pattern[index]
+    if char == "[":
+        return _regex_class_excludes_char(pattern, index, forbidden)
+    if char == "\\":
+        if index + 1 >= len(pattern) or pattern[index + 1].isdigit():
+            return None, index
+        escaped = pattern[index + 1]
+        shorthand = _regex_shorthand_chars(escaped)
+        if shorthand is not None:
+            return forbidden not in shorthand, index + 2
+        literal = _regex_escape_literal(escaped)
+        if literal is None:
+            return None, index
+        return literal != forbidden, index + 2
+    if char == ".":
+        return False, index + 1
+    if char in _REGEX_META_CHARS:
+        return None, index
+    return char != forbidden, index + 1
+
+
+def _regex_class_excludes_char(
+    pattern: str, index: int, forbidden: str
+) -> tuple[bool | None, int]:
+    index += 1
+    negated = index < len(pattern) and pattern[index] == "^"
+    if negated:
+        index += 1
+    contains = False
+    while index < len(pattern):
+        if pattern[index] == "]":
+            return (contains if negated else not contains), index + 1
+        left, index = _regex_class_item_contains_char(pattern, index, forbidden)
+        if left is None:
+            return None, index
+        if (
+            index + 1 < len(pattern)
+            and pattern[index] == "-"
+            and pattern[index + 1] != "]"
+            and len(left[0]) == 1
+        ):
+            right, next_index = _regex_class_item_contains_char(pattern, index + 1, forbidden)
+            if right is None or len(right[0]) != 1 or ord(left[0]) > ord(right[0]):
+                return None, index
+            contains = contains or ord(left[0]) <= ord(forbidden) <= ord(right[0])
+            index = next_index
+            continue
+        contains = contains or left[1]
+    return None, index
+
+
+def _regex_class_item_contains_char(
+    pattern: str, index: int, forbidden: str
+) -> tuple[tuple[str, bool] | None, int]:
+    if pattern[index] == "\\":
+        if index + 1 >= len(pattern) or pattern[index + 1].isdigit():
+            return None, index
+        escaped = pattern[index + 1]
+        shorthand = _regex_shorthand_chars(escaped)
+        if shorthand is not None:
+            return (f"\\{escaped}", forbidden in shorthand), index + 2
+        literal = _regex_escape_literal(escaped)
+        if literal is None:
+            return None, index
+        return (literal, literal == forbidden), index + 2
+    return (pattern[index], pattern[index] == forbidden), index + 1
+
+
+def _skip_regex_quantifier(pattern: str, index: int) -> int | None:
+    if index >= len(pattern) or pattern[index] not in "+*?{":
+        return index
+    if pattern[index] in "+*?":
+        return index + 1
+    close = pattern.find("}", index + 1)
+    if close == -1:
+        return None
+    spec = pattern[index + 1 : close]
+    if re.fullmatch(r"\d+(?:,\d+)?", spec) is None:
+        return None
+    return close + 1
+
+
+def _regex_shorthand_chars(char: str) -> set[str] | None:
+    if char == "d":
+        return set("0123456789")
+    if char == "w":
+        return set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
+    if char == "s":
+        return set(" \t\n\r\f\v")
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class _Token:
     kind: str
@@ -337,6 +773,9 @@ class _ExpressionParser:
             self._advance()
             return LiteralExpr(value=int(token.value))
         if token.kind == "STRING":
+            self._advance()
+            return LiteralExpr(value=token.value)
+        if token.kind == "REGEX":
             self._advance()
             return LiteralExpr(value=token.value)
         if token.kind == "TEMPLATE":
@@ -1225,18 +1664,35 @@ class _ConcolicEngine:
             # For literal substrings use Z3 Contains; otherwise fresh bool.
             if method in {"test", "match", "search"}:
                 target = self._to_string(receiver, state)
-                if args and expression.args:
-                    raw_pattern = None
+                raw_pattern = None
+                regex_body = None
+                if (
+                    method == "test"
+                    and args
+                    and isinstance(func.obj, LiteralExpr)
+                    and isinstance(func.obj.value, str)
+                ):
+                    regex_body = _regex_literal_body(func.obj.value)
+                    if regex_body is not None:
+                        raw_pattern = func.obj.value
+                        target = self._to_string(args[0], state)
+                if raw_pattern is None and args and expression.args:
                     first_raw = expression.args[0]
                     if isinstance(first_raw, LiteralExpr) and isinstance(first_raw.value, str):
                         raw_pattern = first_raw.value
-                    if raw_pattern is not None:
-                        if raw_pattern.startswith("/") and raw_pattern.endswith("/"):
-                            raw_pattern = raw_pattern[1:-1]
-                        if raw_pattern and all(
-                            c not in raw_pattern for c in ".*+?^$()[]{}\\|"
-                        ):
-                            return z3.Contains(target, z3.StringVal(raw_pattern))
+                        regex_body = _regex_literal_body(raw_pattern)
+                if raw_pattern is not None:
+                    literal_pattern = regex_body if regex_body is not None else raw_pattern
+                    if literal_pattern and all(c not in literal_pattern for c in _REGEX_META_CHARS):
+                        return z3.Contains(target, z3.StringVal(literal_pattern))
+                    if regex_body is not None:
+                        compiled_regex = _compile_js_regex_to_z3(regex_body)
+                        if compiled_regex is not None:
+                            regex_constraint = z3.InRe(target, compiled_regex)
+                            exclusions = _regex_exclusion_constraints(regex_body, target)
+                            if exclusions:
+                                return z3.And(regex_constraint, *exclusions)
+                            return regex_constraint
                 return self._fresh_bool(method or "regex")
             if method == "trim":
                 result = self._fresh_string("trim")
@@ -2001,6 +2457,10 @@ def _tokenize(text: str) -> list[_Token]:
                 index += len(operator)
                 break
         else:
+            if char == "/" and _can_start_regex_literal(tokens):
+                value, index = _read_regex_literal(text, index)
+                tokens.append(_Token(kind="REGEX", value=value))
+                continue
             if char in "(){}[],:?.+-*/%!<>":
                 tokens.append(_Token(kind="PUNC" if char in "(){}[],:?." else "OP", value=char))
                 index += 1
@@ -2028,6 +2488,39 @@ def _tokenize(text: str) -> list[_Token]:
         continue
     tokens.append(_Token(kind="EOF", value=""))
     return tokens
+
+
+def _can_start_regex_literal(tokens: Sequence[_Token]) -> bool:
+    if not tokens:
+        return True
+    previous = tokens[-1]
+    return previous.kind == "OP" or previous.value in {"(", "[", "{", ",", ":", "?", "!"}
+
+
+def _read_regex_literal(text: str, index: int) -> tuple[str, int]:
+    start = index
+    index += 1
+    in_class = False
+    while index < len(text):
+        char = text[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char == "[":
+            in_class = True
+            index += 1
+            continue
+        if char == "]":
+            in_class = False
+            index += 1
+            continue
+        if char == "/" and not in_class:
+            index += 1
+            while index < len(text) and text[index].isalpha():
+                index += 1
+            return text[start:index], index
+        index += 1
+    raise ValueError(f"unterminated regex literal near {text[start : start + 20]!r}")
 
 
 def _read_quoted_string(text: str, index: int) -> tuple[str, int]:

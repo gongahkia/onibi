@@ -302,6 +302,93 @@ def test_concolic_limits_branch_exploration() -> None:
     assert result.paths_explored == 1
 
 
+def test_concolic_regex_alnum_validator_rejects_special_payload() -> None:
+    result = _run_case(
+        ConcolicCase(
+            name="regex alnum validator",
+            source="""
+            function handler(req, db) {
+              const q = req.query.q;
+              if (/^[a-z0-9]+$/.test(q)) {
+                db.query(q);
+              }
+            }
+            """,
+            expected_status="UNSAT",
+            sink_snippet="db.query(q);",
+        )
+    )
+
+    assert result.status == "UNSAT"
+
+
+def test_concolic_regex_without_anchors_matches_substring() -> None:
+    result = _run_case(
+        ConcolicCase(
+            name="regex substring",
+            source="""
+            function handler(req, db) {
+              const q = req.query.q;
+              if (q.match(/admin/) && q === "xadminy") {
+                db.query(q);
+              }
+            }
+            """,
+            expected_status="SAT",
+            vuln_class="CWE-200",
+            sink_snippet="db.query(q);",
+            expected_model_value="xadminy",
+        )
+    )
+
+    assert result.status == "SAT"
+    assert result.model_values is not None
+    assert result.model_values["q"] == "xadminy"
+
+
+def test_concolic_regex_numeric_validator_rejects_special_payload() -> None:
+    result = _run_case(
+        ConcolicCase(
+            name="regex numeric validator",
+            source=r"""
+            function handler(req, db) {
+              const q = req.query.q;
+              if (/^\d+$/.test(q)) {
+                db.query(q);
+              }
+            }
+            """,
+            expected_status="UNSAT",
+            sink_snippet="db.query(q);",
+        )
+    )
+
+    assert result.status == "UNSAT"
+
+
+def test_concolic_unsupported_regex_falls_back_to_fresh_bool() -> None:
+    result = _run_case(
+        ConcolicCase(
+            name="regex unsupported lookbehind",
+            source="""
+            function handler(req, db) {
+              const q = req.query.q;
+              if (q.search(/(?<=foo)bar/)) {
+                db.query(q);
+              }
+            }
+            """,
+            expected_status="SAT",
+            sink_snippet="db.query(q);",
+            expected_payload_fragment="'",
+        )
+    )
+
+    assert result.status == "SAT"
+    assert result.model_values is not None
+    assert "'" in result.model_values["q"]
+
+
 def test_build_concolic_input_reads_source_file(tmp_path: Path) -> None:
     source_path = tmp_path / "app.js"
     source_path.write_text(
