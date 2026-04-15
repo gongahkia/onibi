@@ -19,6 +19,12 @@ _DIRECT_SOURCE_PATTERN = re.compile(
 _PROPERTY_REFERENCE_PATTERN = re.compile(
     r"^(?P<object>[A-Za-z_$][\w$]*)(?:\.(?P<field>[A-Za-z_$][\w$]*)|\[['\"](?P<field_bracket>[^'\"]+)['\"]\])$"
 )
+_AWAIT_PREFIX_RE = re.compile(r"^\s*await\s+")
+_NOT_PREFIX_RE = re.compile(r"^!+\s*")
+_AS_CAST_RE = re.compile(r"\s+as\s+[A-Za-z_$][\w$<>,\s.|&\[\]]*$")
+_BRACKET_CAST_RE = re.compile(r"^<[^>]+>\s*")
+_NON_NULL_SUFFIX_RE = re.compile(r"!+$")
+_OPTIONAL_CHAIN_RE = re.compile(r"\?\.")
 _IDENTIFIER_OR_PROPERTY_PATTERN = re.compile(
     r"[A-Za-z_$][\w$]*(?:\.(?:[A-Za-z_$][\w$]*))*|\b(?:req|request)\.(?:body|query|params|headers|cookies)(?:\.(?:[A-Za-z_$][\w$]*))?"
 )
@@ -38,11 +44,37 @@ class JavaScriptSource:
 
 def normalize_expression(text: str) -> str:
     normalized = text.strip().rstrip(";").strip()
-    while normalized.startswith("(") and normalized.endswith(")"):
-        inner = normalized[1:-1].strip()
-        if not inner:
-            break
-        normalized = inner
+    changed = True
+    while changed:
+        changed = False
+        while normalized.startswith("(") and normalized.endswith(")"):
+            inner = normalized[1:-1].strip()
+            if not inner:
+                break
+            normalized = inner
+            changed = True
+        stripped = _AWAIT_PREFIX_RE.sub("", normalized, count=1)
+        if stripped != normalized:
+            normalized = stripped.strip()
+            changed = True
+        stripped = _NOT_PREFIX_RE.sub("", normalized, count=1)
+        if stripped != normalized:
+            normalized = stripped.strip()
+            changed = True
+        stripped = _BRACKET_CAST_RE.sub("", normalized, count=1)
+        if stripped != normalized:
+            normalized = stripped.strip()
+            changed = True
+        stripped = _AS_CAST_RE.sub("", normalized)
+        if stripped != normalized:
+            normalized = stripped.strip()
+            changed = True
+        stripped = _NON_NULL_SUFFIX_RE.sub("", normalized)
+        if stripped != normalized:
+            normalized = stripped.strip()
+            changed = True
+    # optional chaining: collapse ?. to . for matching (taint still flows through)
+    normalized = _OPTIONAL_CHAIN_RE.sub(".", normalized)
     return normalized
 
 
