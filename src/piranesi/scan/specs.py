@@ -342,6 +342,32 @@ BUILTIN_SINK_SPECS: tuple[SinkSpec, ...] = (
         flow_to_parent_call=True,
     ),
     SinkSpec(
+        name="mongodb_where_operator",
+        pattern=(
+            'cpg.call.name("find|findOne|findById|aggregate|updateOne|updateMany|deleteOne|deleteMany|count|countDocuments")'
+            '.code(".*[\\"\\\']\\\\$where[\\"\\\'].*")'
+        ),
+        sink_type=SinkType.NOSQL_QUERY,
+        cwe_id="CWE-943",
+        severity="critical",
+        flow_pattern=(
+            'cpg.call.name("find|findOne|findById|aggregate|updateOne|updateMany|deleteOne|deleteMany|count|countDocuments")'
+            '.code(".*[\\"\\\']\\\\$where[\\"\\\'].*").argument(1)'
+        ),
+        flow_to_parent_call=True,
+    ),
+    SinkSpec(
+        name="mongodb_where_chain",
+        pattern=(
+            'cpg.call.name("[$]where|where").code(".*[.][$]?where[(].*")'
+        ),
+        sink_type=SinkType.NOSQL_QUERY,
+        cwe_id="CWE-943",
+        severity="critical",
+        flow_pattern='cpg.call.name("[$]where|where").code(".*[.][$]?where[(].*").argument(1)',
+        flow_to_parent_call=True,
+    ),
+    SinkSpec(
         name="child_process_exec",
         pattern='cpg.call.name("exec|execSync")',
         sink_type=SinkType.SHELL_EXEC,
@@ -1061,6 +1087,16 @@ PYTHON_SINK_SPECS: tuple[SinkSpec, ...] = (
         sink_type=SinkType.REDIRECT,
         cwe_id="CWE-601",
         severity="medium",
+    ),
+    SinkSpec(
+        name="python_pymongo_where_operator",
+        pattern=_PY_CALL_CODE_PATTERN.format(
+            name="find|find_one|count|count_documents|update_one|update_many|delete_one|delete_many|aggregate",
+            code=".*[\\\"']\\$where[\\\"'].*",
+        ),
+        sink_type=SinkType.NOSQL_QUERY,
+        cwe_id="CWE-943",
+        severity="critical",
     ),
 )
 
