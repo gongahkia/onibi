@@ -411,3 +411,35 @@ def test_extract_candidate_findings_handles_ternary_conditions() -> None:
     assert condition.required_value is True
     assert condition.symbolic_constraint == 'StringEq(var="value", val="expected")'
     assert condition.location.line == 20
+
+
+def test_parse_in_operator_narrowing() -> None:
+    loc = SourceLocation(file="a.ts", line=1, column=1, snippet="")
+    cond = parse_condition_text("'admin' in user", location=loc, required_value=True)
+    assert cond.condition_type == "key_in_object"
+    assert "KeyIn" in (cond.symbolic_constraint or "")
+
+
+def test_parse_array_isarray() -> None:
+    loc = SourceLocation(file="a.ts", line=1, column=1, snippet="")
+    cond = parse_condition_text("Array.isArray(input)", location=loc, required_value=True)
+    assert cond.condition_type == "array_check"
+    assert "ArrayIsArray" in (cond.symbolic_constraint or "")
+
+
+def test_parse_instanceof() -> None:
+    loc = SourceLocation(file="a.ts", line=1, column=1, snippet="")
+    cond = parse_condition_text("err instanceof HttpError", location=loc, required_value=True)
+    assert cond.condition_type == "instanceof"
+    assert "HttpError" in (cond.symbolic_constraint or "")
+
+
+def test_parse_null_check() -> None:
+    loc = SourceLocation(file="a.ts", line=1, column=1, snippet="")
+    cond = parse_condition_text("value !== null", location=loc, required_value=True)
+    assert cond.condition_type == "null_check"
+    # negated op flips required_value
+    assert cond.required_value is False
+    cond_eq = parse_condition_text("value === undefined", location=loc, required_value=True)
+    assert cond_eq.condition_type == "null_check"
+    assert cond_eq.required_value is True

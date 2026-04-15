@@ -37,6 +37,20 @@ _INT_BOUND_PATTERN = re.compile(
     rf"^\s*(?P<var>{_VARIABLE_PATTERN})\s*(?P<op>===|==|!==|!=|>=|>|<=|<)\s*"
     r"(?P<n>-?\d+)\s*$"
 )
+_IN_OPERATOR_PATTERN = re.compile(
+    rf"^\s*(?P<neg>!)?\s*(?P<key>{_STRING_LITERAL_PATTERN})\s+in\s+"
+    rf"(?P<var>{_VARIABLE_PATTERN})\s*$"
+)
+_ARRAY_ISARRAY_PATTERN = re.compile(
+    rf"^\s*(?P<neg>!)?\s*Array\.isArray\(\s*(?P<var>{_VARIABLE_PATTERN})\s*\)\s*$"
+)
+_INSTANCEOF_PATTERN = re.compile(
+    rf"^\s*(?P<var>{_VARIABLE_PATTERN})\s+instanceof\s+(?P<cls>[A-Za-z_$][\w$.]*)\s*$"
+)
+_NULL_CHECK_PATTERN = re.compile(
+    rf"^\s*(?P<var>{_VARIABLE_PATTERN})\s*(?P<op>===|==|!==|!=)\s*"
+    r"(?P<lit>null|undefined)\s*$"
+)
 _SWITCH_PATTERN = re.compile(r"^\s*switch\s*\((?P<expr>.+?)\)\s*$")
 _CASE_PATTERN = re.compile(r"^\s*case\s+(?P<label>.+?)\s*:\s*$")
 _DEFAULT_PATTERN = re.compile(r"^\s*default\s*:\s*$")
@@ -502,6 +516,62 @@ def _parse_constraint(expression: str, *, required_value: bool) -> _ParsedConstr
                 n=int(int_bound_match.group("n")),
             ),
             required_value=required_value,
+        )
+
+    in_match = _IN_OPERATOR_PATTERN.match(expression)
+    if in_match is not None:
+        normalized_required = required_value
+        if in_match.group("neg") is not None:
+            normalized_required = not normalized_required
+        return _ParsedConstraint(
+            condition_type="key_in_object",
+            symbolic_constraint=_symbolic_call(
+                "KeyIn",
+                var=in_match.group("var"),
+                key=_decode_string_literal(in_match.group("key")),
+            ),
+            required_value=normalized_required,
+        )
+
+    isarray_match = _ARRAY_ISARRAY_PATTERN.match(expression)
+    if isarray_match is not None:
+        normalized_required = required_value
+        if isarray_match.group("neg") is not None:
+            normalized_required = not normalized_required
+        return _ParsedConstraint(
+            condition_type="array_check",
+            symbolic_constraint=_symbolic_call(
+                "ArrayIsArray",
+                var=isarray_match.group("var"),
+            ),
+            required_value=normalized_required,
+        )
+
+    instanceof_match = _INSTANCEOF_PATTERN.match(expression)
+    if instanceof_match is not None:
+        return _ParsedConstraint(
+            condition_type="instanceof",
+            symbolic_constraint=_symbolic_call(
+                "InstanceOf",
+                var=instanceof_match.group("var"),
+                cls=instanceof_match.group("cls"),
+            ),
+            required_value=required_value,
+        )
+
+    null_match = _NULL_CHECK_PATTERN.match(expression)
+    if null_match is not None:
+        normalized_required = required_value
+        if null_match.group("op") in _NEGATED_EQUALITY_OPERATORS:
+            normalized_required = not normalized_required
+        return _ParsedConstraint(
+            condition_type="null_check",
+            symbolic_constraint=_symbolic_call(
+                "NullCheck",
+                var=null_match.group("var"),
+                lit=null_match.group("lit"),
+            ),
+            required_value=normalized_required,
         )
 
     return None
