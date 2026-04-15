@@ -36,6 +36,7 @@ from piranesi.detect import (
     parse_inline_suppressions,
     scan_dependency_findings,
 )
+from piranesi.detect.sanitizer_discovery import discover_custom_sanitizers
 from piranesi.diff import stable_fingerprint
 from piranesi.legal import assess_finding, build_default_engine
 from piranesi.llm.cost import CostTracker
@@ -88,7 +89,12 @@ from piranesi.scan.monorepo import (
     detect_monorepo,
     select_packages,
 )
-from piranesi.scan.specs import get_sanitizer_specs, get_sink_specs, get_source_specs
+from piranesi.scan.specs import (
+    SanitizerSpec,
+    get_sanitizer_specs,
+    get_sink_specs,
+    get_source_specs,
+)
 from piranesi.scan.surface import build_scan_result
 from piranesi.scan.transpile import SourceMap, transpile_project
 from piranesi.trace import TraceWriter
@@ -1177,7 +1183,7 @@ def _build_scan_artifact_for_target(
     frameworks = resolve_frameworks(target_dir, config.scan.frameworks)
     source_specs = get_source_specs(config.scan, frameworks=frameworks)
     sink_specs = get_sink_specs(config.scan, frameworks=frameworks)
-    sanitizer_specs = get_sanitizer_specs(frameworks=frameworks)
+    sanitizer_specs = _sanitizer_specs_for_target(target_dir, frameworks=frameworks)
     scan_session_cm = (
         _scan_session(
             context,
@@ -1263,7 +1269,7 @@ def _detect_findings_for_target(
     compiled_custom_rules = [compile_rule(rule) for rule in local_rules]
     source_specs = get_source_specs(config.scan, frameworks=frameworks)
     sink_specs = get_sink_specs(config.scan, frameworks=frameworks)
-    sanitizer_specs = get_sanitizer_specs(frameworks=frameworks)
+    sanitizer_specs = _sanitizer_specs_for_target(target_dir, frameworks=frameworks)
     source_specs, sink_specs, sanitizer_specs = filter_builtin_specs_for_custom_rules(
         compiled_custom_rules,
         source_specs=source_specs,
@@ -1364,6 +1370,17 @@ def _detect_findings_for_target(
         ).findings
     )
     return findings
+
+
+def _sanitizer_specs_for_target(
+    target_dir: Path,
+    *,
+    frameworks: Sequence[str] | None = None,
+) -> tuple[SanitizerSpec, ...]:
+    return (
+        *get_sanitizer_specs(frameworks=frameworks),
+        *discover_custom_sanitizers(target_dir),
+    )
 
 
 def _package_scan_result(
