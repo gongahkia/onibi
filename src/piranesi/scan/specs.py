@@ -433,6 +433,27 @@ BUILTIN_SINK_SPECS: tuple[SinkSpec, ...] = (
         severity="medium",
     ),
     SinkSpec(
+        name="koa_ctx_redirect",
+        pattern='cpg.call.name("redirect").code(".*ctx[.]redirect[(].*")',
+        sink_type=SinkType.REDIRECT,
+        cwe_id="CWE-601",
+        severity="medium",
+    ),
+    SinkSpec(
+        name="nestjs_res_redirect",
+        pattern='cpg.call.name("redirect").code(".*(?:res|response)[.]redirect[(].*")',
+        sink_type=SinkType.REDIRECT,
+        cwe_id="CWE-601",
+        severity="medium",
+    ),
+    SinkSpec(
+        name="fastify_reply_redirect",
+        pattern='cpg.call.name("redirect").code(".*reply[.]redirect[(].*")',
+        sink_type=SinkType.REDIRECT,
+        cwe_id="CWE-601",
+        severity="medium",
+    ),
+    SinkSpec(
         name="multer_file_write",
         pattern='cpg.call.name("writeFile|writeFileSync").where(_.argument.code(".*(?:originalname|filename).*"))',
         sink_type=SinkType.FILE_UPLOAD,
@@ -1027,6 +1048,20 @@ PYTHON_SINK_SPECS: tuple[SinkSpec, ...] = (
         cwe_id="CWE-601",
         severity="medium",
     ),
+    SinkSpec(
+        name="python_django_http_response_redirect",
+        pattern=_PY_CALL_PATTERN.format(name="HttpResponseRedirect"),
+        sink_type=SinkType.REDIRECT,
+        cwe_id="CWE-601",
+        severity="medium",
+    ),
+    SinkSpec(
+        name="python_django_permanent_redirect",
+        pattern=_PY_CALL_PATTERN.format(name="HttpResponsePermanentRedirect"),
+        sink_type=SinkType.REDIRECT,
+        cwe_id="CWE-601",
+        severity="medium",
+    ),
 )
 
 PYTHON_SANITIZER_SPECS: tuple[SanitizerSpec, ...] = (
@@ -1522,6 +1557,13 @@ LARAVEL_SINK_SPECS: tuple[SinkSpec, ...] = (
         sink_type=SinkType.HTTP_REQUEST,
         cwe_id="CWE-918",
     ),
+    SinkSpec(
+        name="laravel_redirect",
+        pattern="redirect\\(|->to\\(|->away\\(|Redirect::to",
+        sink_type=SinkType.REDIRECT,
+        cwe_id="CWE-601",
+        severity="medium",
+    ),
 )
 LARAVEL_SANITIZER_SPECS: tuple[SanitizerSpec, ...] = (
     *PHP_SANITIZER_SPECS,
@@ -1671,6 +1713,13 @@ RUBY_SINK_SPECS: tuple[SinkSpec, ...] = (
         pattern="\\brender\\b",
         sink_type=SinkType.TEMPLATE_INJECTION,
         cwe_id="CWE-1336",
+    ),
+    SinkSpec(
+        name="ruby_redirect_to",
+        pattern="\\bredirect_to\\b",
+        sink_type=SinkType.REDIRECT,
+        cwe_id="CWE-601",
+        severity="medium",
     ),
 )
 RUBY_SANITIZER_SPECS: tuple[SanitizerSpec, ...] = (
