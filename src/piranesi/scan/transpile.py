@@ -19,6 +19,15 @@ logger = logging.getLogger("piranesi.scan.transpile")
 
 _SOURCE_EXTENSIONS = {".js", ".jsx", ".ts", ".tsx"}
 _IGNORED_TARGET_FILES = (".npmrc", ".node-version", ".nvmrc", ".tool-versions")
+_PIRANESI_OUTPUT_DIR_NAMES = ("piranesi-output", ".piranesi-cache", ".piranesi-out")
+_IGNORED_PATH_SEGMENTS = frozenset(
+    (
+        "node_modules",
+        # piranesi output dirs
+        *_PIRANESI_OUTPUT_DIR_NAMES,
+    )
+)
+_PIRANESI_TRACE_PREFIX = ".piranesi-trace"
 _BASE64_VLQ_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 _BASE64_VLQ_MAP = {char: index for index, char in enumerate(_BASE64_VLQ_ALPHABET)}
 _FAILED_FILE_PATTERNS = (
@@ -190,7 +199,15 @@ def prepare_transpile_workspace(
             "skipLibCheck": True,
             "noEmit": False,
         },
-        "exclude": [str(normalized_target / "node_modules" / "**")],
+        "exclude": [
+            str(normalized_target / "node_modules" / "**"),
+            # piranesi output dirs
+            *(
+                str(normalized_target / directory / "**")
+                for directory in _PIRANESI_OUTPUT_DIR_NAMES
+            ),
+            str(normalized_target / ".piranesi-trace*"),
+        ],
     }
     if selected_files is None:
         tsconfig["include"] = [
@@ -434,7 +451,7 @@ def collect_transpilable_files(target_dir: Path) -> list[Path]:
     for path in target_dir.rglob("*"):
         if not path.is_file():
             continue
-        if "node_modules" in path.parts:
+        if _is_ignored_source_path(path):
             continue
         if path.suffix not in _SOURCE_EXTENSIONS:
             continue
@@ -451,7 +468,7 @@ def _normalize_changed_files(target_dir: Path, changed_files: set[Path]) -> list
         resolved = candidate.resolve(strict=False)
         if not resolved.is_file():
             continue
-        if "node_modules" in resolved.parts:
+        if _is_ignored_source_path(resolved):
             continue
         if resolved.suffix not in _SOURCE_EXTENSIONS:
             continue
@@ -459,6 +476,13 @@ def _normalize_changed_files(target_dir: Path, changed_files: set[Path]) -> list
             continue
         normalized.add(resolved)
     return sorted(normalized)
+
+
+def _is_ignored_source_path(path: Path) -> bool:
+    return any(
+        part in _IGNORED_PATH_SEGMENTS or part.startswith(_PIRANESI_TRACE_PREFIX)
+        for part in path.parts
+    )
 
 
 def _combine_output(result: CompletedProcess[str]) -> str:

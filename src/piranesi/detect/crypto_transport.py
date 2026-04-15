@@ -22,8 +22,20 @@ _SOURCE_FILE_EXTENSIONS = frozenset(
     {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".py", ".go", ".java"}
 )
 _DIRECTORY_EXCLUSIONS = frozenset(
-    {"node_modules", "vendor", ".git", "__pycache__", ".venv", "venv"}
+    {
+        "node_modules",
+        "vendor",
+        ".git",
+        "__pycache__",
+        ".venv",
+        "venv",
+        # piranesi output dirs
+        "piranesi-output",
+        ".piranesi-cache",
+        ".piranesi-out",
+    }
 )
+_PIRANESI_TRACE_PREFIX = ".piranesi-trace"
 _TEST_FILENAME_PATTERNS = (
     re.compile(r".*\.test\.[^.]+$", re.IGNORECASE),
     re.compile(r".*\.spec\.[^.]+$", re.IGNORECASE),
@@ -683,9 +695,16 @@ def _should_scan_file(path: Path, *, project_root: Path, include_tests: bool) ->
         relative_path = path.resolve(strict=False).relative_to(project_root)
     except ValueError:
         relative_path = path
-    if any(part in _DIRECTORY_EXCLUSIONS for part in relative_path.parts[:-1]):
+    if _is_excluded_path(relative_path):
         return False
     return include_tests or not _is_test_file(relative_path)
+
+
+def _is_excluded_path(relative_path: Path) -> bool:
+    return any(
+        part in _DIRECTORY_EXCLUSIONS or part.startswith(_PIRANESI_TRACE_PREFIX)
+        for part in relative_path.parts
+    )
 
 
 def _is_test_file(relative_path: Path) -> bool:

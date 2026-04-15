@@ -24,8 +24,21 @@ _SEVERITY_BY_CWE = {
 }
 _RUBY_EXTENSIONS = frozenset({".rb", ".erb"})
 _IGNORED_PATH_SEGMENTS = frozenset(
-    {"vendor", "tmp", "log", ".bundle", ".git", "node_modules", "__pycache__"}
+    {
+        "vendor",
+        "tmp",
+        "log",
+        ".bundle",
+        ".git",
+        "node_modules",
+        "__pycache__",
+        # piranesi output dirs
+        "piranesi-output",
+        ".piranesi-cache",
+        ".piranesi-out",
+    }
 )
+_PIRANESI_TRACE_PREFIX = ".piranesi-trace"
 _SOURCE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"params(?:\[[^\]]+\]|\.\w+\([^)]*\)|\.\w+)?"), "request_param"),
     (re.compile(r"request\.body(?:\.read)?|request\.raw_post"), "request_body"),
@@ -104,12 +117,19 @@ def _iter_ruby_source_files(
             relative_path = path.relative_to(project_root)
         except ValueError:
             relative_path = path
-        if any(part in _IGNORED_PATH_SEGMENTS for part in relative_path.parts):
+        if _is_ignored_path(relative_path):
             continue
         loaded = ScannedSourceFile.load(path, root=project_root)
         if loaded is not None:
             scanned.append(loaded)
     return tuple(scanned)
+
+
+def _is_ignored_path(path: Path) -> bool:
+    return any(
+        part in _IGNORED_PATH_SEGMENTS or part.startswith(_PIRANESI_TRACE_PREFIX)
+        for part in path.parts
+    )
 
 
 def _scan_file(scanned_file: ScannedSourceFile) -> list[CandidateFinding]:

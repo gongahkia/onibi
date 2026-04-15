@@ -110,7 +110,17 @@ class ScanConfig(BaseModel):
         default_factory=lambda: ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/*.go"]
     )
     exclude_patterns: list[str] = Field(
-        default_factory=lambda: ["**/node_modules/**", "**/dist/**", "**/*.d.ts", "**/vendor/**"]
+        default_factory=lambda: [
+            "**/node_modules/**",
+            "**/dist/**",
+            "**/*.d.ts",
+            "**/vendor/**",
+            # piranesi output dirs
+            "**/piranesi-output/**",
+            "**/.piranesi-cache/**",
+            "**/.piranesi-out/**",
+            "**/.piranesi-trace*",
+        ]
     )
     max_file_size: int = 1_048_576
     include_tests: bool = False

@@ -119,13 +119,21 @@ _CPG_CACHE_TRANSPILED_DIRNAME = "transpiled"
 _DEFAULT_SCAN_INCLUDE_PATTERNS = tuple(PiranesiConfig().scan.include_patterns)
 _GO_INCLUDE_PATTERNS = ("**/*.go",)
 _PYTHON_INCLUDE_PATTERNS = ("**/*.py",)
+_PIRANESI_OUTPUT_EXCLUDE_PATTERNS = (
+    # piranesi output dirs
+    "**/piranesi-output/**",
+    "**/.piranesi-cache/**",
+    "**/.piranesi-out/**",
+    "**/.piranesi-trace*",
+)
 _PYTHON_EXCLUDE_PATTERNS = (
     "**/__pycache__/**",
     "**/.venv/**",
     "**/venv/**",
     "**/site-packages/**",
+    *_PIRANESI_OUTPUT_EXCLUDE_PATTERNS,
 )
-_GO_EXCLUDE_PATTERNS = ("**/vendor/**",)
+_GO_EXCLUDE_PATTERNS = ("**/vendor/**", *_PIRANESI_OUTPUT_EXCLUDE_PATTERNS)
 _SOURCE_DISCOVERY_EXCLUDE_PATTERNS = (
     "**/__pycache__/**",
     "**/.venv/**",
@@ -136,6 +144,7 @@ _SOURCE_DISCOVERY_EXCLUDE_PATTERNS = (
     "**/build/**",
     "**/target/**",
     "**/vendor/**",
+    *_PIRANESI_OUTPUT_EXCLUDE_PATTERNS,
 )
 _LLM_API_ENV_VARS = (
     "OPENAI_API_KEY",
@@ -1085,8 +1094,22 @@ _REQUEST_SOURCE_PATTERN = re.compile(r"req\.(?:body|query|params)(?:\.[A-Za-z_$]
 _SQL_SINK_PATTERN = re.compile(r"(?P<api>[A-Za-z_$][\w$]*\.query|query|execute)\s*\(")
 _COMMAND_SINK_PATTERN = re.compile(r"(?P<api>exec|execSync|spawn|spawnSync)\s*\(")
 _WORKSPACE_SOURCE_EXCLUDE_PARTS = frozenset(
-    {"node_modules", ".venv", "venv", "__pycache__", "dist", "build", "target", "vendor"}
+    {
+        "node_modules",
+        ".venv",
+        "venv",
+        "__pycache__",
+        "dist",
+        "build",
+        "target",
+        "vendor",
+        # piranesi output dirs
+        "piranesi-output",
+        ".piranesi-cache",
+        ".piranesi-out",
+    }
 )
+_PIRANESI_TRACE_PREFIX = ".piranesi-trace"
 
 
 def _monorepo_selection(
@@ -1505,7 +1528,10 @@ def _workspace_source_files(package_path: Path) -> list[Path]:
     for path in sorted(package_path.rglob("*")):
         if not path.is_file() or path.suffix not in {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}:
             continue
-        if any(part in _WORKSPACE_SOURCE_EXCLUDE_PARTS for part in path.parts):
+        if any(
+            part in _WORKSPACE_SOURCE_EXCLUDE_PARTS or part.startswith(_PIRANESI_TRACE_PREFIX)
+            for part in path.parts
+        ):
             continue
         files.append(path.resolve(strict=False))
     return files
@@ -2058,6 +2084,10 @@ def _effective_scan_globs(target_root: Path, config: PiranesiConfig) -> tuple[li
             if pattern not in exclude_patterns:
                 exclude_patterns.append(pattern)
 
+    for pattern in _PIRANESI_OUTPUT_EXCLUDE_PATTERNS:
+        if pattern not in exclude_patterns:
+            exclude_patterns.append(pattern)
+
     return include_patterns, exclude_patterns
 
 
@@ -2077,11 +2107,24 @@ def _prepare_direct_scan_workspace(
 
 
 def _joern_frontend_args_for_language(language: str) -> tuple[str, ...]:
+    output_excludes = (
+        # piranesi output dirs
+        "--exclude",
+        "piranesi-output",
+        "--exclude",
+        ".piranesi-cache",
+        "--exclude",
+        ".piranesi-out",
+        "--exclude",
+        ".piranesi-trace*",
+    )
+    if language == "python":
+        return ()
     if language == "go":
-        return ("--exclude", "vendor")
+        return (*output_excludes, "--exclude", "vendor")
     if language == "java":
-        return ("--exclude", "src/test")
-    return ()
+        return (*output_excludes, "--exclude", "src/test")
+    return output_excludes
 
 
 def _run_triage_stage(

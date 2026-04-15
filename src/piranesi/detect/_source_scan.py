@@ -10,8 +10,21 @@ from piranesi.scan.transpile import SourceMap
 
 _SOURCE_FILE_EXTENSIONS = frozenset({".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"})
 _IGNORED_PATH_SEGMENTS = frozenset(
-    {"node_modules", ".next", "dist", "build", "coverage", ".git", "__pycache__"}
+    {
+        "node_modules",
+        ".next",
+        "dist",
+        "build",
+        "coverage",
+        ".git",
+        "__pycache__",
+        # piranesi output dirs
+        "piranesi-output",
+        ".piranesi-cache",
+        ".piranesi-out",
+    }
 )
+_PIRANESI_TRACE_PREFIX = ".piranesi-trace"
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,7 +98,7 @@ def iter_scanned_source_files(
     for path in candidates:
         if path.suffix.lower() not in _SOURCE_FILE_EXTENSIONS:
             continue
-        if any(part in _IGNORED_PATH_SEGMENTS for part in path.parts):
+        if _is_ignored_path(path):
             continue
         scanned_file = ScannedSourceFile.load(path, root=root)
         if scanned_file is not None:
@@ -105,6 +118,13 @@ def _candidate_files(
         return source_map.original_files()
     return tuple(
         path.resolve(strict=False) for path in sorted(project_root.rglob("*")) if path.is_file()
+    )
+
+
+def _is_ignored_path(path: Path) -> bool:
+    return any(
+        part in _IGNORED_PATH_SEGMENTS or part.startswith(_PIRANESI_TRACE_PREFIX)
+        for part in path.parts
     )
 
 

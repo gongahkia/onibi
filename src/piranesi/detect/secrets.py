@@ -13,7 +13,18 @@ from piranesi.models import CandidateFinding, SourceLocation, TaintSink, TaintSo
 
 _DEFAULT_DATA_CATEGORIES = ["unknown"]
 _DEFAULT_MAX_FILE_SIZE = 1_048_576
-_DIRECTORY_EXCLUSIONS = frozenset({"node_modules", "vendor", ".git"})
+_DIRECTORY_EXCLUSIONS = frozenset(
+    {
+        "node_modules",
+        "vendor",
+        ".git",
+        # piranesi output dirs
+        "piranesi-output",
+        ".piranesi-cache",
+        ".piranesi-out",
+    }
+)
+_PIRANESI_TRACE_PREFIX = ".piranesi-trace"
 _ENTROPY_THRESHOLD = 4.5
 _MIN_ENTROPY_LENGTH = 21
 _ENTROPY_TOKEN_PATTERN = re.compile(
@@ -133,7 +144,10 @@ def _iter_candidate_files(
 
     for current_root, directories, filenames in os.walk(project_root, topdown=True):
         directories[:] = sorted(
-            directory for directory in directories if directory not in _DIRECTORY_EXCLUSIONS
+            directory
+            for directory in directories
+            if directory not in _DIRECTORY_EXCLUSIONS
+            and not directory.startswith(_PIRANESI_TRACE_PREFIX)
         )
         base_dir = Path(current_root)
         for filename in sorted(filenames):
@@ -165,7 +179,7 @@ def _should_scan_file(
 
     if path.name == ".env.example":
         return False
-    if any(part in _DIRECTORY_EXCLUSIONS for part in relative_path.parts[:-1]):
+    if _is_excluded_path(relative_path):
         return False
     if not include_tests and _is_test_file(relative_path):
         return False
@@ -173,6 +187,13 @@ def _should_scan_file(
         return path.stat().st_size <= max_file_size
     except OSError:
         return False
+
+
+def _is_excluded_path(relative_path: Path) -> bool:
+    return any(
+        part in _DIRECTORY_EXCLUSIONS or part.startswith(_PIRANESI_TRACE_PREFIX)
+        for part in relative_path.parts
+    )
 
 
 def _is_test_file(relative_path: Path) -> bool:

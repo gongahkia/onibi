@@ -88,6 +88,7 @@ _EXCLUDED_DIRS = frozenset({
     "dist", "build", ".next", "target", "vendor", ".piranesi-out", ".piranesi-cache",
     "piranesi-output",
 })
+_PIRANESI_TRACE_PREFIX = ".piranesi-trace"
 
 
 def _infer_kind(name: str) -> tuple[SanitizerKind, tuple[str, ...]] | None:
@@ -111,9 +112,15 @@ def _iter_source_files(roots: Iterable[Path]) -> Iterable[Path]:
                 continue
             if path.suffix not in suffixes:
                 continue
-            if any(part in _EXCLUDED_DIRS for part in path.parts):
+            if _is_excluded_path(path):
                 continue
             yield path
+
+
+def _is_excluded_path(path: Path) -> bool:
+    return any(
+        part in _EXCLUDED_DIRS or part.startswith(_PIRANESI_TRACE_PREFIX) for part in path.parts
+    )
 
 
 def _build_pattern_for_name(name: str, suffix: str) -> str:

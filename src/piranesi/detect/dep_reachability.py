@@ -25,8 +25,13 @@ _IGNORED_PATH_SEGMENTS = frozenset(
         "site-packages",
         "vendor",
         "venv",
+        # piranesi output dirs
+        "piranesi-output",
+        ".piranesi-cache",
+        ".piranesi-out",
     }
 )
+_PIRANESI_TRACE_PREFIX = ".piranesi-trace"
 
 _JS_IMPORT_FROM_RE = re.compile(
     r"(?m)^\s*import\s+(?P<clause>[^;\n]+?)\s+from\s+['\"](?P<module>[^'\"]+)['\"]\s*;?"
@@ -379,7 +384,7 @@ def _build_dependency_index(project_root: Path) -> _DependencyIndex:
     for path in sorted(root.rglob("*")):
         if not path.is_file() or path.suffix.lower() not in _SOURCE_EXTENSIONS:
             continue
-        if any(part in _IGNORED_PATH_SEGMENTS for part in path.parts):
+        if _is_ignored_path(path):
             continue
         try:
             text = path.read_text(encoding="utf-8")
@@ -392,6 +397,13 @@ def _build_dependency_index(project_root: Path) -> _DependencyIndex:
             _analyze_python_file(resolved_path, text, root, index)
 
     return index
+
+
+def _is_ignored_path(path: Path) -> bool:
+    return any(
+        part in _IGNORED_PATH_SEGMENTS or part.startswith(_PIRANESI_TRACE_PREFIX)
+        for part in path.parts
+    )
 
 
 def _analyze_javascript_file(

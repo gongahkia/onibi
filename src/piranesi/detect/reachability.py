@@ -41,8 +41,22 @@ _GO_ROUTE_TEMPLATE = (
 )
 _DJANGO_ROUTE_TEMPLATE = r"\b(?:path|re_path)\s*\([^,\n]+,\s*{name}\b"
 _EXCLUDED_ENTRY_PARTS = frozenset(
-    {"node_modules", "dist", "build", ".next", ".venv", "venv", "__pycache__", "vendor"}
+    {
+        "node_modules",
+        "dist",
+        "build",
+        ".next",
+        ".venv",
+        "venv",
+        "__pycache__",
+        "vendor",
+        # piranesi output dirs
+        "piranesi-output",
+        ".piranesi-cache",
+        ".piranesi-out",
+    }
 )
+_PIRANESI_TRACE_PREFIX = ".piranesi-trace"
 _NON_USER_CODE_NAMES = frozenset({":program", "<global>", "<init>", "<clinit>"})
 
 
@@ -448,10 +462,17 @@ def _iter_project_files(project_root: Path, file_name: str) -> tuple[Path, ...]:
     root = project_root.resolve(strict=False)
     matches: list[Path] = []
     for candidate in root.rglob(file_name):
-        if any(part in _EXCLUDED_ENTRY_PARTS for part in candidate.parts):
+        if _is_excluded_entry_path(candidate):
             continue
         matches.append(candidate.resolve(strict=False))
     return tuple(matches)
+
+
+def _is_excluded_entry_path(path: Path) -> bool:
+    return any(
+        part in _EXCLUDED_ENTRY_PARTS or part.startswith(_PIRANESI_TRACE_PREFIX)
+        for part in path.parts
+    )
 
 
 def _is_test_file(path_str: str) -> bool:

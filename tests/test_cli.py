@@ -299,7 +299,15 @@ def test_init_scaffolds_detected_framework_defaults(
     config = load_config(tmp_path / "piranesi.toml")
     assert config.scan.frameworks == ["express"]
     assert config.scan.include_patterns == ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"]
-    assert config.scan.exclude_patterns == ["**/node_modules/**", "**/dist/**", "**/*.d.ts"]
+    assert config.scan.exclude_patterns == [
+        "**/node_modules/**",
+        "**/dist/**",
+        "**/*.d.ts",
+        "**/piranesi-output/**",
+        "**/.piranesi-cache/**",
+        "**/.piranesi-out/**",
+        "**/.piranesi-trace*",
+    ]
     ignore_payload = (tmp_path / ".piranesi-ignore").read_text(encoding="utf-8")
     assert "suppressions: []" in ignore_payload
     assert 'id: "finding-123"' in ignore_payload

@@ -12,6 +12,7 @@ from piranesi.scan.transpile import (
     SourceMap,
     TranspiledProject,
     TypeScriptCompilerNotFoundError,
+    collect_transpilable_files,
     prepare_transpile_workspace,
     transpile_project,
 )
@@ -130,12 +131,43 @@ def test_prepare_transpile_workspace_writes_isolated_tsconfig(tmp_path: Path) ->
             str(target_dir.resolve() / "**" / "*.js"),
             str(target_dir.resolve() / "**" / "*.jsx"),
         ]
-        assert payload["exclude"] == [str(target_dir.resolve() / "node_modules" / "**")]
+        assert payload["exclude"] == [
+            str(target_dir.resolve() / "node_modules" / "**"),
+            str(target_dir.resolve() / "piranesi-output" / "**"),
+            str(target_dir.resolve() / ".piranesi-cache" / "**"),
+            str(target_dir.resolve() / ".piranesi-out" / "**"),
+            str(target_dir.resolve() / ".piranesi-trace*"),
+        ]
         assert "plugins" not in workspace.tsconfig_path.read_text(encoding="utf-8")
         for filename in [".npmrc", ".node-version", ".nvmrc", ".tool-versions"]:
             assert not (workspace.root_dir / filename).exists()
     finally:
         workspace.cleanup()
+
+
+def test_collect_transpilable_files_skips_piranesi_output_dirs_and_trace_files(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    source_file = project / "src" / "index.ts"
+    output_file = project / "piranesi-output" / "_cpg_cache" / "foo" / "transpiled" / "bar.ts"
+    cache_file = project / ".piranesi-cache" / "cached.ts"
+    out_file = project / ".piranesi-out" / "out.ts"
+    trace_file = project / ".piranesi-trace.jsonl"
+    trace_source_like_file = project / ".piranesi-trace.ts"
+
+    for path in (
+        source_file,
+        output_file,
+        cache_file,
+        out_file,
+        trace_file,
+        trace_source_like_file,
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("export const value = 1;\n", encoding="utf-8")
+
+    assert collect_transpilable_files(project) == [source_file.resolve(strict=False)]
 
 
 def test_prepare_transpile_workspace_limits_tsconfig_to_changed_files(tmp_path: Path) -> None:

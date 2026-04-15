@@ -35,8 +35,22 @@ _CONTROL_FILES = frozenset(
     }
 )
 _SOURCE_DISCOVERY_EXCLUDE_PARTS = frozenset(
-    {"node_modules", ".venv", "venv", "__pycache__", "dist", "build", "target", "vendor"}
+    {
+        "node_modules",
+        ".venv",
+        "venv",
+        "__pycache__",
+        "dist",
+        "build",
+        "target",
+        "vendor",
+        # piranesi output dirs
+        "piranesi-output",
+        ".piranesi-cache",
+        ".piranesi-out",
+    }
 )
+_PIRANESI_TRACE_PREFIX = ".piranesi-trace"
 _GO_MODULE_PATTERN = re.compile(r"^\s*module\s+(?P<name>\S+)\s*$")
 _GO_REQUIRE_PATTERN = re.compile(r"^\s*(?P<name>\S+)\s+v[^\s]+(?:\s*//.*)?$")
 _GRADLE_INCLUDE_PATTERN = re.compile(r'["\'](?P<project>:[^"\']+)["\']')
@@ -340,7 +354,7 @@ def _detect_nx_workspace(
 
     if not records:
         for project_json in sorted(root.rglob("project.json")):
-            if any(part in _SOURCE_DISCOVERY_EXCLUDE_PARTS for part in project_json.parts):
+            if _is_source_discovery_excluded(project_json):
                 continue
             payload = _load_json(project_json)
             if not isinstance(payload, dict):
@@ -932,10 +946,17 @@ def _package_has_suffix(project_root: Path, suffixes: tuple[str, ...]) -> bool:
     for path in project_root.rglob("*"):
         if not path.is_file() or path.suffix not in suffixes:
             continue
-        if any(part in _SOURCE_DISCOVERY_EXCLUDE_PARTS for part in path.parts):
+        if _is_source_discovery_excluded(path):
             continue
         return True
     return False
+
+
+def _is_source_discovery_excluded(path: Path) -> bool:
+    return any(
+        part in _SOURCE_DISCOVERY_EXCLUDE_PARTS or part.startswith(_PIRANESI_TRACE_PREFIX)
+        for part in path.parts
+    )
 
 
 __all__ = [

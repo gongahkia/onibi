@@ -52,6 +52,13 @@ _LANGUAGE_EXCLUDE_PATTERNS: dict[str, tuple[str, ...]] = {
     "python": ("**/__pycache__/**", "**/.venv/**", "**/venv/**", "**/.pytest_cache/**"),
     "java": ("**/target/**", "**/build/**"),
 }
+_PIRANESI_OUTPUT_EXCLUDE_PATTERNS = (
+    # piranesi output dirs
+    "**/piranesi-output/**",
+    "**/.piranesi-cache/**",
+    "**/.piranesi-out/**",
+    "**/.piranesi-trace*",
+)
 _FRAMEWORK_EXCLUDE_PATTERNS: dict[str, tuple[str, ...]] = {
     "django": ("**/migrations/**",),
     "nextjs": ("**/.next/**",),
@@ -119,6 +126,7 @@ def render_config_template(
     exclude_patterns = _merge_patterns(
         *(_LANGUAGE_EXCLUDE_PATTERNS[language] for language in languages),
         *(_FRAMEWORK_EXCLUDE_PATTERNS.get(framework, ()) for framework in frameworks),
+        _PIRANESI_OUTPUT_EXCLUDE_PATTERNS,
     )
 
     lines = [

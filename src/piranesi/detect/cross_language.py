@@ -84,6 +84,14 @@ _PHP_EXTENSIONS = frozenset({".php"})
 _BACKEND_EXTENSIONS = (
     _PYTHON_EXTENSIONS | _GO_EXTENSIONS | _JAVA_EXTENSIONS | _RUBY_EXTENSIONS | _PHP_EXTENSIONS
 )
+_PIRANESI_OUTPUT_DIRS = frozenset(
+    {
+        # piranesi output dirs
+        "piranesi-output",
+        ".piranesi-cache",
+        ".piranesi-out",
+    }
+)
 
 _DEFAULT_CONFIDENCE = 0.6
 _SEVERITY_MAP = {
@@ -152,7 +160,17 @@ def extract_api_boundaries(project_root: str | Path) -> list[ApiBoundary]:
         if any(
             part.startswith(".")
             or part
-            in ("node_modules", "venv", ".venv", "__pycache__", "vendor", "target", "build", "dist")
+            in (
+                "node_modules",
+                "venv",
+                ".venv",
+                "__pycache__",
+                "vendor",
+                "target",
+                "build",
+                "dist",
+                *_PIRANESI_OUTPUT_DIRS,
+            )
             for part in path.parts
         ):
             continue
@@ -292,9 +310,7 @@ _FUNCTION_START_PATTERNS = {
     "python": re.compile(r"^\s*(?:@\w+\.route\(|def\s+)"),
     "go": re.compile(r"^func\s+"),
     "java": re.compile(r"^\s*(?:@\w+Mapping|public\s|private\s|protected\s)"),
-    "ruby": re.compile(
-        r"^\s*(?:def\s+|(?:get|post|put|patch|delete|match|resources?)\s+['\"])"
-    ),
+    "ruby": re.compile(r"^\s*(?:def\s+|(?:get|post|put|patch|delete|match|resources?)\s+['\"])"),
     "php": re.compile(
         r"^\s*(?:function\s+|public\s|private\s|protected\s|Route::|#\[Route|@Route)"
     ),
@@ -368,7 +384,8 @@ def _classify_sink(sink_snippet: str) -> tuple[str, str]:
             "whereraw",
         )
     ) or (
-        "execute" in s and ("cursor" in s or "query" in s or "jdbc" in s or "statement" in s or "db." in s)
+        "execute" in s
+        and ("cursor" in s or "query" in s or "jdbc" in s or "statement" in s or "db." in s)
     ):
         return "sql_injection", "CWE-89"
     if any(
@@ -387,7 +404,13 @@ def _classify_sink(sink_snippet: str) -> tuple[str, str]:
         return "command_injection", "CWE-78"
     if "render_template_string" in s or ".html_safe" in s or "\braw" in s or s.strip() == "raw":
         return "xss", "CWE-79"
-    if "eval(" in s or "exec(" in s or "unserialize" in s or "marshal.load" in s or "yaml.load" in s:
+    if (
+        "eval(" in s
+        or "exec(" in s
+        or "unserialize" in s
+        or "marshal.load" in s
+        or "yaml.load" in s
+    ):
         return "code_injection", "CWE-94"
     if (
         "open(" in s

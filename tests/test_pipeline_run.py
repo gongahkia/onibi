@@ -454,6 +454,22 @@ def test_run_dry_run_lists_matching_scan_targets(tmp_path: Path) -> None:
     assert str(excluded_file) not in result.stdout
 
 
+def test_scan_target_discovery_skips_piranesi_output_dirs_and_trace_files(
+    tmp_path: Path,
+) -> None:
+    source_file = tmp_path / "src" / "index.ts"
+    output_file = tmp_path / "piranesi-output" / "_cpg_cache" / "foo" / "transpiled" / "bar.ts"
+    cache_file = tmp_path / ".piranesi-cache" / "cached.ts"
+    out_file = tmp_path / ".piranesi-out" / "out.ts"
+    trace_file = tmp_path / ".piranesi-trace.ts"
+
+    for path in (source_file, output_file, cache_file, out_file, trace_file):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("export const value = 1;\n", encoding="utf-8")
+
+    assert pipeline_module.discover_scan_targets(tmp_path, PiranesiConfig()) == [source_file]
+
+
 def test_detect_artifact_round_trips_healthcare_entity_fact(tmp_path: Path) -> None:
     artifacts = fixture_artifacts(tmp_path)
     detect_artifact = artifacts["detect"]
@@ -685,7 +701,18 @@ def test_scan_stage_skips_transpile_for_java_projects(
         "path": target_dir,
         "language": "java",
         "project_name": None,
-        "frontend_args": ("--exclude", "src/test"),
+        "frontend_args": (
+            "--exclude",
+            "piranesi-output",
+            "--exclude",
+            ".piranesi-cache",
+            "--exclude",
+            ".piranesi-out",
+            "--exclude",
+            ".piranesi-trace*",
+            "--exclude",
+            "src/test",
+        ),
     }
 
 
@@ -794,7 +821,18 @@ def test_scan_stage_skips_transpile_for_go_projects(
         "path": target_dir,
         "language": "go",
         "project_name": None,
-        "frontend_args": ("--exclude", "vendor"),
+        "frontend_args": (
+            "--exclude",
+            "piranesi-output",
+            "--exclude",
+            ".piranesi-cache",
+            "--exclude",
+            ".piranesi-out",
+            "--exclude",
+            ".piranesi-trace*",
+            "--exclude",
+            "vendor",
+        ),
     }
 
 
