@@ -61,6 +61,58 @@ _MODULE_CONTEXT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# curated CVE / GHSA -> vulnerable function map (fallback when advisory title is thin)
+# id is lowercased; targets are symbol names matched against import bindings.
+_CVE_FUNCTION_MAP: dict[str, tuple[str, ...]] = {
+    "cve-2021-23337": ("template",),                    # lodash template
+    "cve-2021-44906": ("_",),                           # minimist prototype pollution
+    "cve-2020-28500": ("toNumber", "trim", "trimEnd", "trimStart"),  # lodash ReDoS
+    "cve-2019-10744": ("defaultsDeep",),                # lodash
+    "cve-2020-8203": ("zipObjectDeep", "set", "setWith"),  # lodash prototype pollution
+    "cve-2018-3728": ("setPath", "mixin"),              # hoek prototype pollution
+    "cve-2022-0536": ("resolve",),                      # follow-redirects
+    "cve-2020-7598": ("parse",),                        # minimist
+    "cve-2022-25883": ("validRange", "satisfies"),      # semver ReDoS
+    "cve-2022-24999": ("parse",),                       # qs prototype pollution
+    "cve-2021-3918": ("validate",),                     # json-schema
+    "cve-2018-16487": ("merge", "mergeWith"),           # lodash
+    "cve-2020-7788": ("parse",),                        # ini prototype pollution
+    "cve-2022-46175": ("parse",),                       # json5
+}
+
+# package name -> symbol(s) used by CVE map lookups when only package is known
+_PACKAGE_HIGH_RISK_SYMBOLS: dict[str, tuple[str, ...]] = {
+    "lodash": ("template", "merge", "mergeWith", "defaultsDeep", "set", "setWith", "zipObjectDeep"),
+    "minimist": ("parse", "_"),
+    "qs": ("parse",),
+    "semver": ("validRange", "satisfies"),
+    "json5": ("parse",),
+    "ini": ("parse",),
+    "follow-redirects": ("resolve",),
+    "handlebars": ("compile", "precompile", "template"),
+    "jsonwebtoken": ("verify", "sign", "decode"),
+    "node-fetch": ("fetch",),
+}
+
+
+def _curated_targets_for_finding(package_name: str, cve_ids: Sequence[str]) -> tuple[str, ...]:
+    out: list[str] = []
+    for cve in cve_ids:
+        hits = _CVE_FUNCTION_MAP.get(cve.lower())
+        if hits:
+            out.extend(hits)
+    if not out:
+        out.extend(_PACKAGE_HIGH_RISK_SYMBOLS.get(package_name.lower(), ()))
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for sym in out:
+        key = sym.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(sym)
+    return tuple(deduped)
+
 
 @dataclass(frozen=True, slots=True)
 class _ImportedBinding:
@@ -231,15 +283,23 @@ def _extract_vulnerable_targets(
     *,
     package_name: str,
 ) -> tuple[str, ...]:
-    raw_title = finding.metadata.get("title")
-    if not isinstance(raw_title, str) or not raw_title.strip():
-        return ()
-
     candidates: list[str] = []
-    candidates.extend(match.group("token") for match in _BACKTICK_TOKEN_RE.finditer(raw_title))
-    candidates.extend(match.group("token") for match in _FUNCTION_TOKEN_RE.finditer(raw_title))
-    candidates.extend(match.group("token") for match in _DOTTED_TOKEN_RE.finditer(raw_title))
-    candidates.extend(match.group(1) for match in _MODULE_CONTEXT_RE.finditer(raw_title))
+    raw_title = finding.metadata.get("title")
+    if isinstance(raw_title, str) and raw_title.strip():
+        candidates.extend(match.group("token") for match in _BACKTICK_TOKEN_RE.finditer(raw_title))
+        candidates.extend(match.group("token") for match in _FUNCTION_TOKEN_RE.finditer(raw_title))
+        candidates.extend(match.group("token") for match in _DOTTED_TOKEN_RE.finditer(raw_title))
+        candidates.extend(match.group(1) for match in _MODULE_CONTEXT_RE.finditer(raw_title))
+
+    cve_ids: list[str] = []
+    raw_cve = finding.metadata.get("cve")
+    if isinstance(raw_cve, str) and raw_cve:
+        cve_ids.append(raw_cve)
+    raw_cves = finding.metadata.get("cves")
+    if isinstance(raw_cves, (list, tuple)):
+        cve_ids.extend(str(c) for c in raw_cves if isinstance(c, str))
+
+    candidates.extend(_curated_targets_for_finding(package_name, cve_ids))
 
     normalized_targets: list[str] = []
     seen: set[str] = set()
