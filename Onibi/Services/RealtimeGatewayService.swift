@@ -257,13 +257,14 @@ final class GatewayWebSocketConnection: @unchecked Sendable, RealtimeClientTrans
 
     static func handshakeResponse(for secWebSocketKey: String) -> Data {
         let accept = websocketAcceptValue(for: secWebSocketKey)
-        let response = """
-        HTTP/1.1 101 Switching Protocols\r
-        Upgrade: websocket\r
-        Connection: Upgrade\r
-        Sec-WebSocket-Accept: \(accept)\r
-        \r
-        """
+        // Keep the HTTP status line at byte 0; leading whitespace/newlines can break
+        // URLSession's websocket handshake parser and surface as request timeouts.
+        let response =
+            "HTTP/1.1 101 Switching Protocols\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Accept: \(accept)\r\n" +
+            "\r\n"
         return Data(response.utf8)
     }
 
