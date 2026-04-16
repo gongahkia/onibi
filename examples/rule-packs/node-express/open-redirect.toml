@@ -4,6 +4,8 @@
 [rule]
 id = "example-node-express-open-redirect"
 name = "Express open redirect from request input"
+schema_version = "1"
+category = "redirect"
 cwe_id = "CWE-601"
 severity = "medium"
 description = "Example rule showing how request-derived redirect targets can reach Express redirect sinks with receiver constraints."

@@ -27,6 +27,23 @@ DEFAULT_RULES_HOME = Path("~/.piranesi/rules").expanduser()
 REPOSITORY_METADATA_FILE = "piranesi-rules.toml"
 _CWE_PATTERN = re.compile(r"^CWE-\d+$")
 _SAFE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_RULE_CATEGORIES = frozenset(
+    {
+        "authz",
+        "crypto",
+        "deserialization",
+        "injection",
+        "misconfiguration",
+        "redirect",
+        "secrets",
+        "ssrf",
+        "supply-chain",
+        "traversal",
+        "xss",
+        "other",
+    }
+)
+_SUPPORTED_RULE_SCHEMA_VERSIONS = frozenset({"1", "1.0"})
 
 
 class RuleRegistryError(RuntimeError):
@@ -89,6 +106,8 @@ class RuleDefinition(BaseModel):
     cwe_id: str | None = None
     severity: Literal["low", "medium", "high", "critical"] | None = None
     description: str | None = None
+    category: str | None = None
+    schema_version: str | None = "1"
     author: str | None = None
     version: str | None = None
     tags: list[str] = Field(default_factory=list)
@@ -108,6 +127,16 @@ class RuleDefinition(BaseModel):
             )
         if self.cwe_id is not None and not _CWE_PATTERN.fullmatch(self.cwe_id):
             raise ValueError("rule.cwe_id must use the form CWE-<number>")
+        if self.category is not None:
+            normalized = self.category.strip().lower()
+            if normalized not in _RULE_CATEGORIES:
+                allowed = ", ".join(sorted(_RULE_CATEGORIES))
+                raise ValueError(f"rule.category must be one of: {allowed}")
+        if self.schema_version is not None:
+            normalized_schema = self.schema_version.strip()
+            if normalized_schema not in _SUPPORTED_RULE_SCHEMA_VERSIONS:
+                allowed = ", ".join(sorted(_SUPPORTED_RULE_SCHEMA_VERSIONS))
+                raise ValueError(f"rule.schema_version must be one of: {allowed}")
         if self.extends is None:
             missing: list[str] = []
             if not self.name:

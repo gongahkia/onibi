@@ -24,6 +24,7 @@ def test_example_rule_packs_parse_and_compile() -> None:
     assert all(rule.description for rule in compiled)
     assert all(rule.message_template for rule in compiled)
     assert all(rule.sanitizer_patterns for rule in compiled)
+    assert all(rule.schema_version == "1" for rule in compiled)
 
 
 def test_example_rule_packs_include_receiver_constrained_sinks() -> None:
@@ -46,3 +47,4 @@ def test_example_rule_packs_are_marked_as_examples() -> None:
     assert all("example" in rule.tags for rule in rules)
     assert all(rule.author == "piranesi-example-packs" for rule in rules)
     assert all(rule.version == "0.1.0" for rule in rules)
+    assert all(rule.category in {"redirect", "injection"} for rule in rules)

@@ -4,6 +4,8 @@
 [rule]
 id = "example-ruby-rails-command-injection"
 name = "Rails params passed into shell execution"
+schema_version = "1"
+category = "injection"
 cwe_id = "CWE-78"
 severity = "high"
 description = "Example rule showing Rails params flowing into shell execution APIs; sink pattern constrains known command receivers."

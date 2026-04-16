@@ -4,7 +4,7 @@ import contextlib
 import hashlib
 import re
 import tomllib
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
@@ -26,6 +26,24 @@ from piranesi.scan.specs import (
 from piranesi.scan.transpile import SourceMap, TranspiledProject, transpile_project
 
 _VALID_SEVERITIES = frozenset({"low", "medium", "high", "critical"})
+_VALID_RULE_CATEGORIES = frozenset(
+    {
+        "authz",
+        "crypto",
+        "deserialization",
+        "injection",
+        "misconfiguration",
+        "redirect",
+        "secrets",
+        "ssrf",
+        "supply-chain",
+        "traversal",
+        "xss",
+        "other",
+    }
+)
+_SUPPORTED_RULE_SCHEMA_VERSIONS = frozenset({"1", "1.0"})
+_DEFAULT_RULE_SCHEMA_VERSION = "1"
 _CWE_ID_PATTERN = re.compile(r"^CWE-\d+$")
 _CPGQL_DANGEROUS_TOKENS = (
     "workspace",
@@ -90,6 +108,8 @@ class CustomRule:
     sanitizer_patterns: tuple[str, ...]
     message_template: str | None
     tags: tuple[str, ...]
+    category: str | None
+    schema_version: str | None
     author: str | None
     version: str | None
     source_pattern_type: PatternKind | None
@@ -111,6 +131,8 @@ class CompiledRule:
     description: str
     message_template: str
     tags: tuple[str, ...]
+    category: str | None
+    schema_version: str
     author: str
     version: str
     kind: PatternKind
@@ -212,6 +234,7 @@ def compile_rule(rule: CustomRule) -> CompiledRule:
     )
     resolved_author = rule.author or ("piranesi" if builtin is not None else None)
     resolved_version = rule.version or ("builtin" if builtin is not None else None)
+    resolved_schema_version = rule.schema_version or _DEFAULT_RULE_SCHEMA_VERSION
 
     if not resolved_name:
         errors.append("missing required field: rule.name")
@@ -231,6 +254,17 @@ def compile_rule(rule: CustomRule) -> CompiledRule:
         errors.append("missing required field: rule.author")
     if not resolved_version:
         errors.append("missing required field: rule.version")
+    if resolved_schema_version not in _SUPPORTED_RULE_SCHEMA_VERSIONS:
+        supported_versions = ", ".join(sorted(_SUPPORTED_RULE_SCHEMA_VERSIONS))
+        errors.append(
+            "unsupported schema_version "
+            f"'{resolved_schema_version}'; supported versions: {supported_versions}"
+        )
+    if rule.category is not None and rule.category not in _VALID_RULE_CATEGORIES:
+        allowed_categories = ", ".join(sorted(_VALID_RULE_CATEGORIES))
+        errors.append(
+            f"unknown category '{rule.category}'; expected one of: {allowed_categories}"
+        )
 
     kinds = _rule_pattern_kinds(rule, builtin=builtin)
     if isinstance(kinds, RuleValidationError):
@@ -304,6 +338,8 @@ def compile_rule(rule: CustomRule) -> CompiledRule:
         description=resolved_description or "",
         message_template=resolved_message or "",
         tags=rule.tags,
+        category=rule.category,
+        schema_version=resolved_schema_version,
         author=resolved_author or "",
         version=resolved_version or "",
         kind=effective_kind,
@@ -750,6 +786,8 @@ def _custom_rule_metadata(rule: CompiledRule, *, message: str) -> dict[str, obje
         "custom_rule_name": rule.name,
         "custom_rule_author": rule.author,
         "custom_rule_version": rule.version,
+        "custom_rule_schema_version": rule.schema_version,
+        "custom_rule_category": rule.category,
         "custom_rule_tags": list(rule.tags),
         "custom_rule_message": message,
     }
@@ -893,6 +931,8 @@ def _load_rule_file(path: Path, *, strict: bool) -> CustomRule:
 
 
 def _parse_rule_document(document: Mapping[str, Any], *, path: Path) -> CustomRule:
+    _validate_document_shape(document, path=path)
+
     rule_section = document.get("rule")
     if not isinstance(rule_section, Mapping):
         raise RuleValidationError(f"{path}: [rule] must be a TOML table")
@@ -922,6 +962,8 @@ def _parse_rule_document(document: Mapping[str, Any], *, path: Path) -> CustomRu
             rule_section.get("message_template") or message_section.get("template")
         ),
         tags=_string_list(rule_section.get("tags")),
+        category=_normalized_optional_string(rule_section.get("category")),
+        schema_version=_optional_string(rule_section.get("schema_version")),
         author=_optional_string(rule_section.get("author")),
         version=_optional_string(rule_section.get("version")),
         source_pattern_type=_pattern_kind(
@@ -949,6 +991,74 @@ def _parse_rule_document(document: Mapping[str, Any], *, path: Path) -> CustomRu
         ),
         path=path,
     )
+
+
+def _validate_document_shape(document: Mapping[str, Any], *, path: Path) -> None:
+    top_level_unknown = _unknown_keys(document.keys(), {"rule", "tests"})
+    if top_level_unknown:
+        raise RuleValidationError(
+            f"{path}: unknown top-level field(s): {', '.join(top_level_unknown)}"
+        )
+
+    rule_section = document.get("rule")
+    if not isinstance(rule_section, Mapping):
+        raise RuleValidationError(f"{path}: [rule] must be a TOML table")
+
+    unknown_rule_fields = _unknown_keys(
+        rule_section.keys(),
+        {
+            "id",
+            "name",
+            "cwe_id",
+            "severity",
+            "description",
+            "source_pattern",
+            "sink_pattern",
+            "sanitizer_patterns",
+            "message_template",
+            "tags",
+            "category",
+            "schema_version",
+            "author",
+            "version",
+            "source_type",
+            "sink_type",
+            "sanitizer_type",
+            "extends",
+            "override_severity",
+            "source",
+            "sink",
+            "sanitizers",
+            "additional_sanitizers",
+            "message",
+        },
+    )
+    if unknown_rule_fields:
+        fields = ", ".join(f"rule.{field}" for field in unknown_rule_fields)
+        raise RuleValidationError(f"{path}: unknown field(s): {fields}")
+
+    for section_name, allowed_fields in (
+        ("source", {"pattern", "type"}),
+        ("sink", {"pattern", "type"}),
+        ("sanitizers", {"patterns", "type"}),
+        ("additional_sanitizers", {"patterns", "type"}),
+        ("message", {"template"}),
+    ):
+        raw_section = rule_section.get(section_name)
+        if raw_section is None:
+            continue
+        if not isinstance(raw_section, Mapping):
+            raise RuleValidationError(f"{path}: [rule.{section_name}] must be a TOML table")
+        unknown_section_fields = _unknown_keys(raw_section.keys(), allowed_fields)
+        if unknown_section_fields:
+            fields = ", ".join(
+                f"rule.{section_name}.{field}" for field in unknown_section_fields
+            )
+            raise RuleValidationError(f"{path}: unknown field(s): {fields}")
+
+
+def _unknown_keys(keys: Iterable[str], allowed: set[str]) -> tuple[str, ...]:
+    return tuple(sorted(key for key in keys if key not in allowed))
 
 
 def _mapping(value: Any) -> Mapping[str, Any]:

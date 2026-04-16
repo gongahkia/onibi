@@ -4,6 +4,8 @@
 [rule]
 id = "example-go-nethttp-header-injection"
 name = "net/http header write from request data"
+schema_version = "1"
+category = "injection"
 cwe_id = "CWE-113"
 severity = "medium"
 description = "Example rule showing request-controlled values reaching ResponseWriter header setters; sink pattern constrains receiver names."

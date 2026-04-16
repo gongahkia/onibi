@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import signal
 import sys
 import time
@@ -1679,6 +1680,53 @@ def _load_rules_cli_config(config_path: Path) -> PiranesiConfig:
         raise typer.Exit(code=2) from exc
 
 
+def _slugify_rule_pack_name(raw: str) -> str:
+    normalized = re.sub(r"[^a-z0-9._-]+", "-", raw.strip().lower())
+    normalized = normalized.strip("-.")
+    return normalized
+
+
+def _rule_scaffold_template(slug: str) -> str:
+    return (
+        "[rule]\n"
+        f'id = "{slug}"\n'
+        f'name = "{slug.replace("-", " ").title()}"\n'
+        'schema_version = "1"\n'
+        'category = "injection"\n'
+        'cwe_id = "CWE-89"\n'
+        'severity = "high"\n'
+        'description = "Example custom rule scaffold. Tune source, sink, and '
+        'sanitizers for your project."\n'
+        'author = "your-team"\n'
+        'version = "0.1.0"\n'
+        'tags = ["example", "custom"]\n'
+        "\n"
+        "[rule.source]\n"
+        'pattern = "req\\\\.(?:body|query|params)\\\\.[A-Za-z_$][\\\\w$]*"\n'
+        'type = "regex"\n'
+        "\n"
+        "[rule.sink]\n"
+        'pattern = "db\\\\.query\\\\s*\\\\("\n'
+        'type = "regex"\n'
+        "\n"
+        "[rule.sanitizers]\n"
+        'patterns = ["sanitizeSql\\\\s*\\\\("]\n'
+        'type = "regex"\n'
+        "\n"
+        "[rule.message]\n"
+        'template = "Custom rule scaffold: user input from `{source}` reaches `{sink}`."\n'
+        "\n"
+        "[[tests]]\n"
+        'fixture = "tests/fixtures/vulnerable.ts"\n'
+        "expect_finding = true\n"
+        'expect_cwe = "CWE-89"\n'
+        "\n"
+        "[[tests]]\n"
+        'fixture = "tests/fixtures/safe.ts"\n'
+        "expect_finding = false\n"
+    )
+
+
 def _load_hook_cli_config(config_path: Path) -> PiranesiConfig:
     if not config_path.exists():
         return PiranesiConfig()
@@ -2797,18 +2845,82 @@ def rules_validate(
     from piranesi.rules.engine import RuleValidationError, compile_rule, load_rules
 
     try:
-        compiled_rules = [compile_rule(rule) for rule in load_rules(path)]
+        loaded_rules = load_rules(path)
     except RuleValidationError as exc:
         typer.echo(f"error: {exc}")
         raise typer.Exit(code=1) from exc
 
-    if not compiled_rules:
+    if not loaded_rules:
         typer.echo(f"error: no custom rules found in {path}")
+        raise typer.Exit(code=1)
+
+    compiled_rules = []
+    validation_errors: list[str] = []
+    for rule in loaded_rules:
+        try:
+            compiled_rules.append(compile_rule(rule))
+        except RuleValidationError as exc:
+            validation_errors.append(str(exc))
+
+    if validation_errors:
+        typer.echo("error: rule validation failed")
+        for message in validation_errors:
+            typer.echo(f"- {message}")
         raise typer.Exit(code=1)
 
     typer.echo(f"validated {len(compiled_rules)} rule(s)")
     for rule in compiled_rules:
         typer.echo(f"{rule.id} [{rule.kind}] {rule.cwe_id} severity={rule.severity}")
+
+
+@rules_app.command("scaffold")
+def rules_scaffold(
+    name: Annotated[str, typer.Argument(help="Rule pack name or identifier.")],
+    output: Annotated[
+        Path,
+        typer.Option("--output", help="Directory where the rule pack scaffold is created."),
+    ] = Path("./rules"),
+) -> None:
+    slug = _slugify_rule_pack_name(name)
+    if not slug:
+        typer.echo("error: rule pack name must contain at least one alphanumeric character")
+        raise typer.Exit(code=1)
+
+    pack_dir = output / slug
+    if pack_dir.exists() and any(pack_dir.iterdir()):
+        typer.echo(f"error: destination already exists and is not empty: {pack_dir}")
+        raise typer.Exit(code=1)
+
+    rules_dir = pack_dir / "rules"
+    fixtures_dir = pack_dir / "tests" / "fixtures"
+    rules_dir.mkdir(parents=True, exist_ok=True)
+    fixtures_dir.mkdir(parents=True, exist_ok=True)
+
+    rule_file = rules_dir / f"{slug}.toml"
+    vulnerable_fixture = fixtures_dir / "vulnerable.ts"
+    safe_fixture = fixtures_dir / "safe.ts"
+
+    rule_file.write_text(_rule_scaffold_template(slug), encoding="utf-8")
+    vulnerable_fixture.write_text(
+        "export function vulnerable(req: any, db: any) {\n"
+        "  db.query(req.query.id);\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    safe_fixture.write_text(
+        "export function safe(req: any, db: any) {\n"
+        "  const id = Number.parseInt(String(req.query.id), 10);\n"
+        "  db.query(id);\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    typer.echo(f"created rule pack scaffold at {pack_dir}")
+    typer.echo(f"- {rule_file}")
+    typer.echo(f"- {vulnerable_fixture}")
+    typer.echo(f"- {safe_fixture}")
+    typer.echo(f"next: piranesi rules validate {rules_dir}")
+    typer.echo(f"next: piranesi rules test-all --rules-dir {rules_dir}")
 
 
 @rules_app.command("test")

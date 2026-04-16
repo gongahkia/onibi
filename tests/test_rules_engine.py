@@ -20,6 +20,37 @@ FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures" / "custom_rule_autho
 RULES_DIR = FIXTURES_DIR / "rules"
 
 
+def _write_minimal_rule(path: Path) -> None:
+    lines = [
+        "[rule]",
+        'id = "sample-rule"',
+        'name = "Sample rule"',
+        'schema_version = "1"',
+        'category = "injection"',
+        'cwe_id = "CWE-79"',
+        'severity = "high"',
+        'description = "Sample custom rule for validation tests."',
+        'author = "piranesi-tests"',
+        'version = "1.0.0"',
+        "",
+        "[rule.source]",
+        'pattern = "req\\\\.query\\\\.[A-Za-z_$][\\\\w$]*"',
+        'type = "regex"',
+        "",
+        "[rule.sink]",
+        'pattern = "res\\\\.send\\\\s*\\\\("',
+        'type = "regex"',
+        "",
+        "[rule.sanitizers]",
+        'patterns = ["escapeHtml\\\\s*\\\\("]',
+        'type = "regex"',
+        "",
+        "[rule.message]",
+        'template = "User input from `{source}` reaches `{sink}`."',
+    ]
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
 def test_load_rules_discovers_custom_rule_fixtures() -> None:
     rules = load_rules(RULES_DIR)
 
@@ -91,6 +122,96 @@ def test_rules_validate_command_catches_malformed_rule(tmp_path: Path) -> None:
 
     assert result.exit_code == 1
     assert "unbalanced delimiters" in result.stdout
+
+
+def test_rules_validate_command_reports_unknown_field(tmp_path: Path) -> None:
+    invalid_rule = tmp_path / "invalid-field.toml"
+    _write_minimal_rule(invalid_rule)
+    invalid_rule.write_text(
+        invalid_rule.read_text(encoding="utf-8").replace(
+            'version = "1.0.0"',
+            'version = "1.0.0"\nunexpected_flag = "true"',
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["rules", "validate", str(invalid_rule)])
+
+    assert result.exit_code == 1
+    assert str(invalid_rule) in result.stdout
+    assert "unknown field(s): rule.unexpected_flag" in result.stdout
+
+
+def test_rules_validate_command_reports_unknown_category(tmp_path: Path) -> None:
+    invalid_rule = tmp_path / "invalid-category.toml"
+    _write_minimal_rule(invalid_rule)
+    invalid_rule.write_text(
+        invalid_rule.read_text(encoding="utf-8").replace(
+            'category = "injection"',
+            'category = "not-a-real-category"',
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["rules", "validate", str(invalid_rule)])
+
+    assert result.exit_code == 1
+    assert str(invalid_rule) in result.stdout
+    assert "unknown category 'not-a-real-category'" in result.stdout
+
+
+def test_rules_validate_command_reports_unsupported_schema_version(tmp_path: Path) -> None:
+    invalid_rule = tmp_path / "invalid-schema.toml"
+    _write_minimal_rule(invalid_rule)
+    invalid_rule.write_text(
+        invalid_rule.read_text(encoding="utf-8").replace(
+            'schema_version = "1"',
+            'schema_version = "9.9"',
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["rules", "validate", str(invalid_rule)])
+
+    assert result.exit_code == 1
+    assert str(invalid_rule) in result.stdout
+    assert "unsupported schema_version '9.9'" in result.stdout
+
+
+def test_rules_validate_command_reports_duplicate_rule_ids(tmp_path: Path) -> None:
+    rules_dir = tmp_path / "rules"
+    rules_dir.mkdir(parents=True, exist_ok=True)
+    first_rule = rules_dir / "first.toml"
+    second_rule = rules_dir / "second.toml"
+    _write_minimal_rule(first_rule)
+    _write_minimal_rule(second_rule)
+
+    result = runner.invoke(app, ["rules", "validate", str(rules_dir)])
+
+    assert result.exit_code == 1
+    assert "duplicate custom rule id 'sample-rule'" in result.stdout
+    assert str(second_rule) in result.stdout
+
+
+def test_rules_scaffold_command_creates_valid_pack(tmp_path: Path) -> None:
+    output_dir = tmp_path / "scaffold"
+
+    result = runner.invoke(
+        app,
+        ["rules", "scaffold", "Payments SQL Rule Pack", "--output", str(output_dir)],
+    )
+
+    assert result.exit_code == 0
+    pack_dir = output_dir / "payments-sql-rule-pack"
+    rule_dir = pack_dir / "rules"
+    rule_file = rule_dir / "payments-sql-rule-pack.toml"
+    assert rule_file.exists()
+    assert (pack_dir / "tests" / "fixtures" / "vulnerable.ts").exists()
+    assert (pack_dir / "tests" / "fixtures" / "safe.ts").exists()
+
+    validate_result = runner.invoke(app, ["rules", "validate", str(rule_dir)])
+    assert validate_result.exit_code == 0
+    assert "validated 1 rule(s)" in validate_result.stdout
 
 
 @pytest.mark.parametrize(

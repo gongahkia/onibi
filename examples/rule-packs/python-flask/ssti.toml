@@ -4,6 +4,8 @@
 [rule]
 id = "example-python-flask-ssti"
 name = "Flask render_template_string injection"
+schema_version = "1"
+category = "injection"
 cwe_id = "CWE-94"
 severity = "high"
 description = "Example rule showing request input flowing into Flask template rendering APIs that execute template expressions."
