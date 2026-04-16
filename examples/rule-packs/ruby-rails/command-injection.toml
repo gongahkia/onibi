@@ -1,0 +1,27 @@
+# Example rule pack: Ruby/Rails command injection
+# This is a learning scaffold, not a production-complete policy.
+
+[rule]
+id = "example-ruby-rails-command-injection"
+name = "Rails params passed into shell execution"
+cwe_id = "CWE-78"
+severity = "high"
+description = "Example rule showing Rails params flowing into shell execution APIs; sink pattern constrains known command receivers."
+author = "piranesi-example-packs"
+version = "0.1.0"
+tags = ["example", "ruby", "rails", "command-injection", "receiver-constrained"]
+
+[rule.source]
+pattern = '\bparams\[[^\]]+\]'
+type = "regex"
+
+[rule.sink]
+pattern = '\b(?:Kernel\.)?(?:system|exec|spawn)\s*\('
+type = "regex"
+
+[rule.sanitizers]
+patterns = ['Shellwords\.escape\(', 'sanitize_shell_argument\(']
+type = "regex"
+
+[rule.message]
+template = "Example pack: Rails parameter from `{source}` reaches shell execution sink `{sink}`."

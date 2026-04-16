@@ -63,6 +63,9 @@ Suppression lifecycle best practices:
 - Run `piranesi suppressions validate --findings <detect.json|output-dir>` in CI.
 - Use `[suppression]` config flags (`fail_on_invalid`, `fail_on_expired`, `fail_on_stale`) to enforce policy.
 
+Custom rule authoring starter packs are available at `examples/rule-packs/`. See
+`docs/custom-rule-packs.md` for enable/copy/customize workflows.
+
 ## Runtime Validation
 
 Run these once before the first scan:

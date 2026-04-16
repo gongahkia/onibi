@@ -43,7 +43,7 @@ maturity level.
 | Baseline diff (`new`/`changed`/`fixed`/`existing`) | Beta | `piranesi diff` and `piranesi run --baseline ...` produce deterministic baseline comparisons plus PR-friendly `baseline-diff.md` / `baseline-diff.json` artifacts. |
 | Finding clustering | Beta | Reports preserve individual findings while grouping related findings by CWE and sink location. |
 | Compliance/legal mapping | Experimental | Produces technical evidence and framework-control mappings (with version, review date, reviewer/source, and confidence). Supports audits but does not certify compliance or replace legal review. `piranesi compliance bundle` creates redacted, checksum-manifested evidence bundles for audit workflows. |
-| Custom rules and rule registry | Beta | Rule validation, fixture testing, install/update/list flows exist. |
+| Custom rules and rule registry | Beta | Rule validation, fixture testing, install/update/list flows exist. First-party example packs are provided under `examples/rule-packs/` (see `docs/custom-rule-packs.md`) as authoring scaffolds. |
 | Advisory/dependency analysis | Beta | Supports advisory ingestion and dependency finding artifacts. |
 | LSP/watch/pre-commit | Beta | Save/watch loops use incremental invalidation where feasible, deduplicate repeated diagnostics, and expose stable diagnostic metadata (`stable_id`, evidence level, severity, action). |
 
