@@ -37,7 +37,7 @@ maturity level.
 | Deterministic no-LLM mode | Stable Alpha | Static scan/detect/report can run without API keys; triage passes reachable findings through. |
 | LLM triage | Beta | Requires LiteLLM-compatible credentials; improves false-positive discrimination but should not be treated as authoritative. |
 | Patch generation | Experimental | LLM-backed and skipped in deterministic mode. Generated patches require review. |
-| Docker exploit verification | Experimental | Includes structured, safe-by-default templates for `CWE-89` (SQLi), `CWE-78` (command injection), `CWE-918` (SSRF loopback probes), `CWE-22` (path traversal), `CWE-601` (open redirect), `CWE-79` (reflected XSS), `CWE-502` (insecure deserialization markers), and weak crypto classes (`CWE-327`/`CWE-326`/`CWE-319`). Templates avoid destructive payloads and do not require network callbacks by default. |
+| Docker exploit verification | Experimental | Includes structured, safe-by-default templates for `CWE-89` (SQLi), `CWE-78` (command injection), `CWE-918` (SSRF loopback probes), `CWE-22` (path traversal), `CWE-601` (open redirect), `CWE-79` (reflected XSS), `CWE-502` (insecure deserialization markers), and weak crypto classes (`CWE-327`/`CWE-326`/`CWE-319`). Templates avoid destructive payloads and do not require network callbacks by default. Verification attempts now emit explicit precondition status and skip/inconclusive reasons in `verify.json` and report explanations. |
 | SARIF output | Stable Alpha | Suitable for CI/code-scanning ingestion. |
 | JUnit/CSV/TUI output | Beta | Useful for integration and review workflows. |
 | Finding clustering | Beta | Reports preserve individual findings while grouping related findings by CWE and sink location. |

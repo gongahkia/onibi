@@ -194,6 +194,29 @@ class SandboxResult(BaseModel):
     confirmed: bool = False
 
 
+class VerificationPrecondition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    description: str
+    status: Literal["satisfied", "missing", "inferred", "user_provided"]
+    required: bool = True
+    value: str | None = None
+    source: str | None = None
+    next_step: str | None = None
+
+
+class VerificationAttempt(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    finding_id: str
+    status: Literal["confirmed", "skipped", "inconclusive", "error"]
+    reason: str
+    template_id: str | None = None
+    template_reason: str | None = None
+    preconditions: list[VerificationPrecondition] = Field(default_factory=list)
+
+
 class ConfirmedFinding(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

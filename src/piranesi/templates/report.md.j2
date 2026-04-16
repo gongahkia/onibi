@@ -43,6 +43,12 @@
 - **Sanitizers observed:** {% if finding.explanation.sanitizers_observed %}{{ finding.explanation.sanitizers_observed|join(", ") }}{% else %}none{% endif %}
 - **Propagation summary:** {{ finding.explanation.propagation_path.source_to_sink }} ({{ finding.explanation.propagation_path.path_node_count }} nodes)
 - **Confidence model:** {{ finding.explanation.confidence.model_version }} (contextual {{ "%.3f"|format(finding.explanation.confidence.contextual_confidence) }})
+- **Verification outcome:** `{{ finding.explanation.verification_state.outcome or "not_attempted" }}`
+- **Verification reason:** {{ finding.explanation.verification_state.reason or "n/a" }}
+- **Missing preconditions:** {% if finding.explanation.verification_state.missing_preconditions %}{{ finding.explanation.verification_state.missing_preconditions|join(", ") }}{% else %}none{% endif %}
+{% if finding.explanation.verification_state.actionable_next_steps %}
+- **Verification next steps:** {{ finding.explanation.verification_state.actionable_next_steps|join(" | ") }}
+{% endif %}
 {% endif %}
 {% if finding.cluster_id %}
 - **Cluster:** `{{ finding.cluster_id }}`{% if finding.cluster_size > 1 %} ({{ finding.cluster_size }} related findings{% if finding.cluster_representative %}, representative{% endif %}){% endif %}
@@ -99,6 +105,12 @@ No finding clusters were produced.
 - **Sanitizers observed:** {% if finding.explanation.sanitizers_observed %}{{ finding.explanation.sanitizers_observed|join(", ") }}{% else %}none{% endif %}
 - **Propagation summary:** {{ finding.explanation.propagation_path.source_to_sink }} ({{ finding.explanation.propagation_path.path_node_count }} nodes)
 - **Confidence model:** {{ finding.explanation.confidence.model_version }} (contextual {{ "%.3f"|format(finding.explanation.confidence.contextual_confidence) }})
+- **Verification outcome:** `{{ finding.explanation.verification_state.outcome or "not_attempted" }}`
+- **Verification reason:** {{ finding.explanation.verification_state.reason or "n/a" }}
+- **Missing preconditions:** {% if finding.explanation.verification_state.missing_preconditions %}{{ finding.explanation.verification_state.missing_preconditions|join(", ") }}{% else %}none{% endif %}
+{% if finding.explanation.verification_state.actionable_next_steps %}
+- **Verification next steps:** {{ finding.explanation.verification_state.actionable_next_steps|join(" | ") }}
+{% endif %}
 {% endif %}
 
 {% endfor %}

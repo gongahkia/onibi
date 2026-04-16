@@ -129,7 +129,7 @@ After the first run, the output directory contains:
 - `scan.json`: file list, call graph, entry points, attack-surface summary, and `query_quality` metrics for loaded/matched source and sink specs.
 - `detect.json`: candidate findings from the taint analysis stage.
 - `triage.json`: triage verdicts generated via the configured LLM provider.
-- `verify.json`: confirmed findings. With `--no-execute`, this stays empty by design.
+- `verify.json`: confirmed findings plus per-finding verification attempts with precondition status (`satisfied`, `missing`, `inferred`, `user_provided`) and explicit skip/inconclusive reasons.
 - `legal.json`: regulatory obligations for confirmed findings.
 - `patch.json`: generated fixes for confirmed findings.
 - `report.json`: machine-readable combined report, including the `query_quality` block copied from `scan.json` and per-finding `evidence_status` values.
@@ -166,7 +166,7 @@ It now also prints structured explanation metadata:
 - matched source/sink specs (including custom/built-in status)
 - sanitizers considered vs sanitizers actually observed on the path
 - propagation summary (source to sink, operations, sanitizer steps)
-- verification state (candidate, unreachable, suppressed, or verified)
+- verification state (candidate, unreachable, suppressed, or verified), including attempt outcome, skip/inconclusive reason, missing preconditions, and actionable next steps
 - confidence contributors with a documented `v1` weighted component model
 
 Confidence model (`v1`) components shown in `report.json` and `piranesi explain`:

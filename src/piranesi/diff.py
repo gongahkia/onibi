@@ -72,6 +72,7 @@ class VerifyArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     findings: list[ConfirmedFinding] = Field(default_factory=list)
+    attempts: list[object] = Field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)

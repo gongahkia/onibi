@@ -58,7 +58,7 @@ from piranesi.models import (
     TaintStep,
     TriagedFinding,
 )
-from piranesi.models.finding import SandboxResult
+from piranesi.models.finding import SandboxResult, VerificationAttempt
 from piranesi.patch.generator import generate_patches
 from piranesi.plugin import discover_rule_plugins
 from piranesi.report.renderer import (
@@ -109,6 +109,7 @@ from piranesi.verify import (
     run_in_sandbox,
     solve_exploit_template,
 )
+from piranesi.verify.preconditions import evaluate_verification_preconditions
 
 STAGE_ORDER = ("scan", "detect", "triage", "verify", "legal", "patch", "report")
 PARTIAL_SUMMARY_FILENAME = "_partial.json"
@@ -226,6 +227,7 @@ class VerifyArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     findings: list[ConfirmedFinding] = Field(default_factory=list)
+    attempts: list[VerificationAttempt] = Field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -2216,27 +2218,93 @@ def _run_verify_stage(
     triage_artifact = _extract_stage_artifact(prev_result, TriageArtifact, "triage")
     started_at = time.monotonic()
     confirmed_findings: list[ConfirmedFinding] = []
+    verification_attempts: list[VerificationAttempt] = []
 
     for triaged in triage_artifact.findings:
         if triaged.triage_verdict == "false_positive":
             continue
         template = extract_exploit_template(triaged.finding)
-        solve_result = solve_exploit_template(template)
-        if solve_result.status != "SAT" or not solve_result.solutions:
-            continue
-        payload = solve_result.solutions[0].payload
-        if context.no_execute:
-            _logger.warning(
-                "verify: --no-execute set, skipping sandbox execution for finding %s",
-                triaged.finding.id,
+        precondition_eval = evaluate_verification_preconditions(
+            finding=triaged.finding,
+            template=template,
+            target_dir=context.target_dir,
+            no_execute=context.no_execute,
+        )
+        attempt_fields = {
+            "finding_id": triaged.finding.id,
+            "template_id": template.template_id,
+            "template_reason": template.template_selection_reason,
+            "preconditions": list(precondition_eval.preconditions),
+        }
+        if precondition_eval.skip_reason is not None:
+            verification_attempts.append(
+                VerificationAttempt(
+                    **attempt_fields,
+                    status="skipped",
+                    reason=precondition_eval.skip_reason,
+                )
             )
             continue
 
+        solve_result = solve_exploit_template(template)
+        if solve_result.status != "SAT" or not solve_result.solutions:
+            verification_attempts.append(
+                VerificationAttempt(
+                    **attempt_fields,
+                    status="inconclusive",
+                    reason=(
+                        "verification inconclusive: solver did not produce an executable payload"
+                        if solve_result.reason is None
+                        else f"verification inconclusive: {solve_result.reason}"
+                    ),
+                )
+            )
+            continue
+        payload = solve_result.solutions[0].payload
+
         baseline_payload = build_baseline_payload(payload, vuln_class=triaged.finding.vuln_class)
-        captures = run_in_sandbox(str(context.target_dir), [baseline_payload, payload])
+        try:
+            captures = run_in_sandbox(str(context.target_dir), [baseline_payload, payload])
+        except Exception as exc:
+            _logger.warning(
+                "verify: sandbox execution failed for finding %s: %s",
+                triaged.finding.id,
+                exc,
+                exc_info=True,
+            )
+            verification_attempts.append(
+                VerificationAttempt(
+                    **attempt_fields,
+                    status="error",
+                    reason=f"verification error: sandbox execution failed ({exc})",
+                )
+            )
+            continue
         if len(captures) < 2:
+            verification_attempts.append(
+                VerificationAttempt(
+                    **attempt_fields,
+                    status="inconclusive",
+                    reason=(
+                        "verification inconclusive: sandbox did not return "
+                        "baseline+exploit captures"
+                    ),
+                )
+            )
             continue
         baseline_capture, exploit_capture = captures[0], captures[1]
+        if baseline_capture.error or exploit_capture.error:
+            capture_error = (
+                exploit_capture.error or baseline_capture.error or "UNKNOWN_SANDBOX_ERROR"
+            )
+            verification_attempts.append(
+                VerificationAttempt(
+                    **attempt_fields,
+                    status="inconclusive",
+                    reason=f"verification inconclusive: sandbox capture error ({capture_error})",
+                )
+            )
+            continue
         confirmation = confirm_responses(
             triaged.finding.vuln_class,
             payload,
@@ -2245,6 +2313,13 @@ def _run_verify_stage(
             container_logs=exploit_capture.container_logs,
         )
         if confirmation.level != "CONFIRMED":
+            verification_attempts.append(
+                VerificationAttempt(
+                    **attempt_fields,
+                    status="inconclusive",
+                    reason=f"verification inconclusive: {confirmation.evidence}",
+                )
+            )
             continue
 
         confirmed_findings.append(
@@ -2269,11 +2344,18 @@ def _run_verify_stage(
                 related_cves=[],
             )
         )
+        verification_attempts.append(
+            VerificationAttempt(
+                **attempt_fields,
+                status="confirmed",
+                reason=f"dynamic verification confirmed: {confirmation.evidence}",
+            )
+        )
 
     return StageResult(
         stage="verify",
         success=True,
-        artifact=VerifyArtifact(findings=confirmed_findings),
+        artifact=VerifyArtifact(findings=confirmed_findings, attempts=verification_attempts),
         elapsed_s=time.monotonic() - started_at,
     )
 
@@ -2351,6 +2433,7 @@ def _run_report_stage(
             list(triage_artifact.findings) if isinstance(triage_artifact, TriageArtifact) else None
         ),
         confirmed_findings=verify_artifact.findings,
+        verification_attempts=verify_artifact.attempts,
         legal_assessments=legal_artifact.assessments,
         patch_results=patch_artifact.patches,
         target_dir=context.target_dir,

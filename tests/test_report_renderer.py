@@ -11,6 +11,7 @@ from piranesi.models import (
     ScannedFunction,
     SourceLocation,
 )
+from piranesi.models.finding import VerificationAttempt, VerificationPrecondition
 from piranesi.report.renderer import build_report, write_report_outputs
 from tests._pipeline_fixtures import fixture_artifacts
 
@@ -325,6 +326,67 @@ def test_report_renderer_keeps_deterministic_triage_as_static_candidate(tmp_path
     )
 
     assert report.active_findings[0].evidence_status == "static_candidate"
+
+
+def test_report_renderer_includes_verification_skip_reason_and_preconditions(
+    tmp_path: Path,
+) -> None:
+    artifacts = fixture_artifacts(tmp_path)
+    active = artifacts["detect"].findings[0].model_copy(  # type: ignore[attr-defined]
+        update={"id": "finding-active"}
+    )
+    triaged = artifacts["triage"].findings[0].model_copy(  # type: ignore[attr-defined]
+        update={
+            "finding": active,
+            "triage_verdict": "true_positive",
+            "triage_mode": "deterministic",
+        }
+    )
+    verification_attempt = VerificationAttempt(
+        finding_id="finding-active",
+        status="skipped",
+        reason="verification skipped: missing required preconditions (route_mapping)",
+        template_id="generic-probe",
+        template_reason="fallback",
+        preconditions=[
+            VerificationPrecondition(
+                key="route_mapping",
+                description="HTTP route for exercising the vulnerable code path",
+                status="missing",
+                required=True,
+                next_step="Add finding.metadata['verification_route'] with a concrete endpoint.",
+            )
+        ],
+    )
+
+    report = build_report(
+        scan_result=artifacts["scan"],  # type: ignore[arg-type]
+        detected_findings=[active],
+        triaged_findings=[triaged],
+        confirmed_findings=[],
+        verification_attempts=[verification_attempt],
+        legal_assessments=[],
+        patch_results=[],
+        target_dir=tmp_path,
+        total_llm_cost_usd=0.0,
+        duration_s=1.0,
+        stage_timings_s={"scan": 0.1, "detect": 0.1, "report": 0.1},
+    )
+    write_report_outputs(report, tmp_path)
+
+    payload = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
+    verification_state = payload["active_findings"][0]["explanation"]["verification_state"]
+    assert verification_state["outcome"] == "skipped"
+    assert "missing required preconditions" in verification_state["reason"]
+    assert verification_state["missing_preconditions"] == ["route_mapping"]
+    assert len(verification_state["preconditions"]) == 1
+
+    markdown = (tmp_path / "report.md").read_text(encoding="utf-8")
+    assert "- **Verification outcome:** `skipped`" in markdown
+    assert (
+        "- **Verification reason:** verification skipped: missing required preconditions"
+        in markdown
+    )
     assert report.executive_summary.status_breakdown["static_candidate"] == 1
 
 

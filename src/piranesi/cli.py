@@ -610,8 +610,16 @@ def _render_finding_explanation(status: str, finding: ReportFindingMatch) -> str
                     f"{'yes' if explanation.verification_state.verified else 'no'}"
                 ),
                 (
+                    "- Outcome: "
+                    f"{explanation.verification_state.outcome or 'not_attempted'}"
+                ),
+                (
                     "- Verification method: "
                     f"{explanation.verification_state.verification_method or 'n/a'}"
+                ),
+                (
+                    "- Verification reason: "
+                    f"{explanation.verification_state.reason or 'n/a'}"
                 ),
                 (
                     "- Triage: "
@@ -622,10 +630,19 @@ def _render_finding_explanation(status: str, finding: ReportFindingMatch) -> str
                     "- Suppression reason: "
                     f"{explanation.verification_state.suppression_reason or 'n/a'}"
                 ),
+                (
+                    "- Missing preconditions: "
+                    f"{', '.join(explanation.verification_state.missing_preconditions) or 'none'}"
+                ),
                 "",
                 "Confidence contributors:",
             ]
         )
+        if explanation.verification_state.actionable_next_steps:
+            lines.extend(["Verification next steps:"])
+            lines.extend(
+                f"- {step}" for step in explanation.verification_state.actionable_next_steps
+            )
         confidence = explanation.confidence
         lines.extend(_confidence_component_lines(confidence))
         lines.extend(

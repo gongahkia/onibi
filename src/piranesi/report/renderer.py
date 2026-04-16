@@ -26,6 +26,7 @@ from piranesi.models import (
     TaintStep,
     TriagedFinding,
 )
+from piranesi.models.finding import VerificationAttempt, VerificationPrecondition
 from piranesi.report.cwe import cwe_title, extract_cwe_id
 
 _logger = logging.getLogger(__name__)
@@ -96,10 +97,15 @@ class VerificationState(BaseModel):
 
     state: str
     verified: bool = False
+    outcome: str | None = None
+    reason: str | None = None
     verification_method: str | None = None
     triage_verdict: str | None = None
     triage_mode: str | None = None
     suppression_reason: str | None = None
+    preconditions: list[VerificationPrecondition] = Field(default_factory=list)
+    missing_preconditions: list[str] = Field(default_factory=list)
+    actionable_next_steps: list[str] = Field(default_factory=list)
 
 
 class ConfidenceComponent(BaseModel):
@@ -313,6 +319,7 @@ def build_report(
     detected_findings: list[CandidateFinding],
     triaged_findings: list[TriagedFinding] | None = None,
     confirmed_findings: list[ConfirmedFinding],
+    verification_attempts: list[VerificationAttempt] | None = None,
     legal_assessments: list[LegalAssessment],
     patch_results: list[PatchResult],
     target_dir: Path,
@@ -325,6 +332,7 @@ def build_report(
 ) -> PiranesiReport:
     generated_at = _utc_now()
     triage_by_id = _triage_lookup(triaged_findings or [])
+    attempts_by_id = _verification_attempt_lookup(verification_attempts or [])
     legal_by_id = {
         assessment.finding.finding.finding.id: assessment for assessment in legal_assessments
     }
@@ -381,6 +389,7 @@ def build_report(
                     evidence_status="suppressed",
                     triaged=triaged,
                     confirmed=None,
+                    verification_attempt=attempts_by_id.get(candidate.id),
                     verification_method=None,
                     verified=False,
                     suppression_reason=candidate.suppression_reason,
@@ -391,6 +400,7 @@ def build_report(
         _candidate_report_finding(
             candidate,
             triaged=triage_by_id.get(candidate.id),
+            verification_attempt=attempts_by_id.get(candidate.id),
             cluster_by_id={},
         )
         for candidate in active_candidates
@@ -399,6 +409,7 @@ def build_report(
         _candidate_report_finding(
             candidate,
             triaged=triage_by_id.get(candidate.id),
+            verification_attempt=attempts_by_id.get(candidate.id),
         )
         for candidate in unreachable_candidates
     ]
@@ -433,6 +444,7 @@ def build_report(
                 evidence_status="confirmed",
                 triaged=confirmed.finding,
                 confirmed=confirmed,
+                verification_attempt=attempts_by_id.get(candidate.id),
                 verification_method="smt+sandbox",
                 verified=True,
             ),
@@ -630,6 +642,7 @@ def _candidate_report_finding(
     candidate: CandidateFinding,
     *,
     triaged: TriagedFinding | None = None,
+    verification_attempt: VerificationAttempt | None = None,
     cluster_by_id: dict[str, FindingCluster] | None = None,
 ) -> CandidateReportFinding:
     original_severity = candidate.metadata.get("reachability_original_severity")
@@ -642,6 +655,7 @@ def _candidate_report_finding(
             evidence_status=evidence_status,
             triaged=triaged,
             confirmed=None,
+            verification_attempt=verification_attempt,
             verification_method=None,
             verified=False,
         ),
@@ -697,6 +711,12 @@ def _triage_lookup(findings: list[TriagedFinding]) -> dict[str, TriagedFinding]:
     return {finding.finding.id: finding for finding in findings}
 
 
+def _verification_attempt_lookup(
+    attempts: list[VerificationAttempt],
+) -> dict[str, VerificationAttempt]:
+    return {attempt.finding_id: attempt for attempt in attempts}
+
+
 def _status_breakdown(
     *,
     active_findings: list[CandidateReportFinding],
@@ -723,6 +743,7 @@ def _build_finding_explanation(
     evidence_status: EvidenceStatus,
     triaged: TriagedFinding | None,
     confirmed: ConfirmedFinding | None,
+    verification_attempt: VerificationAttempt | None,
     verification_method: str | None,
     verified: bool,
     suppression_reason: str | None = None,
@@ -737,6 +758,7 @@ def _build_finding_explanation(
         verification_state=_verification_state(
             evidence_status=evidence_status,
             triaged=triaged,
+            verification_attempt=verification_attempt,
             verification_method=verification_method,
             verified=verified,
             suppression_reason=suppression_reason,
@@ -746,6 +768,7 @@ def _build_finding_explanation(
             evidence_status=evidence_status,
             triaged=triaged,
             confirmed=confirmed,
+            verification_attempt=verification_attempt,
             verification_method=verification_method,
             verified=verified,
             suppression_reason=suppression_reason,
@@ -842,6 +865,7 @@ def _verification_state(
     *,
     evidence_status: EvidenceStatus,
     triaged: TriagedFinding | None,
+    verification_attempt: VerificationAttempt | None,
     verification_method: str | None,
     verified: bool,
     suppression_reason: str | None,
@@ -854,13 +878,36 @@ def _verification_state(
         state = "unreachable_candidate"
     else:
         state = "candidate"
+    outcome = None if verification_attempt is None else verification_attempt.status
+    reason = None if verification_attempt is None else verification_attempt.reason
+    preconditions = [] if verification_attempt is None else list(verification_attempt.preconditions)
+    missing = [
+        precondition.key
+        for precondition in preconditions
+        if precondition.required and precondition.status == "missing"
+    ]
+    next_steps = sorted(
+        {
+            precondition.next_step.strip()
+            for precondition in preconditions
+            if isinstance(precondition.next_step, str) and precondition.next_step.strip()
+        }
+    )
+    if reason is None and evidence_status != "confirmed":
+        outcome = "not_attempted"
+        reason = "verification attempt metadata unavailable for this finding"
     return VerificationState(
         state=state,
         verified=verified,
+        outcome=outcome,
+        reason=reason,
         verification_method=verification_method,
         triage_verdict=None if triaged is None else triaged.triage_verdict,
         triage_mode=None if triaged is None else triaged.triage_mode,
         suppression_reason=suppression_reason,
+        preconditions=preconditions,
+        missing_preconditions=missing,
+        actionable_next_steps=next_steps,
     )
 
 
@@ -870,6 +917,7 @@ def _confidence_breakdown(
     evidence_status: EvidenceStatus,
     triaged: TriagedFinding | None,
     confirmed: ConfirmedFinding | None,
+    verification_attempt: VerificationAttempt | None,
     verification_method: str | None,
     verified: bool,
     suppression_reason: str | None,
@@ -891,6 +939,7 @@ def _confidence_breakdown(
         verification_method=verification_method,
         verified=verified,
         confirmed=confirmed,
+        verification_attempt=verification_attempt,
     )
     suppression_score, suppression_reason_text = _suppression_component(
         evidence_status=evidence_status,
@@ -1047,6 +1096,7 @@ def _verification_component(
     verification_method: str | None,
     verified: bool,
     confirmed: ConfirmedFinding | None,
+    verification_attempt: VerificationAttempt | None,
 ) -> tuple[float, str]:
     if evidence_status == "confirmed" and verified:
         if confirmed is not None and confirmed.sandbox_result.confirmed:
@@ -1062,6 +1112,13 @@ def _verification_component(
         return 0.2, "finding is unreachable and has no dynamic verification"
     if evidence_status == "suppressed":
         return 0.3, "finding is suppressed and not dynamically verified"
+    if verification_attempt is not None:
+        if verification_attempt.status == "skipped":
+            return 0.35, verification_attempt.reason
+        if verification_attempt.status == "inconclusive":
+            return 0.45, verification_attempt.reason
+        if verification_attempt.status == "error":
+            return 0.3, verification_attempt.reason
     return 0.5, "finding is a candidate without dynamic verification evidence"
 
 

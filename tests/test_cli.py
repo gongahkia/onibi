@@ -10,6 +10,7 @@ from typer.testing import CliRunner
 from piranesi.cli import app
 from piranesi.config import load_config
 from piranesi.doctor import DoctorCheck, DoctorReport
+from piranesi.models.finding import VerificationAttempt, VerificationPrecondition
 from piranesi.report.renderer import build_report
 from piranesi.watch import WatchModeSummary
 from tests._pipeline_fixtures import fixture_artifacts
@@ -495,11 +496,28 @@ def test_explain_command_renders_candidate_statuses(tmp_path: Path) -> None:
     triaged_active = artifacts["triage"].findings[0].model_copy(  # type: ignore[attr-defined]
         update={"finding": active, "triage_verdict": "true_positive", "triage_mode": "llm"}
     )
+    verification_attempt = VerificationAttempt(
+        finding_id="finding-active",
+        status="skipped",
+        reason="verification skipped: missing required preconditions (route_mapping)",
+        template_id="generic-probe",
+        template_reason="fallback",
+        preconditions=[
+            VerificationPrecondition(
+                key="route_mapping",
+                description="HTTP route for exercising the vulnerable code path",
+                status="missing",
+                required=True,
+                next_step="Add finding.metadata['verification_route'] with a concrete endpoint.",
+            )
+        ],
+    )
     report = build_report(
         scan_result=artifacts["scan"],  # type: ignore[arg-type]
         detected_findings=[active, unreachable, suppressed],
         triaged_findings=[triaged_active],
         confirmed_findings=artifacts["verify"].findings,  # type: ignore[attr-defined]
+        verification_attempts=[verification_attempt],
         legal_assessments=artifacts["legal"].assessments,  # type: ignore[attr-defined]
         patch_results=artifacts["patch"].patches,  # type: ignore[attr-defined]
         target_dir=tmp_path,
@@ -517,6 +535,11 @@ def test_explain_command_renders_candidate_statuses(tmp_path: Path) -> None:
     assert "Source spec: source:express_req_body" in active_result.stdout
     assert "Sink spec: sink:raw_sql_query" in active_result.stdout
     assert "Sanitizers observed: escapeHtml" in active_result.stdout
+    assert "Outcome: skipped" in active_result.stdout
+    assert "Verification reason: verification skipped: missing required preconditions" in (
+        active_result.stdout
+    )
+    assert "Missing preconditions: route_mapping" in active_result.stdout
     assert "Confidence contributors:" in active_result.stdout
 
     unreachable_result = runner.invoke(

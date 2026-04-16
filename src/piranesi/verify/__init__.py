@@ -27,6 +27,10 @@ from piranesi.verify.constraints import (
     parse_path_condition,
     select_exploit_template_spec,
 )
+from piranesi.verify.preconditions import (
+    VerificationPreconditionEvaluation,
+    evaluate_verification_preconditions,
+)
 from piranesi.verify.reproducer import (
     DEFAULT_INTERNAL_PORT,
     generate_reproducer_script,
@@ -83,6 +87,7 @@ __all__ = [
     "TemplatePrecondition",
     "TemplateRequestShape",
     "TypeCheck",
+    "VerificationPreconditionEvaluation",
     "VerificationRiskLevel",
     "build_baseline_payload",
     "build_image",
@@ -90,6 +95,7 @@ __all__ = [
     "capture_results",
     "confirm_exploit",
     "confirm_responses",
+    "evaluate_verification_preconditions",
     "expand_constraint_sets",
     "exploit_template_registry",
     "extract_exploit_template",
