@@ -69,6 +69,8 @@ class SinkSpec:
     severity: str | None = None
     flow_pattern: str | None = None
     flow_to_parent_call: bool = False
+    include_receivers: tuple[str, ...] = ()
+    exclude_receivers: tuple[str, ...] = ()
     is_custom: bool = False
 
 
@@ -433,6 +435,7 @@ BUILTIN_SINK_SPECS: tuple[SinkSpec, ...] = (
         severity="high",
         flow_pattern=_HTTP_REQUEST_URL_ARGUMENT_PATTERN,
         flow_to_parent_call=True,
+        exclude_receivers=("app", "router"),
     ),
     SinkSpec(
         name="json_parse_user_input",
@@ -504,6 +507,7 @@ BUILTIN_SINK_SPECS: tuple[SinkSpec, ...] = (
         severity="medium",
         flow_pattern=_HTTP_REQUEST_URL_ARGUMENT_PATTERN,
         flow_to_parent_call=True,
+        exclude_receivers=("app", "router"),
     ),
     SinkSpec(
         name="prototype_pollution_object_assign",
@@ -1440,6 +1444,8 @@ def _custom_sink_specs(scan_config: ScanConfig) -> tuple[SinkSpec, ...]:
             pattern=pattern,
             sink_type=custom_type,
             cwe_id=scan_config.custom_sinks.cwe_id,
+            include_receivers=tuple(scan_config.custom_sinks.include_receivers),
+            exclude_receivers=tuple(scan_config.custom_sinks.exclude_receivers),
             is_custom=True,
         )
         for index, pattern in enumerate(scan_config.custom_sinks.patterns, start=1)

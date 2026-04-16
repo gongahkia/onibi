@@ -748,6 +748,16 @@ def _extract_findings_for_pair(
                 elements=elements,
                 sink_location=sink_location,
             )
+        finding_metadata = {
+            **sanitizer_assessment.metadata,
+            "source_spec_name": source_spec.name,
+            "source_spec_category": source_spec.source_type.value,
+            "source_spec_custom": source_spec.is_custom,
+            "sink_spec_name": sink_spec.name,
+            "sink_spec_category": sink_spec.sink_type.value,
+            "sink_spec_cwe": sink_spec.cwe_id,
+            "sink_spec_custom": sink_spec.is_custom,
+        }
         findings.append(
             CandidateFinding(
                 id=candidate_finding_id(
@@ -778,7 +788,7 @@ def _extract_findings_for_pair(
                 path_conditions=path_conditions,
                 confidence=confidence,
                 severity=_severity_for_sink_spec(sink_spec),
-                metadata=sanitizer_assessment.metadata,
+                metadata=finding_metadata,
                 suppressed=sanitizer_assessment.suppressed,
                 suppression_reason=sanitizer_assessment.suppression_reason,
             )

@@ -16,6 +16,7 @@ function triggerSinks(
   https,
   needle,
   app,
+  router,
   handlers,
 ) {
   db.query(userId);
@@ -53,6 +54,8 @@ function triggerSinks(
 
   app.get("/health", handlers.health);
   app.post("/users", handlers.createUser);
+  router.get("/health", handlers.health);
+  router.post("/users", handlers.createUser);
 }
 
 function triggerFastifySinks(markup, redirectTo, reply) {

@@ -348,6 +348,10 @@ def _finding_for_sink(
             "detector": "prototype_pollution",
             "magic_property": magic_path,
             "argument_name": sink_match.argument_name,
+            "sink_spec_name": sink_match.sink_spec.name,
+            "sink_spec_category": sink_match.sink_spec.sink_type.value,
+            "sink_spec_cwe": sink_match.sink_spec.cwe_id,
+            "sink_spec_custom": sink_match.sink_spec.is_custom,
         },
     )
 

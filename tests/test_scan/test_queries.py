@@ -424,6 +424,155 @@ def test_execute_flow_query_reclassifies_hardcoded_base_templates_as_path_segmen
     assert path_segment_flows[0].elements[-1].code == "fetch(endpoint)"
 
 
+def test_execute_sink_query_filters_excluded_receivers() -> None:
+    sink_spec = SinkSpec(
+        name="receiver_filtered_sink",
+        pattern='cpg.call.name("get|post")',
+        sink_type=SinkType.HTTP_REQUEST,
+        cwe_id="CWE-918",
+        exclude_receivers=("app", "router"),
+        is_custom=True,
+    )
+    sink_query = build_nodes_query(sink_spec.pattern)
+    server = FakeJoernServer(
+        {
+            sink_query: {
+                "success": True,
+                "stdout": _joern_json_stdout(
+                    [
+                        {"_id": 1, "_label": "CALL", "code": "app.get(url)", "name": "get"},
+                        {"_id": 2, "_label": "CALL", "code": "router.post(url)", "name": "post"},
+                        {"_id": 3, "_label": "CALL", "code": "axios.get(url)", "name": "get"},
+                        {"_id": 4, "_label": "CALL", "code": "http.get(url)", "name": "get"},
+                    ]
+                ),
+            }
+        }
+    )
+
+    sink_nodes = execute_sink_query(server, sink_spec)  # type: ignore[arg-type]
+
+    assert _codes(sink_nodes) == {"axios.get(url)", "http.get(url)"}
+
+
+def test_execute_sink_query_filters_included_receivers() -> None:
+    sink_spec = SinkSpec(
+        name="receiver_allowlist_sink",
+        pattern='cpg.call.name("get")',
+        sink_type=SinkType.HTTP_REQUEST,
+        cwe_id="CWE-918",
+        include_receivers=("axios",),
+        is_custom=True,
+    )
+    sink_query = build_nodes_query(sink_spec.pattern)
+    server = FakeJoernServer(
+        {
+            sink_query: {
+                "success": True,
+                "stdout": _joern_json_stdout(
+                    [
+                        {"_id": 1, "_label": "CALL", "code": "axios.get(url)", "name": "get"},
+                        {"_id": 2, "_label": "CALL", "code": "http.get(url)", "name": "get"},
+                        {"_id": 3, "_label": "CALL", "code": "fetch(url)", "name": "fetch"},
+                    ]
+                ),
+            }
+        }
+    )
+
+    sink_nodes = execute_sink_query(server, sink_spec)  # type: ignore[arg-type]
+
+    assert _codes(sink_nodes) == {"axios.get(url)"}
+
+
+def test_execute_flow_query_filters_excluded_receivers() -> None:
+    source_spec = SourceSpec(
+        name="custom_source",
+        pattern='cpg.call.name("customInput")',
+        source_type=SourceType.CUSTOM,
+        is_custom=True,
+    )
+    sink_spec = SinkSpec(
+        name="receiver_filtered_sink",
+        pattern='cpg.call.name("get|post")',
+        sink_type=SinkType.HTTP_REQUEST,
+        cwe_id="CWE-918",
+        exclude_receivers=("app", "router"),
+        is_custom=True,
+    )
+    sanitizer_spec = SanitizerSpec(
+        name="noop",
+        pattern='cpg.call.name("__noop__")',
+        kind=SanitizerKind.SANITIZE,
+        blocks_flow=False,
+    )
+    flow_query = build_flow_query(source_spec, sink_spec)
+    server = FakeJoernServer(
+        {
+            flow_query: {
+                "success": True,
+                "stdout": _joern_json_stdout(
+                    [
+                        {
+                            "elements": [
+                                {
+                                    "_id": 1,
+                                    "_label": "CALL",
+                                    "code": "customInput()",
+                                    "name": "customInput",
+                                },
+                                {"_id": 2, "_label": "CALL", "code": "app.get(url)", "name": "get"},
+                            ]
+                        },
+                        {
+                            "elements": [
+                                {
+                                    "_id": 3,
+                                    "_label": "CALL",
+                                    "code": "customInput()",
+                                    "name": "customInput",
+                                },
+                                {
+                                    "_id": 4,
+                                    "_label": "CALL",
+                                    "code": "router.post(url)",
+                                    "name": "post",
+                                },
+                            ]
+                        },
+                        {
+                            "elements": [
+                                {
+                                    "_id": 5,
+                                    "_label": "CALL",
+                                    "code": "customInput()",
+                                    "name": "customInput",
+                                },
+                                {
+                                    "_id": 6,
+                                    "_label": "CALL",
+                                    "code": "axios.get(url)",
+                                    "name": "get",
+                                },
+                            ]
+                        },
+                    ]
+                ),
+            }
+        }
+    )
+
+    flows = execute_flow_query(
+        server,  # type: ignore[arg-type]
+        source_spec,
+        sink_spec,
+        sanitizer_specs=(sanitizer_spec,),
+    )
+
+    assert len(flows) == 1
+    assert [element.code for element in flows[0].elements] == ["customInput()", "axios.get(url)"]
+
+
 def test_scan_specs_include_custom_patterns_from_piranesi_toml(config_file: Any) -> None:
     path = config_file(
         "\n".join(
@@ -435,6 +584,8 @@ def test_scan_specs_include_custom_patterns_from_piranesi_toml(config_file: Any)
                 "patterns = ['cpg.call.name(\"customDangerous\")']",
                 "sink_type = 'http_request'",
                 "cwe_id = 'CWE-1234'",
+                "include_receivers = ['axios', 'http']",
+                "exclude_receivers = ['app', 'router']",
             ]
         )
     )
@@ -453,6 +604,8 @@ def test_scan_specs_include_custom_patterns_from_piranesi_toml(config_file: Any)
     assert custom_sink.pattern == 'cpg.call.name("customDangerous")'
     assert custom_sink.sink_type is SinkType.HTTP_REQUEST
     assert custom_sink.cwe_id == "CWE-1234"
+    assert custom_sink.include_receivers == ("axios", "http")
+    assert custom_sink.exclude_receivers == ("app", "router")
 
 
 def test_fastify_specs_are_appended_when_framework_selected() -> None:
@@ -698,7 +851,10 @@ def test_builtin_sink_queries_detect_expected_patterns(joern_server: JoernServer
     )
     assert 'app.get("/health", handlers.health)' not in _codes(ssrf_full_url_nodes)
     assert 'app.post("/users", handlers.createUser)' not in _codes(ssrf_full_url_nodes)
+    assert 'router.get("/health", handlers.health)' not in _codes(ssrf_full_url_nodes)
+    assert 'router.post("/users", handlers.createUser)' not in _codes(ssrf_full_url_nodes)
     assert 'app.get("/health", handlers.health)' not in _codes(ssrf_path_nodes)
+    assert 'router.get("/health", handlers.health)' not in _codes(ssrf_path_nodes)
 
 
 @pytest.mark.joern

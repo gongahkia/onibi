@@ -21,7 +21,14 @@ from piranesi.models.taint import SourceLocation
 from piranesi.scan.framework import detect_frameworks, discover_nextjs_routes
 from piranesi.scan.joern import JoernServer
 from piranesi.scan.queries import QueryNode, execute_json_query, execute_source_query
-from piranesi.scan.specs import SanitizerSpec, SinkSpec, SourceSpec, get_source_specs
+from piranesi.scan.query_quality import build_query_quality_metrics
+from piranesi.scan.specs import (
+    SanitizerSpec,
+    SinkSpec,
+    SourceSpec,
+    get_sink_specs,
+    get_source_specs,
+)
 from piranesi.scan.transpile import SourceMap
 
 _EXPRESS_ROUTE_CALLS_QUERY = (
@@ -157,6 +164,7 @@ def build_scan_result(
     )
     resolved_frameworks = tuple(frameworks or detect_frameworks(resolved_project_root))
     resolved_source_specs = tuple(source_specs or get_source_specs(frameworks=resolved_frameworks))
+    resolved_sink_specs = tuple(sink_specs or get_sink_specs(frameworks=resolved_frameworks))
     resolver = _NodeResolver(
         server=server,
         joern_project_root=resolved_joern_root,
@@ -170,7 +178,7 @@ def build_scan_result(
             joern_project_root=resolved_joern_root,
             source_map=source_map,
             source_specs=resolved_source_specs,
-            sink_specs=sink_specs,
+            sink_specs=resolved_sink_specs,
             sanitizer_specs=sanitizer_specs,
             frameworks=resolved_frameworks,
         )
@@ -203,6 +211,11 @@ def build_scan_result(
         ),
         entry_points=entry_points,
         attack_surface=attack_surface,
+        query_quality=build_query_quality_metrics(
+            source_specs=resolved_source_specs,
+            sink_specs=resolved_sink_specs,
+            candidate_findings=findings,
+        ),
         metadata=metadata,
     )
 

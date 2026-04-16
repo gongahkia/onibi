@@ -46,6 +46,9 @@ _HARDCODED_BASE_URL_TEMPLATE_PATTERN = re.compile(
 _HARDCODED_BASE_URL_FORMAT_STRING_PATTERN = re.compile(
     r'^<operator>[.]formatString\("https?://[^/$?"]+(?::\d+)?[/?#][^"]*", .+\)$'
 )
+_DOTTED_CALLEE_PATTERN = re.compile(
+    r"(?P<callee>[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+)\s*\("
+)
 _PARENT_CALL_QUERY_BY_NODE_TYPE = {
     "CALL": "cpg.call.id({node_id}L).astParent.toJsonPretty",
     "IDENTIFIER": "cpg.identifier.id({node_id}L).astParent.toJsonPretty",
@@ -122,7 +125,8 @@ def execute_source_query(server: JoernServer, source_spec: SourceSpec) -> tuple[
 
 
 def execute_sink_query(server: JoernServer, sink_spec: SinkSpec) -> tuple[QueryNode, ...]:
-    return _execute_nodes_query(server, _sink_nodes_pattern(sink_spec))
+    nodes = _execute_nodes_query(server, _sink_nodes_pattern(sink_spec))
+    return tuple(node for node in nodes if _node_matches_sink_receiver_constraints(node, sink_spec))
 
 
 def execute_sanitizer_query(
@@ -213,6 +217,8 @@ def _execute_flow_query_with_sanitizers(
         normalized_elements = normalize_flow_elements_for_sink_spec(server, sink_spec, elements)
         if not normalized_elements:
             continue
+        if not _node_matches_sink_receiver_constraints(normalized_elements[-1], sink_spec):
+            continue
         flows.append(
             FlowPath(
                 source_spec=source_spec,
@@ -263,6 +269,46 @@ def _sanitizer_nodes_pattern(sanitizer_spec: SanitizerSpec) -> str:
 
 def _sink_requires_parent_call(sink_spec: SinkSpec) -> bool:
     return sink_spec.flow_to_parent_call or sink_spec.name in _SINKS_USING_PARENT_CALL
+
+
+def _node_matches_sink_receiver_constraints(node: QueryNode, sink_spec: SinkSpec) -> bool:
+    if not sink_spec.include_receivers and not sink_spec.exclude_receivers:
+        return True
+
+    receiver = _extract_call_receiver(node.code)
+    if sink_spec.include_receivers and not _receiver_matches_any(
+        receiver,
+        sink_spec.include_receivers,
+    ):
+        return False
+    return not (
+        sink_spec.exclude_receivers
+        and _receiver_matches_any(receiver, sink_spec.exclude_receivers)
+    )
+
+
+def _extract_call_receiver(code: str) -> str | None:
+    match = _DOTTED_CALLEE_PATTERN.search(code)
+    if match is None:
+        return None
+    callee = match.group("callee")
+    receiver, _, _method = callee.rpartition(".")
+    return receiver or None
+
+
+def _receiver_matches_any(receiver: str | None, patterns: Sequence[str]) -> bool:
+    if receiver is None:
+        return False
+    normalized = receiver.strip()
+    if not normalized:
+        return False
+    for pattern in patterns:
+        candidate = pattern.strip()
+        if not candidate:
+            continue
+        if normalized == candidate or normalized.startswith(f"{candidate}."):
+            return True
+    return False
 
 
 def execute_json_query(server: JoernServer, cpgql: str) -> object:

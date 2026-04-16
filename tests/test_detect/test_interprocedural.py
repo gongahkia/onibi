@@ -159,6 +159,221 @@ def test_extract_candidate_findings_detects_interprocedural_patterns(
     assert finding.metadata["interprocedural"] is True
 
 
+def test_extract_interprocedural_findings_adds_wrapper_sink_promotion_metadata(
+    tmp_path: Path,
+) -> None:
+    fixture_path = tmp_path / "wrapper_metadata.ts"
+    fixture_path.write_text(
+        (
+            "const db = {\n"
+            "  query(sql: string) {\n"
+            "    return sql;\n"
+            "  },\n"
+            "};\n"
+            "\n"
+            "function run(sql: string) {\n"
+            "  return db.query(sql);\n"
+            "}\n"
+            "\n"
+            "export function handler(req: { body: { sql: string } }) {\n"
+            "  run(req.body.sql);\n"
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    source_spec = _source_spec_by_name("express_req_body")
+    sink_spec = _sink_spec_by_name("raw_sql_query")
+    source_id = 9201
+    sink_id = 9202
+    exact_payloads: dict[str, object] = {
+        build_nodes_query(source_spec.pattern): [
+            _node(
+                source_id,
+                label="CALL",
+                name="<operator>.fieldAccess",
+                code="req.body.sql",
+                line=12,
+                column=7,
+                method_full_name="<operator>.fieldAccess",
+            )
+        ],
+        build_nodes_query(sink_spec.pattern): [
+            _node(
+                sink_id,
+                label="CALL",
+                name="query",
+                code="db.query(sql)",
+                line=8,
+                column=10,
+                method_full_name="db.query",
+            )
+        ],
+    }
+    _register_file_queries(exact_payloads, fixture_path, source_id, sink_id)
+
+    findings = extract_interprocedural_findings(
+        FakeJoernServer(exact_payloads=exact_payloads),  # type: ignore[arg-type]
+        joern_project_root=tmp_path,
+        source_specs=(source_spec,),
+        sink_specs=(sink_spec,),
+    )
+
+    assert len(findings) == 1
+    promotion = findings[0].metadata["sink_promotion"]
+    assert isinstance(promotion, dict)
+    assert promotion["wrapper_name"] == "run"
+    assert promotion["wrapper_location"] == {"file": str(fixture_path), "line": 7}
+    assert promotion["wrapper_callsite"] == {
+        "file": str(fixture_path),
+        "line": 12,
+        "column": 3,
+        "snippet": "run(req.body.sql)",
+    }
+    assert promotion["forwarded_argument"] == {"index": 0, "name": "sql"}
+    assert promotion["underlying_sink"] == {
+        "spec_name": "raw_sql_query",
+        "api_name": "db.query",
+        "file": str(fixture_path),
+        "line": 8,
+        "column": 10,
+        "snippet": "db.query(sql)",
+    }
+
+
+def test_extract_interprocedural_findings_supports_expression_arrow_sink_wrappers(
+    tmp_path: Path,
+) -> None:
+    fixture_path = tmp_path / "arrow_wrapper.ts"
+    fixture_path.write_text(
+        (
+            "const pool = {\n"
+            "  query(sql: string) {\n"
+            "    return sql;\n"
+            "  },\n"
+            "};\n"
+            "\n"
+            "const run = (sql: string) => pool.query(sql);\n"
+            "\n"
+            "export function handler(req: { body: { sql: string } }) {\n"
+            "  run(req.body.sql);\n"
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    source_spec = _source_spec_by_name("express_req_body")
+    sink_spec = _sink_spec_by_name("raw_sql_query")
+    source_id = 9301
+    sink_id = 9302
+    exact_payloads: dict[str, object] = {
+        build_nodes_query(source_spec.pattern): [
+            _node(
+                source_id,
+                label="CALL",
+                name="<operator>.fieldAccess",
+                code="req.body.sql",
+                line=10,
+                column=7,
+                method_full_name="<operator>.fieldAccess",
+            )
+        ],
+        build_nodes_query(sink_spec.pattern): [
+            _node(
+                sink_id,
+                label="CALL",
+                name="query",
+                code="pool.query(sql)",
+                line=7,
+                column=29,
+                method_full_name="pool.query",
+            )
+        ],
+    }
+    _register_file_queries(exact_payloads, fixture_path, source_id, sink_id)
+
+    findings = extract_interprocedural_findings(
+        FakeJoernServer(exact_payloads=exact_payloads),  # type: ignore[arg-type]
+        joern_project_root=tmp_path,
+        source_specs=(source_spec,),
+        sink_specs=(sink_spec,),
+    )
+
+    assert len(findings) == 1
+    promotion = findings[0].metadata["sink_promotion"]
+    assert isinstance(promotion, dict)
+    assert promotion["wrapper_name"] == "run"
+    assert promotion["wrapper_location"] == {"file": str(fixture_path), "line": 7}
+    assert promotion["underlying_sink"]["api_name"] == "pool.query"
+
+
+def test_extract_interprocedural_findings_does_not_promote_sink_like_helper_without_sink_flow(
+    tmp_path: Path,
+) -> None:
+    fixture_path = tmp_path / "sink_like_helper.ts"
+    fixture_path.write_text(
+        (
+            "const db = {\n"
+            "  query(sql: string) {\n"
+            "    return sql;\n"
+            "  },\n"
+            "};\n"
+            "\n"
+            "function execute(sql: string) {\n"
+            "  return db.query(sql);\n"
+            "}\n"
+            "\n"
+            "function query(sql: string) {\n"
+            "  return sql.toUpperCase();\n"
+            "}\n"
+            "\n"
+            "export function handler(req: { body: { sql: string } }) {\n"
+            "  query(req.body.sql);\n"
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    source_spec = _source_spec_by_name("express_req_body")
+    sink_spec = _sink_spec_by_name("raw_sql_query")
+    source_id = 9401
+    sink_id = 9402
+    exact_payloads: dict[str, object] = {
+        build_nodes_query(source_spec.pattern): [
+            _node(
+                source_id,
+                label="CALL",
+                name="<operator>.fieldAccess",
+                code="req.body.sql",
+                line=16,
+                column=9,
+                method_full_name="<operator>.fieldAccess",
+            )
+        ],
+        build_nodes_query(sink_spec.pattern): [
+            _node(
+                sink_id,
+                label="CALL",
+                name="query",
+                code="db.query(sql)",
+                line=8,
+                column=10,
+                method_full_name="db.query",
+            )
+        ],
+    }
+    _register_file_queries(exact_payloads, fixture_path, source_id, sink_id)
+
+    findings = extract_interprocedural_findings(
+        FakeJoernServer(exact_payloads=exact_payloads),  # type: ignore[arg-type]
+        joern_project_root=tmp_path,
+        source_specs=(source_spec,),
+        sink_specs=(sink_spec,),
+    )
+
+    assert findings == ()
+
+
 def test_build_function_summaries_tracks_callback_parameter_flow(tmp_path: Path) -> None:
     fixture_path = tmp_path / "callback_wrapper.ts"
     fixture_path.write_text(

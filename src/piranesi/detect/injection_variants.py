@@ -114,6 +114,12 @@ def is_nosql_operator_position(
     snippets = _flow_snippets(flow_path)
     if any(token in snippet for snippet in snippets for token in _NOSQL_DANGEROUS_TOKENS):
         return True
+    if sink_spec is not None and sink_spec.name in {
+        "mongodb_where_operator",
+        "mongodb_where_chain",
+    }:
+        # Explicit $where sinks are already structurally dangerous.
+        return True
     if source_spec is not None and source_spec.name in _NOSQL_OBJECT_SOURCES:
         return True
     if any(marker in snippet for snippet in snippets for marker in _NOSQL_BODY_MARKERS):

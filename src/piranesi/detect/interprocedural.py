@@ -94,6 +94,7 @@ class TaintTransfer:
 class FunctionSummary:
     function_name: str
     module_path: str
+    definition_line: int
     parameter_names: tuple[str, ...]
     transfers: frozenset[TaintTransfer]
 
@@ -551,6 +552,7 @@ class _InterproceduralAnalyzer:
             self._summary_key(function): FunctionSummary(
                 function_name=function.name,
                 module_path=str(function.file_path),
+                definition_line=function.start_line,
                 parameter_names=function.params,
                 transfers=frozenset(),
             )
@@ -619,6 +621,7 @@ class _InterproceduralAnalyzer:
         return FunctionSummary(
             function_name=function.name,
             module_path=str(function.file_path),
+            definition_line=function.start_line,
             parameter_names=function.params,
             transfers=frozenset(transfers),
         )
@@ -1474,6 +1477,14 @@ class _InterproceduralAnalyzer:
                         column=transfer.sink_column or 0,
                         snippet=transfer.sink_snippet or transfer.sink_api_name,
                     )
+                    forwarded_argument_name: str | None = None
+                    if transfer.from_param_index < len(summary.parameter_names):
+                        forwarded_argument_name = summary.parameter_names[transfer.from_param_index]
+                    wrapper_callsite = _callsite_location(
+                        owner,
+                        call,
+                        line_starts=self._line_starts_by_file[owner.file_path],
+                    )
                     for source in origins:
                         effect.findings.append(
                             _build_candidate_finding(
@@ -1483,6 +1494,30 @@ class _InterproceduralAnalyzer:
                                 sink_api_name=transfer.sink_api_name,
                                 through_function=summary.function_name,
                                 confidence=transfer.confidence,
+                                metadata={
+                                    "sink_promotion": {
+                                        "wrapper_name": summary.function_name,
+                                        "wrapper_location": {
+                                            "file": summary.module_path,
+                                            "line": summary.definition_line,
+                                        },
+                                        "wrapper_callsite": wrapper_callsite,
+                                        "forwarded_argument": {
+                                            "index": transfer.from_param_index,
+                                            "name": forwarded_argument_name,
+                                        },
+                                        "underlying_sink": {
+                                            "spec_name": transfer.to_sink,
+                                            "api_name": transfer.sink_api_name,
+                                            "file": transfer.sink_file,
+                                            "line": transfer.sink_line,
+                                            "column": transfer.sink_column or 0,
+                                            "snippet": (
+                                                transfer.sink_snippet or transfer.sink_api_name
+                                            ),
+                                        },
+                                    }
+                                },
                             )
                         )
             if (
@@ -1704,11 +1739,23 @@ def _extract_named_functions(
             cursor = arrow_index + 2
         while cursor < len(masked) and masked[cursor].isspace():
             cursor += 1
-        if cursor >= len(masked) or masked[cursor] != "{":
+        if cursor >= len(masked):
             continue
-        body_close = _find_matching(masked, cursor, "{", "}")
-        if body_close < 0:
-            continue
+        if masked[cursor] == "{":
+            body_open = cursor
+            body_close = _find_matching(masked, cursor, "{", "}")
+            if body_close < 0:
+                continue
+            body_start_index = body_open + 1
+            body_end_index = body_close
+            body_text = text[body_start_index:body_end_index]
+        else:
+            body_start_index = cursor
+            body_end_index = _find_arrow_expression_end(masked, cursor)
+            if body_end_index < body_start_index:
+                continue
+            body_close = body_end_index
+            body_text = text[body_start_index : body_end_index + 1].strip()
         key = (name, match.start())
         if key in seen:
             continue
@@ -1719,12 +1766,12 @@ def _extract_named_functions(
                 file_path=file_path,
                 start_index=match.start(),
                 end_index=body_close + 1,
-                body_start_index=cursor + 1,
-                body_end_index=body_close,
+                body_start_index=body_start_index,
+                body_end_index=body_end_index,
                 start_line=_index_to_line(line_starts, match.start()),
                 end_line=_index_to_line(line_starts, body_close),
                 params=_split_parameters(params_text),
-                body=text[cursor + 1 : body_close],
+                body=body_text,
             )
         )
 
@@ -1863,6 +1910,34 @@ def _find_matching(text: str, start: int, open_char: str, close_char: str) -> in
     return -1
 
 
+def _find_arrow_expression_end(masked_text: str, start: int) -> int:
+    paren_depth = 0
+    bracket_depth = 0
+    brace_depth = 0
+    for index in range(start, len(masked_text)):
+        char = masked_text[index]
+        if char == "(":
+            paren_depth += 1
+        elif char == ")":
+            paren_depth = max(0, paren_depth - 1)
+        elif char == "[":
+            bracket_depth += 1
+        elif char == "]":
+            bracket_depth = max(0, bracket_depth - 1)
+        elif char == "{":
+            brace_depth += 1
+        elif char == "}":
+            brace_depth = max(0, brace_depth - 1)
+        elif (
+            char in {"\n", ";"}
+            and paren_depth == 0
+            and bracket_depth == 0
+            and brace_depth == 0
+        ):
+            return index - 1
+    return len(masked_text) - 1
+
+
 def _line_starts(text: str) -> tuple[int, ...]:
     starts = [0]
     for index, char in enumerate(text):
@@ -1878,6 +1953,15 @@ def _index_to_line(line_starts: Sequence[int], index: int) -> int:
             break
         line += 1
     return max(1, line - 1)
+
+
+def _index_to_column(line_starts: Sequence[int], index: int) -> int:
+    line_start = 0
+    for start in line_starts:
+        if start > index:
+            break
+        line_start = start
+    return max(1, index - line_start + 1)
 
 
 def _split_parameters(params_text: str) -> tuple[str, ...]:
@@ -2143,6 +2227,22 @@ def _call_target_name(call: _CallExpression) -> str:
     return _identifier_only(call.callee) or call.callee
 
 
+def _callsite_location(
+    owner: _FunctionDef,
+    call: _CallExpression | None,
+    *,
+    line_starts: Sequence[int],
+) -> dict[str, object] | None:
+    if call is None:
+        return None
+    return {
+        "file": str(owner.file_path),
+        "line": _index_to_line(line_starts, call.start_index),
+        "column": _index_to_column(line_starts, call.start_index),
+        "snippet": call.raw,
+    }
+
+
 def _contains_identifier(
     expression: str,
     values: set[_SourceFact],
@@ -2269,6 +2369,7 @@ def _build_candidate_finding(
     sink_api_name: str,
     through_function: str,
     confidence: float,
+    metadata: Mapping[str, object] | None = None,
 ) -> CandidateFinding:
     vuln_class = sink_spec.cwe_id or sink_spec.sink_type.value
     taint_path = [
@@ -2308,7 +2409,7 @@ def _build_candidate_finding(
         path_conditions=[],
         confidence=max(0.0, min(1.0, confidence)),
         severity=_severity_for_sink_spec(sink_spec),
-        metadata={"interprocedural": True},
+        metadata={"interprocedural": True, **dict(metadata or {})},
     )
 
 

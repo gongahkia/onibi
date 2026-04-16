@@ -538,7 +538,13 @@ def _build_finding(*, origin: _TaintOrigin, sink_match: _SinkMatch) -> Candidate
         confidence=_DEFAULT_CONFIDENCE,
         severity=sink_match.sink_spec.severity
         or _SEVERITY_BY_CWE.get(vuln_class, _DEFAULT_SEVERITY),
-        metadata={"detector": "alias"},
+        metadata={
+            "detector": "alias",
+            "sink_spec_name": sink_match.sink_spec.name,
+            "sink_spec_category": sink_match.sink_spec.sink_type.value,
+            "sink_spec_cwe": sink_match.sink_spec.cwe_id,
+            "sink_spec_custom": sink_match.sink_spec.is_custom,
+        },
     )
 
 
