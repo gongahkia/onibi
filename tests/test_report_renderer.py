@@ -43,6 +43,11 @@ def test_report_renderer_writes_expected_structure(tmp_path: Path) -> None:
     assert payload["executive_summary"]["total_llm_cost_usd"] == 0.73
     assert payload["findings"][0]["title"] == "SQL Injection"
     assert payload["findings"][0]["pr_body"]
+    assert payload["findings"][0]["verification_template_id"] == "sqli-read-probe"
+    assert (
+        payload["findings"][0]["verification_template_reason"]
+        == "matched finding CWE CWE-89 [carriers=body; route=POST /login]"
+    )
     assert (
         payload["findings"][0]["explanation"]["verification_state"]["state"]
         == "verified_confirmed"
@@ -55,6 +60,8 @@ def test_report_renderer_writes_expected_structure(tmp_path: Path) -> None:
 
     markdown = (tmp_path / "report.md").read_text(encoding="utf-8")
     assert "## SQL Injection (`finding-001`)" in markdown
+    assert "**Verification template:** `sqli-read-probe`" in markdown
+    assert "**Template selection:** matched finding CWE CWE-89" in markdown
     assert "### Confidence Breakdown" in markdown
     assert "| PDPA | Section 24 | Notify the regulator of a notifiable breach." in markdown
 

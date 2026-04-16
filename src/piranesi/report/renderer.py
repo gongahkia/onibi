@@ -163,6 +163,10 @@ class CombinedFinding(BaseModel):
     taint_path: list[TaintStep] = Field(default_factory=list)
     exploit_payload: str | None = None
     exploit_constraints: list[str] = Field(default_factory=list)
+    verification_template_id: str | None = None
+    verification_template_reason: str | None = None
+    verification_template_risk_level: str | None = None
+    verification_expected_evidence: list[str] = Field(default_factory=list)
     reproducer_script: str | None = None
     sandbox_response: dict[str, object] = Field(default_factory=dict)
     regulatory_obligations: list[RegulatoryObligation] = Field(default_factory=list)
@@ -446,6 +450,10 @@ def build_report(
             taint_path=list(candidate.taint_path),
             exploit_payload=confirmed.exploit_payload,
             exploit_constraints=list(confirmed.exploit_constraints),
+            verification_template_id=confirmed.verification_template_id,
+            verification_template_reason=confirmed.verification_template_reason,
+            verification_template_risk_level=confirmed.verification_template_risk_level,
+            verification_expected_evidence=list(confirmed.verification_expected_evidence),
             reproducer_script=confirmed.reproducer_script,
             sandbox_response=dict(confirmed.sandbox_result.response),
             regulatory_obligations=[] if legal is None else list(legal.obligations),

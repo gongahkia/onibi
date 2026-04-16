@@ -184,6 +184,58 @@ def test_path_traversal_payload_synthesis_path_params() -> None:
     assert ".." in payload.url
 
 
+def test_ssrf_payload_synthesis_uses_loopback_payload() -> None:
+    slot = _slot(name="url", carrier="query", encoding="query")
+    result = solve_exploit_template(
+        _template(vuln_class="CWE-918", slot=slot, method="GET", endpoint="/proxy")
+    )
+
+    assert result.status == "SAT"
+    payload = result.solutions[0].payload
+    assert payload.url == "/proxy"
+    assert payload.body == {"url": payload.payload_values["url"]}
+    assert payload.payload_values["url"] in safe_payload_candidates("CWE-918")
+    assert payload.payload_values["url"].startswith("http://")
+
+
+def test_open_redirect_payload_synthesis_uses_external_destination() -> None:
+    slot = _slot(name="next", carrier="query", encoding="query")
+    result = solve_exploit_template(
+        _template(vuln_class="CWE-601", slot=slot, method="GET", endpoint="/jump")
+    )
+
+    assert result.status == "SAT"
+    payload = result.solutions[0].payload
+    assert payload.body == {"next": payload.payload_values["next"]}
+    assert payload.payload_values["next"] in safe_payload_candidates("CWE-601")
+    assert "example.com" in payload.payload_values["next"]
+
+
+def test_insecure_deserialization_payload_synthesis_uses_marker_payload() -> None:
+    slot = _slot(name="blob", carrier="body", encoding="json")
+    result = solve_exploit_template(
+        _template(vuln_class="CWE-502", slot=slot, method="POST", endpoint="/import")
+    )
+
+    assert result.status == "SAT"
+    payload = result.solutions[0].payload
+    assert payload.payload_values["blob"] in safe_payload_candidates("CWE-502")
+    assert payload.headers["Content-Type"] == "application/json"
+    assert payload.body == {"blob": payload.payload_values["blob"]}
+
+
+def test_weak_crypto_payload_synthesis_uses_known_weak_algorithm() -> None:
+    slot = _slot(name="alg", carrier="query", encoding="query")
+    result = solve_exploit_template(
+        _template(vuln_class="CWE-327", slot=slot, method="GET", endpoint="/sign")
+    )
+
+    assert result.status == "SAT"
+    payload = result.solutions[0].payload
+    assert payload.payload_values["alg"] in safe_payload_candidates("CWE-327")
+    assert payload.payload_values["alg"] in {"md5", "sha1", "des", "rc4", "tls1.0"}
+
+
 def test_synthesize_urlencoded_body_post_processes_after_z3() -> None:
     slot = _slot(name="username", carrier="body", encoding="urlencoded")
     payload = synthesize_payload(

@@ -200,6 +200,10 @@ class ConfirmedFinding(BaseModel):
     finding: TriagedFinding
     exploit_payload: str
     exploit_constraints: list[str]
+    verification_template_id: str | None = None
+    verification_template_reason: str | None = None
+    verification_template_risk_level: str | None = None
+    verification_expected_evidence: list[str] = Field(default_factory=list)
     sandbox_result: SandboxResult
     reproducer_script: str
     related_cves: list[str]

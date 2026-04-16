@@ -4,7 +4,7 @@ import ast
 import json
 import re
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
@@ -21,6 +21,7 @@ ConstraintValueType = Literal["string", "int", "float", "bool"]
 PayloadCarrier = Literal["body", "query", "path", "header"]
 
 _MAX_DISJUNCTS = 10
+_CWE_ID_PATTERN = re.compile(r"\bCWE-\d+\b")
 _FIELD_SEGMENT_PATTERN = re.compile(r"\.([A-Za-z_$][\w$]*)|\[['\"]([^'\"]+)['\"]\]")
 _ROUTE_CALL_PATTERN = re.compile(
     r"\b(?:app|router)\.(?P<method>get|post|put|delete|patch|options|head|use)\s*"
@@ -129,12 +130,471 @@ class ExploitTemplate:
     payload_slots: tuple[PayloadSlot, ...]
     path_conditions: tuple[VerifierConstraint, ...]
     constraint_sets: tuple[tuple[VerifierConstraint, ...], ...]
+    template_id: str = "generic-probe"
+    template_title: str = "Generic verification probe"
+    template_selection_reason: str = "no vulnerability-specific template matched"
+    template_preconditions: tuple[TemplatePrecondition, ...] = field(default_factory=tuple)
+    template_request_shape: TemplateRequestShape = field(
+        default_factory=lambda: TemplateRequestShape()
+    )
+    safe_payloads: tuple[str, ...] = field(default_factory=tuple)
+    expected_evidence: tuple[str, ...] = field(default_factory=tuple)
+    timeout_ms: int = 30_000
+    risk_level: VerificationRiskLevel = "low"
+    network_callbacks_allowed: bool = False
+    destructive_payloads: bool = False
     unsat_reason: str | None = None
+
+
+VerificationRiskLevel = Literal["low", "medium", "high"]
+
+
+@dataclass(frozen=True, slots=True)
+class TemplatePrecondition:
+    name: str
+    description: str
+    required: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class TemplateRequestShape:
+    methods: tuple[str, ...] = ()
+    carriers: tuple[PayloadCarrier, ...] = ()
+    description: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ExploitTemplateSpec:
+    template_id: str
+    title: str
+    cwe_ids: tuple[str, ...]
+    category_tokens: tuple[str, ...]
+    preconditions: tuple[TemplatePrecondition, ...]
+    request_shape: TemplateRequestShape
+    safe_payloads: tuple[str, ...]
+    expected_evidence: tuple[str, ...]
+    timeout_ms: int
+    risk_level: VerificationRiskLevel
+    network_callbacks_allowed: bool = False
+    destructive_payloads: bool = False
+
+
+_GENERIC_TEMPLATE_SPEC = ExploitTemplateSpec(
+    template_id="generic-probe",
+    title="Generic verification probe",
+    cwe_ids=(),
+    category_tokens=(),
+    preconditions=(
+        TemplatePrecondition(
+            name="reachable-input",
+            description=(
+                "tainted user input must still reach the sink under current path constraints"
+            ),
+        ),
+    ),
+    request_shape=TemplateRequestShape(
+        methods=(),
+        carriers=("body", "query", "path", "header"),
+        description="Use inferred request method and source carrier.",
+    ),
+    safe_payloads=(),
+    expected_evidence=(
+        "response diverges between baseline and probe request",
+        "verifier captures deterministic evidence without side effects",
+    ),
+    timeout_ms=30_000,
+    risk_level="low",
+)
+
+_EXPLOIT_TEMPLATE_REGISTRY: tuple[ExploitTemplateSpec, ...] = (
+    ExploitTemplateSpec(
+        template_id="sqli-read-probe",
+        title="SQL injection read-only probe",
+        cwe_ids=("CWE-89",),
+        category_tokens=("sql", "query", "database", "orm"),
+        preconditions=(
+            TemplatePrecondition(
+                name="sql-sink",
+                description="input reaches a SQL query sink without strict parameterization",
+            ),
+            TemplatePrecondition(
+                name="observable-db-response",
+                description="response or logs expose SQL error, row delta, or timing signal",
+            ),
+        ),
+        request_shape=TemplateRequestShape(
+            methods=("GET", "POST", "PUT", "PATCH"),
+            carriers=("body", "query", "path", "header"),
+            description="Inject SQL metacharacters into inferred tainted field.",
+        ),
+        safe_payloads=(
+            "' OR 1=1--",
+            "' UNION SELECT NULL--",
+            "' UNION SELECT NULL,NULL--",
+            "'; SELECT pg_sleep(5)--",
+            "'; SELECT SLEEP(5)--",
+        ),
+        expected_evidence=(
+            "SQL error markers appear only for exploit payload",
+            "row count differs between baseline and exploit",
+            "time-based payload introduces >5s delay",
+        ),
+        timeout_ms=35_000,
+        risk_level="medium",
+    ),
+    ExploitTemplateSpec(
+        template_id="cmdi-read-probe",
+        title="Command injection read-only probe",
+        cwe_ids=("CWE-78",),
+        category_tokens=("command", "shell", "exec", "spawn"),
+        preconditions=(
+            TemplatePrecondition(
+                name="command-sink",
+                description="input reaches command execution sink",
+            ),
+            TemplatePrecondition(
+                name="observable-command-output",
+                description="stdout, stderr, or HTTP response surfaces command output",
+            ),
+        ),
+        request_shape=TemplateRequestShape(
+            methods=("GET", "POST", "PUT", "PATCH"),
+            carriers=("body", "query", "path", "header"),
+            description="Inject shell separators or subshell expressions.",
+        ),
+        safe_payloads=(
+            "; id",
+            "| cat /etc/passwd",
+            "$(whoami)",
+            "`id`",
+        ),
+        expected_evidence=(
+            "command output markers (uid=, whoami result) in response/logs",
+            "response differs materially from benign baseline",
+        ),
+        timeout_ms=30_000,
+        risk_level="high",
+    ),
+    ExploitTemplateSpec(
+        template_id="ssrf-loopback-probe",
+        title="SSRF loopback-only probe",
+        cwe_ids=("CWE-918",),
+        category_tokens=("ssrf", "http_request", "fetch", "axios", "proxy"),
+        preconditions=(
+            TemplatePrecondition(
+                name="outbound-http-sink",
+                description="input influences an outbound request URL",
+            ),
+            TemplatePrecondition(
+                name="loopback-only",
+                description="payloads stay on localhost/loopback and avoid callback infrastructure",
+            ),
+        ),
+        request_shape=TemplateRequestShape(
+            methods=("GET", "POST"),
+            carriers=("body", "query", "path", "header"),
+            description="Override target URL with localhost endpoints only.",
+        ),
+        safe_payloads=(
+            "http://127.0.0.1:80/",
+            "http://localhost/",
+            "http://[::1]/",
+        ),
+        expected_evidence=(
+            "backend request target changes to loopback host",
+            "response status/body differs from benign baseline",
+        ),
+        timeout_ms=25_000,
+        risk_level="medium",
+    ),
+    ExploitTemplateSpec(
+        template_id="path-traversal-read-probe",
+        title="Path traversal read-only probe",
+        cwe_ids=("CWE-22",),
+        category_tokens=("path", "file_read", "readfile", "filesystem", "traversal"),
+        preconditions=(
+            TemplatePrecondition(
+                name="file-read-sink",
+                description="input is used in file path construction",
+            ),
+            TemplatePrecondition(
+                name="read-only-paths",
+                description="probe requests read-only local file paths",
+            ),
+        ),
+        request_shape=TemplateRequestShape(
+            methods=("GET", "POST"),
+            carriers=("path", "query", "body"),
+            description="Inject traversal segments into filename/path parameter.",
+        ),
+        safe_payloads=(
+            "../../../etc/passwd",
+            "....//....//....//etc/passwd",
+            "..%2f..%2f..%2fetc/passwd",
+        ),
+        expected_evidence=(
+            "response contains canonical passwd-style markers",
+            "traversal request returns content absent from baseline",
+        ),
+        timeout_ms=25_000,
+        risk_level="high",
+    ),
+    ExploitTemplateSpec(
+        template_id="open-redirect-probe",
+        title="Open redirect probe",
+        cwe_ids=("CWE-601",),
+        category_tokens=("redirect", "location", "res.redirect", "window.location"),
+        preconditions=(
+            TemplatePrecondition(
+                name="redirect-sink",
+                description="input controls redirect destination sink",
+            ),
+            TemplatePrecondition(
+                name="location-observable",
+                description="response exposes Location header or redirect target",
+            ),
+        ),
+        request_shape=TemplateRequestShape(
+            methods=("GET", "POST"),
+            carriers=("query", "body", "path", "header"),
+            description="Inject externally-routable URL and scheme-relative variants.",
+        ),
+        safe_payloads=(
+            "https://example.com/piranesi-probe",
+            "//example.com/piranesi-probe",
+            "///example.com/piranesi-probe",
+        ),
+        expected_evidence=(
+            "3xx response location points to external host",
+            "location host differs from baseline/local target",
+        ),
+        timeout_ms=20_000,
+        risk_level="medium",
+    ),
+    ExploitTemplateSpec(
+        template_id="reflected-xss-probe",
+        title="Reflected XSS executable-markup probe",
+        cwe_ids=("CWE-79",),
+        category_tokens=("xss", "html_output", "render", "template", "innerhtml"),
+        preconditions=(
+            TemplatePrecondition(
+                name="html-reflection",
+                description="input reaches reflected HTML sink",
+            ),
+            TemplatePrecondition(
+                name="response-capture",
+                description="response body is captured for escaping checks",
+            ),
+        ),
+        request_shape=TemplateRequestShape(
+            methods=("GET", "POST"),
+            carriers=("query", "body", "path", "header"),
+            description="Inject markup snippets and check escaping behavior.",
+        ),
+        safe_payloads=(
+            "<script>alert(1)</script>",
+            '"><img src=x onerror=alert(1)>',
+            "'><svg/onload=alert(1)>",
+        ),
+        expected_evidence=(
+            "raw payload reflected without escaping",
+            "response contains active script/event-handler markup",
+        ),
+        timeout_ms=20_000,
+        risk_level="medium",
+    ),
+    ExploitTemplateSpec(
+        template_id="insecure-deserialization-probe",
+        title="Insecure deserialization marker probe",
+        cwe_ids=("CWE-502",),
+        category_tokens=("deserialize", "unserialize", "yaml", "pickle", "marshal"),
+        preconditions=(
+            TemplatePrecondition(
+                name="deserialization-sink",
+                description="input reaches deserialization sink",
+            ),
+            TemplatePrecondition(
+                name="marker-only",
+                description="probe payloads are inert marker objects, not gadget chains",
+            ),
+        ),
+        request_shape=TemplateRequestShape(
+            methods=("POST", "PUT", "PATCH"),
+            carriers=("body", "query", "header"),
+            description="Send inert serialized markers to detect unsafe parser behavior.",
+        ),
+        safe_payloads=(
+            '{"piranesi_probe":"deserialize"}',
+            "rO0ABXQADnBpcmFuZXNpLXByb2Jl",
+            "!!python/object/apply:builtins.str ['piranesi-probe']",
+        ),
+        expected_evidence=(
+            "deserialization error or type confusion visible in response/logs",
+            "marker payload mutates control flow compared with baseline",
+        ),
+        timeout_ms=25_000,
+        risk_level="high",
+    ),
+    ExploitTemplateSpec(
+        template_id="weak-crypto-algorithm-probe",
+        title="Weak crypto algorithm acceptance probe",
+        cwe_ids=("CWE-327", "CWE-326", "CWE-319"),
+        category_tokens=("crypto", "cipher", "tls", "algorithm", "hash"),
+        preconditions=(
+            TemplatePrecondition(
+                name="algorithm-input",
+                description="input influences algorithm/cipher selection",
+            ),
+            TemplatePrecondition(
+                name="non-destructive",
+                description="probe only tests weak option acceptance; no data corruption",
+            ),
+        ),
+        request_shape=TemplateRequestShape(
+            methods=("GET", "POST", "PUT", "PATCH"),
+            carriers=("query", "body", "header"),
+            description="Inject known weak algorithm names into tainted algorithm field.",
+        ),
+        safe_payloads=(
+            "md5",
+            "sha1",
+            "des",
+            "rc4",
+            "tls1.0",
+        ),
+        expected_evidence=(
+            "service accepts weak algorithm option without rejection",
+            "response metadata/logs indicate weak crypto path chosen",
+        ),
+        timeout_ms=20_000,
+        risk_level="low",
+    ),
+)
+
+_TEMPLATE_BY_CWE: dict[str, ExploitTemplateSpec] = {
+    cwe_id: spec for spec in _EXPLOIT_TEMPLATE_REGISTRY for cwe_id in spec.cwe_ids
+}
+
+
+def _extract_cwe_id(vuln_class: str) -> str | None:
+    match = _CWE_ID_PATTERN.search(vuln_class.upper())
+    return None if match is None else match.group(0)
+
+
+def _template_match_haystacks(finding: CandidateFinding) -> tuple[str, ...]:
+    values = [
+        finding.vuln_class,
+        finding.source.source_type,
+        finding.sink.sink_type,
+        finding.sink.api_name,
+        finding.source.parameter_name or "",
+    ]
+    for key, value in finding.metadata.items():
+        values.append(str(key))
+        values.append(str(value))
+    return tuple(value.casefold() for value in values if value)
+
+
+def _selection_context(
+    payload_slots: Sequence[PayloadSlot],
+    http_method: str | None,
+    endpoint: str | None,
+) -> str:
+    context_parts: list[str] = []
+    carriers = sorted({slot.carrier for slot in payload_slots})
+    if carriers:
+        context_parts.append(f"carriers={','.join(carriers)}")
+    if http_method and endpoint:
+        context_parts.append(f"route={http_method.upper()} {endpoint}")
+    return "" if not context_parts else " [" + "; ".join(context_parts) + "]"
+
+
+def exploit_template_registry() -> tuple[ExploitTemplateSpec, ...]:
+    return (*_EXPLOIT_TEMPLATE_REGISTRY, _GENERIC_TEMPLATE_SPEC)
+
+
+def select_exploit_template_spec(
+    finding: CandidateFinding,
+    *,
+    payload_slots: Sequence[PayloadSlot] = (),
+    http_method: str | None = None,
+    endpoint: str | None = None,
+) -> tuple[ExploitTemplateSpec, str]:
+    cwe_id = _extract_cwe_id(finding.vuln_class)
+    if cwe_id is not None and cwe_id in _TEMPLATE_BY_CWE:
+        spec = _TEMPLATE_BY_CWE[cwe_id]
+        reason = f"matched finding CWE {cwe_id}"
+        return spec, reason + _selection_context(payload_slots, http_method, endpoint)
+
+    haystacks = _template_match_haystacks(finding)
+    best_spec: ExploitTemplateSpec | None = None
+    best_tokens: tuple[str, ...] = ()
+    best_score = 0
+    has_matching_carrier = bool(
+        payload_slots
+        and any(
+            slot.carrier in spec.request_shape.carriers
+            for spec in _EXPLOIT_TEMPLATE_REGISTRY
+            for slot in payload_slots
+        )
+    )
+
+    for spec in _EXPLOIT_TEMPLATE_REGISTRY:
+        matched_tokens = tuple(
+            token
+            for token in spec.category_tokens
+            if any(token in haystack for haystack in haystacks)
+        )
+        if not matched_tokens:
+            continue
+
+        score = len(matched_tokens)
+        if payload_slots and any(
+            slot.carrier in spec.request_shape.carriers for slot in payload_slots
+        ):
+            score += 1
+        if http_method is not None and http_method.upper() in spec.request_shape.methods:
+            score += 1
+
+        if score <= best_score:
+            continue
+        best_spec = spec
+        best_tokens = matched_tokens
+        best_score = score
+
+    if best_spec is not None:
+        token_summary = ", ".join(best_tokens)
+        reason = (
+            "matched sink/category metadata token"
+            if len(best_tokens) == 1
+            else "matched sink/category metadata tokens"
+        )
+        return (
+            best_spec,
+            f"{reason} ({token_summary})"
+            + _selection_context(payload_slots, http_method, endpoint),
+        )
+
+    fallback_reason = "fell back to generic template because no class-specific match was found"
+    if payload_slots and not has_matching_carrier:
+        fallback_reason += " for inferred payload carrier"
+    return _GENERIC_TEMPLATE_SPEC, fallback_reason + _selection_context(
+        payload_slots,
+        http_method,
+        endpoint,
+    )
 
 
 def extract_exploit_template(finding: CandidateFinding) -> ExploitTemplate:
     payload_slots = _extract_payload_slots(finding)
     alias_map = _build_alias_map(finding, payload_slots)
+    http_method, endpoint = _infer_route(finding, payload_slots[0] if payload_slots else None)
+    template_spec, template_reason = select_exploit_template_spec(
+        finding,
+        payload_slots=payload_slots,
+        http_method=http_method,
+        endpoint=endpoint,
+    )
 
     parsed_conditions = tuple(
         condition
@@ -161,7 +621,6 @@ def extract_exploit_template(finding: CandidateFinding) -> ExploitTemplate:
     elif not normalized_sets:
         normalized_sets = ((),)
 
-    http_method, endpoint = _infer_route(finding, payload_slots[0] if payload_slots else None)
     return ExploitTemplate(
         vuln_class=finding.vuln_class,
         http_method=http_method,
@@ -169,6 +628,17 @@ def extract_exploit_template(finding: CandidateFinding) -> ExploitTemplate:
         payload_slots=payload_slots,
         path_conditions=parsed_conditions,
         constraint_sets=normalized_sets,
+        template_id=template_spec.template_id,
+        template_title=template_spec.title,
+        template_selection_reason=template_reason,
+        template_preconditions=template_spec.preconditions,
+        template_request_shape=template_spec.request_shape,
+        safe_payloads=template_spec.safe_payloads,
+        expected_evidence=template_spec.expected_evidence,
+        timeout_ms=template_spec.timeout_ms,
+        risk_level=template_spec.risk_level,
+        network_callbacks_allowed=template_spec.network_callbacks_allowed,
+        destructive_payloads=template_spec.destructive_payloads,
         unsat_reason=unsat_reason,
     )
 
@@ -1117,6 +1587,7 @@ __all__ = [
     "ConstraintOperator",
     "ConstraintValueType",
     "ExploitTemplate",
+    "ExploitTemplateSpec",
     "IntBound",
     "LogicalAnd",
     "LogicalNot",
@@ -1126,11 +1597,16 @@ __all__ = [
     "StringContains",
     "StringEq",
     "StringLength",
+    "TemplatePrecondition",
+    "TemplateRequestShape",
     "TypeCheck",
+    "VerificationRiskLevel",
     "VerifierConstraint",
     "expand_constraint_sets",
+    "exploit_template_registry",
     "extract_exploit_template",
     "negate_constraint",
     "normalize_constraint_set",
     "parse_path_condition",
+    "select_exploit_template_spec",
 ]

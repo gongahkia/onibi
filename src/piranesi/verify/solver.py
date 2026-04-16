@@ -66,6 +66,28 @@ _PATH_TRAVERSAL_SAFE_PAYLOADS = (
     "....//....//....//etc/passwd",
     "..%2f..%2f..%2fetc/passwd",
 )
+_SSRF_SAFE_PAYLOADS = (
+    "http://127.0.0.1:80/",
+    "http://localhost/",
+    "http://[::1]/",
+)
+_OPEN_REDIRECT_SAFE_PAYLOADS = (
+    "https://example.com/piranesi-probe",
+    "//example.com/piranesi-probe",
+    "///example.com/piranesi-probe",
+)
+_INSECURE_DESERIALIZATION_SAFE_PAYLOADS = (
+    '{"piranesi_probe":"deserialize"}',
+    "rO0ABXQADnBpcmFuZXNpLXByb2Jl",
+    "!!python/object/apply:builtins.str ['piranesi-probe']",
+)
+_WEAK_CRYPTO_SAFE_PAYLOADS = (
+    "md5",
+    "sha1",
+    "des",
+    "rc4",
+    "tls1.0",
+)
 
 
 @dataclass(slots=True)
@@ -129,6 +151,7 @@ def solve_exploit_template(
     concolic_input: ConcolicInput | None = None,
     finding: CandidateFinding | None = None,
 ) -> SolverResult:
+    resolved_timeout_ms = template.timeout_ms if timeout_ms == DEFAULT_TIMEOUT_MS else timeout_ms
     if template.unsat_reason is not None:
         return SolverResult(status="UNVERIFIABLE", reason=template.unsat_reason)
 
@@ -142,7 +165,7 @@ def solve_exploit_template(
                 constraint_set,
                 slot=slot,
                 constraint_set_index=index,
-                timeout_ms=timeout_ms,
+                timeout_ms=resolved_timeout_ms,
                 solver_factory=solver_factory,
             )
             if attempt.status == "SAT" and attempt.solution is not None:
@@ -166,7 +189,7 @@ def solve_exploit_template(
         concolic_result = concolic_verify(
             resolved_concolic_input,
             template=template,
-            timeout_ms=timeout_ms,
+            timeout_ms=resolved_timeout_ms,
         )
         if concolic_result.status == "SAT" and concolic_result.payload is not None:
             if not template.payload_slots:
@@ -212,7 +235,7 @@ def solve_constraint_set(
     solver_factory: SolverFactory | None = None,
 ) -> SolveAttempt:
     last_reason = "CONSTRAINTS_UNSATISFIABLE"
-    for forced_payload in safe_payload_candidates(template.vuln_class):
+    for forced_payload in _template_payload_candidates(template):
         try:
             solver, variables = build_z3_query(
                 template,
@@ -332,6 +355,37 @@ def vulnerability_constraints(vuln_class: str, payload_var: z3.ExprRef) -> tuple
         )
     if "CWE-22" in normalized or "TRAVERS" in normalized:
         return (z3.Contains(payload_var, z3.StringVal("../")),)
+    if "CWE-918" in normalized or "SSRF" in normalized:
+        return (z3.Contains(payload_var, z3.StringVal("http://")),)
+    if "CWE-601" in normalized or "REDIRECT" in normalized:
+        return (
+            z3.Or(
+                z3.Contains(payload_var, z3.StringVal("://")),
+                z3.Contains(payload_var, z3.StringVal("//")),
+            ),
+        )
+    if "CWE-502" in normalized or "DESERIAL" in normalized:
+        return (
+            z3.Or(
+                z3.Contains(payload_var, z3.StringVal("{")),
+                z3.Contains(payload_var, z3.StringVal("!!")),
+                z3.Contains(payload_var, z3.StringVal("rO0A")),
+            ),
+        )
+    if (
+        "CWE-327" in normalized
+        or "CWE-326" in normalized
+        or "WEAK_CRYPTO" in normalized
+        or "CIPHER" in normalized
+    ):
+        return (
+            z3.Or(
+                z3.Contains(payload_var, z3.StringVal("md5")),
+                z3.Contains(payload_var, z3.StringVal("sha1")),
+                z3.Contains(payload_var, z3.StringVal("des")),
+                z3.Contains(payload_var, z3.StringVal("rc4")),
+            ),
+        )
     return ()
 
 
@@ -345,7 +399,26 @@ def safe_payload_candidates(vuln_class: str) -> tuple[str | None, ...]:
         return _CMDI_SAFE_PAYLOADS
     if "CWE-22" in normalized or "TRAVERS" in normalized:
         return _PATH_TRAVERSAL_SAFE_PAYLOADS
+    if "CWE-918" in normalized or "SSRF" in normalized:
+        return _SSRF_SAFE_PAYLOADS
+    if "CWE-601" in normalized or "REDIRECT" in normalized:
+        return _OPEN_REDIRECT_SAFE_PAYLOADS
+    if "CWE-502" in normalized or "DESERIAL" in normalized:
+        return _INSECURE_DESERIALIZATION_SAFE_PAYLOADS
+    if (
+        "CWE-327" in normalized
+        or "CWE-326" in normalized
+        or "WEAK_CRYPTO" in normalized
+        or "CIPHER" in normalized
+    ):
+        return _WEAK_CRYPTO_SAFE_PAYLOADS
     return (None,)
+
+
+def _template_payload_candidates(template: ExploitTemplate) -> tuple[str | None, ...]:
+    if template.safe_payloads:
+        return tuple(template.safe_payloads)
+    return safe_payload_candidates(template.vuln_class)
 
 
 def is_safe_payload(payload: str) -> bool:

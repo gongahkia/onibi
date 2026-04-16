@@ -199,6 +199,20 @@ When you are ready to exercise Docker-backed verification, remove `--no-execute`
 - The target directory to contain a runnable Node app with a `package.json`
 - Explicit authorization via `--authorized`
 
+Verification currently uses structured exploit/probe templates with safe defaults for:
+
+- `CWE-89` SQL injection
+- `CWE-78` command injection
+- `CWE-918` SSRF (loopback-only probes)
+- `CWE-22` path traversal
+- `CWE-601` open redirect
+- `CWE-79` reflected XSS
+- `CWE-502` insecure deserialization (marker payloads only)
+- weak crypto classes (`CWE-327`, `CWE-326`, `CWE-319`) when tainted input controls algorithm/cipher choice
+
+By default these templates avoid destructive payloads and do not require external
+network callback infrastructure.
+
 When you are ready to exercise LLM-assisted triage and patch generation, set one LiteLLM-compatible API key before running the pipeline.
 
 An end-to-end verified example already exists in [`tests/fixtures/verify/xss_app`](../tests/fixtures/verify/xss_app). On the test machine used for this release pass, it produced one confirmed XSS finding with payload `<script>alert(1)</script>`.

@@ -2256,6 +2256,10 @@ def _run_verify_stage(
                     for item in solve_result.solutions[0].model_values.values()
                     if isinstance(item, str)
                 ],
+                verification_template_id=template.template_id,
+                verification_template_reason=template.template_selection_reason,
+                verification_template_risk_level=template.risk_level,
+                verification_expected_evidence=list(template.expected_evidence),
                 sandbox_result=_sandbox_result_from_capture(exploit_capture, confirmed=True),
                 reproducer_script=generate_reproducer_script(
                     triaged.finding,

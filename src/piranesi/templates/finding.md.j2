@@ -38,6 +38,15 @@
 ### Exploit
 
 **Payload:** `{{ finding.exploit_payload or "n/a" }}`
+**Verification template:** `{{ finding.verification_template_id or "n/a" }}`
+{% if finding.verification_template_risk_level %}**Template risk level:** `{{ finding.verification_template_risk_level }}`{% endif %}
+{% if finding.verification_template_reason %}**Template selection:** {{ finding.verification_template_reason }}{% endif %}
+{% if finding.verification_expected_evidence %}
+**Expected evidence:**
+{% for item in finding.verification_expected_evidence %}
+- {{ item }}
+{% endfor %}
+{% endif %}
 
 ```bash
 {{ finding.reproducer_script or "No reproducer generated." }}

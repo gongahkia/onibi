@@ -85,6 +85,15 @@ def fixture_artifacts(target_dir: Path, *, severity: str = "high") -> dict[str, 
         finding=triaged,
         exploit_payload="' OR 1=1--",
         exploit_constraints=["username == payload"],
+        verification_template_id="sqli-read-probe",
+        verification_template_reason=(
+            "matched finding CWE CWE-89 [carriers=body; route=POST /login]"
+        ),
+        verification_template_risk_level="medium",
+        verification_expected_evidence=[
+            "SQL error markers appear only for exploit payload",
+            "row count differs between baseline and exploit",
+        ],
         sandbox_result=SandboxResult(
             container_id="sandbox-1",
             request={"method": "POST", "url": "http://127.0.0.1:3000/login"},
