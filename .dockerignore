@@ -1,7 +1,10 @@
 .claude
+.codex
 .git
 .github
 .mypy_cache
+.piranesi-cache
+.piranesi-out
 .piranesi-trace.jsonl
 .pytest_cache
 .ruff_cache

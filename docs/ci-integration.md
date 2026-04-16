@@ -179,6 +179,9 @@ docker run --rm \
 ```
 
 The image ships with Joern, JVM 17, Node.js, TypeScript, Python 3.12, and Piranesi pre-installed. It uses the bundled default `piranesi.toml`, while outputs default to `/workspace/piranesi-output`.
+The image ships with Joern, JVM 17, Node.js, TypeScript, Python 3.12, and Piranesi pre-installed.
+It runs as a non-root user by default; use `--user "$(id -u):$(id -g)"` when mounting host volumes to avoid root-owned output files.
+See `docs/docker.md` for full Docker usage details.
 
 ## Fail-on-findings
 

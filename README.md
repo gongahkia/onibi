@@ -60,6 +60,23 @@ Set one LiteLLM-compatible credential to enable LLM-assisted stages: `OPENAI_API
 
 Use `--fail-severity high` to fail CI only on `high` or `critical` findings, or `--no-fail` to always exit `0` for findings while still writing artifacts.
 
+## Docker Quick Start
+
+Build and run Piranesi without a local Python/Node/Joern toolchain:
+
+```bash
+docker build -t piranesi:local .
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -v "$PWD":/workspace \
+  -w /workspace \
+  piranesi:local \
+  run . --authorized --yes --no-execute --output /workspace/piranesi-output
+```
+
+This path is deterministic/no-LLM by default. Pass LLM keys at runtime only (for example `-e OPENAI_API_KEY`) when needed.
+See [docs/docker.md](docs/docker.md) for mounts, config/output paths, and permission troubleshooting.
+
 ## Real Output
 
 The compact summary below was produced from a real run against [`examples/vuln-express`](examples/vuln-express):
@@ -95,6 +112,7 @@ Full writeups:
 - [OWASP NodeGoat](docs/examples/nodegoat.md)
 - [Getting Started](docs/getting-started.md)
 - [Configuration Reference](docs/configuration.md)
+- [Docker Usage](docs/docker.md)
 
 ## SARIF Output
 

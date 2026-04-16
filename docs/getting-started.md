@@ -55,6 +55,9 @@ The generated config is tuned from detected frameworks and languages, and the
 command prints next steps for dependency setup, `piranesi doctor .`, and the
 first safe `--no-execute` scan.
 
+If you prefer not to install the host toolchain, use the container workflow in
+`docs/docker.md`.
+
 Suppression lifecycle best practices:
 
 - Always include `reason`, `reason_code`, and `owner`.
