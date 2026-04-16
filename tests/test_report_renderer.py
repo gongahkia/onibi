@@ -72,8 +72,11 @@ def test_report_renderer_writes_expected_structure(tmp_path: Path) -> None:
     assert payload["findings"][0]["composite_risk"]["model_version"] == "v1"
     assert payload["executive_summary"]["composite_risk_breakdown"]
     assert payload["executive_summary"]["highest_composite_risk_finding_id"] == "finding-001"
+    assert payload["advisory_db"]["freshness"] == "missing"
+    assert payload["advisory_db"]["warnings"]
 
     markdown = (tmp_path / "report.md").read_text(encoding="utf-8")
+    assert "## Advisory DB Freshness" in markdown
     assert "## SQL Injection (`finding-001`)" in markdown
     assert "**Verification template:** `sqli-read-probe`" in markdown
     assert "**Template selection:** matched finding CWE CWE-89" in markdown

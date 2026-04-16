@@ -12,6 +12,7 @@ from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, ConfigDict, Field
 
 from piranesi import __version__
+from piranesi.advisory import advisory_db_path, get_advisory_db_status
 from piranesi.config import (
     OwnershipConfig,
     OwnershipPackageMappingConfig,
@@ -395,6 +396,23 @@ class ReportOwnershipContext(BaseModel):
     control_mappings: list[ControlOwnerMapping] = Field(default_factory=list)
 
 
+class AdvisoryDbFreshness(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+    exists: bool
+    schema_version: int | None = None
+    advisory_count: int = 0
+    affected_package_count: int = 0
+    sources: list[str] = Field(default_factory=list)
+    last_updated: str | None = None
+    checksum_sha256: str | None = None
+    freshness: str = "missing"
+    stale_after_days: int = 14
+    age_days: float | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
 class PiranesiReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -403,6 +421,7 @@ class PiranesiReport(BaseModel):
     files_scanned: list[str] = Field(default_factory=list)
     status_legend: dict[str, str] = Field(default_factory=lambda: dict(_EVIDENCE_STATUS_LABELS))
     scan_metadata: ScanMetadata
+    advisory_db: AdvisoryDbFreshness | None = None
     ownership_context: ReportOwnershipContext = Field(default_factory=ReportOwnershipContext)
     executive_summary: ExecutiveSummary
     suppression_lifecycle: SuppressionLifecycleSummary | None = None
@@ -649,12 +668,14 @@ def build_report(
         suppressed_findings=suppressed_findings,
     )
     top_risk = risk_ranked_findings[0] if risk_ranked_findings else None
+    advisory_db = _advisory_db_freshness(target_dir=target_dir)
 
     report = PiranesiReport(
         target=str(target_dir.resolve(strict=False)),
         generated_at=generated_at,
         files_scanned=list(scan_result.files_scanned),
         scan_metadata=scan_result.metadata,
+        advisory_db=advisory_db,
         ownership_context=ownership_context,
         executive_summary=ExecutiveSummary(
             findings_detected=len(detected_findings),
@@ -1663,6 +1684,27 @@ def _severity_basis(candidate: CandidateFinding) -> str:
         return f"severity '{candidate.severity}' from sink spec '{sink_spec_name}'"
     cwe = _extract_cwe_id(candidate.vuln_class)
     return f"severity '{candidate.severity}' inferred from vulnerability class {cwe}"
+
+
+def _advisory_db_freshness(
+    *,
+    target_dir: Path,
+) -> AdvisoryDbFreshness:
+    status = get_advisory_db_status(advisory_db_path(target_dir))
+    return AdvisoryDbFreshness(
+        path=str(status.path),
+        exists=status.exists,
+        schema_version=status.schema_version,
+        advisory_count=status.advisory_count,
+        affected_package_count=status.affected_package_count,
+        sources=list(status.sources),
+        last_updated=status.last_updated,
+        checksum_sha256=status.checksum_sha256,
+        freshness=status.freshness,
+        stale_after_days=status.stale_after_days,
+        age_days=status.age_days,
+        warnings=list(status.warnings),
+    )
 
 
 def _cluster_candidate_findings(candidates: list[CandidateFinding]) -> list[FindingCluster]:

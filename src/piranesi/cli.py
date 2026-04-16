@@ -93,6 +93,7 @@ Exit codes:
   3 = runtime error
   4 = budget exceeded
 """
+_ADVISORY_PROJECT_ROOT_HELP = "Project root used to resolve the default advisory DB."
 
 app = typer.Typer(
     add_completion=False,
@@ -108,6 +109,11 @@ plugins_app = typer.Typer(
 rules_app = typer.Typer(
     add_completion=False,
     help="Manage custom rules and rule repositories.",
+    no_args_is_help=True,
+)
+advisory_app = typer.Typer(
+    add_completion=False,
+    help="Manage local advisory database workflows.",
     no_args_is_help=True,
 )
 baseline_app = typer.Typer(
@@ -132,6 +138,7 @@ hook_app = typer.Typer(
 )
 app.add_typer(plugins_app, name="plugins")
 app.add_typer(rules_app, name="rules")
+app.add_typer(advisory_app, name="advisory")
 app.add_typer(baseline_app, name="baseline")
 app.add_typer(suppressions_app, name="suppressions")
 app.add_typer(compliance_app, name="compliance")
@@ -1727,6 +1734,31 @@ def _rule_scaffold_template(slug: str) -> str:
     )
 
 
+def _resolve_advisory_db_path(project_root: Path, db_path: Path | None) -> Path:
+    if db_path is not None:
+        return db_path.expanduser().resolve(strict=False)
+    from piranesi.advisory import advisory_db_path
+
+    return advisory_db_path(project_root)
+
+
+def _advisory_status_payload(status: Any) -> dict[str, object]:
+    return {
+        "path": str(status.path),
+        "exists": status.exists,
+        "schema_version": status.schema_version,
+        "advisory_count": status.advisory_count,
+        "affected_package_count": status.affected_package_count,
+        "sources": list(status.sources),
+        "last_updated": status.last_updated,
+        "checksum_sha256": status.checksum_sha256,
+        "freshness": status.freshness,
+        "stale_after_days": status.stale_after_days,
+        "age_days": status.age_days,
+        "warnings": list(status.warnings),
+    }
+
+
 def _load_hook_cli_config(config_path: Path) -> PiranesiConfig:
     if not config_path.exists():
         return PiranesiConfig()
@@ -3101,6 +3133,284 @@ def rules_coverage(
         raise typer.Exit(code=1) from exc
 
     typer.echo(render_rule_coverage_report(report))
+
+
+@advisory_app.command("status")
+def advisory_status(
+    project_root: Annotated[
+        Path,
+        typer.Option("--project-root", help=_ADVISORY_PROJECT_ROOT_HELP),
+    ] = Path("."),
+    db: Annotated[
+        Path | None,
+        typer.Option("--db", help="Explicit advisory DB file path."),
+    ] = None,
+    stale_after_days: Annotated[
+        int,
+        typer.Option("--stale-after-days", help="Freshness warning threshold in days."),
+    ] = 14,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+) -> None:
+    from piranesi.advisory import get_advisory_db_status
+
+    db_path = _resolve_advisory_db_path(project_root, db)
+    status = get_advisory_db_status(db_path, stale_after_days=stale_after_days)
+    payload = _advisory_status_payload(status)
+
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+        return
+
+    typer.echo(f"path: {payload['path']}")
+    typer.echo(f"exists: {payload['exists']}")
+    typer.echo(f"schema_version: {payload['schema_version']}")
+    typer.echo(f"advisories: {payload['advisory_count']}")
+    typer.echo(f"affected_packages: {payload['affected_package_count']}")
+    typer.echo(f"sources: {', '.join(payload['sources']) if payload['sources'] else 'none'}")
+    typer.echo(f"last_updated: {payload['last_updated'] or 'unknown'}")
+    typer.echo(f"checksum_sha256: {payload['checksum_sha256'] or 'n/a'}")
+    typer.echo(f"freshness: {payload['freshness']}")
+    if payload["age_days"] is not None:
+        typer.echo(f"age_days: {payload['age_days']:.2f}")
+    if payload["warnings"]:
+        typer.echo("warnings:")
+        for warning in payload["warnings"]:
+            typer.echo(f"- {warning}")
+
+
+@advisory_app.command("update")
+def advisory_update(
+    project_root: Annotated[
+        Path,
+        typer.Option("--project-root", help=_ADVISORY_PROJECT_ROOT_HELP),
+    ] = Path("."),
+    db: Annotated[
+        Path | None,
+        typer.Option("--db", help="Explicit advisory DB file path."),
+    ] = None,
+    source: Annotated[
+        list[str] | None,
+        typer.Option("--source", help="Advisory source to sync (repeatable)."),
+    ] = None,
+    full: Annotated[
+        bool,
+        typer.Option("--full", help="Force full sync instead of incremental cursor-based sync."),
+    ] = False,
+    ecosystem: Annotated[
+        list[str] | None,
+        typer.Option("--ecosystem", help="Restrict sync to ecosystem(s), e.g. npm, pypi."),
+    ] = None,
+    github_token: Annotated[
+        str | None,
+        typer.Option("--github-token", envvar="GITHUB_TOKEN", help="GitHub token for GHSA sync."),
+    ] = None,
+    nvd_api_key: Annotated[
+        str | None,
+        typer.Option("--nvd-api-key", envvar="NVD_API_KEY", help="NVD API key for NVD sync."),
+    ] = None,
+    stale_after_days: Annotated[
+        int,
+        typer.Option("--stale-after-days", help="Freshness warning threshold in days."),
+    ] = 14,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+) -> None:
+    from piranesi.advisory import AdvisoryDB, get_advisory_db_status, sync_advisories
+
+    db_path = _resolve_advisory_db_path(project_root, db)
+    sources = tuple(source) if source else ("osv", "ghsa", "nvd", "go_vuln")
+    ecosystems = tuple(ecosystem) if ecosystem else None
+    try:
+        with AdvisoryDB(db_path) as advisory_db:
+            result = sync_advisories(
+                advisory_db,
+                sources=sources,
+                full=full,
+                ecosystems=ecosystems,
+                github_token=github_token,
+                nvd_api_key=nvd_api_key,
+            )
+    except Exception as exc:  # pragma: no cover - defensive against network stack/runtime errors.
+        typer.echo(f"error: advisory update failed: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    status = get_advisory_db_status(db_path, stale_after_days=stale_after_days)
+    payload = {
+        "db": _advisory_status_payload(status),
+        "sync": {
+            "sources": dict(result.source_counts),
+            "total_upserted": result.total_upserted,
+            "epss_updated": result.epss_updated,
+            "exploit_updated": result.exploit_updated,
+        },
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+        return
+
+    typer.echo(f"synced sources: {', '.join(sources)}")
+    typer.echo(f"upserted advisories: {result.total_upserted}")
+    typer.echo(f"epss updates: {result.epss_updated}")
+    typer.echo(f"exploit updates: {result.exploit_updated}")
+    typer.echo(f"db freshness: {status.freshness}")
+    if status.warnings:
+        typer.echo("warnings:")
+        for warning in status.warnings:
+            typer.echo(f"- {warning}")
+
+
+@advisory_app.command("import")
+def advisory_import(
+    source_db: Annotated[
+        Path,
+        typer.Argument(help="Path to advisory DB file to import."),
+    ],
+    project_root: Annotated[
+        Path,
+        typer.Option("--project-root", help=_ADVISORY_PROJECT_ROOT_HELP),
+    ] = Path("."),
+    db: Annotated[
+        Path | None,
+        typer.Option("--db", help="Explicit advisory DB file path."),
+    ] = None,
+    merge: Annotated[
+        bool,
+        typer.Option("--merge", help="Merge source DB into destination instead of replacing it."),
+    ] = False,
+    stale_after_days: Annotated[
+        int,
+        typer.Option("--stale-after-days", help="Freshness warning threshold in days."),
+    ] = 14,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+) -> None:
+    from piranesi.advisory import AdvisoryDB, get_advisory_db_status
+
+    source_path = source_db.expanduser().resolve(strict=False)
+    if not source_path.is_file():
+        typer.echo(f"error: advisory DB source not found: {source_path}")
+        raise typer.Exit(code=1)
+
+    db_path = _resolve_advisory_db_path(project_root, db)
+    with AdvisoryDB(db_path) as advisory_db:
+        advisory_db.import_from(source_path, merge=merge)
+
+    status = get_advisory_db_status(db_path, stale_after_days=stale_after_days)
+    payload = _advisory_status_payload(status)
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+        return
+
+    mode = "merged" if merge else "replaced"
+    typer.echo(f"{mode} advisory DB from {source_path} into {db_path}")
+    typer.echo(f"advisories: {status.advisory_count}")
+    typer.echo(f"freshness: {status.freshness}")
+    if status.warnings:
+        typer.echo("warnings:")
+        for warning in status.warnings:
+            typer.echo(f"- {warning}")
+
+
+@advisory_app.command("search")
+def advisory_search(
+    project_root: Annotated[
+        Path,
+        typer.Option("--project-root", help=_ADVISORY_PROJECT_ROOT_HELP),
+    ] = Path("."),
+    db: Annotated[
+        Path | None,
+        typer.Option("--db", help="Explicit advisory DB file path."),
+    ] = None,
+    query: Annotated[
+        str | None,
+        typer.Option("--query", help="Search text across advisory IDs, titles, and descriptions."),
+    ] = None,
+    ecosystem: Annotated[
+        str | None,
+        typer.Option("--ecosystem", help="Filter by ecosystem, e.g. npm, pypi, go."),
+    ] = None,
+    package: Annotated[
+        str | None,
+        typer.Option("--package", help="Filter by package name."),
+    ] = None,
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="Maximum advisory results to return."),
+    ] = 20,
+    stale_after_days: Annotated[
+        int,
+        typer.Option("--stale-after-days", help="Freshness warning threshold in days."),
+    ] = 14,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+) -> None:
+    from piranesi.advisory import AdvisoryDB, get_advisory_db_status
+
+    db_path = _resolve_advisory_db_path(project_root, db)
+    status = get_advisory_db_status(db_path, stale_after_days=stale_after_days)
+    if not status.exists:
+        typer.echo(f"error: advisory database not found at {db_path}")
+        raise typer.Exit(code=1)
+
+    with AdvisoryDB(db_path) as advisory_db:
+        rows = advisory_db.search_advisories(
+            query=query,
+            ecosystem=ecosystem,
+            package_name=package,
+            limit=limit,
+        )
+
+    if json_output:
+        payload = {
+            "status": _advisory_status_payload(status),
+            "count": len(rows),
+            "results": [
+                {
+                    "advisory_id": row.advisory.advisory_id,
+                    "cve_id": row.advisory.cve_id,
+                    "ghsa_id": row.advisory.ghsa_id,
+                    "severity": row.advisory.severity,
+                    "title": row.advisory.title,
+                    "sources": list(row.advisory.sources),
+                    "fix_version": row.advisory.fix_version,
+                    "packages": [
+                        {"ecosystem": pkg.ecosystem, "name": pkg.name}
+                        for pkg in row.advisory.affected_packages
+                    ],
+                }
+                for row in rows
+            ],
+        }
+        typer.echo(json.dumps(payload, indent=2))
+        return
+
+    typer.echo(f"results: {len(rows)}")
+    for row in rows:
+        advisory = row.advisory
+        packages = ", ".join(
+            f"{pkg.ecosystem}:{pkg.name}" for pkg in advisory.affected_packages[:3]
+        )
+        if len(advisory.affected_packages) > 3:
+            packages += ", ..."
+        typer.echo(
+            f"- {advisory.advisory_id} severity={advisory.severity} "
+            f"fix={advisory.fix_version or 'unknown'} packages={packages or 'n/a'}"
+        )
+        typer.echo(f"  {advisory.title}")
+
+    if status.warnings:
+        typer.echo("warnings:")
+        for warning in status.warnings:
+            typer.echo(f"- {warning}")
 
 
 @app.command(help=_RUN_HELP)

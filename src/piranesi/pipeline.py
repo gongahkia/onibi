@@ -21,6 +21,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from piranesi import __version__
+from piranesi.advisory import advisory_db_path, get_advisory_db_status, parse_lockfiles
 from piranesi.config import PiranesiConfig, config_hash
 from piranesi.detect import (
     InlineSuppression,
@@ -1280,6 +1281,18 @@ def _build_scan_artifact_for_target(
             sbom_format=config.scan.sbom_format,
             changed_files=changed_files,
         )
+        advisory_status = get_advisory_db_status(advisory_db_path(target_dir))
+        dependency_context_present = bool(parse_lockfiles(target_dir))
+        if dependency_context_present and advisory_status.warnings:
+            _logger.warning(
+                "advisory database freshness warning",
+                extra={
+                    "event": "advisory_db_freshness_warning",
+                    "path": str(advisory_status.path),
+                    "freshness": advisory_status.freshness,
+                    "warnings": list(advisory_status.warnings),
+                },
+            )
         metadata = ScanMetadata(
             timestamp=_utc_now(),
             duration_ms=0,

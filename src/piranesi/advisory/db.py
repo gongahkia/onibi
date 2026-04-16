@@ -6,6 +6,7 @@ import sqlite3
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
 
 from piranesi.advisory.models import (
@@ -65,6 +66,8 @@ CREATE INDEX IF NOT EXISTS idx_advisory_ghsa ON advisories(ghsa_id);
 CREATE INDEX IF NOT EXISTS idx_advisory_severity ON advisories(severity);
 CREATE INDEX IF NOT EXISTS idx_advisory_epss ON advisories(epss_score);
 """
+_ADVISORY_DB_SCHEMA_VERSION = 1
+_DEFAULT_STALE_AFTER_DAYS = 14
 
 
 @dataclass(frozen=True)
@@ -79,6 +82,22 @@ class SyncMetadata:
 class AdvisoryRow:
     advisory: Advisory
     fetched_at: str
+
+
+@dataclass(frozen=True)
+class AdvisoryDBStatus:
+    path: Path
+    exists: bool
+    schema_version: int | None
+    advisory_count: int
+    affected_package_count: int
+    sources: tuple[str, ...]
+    last_updated: str | None
+    checksum_sha256: str | None
+    freshness: str
+    stale_after_days: int
+    age_days: float | None
+    warnings: tuple[str, ...]
 
 
 def advisory_db_path(project_root: Path) -> Path:
@@ -113,7 +132,14 @@ class AdvisoryDB:
 
     def ensure_schema(self) -> None:
         self._conn.executescript(_SCHEMA)
+        self._conn.execute(f"PRAGMA user_version = {_ADVISORY_DB_SCHEMA_VERSION}")
         self._conn.commit()
+
+    def schema_version(self) -> int:
+        row = self._conn.execute("PRAGMA user_version").fetchone()
+        if row is None:
+            return 0
+        return int(row[0])
 
     def advisory_count(self) -> int:
         row = self._conn.execute("SELECT COUNT(*) AS count FROM advisories").fetchone()
@@ -493,6 +519,70 @@ class AdvisoryDB:
             for row in rows
         ]
 
+    def latest_updated_at(self) -> str | None:
+        candidates: list[datetime] = []
+        for raw_value in (
+            self._conn.execute("SELECT MAX(fetched_at) FROM advisories").fetchone(),
+            self._conn.execute("SELECT MAX(last_sync) FROM sync_metadata").fetchone(),
+        ):
+            if raw_value is None:
+                continue
+            candidate = _nullable_text(raw_value[0])
+            if candidate is None:
+                continue
+            try:
+                candidates.append(_parse_utc_timestamp(candidate))
+            except ValueError:
+                continue
+        if not candidates:
+            return None
+        latest = max(candidates)
+        return latest.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+    def search_advisories(
+        self,
+        *,
+        query: str | None = None,
+        ecosystem: str | None = None,
+        package_name: str | None = None,
+        limit: int = 20,
+    ) -> list[AdvisoryRow]:
+        normalized_query = (query or "").strip().lower()
+        normalized_ecosystem = (ecosystem or "").strip().lower()
+        normalized_package = (package_name or "").strip().lower()
+
+        rows = self.iter_all_advisories()
+        if normalized_ecosystem or normalized_package:
+            rows = [
+                row
+                for row in rows
+                if any(
+                    (
+                        (not normalized_ecosystem or pkg.ecosystem == normalized_ecosystem)
+                        and (not normalized_package or normalized_package in pkg.name.lower())
+                    )
+                    for pkg in row.advisory.affected_packages
+                )
+            ]
+
+        if normalized_query:
+            filtered: list[AdvisoryRow] = []
+            for row in rows:
+                advisory = row.advisory
+                searchable = [
+                    advisory.advisory_id,
+                    advisory.cve_id or "",
+                    advisory.ghsa_id or "",
+                    advisory.title,
+                    advisory.description,
+                    " ".join(pkg.name for pkg in advisory.affected_packages),
+                ]
+                if any(normalized_query in field.lower() for field in searchable):
+                    filtered.append(row)
+            rows = filtered
+
+        return rows[: max(limit, 1)]
+
     def clear(self) -> None:
         self._conn.execute("DELETE FROM affected_packages")
         self._conn.execute("DELETE FROM advisories")
@@ -661,3 +751,115 @@ def _json_loads(value: object) -> list[str]:
     if not isinstance(loaded, list):
         return []
     return [item for item in loaded if isinstance(item, str)]
+
+
+def get_advisory_db_status(
+    db_path: Path,
+    *,
+    stale_after_days: int = _DEFAULT_STALE_AFTER_DAYS,
+    now: datetime | None = None,
+) -> AdvisoryDBStatus:
+    resolved = db_path.resolve(strict=False)
+    if stale_after_days < 1:
+        stale_after_days = _DEFAULT_STALE_AFTER_DAYS
+    reference_now = now or datetime.now(UTC)
+
+    if not resolved.exists():
+        return AdvisoryDBStatus(
+            path=resolved,
+            exists=False,
+            schema_version=None,
+            advisory_count=0,
+            affected_package_count=0,
+            sources=(),
+            last_updated=None,
+            checksum_sha256=None,
+            freshness="missing",
+            stale_after_days=stale_after_days,
+            age_days=None,
+            warnings=(
+                "advisory database file is missing; run `piranesi advisory update` "
+                "or `piranesi advisory import`.",
+            ),
+        )
+
+    checksum_sha256 = _file_sha256(resolved)
+    try:
+        with AdvisoryDB(resolved) as db:
+            advisory_count = db.advisory_count()
+            affected_package_count = db.affected_package_count()
+            sync_metadata = db.list_sync_metadata()
+            sources = tuple(sorted(metadata.source for metadata in sync_metadata))
+            last_updated = db.latest_updated_at()
+            schema_version = db.schema_version()
+    except (OSError, sqlite3.DatabaseError) as exc:
+        return AdvisoryDBStatus(
+            path=resolved,
+            exists=True,
+            schema_version=None,
+            advisory_count=0,
+            affected_package_count=0,
+            sources=(),
+            last_updated=None,
+            checksum_sha256=checksum_sha256,
+            freshness="stale",
+            stale_after_days=stale_after_days,
+            age_days=None,
+            warnings=(f"failed to read advisory database: {exc}",),
+        )
+
+    warnings: list[str] = []
+    freshness = "fresh"
+    age_days: float | None = None
+
+    if advisory_count == 0:
+        freshness = "empty"
+        warnings.append("advisory database is empty; dependency advisory matches will be limited.")
+    if last_updated is None:
+        freshness = "stale"
+        warnings.append("advisory database has no sync timestamp metadata.")
+    else:
+        try:
+            updated_at = _parse_utc_timestamp(last_updated)
+            age_days = (reference_now - updated_at).total_seconds() / 86_400
+            if age_days > float(stale_after_days):
+                freshness = "stale"
+                warnings.append(
+                    "advisory database is stale "
+                    f"({age_days:.1f} days old; threshold {stale_after_days} days)."
+                )
+        except ValueError:
+            freshness = "stale"
+            warnings.append(f"advisory database has an invalid timestamp: {last_updated!r}.")
+    if schema_version != _ADVISORY_DB_SCHEMA_VERSION:
+        warnings.append(
+            "advisory database schema version mismatch "
+            f"(db={schema_version}, expected={_ADVISORY_DB_SCHEMA_VERSION})."
+        )
+
+    return AdvisoryDBStatus(
+        path=resolved,
+        exists=True,
+        schema_version=schema_version,
+        advisory_count=advisory_count,
+        affected_package_count=affected_package_count,
+        sources=sources,
+        last_updated=last_updated,
+        checksum_sha256=checksum_sha256,
+        freshness=freshness,
+        stale_after_days=stale_after_days,
+        age_days=age_days,
+        warnings=tuple(warnings),
+    )
+
+
+def _file_sha256(path: Path) -> str | None:
+    try:
+        payload = path.read_bytes()
+    except OSError:
+        return None
+    return _hash_bytes(payload)
+
+
+def _hash_bytes(payload: bytes) -> str:
+    return sha256(payload).hexdigest()

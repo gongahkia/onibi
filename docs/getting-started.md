@@ -207,6 +207,21 @@ It now also prints structured explanation metadata:
 - ownership attribution (service/system/team/owner/control owner/repository/environment)
 - confidence contributors with a documented `v1` weighted component model
 
+Advisory DB workflow (optional but recommended for dependency workflows):
+
+```bash
+uv run piranesi advisory status --project-root .
+uv run piranesi advisory update --project-root .
+```
+
+For offline/air-gapped environments, import a prepared DB snapshot:
+
+```bash
+uv run piranesi advisory import ./artifacts/advisory.db --project-root .
+```
+
+See `docs/advisory-db-workflow.md` for full online/offline workflows and search examples.
+
 Confidence model (`v1`) components shown in `report.json` and `piranesi explain`:
 
 - `static_reachability`

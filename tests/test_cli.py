@@ -50,6 +50,7 @@ def test_help_shows_all_commands() -> None:
         "diff",
         "explain",
         "rules",
+        "advisory",
         "baseline",
         "hook",
         "doctor",

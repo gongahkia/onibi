@@ -20,6 +20,22 @@
 {% endfor %}
 {% endif %}
 
+{% if report.advisory_db %}
+## Advisory DB Freshness
+
+- **Path:** `{{ report.advisory_db.path }}`
+- **Freshness:** `{{ report.advisory_db.freshness }}`
+- **Schema version:** `{{ report.advisory_db.schema_version if report.advisory_db.schema_version is not none else "n/a" }}`
+- **Advisories:** {{ report.advisory_db.advisory_count }}
+- **Affected packages:** {{ report.advisory_db.affected_package_count }}
+- **Sources:** {% if report.advisory_db.sources %}{{ report.advisory_db.sources|join(", ") }}{% else %}none{% endif %}
+- **Last updated:** {{ report.advisory_db.last_updated or "unknown" }}
+- **Checksum:** `{{ report.advisory_db.checksum_sha256 or "n/a" }}`
+{% if report.advisory_db.warnings %}
+- **Warnings:** {{ report.advisory_db.warnings|join(" | ") }}
+{% endif %}
+{% endif %}
+
 {% include "executive_summary.j2" %}
 
 ## Evidence Status Legend
