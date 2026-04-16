@@ -5,6 +5,11 @@ import sys
 import tomllib
 from pathlib import Path
 
+try:
+    from scripts.check_known_limitations import collect_known_limitations_errors
+except ModuleNotFoundError:  # pragma: no cover - supports direct script execution.
+    from check_known_limitations import collect_known_limitations_errors
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -41,6 +46,10 @@ def collect_release_hygiene_errors(root: Path = ROOT) -> list[str]:
     capabilities_path = root / "docs" / "capabilities.md"
     if not capabilities_path.exists():
         errors.append("docs/capabilities.md is missing")
+    else:
+        capabilities = _read(capabilities_path)
+        if "known-limitations.json" not in capabilities:
+            errors.append("docs/capabilities.md must reference docs/known-limitations.json")
 
     stale_patterns = _stale_version_patterns(version)
     for relative_path in _release_doc_paths(root):
@@ -51,6 +60,9 @@ def collect_release_hygiene_errors(root: Path = ROOT) -> list[str]:
             if pattern.search(text):
                 errors.append(f"{relative_path.relative_to(root)} contains stale release text")
                 break
+
+    known_limitations_errors = collect_known_limitations_errors(root)
+    errors.extend(f"known limitations registry: {error}" for error in known_limitations_errors)
 
     return errors
 

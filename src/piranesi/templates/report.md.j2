@@ -36,6 +36,18 @@
 {% endif %}
 {% endif %}
 
+{% if report.known_limitations %}
+## Known Limitations
+
+{% for limitation in report.known_limitations %}
+- `{{ limitation.id }}` **{{ limitation.title }}**
+  - Feature: {{ limitation.affected_feature }}
+  - Severity: {{ limitation.severity }}
+  - Status: {{ limitation.status }}
+  - Workaround: {{ limitation.workaround }}
+{% endfor %}
+{% endif %}
+
 {% include "executive_summary.j2" %}
 
 ## Evidence Status Legend

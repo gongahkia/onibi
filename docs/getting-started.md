@@ -157,7 +157,7 @@ After the first run, the output directory contains:
 - `verify.json`: confirmed findings plus per-finding verification attempts with precondition status (`satisfied`, `missing`, `inferred`, `user_provided`), selected `proof_mode`, machine-readable evidence strings, and explicit skip/inconclusive reasons.
 - `legal.json`: regulatory obligations for confirmed findings.
 - `patch.json`: generated fixes for confirmed findings.
-- `report.json`: machine-readable combined report, including the `query_quality` block copied from `scan.json`, per-finding `evidence_status` values, and optional ownership metadata (`service`, `system`, `team`, `owner`, `repository`, `environment`, `control_owner`) when `[ownership]` config is set.
+- `report.json`: machine-readable combined report, including the `query_quality` block copied from `scan.json`, per-finding `evidence_status` values, active `known_limitations` registry entries, and optional ownership metadata (`service`, `system`, `team`, `owner`, `repository`, `environment`, `control_owner`) when `[ownership]` config is set.
 - `report.md`: human-readable markdown report.
 - `pr_body.md`: per-finding GitHub-flavored markdown.
 - `baseline-diff.md` / `baseline-diff.json` (when `--baseline` is used): PR-focused delta summary with `new`, `changed`, `fixed`, and `existing` classifications.

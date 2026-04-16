@@ -5,6 +5,8 @@ TypeScript/JavaScript web application analysis; broader language, compliance,
 verification, and workflow features are present but should be interpreted by
 maturity level.
 
+Machine-readable known limitations are tracked in [`docs/known-limitations.json`](./known-limitations.json). Generated reports also include active registry entries in `report.json` (`known_limitations`) and `report.md`.
+
 ## Maturity Levels
 
 | Level | Meaning |

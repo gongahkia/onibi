@@ -1,0 +1,79 @@
+{
+  "schema_version": "1.0",
+  "last_updated": "2026-04-16",
+  "limitations": [
+    {
+      "id": "KL-001",
+      "title": "Helper and wrapper sink aliasing can miss real SQLi flows",
+      "affected_feature": "TypeScript/JavaScript taint sink matching",
+      "severity": "high",
+      "impact": "false_negative_risk",
+      "workaround": "Author custom sink specs or custom rules for project-local DB helper wrappers and validate with focused fixtures.",
+      "status": "open",
+      "introduced_version": "0.1.0",
+      "last_reviewed": "2026-04-16",
+      "docs_refs": [
+        "docs/capabilities.md",
+        "docs/examples/vuln-express.md"
+      ]
+    },
+    {
+      "id": "KL-002",
+      "title": "Framework receiver and type disambiguation remains incomplete",
+      "affected_feature": "Express/Fastify/NestJS route and helper modeling",
+      "severity": "medium",
+      "impact": "false_positive_and_false_negative_risk",
+      "workaround": "Use triage and verification artifacts to confirm exploitability; add framework-specific custom rules for local idioms.",
+      "status": "monitoring",
+      "introduced_version": "0.1.0",
+      "last_reviewed": "2026-04-16",
+      "docs_refs": [
+        "docs/capabilities.md",
+        "docs/getting-started.md"
+      ]
+    },
+    {
+      "id": "KL-003",
+      "title": "LLM prompt redaction and token budgeting are heuristic",
+      "affected_feature": "LLM triage and patch generation",
+      "severity": "medium",
+      "impact": "privacy_and_output_quality_risk",
+      "workaround": "Run deterministic mode (no LLM credentials) for strict data-boundary requirements and review LLM outputs before action.",
+      "status": "open",
+      "introduced_version": "0.1.0",
+      "last_reviewed": "2026-04-16",
+      "docs_refs": [
+        "docs/getting-started.md",
+        "docs/ARCHITECTURE.md"
+      ]
+    },
+    {
+      "id": "KL-004",
+      "title": "Verification coverage depends on target preconditions and template fit",
+      "affected_feature": "verify stage dynamic confirmation",
+      "severity": "medium",
+      "impact": "inconclusive_verification_results",
+      "workaround": "Provide explicit verify metadata/profiles and review precondition diagnostics in verify.json before treating a finding as not exploitable.",
+      "status": "open",
+      "introduced_version": "0.1.0",
+      "last_reviewed": "2026-04-16",
+      "docs_refs": [
+        "docs/getting-started.md"
+      ]
+    },
+    {
+      "id": "KL-005",
+      "title": "Advisory matching quality depends on local advisory DB freshness",
+      "affected_feature": "dependency advisory analysis",
+      "severity": "low",
+      "impact": "stale_advisory_context",
+      "workaround": "Run advisory update/import workflows before scans and monitor advisory DB freshness warnings in reports.",
+      "status": "monitoring",
+      "introduced_version": "0.1.0",
+      "last_reviewed": "2026-04-16",
+      "docs_refs": [
+        "docs/advisory-db-workflow.md"
+      ]
+    }
+  ]
+}

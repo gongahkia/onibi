@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 from jinja2 import Environment, FileSystemLoader
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from piranesi import __version__
 from piranesi.advisory import advisory_db_path, get_advisory_db_status
@@ -413,6 +413,20 @@ class AdvisoryDbFreshness(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class KnownLimitation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    title: str
+    affected_feature: str
+    severity: str
+    impact: str
+    workaround: str
+    status: str
+    introduced_version: str
+    last_reviewed: str
+
+
 class PiranesiReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -422,6 +436,7 @@ class PiranesiReport(BaseModel):
     status_legend: dict[str, str] = Field(default_factory=lambda: dict(_EVIDENCE_STATUS_LABELS))
     scan_metadata: ScanMetadata
     advisory_db: AdvisoryDbFreshness | None = None
+    known_limitations: list[KnownLimitation] = Field(default_factory=list)
     ownership_context: ReportOwnershipContext = Field(default_factory=ReportOwnershipContext)
     executive_summary: ExecutiveSummary
     suppression_lifecycle: SuppressionLifecycleSummary | None = None
@@ -669,6 +684,7 @@ def build_report(
     )
     top_risk = risk_ranked_findings[0] if risk_ranked_findings else None
     advisory_db = _advisory_db_freshness(target_dir=target_dir)
+    known_limitations = _known_limitations_for_report()
 
     report = PiranesiReport(
         target=str(target_dir.resolve(strict=False)),
@@ -676,6 +692,7 @@ def build_report(
         files_scanned=list(scan_result.files_scanned),
         scan_metadata=scan_result.metadata,
         advisory_db=advisory_db,
+        known_limitations=known_limitations,
         ownership_context=ownership_context,
         executive_summary=ExecutiveSummary(
             findings_detected=len(detected_findings),
@@ -1707,6 +1724,32 @@ def _advisory_db_freshness(
     )
 
 
+def _known_limitations_for_report() -> list[KnownLimitation]:
+    registry_path = Path(__file__).resolve().parents[3] / "docs" / "known-limitations.json"
+    if not registry_path.exists():
+        return []
+    try:
+        payload = json.loads(registry_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        _logger.warning("unable to load known limitations registry: %s", exc)
+        return []
+    raw_limitations = payload.get("limitations")
+    if not isinstance(raw_limitations, list):
+        return []
+    limitations: list[KnownLimitation] = []
+    for entry in raw_limitations:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            limitation = KnownLimitation.model_validate(entry)
+        except ValidationError:
+            continue
+        if limitation.status == "resolved":
+            continue
+        limitations.append(limitation)
+    return sorted(limitations, key=lambda limitation: limitation.id)
+
+
 def _cluster_candidate_findings(candidates: list[CandidateFinding]) -> list[FindingCluster]:
     grouped: dict[tuple[object, ...], list[CandidateFinding]] = {}
     for candidate in candidates:
@@ -2094,6 +2137,7 @@ __all__ = [
     "ExecutiveSummary",
     "FindingCluster",
     "FindingExplanation",
+    "KnownLimitation",
     "MatchedSpec",
     "OwnershipMetadata",
     "PiranesiReport",
