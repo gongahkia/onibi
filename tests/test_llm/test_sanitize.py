@@ -60,3 +60,40 @@ def test_detect_prompt_canary_matches_known_prompt_fragments() -> None:
     assert fragment in matches
     assert sanitize.contains_prompt_canary(response) is True
     assert sanitize.contains_prompt_canary("ordinary model output") is False
+
+
+def test_redact_sensitive_text_masks_likely_credentials() -> None:
+    raw = (
+        "authorization: Bearer sk-abcdefghijklmnopqrstuvwx\n"
+        "cookie: sid=abc123\n"
+        "api_key=super-secret-key\n"
+        "PRIVATE_KEY_REDACTED\n"
+    )
+
+    redacted = sanitize.redact_sensitive_text(raw)
+
+    assert "sk-abcdefghijklmnopqrstuvwx" not in redacted
+    assert "super-secret-key" not in redacted
+    assert "BEGIN PRIVATE KEY" not in redacted
+    assert "[REDACTED]" in redacted
+    assert "[REDACTED_PRIVATE_KEY]" in redacted
+
+
+def test_redact_prompt_messages_redacts_nested_text_content() -> None:
+    messages = [
+        {"role": "system", "content": "Keep output strict JSON."},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "password: hunter2"},
+                {"type": "text", "text": "Authorization: Bearer abcdef"},
+            ],
+        },
+    ]
+
+    redacted = sanitize.redact_prompt_messages(messages)
+
+    assert redacted[0]["content"] == "Keep output strict JSON."
+    assert "hunter2" not in redacted[1]["content"][0]["text"]
+    assert "[REDACTED]" in redacted[1]["content"][0]["text"]
+    assert "Bearer abcdef" not in redacted[1]["content"][1]["text"]

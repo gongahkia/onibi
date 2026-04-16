@@ -104,6 +104,8 @@ Piranesi uses LiteLLM-compatible credentials for model-assisted triage, patch ge
 
 LLM stages also honor `budget.max_tokens` from `piranesi.toml`. When the budget is tight, Piranesi trims prompt context and caps completion tokens. If exhausted, triage falls back to deterministic pass-through for remaining findings and patch generation skips remaining items with warnings.
 
+Model-assisted stages may send finding summaries and code snippets to your configured provider. Piranesi strips comments and redacts common secret patterns before calls, but this is best-effort. If policy requires zero outbound model data, keep all LLM credentials unset and run deterministic mode.
+
 ## First Scan Walkthrough
 
 The most reproducible first run is the bundled vulnerable Express app.

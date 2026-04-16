@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -24,6 +25,44 @@ _REGEX_PREFIX_KEYWORDS = frozenset(
         "void",
         "yield",
     }
+)
+_SENSITIVE_FIELD_VALUE_PATTERN = re.compile(
+    r"""(?ix)
+    (?P<prefix>
+        \b(?:api[_-]?key|access[_-]?token|secret|password|passwd|token|session(?:id)?|cookie)\b
+        \s*[:=]\s*
+    )
+    (?P<value>[^\s,;]+)
+    """
+)
+_AUTHORIZATION_HEADER_PATTERN = re.compile(
+    r"(?i)(?P<prefix>\\bauthorization\\b\\s*[:=]\\s*)(?P<value>[^\\r\\n]+)"
+)
+_COOKIE_HEADER_PATTERN = re.compile(
+    r"(?i)(?P<prefix>\\b(?:set-cookie|cookie)\\b\\s*[:=]\\s*)(?P<value>[^\\r\\n]+)"
+)
+_JSON_SENSITIVE_VALUE_PATTERN = re.compile(
+    r"""(?ix)
+    (?P<prefix>
+        "(?:api[_-]?key|access[_-]?token|secret|password|passwd|token|session(?:id)?|cookie|authorization)"
+        \s*:\s*"
+    )
+    (?P<value>[^"]+)
+    (?P<suffix>")
+    """
+)
+_PRIVATE_KEY_BLOCK_PATTERN = re.compile(
+    r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----",
+    re.DOTALL,
+)
+_PROVIDER_SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\\bsk-[A-Za-z0-9]{20,}\\b"), "[REDACTED_API_KEY]"),
+    (re.compile(r"\\bgh[pousr]_[A-Za-z0-9]{20,}\\b"), "[REDACTED_GITHUB_TOKEN]"),
+    (re.compile(r"\\bAIza[0-9A-Za-z\\-_]{20,}\\b"), "[REDACTED_API_KEY]"),
+    (
+        re.compile(r"\\beyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\b"),
+        "[REDACTED_JWT]",
+    ),
 )
 
 
@@ -229,10 +268,46 @@ def contains_prompt_canary(
     return bool(detect_prompt_canary(response, known_fragments=known_fragments))
 
 
+def redact_sensitive_text(text: str) -> str:
+    """Best-effort redaction for likely credential material in LLM prompts."""
+
+    redacted = _PRIVATE_KEY_BLOCK_PATTERN.sub("[REDACTED_PRIVATE_KEY]", text)
+    for pattern, replacement in _PROVIDER_SECRET_PATTERNS:
+        redacted = pattern.sub(replacement, redacted)
+    redacted = _AUTHORIZATION_HEADER_PATTERN.sub(r"\g<prefix>[REDACTED]", redacted)
+    redacted = _COOKIE_HEADER_PATTERN.sub(r"\g<prefix>[REDACTED]", redacted)
+    redacted = _SENSITIVE_FIELD_VALUE_PATTERN.sub(r"\g<prefix>[REDACTED]", redacted)
+    redacted = _JSON_SENSITIVE_VALUE_PATTERN.sub(r"\g<prefix>[REDACTED]\g<suffix>", redacted)
+    return redacted
+
+
+def redact_prompt_messages(messages: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return deep-copied messages with string content redacted."""
+
+    redacted: list[dict[str, Any]] = []
+    for message in messages:
+        updated = dict(message)
+        updated["content"] = _redact_value(updated.get("content"))
+        redacted.append(updated)
+    return redacted
+
+
 def _default_canary_fragments() -> Sequence[str]:
     from piranesi.llm import prompts
 
     return prompts.get_canary_fragments()
+
+
+def _redact_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return redact_sensitive_text(value)
+    if isinstance(value, list):
+        return [_redact_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_value(item) for item in value)
+    if isinstance(value, dict):
+        return {key: _redact_value(item) for key, item in value.items()}
+    return value
 
 
 def _consume_identifier(source: str, start: int) -> tuple[str, int]:
@@ -257,4 +332,10 @@ def _is_identifier_part(char: str) -> bool:
     return char.isalnum() or char in "_$"
 
 
-__all__ = ["contains_prompt_canary", "detect_prompt_canary", "strip_comments"]
+__all__ = [
+    "contains_prompt_canary",
+    "detect_prompt_canary",
+    "redact_prompt_messages",
+    "redact_sensitive_text",
+    "strip_comments",
+]

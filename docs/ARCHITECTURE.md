@@ -686,9 +686,17 @@ The `scan` and `detect` stages run on the HOST machine (outside Docker). The tar
 Code from the scanned repo is sent to LLMs. The code may contain prompt injection:
 
 - **Strip comments** from code snippets before LLM submission.
+- **Treat repository text as untrusted data**: system instructions are kept in the system role, while repository snippets are kept in user-context code blocks.
 - **Use structured output** (function calling / tool use) for all LLM responses.
+- **Redact likely secrets before provider calls**: authorization headers, cookies, API keys, tokens, passwords, and private-key blocks are masked in outbound messages.
 - **SECURITY INVARIANT: LLM triage cannot suppress Z3-verified findings.** If Z3 + sandbox confirms a finding, the LLM triage verdict is logged but cannot override. LLM triage is a pre-filter, not a post-filter.
 - **Never include** API keys, host paths, or Piranesi config in LLM prompts.
+
+LLM hardening limits:
+
+- Redaction is best-effort pattern matching and may miss novel secret formats.
+- Prompt-injection mitigation reduces risk but does not make model output authoritative.
+- For strict data-boundary requirements, run deterministic mode by leaving LLM provider credentials unset.
 
 ### 8.5 Secret Handling
 

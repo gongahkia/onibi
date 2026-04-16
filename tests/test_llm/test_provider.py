@@ -202,3 +202,44 @@ def test_provider_applies_router_token_budget_adjustments(
     assert observed_max_tokens and observed_max_tokens[0] < 512
     assert "token budget" in observed_messages[0][1]["content"]
     assert router.used_tokens > 0
+
+
+def test_provider_redacts_sensitive_values_before_llm_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider, _, _ = _build_provider(tmp_path)
+    captured_messages: list[list[dict[str, str]]] = []
+
+    def _completion(*, model: str, messages: list[dict[str, str]], **kwargs: Any) -> Any:
+        _ = (model, kwargs)
+        captured_messages.append(messages)
+        return litellm.mock_completion(
+            model="openai/gpt-4o-mini",
+            messages=messages,
+            mock_response="{\"ok\":true}",
+        )
+
+    monkeypatch.setattr("piranesi.llm.provider.litellm.completion", _completion)
+
+    response = provider.complete(
+        model="openai/gpt-4o-mini",
+        stage="triage",
+        messages=[
+            {
+                "role": "user",
+                "content": (
+                    "authorization: Bearer sk-abcdefghijklmnopqrstuvwx\n"
+                    "cookie: sid=abc123\n"
+                    "password=hunter2\n"
+                ),
+            }
+        ],
+    )
+
+    assert response.content == "{\"ok\":true}"
+    outbound = captured_messages[0][0]["content"]
+    assert "sk-abcdefghijklmnopqrstuvwx" not in outbound
+    assert "hunter2" not in outbound
+    assert "sid=abc123" not in outbound
+    assert "[REDACTED]" in outbound

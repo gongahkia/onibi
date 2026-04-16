@@ -13,6 +13,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from piranesi.llm.cost import CostTracker
 from piranesi.llm.router import TokenBudgetReservation
+from piranesi.llm.sanitize import redact_prompt_messages
 from piranesi.llm.trace import TraceLogger
 
 try:
@@ -210,10 +211,11 @@ class LLMProvider:
             )
             normalized_messages = [dict(message) for message in reservation.messages]
             effective_max_tokens = reservation.max_tokens
+        redacted_messages = redact_prompt_messages(normalized_messages)
         started_at = time.perf_counter()
         response = litellm.completion(
             model=model,
-            messages=normalized_messages,
+            messages=redacted_messages,
             temperature=temperature,
             max_tokens=effective_max_tokens,
             timeout=timeout,
@@ -239,7 +241,7 @@ class LLMProvider:
         trace_entry = self._tracer.log_call(
             stage=stage,
             model=model,
-            messages=normalized_messages,
+            messages=redacted_messages,
             response_content=response_content,
             prompt_tokens=prompt_tokens,
             response_tokens=response_tokens,
