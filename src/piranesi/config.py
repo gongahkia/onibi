@@ -193,6 +193,13 @@ class SuppressionConfig(BaseModel):
     fail_on_stale: bool = False
 
 
+class BaselineConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    fail_on_new: bool = False
+    fail_on_new_severity: Literal["low", "medium", "high", "critical"] = "low"
+
+
 class VerifyConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -240,6 +247,7 @@ class PiranesiConfig(BaseModel):
     triage: TriageConfig = Field(default_factory=TriageConfig)
     reachability: ReachabilityConfig = Field(default_factory=ReachabilityConfig)
     suppression: SuppressionConfig = Field(default_factory=SuppressionConfig)
+    baseline: BaselineConfig = Field(default_factory=BaselineConfig)
     verify: VerifyConfig = Field(default_factory=VerifyConfig)
     lsp: LspConfig = Field(default_factory=LspConfig)
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)

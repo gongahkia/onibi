@@ -5,7 +5,14 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from piranesi.cli import app
-from piranesi.diff import diff_findings, load_findings, render_diff
+from piranesi.diff import (
+    diff_findings,
+    diff_result_payload,
+    load_findings,
+    render_diff,
+    render_diff_markdown,
+    stable_fingerprint,
+)
 from piranesi.models import CandidateFinding, SourceLocation, TaintSink, TaintSource, TaintStep
 from piranesi.pipeline import DetectArtifact
 from tests._pipeline_fixtures import fixture_artifacts
@@ -95,6 +102,7 @@ def test_baseline_save_and_diff_show_expected_counts(tmp_path: Path) -> None:
             sink_api="res.send()",
             source_line=17,
             sink_line=25,
+            severity="critical",
         ),
         _candidate(
             finding_id="current-ssrf",
@@ -137,26 +145,100 @@ def test_baseline_save_and_diff_show_expected_counts(tmp_path: Path) -> None:
     diff_result = diff_findings(load_findings(baseline_path), load_findings(current_results))
     assert len(diff_result.new) == 1
     assert len(diff_result.fixed) == 1
-    assert len(diff_result.unchanged) == 4
+    assert len(diff_result.existing) == 3
+    assert len(diff_result.changed) == 1
+    assert "severity:high->critical" in diff_result.changed[0].changed_fields
 
     rendered = render_diff(diff_result)
     assert "NEW (1):" in rendered
+    assert "CHANGED (1):" in rendered
     assert "FIXED (1):" in rendered
-    assert "UNCHANGED (4):" in rendered
-    assert "Summary: 1 new, 1 fixed, 4 unchanged" in rendered
+    assert "EXISTING (3):" in rendered
+    assert "Summary: 1 new, 1 changed, 1 fixed, 3 existing" in rendered
+
+    markdown = render_diff_markdown(diff_result)
+    assert "## Baseline Diff" in markdown
+    assert "### Changed Findings" in markdown
+
+    payload = diff_result_payload(diff_result)
+    assert payload["summary"] == {
+        "new": 1,
+        "changed": 1,
+        "fixed": 1,
+        "existing": 3,
+        "new_by_severity": {"high": 1},
+    }
 
     cli_result = runner.invoke(app, ["diff", str(baseline_path), str(current_results)])
     assert cli_result.exit_code == 0
     assert "NEW (1):" in cli_result.stdout
+    assert "CHANGED (1):" in cli_result.stdout
     assert "FIXED (1):" in cli_result.stdout
-    assert "UNCHANGED (4):" in cli_result.stdout
-    assert "Summary: 1 new, 1 fixed, 4 unchanged" in cli_result.stdout
+    assert "EXISTING (3):" in cli_result.stdout
+    assert "Summary: 1 new, 1 changed, 1 fixed, 3 existing" in cli_result.stdout
+
+    markdown_result = runner.invoke(
+        app,
+        ["diff", str(baseline_path), str(current_results), "--format", "markdown"],
+    )
+    assert markdown_result.exit_code == 0
+    assert "## Baseline Diff" in markdown_result.stdout
+
+    json_result = runner.invoke(
+        app,
+        ["diff", str(baseline_path), str(current_results), "--format", "json"],
+    )
+    assert json_result.exit_code == 0
+    assert '"changed": 1' in json_result.stdout
 
     fail_result = runner.invoke(
         app,
-        ["diff", str(baseline_path), str(current_results), "--fail-on-new"],
+        [
+            "diff",
+            str(baseline_path),
+            str(current_results),
+            "--fail-on-new",
+            "--fail-on-new-severity",
+            "critical",
+        ],
     )
-    assert fail_result.exit_code == 1
+    assert fail_result.exit_code == 0
+
+    fail_high_result = runner.invoke(
+        app,
+        [
+            "diff",
+            str(baseline_path),
+            str(current_results),
+            "--fail-on-new",
+            "--fail-on-new-severity",
+            "high",
+        ],
+    )
+    assert fail_high_result.exit_code == 1
+
+
+def test_stable_fingerprint_ignores_line_number_drift() -> None:
+    baseline = _candidate(
+        finding_id="baseline",
+        vuln_class="CWE-89: SQL Injection",
+        file_path="src/routes/users.ts",
+        parameter="userId",
+        sink_api="db.query()",
+        source_line=10,
+        sink_line=18,
+    )
+    shifted = _candidate(
+        finding_id="shifted",
+        vuln_class="CWE-89: SQL Injection",
+        file_path="src/routes/users.ts",
+        parameter="userId",
+        sink_api="db.query()",
+        source_line=110,
+        sink_line=118,
+    )
+
+    assert stable_fingerprint(baseline) == stable_fingerprint(shifted)
 
 
 def _candidate(
@@ -168,6 +250,8 @@ def _candidate(
     sink_api: str,
     source_line: int,
     sink_line: int,
+    severity: str = "high",
+    confidence: float = 0.95,
 ) -> CandidateFinding:
     source_location = SourceLocation(
         file=file_path,
@@ -209,8 +293,8 @@ def _candidate(
             )
         ],
         path_conditions=[],
-        confidence=0.95,
-        severity="high",
+        confidence=confidence,
+        severity=severity,
     )
 
 

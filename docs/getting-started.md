@@ -143,6 +143,7 @@ After the first run, the output directory contains:
 - `report.json`: machine-readable combined report, including the `query_quality` block copied from `scan.json` and per-finding `evidence_status` values.
 - `report.md`: human-readable markdown report.
 - `pr_body.md`: per-finding GitHub-flavored markdown.
+- `baseline-diff.md` / `baseline-diff.json` (when `--baseline` is used): PR-focused delta summary with `new`, `changed`, `fixed`, and `existing` classifications.
 
 `report.json` also includes `finding_clusters`, which group repeated flows that
 share the same CWE and sink location while preserving each individual finding.

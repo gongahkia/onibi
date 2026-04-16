@@ -219,6 +219,42 @@ exit "$status"
 
 If you never want findings to fail the job, use `--no-fail`. Configuration and runtime errors still exit non-zero.
 
+## PR-Friendly Baselines
+
+Use a baseline artifact from your default branch to focus PR failures on newly introduced risk.
+
+Create or refresh baseline on `main`:
+
+```bash
+piranesi run . --authorized --yes --output piranesi-baseline-output --no-fail
+piranesi baseline save --from piranesi-baseline-output --to .piranesi-baseline.json
+```
+
+In pull requests, compare against that baseline and fail only on new `high`/`critical` findings:
+
+```bash
+piranesi run . \
+  --authorized \
+  --yes \
+  --output piranesi-output \
+  --baseline .piranesi-baseline.json \
+  --fail-on-new \
+  --fail-on-new-severity high
+```
+
+This writes PR-friendly artifacts to `piranesi-output/`:
+
+- `baseline-diff.md`: concise markdown summary for PR comments.
+- `baseline-diff.json`: machine-readable summary (`new`, `changed`, `fixed`, `existing`) and finding details.
+
+You can enforce the same behavior in config:
+
+```toml
+[baseline]
+fail_on_new = true
+fail_on_new_severity = "high"
+```
+
 ## Suppression Lifecycle Checks
 
 Treat suppression hygiene as a separate CI gate:

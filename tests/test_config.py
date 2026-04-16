@@ -29,6 +29,8 @@ def test_load_config_defaults(config_file: Callable[[str], Path]) -> None:
     assert config.suppression.fail_on_invalid is True
     assert config.suppression.fail_on_expired is False
     assert config.suppression.fail_on_stale is False
+    assert config.baseline.fail_on_new is False
+    assert config.baseline.fail_on_new_severity == "low"
 
 
 def test_load_config_from_file(fixtures_dir: Path) -> None:
@@ -40,6 +42,23 @@ def test_load_config_from_file(fixtures_dir: Path) -> None:
     assert config.budget.max_cost_usd == 9.5
     assert config.output.output_dir == "./custom-output"
     assert config.verify.proof_mode == "unsafe"
+
+
+def test_load_baseline_config_from_file(config_file: Callable[[str], Path]) -> None:
+    path = config_file(
+        "\n".join(
+            [
+                "[baseline]",
+                "fail_on_new = true",
+                'fail_on_new_severity = "high"',
+            ]
+        )
+    )
+
+    config = load_config(path)
+
+    assert config.baseline.fail_on_new is True
+    assert config.baseline.fail_on_new_severity == "high"
 
 
 def test_load_config_accepts_compliance_report_format(

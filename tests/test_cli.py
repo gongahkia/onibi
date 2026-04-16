@@ -164,6 +164,18 @@ def test_run_help_lists_incremental_flag() -> None:
     assert "--sbom" in output
     assert "--proof-mode" in output
     assert "--target-profile" in output
+    assert "--fail-on-new" in output
+    assert "--fail-on-new-severity" in output
+
+
+def test_diff_help_lists_pr_friendly_flags() -> None:
+    result = runner.invoke(app, ["diff", "--help"])
+    output = _plain_output(result.stdout)
+
+    assert result.exit_code == 0
+    assert "--format" in output
+    assert "--fail-on-new" in output
+    assert "--fail-on-new-severity" in output
 
 
 def test_verify_help_lists_proof_mode_flag() -> None:

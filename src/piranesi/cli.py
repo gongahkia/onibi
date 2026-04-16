@@ -25,7 +25,16 @@ from piranesi.detect import (
     load_ignore_file_with_diagnostics,
     parse_inline_suppressions,
 )
-from piranesi.diff import build_baseline_artifact, diff_findings, load_findings, render_diff
+from piranesi.diff import (
+    DiffResult,
+    build_baseline_artifact,
+    diff_findings,
+    diff_result_payload,
+    load_findings,
+    new_findings_at_or_above,
+    render_diff,
+    render_diff_markdown,
+)
 from piranesi.doctor import build_doctor_report, render_doctor_report
 from piranesi.hooks.pre_commit import (
     HookError,
@@ -198,6 +207,12 @@ class ComplianceFormat(StrEnum):
     TERMINAL = "terminal"
 
 
+class BaselineDiffFormat(StrEnum):
+    TEXT = "text"
+    MARKDOWN = "markdown"
+    JSON = "json"
+
+
 class SbomFormat(StrEnum):
     SPDX = "spdx"
     CYCLONEDX = "cyclonedx"
@@ -236,6 +251,10 @@ ComplianceTuiOption = Annotated[
 TrendFormatOption = Annotated[
     TrendFormat,
     typer.Option("--format", help="Trend output format.", case_sensitive=False),
+]
+BaselineDiffFormatOption = Annotated[
+    BaselineDiffFormat,
+    typer.Option("--format", help="Diff output format.", case_sensitive=False),
 ]
 ComplianceFormatOption = Annotated[
     ComplianceFormat,
@@ -331,10 +350,21 @@ BaselineOption = Annotated[
     ),
 ]
 FailOnNewOption = Annotated[
-    bool,
+    bool | None,
     typer.Option(
-        "--fail-on-new",
-        help="Exit 1 only when the diff contains NEW findings.",
+        "--fail-on-new/--no-fail-on-new",
+        help="Exit 1 only when baseline diff contains NEW findings.",
+    ),
+]
+FailOnNewSeverityOption = Annotated[
+    FailSeverity | None,
+    typer.Option(
+        "--fail-on-new-severity",
+        help=(
+            "Only count NEW findings at or above this severity when used with --fail-on-new "
+            "or [baseline].fail_on_new."
+        ),
+        case_sensitive=False,
     ),
 ]
 FailSeverityOption = Annotated[
@@ -1370,7 +1400,9 @@ def _severity_rank(severity: str) -> int:
 def _print_diff(
     baseline_path: Path,
     current_path: Path,
-) -> tuple[int, int, int]:
+    *,
+    output_format: BaselineDiffFormat = BaselineDiffFormat.TEXT,
+) -> DiffResult:
     try:
         baseline_findings = load_findings(baseline_path)
         current_findings = load_findings(current_path)
@@ -1380,8 +1412,21 @@ def _print_diff(
 
     diff_result = diff_findings(baseline_findings, current_findings)
     typer.echo(f"Piranesi Diff: {baseline_path} -> {current_path}")
-    typer.echo(render_diff(diff_result))
-    return len(diff_result.new), len(diff_result.fixed), len(diff_result.unchanged)
+    if output_format == BaselineDiffFormat.JSON:
+        typer.echo(json.dumps(diff_result_payload(diff_result), indent=2))
+    elif output_format == BaselineDiffFormat.MARKDOWN:
+        typer.echo(render_diff_markdown(diff_result), nl=False)
+    else:
+        typer.echo(render_diff(diff_result))
+    return diff_result
+
+
+def _write_baseline_diff_artifacts(diff_result: DiffResult, output_dir: Path) -> tuple[Path, Path]:
+    markdown_path = output_dir / "baseline-diff.md"
+    json_path = output_dir / "baseline-diff.json"
+    markdown_path.write_text(render_diff_markdown(diff_result), encoding="utf-8")
+    json_path.write_text(json.dumps(diff_result_payload(diff_result), indent=2), encoding="utf-8")
+    return markdown_path, json_path
 
 
 def _print_profile_breakdown(results: list[StageResult]) -> None:
@@ -2551,9 +2596,22 @@ def diff_command(
     baseline_path: ComparisonTargetArg,
     current_path: ComparisonTargetArg,
     fail_on_new: FailOnNewOption = False,
+    fail_on_new_severity: FailOnNewSeverityOption = None,
+    format: BaselineDiffFormatOption = BaselineDiffFormat.TEXT,
 ) -> None:
-    new_count, _, _ = _print_diff(baseline_path, current_path)
-    if fail_on_new and new_count > 0:
+    diff_result = _print_diff(
+        baseline_path,
+        current_path,
+        output_format=format,
+    )
+    if fail_on_new is True and new_findings_at_or_above(
+        diff_result,
+        minimum_severity=(
+            FailSeverity.LOW.value
+            if fail_on_new_severity is None
+            else fail_on_new_severity.value
+        ),
+    ):
         raise typer.Exit(code=1)
 
 
@@ -2830,7 +2888,8 @@ def run(
     package_name: PackageOption = None,
     changed_packages: ChangedPackagesOption = False,
     baseline: BaselineOption = None,
-    fail_on_new: FailOnNewOption = False,
+    fail_on_new: FailOnNewOption = None,
+    fail_on_new_severity: FailOnNewSeverityOption = None,
     fail_severity: FailSeverityOption = FailSeverity.LOW,
     no_fail: NoFailOption = False,
     staged_only: StagedOnlyOption = False,
@@ -3087,10 +3146,25 @@ def run(
         display_report(report, output_dir=options.output_dir)
     if report is not None and config_model.output.format == ReportFormat.COMPLIANCE.value:
         _emit_compliance_output(report, attestation=attestation, tui=tui)
+    effective_fail_on_new = (
+        config_model.baseline.fail_on_new if fail_on_new is None else fail_on_new
+    )
+    effective_fail_on_new_severity = (
+        config_model.baseline.fail_on_new_severity
+        if fail_on_new_severity is None
+        else fail_on_new_severity.value
+    )
     if baseline is not None:
-        new_count, _, _ = _print_diff(baseline, options.output_dir)
-        if fail_on_new and not no_fail:
-            if new_count > 0:
+        diff_result = _print_diff(baseline, options.output_dir)
+        markdown_path, json_path = _write_baseline_diff_artifacts(diff_result, options.output_dir)
+        typer.echo(f"baseline diff markdown: {markdown_path}")
+        typer.echo(f"baseline diff json: {json_path}")
+        if effective_fail_on_new and not no_fail:
+            failing_new = new_findings_at_or_above(
+                diff_result,
+                minimum_severity=effective_fail_on_new_severity,
+            )
+            if failing_new:
                 raise typer.Exit(code=1)
             return
     if (

@@ -40,6 +40,7 @@ maturity level.
 | Docker exploit verification | Experimental | Includes structured, safe-by-default templates for `CWE-89` (SQLi), `CWE-78` (command injection), `CWE-918` (SSRF loopback probes), `CWE-22` (path traversal), `CWE-601` (open redirect), `CWE-79` (reflected XSS), `CWE-502` (insecure deserialization markers), and weak crypto classes (`CWE-327`/`CWE-326`/`CWE-319`). `verify.proof_mode` defaults to `safe`, which excludes destructive templates; `unsafe` is explicit opt-in. Verification can also use reusable `verify.target_profiles` for startup/readiness/base URL reuse across runs. Attempts emit preconditions, proof mode, target profile, startup failures, launch log path, evidence strings, and skip/inconclusive reasons in `verify.json` and report explanations. |
 | SARIF output | Stable Alpha | Suitable for CI/code-scanning ingestion. |
 | JUnit/CSV/TUI output | Beta | Useful for integration and review workflows. |
+| Baseline diff (`new`/`changed`/`fixed`/`existing`) | Beta | `piranesi diff` and `piranesi run --baseline ...` produce deterministic baseline comparisons plus PR-friendly `baseline-diff.md` / `baseline-diff.json` artifacts. |
 | Finding clustering | Beta | Reports preserve individual findings while grouping related findings by CWE and sink location. |
 | Compliance/legal mapping | Experimental | Produces technical evidence and obligation mapping; not legal advice. |
 | Custom rules and rule registry | Beta | Rule validation, fixture testing, install/update/list flows exist. |

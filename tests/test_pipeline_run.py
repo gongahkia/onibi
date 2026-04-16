@@ -316,7 +316,11 @@ def test_run_baseline_fail_on_new_returns_zero_for_unchanged_findings(
     )
 
     assert result.exit_code == 0
-    assert "Summary: 0 new, 0 fixed, 1 unchanged" in result.stdout
+    assert "Summary: 0 new, 0 changed, 0 fixed, 1 existing" in result.stdout
+    assert "baseline diff markdown:" in result.stdout
+    assert "baseline diff json:" in result.stdout
+    assert (output_dir / "baseline-diff.md").exists()
+    assert (output_dir / "baseline-diff.json").exists()
 
 
 def test_run_baseline_fail_on_new_exits_one_for_new_findings(
@@ -366,6 +370,56 @@ def test_run_baseline_fail_on_new_exits_one_for_new_findings(
 
     assert result.exit_code == 1
     assert "NEW (1):" in result.stdout
+
+
+def test_run_baseline_fail_on_new_respects_severity_threshold(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "piranesi.toml"
+    output_dir = tmp_path / "out"
+    baseline_input_dir = tmp_path / "baseline-input"
+    baseline_path = tmp_path / ".piranesi-baseline.json"
+    config_path.write_text("", encoding="utf-8")
+
+    artifacts = fixture_artifacts(tmp_path, severity="medium")
+    baseline_input_dir.mkdir(parents=True, exist_ok=True)
+    (baseline_input_dir / "detect.json").write_text(
+        DetectArtifact(findings=[]).model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+
+    save_result = runner.invoke(
+        app,
+        ["baseline", "save", "--from", str(baseline_input_dir), "--to", str(baseline_path)],
+    )
+    assert save_result.exit_code == 0
+
+    def _registry(context: PipelineContext) -> OrderedDict[str, PipelineStage]:
+        return _build_fake_registry(context, artifacts=artifacts, calls=[])
+
+    monkeypatch.setattr("piranesi.cli.build_default_stage_registry", _registry)
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            str(tmp_path),
+            "--config",
+            str(config_path),
+            "--output",
+            str(output_dir),
+            "--baseline",
+            str(baseline_path),
+            "--fail-on-new",
+            "--fail-on-new-severity",
+            "high",
+            "--authorized",
+            "--yes",
+        ],
+    )
+
+    assert result.exit_code == 0
 
 
 def test_run_saves_partial_results_when_stage_fails(
