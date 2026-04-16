@@ -11,6 +11,7 @@ import {
 import { RealtimeClient, type RealtimeConnectionState } from "./api/realtimeClient";
 import {
   appendChunk,
+  mergeBufferSnapshot,
   removeSession,
   replaceBuffer,
   sortSessionsByRecentActivity,
@@ -102,6 +103,7 @@ export default function App(): JSX.Element {
   const [realtimeState, setRealtimeState] = useState<RealtimeConnectionState>("disconnected");
 
   const realtimeRef = useRef<RealtimeClient | null>(null);
+  const subscribedSessionIDRef = useRef<string | null>(null);
 
   const navigate = useCallback((nextRoute: Route) => {
     const path = routePath(nextRoute);
@@ -152,7 +154,9 @@ export default function App(): JSX.Element {
         return;
       case "buffer_snapshot":
         if (message.sessionId && message.chunks) {
-          setOutputBySession((existing) => replaceBuffer(existing, message.sessionId!, message.chunks!));
+          setOutputBySession((existing) =>
+            mergeBufferSnapshot(existing, message.sessionId!, message.chunks!, message.bufferCursor ?? null)
+          );
         }
         return;
       case "output":
@@ -171,6 +175,7 @@ export default function App(): JSX.Element {
   useEffect(() => {
     if (!connection) {
       disconnectRealtime();
+      subscribedSessionIDRef.current = null;
       setSessions([]);
       setOutputBySession({});
       if (route.kind !== "connect") {
@@ -275,32 +280,37 @@ export default function App(): JSX.Element {
   }, [activeSession, outputBySession]);
 
   useEffect(() => {
-    if (route.kind !== "live") {
-      return;
-    }
     if (realtimeState !== "authenticated") {
+      subscribedSessionIDRef.current = null;
       return;
     }
+
     const realtime = realtimeRef.current;
     if (!realtime) {
       return;
     }
 
-    realtime.send({
-      type: "subscribe",
-      sessionId: route.sessionId
-    });
-    realtime.send({
-      type: "request_buffer",
-      sessionId: route.sessionId
-    });
-
-    return () => {
+    const previousSessionID = subscribedSessionIDRef.current;
+    const activeSessionID = route.kind === "live" ? route.sessionId : null;
+    if (previousSessionID && previousSessionID !== activeSessionID) {
       realtime.send({
         type: "unsubscribe",
-        sessionId: route.sessionId
+        sessionId: previousSessionID
       });
-    };
+    }
+
+    if (activeSessionID) {
+      realtime.send({
+        type: "subscribe",
+        sessionId: activeSessionID
+      });
+      realtime.send({
+        type: "request_buffer",
+        sessionId: activeSessionID
+      });
+    }
+
+    subscribedSessionIDRef.current = activeSessionID;
   }, [route, realtimeState]);
 
   const connectToHost = (candidate: ConnectionConfig) => {
@@ -312,6 +322,7 @@ export default function App(): JSX.Element {
 
   const clearConnection = () => {
     clearPersistedConnection();
+    subscribedSessionIDRef.current = null;
     setConnection(null);
     setConnectionError(null);
     setInputError(null);

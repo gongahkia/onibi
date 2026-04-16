@@ -55,11 +55,25 @@ export class RealtimeClient {
       return;
     }
 
-    if (message.type !== "auth") {
-      this.queuedMessages.push(message);
-      if (this.queuedMessages.length > 512) {
-        this.queuedMessages.shift();
-      }
+    if (message.type === "auth" || message.type === "unsubscribe") {
+      return;
+    }
+
+    if (message.type === "subscribe" || message.type === "request_buffer") {
+      this.queuedMessages = this.queuedMessages.filter((queuedMessage) => {
+        return !(queuedMessage.type === message.type && queuedMessage.sessionId === message.sessionId);
+      });
+    }
+
+    if (message.type === "resize") {
+      this.queuedMessages = this.queuedMessages.filter((queuedMessage) => {
+        return !(queuedMessage.type === "resize" && queuedMessage.sessionId === message.sessionId);
+      });
+    }
+
+    this.queuedMessages.push(message);
+    if (this.queuedMessages.length > 512) {
+      this.queuedMessages.shift();
     }
   }
 

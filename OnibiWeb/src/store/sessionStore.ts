@@ -50,11 +50,49 @@ export function replaceBuffer(
   };
 }
 
+export function mergeBufferSnapshot(
+  outputBySession: OutputBySession,
+  sessionId: string,
+  chunks: SessionOutputChunk[],
+  incomingCursor?: string | null
+): OutputBySession {
+  const existing = outputBySession[sessionId] ?? [];
+  const incoming = chunks.map(toOutputEntry);
+
+  if (incomingCursor && existing.length > 0 && existing[existing.length - 1]?.id === incomingCursor) {
+    return outputBySession
+  }
+
+  let merged = incoming;
+  if (incomingCursor && existing.length > 0) {
+    const incomingCursorIndex = existing.findIndex((entry) => entry.id === incomingCursor);
+    if (incomingCursorIndex >= 0 && incomingCursorIndex < existing.length - 1) {
+      const knownIds = new Set(incoming.map((entry) => entry.id));
+      const tail = existing
+        .slice(incomingCursorIndex + 1)
+        .filter((entry) => !knownIds.has(entry.id));
+      merged = [...incoming, ...tail];
+    }
+  }
+
+  if (merged.length > MAX_CHUNK_COUNT_PER_SESSION) {
+    merged = merged.slice(merged.length - MAX_CHUNK_COUNT_PER_SESSION);
+  }
+
+  return {
+    ...outputBySession,
+    [sessionId]: merged
+  };
+}
+
 export function appendChunk(
   outputBySession: OutputBySession,
   chunk: SessionOutputChunk
 ): OutputBySession {
   const existing = outputBySession[chunk.sessionId] ?? [];
+  if (existing.some((entry) => entry.id === chunk.id)) {
+    return outputBySession;
+  }
   const next = [...existing, toOutputEntry(chunk)];
 
   if (next.length > MAX_CHUNK_COUNT_PER_SESSION) {
