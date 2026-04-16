@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime
+from fnmatch import fnmatch
 from hashlib import sha256
 from pathlib import Path
 from typing import Literal
@@ -11,6 +12,11 @@ from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, ConfigDict, Field
 
 from piranesi import __version__
+from piranesi.config import (
+    OwnershipConfig,
+    OwnershipPackageMappingConfig,
+    OwnershipPathMappingConfig,
+)
 from piranesi.detect.suppression import SuppressionLifecycleSummary
 from piranesi.models import (
     CandidateFinding,
@@ -172,6 +178,7 @@ class CombinedFinding(BaseModel):
     severity: str
     confidence: float
     metadata: dict[str, object] = Field(default_factory=dict)
+    ownership: OwnershipMetadata = Field(default_factory=lambda: OwnershipMetadata())
     verified: bool
     verification_method: str
     taint_source: str
@@ -216,6 +223,7 @@ class CandidateReportFinding(BaseModel):
     original_severity: str | None = None
     confidence: float
     metadata: dict[str, object] = Field(default_factory=dict)
+    ownership: OwnershipMetadata = Field(default_factory=lambda: OwnershipMetadata())
     taint_source: str
     taint_sink: str
     source_location: SourceLocation
@@ -244,6 +252,7 @@ class SuppressedFinding(BaseModel):
     severity: str
     confidence: float
     metadata: dict[str, object] = Field(default_factory=dict)
+    ownership: OwnershipMetadata = Field(default_factory=lambda: OwnershipMetadata())
     taint_source: str
     taint_sink: str
     source_location: SourceLocation
@@ -307,6 +316,44 @@ class ReportAppendix(BaseModel):
     duration_s: float
 
 
+class ControlOwnerMapping(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    framework: str
+    control: str
+    owner: str
+
+
+class OwnershipMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    service: str | None = None
+    system: str | None = None
+    team: str | None = None
+    owner: str | None = None
+    repository: str | None = None
+    environment: str | None = None
+    control_owner: str | None = None
+    package: str | None = None
+    source_path: str | None = None
+    sink_path: str | None = None
+    matched_package_mapping: str | None = None
+    matched_path_mapping: str | None = None
+
+
+class ReportOwnershipContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    service: str | None = None
+    system: str | None = None
+    team: str | None = None
+    owner: str | None = None
+    repository: str | None = None
+    environment: str | None = None
+    control_owner: str | None = None
+    control_mappings: list[ControlOwnerMapping] = Field(default_factory=list)
+
+
 class PiranesiReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -315,6 +362,7 @@ class PiranesiReport(BaseModel):
     files_scanned: list[str] = Field(default_factory=list)
     status_legend: dict[str, str] = Field(default_factory=lambda: dict(_EVIDENCE_STATUS_LABELS))
     scan_metadata: ScanMetadata
+    ownership_context: ReportOwnershipContext = Field(default_factory=ReportOwnershipContext)
     executive_summary: ExecutiveSummary
     suppression_lifecycle: SuppressionLifecycleSummary | None = None
     active_findings: list[CandidateReportFinding] = Field(default_factory=list)
@@ -348,8 +396,14 @@ def build_report(
     include_unreachable: bool = False,
     dead_code_report: bool = False,
     suppression_lifecycle: SuppressionLifecycleSummary | None = None,
+    ownership_config: OwnershipConfig | None = None,
 ) -> PiranesiReport:
     generated_at = _utc_now()
+    ownership_context = _report_ownership_context(
+        ownership_config=ownership_config,
+        scan_result=scan_result,
+        target_dir=target_dir,
+    )
     triage_by_id = _triage_lookup(triaged_findings or [])
     attempts_by_id = _verification_attempt_lookup(verification_attempts or [])
     legal_by_id = {
@@ -393,6 +447,12 @@ def build_report(
                 severity=candidate.severity,
                 confidence=candidate.confidence,
                 metadata=dict(candidate.metadata),
+                ownership=_resolve_finding_ownership(
+                    candidate,
+                    target_dir=target_dir,
+                    ownership_config=ownership_config,
+                    ownership_context=ownership_context,
+                ),
                 taint_source=candidate.source.source_type,
                 taint_sink=candidate.sink.api_name,
                 source_location=candidate.source.location,
@@ -421,6 +481,9 @@ def build_report(
             triaged=triage_by_id.get(candidate.id),
             verification_attempt=attempts_by_id.get(candidate.id),
             cluster_by_id={},
+            target_dir=target_dir,
+            ownership_config=ownership_config,
+            ownership_context=ownership_context,
         )
         for candidate in active_candidates
     ]
@@ -429,6 +492,9 @@ def build_report(
             candidate,
             triaged=triage_by_id.get(candidate.id),
             verification_attempt=attempts_by_id.get(candidate.id),
+            target_dir=target_dir,
+            ownership_config=ownership_config,
+            ownership_context=ownership_context,
         )
         for candidate in unreachable_candidates
     ]
@@ -472,6 +538,12 @@ def build_report(
             severity=candidate.severity,
             confidence=candidate.confidence,
             metadata=dict(candidate.metadata),
+            ownership=_resolve_finding_ownership(
+                candidate,
+                target_dir=target_dir,
+                ownership_config=ownership_config,
+                ownership_context=ownership_context,
+            ),
             verified=True,
             verification_method="smt+sandbox",
             taint_source=candidate.source.source_type,
@@ -507,6 +579,7 @@ def build_report(
         generated_at=generated_at,
         files_scanned=list(scan_result.files_scanned),
         scan_metadata=scan_result.metadata,
+        ownership_context=ownership_context,
         executive_summary=ExecutiveSummary(
             findings_detected=len(detected_findings),
             suppressed_findings=len(suppressed_findings),
@@ -679,6 +752,9 @@ def _candidate_report_finding(
     triaged: TriagedFinding | None = None,
     verification_attempt: VerificationAttempt | None = None,
     cluster_by_id: dict[str, FindingCluster] | None = None,
+    target_dir: Path,
+    ownership_config: OwnershipConfig | None,
+    ownership_context: ReportOwnershipContext,
 ) -> CandidateReportFinding:
     original_severity = candidate.metadata.get("reachability_original_severity")
     evidence_status = _candidate_evidence_status(candidate, triaged=triaged)
@@ -700,6 +776,12 @@ def _candidate_report_finding(
         original_severity=original_severity if isinstance(original_severity, str) else None,
         confidence=candidate.confidence,
         metadata=dict(candidate.metadata),
+        ownership=_resolve_finding_ownership(
+            candidate,
+            target_dir=target_dir,
+            ownership_config=ownership_config,
+            ownership_context=ownership_context,
+        ),
         taint_source=candidate.source.source_type,
         taint_sink=candidate.sink.api_name,
         source_location=candidate.source.location,
@@ -1338,6 +1420,181 @@ def _metadata_bool(value: object) -> bool | None:
     return None
 
 
+def _report_ownership_context(
+    *,
+    ownership_config: OwnershipConfig | None,
+    scan_result: ScanResult,
+    target_dir: Path,
+) -> ReportOwnershipContext:
+    config = ownership_config or OwnershipConfig()
+    repository = config.repository
+    if repository is None and config.autodetect_repository:
+        repository = _repository_name(scan_result=scan_result, target_dir=target_dir)
+    service = config.service
+    if service is None and config.autodetect_service:
+        service = repository or _repository_name(scan_result=scan_result, target_dir=target_dir)
+    control_mappings = [
+        ControlOwnerMapping(
+            framework=mapping.framework,
+            control=mapping.control,
+            owner=mapping.owner,
+        )
+        for mapping in config.control_mappings
+    ]
+    return ReportOwnershipContext(
+        service=service,
+        system=config.system,
+        team=config.team,
+        owner=config.owner,
+        repository=repository,
+        environment=config.environment,
+        control_owner=config.control_owner,
+        control_mappings=control_mappings,
+    )
+
+
+def _resolve_finding_ownership(
+    candidate: CandidateFinding,
+    *,
+    target_dir: Path,
+    ownership_config: OwnershipConfig | None,
+    ownership_context: ReportOwnershipContext,
+) -> OwnershipMetadata:
+    config = ownership_config or OwnershipConfig()
+    source_path = _relative_report_path(candidate.source.location.file, target_dir=target_dir)
+    sink_path = _relative_report_path(candidate.sink.location.file, target_dir=target_dir)
+    package_name = _package_name(candidate)
+
+    resolved = OwnershipMetadata(
+        service=ownership_context.service,
+        system=ownership_context.system,
+        team=ownership_context.team,
+        owner=ownership_context.owner,
+        repository=ownership_context.repository,
+        environment=ownership_context.environment,
+        control_owner=ownership_context.control_owner,
+        package=package_name,
+        source_path=source_path,
+        sink_path=sink_path,
+    )
+
+    package_mapping = _match_package_mapping(candidate, mappings=config.package_mappings)
+    if package_mapping is not None:
+        resolved = _apply_ownership_override(resolved, mapping=package_mapping)
+        resolved = resolved.model_copy(update={"matched_package_mapping": package_mapping.package})
+
+    path_mapping = _match_path_mapping(
+        source_path=source_path,
+        sink_path=sink_path,
+        mappings=config.path_mappings,
+    )
+    if path_mapping is not None:
+        resolved = _apply_ownership_override(resolved, mapping=path_mapping)
+        resolved = resolved.model_copy(update={"matched_path_mapping": path_mapping.path})
+
+    return resolved
+
+
+def _match_package_mapping(
+    candidate: CandidateFinding,
+    *,
+    mappings: list[OwnershipPackageMappingConfig],
+) -> OwnershipPackageMappingConfig | None:
+    package_candidates = {
+        value.lower()
+        for value in (
+            _package_name(candidate),
+            _metadata_string(candidate.metadata.get("source_package")),
+            _metadata_string(candidate.metadata.get("sink_package")),
+        )
+        if value is not None
+    }
+    if not package_candidates:
+        return None
+    match: OwnershipPackageMappingConfig | None = None
+    for mapping in mappings:
+        if mapping.package.lower() in package_candidates:
+            match = mapping
+    return match
+
+
+def _match_path_mapping(
+    *,
+    source_path: str | None,
+    sink_path: str | None,
+    mappings: list[OwnershipPathMappingConfig],
+) -> OwnershipPathMappingConfig | None:
+    best: tuple[int, int, OwnershipPathMappingConfig] | None = None
+    for index, mapping in enumerate(mappings):
+        if not _mapping_matches_path(mapping.path, source_path=source_path, sink_path=sink_path):
+            continue
+        rank = _mapping_specificity(mapping.path)
+        if best is None or (rank, index) > (best[0], best[1]):
+            best = (rank, index, mapping)
+    return None if best is None else best[2]
+
+
+def _mapping_matches_path(
+    pattern: str,
+    *,
+    source_path: str | None,
+    sink_path: str | None,
+) -> bool:
+    return (source_path is not None and fnmatch(source_path, pattern)) or (
+        sink_path is not None and fnmatch(sink_path, pattern)
+    )
+
+
+def _mapping_specificity(pattern: str) -> int:
+    wildcardless = pattern.replace("*", "").replace("?", "")
+    return len(wildcardless)
+
+
+def _apply_ownership_override(
+    ownership: OwnershipMetadata,
+    *,
+    mapping: OwnershipPathMappingConfig | OwnershipPackageMappingConfig,
+) -> OwnershipMetadata:
+    update: dict[str, object] = {}
+    for field_name in (
+        "service",
+        "system",
+        "team",
+        "owner",
+        "repository",
+        "environment",
+        "control_owner",
+    ):
+        value = getattr(mapping, field_name)
+        if value is not None:
+            update[field_name] = value
+    if not update:
+        return ownership
+    return ownership.model_copy(update=update)
+
+
+def _relative_report_path(path: str, *, target_dir: Path) -> str:
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        return candidate.as_posix()
+    try:
+        return (
+            candidate.resolve(strict=False)
+            .relative_to(target_dir.resolve(strict=False))
+            .as_posix()
+        )
+    except ValueError:
+        return candidate.as_posix()
+
+
+def _repository_name(*, scan_result: ScanResult, target_dir: Path) -> str | None:
+    project_root_name = Path(scan_result.project_root).name.strip()
+    if project_root_name:
+        return project_root_name
+    target_name = target_dir.resolve(strict=False).name.strip()
+    return target_name or None
+
+
 def _group_report_findings_by_package(
     findings: list[CombinedFinding],
 ) -> dict[str, list[CombinedFinding]]:
@@ -1410,9 +1667,11 @@ __all__ = [
     "FindingCluster",
     "FindingExplanation",
     "MatchedSpec",
+    "OwnershipMetadata",
     "PiranesiReport",
     "PropagationPathSummary",
     "ReportAppendix",
+    "ReportOwnershipContext",
     "SanitizerExplanation",
     "SuppressedFinding",
     "VerificationState",

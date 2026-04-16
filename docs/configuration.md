@@ -76,6 +76,33 @@ logs_path = "./piranesi-output/verify-launch.log"
 
 [verify.target_profiles.express_local.env]
 PORT = "4010"
+
+[ownership]
+service = "checkout-api"
+system = "payments-platform"
+team = "payments-eng"
+owner = "payments-oncall"
+repository = "acme/checkout"
+environment = "production"
+control_owner = "grc-core"
+autodetect_repository = true
+autodetect_service = true
+
+[[ownership.path_mappings]]
+path = "src/routes/payments/**"
+team = "payments-routing"
+owner = "payments-route-owner"
+
+[[ownership.package_mappings]]
+package = "@acme/identity"
+team = "identity-eng"
+owner = "identity-oncall"
+control_owner = "identity-grc"
+
+[[ownership.control_mappings]]
+framework = "SOC2"
+control = "CC6.6"
+owner = "soc-controls-team"
 ```
 
 Notes:
@@ -169,6 +196,53 @@ Reusable target launch profile used by `verify` or `run` when `verify.target_pro
 | `base_url` | `str \| null` | `null` | Base URL used for verification requests. Supports `{port}` placeholder from profile env `PORT`. |
 | `teardown` | `"always" \| "on_success" \| "never"` | `always` | Controls whether the launched process is terminated after verification. |
 | `logs_path` | `str \| null` | `null` | Optional path for persisted startup/runtime logs. Included in `verify.json` attempts when set. |
+
+### `[ownership]`
+
+Optional ownership metadata used to attribute findings to services, systems, teams, and control owners. This section is optional and does not affect scan execution when omitted.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `service` | `str \| null` | `null` | Default service name attached to findings. |
+| `system` | `str \| null` | `null` | Default system or platform name attached to findings. |
+| `team` | `str \| null` | `null` | Default engineering team for findings. |
+| `owner` | `str \| null` | `null` | Default owner (team alias or individual) for findings. |
+| `repository` | `str \| null` | `null` | Default repository label. |
+| `environment` | `str \| null` | `null` | Deployment environment label such as `dev`, `staging`, or `production`. |
+| `control_owner` | `str \| null` | `null` | Default control owner used in report/compliance metadata. |
+| `autodetect_repository` | `bool` | `true` | When true, infer repository from the scan target path if `repository` is not set. |
+| `autodetect_service` | `bool` | `true` | When true, infer service from repository/path if `service` is not set. |
+| `path_mappings` | `list[table]` | `[]` | Ordered overrides matching source/sink paths by glob. |
+| `package_mappings` | `list[table]` | `[]` | Ordered overrides matching package metadata (`package`, `source_package`, `sink_package`). |
+| `control_mappings` | `list[table]` | `[]` | Explicit framework/control owner assignments. |
+
+### `[[ownership.path_mappings]]`
+
+Per-path ownership override. The most specific matching pattern wins.
+
+| Key | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `path` | `str` | yes | Glob pattern applied to source/sink file paths (for example `src/routes/payments/**`). |
+| `service`/`system`/`team`/`owner`/`repository`/`environment`/`control_owner` | `str \| null` | no | Field overrides applied when the path matches. |
+
+### `[[ownership.package_mappings]]`
+
+Per-package ownership override. Later matching entries override earlier entries.
+
+| Key | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `package` | `str` | yes | Package identifier matched against finding package metadata. |
+| `service`/`system`/`team`/`owner`/`repository`/`environment`/`control_owner` | `str \| null` | no | Field overrides applied when the package matches. |
+
+### `[[ownership.control_mappings]]`
+
+Control owner assignments exported in `report.json` and compliance bundle metadata.
+
+| Key | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `framework` | `str` | yes | Framework key (for example `SOC2`, `PCI_DSS`). |
+| `control` | `str` | yes | Control reference (for example `CC6.6`). |
+| `owner` | `str` | yes | Control owner label. |
 
 ### `[trace]`
 

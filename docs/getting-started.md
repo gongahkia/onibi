@@ -140,7 +140,7 @@ After the first run, the output directory contains:
 - `verify.json`: confirmed findings plus per-finding verification attempts with precondition status (`satisfied`, `missing`, `inferred`, `user_provided`), selected `proof_mode`, machine-readable evidence strings, and explicit skip/inconclusive reasons.
 - `legal.json`: regulatory obligations for confirmed findings.
 - `patch.json`: generated fixes for confirmed findings.
-- `report.json`: machine-readable combined report, including the `query_quality` block copied from `scan.json` and per-finding `evidence_status` values.
+- `report.json`: machine-readable combined report, including the `query_quality` block copied from `scan.json`, per-finding `evidence_status` values, and optional ownership metadata (`service`, `system`, `team`, `owner`, `repository`, `environment`, `control_owner`) when `[ownership]` config is set.
 - `report.md`: human-readable markdown report.
 - `pr_body.md`: per-finding GitHub-flavored markdown.
 - `baseline-diff.md` / `baseline-diff.json` (when `--baseline` is used): PR-focused delta summary with `new`, `changed`, `fixed`, and `existing` classifications.
@@ -177,7 +177,7 @@ uv run piranesi compliance bundle \
   --output .piranesi-out/vuln-express/compliance-bundle
 ```
 
-The bundle includes redacted artifact snapshots, per-control evidence files, and a `manifest.json` checksum index.
+The bundle includes redacted artifact snapshots, per-control evidence files (including control owner metadata when configured), and a `manifest.json` checksum index.
 
 Use `query_quality` to tune specs over time:
 
@@ -201,6 +201,7 @@ It now also prints structured explanation metadata:
 - verification state (candidate, unreachable, suppressed, or verified), including attempt outcome, skip/inconclusive reason, missing preconditions, and actionable next steps
 - verification proof mode and evidence captured by the verifier
 - selected target launch profile, startup errors, and launch log path (when profiles are used)
+- ownership attribution (service/system/team/owner/control owner/repository/environment)
 - confidence contributors with a documented `v1` weighted component model
 
 Confidence model (`v1`) components shown in `report.json` and `piranesi explain`:

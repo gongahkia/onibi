@@ -69,6 +69,7 @@ from piranesi.report.renderer import (
     CombinedFinding,
     FindingExplanation,
     MatchedSpec,
+    OwnershipMetadata,
     PiranesiReport,
     SuppressedFinding,
 )
@@ -631,6 +632,32 @@ def _render_finding_explanation(status: str, finding: ReportFindingMatch) -> str
         ),
         (f"Sink: {finding.sink_location.file}:{finding.sink_location.line} ({finding.taint_sink})"),
     ]
+    ownership = getattr(finding, "ownership", None)
+    if isinstance(ownership, OwnershipMetadata):
+        lines.extend(
+            [
+                "",
+                "Ownership:",
+                f"- Service: {ownership.service or 'n/a'}",
+                f"- System: {ownership.system or 'n/a'}",
+                f"- Team: {ownership.team or 'n/a'}",
+                f"- Owner: {ownership.owner or 'n/a'}",
+                f"- Repository: {ownership.repository or 'n/a'}",
+                f"- Environment: {ownership.environment or 'n/a'}",
+                f"- Control owner: {ownership.control_owner or 'n/a'}",
+                f"- Package: {ownership.package or 'n/a'}",
+            ]
+        )
+        if ownership.source_path is not None or ownership.sink_path is not None:
+            lines.append(
+                "- Paths: "
+                f"source={ownership.source_path or 'n/a'}, "
+                f"sink={ownership.sink_path or 'n/a'}"
+            )
+        if ownership.matched_package_mapping is not None:
+            lines.append(f"- Package mapping: {ownership.matched_package_mapping}")
+        if ownership.matched_path_mapping is not None:
+            lines.append(f"- Path mapping: {ownership.matched_path_mapping}")
     if explanation is not None:
         lines.extend(
             [

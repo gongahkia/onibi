@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from piranesi.legal.frameworks import FRAMEWORK_BY_KEY, resolve_framework_key
 from piranesi.legal.rules import RegulatoryRuleSpec, discover_rule_files, load_all_rule_specs
@@ -38,6 +38,7 @@ class EvidenceFinding(BaseModel):
     line: int
     status: str = "open"
     first_detected: str | None = None
+    ownership: dict[str, str | None] | None = None
 
 
 class EvidenceScope(BaseModel):
@@ -66,6 +67,7 @@ class EvidenceBundle(BaseModel):
     control_assessment: str
     evidence_narrative: str
     source_rule_ids: list[str] = Field(default_factory=list)
+    control_owner: str | None = None
     mapping_metadata: ComplianceMappingMetadata | None = None
     compliance_support_scope: str = (
         "supporting_evidence_only_not_a_certification_or_formal_audit_opinion"
@@ -115,13 +117,19 @@ def generate_evidence_bundles(
     scan: ScanResult,
     assessments: list[LegalAssessment],
     framework: str,
+    control_owner_lookup: dict[tuple[str, str], str] | None = None,
+    finding_ownership_lookup: dict[str, dict[str, str | None]] | None = None,
 ) -> list[EvidenceBundle]:
     framework_keys = _resolve_framework_selection(framework)
     payment_scope = detect_payment_processing_scope(
         Path(scan.project_root),
         files=list(scan.files_scanned),
     )
-    findings_by_control = _findings_by_control(assessments, scan_date=scan.metadata.timestamp)
+    findings_by_control = _findings_by_control(
+        assessments,
+        scan_date=scan.metadata.timestamp,
+        finding_ownership_lookup=finding_ownership_lookup or {},
+    )
 
     bundles: list[EvidenceBundle] = []
     for control in _control_catalog(framework_keys):
@@ -172,6 +180,9 @@ def generate_evidence_bundles(
                     in_scope=in_scope,
                 ),
                 source_rule_ids=list(control.rule_ids),
+                control_owner=(control_owner_lookup or {}).get(
+                    (control.framework, control.control_ref)
+                ),
                 mapping_metadata=control.mapping_metadata,
             )
         )
@@ -208,10 +219,15 @@ def build_compliance_evidence_bundle(
     config_path: Path | None = None,
 ) -> ComplianceEvidenceBundleManifest:
     scan, assessments = load_evidence_artifacts(artifacts_dir)
+    finding_ownership_lookup, control_owner_lookup, ownership_context = _ownership_metadata(
+        artifacts_dir=artifacts_dir
+    )
     bundles = generate_evidence_bundles(
         scan=scan,
         assessments=assessments,
         framework=framework,
+        control_owner_lookup=control_owner_lookup,
+        finding_ownership_lookup=finding_ownership_lookup,
     )
     framework_keys = _resolve_framework_selection(framework)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -246,6 +262,7 @@ def build_compliance_evidence_bundle(
         bundles=bundles,
         included_sources=[path.name for path in source_files],
         redacted=redact,
+        ownership_context=ownership_context,
     )
     _write_json(metadata_path, metadata_payload)
     written_paths.append(metadata_path)
@@ -334,6 +351,46 @@ def _write_json(path: Path, payload: object) -> None:
     )
 
 
+def _ownership_metadata(
+    *,
+    artifacts_dir: Path,
+) -> tuple[
+    dict[str, dict[str, str | None]],
+    dict[tuple[str, str], str],
+    dict[str, Any] | None,
+]:
+    report_path = artifacts_dir / "report.json"
+    if not report_path.exists():
+        return {}, {}, None
+    try:
+        from piranesi.report.renderer import PiranesiReport
+
+        report = PiranesiReport.model_validate_json(report_path.read_text(encoding="utf-8"))
+    except (OSError, ValidationError, json.JSONDecodeError, ValueError):
+        return {}, {}, None
+    finding_ownership_lookup = {
+        finding.finding_id: {
+            "service": finding.ownership.service,
+            "system": finding.ownership.system,
+            "team": finding.ownership.team,
+            "owner": finding.ownership.owner,
+            "repository": finding.ownership.repository,
+            "environment": finding.ownership.environment,
+            "control_owner": finding.ownership.control_owner,
+            "package": finding.ownership.package,
+            "source_path": finding.ownership.source_path,
+            "sink_path": finding.ownership.sink_path,
+        }
+        for finding in report.findings
+    }
+    control_owner_lookup = {
+        (mapping.framework, mapping.control): mapping.owner
+        for mapping in report.ownership_context.control_mappings
+    }
+    ownership_context = report.ownership_context.model_dump(mode="json")
+    return finding_ownership_lookup, control_owner_lookup, ownership_context
+
+
 def _bundle_metadata_payload(
     *,
     scan: ScanResult,
@@ -341,6 +398,7 @@ def _bundle_metadata_payload(
     bundles: list[EvidenceBundle],
     included_sources: list[str],
     redacted: bool,
+    ownership_context: dict[str, Any] | None,
 ) -> dict[str, Any]:
     return {
         "bundle_kind": "piranesi-compliance-evidence",
@@ -375,6 +433,7 @@ def _bundle_metadata_payload(
             "sensitive_key_pattern": _SENSITIVE_KEY_PATTERN.pattern,
             "sensitive_value_pattern": _SENSITIVE_VALUE_PATTERN.pattern,
         },
+        "ownership": ownership_context,
         "compliance_claim_boundary": (
             "Bundle content is supporting technical evidence only. "
             "It does not certify compliance or replace legal/audit review."
@@ -540,6 +599,7 @@ def _findings_by_control(
     assessments: list[LegalAssessment],
     *,
     scan_date: str,
+    finding_ownership_lookup: dict[str, dict[str, str | None]],
 ) -> dict[tuple[str, str], tuple[EvidenceFinding, ...]]:
     grouped: dict[tuple[str, str], dict[str, EvidenceFinding]] = defaultdict(dict)
     for assessment in assessments:
@@ -554,6 +614,7 @@ def _findings_by_control(
                 line=candidate.sink.location.line,
                 status="open",
                 first_detected=scan_date,
+                ownership=finding_ownership_lookup.get(candidate.id),
             )
     return {key: tuple(value.values()) for key, value in grouped.items()}
 

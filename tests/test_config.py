@@ -61,6 +61,59 @@ def test_load_baseline_config_from_file(config_file: Callable[[str], Path]) -> N
     assert config.baseline.fail_on_new_severity == "high"
 
 
+def test_load_ownership_config_from_file(config_file: Callable[[str], Path]) -> None:
+    path = config_file(
+        "\n".join(
+            [
+                "[ownership]",
+                'service = "payments-api"',
+                'system = "checkout-platform"',
+                'team = "payments-eng"',
+                'owner = "payments-oncall"',
+                'repository = "acme/payments"',
+                'environment = "production"',
+                'control_owner = "grc-controls"',
+                "autodetect_repository = false",
+                "autodetect_service = false",
+                "",
+                "[[ownership.path_mappings]]",
+                'path = "src/payments/**"',
+                'team = "payments-eng"',
+                'owner = "payments-api-owner"',
+                "",
+                "[[ownership.package_mappings]]",
+                'package = "@acme/auth"',
+                'owner = "identity-team"',
+                'control_owner = "identity-grc"',
+                "",
+                "[[ownership.control_mappings]]",
+                'framework = "SOC2"',
+                'control = "CC6.6"',
+                'owner = "security-governance"',
+            ]
+        )
+    )
+
+    config = load_config(path)
+
+    assert config.ownership.service == "payments-api"
+    assert config.ownership.system == "checkout-platform"
+    assert config.ownership.team == "payments-eng"
+    assert config.ownership.owner == "payments-oncall"
+    assert config.ownership.repository == "acme/payments"
+    assert config.ownership.environment == "production"
+    assert config.ownership.control_owner == "grc-controls"
+    assert config.ownership.autodetect_repository is False
+    assert config.ownership.autodetect_service is False
+    assert config.ownership.path_mappings[0].path == "src/payments/**"
+    assert config.ownership.path_mappings[0].owner == "payments-api-owner"
+    assert config.ownership.package_mappings[0].package == "@acme/auth"
+    assert config.ownership.package_mappings[0].control_owner == "identity-grc"
+    assert config.ownership.control_mappings[0].framework == "SOC2"
+    assert config.ownership.control_mappings[0].control == "CC6.6"
+    assert config.ownership.control_mappings[0].owner == "security-governance"
+
+
 def test_load_config_accepts_compliance_report_format(
     config_file: Callable[[str], Path],
 ) -> None:

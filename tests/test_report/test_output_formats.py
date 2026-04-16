@@ -13,6 +13,7 @@ from tests._pipeline_fixtures import fixture_artifacts
 from typer.testing import CliRunner
 
 from piranesi.cli import app
+from piranesi.config import OwnershipConfig
 from piranesi.models import ScanResult
 from piranesi.pipeline import (
     DetectArtifact,
@@ -25,7 +26,12 @@ from piranesi.pipeline import (
     VerifyArtifact,
 )
 from piranesi.report import generate_csv, generate_junit_xml
-from piranesi.report.renderer import PiranesiReport, build_report, write_report_outputs
+from piranesi.report.renderer import (
+    PiranesiReport,
+    build_report,
+    render_markdown,
+    write_report_outputs,
+)
 
 runner = CliRunner()
 _JUNIT_SCHEMA_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "report" / "junit.xsd"
@@ -183,6 +189,40 @@ def test_cli_run_emits_compliance_report_to_stdout(
     assert result.exit_code == 1
     assert "Regulatory Coverage Matrix" in result.stdout
     assert "OWASP Top 10 2021 Coverage" in result.stdout
+
+
+def test_markdown_renders_ownership_context_and_finding_metadata(tmp_path: Path) -> None:
+    artifacts = fixture_artifacts(tmp_path)
+    report = build_report(
+        scan_result=artifacts["scan"],  # type: ignore[arg-type]
+        detected_findings=artifacts["detect"].findings,  # type: ignore[attr-defined]
+        confirmed_findings=artifacts["verify"].findings,  # type: ignore[attr-defined]
+        legal_assessments=artifacts["legal"].assessments,  # type: ignore[attr-defined]
+        patch_results=artifacts["patch"].patches,  # type: ignore[attr-defined]
+        target_dir=tmp_path,
+        total_llm_cost_usd=0.2,
+        duration_s=2.0,
+        stage_timings_s={"scan": 0.5},
+        ownership_config=OwnershipConfig(
+            service="auth-api",
+            system="identity-platform",
+            team="identity-eng",
+            owner="identity-oncall",
+            repository="acme/identity",
+            environment="staging",
+            control_owner="grc-identity",
+            control_mappings=[
+                {"framework": "SOC2", "control": "CC6.6", "owner": "grc-controls"}
+            ],
+        ),
+    )
+
+    markdown = render_markdown(report)
+
+    assert "## Ownership Context" in markdown
+    assert "acme/identity" in markdown
+    assert "SOC2 CC6.6" in markdown
+    assert "control_owner=`grc-identity`" in markdown
 
 
 def _build_report(tmp_path: Path, *, include_suppressed: bool) -> PiranesiReport:

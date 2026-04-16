@@ -222,6 +222,57 @@ class VerifyTargetProfileConfig(BaseModel):
     logs_path: str | None = None
 
 
+class OwnershipPathMappingConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+    service: str | None = None
+    system: str | None = None
+    team: str | None = None
+    owner: str | None = None
+    repository: str | None = None
+    environment: str | None = None
+    control_owner: str | None = None
+
+
+class OwnershipPackageMappingConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    package: str
+    service: str | None = None
+    system: str | None = None
+    team: str | None = None
+    owner: str | None = None
+    repository: str | None = None
+    environment: str | None = None
+    control_owner: str | None = None
+
+
+class OwnershipControlMappingConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    framework: str
+    control: str
+    owner: str
+
+
+class OwnershipConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    service: str | None = None
+    system: str | None = None
+    team: str | None = None
+    owner: str | None = None
+    repository: str | None = None
+    environment: str | None = None
+    control_owner: str | None = None
+    autodetect_repository: bool = True
+    autodetect_service: bool = True
+    path_mappings: list[OwnershipPathMappingConfig] = Field(default_factory=list)
+    package_mappings: list[OwnershipPackageMappingConfig] = Field(default_factory=list)
+    control_mappings: list[OwnershipControlMappingConfig] = Field(default_factory=list)
+
+
 class LspConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -249,6 +300,7 @@ class PiranesiConfig(BaseModel):
     suppression: SuppressionConfig = Field(default_factory=SuppressionConfig)
     baseline: BaselineConfig = Field(default_factory=BaselineConfig)
     verify: VerifyConfig = Field(default_factory=VerifyConfig)
+    ownership: OwnershipConfig = Field(default_factory=OwnershipConfig)
     lsp: LspConfig = Field(default_factory=LspConfig)
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
     rules: RulesConfig = Field(default_factory=RulesConfig)

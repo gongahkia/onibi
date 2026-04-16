@@ -8,7 +8,7 @@ import pytest
 from typer.testing import CliRunner
 
 from piranesi.cli import app
-from piranesi.config import load_config
+from piranesi.config import OwnershipConfig, load_config
 from piranesi.doctor import DoctorCheck, DoctorReport
 from piranesi.models.finding import (
     VerificationAttempt,
@@ -489,6 +489,53 @@ def test_explain_command_renders_confirmed_finding(tmp_path: Path) -> None:
     assert "db.query" in result.stdout
 
 
+def test_explain_command_renders_ownership_metadata(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+    artifacts = fixture_artifacts(tmp_path)
+    report = build_report(
+        scan_result=artifacts["scan"],  # type: ignore[arg-type]
+        detected_findings=artifacts["detect"].findings,  # type: ignore[attr-defined]
+        confirmed_findings=artifacts["verify"].findings,  # type: ignore[attr-defined]
+        legal_assessments=artifacts["legal"].assessments,  # type: ignore[attr-defined]
+        patch_results=artifacts["patch"].patches,  # type: ignore[attr-defined]
+        target_dir=tmp_path,
+        total_llm_cost_usd=0.0,
+        duration_s=1.0,
+        stage_timings_s={},
+        ownership_config=OwnershipConfig(
+            service="checkout-api",
+            system="payments-platform",
+            team="payments-eng",
+            owner="payments-oncall",
+            repository="acme/checkout",
+            environment="prod",
+            control_owner="grc-team",
+            path_mappings=[
+                {
+                    "path": "src/routes/**",
+                    "team": "route-security",
+                    "owner": "route-owner",
+                }
+            ],
+        ),
+    )
+    output_dir.mkdir()
+    (output_dir / "report.json").write_text(report.model_dump_json(indent=2), encoding="utf-8")
+
+    result = runner.invoke(app, ["explain", "finding-001", "--output", str(output_dir)])
+
+    assert result.exit_code == 0
+    assert "Ownership:" in result.stdout
+    assert "Service: checkout-api" in result.stdout
+    assert "System: payments-platform" in result.stdout
+    assert "Team: route-security" in result.stdout
+    assert "Owner: route-owner" in result.stdout
+    assert "Repository: acme/checkout" in result.stdout
+    assert "Environment: prod" in result.stdout
+    assert "Control owner: grc-team" in result.stdout
+    assert "Path mapping: src/routes/**" in result.stdout
+
+
 def test_explain_command_renders_candidate_statuses(tmp_path: Path) -> None:
     output_dir = tmp_path / "out"
     artifacts = fixture_artifacts(tmp_path)
@@ -662,6 +709,7 @@ def test_explain_command_can_emit_json(tmp_path: Path) -> None:
         == payload["finding"]["confidence"]
     )
     assert payload["finding"]["finding_id"] == "finding-001"
+    assert "ownership" in payload["finding"]
 
 
 def test_explain_command_json_includes_active_candidate_confidence_breakdown(

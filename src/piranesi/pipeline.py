@@ -2632,7 +2632,7 @@ def _run_report_stage(
     config: PiranesiConfig,
     prev_result: StageResult | None,
 ) -> StageResult:
-    _ = (config, prev_result)
+    _ = prev_result
     started_at = time.monotonic()
     scan_artifact = _require_artifact(context.stage_outputs["scan"], ScanResult, "scan")
     detect_artifact = _require_artifact(context.stage_outputs["detect"], DetectArtifact, "detect")
@@ -2659,6 +2659,7 @@ def _run_report_stage(
         include_unreachable=config.reachability.include_unreachable,
         dead_code_report=config.reachability.dead_code_report,
         suppression_lifecycle=detect_artifact.suppression_lifecycle,
+        ownership_config=config.ownership,
     )
     write_report_outputs(
         report,

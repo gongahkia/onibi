@@ -6,6 +6,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from piranesi.cli import app
+from piranesi.config import OwnershipConfig
 from piranesi.legal import assess_finding, build_default_engine
 from piranesi.legal.evidence import (
     build_compliance_evidence_bundle,
@@ -15,6 +16,7 @@ from piranesi.legal.evidence import (
 )
 from piranesi.models import (
     ConfirmedFinding,
+    LegalAssessment,
     SandboxResult,
     ScanMetadata,
     ScanResult,
@@ -25,6 +27,7 @@ from piranesi.models import (
 )
 from piranesi.models.finding import CandidateFinding
 from piranesi.pipeline import LegalArtifact
+from piranesi.report.renderer import build_report
 
 runner = CliRunner()
 
@@ -176,6 +179,29 @@ def test_build_compliance_evidence_bundle_writes_manifest_and_redacts(tmp_path: 
         assessments=[assessment],
         files=[source_file],
     )
+    report = build_report(
+        scan_result=_scan_artifact(tmp_path, files=[source_file]),
+        detected_findings=[assessment.finding.finding.finding],
+        confirmed_findings=[assessment.finding],
+        legal_assessments=[assessment],
+        patch_results=[],
+        target_dir=tmp_path,
+        total_llm_cost_usd=0.0,
+        duration_s=1.0,
+        stage_timings_s={},
+        ownership_config=OwnershipConfig(
+            service="payments-api",
+            team="payments-eng",
+            owner="payments-oncall",
+            repository="acme/payments",
+            environment="prod",
+            control_owner="grc-core",
+            control_mappings=[
+                {"framework": "SOC2", "control": "CC6.6", "owner": "soc-owner"}
+            ],
+        ),
+    )
+    (artifacts_dir / "report.json").write_text(report.model_dump_json(indent=2), encoding="utf-8")
     (artifacts_dir / "verify.json").write_text(
         json.dumps(
             {
@@ -220,6 +246,12 @@ def test_build_compliance_evidence_bundle_writes_manifest_and_redacts(tmp_path: 
     config_payload = (output_dir / "artifacts" / "piranesi.toml").read_text(encoding="utf-8")
     assert "sk-live-key" not in config_payload
     assert "[REDACTED]" in config_payload
+    metadata_payload = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata_payload["ownership"]["service"] == "payments-api"
+    assert metadata_payload["ownership"]["control_mappings"][0]["owner"] == "soc-owner"
+    control_payload = json.loads((output_dir / "controls" / "soc2_cc6_6.json").read_text())
+    assert control_payload["control_owner"] == "soc-owner"
+    assert control_payload["findings"][0]["ownership"]["team"] == "payments-eng"
 
 
 def test_cli_compliance_bundle_writes_manifest(tmp_path: Path) -> None:
@@ -256,7 +288,7 @@ def test_cli_compliance_bundle_writes_manifest(tmp_path: Path) -> None:
 def _write_artifacts(
     project_root: Path,
     *,
-    assessments: list[object],
+    assessments: list[LegalAssessment],
     files: list[Path],
 ) -> Path:
     artifacts_dir = project_root / "piranesi-output"
@@ -293,7 +325,7 @@ def _assessment_for(
     cwe: str,
     *,
     file_name: str,
-) -> object:
+) -> LegalAssessment:
     location = SourceLocation(file=file_name, line=12, column=1, snippet="placeholder")
     candidate = CandidateFinding(
         id=f"finding-{cwe.lower()}",

@@ -4,6 +4,22 @@
 **Date:** {{ report.generated_at }}
 **Version:** piranesi v{{ report.appendix.piranesi_version }}
 
+## Ownership Context
+
+- **Service:** `{{ report.ownership_context.service or "n/a" }}`
+- **System:** `{{ report.ownership_context.system or "n/a" }}`
+- **Team:** `{{ report.ownership_context.team or "n/a" }}`
+- **Owner:** `{{ report.ownership_context.owner or "n/a" }}`
+- **Repository:** `{{ report.ownership_context.repository or "n/a" }}`
+- **Environment:** `{{ report.ownership_context.environment or "n/a" }}`
+- **Control Owner:** `{{ report.ownership_context.control_owner or "n/a" }}`
+{% if report.ownership_context.control_mappings %}
+- **Control owner mappings:**
+{% for mapping in report.ownership_context.control_mappings %}
+  - `{{ mapping.framework }} {{ mapping.control }}` -> `{{ mapping.owner }}`
+{% endfor %}
+{% endif %}
+
 {% include "executive_summary.j2" %}
 
 ## Evidence Status Legend
@@ -57,6 +73,7 @@ Compliance mappings in this report are supporting technical evidence only. They 
 {% endif %}
 - **Source:** `{{ finding.source_location.file }}:{{ finding.source_location.line }}` ({{ finding.taint_source }})
 - **Sink:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}` ({{ finding.taint_sink }})
+- **Ownership:** service=`{{ finding.ownership.service or "n/a" }}`, system=`{{ finding.ownership.system or "n/a" }}`, team=`{{ finding.ownership.team or "n/a" }}`, owner=`{{ finding.ownership.owner or "n/a" }}`, control_owner=`{{ finding.ownership.control_owner or "n/a" }}`, repository=`{{ finding.ownership.repository or "n/a" }}`, environment=`{{ finding.ownership.environment or "n/a" }}`
 {% if finding.explanation %}
 - **Matched source spec:** `{{ finding.explanation.matched_source_spec.spec_id or finding.explanation.matched_source_spec.name or "n/a" }}`
 - **Matched sink spec:** `{{ finding.explanation.matched_sink_spec.spec_id or finding.explanation.matched_sink_spec.name or "n/a" }}`
@@ -143,6 +160,7 @@ No finding clusters were produced.
 {% endif %}
 - **Source:** `{{ finding.source_location.file }}:{{ finding.source_location.line }}` ({{ finding.taint_source }})
 - **Sink:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}` ({{ finding.taint_sink }})
+- **Ownership:** service=`{{ finding.ownership.service or "n/a" }}`, system=`{{ finding.ownership.system or "n/a" }}`, team=`{{ finding.ownership.team or "n/a" }}`, owner=`{{ finding.ownership.owner or "n/a" }}`, control_owner=`{{ finding.ownership.control_owner or "n/a" }}`, repository=`{{ finding.ownership.repository or "n/a" }}`, environment=`{{ finding.ownership.environment or "n/a" }}`
 {% if finding.explanation %}
 - **Matched source spec:** `{{ finding.explanation.matched_source_spec.spec_id or finding.explanation.matched_source_spec.name or "n/a" }}`
 - **Matched sink spec:** `{{ finding.explanation.matched_sink_spec.spec_id or finding.explanation.matched_sink_spec.name or "n/a" }}`
@@ -236,6 +254,7 @@ No cross-package findings were produced by the pipeline.
 - **Severity:** {{ finding.severity|upper }}
 - **Location:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}`
 - **Reason:** {{ finding.suppression_reason or "n/a" }}
+- **Ownership:** service=`{{ finding.ownership.service or "n/a" }}`, system=`{{ finding.ownership.system or "n/a" }}`, team=`{{ finding.ownership.team or "n/a" }}`, owner=`{{ finding.ownership.owner or "n/a" }}`, control_owner=`{{ finding.ownership.control_owner or "n/a" }}`, repository=`{{ finding.ownership.repository or "n/a" }}`, environment=`{{ finding.ownership.environment or "n/a" }}`
 {% if finding.explanation %}
 - **Matched source spec:** `{{ finding.explanation.matched_source_spec.spec_id or finding.explanation.matched_source_spec.name or "n/a" }}`
 - **Matched sink spec:** `{{ finding.explanation.matched_sink_spec.spec_id or finding.explanation.matched_sink_spec.name or "n/a" }}`
@@ -254,6 +273,7 @@ No cross-package findings were produced by the pipeline.
 - **Severity:** {{ finding.severity|upper }}
 - **Location:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}`
 - **Reason:** {{ finding.suppression_reason or "n/a" }}
+- **Ownership:** service=`{{ finding.ownership.service or "n/a" }}`, system=`{{ finding.ownership.system or "n/a" }}`, team=`{{ finding.ownership.team or "n/a" }}`, owner=`{{ finding.ownership.owner or "n/a" }}`, control_owner=`{{ finding.ownership.control_owner or "n/a" }}`, repository=`{{ finding.ownership.repository or "n/a" }}`, environment=`{{ finding.ownership.environment or "n/a" }}`
 {% if finding.explanation %}
 - **Matched source spec:** `{{ finding.explanation.matched_source_spec.spec_id or finding.explanation.matched_source_spec.name or "n/a" }}`
 - **Matched sink spec:** `{{ finding.explanation.matched_sink_spec.spec_id or finding.explanation.matched_sink_spec.name or "n/a" }}`
@@ -272,6 +292,7 @@ No cross-package findings were produced by the pipeline.
 - **Severity:** {{ finding.severity|upper }}
 - **Location:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}`
 - **Reason:** {{ finding.suppression_reason or "n/a" }}
+- **Ownership:** service=`{{ finding.ownership.service or "n/a" }}`, system=`{{ finding.ownership.system or "n/a" }}`, team=`{{ finding.ownership.team or "n/a" }}`, owner=`{{ finding.ownership.owner or "n/a" }}`, control_owner=`{{ finding.ownership.control_owner or "n/a" }}`, repository=`{{ finding.ownership.repository or "n/a" }}`, environment=`{{ finding.ownership.environment or "n/a" }}`
 {% if finding.explanation %}
 - **Matched source spec:** `{{ finding.explanation.matched_source_spec.spec_id or finding.explanation.matched_source_spec.name or "n/a" }}`
 - **Matched sink spec:** `{{ finding.explanation.matched_sink_spec.spec_id or finding.explanation.matched_sink_spec.name or "n/a" }}`

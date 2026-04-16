@@ -5,6 +5,7 @@
 **Confidence:** {{ "%.2f"|format(finding.confidence) }}
 **Evidence:** `{{ finding.evidence_status }}` ({{ report.status_legend.get(finding.evidence_status, finding.evidence_status) }})
 **Verified:** {{ "Yes" if finding.verified else "No" }} ({{ finding.verification_method }})
+**Ownership:** service={{ finding.ownership.service or "n/a" }}, system={{ finding.ownership.system or "n/a" }}, team={{ finding.ownership.team or "n/a" }}, owner={{ finding.ownership.owner or "n/a" }}, control_owner={{ finding.ownership.control_owner or "n/a" }}, repository={{ finding.ownership.repository or "n/a" }}, environment={{ finding.ownership.environment or "n/a" }}
 {% if finding.explanation %}
 **Matched source spec:** `{{ finding.explanation.matched_source_spec.spec_id or finding.explanation.matched_source_spec.name or "n/a" }}`
 **Matched sink spec:** `{{ finding.explanation.matched_sink_spec.spec_id or finding.explanation.matched_sink_spec.name or "n/a" }}`
