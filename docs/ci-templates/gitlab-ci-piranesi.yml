@@ -1,0 +1,30 @@
+stages:
+  - security
+
+piranesi:
+  stage: security
+  image: ghcr.io/gongahkia/piranesi:latest
+  variables:
+    PIRANESI_OUTPUT_DIR: piranesi-output
+    PIRANESI_BASELINE_FILE: .piranesi-baseline.json
+  script:
+    - |
+      set -euo pipefail
+      BASELINE_ARGS=""
+      if [ -f "${PIRANESI_BASELINE_FILE}" ]; then
+        BASELINE_ARGS="--baseline ${PIRANESI_BASELINE_FILE} --fail-on-new --fail-on-new-severity high"
+      fi
+      piranesi run . \
+        --authorized \
+        --yes \
+        --no-execute \
+        --format sarif \
+        --fail-severity high \
+        --output "${PIRANESI_OUTPUT_DIR}" \
+        ${BASELINE_ARGS}
+  artifacts:
+    when: always
+    paths:
+      - piranesi-output/
+    reports:
+      sarif: piranesi-output/report.sarif.json

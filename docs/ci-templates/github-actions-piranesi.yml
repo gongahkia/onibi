@@ -1,0 +1,71 @@
+name: piranesi-scan
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: read
+  security-events: write
+
+jobs:
+  piranesi:
+    runs-on: ubuntu-latest
+    env:
+      PIRANESI_OUTPUT_DIR: .piranesi-output
+      PIRANESI_BASELINE_FILE: .piranesi-baseline.json
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Piranesi
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install piranesi
+
+      - name: Run deterministic scan (optional baseline gate)
+        id: piranesi
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline_args=()
+          if [[ -f "${PIRANESI_BASELINE_FILE}" ]]; then
+            baseline_args=(
+              --baseline "${PIRANESI_BASELINE_FILE}"
+              --fail-on-new
+              --fail-on-new-severity high
+            )
+          fi
+
+          piranesi run . \
+            --authorized \
+            --yes \
+            --no-execute \
+            --format sarif \
+            --fail-severity high \
+            --output "${PIRANESI_OUTPUT_DIR}" \
+            "${baseline_args[@]}"
+
+      - name: Upload Piranesi artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: piranesi-output
+          path: ${{ env.PIRANESI_OUTPUT_DIR }}/
+
+      - name: Upload SARIF
+        if: always() && hashFiles('.piranesi-output/report.sarif.json') != ''
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: .piranesi-output/report.sarif.json
+          category: piranesi
+
+      - name: Fail workflow when scan policy fails
+        if: steps.piranesi.outcome == 'failure'
+        run: exit 1
