@@ -426,6 +426,20 @@ export default function App(): JSX.Element {
     });
   };
 
+  const sendTerminalResize = (sessionId: string, cols: number, rows: number) => {
+    const realtime = realtimeRef.current;
+    if (!realtime || realtimeState !== "authenticated") {
+      return;
+    }
+
+    realtime.send({
+      type: "resize",
+      sessionId,
+      cols,
+      rows
+    });
+  };
+
   const primaryError = connectionError ?? realtimeError;
   const storedConnection = connection ?? loadStoredConnection();
 
@@ -466,6 +480,7 @@ export default function App(): JSX.Element {
       onSendLine={(text) => sendLine(route.sessionId, text)}
       onSendKey={(key) => sendKey(route.sessionId, key)}
       onTerminalInput={(data) => sendTerminalData(route.sessionId, data)}
+      onTerminalResize={(cols, rows) => sendTerminalResize(route.sessionId, cols, rows)}
     />
   );
 }

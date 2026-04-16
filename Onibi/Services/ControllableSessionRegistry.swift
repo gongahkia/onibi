@@ -2,6 +2,7 @@ import Foundation
 import OnibiCore
 
 typealias SessionInputHandler = @Sendable (RemoteInputPayload) async throws -> Void
+typealias SessionResizeHandler = @Sendable (RemoteTerminalResizePayload) async throws -> Void
 typealias ControllableSessionRegistryObserver = @Sendable (ControllableSessionRegistryEvent) -> Void
 
 enum ControllableSessionRegistryEvent: Equatable, Sendable {
@@ -59,6 +60,7 @@ actor ControllableSessionRegistry {
         var snapshot: ControllableSessionSnapshot
         var buffer: SessionOutputBuffer
         var inputHandler: SessionInputHandler?
+        var resizeHandler: SessionResizeHandler?
         var lastHeartbeatAt: Date
     }
 
@@ -117,7 +119,8 @@ actor ControllableSessionRegistry {
 
     func register(
         _ registration: ControllableSessionRegistration,
-        inputHandler: SessionInputHandler? = nil
+        inputHandler: SessionInputHandler? = nil,
+        resizeHandler: SessionResizeHandler? = nil
     ) {
         let wasExistingSession = sessions[registration.id] != nil
         let existingBuffer = sessions[registration.id]?.buffer ??
@@ -127,6 +130,7 @@ actor ControllableSessionRegistry {
             )
         let currentCursor = existingBuffer.currentCursor
         let currentHandler = inputHandler ?? sessions[registration.id]?.inputHandler
+        let currentResizeHandler = resizeHandler ?? sessions[registration.id]?.resizeHandler
 
         sessions[registration.id] = SessionRecord(
             snapshot: ControllableSessionSnapshot(
@@ -142,6 +146,7 @@ actor ControllableSessionRegistry {
             ),
             buffer: existingBuffer,
             inputHandler: currentHandler,
+            resizeHandler: currentResizeHandler,
             lastHeartbeatAt: registration.startedAt
         )
 
@@ -165,6 +170,14 @@ actor ControllableSessionRegistry {
             return
         }
         record.inputHandler = inputHandler
+        sessions[sessionId] = record
+    }
+
+    func setResizeHandler(_ resizeHandler: SessionResizeHandler?, for sessionId: String) {
+        guard var record = sessions[sessionId] else {
+            return
+        }
+        record.resizeHandler = resizeHandler
         sessions[sessionId] = record
     }
 
@@ -267,6 +280,42 @@ actor ControllableSessionRegistry {
         )
         sessions[sessionId] = record
         return RemoteInputAcceptance(sessionId: sessionId, acceptedAt: timestamp)
+    }
+
+    func resizeTerminal(
+        _ payload: RemoteTerminalResizePayload,
+        for sessionId: String,
+        at timestamp: Date = Date()
+    ) async throws -> RemoteTerminalResizeAcceptance {
+        guard payload.isValid else {
+            throw RemoteControlError.invalidResizePayload
+        }
+
+        guard var record = sessions[sessionId] else {
+            throw RemoteControlError.sessionNotFound(sessionId)
+        }
+
+        guard record.snapshot.isControllable else {
+            throw RemoteControlError.sessionNotControllable(sessionId)
+        }
+
+        guard let resizeHandler = record.resizeHandler else {
+            throw RemoteControlError.resizeUnavailable(sessionId)
+        }
+
+        try await resizeHandler(payload)
+        record.lastHeartbeatAt = timestamp
+        record.snapshot = record.snapshot.updating(
+            lastActivityAt: timestamp,
+            bufferCursor: record.buffer.currentCursor
+        )
+        sessions[sessionId] = record
+        return RemoteTerminalResizeAcceptance(
+            sessionId: sessionId,
+            cols: payload.cols,
+            rows: payload.rows,
+            acceptedAt: timestamp
+        )
     }
 
     func markProxyRegistrationFailure() {

@@ -149,6 +149,49 @@ final class RealtimeGatewayServiceTests: XCTestCase {
         await service.stop()
     }
 
+    func testResizeRoutesPayloadToRegisteredResizeHandler() async throws {
+        let registry = makeRegistry()
+        let service = makeService(registry: registry)
+        let transport = MockRealtimeTransport()
+        let recorder = ResizeRecorder()
+
+        await registry.register(
+            ControllableSessionRegistration(
+                id: "session-1",
+                status: .running
+            ),
+            resizeHandler: { payload in
+                await recorder.record(payload)
+            }
+        )
+
+        await service.attach(transport)
+        await service.receive(
+            text: try encode(
+                RealtimeClientMessage(type: .auth, token: "test-token")
+            ),
+            from: transport.id
+        )
+        await transport.clear()
+
+        await service.receive(
+            text: try encode(
+                RealtimeClientMessage(
+                    type: .resize,
+                    sessionId: "session-1",
+                    cols: 120,
+                    rows: 40
+                )
+            ),
+            from: transport.id
+        )
+
+        let payloads = await recorder.payloads()
+        let messages = await transport.messages()
+        XCTAssertEqual(payloads, [RemoteTerminalResizePayload(cols: 120, rows: 40)])
+        XCTAssertEqual(messages, [])
+    }
+
     private func makeRegistry() -> ControllableSessionRegistry {
         ControllableSessionRegistry(
             defaultBufferLineLimit: 10,
@@ -230,6 +273,18 @@ private actor InputRecorder {
     }
 
     func payloads() -> [RemoteInputPayload] {
+        values
+    }
+}
+
+private actor ResizeRecorder {
+    private var values: [RemoteTerminalResizePayload] = []
+
+    func record(_ payload: RemoteTerminalResizePayload) {
+        values.append(payload)
+    }
+
+    func payloads() -> [RemoteTerminalResizePayload] {
         values
     }
 }

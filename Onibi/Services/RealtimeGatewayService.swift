@@ -184,6 +184,27 @@ actor RealtimeGatewayService {
             } catch {
                 try? await client.transport.send(.error(code: "internal_error", message: error.localizedDescription))
             }
+        case .resize:
+            guard let sessionId = message.sessionId else {
+                try? await client.transport.send(.error(code: "invalid_session_id", message: "Missing sessionId"))
+                return
+            }
+            guard let payload = message.resizePayload else {
+                try? await client.transport.send(.error(code: "invalid_resize_payload", message: "Invalid resize payload"))
+                return
+            }
+            do {
+                _ = try await registry.resizeTerminal(payload, for: sessionId)
+            } catch let error as RemoteControlError {
+                try? await client.transport.send(
+                    .error(
+                        code: errorCode(for: error),
+                        message: error.localizedDescription
+                    )
+                )
+            } catch {
+                try? await client.transport.send(.error(code: "internal_error", message: error.localizedDescription))
+            }
         }
     }
 
@@ -223,6 +244,10 @@ actor RealtimeGatewayService {
             return "input_unavailable"
         case .invalidInputPayload:
             return "invalid_input_payload"
+        case .resizeUnavailable:
+            return "resize_unavailable"
+        case .invalidResizePayload:
+            return "invalid_resize_payload"
         }
     }
 

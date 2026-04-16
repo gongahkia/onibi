@@ -6,6 +6,7 @@ public enum RealtimeClientMessageType: String, Codable, Sendable {
     case unsubscribe
     case requestBuffer = "request_buffer"
     case sendInput = "send_input"
+    case resize
 }
 
 public enum RealtimeServerMessageType: String, Codable, Sendable {
@@ -27,6 +28,8 @@ public struct RealtimeClientMessage: Codable, Equatable, Sendable {
     public let kind: RemoteInputKind?
     public let text: String?
     public let key: RemoteInputKey?
+    public let cols: Int?
+    public let rows: Int?
     public let clientRequestId: String?
 
     public init(
@@ -36,6 +39,8 @@ public struct RealtimeClientMessage: Codable, Equatable, Sendable {
         kind: RemoteInputKind? = nil,
         text: String? = nil,
         key: RemoteInputKey? = nil,
+        cols: Int? = nil,
+        rows: Int? = nil,
         clientRequestId: String? = nil
     ) {
         self.type = type
@@ -44,6 +49,8 @@ public struct RealtimeClientMessage: Codable, Equatable, Sendable {
         self.kind = kind
         self.text = text
         self.key = key
+        self.cols = cols
+        self.rows = rows
         self.clientRequestId = clientRequestId
     }
 
@@ -52,6 +59,14 @@ public struct RealtimeClientMessage: Codable, Equatable, Sendable {
             return nil
         }
         let payload = RemoteInputPayload(kind: kind, text: text, key: key)
+        return payload.isValid ? payload : nil
+    }
+
+    public var resizePayload: RemoteTerminalResizePayload? {
+        guard let cols, let rows else {
+            return nil
+        }
+        let payload = RemoteTerminalResizePayload(cols: cols, rows: rows)
         return payload.isValid ? payload : nil
     }
 }

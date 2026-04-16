@@ -32,6 +32,8 @@ public enum RemoteControlError: Error, Equatable, Sendable {
     case sessionNotControllable(String)
     case inputUnavailable(String)
     case invalidInputPayload
+    case resizeUnavailable(String)
+    case invalidResizePayload
 }
 
 public struct ControllableSessionSnapshot: Codable, Equatable, Identifiable, Sendable {
@@ -148,6 +150,34 @@ public struct RemoteInputAcceptance: Codable, Equatable, Sendable {
 
     public init(sessionId: String, acceptedAt: Date) {
         self.sessionId = sessionId
+        self.acceptedAt = acceptedAt
+    }
+}
+
+public struct RemoteTerminalResizePayload: Codable, Equatable, Sendable {
+    public let cols: Int
+    public let rows: Int
+
+    public init(cols: Int, rows: Int) {
+        self.cols = cols
+        self.rows = rows
+    }
+
+    public var isValid: Bool {
+        cols > 0 && rows > 0 && cols <= 2000 && rows <= 2000
+    }
+}
+
+public struct RemoteTerminalResizeAcceptance: Codable, Equatable, Sendable {
+    public let sessionId: String
+    public let cols: Int
+    public let rows: Int
+    public let acceptedAt: Date
+
+    public init(sessionId: String, cols: Int, rows: Int, acceptedAt: Date) {
+        self.sessionId = sessionId
+        self.cols = cols
+        self.rows = rows
         self.acceptedAt = acceptedAt
     }
 }

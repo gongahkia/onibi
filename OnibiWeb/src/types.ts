@@ -104,7 +104,8 @@ export type RealtimeClientMessageType =
   | "subscribe"
   | "unsubscribe"
   | "request_buffer"
-  | "send_input";
+  | "send_input"
+  | "resize";
 
 export interface RealtimeClientMessage {
   type: RealtimeClientMessageType;
@@ -113,6 +114,8 @@ export interface RealtimeClientMessage {
   kind?: RemoteInputKind;
   text?: string;
   key?: RemoteInputKey;
+  cols?: number;
+  rows?: number;
   clientRequestId?: string;
 }
 

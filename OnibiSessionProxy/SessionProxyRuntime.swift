@@ -45,6 +45,7 @@ enum SessionProxyRuntimeError: LocalizedError {
     case posixFailure(function: String, code: Int32)
     case invalidFrameType(String)
     case invalidOutputPayload
+    case invalidResizePayload
 
     var errorDescription: String? {
         switch self {
@@ -58,6 +59,8 @@ enum SessionProxyRuntimeError: LocalizedError {
             return "Unsupported proxy frame type: \(type)"
         case .invalidOutputPayload:
             return "Failed to encode or decode session output"
+        case .invalidResizePayload:
+            return "Failed to decode resize payload"
         }
     }
 }
@@ -258,6 +261,13 @@ final class SessionProxyRuntime {
             let message = try JSONDateCodec.decoder.decode(LocalSessionProxyInputMessage.self, from: frameData)
             let bytes = try RemoteInputByteTranslator.data(for: message.payload)
             try writeAll(bytes, to: ptyMasterFD)
+        case .resize:
+            let message = try JSONDateCodec.decoder.decode(LocalSessionProxyResizeMessage.self, from: frameData)
+            let payload = message.payload
+            guard payload.isValid else {
+                throw SessionProxyRuntimeError.invalidResizePayload
+            }
+            applyWindowSize(cols: payload.cols, rows: payload.rows)
         case .register, .output, .state, .exit, .heartbeat:
             throw SessionProxyRuntimeError.invalidFrameType(envelope.type.rawValue)
         }
@@ -431,6 +441,17 @@ final class SessionProxyRuntime {
         guard ioctl(STDIN_FILENO, TIOCGWINSZ, &size) == 0 else {
             return
         }
+        _ = ioctl(ptyMasterFD, TIOCSWINSZ, &size)
+    }
+
+    private func applyWindowSize(cols: Int, rows: Int) {
+        guard ptyMasterFD >= 0 else {
+            return
+        }
+
+        var size = winsize()
+        size.ws_col = UInt16(clamping: cols)
+        size.ws_row = UInt16(clamping: rows)
         _ = ioctl(ptyMasterFD, TIOCSWINSZ, &size)
     }
 

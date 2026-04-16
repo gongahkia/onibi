@@ -702,6 +702,13 @@ private actor HostMobileGatewayDataProvider: MobileGatewayDataProvider {
         try await sessionRegistry.sendInput(payload, to: sessionId)
     }
 
+    func resizeSession(
+        id sessionId: String,
+        payload: RemoteTerminalResizePayload
+    ) async throws -> RemoteTerminalResizeAcceptance? {
+        try await sessionRegistry.resizeTerminal(payload, for: sessionId)
+    }
+
     func diagnostics() async throws -> DiagnosticsResponse {
         let logs = try await storageManager.loadLogs()
         let storageBytes: Int64

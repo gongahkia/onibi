@@ -7,6 +7,7 @@ public enum LocalSessionProxyFrameType: String, Codable, Sendable {
     case exit
     case heartbeat
     case input
+    case resize
 }
 
 public struct LocalSessionProxyEnvelope: Codable, Equatable, Sendable {
@@ -138,5 +139,23 @@ public struct LocalSessionProxyInputMessage: Codable, Equatable, Sendable {
 
     public var payload: RemoteInputPayload {
         RemoteInputPayload(kind: kind, text: text, key: key)
+    }
+}
+
+public struct LocalSessionProxyResizeMessage: Codable, Equatable, Sendable {
+    public let type: LocalSessionProxyFrameType
+    public let sessionId: String
+    public let cols: Int
+    public let rows: Int
+
+    public init(sessionId: String, payload: RemoteTerminalResizePayload) {
+        self.type = .resize
+        self.sessionId = sessionId
+        self.cols = payload.cols
+        self.rows = payload.rows
+    }
+
+    public var payload: RemoteTerminalResizePayload {
+        RemoteTerminalResizePayload(cols: cols, rows: rows)
     }
 }

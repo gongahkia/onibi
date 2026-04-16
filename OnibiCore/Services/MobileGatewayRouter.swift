@@ -11,6 +11,10 @@ public protocol MobileGatewayDataProvider: Sendable {
     func controllableSessions() async throws -> [ControllableSessionSnapshot]
     func sessionOutputBuffer(id: String) async throws -> SessionOutputBufferSnapshot?
     func sendInput(to sessionId: String, payload: RemoteInputPayload) async throws -> RemoteInputAcceptance?
+    func resizeSession(
+        id sessionId: String,
+        payload: RemoteTerminalResizePayload
+    ) async throws -> RemoteTerminalResizeAcceptance?
 }
 
 public extension MobileGatewayDataProvider {
@@ -33,6 +37,13 @@ public extension MobileGatewayDataProvider {
     }
 
     func sendInput(to sessionId: String, payload: RemoteInputPayload) async throws -> RemoteInputAcceptance? {
+        nil
+    }
+
+    func resizeSession(
+        id sessionId: String,
+        payload: RemoteTerminalResizePayload
+    ) async throws -> RemoteTerminalResizeAcceptance? {
         nil
     }
 
@@ -138,6 +149,18 @@ public struct MobileGatewayRouter: Sendable {
                     return jsonResponse(statusCode: 404, body: ["error": "session_not_found"])
                 }
                 return try jsonResponse(statusCode: 200, encodable: acceptance)
+            case ("POST", let resizePath) where resizePath.hasPrefix("/api/v2/sessions/") && resizePath.hasSuffix("/resize"):
+                guard let sessionId = parseSessionIdentifier(from: resizePath, suffix: "/resize") else {
+                    return jsonResponse(statusCode: 404, body: ["error": "not_found"])
+                }
+                let payload = try decodeResizePayload(from: body)
+                guard payload.isValid else {
+                    return jsonResponse(statusCode: 400, body: ["error": "invalid_resize_payload"])
+                }
+                guard let acceptance = try await dataProvider.resizeSession(id: sessionId, payload: payload) else {
+                    return jsonResponse(statusCode: 404, body: ["error": "session_not_found"])
+                }
+                return try jsonResponse(statusCode: 200, encodable: acceptance)
             default:
                 if normalizedMethod != "GET" && normalizedMethod != "POST" {
                     return jsonResponse(statusCode: 405, body: ["error": "method_not_allowed"])
@@ -154,6 +177,10 @@ public struct MobileGatewayRouter: Sendable {
                 return jsonResponse(statusCode: 409, body: ["error": "input_unavailable"])
             case .invalidInputPayload:
                 return jsonResponse(statusCode: 400, body: ["error": "invalid_input_payload"])
+            case .resizeUnavailable:
+                return jsonResponse(statusCode: 409, body: ["error": "resize_unavailable"])
+            case .invalidResizePayload:
+                return jsonResponse(statusCode: 400, body: ["error": "invalid_resize_payload"])
             }
         } catch {
             return jsonResponse(
@@ -221,6 +248,18 @@ public struct MobileGatewayRouter: Sendable {
             return try JSONDateCodec.decoder.decode(RemoteInputPayload.self, from: body)
         } catch {
             throw RemoteControlError.invalidInputPayload
+        }
+    }
+
+    private func decodeResizePayload(from body: Data) throws -> RemoteTerminalResizePayload {
+        guard !body.isEmpty else {
+            throw RemoteControlError.invalidResizePayload
+        }
+
+        do {
+            return try JSONDateCodec.decoder.decode(RemoteTerminalResizePayload.self, from: body)
+        } catch {
+            throw RemoteControlError.invalidResizePayload
         }
     }
 

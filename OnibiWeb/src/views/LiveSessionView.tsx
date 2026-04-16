@@ -14,6 +14,7 @@ interface LiveSessionViewProps {
   onSendLine: (text: string) => void;
   onSendKey: (key: RemoteInputKey) => void;
   onTerminalInput: (data: string) => void;
+  onTerminalResize: (cols: number, rows: number) => void;
 }
 
 export function LiveSessionView({
@@ -25,7 +26,8 @@ export function LiveSessionView({
   onReloadBuffer,
   onSendLine,
   onSendKey,
-  onTerminalInput
+  onTerminalInput,
+  onTerminalResize
 }: LiveSessionViewProps): JSX.Element {
   if (!session) {
     return (
@@ -62,7 +64,11 @@ export function LiveSessionView({
         </div>
       </header>
 
-      <SessionOutputPane entries={outputEntries} onTerminalInput={onTerminalInput} />
+      <SessionOutputPane
+        entries={outputEntries}
+        onTerminalInput={onTerminalInput}
+        onTerminalResize={onTerminalResize}
+      />
 
       {inputError && <p className="error-text">{inputError}</p>}
 

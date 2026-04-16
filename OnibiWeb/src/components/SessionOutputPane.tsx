@@ -6,21 +6,29 @@ import type { OutputEntry } from "../store/sessionStore";
 interface SessionOutputPaneProps {
   entries: OutputEntry[];
   onTerminalInput: (data: string) => void;
+  onTerminalResize: (cols: number, rows: number) => void;
 }
 
 export function SessionOutputPane({
   entries,
-  onTerminalInput
+  onTerminalInput,
+  onTerminalResize
 }: SessionOutputPaneProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const lastRenderedChunkIdRef = useRef<string | null>(null);
   const onTerminalInputRef = useRef(onTerminalInput);
+  const onTerminalResizeRef = useRef(onTerminalResize);
+  const lastReportedSizeRef = useRef<{ cols: number; rows: number } | null>(null);
 
   useEffect(() => {
     onTerminalInputRef.current = onTerminalInput;
   }, [onTerminalInput]);
+
+  useEffect(() => {
+    onTerminalResizeRef.current = onTerminalResize;
+  }, [onTerminalResize]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -47,13 +55,26 @@ export function SessionOutputPane({
     fitAddon.fit();
     terminal.focus();
 
+    const reportSize = () => {
+      const cols = terminal.cols;
+      const rows = terminal.rows;
+      const lastReportedSize = lastReportedSizeRef.current;
+      if (lastReportedSize && lastReportedSize.cols === cols && lastReportedSize.rows === rows) {
+        return;
+      }
+      lastReportedSizeRef.current = { cols, rows };
+      onTerminalResizeRef.current(cols, rows);
+    };
+
     const onResize = () => {
       fitAddon.fit();
+      reportSize();
     };
     const inputDisposable = terminal.onData((data) => {
       onTerminalInputRef.current(data);
     });
     window.addEventListener("resize", onResize);
+    onResize();
 
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
@@ -65,6 +86,7 @@ export function SessionOutputPane({
       terminalRef.current = null;
       fitAddonRef.current = null;
       lastRenderedChunkIdRef.current = null;
+      lastReportedSizeRef.current = null;
     };
   }, []);
 
@@ -100,6 +122,13 @@ export function SessionOutputPane({
 
     lastRenderedChunkIdRef.current = entries[entries.length - 1].id;
     fitAddonRef.current?.fit();
+    const cols = terminal.cols;
+    const rows = terminal.rows;
+    const lastReportedSize = lastReportedSizeRef.current;
+    if (!lastReportedSize || lastReportedSize.cols != cols || lastReportedSize.rows != rows) {
+      lastReportedSizeRef.current = { cols, rows };
+      onTerminalResizeRef.current(cols, rows);
+    }
   }, [entries]);
 
   return (
