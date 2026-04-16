@@ -37,6 +37,13 @@
 {% endif %}
 - **Source:** `{{ finding.source_location.file }}:{{ finding.source_location.line }}` ({{ finding.taint_source }})
 - **Sink:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}` ({{ finding.taint_sink }})
+{% if finding.explanation %}
+- **Matched source spec:** `{{ finding.explanation.matched_source_spec.spec_id or finding.explanation.matched_source_spec.name or "n/a" }}`
+- **Matched sink spec:** `{{ finding.explanation.matched_sink_spec.spec_id or finding.explanation.matched_sink_spec.name or "n/a" }}`
+- **Sanitizers observed:** {% if finding.explanation.sanitizers_observed %}{{ finding.explanation.sanitizers_observed|join(", ") }}{% else %}none{% endif %}
+- **Propagation summary:** {{ finding.explanation.propagation_path.source_to_sink }} ({{ finding.explanation.propagation_path.path_node_count }} nodes)
+- **Confidence model:** {{ finding.explanation.confidence.model_version }} (contextual {{ "%.3f"|format(finding.explanation.confidence.contextual_confidence) }})
+{% endif %}
 {% if finding.cluster_id %}
 - **Cluster:** `{{ finding.cluster_id }}`{% if finding.cluster_size > 1 %} ({{ finding.cluster_size }} related findings{% if finding.cluster_representative %}, representative{% endif %}){% endif %}
 {% endif %}
@@ -86,6 +93,13 @@ No finding clusters were produced.
 {% endif %}
 - **Source:** `{{ finding.source_location.file }}:{{ finding.source_location.line }}` ({{ finding.taint_source }})
 - **Sink:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}` ({{ finding.taint_sink }})
+{% if finding.explanation %}
+- **Matched source spec:** `{{ finding.explanation.matched_source_spec.spec_id or finding.explanation.matched_source_spec.name or "n/a" }}`
+- **Matched sink spec:** `{{ finding.explanation.matched_sink_spec.spec_id or finding.explanation.matched_sink_spec.name or "n/a" }}`
+- **Sanitizers observed:** {% if finding.explanation.sanitizers_observed %}{{ finding.explanation.sanitizers_observed|join(", ") }}{% else %}none{% endif %}
+- **Propagation summary:** {{ finding.explanation.propagation_path.source_to_sink }} ({{ finding.explanation.propagation_path.path_node_count }} nodes)
+- **Confidence model:** {{ finding.explanation.confidence.model_version }} (contextual {{ "%.3f"|format(finding.explanation.confidence.contextual_confidence) }})
+{% endif %}
 
 {% endfor %}
 {% else %}
@@ -142,6 +156,13 @@ No cross-package findings were produced by the pipeline.
 - **Severity:** {{ finding.severity|upper }}
 - **Location:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}`
 - **Reason:** {{ finding.suppression_reason or "n/a" }}
+{% if finding.explanation %}
+- **Matched source spec:** `{{ finding.explanation.matched_source_spec.spec_id or finding.explanation.matched_source_spec.name or "n/a" }}`
+- **Matched sink spec:** `{{ finding.explanation.matched_sink_spec.spec_id or finding.explanation.matched_sink_spec.name or "n/a" }}`
+- **Sanitizers observed:** {% if finding.explanation.sanitizers_observed %}{{ finding.explanation.sanitizers_observed|join(", ") }}{% else %}none{% endif %}
+- **Propagation summary:** {{ finding.explanation.propagation_path.source_to_sink }} ({{ finding.explanation.propagation_path.path_node_count }} nodes)
+- **Confidence model:** {{ finding.explanation.confidence.model_version }} (contextual {{ "%.3f"|format(finding.explanation.confidence.contextual_confidence) }})
+{% endif %}
 
 {% endfor %}
 {% endfor %}
@@ -153,6 +174,13 @@ No cross-package findings were produced by the pipeline.
 - **Severity:** {{ finding.severity|upper }}
 - **Location:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}`
 - **Reason:** {{ finding.suppression_reason or "n/a" }}
+{% if finding.explanation %}
+- **Matched source spec:** `{{ finding.explanation.matched_source_spec.spec_id or finding.explanation.matched_source_spec.name or "n/a" }}`
+- **Matched sink spec:** `{{ finding.explanation.matched_sink_spec.spec_id or finding.explanation.matched_sink_spec.name or "n/a" }}`
+- **Sanitizers observed:** {% if finding.explanation.sanitizers_observed %}{{ finding.explanation.sanitizers_observed|join(", ") }}{% else %}none{% endif %}
+- **Propagation summary:** {{ finding.explanation.propagation_path.source_to_sink }} ({{ finding.explanation.propagation_path.path_node_count }} nodes)
+- **Confidence model:** {{ finding.explanation.confidence.model_version }} (contextual {{ "%.3f"|format(finding.explanation.confidence.contextual_confidence) }})
+{% endif %}
 
 {% endfor %}
 {% else %}
@@ -164,6 +192,13 @@ No cross-package findings were produced by the pipeline.
 - **Severity:** {{ finding.severity|upper }}
 - **Location:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}`
 - **Reason:** {{ finding.suppression_reason or "n/a" }}
+{% if finding.explanation %}
+- **Matched source spec:** `{{ finding.explanation.matched_source_spec.spec_id or finding.explanation.matched_source_spec.name or "n/a" }}`
+- **Matched sink spec:** `{{ finding.explanation.matched_sink_spec.spec_id or finding.explanation.matched_sink_spec.name or "n/a" }}`
+- **Sanitizers observed:** {% if finding.explanation.sanitizers_observed %}{{ finding.explanation.sanitizers_observed|join(", ") }}{% else %}none{% endif %}
+- **Propagation summary:** {{ finding.explanation.propagation_path.source_to_sink }} ({{ finding.explanation.propagation_path.path_node_count }} nodes)
+- **Confidence model:** {{ finding.explanation.confidence.model_version }} (contextual {{ "%.3f"|format(finding.explanation.confidence.contextual_confidence) }})
+{% endif %}
 
 {% endfor %}
 {% endif %}

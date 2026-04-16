@@ -58,3 +58,21 @@ Piranesi report artifacts now expose explicit evidence statuses:
 
 Reports should be read with that distinction in mind. A candidate finding is a
 lead for engineering review; a confirmed finding is materially stronger evidence.
+
+## Confidence Transparency
+
+`report.json`, `report.md`, and `piranesi explain` now include explanation metadata
+and a structured confidence breakdown (`model_version = v1`) with contributor
+components:
+
+- `static_reachability`
+- `source_quality`
+- `sink_quality`
+- `sanitizer_signal`
+- `triage_signal`
+- `verification_signal`
+- `suppression_signal`
+
+`final_confidence` remains the original pipeline confidence for compatibility,
+while `contextual_confidence` and component rationales explain why that finding
+is strong or weak evidence.

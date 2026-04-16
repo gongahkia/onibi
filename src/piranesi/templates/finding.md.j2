@@ -5,6 +5,27 @@
 **Confidence:** {{ "%.2f"|format(finding.confidence) }}
 **Evidence:** `{{ finding.evidence_status }}` ({{ report.status_legend.get(finding.evidence_status, finding.evidence_status) }})
 **Verified:** {{ "Yes" if finding.verified else "No" }} ({{ finding.verification_method }})
+{% if finding.explanation %}
+**Matched source spec:** `{{ finding.explanation.matched_source_spec.spec_id or finding.explanation.matched_source_spec.name or "n/a" }}`
+**Matched sink spec:** `{{ finding.explanation.matched_sink_spec.spec_id or finding.explanation.matched_sink_spec.name or "n/a" }}`
+**Sanitizers observed:** {% if finding.explanation.sanitizers_observed %}{{ finding.explanation.sanitizers_observed|join(", ") }}{% else %}none{% endif %}
+**Propagation summary:** {{ finding.explanation.propagation_path.source_to_sink }} ({{ finding.explanation.propagation_path.path_node_count }} nodes)
+**Severity basis:** {{ finding.explanation.severity_basis }}
+{% endif %}
+
+{% if finding.explanation %}
+### Confidence Breakdown
+
+- Reported confidence: {{ "%.3f"|format(finding.explanation.confidence.reported_confidence) }}
+- Contextual confidence: {{ "%.3f"|format(finding.explanation.confidence.contextual_confidence) }}
+- static_reachability: score={{ "%.3f"|format(finding.explanation.confidence.static_reachability.score) }}, weight={{ "%.3f"|format(finding.explanation.confidence.static_reachability.weight) }}, weighted={{ "%.3f"|format(finding.explanation.confidence.static_reachability.weighted_score) }}
+- source_quality: score={{ "%.3f"|format(finding.explanation.confidence.source_quality.score) }}, weight={{ "%.3f"|format(finding.explanation.confidence.source_quality.weight) }}, weighted={{ "%.3f"|format(finding.explanation.confidence.source_quality.weighted_score) }}
+- sink_quality: score={{ "%.3f"|format(finding.explanation.confidence.sink_quality.score) }}, weight={{ "%.3f"|format(finding.explanation.confidence.sink_quality.weight) }}, weighted={{ "%.3f"|format(finding.explanation.confidence.sink_quality.weighted_score) }}
+- sanitizer_signal: score={{ "%.3f"|format(finding.explanation.confidence.sanitizer_signal.score) }}, weight={{ "%.3f"|format(finding.explanation.confidence.sanitizer_signal.weight) }}, weighted={{ "%.3f"|format(finding.explanation.confidence.sanitizer_signal.weighted_score) }}
+- triage_signal: score={{ "%.3f"|format(finding.explanation.confidence.triage_signal.score) }}, weight={{ "%.3f"|format(finding.explanation.confidence.triage_signal.weight) }}, weighted={{ "%.3f"|format(finding.explanation.confidence.triage_signal.weighted_score) }}
+- verification_signal: score={{ "%.3f"|format(finding.explanation.confidence.verification_signal.score) }}, weight={{ "%.3f"|format(finding.explanation.confidence.verification_signal.weight) }}, weighted={{ "%.3f"|format(finding.explanation.confidence.verification_signal.weighted_score) }}
+- suppression_signal: score={{ "%.3f"|format(finding.explanation.confidence.suppression_signal.score) }}, weight={{ "%.3f"|format(finding.explanation.confidence.suppression_signal.weight) }}, weighted={{ "%.3f"|format(finding.explanation.confidence.suppression_signal.weighted_score) }}
+{% endif %}
 
 ### Taint Path
 

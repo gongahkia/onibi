@@ -447,6 +447,9 @@ def test_explain_command_renders_confirmed_finding(tmp_path: Path) -> None:
     assert "Status: confirmed" in result.stdout
     assert "Evidence: Dynamically verified issue" in result.stdout
     assert "CWE-89" in result.stdout
+    assert "What matched:" in result.stdout
+    assert "Confidence contributors:" in result.stdout
+    assert "Verification state:" in result.stdout
     assert "Verified: yes" in result.stdout
     assert "Patch: generated, not verified" in result.stdout
     assert "db.query" in result.stdout
@@ -456,7 +459,25 @@ def test_explain_command_renders_candidate_statuses(tmp_path: Path) -> None:
     output_dir = tmp_path / "out"
     artifacts = fixture_artifacts(tmp_path)
     base = artifacts["detect"].findings[0]  # type: ignore[attr-defined]
-    active = base.model_copy(update={"id": "finding-active"})
+    active = base.model_copy(
+        update={
+            "id": "finding-active",
+            "metadata": {
+                "source_spec_name": "express_req_body",
+                "source_spec_category": "request_body",
+                "source_spec_custom": False,
+                "sink_spec_name": "raw_sql_query",
+                "sink_spec_category": "sql_query",
+                "sink_spec_cwe": "CWE-89",
+                "sink_spec_custom": False,
+                "sanitizer_effectiveness": {"escapeHtml": "partial"},
+                "partial_sanitizers": ["escapeHtml"],
+            },
+            "taint_path": [
+                base.taint_path[0].model_copy(update={"sanitizer_applied": "escapeHtml"})
+            ],
+        }
+    )
     unreachable = base.model_copy(
         update={
             "id": "finding-unreachable",
@@ -493,6 +514,10 @@ def test_explain_command_renders_candidate_statuses(tmp_path: Path) -> None:
     assert active_result.exit_code == 0
     assert "Status: triaged active candidate" in active_result.stdout
     assert "Evidence: LLM-triaged active candidate" in active_result.stdout
+    assert "Source spec: source:express_req_body" in active_result.stdout
+    assert "Sink spec: sink:raw_sql_query" in active_result.stdout
+    assert "Sanitizers observed: escapeHtml" in active_result.stdout
+    assert "Confidence contributors:" in active_result.stdout
 
     unreachable_result = runner.invoke(
         app,
@@ -537,7 +562,70 @@ def test_explain_command_can_emit_json(tmp_path: Path) -> None:
     payload = json.loads(result.stdout)
     assert payload["status"] == "confirmed"
     assert payload["evidence"] == "Dynamically verified issue"
+    assert payload["explanation"]["verification_state"]["state"] == "verified_confirmed"
+    assert payload["explanation"]["confidence"]["model_version"] == "v1"
+    assert (
+        payload["explanation"]["confidence"]["final_confidence"]
+        == payload["finding"]["confidence"]
+    )
     assert payload["finding"]["finding_id"] == "finding-001"
+
+
+def test_explain_command_json_includes_active_candidate_confidence_breakdown(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "out"
+    artifacts = fixture_artifacts(tmp_path)
+    base = artifacts["detect"].findings[0]  # type: ignore[attr-defined]
+    active = base.model_copy(
+        update={
+            "id": "finding-active",
+            "metadata": {
+                "source_spec_name": "express_req_body",
+                "source_spec_category": "request_body",
+                "source_spec_custom": False,
+                "sink_spec_name": "raw_sql_query",
+                "sink_spec_category": "sql_query",
+                "sink_spec_cwe": "CWE-89",
+                "sink_spec_custom": False,
+                "sanitizer_effectiveness": {"escapeHtml": "partial"},
+                "partial_sanitizers": ["escapeHtml"],
+            },
+            "taint_path": [
+                base.taint_path[0].model_copy(update={"sanitizer_applied": "escapeHtml"})
+            ],
+        }
+    )
+    triaged_active = artifacts["triage"].findings[0].model_copy(  # type: ignore[attr-defined]
+        update={"finding": active, "triage_verdict": "true_positive", "triage_mode": "llm"}
+    )
+    report = build_report(
+        scan_result=artifacts["scan"],  # type: ignore[arg-type]
+        detected_findings=[active],
+        triaged_findings=[triaged_active],
+        confirmed_findings=[],
+        legal_assessments=[],
+        patch_results=[],
+        target_dir=tmp_path,
+        total_llm_cost_usd=0.0,
+        duration_s=1.0,
+        stage_timings_s={},
+    )
+    output_dir.mkdir()
+    (output_dir / "report.json").write_text(report.model_dump_json(indent=2), encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        ["explain", "finding-active", "--output", str(output_dir), "--json"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "triaged_active_candidate"
+    assert payload["explanation"]["matched_source_spec"]["spec_id"] == "source:express_req_body"
+    assert payload["explanation"]["matched_sink_spec"]["spec_id"] == "sink:raw_sql_query"
+    assert "escapeHtml" in payload["explanation"]["sanitizers_observed"]
+    assert payload["explanation"]["confidence"]["triage_signal"]["score"] > 0.9
 
 
 def test_suppress_command_appends_ignore_rule(

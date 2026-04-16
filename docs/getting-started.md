@@ -161,6 +161,26 @@ piranesi explain <finding-id> --output .piranesi-out/vuln-express
 
 `piranesi explain` prints both the status code and human-readable evidence label so
 you can quickly distinguish static candidates from dynamically verified findings.
+It now also prints structured explanation metadata:
+
+- matched source/sink specs (including custom/built-in status)
+- sanitizers considered vs sanitizers actually observed on the path
+- propagation summary (source to sink, operations, sanitizer steps)
+- verification state (candidate, unreachable, suppressed, or verified)
+- confidence contributors with a documented `v1` weighted component model
+
+Confidence model (`v1`) components shown in `report.json` and `piranesi explain`:
+
+- `static_reachability`
+- `source_quality`
+- `sink_quality`
+- `sanitizer_signal`
+- `triage_signal`
+- `verification_signal`
+- `suppression_signal`
+
+`final_confidence` remains the pipeline confidence value for backward compatibility;
+the component scores provide transparent contributor-level context.
 
 For the bundled vulnerable app, the real run on 2026-04-09 produced four candidate findings:
 

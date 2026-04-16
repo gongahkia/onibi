@@ -52,6 +52,8 @@ from piranesi.report import launch_compliance_tui, print_compliance_report, rend
 from piranesi.report.renderer import (
     CandidateReportFinding,
     CombinedFinding,
+    FindingExplanation,
+    MatchedSpec,
     PiranesiReport,
     SuppressedFinding,
 )
@@ -544,6 +546,7 @@ def _find_report_finding(
 
 def _render_finding_explanation(status: str, finding: ReportFindingMatch) -> str:
     evidence_label = _status_label(status)
+    explanation = _finding_explanation_payload(finding)
     lines = [
         "# Piranesi Finding Explanation",
         "",
@@ -560,6 +563,78 @@ def _render_finding_explanation(status: str, finding: ReportFindingMatch) -> str
         ),
         (f"Sink: {finding.sink_location.file}:{finding.sink_location.line} ({finding.taint_sink})"),
     ]
+    if explanation is not None:
+        lines.extend(
+            [
+                "",
+                "What matched:",
+                f"- Source spec: {_format_matched_spec('source', explanation.matched_source_spec)}",
+                f"- Sink spec: {_format_matched_spec('sink', explanation.matched_sink_spec)}",
+            ]
+        )
+        if explanation.sanitizers_considered:
+            lines.append("- Sanitizers considered:")
+            lines.extend(
+                [
+                    (
+                        f"- {sanitizer.name}: {sanitizer.effectiveness or 'unknown'} "
+                        f"(observed_on_path={'yes' if sanitizer.observed_on_path else 'no'})"
+                    )
+                    for sanitizer in explanation.sanitizers_considered
+                ]
+            )
+        else:
+            lines.append("- Sanitizers considered: none")
+        if explanation.sanitizers_observed:
+            lines.append(f"- Sanitizers observed: {', '.join(explanation.sanitizers_observed)}")
+        else:
+            lines.append("- Sanitizers observed: none")
+        path = explanation.propagation_path
+        operations = ", ".join(path.operation_sequence) if path.operation_sequence else "none"
+        lines.extend(
+            [
+                "",
+                "Propagation:",
+                f"- Path: {path.source_to_sink}",
+                f"- Nodes: {path.path_node_count} (edges: {path.path_edge_count})",
+                f"- Operations: {operations}",
+                (
+                    "- Sanitizer steps on path: "
+                    f"{'yes' if path.includes_sanitizer_steps else 'no'}"
+                ),
+                "",
+                "Verification state:",
+                f"- State: {explanation.verification_state.state}",
+                (
+                    "- Verified: "
+                    f"{'yes' if explanation.verification_state.verified else 'no'}"
+                ),
+                (
+                    "- Verification method: "
+                    f"{explanation.verification_state.verification_method or 'n/a'}"
+                ),
+                (
+                    "- Triage: "
+                    f"{explanation.verification_state.triage_verdict or 'n/a'} "
+                    f"(mode={explanation.verification_state.triage_mode or 'n/a'})"
+                ),
+                (
+                    "- Suppression reason: "
+                    f"{explanation.verification_state.suppression_reason or 'n/a'}"
+                ),
+                "",
+                "Confidence contributors:",
+            ]
+        )
+        confidence = explanation.confidence
+        lines.extend(_confidence_component_lines(confidence))
+        lines.extend(
+            [
+                f"- Contextual confidence: {confidence.contextual_confidence:.3f}",
+                f"- Final confidence: {confidence.final_confidence:.3f}",
+                f"- Severity basis: {explanation.severity_basis}",
+            ]
+        )
     if isinstance(finding, CandidateReportFinding):
         lines.extend(
             [
@@ -635,6 +710,51 @@ def _status_label(status: str) -> str:
         "suppressed": "Suppressed finding",
     }
     return labels.get(status, status.replace("_", " "))
+
+
+def _finding_explanation_payload(finding: ReportFindingMatch) -> FindingExplanation | None:
+    explanation = getattr(finding, "explanation", None)
+    if isinstance(explanation, FindingExplanation):
+        return explanation
+    return None
+
+
+def _format_matched_spec(kind: str, spec: MatchedSpec) -> str:
+    if spec.spec_id is not None:
+        label = spec.spec_id
+    elif spec.name is not None:
+        label = f"{kind}:{spec.name}"
+    else:
+        return "n/a"
+    details: list[str] = []
+    if spec.category is not None:
+        details.append(f"category={spec.category}")
+    if spec.cwe is not None:
+        details.append(f"cwe={spec.cwe}")
+    if spec.is_custom is not None:
+        details.append(f"custom={'yes' if spec.is_custom else 'no'}")
+    return label if not details else f"{label} ({', '.join(details)})"
+
+
+def _confidence_component_lines(confidence: object) -> list[str]:
+    if not hasattr(confidence, "static_reachability"):
+        return []
+    components = [
+        ("static_reachability", confidence.static_reachability),
+        ("source_quality", confidence.source_quality),
+        ("sink_quality", confidence.sink_quality),
+        ("sanitizer_signal", confidence.sanitizer_signal),
+        ("triage_signal", confidence.triage_signal),
+        ("verification_signal", confidence.verification_signal),
+        ("suppression_signal", confidence.suppression_signal),
+    ]
+    lines: list[str] = []
+    for name, component in components:
+        lines.append(
+            f"- {name}: score={component.score:.3f}, weight={component.weight:.3f}, "
+            f"weighted={component.weighted_score:.3f} — {component.rationale}"
+        )
+    return lines
 
 
 def _resolve_framework_keys(value: str | None) -> list[str] | None:
@@ -1903,15 +2023,16 @@ def explain(
 
     status, finding = match
     if json_output:
+        explanation = _finding_explanation_payload(finding)
+        payload: dict[str, object] = {
+            "status": status,
+            "evidence": _status_label(status),
+            "finding": finding.model_dump(mode="json"),
+        }
+        if explanation is not None:
+            payload["explanation"] = explanation.model_dump(mode="json")
         typer.echo(
-            json.dumps(
-                {
-                    "status": status,
-                    "evidence": _status_label(status),
-                    "finding": finding.model_dump(mode="json"),
-                },
-                indent=2,
-            )
+            json.dumps(payload, indent=2)
         )
         return
     typer.echo(_render_finding_explanation(status, finding), nl=False)

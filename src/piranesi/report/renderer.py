@@ -51,6 +51,96 @@ _EVIDENCE_STATUS_LABELS: dict[EvidenceStatus, str] = {
     "unreachable_candidate": "Unreachable candidate",
     "suppressed": "Suppressed finding",
 }
+_CONFIDENCE_COMPONENT_WEIGHTS = {
+    "static_reachability": 0.20,
+    "source_quality": 0.14,
+    "sink_quality": 0.14,
+    "sanitizer_signal": 0.20,
+    "triage_signal": 0.12,
+    "verification_signal": 0.15,
+    "suppression_signal": 0.05,
+}
+
+
+class MatchedSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    spec_id: str | None = None
+    name: str | None = None
+    category: str | None = None
+    cwe: str | None = None
+    severity: str | None = None
+    is_custom: bool | None = None
+
+
+class SanitizerExplanation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    effectiveness: str | None = None
+    observed_on_path: bool = False
+
+
+class PropagationPathSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path_node_count: int = 0
+    path_edge_count: int = 0
+    operation_sequence: list[str] = Field(default_factory=list)
+    source_to_sink: str
+    includes_sanitizer_steps: bool = False
+
+
+class VerificationState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    state: str
+    verified: bool = False
+    verification_method: str | None = None
+    triage_verdict: str | None = None
+    triage_mode: str | None = None
+    suppression_reason: str | None = None
+
+
+class ConfidenceComponent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    score: float
+    weight: float
+    weighted_score: float
+    rationale: str
+
+
+class ConfidenceBreakdown(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model_version: str = "v1"
+    reported_confidence: float
+    static_reachability: ConfidenceComponent
+    source_quality: ConfidenceComponent
+    sink_quality: ConfidenceComponent
+    sanitizer_signal: ConfidenceComponent
+    triage_signal: ConfidenceComponent
+    verification_signal: ConfidenceComponent
+    suppression_signal: ConfidenceComponent
+    contextual_confidence: float
+    final_confidence: float
+    formula: str = (
+        "weighted sum of component scores; final_confidence preserves pipeline confidence"
+    )
+
+
+class FindingExplanation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    matched_source_spec: MatchedSpec
+    matched_sink_spec: MatchedSpec
+    sanitizers_considered: list[SanitizerExplanation] = Field(default_factory=list)
+    sanitizers_observed: list[str] = Field(default_factory=list)
+    propagation_path: PropagationPathSummary
+    verification_state: VerificationState
+    confidence: ConfidenceBreakdown
+    severity_basis: str
 
 
 class CombinedFinding(BaseModel):
@@ -58,6 +148,7 @@ class CombinedFinding(BaseModel):
 
     finding_id: str
     evidence_status: EvidenceStatus = "confirmed"
+    explanation: FindingExplanation | None = None
     cwe: str
     title: str
     severity: str
@@ -96,6 +187,7 @@ class CandidateReportFinding(BaseModel):
 
     finding_id: str
     evidence_status: EvidenceStatus = "static_candidate"
+    explanation: FindingExplanation | None = None
     cwe: str
     title: str
     severity: str
@@ -124,6 +216,7 @@ class SuppressedFinding(BaseModel):
 
     finding_id: str
     evidence_status: EvidenceStatus = "suppressed"
+    explanation: FindingExplanation | None = None
     cwe: str
     title: str
     severity: str
@@ -133,6 +226,7 @@ class SuppressedFinding(BaseModel):
     taint_sink: str
     source_location: SourceLocation
     sink_location: SourceLocation
+    reachability: str = "reachable"
     suppression_reason: str | None = None
     package_name: str | None = None
     cross_package: bool = False
@@ -255,27 +349,40 @@ def build_report(
             or triaged.triage_verdict != "false_positive"
         )
     ]
-    suppressed_findings = [
-        SuppressedFinding(
-            finding_id=candidate.id,
-            cwe=_extract_cwe_id(candidate.vuln_class),
-            title=_finding_title(candidate),
-            severity=candidate.severity,
-            confidence=candidate.confidence,
-            metadata=dict(candidate.metadata),
-            taint_source=candidate.source.source_type,
-            taint_sink=candidate.sink.api_name,
-            source_location=candidate.source.location,
-            sink_location=candidate.sink.location,
-            suppression_reason=candidate.suppression_reason,
-            package_name=_package_name(candidate),
-            cross_package=bool(candidate.metadata.get("cross_package")),
-            source_package=_metadata_string(candidate.metadata.get("source_package")),
-            sink_package=_metadata_string(candidate.metadata.get("sink_package")),
+    suppressed_findings: list[SuppressedFinding] = []
+    for candidate in detected_findings:
+        if not candidate.suppressed:
+            continue
+        triaged = triage_by_id.get(candidate.id)
+        suppressed_findings.append(
+            SuppressedFinding(
+                finding_id=candidate.id,
+                cwe=_extract_cwe_id(candidate.vuln_class),
+                title=_finding_title(candidate),
+                severity=candidate.severity,
+                confidence=candidate.confidence,
+                metadata=dict(candidate.metadata),
+                taint_source=candidate.source.source_type,
+                taint_sink=candidate.sink.api_name,
+                source_location=candidate.source.location,
+                sink_location=candidate.sink.location,
+                reachability=candidate.reachability,
+                suppression_reason=candidate.suppression_reason,
+                package_name=_package_name(candidate),
+                cross_package=bool(candidate.metadata.get("cross_package")),
+                source_package=_metadata_string(candidate.metadata.get("source_package")),
+                sink_package=_metadata_string(candidate.metadata.get("sink_package")),
+                explanation=_build_finding_explanation(
+                    candidate,
+                    evidence_status="suppressed",
+                    triaged=triaged,
+                    confirmed=None,
+                    verification_method=None,
+                    verified=False,
+                    suppression_reason=candidate.suppression_reason,
+                ),
+            )
         )
-        for candidate in detected_findings
-        if candidate.suppressed
-    ]
     active_report_findings = [
         _candidate_report_finding(
             candidate,
@@ -317,6 +424,14 @@ def build_report(
         finding = CombinedFinding(
             finding_id=finding_id,
             evidence_status="confirmed",
+            explanation=_build_finding_explanation(
+                candidate,
+                evidence_status="confirmed",
+                triaged=confirmed.finding,
+                confirmed=confirmed,
+                verification_method="smt+sandbox",
+                verified=True,
+            ),
             cwe=_extract_cwe_id(candidate.vuln_class),
             title=_finding_title(candidate),
             severity=candidate.severity,
@@ -514,6 +629,14 @@ def _candidate_report_finding(
     return CandidateReportFinding(
         finding_id=candidate.id,
         evidence_status=evidence_status,
+        explanation=_build_finding_explanation(
+            candidate,
+            evidence_status=evidence_status,
+            triaged=triaged,
+            confirmed=None,
+            verification_method=None,
+            verified=False,
+        ),
         cwe=_extract_cwe_id(candidate.vuln_class),
         title=_finding_title(candidate),
         severity=candidate.severity,
@@ -584,6 +707,380 @@ def _status_breakdown(
     for status in statuses_by_finding.values():
         counts[status] += 1
     return {status: count for status, count in counts.items() if count > 0}
+
+
+def _build_finding_explanation(
+    candidate: CandidateFinding,
+    *,
+    evidence_status: EvidenceStatus,
+    triaged: TriagedFinding | None,
+    confirmed: ConfirmedFinding | None,
+    verification_method: str | None,
+    verified: bool,
+    suppression_reason: str | None = None,
+) -> FindingExplanation:
+    sanitizers_considered, sanitizers_observed = _build_sanitizer_explanations(candidate)
+    return FindingExplanation(
+        matched_source_spec=_matched_source_spec(candidate),
+        matched_sink_spec=_matched_sink_spec(candidate),
+        sanitizers_considered=sanitizers_considered,
+        sanitizers_observed=sanitizers_observed,
+        propagation_path=_propagation_path_summary(candidate),
+        verification_state=_verification_state(
+            evidence_status=evidence_status,
+            triaged=triaged,
+            verification_method=verification_method,
+            verified=verified,
+            suppression_reason=suppression_reason,
+        ),
+        confidence=_confidence_breakdown(
+            candidate,
+            evidence_status=evidence_status,
+            triaged=triaged,
+            confirmed=confirmed,
+            verification_method=verification_method,
+            verified=verified,
+            suppression_reason=suppression_reason,
+            sanitizers_considered=sanitizers_considered,
+        ),
+        severity_basis=_severity_basis(candidate),
+    )
+
+
+def _matched_source_spec(candidate: CandidateFinding) -> MatchedSpec:
+    name = _metadata_string(candidate.metadata.get("source_spec_name"))
+    return MatchedSpec(
+        spec_id=None if name is None else f"source:{name}",
+        name=name,
+        category=_metadata_string(candidate.metadata.get("source_spec_category")),
+        is_custom=_metadata_bool(candidate.metadata.get("source_spec_custom")),
+    )
+
+
+def _matched_sink_spec(candidate: CandidateFinding) -> MatchedSpec:
+    name = _metadata_string(candidate.metadata.get("sink_spec_name"))
+    return MatchedSpec(
+        spec_id=None if name is None else f"sink:{name}",
+        name=name,
+        category=_metadata_string(candidate.metadata.get("sink_spec_category")),
+        cwe=_metadata_string(candidate.metadata.get("sink_spec_cwe")),
+        severity=candidate.severity,
+        is_custom=_metadata_bool(candidate.metadata.get("sink_spec_custom")),
+    )
+
+
+def _build_sanitizer_explanations(
+    candidate: CandidateFinding,
+) -> tuple[list[SanitizerExplanation], list[str]]:
+    observed = set(_observed_sanitizers(candidate))
+    observed.update(_metadata_strings(candidate.metadata.get("effective_sanitizers")))
+    observed.update(_metadata_strings(candidate.metadata.get("partial_sanitizers")))
+    observed.update(_metadata_strings(candidate.metadata.get("ineffective_sanitizers")))
+
+    considered: dict[str, str | None] = {}
+    effectiveness = candidate.metadata.get("sanitizer_effectiveness")
+    if isinstance(effectiveness, dict):
+        for raw_name, raw_effectiveness in effectiveness.items():
+            name = _metadata_string(raw_name)
+            if name is None:
+                continue
+            considered[name] = _metadata_string(raw_effectiveness)
+
+    for name in observed:
+        considered.setdefault(name, None)
+
+    ordered = sorted(considered.items(), key=lambda item: item[0])
+    return (
+        [
+            SanitizerExplanation(
+                name=name,
+                effectiveness=effectiveness,
+                observed_on_path=name in observed,
+            )
+            for name, effectiveness in ordered
+        ],
+        sorted(observed),
+    )
+
+
+def _observed_sanitizers(candidate: CandidateFinding) -> tuple[str, ...]:
+    observed = [
+        step.sanitizer_applied
+        for step in candidate.taint_path
+        if step.sanitizer_applied is not None and step.sanitizer_applied.strip()
+    ]
+    deduped = tuple(dict.fromkeys(item.strip() for item in observed))
+    return deduped
+
+
+def _propagation_path_summary(candidate: CandidateFinding) -> PropagationPathSummary:
+    operations = [
+        step.operation.strip()
+        for step in candidate.taint_path
+        if step.operation and step.operation.strip()
+    ]
+    source = candidate.source.location
+    sink = candidate.sink.location
+    return PropagationPathSummary(
+        path_node_count=max(2, len(candidate.taint_path) + 2),
+        path_edge_count=max(1, len(candidate.taint_path) + 1),
+        operation_sequence=operations,
+        source_to_sink=f"{source.file}:{source.line} -> {sink.file}:{sink.line}",
+        includes_sanitizer_steps=any(step.sanitizer_applied for step in candidate.taint_path),
+    )
+
+
+def _verification_state(
+    *,
+    evidence_status: EvidenceStatus,
+    triaged: TriagedFinding | None,
+    verification_method: str | None,
+    verified: bool,
+    suppression_reason: str | None,
+) -> VerificationState:
+    if evidence_status == "confirmed":
+        state = "verified_confirmed"
+    elif evidence_status == "suppressed":
+        state = "suppressed"
+    elif evidence_status == "unreachable_candidate":
+        state = "unreachable_candidate"
+    else:
+        state = "candidate"
+    return VerificationState(
+        state=state,
+        verified=verified,
+        verification_method=verification_method,
+        triage_verdict=None if triaged is None else triaged.triage_verdict,
+        triage_mode=None if triaged is None else triaged.triage_mode,
+        suppression_reason=suppression_reason,
+    )
+
+
+def _confidence_breakdown(
+    candidate: CandidateFinding,
+    *,
+    evidence_status: EvidenceStatus,
+    triaged: TriagedFinding | None,
+    confirmed: ConfirmedFinding | None,
+    verification_method: str | None,
+    verified: bool,
+    suppression_reason: str | None,
+    sanitizers_considered: list[SanitizerExplanation],
+) -> ConfidenceBreakdown:
+    source_match = _matched_source_spec(candidate)
+    sink_match = _matched_sink_spec(candidate)
+
+    reachability_score, reachability_reason = _reachability_component(candidate)
+    source_score, source_reason = _source_quality_component(source_match)
+    sink_score, sink_reason = _sink_quality_component(sink_match)
+    sanitizer_score, sanitizer_reason = _sanitizer_component(
+        candidate,
+        sanitizers_considered=sanitizers_considered,
+    )
+    triage_score, triage_reason = _triage_component(triaged, evidence_status=evidence_status)
+    verification_score, verification_reason = _verification_component(
+        evidence_status=evidence_status,
+        verification_method=verification_method,
+        verified=verified,
+        confirmed=confirmed,
+    )
+    suppression_score, suppression_reason_text = _suppression_component(
+        evidence_status=evidence_status,
+        suppression_reason=suppression_reason,
+    )
+
+    static_reachability = _confidence_component(
+        score=reachability_score,
+        weight=_CONFIDENCE_COMPONENT_WEIGHTS["static_reachability"],
+        rationale=reachability_reason,
+    )
+    source_quality = _confidence_component(
+        score=source_score,
+        weight=_CONFIDENCE_COMPONENT_WEIGHTS["source_quality"],
+        rationale=source_reason,
+    )
+    sink_quality = _confidence_component(
+        score=sink_score,
+        weight=_CONFIDENCE_COMPONENT_WEIGHTS["sink_quality"],
+        rationale=sink_reason,
+    )
+    sanitizer_signal = _confidence_component(
+        score=sanitizer_score,
+        weight=_CONFIDENCE_COMPONENT_WEIGHTS["sanitizer_signal"],
+        rationale=sanitizer_reason,
+    )
+    triage_signal = _confidence_component(
+        score=triage_score,
+        weight=_CONFIDENCE_COMPONENT_WEIGHTS["triage_signal"],
+        rationale=triage_reason,
+    )
+    verification_signal = _confidence_component(
+        score=verification_score,
+        weight=_CONFIDENCE_COMPONENT_WEIGHTS["verification_signal"],
+        rationale=verification_reason,
+    )
+    suppression_signal = _confidence_component(
+        score=suppression_score,
+        weight=_CONFIDENCE_COMPONENT_WEIGHTS["suppression_signal"],
+        rationale=suppression_reason_text,
+    )
+    contextual_confidence = round(
+        static_reachability.weighted_score
+        + source_quality.weighted_score
+        + sink_quality.weighted_score
+        + sanitizer_signal.weighted_score
+        + triage_signal.weighted_score
+        + verification_signal.weighted_score
+        + suppression_signal.weighted_score,
+        3,
+    )
+    return ConfidenceBreakdown(
+        reported_confidence=round(candidate.confidence, 3),
+        static_reachability=static_reachability,
+        source_quality=source_quality,
+        sink_quality=sink_quality,
+        sanitizer_signal=sanitizer_signal,
+        triage_signal=triage_signal,
+        verification_signal=verification_signal,
+        suppression_signal=suppression_signal,
+        contextual_confidence=contextual_confidence,
+        final_confidence=round(candidate.confidence, 3),
+    )
+
+
+def _confidence_component(*, score: float, weight: float, rationale: str) -> ConfidenceComponent:
+    normalized_score = max(0.0, min(1.0, score))
+    weighted = round(normalized_score * weight, 3)
+    return ConfidenceComponent(
+        score=round(normalized_score, 3),
+        weight=round(weight, 3),
+        weighted_score=weighted,
+        rationale=rationale,
+    )
+
+
+def _reachability_component(candidate: CandidateFinding) -> tuple[float, str]:
+    if candidate.reachability == "reachable":
+        return 1.0, "flow is reachable from known entry points"
+    return 0.35, "flow is currently unreachable from known entry points"
+
+
+def _source_quality_component(source_match: MatchedSpec) -> tuple[float, str]:
+    if source_match.name is None:
+        return 0.6, "source matched but no concrete source spec metadata was recorded"
+    if source_match.is_custom is True:
+        return 0.75, "source comes from a custom source spec"
+    return 1.0, f"source matched built-in spec '{source_match.name}'"
+
+
+def _sink_quality_component(sink_match: MatchedSpec) -> tuple[float, str]:
+    if sink_match.name is None:
+        return 0.65, "sink matched but no concrete sink spec metadata was recorded"
+    if sink_match.is_custom is True:
+        return 0.75, "sink comes from a custom sink spec"
+    if sink_match.cwe is None:
+        return 0.85, f"sink spec '{sink_match.name}' has no explicit CWE tag"
+    return 1.0, f"sink matched built-in spec '{sink_match.name}'"
+
+
+def _sanitizer_component(
+    candidate: CandidateFinding,
+    *,
+    sanitizers_considered: list[SanitizerExplanation],
+) -> tuple[float, str]:
+    if _metadata_bool(candidate.metadata.get("sanitizer_bypassed")) is True:
+        patterns = _metadata_strings(candidate.metadata.get("sanitizer_bypass_patterns"))
+        if patterns:
+            return 1.0, f"sanitizer bypass patterns detected: {', '.join(patterns)}"
+        return 1.0, "sanitizer bypass was detected on the path"
+
+    effective = _metadata_strings(candidate.metadata.get("effective_sanitizers"))
+    if effective:
+        return 0.05, f"effective sanitizers observed: {', '.join(effective)}"
+
+    partial = _metadata_strings(candidate.metadata.get("partial_sanitizers"))
+    if partial:
+        return 0.6, f"partial sanitizers observed: {', '.join(partial)}"
+
+    ineffective = _metadata_strings(candidate.metadata.get("ineffective_sanitizers"))
+    if ineffective:
+        return 0.8, f"ineffective sanitizers observed: {', '.join(ineffective)}"
+
+    if sanitizers_considered:
+        names = ", ".join(sanitizer.name for sanitizer in sanitizers_considered)
+        return 0.85, f"sanitizers considered on path: {names}"
+    return 1.0, "no sanitizer signals reduced confidence"
+
+
+def _triage_component(
+    triaged: TriagedFinding | None,
+    *,
+    evidence_status: EvidenceStatus,
+) -> tuple[float, str]:
+    if triaged is None:
+        if evidence_status == "static_candidate":
+            return 0.6, "finding has no triage verdict and remains static-only"
+        return 0.7, "triage metadata unavailable for this finding"
+
+    verdict = triaged.triage_verdict
+    mode = triaged.triage_mode
+    if verdict == "false_positive":
+        return 0.1, "triage marked the finding as false positive"
+    if mode == "deterministic":
+        return 0.75, "deterministic triage preserved the static finding"
+    if mode == "ml_prefilter":
+        return 0.65, "ML prefilter contributed to triage routing"
+    return 1.0, f"triage retained finding as {verdict}"
+
+
+def _verification_component(
+    *,
+    evidence_status: EvidenceStatus,
+    verification_method: str | None,
+    verified: bool,
+    confirmed: ConfirmedFinding | None,
+) -> tuple[float, str]:
+    if evidence_status == "confirmed" and verified:
+        if confirmed is not None and confirmed.sandbox_result.confirmed:
+            return (
+                1.0,
+                f"dynamic verification confirmed via {verification_method or 'verify stage'}",
+            )
+        return (
+            0.95,
+            f"verification evidence attached via {verification_method or 'verify stage'}",
+        )
+    if evidence_status == "unreachable_candidate":
+        return 0.2, "finding is unreachable and has no dynamic verification"
+    if evidence_status == "suppressed":
+        return 0.3, "finding is suppressed and not dynamically verified"
+    return 0.5, "finding is a candidate without dynamic verification evidence"
+
+
+def _suppression_component(
+    *,
+    evidence_status: EvidenceStatus,
+    suppression_reason: str | None,
+) -> tuple[float, str]:
+    if evidence_status != "suppressed":
+        return 1.0, "finding is not suppressed"
+    if suppression_reason:
+        return 0.0, f"finding suppressed: {suppression_reason}"
+    return 0.0, "finding suppressed without explicit reason"
+
+
+def _severity_basis(candidate: CandidateFinding) -> str:
+    sink_spec_name = _metadata_string(candidate.metadata.get("sink_spec_name"))
+    sink_spec_cwe = _metadata_string(candidate.metadata.get("sink_spec_cwe"))
+    if sink_spec_name is not None:
+        if sink_spec_cwe is not None:
+            return (
+                f"severity '{candidate.severity}' from sink spec "
+                f"'{sink_spec_name}' mapped to {sink_spec_cwe}"
+            )
+        return f"severity '{candidate.severity}' from sink spec '{sink_spec_name}'"
+    cwe = _extract_cwe_id(candidate.vuln_class)
+    return f"severity '{candidate.severity}' inferred from vulnerability class {cwe}"
 
 
 def _cluster_candidate_findings(candidates: list[CandidateFinding]) -> list[FindingCluster]:
@@ -712,6 +1209,19 @@ def _metadata_string(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+def _metadata_strings(value: object) -> list[str]:
+    if isinstance(value, list):
+        values = [item.strip() for item in value if isinstance(item, str) and item.strip()]
+        return list(dict.fromkeys(values))
+    return []
+
+
+def _metadata_bool(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    return None
+
+
 def _group_report_findings_by_package(
     findings: list[CombinedFinding],
 ) -> dict[str, list[CombinedFinding]]:
@@ -778,11 +1288,18 @@ def _utc_now() -> str:
 __all__ = [
     "CandidateReportFinding",
     "CombinedFinding",
+    "ConfidenceBreakdown",
+    "ConfidenceComponent",
     "ExecutiveSummary",
     "FindingCluster",
+    "FindingExplanation",
+    "MatchedSpec",
     "PiranesiReport",
+    "PropagationPathSummary",
     "ReportAppendix",
+    "SanitizerExplanation",
     "SuppressedFinding",
+    "VerificationState",
     "build_report",
     "render_markdown",
     "render_pr_body",

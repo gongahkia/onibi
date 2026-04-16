@@ -43,9 +43,19 @@ def test_report_renderer_writes_expected_structure(tmp_path: Path) -> None:
     assert payload["executive_summary"]["total_llm_cost_usd"] == 0.73
     assert payload["findings"][0]["title"] == "SQL Injection"
     assert payload["findings"][0]["pr_body"]
+    assert (
+        payload["findings"][0]["explanation"]["verification_state"]["state"]
+        == "verified_confirmed"
+    )
+    assert payload["findings"][0]["explanation"]["confidence"]["model_version"] == "v1"
+    assert (
+        payload["findings"][0]["explanation"]["confidence"]["final_confidence"]
+        == payload["findings"][0]["confidence"]
+    )
 
     markdown = (tmp_path / "report.md").read_text(encoding="utf-8")
     assert "## SQL Injection (`finding-001`)" in markdown
+    assert "### Confidence Breakdown" in markdown
     assert "| PDPA | Section 24 | Notify the regulator of a notifiable breach." in markdown
 
     pr_body = (tmp_path / "pr_body.md").read_text(encoding="utf-8")
@@ -200,7 +210,25 @@ def test_report_renderer_separates_suppressed_findings(tmp_path: Path) -> None:
 def test_report_renderer_exposes_evidence_status_levels(tmp_path: Path) -> None:
     artifacts = fixture_artifacts(tmp_path)
     base = artifacts["detect"].findings[0]  # type: ignore[attr-defined]
-    active = base.model_copy(update={"id": "finding-active"})
+    active = base.model_copy(
+        update={
+            "id": "finding-active",
+            "metadata": {
+                "source_spec_name": "express_req_body",
+                "source_spec_category": "request_body",
+                "source_spec_custom": False,
+                "sink_spec_name": "raw_sql_query",
+                "sink_spec_category": "sql_query",
+                "sink_spec_cwe": "CWE-89",
+                "sink_spec_custom": False,
+                "sanitizer_effectiveness": {"escapeHtml": "partial"},
+                "partial_sanitizers": ["escapeHtml"],
+            },
+            "taint_path": [
+                base.taint_path[0].model_copy(update={"sanitizer_applied": "escapeHtml"})
+            ],
+        }
+    )
     unreachable = base.model_copy(
         update={
             "id": "finding-unreachable",
@@ -242,6 +270,16 @@ def test_report_renderer_exposes_evidence_status_levels(tmp_path: Path) -> None:
     assert payload["active_findings"][0]["evidence_status"] == "triaged_active_candidate"
     assert payload["unreachable_findings"][0]["evidence_status"] == "unreachable_candidate"
     assert payload["suppressed_findings"][0]["evidence_status"] == "suppressed"
+    assert payload["active_findings"][0]["explanation"]["matched_source_spec"]["spec_id"] == (
+        "source:express_req_body"
+    )
+    assert payload["active_findings"][0]["explanation"]["matched_sink_spec"]["spec_id"] == (
+        "sink:raw_sql_query"
+    )
+    assert "escapeHtml" in payload["active_findings"][0]["explanation"]["sanitizers_observed"]
+    assert (
+        payload["active_findings"][0]["explanation"]["confidence"]["triage_signal"]["score"] > 0.9
+    )
     assert payload["executive_summary"]["status_breakdown"]["confirmed"] == 1
     assert payload["executive_summary"]["status_breakdown"]["triaged_active_candidate"] == 1
     assert payload["executive_summary"]["status_breakdown"]["unreachable_candidate"] == 1
