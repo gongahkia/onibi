@@ -68,6 +68,12 @@ $ swift test
 $ ./.build/debug/Onibi
 ```
 
+If you are changing the web remote-control UI, rebuild and bundle the web assets before building/running the host:
+
+```console
+$ ./scripts/sync_web_assets.sh
+```
+
 2. Or open in [Xcode](https://developer.apple.com/xcode/).
 
 ```console

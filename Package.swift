@@ -28,6 +28,9 @@ let package = Package(
                 "Info.plist",
                 "Assets.xcassets",
                 "Onibi.entitlements"
+            ],
+            resources: [
+                .copy("Resources/OnibiWeb")
             ]
         ),
         .executableTarget(

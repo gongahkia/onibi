@@ -181,6 +181,10 @@ extension WebAssetServer {
     ) -> [URL] {
         var candidates: [URL] = []
 
+        if let bundledRoot = bundledWebRoot() {
+            candidates.append(bundledRoot)
+        }
+
         if let explicit = environment["ONIBI_WEB_DIST_DIR"], !explicit.isEmpty {
             candidates.append(URL(fileURLWithPath: explicit, isDirectory: true))
         }
@@ -210,5 +214,13 @@ extension WebAssetServer {
             let inserted = seen.insert(standardizedPath).inserted
             return inserted
         }
+    }
+
+    private static func bundledWebRoot() -> URL? {
+        let resourceURL = Bundle.module.resourceURL
+        if let directPath = resourceURL?.appendingPathComponent("OnibiWeb", isDirectory: true) {
+            return directPath
+        }
+        return nil
     }
 }
