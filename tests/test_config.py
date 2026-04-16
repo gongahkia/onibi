@@ -169,3 +169,41 @@ def test_load_lsp_config_from_file(config_file: Callable[[str], Path]) -> None:
     assert config.lsp.debounce_ms == 250
     assert config.lsp.max_findings_per_file == 10
     assert config.lsp.severity_filter == "high"
+
+
+def test_load_verify_target_profiles_from_file(config_file: Callable[[str], Path]) -> None:
+    path = config_file(
+        "\n".join(
+            [
+                "[verify]",
+                'proof_mode = "safe"',
+                'target_profile = "express_dev"',
+                "",
+                "[verify.target_profiles.express_dev]",
+                'command = "npm run dev"',
+                'cwd = "examples/vuln-express"',
+                "startup_timeout_seconds = 45",
+                'readiness_url = "/healthz"',
+                'base_url = "http://127.0.0.1:{port}"',
+                'teardown = "on_success"',
+                'logs_path = "verify/logs/express-dev.log"',
+                "",
+                "[verify.target_profiles.express_dev.env]",
+                'PORT = "4010"',
+                'NODE_ENV = "development"',
+            ]
+        )
+    )
+
+    config = load_config(path)
+
+    assert config.verify.target_profile == "express_dev"
+    profile = config.verify.target_profiles["express_dev"]
+    assert profile.command == "npm run dev"
+    assert profile.cwd == "examples/vuln-express"
+    assert profile.startup_timeout_seconds == 45
+    assert profile.readiness_url == "/healthz"
+    assert profile.base_url == "http://127.0.0.1:{port}"
+    assert profile.teardown == "on_success"
+    assert profile.logs_path == "verify/logs/express-dev.log"
+    assert profile.env["PORT"] == "4010"

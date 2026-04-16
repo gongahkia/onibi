@@ -189,6 +189,22 @@ class VerifyConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     proof_mode: Literal["safe", "unsafe"] = "safe"
+    target_profile: str | None = None
+    target_profiles: dict[str, VerifyTargetProfileConfig] = Field(default_factory=dict)
+
+
+class VerifyTargetProfileConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    command: str | None = None
+    cwd: str | None = None
+    env: dict[str, str] = Field(default_factory=dict)
+    startup_timeout_seconds: int = Field(default=30, ge=1)
+    readiness_url: str | None = None
+    readiness_command: str | None = None
+    base_url: str | None = None
+    teardown: Literal["always", "on_success", "never"] = "always"
+    logs_path: str | None = None
 
 
 class LspConfig(BaseModel):

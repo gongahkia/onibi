@@ -102,6 +102,7 @@ from piranesi.triage import CalibratedEnsembleVoter, SkepticAgent
 from piranesi.triage.ml_classifier import load_model, predict
 from piranesi.ui import file_progress, stage_header
 from piranesi.verify import (
+    TargetLaunchProfile,
     build_baseline_payload,
     confirm_responses,
     extract_exploit_template,
@@ -2215,6 +2216,7 @@ def _run_verify_stage(
     prev_result: StageResult | None,
 ) -> StageResult:
     proof_mode = config.verify.proof_mode
+    selected_profile = _resolve_selected_target_profile(config)
     triage_artifact = _extract_stage_artifact(prev_result, TriageArtifact, "triage")
     started_at = time.monotonic()
     confirmed_findings: list[ConfirmedFinding] = []
@@ -2223,17 +2225,23 @@ def _run_verify_stage(
     for triaged in triage_artifact.findings:
         if triaged.triage_verdict == "false_positive":
             continue
+        active_profile = _effective_target_profile(
+            selected_profile=selected_profile,
+            finding=triaged.finding,
+        )
         template = extract_exploit_template(triaged.finding, proof_mode=proof_mode)
         precondition_eval = evaluate_verification_preconditions(
             finding=triaged.finding,
             template=template,
             target_dir=context.target_dir,
             proof_mode=proof_mode,
+            target_profile_name=None if selected_profile is None else selected_profile.name,
             no_execute=context.no_execute,
         )
         attempt_fields = {
             "finding_id": triaged.finding.id,
             "proof_mode": proof_mode,
+            "target_profile": None if active_profile is None else active_profile.name,
             "template_id": template.template_id,
             "template_reason": template.template_selection_reason,
             "preconditions": list(precondition_eval.preconditions),
@@ -2270,7 +2278,12 @@ def _run_verify_stage(
 
         baseline_payload = build_baseline_payload(payload, vuln_class=triaged.finding.vuln_class)
         try:
-            captures = run_in_sandbox(str(context.target_dir), [baseline_payload, payload])
+            captures = run_in_sandbox(
+                str(context.target_dir),
+                [baseline_payload, payload],
+                target_profile=active_profile,
+                logs_base_dir=context.output_dir,
+            )
         except Exception as exc:
             _logger.warning(
                 "verify: sandbox execution failed for finding %s: %s",
@@ -2283,6 +2296,7 @@ def _run_verify_stage(
                     **attempt_fields,
                     status="error",
                     reason=f"verification error: sandbox execution failed ({exc})",
+                    startup_error=str(exc),
                     evidence=[str(exc)],
                 )
             )
@@ -2301,16 +2315,26 @@ def _run_verify_stage(
             )
             continue
         baseline_capture, exploit_capture = captures[0], captures[1]
+        launch_profile = exploit_capture.launch_profile or baseline_capture.launch_profile
+        launch_log_path = exploit_capture.launch_log_path or baseline_capture.launch_log_path
+        startup_error = exploit_capture.startup_error or baseline_capture.startup_error
+        if launch_profile and attempt_fields["target_profile"] is None:
+            attempt_fields["target_profile"] = launch_profile
         if baseline_capture.error or exploit_capture.error:
             capture_error = (
                 exploit_capture.error or baseline_capture.error or "UNKNOWN_SANDBOX_ERROR"
             )
+            evidence = [capture_error]
+            if launch_log_path:
+                evidence.append(f"launch_logs:{launch_log_path}")
             verification_attempts.append(
                 VerificationAttempt(
                     **attempt_fields,
                     status="inconclusive",
                     reason=f"verification inconclusive: sandbox capture error ({capture_error})",
-                    evidence=[capture_error],
+                    launch_log_path=launch_log_path,
+                    startup_error=startup_error,
+                    evidence=evidence,
                 )
             )
             continue
@@ -2322,12 +2346,17 @@ def _run_verify_stage(
             container_logs=exploit_capture.container_logs,
         )
         if confirmation.level != "CONFIRMED":
+            evidence = [confirmation.evidence]
+            if launch_log_path:
+                evidence.append(f"launch_logs:{launch_log_path}")
             verification_attempts.append(
                 VerificationAttempt(
                     **attempt_fields,
                     status="inconclusive",
                     reason=f"verification inconclusive: {confirmation.evidence}",
-                    evidence=[confirmation.evidence],
+                    launch_log_path=launch_log_path,
+                    startup_error=startup_error,
+                    evidence=evidence,
                 )
             )
             continue
@@ -2359,7 +2388,13 @@ def _run_verify_stage(
                 **attempt_fields,
                 status="confirmed",
                 reason=f"dynamic verification confirmed: {confirmation.evidence}",
-                evidence=[confirmation.evidence],
+                launch_log_path=launch_log_path,
+                startup_error=startup_error,
+                evidence=(
+                    [confirmation.evidence]
+                    if not launch_log_path
+                    else [confirmation.evidence, f"launch_logs:{launch_log_path}"]
+                ),
             )
         )
 
@@ -2368,6 +2403,49 @@ def _run_verify_stage(
         success=True,
         artifact=VerifyArtifact(findings=confirmed_findings, attempts=verification_attempts),
         elapsed_s=time.monotonic() - started_at,
+    )
+
+
+def _resolve_selected_target_profile(config: PiranesiConfig) -> TargetLaunchProfile | None:
+    profile_name = config.verify.target_profile
+    if profile_name is None:
+        return None
+    profile = config.verify.target_profiles.get(profile_name)
+    if profile is None:
+        available = ", ".join(sorted(config.verify.target_profiles)) or "none"
+        raise ValueError(
+            f"verify.target_profile '{profile_name}' is not defined in "
+            f"[verify.target_profiles] (available: {available})"
+        )
+    return TargetLaunchProfile(
+        name=profile_name,
+        command=profile.command,
+        cwd=profile.cwd,
+        env=dict(profile.env),
+        startup_timeout_seconds=profile.startup_timeout_seconds,
+        readiness_url=profile.readiness_url,
+        readiness_command=profile.readiness_command,
+        base_url=profile.base_url,
+        teardown=profile.teardown,
+        logs_path=profile.logs_path,
+    )
+
+
+def _effective_target_profile(
+    *,
+    selected_profile: TargetLaunchProfile | None,
+    finding: CandidateFinding,
+) -> TargetLaunchProfile | None:
+    if selected_profile is not None:
+        return selected_profile
+    target_url = finding.metadata.get("verification_target_url")
+    if not isinstance(target_url, str) or not target_url.strip():
+        return None
+    return TargetLaunchProfile(
+        name="metadata_target_url",
+        base_url=target_url.strip(),
+        startup_timeout_seconds=30,
+        teardown="never",
     )
 
 
@@ -2561,6 +2639,9 @@ def _sandbox_result_from_capture(capture: Any, *, confirmed: bool) -> SandboxRes
         stderr=capture.stderr,
         exit_code=int(capture.exit_code or 0),
         network_isolated=bool(capture.network_isolated),
+        launch_profile=getattr(capture, "launch_profile", None),
+        launch_log_path=getattr(capture, "launch_log_path", None),
+        startup_error=getattr(capture, "startup_error", None),
         confirmed=confirmed,
     )
 

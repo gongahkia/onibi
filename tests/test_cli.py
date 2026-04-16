@@ -153,6 +153,7 @@ def test_run_help_lists_incremental_flag() -> None:
     assert "--max-parallel" in output
     assert "--sbom" in output
     assert "--proof-mode" in output
+    assert "--target-profile" in output
 
 
 def test_verify_help_lists_proof_mode_flag() -> None:
@@ -161,6 +162,7 @@ def test_verify_help_lists_proof_mode_flag() -> None:
 
     assert result.exit_code == 0
     assert "--proof-mode" in output
+    assert "--target-profile" in output
 
 
 def test_watch_help_lists_watch_mode_flags() -> None:

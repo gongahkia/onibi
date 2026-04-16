@@ -45,7 +45,16 @@
 - **Confidence model:** {{ finding.explanation.confidence.model_version }} (contextual {{ "%.3f"|format(finding.explanation.confidence.contextual_confidence) }})
 - **Verification outcome:** `{{ finding.explanation.verification_state.outcome or "not_attempted" }}`
 - **Proof mode:** `{{ finding.explanation.verification_state.proof_mode or "n/a" }}`
+{% if finding.explanation.verification_state.target_profile %}
+- **Target profile:** `{{ finding.explanation.verification_state.target_profile }}`
+{% endif %}
 - **Verification reason:** {{ finding.explanation.verification_state.reason or "n/a" }}
+{% if finding.explanation.verification_state.startup_error %}
+- **Startup error:** {{ finding.explanation.verification_state.startup_error }}
+{% endif %}
+{% if finding.explanation.verification_state.launch_log_path %}
+- **Launch logs:** `{{ finding.explanation.verification_state.launch_log_path }}`
+{% endif %}
 - **Verification evidence:** {% if finding.explanation.verification_state.evidence %}{{ finding.explanation.verification_state.evidence|join(" | ") }}{% else %}none{% endif %}
 - **Missing preconditions:** {% if finding.explanation.verification_state.missing_preconditions %}{{ finding.explanation.verification_state.missing_preconditions|join(", ") }}{% else %}none{% endif %}
 {% if finding.explanation.verification_state.actionable_next_steps %}
@@ -109,7 +118,16 @@ No finding clusters were produced.
 - **Confidence model:** {{ finding.explanation.confidence.model_version }} (contextual {{ "%.3f"|format(finding.explanation.confidence.contextual_confidence) }})
 - **Verification outcome:** `{{ finding.explanation.verification_state.outcome or "not_attempted" }}`
 - **Proof mode:** `{{ finding.explanation.verification_state.proof_mode or "n/a" }}`
+{% if finding.explanation.verification_state.target_profile %}
+- **Target profile:** `{{ finding.explanation.verification_state.target_profile }}`
+{% endif %}
 - **Verification reason:** {{ finding.explanation.verification_state.reason or "n/a" }}
+{% if finding.explanation.verification_state.startup_error %}
+- **Startup error:** {{ finding.explanation.verification_state.startup_error }}
+{% endif %}
+{% if finding.explanation.verification_state.launch_log_path %}
+- **Launch logs:** `{{ finding.explanation.verification_state.launch_log_path }}`
+{% endif %}
 - **Verification evidence:** {% if finding.explanation.verification_state.evidence %}{{ finding.explanation.verification_state.evidence|join(" | ") }}{% else %}none{% endif %}
 - **Missing preconditions:** {% if finding.explanation.verification_state.missing_preconditions %}{{ finding.explanation.verification_state.missing_preconditions|join(", ") }}{% else %}none{% endif %}
 {% if finding.explanation.verification_state.actionable_next_steps %}

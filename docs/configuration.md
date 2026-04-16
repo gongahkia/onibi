@@ -63,6 +63,19 @@ exclude_receivers = []
 
 [verify]
 proof_mode = "safe"
+target_profile = "express_local"
+
+[verify.target_profiles.express_local]
+command = "npm run dev"
+cwd = "examples/vuln-express"
+startup_timeout_seconds = 45
+readiness_url = "/health"
+base_url = "http://127.0.0.1:{port}"
+teardown = "on_success"
+logs_path = "./piranesi-output/verify-launch.log"
+
+[verify.target_profiles.express_local.env]
+PORT = "4010"
 ```
 
 Notes:
@@ -138,6 +151,24 @@ Verification proof-mode controls.
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `proof_mode` | `"safe" \| "unsafe"` | `safe` | `safe` prefers non-mutating probes and excludes destructive templates. `unsafe` explicitly opts in to higher-risk templates (for example mutation-oriented probes) and should only be used in disposable or authorized environments. |
+| `target_profile` | `str \| null` | `null` | Optional profile name to use for verification app startup/readiness. |
+| `target_profiles` | `table` | `{}` | Named reusable launch profiles keyed by profile name. |
+
+### `[verify.target_profiles.<name>]`
+
+Reusable target launch profile used by `verify` or `run` when `verify.target_profile` or `--target-profile` is set.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `command` | `str \| null` | `null` | Optional command to start the target process (for example `npm run dev` or `uvicorn app:app --port 8000`). |
+| `cwd` | `str \| null` | `null` | Optional working directory for `command`. Relative paths are resolved from the scan target directory. |
+| `env` | `table` | `{}` | Environment variable overrides for target startup/readiness. |
+| `startup_timeout_seconds` | `int` | `30` | Max time to wait for readiness checks to pass. |
+| `readiness_url` | `str \| null` | `null` | Optional readiness endpoint path/URL. Defaults to `/`. |
+| `readiness_command` | `str \| null` | `null` | Optional command-based readiness probe. When set, this is polled until success or timeout. |
+| `base_url` | `str \| null` | `null` | Base URL used for verification requests. Supports `{port}` placeholder from profile env `PORT`. |
+| `teardown` | `"always" \| "on_success" \| "never"` | `always` | Controls whether the launched process is terminated after verification. |
+| `logs_path` | `str \| null` | `null` | Optional path for persisted startup/runtime logs. Included in `verify.json` attempts when set. |
 
 ### `[trace]`
 
@@ -248,6 +279,7 @@ The current `run` command can override these config fields directly:
 - `--docker-image`
 - `--timeout`
 - `--proof-mode`
+- `--target-profile`
 - `--format`
 - `--config`
 - `--output`

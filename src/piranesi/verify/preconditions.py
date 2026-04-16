@@ -21,6 +21,7 @@ def evaluate_verification_preconditions(
     template: ExploitTemplate,
     target_dir: Path,
     proof_mode: ProofMode,
+    target_profile_name: str | None,
     no_execute: bool,
 ) -> VerificationPreconditionEvaluation:
     metadata = finding.metadata
@@ -204,7 +205,27 @@ def evaluate_verification_preconditions(
             )
         )
 
-    if target_has_package:
+    if target_profile_name is not None:
+        preconditions.append(
+            VerificationPrecondition(
+                key="runtime_service",
+                description="Runnable target service for sandbox execution",
+                status="user_provided",
+                value=target_profile_name,
+                source="config.verify.target_profile",
+            )
+        )
+    elif user_target_url is not None:
+        preconditions.append(
+            VerificationPrecondition(
+                key="runtime_service",
+                description="Runnable target service for sandbox execution",
+                status="inferred",
+                value=user_target_url,
+                source="finding.metadata.verification_target_url",
+            )
+        )
+    elif target_has_package:
         preconditions.append(
             VerificationPrecondition(
                 key="runtime_service",
@@ -223,7 +244,8 @@ def evaluate_verification_preconditions(
                 source="target filesystem",
                 next_step=(
                     "Ensure target directory contains package.json and a start script, "
-                    "or supply an explicit verification target URL."
+                    "or supply an explicit verification target URL, "
+                    "or configure verify.target_profile."
                 ),
             )
         )

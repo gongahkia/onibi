@@ -191,6 +191,9 @@ class SandboxResult(BaseModel):
     stderr: str
     exit_code: int
     network_isolated: bool
+    launch_profile: str | None = None
+    launch_log_path: str | None = None
+    startup_error: str | None = None
     confirmed: bool = False
 
 
@@ -213,6 +216,9 @@ class VerificationAttempt(BaseModel):
     status: Literal["confirmed", "skipped", "inconclusive", "error"]
     reason: str
     proof_mode: Literal["safe", "unsafe"] = "safe"
+    target_profile: str | None = None
+    launch_log_path: str | None = None
+    startup_error: str | None = None
     evidence: list[str] = Field(default_factory=list)
     template_id: str | None = None
     template_reason: str | None = None

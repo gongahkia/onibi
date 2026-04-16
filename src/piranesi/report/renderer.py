@@ -99,6 +99,9 @@ class VerificationState(BaseModel):
     verified: bool = False
     outcome: str | None = None
     proof_mode: str | None = None
+    target_profile: str | None = None
+    launch_log_path: str | None = None
+    startup_error: str | None = None
     reason: str | None = None
     verification_method: str | None = None
     triage_verdict: str | None = None
@@ -882,6 +885,9 @@ def _verification_state(
         state = "candidate"
     outcome = None if verification_attempt is None else verification_attempt.status
     proof_mode = None if verification_attempt is None else verification_attempt.proof_mode
+    target_profile = None if verification_attempt is None else verification_attempt.target_profile
+    launch_log_path = None if verification_attempt is None else verification_attempt.launch_log_path
+    startup_error = None if verification_attempt is None else verification_attempt.startup_error
     reason = None if verification_attempt is None else verification_attempt.reason
     evidence = [] if verification_attempt is None else list(verification_attempt.evidence)
     preconditions = [] if verification_attempt is None else list(verification_attempt.preconditions)
@@ -905,6 +911,9 @@ def _verification_state(
         verified=verified,
         outcome=outcome,
         proof_mode=proof_mode,
+        target_profile=target_profile,
+        launch_log_path=launch_log_path,
+        startup_error=startup_error,
         reason=reason,
         verification_method=verification_method,
         triage_verdict=None if triaged is None else triaged.triage_verdict,

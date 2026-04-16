@@ -168,6 +168,7 @@ It now also prints structured explanation metadata:
 - propagation summary (source to sink, operations, sanitizer steps)
 - verification state (candidate, unreachable, suppressed, or verified), including attempt outcome, skip/inconclusive reason, missing preconditions, and actionable next steps
 - verification proof mode and evidence captured by the verifier
+- selected target launch profile, startup errors, and launch log path (when profiles are used)
 - confidence contributors with a documented `v1` weighted component model
 
 Confidence model (`v1`) components shown in `report.json` and `piranesi explain`:
@@ -218,6 +219,55 @@ If you explicitly set `--proof-mode unsafe` (or `[verify].proof_mode = "unsafe"`
 Piranesi may select higher-risk templates intended for disposable test targets.
 Unsafe mode can perform intrusive/destructive probes and should not be used on
 production systems.
+
+Reusable target launch profiles can remove repeated startup flags when you verify local services.
+
+Minimal Express example:
+
+```toml
+[verify]
+target_profile = "express_local"
+
+[verify.target_profiles.express_local]
+command = "npm run dev"
+cwd = "examples/vuln-express"
+base_url = "http://127.0.0.1:{port}"
+readiness_url = "/"
+startup_timeout_seconds = 45
+teardown = "on_success"
+logs_path = "./piranesi-output/verify-express.log"
+
+[verify.target_profiles.express_local.env]
+PORT = "4010"
+```
+
+Run with:
+
+```bash
+uv run piranesi verify .piranesi-out/vuln-express/triage.json \
+  --authorized \
+  --yes \
+  --target-profile express_local
+```
+
+Python/FastAPI example:
+
+```toml
+[verify]
+target_profile = "fastapi_local"
+
+[verify.target_profiles.fastapi_local]
+command = "uvicorn app:app --host 127.0.0.1 --port 8000"
+cwd = "examples/fastapi-app"
+base_url = "http://127.0.0.1:8000"
+readiness_url = "/docs"
+startup_timeout_seconds = 60
+teardown = "always"
+logs_path = "./piranesi-output/verify-fastapi.log"
+```
+
+If startup or readiness fails, `verify.json` includes `startup_error` and
+`launch_log_path` for the attempt so failures are actionable.
 
 When you are ready to exercise LLM-assisted triage and patch generation, set one LiteLLM-compatible API key before running the pipeline.
 

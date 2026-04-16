@@ -241,6 +241,13 @@ ProofModeOption = Annotated[
         case_sensitive=False,
     ),
 ]
+TargetProfileOption = Annotated[
+    str | None,
+    typer.Option(
+        "--target-profile",
+        help="Reusable verification launch profile name from [verify.target_profiles].",
+    ),
+]
 ResumeOption = Annotated[
     bool,
     typer.Option("--resume", help="Resume from intermediate artifacts in the output directory."),
@@ -637,12 +644,24 @@ def _render_finding_explanation(status: str, finding: ReportFindingMatch) -> str
                     f"{explanation.verification_state.proof_mode or 'n/a'}"
                 ),
                 (
+                    "- Target profile: "
+                    f"{explanation.verification_state.target_profile or 'n/a'}"
+                ),
+                (
                     "- Verification method: "
                     f"{explanation.verification_state.verification_method or 'n/a'}"
                 ),
                 (
                     "- Verification reason: "
                     f"{explanation.verification_state.reason or 'n/a'}"
+                ),
+                (
+                    "- Startup error: "
+                    f"{explanation.verification_state.startup_error or 'n/a'}"
+                ),
+                (
+                    "- Launch logs: "
+                    f"{explanation.verification_state.launch_log_path or 'n/a'}"
                 ),
                 (
                     "- Triage: "
@@ -1892,6 +1911,7 @@ def verify(
     docker_image: DockerImageOption = None,
     timeout: TimeoutOption = None,
     proof_mode: ProofModeOption = None,
+    target_profile: TargetProfileOption = None,
     no_execute: NoExecuteOption = False,
     config: ConfigOption = Path("./piranesi.toml"),
     output: OutputOption = Path("./piranesi-output"),
@@ -1921,6 +1941,7 @@ def verify(
             "sandbox.docker_image": docker_image,
             "sandbox.timeout_seconds": timeout,
             "verify.proof_mode": _proof_mode_override(proof_mode),
+            "verify.target_profile": target_profile,
         },
         no_execute=no_execute,
     )
@@ -2548,6 +2569,7 @@ def run(
     docker_image: DockerImageOption = None,
     timeout: TimeoutOption = None,
     proof_mode: ProofModeOption = None,
+    target_profile: TargetProfileOption = None,
     no_execute: NoExecuteOption = False,
     apply: ApplyOption = False,
     format: FormatOption = None,
@@ -2607,6 +2629,7 @@ def run(
             "sandbox.docker_image": docker_image,
             "sandbox.timeout_seconds": timeout,
             "verify.proof_mode": _proof_mode_override(proof_mode),
+            "verify.target_profile": target_profile,
             "output.format": _format_override(format),
         },
     )

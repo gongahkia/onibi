@@ -342,11 +342,15 @@ def test_report_renderer_includes_verification_skip_reason_and_preconditions(
             "triage_mode": "deterministic",
         }
     )
+    launch_log_path = str(tmp_path / "verify-launch.log")
     verification_attempt = VerificationAttempt(
         finding_id="finding-active",
         status="skipped",
         reason="verification skipped: missing required preconditions (route_mapping)",
         proof_mode="safe",
+        target_profile="local-express",
+        launch_log_path=launch_log_path,
+        startup_error="TARGET_PROFILE_NOT_READY",
         evidence=["route mapping unavailable"],
         template_id="generic-probe",
         template_reason="fallback",
@@ -380,6 +384,9 @@ def test_report_renderer_includes_verification_skip_reason_and_preconditions(
     verification_state = payload["active_findings"][0]["explanation"]["verification_state"]
     assert verification_state["outcome"] == "skipped"
     assert verification_state["proof_mode"] == "safe"
+    assert verification_state["target_profile"] == "local-express"
+    assert verification_state["launch_log_path"] == launch_log_path
+    assert verification_state["startup_error"] == "TARGET_PROFILE_NOT_READY"
     assert "missing required preconditions" in verification_state["reason"]
     assert verification_state["evidence"] == ["route mapping unavailable"]
     assert verification_state["missing_preconditions"] == ["route_mapping"]
@@ -388,6 +395,9 @@ def test_report_renderer_includes_verification_skip_reason_and_preconditions(
     markdown = (tmp_path / "report.md").read_text(encoding="utf-8")
     assert "- **Verification outcome:** `skipped`" in markdown
     assert "- **Proof mode:** `safe`" in markdown
+    assert "- **Target profile:** `local-express`" in markdown
+    assert "- **Startup error:** TARGET_PROFILE_NOT_READY" in markdown
+    assert f"- **Launch logs:** `{launch_log_path}`" in markdown
     assert "- **Verification evidence:** route mapping unavailable" in markdown
     assert (
         "- **Verification reason:** verification skipped: missing required preconditions"

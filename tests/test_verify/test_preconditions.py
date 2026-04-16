@@ -3,6 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
+import piranesi.verify.sandbox as sandbox
 from piranesi.config import PiranesiConfig
 from piranesi.models import (
     CandidateFinding,
@@ -54,6 +57,7 @@ def test_evaluate_preconditions_marks_target_url_missing_without_runtime_or_meta
         template=template,
         target_dir=runtime_dir,
         proof_mode="safe",
+        target_profile_name=None,
         no_execute=False,
     )
 
@@ -99,6 +103,7 @@ def test_evaluate_preconditions_marks_route_mapping_missing_when_endpoint_unknow
         template=template,
         target_dir=runtime_dir,
         proof_mode="safe",
+        target_profile_name=None,
         no_execute=False,
     )
 
@@ -172,6 +177,270 @@ def test_run_verify_stage_records_no_execute_skip_reason(tmp_path: Path) -> None
     assert by_key["proof_mode"].value == "safe:no_execute"
 
 
+def test_run_verify_stage_raises_for_unknown_target_profile(tmp_path: Path) -> None:
+    target_dir = tmp_path / "target"
+    target_dir.mkdir()
+    prev_result = StageResult(
+        stage="triage",
+        success=True,
+        artifact=TriageArtifact(findings=[]),
+        elapsed_s=0.0,
+    )
+    context = PipelineContext(
+        target_dir=target_dir,
+        output_dir=tmp_path / "out",
+        provider=None,  # type: ignore[arg-type]
+        router=None,
+        cost_tracker=SimpleNamespace(total_usd=0.0),
+        trace_writer=None,  # type: ignore[arg-type]
+        no_execute=False,
+        use_cache=False,
+    )
+    config = PiranesiConfig.model_validate(
+        {
+            "verify": {
+                "target_profile": "missing-profile",
+                "target_profiles": {},
+            }
+        }
+    )
+
+    with pytest.raises(ValueError, match="missing-profile"):
+        _run_verify_stage(context, config, prev_result)
+
+
+def test_run_verify_stage_applies_target_profile_and_captures_startup_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target_dir = tmp_path / "target"
+    target_dir.mkdir()
+    app_file = target_dir / "app.ts"
+    app_file.write_text(
+        "\n".join(
+            [
+                'app.get("/search", (req, res) => {',
+                "  const q = req.query.q;",
+                "  return res.send(q);",
+                "});",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    triaged = TriagedFinding(
+        finding=_candidate_finding(
+            app_file,
+            source_line=2,
+            source_snippet="const q = req.query.q;",
+            source_type="req.query.q",
+            parameter_name="q",
+        ),
+        triage_verdict="true_positive",
+        triage_mode="deterministic",
+        skeptic_analysis="deterministic",
+        ensemble_score=0.9,
+        escalated=False,
+    )
+    prev_result = StageResult(
+        stage="triage",
+        success=True,
+        artifact=TriageArtifact(findings=[triaged]),
+        elapsed_s=0.0,
+    )
+    context = PipelineContext(
+        target_dir=target_dir,
+        output_dir=tmp_path / "out",
+        provider=None,  # type: ignore[arg-type]
+        router=None,
+        cost_tracker=SimpleNamespace(total_usd=0.0),
+        trace_writer=None,  # type: ignore[arg-type]
+        no_execute=False,
+        use_cache=False,
+    )
+    config = PiranesiConfig.model_validate(
+        {
+            "verify": {
+                "target_profile": "local-express",
+                "target_profiles": {
+                    "local-express": {"base_url": "http://127.0.0.1:4010"},
+                },
+            }
+        }
+    )
+
+    payload = sandbox.SynthesizedPayload(
+        method="GET",
+        url="/search",
+        body={"q": "<script>alert(1)</script>"},
+        payload_values={"q": "<script>alert(1)</script>"},
+        encoding="query",
+    )
+    solve_result = SimpleNamespace(
+        status="SAT",
+        reason=None,
+        solutions=(
+            SimpleNamespace(
+                payload=payload,
+                model_values={"q": "<script>alert(1)</script>"},
+            ),
+        ),
+    )
+
+    monkeypatch.setattr(
+        "piranesi.pipeline.solve_exploit_template",
+        lambda *_args, **_kwargs: solve_result,
+    )
+
+    observed: dict[str, object] = {}
+    launch_log_path = str(tmp_path / "verify-launch.log")
+
+    def _fake_run_in_sandbox(
+        target_path: str,
+        payloads: list[sandbox.SynthesizedPayload],
+        *,
+        target_profile: object = None,
+        logs_base_dir: Path | None = None,
+    ) -> list[sandbox.SandboxCapture]:
+        _ = (target_path, payloads, logs_base_dir)
+        observed["profile"] = None if target_profile is None else target_profile.name
+        return [
+            sandbox.SandboxCapture.app_not_ready(
+                startup_error="TARGET_PROFILE_PROCESS_EXITED(1)",
+                launch_profile="local-express",
+                launch_log_path=launch_log_path,
+            ),
+            sandbox.SandboxCapture.app_not_ready(
+                startup_error="TARGET_PROFILE_PROCESS_EXITED(1)",
+                launch_profile="local-express",
+                launch_log_path=launch_log_path,
+            ),
+        ]
+
+    monkeypatch.setattr("piranesi.pipeline.run_in_sandbox", _fake_run_in_sandbox)
+
+    result = _run_verify_stage(context, config, prev_result)
+
+    assert isinstance(result.artifact, VerifyArtifact)
+    assert result.artifact.findings == []
+    assert len(result.artifact.attempts) == 1
+    attempt = result.artifact.attempts[0]
+    assert attempt.status == "inconclusive"
+    assert attempt.target_profile == "local-express"
+    assert attempt.startup_error == "TARGET_PROFILE_PROCESS_EXITED(1)"
+    assert attempt.launch_log_path == launch_log_path
+    assert "sandbox capture error" in attempt.reason
+    assert f"launch_logs:{launch_log_path}" in attempt.evidence
+    assert observed["profile"] == "local-express"
+
+
+def test_run_verify_stage_uses_metadata_target_url_profile_when_no_config_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target_dir = tmp_path / "target"
+    target_dir.mkdir()
+    app_file = target_dir / "app.ts"
+    app_file.write_text(
+        "\n".join(
+            [
+                'app.get("/search", (req, res) => {',
+                "  const q = req.query.q;",
+                "  return res.send(q);",
+                "});",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    triaged = TriagedFinding(
+        finding=_candidate_finding(
+            app_file,
+            source_line=2,
+            source_snippet="const q = req.query.q;",
+            source_type="req.query.q",
+            parameter_name="q",
+            metadata={"verification_target_url": "http://127.0.0.1:9100"},
+        ),
+        triage_verdict="true_positive",
+        triage_mode="deterministic",
+        skeptic_analysis="deterministic",
+        ensemble_score=0.9,
+        escalated=False,
+    )
+    prev_result = StageResult(
+        stage="triage",
+        success=True,
+        artifact=TriageArtifact(findings=[triaged]),
+        elapsed_s=0.0,
+    )
+    context = PipelineContext(
+        target_dir=target_dir,
+        output_dir=tmp_path / "out",
+        provider=None,  # type: ignore[arg-type]
+        router=None,
+        cost_tracker=SimpleNamespace(total_usd=0.0),
+        trace_writer=None,  # type: ignore[arg-type]
+        no_execute=False,
+        use_cache=False,
+    )
+
+    payload = sandbox.SynthesizedPayload(
+        method="GET",
+        url="/search",
+        body={"q": "<script>alert(1)</script>"},
+        payload_values={"q": "<script>alert(1)</script>"},
+        encoding="query",
+    )
+    solve_result = SimpleNamespace(
+        status="SAT",
+        reason=None,
+        solutions=(
+            SimpleNamespace(
+                payload=payload,
+                model_values={"q": "<script>alert(1)</script>"},
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        "piranesi.pipeline.solve_exploit_template",
+        lambda *_args, **_kwargs: solve_result,
+    )
+
+    observed: dict[str, object] = {}
+
+    def _fake_run_in_sandbox(
+        target_path: str,
+        payloads: list[sandbox.SynthesizedPayload],
+        *,
+        target_profile: object = None,
+        logs_base_dir: Path | None = None,
+    ) -> list[sandbox.SandboxCapture]:
+        _ = (target_path, payloads, logs_base_dir)
+        observed["profile_name"] = None if target_profile is None else target_profile.name
+        observed["base_url"] = None if target_profile is None else target_profile.base_url
+        return [
+            sandbox.SandboxCapture.app_not_ready(
+                startup_error="TARGET_PROFILE_READINESS_TIMEOUT",
+                launch_profile="metadata_target_url",
+            ),
+            sandbox.SandboxCapture.app_not_ready(
+                startup_error="TARGET_PROFILE_READINESS_TIMEOUT",
+                launch_profile="metadata_target_url",
+            ),
+        ]
+
+    monkeypatch.setattr("piranesi.pipeline.run_in_sandbox", _fake_run_in_sandbox)
+
+    result = _run_verify_stage(context, PiranesiConfig(), prev_result)
+
+    assert isinstance(result.artifact, VerifyArtifact)
+    assert len(result.artifact.attempts) == 1
+    attempt = result.artifact.attempts[0]
+    assert attempt.target_profile == "metadata_target_url"
+    assert attempt.startup_error == "TARGET_PROFILE_READINESS_TIMEOUT"
+    assert observed["profile_name"] == "metadata_target_url"
+    assert observed["base_url"] == "http://127.0.0.1:9100"
+
+
 def _candidate_finding(
     file_path: Path,
     *,
@@ -179,6 +448,7 @@ def _candidate_finding(
     source_snippet: str,
     source_type: str,
     parameter_name: str,
+    metadata: dict[str, object] | None = None,
 ) -> CandidateFinding:
     source_location = SourceLocation(
         file=str(file_path),
@@ -222,4 +492,5 @@ def _candidate_finding(
         path_conditions=[],
         confidence=0.9,
         severity="medium",
+        metadata={} if metadata is None else dict(metadata),
     )

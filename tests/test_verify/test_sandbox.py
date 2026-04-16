@@ -265,3 +265,57 @@ def test_run_in_sandbox_tears_down_container_and_network_on_failure(
     assert client.container.remove_calls == [True]
     assert client.network.removed is True
     assert client.closed is True
+
+
+def test_run_in_sandbox_uses_target_profile_without_docker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = sandbox.SynthesizedPayload(method="GET", url="/health", encoding="query")
+    profile = sandbox.TargetLaunchProfile(
+        name="local-service",
+        base_url="http://127.0.0.1:4010",
+        startup_timeout_seconds=5,
+        readiness_url="/health",
+        teardown="never",
+    )
+    monkeypatch.setattr(
+        sandbox,
+        "_wait_for_profile_ready",
+        lambda **_kwargs: (True, None),
+    )
+    monkeypatch.setattr(
+        sandbox,
+        "fire_payload",
+        lambda request_payload, host_port, *, base_url=None: sandbox.ExploitResult(
+            status_code=200,
+            headers={},
+            body="ok",
+            elapsed_ms=12.0,
+            request={
+                "method": request_payload.method,
+                "url": request_payload.url,
+                "base_url": base_url,
+                "host_port": host_port,
+            },
+            error=None,
+        ),
+    )
+    monkeypatch.setattr(
+        sandbox,
+        "_docker_client",
+        lambda: (_ for _ in ()).throw(AssertionError("docker path should not be used")),
+    )
+
+    captures = sandbox.run_in_sandbox(
+        str(tmp_path),
+        [payload],
+        target_profile=profile,
+        logs_base_dir=tmp_path,
+    )
+
+    assert len(captures) == 1
+    capture = captures[0]
+    assert capture.http_response.status_code == 200
+    assert capture.network_isolated is False
+    assert capture.launch_profile == "local-service"
