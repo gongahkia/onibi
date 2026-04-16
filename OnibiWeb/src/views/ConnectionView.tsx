@@ -3,14 +3,16 @@ import type { ConnectionConfig } from "../types";
 
 interface ConnectionViewProps {
   initialConnection: ConnectionConfig | null;
+  initialRememberToken: boolean;
   connecting: boolean;
   errorMessage: string | null;
-  onConnect: (connection: ConnectionConfig) => void;
+  onConnect: (connection: ConnectionConfig, rememberToken: boolean) => void;
   onClearSaved: () => void;
 }
 
 export function ConnectionView({
   initialConnection,
+  initialRememberToken,
   connecting,
   errorMessage,
   onConnect,
@@ -18,18 +20,23 @@ export function ConnectionView({
 }: ConnectionViewProps): JSX.Element {
   const [baseURL, setBaseURL] = useState(initialConnection?.baseURL ?? "http://127.0.0.1:8787");
   const [token, setToken] = useState(initialConnection?.token ?? "");
+  const [rememberToken, setRememberToken] = useState(initialRememberToken);
 
   useEffect(() => {
     setBaseURL(initialConnection?.baseURL ?? "http://127.0.0.1:8787");
     setToken(initialConnection?.token ?? "");
   }, [initialConnection]);
 
+  useEffect(() => {
+    setRememberToken(initialRememberToken);
+  }, [initialRememberToken]);
+
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     onConnect({
       baseURL,
       token
-    });
+    }, rememberToken);
   };
 
   return (
@@ -66,6 +73,16 @@ export function ConnectionView({
             required
             disabled={connecting}
           />
+        </label>
+
+        <label className="remember-toggle">
+          <input
+            type="checkbox"
+            checked={rememberToken}
+            onChange={(event) => setRememberToken(event.target.checked)}
+            disabled={connecting}
+          />
+          Remember token on this device
         </label>
 
         {errorMessage && <p className="error-text">{errorMessage}</p>}

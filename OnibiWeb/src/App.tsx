@@ -30,6 +30,7 @@ import { LiveSessionView } from "./views/LiveSessionView";
 import { SessionsView } from "./views/SessionsView";
 
 const STORAGE_KEY = "onibi-web.connection";
+const REMEMBER_TOKEN_KEY = "onibi-web.remember-token";
 
 type Route =
   | { kind: "connect" }
@@ -61,27 +62,60 @@ function routePath(route: Route): string {
 }
 
 function loadStoredConnection(): ConnectionConfig | null {
-  const raw = window.localStorage.getItem(STORAGE_KEY);
-  if (!raw) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(raw) as ConnectionConfig;
-    if (!parsed.baseURL || !parsed.token) {
-      return null;
+  const candidates = [
+    window.sessionStorage.getItem(STORAGE_KEY),
+    window.localStorage.getItem(STORAGE_KEY)
+  ];
+
+  for (const raw of candidates) {
+    if (!raw) {
+      continue;
     }
-    return parsed;
+    try {
+      const parsed = JSON.parse(raw) as ConnectionConfig;
+      if (!parsed.baseURL || !parsed.token) {
+        continue;
+      }
+      return parsed;
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+function loadRememberTokenPreference(): boolean {
+  try {
+    return window.localStorage.getItem(REMEMBER_TOKEN_KEY) === "1";
   } catch {
-    return null;
+    return false;
   }
 }
 
-function persistConnection(connection: ConnectionConfig): void {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(connection));
+function persistConnection(connection: ConnectionConfig, rememberToken: boolean): void {
+  const encoded = JSON.stringify(connection);
+  if (rememberToken) {
+    window.localStorage.setItem(STORAGE_KEY, encoded);
+    window.localStorage.setItem(REMEMBER_TOKEN_KEY, "1");
+    window.sessionStorage.removeItem(STORAGE_KEY);
+    return;
+  }
+
+  window.sessionStorage.setItem(STORAGE_KEY, encoded);
+  window.localStorage.setItem(REMEMBER_TOKEN_KEY, "0");
+  window.localStorage.removeItem(STORAGE_KEY);
 }
 
 function clearPersistedConnection(): void {
   window.localStorage.removeItem(STORAGE_KEY);
+  window.localStorage.removeItem(REMEMBER_TOKEN_KEY);
+  window.sessionStorage.removeItem(STORAGE_KEY);
+}
+
+function clearPersistedTokenOnly(): void {
+  window.localStorage.removeItem(STORAGE_KEY);
+  window.sessionStorage.removeItem(STORAGE_KEY);
 }
 
 function nextClientRequestID(): string {
@@ -94,6 +128,7 @@ function nextClientRequestID(): string {
 export default function App(): JSX.Element {
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
   const [connection, setConnection] = useState<ConnectionConfig | null>(() => loadStoredConnection());
+  const [rememberToken, setRememberToken] = useState<boolean>(() => loadRememberTokenPreference());
   const [sessions, setSessions] = useState<ControllableSessionSnapshot[]>([]);
   const [outputBySession, setOutputBySession] = useState<OutputBySession>({});
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -129,48 +164,70 @@ export default function App(): JSX.Element {
     setRealtimeState("disconnected");
   }, []);
 
-  const handleRealtimeMessage = useCallback((message: RealtimeServerMessage) => {
-    switch (message.type) {
-      case "sessions_snapshot":
-        if (message.sessions) {
-          setSessions(sortSessionsByRecentActivity(message.sessions));
-        }
-        return;
-      case "session_added":
-      case "session_updated":
-        if (message.session) {
-          setSessions((existing) => upsertSession(existing, message.session!));
-        }
-        return;
-      case "session_removed":
-        if (message.sessionId) {
-          setSessions((existing) => removeSession(existing, message.sessionId!));
-          setOutputBySession((existing) => {
-            const copy = { ...existing };
-            delete copy[message.sessionId!];
-            return copy;
-          });
-        }
-        return;
-      case "buffer_snapshot":
-        if (message.sessionId && message.chunks) {
-          setOutputBySession((existing) =>
-            mergeBufferSnapshot(existing, message.sessionId!, message.chunks!, message.bufferCursor ?? null)
-          );
-        }
-        return;
-      case "output":
-        if (message.chunk) {
-          setOutputBySession((existing) => appendChunk(existing, message.chunk!));
-        }
-        return;
-      case "error":
-        setRealtimeError(`${message.code ?? "error"}: ${message.message ?? "unknown"}`);
-        return;
-      default:
-        return;
-    }
-  }, []);
+  const handleUnauthorizedToken = useCallback(
+    (message: string) => {
+      clearPersistedTokenOnly();
+      setConnection(null);
+      setSessions([]);
+      setOutputBySession({});
+      setConnectionError(message);
+      setRealtimeError(null);
+      setInputError(null);
+      subscribedSessionIDRef.current = null;
+      navigate({ kind: "connect" });
+    },
+    [navigate]
+  );
+
+  const handleRealtimeMessage = useCallback(
+    (message: RealtimeServerMessage) => {
+      switch (message.type) {
+        case "sessions_snapshot":
+          if (message.sessions) {
+            setSessions(sortSessionsByRecentActivity(message.sessions));
+          }
+          return;
+        case "session_added":
+        case "session_updated":
+          if (message.session) {
+            setSessions((existing) => upsertSession(existing, message.session!));
+          }
+          return;
+        case "session_removed":
+          if (message.sessionId) {
+            setSessions((existing) => removeSession(existing, message.sessionId!));
+            setOutputBySession((existing) => {
+              const copy = { ...existing };
+              delete copy[message.sessionId!];
+              return copy;
+            });
+          }
+          return;
+        case "buffer_snapshot":
+          if (message.sessionId && message.chunks) {
+            setOutputBySession((existing) =>
+              mergeBufferSnapshot(existing, message.sessionId!, message.chunks!, message.bufferCursor ?? null)
+            );
+          }
+          return;
+        case "output":
+          if (message.chunk) {
+            setOutputBySession((existing) => appendChunk(existing, message.chunk!));
+          }
+          return;
+        case "error":
+          if (message.code === "unauthorized") {
+            handleUnauthorizedToken("Pairing token expired. Paste the latest token from the Mac host.");
+            return;
+          }
+          setRealtimeError(`${message.code ?? "error"}: ${message.message ?? "unknown"}`);
+          return;
+        default:
+          return;
+      }
+    },
+    [handleUnauthorizedToken]
+  );
 
   useEffect(() => {
     if (!connection) {
@@ -196,7 +253,7 @@ export default function App(): JSX.Element {
           return;
         }
         setSessions(sortSessionsByRecentActivity(bootstrap.sessions));
-        persistConnection(connection);
+        persistConnection(connection, rememberToken);
         if (window.location.pathname === "/connect") {
           navigate({ kind: "sessions" });
         }
@@ -226,10 +283,11 @@ export default function App(): JSX.Element {
           return;
         }
         disconnectRealtime();
-        setConnectionError(toUserFacingConnectionError(error));
         if (error instanceof APIError && error.statusCode === 401) {
-          setSessions([]);
+          handleUnauthorizedToken("Pairing token is invalid. Paste the latest token from the Mac host.");
+          return;
         }
+        setConnectionError(toUserFacingConnectionError(error));
         navigate({ kind: "connect" });
       } finally {
         if (!isCancelled) {
@@ -244,7 +302,7 @@ export default function App(): JSX.Element {
       isCancelled = true;
       disconnectRealtime();
     };
-  }, [connection, disconnectRealtime, handleRealtimeMessage, navigate]);
+  }, [connection, disconnectRealtime, handleRealtimeMessage, handleUnauthorizedToken, navigate, rememberToken]);
 
   useEffect(() => {
     if (!connection) {
@@ -313,7 +371,8 @@ export default function App(): JSX.Element {
     subscribedSessionIDRef.current = activeSessionID;
   }, [route, realtimeState]);
 
-  const connectToHost = (candidate: ConnectionConfig) => {
+  const connectToHost = (candidate: ConnectionConfig, rememberTokenValue: boolean) => {
+    setRememberToken(rememberTokenValue);
     setConnection(normalizeConnectionConfig(candidate));
     setConnectionError(null);
     setInputError(null);
@@ -327,6 +386,7 @@ export default function App(): JSX.Element {
     setConnectionError(null);
     setInputError(null);
     setRealtimeError(null);
+    setRememberToken(false);
     navigate({ kind: "connect" });
   };
 
@@ -338,6 +398,10 @@ export default function App(): JSX.Element {
       const snapshot = await fetchSessions(connection);
       setSessions(sortSessionsByRecentActivity(snapshot));
     } catch (error) {
+      if (error instanceof APIError && error.statusCode === 401) {
+        handleUnauthorizedToken("Pairing token expired. Paste the latest token from the Mac host.");
+        return;
+      }
       setConnectionError(toUserFacingConnectionError(error));
     }
   };
@@ -350,6 +414,10 @@ export default function App(): JSX.Element {
       const snapshot = await fetchSessionBuffer(connection, sessionId);
       setOutputBySession((existing) => replaceBuffer(existing, sessionId, snapshot.chunks));
     } catch (error) {
+      if (error instanceof APIError && error.statusCode === 401) {
+        handleUnauthorizedToken("Pairing token expired. Paste the latest token from the Mac host.");
+        return;
+      }
       setInputError(toUserFacingConnectionError(error));
     }
   };
@@ -377,6 +445,10 @@ export default function App(): JSX.Element {
         key
       });
     } catch (error) {
+      if (error instanceof APIError && error.statusCode === 401) {
+        handleUnauthorizedToken("Pairing token expired. Paste the latest token from the Mac host.");
+        return;
+      }
       setInputError(toUserFacingConnectionError(error));
     }
   };
@@ -416,6 +488,10 @@ export default function App(): JSX.Element {
         key: "enter"
       });
     } catch (error) {
+      if (error instanceof APIError && error.statusCode === 401) {
+        handleUnauthorizedToken("Pairing token expired. Paste the latest token from the Mac host.");
+        return;
+      }
       setInputError(toUserFacingConnectionError(error));
     }
   };
@@ -458,6 +534,7 @@ export default function App(): JSX.Element {
     return (
       <ConnectionView
         initialConnection={storedConnection}
+        initialRememberToken={rememberToken}
         connecting={connecting}
         errorMessage={primaryError}
         onConnect={connectToHost}

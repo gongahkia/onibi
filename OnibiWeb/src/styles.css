@@ -83,6 +83,16 @@ body {
   font-size: 0.95rem;
 }
 
+.remember-toggle {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+}
+
+.remember-toggle input[type="checkbox"] {
+  margin: 0;
+}
+
 input[type="url"],
 input[type="password"],
 input[type="text"] {
