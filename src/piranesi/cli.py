@@ -8,7 +8,8 @@ import time
 from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date
+from datetime import datetime as datetime_cls
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any, cast
@@ -18,7 +19,12 @@ from pydantic import BaseModel, ValidationError
 
 from piranesi import __version__
 from piranesi.config import ConfigError, PiranesiConfig, load_config
-from piranesi.detect import append_ignore_file_suppression
+from piranesi.detect import (
+    append_ignore_file_suppression,
+    apply_suppressions_with_lifecycle,
+    load_ignore_file_with_diagnostics,
+    parse_inline_suppressions,
+)
 from piranesi.diff import build_baseline_artifact, diff_findings, load_findings, render_diff
 from piranesi.doctor import build_doctor_report, render_doctor_report
 from piranesi.hooks.pre_commit import (
@@ -97,6 +103,11 @@ baseline_app = typer.Typer(
     help="Manage baseline artifacts.",
     no_args_is_help=True,
 )
+suppressions_app = typer.Typer(
+    add_completion=False,
+    help="Manage suppression lifecycle and validation.",
+    no_args_is_help=True,
+)
 compliance_app = typer.Typer(
     add_completion=False,
     help="Generate compliance-focused artifacts.",
@@ -110,6 +121,7 @@ hook_app = typer.Typer(
 app.add_typer(plugins_app, name="plugins")
 app.add_typer(rules_app, name="rules")
 app.add_typer(baseline_app, name="baseline")
+app.add_typer(suppressions_app, name="suppressions")
 app.add_typer(compliance_app, name="compliance")
 app.add_typer(hook_app, name="hook")
 
@@ -2295,21 +2307,243 @@ def compliance_evidence(
 def suppress(
     finding_id: Annotated[str, typer.Argument(help="Finding fingerprint to suppress.")],
     reason: Annotated[str, typer.Option("--reason", help="Suppression rationale.")],
+    reason_code: Annotated[
+        str | None,
+        typer.Option(
+            "--reason-code",
+            help="Machine-readable reason code (for example: risk_accepted).",
+        ),
+    ] = None,
+    owner: Annotated[
+        str | None,
+        typer.Option("--owner", help="Suppression owner (team or individual)."),
+    ] = None,
     ticket: Annotated[
         str | None, typer.Option("--ticket", help="Optional ticket reference.")
     ] = None,
+    reference: Annotated[
+        str | None,
+        typer.Option("--reference", help="Optional external reference or URL."),
+    ] = None,
+    created: Annotated[
+        str | None,
+        typer.Option("--created", help="Created date in YYYY-MM-DD."),
+    ] = None,
+    expires: Annotated[
+        str | None,
+        typer.Option("--expires", help="Expiry date in YYYY-MM-DD."),
+    ] = None,
+    scope: Annotated[
+        str | None,
+        typer.Option("--scope", help="Suppression scope label (for example: id, cwe_path)."),
+    ] = "id",
     project_root: Annotated[
         Path,
         typer.Option("--project-root", help="Project root containing .piranesi-ignore."),
     ] = Path("."),
 ) -> None:
+    created_date = _parse_date_option(created, option_name="--created")
+    expires_date = _parse_date_option(expires, option_name="--expires")
     ignore_path = append_ignore_file_suppression(
         project_root,
         finding_id=finding_id,
         reason=reason,
+        reason_code=reason_code,
+        owner=owner,
         ticket=ticket,
+        reference=reference,
+        created=created_date,
+        expires=expires_date,
+        scope=scope,
     )
     typer.echo(f"added suppression for {finding_id} to {ignore_path}")
+
+
+def _load_detect_findings_for_suppression_validation(path: Path) -> list[Any]:
+    candidate_path = path
+    if path.is_dir():
+        candidate_path = path / "detect.json"
+    if not candidate_path.exists():
+        raise ValueError(
+            "suppression validation requires detect findings; "
+            f"missing artifact at {candidate_path}"
+        )
+    try:
+        detect_artifact = DetectArtifact.model_validate_json(
+            candidate_path.read_text(encoding="utf-8")
+        )
+    except (OSError, ValidationError) as exc:
+        raise ValueError(f"invalid detect artifact at {candidate_path}: {exc}") from exc
+    return list(detect_artifact.findings)
+
+
+def _collect_inline_suppressions_from_findings(findings: list[Any]) -> list[Any]:
+    source_files: set[Path] = set()
+    for finding in findings:
+        candidate = Path(finding.source.location.file)
+        source_files.add(candidate.resolve(strict=False))
+    inline: list[Any] = []
+    for source_file in sorted(source_files):
+        inline.extend(parse_inline_suppressions(source_file))
+    return inline
+
+
+@suppressions_app.command("list")
+def suppressions_list(
+    project_root: Annotated[
+        Path,
+        typer.Option("--project-root", help="Project root containing .piranesi-ignore."),
+    ] = Path("."),
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+) -> None:
+    validation = load_ignore_file_with_diagnostics(project_root)
+    today = datetime_cls.now(UTC).date()
+    rows = []
+    for rule in validation.rules:
+        expired = rule.expires is not None and rule.expires < today
+        rows.append(
+            {
+                "selector": {
+                    "id": rule.id,
+                    "cwe": rule.cwe,
+                    "path": rule.path,
+                },
+                "scope": rule.scope,
+                "reason": rule.reason,
+                "reason_code": rule.reason_code,
+                "owner": rule.owner,
+                "created": None if rule.created is None else rule.created.isoformat(),
+                "expires": None if rule.expires is None else rule.expires.isoformat(),
+                "ticket": rule.ticket,
+                "reference": rule.reference,
+                "status": "expired" if expired else "active",
+            }
+        )
+
+    payload = {
+        "path": validation.path,
+        "rules": rows,
+        "invalid_entries": validation.invalid_entries,
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+        return
+
+    typer.echo(f"Suppression file: {validation.path}")
+    typer.echo(f"Rules: {len(rows)}")
+    for row in rows:
+        selector = row["selector"]
+        selector_parts = [
+            f"id={selector['id']}" if selector["id"] else None,
+            f"cwe={selector['cwe']}" if selector["cwe"] else None,
+            f"path={selector['path']}" if selector["path"] else None,
+        ]
+        selector_text = ", ".join(part for part in selector_parts if part) or "<invalid>"
+        typer.echo(
+            f"- {selector_text} [{row['status']}] "
+            f"owner={row['owner'] or 'n/a'} "
+            f"expires={row['expires'] or 'n/a'} "
+            f"reason={row['reason'] or 'n/a'}"
+        )
+    if validation.invalid_entries:
+        typer.echo("Invalid entries:")
+        for entry in validation.invalid_entries:
+            typer.echo(f"- {entry}")
+
+
+@suppressions_app.command("validate")
+def suppressions_validate(
+    project_root: Annotated[
+        Path,
+        typer.Option("--project-root", help="Project root containing .piranesi-ignore."),
+    ] = Path("."),
+    findings: Annotated[
+        Path | None,
+        typer.Option(
+            "--findings",
+            help="detect.json artifact or results directory used to evaluate stale suppressions.",
+        ),
+    ] = None,
+    config_path: Annotated[
+        Path,
+        typer.Option("--config", help="Optional piranesi.toml to read suppression fail policy."),
+    ] = Path("./piranesi.toml"),
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+) -> None:
+    config_model = PiranesiConfig()
+    if config_path.exists():
+        try:
+            config_model = load_config(config_path)
+        except ConfigError as exc:
+            typer.echo(f"error: {exc}")
+            raise typer.Exit(code=2) from exc
+
+    validation = load_ignore_file_with_diagnostics(project_root)
+    detected_findings: list[Any] = []
+    inline: list[Any] = []
+    evaluate_stale = False
+    if findings is not None:
+        try:
+            detected_findings = _load_detect_findings_for_suppression_validation(findings)
+        except ValueError as exc:
+            typer.echo(f"error: {exc}")
+            raise typer.Exit(code=2) from exc
+        inline = _collect_inline_suppressions_from_findings(detected_findings)
+        evaluate_stale = True
+    outcome = apply_suppressions_with_lifecycle(
+        detected_findings,
+        validation.rules,
+        inline,
+        invalid_entries=validation.invalid_entries,
+        evaluate_stale=evaluate_stale,
+    )
+    lifecycle = outcome.lifecycle
+    payload = {
+        "path": validation.path,
+        "summary": lifecycle.model_dump(mode="json"),
+        "policy": {
+            "fail_on_invalid": config_model.suppression.fail_on_invalid,
+            "fail_on_expired": config_model.suppression.fail_on_expired,
+            "fail_on_stale": config_model.suppression.fail_on_stale,
+        },
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        typer.echo(f"Suppression validation: {validation.path}")
+        typer.echo(
+            "Rules: "
+            f"{lifecycle.total_rules} total, "
+            f"{lifecycle.active_rules} active, "
+            f"{lifecycle.expired_rules} expired, "
+            f"{lifecycle.invalid_rules} invalid"
+        )
+        if lifecycle.stale_evaluated:
+            typer.echo(f"Stale rules: {lifecycle.stale_rules}")
+        else:
+            typer.echo("Stale rules: not evaluated (pass --findings detect.json)")
+        if lifecycle.expired_selectors:
+            typer.echo(f"Expired selectors: {' | '.join(lifecycle.expired_selectors)}")
+        if lifecycle.stale_selectors:
+            typer.echo(f"Stale selectors: {' | '.join(lifecycle.stale_selectors)}")
+        if lifecycle.invalid_entries:
+            typer.echo(f"Invalid entries: {' | '.join(lifecycle.invalid_entries)}")
+
+    fail_on_invalid = config_model.suppression.fail_on_invalid and lifecycle.invalid_rules > 0
+    fail_on_expired = config_model.suppression.fail_on_expired and lifecycle.expired_rules > 0
+    fail_on_stale = (
+        config_model.suppression.fail_on_stale
+        and lifecycle.stale_evaluated
+        and lifecycle.stale_rules > 0
+    )
+    if fail_on_invalid or fail_on_expired or fail_on_stale:
+        raise typer.Exit(code=1)
 
 
 @app.command("diff")

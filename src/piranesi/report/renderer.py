@@ -11,6 +11,7 @@ from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, ConfigDict, Field
 
 from piranesi import __version__
+from piranesi.detect.suppression import SuppressionLifecycleSummary
 from piranesi.models import (
     CandidateFinding,
     ConfirmedFinding,
@@ -281,6 +282,11 @@ class ExecutiveSummary(BaseModel):
     suppressed_findings: int = 0
     findings_confirmed: int
     status_breakdown: dict[str, int] = Field(default_factory=dict)
+    suppression_rules_total: int = 0
+    suppression_rules_active: int = 0
+    suppression_rules_expired: int = 0
+    suppression_rules_stale: int = 0
+    suppression_rules_invalid: int = 0
     reachable_findings: int = 0
     unreachable_findings: int = 0
     finding_clusters: int = 0
@@ -310,6 +316,7 @@ class PiranesiReport(BaseModel):
     status_legend: dict[str, str] = Field(default_factory=lambda: dict(_EVIDENCE_STATUS_LABELS))
     scan_metadata: ScanMetadata
     executive_summary: ExecutiveSummary
+    suppression_lifecycle: SuppressionLifecycleSummary | None = None
     active_findings: list[CandidateReportFinding] = Field(default_factory=list)
     unreachable_findings: list[CandidateReportFinding] = Field(default_factory=list)
     finding_clusters: list[FindingCluster] = Field(default_factory=list)
@@ -340,6 +347,7 @@ def build_report(
     reachability: ReachabilityResult | None = None,
     include_unreachable: bool = False,
     dead_code_report: bool = False,
+    suppression_lifecycle: SuppressionLifecycleSummary | None = None,
 ) -> PiranesiReport:
     generated_at = _utc_now()
     triage_by_id = _triage_lookup(triaged_findings or [])
@@ -504,6 +512,21 @@ def build_report(
             suppressed_findings=len(suppressed_findings),
             findings_confirmed=len(confirmed_findings),
             status_breakdown=status_breakdown,
+            suppression_rules_total=(
+                0 if suppression_lifecycle is None else suppression_lifecycle.total_rules
+            ),
+            suppression_rules_active=(
+                0 if suppression_lifecycle is None else suppression_lifecycle.active_rules
+            ),
+            suppression_rules_expired=(
+                0 if suppression_lifecycle is None else suppression_lifecycle.expired_rules
+            ),
+            suppression_rules_stale=(
+                0 if suppression_lifecycle is None else suppression_lifecycle.stale_rules
+            ),
+            suppression_rules_invalid=(
+                0 if suppression_lifecycle is None else suppression_lifecycle.invalid_rules
+            ),
             reachable_findings=len(reachable_candidates),
             unreachable_findings=len(unreachable_candidates),
             finding_clusters=len(active_clusters),
@@ -512,6 +535,7 @@ def build_report(
             total_llm_cost_usd=total_llm_cost_usd,
             duration_s=duration_s,
         ),
+        suppression_lifecycle=suppression_lifecycle,
         active_findings=active_report_findings,
         unreachable_findings=unreachable_report_findings,
         finding_clusters=active_clusters,

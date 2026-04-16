@@ -24,15 +24,16 @@ from piranesi import __version__
 from piranesi.config import PiranesiConfig, config_hash
 from piranesi.detect import (
     InlineSuppression,
+    SuppressionLifecycleSummary,
     analyze_reachability,
-    apply_suppressions,
+    apply_suppressions_with_lifecycle,
     extract_auth_access_findings,
     extract_candidate_findings,
     extract_crypto_transport_findings,
     extract_misconfiguration_findings,
     extract_redos_findings,
     extract_secret_findings,
-    load_ignore_file,
+    load_ignore_file_with_diagnostics,
     parse_inline_suppressions,
     scan_dependency_findings,
 )
@@ -220,6 +221,7 @@ class DetectArtifact(BaseModel):
 
     findings: list[CandidateFinding] = Field(default_factory=list)
     reachability: ReachabilityResult | None = None
+    suppression_lifecycle: SuppressionLifecycleSummary | None = None
 
 
 class TriageArtifact(BaseModel):
@@ -1008,10 +1010,47 @@ def _normalize_target_relative_path(path_str: str, target_dir: Path) -> Path | N
 def _apply_project_suppressions(
     project_root: Path,
     findings: Sequence[CandidateFinding],
-) -> list[CandidateFinding]:
-    rules = load_ignore_file(project_root)
+    *,
+    fail_on_invalid: bool,
+    fail_on_expired: bool,
+    fail_on_stale: bool,
+) -> tuple[list[CandidateFinding], SuppressionLifecycleSummary]:
+    validation = load_ignore_file_with_diagnostics(project_root)
+    rules = validation.rules
     inline = _load_inline_suppressions(project_root, findings)
-    return apply_suppressions(findings, rules, inline)
+    outcome = apply_suppressions_with_lifecycle(
+        findings,
+        rules,
+        inline,
+        invalid_entries=validation.invalid_entries,
+        evaluate_stale=True,
+    )
+    lifecycle = outcome.lifecycle
+    if lifecycle.invalid_rules:
+        message = (
+            f"invalid suppression entries in {validation.path}: "
+            f"{'; '.join(lifecycle.invalid_entries)}"
+        )
+        if fail_on_invalid:
+            raise ValueError(message)
+        _logger.warning("detect: %s", message)
+    if lifecycle.expired_rules:
+        message = (
+            f"found {lifecycle.expired_rules} expired suppression rule(s): "
+            f"{', '.join(lifecycle.expired_selectors)}"
+        )
+        if fail_on_expired:
+            raise ValueError(f"detect: {message}")
+        _logger.warning("detect: %s", message)
+    if lifecycle.stale_rules:
+        message = (
+            f"found {lifecycle.stale_rules} stale suppression rule(s): "
+            f"{', '.join(lifecycle.stale_selectors)}"
+        )
+        if fail_on_stale:
+            raise ValueError(f"detect: {message}")
+        _logger.warning("detect: %s", message)
+    return outcome.findings, lifecycle
 
 
 def _location_key(location: SourceLocation) -> tuple[Path, int]:
@@ -1964,12 +2003,20 @@ def _run_detect_stage(
             carried_findings,
         )
         _finalize_incremental_manifest(context, "detect")
+        suppressed_findings, suppression_lifecycle = _apply_project_suppressions(
+            context.target_dir,
+            annotated_findings,
+            fail_on_invalid=config.suppression.fail_on_invalid,
+            fail_on_expired=config.suppression.fail_on_expired,
+            fail_on_stale=config.suppression.fail_on_stale,
+        )
         return StageResult(
             stage="detect",
             success=True,
             artifact=DetectArtifact(
-                findings=_apply_project_suppressions(context.target_dir, annotated_findings),
+                findings=suppressed_findings,
                 reachability=reachability_result,
+                suppression_lifecycle=suppression_lifecycle,
             ),
             elapsed_s=time.monotonic() - started_at,
         )
@@ -2000,13 +2047,20 @@ def _run_detect_stage(
             config,
             merged_findings,
         )
-        suppressed_findings = _apply_project_suppressions(context.target_dir, annotated_findings)
+        suppressed_findings, suppression_lifecycle = _apply_project_suppressions(
+            context.target_dir,
+            annotated_findings,
+            fail_on_invalid=config.suppression.fail_on_invalid,
+            fail_on_expired=config.suppression.fail_on_expired,
+            fail_on_stale=config.suppression.fail_on_stale,
+        )
         return StageResult(
             stage="detect",
             success=True,
             artifact=DetectArtifact(
                 findings=suppressed_findings,
                 reachability=reachability_result,
+                suppression_lifecycle=suppression_lifecycle,
             ),
             elapsed_s=time.monotonic() - started_at,
         )
@@ -2030,13 +2084,20 @@ def _run_detect_stage(
         config,
         merged_findings,
     )
-    suppressed_findings = _apply_project_suppressions(context.target_dir, annotated_findings)
+    suppressed_findings, suppression_lifecycle = _apply_project_suppressions(
+        context.target_dir,
+        annotated_findings,
+        fail_on_invalid=config.suppression.fail_on_invalid,
+        fail_on_expired=config.suppression.fail_on_expired,
+        fail_on_stale=config.suppression.fail_on_stale,
+    )
     return StageResult(
         stage="detect",
         success=True,
         artifact=DetectArtifact(
             findings=suppressed_findings,
             reachability=reachability_result,
+            suppression_lifecycle=suppression_lifecycle,
         ),
         elapsed_s=time.monotonic() - started_at,
     )
@@ -2597,6 +2658,7 @@ def _run_report_stage(
         reachability=detect_artifact.reachability,
         include_unreachable=config.reachability.include_unreachable,
         dead_code_report=config.reachability.dead_code_report,
+        suppression_lifecycle=detect_artifact.suppression_lifecycle,
     )
     write_report_outputs(
         report,

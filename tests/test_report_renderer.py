@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from piranesi.detect.suppression import SuppressionLifecycleSummary
 from piranesi.models import (
     QueryQualityMetrics,
     QuerySpecDescriptor,
@@ -221,6 +222,43 @@ def test_report_renderer_separates_suppressed_findings(tmp_path: Path) -> None:
     assert "2 findings (1 suppressed)" in markdown
     assert "## Suppressed Findings" in markdown
     assert "accepted risk" in markdown
+
+
+def test_report_renderer_includes_suppression_lifecycle_summary(tmp_path: Path) -> None:
+    artifacts = fixture_artifacts(tmp_path)
+    report = build_report(
+        scan_result=artifacts["scan"],  # type: ignore[arg-type]
+        detected_findings=artifacts["detect"].findings,  # type: ignore[attr-defined]
+        confirmed_findings=[],
+        legal_assessments=[],
+        patch_results=[],
+        target_dir=tmp_path,
+        total_llm_cost_usd=0.0,
+        duration_s=1.0,
+        stage_timings_s={"scan": 0.2, "detect": 0.2, "report": 0.1},
+        suppression_lifecycle=SuppressionLifecycleSummary(
+            total_rules=3,
+            active_rules=1,
+            expired_rules=1,
+            stale_rules=1,
+            invalid_rules=0,
+            inline_suppressions=0,
+            stale_evaluated=True,
+            expired_selectors=["id=finding-old"],
+            stale_selectors=["cwe=CWE-79, path=src/admin/**"],
+        ),
+    )
+    write_report_outputs(report, tmp_path)
+
+    payload = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
+    assert payload["executive_summary"]["suppression_rules_total"] == 3
+    assert payload["executive_summary"]["suppression_rules_expired"] == 1
+    assert payload["suppression_lifecycle"]["stale_rules"] == 1
+
+    markdown = (tmp_path / "report.md").read_text(encoding="utf-8")
+    assert "## Suppression Lifecycle" in markdown
+    assert "- **Expired rules:** 1" in markdown
+    assert "- **Stale selectors:** cwe=CWE-79, path=src/admin/**" in markdown
 
 
 def test_report_renderer_exposes_evidence_status_levels(tmp_path: Path) -> None:

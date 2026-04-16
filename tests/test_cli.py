@@ -19,6 +19,7 @@ from piranesi.models.finding import (
     VerificationResponseDiffSummary,
     VerificationTimingSummary,
 )
+from piranesi.pipeline import DetectArtifact
 from piranesi.report.renderer import build_report
 from piranesi.watch import WatchModeSummary
 from tests._pipeline_fixtures import fixture_artifacts
@@ -45,6 +46,7 @@ def test_help_shows_all_commands() -> None:
         "report",
         "trends",
         "suppress",
+        "suppressions",
         "diff",
         "explain",
         "rules",
@@ -732,3 +734,153 @@ def test_suppress_command_appends_ignore_rule(
     assert "id: finding-123" in payload
     assert "reason: accepted risk" in payload
     assert "ticket: SEC-123" in payload
+
+
+def test_suppress_command_supports_extended_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "suppress",
+            "finding-456",
+            "--reason",
+            "accepted risk",
+            "--reason-code",
+            "risk_accepted",
+            "--owner",
+            "appsec",
+            "--ticket",
+            "SEC-456",
+            "--reference",
+            "jira://SEC-456",
+            "--created",
+            "2026-04-16",
+            "--expires",
+            "2026-06-16",
+            "--scope",
+            "id",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = (tmp_path / ".piranesi-ignore").read_text(encoding="utf-8")
+    assert "reason_code: risk_accepted" in payload
+    assert "owner: appsec" in payload
+    assert "reference: jira://SEC-456" in payload
+    assert "created: '2026-04-16'" in payload
+    assert "expires: '2026-06-16'" in payload
+    assert "scope: id" in payload
+
+
+def test_suppressions_list_and_validate_cli(tmp_path: Path) -> None:
+    artifacts = fixture_artifacts(tmp_path)
+    detect_path = tmp_path / "detect.json"
+    detect_path.write_text(
+        DetectArtifact(findings=artifacts["detect"].findings).model_dump_json(indent=2),  # type: ignore[attr-defined]
+        encoding="utf-8",
+    )
+    (tmp_path / ".piranesi-ignore").write_text(
+        (
+            "suppressions:\n"
+            "  - id: finding-001\n"
+            '    reason: "accepted risk"\n'
+            "    owner: appsec\n"
+            "    created: 2026-04-16\n"
+            "    expires: 2026-06-16\n"
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "piranesi.toml").write_text(
+        "\n".join(
+            [
+                "[suppression]",
+                "fail_on_invalid = true",
+                "fail_on_expired = true",
+                "fail_on_stale = true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    list_result = runner.invoke(
+        app,
+        ["suppressions", "list", "--project-root", str(tmp_path)],
+    )
+    assert list_result.exit_code == 0
+    assert "Rules: 1" in list_result.stdout
+    assert "owner=appsec" in list_result.stdout
+
+    validate_result = runner.invoke(
+        app,
+        [
+            "suppressions",
+            "validate",
+            "--project-root",
+            str(tmp_path),
+            "--findings",
+            str(detect_path),
+            "--config",
+            str(tmp_path / "piranesi.toml"),
+            "--json",
+        ],
+    )
+    assert validate_result.exit_code == 0
+    payload = json.loads(validate_result.stdout)
+    assert payload["summary"]["total_rules"] == 1
+    assert payload["summary"]["stale_rules"] == 0
+
+
+def test_suppressions_validate_fails_for_expired_or_stale_when_policy_requires(
+    tmp_path: Path,
+) -> None:
+    artifacts = fixture_artifacts(tmp_path)
+    detect_path = tmp_path / "detect.json"
+    detect_path.write_text(
+        DetectArtifact(findings=artifacts["detect"].findings).model_dump_json(indent=2),  # type: ignore[attr-defined]
+        encoding="utf-8",
+    )
+    (tmp_path / ".piranesi-ignore").write_text(
+        (
+            "suppressions:\n"
+            "  - cwe: CWE-79\n"
+            '    path: "src/admin/**"\n'
+            '    reason: "stale"\n'
+            "    expires: 2026-08-16\n"
+            "  - id: finding-001\n"
+            '    reason: "expired"\n'
+            "    expires: 2026-01-01\n"
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "piranesi.toml").write_text(
+        "\n".join(
+            [
+                "[suppression]",
+                "fail_on_invalid = true",
+                "fail_on_expired = true",
+                "fail_on_stale = true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "suppressions",
+            "validate",
+            "--project-root",
+            str(tmp_path),
+            "--findings",
+            str(detect_path),
+            "--config",
+            str(tmp_path / "piranesi.toml"),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "expired" in result.stdout

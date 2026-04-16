@@ -66,6 +66,7 @@ class DetectArtifact(BaseModel):
 
     findings: list[CandidateFinding] = Field(default_factory=list)
     reachability: ReachabilityResult | None = None
+    suppression_lifecycle: dict[str, object] | None = None
 
 
 class VerifyArtifact(BaseModel):

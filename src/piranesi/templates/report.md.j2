@@ -14,6 +14,22 @@
 - `unreachable_candidate`: Static candidate not reachable from entry points.
 - `suppressed`: Finding suppressed by policy/risk acceptance.
 
+## Suppression Lifecycle
+
+- **Rules:** {{ report.executive_summary.suppression_rules_total }} total, {{ report.executive_summary.suppression_rules_active }} active
+- **Expired rules:** {{ report.executive_summary.suppression_rules_expired }}
+- **Stale rules:** {{ report.executive_summary.suppression_rules_stale }}
+- **Invalid rules:** {{ report.executive_summary.suppression_rules_invalid }}
+{% if report.suppression_lifecycle and report.suppression_lifecycle.expired_selectors %}
+- **Expired selectors:** {{ report.suppression_lifecycle.expired_selectors|join(" | ") }}
+{% endif %}
+{% if report.suppression_lifecycle and report.suppression_lifecycle.stale_selectors %}
+- **Stale selectors:** {{ report.suppression_lifecycle.stale_selectors|join(" | ") }}
+{% endif %}
+{% if report.suppression_lifecycle and report.suppression_lifecycle.invalid_entries %}
+- **Invalid suppression entries:** {{ report.suppression_lifecycle.invalid_entries|join(" | ") }}
+{% endif %}
+
 ## Active Candidate Findings
 
 {% if report.active_findings %}

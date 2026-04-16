@@ -59,6 +59,10 @@ Piranesi report artifacts now expose explicit evidence statuses:
 Reports should be read with that distinction in mind. A candidate finding is a
 lead for engineering review; a confirmed finding is materially stronger evidence.
 
+Suppression lifecycle metadata (`owner`, `reason_code`, `created`, `expires`,
+`ticket`/`reference`, `scope`) is supported in `.piranesi-ignore`, with lifecycle
+validation available via `piranesi suppressions validate`.
+
 ## Confidence Transparency
 
 `report.json`, `report.md`, and `piranesi explain` now include explanation metadata

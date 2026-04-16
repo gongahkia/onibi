@@ -26,6 +26,9 @@ def test_load_config_defaults(config_file: Callable[[str], Path]) -> None:
     assert config.lsp.scan_on_save is True
     assert config.lsp.debounce_ms == 1000
     assert config.verify.proof_mode == "safe"
+    assert config.suppression.fail_on_invalid is True
+    assert config.suppression.fail_on_expired is False
+    assert config.suppression.fail_on_stale is False
 
 
 def test_load_config_from_file(fixtures_dir: Path) -> None:

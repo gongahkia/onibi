@@ -185,6 +185,14 @@ class ReachabilityConfig(BaseModel):
     dead_code_report: bool = False
 
 
+class SuppressionConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    fail_on_invalid: bool = True
+    fail_on_expired: bool = False
+    fail_on_stale: bool = False
+
+
 class VerifyConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -231,6 +239,7 @@ class PiranesiConfig(BaseModel):
     detect: DetectConfig = Field(default_factory=DetectConfig)
     triage: TriageConfig = Field(default_factory=TriageConfig)
     reachability: ReachabilityConfig = Field(default_factory=ReachabilityConfig)
+    suppression: SuppressionConfig = Field(default_factory=SuppressionConfig)
     verify: VerifyConfig = Field(default_factory=VerifyConfig)
     lsp: LspConfig = Field(default_factory=LspConfig)
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)

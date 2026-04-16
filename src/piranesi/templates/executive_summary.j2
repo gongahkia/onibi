@@ -28,6 +28,7 @@ none
 {%- endif -%}
 {%- endset %}
 - **Findings detected:** {{ report.executive_summary.findings_detected }} findings{% if report.executive_summary.suppressed_findings %} ({{ report.executive_summary.suppressed_findings }} suppressed){% endif %}
+- **Suppression rules:** {{ report.executive_summary.suppression_rules_total }} total, {{ report.executive_summary.suppression_rules_active }} active{% if report.executive_summary.suppression_rules_expired %}, {{ report.executive_summary.suppression_rules_expired }} expired{% endif %}{% if report.executive_summary.suppression_rules_stale %}, {{ report.executive_summary.suppression_rules_stale }} stale{% endif %}{% if report.executive_summary.suppression_rules_invalid %}, {{ report.executive_summary.suppression_rules_invalid }} invalid{% endif %}
 - **Evidence status breakdown:** {{ evidence_summary }}
 - **Reachability:** {{ report.executive_summary.reachable_findings }} reachable{% if report.executive_summary.unreachable_findings %}, {{ report.executive_summary.unreachable_findings }} unreachable{% endif %}
 - **Finding clusters:** {{ report.executive_summary.finding_clusters }}

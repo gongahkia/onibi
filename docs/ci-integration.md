@@ -219,6 +219,21 @@ exit "$status"
 
 If you never want findings to fail the job, use `--no-fail`. Configuration and runtime errors still exit non-zero.
 
+## Suppression Lifecycle Checks
+
+Treat suppression hygiene as a separate CI gate:
+
+```bash
+piranesi suppressions validate \
+  --project-root . \
+  --findings piranesi-output/detect.json \
+  --config piranesi.toml
+```
+
+Use `[suppression]` policy flags in `piranesi.toml` to fail CI on invalid,
+expired, or stale suppressions (`fail_on_invalid`, `fail_on_expired`,
+`fail_on_stale`).
+
 ## SARIF consumers
 
 Common ways to consume `report.sarif.json`:

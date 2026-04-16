@@ -55,6 +55,14 @@ The generated config is tuned from detected frameworks and languages, and the
 command prints next steps for dependency setup, `piranesi doctor .`, and the
 first safe `--no-execute` scan.
 
+Suppression lifecycle best practices:
+
+- Always include `reason`, `reason_code`, and `owner`.
+- Set `created` and `expires` so suppressions are time-bound.
+- Link a ticket/reference (`ticket`, `reference`) for auditability.
+- Run `piranesi suppressions validate --findings <detect.json|output-dir>` in CI.
+- Use `[suppression]` config flags (`fail_on_invalid`, `fail_on_expired`, `fail_on_stale`) to enforce policy.
+
 ## Runtime Validation
 
 Run these once before the first scan:
@@ -146,6 +154,12 @@ Evidence statuses in `report.json` and `report.md`:
 - `static_candidate`: static-only candidate without dynamic proof.
 - `unreachable_candidate`: candidate not reachable from entry points.
 - `suppressed`: candidate intentionally suppressed with documented reason.
+
+Suppression lifecycle is also reported in `report.json` and `report.md`, including:
+
+- total/active/expired/stale/invalid rule counts
+- stale selector list (when detect findings were available)
+- expired selector list
 
 Use `query_quality` to tune specs over time:
 

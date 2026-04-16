@@ -68,11 +68,17 @@ from piranesi.detect.sanitizer_validation import (
 from piranesi.detect.secrets import extract_secret_findings, shannon_entropy
 from piranesi.detect.suppression import (
     InlineSuppression,
+    SuppressionFileValidation,
+    SuppressionLifecycleSummary,
+    SuppressionOutcome,
     SuppressionRule,
     append_ignore_file_suppression,
     apply_suppressions,
+    apply_suppressions_with_lifecycle,
     load_ignore_file,
+    load_ignore_file_with_diagnostics,
     parse_inline_suppressions,
+    summarize_suppression_lifecycle,
 )
 
 __all__ = [
@@ -90,6 +96,9 @@ __all__ = [
     "PathConditionExtractor",
     "SanitizerEffectiveness",
     "SbomFormat",
+    "SuppressionFileValidation",
+    "SuppressionLifecycleSummary",
+    "SuppressionOutcome",
     "SuppressionRule",
     "TaintTransfer",
     "analyze_dependency_reachability",
@@ -97,6 +106,7 @@ __all__ = [
     "append_ignore_file_suppression",
     "apply_dependency_reachability",
     "apply_suppressions",
+    "apply_suppressions_with_lifecycle",
     "build_call_graph",
     "build_function_summaries",
     "candidate_finding_id",
@@ -124,6 +134,7 @@ __all__ = [
     "identify_entry_points",
     "joern_flow_to_taint_steps",
     "load_ignore_file",
+    "load_ignore_file_with_diagnostics",
     "match_api_boundaries",
     "parse_condition_text",
     "parse_inline_suppressions",
@@ -132,6 +143,7 @@ __all__ = [
     "scan_dependency_findings",
     "severity_for_cwe",
     "shannon_entropy",
+    "summarize_suppression_lifecycle",
     "validate_sanitizer",
     "validate_sanitizer_spec",
 ]
