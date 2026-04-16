@@ -680,6 +680,44 @@ def _render_finding_explanation(status: str, finding: ReportFindingMatch) -> str
                     "- Verification evidence: "
                     f"{' | '.join(explanation.verification_state.evidence) or 'none'}"
                 ),
+            ]
+        )
+        rich_evidence = explanation.verification_state.rich_evidence
+        if rich_evidence is not None:
+            request_target = rich_evidence.attempted_route or rich_evidence.attempted_url or "n/a"
+            diff_summary = (
+                None
+                if rich_evidence.response_diff_summary is None
+                else rich_evidence.response_diff_summary.summary
+            )
+            timing_summary = (
+                "n/a"
+                if rich_evidence.timing_summary is None
+                else rich_evidence.timing_summary.model_dump_json()
+            )
+            lines.extend(
+                [
+                    f"- Verification request: {rich_evidence.method or 'n/a'} {request_target}",
+                    f"- Verification status code: {rich_evidence.status_code or 'n/a'}",
+                    f"- Payload class: {rich_evidence.payload_class or 'n/a'}",
+                    f"- Template id: {rich_evidence.template_id or 'n/a'}",
+                    f"- Response diff summary: {diff_summary or 'n/a'}",
+                    f"- Timing summary: {timing_summary}",
+                    f"- Error signature: {rich_evidence.error_signature or 'n/a'}",
+                    f"- Body excerpt hash: {rich_evidence.body_excerpt.sha256 or 'n/a'}",
+                    (
+                        "- Redaction: "
+                        f"{'applied' if rich_evidence.redaction_status.applied else 'none'} "
+                        f"(count={rich_evidence.redaction_status.redacted_value_count})"
+                    ),
+                ]
+            )
+        lines.extend(
+            [
+                (
+                    "- Evidence artifact: "
+                    f"{explanation.verification_state.evidence_artifact_path or 'n/a'}"
+                ),
                 "",
                 "Confidence contributors:",
             ]

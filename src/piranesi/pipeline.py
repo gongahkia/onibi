@@ -110,6 +110,10 @@ from piranesi.verify import (
     run_in_sandbox,
     solve_exploit_template,
 )
+from piranesi.verify.evidence import (
+    build_verification_evidence,
+    write_verification_evidence_artifact,
+)
 from piranesi.verify.preconditions import evaluate_verification_preconditions
 
 STAGE_ORDER = ("scan", "detect", "triage", "verify", "legal", "patch", "report")
@@ -2246,13 +2250,76 @@ def _run_verify_stage(
             "template_reason": template.template_selection_reason,
             "preconditions": list(precondition_eval.preconditions),
         }
-        if precondition_eval.skip_reason is not None:
+
+        def _append_attempt(
+            *,
+            status: str,
+            reason: str,
+            evidence: list[str] | None = None,
+            payload: Any | None = None,
+            baseline_capture: Any | None = None,
+            exploit_capture: Any | None = None,
+            launch_log_path: str | None = None,
+            startup_error: str | None = None,
+            error_text: str | None = None,
+            _triaged: TriagedFinding = triaged,
+            _template_id: str | None = template.template_id,
+            _base_url: str | None = None if active_profile is None else active_profile.base_url,
+            _attempt_fields: dict[str, object] = attempt_fields,
+        ) -> None:
+            evidence_items = [] if evidence is None else list(evidence)
+            baseline_response = (
+                None
+                if baseline_capture is None
+                else getattr(baseline_capture, "http_response", None)
+            )
+            exploit_response = (
+                None if exploit_capture is None else getattr(exploit_capture, "http_response", None)
+            )
+            (
+                rich_evidence,
+                sanitized_reason,
+                sanitized_evidence,
+                sanitized_error_text,
+                evidence_artifact_payload,
+            ) = build_verification_evidence(
+                finding=_triaged.finding,
+                template_id=_template_id,
+                payload=payload,
+                base_url=_base_url,
+                baseline_response=baseline_response,
+                exploit_response=exploit_response,
+                baseline_capture=baseline_capture,
+                exploit_capture=exploit_capture,
+                reason=reason,
+                evidence=evidence_items,
+                error_text=startup_error if startup_error is not None else error_text,
+            )
+            evidence_artifact_payload["status"] = status
+            evidence_artifact_path = write_verification_evidence_artifact(
+                output_dir=context.output_dir,
+                finding_id=_triaged.finding.id,
+                payload=evidence_artifact_payload,
+            )
             verification_attempts.append(
                 VerificationAttempt(
-                    **attempt_fields,
-                    status="skipped",
-                    reason=precondition_eval.skip_reason,
+                    **_attempt_fields,
+                    status=status,
+                    reason=sanitized_reason,
+                    launch_log_path=launch_log_path,
+                    startup_error=(
+                        sanitized_error_text if startup_error is not None else startup_error
+                    ),
+                    evidence=sanitized_evidence,
+                    rich_evidence=rich_evidence,
+                    evidence_artifact_path=evidence_artifact_path,
                 )
+            )
+
+        if precondition_eval.skip_reason is not None:
+            _append_attempt(
+                status="skipped",
+                reason=precondition_eval.skip_reason,
             )
             continue
 
@@ -2261,17 +2328,15 @@ def _run_verify_stage(
             allow_unsafe_payloads=proof_mode == "unsafe",
         )
         if solve_result.status != "SAT" or not solve_result.solutions:
-            verification_attempts.append(
-                VerificationAttempt(
-                    **attempt_fields,
-                    status="inconclusive",
-                    reason=(
-                        "verification inconclusive: solver did not produce an executable payload"
-                        if solve_result.reason is None
-                        else f"verification inconclusive: {solve_result.reason}"
-                    ),
-                    evidence=[] if solve_result.reason is None else [solve_result.reason],
-                )
+            _append_attempt(
+                status="inconclusive",
+                reason=(
+                    "verification inconclusive: solver did not produce an executable payload"
+                    if solve_result.reason is None
+                    else f"verification inconclusive: {solve_result.reason}"
+                ),
+                evidence=[] if solve_result.reason is None else [solve_result.reason],
+                error_text=solve_result.reason,
             )
             continue
         payload = solve_result.solutions[0].payload
@@ -2291,27 +2356,24 @@ def _run_verify_stage(
                 exc,
                 exc_info=True,
             )
-            verification_attempts.append(
-                VerificationAttempt(
-                    **attempt_fields,
-                    status="error",
-                    reason=f"verification error: sandbox execution failed ({exc})",
-                    startup_error=str(exc),
-                    evidence=[str(exc)],
-                )
+            _append_attempt(
+                status="error",
+                reason=f"verification error: sandbox execution failed ({exc})",
+                evidence=[str(exc)],
+                payload=payload,
+                startup_error=str(exc),
+                error_text=str(exc),
             )
             continue
         if len(captures) < 2:
-            verification_attempts.append(
-                VerificationAttempt(
-                    **attempt_fields,
-                    status="inconclusive",
-                    reason=(
-                        "verification inconclusive: sandbox did not return "
-                        "baseline+exploit captures"
-                    ),
-                    evidence=["MISSING_SANDBOX_CAPTURES"],
-                )
+            _append_attempt(
+                status="inconclusive",
+                reason=(
+                    "verification inconclusive: sandbox did not return "
+                    "baseline+exploit captures"
+                ),
+                evidence=["MISSING_SANDBOX_CAPTURES"],
+                payload=payload,
             )
             continue
         baseline_capture, exploit_capture = captures[0], captures[1]
@@ -2327,15 +2389,16 @@ def _run_verify_stage(
             evidence = [capture_error]
             if launch_log_path:
                 evidence.append(f"launch_logs:{launch_log_path}")
-            verification_attempts.append(
-                VerificationAttempt(
-                    **attempt_fields,
-                    status="inconclusive",
-                    reason=f"verification inconclusive: sandbox capture error ({capture_error})",
-                    launch_log_path=launch_log_path,
-                    startup_error=startup_error,
-                    evidence=evidence,
-                )
+            _append_attempt(
+                status="inconclusive",
+                reason=f"verification inconclusive: sandbox capture error ({capture_error})",
+                evidence=evidence,
+                payload=payload,
+                baseline_capture=baseline_capture,
+                exploit_capture=exploit_capture,
+                launch_log_path=launch_log_path,
+                startup_error=startup_error,
+                error_text=capture_error,
             )
             continue
         confirmation = confirm_responses(
@@ -2349,15 +2412,16 @@ def _run_verify_stage(
             evidence = [confirmation.evidence]
             if launch_log_path:
                 evidence.append(f"launch_logs:{launch_log_path}")
-            verification_attempts.append(
-                VerificationAttempt(
-                    **attempt_fields,
-                    status="inconclusive",
-                    reason=f"verification inconclusive: {confirmation.evidence}",
-                    launch_log_path=launch_log_path,
-                    startup_error=startup_error,
-                    evidence=evidence,
-                )
+            _append_attempt(
+                status="inconclusive",
+                reason=f"verification inconclusive: {confirmation.evidence}",
+                evidence=evidence,
+                payload=payload,
+                baseline_capture=baseline_capture,
+                exploit_capture=exploit_capture,
+                launch_log_path=launch_log_path,
+                startup_error=startup_error,
+                error_text=confirmation.evidence,
             )
             continue
 
@@ -2383,19 +2447,20 @@ def _run_verify_stage(
                 related_cves=[],
             )
         )
-        verification_attempts.append(
-            VerificationAttempt(
-                **attempt_fields,
-                status="confirmed",
-                reason=f"dynamic verification confirmed: {confirmation.evidence}",
-                launch_log_path=launch_log_path,
-                startup_error=startup_error,
-                evidence=(
-                    [confirmation.evidence]
-                    if not launch_log_path
-                    else [confirmation.evidence, f"launch_logs:{launch_log_path}"]
-                ),
-            )
+        _append_attempt(
+            status="confirmed",
+            reason=f"dynamic verification confirmed: {confirmation.evidence}",
+            evidence=(
+                [confirmation.evidence]
+                if not launch_log_path
+                else [confirmation.evidence, f"launch_logs:{launch_log_path}"]
+            ),
+            payload=payload,
+            baseline_capture=baseline_capture,
+            exploit_capture=exploit_capture,
+            launch_log_path=launch_log_path,
+            startup_error=startup_error,
+            error_text=confirmation.evidence,
         )
 
     return StageResult(

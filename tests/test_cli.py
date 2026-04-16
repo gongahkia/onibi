@@ -10,7 +10,15 @@ from typer.testing import CliRunner
 from piranesi.cli import app
 from piranesi.config import load_config
 from piranesi.doctor import DoctorCheck, DoctorReport
-from piranesi.models.finding import VerificationAttempt, VerificationPrecondition
+from piranesi.models.finding import (
+    VerificationAttempt,
+    VerificationBodyExcerpt,
+    VerificationEvidence,
+    VerificationPrecondition,
+    VerificationRedactionStatus,
+    VerificationResponseDiffSummary,
+    VerificationTimingSummary,
+)
 from piranesi.report.renderer import build_report
 from piranesi.watch import WatchModeSummary
 from tests._pipeline_fixtures import fixture_artifacts
@@ -513,6 +521,38 @@ def test_explain_command_renders_candidate_statuses(tmp_path: Path) -> None:
         reason="verification skipped: missing required preconditions (route_mapping)",
         template_id="generic-probe",
         template_reason="fallback",
+        rich_evidence=VerificationEvidence(
+            attempted_url="http://127.0.0.1:3000/search",
+            attempted_route="/search",
+            method="GET",
+            payload_class="CWE-89: SQL Injection",
+            template_id="generic-probe",
+            status_code=403,
+            response_diff_summary=VerificationResponseDiffSummary(
+                summary="status:200->403; body_changed:yes; header_changes:1",
+            ),
+            timing_summary=VerificationTimingSummary(
+                baseline_elapsed_ms=11.0,
+                exploit_elapsed_ms=17.0,
+                delta_elapsed_ms=6.0,
+            ),
+            error_signature="TARGET_PROFILE_NOT_READY",
+            headers_subset={"set-cookie": "[REDACTED]"},
+            body_excerpt=VerificationBodyExcerpt(
+                sha256="abc123",
+                preview="blocked",
+                truncated=False,
+                length=7,
+            ),
+            redaction_status=VerificationRedactionStatus(
+                applied=True,
+                redacted_value_count=1,
+                redacted_fields=["response_headers"],
+            ),
+        ),
+        evidence_artifact_path=str(
+            tmp_path / "out" / "verification-evidence" / "finding-active.json"
+        ),
         preconditions=[
             VerificationPrecondition(
                 key="route_mapping",
@@ -551,6 +591,11 @@ def test_explain_command_renders_candidate_statuses(tmp_path: Path) -> None:
         active_result.stdout
     )
     assert "Missing preconditions: route_mapping" in active_result.stdout
+    assert "Verification request: GET /search" in active_result.stdout
+    assert "Response diff summary: status:200->403; body_changed:yes; header_changes:1" in (
+        active_result.stdout
+    )
+    assert "Evidence artifact: " in active_result.stdout
     assert "Confidence contributors:" in active_result.stdout
 
     unreachable_result = runner.invoke(

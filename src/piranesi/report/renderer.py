@@ -26,7 +26,11 @@ from piranesi.models import (
     TaintStep,
     TriagedFinding,
 )
-from piranesi.models.finding import VerificationAttempt, VerificationPrecondition
+from piranesi.models.finding import (
+    VerificationAttempt,
+    VerificationEvidence,
+    VerificationPrecondition,
+)
 from piranesi.report.cwe import cwe_title, extract_cwe_id
 
 _logger = logging.getLogger(__name__)
@@ -110,6 +114,8 @@ class VerificationState(BaseModel):
     preconditions: list[VerificationPrecondition] = Field(default_factory=list)
     missing_preconditions: list[str] = Field(default_factory=list)
     evidence: list[str] = Field(default_factory=list)
+    rich_evidence: VerificationEvidence | None = None
+    evidence_artifact_path: str | None = None
     actionable_next_steps: list[str] = Field(default_factory=list)
 
 
@@ -890,6 +896,10 @@ def _verification_state(
     startup_error = None if verification_attempt is None else verification_attempt.startup_error
     reason = None if verification_attempt is None else verification_attempt.reason
     evidence = [] if verification_attempt is None else list(verification_attempt.evidence)
+    rich_evidence = None if verification_attempt is None else verification_attempt.rich_evidence
+    evidence_artifact_path = (
+        None if verification_attempt is None else verification_attempt.evidence_artifact_path
+    )
     preconditions = [] if verification_attempt is None else list(verification_attempt.preconditions)
     missing = [
         precondition.key
@@ -922,6 +932,8 @@ def _verification_state(
         preconditions=preconditions,
         missing_preconditions=missing,
         evidence=evidence,
+        rich_evidence=rich_evidence,
+        evidence_artifact_path=evidence_artifact_path,
         actionable_next_steps=next_steps,
     )
 

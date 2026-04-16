@@ -11,7 +11,15 @@ from piranesi.models import (
     ScannedFunction,
     SourceLocation,
 )
-from piranesi.models.finding import VerificationAttempt, VerificationPrecondition
+from piranesi.models.finding import (
+    VerificationAttempt,
+    VerificationBodyExcerpt,
+    VerificationEvidence,
+    VerificationPrecondition,
+    VerificationRedactionStatus,
+    VerificationResponseDiffSummary,
+    VerificationTimingSummary,
+)
 from piranesi.report.renderer import build_report, write_report_outputs
 from tests._pipeline_fixtures import fixture_artifacts
 
@@ -343,6 +351,7 @@ def test_report_renderer_includes_verification_skip_reason_and_preconditions(
         }
     )
     launch_log_path = str(tmp_path / "verify-launch.log")
+    screenshot_path = str(tmp_path / "verify-screen.png")
     verification_attempt = VerificationAttempt(
         finding_id="finding-active",
         status="skipped",
@@ -354,6 +363,45 @@ def test_report_renderer_includes_verification_skip_reason_and_preconditions(
         evidence=["route mapping unavailable"],
         template_id="generic-probe",
         template_reason="fallback",
+        rich_evidence=VerificationEvidence(
+            attempted_url="http://127.0.0.1:3000/search?q=test",
+            attempted_route="/search",
+            method="GET",
+            payload_class="CWE-89: SQL Injection",
+            template_id="generic-probe",
+            status_code=403,
+            response_diff_summary=VerificationResponseDiffSummary(
+                summary="status:200->403; body_changed:yes; header_changes:1",
+                baseline_status_code=200,
+                exploit_status_code=403,
+                status_code_changed=True,
+                body_changed=True,
+                body_delta_chars=12,
+                changed_headers=["set-cookie"],
+            ),
+            timing_summary=VerificationTimingSummary(
+                baseline_elapsed_ms=18.0,
+                exploit_elapsed_ms=25.0,
+                baseline_capture_ms=31.0,
+                exploit_capture_ms=39.0,
+                delta_elapsed_ms=7.0,
+            ),
+            error_signature="TARGET_PROFILE_NOT_READY",
+            headers_subset={"set-cookie": "[REDACTED]", "content-type": "text/html"},
+            body_excerpt=VerificationBodyExcerpt(
+                sha256="deadbeef",
+                preview="error body",
+                truncated=False,
+                length=10,
+            ),
+            screenshot_paths=[screenshot_path],
+            redaction_status=VerificationRedactionStatus(
+                applied=True,
+                redacted_value_count=2,
+                redacted_fields=["response_headers", "response_body"],
+            ),
+        ),
+        evidence_artifact_path=str(tmp_path / "verification-evidence" / "finding-active.json"),
         preconditions=[
             VerificationPrecondition(
                 key="route_mapping",
@@ -390,6 +438,13 @@ def test_report_renderer_includes_verification_skip_reason_and_preconditions(
     assert "missing required preconditions" in verification_state["reason"]
     assert verification_state["evidence"] == ["route mapping unavailable"]
     assert verification_state["missing_preconditions"] == ["route_mapping"]
+    assert verification_state["rich_evidence"]["attempted_route"] == "/search"
+    assert (
+        verification_state["rich_evidence"]["response_diff_summary"]["status_code_changed"]
+        is True
+    )
+    assert verification_state["rich_evidence"]["redaction_status"]["applied"] is True
+    assert verification_state["evidence_artifact_path"].endswith("finding-active.json")
     assert len(verification_state["preconditions"]) == 1
 
     markdown = (tmp_path / "report.md").read_text(encoding="utf-8")
@@ -399,6 +454,13 @@ def test_report_renderer_includes_verification_skip_reason_and_preconditions(
     assert "- **Startup error:** TARGET_PROFILE_NOT_READY" in markdown
     assert f"- **Launch logs:** `{launch_log_path}`" in markdown
     assert "- **Verification evidence:** route mapping unavailable" in markdown
+    assert "- **Verification request:** `GET /search` (status=403)" in markdown
+    assert "- **Response diff summary:** status:200->403; body_changed:yes; header_changes:1" in (
+        markdown
+    )
+    assert "- **Body excerpt hash:** `deadbeef`" in markdown
+    assert "- **Redaction applied:** yes (2 values)" in markdown
+    assert "- **Verification artifact:** `" in markdown
     assert (
         "- **Verification reason:** verification skipped: missing required preconditions"
         in markdown

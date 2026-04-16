@@ -209,6 +209,65 @@ class VerificationPrecondition(BaseModel):
     next_step: str | None = None
 
 
+class VerificationResponseDiffSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str | None = None
+    baseline_status_code: int | None = None
+    exploit_status_code: int | None = None
+    status_code_changed: bool = False
+    body_changed: bool = False
+    body_delta_chars: int = 0
+    changed_headers: list[str] = Field(default_factory=list)
+
+
+class VerificationTimingSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    baseline_elapsed_ms: float | None = None
+    exploit_elapsed_ms: float | None = None
+    baseline_capture_ms: float | None = None
+    exploit_capture_ms: float | None = None
+    delta_elapsed_ms: float | None = None
+
+
+class VerificationBodyExcerpt(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sha256: str | None = None
+    preview: str | None = None
+    truncated: bool = False
+    length: int = 0
+
+
+class VerificationRedactionStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    applied: bool = False
+    redacted_value_count: int = 0
+    redacted_fields: list[str] = Field(default_factory=list)
+
+
+class VerificationEvidence(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    attempted_url: str | None = None
+    attempted_route: str | None = None
+    method: str | None = None
+    payload_class: str | None = None
+    template_id: str | None = None
+    status_code: int | None = None
+    response_diff_summary: VerificationResponseDiffSummary | None = None
+    timing_summary: VerificationTimingSummary | None = None
+    error_signature: str | None = None
+    headers_subset: dict[str, str] = Field(default_factory=dict)
+    body_excerpt: VerificationBodyExcerpt = Field(default_factory=VerificationBodyExcerpt)
+    screenshot_paths: list[str] = Field(default_factory=list)
+    redaction_status: VerificationRedactionStatus = Field(
+        default_factory=VerificationRedactionStatus
+    )
+
+
 class VerificationAttempt(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -223,6 +282,8 @@ class VerificationAttempt(BaseModel):
     template_id: str | None = None
     template_reason: str | None = None
     preconditions: list[VerificationPrecondition] = Field(default_factory=list)
+    rich_evidence: VerificationEvidence | None = None
+    evidence_artifact_path: str | None = None
 
 
 class ConfirmedFinding(BaseModel):

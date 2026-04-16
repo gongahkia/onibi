@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -330,6 +331,12 @@ def test_run_verify_stage_applies_target_profile_and_captures_startup_failure(
     assert attempt.launch_log_path == launch_log_path
     assert "sandbox capture error" in attempt.reason
     assert f"launch_logs:{launch_log_path}" in attempt.evidence
+    assert attempt.rich_evidence is not None
+    assert attempt.rich_evidence.template_id == "reflected-xss-probe"
+    assert attempt.rich_evidence.attempted_route == "/search"
+    assert attempt.rich_evidence.redaction_status.applied is False
+    assert attempt.evidence_artifact_path is not None
+    assert Path(attempt.evidence_artifact_path).exists()
     assert observed["profile"] == "local-express"
 
 
@@ -439,6 +446,166 @@ def test_run_verify_stage_uses_metadata_target_url_profile_when_no_config_profil
     assert attempt.startup_error == "TARGET_PROFILE_READINESS_TIMEOUT"
     assert observed["profile_name"] == "metadata_target_url"
     assert observed["base_url"] == "http://127.0.0.1:9100"
+
+
+def test_run_verify_stage_redacts_sensitive_values_in_rich_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target_dir = tmp_path / "target"
+    target_dir.mkdir()
+    app_file = target_dir / "app.ts"
+    app_file.write_text(
+        "\n".join(
+            [
+                'app.get("/search", (req, res) => {',
+                "  const q = req.query.q;",
+                "  return res.send(q);",
+                "});",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    triaged = TriagedFinding(
+        finding=_candidate_finding(
+            app_file,
+            source_line=2,
+            source_snippet="const q = req.query.q;",
+            source_type="req.query.q",
+            parameter_name="q",
+            metadata={
+                "verification_target_url": "http://127.0.0.1:9100",
+                "verification_auth_header": "Bearer super-secret-token",
+                "verification_cookie": "sid=abc123",
+                "api_secret": "super-secret-token",
+            },
+        ),
+        triage_verdict="true_positive",
+        triage_mode="deterministic",
+        skeptic_analysis="deterministic",
+        ensemble_score=0.9,
+        escalated=False,
+    )
+    prev_result = StageResult(
+        stage="triage",
+        success=True,
+        artifact=TriageArtifact(findings=[triaged]),
+        elapsed_s=0.0,
+    )
+    context = PipelineContext(
+        target_dir=target_dir,
+        output_dir=tmp_path / "out",
+        provider=None,  # type: ignore[arg-type]
+        router=None,
+        cost_tracker=SimpleNamespace(total_usd=0.0),
+        trace_writer=None,  # type: ignore[arg-type]
+        no_execute=False,
+        use_cache=False,
+    )
+
+    payload = sandbox.SynthesizedPayload(
+        method="GET",
+        url="/search?token=super-secret-token",
+        headers={
+            "Authorization": "Bearer super-secret-token",
+            "Cookie": "sid=abc123",
+        },
+        body={"q": "super-secret-token"},
+        payload_values={"q": "super-secret-token"},
+        encoding="query",
+    )
+    solve_result = SimpleNamespace(
+        status="SAT",
+        reason=None,
+        solutions=(
+            SimpleNamespace(
+                payload=payload,
+                model_values={"q": "super-secret-token"},
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        "piranesi.pipeline.solve_exploit_template",
+        lambda *_args, **_kwargs: solve_result,
+    )
+
+    baseline_response = sandbox.ExploitResult(
+        status_code=200,
+        headers={"content-type": "text/html"},
+        body="baseline",
+        elapsed_ms=15.0,
+        request={"method": "GET", "url": "/search"},
+    )
+    exploit_response = sandbox.ExploitResult(
+        status_code=200,
+        headers={
+            "content-type": "text/html",
+            "set-cookie": "sid=abc123",
+        },
+        body="Authorization: Bearer super-secret-token; cookie=sid=abc123",
+        elapsed_ms=21.0,
+        request={"method": "GET", "url": "/search"},
+    )
+    screenshot_path = str(tmp_path / "verify-screenshot.png")
+
+    def _fake_run_in_sandbox(
+        target_path: str,
+        payloads: list[sandbox.SynthesizedPayload],
+        *,
+        target_profile: object = None,
+        logs_base_dir: Path | None = None,
+    ) -> list[sandbox.SandboxCapture]:
+        _ = (target_path, payloads, target_profile, logs_base_dir)
+        return [
+            sandbox.SandboxCapture(
+                http_response=baseline_response,
+                container_logs="",
+                filesystem_diff=[],
+                timing_ms=34.0,
+            ),
+            sandbox.SandboxCapture(
+                http_response=exploit_response,
+                container_logs="",
+                filesystem_diff=[],
+                timing_ms=42.0,
+                side_effects=[screenshot_path],
+            ),
+        ]
+
+    monkeypatch.setattr("piranesi.pipeline.run_in_sandbox", _fake_run_in_sandbox)
+    monkeypatch.setattr(
+        "piranesi.pipeline.confirm_responses",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            level="LIKELY",
+            evidence="authorization=Bearer super-secret-token cookie=sid=abc123",
+        ),
+    )
+
+    result = _run_verify_stage(context, PiranesiConfig(), prev_result)
+
+    assert isinstance(result.artifact, VerifyArtifact)
+    assert result.artifact.findings == []
+    assert len(result.artifact.attempts) == 1
+    attempt = result.artifact.attempts[0]
+    assert attempt.status == "inconclusive"
+    assert "super-secret-token" not in attempt.reason
+    assert "sid=abc123" not in attempt.reason
+    assert "[REDACTED]" in attempt.reason
+    assert attempt.rich_evidence is not None
+    assert attempt.rich_evidence.redaction_status.applied is True
+    assert attempt.rich_evidence.redaction_status.redacted_value_count > 0
+    assert attempt.rich_evidence.body_excerpt.preview is not None
+    assert "[REDACTED]" in attempt.rich_evidence.body_excerpt.preview
+    assert attempt.rich_evidence.screenshot_paths == [screenshot_path]
+    assert attempt.evidence_artifact_path is not None
+
+    artifact_path = Path(attempt.evidence_artifact_path)
+    assert artifact_path.exists()
+    payload_json = json.loads(artifact_path.read_text(encoding="utf-8"))
+    serialized = json.dumps(payload_json)
+    assert "super-secret-token" not in serialized
+    assert "sid=abc123" not in serialized
+    assert "[REDACTED]" in serialized
 
 
 def _candidate_finding(
