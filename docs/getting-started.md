@@ -208,6 +208,32 @@ For the bundled vulnerable app, the real run on 2026-04-09 produced four candida
 
 It missed the planted SQLi in `/users`. That miss is documented in [docs/examples/vuln-express.md](examples/vuln-express.md).
 
+## Editor And Watch Workflow
+
+For fast local iteration, use the LSP server in your editor and `watch` in a terminal.
+
+Start LSP (stdio, default):
+
+```bash
+uv run piranesi lsp --config ./piranesi.toml
+```
+
+Start watch mode with a tighter debounce window:
+
+```bash
+uv run piranesi watch . \
+  --debounce 300 \
+  --filter "**/*.{ts,tsx,js,jsx}" \
+  --authorized \
+  --yes
+```
+
+Behavior:
+
+- Save events trigger incremental scan/detect invalidation scoped to changed files where feasible.
+- LSP diagnostics include stable IDs (`stable_id`), severity, evidence level, and an actionable remediation hint.
+- If incremental state is unavailable (for example missing manifests), LSP/watch falls back to a full project scan.
+
 ## Verification and LLM-Assisted Runs
 
 When you are ready to exercise Docker-backed verification, remove `--no-execute`. That requires:

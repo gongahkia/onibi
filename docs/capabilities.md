@@ -45,7 +45,7 @@ maturity level.
 | Compliance/legal mapping | Experimental | Produces technical evidence and obligation mapping; not legal advice. |
 | Custom rules and rule registry | Beta | Rule validation, fixture testing, install/update/list flows exist. |
 | Advisory/dependency analysis | Beta | Supports advisory ingestion and dependency finding artifacts. |
-| LSP/watch/pre-commit | Beta | Developer workflow integrations exist; performance depends on project size and local tooling. |
+| LSP/watch/pre-commit | Beta | Save/watch loops use incremental invalidation where feasible, deduplicate repeated diagnostics, and expose stable diagnostic metadata (`stable_id`, evidence level, severity, action). |
 
 ## Trust Boundary
 

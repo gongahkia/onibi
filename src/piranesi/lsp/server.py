@@ -18,6 +18,7 @@ except ImportError:
 
 from piranesi import __version__
 from piranesi.config import LspConfig, PiranesiConfig, load_config
+from piranesi.diff import stable_fingerprint
 from piranesi.llm.cost import CostTracker
 from piranesi.models import CandidateFinding, SourceLocation
 from piranesi.pipeline import (
@@ -109,34 +110,40 @@ class IncrementalPipelineScanner:
             ) from exc
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        incremental = _saved_file_incremental_state(
-            target_dir=self.project_root,
-            output_dir=self.output_dir,
-            saved_path=resolved_path,
-        )
-        context = PipelineContext(
-            target_dir=self.project_root,
-            output_dir=self.output_dir,
-            provider=cast(Any, _NoopProvider()),
-            router=cast(Any, _NoopRouter()),
-            cost_tracker=CostTracker(),
-            trace_writer=cast(Any, _NoopTraceWriter()),
-            use_cache=True,
-            incremental=incremental,
-        )
+        incremental: IncrementalState | None = None
+        try:
+            incremental = _saved_file_incremental_state(
+                target_dir=self.project_root,
+                output_dir=self.output_dir,
+                saved_path=resolved_path,
+            )
+        except FileNotFoundError as exc:
+            self._logger.debug(
+                "saved file missing from incremental manifest; using full project scan: %s",
+                exc,
+            )
 
-        scan_result = _run_scan_stage(context, config, None)
-        context.stage_outputs["scan"] = scan_result.artifact
-        detect_result = _run_detect_stage(context, config, None)
-        context.stage_outputs["detect"] = detect_result.artifact
-
-        _write_stage_artifact(self.output_dir / "scan.json", scan_result)
-        _write_stage_artifact(self.output_dir / "detect.json", detect_result)
-
-        artifact = detect_result.artifact
-        if not hasattr(artifact, "findings"):
-            raise TypeError("detect stage did not return findings")
-        return tuple(cast(Sequence[CandidateFinding], artifact.findings))
+        try:
+            return _run_incremental_scan(
+                target_dir=self.project_root,
+                output_dir=self.output_dir,
+                config=config,
+                incremental=incremental,
+            )
+        except Exception:
+            if incremental is None:
+                raise
+            self._logger.warning(
+                "incremental LSP scan failed for %s; retrying full scan",
+                resolved_path,
+                exc_info=True,
+            )
+            return _run_incremental_scan(
+                target_dir=self.project_root,
+                output_dir=self.output_dir,
+                config=config,
+                incremental=None,
+            )
 
 
 class PiranesiLanguageServer(LanguageServer):
@@ -166,6 +173,7 @@ class PiranesiLanguageServer(LanguageServer):
         self._findings_by_id: dict[str, CandidateFinding] = {}
         self._diagnostics_by_uri: dict[str, list[types.Diagnostic]] = {}
         self._patches_by_finding_id: dict[str, str] = {}
+        self._published_signatures_by_uri: dict[str, tuple[tuple[object, ...], ...]] = {}
         self._debounce_timer: threading.Timer | None = None
         self._scan_lock = threading.Lock()
         self._scan_running = False
@@ -179,6 +187,9 @@ class PiranesiLanguageServer(LanguageServer):
     def handle_did_close(self, params: types.DidCloseTextDocumentParams) -> None:
         uri = params.text_document.uri
         self._tracked_uris.discard(uri)
+        self._findings_by_uri.pop(uri, None)
+        self._diagnostics_by_uri.pop(uri, None)
+        self._published_signatures_by_uri.pop(uri, None)
         self._publish(uri, [])
 
     def handle_did_save(self, params: types.DidSaveTextDocumentParams) -> None:
@@ -350,11 +361,18 @@ class PiranesiLanguageServer(LanguageServer):
                 findings_by_uri.setdefault(uri, []).append(finding)
 
         for uri, uri_findings in findings_by_uri.items():
-            diagnostics = [
-                finding_to_diagnostic(finding, uri=uri, project_root=self.project_root)
-                for finding in uri_findings
-                if _SEVERITY_RANK.get(finding.severity.lower(), 0) >= severity_threshold
-            ]
+            diagnostics: list[types.Diagnostic] = []
+            seen_stable_ids: set[str] = set()
+            for finding in sorted(uri_findings, key=_finding_sort_key):
+                if _SEVERITY_RANK.get(finding.severity.lower(), 0) < severity_threshold:
+                    continue
+                stable_id = _diagnostic_stable_id(finding)
+                if stable_id in seen_stable_ids:
+                    continue
+                seen_stable_ids.add(stable_id)
+                diagnostics.append(
+                    finding_to_diagnostic(finding, uri=uri, project_root=self.project_root)
+                )
             diagnostics.sort(
                 key=lambda diagnostic: (
                     diagnostic.range.start.line,
@@ -417,6 +435,11 @@ class PiranesiLanguageServer(LanguageServer):
         self._publish(uri, self._diagnostics_by_uri.get(uri, []))
 
     def _publish(self, uri: str, diagnostics: Sequence[types.Diagnostic]) -> None:
+        signature = _diagnostics_signature(diagnostics)
+        previous = self._published_signatures_by_uri.get(uri)
+        if previous == signature:
+            return
+        self._published_signatures_by_uri[uri] = signature
         self.protocol.notify(
             types.TEXT_DOCUMENT_PUBLISH_DIAGNOSTICS,
             types.PublishDiagnosticsParams(uri=uri, diagnostics=list(diagnostics)),
@@ -522,6 +545,9 @@ def finding_to_diagnostic(
     primary_location = _primary_location_for_uri(finding, uri=uri, project_root=project_root)
     cwe = extract_cwe_id(finding.vuln_class)
     source_label = finding.source.parameter_name or finding.source.source_type
+    stable_id = _diagnostic_stable_id(finding)
+    evidence_level = _evidence_level_for_finding(finding)
+    action = _recommended_action(finding)
     related_information = [
         types.DiagnosticRelatedInformation(
             location=types.Location(
@@ -541,10 +567,50 @@ def finding_to_diagnostic(
         code=cwe,
         code_description=types.CodeDescription(href=_cwe_href(cwe)),
         source="piranesi",
-        message=f"{cwe}: {source_label} -> {finding.sink.api_name}",
+        message=(
+            f"{cwe}: {source_label} -> {finding.sink.api_name}. "
+            f"Evidence: {evidence_level}. Action: {action}"
+        ),
         related_information=related_information or None,
-        data={"finding_id": finding.id},
+        data={
+            "finding_id": finding.id,
+            "stable_id": stable_id,
+            "severity": finding.severity.lower(),
+            "evidence_level": evidence_level,
+            "action": action,
+        },
     )
+
+
+def _run_incremental_scan(
+    *,
+    target_dir: Path,
+    output_dir: Path,
+    config: PiranesiConfig,
+    incremental: IncrementalState | None,
+) -> tuple[CandidateFinding, ...]:
+    context = PipelineContext(
+        target_dir=target_dir,
+        output_dir=output_dir,
+        provider=cast(Any, _NoopProvider()),
+        router=cast(Any, _NoopRouter()),
+        cost_tracker=CostTracker(),
+        trace_writer=cast(Any, _NoopTraceWriter()),
+        use_cache=True,
+        incremental=incremental,
+    )
+    scan_result = _run_scan_stage(context, config, None)
+    context.stage_outputs["scan"] = scan_result.artifact
+    detect_result = _run_detect_stage(context, config, None)
+    context.stage_outputs["detect"] = detect_result.artifact
+
+    _write_stage_artifact(output_dir / "scan.json", scan_result)
+    _write_stage_artifact(output_dir / "detect.json", detect_result)
+
+    artifact = detect_result.artifact
+    if not hasattr(artifact, "findings"):
+        raise TypeError("detect stage did not return findings")
+    return tuple(cast(Sequence[CandidateFinding], artifact.findings))
 
 
 def _resolve_runtime_paths(config_path: Path) -> _RuntimePaths:
@@ -612,6 +678,64 @@ def _saved_file_incremental_state(
         ),
         manifest_write_stage="detect",
     )
+
+
+def _diagnostic_stable_id(finding: CandidateFinding) -> str:
+    return stable_fingerprint(finding)
+
+
+def _finding_sort_key(finding: CandidateFinding) -> tuple[str, str, int, int]:
+    sink = finding.sink.location
+    return (
+        finding.severity.lower(),
+        sink.file,
+        sink.line,
+        sink.column,
+    )
+
+
+def _diagnostics_signature(
+    diagnostics: Sequence[types.Diagnostic],
+) -> tuple[tuple[object, ...], ...]:
+    signature_rows: list[tuple[object, ...]] = []
+    for diagnostic in diagnostics:
+        data = diagnostic.data if isinstance(diagnostic.data, dict) else {}
+        signature_rows.append(
+            (
+                diagnostic.range.start.line,
+                diagnostic.range.start.character,
+                diagnostic.range.end.line,
+                diagnostic.range.end.character,
+                diagnostic.code,
+                diagnostic.severity,
+                diagnostic.message,
+                data.get("stable_id"),
+            )
+        )
+    return tuple(signature_rows)
+
+
+def _evidence_level_for_finding(finding: CandidateFinding) -> str:
+    if finding.reachability != "reachable":
+        return "unreachable_candidate"
+    if finding.confidence >= 0.9:
+        return "high_confidence_static_candidate"
+    if finding.confidence >= 0.75:
+        return "medium_confidence_static_candidate"
+    return "low_confidence_static_candidate"
+
+
+def _recommended_action(finding: CandidateFinding) -> str:
+    cwe = extract_cwe_id(finding.vuln_class)
+    if cwe == "CWE-89":
+        return "Use parameterized queries and strict query builders."
+    if cwe == "CWE-79":
+        return "Apply contextual output encoding and input validation."
+    if cwe == "CWE-22":
+        return "Normalize and validate file paths against an allowlist."
+    if cwe == "CWE-78":
+        return "Avoid shell execution with untrusted input or use argument arrays."
+    return "Validate and sanitize untrusted input before it reaches the sink."
 
 
 def _write_stage_artifact(path: Path, result: StageResult) -> None:

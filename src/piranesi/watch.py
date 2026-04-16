@@ -23,6 +23,7 @@ from piranesi.llm.trace import TraceLogger
 from piranesi.models import CandidateFinding, ScanResult
 from piranesi.pipeline import (
     DetectArtifact,
+    IncrementalState,
     PipelineContext,
     _effective_scan_globs,
     _matches_patterns,
@@ -30,6 +31,7 @@ from piranesi.pipeline import (
     _run_scan_stage,
     prepare_incremental_state,
 )
+from piranesi.scan.incremental import IncrementalResult
 from piranesi.trace import TraceWriter
 from piranesi.ui import console
 
@@ -124,6 +126,7 @@ def run_watch_mode(
                 trace_writer=trace_writer,
                 use_cache=use_cache,
                 max_parallel=max_parallel,
+                changed_batch=None,
             )
             active_findings = _active_findings(detect_artifact.findings)
             _apply_scan_update(
@@ -162,6 +165,7 @@ def run_watch_mode(
                     trace_writer=trace_writer,
                     use_cache=use_cache,
                     max_parallel=max_parallel,
+                    changed_batch=batch,
                 )
                 current_findings = _active_findings(detect_artifact.findings)
                 diff_result = diff_findings(
@@ -212,11 +216,17 @@ def _run_watch_scan(
     trace_writer: TraceWriter,
     use_cache: bool,
     max_parallel: int | None,
+    changed_batch: set[Path] | None,
 ) -> tuple[ScanResult, DetectArtifact, float]:
     incremental = prepare_incremental_state(
         target_dir,
         output_dir,
         manifest_write_stage="watch",
+    )
+    incremental = _narrow_incremental_state_for_batch(
+        incremental=incremental,
+        target_dir=target_dir,
+        changed_batch=changed_batch,
     )
     context = PipelineContext(
         target_dir=target_dir,
@@ -262,6 +272,51 @@ def _persist_watch_artifacts(
     from piranesi.scan.incremental import write_manifest
 
     write_manifest(Path(scan_artifact.project_root), output_dir)
+
+
+def _narrow_incremental_state_for_batch(
+    *,
+    incremental: IncrementalState,
+    target_dir: Path,
+    changed_batch: set[Path] | None,
+) -> IncrementalState:
+    if changed_batch is None or incremental.previous_manifest is None:
+        return incremental
+
+    relative_batch: set[Path] = set()
+    for changed_path in changed_batch:
+        resolved = changed_path.resolve(strict=False)
+        try:
+            relative_batch.add(resolved.relative_to(target_dir))
+        except ValueError:
+            continue
+    if not relative_batch:
+        return incremental
+
+    previous_paths = {Path(path) for path in incremental.previous_manifest.files}
+    current_paths = {Path(path) for path in incremental.current_manifest.files}
+    added = {
+        path for path in relative_batch if path in current_paths and path not in previous_paths
+    }
+    modified = {path for path in relative_batch if path in current_paths and path in previous_paths}
+    deleted = {
+        path for path in relative_batch if path not in current_paths and path in previous_paths
+    }
+    if not (added or modified or deleted):
+        return incremental
+
+    unchanged = {path for path in current_paths if path not in added and path not in modified}
+    return IncrementalState(
+        previous_manifest=incremental.previous_manifest,
+        current_manifest=incremental.current_manifest,
+        diff=IncrementalResult(
+            added=added,
+            modified=modified,
+            deleted=deleted,
+            unchanged=unchanged,
+        ),
+        manifest_write_stage=incremental.manifest_write_stage,
+    )
 
 
 def _apply_scan_update(

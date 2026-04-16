@@ -1991,7 +1991,7 @@ def _run_detect_stage(
     if (
         incremental is not None
         and incremental.previous_manifest is not None
-        and not incremental.diff.changed_files
+        and not incremental.diff.has_changes
         and previous_detect is not None
         and not context.changed_packages_only
         and context.monorepo_package_name is None
