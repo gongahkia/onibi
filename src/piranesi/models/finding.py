@@ -212,6 +212,8 @@ class VerificationAttempt(BaseModel):
     finding_id: str
     status: Literal["confirmed", "skipped", "inconclusive", "error"]
     reason: str
+    proof_mode: Literal["safe", "unsafe"] = "safe"
+    evidence: list[str] = Field(default_factory=list)
     template_id: str | None = None
     template_reason: str | None = None
     preconditions: list[VerificationPrecondition] = Field(default_factory=list)

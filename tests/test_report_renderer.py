@@ -346,6 +346,8 @@ def test_report_renderer_includes_verification_skip_reason_and_preconditions(
         finding_id="finding-active",
         status="skipped",
         reason="verification skipped: missing required preconditions (route_mapping)",
+        proof_mode="safe",
+        evidence=["route mapping unavailable"],
         template_id="generic-probe",
         template_reason="fallback",
         preconditions=[
@@ -377,12 +379,16 @@ def test_report_renderer_includes_verification_skip_reason_and_preconditions(
     payload = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
     verification_state = payload["active_findings"][0]["explanation"]["verification_state"]
     assert verification_state["outcome"] == "skipped"
+    assert verification_state["proof_mode"] == "safe"
     assert "missing required preconditions" in verification_state["reason"]
+    assert verification_state["evidence"] == ["route mapping unavailable"]
     assert verification_state["missing_preconditions"] == ["route_mapping"]
     assert len(verification_state["preconditions"]) == 1
 
     markdown = (tmp_path / "report.md").read_text(encoding="utf-8")
     assert "- **Verification outcome:** `skipped`" in markdown
+    assert "- **Proof mode:** `safe`" in markdown
+    assert "- **Verification evidence:** route mapping unavailable" in markdown
     assert (
         "- **Verification reason:** verification skipped: missing required preconditions"
         in markdown

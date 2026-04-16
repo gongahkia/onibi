@@ -147,6 +147,7 @@ def solve_exploit_template(
     template: ExploitTemplate,
     *,
     timeout_ms: int = DEFAULT_TIMEOUT_MS,
+    allow_unsafe_payloads: bool = False,
     solver_factory: SolverFactory | None = None,
     concolic_input: ConcolicInput | None = None,
     finding: CandidateFinding | None = None,
@@ -166,6 +167,7 @@ def solve_exploit_template(
                 slot=slot,
                 constraint_set_index=index,
                 timeout_ms=resolved_timeout_ms,
+                allow_unsafe_payloads=allow_unsafe_payloads,
                 solver_factory=solver_factory,
             )
             if attempt.status == "SAT" and attempt.solution is not None:
@@ -192,6 +194,15 @@ def solve_exploit_template(
             timeout_ms=resolved_timeout_ms,
         )
         if concolic_result.status == "SAT" and concolic_result.payload is not None:
+            if not allow_unsafe_payloads and any(
+                not is_safe_payload(payload_value)
+                for payload_value in concolic_result.payload.payload_values.values()
+            ):
+                return SolverResult(
+                    status="UNVERIFIABLE",
+                    reason="UNSAFE_PAYLOAD_REJECTED",
+                    concolic_result=concolic_result,
+                )
             if not template.payload_slots:
                 return SolverResult(
                     status="UNVERIFIABLE",
@@ -232,6 +243,7 @@ def solve_constraint_set(
     slot: PayloadSlot,
     constraint_set_index: int = 0,
     timeout_ms: int = DEFAULT_TIMEOUT_MS,
+    allow_unsafe_payloads: bool = False,
     solver_factory: SolverFactory | None = None,
 ) -> SolveAttempt:
     last_reason = "CONSTRAINTS_UNSATISFIABLE"
@@ -253,7 +265,7 @@ def solve_constraint_set(
             model_values = extract_model_values(solver.model(), variables)
             if forced_payload is not None:
                 model_values[slot.name] = forced_payload
-            if not is_safe_payload(model_values[slot.name]):
+            if not allow_unsafe_payloads and not is_safe_payload(model_values[slot.name]):
                 last_reason = "UNSAFE_PAYLOAD_REJECTED"
                 continue
             payload = synthesize_payload(template, slot=slot, model_values=model_values)

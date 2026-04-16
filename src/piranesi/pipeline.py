@@ -2214,7 +2214,7 @@ def _run_verify_stage(
     config: PiranesiConfig,
     prev_result: StageResult | None,
 ) -> StageResult:
-    _ = config
+    proof_mode = config.verify.proof_mode
     triage_artifact = _extract_stage_artifact(prev_result, TriageArtifact, "triage")
     started_at = time.monotonic()
     confirmed_findings: list[ConfirmedFinding] = []
@@ -2223,15 +2223,17 @@ def _run_verify_stage(
     for triaged in triage_artifact.findings:
         if triaged.triage_verdict == "false_positive":
             continue
-        template = extract_exploit_template(triaged.finding)
+        template = extract_exploit_template(triaged.finding, proof_mode=proof_mode)
         precondition_eval = evaluate_verification_preconditions(
             finding=triaged.finding,
             template=template,
             target_dir=context.target_dir,
+            proof_mode=proof_mode,
             no_execute=context.no_execute,
         )
         attempt_fields = {
             "finding_id": triaged.finding.id,
+            "proof_mode": proof_mode,
             "template_id": template.template_id,
             "template_reason": template.template_selection_reason,
             "preconditions": list(precondition_eval.preconditions),
@@ -2246,7 +2248,10 @@ def _run_verify_stage(
             )
             continue
 
-        solve_result = solve_exploit_template(template)
+        solve_result = solve_exploit_template(
+            template,
+            allow_unsafe_payloads=proof_mode == "unsafe",
+        )
         if solve_result.status != "SAT" or not solve_result.solutions:
             verification_attempts.append(
                 VerificationAttempt(
@@ -2257,6 +2262,7 @@ def _run_verify_stage(
                         if solve_result.reason is None
                         else f"verification inconclusive: {solve_result.reason}"
                     ),
+                    evidence=[] if solve_result.reason is None else [solve_result.reason],
                 )
             )
             continue
@@ -2277,6 +2283,7 @@ def _run_verify_stage(
                     **attempt_fields,
                     status="error",
                     reason=f"verification error: sandbox execution failed ({exc})",
+                    evidence=[str(exc)],
                 )
             )
             continue
@@ -2289,6 +2296,7 @@ def _run_verify_stage(
                         "verification inconclusive: sandbox did not return "
                         "baseline+exploit captures"
                     ),
+                    evidence=["MISSING_SANDBOX_CAPTURES"],
                 )
             )
             continue
@@ -2302,6 +2310,7 @@ def _run_verify_stage(
                     **attempt_fields,
                     status="inconclusive",
                     reason=f"verification inconclusive: sandbox capture error ({capture_error})",
+                    evidence=[capture_error],
                 )
             )
             continue
@@ -2318,6 +2327,7 @@ def _run_verify_stage(
                     **attempt_fields,
                     status="inconclusive",
                     reason=f"verification inconclusive: {confirmation.evidence}",
+                    evidence=[confirmation.evidence],
                 )
             )
             continue
@@ -2349,6 +2359,7 @@ def _run_verify_stage(
                 **attempt_fields,
                 status="confirmed",
                 reason=f"dynamic verification confirmed: {confirmation.evidence}",
+                evidence=[confirmation.evidence],
             )
         )
 

@@ -25,6 +25,7 @@ def test_load_config_defaults(config_file: Callable[[str], Path]) -> None:
     assert config.lsp.enabled is True
     assert config.lsp.scan_on_save is True
     assert config.lsp.debounce_ms == 1000
+    assert config.verify.proof_mode == "safe"
 
 
 def test_load_config_from_file(fixtures_dir: Path) -> None:
@@ -35,6 +36,7 @@ def test_load_config_from_file(fixtures_dir: Path) -> None:
     assert config.models.scanner == "scanner-from-file"
     assert config.budget.max_cost_usd == 9.5
     assert config.output.output_dir == "./custom-output"
+    assert config.verify.proof_mode == "unsafe"
 
 
 def test_load_config_accepts_compliance_report_format(

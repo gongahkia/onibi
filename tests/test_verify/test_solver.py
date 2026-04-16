@@ -262,6 +262,27 @@ def test_sqli_payload_generation_uses_safe_read_only_candidate() -> None:
     assert any(token in payload_value for token in ("OR 1=1", "UNION SELECT", "SLEEP"))
 
 
+def test_solver_rejects_destructive_payloads_without_unsafe_opt_in() -> None:
+    slot = _slot(name="username", carrier="body", encoding="json")
+    template = _template(
+        vuln_class="CWE-89",
+        slot=slot,
+        method="POST",
+        endpoint="/users",
+        safe_payloads=("'; DELETE FROM users;--",),
+        destructive_payloads=True,
+    )
+
+    safe_result = solve_exploit_template(template)
+    unsafe_result = solve_exploit_template(template, allow_unsafe_payloads=True)
+
+    assert safe_result.status == "UNVERIFIABLE"
+    assert safe_result.reason == "UNSAFE_PAYLOAD_REJECTED"
+    assert unsafe_result.status == "SAT"
+    assert unsafe_result.solutions
+    assert "DELETE" in unsafe_result.solutions[0].payload.payload_values["username"]
+
+
 def test_timeout_handling_returns_unverifiable() -> None:
     slot = _slot(name="input", carrier="query", encoding="query")
 
@@ -311,6 +332,8 @@ def _template(
     method: str = "GET",
     endpoint: str = "/",
     constraint_sets: Sequence[Sequence[object]] | None = None,
+    safe_payloads: Sequence[str] = (),
+    destructive_payloads: bool = False,
 ) -> ExploitTemplate:
     resolved_sets = tuple(tuple(constraint_set) for constraint_set in (constraint_sets or [()]))
     return ExploitTemplate(
@@ -320,6 +343,8 @@ def _template(
         payload_slots=(slot,),
         path_conditions=(),
         constraint_sets=resolved_sets,  # type: ignore[arg-type]
+        safe_payloads=tuple(safe_payloads),
+        destructive_payloads=destructive_payloads,
         unsat_reason=None,
     )
 

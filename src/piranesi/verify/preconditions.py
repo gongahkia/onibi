@@ -5,7 +5,7 @@ from pathlib import Path
 
 from piranesi.models import CandidateFinding
 from piranesi.models.finding import VerificationPrecondition
-from piranesi.verify.constraints import ExploitTemplate
+from piranesi.verify.constraints import ExploitTemplate, ProofMode
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,6 +20,7 @@ def evaluate_verification_preconditions(
     finding: CandidateFinding,
     template: ExploitTemplate,
     target_dir: Path,
+    proof_mode: ProofMode,
     no_execute: bool,
 ) -> VerificationPreconditionEvaluation:
     metadata = finding.metadata
@@ -262,6 +263,31 @@ def evaluate_verification_preconditions(
                 value="not required",
                 source="template defaults",
             )
+            )
+
+    if template.destructive_payloads and proof_mode != "unsafe":
+        preconditions.append(
+            VerificationPrecondition(
+                key="unsafe_templates",
+                description="Unsafe/destructive verification templates require explicit opt-in",
+                status="missing",
+                source="config.verify.proof_mode",
+                next_step=(
+                    "Rerun with --proof-mode unsafe or set [verify].proof_mode = \"unsafe\" "
+                    "to enable destructive probe templates."
+                ),
+            )
+        )
+    else:
+        preconditions.append(
+            VerificationPrecondition(
+                key="unsafe_templates",
+                description="Unsafe/destructive verification templates require explicit opt-in",
+                status="satisfied",
+                required=False,
+                value="enabled" if template.destructive_payloads else "not required",
+                source="config.verify.proof_mode",
+            )
         )
 
     if no_execute:
@@ -270,8 +296,8 @@ def evaluate_verification_preconditions(
                 key="proof_mode",
                 description="Execution mode permits sandbox request replay",
                 status="user_provided",
-                value="no_execute",
-                source="CLI flag",
+                value=f"{proof_mode}:no_execute",
+                source="CLI/config",
                 next_step="Rerun without --no-execute to perform sandbox verification.",
             )
         )
@@ -281,8 +307,8 @@ def evaluate_verification_preconditions(
                 key="proof_mode",
                 description="Execution mode permits sandbox request replay",
                 status="satisfied",
-                value="execute",
-                source="CLI flag",
+                value=proof_mode,
+                source="config.verify.proof_mode",
             )
         )
 

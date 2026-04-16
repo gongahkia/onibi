@@ -98,6 +98,7 @@ class VerificationState(BaseModel):
     state: str
     verified: bool = False
     outcome: str | None = None
+    proof_mode: str | None = None
     reason: str | None = None
     verification_method: str | None = None
     triage_verdict: str | None = None
@@ -105,6 +106,7 @@ class VerificationState(BaseModel):
     suppression_reason: str | None = None
     preconditions: list[VerificationPrecondition] = Field(default_factory=list)
     missing_preconditions: list[str] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)
     actionable_next_steps: list[str] = Field(default_factory=list)
 
 
@@ -879,7 +881,9 @@ def _verification_state(
     else:
         state = "candidate"
     outcome = None if verification_attempt is None else verification_attempt.status
+    proof_mode = None if verification_attempt is None else verification_attempt.proof_mode
     reason = None if verification_attempt is None else verification_attempt.reason
+    evidence = [] if verification_attempt is None else list(verification_attempt.evidence)
     preconditions = [] if verification_attempt is None else list(verification_attempt.preconditions)
     missing = [
         precondition.key
@@ -900,6 +904,7 @@ def _verification_state(
         state=state,
         verified=verified,
         outcome=outcome,
+        proof_mode=proof_mode,
         reason=reason,
         verification_method=verification_method,
         triage_verdict=None if triaged is None else triaged.triage_verdict,
@@ -907,6 +912,7 @@ def _verification_state(
         suppression_reason=suppression_reason,
         preconditions=preconditions,
         missing_preconditions=missing,
+        evidence=evidence,
         actionable_next_steps=next_steps,
     )
 

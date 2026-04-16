@@ -26,3 +26,6 @@ log_prompts = true
 include_patterns = ["src/**/*.ts"]
 exclude_patterns = ["dist/**"]
 max_file_size = 2048
+
+[verify]
+proof_mode = "unsafe"

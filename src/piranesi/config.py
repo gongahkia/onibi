@@ -101,6 +101,8 @@ class CustomSinkConfig(BaseModel):
     patterns: list[str] = Field(default_factory=list)
     sink_type: str = "custom"
     cwe_id: str | None = None
+    include_receivers: list[str] = Field(default_factory=list)
+    exclude_receivers: list[str] = Field(default_factory=list)
 
 
 class ScanConfig(BaseModel):
@@ -183,6 +185,12 @@ class ReachabilityConfig(BaseModel):
     dead_code_report: bool = False
 
 
+class VerifyConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    proof_mode: Literal["safe", "unsafe"] = "safe"
+
+
 class LspConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -207,6 +215,7 @@ class PiranesiConfig(BaseModel):
     detect: DetectConfig = Field(default_factory=DetectConfig)
     triage: TriageConfig = Field(default_factory=TriageConfig)
     reachability: ReachabilityConfig = Field(default_factory=ReachabilityConfig)
+    verify: VerifyConfig = Field(default_factory=VerifyConfig)
     lsp: LspConfig = Field(default_factory=LspConfig)
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
     rules: RulesConfig = Field(default_factory=RulesConfig)

@@ -19,6 +19,7 @@ from piranesi.verify.sandbox import PayloadEncoding
 ConstraintOperator = Literal["eq", "lt", "le", "gt", "ge"]
 ConstraintValueType = Literal["string", "int", "float", "bool"]
 PayloadCarrier = Literal["body", "query", "path", "header"]
+ProofMode = Literal["safe", "unsafe"]
 
 _MAX_DISJUNCTS = 10
 _CWE_ID_PATTERN = re.compile(r"\bCWE-\d+\b")
@@ -143,6 +144,7 @@ class ExploitTemplate:
     risk_level: VerificationRiskLevel = "low"
     network_callbacks_allowed: bool = False
     destructive_payloads: bool = False
+    proof_mode: ProofMode = "safe"
     unsat_reason: str | None = None
 
 
@@ -177,6 +179,7 @@ class ExploitTemplateSpec:
     risk_level: VerificationRiskLevel
     network_callbacks_allowed: bool = False
     destructive_payloads: bool = False
+    proof_modes: tuple[ProofMode, ...] = ("safe", "unsafe")
 
 
 _GENERIC_TEMPLATE_SPEC = ExploitTemplateSpec(
@@ -471,9 +474,49 @@ _EXPLOIT_TEMPLATE_REGISTRY: tuple[ExploitTemplateSpec, ...] = (
     ),
 )
 
-_TEMPLATE_BY_CWE: dict[str, ExploitTemplateSpec] = {
-    cwe_id: spec for spec in _EXPLOIT_TEMPLATE_REGISTRY for cwe_id in spec.cwe_ids
-}
+_UNSAFE_TEMPLATE_REGISTRY: tuple[ExploitTemplateSpec, ...] = (
+    ExploitTemplateSpec(
+        template_id="sqli-destructive-probe",
+        title="SQL injection destructive mutation probe",
+        cwe_ids=("CWE-89",),
+        category_tokens=("sql", "query", "database", "orm"),
+        preconditions=(
+            TemplatePrecondition(
+                name="sql-sink",
+                description="input reaches a SQL query sink without strict parameterization",
+            ),
+            TemplatePrecondition(
+                name="explicit-unsafe-opt-in",
+                description="operator explicitly enabled unsafe proof mode",
+            ),
+        ),
+        request_shape=TemplateRequestShape(
+            methods=("GET", "POST", "PUT", "PATCH"),
+            carriers=("body", "query", "path", "header"),
+            description="Inject SQL statements that mutate database state.",
+        ),
+        safe_payloads=(
+            "'; UPDATE users SET role='admin' WHERE username='piranesi-probe';--",
+            "'; DELETE FROM sessions WHERE user_id=1;--",
+        ),
+        expected_evidence=(
+            "database state mutation observed between baseline and exploit",
+            "response or logs confirm write/delete side effects",
+        ),
+        timeout_ms=35_000,
+        risk_level="high",
+        destructive_payloads=True,
+        proof_modes=("unsafe",),
+    ),
+)
+
+
+def _templates_for_mode(proof_mode: ProofMode) -> tuple[ExploitTemplateSpec, ...]:
+    return tuple(
+        spec
+        for spec in (*_EXPLOIT_TEMPLATE_REGISTRY, *_UNSAFE_TEMPLATE_REGISTRY)
+        if proof_mode in spec.proof_modes
+    )
 
 
 def _extract_cwe_id(vuln_class: str) -> str | None:
@@ -510,19 +553,32 @@ def _selection_context(
 
 
 def exploit_template_registry() -> tuple[ExploitTemplateSpec, ...]:
-    return (*_EXPLOIT_TEMPLATE_REGISTRY, _GENERIC_TEMPLATE_SPEC)
+    return (*_EXPLOIT_TEMPLATE_REGISTRY, *_UNSAFE_TEMPLATE_REGISTRY, _GENERIC_TEMPLATE_SPEC)
+
+
+def _mode_priority(spec: ExploitTemplateSpec, *, proof_mode: ProofMode) -> int:
+    if proof_mode == "unsafe" and spec.destructive_payloads:
+        return 1
+    return 0
 
 
 def select_exploit_template_spec(
     finding: CandidateFinding,
     *,
+    proof_mode: ProofMode = "safe",
     payload_slots: Sequence[PayloadSlot] = (),
     http_method: str | None = None,
     endpoint: str | None = None,
 ) -> tuple[ExploitTemplateSpec, str]:
+    candidate_specs = _templates_for_mode(proof_mode)
     cwe_id = _extract_cwe_id(finding.vuln_class)
-    if cwe_id is not None and cwe_id in _TEMPLATE_BY_CWE:
-        spec = _TEMPLATE_BY_CWE[cwe_id]
+    cwe_specs = (
+        tuple(spec for spec in candidate_specs if cwe_id in spec.cwe_ids)
+        if cwe_id is not None
+        else ()
+    )
+    if cwe_specs:
+        spec = max(cwe_specs, key=lambda item: _mode_priority(item, proof_mode=proof_mode))
         reason = f"matched finding CWE {cwe_id}"
         return spec, reason + _selection_context(payload_slots, http_method, endpoint)
 
@@ -534,12 +590,12 @@ def select_exploit_template_spec(
         payload_slots
         and any(
             slot.carrier in spec.request_shape.carriers
-            for spec in _EXPLOIT_TEMPLATE_REGISTRY
+            for spec in candidate_specs
             for slot in payload_slots
         )
     )
 
-    for spec in _EXPLOIT_TEMPLATE_REGISTRY:
+    for spec in candidate_specs:
         matched_tokens = tuple(
             token
             for token in spec.category_tokens
@@ -555,6 +611,7 @@ def select_exploit_template_spec(
             score += 1
         if http_method is not None and http_method.upper() in spec.request_shape.methods:
             score += 1
+        score += _mode_priority(spec, proof_mode=proof_mode)
 
         if score <= best_score:
             continue
@@ -585,12 +642,17 @@ def select_exploit_template_spec(
     )
 
 
-def extract_exploit_template(finding: CandidateFinding) -> ExploitTemplate:
+def extract_exploit_template(
+    finding: CandidateFinding,
+    *,
+    proof_mode: ProofMode = "safe",
+) -> ExploitTemplate:
     payload_slots = _extract_payload_slots(finding)
     alias_map = _build_alias_map(finding, payload_slots)
     http_method, endpoint = _infer_route(finding, payload_slots[0] if payload_slots else None)
     template_spec, template_reason = select_exploit_template_spec(
         finding,
+        proof_mode=proof_mode,
         payload_slots=payload_slots,
         http_method=http_method,
         endpoint=endpoint,
@@ -639,6 +701,7 @@ def extract_exploit_template(finding: CandidateFinding) -> ExploitTemplate:
         risk_level=template_spec.risk_level,
         network_callbacks_allowed=template_spec.network_callbacks_allowed,
         destructive_payloads=template_spec.destructive_payloads,
+        proof_mode=proof_mode,
         unsat_reason=unsat_reason,
     )
 
@@ -1594,6 +1657,7 @@ __all__ = [
     "LogicalOr",
     "PayloadCarrier",
     "PayloadSlot",
+    "ProofMode",
     "StringContains",
     "StringEq",
     "StringLength",

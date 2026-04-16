@@ -152,6 +152,15 @@ def test_run_help_lists_incremental_flag() -> None:
     assert "--changed-packag" in output
     assert "--max-parallel" in output
     assert "--sbom" in output
+    assert "--proof-mode" in output
+
+
+def test_verify_help_lists_proof_mode_flag() -> None:
+    result = runner.invoke(app, ["verify", "--help"])
+    output = _plain_output(result.stdout)
+
+    assert result.exit_code == 0
+    assert "--proof-mode" in output
 
 
 def test_watch_help_lists_watch_mode_flags() -> None:

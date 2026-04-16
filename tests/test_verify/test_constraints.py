@@ -168,6 +168,70 @@ def test_extract_exploit_template_selects_ssrf_template_by_cwe(tmp_path: Path) -
     assert template.destructive_payloads is False
 
 
+def test_extract_exploit_template_uses_safe_mode_by_default(tmp_path: Path) -> None:
+    app_file = tmp_path / "users.ts"
+    app_file.write_text(
+        "\n".join(
+            [
+                'app.post("/users", (req, res) => {',
+                "  const username = req.body.username;",
+                "  return db.query(`SELECT * FROM users WHERE username = '${username}'`);",
+                "});",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    finding = _candidate_finding(
+        app_file,
+        source_line=2,
+        source_snippet="const username = req.body.username;",
+        source_type="req.body.username",
+        parameter_name="username",
+        path_conditions=[],
+        vuln_class="CWE-89: SQL Injection",
+        sink_type="sql_query",
+        api_name="db.query",
+    )
+
+    template = extract_exploit_template(finding)
+
+    assert template.template_id == "sqli-read-probe"
+    assert template.proof_mode == "safe"
+    assert template.destructive_payloads is False
+
+
+def test_extract_exploit_template_unsafe_mode_can_select_destructive_probe(tmp_path: Path) -> None:
+    app_file = tmp_path / "users.ts"
+    app_file.write_text(
+        "\n".join(
+            [
+                'app.post("/users", (req, res) => {',
+                "  const username = req.body.username;",
+                "  return db.query(`SELECT * FROM users WHERE username = '${username}'`);",
+                "});",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    finding = _candidate_finding(
+        app_file,
+        source_line=2,
+        source_snippet="const username = req.body.username;",
+        source_type="req.body.username",
+        parameter_name="username",
+        path_conditions=[],
+        vuln_class="CWE-89: SQL Injection",
+        sink_type="sql_query",
+        api_name="db.query",
+    )
+
+    template = extract_exploit_template(finding, proof_mode="unsafe")
+
+    assert template.template_id == "sqli-destructive-probe"
+    assert template.proof_mode == "unsafe"
+    assert template.destructive_payloads is True
+
+
 def test_select_template_spec_uses_metadata_tokens_for_open_redirect(tmp_path: Path) -> None:
     app_file = tmp_path / "redirect.ts"
     app_file.write_text(

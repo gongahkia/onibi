@@ -191,6 +191,11 @@ class SbomFormat(StrEnum):
     CYCLONEDX = "cyclonedx"
 
 
+class ProofMode(StrEnum):
+    SAFE = "safe"
+    UNSAFE = "unsafe"
+
+
 class FailSeverity(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
@@ -227,6 +232,14 @@ ComplianceFormatOption = Annotated[
 SbomOption = Annotated[
     SbomFormat | None,
     typer.Option("--sbom", help="Generate an SBOM during scan.", case_sensitive=False),
+]
+ProofModeOption = Annotated[
+    ProofMode | None,
+    typer.Option(
+        "--proof-mode",
+        help="Verification probe mode: safe (default) or unsafe (explicit opt-in).",
+        case_sensitive=False,
+    ),
 ]
 ResumeOption = Annotated[
     bool,
@@ -456,6 +469,12 @@ def _sbom_override(sbom_format: SbomFormat | None) -> str | None:
     return sbom_format.value
 
 
+def _proof_mode_override(proof_mode: ProofMode | None) -> str | None:
+    if proof_mode is None:
+        return None
+    return proof_mode.value
+
+
 def _parse_date_option(value: str | None, *, option_name: str) -> date | None:
     if value is None:
         return None
@@ -614,6 +633,10 @@ def _render_finding_explanation(status: str, finding: ReportFindingMatch) -> str
                     f"{explanation.verification_state.outcome or 'not_attempted'}"
                 ),
                 (
+                    "- Proof mode: "
+                    f"{explanation.verification_state.proof_mode or 'n/a'}"
+                ),
+                (
                     "- Verification method: "
                     f"{explanation.verification_state.verification_method or 'n/a'}"
                 ),
@@ -633,6 +656,10 @@ def _render_finding_explanation(status: str, finding: ReportFindingMatch) -> str
                 (
                     "- Missing preconditions: "
                     f"{', '.join(explanation.verification_state.missing_preconditions) or 'none'}"
+                ),
+                (
+                    "- Verification evidence: "
+                    f"{' | '.join(explanation.verification_state.evidence) or 'none'}"
                 ),
                 "",
                 "Confidence contributors:",
@@ -1008,6 +1035,7 @@ def _run_single_stage(
     options: CommonOptions,
     extra_cli_overrides: dict[str, Any] | None = None,
     is_dir_target: bool = False,
+    no_execute: bool = False,
 ) -> StageResult:
     """Run a single pipeline stage, replacing the old stub."""
     setup_logging(
@@ -1045,6 +1073,7 @@ def _run_single_stage(
             router=router,
             cost_tracker=cost_tracker,
             trace_writer=trace_writer,
+            no_execute=no_execute,
             use_cache=not options.no_cache,
             incremental=(
                 prepare_incremental_state(
@@ -1862,6 +1891,7 @@ def verify(
     findings_file: FindingsFileArg,
     docker_image: DockerImageOption = None,
     timeout: TimeoutOption = None,
+    proof_mode: ProofModeOption = None,
     no_execute: NoExecuteOption = False,
     config: ConfigOption = Path("./piranesi.toml"),
     output: OutputOption = Path("./piranesi-output"),
@@ -1873,7 +1903,6 @@ def verify(
     authorized: AuthorizedOption = False,
     yes: YesOption = False,
 ) -> None:
-    _ = no_execute
     _run_single_stage(
         "verify",
         findings_file,
@@ -1891,7 +1920,9 @@ def verify(
         extra_cli_overrides={
             "sandbox.docker_image": docker_image,
             "sandbox.timeout_seconds": timeout,
+            "verify.proof_mode": _proof_mode_override(proof_mode),
         },
+        no_execute=no_execute,
     )
 
 
@@ -2516,6 +2547,7 @@ def run(
     patch_model: PatchModelOption = None,
     docker_image: DockerImageOption = None,
     timeout: TimeoutOption = None,
+    proof_mode: ProofModeOption = None,
     no_execute: NoExecuteOption = False,
     apply: ApplyOption = False,
     format: FormatOption = None,
@@ -2574,6 +2606,7 @@ def run(
             "models.patcher": patch_model,
             "sandbox.docker_image": docker_image,
             "sandbox.timeout_seconds": timeout,
+            "verify.proof_mode": _proof_mode_override(proof_mode),
             "output.format": _format_override(format),
         },
     )

@@ -58,6 +58,11 @@ source_type = "custom"
 patterns = []
 sink_type = "custom"
 cwe_id = "CWE-89"
+include_receivers = []
+exclude_receivers = []
+
+[verify]
+proof_mode = "safe"
 ```
 
 Notes:
@@ -126,6 +131,14 @@ Combined report settings.
 | `format` | `str` | `both` | Report format selector. Supported values include `json`, `markdown`, `both`, `sarif`, `junit`, `csv`, `tui`, and `compliance`. |
 | `output_dir` | `str` | `./piranesi-output` | Directory for stage artifacts and rendered reports. |
 
+### `[verify]`
+
+Verification proof-mode controls.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `proof_mode` | `"safe" \| "unsafe"` | `safe` | `safe` prefers non-mutating probes and excludes destructive templates. `unsafe` explicitly opts in to higher-risk templates (for example mutation-oriented probes) and should only be used in disposable or authorized environments. |
+
 ### `[trace]`
 
 LLM trace logging.
@@ -176,6 +189,8 @@ Additional Joern sink expressions appended to the built-in sink list.
 | `patterns` | `list[str]` | `[]` | Raw CPGQL expressions that identify sink nodes. |
 | `sink_type` | `str` | `custom` | Sink label. Recognized values include `sql_query`, `shell_exec`, `eval`, `html_output`, `file_read`, `file_write`, `http_request`, and `custom`. Unknown values normalize to `custom`. |
 | `cwe_id` | `str | null` | `null` | CWE tag attached to findings that use the custom sink. |
+| `include_receivers` | `list[str]` | `[]` | Optional receiver allowlist. A sink call must use one of these receivers (exact or dotted-prefix match, such as `axios` matching `axios.get`). |
+| `exclude_receivers` | `list[str]` | `[]` | Optional receiver denylist. Matching sink calls are dropped when the receiver is listed (exact or dotted-prefix match, such as `app` matching `app.get`). |
 
 ## Built-In Source and Sink Coverage
 
@@ -232,6 +247,7 @@ The current `run` command can override these config fields directly:
 - `--patch-model`
 - `--docker-image`
 - `--timeout`
+- `--proof-mode`
 - `--format`
 - `--config`
 - `--output`

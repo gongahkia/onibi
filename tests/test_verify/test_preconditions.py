@@ -53,6 +53,7 @@ def test_evaluate_preconditions_marks_target_url_missing_without_runtime_or_meta
         finding=finding,
         template=template,
         target_dir=runtime_dir,
+        proof_mode="safe",
         no_execute=False,
     )
 
@@ -97,6 +98,7 @@ def test_evaluate_preconditions_marks_route_mapping_missing_when_endpoint_unknow
         finding=finding,
         template=template,
         target_dir=runtime_dir,
+        proof_mode="safe",
         no_execute=False,
     )
 
@@ -167,7 +169,7 @@ def test_run_verify_stage_records_no_execute_skip_reason(tmp_path: Path) -> None
     assert "--no-execute" in attempt.reason
     by_key = {precondition.key: precondition for precondition in attempt.preconditions}
     assert by_key["proof_mode"].status == "user_provided"
-    assert by_key["proof_mode"].value == "no_execute"
+    assert by_key["proof_mode"].value == "safe:no_execute"
 
 
 def _candidate_finding(

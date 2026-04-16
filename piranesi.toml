@@ -26,3 +26,6 @@ log_prompts = false
 include_patterns = ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"]
 exclude_patterns = ["**/node_modules/**", "**/dist/**", "**/*.d.ts", "**/*.test.ts", "**/*.spec.ts"]
 max_file_size = 1048576
+
+[verify]
+proof_mode = "safe"

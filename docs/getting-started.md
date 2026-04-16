@@ -129,7 +129,7 @@ After the first run, the output directory contains:
 - `scan.json`: file list, call graph, entry points, attack-surface summary, and `query_quality` metrics for loaded/matched source and sink specs.
 - `detect.json`: candidate findings from the taint analysis stage.
 - `triage.json`: triage verdicts generated via the configured LLM provider.
-- `verify.json`: confirmed findings plus per-finding verification attempts with precondition status (`satisfied`, `missing`, `inferred`, `user_provided`) and explicit skip/inconclusive reasons.
+- `verify.json`: confirmed findings plus per-finding verification attempts with precondition status (`satisfied`, `missing`, `inferred`, `user_provided`), selected `proof_mode`, machine-readable evidence strings, and explicit skip/inconclusive reasons.
 - `legal.json`: regulatory obligations for confirmed findings.
 - `patch.json`: generated fixes for confirmed findings.
 - `report.json`: machine-readable combined report, including the `query_quality` block copied from `scan.json` and per-finding `evidence_status` values.
@@ -167,6 +167,7 @@ It now also prints structured explanation metadata:
 - sanitizers considered vs sanitizers actually observed on the path
 - propagation summary (source to sink, operations, sanitizer steps)
 - verification state (candidate, unreachable, suppressed, or verified), including attempt outcome, skip/inconclusive reason, missing preconditions, and actionable next steps
+- verification proof mode and evidence captured by the verifier
 - confidence contributors with a documented `v1` weighted component model
 
 Confidence model (`v1`) components shown in `report.json` and `piranesi explain`:
@@ -210,8 +211,13 @@ Verification currently uses structured exploit/probe templates with safe default
 - `CWE-502` insecure deserialization (marker payloads only)
 - weak crypto classes (`CWE-327`, `CWE-326`, `CWE-319`) when tainted input controls algorithm/cipher choice
 
-By default these templates avoid destructive payloads and do not require external
-network callback infrastructure.
+By default (`--proof-mode safe`) these templates avoid destructive payloads and
+do not require external network callback infrastructure.
+
+If you explicitly set `--proof-mode unsafe` (or `[verify].proof_mode = "unsafe"`),
+Piranesi may select higher-risk templates intended for disposable test targets.
+Unsafe mode can perform intrusive/destructive probes and should not be used on
+production systems.
 
 When you are ready to exercise LLM-assisted triage and patch generation, set one LiteLLM-compatible API key before running the pipeline.
 
