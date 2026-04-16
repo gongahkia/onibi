@@ -136,6 +136,13 @@ For a compact human-readable summary, run:
 uv run python docs/examples/run_detect_summary.py examples/vuln-express
 ```
 
+Golden-path first run sequence (the same flow is covered by a CLI regression test):
+
+1. `uv run piranesi init`
+2. `uv run piranesi doctor .`
+3. `uv run piranesi run . --authorized --yes --no-execute --output .piranesi-out/first-run`
+4. `uv run piranesi explain <finding-id> --output .piranesi-out/first-run`
+
 ## Understanding the Output
 
 After the first run, the output directory contains:
