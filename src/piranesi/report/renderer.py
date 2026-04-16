@@ -49,6 +49,7 @@ EvidenceStatus = Literal[
     "unreachable_candidate",
     "suppressed",
 ]
+RiskBand = Literal["low", "medium", "high", "critical"]
 _EVIDENCE_STATUS_ORDER: tuple[EvidenceStatus, ...] = (
     "confirmed",
     "triaged_active_candidate",
@@ -154,6 +155,32 @@ class ConfidenceBreakdown(BaseModel):
     )
 
 
+class CompositeRiskComponent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    points: float
+    rationale: str
+
+
+class CompositeRiskBreakdown(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model_version: str = "v1"
+    severity: CompositeRiskComponent
+    confidence: CompositeRiskComponent
+    source_exposure: CompositeRiskComponent
+    sink_criticality: CompositeRiskComponent
+    ownership_signal: CompositeRiskComponent
+    verification_signal: CompositeRiskComponent
+    exploitability_signal: CompositeRiskComponent
+    advisory_signal: CompositeRiskComponent
+    reachable_path_signal: CompositeRiskComponent
+    suppression_signal: CompositeRiskComponent
+    total_score: float
+    risk_band: RiskBand
+    formula: str = "sum(component points), clamped to [0, 100]"
+
+
 class FindingExplanation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -177,6 +204,9 @@ class CombinedFinding(BaseModel):
     title: str
     severity: str
     confidence: float
+    composite_risk_score: float = 0.0
+    composite_risk_band: RiskBand = "low"
+    composite_risk: CompositeRiskBreakdown | None = None
     metadata: dict[str, object] = Field(default_factory=dict)
     ownership: OwnershipMetadata = Field(default_factory=lambda: OwnershipMetadata())
     verified: bool
@@ -222,6 +252,9 @@ class CandidateReportFinding(BaseModel):
     severity: str
     original_severity: str | None = None
     confidence: float
+    composite_risk_score: float = 0.0
+    composite_risk_band: RiskBand = "low"
+    composite_risk: CompositeRiskBreakdown | None = None
     metadata: dict[str, object] = Field(default_factory=dict)
     ownership: OwnershipMetadata = Field(default_factory=lambda: OwnershipMetadata())
     taint_source: str
@@ -251,6 +284,9 @@ class SuppressedFinding(BaseModel):
     title: str
     severity: str
     confidence: float
+    composite_risk_score: float = 0.0
+    composite_risk_band: RiskBand = "low"
+    composite_risk: CompositeRiskBreakdown | None = None
     metadata: dict[str, object] = Field(default_factory=dict)
     ownership: OwnershipMetadata = Field(default_factory=lambda: OwnershipMetadata())
     taint_source: str
@@ -300,6 +336,11 @@ class ExecutiveSummary(BaseModel):
     unreachable_findings: int = 0
     finding_clusters: int = 0
     severity_breakdown: dict[str, int] = Field(default_factory=dict)
+    composite_risk_breakdown: dict[str, int] = Field(default_factory=dict)
+    highest_composite_risk_score: float = 0.0
+    highest_composite_risk_band: RiskBand | None = None
+    highest_composite_risk_finding_id: str | None = None
+    top_composite_risk_findings: list[str] = Field(default_factory=list)
     top_regulatory_concerns: list[str] = Field(default_factory=list)
     total_llm_cost_usd: float
     duration_s: float
@@ -439,6 +480,20 @@ def build_report(
         if not candidate.suppressed:
             continue
         triaged = triage_by_id.get(candidate.id)
+        ownership = _resolve_finding_ownership(
+            candidate,
+            target_dir=target_dir,
+            ownership_config=ownership_config,
+            ownership_context=ownership_context,
+        )
+        composite_risk = _composite_risk_breakdown(
+            candidate,
+            evidence_status="suppressed",
+            verified=False,
+            confirmed=None,
+            verification_attempt=attempts_by_id.get(candidate.id),
+            ownership=ownership,
+        )
         suppressed_findings.append(
             SuppressedFinding(
                 finding_id=candidate.id,
@@ -446,13 +501,11 @@ def build_report(
                 title=_finding_title(candidate),
                 severity=candidate.severity,
                 confidence=candidate.confidence,
+                composite_risk_score=composite_risk.total_score,
+                composite_risk_band=composite_risk.risk_band,
+                composite_risk=composite_risk,
                 metadata=dict(candidate.metadata),
-                ownership=_resolve_finding_ownership(
-                    candidate,
-                    target_dir=target_dir,
-                    ownership_config=ownership_config,
-                    ownership_context=ownership_context,
-                ),
+                ownership=ownership,
                 taint_source=candidate.source.source_type,
                 taint_sink=candidate.sink.api_name,
                 source_location=candidate.source.location,
@@ -508,6 +561,9 @@ def build_report(
         finding.model_copy(update=_cluster_fields(finding.finding_id, active_cluster_by_id))
         for finding in unreachable_report_findings
     ]
+    active_report_findings = sorted(active_report_findings, key=_composite_risk_sort_key)
+    unreachable_report_findings = sorted(unreachable_report_findings, key=_composite_risk_sort_key)
+    suppressed_findings = sorted(suppressed_findings, key=_composite_risk_sort_key)
     status_breakdown = _status_breakdown(
         active_findings=active_report_findings,
         unreachable_findings=unreachable_report_findings,
@@ -521,6 +577,20 @@ def build_report(
         finding_id = candidate.id
         legal = legal_by_id.get(finding_id)
         patch = patch_by_id.get(finding_id)
+        ownership = _resolve_finding_ownership(
+            candidate,
+            target_dir=target_dir,
+            ownership_config=ownership_config,
+            ownership_context=ownership_context,
+        )
+        composite_risk = _composite_risk_breakdown(
+            candidate,
+            evidence_status="confirmed",
+            verified=True,
+            confirmed=confirmed,
+            verification_attempt=attempts_by_id.get(candidate.id),
+            ownership=ownership,
+        )
         finding = CombinedFinding(
             finding_id=finding_id,
             evidence_status="confirmed",
@@ -537,13 +607,11 @@ def build_report(
             title=_finding_title(candidate),
             severity=candidate.severity,
             confidence=candidate.confidence,
+            composite_risk_score=composite_risk.total_score,
+            composite_risk_band=composite_risk.risk_band,
+            composite_risk=composite_risk,
             metadata=dict(candidate.metadata),
-            ownership=_resolve_finding_ownership(
-                candidate,
-                target_dir=target_dir,
-                ownership_config=ownership_config,
-                ownership_context=ownership_context,
-            ),
+            ownership=ownership,
             verified=True,
             verification_method="smt+sandbox",
             taint_source=candidate.source.source_type,
@@ -573,6 +641,14 @@ def build_report(
             **_cluster_fields(candidate.id, active_cluster_by_id),
         )
         findings.append(finding)
+    findings = sorted(findings, key=_composite_risk_sort_key)
+    risk_ranked_findings = _ranked_findings_by_risk(
+        findings=findings,
+        active_findings=active_report_findings,
+        unreachable_findings=unreachable_report_findings,
+        suppressed_findings=suppressed_findings,
+    )
+    top_risk = risk_ranked_findings[0] if risk_ranked_findings else None
 
     report = PiranesiReport(
         target=str(target_dir.resolve(strict=False)),
@@ -604,6 +680,19 @@ def build_report(
             unreachable_findings=len(unreachable_candidates),
             finding_clusters=len(active_clusters),
             severity_breakdown=_candidate_severity_breakdown(active_candidates),
+            composite_risk_breakdown=_composite_risk_band_breakdown(risk_ranked_findings),
+            highest_composite_risk_score=(
+                0.0 if top_risk is None else top_risk.composite_risk_score
+            ),
+            highest_composite_risk_band=(
+                None if top_risk is None else top_risk.composite_risk_band
+            ),
+            highest_composite_risk_finding_id=(
+                None if top_risk is None else top_risk.finding_id
+            ),
+            top_composite_risk_findings=[
+                finding.finding_id for finding in risk_ranked_findings[:5]
+            ],
             top_regulatory_concerns=_top_regulatory_concerns(legal_assessments),
             total_llm_cost_usd=total_llm_cost_usd,
             duration_s=duration_s,
@@ -758,6 +847,20 @@ def _candidate_report_finding(
 ) -> CandidateReportFinding:
     original_severity = candidate.metadata.get("reachability_original_severity")
     evidence_status = _candidate_evidence_status(candidate, triaged=triaged)
+    ownership = _resolve_finding_ownership(
+        candidate,
+        target_dir=target_dir,
+        ownership_config=ownership_config,
+        ownership_context=ownership_context,
+    )
+    composite_risk = _composite_risk_breakdown(
+        candidate,
+        evidence_status=evidence_status,
+        verified=False,
+        confirmed=None,
+        verification_attempt=verification_attempt,
+        ownership=ownership,
+    )
     return CandidateReportFinding(
         finding_id=candidate.id,
         evidence_status=evidence_status,
@@ -775,13 +878,11 @@ def _candidate_report_finding(
         severity=candidate.severity,
         original_severity=original_severity if isinstance(original_severity, str) else None,
         confidence=candidate.confidence,
+        composite_risk_score=composite_risk.total_score,
+        composite_risk_band=composite_risk.risk_band,
+        composite_risk=composite_risk,
         metadata=dict(candidate.metadata),
-        ownership=_resolve_finding_ownership(
-            candidate,
-            target_dir=target_dir,
-            ownership_config=ownership_config,
-            ownership_context=ownership_context,
-        ),
+        ownership=ownership,
         taint_source=candidate.source.source_type,
         taint_sink=candidate.sink.api_name,
         source_location=candidate.source.location,
@@ -1147,6 +1248,289 @@ def _confidence_component(*, score: float, weight: float, rationale: str) -> Con
         weighted_score=weighted,
         rationale=rationale,
     )
+
+
+def _composite_risk_breakdown(
+    candidate: CandidateFinding,
+    *,
+    evidence_status: EvidenceStatus,
+    verified: bool,
+    confirmed: ConfirmedFinding | None,
+    verification_attempt: VerificationAttempt | None,
+    ownership: OwnershipMetadata,
+) -> CompositeRiskBreakdown:
+    severity_points, severity_reason = _risk_severity_component(candidate.severity)
+    confidence_points = round(max(0.0, min(1.0, candidate.confidence)) * 15.0, 2)
+    confidence_reason = f"scaled from finding confidence {candidate.confidence:.2f}"
+
+    source_points, source_reason = _risk_source_exposure_component(candidate)
+    sink_points, sink_reason = _risk_sink_criticality_component(candidate)
+    ownership_points, ownership_reason = _risk_ownership_component(ownership)
+    verification_points, verification_reason = _risk_verification_component(
+        evidence_status=evidence_status,
+        verified=verified,
+        verification_attempt=verification_attempt,
+    )
+    exploitability_points, exploitability_reason = _risk_exploitability_component(
+        candidate,
+        confirmed=confirmed,
+        verification_attempt=verification_attempt,
+    )
+    advisory_points, advisory_reason = _risk_advisory_component(candidate, confirmed=confirmed)
+    reachable_points, reachable_reason = _risk_reachability_component(candidate)
+    suppression_points, suppression_reason = _risk_suppression_component(evidence_status)
+
+    raw_total = (
+        severity_points
+        + confidence_points
+        + source_points
+        + sink_points
+        + ownership_points
+        + verification_points
+        + exploitability_points
+        + advisory_points
+        + reachable_points
+        + suppression_points
+    )
+    total_score = round(max(0.0, min(100.0, raw_total)), 1)
+    risk_band = _composite_risk_band(total_score)
+
+    return CompositeRiskBreakdown(
+        severity=_composite_risk_component(severity_points, severity_reason),
+        confidence=_composite_risk_component(confidence_points, confidence_reason),
+        source_exposure=_composite_risk_component(source_points, source_reason),
+        sink_criticality=_composite_risk_component(sink_points, sink_reason),
+        ownership_signal=_composite_risk_component(ownership_points, ownership_reason),
+        verification_signal=_composite_risk_component(verification_points, verification_reason),
+        exploitability_signal=_composite_risk_component(
+            exploitability_points,
+            exploitability_reason,
+        ),
+        advisory_signal=_composite_risk_component(advisory_points, advisory_reason),
+        reachable_path_signal=_composite_risk_component(reachable_points, reachable_reason),
+        suppression_signal=_composite_risk_component(suppression_points, suppression_reason),
+        total_score=total_score,
+        risk_band=risk_band,
+    )
+
+
+def _composite_risk_component(points: float, rationale: str) -> CompositeRiskComponent:
+    return CompositeRiskComponent(points=round(points, 2), rationale=rationale)
+
+
+def _risk_severity_component(severity: str) -> tuple[float, str]:
+    normalized = severity.lower()
+    weights = {
+        "critical": 35.0,
+        "high": 28.0,
+        "medium": 20.0,
+        "low": 12.0,
+        "informational": 6.0,
+    }
+    points = weights.get(normalized, 10.0)
+    return points, f"severity '{normalized}' contributes {points:.1f} points"
+
+
+def _risk_source_exposure_component(candidate: CandidateFinding) -> tuple[float, str]:
+    source_type = candidate.source.source_type.lower()
+    category = _metadata_string(candidate.metadata.get("source_spec_category")) or ""
+    external_markers = (
+        "req.",
+        "request",
+        "query",
+        "param",
+        "header",
+        "cookie",
+        "body",
+        "url",
+    )
+    if any(marker in source_type for marker in external_markers):
+        return 10.0, "source appears externally reachable (request-driven input)"
+    if category in {"request_body", "request_param", "header", "cookie", "url_param"}:
+        return 9.0, f"source spec category '{category}' is externally influenced"
+    if "env" in source_type or category == "env_var":
+        return 4.0, "source is environment-driven and less directly exposed"
+    return 6.0, "source exposure is moderate based on available metadata"
+
+
+def _risk_sink_criticality_component(candidate: CandidateFinding) -> tuple[float, str]:
+    sink_type = candidate.sink.sink_type.lower()
+    api_name = candidate.sink.api_name.lower()
+    cwe = _extract_cwe_id(candidate.vuln_class)
+    high_cwe = {"CWE-78", "CWE-89", "CWE-94", "CWE-95"}
+    medium_cwe = {"CWE-79", "CWE-22", "CWE-434"}
+    if sink_type in {"sql_query", "command_execution", "shell_exec"}:
+        return 10.0, f"sink type '{sink_type}' is high impact"
+    if cwe in high_cwe:
+        return 10.0, f"{cwe} is mapped as high sink criticality"
+    if sink_type in {"file_write", "file_read", "http_request", "eval", "html_output"}:
+        return 7.0, f"sink type '{sink_type}' is medium-high impact"
+    if cwe in medium_cwe:
+        return 7.0, f"{cwe} is mapped as medium sink criticality"
+    if "query" in api_name or "exec" in api_name:
+        return 8.0, f"sink api '{candidate.sink.api_name}' suggests high-risk execution"
+    return 4.0, "sink criticality is moderate with current metadata"
+
+
+def _risk_ownership_component(ownership: OwnershipMetadata) -> tuple[float, str]:
+    points = 0.0
+    missing_fields: list[str] = []
+    if ownership.team is None:
+        points += 2.5
+        missing_fields.append("team")
+    if ownership.owner is None:
+        points += 2.5
+        missing_fields.append("owner")
+    if ownership.service is None:
+        points += 1.0
+        missing_fields.append("service")
+    if not missing_fields:
+        return 0.0, "ownership metadata includes service/team/owner attribution"
+    points = min(points, 5.0)
+    return points, f"missing ownership metadata: {', '.join(missing_fields)}"
+
+
+def _risk_verification_component(
+    *,
+    evidence_status: EvidenceStatus,
+    verified: bool,
+    verification_attempt: VerificationAttempt | None,
+) -> tuple[float, str]:
+    points_by_status = {
+        "confirmed": 20.0,
+        "triaged_active_candidate": 10.0,
+        "static_candidate": 6.0,
+        "unreachable_candidate": -12.0,
+        "suppressed": -10.0,
+    }
+    points = points_by_status[evidence_status]
+    rationale = f"evidence status '{evidence_status}' contributes {points:.1f} points"
+    if verified and points < 20.0:
+        points = 20.0
+        rationale = "verified finding elevates verification signal"
+    if verification_attempt is not None and verification_attempt.status == "error":
+        points += 3.0
+        rationale += "; verification attempt errored"
+    return points, rationale
+
+
+def _risk_exploitability_component(
+    candidate: CandidateFinding,
+    *,
+    confirmed: ConfirmedFinding | None,
+    verification_attempt: VerificationAttempt | None,
+) -> tuple[float, str]:
+    points = 0.0
+    reasons: list[str] = []
+    if confirmed is not None and confirmed.exploit_payload:
+        points += 8.0
+        reasons.append("exploit payload reproduced")
+    rich_evidence = None if verification_attempt is None else verification_attempt.rich_evidence
+    if (
+        rich_evidence is not None
+        and rich_evidence.response_diff_summary is not None
+        and (
+            rich_evidence.response_diff_summary.status_code_changed
+            or rich_evidence.response_diff_summary.body_changed
+        )
+    ):
+        points += 3.0
+        reasons.append("verification response materially changed")
+    exploit_status = _metadata_string(candidate.metadata.get("exploit_status"))
+    if exploit_status in {"known_exploited", "poc_available", "actively_exploited_risk"}:
+        points += 2.0
+        reasons.append(f"exploit status={exploit_status}")
+    points = min(points, 10.0)
+    if not reasons:
+        return 0.0, "no direct exploitability evidence captured"
+    return points, "; ".join(reasons)
+
+
+def _risk_advisory_component(
+    candidate: CandidateFinding,
+    *,
+    confirmed: ConfirmedFinding | None,
+) -> tuple[float, str]:
+    cve_ids: set[str] = set()
+    if confirmed is not None:
+        cve_ids.update(cve for cve in confirmed.related_cves if cve)
+    for key in ("cve", "cve_id"):
+        value = _metadata_string(candidate.metadata.get(key))
+        if value:
+            cve_ids.add(value)
+    cve_ids.update(_metadata_strings(candidate.metadata.get("cves")))
+    cve_ids.update(_metadata_strings(candidate.metadata.get("aliases")))
+
+    points = min(6.0, 2.0 * len(cve_ids))
+    reasons: list[str] = []
+    if cve_ids:
+        reasons.append(f"{len(cve_ids)} advisory identifier(s)")
+    epss_score = candidate.metadata.get("epss_score")
+    if isinstance(epss_score, (float, int)):
+        if epss_score >= 0.7:
+            points += 2.0
+            reasons.append("high EPSS score")
+        elif epss_score >= 0.3:
+            points += 1.0
+            reasons.append("moderate EPSS score")
+    points = min(points, 10.0)
+    if not reasons:
+        return 0.0, "no advisory/exploit feed signal attached"
+    return points, "; ".join(reasons)
+
+
+def _risk_reachability_component(candidate: CandidateFinding) -> tuple[float, str]:
+    if candidate.reachability == "reachable":
+        return 10.0, "flow is reachable from known entry points"
+    return -15.0, "flow currently marked unreachable"
+
+
+def _risk_suppression_component(evidence_status: EvidenceStatus) -> tuple[float, str]:
+    if evidence_status == "suppressed":
+        return -30.0, "suppression lowers remediation priority score"
+    return 0.0, "finding is not suppressed"
+
+
+def _composite_risk_band(score: float) -> RiskBand:
+    if score >= 75.0:
+        return "critical"
+    if score >= 55.0:
+        return "high"
+    if score >= 30.0:
+        return "medium"
+    return "low"
+
+
+def _composite_risk_sort_key(
+    finding: CombinedFinding | CandidateReportFinding | SuppressedFinding,
+) -> tuple[float, int, str]:
+    return (-finding.composite_risk_score, _severity_sort_key(finding.severity), finding.finding_id)
+
+
+def _ranked_findings_by_risk(
+    *,
+    findings: list[CombinedFinding],
+    active_findings: list[CandidateReportFinding],
+    unreachable_findings: list[CandidateReportFinding],
+    suppressed_findings: list[SuppressedFinding],
+) -> list[CombinedFinding | CandidateReportFinding | SuppressedFinding]:
+    all_findings: list[CombinedFinding | CandidateReportFinding | SuppressedFinding] = [
+        *findings,
+        *active_findings,
+        *unreachable_findings,
+        *suppressed_findings,
+    ]
+    return sorted(all_findings, key=_composite_risk_sort_key)
+
+
+def _composite_risk_band_breakdown(
+    findings: list[CombinedFinding | CandidateReportFinding | SuppressedFinding],
+) -> dict[str, int]:
+    order: tuple[RiskBand, ...] = ("critical", "high", "medium", "low")
+    counts: dict[str, int] = dict.fromkeys(order, 0)
+    for finding in findings:
+        counts[finding.composite_risk_band] = counts.get(finding.composite_risk_band, 0) + 1
+    return {band: count for band, count in counts.items() if count > 0}
 
 
 def _reachability_component(candidate: CandidateFinding) -> tuple[float, str]:
@@ -1661,6 +2045,8 @@ def _utc_now() -> str:
 __all__ = [
     "CandidateReportFinding",
     "CombinedFinding",
+    "CompositeRiskBreakdown",
+    "CompositeRiskComponent",
     "ConfidenceBreakdown",
     "ConfidenceComponent",
     "ExecutiveSummary",

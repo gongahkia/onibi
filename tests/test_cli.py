@@ -485,6 +485,8 @@ def test_explain_command_renders_confirmed_finding(tmp_path: Path) -> None:
     assert "Confidence contributors:" in result.stdout
     assert "Verification state:" in result.stdout
     assert "Verified: yes" in result.stdout
+    assert "Composite risk:" in result.stdout
+    assert "Composite risk contributors:" in result.stdout
     assert "Patch: generated, not verified" in result.stdout
     assert "db.query" in result.stdout
 

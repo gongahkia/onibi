@@ -4,6 +4,7 @@
 
 - CWE: `{{ finding.cwe }}`
 - Severity: `{{ finding.severity|upper }}`
+- Composite risk: `{{ "%.1f"|format(finding.composite_risk_score) }}/100 ({{ finding.composite_risk_band }})`
 - Evidence: `{{ finding.evidence_status }}`
 - Verification: `{{ finding.verification_method }}`
 - Source: `{{ finding.source_location.file }}:{{ finding.source_location.line }}`

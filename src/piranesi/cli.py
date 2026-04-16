@@ -67,6 +67,7 @@ from piranesi.report import launch_compliance_tui, print_compliance_report, rend
 from piranesi.report.renderer import (
     CandidateReportFinding,
     CombinedFinding,
+    CompositeRiskBreakdown,
     FindingExplanation,
     MatchedSpec,
     OwnershipMetadata,
@@ -627,6 +628,10 @@ def _render_finding_explanation(status: str, finding: ReportFindingMatch) -> str
         f"Severity: {finding.severity.upper()}",
         f"Confidence: {finding.confidence:.2f}",
         (
+            f"Composite risk: {finding.composite_risk_score:.1f}/100 "
+            f"({finding.composite_risk_band})"
+        ),
+        (
             f"Source: {finding.source_location.file}:{finding.source_location.line} "
             f"({finding.taint_source})"
         ),
@@ -805,6 +810,14 @@ def _render_finding_explanation(status: str, finding: ReportFindingMatch) -> str
                 f"- Severity basis: {explanation.severity_basis}",
             ]
         )
+    composite_risk = getattr(finding, "composite_risk", None)
+    if isinstance(composite_risk, CompositeRiskBreakdown):
+        lines.extend(["", "Composite risk contributors:"])
+        lines.extend(_composite_risk_component_lines(composite_risk))
+        lines.append(
+            f"- Composite risk total: {composite_risk.total_score:.1f}/100 "
+            f"(band={composite_risk.risk_band})"
+        )
     if isinstance(finding, CandidateReportFinding):
         lines.extend(
             [
@@ -925,6 +938,25 @@ def _confidence_component_lines(confidence: object) -> list[str]:
             f"weighted={component.weighted_score:.3f} — {component.rationale}"
         )
     return lines
+
+
+def _composite_risk_component_lines(risk: CompositeRiskBreakdown) -> list[str]:
+    components = [
+        ("severity", risk.severity),
+        ("confidence", risk.confidence),
+        ("source_exposure", risk.source_exposure),
+        ("sink_criticality", risk.sink_criticality),
+        ("ownership_signal", risk.ownership_signal),
+        ("verification_signal", risk.verification_signal),
+        ("exploitability_signal", risk.exploitability_signal),
+        ("advisory_signal", risk.advisory_signal),
+        ("reachable_path_signal", risk.reachable_path_signal),
+        ("suppression_signal", risk.suppression_signal),
+    ]
+    return [
+        f"- {name}: points={component.points:.1f} — {component.rationale}"
+        for name, component in components
+    ]
 
 
 def _resolve_framework_keys(value: str | None) -> list[str] | None:

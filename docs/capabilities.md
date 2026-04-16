@@ -85,3 +85,17 @@ components:
 `final_confidence` remains the original pipeline confidence for compatibility,
 while `contextual_confidence` and component rationales explain why that finding
 is strong or weak evidence.
+
+## Composite Risk Scoring
+
+`report.json`, `report.md`, and `piranesi explain` include additive composite risk
+metadata (`model_version = v1`):
+
+- `composite_risk_score` (`0..100`)
+- `composite_risk_band` (`low`/`medium`/`high`/`critical`)
+- `composite_risk` component points with rationale (severity, confidence, exposure,
+  sink criticality, ownership signal, verification/exploitability/advisory signals,
+  reachability, suppression)
+
+This score is for transparent prioritization; it does not replace severity labels
+or formal risk acceptance decisions.

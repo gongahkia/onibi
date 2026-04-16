@@ -217,6 +217,36 @@ Confidence model (`v1`) components shown in `report.json` and `piranesi explain`
 `final_confidence` remains the pipeline confidence value for backward compatibility;
 the component scores provide transparent contributor-level context.
 
+Composite risk model (`v1`) is also included per finding as:
+
+- `composite_risk_score`: numeric score in `[0, 100]`
+- `composite_risk_band`: `low`, `medium`, `high`, or `critical`
+- `composite_risk`: additive component breakdown and rationale
+
+Formula:
+
+```
+score = clamp(
+  severity
+  + confidence
+  + source_exposure
+  + sink_criticality
+  + ownership_signal
+  + verification_signal
+  + exploitability_signal
+  + advisory_signal
+  + reachable_path_signal
+  + suppression_signal,
+  0, 100
+)
+```
+
+Caveats:
+
+- The score is a prioritization aid, not an absolute likelihood/impact guarantee.
+- Severity fields remain unchanged for backward compatibility with existing workflows.
+- Missing metadata (for example ownership or advisories) is treated explicitly in the breakdown so ranking decisions stay auditable.
+
 For the bundled vulnerable app, the real run on 2026-04-09 produced four candidate findings:
 
 - `CWE-79` on `/search`

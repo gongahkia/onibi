@@ -67,17 +67,99 @@ def test_report_renderer_writes_expected_structure(tmp_path: Path) -> None:
         payload["findings"][0]["explanation"]["confidence"]["final_confidence"]
         == payload["findings"][0]["confidence"]
     )
+    assert payload["findings"][0]["composite_risk_score"] > 0
+    assert payload["findings"][0]["composite_risk_band"] in {"high", "critical"}
+    assert payload["findings"][0]["composite_risk"]["model_version"] == "v1"
+    assert payload["executive_summary"]["composite_risk_breakdown"]
+    assert payload["executive_summary"]["highest_composite_risk_finding_id"] == "finding-001"
 
     markdown = (tmp_path / "report.md").read_text(encoding="utf-8")
     assert "## SQL Injection (`finding-001`)" in markdown
     assert "**Verification template:** `sqli-read-probe`" in markdown
     assert "**Template selection:** matched finding CWE CWE-89" in markdown
+    assert "**Composite Risk:**" in markdown
+    assert "### Composite Risk Breakdown" in markdown
     assert "### Confidence Breakdown" in markdown
     assert "| PDPA | Section 24 | Notify the regulator of a notifiable breach." in markdown
 
     pr_body = (tmp_path / "pr_body.md").read_text(encoding="utf-8")
     assert "### Regulatory Impact" in pr_body
     assert "Switch to parameterized queries." not in pr_body
+
+
+def test_composite_risk_score_increases_when_finding_is_verified(tmp_path: Path) -> None:
+    artifacts = fixture_artifacts(tmp_path)
+    base_candidate = artifacts["detect"].findings[0]  # type: ignore[attr-defined]
+
+    static_report = build_report(
+        scan_result=artifacts["scan"],  # type: ignore[arg-type]
+        detected_findings=[base_candidate],
+        confirmed_findings=[],
+        legal_assessments=[],
+        patch_results=[],
+        target_dir=tmp_path,
+        total_llm_cost_usd=0.0,
+        duration_s=1.0,
+        stage_timings_s={"scan": 0.1, "detect": 0.1, "report": 0.1},
+    )
+    confirmed_report = build_report(
+        scan_result=artifacts["scan"],  # type: ignore[arg-type]
+        detected_findings=[base_candidate],
+        confirmed_findings=artifacts["verify"].findings,  # type: ignore[attr-defined]
+        legal_assessments=[],
+        patch_results=[],
+        target_dir=tmp_path,
+        total_llm_cost_usd=0.0,
+        duration_s=1.0,
+        stage_timings_s={"scan": 0.1, "detect": 0.1, "report": 0.1},
+    )
+
+    assert static_report.active_findings[0].composite_risk_score < confirmed_report.findings[
+        0
+    ].composite_risk_score
+    assert static_report.active_findings[0].composite_risk_band in {"medium", "high"}
+    assert confirmed_report.findings[0].composite_risk_band in {"high", "critical"}
+
+
+def test_report_renderer_sorts_active_findings_by_composite_risk(tmp_path: Path) -> None:
+    artifacts = fixture_artifacts(tmp_path)
+    base = artifacts["detect"].findings[0]  # type: ignore[attr-defined]
+    high_risk = base.model_copy(update={"id": "finding-high-risk"})
+    low_risk = base.model_copy(
+        update={
+            "id": "finding-low-risk",
+            "severity": "low",
+            "confidence": 0.25,
+            "source": base.source.model_copy(update={"source_type": "env_var"}),
+            "sink": base.sink.model_copy(
+                update={
+                    "sink_type": "file_read",
+                    "api_name": "fs.readFile",
+                }
+            ),
+        }
+    )
+
+    report = build_report(
+        scan_result=artifacts["scan"],  # type: ignore[arg-type]
+        detected_findings=[low_risk, high_risk],
+        confirmed_findings=[],
+        legal_assessments=[],
+        patch_results=[],
+        target_dir=tmp_path,
+        total_llm_cost_usd=0.0,
+        duration_s=1.0,
+        stage_timings_s={"scan": 0.1, "detect": 0.1, "report": 0.1},
+    )
+
+    assert [finding.finding_id for finding in report.active_findings] == [
+        "finding-high-risk",
+        "finding-low-risk",
+    ]
+    assert (
+        report.active_findings[0].composite_risk_score
+        > report.active_findings[1].composite_risk_score
+    )
 
 
 def test_report_renderer_includes_query_quality_metrics_from_scan(tmp_path: Path) -> None:

@@ -59,6 +59,7 @@ Compliance mappings in this report are supporting technical evidence only. They 
 - **Evidence:** `{{ finding.evidence_status }}` ({{ report.status_legend.get(finding.evidence_status, finding.evidence_status) }})
 - **CWE:** {{ finding.cwe }}
 - **Severity:** {{ finding.severity|upper }}
+- **Composite Risk:** {{ "%.1f"|format(finding.composite_risk_score) }} / 100 ({{ finding.composite_risk_band|upper }})
 {% if finding.original_severity and finding.original_severity != finding.severity %}
 - **Original Severity:** {{ finding.original_severity|upper }}
 {% endif %}
@@ -152,6 +153,7 @@ No finding clusters were produced.
 - **Evidence:** `{{ finding.evidence_status }}` ({{ report.status_legend.get(finding.evidence_status, finding.evidence_status) }})
 - **CWE:** {{ finding.cwe }}
 - **Severity:** {{ finding.severity|upper }}
+- **Composite Risk:** {{ "%.1f"|format(finding.composite_risk_score) }} / 100 ({{ finding.composite_risk_band|upper }})
 {% if finding.original_severity and finding.original_severity != finding.severity %}
 - **Original Severity:** {{ finding.original_severity|upper }}
 {% endif %}
@@ -252,6 +254,7 @@ No cross-package findings were produced by the pipeline.
 - **Evidence:** `{{ finding.evidence_status }}` ({{ report.status_legend.get(finding.evidence_status, finding.evidence_status) }})
 - **CWE:** {{ finding.cwe }}
 - **Severity:** {{ finding.severity|upper }}
+- **Composite Risk:** {{ "%.1f"|format(finding.composite_risk_score) }} / 100 ({{ finding.composite_risk_band|upper }})
 - **Location:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}`
 - **Reason:** {{ finding.suppression_reason or "n/a" }}
 - **Ownership:** service=`{{ finding.ownership.service or "n/a" }}`, system=`{{ finding.ownership.system or "n/a" }}`, team=`{{ finding.ownership.team or "n/a" }}`, owner=`{{ finding.ownership.owner or "n/a" }}`, control_owner=`{{ finding.ownership.control_owner or "n/a" }}`, repository=`{{ finding.ownership.repository or "n/a" }}`, environment=`{{ finding.ownership.environment or "n/a" }}`
@@ -271,6 +274,7 @@ No cross-package findings were produced by the pipeline.
 - **Evidence:** `{{ finding.evidence_status }}` ({{ report.status_legend.get(finding.evidence_status, finding.evidence_status) }})
 - **CWE:** {{ finding.cwe }}
 - **Severity:** {{ finding.severity|upper }}
+- **Composite Risk:** {{ "%.1f"|format(finding.composite_risk_score) }} / 100 ({{ finding.composite_risk_band|upper }})
 - **Location:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}`
 - **Reason:** {{ finding.suppression_reason or "n/a" }}
 - **Ownership:** service=`{{ finding.ownership.service or "n/a" }}`, system=`{{ finding.ownership.system or "n/a" }}`, team=`{{ finding.ownership.team or "n/a" }}`, owner=`{{ finding.ownership.owner or "n/a" }}`, control_owner=`{{ finding.ownership.control_owner or "n/a" }}`, repository=`{{ finding.ownership.repository or "n/a" }}`, environment=`{{ finding.ownership.environment or "n/a" }}`
@@ -290,6 +294,7 @@ No cross-package findings were produced by the pipeline.
 - **Evidence:** `{{ finding.evidence_status }}` ({{ report.status_legend.get(finding.evidence_status, finding.evidence_status) }})
 - **CWE:** {{ finding.cwe }}
 - **Severity:** {{ finding.severity|upper }}
+- **Composite Risk:** {{ "%.1f"|format(finding.composite_risk_score) }} / 100 ({{ finding.composite_risk_band|upper }})
 - **Location:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}`
 - **Reason:** {{ finding.suppression_reason or "n/a" }}
 - **Ownership:** service=`{{ finding.ownership.service or "n/a" }}`, system=`{{ finding.ownership.system or "n/a" }}`, team=`{{ finding.ownership.team or "n/a" }}`, owner=`{{ finding.ownership.owner or "n/a" }}`, control_owner=`{{ finding.ownership.control_owner or "n/a" }}`, repository=`{{ finding.ownership.repository or "n/a" }}`, environment=`{{ finding.ownership.environment or "n/a" }}`

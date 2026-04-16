@@ -3,6 +3,7 @@
 **CWE:** {{ finding.cwe }}
 **Severity:** {{ finding.severity|upper }}
 **Confidence:** {{ "%.2f"|format(finding.confidence) }}
+**Composite Risk:** {{ "%.1f"|format(finding.composite_risk_score) }} / 100 ({{ finding.composite_risk_band|upper }})
 **Evidence:** `{{ finding.evidence_status }}` ({{ report.status_legend.get(finding.evidence_status, finding.evidence_status) }})
 **Verified:** {{ "Yes" if finding.verified else "No" }} ({{ finding.verification_method }})
 **Ownership:** service={{ finding.ownership.service or "n/a" }}, system={{ finding.ownership.system or "n/a" }}, team={{ finding.ownership.team or "n/a" }}, owner={{ finding.ownership.owner or "n/a" }}, control_owner={{ finding.ownership.control_owner or "n/a" }}, repository={{ finding.ownership.repository or "n/a" }}, environment={{ finding.ownership.environment or "n/a" }}
@@ -47,6 +48,21 @@
 - triage_signal: score={{ "%.3f"|format(finding.explanation.confidence.triage_signal.score) }}, weight={{ "%.3f"|format(finding.explanation.confidence.triage_signal.weight) }}, weighted={{ "%.3f"|format(finding.explanation.confidence.triage_signal.weighted_score) }}
 - verification_signal: score={{ "%.3f"|format(finding.explanation.confidence.verification_signal.score) }}, weight={{ "%.3f"|format(finding.explanation.confidence.verification_signal.weight) }}, weighted={{ "%.3f"|format(finding.explanation.confidence.verification_signal.weighted_score) }}
 - suppression_signal: score={{ "%.3f"|format(finding.explanation.confidence.suppression_signal.score) }}, weight={{ "%.3f"|format(finding.explanation.confidence.suppression_signal.weight) }}, weighted={{ "%.3f"|format(finding.explanation.confidence.suppression_signal.weighted_score) }}
+{% endif %}
+
+{% if finding.composite_risk %}
+### Composite Risk Breakdown
+
+- severity: {{ "%.1f"|format(finding.composite_risk.severity.points) }} ({{ finding.composite_risk.severity.rationale }})
+- confidence: {{ "%.1f"|format(finding.composite_risk.confidence.points) }} ({{ finding.composite_risk.confidence.rationale }})
+- source_exposure: {{ "%.1f"|format(finding.composite_risk.source_exposure.points) }} ({{ finding.composite_risk.source_exposure.rationale }})
+- sink_criticality: {{ "%.1f"|format(finding.composite_risk.sink_criticality.points) }} ({{ finding.composite_risk.sink_criticality.rationale }})
+- ownership_signal: {{ "%.1f"|format(finding.composite_risk.ownership_signal.points) }} ({{ finding.composite_risk.ownership_signal.rationale }})
+- verification_signal: {{ "%.1f"|format(finding.composite_risk.verification_signal.points) }} ({{ finding.composite_risk.verification_signal.rationale }})
+- exploitability_signal: {{ "%.1f"|format(finding.composite_risk.exploitability_signal.points) }} ({{ finding.composite_risk.exploitability_signal.rationale }})
+- advisory_signal: {{ "%.1f"|format(finding.composite_risk.advisory_signal.points) }} ({{ finding.composite_risk.advisory_signal.rationale }})
+- reachable_path_signal: {{ "%.1f"|format(finding.composite_risk.reachable_path_signal.points) }} ({{ finding.composite_risk.reachable_path_signal.rationale }})
+- suppression_signal: {{ "%.1f"|format(finding.composite_risk.suppression_signal.points) }} ({{ finding.composite_risk.suppression_signal.rationale }})
 {% endif %}
 
 ### Taint Path
