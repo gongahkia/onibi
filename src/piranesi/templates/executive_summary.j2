@@ -18,7 +18,17 @@ none
 none
 {%- endif -%}
 {%- endset %}
+{% set evidence_summary -%}
+{%- if report.executive_summary.status_breakdown -%}
+{%- for status, count in report.executive_summary.status_breakdown.items() -%}
+{{ count }} {{ report.status_legend.get(status, status) }}{% if not loop.last %}, {% endif %}
+{%- endfor -%}
+{%- else -%}
+none
+{%- endif -%}
+{%- endset %}
 - **Findings detected:** {{ report.executive_summary.findings_detected }} findings{% if report.executive_summary.suppressed_findings %} ({{ report.executive_summary.suppressed_findings }} suppressed){% endif %}
+- **Evidence status breakdown:** {{ evidence_summary }}
 - **Reachability:** {{ report.executive_summary.reachable_findings }} reachable{% if report.executive_summary.unreachable_findings %}, {{ report.executive_summary.unreachable_findings }} unreachable{% endif %}
 - **Finding clusters:** {{ report.executive_summary.finding_clusters }}
 - **Findings confirmed:** {{ report.executive_summary.findings_confirmed }}

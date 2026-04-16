@@ -32,7 +32,7 @@ def test_display_report_falls_back_to_markdown_for_non_tty(tmp_path: Path) -> No
     assert mode == ReportViewMode.MARKDOWN
     rendered = output.getvalue()
     assert "# Piranesi Security Analysis Report" in rendered
-    assert "## Active Findings" in rendered
+    assert "## Active Candidate Findings" in rendered
 
 
 def test_display_report_falls_back_to_rich_when_textual_is_missing(

@@ -2145,6 +2145,7 @@ def _run_triage_stage(
             TriagedFinding(
                 finding=finding,
                 triage_verdict="true_positive",
+                triage_mode="deterministic",
                 skeptic_analysis=(
                     "Deterministic mode: no LLM API key was configured, so Piranesi "
                     "preserved the reachable static finding without model-backed "
@@ -2187,6 +2188,7 @@ def _run_triage_stage(
                 TriagedFinding(
                     finding=finding,
                     triage_verdict="false_positive",
+                    triage_mode="ml_prefilter",
                     skeptic_analysis=(
                         "ML pre-filter flagged likely false positive "
                         f"(p={probability:.2f} < threshold={config.triage.ml_threshold:.2f})."
@@ -2336,10 +2338,14 @@ def _run_report_stage(
     verify_artifact = _require_artifact(context.stage_outputs["verify"], VerifyArtifact, "verify")
     legal_artifact = _require_artifact(context.stage_outputs["legal"], LegalArtifact, "legal")
     patch_artifact = _require_artifact(context.stage_outputs["patch"], PatchArtifact, "patch")
+    triage_artifact = context.stage_outputs.get("triage")
 
     report = build_report(
         scan_result=scan_artifact,
         detected_findings=detect_artifact.findings,
+        triaged_findings=(
+            list(triage_artifact.findings) if isinstance(triage_artifact, TriageArtifact) else None
+        ),
         confirmed_findings=verify_artifact.findings,
         legal_assessments=legal_artifact.assessments,
         patch_results=patch_artifact.patches,

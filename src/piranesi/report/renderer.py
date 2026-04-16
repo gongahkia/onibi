@@ -5,6 +5,7 @@ import logging
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
+from typing import Literal
 
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, ConfigDict, Field
@@ -15,6 +16,7 @@ from piranesi.models import (
     ConfirmedFinding,
     LegalAssessment,
     PatchResult,
+    QueryQualityMetrics,
     ReachabilityResult,
     RegulatoryObligation,
     ScanMetadata,
@@ -22,17 +24,40 @@ from piranesi.models import (
     ScanResult,
     SourceLocation,
     TaintStep,
+    TriagedFinding,
 )
 from piranesi.report.cwe import cwe_title, extract_cwe_id
 
 _logger = logging.getLogger(__name__)
 _SEVERITY_ORDER = ("critical", "high", "medium", "low", "informational")
+EvidenceStatus = Literal[
+    "confirmed",
+    "triaged_active_candidate",
+    "static_candidate",
+    "unreachable_candidate",
+    "suppressed",
+]
+_EVIDENCE_STATUS_ORDER: tuple[EvidenceStatus, ...] = (
+    "confirmed",
+    "triaged_active_candidate",
+    "static_candidate",
+    "unreachable_candidate",
+    "suppressed",
+)
+_EVIDENCE_STATUS_LABELS: dict[EvidenceStatus, str] = {
+    "confirmed": "Dynamically verified issue",
+    "triaged_active_candidate": "LLM-triaged active candidate",
+    "static_candidate": "Static candidate",
+    "unreachable_candidate": "Unreachable candidate",
+    "suppressed": "Suppressed finding",
+}
 
 
 class CombinedFinding(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     finding_id: str
+    evidence_status: EvidenceStatus = "confirmed"
     cwe: str
     title: str
     severity: str
@@ -70,6 +95,7 @@ class CandidateReportFinding(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     finding_id: str
+    evidence_status: EvidenceStatus = "static_candidate"
     cwe: str
     title: str
     severity: str
@@ -81,6 +107,8 @@ class CandidateReportFinding(BaseModel):
     source_location: SourceLocation
     sink_location: SourceLocation
     reachability: str = "reachable"
+    triage_verdict: str | None = None
+    triage_mode: str | None = None
     source_function_id: str | None = None
     package_name: str | None = None
     cross_package: bool = False
@@ -95,6 +123,7 @@ class SuppressedFinding(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     finding_id: str
+    evidence_status: EvidenceStatus = "suppressed"
     cwe: str
     title: str
     severity: str
@@ -136,6 +165,7 @@ class ExecutiveSummary(BaseModel):
     findings_detected: int
     suppressed_findings: int = 0
     findings_confirmed: int
+    status_breakdown: dict[str, int] = Field(default_factory=dict)
     reachable_findings: int = 0
     unreachable_findings: int = 0
     finding_clusters: int = 0
@@ -162,6 +192,7 @@ class PiranesiReport(BaseModel):
     target: str
     generated_at: str
     files_scanned: list[str] = Field(default_factory=list)
+    status_legend: dict[str, str] = Field(default_factory=lambda: dict(_EVIDENCE_STATUS_LABELS))
     scan_metadata: ScanMetadata
     executive_summary: ExecutiveSummary
     active_findings: list[CandidateReportFinding] = Field(default_factory=list)
@@ -172,6 +203,7 @@ class PiranesiReport(BaseModel):
     cross_package_findings: list[CombinedFinding] = Field(default_factory=list)
     suppressed_findings: list[SuppressedFinding] = Field(default_factory=list)
     suppressed_findings_by_package: dict[str, list[SuppressedFinding]] = Field(default_factory=dict)
+    query_quality: QueryQualityMetrics | None = None
     dead_code_functions: list[ScannedFunction] = Field(default_factory=list)
     dead_code_by_file: dict[str, list[ScannedFunction]] = Field(default_factory=dict)
     appendix: ReportAppendix
@@ -181,6 +213,7 @@ def build_report(
     *,
     scan_result: ScanResult,
     detected_findings: list[CandidateFinding],
+    triaged_findings: list[TriagedFinding] | None = None,
     confirmed_findings: list[ConfirmedFinding],
     legal_assessments: list[LegalAssessment],
     patch_results: list[PatchResult],
@@ -193,25 +226,35 @@ def build_report(
     dead_code_report: bool = False,
 ) -> PiranesiReport:
     generated_at = _utc_now()
+    triage_by_id = _triage_lookup(triaged_findings or [])
     legal_by_id = {
         assessment.finding.finding.finding.id: assessment for assessment in legal_assessments
     }
     patch_by_id = {patch.finding.finding.finding.id: patch for patch in patch_results}
+    unsuppressed_candidates = [
+        candidate for candidate in detected_findings if not candidate.suppressed
+    ]
     reachable_candidates = [
         candidate
-        for candidate in detected_findings
-        if not candidate.suppressed and candidate.reachability == "reachable"
+        for candidate in unsuppressed_candidates
+        if candidate.reachability == "reachable"
     ]
     unreachable_candidates = [
         candidate
-        for candidate in detected_findings
-        if not candidate.suppressed and candidate.reachability != "reachable"
+        for candidate in unsuppressed_candidates
+        if candidate.reachability != "reachable"
     ]
-    active_candidates = (
-        [candidate for candidate in detected_findings if not candidate.suppressed]
-        if include_unreachable
-        else reachable_candidates
+    active_candidate_pool = (
+        list(unsuppressed_candidates) if include_unreachable else reachable_candidates
     )
+    active_candidates = [
+        candidate
+        for candidate in active_candidate_pool
+        if (
+            (triaged := triage_by_id.get(candidate.id)) is None
+            or triaged.triage_verdict != "false_positive"
+        )
+    ]
     suppressed_findings = [
         SuppressedFinding(
             finding_id=candidate.id,
@@ -233,8 +276,37 @@ def build_report(
         for candidate in detected_findings
         if candidate.suppressed
     ]
+    active_report_findings = [
+        _candidate_report_finding(
+            candidate,
+            triaged=triage_by_id.get(candidate.id),
+            cluster_by_id={},
+        )
+        for candidate in active_candidates
+    ]
+    unreachable_report_findings = [
+        _candidate_report_finding(
+            candidate,
+            triaged=triage_by_id.get(candidate.id),
+        )
+        for candidate in unreachable_candidates
+    ]
     active_clusters = _cluster_candidate_findings(active_candidates)
     active_cluster_by_id = _cluster_lookup(active_clusters)
+    active_report_findings = [
+        finding.model_copy(update=_cluster_fields(finding.finding_id, active_cluster_by_id))
+        for finding in active_report_findings
+    ]
+    unreachable_report_findings = [
+        finding.model_copy(update=_cluster_fields(finding.finding_id, active_cluster_by_id))
+        for finding in unreachable_report_findings
+    ]
+    status_breakdown = _status_breakdown(
+        active_findings=active_report_findings,
+        unreachable_findings=unreachable_report_findings,
+        confirmed_count=len(confirmed_findings),
+        suppressed_count=len(suppressed_findings),
+    )
 
     findings: list[CombinedFinding] = []
     for confirmed in confirmed_findings:
@@ -244,6 +316,7 @@ def build_report(
         patch = patch_by_id.get(finding_id)
         finding = CombinedFinding(
             finding_id=finding_id,
+            evidence_status="confirmed",
             cwe=_extract_cwe_id(candidate.vuln_class),
             title=_finding_title(candidate),
             severity=candidate.severity,
@@ -284,6 +357,7 @@ def build_report(
             findings_detected=len(detected_findings),
             suppressed_findings=len(suppressed_findings),
             findings_confirmed=len(confirmed_findings),
+            status_breakdown=status_breakdown,
             reachable_findings=len(reachable_candidates),
             unreachable_findings=len(unreachable_candidates),
             finding_clusters=len(active_clusters),
@@ -292,19 +366,15 @@ def build_report(
             total_llm_cost_usd=total_llm_cost_usd,
             duration_s=duration_s,
         ),
-        active_findings=[
-            _candidate_report_finding(candidate, cluster_by_id=active_cluster_by_id)
-            for candidate in active_candidates
-        ],
-        unreachable_findings=[
-            _candidate_report_finding(candidate) for candidate in unreachable_candidates
-        ],
+        active_findings=active_report_findings,
+        unreachable_findings=unreachable_report_findings,
         finding_clusters=active_clusters,
         findings=findings,
         package_findings=_group_report_findings_by_package(findings),
         cross_package_findings=[finding for finding in findings if finding.cross_package],
         suppressed_findings=suppressed_findings,
         suppressed_findings_by_package=_group_suppressed_findings_by_package(suppressed_findings),
+        query_quality=scan_result.query_quality,
         dead_code_functions=(
             []
             if not dead_code_report or reachability is None
@@ -436,11 +506,14 @@ def _finding_title(candidate: CandidateFinding) -> str:
 def _candidate_report_finding(
     candidate: CandidateFinding,
     *,
+    triaged: TriagedFinding | None = None,
     cluster_by_id: dict[str, FindingCluster] | None = None,
 ) -> CandidateReportFinding:
     original_severity = candidate.metadata.get("reachability_original_severity")
+    evidence_status = _candidate_evidence_status(candidate, triaged=triaged)
     return CandidateReportFinding(
         finding_id=candidate.id,
+        evidence_status=evidence_status,
         cwe=_extract_cwe_id(candidate.vuln_class),
         title=_finding_title(candidate),
         severity=candidate.severity,
@@ -452,6 +525,8 @@ def _candidate_report_finding(
         source_location=candidate.source.location,
         sink_location=candidate.sink.location,
         reachability=candidate.reachability,
+        triage_verdict=None if triaged is None else triaged.triage_verdict,
+        triage_mode=None if triaged is None else triaged.triage_mode,
         source_function_id=_metadata_string(candidate.metadata.get("source_function_id")),
         package_name=_package_name(candidate),
         cross_package=bool(candidate.metadata.get("cross_package")),
@@ -469,6 +544,46 @@ def _candidate_severity_breakdown(findings: list[CandidateFinding]) -> dict[str,
         severity = finding.severity.lower()
         counts[severity] = counts.get(severity, 0) + 1
     return {severity: count for severity, count in counts.items() if count > 0}
+
+
+def _candidate_evidence_status(
+    candidate: CandidateFinding,
+    *,
+    triaged: TriagedFinding | None,
+) -> EvidenceStatus:
+    if candidate.reachability != "reachable":
+        return "unreachable_candidate"
+    if triaged is None:
+        return "static_candidate"
+    if triaged.triage_mode == "deterministic":
+        return "static_candidate"
+    if triaged.triage_verdict == "false_positive":
+        return "static_candidate"
+    return "triaged_active_candidate"
+
+
+def _triage_lookup(findings: list[TriagedFinding]) -> dict[str, TriagedFinding]:
+    return {finding.finding.id: finding for finding in findings}
+
+
+def _status_breakdown(
+    *,
+    active_findings: list[CandidateReportFinding],
+    unreachable_findings: list[CandidateReportFinding],
+    confirmed_count: int,
+    suppressed_count: int,
+) -> dict[str, int]:
+    counts: dict[str, int] = dict.fromkeys(_EVIDENCE_STATUS_ORDER, 0)
+    counts["confirmed"] = confirmed_count
+    counts["suppressed"] = suppressed_count
+    statuses_by_finding: dict[str, str] = {}
+    for finding in active_findings:
+        statuses_by_finding[finding.finding_id] = finding.evidence_status
+    for finding in unreachable_findings:
+        statuses_by_finding[finding.finding_id] = finding.evidence_status
+    for status in statuses_by_finding.values():
+        counts[status] += 1
+    return {status: count for status, count in counts.items() if count > 0}
 
 
 def _cluster_candidate_findings(candidates: list[CandidateFinding]) -> list[FindingCluster]:

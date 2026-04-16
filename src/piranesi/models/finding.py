@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from piranesi.models.taint import PathCondition, SourceLocation, TaintSink, TaintSource, TaintStep
@@ -48,6 +50,44 @@ class ScanMetadata(BaseModel):
     config_hash: str
 
 
+class QuerySpecDescriptor(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    spec_id: str
+    name: str
+    kind: Literal["source", "sink"]
+    category: str
+    cwe_id: str | None = None
+    severity: str | None = None
+    is_custom: bool = False
+    definition_origin: str
+    definition_file: str | None = None
+
+
+class QuerySpecUsage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    spec: QuerySpecDescriptor
+    candidate_count: int = 0
+    matched: bool = False
+
+
+class QueryQualityMetrics(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    loaded_source_specs: int
+    loaded_sink_specs: int
+    matched_source_specs: int
+    matched_sink_specs: int
+    noisy_candidate_threshold: int
+    source_specs: list[QuerySpecUsage] = Field(default_factory=list)
+    sink_specs: list[QuerySpecUsage] = Field(default_factory=list)
+    unmatched_source_specs: list[QuerySpecDescriptor] = Field(default_factory=list)
+    unmatched_sink_specs: list[QuerySpecDescriptor] = Field(default_factory=list)
+    noisy_source_specs: list[QuerySpecUsage] = Field(default_factory=list)
+    noisy_sink_specs: list[QuerySpecUsage] = Field(default_factory=list)
+
+
 class PackageScanResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -75,6 +115,7 @@ class ScanResult(BaseModel):
     sbom_artifacts: dict[str, str] = Field(default_factory=dict)
     package_results: list[PackageScanResult] = Field(default_factory=list)
     monorepo_detected_tool: str | None = None
+    query_quality: QueryQualityMetrics | None = None
     metadata: ScanMetadata
 
 
@@ -130,6 +171,7 @@ class TriagedFinding(BaseModel):
 
     finding: CandidateFinding
     triage_verdict: str
+    triage_mode: Literal["deterministic", "llm", "ml_prefilter"] = "llm"
     skeptic_analysis: str
     ensemble_score: float
     escalated: bool

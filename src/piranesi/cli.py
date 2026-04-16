@@ -529,25 +529,27 @@ def _find_report_finding(
 ) -> tuple[str, ReportFindingMatch] | None:
     for finding in report.findings:
         if finding.finding_id == finding_id:
-            return "confirmed", finding
+            return _resolve_finding_status("confirmed", finding), finding
     for finding in report.active_findings:
         if finding.finding_id == finding_id:
-            return "active_candidate", finding
+            return _resolve_finding_status("static_candidate", finding), finding
     for finding in report.unreachable_findings:
         if finding.finding_id == finding_id:
-            return "unreachable_candidate", finding
+            return _resolve_finding_status("unreachable_candidate", finding), finding
     for finding in report.suppressed_findings:
         if finding.finding_id == finding_id:
-            return "suppressed", finding
+            return _resolve_finding_status("suppressed", finding), finding
     return None
 
 
 def _render_finding_explanation(status: str, finding: ReportFindingMatch) -> str:
+    evidence_label = _status_label(status)
     lines = [
         "# Piranesi Finding Explanation",
         "",
         f"ID: {finding.finding_id}",
         f"Status: {status.replace('_', ' ')}",
+        f"Evidence: {evidence_label}",
         f"Title: {finding.title}",
         f"CWE: {finding.cwe}",
         f"Severity: {finding.severity.upper()}",
@@ -615,6 +617,24 @@ def _patch_status(finding: CombinedFinding) -> str:
     if finding.patch_verified is False:
         return "generated, not verified"
     return "generated"
+
+
+def _resolve_finding_status(default_status: str, finding: ReportFindingMatch) -> str:
+    status = getattr(finding, "evidence_status", None)
+    if isinstance(status, str) and status:
+        return status
+    return default_status
+
+
+def _status_label(status: str) -> str:
+    labels = {
+        "confirmed": "Dynamically verified issue",
+        "triaged_active_candidate": "LLM-triaged active candidate",
+        "static_candidate": "Static candidate",
+        "unreachable_candidate": "Unreachable candidate",
+        "suppressed": "Suppressed finding",
+    }
+    return labels.get(status, status.replace("_", " "))
 
 
 def _resolve_framework_keys(value: str | None) -> list[str] | None:
@@ -937,6 +957,20 @@ def _run_single_stage(
                 raise typer.Exit(code=1)
             dep_type = _STAGE_ARTIFACT_TYPES[dep]
             context.stage_outputs[dep] = _load_artifact_file(dep_path, dep_type)
+        if stage_name == "report" and "triage" not in context.stage_outputs:
+            triage_path = options.output_dir / "triage.json"
+            if triage_path.exists():
+                try:
+                    context.stage_outputs["triage"] = _load_artifact_file(
+                        triage_path,
+                        TriageArtifact,
+                    )
+                except ValueError:
+                    logger.warning(
+                        "unable to load optional triage artifact from %s; "
+                        "continuing report generation without triage evidence",
+                        triage_path,
+                    )
         started_at = time.monotonic()
         try:
             result = stage.runner(config_model, prev_result)
@@ -1871,7 +1905,11 @@ def explain(
     if json_output:
         typer.echo(
             json.dumps(
-                {"status": status, "finding": finding.model_dump(mode="json")},
+                {
+                    "status": status,
+                    "evidence": _status_label(status),
+                    "finding": finding.model_dump(mode="json"),
+                },
                 indent=2,
             )
         )

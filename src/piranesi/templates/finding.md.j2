@@ -3,6 +3,7 @@
 **CWE:** {{ finding.cwe }}
 **Severity:** {{ finding.severity|upper }}
 **Confidence:** {{ "%.2f"|format(finding.confidence) }}
+**Evidence:** `{{ finding.evidence_status }}` ({{ report.status_legend.get(finding.evidence_status, finding.evidence_status) }})
 **Verified:** {{ "Yes" if finding.verified else "No" }} ({{ finding.verification_method }})
 
 ### Taint Path

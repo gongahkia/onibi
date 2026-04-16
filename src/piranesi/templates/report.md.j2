@@ -6,18 +6,32 @@
 
 {% include "executive_summary.j2" %}
 
-## Active Findings
+## Evidence Status Legend
+
+- `confirmed`: Dynamically verified issue.
+- `triaged_active_candidate`: Candidate retained after model-assisted triage.
+- `static_candidate`: Static candidate without dynamic proof.
+- `unreachable_candidate`: Static candidate not reachable from entry points.
+- `suppressed`: Finding suppressed by policy/risk acceptance.
+
+## Active Candidate Findings
 
 {% if report.active_findings %}
 {% for finding in report.active_findings %}
 ### {{ finding.title }} (`{{ finding.finding_id }}`)
 
+- **Evidence:** `{{ finding.evidence_status }}` ({{ report.status_legend.get(finding.evidence_status, finding.evidence_status) }})
 - **CWE:** {{ finding.cwe }}
 - **Severity:** {{ finding.severity|upper }}
 {% if finding.original_severity and finding.original_severity != finding.severity %}
 - **Original Severity:** {{ finding.original_severity|upper }}
 {% endif %}
 - **Reachability:** {{ finding.reachability }}
+{% if finding.triage_verdict %}
+- **Triage verdict:** {{ finding.triage_verdict }}{% if finding.triage_mode %} (mode: {{ finding.triage_mode }}){% endif %}
+{% elif finding.triage_mode %}
+- **Triage mode:** {{ finding.triage_mode }}
+{% endif %}
 {% if finding.source_function_id %}
 - **Source function:** `{{ finding.source_function_id }}`
 {% endif %}
@@ -29,7 +43,7 @@
 
 {% endfor %}
 {% else %}
-No active findings remain after reachability pruning.
+No active candidate findings remain after triage and reachability pruning.
 {% endif %}
 
 ## Finding Clusters
@@ -55,12 +69,13 @@ No active findings remain after reachability pruning.
 No finding clusters were produced.
 {% endif %}
 
-## Unreachable Findings
+## Unreachable Candidate Findings
 
 {% if report.unreachable_findings %}
 {% for finding in report.unreachable_findings %}
 ### {{ finding.title }} (`{{ finding.finding_id }}`)
 
+- **Evidence:** `{{ finding.evidence_status }}` ({{ report.status_legend.get(finding.evidence_status, finding.evidence_status) }})
 - **CWE:** {{ finding.cwe }}
 - **Severity:** {{ finding.severity|upper }}
 {% if finding.original_severity and finding.original_severity != finding.severity %}
@@ -122,6 +137,7 @@ No cross-package findings were produced by the pipeline.
 {% for finding in findings %}
 ### {{ finding.title }} (`{{ finding.finding_id }}`)
 
+- **Evidence:** `{{ finding.evidence_status }}` ({{ report.status_legend.get(finding.evidence_status, finding.evidence_status) }})
 - **CWE:** {{ finding.cwe }}
 - **Severity:** {{ finding.severity|upper }}
 - **Location:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}`
@@ -132,6 +148,7 @@ No cross-package findings were produced by the pipeline.
 {% for finding in report.suppressed_findings if finding.cross_package %}
 ### {{ finding.title }} (`{{ finding.finding_id }}`)
 
+- **Evidence:** `{{ finding.evidence_status }}` ({{ report.status_legend.get(finding.evidence_status, finding.evidence_status) }})
 - **CWE:** {{ finding.cwe }}
 - **Severity:** {{ finding.severity|upper }}
 - **Location:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}`
@@ -142,6 +159,7 @@ No cross-package findings were produced by the pipeline.
 {% for finding in report.suppressed_findings %}
 ### {{ finding.title }} (`{{ finding.finding_id }}`)
 
+- **Evidence:** `{{ finding.evidence_status }}` ({{ report.status_legend.get(finding.evidence_status, finding.evidence_status) }})
 - **CWE:** {{ finding.cwe }}
 - **Severity:** {{ finding.severity|upper }}
 - **Location:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}`

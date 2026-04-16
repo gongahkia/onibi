@@ -3,7 +3,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from piranesi.models import ReachabilityResult, ScannedFunction, SourceLocation
+from piranesi.models import (
+    QueryQualityMetrics,
+    QuerySpecDescriptor,
+    QuerySpecUsage,
+    ReachabilityResult,
+    ScannedFunction,
+    SourceLocation,
+)
 from piranesi.report.renderer import build_report, write_report_outputs
 from tests._pipeline_fixtures import fixture_artifacts
 
@@ -46,6 +53,117 @@ def test_report_renderer_writes_expected_structure(tmp_path: Path) -> None:
     assert "Switch to parameterized queries." not in pr_body
 
 
+def test_report_renderer_includes_query_quality_metrics_from_scan(tmp_path: Path) -> None:
+    artifacts = fixture_artifacts(tmp_path)
+    query_quality = QueryQualityMetrics(
+        loaded_source_specs=2,
+        loaded_sink_specs=2,
+        matched_source_specs=1,
+        matched_sink_specs=1,
+        noisy_candidate_threshold=5,
+        source_specs=[
+            QuerySpecUsage(
+                spec=QuerySpecDescriptor(
+                    spec_id="source:express_req_body",
+                    name="express_req_body",
+                    kind="source",
+                    category="request_body",
+                    definition_origin="builtin",
+                    definition_file="src/piranesi/scan/specs.py",
+                ),
+                candidate_count=1,
+                matched=True,
+            ),
+            QuerySpecUsage(
+                spec=QuerySpecDescriptor(
+                    spec_id="source:custom_source_1",
+                    name="custom_source_1",
+                    kind="source",
+                    category="custom",
+                    is_custom=True,
+                    definition_origin="config",
+                    definition_file="piranesi.toml",
+                ),
+                candidate_count=0,
+                matched=False,
+            ),
+        ],
+        sink_specs=[
+            QuerySpecUsage(
+                spec=QuerySpecDescriptor(
+                    spec_id="sink:raw_sql_query",
+                    name="raw_sql_query",
+                    kind="sink",
+                    category="sql_query",
+                    cwe_id="CWE-89",
+                    definition_origin="builtin",
+                    definition_file="src/piranesi/scan/specs.py",
+                ),
+                candidate_count=1,
+                matched=True,
+            ),
+            QuerySpecUsage(
+                spec=QuerySpecDescriptor(
+                    spec_id="sink:custom_sink_1",
+                    name="custom_sink_1",
+                    kind="sink",
+                    category="custom",
+                    cwe_id="CWE-20",
+                    is_custom=True,
+                    definition_origin="config",
+                    definition_file="piranesi.toml",
+                ),
+                candidate_count=0,
+                matched=False,
+            ),
+        ],
+        unmatched_source_specs=[
+            QuerySpecDescriptor(
+                spec_id="source:custom_source_1",
+                name="custom_source_1",
+                kind="source",
+                category="custom",
+                is_custom=True,
+                definition_origin="config",
+                definition_file="piranesi.toml",
+            )
+        ],
+        unmatched_sink_specs=[
+            QuerySpecDescriptor(
+                spec_id="sink:custom_sink_1",
+                name="custom_sink_1",
+                kind="sink",
+                category="custom",
+                cwe_id="CWE-20",
+                is_custom=True,
+                definition_origin="config",
+                definition_file="piranesi.toml",
+            )
+        ],
+        noisy_source_specs=[],
+        noisy_sink_specs=[],
+    )
+    scan_with_quality = artifacts["scan"].model_copy(update={"query_quality": query_quality})  # type: ignore[attr-defined]
+
+    report = build_report(
+        scan_result=scan_with_quality,  # type: ignore[arg-type]
+        detected_findings=artifacts["detect"].findings,  # type: ignore[attr-defined]
+        confirmed_findings=artifacts["verify"].findings,  # type: ignore[attr-defined]
+        legal_assessments=artifacts["legal"].assessments,  # type: ignore[attr-defined]
+        patch_results=artifacts["patch"].patches,  # type: ignore[attr-defined]
+        target_dir=tmp_path,
+        total_llm_cost_usd=0.0,
+        duration_s=1.0,
+        stage_timings_s={"scan": 0.2, "detect": 0.2, "report": 0.1},
+    )
+    write_report_outputs(report, tmp_path)
+
+    payload = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
+    assert payload["query_quality"]["loaded_source_specs"] == 2
+    assert payload["query_quality"]["matched_sink_specs"] == 1
+    assert payload["query_quality"]["unmatched_source_specs"][0]["name"] == "custom_source_1"
+
+
 def test_report_renderer_separates_suppressed_findings(tmp_path: Path) -> None:
     artifacts = fixture_artifacts(tmp_path)
     active = artifacts["detect"].findings[0]  # type: ignore[attr-defined]
@@ -77,6 +195,92 @@ def test_report_renderer_separates_suppressed_findings(tmp_path: Path) -> None:
     assert "2 findings (1 suppressed)" in markdown
     assert "## Suppressed Findings" in markdown
     assert "accepted risk" in markdown
+
+
+def test_report_renderer_exposes_evidence_status_levels(tmp_path: Path) -> None:
+    artifacts = fixture_artifacts(tmp_path)
+    base = artifacts["detect"].findings[0]  # type: ignore[attr-defined]
+    active = base.model_copy(update={"id": "finding-active"})
+    unreachable = base.model_copy(
+        update={
+            "id": "finding-unreachable",
+            "severity": "informational",
+            "reachability": "unreachable",
+        }
+    )
+    suppressed = base.model_copy(
+        update={
+            "id": "finding-suppressed",
+            "suppressed": True,
+            "suppression_reason": "accepted risk",
+        }
+    )
+    triaged_active = artifacts["triage"].findings[0].model_copy(  # type: ignore[attr-defined]
+        update={
+            "finding": active,
+            "triage_verdict": "true_positive",
+            "triage_mode": "llm",
+        }
+    )
+
+    report = build_report(
+        scan_result=artifacts["scan"],  # type: ignore[arg-type]
+        detected_findings=[active, unreachable, suppressed],
+        triaged_findings=[triaged_active],
+        confirmed_findings=artifacts["verify"].findings,  # type: ignore[attr-defined]
+        legal_assessments=artifacts["legal"].assessments,  # type: ignore[attr-defined]
+        patch_results=artifacts["patch"].patches,  # type: ignore[attr-defined]
+        target_dir=tmp_path,
+        total_llm_cost_usd=0.0,
+        duration_s=1.0,
+        stage_timings_s={"scan": 0.1, "detect": 0.1, "report": 0.1},
+    )
+    write_report_outputs(report, tmp_path)
+
+    payload = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
+    assert payload["findings"][0]["evidence_status"] == "confirmed"
+    assert payload["active_findings"][0]["evidence_status"] == "triaged_active_candidate"
+    assert payload["unreachable_findings"][0]["evidence_status"] == "unreachable_candidate"
+    assert payload["suppressed_findings"][0]["evidence_status"] == "suppressed"
+    assert payload["executive_summary"]["status_breakdown"]["confirmed"] == 1
+    assert payload["executive_summary"]["status_breakdown"]["triaged_active_candidate"] == 1
+    assert payload["executive_summary"]["status_breakdown"]["unreachable_candidate"] == 1
+    assert payload["executive_summary"]["status_breakdown"]["suppressed"] == 1
+
+    markdown = (tmp_path / "report.md").read_text(encoding="utf-8")
+    assert "## Evidence Status Legend" in markdown
+    assert "`triaged_active_candidate`: Candidate retained after model-assisted triage." in markdown
+    assert "- **Evidence:** `triaged_active_candidate`" in markdown
+    assert "- **Evidence:** `unreachable_candidate`" in markdown
+    assert "- **Evidence:** `suppressed`" in markdown
+    assert "Evidence status breakdown:" in markdown
+
+
+def test_report_renderer_keeps_deterministic_triage_as_static_candidate(tmp_path: Path) -> None:
+    artifacts = fixture_artifacts(tmp_path)
+    active = artifacts["detect"].findings[0].model_copy(update={"id": "finding-static"})  # type: ignore[attr-defined]
+    deterministic_triaged = artifacts["triage"].findings[0].model_copy(  # type: ignore[attr-defined]
+        update={
+            "finding": active,
+            "triage_verdict": "true_positive",
+            "triage_mode": "deterministic",
+        }
+    )
+    report = build_report(
+        scan_result=artifacts["scan"],  # type: ignore[arg-type]
+        detected_findings=[active],
+        triaged_findings=[deterministic_triaged],
+        confirmed_findings=[],
+        legal_assessments=[],
+        patch_results=[],
+        target_dir=tmp_path,
+        total_llm_cost_usd=0.0,
+        duration_s=1.0,
+        stage_timings_s={"scan": 0.1, "detect": 0.1, "report": 0.1},
+    )
+
+    assert report.active_findings[0].evidence_status == "static_candidate"
+    assert report.executive_summary.status_breakdown["static_candidate"] == 1
 
 
 def test_report_renderer_groups_package_and_cross_package_findings(tmp_path: Path) -> None:
@@ -239,8 +443,8 @@ def test_report_renderer_separates_unreachable_findings_and_dead_code(tmp_path: 
     assert payload["dead_code_functions"][0]["name"] == "deadEntry"
 
     markdown = (tmp_path / "report.md").read_text(encoding="utf-8")
-    assert "## Active Findings" in markdown
-    assert "## Unreachable Findings" in markdown
+    assert "## Active Candidate Findings" in markdown
+    assert "## Unreachable Candidate Findings" in markdown
     assert "Original Severity" in markdown
     assert "## Dead Code Report" in markdown
     assert "`deadEntry` (line 42)" in markdown

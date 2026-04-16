@@ -126,24 +126,41 @@ uv run python docs/examples/run_detect_summary.py examples/vuln-express
 
 After the first run, the output directory contains:
 
-- `scan.json`: file list, call graph, entry points, and attack-surface summary.
+- `scan.json`: file list, call graph, entry points, attack-surface summary, and `query_quality` metrics for loaded/matched source and sink specs.
 - `detect.json`: candidate findings from the taint analysis stage.
 - `triage.json`: triage verdicts generated via the configured LLM provider.
 - `verify.json`: confirmed findings. With `--no-execute`, this stays empty by design.
 - `legal.json`: regulatory obligations for confirmed findings.
 - `patch.json`: generated fixes for confirmed findings.
-- `report.json`: machine-readable combined report.
+- `report.json`: machine-readable combined report, including the `query_quality` block copied from `scan.json` and per-finding `evidence_status` values.
 - `report.md`: human-readable markdown report.
 - `pr_body.md`: per-finding GitHub-flavored markdown.
 
 `report.json` also includes `finding_clusters`, which group repeated flows that
 share the same CWE and sink location while preserving each individual finding.
 
+Evidence statuses in `report.json` and `report.md`:
+
+- `confirmed`: dynamically verified exploitability evidence exists.
+- `triaged_active_candidate`: retained after model-assisted triage.
+- `static_candidate`: static-only candidate without dynamic proof.
+- `unreachable_candidate`: candidate not reachable from entry points.
+- `suppressed`: candidate intentionally suppressed with documented reason.
+
+Use `query_quality` to tune specs over time:
+
+- `source_specs` / `sink_specs`: candidate volume by spec with descriptor metadata (`spec_id`, category, and definition file/origin).
+- `unmatched_*_specs`: specs that never generated candidates in the run.
+- `noisy_*_specs`: high-cardinality specs based on the configured threshold in `query_quality.noisy_candidate_threshold`.
+
 To inspect one finding without opening the full JSON artifact:
 
 ```bash
 piranesi explain <finding-id> --output .piranesi-out/vuln-express
 ```
+
+`piranesi explain` prints both the status code and human-readable evidence label so
+you can quickly distinguish static candidates from dynamically verified findings.
 
 For the bundled vulnerable app, the real run on 2026-04-09 produced four candidate findings:
 

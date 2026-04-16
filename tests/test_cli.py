@@ -445,10 +445,70 @@ def test_explain_command_renders_confirmed_finding(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert "Piranesi Finding Explanation" in result.stdout
     assert "Status: confirmed" in result.stdout
+    assert "Evidence: Dynamically verified issue" in result.stdout
     assert "CWE-89" in result.stdout
     assert "Verified: yes" in result.stdout
     assert "Patch: generated, not verified" in result.stdout
     assert "db.query" in result.stdout
+
+
+def test_explain_command_renders_candidate_statuses(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+    artifacts = fixture_artifacts(tmp_path)
+    base = artifacts["detect"].findings[0]  # type: ignore[attr-defined]
+    active = base.model_copy(update={"id": "finding-active"})
+    unreachable = base.model_copy(
+        update={
+            "id": "finding-unreachable",
+            "reachability": "unreachable",
+            "severity": "informational",
+        }
+    )
+    suppressed = base.model_copy(
+        update={
+            "id": "finding-suppressed",
+            "suppressed": True,
+            "suppression_reason": "accepted risk",
+        }
+    )
+    triaged_active = artifacts["triage"].findings[0].model_copy(  # type: ignore[attr-defined]
+        update={"finding": active, "triage_verdict": "true_positive", "triage_mode": "llm"}
+    )
+    report = build_report(
+        scan_result=artifacts["scan"],  # type: ignore[arg-type]
+        detected_findings=[active, unreachable, suppressed],
+        triaged_findings=[triaged_active],
+        confirmed_findings=artifacts["verify"].findings,  # type: ignore[attr-defined]
+        legal_assessments=artifacts["legal"].assessments,  # type: ignore[attr-defined]
+        patch_results=artifacts["patch"].patches,  # type: ignore[attr-defined]
+        target_dir=tmp_path,
+        total_llm_cost_usd=0.0,
+        duration_s=1.0,
+        stage_timings_s={},
+    )
+    output_dir.mkdir()
+    (output_dir / "report.json").write_text(report.model_dump_json(indent=2), encoding="utf-8")
+
+    active_result = runner.invoke(app, ["explain", "finding-active", "--output", str(output_dir)])
+    assert active_result.exit_code == 0
+    assert "Status: triaged active candidate" in active_result.stdout
+    assert "Evidence: LLM-triaged active candidate" in active_result.stdout
+
+    unreachable_result = runner.invoke(
+        app,
+        ["explain", "finding-unreachable", "--output", str(output_dir)],
+    )
+    assert unreachable_result.exit_code == 0
+    assert "Status: unreachable candidate" in unreachable_result.stdout
+    assert "Evidence: Unreachable candidate" in unreachable_result.stdout
+
+    suppressed_result = runner.invoke(
+        app,
+        ["explain", "finding-suppressed", "--output", str(output_dir)],
+    )
+    assert suppressed_result.exit_code == 0
+    assert "Status: suppressed" in suppressed_result.stdout
+    assert "Evidence: Suppressed finding" in suppressed_result.stdout
 
 
 def test_explain_command_can_emit_json(tmp_path: Path) -> None:
@@ -476,6 +536,7 @@ def test_explain_command_can_emit_json(tmp_path: Path) -> None:
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     assert payload["status"] == "confirmed"
+    assert payload["evidence"] == "Dynamically verified issue"
     assert payload["finding"]["finding_id"] == "finding-001"
 
 

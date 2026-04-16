@@ -48,11 +48,13 @@ maturity level.
 
 ## Trust Boundary
 
-Piranesi distinguishes three levels of confidence:
+Piranesi report artifacts now expose explicit evidence statuses:
 
-- **Candidate findings** are static analysis results and may include false positives.
-- **Triaged findings** have deterministic or model-assisted filtering applied.
-- **Confirmed findings** have verification evidence from the verify stage.
+- **`static_candidate`**: static analysis lead; may include false positives.
+- **`triaged_active_candidate`**: candidate retained by model-assisted triage.
+- **`unreachable_candidate`**: static candidate not reachable from known entry points.
+- **`confirmed`**: dynamically verified exploit path with verification evidence.
+- **`suppressed`**: finding intentionally suppressed with rationale.
 
 Reports should be read with that distinction in mind. A candidate finding is a
 lead for engineering review; a confirmed finding is materially stronger evidence.
