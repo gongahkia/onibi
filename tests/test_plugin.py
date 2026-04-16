@@ -21,6 +21,7 @@ from piranesi.plugin import (
     SpringBootFramework,
     discover_framework_plugins,
     get_framework_plugins_by_name,
+    plugin_api_manifest,
 )
 from piranesi.scan.specs import (
     BUILTIN_SANITIZER_SPECS,
@@ -252,6 +253,95 @@ def test_discover_skips_non_framework_entry_point() -> None:
         plugins = discover_framework_plugins()
     names = [p.name() for p in plugins]
     assert "bad" not in names
+
+
+def test_plugin_api_manifest_snapshot() -> None:
+    assert plugin_api_manifest() == {
+        "version": "1.0",
+        "stable": {
+            "entry_point_groups": [
+                "piranesi.frameworks",
+                "piranesi.rules",
+                "piranesi.reporters",
+            ],
+            "framework_plugin_interface": [
+                "name(self) -> str",
+                "detect(self, project_root: Path) -> bool",
+                "source_specs(self) -> list[SourceSpec]",
+                "sink_specs(self) -> list[SinkSpec]",
+                "sanitizer_specs(self) -> list[SanitizerSpec]",
+            ],
+            "rule_plugin_interface": [
+                "name(self) -> str",
+                "rule_files(self) -> list[Path]",
+            ],
+            "reporter_plugin_interface": [
+                "name(self) -> str",
+                "format_id(self) -> str",
+                "render(self, report: object, output_dir: Path) -> Path",
+            ],
+            "discovery_helpers": [
+                "discover_framework_plugins",
+                "discover_rule_plugins",
+                "discover_reporter_plugins",
+                "get_framework_plugins_by_name",
+                "collect_source_specs",
+                "collect_sink_specs",
+                "collect_sanitizer_specs",
+                "plugin_api_manifest",
+            ],
+        },
+        "experimental": {
+            "framework_plugin_hooks": [
+                "tsconfig_overrides(self) -> dict[str, object]",
+            ]
+        },
+        "internal": {
+            "built_in_plugin_classes": [
+                "ExpressFramework",
+                "NestJSFramework",
+                "NextJSFramework",
+                "FastifyFramework",
+                "FlaskFramework",
+                "DjangoFramework",
+                "FastAPIFramework",
+                "SpringBootFramework",
+                "GinFramework",
+                "EchoFramework",
+                "ChiFramework",
+                "GoStdlibFramework",
+                "PhpFramework",
+                "LaravelFramework",
+                "SymfonyFramework",
+                "WordPressFramework",
+                "RubyFramework",
+                "RailsFramework",
+                "SinatraFramework",
+            ],
+            "registry_constant": "_BUILTIN_FRAMEWORK_PLUGINS",
+        },
+    }
+
+
+def test_discover_warns_when_framework_uses_experimental_api(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class _ExperimentalFramework(_ExternalFramework):
+        def name(self) -> str:
+            return "experimental-fw"
+
+        def tsconfig_overrides(self) -> dict[str, object]:
+            return {"strict": True}
+
+    fake_eps = [_FakeEntryPoint("experimental-fw", _ExperimentalFramework)]
+    with (
+        caplog.at_level("WARNING"),
+        patch("piranesi.plugin.entry_points", return_value=fake_eps),
+    ):
+        plugins = discover_framework_plugins()
+    names = [p.name() for p in plugins]
+    assert "experimental-fw" in names
+    assert "uses experimental API 'tsconfig_overrides'" in caplog.text
 
 
 # --- get_*_specs backward compat through plugins ---

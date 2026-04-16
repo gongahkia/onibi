@@ -99,3 +99,9 @@ metadata (`model_version = v1`):
 
 This score is for transparent prioritization; it does not replace severity labels
 or formal risk acceptance decisions.
+
+## Plugin Stability
+
+Plugin extension-point stability levels and versioning guidance are documented in
+`docs/plugin-api.md`. The stable contract is also exported programmatically via
+`piranesi.plugin.plugin_api_manifest()`.

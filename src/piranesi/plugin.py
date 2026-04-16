@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from importlib.metadata import entry_points
 from pathlib import Path
 
@@ -49,6 +50,69 @@ from piranesi.scan.specs import (
 )
 
 logger = logging.getLogger(__name__)
+
+PLUGIN_API_VERSION = "1.0"
+
+_PLUGIN_API_MANIFEST: dict[str, object] = {
+    "version": PLUGIN_API_VERSION,
+    "stable": {
+        "entry_point_groups": ["piranesi.frameworks", "piranesi.rules", "piranesi.reporters"],
+        "framework_plugin_interface": [
+            "name(self) -> str",
+            "detect(self, project_root: Path) -> bool",
+            "source_specs(self) -> list[SourceSpec]",
+            "sink_specs(self) -> list[SinkSpec]",
+            "sanitizer_specs(self) -> list[SanitizerSpec]",
+        ],
+        "rule_plugin_interface": [
+            "name(self) -> str",
+            "rule_files(self) -> list[Path]",
+        ],
+        "reporter_plugin_interface": [
+            "name(self) -> str",
+            "format_id(self) -> str",
+            "render(self, report: object, output_dir: Path) -> Path",
+        ],
+        "discovery_helpers": [
+            "discover_framework_plugins",
+            "discover_rule_plugins",
+            "discover_reporter_plugins",
+            "get_framework_plugins_by_name",
+            "collect_source_specs",
+            "collect_sink_specs",
+            "collect_sanitizer_specs",
+        ],
+    },
+    "experimental": {
+        "framework_plugin_hooks": [
+            "tsconfig_overrides(self) -> dict[str, object]",
+        ],
+    },
+    "internal": {
+        "built_in_plugin_classes": [
+            "ExpressFramework",
+            "NestJSFramework",
+            "NextJSFramework",
+            "FastifyFramework",
+            "FlaskFramework",
+            "DjangoFramework",
+            "FastAPIFramework",
+            "SpringBootFramework",
+            "GinFramework",
+            "EchoFramework",
+            "ChiFramework",
+            "GoStdlibFramework",
+            "PhpFramework",
+            "LaravelFramework",
+            "SymfonyFramework",
+            "WordPressFramework",
+            "RubyFramework",
+            "RailsFramework",
+            "SinatraFramework",
+        ],
+        "registry_constant": "_BUILTIN_FRAMEWORK_PLUGINS",
+    },
+}
 
 
 class FrameworkPlugin(ABC):
@@ -578,6 +642,21 @@ _BUILTIN_FRAMEWORK_PLUGINS: tuple[type[FrameworkPlugin], ...] = (
 )
 
 
+def plugin_api_manifest() -> dict[str, object]:
+    """Return the documented plugin API stability manifest."""
+    return deepcopy(_PLUGIN_API_MANIFEST)
+
+
+def _warn_experimental_framework_usage(instance: FrameworkPlugin) -> None:
+    if type(instance).tsconfig_overrides is FrameworkPlugin.tsconfig_overrides:
+        return
+    logger.warning(
+        "framework plugin '%s' uses experimental API 'tsconfig_overrides'; "
+        "compatibility may change",
+        instance.name(),
+    )
+
+
 def discover_framework_plugins(
     *,
     disabled: frozenset[str] = frozenset(),
@@ -592,6 +671,7 @@ def discover_framework_plugins(
             logger.warning("duplicate framework plugin name: %s", instance.name())
             continue
         seen.add(instance.name())
+        _warn_experimental_framework_usage(instance)
         plugins.append(instance)
     for ep in entry_points(group="piranesi.frameworks"):
         try:
@@ -609,6 +689,7 @@ def discover_framework_plugins(
             logger.warning("duplicate framework plugin name: %s", instance.name())
             continue
         seen.add(instance.name())
+        _warn_experimental_framework_usage(instance)
         plugins.append(instance)
     return plugins
 
@@ -732,4 +813,5 @@ __all__ = [
     "discover_reporter_plugins",
     "discover_rule_plugins",
     "get_framework_plugins_by_name",
+    "plugin_api_manifest",
 ]
