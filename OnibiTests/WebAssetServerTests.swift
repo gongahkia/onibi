@@ -32,6 +32,12 @@ final class WebAssetServerTests: XCTestCase {
         XCTAssertNil(response)
     }
 
+    func testSkipsRealtimeWebSocketUpgradePath() {
+        let server = WebAssetServer(candidateDirectories: [tempDirectoryURL])
+        let response = server.response(method: "GET", path: "/api/v2/realtime")
+        XCTAssertNil(response)
+    }
+
     func testServesIndexAtRoot() throws {
         let server = WebAssetServer(candidateDirectories: [tempDirectoryURL])
         guard let response = server.response(method: "GET", path: "/") else {
