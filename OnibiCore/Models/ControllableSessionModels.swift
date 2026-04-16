@@ -20,6 +20,15 @@ public enum RemoteInputKind: String, Codable, Sendable {
 public enum RemoteInputKey: String, Codable, Sendable, CaseIterable {
     case enter
     case ctrlC = "ctrl_c"
+    case ctrlD = "ctrl_d"
+    case tab
+    case backspace
+    case escape
+    case delete
+    case home
+    case end
+    case pageUp = "page_up"
+    case pageDown = "page_down"
     case arrowUp = "arrow_up"
     case arrowDown = "arrow_down"
     case arrowLeft = "arrow_left"

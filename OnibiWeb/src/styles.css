@@ -42,6 +42,7 @@ body {
 
 .screen-live {
   min-height: 100vh;
+  padding-bottom: 84px;
 }
 
 .screen-header h1 {
@@ -249,6 +250,24 @@ button:disabled {
 .xterm-container {
   height: 52vh;
   width: 100%;
+  touch-action: manipulation;
+}
+
+.session-controls {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin-top: auto;
+  display: grid;
+  gap: 8px;
+  padding: 10px 0 calc(10px + env(safe-area-inset-bottom));
+  background: #121417;
+}
+
+.session-controls-hint {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #94a3b8;
 }
 
 .remote-input-bar {
@@ -261,10 +280,22 @@ button:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  max-width: 100%;
+  overflow-x: auto;
+  padding-bottom: 2px;
 }
 
 .key-button {
-  min-width: 72px;
+  min-width: 88px;
+  min-height: 44px;
+}
+
+.remote-input-bar input[type="text"] {
+  min-height: 44px;
+}
+
+.remote-input-bar button {
+  min-height: 44px;
 }
 
 @media (max-width: 720px) {
@@ -280,6 +311,14 @@ button:disabled {
   }
 
   .xterm-container {
-    height: 48vh;
+    height: 44vh;
+  }
+
+  .session-controls {
+    gap: 10px;
+  }
+
+  .key-button {
+    min-width: 96px;
   }
 }

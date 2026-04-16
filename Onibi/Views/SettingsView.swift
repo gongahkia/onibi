@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreImage.CIFilterBuiltins
 
 /// Settings tabs
 enum SettingsTab: String, CaseIterable {
@@ -581,6 +582,25 @@ struct MobileAccessSettingsTab: View {
     @ObservedObject private var gatewayService = MobileGatewayService.shared
     @ObservedObject private var proxyListener = LocalSessionProxyListener.shared
     @State private var revealToken = false
+    @State private var showPairingQR = false
+
+    private var pairingEndpointForQR: String {
+        gatewayService.tailscaleStatus.baseURLString ?? gatewayService.localURLString
+    }
+
+    private var pairingPayloadForQR: String {
+        let payload: [String: String] = [
+            "type": "onibi_pairing",
+            "baseURL": pairingEndpointForQR,
+            "token": gatewayService.pairingToken
+        ]
+
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else {
+            return ""
+        }
+        return text
+    }
 
     var body: some View {
         Form {
@@ -689,13 +709,25 @@ struct MobileAccessSettingsTab: View {
                     Button(revealToken ? "Hide Token" : "Reveal Token") {
                         revealToken.toggle()
                     }
+                    Button(showPairingQR ? "Hide QR" : "Show QR") {
+                        showPairingQR.toggle()
+                    }
                     Button("Copy Token") {
                         gatewayService.copyPairingToken()
                     }
+                    Button("Copy Pairing Payload") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(pairingPayloadForQR, forType: .string)
+                    }
                     Button("Rotate Token") {
                         gatewayService.rotatePairingToken()
+                        showPairingQR = false
                     }
                     Spacer()
+                }
+
+                if showPairingQR {
+                    PairingQRCodeView(payload: pairingPayloadForQR)
                 }
             }
 
@@ -759,6 +791,59 @@ struct MobileAccessSettingsTab: View {
         .task {
             await gatewayService.refreshTailscaleStatus()
         }
+    }
+}
+
+private struct PairingQRCodeView: View {
+    private static let context = CIContext()
+
+    let payload: String
+
+    private var qrImage: NSImage? {
+        guard !payload.isEmpty else {
+            return nil
+        }
+
+        let filter = CIFilter.qrCodeGenerator()
+        filter.setValue(Data(payload.utf8), forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+
+        guard let outputImage = filter.outputImage else {
+            return nil
+        }
+
+        let scaledImage = outputImage.transformed(by: CGAffineTransform(scaleX: 6, y: 6))
+        guard let cgImage = Self.context.createCGImage(scaledImage, from: scaledImage.extent) else {
+            return nil
+        }
+
+        return NSImage(cgImage: cgImage, size: NSSize(width: scaledImage.extent.width, height: scaledImage.extent.height))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let qrImage {
+                Image(nsImage: qrImage)
+                    .interpolation(.none)
+                    .resizable()
+                    .frame(width: 168, height: 168)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Color.secondary.opacity(0.35), lineWidth: 1)
+                    )
+            } else {
+                Text("QR unavailable until a valid pairing payload is available.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Text("Scan on your phone to import base URL + token payload.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.top, 2)
     }
 }
 

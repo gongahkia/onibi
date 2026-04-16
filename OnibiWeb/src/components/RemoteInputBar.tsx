@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 
 interface RemoteInputBarProps {
   disabled: boolean;
@@ -7,6 +7,7 @@ interface RemoteInputBarProps {
 
 export function RemoteInputBar({ disabled, onSubmitLine }: RemoteInputBarProps): JSX.Element {
   const [text, setText] = useState("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -15,11 +16,15 @@ export function RemoteInputBar({ disabled, onSubmitLine }: RemoteInputBarProps):
     }
     onSubmitLine(text);
     setText("");
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
   };
 
   return (
     <form className="remote-input-bar" onSubmit={handleSubmit}>
       <input
+        ref={inputRef}
         type="text"
         value={text}
         onChange={(event) => setText(event.target.value)}

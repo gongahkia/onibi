@@ -70,9 +70,14 @@ export function SessionOutputPane({
       fitAddon.fit();
       reportSize();
     };
+    const focusTerminal = () => {
+      terminal.focus();
+    };
     const inputDisposable = terminal.onData((data) => {
       onTerminalInputRef.current(data);
     });
+    container.addEventListener("pointerdown", focusTerminal);
+    container.addEventListener("touchstart", focusTerminal, { passive: true });
     window.addEventListener("resize", onResize);
     onResize();
 
@@ -81,6 +86,8 @@ export function SessionOutputPane({
 
     return () => {
       window.removeEventListener("resize", onResize);
+      container.removeEventListener("pointerdown", focusTerminal);
+      container.removeEventListener("touchstart", focusTerminal);
       inputDisposable.dispose();
       terminal.dispose();
       terminalRef.current = null;

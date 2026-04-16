@@ -27,6 +27,24 @@ enum RemoteInputByteTranslator {
             return Data([0x0D])
         case .ctrlC:
             return Data([0x03])
+        case .ctrlD:
+            return Data([0x04])
+        case .tab:
+            return Data([0x09])
+        case .backspace:
+            return Data([0x7F])
+        case .escape:
+            return Data([0x1B])
+        case .delete:
+            return Data([0x1B, 0x5B, 0x33, 0x7E])
+        case .home:
+            return Data([0x1B, 0x5B, 0x48])
+        case .end:
+            return Data([0x1B, 0x5B, 0x46])
+        case .pageUp:
+            return Data([0x1B, 0x5B, 0x35, 0x7E])
+        case .pageDown:
+            return Data([0x1B, 0x5B, 0x36, 0x7E])
         case .arrowUp:
             return Data([0x1B, 0x5B, 0x41])
         case .arrowDown:

@@ -72,8 +72,11 @@ export function LiveSessionView({
 
       {inputError && <p className="error-text">{inputError}</p>}
 
-      <RemoteInputBar disabled={inputDisabled} onSubmitLine={onSendLine} />
-      <RemoteKeyStrip disabled={inputDisabled} onSendKey={onSendKey} />
+      <section className="session-controls">
+        <p className="session-controls-hint">Tap the terminal output to focus keyboard input.</p>
+        <RemoteInputBar disabled={inputDisabled} onSubmitLine={onSendLine} />
+        <RemoteKeyStrip disabled={inputDisabled} onSendKey={onSendKey} />
+      </section>
     </main>
   );
 }
