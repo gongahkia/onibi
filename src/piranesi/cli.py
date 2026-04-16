@@ -49,7 +49,12 @@ from piranesi.pipeline import (
     run_pipeline,
 )
 from piranesi.report import launch_compliance_tui, print_compliance_report, render_attestation
-from piranesi.report.renderer import PiranesiReport
+from piranesi.report.renderer import (
+    CandidateReportFinding,
+    CombinedFinding,
+    PiranesiReport,
+    SuppressedFinding,
+)
 from piranesi.report.trends import build_trend_report, render_terminal_trends, write_trend_report
 from piranesi.report.tui import display_report
 from piranesi.scaffold import scaffold_project
@@ -513,6 +518,97 @@ def _load_report_from_artifacts_dir(artifacts_dir: Path) -> PiranesiReport:
     if not report_path.exists():
         raise ValueError(f"report artifact not found: {report_path}")
     return cast(PiranesiReport, _load_artifact_file(report_path, PiranesiReport))
+
+
+ReportFindingMatch = CombinedFinding | CandidateReportFinding | SuppressedFinding
+
+
+def _find_report_finding(
+    report: PiranesiReport,
+    finding_id: str,
+) -> tuple[str, ReportFindingMatch] | None:
+    for finding in report.findings:
+        if finding.finding_id == finding_id:
+            return "confirmed", finding
+    for finding in report.active_findings:
+        if finding.finding_id == finding_id:
+            return "active_candidate", finding
+    for finding in report.unreachable_findings:
+        if finding.finding_id == finding_id:
+            return "unreachable_candidate", finding
+    for finding in report.suppressed_findings:
+        if finding.finding_id == finding_id:
+            return "suppressed", finding
+    return None
+
+
+def _render_finding_explanation(status: str, finding: ReportFindingMatch) -> str:
+    lines = [
+        "# Piranesi Finding Explanation",
+        "",
+        f"ID: {finding.finding_id}",
+        f"Status: {status.replace('_', ' ')}",
+        f"Title: {finding.title}",
+        f"CWE: {finding.cwe}",
+        f"Severity: {finding.severity.upper()}",
+        f"Confidence: {finding.confidence:.2f}",
+        (
+            f"Source: {finding.source_location.file}:{finding.source_location.line} "
+            f"({finding.taint_source})"
+        ),
+        (f"Sink: {finding.sink_location.file}:{finding.sink_location.line} ({finding.taint_sink})"),
+    ]
+    if isinstance(finding, CandidateReportFinding):
+        lines.extend(
+            [
+                f"Reachability: {finding.reachability}",
+                f"Source function: {finding.source_function_id or 'n/a'}",
+            ]
+        )
+    if isinstance(finding, SuppressedFinding):
+        lines.append(f"Suppression reason: {finding.suppression_reason or 'n/a'}")
+    if isinstance(finding, CombinedFinding):
+        lines.extend(
+            [
+                f"Verified: {'yes' if finding.verified else 'no'} ({finding.verification_method})",
+                f"Exploit payload: {finding.exploit_payload or 'n/a'}",
+                f"Patch: {_patch_status(finding)}",
+                f"Legal risk tier: {finding.legal_risk_tier or 'n/a'}",
+            ]
+        )
+        if finding.taint_path:
+            lines.extend(["", "Taint path:"])
+            for step in finding.taint_path:
+                sanitizer = f" sanitizer={step.sanitizer_applied}" if step.sanitizer_applied else ""
+                lines.append(
+                    f"- {step.location.file}:{step.location.line} "
+                    f"{step.operation} state={step.taint_state}{sanitizer}"
+                )
+        if finding.regulatory_obligations:
+            lines.extend(["", "Regulatory obligations:"])
+            for obligation in finding.regulatory_obligations:
+                deadline = (
+                    f", deadline={obligation.notification_timeline}"
+                    if obligation.notification_timeline
+                    else ""
+                )
+                lines.append(
+                    f"- {obligation.framework} {obligation.section}: "
+                    f"{obligation.obligation_text}{deadline}"
+                )
+        if finding.reproducer_script:
+            lines.extend(["", "Reproducer:", finding.reproducer_script])
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _patch_status(finding: CombinedFinding) -> str:
+    if finding.patch_diff is None:
+        return "not generated"
+    if finding.patch_verified is True:
+        return "generated and verified"
+    if finding.patch_verified is False:
+        return "generated, not verified"
+    return "generated"
 
 
 def _resolve_framework_keys(value: str | None) -> list[str] | None:
@@ -1740,6 +1836,41 @@ def report(
         result.artifact, PiranesiReport
     ):
         _emit_compliance_output(result.artifact, attestation=attestation, tui=tui)
+
+
+@app.command(help="Explain a single finding from a generated report.json artifact.")
+def explain(
+    finding_id: Annotated[str, typer.Argument(help="Finding id to explain.")],
+    output: Annotated[
+        Path,
+        typer.Option("--output", "-o", help="Piranesi output directory containing report.json."),
+    ] = Path("./piranesi-output"),
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+) -> None:
+    try:
+        report_model = _load_report_from_artifacts_dir(output)
+    except ValueError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=2) from exc
+
+    match = _find_report_finding(report_model, finding_id)
+    if match is None:
+        typer.echo(f"error: finding '{finding_id}' not found in {output / 'report.json'}")
+        raise typer.Exit(code=1)
+
+    status, finding = match
+    if json_output:
+        typer.echo(
+            json.dumps(
+                {"status": status, "finding": finding.model_dump(mode="json")},
+                indent=2,
+            )
+        )
+        return
+    typer.echo(_render_finding_explanation(status, finding), nl=False)
 
 
 @app.command(help="Compute historical finding trends from saved baseline artifacts.")

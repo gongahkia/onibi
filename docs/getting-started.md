@@ -136,6 +136,12 @@ After the first run, the output directory contains:
 - `report.md`: human-readable markdown report.
 - `pr_body.md`: per-finding GitHub-flavored markdown.
 
+To inspect one finding without opening the full JSON artifact:
+
+```bash
+piranesi explain <finding-id> --output .piranesi-out/vuln-express
+```
+
 For the bundled vulnerable app, the real run on 2026-04-09 produced four candidate findings:
 
 - `CWE-79` on `/search`

@@ -10,7 +10,9 @@ from typer.testing import CliRunner
 from piranesi.cli import app
 from piranesi.config import load_config
 from piranesi.doctor import DoctorCheck, DoctorReport
+from piranesi.report.renderer import build_report
 from piranesi.watch import WatchModeSummary
+from tests._pipeline_fixtures import fixture_artifacts
 
 runner = CliRunner()
 _ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -35,6 +37,7 @@ def test_help_shows_all_commands() -> None:
         "trends",
         "suppress",
         "diff",
+        "explain",
         "rules",
         "baseline",
         "hook",
@@ -418,6 +421,62 @@ def test_init_scaffolds_ruby_framework_defaults(
     assert "**/vendor/bundle/**" in config.scan.exclude_patterns
     assert "Detected: Rails" in result.stdout
     assert "Bundler dependencies" in result.stdout
+
+
+def test_explain_command_renders_confirmed_finding(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+    artifacts = fixture_artifacts(tmp_path)
+    report = build_report(
+        scan_result=artifacts["scan"],  # type: ignore[arg-type]
+        detected_findings=artifacts["detect"].findings,  # type: ignore[attr-defined]
+        confirmed_findings=artifacts["verify"].findings,  # type: ignore[attr-defined]
+        legal_assessments=artifacts["legal"].assessments,  # type: ignore[attr-defined]
+        patch_results=artifacts["patch"].patches,  # type: ignore[attr-defined]
+        target_dir=tmp_path,
+        total_llm_cost_usd=0.0,
+        duration_s=1.0,
+        stage_timings_s={},
+    )
+    output_dir.mkdir()
+    (output_dir / "report.json").write_text(report.model_dump_json(indent=2), encoding="utf-8")
+
+    result = runner.invoke(app, ["explain", "finding-001", "--output", str(output_dir)])
+
+    assert result.exit_code == 0
+    assert "Piranesi Finding Explanation" in result.stdout
+    assert "Status: confirmed" in result.stdout
+    assert "CWE-89" in result.stdout
+    assert "Verified: yes" in result.stdout
+    assert "Patch: generated, not verified" in result.stdout
+    assert "db.query" in result.stdout
+
+
+def test_explain_command_can_emit_json(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+    artifacts = fixture_artifacts(tmp_path)
+    report = build_report(
+        scan_result=artifacts["scan"],  # type: ignore[arg-type]
+        detected_findings=artifacts["detect"].findings,  # type: ignore[attr-defined]
+        confirmed_findings=artifacts["verify"].findings,  # type: ignore[attr-defined]
+        legal_assessments=artifacts["legal"].assessments,  # type: ignore[attr-defined]
+        patch_results=artifacts["patch"].patches,  # type: ignore[attr-defined]
+        target_dir=tmp_path,
+        total_llm_cost_usd=0.0,
+        duration_s=1.0,
+        stage_timings_s={},
+    )
+    output_dir.mkdir()
+    (output_dir / "report.json").write_text(report.model_dump_json(indent=2), encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        ["explain", "finding-001", "--output", str(output_dir), "--json"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "confirmed"
+    assert payload["finding"]["finding_id"] == "finding-001"
 
 
 def test_suppress_command_appends_ignore_rule(
