@@ -168,6 +168,17 @@ Compliance obligations are reported as **compliance support evidence**, not cert
 - framework-level metadata is versioned and should be reviewed/updated when standards or internal mappings change
 - use legal/compliance review processes outside Piranesi for formal attestations
 
+To package artifacts for audit handoff:
+
+```bash
+uv run piranesi compliance bundle \
+  --framework all \
+  --artifacts-dir .piranesi-out/vuln-express \
+  --output .piranesi-out/vuln-express/compliance-bundle
+```
+
+The bundle includes redacted artifact snapshots, per-control evidence files, and a `manifest.json` checksum index.
+
 Use `query_quality` to tune specs over time:
 
 - `source_specs` / `sink_specs`: candidate volume by spec with descriptor metadata (`spec_id`, category, and definition file/origin).

@@ -1,20 +1,31 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from piranesi.legal.frameworks import FRAMEWORK_BY_KEY, resolve_framework_key
-from piranesi.legal.rules import RegulatoryRuleSpec, load_all_rule_specs
+from piranesi.legal.rules import RegulatoryRuleSpec, discover_rule_files, load_all_rule_specs
 from piranesi.legal.rules.pci_dss import detect_payment_processing_scope
 from piranesi.models import ComplianceMappingMetadata, LegalAssessment, ScanResult
 
 _SEVERITY_ORDER = ("critical", "high", "medium", "low", "informational")
 _SUPPORTED_FRAMEWORKS = {"SOC2", "PCI_DSS"}
 _NON_ALNUM = re.compile(r"[^a-z0-9]+")
+_SENSITIVE_KEY_PATTERN = re.compile(
+    r"(api[_-]?key|authorization|cookie|credential|password|secret|session|token)",
+    re.IGNORECASE,
+)
+_SENSITIVE_VALUE_PATTERN = re.compile(
+    r"(bearer\s+[a-z0-9._\-]+|sk-[a-z0-9]{8,}|AKIA[0-9A-Z]{16})",
+    re.IGNORECASE,
+)
 
 
 class EvidenceFinding(BaseModel):
@@ -59,6 +70,28 @@ class EvidenceBundle(BaseModel):
     compliance_support_scope: str = (
         "supporting_evidence_only_not_a_certification_or_formal_audit_opinion"
     )
+
+
+class BundleManifestEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+    sha256: str
+    size_bytes: int
+
+
+class ComplianceEvidenceBundleManifest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: int = 1
+    framework_selection: list[str] = Field(default_factory=list)
+    scan_timestamp: str
+    generated_at: str
+    redacted: bool = True
+    project: str
+    files: list[BundleManifestEntry] = Field(default_factory=list)
+    metadata_path: str = "metadata.json"
+    checksum_manifest_path: str = "manifest.json"
 
 
 class _LegalArtifactEnvelope(BaseModel):
@@ -166,6 +199,80 @@ def write_evidence_bundles(
     return written
 
 
+def build_compliance_evidence_bundle(
+    *,
+    artifacts_dir: Path,
+    framework: str,
+    output_dir: Path,
+    redact: bool = True,
+    config_path: Path | None = None,
+) -> ComplianceEvidenceBundleManifest:
+    scan, assessments = load_evidence_artifacts(artifacts_dir)
+    bundles = generate_evidence_bundles(
+        scan=scan,
+        assessments=assessments,
+        framework=framework,
+    )
+    framework_keys = _resolve_framework_selection(framework)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    written_paths: list[Path] = []
+
+    artifacts_output = output_dir / "artifacts"
+    controls_output = output_dir / "controls"
+    artifacts_output.mkdir(parents=True, exist_ok=True)
+    controls_output.mkdir(parents=True, exist_ok=True)
+
+    source_files = _bundle_source_files(artifacts_dir=artifacts_dir, config_path=config_path)
+    for source_path in source_files:
+        destination = artifacts_output / source_path.name
+        _write_bundle_file(source_path, destination, redact=redact)
+        written_paths.append(destination)
+
+    for bundle in bundles:
+        control_path = (
+            controls_output
+            / f"{_slug(bundle.framework)}_{_slug(bundle.control_ref)}.json"
+        )
+        payload = bundle.model_dump(mode="json")
+        if redact:
+            payload = _redact_payload(payload)
+        _write_json(control_path, payload)
+        written_paths.append(control_path)
+
+    metadata_path = output_dir / "metadata.json"
+    metadata_payload = _bundle_metadata_payload(
+        scan=scan,
+        framework_keys=framework_keys,
+        bundles=bundles,
+        included_sources=[path.name for path in source_files],
+        redacted=redact,
+    )
+    _write_json(metadata_path, metadata_payload)
+    written_paths.append(metadata_path)
+
+    manifest_entries = [
+        BundleManifestEntry(
+            path=path.relative_to(output_dir).as_posix(),
+            sha256=_sha256_file(path),
+            size_bytes=path.stat().st_size,
+        )
+        for path in sorted(written_paths)
+    ]
+    manifest = ComplianceEvidenceBundleManifest(
+        framework_selection=list(framework_keys),
+        scan_timestamp=scan.metadata.timestamp,
+        generated_at=scan.metadata.timestamp,
+        redacted=redact,
+        project=Path(scan.project_root).name or scan.project_root,
+        files=manifest_entries,
+    )
+    (output_dir / manifest.checksum_manifest_path).write_text(
+        manifest.model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    return manifest
+
+
 def load_evidence_artifacts(
     artifacts_dir: Path,
 ) -> tuple[ScanResult, list[LegalAssessment]]:
@@ -187,6 +294,151 @@ def load_evidence_artifacts(
         return scan, []
 
     raise ValueError(f"missing legal artifact: expected {legal_path} or {report_path}")
+
+
+def _bundle_source_files(*, artifacts_dir: Path, config_path: Path | None) -> list[Path]:
+    candidates = [
+        artifacts_dir / "scan.json",
+        artifacts_dir / "detect.json",
+        artifacts_dir / "verify.json",
+        artifacts_dir / "legal.json",
+        artifacts_dir / "report.json",
+        artifacts_dir / "report.md",
+    ]
+    discovered = [path for path in candidates if path.exists()]
+    explicit_config = config_path
+    if explicit_config is None:
+        local_config = artifacts_dir.parent / "piranesi.toml"
+        explicit_config = local_config if local_config.exists() else None
+    if explicit_config is not None and explicit_config.exists():
+        discovered.append(explicit_config.resolve(strict=False))
+    return discovered
+
+
+def _write_bundle_file(source_path: Path, destination: Path, *, redact: bool) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if source_path.suffix.lower() == ".json":
+        payload = json.loads(source_path.read_text(encoding="utf-8"))
+        if redact:
+            payload = _redact_payload(payload)
+        _write_json(destination, payload)
+        return
+    text = source_path.read_text(encoding="utf-8")
+    destination.write_text(_redact_text(text) if redact else text, encoding="utf-8")
+
+
+def _write_json(path: Path, payload: object) -> None:
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+
+def _bundle_metadata_payload(
+    *,
+    scan: ScanResult,
+    framework_keys: tuple[str, ...],
+    bundles: list[EvidenceBundle],
+    included_sources: list[str],
+    redacted: bool,
+) -> dict[str, Any]:
+    return {
+        "bundle_kind": "piranesi-compliance-evidence",
+        "bundle_schema_version": 1,
+        "project": Path(scan.project_root).name or scan.project_root,
+        "scan": {
+            "timestamp": scan.metadata.timestamp,
+            "tool": "piranesi",
+            "version": scan.metadata.piranesi_version,
+            "files_scanned": scan.metadata.files_parsed or len(scan.files_scanned),
+        },
+        "framework_selection": list(framework_keys),
+        "framework_metadata": [
+            {
+                "key": framework.key,
+                "name": framework.long_label,
+                "version": framework.version,
+                "mapping_last_reviewed": framework.mapping_last_reviewed,
+                "mapping_reviewer": framework.mapping_reviewer,
+                "mapping_source": framework.mapping_source,
+                "mapping_confidence": framework.mapping_confidence,
+            }
+            for framework in FRAMEWORK_BY_KEY.values()
+            if framework.key in framework_keys
+        ],
+        "control_bundle_count": len(bundles),
+        "source_artifacts": sorted(included_sources),
+        "rule_catalog": _rule_catalog_metadata(),
+        "query_spec_summary": _query_spec_summary(scan),
+        "redaction": {
+            "enabled": redacted,
+            "sensitive_key_pattern": _SENSITIVE_KEY_PATTERN.pattern,
+            "sensitive_value_pattern": _SENSITIVE_VALUE_PATTERN.pattern,
+        },
+        "compliance_claim_boundary": (
+            "Bundle content is supporting technical evidence only. "
+            "It does not certify compliance or replace legal/audit review."
+        ),
+    }
+
+
+def _rule_catalog_metadata() -> dict[str, object]:
+    entries: list[dict[str, object]] = []
+    for path in discover_rule_files():
+        if not path.exists():
+            continue
+        entries.append(
+            {
+                "file": path.name,
+                "sha256": _sha256_file(path),
+                "size_bytes": path.stat().st_size,
+            }
+        )
+    return {
+        "rule_file_count": len(entries),
+        "rule_files": sorted(entries, key=lambda item: str(item["file"])),
+    }
+
+
+def _query_spec_summary(scan: ScanResult) -> dict[str, object] | None:
+    quality = scan.query_quality
+    if quality is None:
+        return None
+    return {
+        "loaded_source_specs": quality.loaded_source_specs,
+        "loaded_sink_specs": quality.loaded_sink_specs,
+        "matched_source_specs": quality.matched_source_specs,
+        "matched_sink_specs": quality.matched_sink_specs,
+    }
+
+
+def _redact_payload(value: Any) -> Any:
+    if isinstance(value, dict):
+        redacted: dict[str, Any] = {}
+        for key, nested in value.items():
+            key_str = str(key)
+            if _SENSITIVE_KEY_PATTERN.search(key_str):
+                redacted[key_str] = "[REDACTED]"
+            else:
+                redacted[key_str] = _redact_payload(nested)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_payload(item) for item in value]
+    if isinstance(value, str):
+        return _redact_text(value)
+    return value
+
+
+def _redact_text(value: str) -> str:
+    return _SENSITIVE_VALUE_PATTERN.sub("[REDACTED]", value)
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _resolve_framework_selection(value: str) -> tuple[str, ...]:
@@ -397,9 +649,12 @@ def _slug(value: str) -> str:
 
 
 __all__ = [
+    "BundleManifestEntry",
+    "ComplianceEvidenceBundleManifest",
     "EvidenceBundle",
     "EvidenceFinding",
     "EvidenceScope",
+    "build_compliance_evidence_bundle",
     "generate_evidence_bundles",
     "load_evidence_artifacts",
     "write_evidence_bundles",

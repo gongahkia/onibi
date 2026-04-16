@@ -2348,6 +2348,62 @@ def compliance_evidence(
     typer.echo(f"wrote {len(written)} evidence bundle(s) to {output}")
 
 
+@compliance_app.command("bundle")
+def compliance_bundle(
+    framework: Annotated[
+        str,
+        typer.Option(
+            "--framework",
+            help="Compliance framework key (for example: soc2, pci_dss, all).",
+        ),
+    ],
+    artifacts_dir: Annotated[
+        Path,
+        typer.Option(
+            "--artifacts-dir",
+            help="Directory containing scan.json and legal.json/report.json.",
+        ),
+    ],
+    output: Annotated[
+        Path,
+        typer.Option("--output", "-o", help="Directory to write the compliance bundle."),
+    ],
+    redact: Annotated[
+        bool,
+        typer.Option(
+            "--redact/--no-redact",
+            help="Redact sensitive values in copied bundle artifacts.",
+        ),
+    ] = True,
+    config_snapshot: Annotated[
+        Path | None,
+        typer.Option(
+            "--config-snapshot",
+            help="Optional explicit piranesi.toml path to include in the bundle.",
+        ),
+    ] = None,
+) -> None:
+    from piranesi.legal.evidence import build_compliance_evidence_bundle
+
+    try:
+        manifest = build_compliance_evidence_bundle(
+            artifacts_dir=artifacts_dir,
+            framework=framework,
+            output_dir=output,
+            redact=redact,
+            config_path=config_snapshot,
+        )
+    except ValueError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=2) from exc
+
+    typer.echo(
+        "wrote compliance bundle with "
+        f"{len(manifest.files)} file(s) to {output}"
+    )
+    typer.echo(f"manifest: {output / manifest.checksum_manifest_path}")
+
+
 @app.command()
 def suppress(
     finding_id: Annotated[str, typer.Argument(help="Finding fingerprint to suppress.")],

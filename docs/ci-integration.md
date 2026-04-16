@@ -270,6 +270,24 @@ Use `[suppression]` policy flags in `piranesi.toml` to fail CI on invalid,
 expired, or stale suppressions (`fail_on_invalid`, `fail_on_expired`,
 `fail_on_stale`).
 
+## Compliance Evidence Bundle
+
+For audit handoff, generate a self-contained bundle with redaction and checksums:
+
+```bash
+piranesi compliance bundle \
+  --framework all \
+  --artifacts-dir piranesi-output \
+  --output piranesi-output/compliance-bundle
+```
+
+Bundle contents include:
+
+- redacted artifacts (`scan.json`, `detect.json`, `verify.json`, `legal.json`, `report.json`, `report.md`, optional `piranesi.toml`)
+- per-control compliance support evidence under `controls/`
+- `metadata.json` with framework/rule metadata
+- `manifest.json` with SHA-256 checksums for reproducible packaging
+
 ## SARIF consumers
 
 Common ways to consume `report.sarif.json`:

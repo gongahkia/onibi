@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -7,6 +8,7 @@ from typer.testing import CliRunner
 from piranesi.cli import app
 from piranesi.legal import assess_finding, build_default_engine
 from piranesi.legal.evidence import (
+    build_compliance_evidence_bundle,
     generate_evidence_bundles,
     load_evidence_artifacts,
     write_evidence_bundles,
@@ -162,6 +164,93 @@ def test_cli_compliance_evidence_writes_output_directory(tmp_path: Path) -> None
     assert result.exit_code == 0
     assert "wrote 7 evidence bundle(s)" in result.stdout
     assert (output_dir / "soc2_cc6_6.json").exists()
+
+
+def test_build_compliance_evidence_bundle_writes_manifest_and_redacts(tmp_path: Path) -> None:
+    source_file = tmp_path / "src" / "routes" / "orders.ts"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("export const orders = true;\n", encoding="utf-8")
+    assessment = _assessment_for("CWE-89", file_name=str(source_file))
+    artifacts_dir = _write_artifacts(
+        tmp_path,
+        assessments=[assessment],
+        files=[source_file],
+    )
+    (artifacts_dir / "verify.json").write_text(
+        json.dumps(
+            {
+                "api_key": "sk-super-secret-token",
+                "headers": {"authorization": "Bearer sensitive-value"},
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    config_snapshot = tmp_path / "piranesi.toml"
+    config_snapshot.write_text(
+        'OPENAI_API_KEY = "sk-live-key"\n'
+        "project = 'demo'\n",
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "bundle"
+
+    manifest = build_compliance_evidence_bundle(
+        artifacts_dir=artifacts_dir,
+        framework="soc2",
+        output_dir=output_dir,
+        redact=True,
+        config_path=config_snapshot,
+    )
+
+    manifest_path = output_dir / manifest.checksum_manifest_path
+    assert manifest_path.exists()
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    listed_paths = {entry["path"] for entry in payload["files"]}
+    assert "metadata.json" in listed_paths
+    assert "artifacts/scan.json" in listed_paths
+    assert "artifacts/verify.json" in listed_paths
+    assert "controls/soc2_cc6_6.json" in listed_paths
+    assert "artifacts/piranesi.toml" in listed_paths
+
+    verify_payload = json.loads(
+        (output_dir / "artifacts" / "verify.json").read_text(encoding="utf-8")
+    )
+    assert verify_payload["api_key"] == "[REDACTED]"
+    assert verify_payload["headers"]["authorization"] == "[REDACTED]"
+    config_payload = (output_dir / "artifacts" / "piranesi.toml").read_text(encoding="utf-8")
+    assert "sk-live-key" not in config_payload
+    assert "[REDACTED]" in config_payload
+
+
+def test_cli_compliance_bundle_writes_manifest(tmp_path: Path) -> None:
+    source_file = tmp_path / "src" / "routes" / "orders.ts"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("export const orders = true;\n", encoding="utf-8")
+    assessment = _assessment_for("CWE-89", file_name=str(source_file))
+    artifacts_dir = _write_artifacts(
+        tmp_path,
+        assessments=[assessment],
+        files=[source_file],
+    )
+    output_dir = tmp_path / "bundle"
+
+    result = runner.invoke(
+        app,
+        [
+            "compliance",
+            "bundle",
+            "--framework",
+            "soc2",
+            "--artifacts-dir",
+            str(artifacts_dir),
+            "--output",
+            str(output_dir),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "wrote compliance bundle with" in result.stdout
+    assert (output_dir / "manifest.json").exists()
 
 
 def _write_artifacts(
