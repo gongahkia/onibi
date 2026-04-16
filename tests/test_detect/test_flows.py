@@ -286,6 +286,72 @@ def test_extract_candidate_findings_detects_reflected_cors_origin() -> None:
     assert finding.severity == "high"
 
 
+def test_extract_candidate_findings_detects_local_query_helper_sqli() -> None:
+    source_spec = _source_spec_by_name("express_req_query")
+    sink_spec = _sink_spec_by_name("raw_sql_query")
+    exact_payloads: dict[str, object] = {}
+    app_file = Path("examples/vuln-express/app.js").resolve()
+
+    flow = [
+        _node(
+            301,
+            label="CALL",
+            name="<operator>.fieldAccess",
+            code="req.query.name",
+            line=34,
+            column=16,
+            method_full_name="<operator>.fieldAccess",
+        ),
+        _node(
+            302,
+            label="IDENTIFIER",
+            name="name",
+            code="name",
+            line=34,
+            column=9,
+            method_full_name="app.js::program:usersHandler",
+        ),
+        _node(
+            303,
+            label="CALL",
+            name="<operator>.formatString",
+            code="`SELECT * FROM users WHERE name = '${name}'`",
+            line=35,
+            column=22,
+            method_full_name="<operator>.formatString",
+        ),
+        _node(
+            304,
+            label="CALL",
+            name="query",
+            code="query(`SELECT * FROM users WHERE name = '${name}'`)",
+            line=35,
+            column=16,
+            method_full_name="app.js::program:query",
+        ),
+    ]
+
+    exact_payloads[build_flow_query(source_spec, sink_spec)] = [{"elements": flow}]
+    _register_file_queries(exact_payloads, app_file, 301, 304)
+
+    findings = extract_candidate_findings(
+        FakeJoernServer(exact_payloads=exact_payloads),  # type: ignore[arg-type]
+        joern_project_root=Path.cwd(),
+        source_map=None,
+        source_specs=(source_spec,),
+        sink_specs=(sink_spec,),
+        sanitizer_specs=(),
+    )
+
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.vuln_class == "CWE-89"
+    assert finding.source.parameter_name == "name"
+    assert finding.sink.api_name == "query"
+    assert finding.sink.location.line == 35
+    assert finding.severity == "high"
+
+
 def test_extract_candidate_findings_reduces_confidence_for_sanitized_paths() -> None:
     source_map = SourceMap.from_directory(TAINT_APP_TRANSPILED_DIR)
     source_spec = _source_spec_by_name("express_req_body")

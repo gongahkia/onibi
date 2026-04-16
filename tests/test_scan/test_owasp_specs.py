@@ -224,3 +224,15 @@ def test_redirect_sinks_across_languages() -> None:
 def test_file_upload_sinks_exist() -> None:
     upload_sinks = [s for s in BUILTIN_SINK_SPECS if s.cwe_id == "CWE-434"]
     assert len(upload_sinks) >= 2
+
+
+def test_ssrf_sinks_do_not_match_express_route_registration_names() -> None:
+    ssrf_sinks = [s for s in BUILTIN_SINK_SPECS if s.cwe_id == "CWE-918"]
+
+    assert ssrf_sinks
+    for sink in ssrf_sinks:
+        assert 'cpg.call.name("fetch|get|post|request")' not in sink.pattern
+        assert 'c.name == "get"' not in sink.pattern
+        assert 'c.name == "post"' not in sink.pattern
+        assert "app.get" not in sink.pattern
+        assert "app.post" not in sink.pattern
