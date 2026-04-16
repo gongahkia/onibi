@@ -5,6 +5,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Sequence
 
 from piranesi.legal.engine import Fact, ForwardChainingEngine
+from piranesi.legal.frameworks import FRAMEWORK_BY_KEY
 from piranesi.legal.rules import (
     RegulatoryRuleSpec,
     add_finding_facts,
@@ -16,7 +17,11 @@ from piranesi.legal.rules import (
 )
 from piranesi.legal.taxonomy import classify_field, tier_for_category
 from piranesi.models.finding import CandidateFinding, ConfirmedFinding
-from piranesi.models.legal import LegalAssessment, RegulatoryObligation
+from piranesi.models.legal import (
+    ComplianceMappingMetadata,
+    LegalAssessment,
+    RegulatoryObligation,
+)
 
 DISCLAIMER_TEXT = (
     "DISCLAIMER: This analysis is informational only. It is not legal advice. "
@@ -229,6 +234,27 @@ def _render_obligation_section(obligation: RegulatoryObligation) -> list[str]:
     if obligation.rule_id:
         lines.append(f"**Rule ID:** `{obligation.rule_id}`")
         lines.append("")
+    lines.append("**Evidence role:** compliance support mapping (not certification evidence)")
+    lines.append("")
+    if obligation.mapping_metadata is not None:
+        mapping = obligation.mapping_metadata
+        lines.extend(
+            [
+                f"**Framework version:** {mapping.framework_version or 'n/a'}",
+                "",
+                f"**Control mapping rationale:** {mapping.mapping_rationale}",
+                "",
+                (
+                    f"**Mapping review:** {mapping.last_reviewed or 'n/a'} "
+                    f"by {mapping.reviewer or 'n/a'}"
+                ),
+                "",
+                f"**Mapping source:** {mapping.source or 'n/a'}",
+                "",
+                f"**Mapping confidence:** {mapping.confidence:.2f}",
+                "",
+            ]
+        )
     lines.extend(
         [
             f"**Obligation text:** {obligation.obligation_text}",
@@ -259,13 +285,21 @@ def _obligation_from_fact(
     args = fact.args
     rule_id = _string_or_none(args.get("rule_id"))
     rule_spec = rule_specs.get(rule_id or "")
+    framework_key = str(args["framework"])
+    section = str(args["section"])
     relevant_categories = _relevant_categories(
         finding_categories,
         rule_spec.data_categories if rule_spec is not None else (),
     )
+    mapping_metadata = _mapping_metadata(
+        framework_key=framework_key,
+        control_id=section,
+        rule_spec=rule_spec,
+        rule_id=rule_id,
+    )
     return RegulatoryObligation(
-        framework=str(args["framework"]),
-        section=str(args["section"]),
+        framework=framework_key,
+        section=section,
         obligation_text=str(args["obligation_text"]),
         data_categories_affected=relevant_categories,
         penalty_range=str(args["penalty_range"]),
@@ -274,7 +308,91 @@ def _obligation_from_fact(
         rule_id=rule_id,
         consequences=_string_list(args.get("consequences")),
         severity_modifier=_string_or_none(args.get("severity_modifier")),
+        evidence_role="compliance_support",
+        mapping_metadata=mapping_metadata,
     )
+
+
+def _mapping_metadata(
+    *,
+    framework_key: str,
+    control_id: str,
+    rule_spec: RegulatoryRuleSpec | None,
+    rule_id: str | None,
+) -> ComplianceMappingMetadata:
+    framework = FRAMEWORK_BY_KEY.get(framework_key)
+    framework_name = framework.long_label if framework is not None else framework_key
+    framework_version = None if framework is None else framework.version
+    last_reviewed = None if framework is None else framework.mapping_last_reviewed
+    reviewer = None if framework is None else framework.mapping_reviewer
+    default_source = None if framework is None else framework.mapping_source
+    source = _mapping_source(default_source=default_source, rule_id=rule_id)
+    return ComplianceMappingMetadata(
+        framework_name=framework_name,
+        framework_version=framework_version,
+        control_id=control_id,
+        mapping_rationale=_mapping_rationale(rule_spec=rule_spec, rule_id=rule_id),
+        last_reviewed=last_reviewed,
+        reviewer=reviewer,
+        source=source,
+        confidence=_mapping_confidence(rule_spec=rule_spec, framework_key=framework_key),
+    )
+
+
+def _mapping_source(*, default_source: str | None, rule_id: str | None) -> str | None:
+    if default_source is None:
+        return None if rule_id is None else f"rule:{rule_id}"
+    if rule_id is None:
+        return default_source
+    return f"{default_source}#{rule_id}"
+
+
+def _mapping_rationale(
+    *,
+    rule_spec: RegulatoryRuleSpec | None,
+    rule_id: str | None,
+) -> str:
+    if rule_spec is None:
+        return "Mapped by legal engine fact inference from framework/control fields."
+    inputs: list[str] = []
+    if rule_spec.vuln_classes:
+        inputs.append("vulnerability class")
+    if rule_spec.data_categories:
+        inputs.append("data-category")
+    if rule_spec.requires_boolean_facts or rule_spec.requires_any_boolean_facts:
+        inputs.append("context guard")
+    if rule_spec.severity_gte is not None:
+        inputs.append(f"severity>={rule_spec.severity_gte}")
+    input_text = ", ".join(inputs) if inputs else "generic rule conditions"
+    evidence_hint = (
+        ""
+        if rule_spec.evidence_template is None
+        else f" Evidence template: {rule_spec.evidence_template}."
+    )
+    return (
+        f"Rule {rule_id or rule_spec.rule_id} mapped this finding to control "
+        f"{rule_spec.section} using {input_text}.{evidence_hint}"
+    )
+
+
+def _mapping_confidence(
+    *,
+    rule_spec: RegulatoryRuleSpec | None,
+    framework_key: str,
+) -> float:
+    base = FRAMEWORK_BY_KEY.get(framework_key)
+    score = 0.7 if base is None else base.mapping_confidence
+    if rule_spec is None:
+        return round(score, 2)
+    if rule_spec.meta_only:
+        score -= 0.2
+    if rule_spec.vuln_classes:
+        score += 0.08
+    if rule_spec.data_categories:
+        score += 0.06
+    if rule_spec.requires_boolean_facts or rule_spec.requires_any_boolean_facts:
+        score += 0.04
+    return round(max(0.0, min(score, 1.0)), 2)
 
 
 def _determine_risk_tier(
@@ -544,6 +662,9 @@ def _format_data_categories(categories: Sequence[str]) -> str:
 
 
 def _framework_label(framework: str) -> str:
+    spec = FRAMEWORK_BY_KEY.get(framework)
+    if spec is not None:
+        return spec.long_label
     return _FRAMEWORK_LABELS.get(framework, framework.replace("_", " "))
 
 

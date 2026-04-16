@@ -9,70 +9,148 @@ class FrameworkSpec:
     short_label: str
     long_label: str
     category: str
+    version: str
+    mapping_last_reviewed: str
+    mapping_reviewer: str
+    mapping_source: str
+    mapping_confidence: float
+
+
+_DEFAULT_REVIEW_DATE = "2026-04-16"
+_DEFAULT_REVIEWER = "Piranesi compliance maintainers"
+
+
+def _framework(
+    key: str,
+    short_label: str,
+    long_label: str,
+    category: str,
+    *,
+    version: str,
+    mapping_source: str,
+    mapping_confidence: float = 0.8,
+) -> FrameworkSpec:
+    return FrameworkSpec(
+        key=key,
+        short_label=short_label,
+        long_label=long_label,
+        category=category,
+        version=version,
+        mapping_last_reviewed=_DEFAULT_REVIEW_DATE,
+        mapping_reviewer=_DEFAULT_REVIEWER,
+        mapping_source=mapping_source,
+        mapping_confidence=mapping_confidence,
+    )
 
 
 FRAMEWORKS: tuple[FrameworkSpec, ...] = (
-    FrameworkSpec("GDPR", "GDPR", "General Data Protection Regulation (GDPR)", "Privacy"),
-    FrameworkSpec(
+    _framework(
+        "GDPR",
+        "GDPR",
+        "General Data Protection Regulation (GDPR)",
+        "Privacy",
+        version="Regulation (EU) 2016/679",
+        mapping_source="rules/gdpr.toml",
+        mapping_confidence=0.9,
+    ),
+    _framework(
         "CCPA",
         "CCPA",
         "California Consumer Privacy Act / California Privacy Rights Act (CCPA/CPRA)",
         "Privacy",
+        version="CCPA/CPRA (effective 2023-01)",
+        mapping_source="rules/ccpa.toml",
+        mapping_confidence=0.86,
     ),
-    FrameworkSpec(
+    _framework(
         "HIPAA",
         "HIPAA",
         "Health Insurance Portability and Accountability Act (HIPAA)",
         "Privacy",
+        version="45 CFR Parts 160 and 164",
+        mapping_source="rules/hipaa.toml",
+        mapping_confidence=0.88,
     ),
-    FrameworkSpec(
+    _framework(
         "PDPA",
         "PDPA",
         "Personal Data Protection Act 2012 (PDPA)",
         "Privacy",
+        version="PDPA 2012 (Singapore)",
+        mapping_source="rules/pdpa.toml",
+        mapping_confidence=0.84,
     ),
-    FrameworkSpec(
+    _framework(
         "MAS_TRM",
         "MAS TRM",
         "MAS Technology Risk Management Guidelines (MAS TRM)",
         "Financial",
+        version="MAS TRM Guidelines (2021 update)",
+        mapping_source="rules/mas_trm.toml",
+        mapping_confidence=0.78,
     ),
-    FrameworkSpec("NIS2", "NIS2", "NIS2 Directive (Directive (EU) 2022/2555)", "Cyber"),
-    FrameworkSpec(
+    _framework(
+        "NIS2",
+        "NIS2",
+        "NIS2 Directive (Directive (EU) 2022/2555)",
+        "Cyber",
+        version="Directive (EU) 2022/2555",
+        mapping_source="rules/nis2.toml",
+        mapping_confidence=0.82,
+    ),
+    _framework(
         "SOC2",
         "SOC 2",
         "SOC 2 Type II Trust Services Criteria (SOC 2)",
         "Cyber",
+        version="TSC 2022",
+        mapping_source="rules/soc2.toml",
+        mapping_confidence=0.74,
     ),
-    FrameworkSpec(
+    _framework(
         "PCI_DSS",
         "PCI-DSS",
         "Payment Card Industry Data Security Standard v4.0 (PCI-DSS)",
         "Financial",
+        version="PCI DSS v4.0.1",
+        mapping_source="rules/pci_dss.toml",
+        mapping_confidence=0.8,
     ),
-    FrameworkSpec(
+    _framework(
         "EU_AI_ACT",
         "EU AI",
         "EU Artificial Intelligence Act (EU AI Act)",
         "Cyber",
+        version="EU AI Act (2024)",
+        mapping_source="rules/eu_ai_act.toml",
+        mapping_confidence=0.7,
     ),
-    FrameworkSpec(
+    _framework(
         "ISO_27001",
         "ISO 27001",
         "ISO/IEC 27001:2022 Annex A",
         "Standards",
+        version="ISO/IEC 27001:2022",
+        mapping_source="rules/iso27001.toml",
+        mapping_confidence=0.76,
     ),
-    FrameworkSpec(
+    _framework(
         "NIST_CSF",
         "NIST CSF",
         "NIST Cybersecurity Framework 2.0",
         "Standards",
+        version="NIST CSF 2.0",
+        mapping_source="rules/nist_csf.toml",
+        mapping_confidence=0.73,
     ),
-    FrameworkSpec(
+    _framework(
         "CIS_V8",
         "CIS v8",
         "CIS Controls v8 - Control 16 Application Security",
         "Standards",
+        version="CIS Controls v8",
+        mapping_source="rules/cis.toml",
+        mapping_confidence=0.72,
     ),
 )
 

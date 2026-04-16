@@ -7,10 +7,10 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from piranesi.legal.frameworks import resolve_framework_key
+from piranesi.legal.frameworks import FRAMEWORK_BY_KEY, resolve_framework_key
 from piranesi.legal.rules import RegulatoryRuleSpec, load_all_rule_specs
 from piranesi.legal.rules.pci_dss import detect_payment_processing_scope
-from piranesi.models import LegalAssessment, ScanResult
+from piranesi.models import ComplianceMappingMetadata, LegalAssessment, ScanResult
 
 _SEVERITY_ORDER = ("critical", "high", "medium", "low", "informational")
 _SUPPORTED_FRAMEWORKS = {"SOC2", "PCI_DSS"}
@@ -55,6 +55,10 @@ class EvidenceBundle(BaseModel):
     control_assessment: str
     evidence_narrative: str
     source_rule_ids: list[str] = Field(default_factory=list)
+    mapping_metadata: ComplianceMappingMetadata | None = None
+    compliance_support_scope: str = (
+        "supporting_evidence_only_not_a_certification_or_formal_audit_opinion"
+    )
 
 
 class _LegalArtifactEnvelope(BaseModel):
@@ -70,6 +74,7 @@ class _ControlCatalogEntry:
     control_name: str
     rule_ids: tuple[str, ...]
     meta_only: bool
+    mapping_metadata: ComplianceMappingMetadata
 
 
 def generate_evidence_bundles(
@@ -134,6 +139,7 @@ def generate_evidence_bundles(
                     in_scope=in_scope,
                 ),
                 source_rule_ids=list(control.rule_ids),
+                mapping_metadata=control.mapping_metadata,
             )
         )
     return bundles
@@ -211,9 +217,71 @@ def _control_catalog(framework_keys: tuple[str, ...]) -> list[_ControlCatalogEnt
                 control_name=first.control_name or control_ref,
                 rule_ids=tuple(spec.rule_id for spec in specs),
                 meta_only=all(spec.meta_only for spec in specs),
+                mapping_metadata=_control_mapping_metadata(
+                    framework_key=framework,
+                    control_ref=control_ref,
+                    specs=specs,
+                ),
             )
         )
     return catalog
+
+
+def _control_mapping_metadata(
+    *,
+    framework_key: str,
+    control_ref: str,
+    specs: list[RegulatoryRuleSpec],
+) -> ComplianceMappingMetadata:
+    framework = FRAMEWORK_BY_KEY.get(framework_key)
+    primary = specs[0]
+    rule_ids = ", ".join(spec.rule_id for spec in specs)
+    rationale_bits: list[str] = []
+    if any(spec.vuln_classes for spec in specs):
+        rationale_bits.append("vulnerability-class matching")
+    if any(spec.data_categories for spec in specs):
+        rationale_bits.append("data-category matching")
+    if any(spec.requires_boolean_facts or spec.requires_any_boolean_facts for spec in specs):
+        rationale_bits.append("context guards")
+    if all(spec.meta_only for spec in specs):
+        rationale_bits.append("meta/control evidence rules")
+    rationale = ", ".join(rationale_bits) if rationale_bits else "deterministic control mapping"
+    confidence = _mapping_confidence(specs=specs, framework_key=framework_key)
+    return ComplianceMappingMetadata(
+        framework_name=(
+            framework.long_label
+            if framework is not None
+            else primary.framework.replace("_", " ")
+        ),
+        framework_version=None if framework is None else framework.version,
+        control_id=control_ref,
+        mapping_rationale=(
+            f"Control {control_ref} mapped via {len(specs)} rule(s) "
+            f"({rule_ids}) using {rationale}."
+        ),
+        last_reviewed=None if framework is None else framework.mapping_last_reviewed,
+        reviewer=None if framework is None else framework.mapping_reviewer,
+        source=(
+            f"{framework.mapping_source}#{rule_ids.replace(', ', ',')}"
+            if framework is not None
+            else f"rules:{rule_ids.replace(', ', ',')}"
+        ),
+        confidence=confidence,
+    )
+
+
+def _mapping_confidence(*, specs: list[RegulatoryRuleSpec], framework_key: str) -> float:
+    framework = FRAMEWORK_BY_KEY.get(framework_key)
+    score = 0.7 if framework is None else framework.mapping_confidence
+    if all(spec.meta_only for spec in specs):
+        score -= 0.2
+    if any(spec.vuln_classes for spec in specs):
+        score += 0.08
+    if any(spec.data_categories for spec in specs):
+        score += 0.05
+    if any(spec.requires_boolean_facts or spec.requires_any_boolean_facts for spec in specs):
+        score += 0.04
+    return round(max(0.0, min(score, 1.0)), 2)
 
 
 def _findings_by_control(
@@ -278,19 +346,30 @@ def _evidence_narrative(
     label = f"{control.control_ref} ({control.control_name})"
     if not in_scope:
         return (
-            f"{label} marked not in scope because payment-processing indicators were not detected."
+            f"{label} marked not in scope because payment-processing indicators were not detected. "
+            "This artifact is compliance support evidence only."
         )
     if control.meta_only:
         if control.control_ref == "Req 11.3.2":
             return (
                 f"{label} has partial evidence from the current application and dependency scans; "
-                "an approved external scan remains separately required."
+                "an approved external scan remains separately required. "
+                "This does not certify PCI-DSS control effectiveness."
             )
-        return f"{label} satisfied by the presence of the current scan artifact."
+        return (
+            f"{label} supported by the presence of the current scan artifact. "
+            "This is not a certification statement."
+        )
     if not findings:
-        return f"No findings mapped to {label}. Current evidence supports control effectiveness."
+        return (
+            f"No findings mapped to {label}. Current scan output provides supporting evidence only "
+            "and does not certify compliance."
+        )
     files = ", ".join(sorted({finding.file for finding in findings}))
-    return f"{len(findings)} finding(s) mapped to {label}. Affected files: {files}."
+    return (
+        f"{len(findings)} finding(s) mapped to {label}. Affected files: {files}. "
+        "Treat this as audit support evidence, not a formal compliance determination."
+    )
 
 
 def _scan_languages(scan: ScanResult) -> list[str]:

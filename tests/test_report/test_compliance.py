@@ -62,6 +62,10 @@ def test_render_compliance_report_includes_all_supported_frameworks(tmp_path: Pa
 
     rendered = render_compliance_report(enriched_report)
 
+    assert "Compliance Claim Boundary" in rendered
+    assert "supporting security evidence only" in rendered
+    assert "Framework version" in rendered
+    assert "Mapping confidence" in rendered
     for label in ("GDPR", "CCPA", "HIPAA", "NIS2", "PDPA", "EU AI", "MAS TRM"):
         assert label in rendered
     for framework_label in (
@@ -90,6 +94,7 @@ def test_render_attestation_includes_prefilled_metadata(tmp_path: Path) -> None:
     assert "- 1 confirmed via exploit verification" in rendered
     assert "- 1 suppressed (with documented rationale)" in rendered
     assert "- 1 with auto-generated patches" in rendered
+    assert "This report is not a compliance certification" in rendered
     assert "DISCLAIMER: This analysis is informational only. It is not legal advice." in rendered
     assert "Consult qualified legal counsel for regulatory compliance decisions." in rendered
 

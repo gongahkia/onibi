@@ -162,6 +162,12 @@ Suppression lifecycle is also reported in `report.json` and `report.md`, includi
 - stale selector list (when detect findings were available)
 - expired selector list
 
+Compliance obligations are reported as **compliance support evidence**, not certification:
+
+- each obligation includes mapping metadata (`framework_version`, `control_id`, rationale, `last_reviewed`, reviewer/source, confidence)
+- framework-level metadata is versioned and should be reviewed/updated when standards or internal mappings change
+- use legal/compliance review processes outside Piranesi for formal attestations
+
 Use `query_quality` to tune specs over time:
 
 - `source_specs` / `sink_specs`: candidate volume by spec with descriptor metadata (`spec_id`, category, and definition file/origin).

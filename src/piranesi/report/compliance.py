@@ -155,6 +155,9 @@ def render_attestation(report: PiranesiReport) -> str:
         "- Business logic flaws",
         "- Authentication/authorization design",
         "",
+        "This report is not a compliance certification, SOC/ISO attestation, or legal opinion.",
+        "Use it as supporting technical evidence in broader audit workflows.",
+        "",
         "DISCLAIMER: This analysis is informational only. It is not legal advice.",
         "Consult qualified legal counsel for regulatory compliance decisions.",
         "",
@@ -350,7 +353,18 @@ def launch_compliance_tui(report: PiranesiReport) -> None:
 
 
 def _compliance_renderable(report: PiranesiReport) -> Group:
-    renderables: list[Any] = [_coverage_matrix_table(report.findings)]
+    renderables: list[Any] = [
+        Panel(
+            (
+                "Compliance mappings in this report are supporting security evidence only. "
+                "They do not certify regulatory compliance, SOC/ISO attestation status, "
+                "or legal sufficiency."
+            ),
+            title="Compliance Claim Boundary",
+            border_style="yellow",
+        ),
+        _coverage_matrix_table(report.findings),
+    ]
     framework_panels = _framework_panels(report)
     if framework_panels:
         renderables.extend(framework_panels)
@@ -406,6 +420,16 @@ def _framework_panels(report: PiranesiReport) -> list[Panel]:
         metrics.add_row("Total findings", str(summary.total_findings))
         metrics.add_row(
             "Severity breakdown", _format_severity_breakdown(summary.severity_breakdown)
+        )
+        metrics.add_row("Framework version", summary.framework.version)
+        metrics.add_row(
+            "Mapping review",
+            f"{summary.framework.mapping_last_reviewed} by {summary.framework.mapping_reviewer}",
+        )
+        metrics.add_row("Mapping source", summary.framework.mapping_source)
+        metrics.add_row(
+            "Mapping confidence",
+            f"{summary.framework.mapping_confidence:.2f}",
         )
         metrics.add_row("Obligations", summary.obligations or "None")
         metrics.add_row("Required actions", summary.required_actions or "None")

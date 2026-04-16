@@ -7,6 +7,9 @@ from piranesi.models.finding import (
     FinalReport,
     PackageScanResult,
     PatchResult,
+    QueryQualityMetrics,
+    QuerySpecDescriptor,
+    QuerySpecUsage,
     ReachabilityResult,
     ReportFinding,
     SandboxResult,
@@ -15,12 +18,13 @@ from piranesi.models.finding import (
     ScanResult,
     TriagedFinding,
 )
-from piranesi.models.legal import LegalAssessment, RegulatoryObligation
+from piranesi.models.legal import ComplianceMappingMetadata, LegalAssessment, RegulatoryObligation
 from piranesi.models.taint import PathCondition, SourceLocation, TaintSink, TaintSource, TaintStep
 
 __all__ = [
     "AttackSurfaceNode",
     "CandidateFinding",
+    "ComplianceMappingMetadata",
     "ConfirmedFinding",
     "DepReachabilityResult",
     "EntryPoint",
@@ -29,6 +33,9 @@ __all__ = [
     "PackageScanResult",
     "PatchResult",
     "PathCondition",
+    "QueryQualityMetrics",
+    "QuerySpecDescriptor",
+    "QuerySpecUsage",
     "ReachabilityResult",
     "RegulatoryObligation",
     "ReportFinding",

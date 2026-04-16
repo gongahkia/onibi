@@ -76,9 +76,11 @@
 ### Regulatory Obligations
 
 {% if finding.regulatory_obligations %}
-| Framework | Section | Obligation | Deadline | Penalty |
-|-----------|---------|------------|----------|---------|
-{% for obligation in finding.regulatory_obligations %}| {{ obligation.framework }} | {{ obligation.section }} | {{ obligation.obligation_text }} | {{ obligation.notification_timeline or "n/a" }} | {{ obligation.penalty_range }} |
+Regulatory mappings below are **compliance support evidence** and do **not** certify compliance by themselves.
+
+| Framework | Section | Evidence Role | Mapping Review | Mapping Confidence | Obligation | Deadline | Penalty |
+|-----------|---------|---------------|----------------|--------------------|------------|----------|---------|
+{% for obligation in finding.regulatory_obligations %}| {{ obligation.framework }} | {{ obligation.section }} | {{ obligation.evidence_role }} | {% if obligation.mapping_metadata %}{{ obligation.mapping_metadata.last_reviewed or "n/a" }}{% if obligation.mapping_metadata.reviewer %} ({{ obligation.mapping_metadata.reviewer }}){% endif %}{% else %}n/a{% endif %} | {% if obligation.mapping_metadata %}{{ "%.2f"|format(obligation.mapping_metadata.confidence) }}{% else %}n/a{% endif %} | {{ obligation.obligation_text }} | {{ obligation.notification_timeline or "n/a" }} | {{ obligation.penalty_range }} |
 {% endfor %}
 {% else %}
 No regulatory obligations were attached to this finding.

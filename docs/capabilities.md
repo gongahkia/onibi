@@ -42,7 +42,7 @@ maturity level.
 | JUnit/CSV/TUI output | Beta | Useful for integration and review workflows. |
 | Baseline diff (`new`/`changed`/`fixed`/`existing`) | Beta | `piranesi diff` and `piranesi run --baseline ...` produce deterministic baseline comparisons plus PR-friendly `baseline-diff.md` / `baseline-diff.json` artifacts. |
 | Finding clustering | Beta | Reports preserve individual findings while grouping related findings by CWE and sink location. |
-| Compliance/legal mapping | Experimental | Produces technical evidence and obligation mapping; not legal advice. |
+| Compliance/legal mapping | Experimental | Produces technical evidence and framework-control mappings (with version, review date, reviewer/source, and confidence). Supports audits but does not certify compliance or replace legal review. |
 | Custom rules and rule registry | Beta | Rule validation, fixture testing, install/update/list flows exist. |
 | Advisory/dependency analysis | Beta | Supports advisory ingestion and dependency finding artifacts. |
 | LSP/watch/pre-commit | Beta | Save/watch loops use incremental invalidation where feasible, deduplicate repeated diagnostics, and expose stable diagnostic metadata (`stable_id`, evidence level, severity, action). |
@@ -59,6 +59,10 @@ Piranesi report artifacts now expose explicit evidence statuses:
 
 Reports should be read with that distinction in mind. A candidate finding is a
 lead for engineering review; a confirmed finding is materially stronger evidence.
+
+Compliance framework mappings are maintenance-bound metadata. They are useful for
+audit preparation, but they do not certify framework conformance or replace
+formal assessor/legal review.
 
 Suppression lifecycle metadata (`owner`, `reason_code`, `created`, `expires`,
 `ticket`/`reference`, `scope`) is supported in `.piranesi-ignore`, with lifecycle

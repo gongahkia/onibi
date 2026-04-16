@@ -52,6 +52,10 @@ def test_generate_evidence_bundles_for_soc2_include_counts_and_affected_files(
     assert by_control["CC6.6"].scan_date == scan.metadata.timestamp
     assert by_control["CC6.6"].finding_count_by_severity["high"] == 1
     assert by_control["CC6.1"].control_assessment == "pass"
+    assert by_control["CC6.6"].mapping_metadata is not None
+    assert by_control["CC6.6"].mapping_metadata.control_id == "CC6.6"
+    assert by_control["CC6.6"].mapping_metadata.last_reviewed == "2026-04-16"
+    assert by_control["CC6.6"].compliance_support_scope.startswith("supporting_evidence_only")
 
 
 def test_generate_evidence_bundles_mark_pci_controls_not_in_scope(tmp_path: Path) -> None:

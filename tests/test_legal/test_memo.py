@@ -26,6 +26,16 @@ def test_assess_finding_renders_pdpa_mas_and_ccpa_memo_for_fintech_sqli() -> Non
         item for item in assessment.obligations if item.rule_id == "pdpa_s24_standard"
     )
     assert pdpa_standard.penalty_range == "Up to $1,000,000"
+    assert pdpa_standard.evidence_role == "compliance_support"
+    assert pdpa_standard.mapping_metadata is not None
+    assert pdpa_standard.mapping_metadata.control_id == pdpa_standard.section
+    assert pdpa_standard.mapping_metadata.framework_name.startswith(
+        "Personal Data Protection Act"
+    )
+    assert pdpa_standard.mapping_metadata.last_reviewed == "2026-04-16"
+    assert pdpa_standard.mapping_metadata.reviewer == "Piranesi compliance maintainers"
+    assert pdpa_standard.mapping_metadata.source is not None
+    assert 0.0 <= pdpa_standard.mapping_metadata.confidence <= 1.0
 
     notification = next(
         item for item in assessment.obligations if item.rule_id == "pdpa_s26d_notification"
@@ -56,6 +66,7 @@ def test_assess_finding_renders_pdpa_mas_and_ccpa_memo_for_fintech_sqli() -> Non
     assert "Up to $2,500 per violation" in memo
     assert "3 calendar days from assessment of breach as notifiable" in memo
     assert "Section 11.1 (System Reliability)" in memo
+    assert "Evidence role:** compliance support mapping (not certification evidence)" in memo
 
 
 def test_assess_finding_renders_hipaa_memo_for_healthcare_phi_exposure() -> None:
