@@ -21,9 +21,16 @@ _FRAMEWORK_LABELS: dict[str, str] = {
     "gin": "Gin",
     "go-stdlib": "Go",
     "koa": "Koa",
+    "laravel": "Laravel",
     "nestjs": "NestJS",
     "nextjs": "Next.js",
+    "php": "PHP",
+    "rails": "Rails",
+    "ruby": "Ruby",
+    "sinatra": "Sinatra",
     "springboot": "Spring Boot",
+    "symfony": "Symfony",
+    "wordpress": "WordPress",
 }
 _FRAMEWORK_LANGUAGES: dict[str, str] = {
     "chi": "go",
@@ -36,21 +43,32 @@ _FRAMEWORK_LANGUAGES: dict[str, str] = {
     "gin": "go",
     "go-stdlib": "go",
     "koa": "javascript",
+    "laravel": "php",
     "nestjs": "javascript",
     "nextjs": "javascript",
+    "php": "php",
+    "rails": "ruby",
+    "ruby": "ruby",
+    "sinatra": "ruby",
     "springboot": "java",
+    "symfony": "php",
+    "wordpress": "php",
 }
 _LANGUAGE_INCLUDE_PATTERNS: dict[str, tuple[str, ...]] = {
     "go": ("**/*.go",),
     "javascript": ("**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"),
     "python": ("**/*.py",),
     "java": ("**/*.java",),
+    "php": ("**/*.php", "**/*.blade.php"),
+    "ruby": ("**/*.rb",),
 }
 _LANGUAGE_EXCLUDE_PATTERNS: dict[str, tuple[str, ...]] = {
     "go": ("**/vendor/**",),
     "javascript": ("**/node_modules/**", "**/dist/**", "**/*.d.ts"),
     "python": ("**/__pycache__/**", "**/.venv/**", "**/venv/**", "**/.pytest_cache/**"),
     "java": ("**/target/**", "**/build/**"),
+    "php": ("**/vendor/**", "**/storage/framework/**"),
+    "ruby": ("**/vendor/bundle/**", "**/tmp/**"),
 }
 _PIRANESI_OUTPUT_EXCLUDE_PATTERNS = (
     # piranesi output dirs
@@ -68,6 +86,8 @@ _LANGUAGE_LABELS: dict[str, str] = {
     "javascript": "TypeScript/JavaScript",
     "python": "Python",
     "java": "Java",
+    "php": "PHP",
+    "ruby": "Ruby",
 }
 
 
@@ -79,6 +99,7 @@ class InitScaffold:
     config_path: Path
     ignore_path: Path
     detection_message: str
+    next_steps: tuple[str, ...]
 
 
 def scaffold_project(
@@ -111,6 +132,7 @@ def scaffold_project(
         config_path=config_path,
         ignore_path=ignore_path,
         detection_message=detection_message,
+        next_steps=_next_steps(frameworks=frameworks, languages=languages),
     )
 
 
@@ -269,6 +291,10 @@ def _detect_languages_from_files(project_root: Path) -> tuple[str, ...]:
         languages.append("python")
     if any(project_root.rglob("*.java")):
         languages.append("java")
+    if any(project_root.rglob("*.php")):
+        languages.append("php")
+    if any(project_root.rglob("*.rb")):
+        languages.append("ruby")
     return tuple(languages)
 
 
@@ -302,6 +328,30 @@ def _format_frameworks(frameworks: tuple[str, ...]) -> str:
 def _format_languages(languages: tuple[str, ...]) -> str:
     labels = [_LANGUAGE_LABELS.get(language, language.title()) for language in languages]
     return " + ".join(labels)
+
+
+def _next_steps(*, frameworks: tuple[str, ...], languages: tuple[str, ...]) -> tuple[str, ...]:
+    steps: list[str] = []
+    if "javascript" in languages:
+        steps.append("Install target dependencies first if needed, for example `npm install`.")
+    if "python" in languages:
+        steps.append("Install target Python dependencies first if the project imports app modules.")
+    if "java" in languages:
+        steps.append("Build or restore Java dependencies before scanning Spring Boot projects.")
+    if "php" in languages:
+        steps.append("Install Composer dependencies first if the project has composer.json.")
+    if "ruby" in languages:
+        steps.append("Install Bundler dependencies first if the project has a Gemfile.")
+    steps.extend(
+        [
+            "Run `piranesi doctor .` to verify local dependencies and scan readiness.",
+            "Run `piranesi run . --authorized --yes --no-execute` for a safe first scan.",
+            "Remove `--no-execute` after Docker is ready and you want exploit verification.",
+        ]
+    )
+    if frameworks == ("auto",):
+        steps.append("Edit [scan].frameworks if auto-detection missed your framework.")
+    return tuple(steps)
 
 
 def _toml_bool(value: bool) -> str:

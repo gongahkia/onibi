@@ -359,7 +359,8 @@ def test_init_scaffolds_detected_framework_defaults(
     assert "suppressions: []" in ignore_payload
     assert 'id: "finding-123"' in ignore_payload
     assert "Detected: Express" in result.stdout
-    assert "Run `piranesi run . --authorized --yes` to scan." in result.stdout
+    assert "Run `piranesi doctor .`" in result.stdout
+    assert "Run `piranesi run . --authorized --yes --no-execute`" in result.stdout
 
 
 def test_init_scaffolds_explicit_framework_defaults(
@@ -376,6 +377,47 @@ def test_init_scaffolds_explicit_framework_defaults(
     assert config.scan.include_patterns == ["**/*.py"]
     assert "**/.venv/**" in config.scan.exclude_patterns
     assert "Using explicit framework: FastAPI" in result.stdout
+
+
+def test_init_scaffolds_php_framework_defaults(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "composer.json").write_text(
+        json.dumps({"require": {"laravel/framework": "^11.0"}}),
+        encoding="utf-8",
+    )
+    (tmp_path / "app.php").write_text("<?php echo $_GET['q'];\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["init"])
+
+    assert result.exit_code == 0
+    config = load_config(tmp_path / "piranesi.toml")
+    assert config.scan.frameworks == ["laravel"]
+    assert config.scan.include_patterns == ["**/*.php", "**/*.blade.php"]
+    assert "**/vendor/**" in config.scan.exclude_patterns
+    assert "Detected: Laravel" in result.stdout
+    assert "Composer dependencies" in result.stdout
+
+
+def test_init_scaffolds_ruby_framework_defaults(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "Gemfile").write_text("gem 'rails'\n", encoding="utf-8")
+    (tmp_path / "app.rb").write_text("puts params[:q]\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["init"])
+
+    assert result.exit_code == 0
+    config = load_config(tmp_path / "piranesi.toml")
+    assert config.scan.frameworks == ["rails"]
+    assert config.scan.include_patterns == ["**/*.rb"]
+    assert "**/vendor/bundle/**" in config.scan.exclude_patterns
+    assert "Detected: Rails" in result.stdout
+    assert "Bundler dependencies" in result.stdout
 
 
 def test_suppress_command_appends_ignore_rule(

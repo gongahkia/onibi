@@ -1309,8 +1309,8 @@ def init(
     typer.echo(f"Created: {scaffold.ignore_path.name}")
     typer.echo("")
     typer.echo("Next steps:")
-    typer.echo("  1. Review piranesi.toml and adjust the scan patterns if needed.")
-    typer.echo("  2. Run `piranesi run . --authorized --yes` to scan.")
+    for index, step in enumerate(scaffold.next_steps, start=1):
+        typer.echo(f"  {index}. {step}")
 
 
 @app.command()

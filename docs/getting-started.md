@@ -51,6 +51,9 @@ uv run piranesi init
 ```
 
 That writes `piranesi.toml` plus an empty `.piranesi-ignore` template in the current directory.
+The generated config is tuned from detected frameworks and languages, and the
+command prints next steps for dependency setup, `piranesi doctor .`, and the
+first safe `--no-execute` scan.
 
 ## Runtime Validation
 
