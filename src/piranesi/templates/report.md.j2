@@ -23,10 +23,36 @@
 {% endif %}
 - **Source:** `{{ finding.source_location.file }}:{{ finding.source_location.line }}` ({{ finding.taint_source }})
 - **Sink:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}` ({{ finding.taint_sink }})
+{% if finding.cluster_id %}
+- **Cluster:** `{{ finding.cluster_id }}`{% if finding.cluster_size > 1 %} ({{ finding.cluster_size }} related findings{% if finding.cluster_representative %}, representative{% endif %}){% endif %}
+{% endif %}
 
 {% endfor %}
 {% else %}
 No active findings remain after reachability pruning.
+{% endif %}
+
+## Finding Clusters
+
+{% if report.finding_clusters %}
+{% for cluster in report.finding_clusters %}
+### {{ cluster.title }} (`{{ cluster.cluster_id }}`)
+
+- **CWE:** {{ cluster.cwe }}
+- **Severity:** {{ cluster.severity|upper }}
+- **Representative finding:** `{{ cluster.representative_finding_id }}`
+- **Related findings:** {{ cluster.count }}
+- **Sink:** `{{ cluster.sink_location.file }}:{{ cluster.sink_location.line }}` ({{ cluster.taint_sink }})
+{% if cluster.package_name %}
+- **Package:** `{{ cluster.package_name }}`
+{% endif %}
+{% if cluster.source_locations %}
+- **Sources:** {% for location in cluster.source_locations %}`{{ location.file }}:{{ location.line }}`{% if not loop.last %}, {% endif %}{% endfor %}
+{% endif %}
+
+{% endfor %}
+{% else %}
+No finding clusters were produced.
 {% endif %}
 
 ## Unreachable Findings

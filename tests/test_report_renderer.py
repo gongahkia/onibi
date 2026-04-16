@@ -136,6 +136,54 @@ def test_report_renderer_groups_package_and_cross_package_findings(tmp_path: Pat
     assert "`@test/api` -> `@test/shared-lib`" in markdown
 
 
+def test_report_renderer_clusters_related_active_findings(tmp_path: Path) -> None:
+    artifacts = fixture_artifacts(tmp_path)
+    first = artifacts["detect"].findings[0]  # type: ignore[attr-defined]
+    second = first.model_copy(
+        update={
+            "id": "finding-002",
+            "source": first.source.model_copy(
+                update={
+                    "parameter_name": "email",
+                    "location": first.source.location.model_copy(
+                        update={
+                            "line": first.source.location.line + 1,
+                            "snippet": "const email = req.body.email;",
+                        }
+                    ),
+                }
+            ),
+            "confidence": 0.83,
+        }
+    )
+
+    report = build_report(
+        scan_result=artifacts["scan"],  # type: ignore[arg-type]
+        detected_findings=[first, second],
+        confirmed_findings=artifacts["verify"].findings,  # type: ignore[attr-defined]
+        legal_assessments=artifacts["legal"].assessments,  # type: ignore[attr-defined]
+        patch_results=artifacts["patch"].patches,  # type: ignore[attr-defined]
+        target_dir=tmp_path,
+        total_llm_cost_usd=0.0,
+        duration_s=1.0,
+        stage_timings_s={"scan": 0.1, "detect": 0.1, "report": 0.1},
+    )
+    write_report_outputs(report, tmp_path)
+
+    payload = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
+    assert payload["executive_summary"]["finding_clusters"] == 1
+    assert payload["finding_clusters"][0]["count"] == 2
+    assert payload["finding_clusters"][0]["representative_finding_id"] == "finding-001"
+    assert payload["active_findings"][0]["cluster_size"] == 2
+    assert payload["active_findings"][1]["cluster_size"] == 2
+    assert payload["findings"][0]["cluster_size"] == 2
+
+    markdown = (tmp_path / "report.md").read_text(encoding="utf-8")
+    assert "## Finding Clusters" in markdown
+    assert "2 related findings" in markdown
+    assert "Related findings:** 2" in markdown
+
+
 def test_report_renderer_separates_unreachable_findings_and_dead_code(tmp_path: Path) -> None:
     artifacts = fixture_artifacts(tmp_path)
     reachable = artifacts["detect"].findings[0]  # type: ignore[attr-defined]

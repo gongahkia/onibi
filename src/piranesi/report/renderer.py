@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
@@ -60,6 +61,9 @@ class CombinedFinding(BaseModel):
     cross_package: bool = False
     source_package: str | None = None
     sink_package: str | None = None
+    cluster_id: str | None = None
+    cluster_size: int = 1
+    cluster_representative: bool = True
 
 
 class CandidateReportFinding(BaseModel):
@@ -82,6 +86,9 @@ class CandidateReportFinding(BaseModel):
     cross_package: bool = False
     source_package: str | None = None
     sink_package: str | None = None
+    cluster_id: str | None = None
+    cluster_size: int = 1
+    cluster_representative: bool = True
 
 
 class SuppressedFinding(BaseModel):
@@ -104,6 +111,25 @@ class SuppressedFinding(BaseModel):
     sink_package: str | None = None
 
 
+class FindingCluster(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cluster_id: str
+    title: str
+    cwe: str
+    severity: str
+    representative_finding_id: str
+    finding_ids: list[str] = Field(default_factory=list)
+    count: int
+    taint_sink: str
+    sink_location: SourceLocation
+    source_locations: list[SourceLocation] = Field(default_factory=list)
+    package_name: str | None = None
+    cross_package: bool = False
+    source_package: str | None = None
+    sink_package: str | None = None
+
+
 class ExecutiveSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -112,6 +138,7 @@ class ExecutiveSummary(BaseModel):
     findings_confirmed: int
     reachable_findings: int = 0
     unreachable_findings: int = 0
+    finding_clusters: int = 0
     severity_breakdown: dict[str, int] = Field(default_factory=dict)
     top_regulatory_concerns: list[str] = Field(default_factory=list)
     total_llm_cost_usd: float
@@ -139,6 +166,7 @@ class PiranesiReport(BaseModel):
     executive_summary: ExecutiveSummary
     active_findings: list[CandidateReportFinding] = Field(default_factory=list)
     unreachable_findings: list[CandidateReportFinding] = Field(default_factory=list)
+    finding_clusters: list[FindingCluster] = Field(default_factory=list)
     findings: list[CombinedFinding] = Field(default_factory=list)
     package_findings: dict[str, list[CombinedFinding]] = Field(default_factory=dict)
     cross_package_findings: list[CombinedFinding] = Field(default_factory=list)
@@ -205,6 +233,8 @@ def build_report(
         for candidate in detected_findings
         if candidate.suppressed
     ]
+    active_clusters = _cluster_candidate_findings(active_candidates)
+    active_cluster_by_id = _cluster_lookup(active_clusters)
 
     findings: list[CombinedFinding] = []
     for confirmed in confirmed_findings:
@@ -241,6 +271,7 @@ def build_report(
             cross_package=bool(candidate.metadata.get("cross_package")),
             source_package=_metadata_string(candidate.metadata.get("source_package")),
             sink_package=_metadata_string(candidate.metadata.get("sink_package")),
+            **_cluster_fields(candidate.id, active_cluster_by_id),
         )
         findings.append(finding)
 
@@ -255,15 +286,20 @@ def build_report(
             findings_confirmed=len(confirmed_findings),
             reachable_findings=len(reachable_candidates),
             unreachable_findings=len(unreachable_candidates),
+            finding_clusters=len(active_clusters),
             severity_breakdown=_candidate_severity_breakdown(active_candidates),
             top_regulatory_concerns=_top_regulatory_concerns(legal_assessments),
             total_llm_cost_usd=total_llm_cost_usd,
             duration_s=duration_s,
         ),
-        active_findings=[_candidate_report_finding(candidate) for candidate in active_candidates],
+        active_findings=[
+            _candidate_report_finding(candidate, cluster_by_id=active_cluster_by_id)
+            for candidate in active_candidates
+        ],
         unreachable_findings=[
             _candidate_report_finding(candidate) for candidate in unreachable_candidates
         ],
+        finding_clusters=active_clusters,
         findings=findings,
         package_findings=_group_report_findings_by_package(findings),
         cross_package_findings=[finding for finding in findings if finding.cross_package],
@@ -397,7 +433,11 @@ def _finding_title(candidate: CandidateFinding) -> str:
     return cwe_title(cwe, fallback=candidate.vuln_class)
 
 
-def _candidate_report_finding(candidate: CandidateFinding) -> CandidateReportFinding:
+def _candidate_report_finding(
+    candidate: CandidateFinding,
+    *,
+    cluster_by_id: dict[str, FindingCluster] | None = None,
+) -> CandidateReportFinding:
     original_severity = candidate.metadata.get("reachability_original_severity")
     return CandidateReportFinding(
         finding_id=candidate.id,
@@ -417,6 +457,7 @@ def _candidate_report_finding(candidate: CandidateFinding) -> CandidateReportFin
         cross_package=bool(candidate.metadata.get("cross_package")),
         source_package=_metadata_string(candidate.metadata.get("source_package")),
         sink_package=_metadata_string(candidate.metadata.get("sink_package")),
+        **_cluster_fields(candidate.id, cluster_by_id or {}),
     )
 
 
@@ -428,6 +469,121 @@ def _candidate_severity_breakdown(findings: list[CandidateFinding]) -> dict[str,
         severity = finding.severity.lower()
         counts[severity] = counts.get(severity, 0) + 1
     return {severity: count for severity, count in counts.items() if count > 0}
+
+
+def _cluster_candidate_findings(candidates: list[CandidateFinding]) -> list[FindingCluster]:
+    grouped: dict[tuple[object, ...], list[CandidateFinding]] = {}
+    for candidate in candidates:
+        grouped.setdefault(_cluster_key(candidate), []).append(candidate)
+
+    clusters: list[FindingCluster] = []
+    for key, cluster_findings in grouped.items():
+        ordered = sorted(
+            cluster_findings,
+            key=lambda finding: (
+                _severity_sort_key(finding.severity),
+                -finding.confidence,
+                finding.sink.location.file,
+                finding.sink.location.line,
+                finding.id,
+            ),
+        )
+        representative = ordered[0]
+        cluster_id = _cluster_id(key)
+        clusters.append(
+            FindingCluster(
+                cluster_id=cluster_id,
+                title=_finding_title(representative),
+                cwe=_extract_cwe_id(representative.vuln_class),
+                severity=_max_severity(ordered),
+                representative_finding_id=representative.id,
+                finding_ids=[finding.id for finding in ordered],
+                count=len(ordered),
+                taint_sink=representative.sink.api_name,
+                sink_location=representative.sink.location,
+                source_locations=_dedupe_locations(
+                    [finding.source.location for finding in ordered]
+                ),
+                package_name=_package_name(representative),
+                cross_package=bool(representative.metadata.get("cross_package")),
+                source_package=_metadata_string(representative.metadata.get("source_package")),
+                sink_package=_metadata_string(representative.metadata.get("sink_package")),
+            )
+        )
+    return sorted(
+        clusters,
+        key=lambda cluster: (
+            _severity_sort_key(cluster.severity),
+            cluster.sink_location.file,
+            cluster.sink_location.line,
+            cluster.cluster_id,
+        ),
+    )
+
+
+def _cluster_lookup(clusters: list[FindingCluster]) -> dict[str, FindingCluster]:
+    return {finding_id: cluster for cluster in clusters for finding_id in cluster.finding_ids}
+
+
+def _cluster_fields(
+    finding_id: str,
+    cluster_by_id: dict[str, FindingCluster],
+) -> dict[str, object]:
+    cluster = cluster_by_id.get(finding_id)
+    if cluster is None:
+        return {}
+    return {
+        "cluster_id": cluster.cluster_id,
+        "cluster_size": cluster.count,
+        "cluster_representative": finding_id == cluster.representative_finding_id,
+    }
+
+
+def _cluster_key(candidate: CandidateFinding) -> tuple[object, ...]:
+    return (
+        _extract_cwe_id(candidate.vuln_class),
+        _normalize_report_path(candidate.sink.location.file),
+        candidate.sink.location.line,
+        candidate.sink.api_name,
+        _package_name(candidate),
+        bool(candidate.metadata.get("cross_package")),
+        _metadata_string(candidate.metadata.get("source_package")),
+        _metadata_string(candidate.metadata.get("sink_package")),
+    )
+
+
+def _cluster_id(key: tuple[object, ...]) -> str:
+    payload = json.dumps(key, sort_keys=True, separators=(",", ":"), default=str)
+    return "cluster-" + sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _normalize_report_path(path: str) -> str:
+    return Path(path).as_posix()
+
+
+def _max_severity(findings: list[CandidateFinding]) -> str:
+    return min((finding.severity for finding in findings), key=_severity_sort_key)
+
+
+def _severity_sort_key(severity: str) -> int:
+    normalized = severity.lower()
+    try:
+        return _SEVERITY_ORDER.index(normalized)
+    except ValueError:
+        return len(_SEVERITY_ORDER)
+
+
+def _dedupe_locations(locations: list[SourceLocation]) -> list[SourceLocation]:
+    deduped: dict[tuple[str, int, int, str], SourceLocation] = {}
+    for location in locations:
+        key = (
+            _normalize_report_path(location.file),
+            location.line,
+            location.column,
+            location.snippet,
+        )
+        deduped.setdefault(key, location)
+    return list(deduped.values())
 
 
 def _package_name(candidate: CandidateFinding) -> str | None:
@@ -508,6 +664,7 @@ __all__ = [
     "CandidateReportFinding",
     "CombinedFinding",
     "ExecutiveSummary",
+    "FindingCluster",
     "PiranesiReport",
     "ReportAppendix",
     "SuppressedFinding",

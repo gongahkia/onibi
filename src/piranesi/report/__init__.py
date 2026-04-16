@@ -9,6 +9,7 @@ from piranesi.report.junit import generate_junit_xml
 from piranesi.report.renderer import (
     CombinedFinding,
     ExecutiveSummary,
+    FindingCluster,
     PiranesiReport,
     ReportAppendix,
     build_report,
@@ -21,6 +22,7 @@ from piranesi.report.sarif import generate_sarif
 __all__ = [
     "CombinedFinding",
     "ExecutiveSummary",
+    "FindingCluster",
     "PiranesiReport",
     "ReportAppendix",
     "build_report",

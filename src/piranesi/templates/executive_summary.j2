@@ -20,6 +20,7 @@ none
 {%- endset %}
 - **Findings detected:** {{ report.executive_summary.findings_detected }} findings{% if report.executive_summary.suppressed_findings %} ({{ report.executive_summary.suppressed_findings }} suppressed){% endif %}
 - **Reachability:** {{ report.executive_summary.reachable_findings }} reachable{% if report.executive_summary.unreachable_findings %}, {{ report.executive_summary.unreachable_findings }} unreachable{% endif %}
+- **Finding clusters:** {{ report.executive_summary.finding_clusters }}
 - **Findings confirmed:** {{ report.executive_summary.findings_confirmed }}
 {% if report.cross_package_findings %}
 - **Cross-package findings:** {{ report.cross_package_findings|length }}

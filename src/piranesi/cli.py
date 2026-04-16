@@ -565,6 +565,12 @@ def _render_finding_explanation(status: str, finding: ReportFindingMatch) -> str
                 f"Source function: {finding.source_function_id or 'n/a'}",
             ]
         )
+    if isinstance(finding, CombinedFinding | CandidateReportFinding) and finding.cluster_id:
+        representative = "yes" if finding.cluster_representative else "no"
+        lines.append(
+            f"Cluster: {finding.cluster_id} "
+            f"(size={finding.cluster_size}, representative={representative})"
+        )
     if isinstance(finding, SuppressedFinding):
         lines.append(f"Suppression reason: {finding.suppression_reason or 'n/a'}")
     if isinstance(finding, CombinedFinding):

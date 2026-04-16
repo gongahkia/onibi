@@ -40,6 +40,7 @@ maturity level.
 | Docker exploit verification | Experimental | Strong differentiator, but target startup and payload templates are still limited. |
 | SARIF output | Stable Alpha | Suitable for CI/code-scanning ingestion. |
 | JUnit/CSV/TUI output | Beta | Useful for integration and review workflows. |
+| Finding clustering | Beta | Reports preserve individual findings while grouping related findings by CWE and sink location. |
 | Compliance/legal mapping | Experimental | Produces technical evidence and obligation mapping; not legal advice. |
 | Custom rules and rule registry | Beta | Rule validation, fixture testing, install/update/list flows exist. |
 | Advisory/dependency analysis | Beta | Supports advisory ingestion and dependency finding artifacts. |

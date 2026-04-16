@@ -136,6 +136,9 @@ After the first run, the output directory contains:
 - `report.md`: human-readable markdown report.
 - `pr_body.md`: per-finding GitHub-flavored markdown.
 
+`report.json` also includes `finding_clusters`, which group repeated flows that
+share the same CWE and sink location while preserving each individual finding.
+
 To inspect one finding without opening the full JSON artifact:
 
 ```bash
