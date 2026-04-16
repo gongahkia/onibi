@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import difflib
+import logging
 import re
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from piranesi.llm.prompts import patcher_fix
 from piranesi.llm.provider import LLMProvider
+from piranesi.llm.router import TokenBudgetExceededError
 from piranesi.models import CandidateFinding, ConfirmedFinding, PatchResult
 
 _CWE_PATTERN = re.compile(r"(CWE-\d+)", re.IGNORECASE)
@@ -20,6 +22,7 @@ _CWE_TITLES = {
     "CWE-89": "SQL Injection",
     "CWE-918": "Server-Side Request Forgery",
 }
+_logger = logging.getLogger(__name__)
 
 
 class PatchPayload(BaseModel):
@@ -36,18 +39,35 @@ def generate_patches(
 ) -> list[PatchResult]:
     """Iterate over confirmed findings, call LLM for each, return patch results."""
     patches: list[PatchResult] = []
-    for finding in findings:
+    for index, finding in enumerate(findings):
         source_path = Path(finding.finding.finding.sink.location.file)
         original_code = _patch_source_text(source_path, finding)
-        response = provider.complete(
-            stage="patcher",
-            messages=patcher_fix.render(
-                vuln_description=_finding_summary(finding.finding.finding),
-                cwe_id=_extract_cwe_id(finding.finding.finding.vuln_class),
-                vulnerable_code=original_code,
-                language=_language_for_path(source_path),
-            ),
-        )
+        try:
+            response = provider.complete(
+                stage="patcher",
+                messages=patcher_fix.render(
+                    vuln_description=_finding_summary(finding.finding.finding),
+                    cwe_id=_extract_cwe_id(finding.finding.finding.vuln_class),
+                    vulnerable_code=original_code,
+                    language=_language_for_path(source_path),
+                ),
+                max_tokens=1024,
+            )
+        except TokenBudgetExceededError as exc:
+            remaining = len(findings) - index
+            _logger.warning(
+                "patch: token budget exhausted after %d generated patch(es); "
+                "skipping %d remaining confirmed finding(s)",
+                len(patches),
+                remaining,
+                extra={
+                    "event": "patch_token_budget_exhausted",
+                    "generated_patches": len(patches),
+                    "remaining_findings": remaining,
+                    "error": str(exc),
+                },
+            )
+            break
         payload = _parse_patch_payload(response.content)
         patch_diff = _unified_diff(
             original_code=original_code,

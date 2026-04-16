@@ -13,7 +13,7 @@ from piranesi.config import (
     load_config,
 )
 from piranesi.llm.cost import CostTracker
-from piranesi.llm.router import BudgetExceededError, ModelRouter
+from piranesi.llm.router import BudgetExceededError, ModelRouter, TokenBudgetExceededError
 
 
 def test_router_resolves_models_from_stage_config_and_fallback(config_file: Any) -> None:
@@ -126,3 +126,68 @@ def test_router_exposes_accumulated_total_cost() -> None:
     )
 
     assert router.total_cost_usd == pytest.approx(1.0)
+
+
+def test_router_reserves_and_settles_token_budget() -> None:
+    router = ModelRouter(
+        config=PiranesiConfig(
+            models=ModelsConfig(triage="triage-model"),
+            budget=BudgetConfig(max_cost_usd=5.0, max_tokens=120),
+        ),
+        cost_tracker=CostTracker(),
+    )
+    reservation = router.reserve_completion(
+        stage="triage",
+        messages=[{"role": "user", "content": "classify this finding"}],
+        requested_max_tokens=80,
+        min_completion_tokens=16,
+    )
+
+    assert reservation.max_tokens <= 80
+    assert router.used_tokens == reservation.reserved_tokens
+
+    router.settle_completion(reservation, prompt_tokens=9, response_tokens=12)
+
+    assert router.used_tokens == 21
+    assert router.remaining_tokens == 99
+
+
+def test_router_truncates_context_to_fit_token_budget() -> None:
+    router = ModelRouter(
+        config=PiranesiConfig(
+            models=ModelsConfig(triage="triage-model"),
+            budget=BudgetConfig(max_cost_usd=5.0, max_tokens=160),
+        ),
+        cost_tracker=CostTracker(),
+    )
+    reservation = router.reserve_completion(
+        stage="triage",
+        messages=[
+            {"role": "system", "content": "You are strict JSON output."},
+            {"role": "user", "content": "A" * 4000},
+        ],
+        requested_max_tokens=64,
+        min_completion_tokens=32,
+    )
+
+    assert reservation.context_omitted is True
+    assert reservation.max_tokens <= 64
+    assert "token budget" in reservation.messages[1]["content"]
+
+
+def test_router_token_budget_raises_when_minimum_completion_cannot_fit() -> None:
+    router = ModelRouter(
+        config=PiranesiConfig(
+            models=ModelsConfig(triage="triage-model"),
+            budget=BudgetConfig(max_cost_usd=5.0, max_tokens=24),
+        ),
+        cost_tracker=CostTracker(),
+    )
+
+    with pytest.raises(TokenBudgetExceededError, match="minimum completion allocation"):
+        router.reserve_completion(
+            stage="triage",
+            messages=[{"role": "user", "content": "short"}],
+            requested_max_tokens=8,
+            min_completion_tokens=32,
+        )

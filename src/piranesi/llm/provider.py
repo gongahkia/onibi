@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from piranesi.llm.cost import CostTracker
+from piranesi.llm.router import TokenBudgetReservation
 from piranesi.llm.trace import TraceLogger
 
 try:
@@ -199,12 +200,22 @@ class LLMProvider:
         kwargs: Mapping[str, Any],
     ) -> LLMResponse:
         normalized_messages = [dict(message) for message in messages]
+        effective_max_tokens = max_tokens
+        reservation: TokenBudgetReservation | None = None
+        if self._router is not None:
+            reservation = self._router.reserve_completion(
+                stage=stage,
+                messages=normalized_messages,
+                requested_max_tokens=max_tokens,
+            )
+            normalized_messages = [dict(message) for message in reservation.messages]
+            effective_max_tokens = reservation.max_tokens
         started_at = time.perf_counter()
         response = litellm.completion(
             model=model,
             messages=normalized_messages,
             temperature=temperature,
-            max_tokens=max_tokens,
+            max_tokens=effective_max_tokens,
             timeout=timeout,
             response_format=response_format,
             tools=tools,
@@ -216,6 +227,12 @@ class LLMProvider:
         )
         duration_ms = int((time.perf_counter() - started_at) * 1000)
         prompt_tokens, response_tokens = _extract_usage(response)
+        if self._router is not None and reservation is not None:
+            self._router.settle_completion(
+                reservation,
+                prompt_tokens=prompt_tokens,
+                response_tokens=response_tokens,
+            )
         response_content = _extract_response_content(response)
         cost_usd = _completion_cost(response)
         self._cost.add(cost_usd, stage)

@@ -2258,6 +2258,38 @@ def _run_triage_stage(
 
     findings: list[TriagedFinding] = []
     for finding in active_findings:
+        if context.router is not None and context.router.remaining_tokens <= 64:
+            remaining_findings = active_findings[len(findings) :]
+            _logger.warning(
+                "triage: token budget exhausted after %d processed finding(s); "
+                "preserving %d remaining reachable finding(s) as deterministic true positives",
+                len(findings),
+                len(remaining_findings),
+                extra={
+                    "event": "triage_token_budget_degrade",
+                    "processed_findings": len(findings),
+                    "remaining_findings": len(remaining_findings),
+                    "remaining_tokens": context.router.remaining_tokens,
+                    "max_tokens": config.budget.max_tokens,
+                },
+            )
+            for remaining in remaining_findings:
+                fallback_score = ml_scores.get(remaining.id, remaining.confidence)
+                findings.append(
+                    TriagedFinding(
+                        finding=remaining,
+                        triage_verdict="true_positive",
+                        triage_mode="deterministic",
+                        skeptic_analysis=(
+                            "Deterministic fallback: token budget exhausted before LLM "
+                            "triage. Reachable candidate preserved for manual review."
+                        ),
+                        ensemble_score=fallback_score,
+                        escalated=False,
+                    )
+                )
+            break
+
         probability = ml_scores.get(finding.id)
         if (
             config.triage.ml_prefilter
@@ -2612,7 +2644,6 @@ def _run_patch_stage(
     config: PiranesiConfig,
     prev_result: StageResult | None,
 ) -> StageResult:
-    _ = config
     verify_artifact = _require_artifact(context.stage_outputs["verify"], VerifyArtifact, "verify")
     _ = prev_result
     started_at = time.monotonic()
@@ -2620,6 +2651,23 @@ def _run_patch_stage(
         _logger.warning(
             "patch: no LLM API key configured, skipping patch generation for %d finding(s)",
             len(verify_artifact.findings),
+        )
+        return StageResult(
+            stage="patch",
+            success=True,
+            artifact=PatchArtifact(patches=[]),
+            elapsed_s=time.monotonic() - started_at,
+        )
+    if context.router is not None and context.router.remaining_tokens <= 64:
+        _logger.warning(
+            "patch: token budget exhausted before patch generation; skipping %d finding(s)",
+            len(verify_artifact.findings),
+            extra={
+                "event": "patch_token_budget_degrade",
+                "remaining_tokens": context.router.remaining_tokens,
+                "max_tokens": config.budget.max_tokens,
+                "skipped_findings": len(verify_artifact.findings),
+            },
         )
         return StageResult(
             stage="patch",

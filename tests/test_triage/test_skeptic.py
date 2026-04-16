@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from piranesi.llm.router import TokenBudgetExceededError
 from piranesi.triage import SkepticAgent
 
 from ._helpers import RecordingProvider, build_candidate_finding
@@ -111,3 +112,21 @@ def test_skeptic_enforces_different_model_from_detector() -> None:
 
     with pytest.raises(ValueError, match="skeptic model must differ from detector model"):
         skeptic.analyze(finding)
+
+
+def test_skeptic_returns_uncertain_when_token_budget_is_exhausted() -> None:
+    class _BudgetExhaustedProvider:
+        def complete(self, **kwargs: object) -> object:
+            raise TokenBudgetExceededError("token budget exhausted")
+
+    skeptic = SkepticAgent(
+        provider=_BudgetExhaustedProvider(),  # type: ignore[arg-type]
+        model="skeptic-model",
+        detector_model="detector-model",
+    )
+
+    result = skeptic.analyze(build_candidate_finding())
+
+    assert result.verdict == "uncertain"
+    assert "token budget" in result.reasoning.lower()
+    assert "manual review" in result.remaining_risk.lower()

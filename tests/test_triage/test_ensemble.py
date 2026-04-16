@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from piranesi.llm.router import TokenBudgetExceededError
 from piranesi.triage import CalibratedEnsembleVoter, SkepticAgent
 from piranesi.triage.ensemble import _temperature_scale
 
@@ -286,3 +287,21 @@ def test_z3_verified_findings_cannot_be_suppressed() -> None:
     assert triaged.triage_override_logged is True
     assert triaged.ensemble_score == pytest.approx(1.0)
     assert provider.calls == []
+
+
+def test_ensemble_uses_conservative_fallback_when_token_budget_is_exhausted() -> None:
+    class _BudgetExhaustedProvider:
+        def complete(self, **kwargs: object) -> object:
+            raise TokenBudgetExceededError("token budget exhausted")
+
+    voter = CalibratedEnsembleVoter(
+        provider=_BudgetExhaustedProvider(),  # type: ignore[arg-type]
+        models=("triage-model",),
+        num_models=1,
+    )
+
+    decision = voter.classify(build_candidate_finding())
+
+    assert decision.verdict == "true_positive"
+    assert decision.ensemble_score == pytest.approx(0.5)
+    assert "token budget" in decision.votes[0].explanation.lower()

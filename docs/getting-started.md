@@ -102,6 +102,8 @@ Piranesi uses LiteLLM-compatible credentials for model-assisted triage, patch ge
 - `GOOGLE_API_KEY`
 - `LITELLM_API_KEY`
 
+LLM stages also honor `budget.max_tokens` from `piranesi.toml`. When the budget is tight, Piranesi trims prompt context and caps completion tokens. If exhausted, triage falls back to deterministic pass-through for remaining findings and patch generation skips remaining items with warnings.
+
 ## First Scan Walkthrough
 
 The most reproducible first run is the bundled vulnerable Express app.

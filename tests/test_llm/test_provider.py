@@ -159,3 +159,46 @@ def test_provider_uses_router_fallback_after_retryable_failure(
     assert response.model == "openai/gpt-4.1-mini"
     assert response.content == "fallback succeeded"
     assert cost_tracker.total_usd == pytest.approx(response.cost_usd)
+
+
+def test_provider_applies_router_token_budget_adjustments(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    router = ModelRouter(
+        config=PiranesiConfig(
+            models=ModelsConfig(scanner="openai/gpt-4o-mini"),
+            budget=BudgetConfig(max_cost_usd=5.0, max_tokens=180),
+        ),
+        cost_tracker=CostTracker(),
+    )
+    provider, _, _ = _build_provider(tmp_path, router=router)
+    observed_max_tokens: list[int] = []
+    observed_messages: list[list[dict[str, str]]] = []
+
+    def _completion(*, model: str, messages: list[dict[str, str]], **kwargs: Any) -> Any:
+        _ = model
+        observed_max_tokens.append(int(kwargs["max_tokens"]))
+        observed_messages.append(messages)
+        return litellm.mock_completion(
+            model="openai/gpt-4o-mini",
+            messages=messages,
+            mock_response="{\"ok\":true}",
+            **kwargs,
+        )
+
+    monkeypatch.setattr("piranesi.llm.provider.litellm.completion", _completion)
+
+    response = provider.complete(
+        stage="scanner",
+        messages=[
+            {"role": "system", "content": "return json only"},
+            {"role": "user", "content": "X" * 4000},
+        ],
+        max_tokens=512,
+    )
+
+    assert response.content == "{\"ok\":true}"
+    assert observed_max_tokens and observed_max_tokens[0] < 512
+    assert "token budget" in observed_messages[0][1]["content"]
+    assert router.used_tokens > 0

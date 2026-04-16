@@ -1,18 +1,22 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from piranesi.llm.prompts import skeptic_challenge
+from piranesi.llm.router import TokenBudgetExceededError
 from piranesi.llm.sanitize import strip_comments
 from piranesi.models import CandidateFinding
 
 if TYPE_CHECKING:
     from piranesi.llm.provider import LLMProvider
     from piranesi.llm.router import ModelRouter
+
+_logger = logging.getLogger(__name__)
 
 
 class SkepticResult(BaseModel):
@@ -48,13 +52,36 @@ class SkepticAgent:
 
     def analyze(self, finding: CandidateFinding) -> SkepticResult:
         model = self._resolve_model()
-        response = self.provider.complete(
-            stage="skeptic",
-            model=model,
-            messages=self.build_messages(finding),
-            tools=[skeptic_challenge.TOOL_SPEC],
-            tool_choice={"type": "function", "function": {"name": skeptic_challenge.TOOL_NAME}},
-        )
+        try:
+            response = self.provider.complete(
+                stage="skeptic",
+                model=model,
+                messages=self.build_messages(finding),
+                tools=[skeptic_challenge.TOOL_SPEC],
+                tool_choice={"type": "function", "function": {"name": skeptic_challenge.TOOL_NAME}},
+                max_tokens=384,
+            )
+        except TokenBudgetExceededError as exc:
+            _logger.warning(
+                "skeptic: token budget exhausted for model=%s finding=%s; "
+                "returning uncertain fallback",
+                model,
+                finding.id,
+                extra={
+                    "event": "skeptic_token_budget_exhausted",
+                    "model": model,
+                    "finding_id": finding.id,
+                },
+            )
+            return SkepticResult(
+                model=model,
+                verdict="uncertain",
+                confidence=0.0,
+                reasoning=f"Skeptic LLM stage skipped due to token budget constraints: {exc}",
+                mitigations_found=[],
+                remaining_risk="Budget-constrained triage fallback; manual review recommended.",
+            )
+
         payload = _parse_skeptic_payload(response.content)
         return SkepticResult(
             model=model,

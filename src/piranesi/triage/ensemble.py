@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from piranesi.llm.prompts import triage_classify
+from piranesi.llm.router import TokenBudgetExceededError
 from piranesi.llm.sanitize import strip_comments
 from piranesi.models import CandidateFinding, SandboxResult, TriagedFinding
 
@@ -183,13 +184,35 @@ class CalibratedEnsembleVoter:
             return [future.result() for future in futures]
 
     def _run_model(self, model: str, finding: CandidateFinding) -> ModelVote:
-        response = self.provider.complete(
-            stage="triage",
-            model=model,
-            messages=self._build_messages(finding),
-            tools=[triage_classify.TOOL_SPEC],
-            tool_choice={"type": "function", "function": {"name": triage_classify.TOOL_NAME}},
-        )
+        try:
+            response = self.provider.complete(
+                stage="triage",
+                model=model,
+                messages=self._build_messages(finding),
+                tools=[triage_classify.TOOL_SPEC],
+                tool_choice={"type": "function", "function": {"name": triage_classify.TOOL_NAME}},
+                max_tokens=512,
+            )
+        except TokenBudgetExceededError as exc:
+            _logger.warning(
+                "triage: token budget exhausted for model=%s finding=%s; "
+                "using conservative true-positive fallback",
+                model,
+                finding.id,
+                extra={
+                    "event": "triage_token_budget_exhausted",
+                    "model": model,
+                    "finding_id": finding.id,
+                },
+            )
+            return ModelVote(
+                model=model,
+                verdict="true_positive",
+                confidence=0.5,
+                explanation=f"LLM triage skipped due to token budget constraints: {exc}",
+                raw_true_positive_score=0.5,
+            )
+
         payload = _parse_triage_payload(response.content)
         return ModelVote(
             model=model,

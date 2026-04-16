@@ -150,7 +150,9 @@ LLM budget controls.
 | --- | --- | --- | --- |
 | `max_cost_usd` | `float` | `5.0` | Hard spend ceiling enforced by the model router and trace writer. |
 | `warn_at_usd` | `float | null` | `null` | Optional warning threshold before `max_cost_usd` is reached. |
-| `max_tokens` | `int` | `500000` | Budget metadata. Present in config, but not yet enforced as a hard token cap everywhere. |
+| `max_tokens` | `int` | `500000` | Hard token cap for LLM stages using local token estimation. Piranesi clamps completion tokens, truncates oversized prompt context, and degrades triage/patch gracefully when the budget is exhausted. |
+
+When token constraints affect a call, Piranesi logs `llm_token_budget_adjusted` warnings so you can see when context was omitted or completion tokens were clamped.
 
 ### `[sandbox]`
 
