@@ -19,6 +19,7 @@ final class MobileGatewayService: ObservableObject {
     private let dataProvider = HostMobileGatewayDataProvider()
     private let sessionRegistry = ControllableSessionRegistry.shared
     private let realtimeGateway = RealtimeGatewayService.shared
+    private let webAssetServer = WebAssetServer()
     private var router: MobileGatewayRouter?
     private var listener: NWListener?
     private var settings: AppSettings
@@ -362,6 +363,11 @@ final class MobileGatewayService: ObservableObject {
                 return
             }
 
+            if let webResponse = self.webAssetServer.response(method: request.method, path: request.path) {
+                self.send(response: webResponse, over: connection)
+                return
+            }
+
             if self.handleRealtimeUpgradeIfNeeded(connection: connection, request: request) {
                 return
             }
@@ -556,6 +562,7 @@ final class MobileGatewayService: ObservableObject {
         case 409: return "Conflict"
         case 404: return "Not Found"
         case 405: return "Method Not Allowed"
+        case 503: return "Service Unavailable"
         case 500: return "Internal Server Error"
         default: return "OK"
         }

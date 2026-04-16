@@ -1,0 +1,275 @@
+:root {
+  color-scheme: light dark;
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
+  line-height: 1.4;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #121417;
+  color: #f3f4f6;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.screen {
+  width: min(980px, 100%);
+  margin: 0 auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.screen-connect {
+  min-height: 100vh;
+  justify-content: center;
+}
+
+.screen-live {
+  min-height: 100vh;
+}
+
+.screen-header h1 {
+  margin: 0;
+  font-size: clamp(1.25rem, 1.2rem + 0.6vw, 1.6rem);
+  line-height: 1.25;
+}
+
+.screen-header p {
+  margin: 2px 0 0;
+  color: #cbd5e1;
+}
+
+.with-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.connection-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #2b3340;
+  border-radius: 6px;
+  background: #1b2028;
+}
+
+.connection-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.95rem;
+}
+
+input[type="url"],
+input[type="password"],
+input[type="text"] {
+  width: 100%;
+  border: 1px solid #3b4554;
+  background: #0f1218;
+  color: #f8fafc;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font: inherit;
+}
+
+button {
+  border: 1px solid #d95d39;
+  background: #d95d39;
+  color: white;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover:enabled {
+  background: #ee714b;
+  border-color: #ee714b;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
+.button-secondary {
+  border: 1px solid #3b4554;
+  background: #202633;
+  color: #e2e8f0;
+}
+
+.button-secondary:hover:enabled {
+  border-color: #4a5669;
+  background: #2a3141;
+}
+
+.connection-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.error-text {
+  margin: 0;
+  color: #fb7185;
+}
+
+.empty-state {
+  color: #cbd5e1;
+  border: 1px dashed #3b4554;
+  border-radius: 6px;
+  padding: 14px;
+  margin: 0;
+}
+
+.session-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.session-list-item {
+  border: 1px solid #2b3340;
+  border-radius: 6px;
+  background: #1b2028;
+}
+
+.session-row {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 10px 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.session-row:hover:enabled {
+  background: #232a35;
+}
+
+.session-row-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.session-meta {
+  display: grid;
+  gap: 4px;
+  color: #94a3b8;
+  font-size: 0.88rem;
+}
+
+.command-preview {
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    "Cascadia Mono",
+    "Segoe UI Mono",
+    "Roboto Mono",
+    monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 6px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  text-transform: capitalize;
+  border: 1px solid #5b6472;
+}
+
+.status-running {
+  border-color: #22c55e;
+}
+
+.status-starting {
+  border-color: #f59e0b;
+}
+
+.status-exited {
+  border-color: #9ca3af;
+}
+
+.status-failed {
+  border-color: #fb7185;
+}
+
+.output-pane {
+  border: 1px solid #2b3340;
+  border-radius: 6px;
+  min-height: 50vh;
+  background: #0d1117;
+  overflow: hidden;
+}
+
+.xterm-container {
+  height: 52vh;
+  width: 100%;
+}
+
+.remote-input-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.remote-key-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.key-button {
+  min-width: 72px;
+}
+
+@media (max-width: 720px) {
+  .with-actions {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .header-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .xterm-container {
+    height: 48vh;
+  }
+}

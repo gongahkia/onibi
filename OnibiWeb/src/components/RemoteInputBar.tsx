@@ -1,0 +1,38 @@
+import { FormEvent, useState } from "react";
+
+interface RemoteInputBarProps {
+  disabled: boolean;
+  onSubmitLine: (text: string) => void;
+}
+
+export function RemoteInputBar({ disabled, onSubmitLine }: RemoteInputBarProps): JSX.Element {
+  const [text, setText] = useState("");
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!text || disabled) {
+      return;
+    }
+    onSubmitLine(text);
+    setText("");
+  };
+
+  return (
+    <form className="remote-input-bar" onSubmit={handleSubmit}>
+      <input
+        type="text"
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        placeholder="Type a command"
+        autoCapitalize="off"
+        autoComplete="off"
+        autoCorrect="off"
+        spellCheck={false}
+        disabled={disabled}
+      />
+      <button type="submit" disabled={disabled || text.length === 0}>
+        Send
+      </button>
+    </form>
+  );
+}

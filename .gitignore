@@ -61,3 +61,10 @@ iOSInjectionProject/
 ._*
 
 *.log
+
+# OnibiWeb
+OnibiWeb/node_modules/
+OnibiWeb/dist/
+OnibiWeb/*.tsbuildinfo
+OnibiWeb/vite.config.js
+OnibiWeb/vite.config.d.ts
