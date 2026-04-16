@@ -2,12 +2,12 @@
 
 ## Supported Versions
 
-Only the latest `0.1.x` release line is supported for security fixes.
+Only the latest `0.2.x` release line is supported for security fixes.
 
 | Version | Supported |
 | --- | --- |
-| `0.1.x` | Yes |
-| `< 0.1.0` | No |
+| `0.2.x` | Yes |
+| `< 0.2.0` | No |
 
 ## Reporting a Vulnerability
 

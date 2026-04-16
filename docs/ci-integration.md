@@ -11,7 +11,7 @@ export OPENAI_API_KEY="$OPENAI_API_KEY"
 piranesi run ./target --authorized --yes --output ./piranesi-output
 ```
 
-`piranesi run` requires one LiteLLM-compatible credential in the environment (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `AZURE_OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, or `LITELLM_API_KEY`).
+`piranesi run` can execute static scan/detect/report in deterministic mode without LLM credentials. Set one LiteLLM-compatible credential (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `AZURE_OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, or `LITELLM_API_KEY`) when you want model-assisted triage, patch generation, or legal memo drafting in CI.
 
 Useful outputs from that directory:
 

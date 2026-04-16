@@ -18,7 +18,7 @@ git clone https://github.com/OWASP/NodeGoat.git workspace/nodegoat
 
 No package install was required for the documented detect run because Piranesi only needed the checked-out source tree.
 
-## Invocation Used For `v0.1.0`
+## Invocation Used For `v0.2.0`
 
 The most reproducible current path on NodeGoat is the direct transpile-plus-detect helper:
 
@@ -28,7 +28,7 @@ uv run python docs/examples/run_detect_summary.py workspace/nodegoat/app --show-
 
 Why this was used instead of `piranesi run`:
 
-- The full `piranesi run` path is still brittle on NodeGoat-sized targets in `v0.1.0`.
+- The full `piranesi run` path is still brittle on NodeGoat-sized targets in `v0.2.0`.
 - The helper exercises the same Joern-backed transpile and detect logic, but avoids the noisier scan-stage attack-surface path that currently fails more often on NodeGoat.
 
 ## Representative Output
@@ -110,4 +110,4 @@ NodeGoat is a useful alpha validation target because it shows both sides of the 
 - Real noise: the SSRF sink model is too broad on Express route registration.
 - Real misses: `$where`/Mongo-style injection is not yet modeled.
 
-That is exactly the kind of honest release documentation a `v0.1.0` security tool should ship with.
+That is exactly the kind of honest release documentation an alpha security tool should ship with.

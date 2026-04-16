@@ -2,11 +2,11 @@
 
 # `Piranesi`
 
-Piranesi is an alpha CLI for security analysis of TypeScript and JavaScript codebases. It uses Joern-backed taint discovery to surface candidate vulnerabilities, can verify exploits in Docker, and can attach legal and patch context when LLM credentials are configured.
+Piranesi is an alpha, local-first AppSec analysis CLI that turns source code into explainable security, exploitability, and compliance artifacts. It uses Joern-backed taint discovery to surface candidate vulnerabilities, can verify exploits in Docker, and can attach legal and patch context when LLM credentials are configured.
 
 ## Status
 
-`v0.2.0` is an alpha release. The end-to-end CLI works on small Express targets, the verify stage is validated on the bundled XSS fixture, and the example docs include real runs on both a hand-crafted vulnerable app and OWASP NodeGoat. v0.2.0 adds SARIF 2.1.0 output, sanitizer-aware FP reduction, and an expanded ground truth (185 entries). Real-world projects still produce misses and false positives, so the example writeups call those out explicitly.
+`v0.2.0` is an alpha release. The stable center of gravity is TypeScript/JavaScript web application analysis, especially small Express targets. Broader language, framework, compliance, verification, and workflow features are present at different maturity levels; see [docs/capabilities.md](docs/capabilities.md). The verify stage is validated on the bundled XSS fixture, and the example docs include real runs on both a hand-crafted vulnerable app and OWASP NodeGoat. Real-world projects still produce misses and false positives, so the example writeups call those out explicitly.
 
 ## What It Does
 
@@ -14,16 +14,17 @@ Piranesi is an alpha CLI for security analysis of TypeScript and JavaScript code
 - Extracts tainted source-to-sink flows for SQLi, XSS, path traversal, command injection, SSRF, and related classes.
 - Generates stage artifacts for `scan`, `detect`, `triage`, `verify`, `legal`, `patch`, and `report`.
 - Verifies exploitable findings in Docker when execution is enabled.
-- Supports BYOK LLM routing for triage, patch generation, and legal memo generation.
+- Runs static scan/detect/report in deterministic mode without LLM credentials.
+- Supports BYOK LLM routing for model-assisted triage, patch generation, and legal memo generation.
 
 ## Requirements
 
 - Python 3.12+
-- `uv`
+- `uv` for source-checkout development, or `pip install piranesi` for packaged use
 - Joern plus a working JVM
 - TypeScript compiler (`tsc`)
 - Docker for the verify stage
-- LLM API key for the full pipeline (`triage`, `legal`, and `patch`)
+- Optional LLM API key for model-assisted triage, patch generation, and legal memo drafting
 
 The full installation walkthrough is in [docs/getting-started.md](docs/getting-started.md).
 
@@ -38,11 +39,11 @@ brew install joern openjdk@17
 npm install --global typescript
 open -a Docker
 
+uv run piranesi doctor .
+
 cd examples/vuln-express
 npm install
 cd ../..
-
-export OPENAI_API_KEY="<your_key>"
 
 uv run piranesi run examples/vuln-express \
   --authorized \
@@ -51,9 +52,11 @@ uv run piranesi run examples/vuln-express \
   --no-execute
 ```
 
-`--no-execute` skips Docker exploit execution. It does not bypass LLM credential requirements.
+`piranesi doctor .` reports whether the local machine is ready for deterministic scanning, LLM-assisted triage/patching, and Docker-backed verification.
 
-`piranesi run` requires one LiteLLM-compatible credential in the environment: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `AZURE_OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, or `LITELLM_API_KEY`.
+`--no-execute` skips Docker exploit execution. Without an LLM credential, `piranesi run` uses deterministic mode: static scan/detect/report still run, triage preserves reachable findings without model-backed false-positive discrimination, and patch generation is skipped.
+
+Set one LiteLLM-compatible credential to enable LLM-assisted stages: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `AZURE_OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, or `LITELLM_API_KEY`.
 
 Use `--fail-severity high` to fail CI only on `high` or `critical` findings, or `--no-fail` to always exit `0` for findings while still writing artifacts.
 
@@ -169,6 +172,7 @@ uv run pytest
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
+- [Capability Matrix](docs/capabilities.md)
 - [Getting Started](docs/getting-started.md)
 - [Configuration Reference](docs/configuration.md)
 - [CI Integration](docs/ci-integration.md)

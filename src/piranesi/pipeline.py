@@ -435,12 +435,14 @@ def run_pipeline(
     context.output_dir.mkdir(parents=True, exist_ok=True)
     context.render_ui = render_ui
     if not _llm_is_configured():
-        raise RuntimeError(
-            "no LLM API key configured. set one of: "
-            + ", ".join(_LLM_API_ENV_VARS)
-            + ". piranesi requires an LLM provider to run."
+        _logger.warning(
+            "no LLM API key configured; running deterministic pipeline mode. "
+            "Triage will pass reachable findings through and patch generation will be skipped. "
+            "Set one of %s to enable LLM-assisted stages.",
+            ", ".join(_LLM_API_ENV_VARS),
         )
-    _logger.info("LLM provider configured — pipeline starting")
+    else:
+        _logger.info("LLM provider configured — pipeline starting")
     results: list[StageResult] = []
     prev_result: StageResult | None = None
     failed_stage: str | None = None
@@ -2139,10 +2141,25 @@ def _run_triage_stage(
         finding for finding in active_findings if finding.reachability == "reachable"
     ]
     if not _llm_is_configured():
-        raise RuntimeError(
-            "no LLM API key configured. set one of: "
-            + ", ".join(_LLM_API_ENV_VARS)
-            + ". piranesi requires an LLM provider to run."
+        findings = [
+            TriagedFinding(
+                finding=finding,
+                triage_verdict="true_positive",
+                skeptic_analysis=(
+                    "Deterministic mode: no LLM API key was configured, so Piranesi "
+                    "preserved the reachable static finding without model-backed "
+                    "false-positive discrimination."
+                ),
+                ensemble_score=finding.confidence,
+                escalated=False,
+            )
+            for finding in active_findings
+        ]
+        return StageResult(
+            stage="triage",
+            success=True,
+            artifact=TriageArtifact(findings=findings),
+            elapsed_s=time.monotonic() - started_at,
         )
 
     voter = CalibratedEnsembleVoter(provider=context.provider, router=context.router)
@@ -2284,10 +2301,15 @@ def _run_patch_stage(
     _ = prev_result
     started_at = time.monotonic()
     if not _llm_is_configured():
-        raise RuntimeError(
-            "no LLM API key configured. set one of: "
-            + ", ".join(_LLM_API_ENV_VARS)
-            + ". piranesi requires an LLM provider to run."
+        _logger.warning(
+            "patch: no LLM API key configured, skipping patch generation for %d finding(s)",
+            len(verify_artifact.findings),
+        )
+        return StageResult(
+            stage="patch",
+            success=True,
+            artifact=PatchArtifact(patches=[]),
+            elapsed_s=time.monotonic() - started_at,
         )
     patches = generate_patches(
         findings=verify_artifact.findings,

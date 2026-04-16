@@ -33,7 +33,7 @@ uv run piranesi run examples/vuln-express \
   --quiet
 ```
 
-`--no-execute` keeps the verify stage from launching Docker. It does not bypass the pipeline LLM credential requirement.
+`--no-execute` keeps the verify stage from launching Docker. If no LLM credential is configured, triage runs in deterministic pass-through mode and patch generation is skipped.
 
 For a compact terminal summary, the same target was also run through the helper script:
 
@@ -66,7 +66,7 @@ The generated report summary for the same `piranesi run` execution was:
 # Piranesi Security Analysis Report
 
 **Target:** `/Users/gongahkia/Desktop/coding/projects/piranesi/examples/vuln-express`
-**Version:** piranesi v0.1.0
+**Version:** piranesi v0.2.0
 
 ## Executive Summary
 
@@ -134,4 +134,4 @@ This is the cleanest current release example for the real CLI:
 
 - The run is reproducible on a fresh machine.
 - The signal is good: 4 true positives and 0 false positives.
-- The remaining SQLi miss is an honest release note and a useful regression target for `v0.1.x`.
+- The remaining SQLi miss is an honest release note and a useful regression target for the next release.

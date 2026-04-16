@@ -9,6 +9,7 @@ from typer.testing import CliRunner
 
 from piranesi.cli import app
 from piranesi.config import load_config
+from piranesi.doctor import DoctorCheck, DoctorReport
 from piranesi.watch import WatchModeSummary
 
 runner = CliRunner()
@@ -37,6 +38,7 @@ def test_help_shows_all_commands() -> None:
         "rules",
         "baseline",
         "hook",
+        "doctor",
         "init",
         "run",
         "watch",
@@ -52,6 +54,51 @@ def test_scan_requires_authorized_flag(tmp_path: Path) -> None:
     result = runner.invoke(app, ["scan", ".", "--config", str(config_path)])
 
     assert result.exit_code == 2
+
+
+def test_doctor_command_renders_readiness(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    report = DoctorReport(
+        piranesi_version="0.2.0",
+        target=str(tmp_path),
+        config_path=str(tmp_path / "piranesi.toml"),
+        ready=True,
+        deterministic_ready=True,
+        full_pipeline_ready=False,
+        frameworks=["express"],
+        scan_targets=2,
+        checks=[
+            DoctorCheck(name="python", status="ok", summary="Python 3.12"),
+            DoctorCheck(name="llm", status="warn", summary="no API key configured"),
+        ],
+    )
+
+    monkeypatch.setattr("piranesi.cli.build_doctor_report", lambda *_args, **_kwargs: report)
+
+    result = runner.invoke(app, ["doctor", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "Deterministic scan ready: yes" in result.stdout
+    assert "Full LLM-assisted pipeline ready: no" in result.stdout
+    assert "[WARN] llm" in result.stdout
+
+
+def test_doctor_json_output(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    report = DoctorReport(
+        piranesi_version="0.2.0",
+        target=str(tmp_path),
+        config_path=str(tmp_path / "piranesi.toml"),
+        ready=True,
+        deterministic_ready=True,
+        full_pipeline_ready=True,
+    )
+    monkeypatch.setattr("piranesi.cli.build_doctor_report", lambda *_args, **_kwargs: report)
+
+    result = runner.invoke(app, ["doctor", str(tmp_path), "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["deterministic_ready"] is True
+    assert payload["full_pipeline_ready"] is True
 
 
 def test_scan_authorized_yes_runs_stage_and_creates_trace(tmp_path: Path) -> None:

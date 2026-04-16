@@ -5,7 +5,7 @@ This guide gets a fresh machine to the first reproducible Piranesi scan. It cove
 ## Prerequisites
 
 - Python 3.12+
-- `uv`
+- `uv` for source-checkout development, or `pip install piranesi` for packaged use
 - Joern
 - A working JVM for Joern
 - Node.js and npm
@@ -40,6 +40,10 @@ cd piranesi
 uv sync
 ```
 
+If you are consuming a packaged release instead of hacking on the repository,
+install with `python -m pip install piranesi` and run `piranesi doctor .` inside
+the target repository.
+
 For a new target repository, scaffold the local config before the first run:
 
 ```bash
@@ -53,6 +57,7 @@ That writes `piranesi.toml` plus an empty `.piranesi-ignore` template in the cur
 Run these once before the first scan:
 
 ```bash
+uv run piranesi doctor .
 joern --help
 java -version
 npx tsc --version
@@ -65,11 +70,12 @@ Notes:
 
 - Some Joern installs do not support `joern --version`. `joern --help` plus a successful Joern-backed scan is the practical validation path in this repository.
 - The first `docker info` may fail if Docker Desktop is still starting.
-- Piranesi requires a configured LLM API key to run the full pipeline.
+- `piranesi doctor .` is the fastest way to see what will work on the current machine.
+- Piranesi can run static scan/detect/report in deterministic mode without an LLM API key.
 
-## Required LLM Configuration
+## Optional LLM Configuration
 
-Piranesi requires a LiteLLM-compatible credential before `piranesi run`. The runtime checks for at least one of these environment variables:
+Piranesi uses LiteLLM-compatible credentials for model-assisted triage, patch generation, and legal memo generation. Static scan/detect/report can run without these credentials. The runtime checks for at least one of these environment variables:
 
 - `OPENAI_API_KEY`
 - `ANTHROPIC_API_KEY`
@@ -101,6 +107,12 @@ This does three useful things for a first run:
 - Avoids Docker-side exploit execution while you are still validating the host.
 - Produces all stage artifacts in a single output directory.
 
+If no LLM credential is configured, the run uses deterministic mode:
+
+- `triage.json` preserves reachable static findings with an explicit deterministic-mode note.
+- `patch.json` is empty because patch generation is LLM-backed.
+- `report.json` and `report.md` are still generated from the static and verification artifacts.
+
 For a compact human-readable summary, run:
 
 ```bash
@@ -130,13 +142,15 @@ For the bundled vulnerable app, the real run on 2026-04-09 produced four candida
 
 It missed the planted SQLi in `/users`. That miss is documented in [docs/examples/vuln-express.md](examples/vuln-express.md).
 
-## Verification and Full Pipeline Runs
+## Verification and LLM-Assisted Runs
 
-When you are ready to exercise the verify stage, remove `--no-execute`. That requires:
+When you are ready to exercise Docker-backed verification, remove `--no-execute`. That requires:
 
 - Docker to be running
 - The target directory to contain a runnable Node app with a `package.json`
 - Explicit authorization via `--authorized`
+
+When you are ready to exercise LLM-assisted triage and patch generation, set one LiteLLM-compatible API key before running the pipeline.
 
 An end-to-end verified example already exists in [`tests/fixtures/verify/xss_app`](../tests/fixtures/verify/xss_app). On the test machine used for this release pass, it produced one confirmed XSS finding with payload `<script>alert(1)</script>`.
 
@@ -161,4 +175,4 @@ piranesi run . --no-fail --authorized --yes
 
 - `error TS5055 ... would overwrite input file`: Piranesi retries transpilation with forced emit flags, but noisy projects can still produce TypeScript warnings.
 - Joern port conflicts on `8080`: the runtime automatically walks to the next candidate port.
-- NodeGoat and other larger apps: the most stable current evaluation path is the direct transpile-plus-detect helper in `docs/examples/run_detect_summary.py`. The full `piranesi run` path is still brittle on NodeGoat-sized apps in `v0.1.0`.
+- NodeGoat and other larger apps: the most stable current evaluation path is the direct transpile-plus-detect helper in `docs/examples/run_detect_summary.py`. The full `piranesi run` path is still brittle on NodeGoat-sized apps in `v0.2.0`.

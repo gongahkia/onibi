@@ -20,6 +20,7 @@ from piranesi import __version__
 from piranesi.config import ConfigError, PiranesiConfig, load_config
 from piranesi.detect import append_ignore_file_suppression
 from piranesi.diff import build_baseline_artifact, diff_findings, load_findings, render_diff
+from piranesi.doctor import build_doctor_report, render_doctor_report
 from piranesi.hooks.pre_commit import (
     HookError,
     discover_staged_files,
@@ -1223,6 +1224,27 @@ def main(
 @app.command("version")
 def version_command() -> None:
     typer.echo(f"piranesi {__version__}")
+
+
+@app.command(help="Diagnose local readiness and explain what Piranesi can run automatically.")
+def doctor(
+    target_dir: Annotated[
+        Path,
+        typer.Argument(help="Target directory to inspect."),
+    ] = Path("."),
+    config: ConfigOption = Path("./piranesi.toml"),
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+) -> None:
+    report = build_doctor_report(target_dir, config_path=config)
+    if json_output:
+        typer.echo(report.model_dump_json(indent=2))
+        return
+    typer.echo(render_doctor_report(report), nl=False)
+    if not report.ready:
+        raise typer.Exit(code=1)
 
 
 @hook_app.command("install")

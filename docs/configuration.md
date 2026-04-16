@@ -95,6 +95,8 @@ Fallback models used when the primary model fails.
 
 If a stage-specific fallback is unset, Piranesi falls back to `models_fallback.default`.
 
+LLM credentials are optional for deterministic scan/detect/report operation. Without a LiteLLM-compatible API key, triage preserves reachable static findings and patch generation is skipped. Set a provider key when you want model-assisted false-positive discrimination, patch generation, or legal memo drafting.
+
 ### `[budget]`
 
 LLM budget controls.
@@ -121,7 +123,7 @@ Combined report settings.
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `format` | `str` | `both` | Intended report format selector. In `v0.1.0`, Piranesi still writes both `report.json` and `report.md` regardless. |
+| `format` | `str` | `both` | Report format selector. Supported values include `json`, `markdown`, `both`, `sarif`, `junit`, `csv`, `tui`, and `compliance`. |
 | `output_dir` | `str` | `./piranesi-output` | Directory for stage artifacts and rendered reports. |
 
 ### `[trace]`
