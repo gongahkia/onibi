@@ -18,6 +18,7 @@ jobs:
         with:
           version: latest
       - run: uv sync --frozen
+      - run: uv run python scripts/check_release_hygiene.py
       - run: uv run ruff check src/ tests/
       - run: uv run ruff format --check src/ tests/
 
