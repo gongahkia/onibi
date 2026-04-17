@@ -503,7 +503,7 @@ final class MobileGatewayService: ObservableObject {
                 return
             }
 
-            if self.handleRealtimeUpgradeIfNeeded(connection: connection, request: request) {
+            if self.handleRealtimeUpgradeIfNeeded(connection: connection, request: request, peer: peer) {
                 return
             }
 
@@ -547,7 +547,8 @@ final class MobileGatewayService: ObservableObject {
 
     private func handleRealtimeUpgradeIfNeeded(
         connection: NWConnection,
-        request: ParsedRequest
+        request: ParsedRequest,
+        peer: String
     ) -> Bool {
         guard GatewayWebSocketConnection.isUpgradeRequest(path: request.path, headers: request.headers) else {
             return false
@@ -626,8 +627,8 @@ final class MobileGatewayService: ObservableObject {
                     return
                 }
 
-                Task {
-                    await self.realtimeGateway.attach(realtimeConnection)
+                Task { [peer] in
+                    await self.realtimeGateway.attach(realtimeConnection, peer: peer)
                     realtimeConnection.start()
                 }
                 GatewayLog.ws.info("upgrade accepted for client \(clientID.uuidString, privacy: .public)")

@@ -673,6 +673,7 @@ struct MobileAccessSettingsTab: View {
     @ObservedObject private var proxyListener = LocalSessionProxyListener.shared
     @ObservedObject private var diagnostics = DiagnosticsStore.shared
     @ObservedObject private var requestJournal = GatewayRequestJournal.shared
+    @ObservedObject private var connectedClients = ConnectedClientsViewModel.shared
     @State private var revealToken = false
     @State private var showPairingQR = false
     @State private var logLevelFilter: LogLevelFilter = .all
@@ -1084,6 +1085,43 @@ struct MobileAccessSettingsTab: View {
                     .disabled(gatewayService.tailscaleStatus.baseURLString == nil)
                     Spacer()
                 }
+            }
+
+            Section {
+                DisclosureGroup("Connected Clients (\(connectedClients.clients.count))") {
+                    HStack {
+                        Button("Refresh") { connectedClients.refresh() }
+                        Spacer()
+                        if let lastRefreshed = connectedClients.lastRefreshedAt {
+                            Text("Updated \(lastRefreshed.formatted(.dateTime.hour().minute().second()))")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    if connectedClients.clients.isEmpty {
+                        Text("No realtime clients connected.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else {
+                        ForEach(connectedClients.clients) { client in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(client.peer)
+                                        .font(.system(.caption, design: .monospaced))
+                                    Text("Connected \(client.connectedAt.formatted(.dateTime.hour().minute().second())) · \(client.isAuthenticated ? "authenticated" : "pending") · \(client.subscribedSessions.count) sub(s)")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
+                                Button("Kick") {
+                                    connectedClients.kick(client.id)
+                                }
+                                .controlSize(.small)
+                            }
+                        }
+                    }
+                }
+                .onAppear { connectedClients.refresh() }
             }
 
             Section {

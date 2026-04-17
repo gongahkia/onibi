@@ -28,6 +28,16 @@ actor RealtimeGatewayService {
         let transport: any RealtimeClientTransport
         var isAuthenticated: Bool
         var subscriptions: Set<String>
+        let connectedAt: Date
+        let peer: String
+    }
+
+    struct ClientInfo: Identifiable, Equatable {
+        let id: UUID
+        let connectedAt: Date
+        let peer: String
+        let isAuthenticated: Bool
+        let subscribedSessions: [String]
     }
 
     private let registry: ControllableSessionRegistry
@@ -76,16 +86,40 @@ actor RealtimeGatewayService {
         clients.count
     }
 
-    func attach(_ transport: any RealtimeClientTransport) {
+    func attach(_ transport: any RealtimeClientTransport, peer: String = "unknown") {
         clients[transport.id] = ClientState(
             transport: transport,
             isAuthenticated: false,
-            subscriptions: []
+            subscriptions: [],
+            connectedAt: Date(),
+            peer: peer
         )
     }
 
     func disconnect(clientID: UUID) async {
         clients.removeValue(forKey: clientID)
+    }
+
+    /// Snapshot of all currently attached clients for the Settings "Connected Clients" view.
+    func clientsSnapshot() -> [ClientInfo] {
+        clients.values
+            .map { state in
+                ClientInfo(
+                    id: state.transport.id,
+                    connectedAt: state.connectedAt,
+                    peer: state.peer,
+                    isAuthenticated: state.isAuthenticated,
+                    subscribedSessions: Array(state.subscriptions).sorted()
+                )
+            }
+            .sorted { $0.connectedAt < $1.connectedAt }
+    }
+
+    /// Force-disconnect a client. Closes the WebSocket; client's reconnect logic may
+    /// attempt to rejoin, but the next auth check re-evaluates the token.
+    func kick(clientID: UUID) async {
+        guard let state = clients.removeValue(forKey: clientID) else { return }
+        await state.transport.close()
     }
 
     func receive(text: String, from clientID: UUID) async {
