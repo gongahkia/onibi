@@ -10,6 +10,7 @@ import {
 } from "./api/httpClient";
 import { RealtimeClient, type RealtimeConnectionState, type RealtimeDebugEvent } from "./api/realtimeClient";
 import { DebugDrawer } from "./components/DebugDrawer";
+import { StaleBanner } from "./components/StaleBanner";
 import {
   appendChunk,
   mergeBufferSnapshot,
@@ -573,6 +574,23 @@ export default function App(): JSX.Element {
     />
   );
 
+  const forceRetry = () => {
+    const current = realtimeRef.current;
+    if (current) {
+      current.disconnect();
+      current.connect();
+    }
+  };
+
+  const staleBanner =
+    connection !== null ? (
+      <StaleBanner
+        realtimeState={realtimeState}
+        reconnectAttempts={reconnectAttempts}
+        onRetry={forceRetry}
+      />
+    ) : null;
+
   let content: JSX.Element;
   if (route.kind === "connect" || !connection) {
     content = (
@@ -618,6 +636,7 @@ export default function App(): JSX.Element {
 
   return (
     <>
+      {staleBanner}
       {content}
       {debugDrawer}
     </>
