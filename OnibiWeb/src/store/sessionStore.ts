@@ -5,6 +5,10 @@ import type {
 } from "../types";
 
 const MAX_CHUNK_COUNT_PER_SESSION = 5000;
+const ANSI_CSI_PATTERN = /\x1b\[[0-?]*[ -/]*[@-~]/g;
+const ANSI_OSC_PATTERN = /\x1b\][^\x07]*(\x07|\x1b\\)/g;
+const CONTROL_CHAR_PATTERN = /[\x00-\x08\x0b-\x1f\x7f]/g;
+const UTF8_DECODERS_BY_SESSION = new Map<string, TextDecoder>();
 
 export interface OutputEntry {
   id: string;
@@ -46,7 +50,7 @@ export function replaceBuffer(
 ): OutputBySession {
   return {
     ...outputBySession,
-    [sessionId]: chunks.map(toOutputEntry)
+    [sessionId]: toOutputEntries(sessionId, chunks, true)
   };
 }
 
@@ -57,7 +61,7 @@ export function mergeBufferSnapshot(
   incomingCursor?: string | null
 ): OutputBySession {
   const existing = outputBySession[sessionId] ?? [];
-  const incoming = chunks.map(toOutputEntry);
+  const incoming = toOutputEntries(sessionId, chunks, true);
 
   if (incomingCursor && existing.length > 0 && existing[existing.length - 1]?.id === incomingCursor) {
     return outputBySession
@@ -109,24 +113,75 @@ export function renderOutput(entries: OutputEntry[]): string {
   return entries.map((entry) => entry.text).join("");
 }
 
+export function renderOutputPreview(entries: OutputEntry[], maxChars = 160): string | null {
+  if (entries.length === 0) {
+    return null;
+  }
+
+  const recentOutput = entries
+    .slice(-64)
+    .map((entry) => entry.text)
+    .join("");
+  const sanitized = sanitizeOutputPreview(recentOutput);
+  if (!sanitized) {
+    return null;
+  }
+
+  if (sanitized.length <= maxChars) {
+    return sanitized;
+  }
+
+  return `…${sanitized.slice(-maxChars)}`;
+}
+
+function sanitizeOutputPreview(text: string): string {
+  return text
+    .replace(ANSI_OSC_PATTERN, "")
+    .replace(ANSI_CSI_PATTERN, "")
+    .replace(CONTROL_CHAR_PATTERN, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function toOutputEntries(
+  sessionId: string,
+  chunks: SessionOutputChunk[],
+  resetDecoder: boolean
+): OutputEntry[] {
+  if (resetDecoder) {
+    UTF8_DECODERS_BY_SESSION.delete(sessionId);
+  }
+
+  return chunks.map((chunk) => toOutputEntry(chunk));
+}
+
 function toOutputEntry(chunk: SessionOutputChunk): OutputEntry {
   return {
     id: chunk.id,
     sessionId: chunk.sessionId,
     stream: chunk.stream,
     timestamp: chunk.timestamp,
-    text: decodeChunkText(chunk.data)
+    text: decodeChunkText(chunk.sessionId, chunk.data)
   };
 }
 
-function decodeChunkText(base64Data: string): string {
+function decodeChunkText(sessionId: string, base64Data: string): string {
   try {
     const binary = atob(base64Data);
     const bytes = new Uint8Array(binary.length);
     for (let index = 0; index < binary.length; index += 1) {
       bytes[index] = binary.charCodeAt(index);
     }
-    return new TextDecoder().decode(bytes);
+
+    let decoder = UTF8_DECODERS_BY_SESSION.get(sessionId);
+    if (!decoder) {
+      decoder = new TextDecoder("utf-8");
+      UTF8_DECODERS_BY_SESSION.set(sessionId, decoder);
+    }
+
+    return decoder.decode(bytes, {
+      stream: true
+    });
   } catch {
     return "[invalid output chunk]";
   }
