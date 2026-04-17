@@ -76,6 +76,7 @@ export function SessionOutputPane({
     const inputDisposable = terminal.onData((data) => {
       onTerminalInputRef.current(data);
     });
+
     container.addEventListener("pointerdown", focusTerminal);
     container.addEventListener("touchstart", focusTerminal, { passive: true });
     window.addEventListener("resize", onResize);
@@ -129,18 +130,19 @@ export function SessionOutputPane({
 
     lastRenderedChunkIdRef.current = entries[entries.length - 1].id;
     fitAddonRef.current?.fit();
+
     const cols = terminal.cols;
     const rows = terminal.rows;
     const lastReportedSize = lastReportedSizeRef.current;
-    if (!lastReportedSize || lastReportedSize.cols != cols || lastReportedSize.rows != rows) {
+    if (!lastReportedSize || lastReportedSize.cols !== cols || lastReportedSize.rows !== rows) {
       lastReportedSizeRef.current = { cols, rows };
       onTerminalResizeRef.current(cols, rows);
     }
   }, [entries]);
 
   return (
-    <section className="output-pane">
-      <div className="xterm-container" ref={containerRef} />
+    <section className="mf-output-pane">
+      <div className="mf-xterm-container" ref={containerRef} />
     </section>
   );
 }

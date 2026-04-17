@@ -38,7 +38,7 @@ type Route =
   | { kind: "live"; sessionId: string };
 
 function parseRoute(pathname: string): Route {
-  if (pathname === "/connect") {
+  if (pathname === "/" || pathname === "/connect") {
     return { kind: "connect" };
   }
   if (pathname === "/sessions") {
@@ -53,7 +53,7 @@ function parseRoute(pathname: string): Route {
 
 function routePath(route: Route): string {
   if (route.kind === "connect") {
-    return "/connect";
+    return "/";
   }
   if (route.kind === "sessions") {
     return "/sessions";
@@ -254,7 +254,7 @@ export default function App(): JSX.Element {
         }
         setSessions(sortSessionsByRecentActivity(bootstrap.sessions));
         persistConnection(connection, rememberToken);
-        if (window.location.pathname === "/connect") {
+        if (window.location.pathname === "/connect" || window.location.pathname === "/") {
           navigate({ kind: "sessions" });
         }
 
@@ -548,6 +548,7 @@ export default function App(): JSX.Element {
       <SessionsView
         sessions={sessions}
         realtimeState={realtimeState}
+        onDisconnect={clearConnection}
         onOpenSession={(sessionId) => {
           setInputError(null);
           navigate({ kind: "live", sessionId });

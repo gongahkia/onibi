@@ -22,13 +22,13 @@ export function RemoteInputBar({ disabled, onSubmitLine }: RemoteInputBarProps):
   };
 
   return (
-    <form className="remote-input-bar" onSubmit={handleSubmit}>
+    <form className="mf-input-bar" onSubmit={handleSubmit}>
       <input
         ref={inputRef}
         type="text"
         value={text}
         onChange={(event) => setText(event.target.value)}
-        placeholder="Type a command"
+        placeholder="Type command"
         autoCapitalize="off"
         autoComplete="off"
         autoCorrect="off"

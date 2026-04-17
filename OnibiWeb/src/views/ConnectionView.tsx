@@ -33,71 +33,87 @@ export function ConnectionView({
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    onConnect({
-      baseURL,
-      token
-    }, rememberToken);
+    onConnect(
+      {
+        baseURL,
+        token
+      },
+      rememberToken
+    );
   };
 
   return (
-    <main className="screen screen-connect">
-      <header className="screen-header">
-        <h1>Onibi Web</h1>
-        <p>Connect to your Mac host and pairing token.</p>
-      </header>
+    <main className="mf-page mf-page-center">
+      <section className="mf-card mf-card-connection">
+        <header className="mf-title-row">
+          <div className="mf-logo-dot" aria-hidden="true" />
+          <div>
+            <h1>Onibi Web</h1>
+            <p>Connect to your Ghostty terminal host.</p>
+          </div>
+        </header>
 
-      <form className="connection-form" onSubmit={handleSubmit}>
-        <label>
-          Host URL
-          <input
-            type="url"
-            value={baseURL}
-            onChange={(event) => setBaseURL(event.target.value)}
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            required
-            disabled={connecting}
-          />
-        </label>
+        <form className="mf-form" onSubmit={handleSubmit}>
+          <label className="mf-field">
+            <span>Host URL</span>
+            <input
+              type="url"
+              value={baseURL}
+              onChange={(event) => setBaseURL(event.target.value)}
+              placeholder="http://127.0.0.1:8787"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              required
+              disabled={connecting}
+            />
+          </label>
 
-        <label>
-          Pairing Token
-          <input
-            type="password"
-            value={token}
-            onChange={(event) => setToken(event.target.value)}
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            required
-            disabled={connecting}
-          />
-        </label>
+          <label className="mf-field">
+            <span>Pairing Token</span>
+            <input
+              type="password"
+              value={token}
+              onChange={(event) => setToken(event.target.value)}
+              placeholder="Paste your latest token"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              required
+              disabled={connecting}
+            />
+          </label>
 
-        <label className="remember-toggle">
-          <input
-            type="checkbox"
-            checked={rememberToken}
-            onChange={(event) => setRememberToken(event.target.checked)}
-            disabled={connecting}
-          />
-          Remember token on this device
-        </label>
+          <label className="mf-checkbox-row">
+            <input
+              type="checkbox"
+              checked={rememberToken}
+              onChange={(event) => setRememberToken(event.target.checked)}
+              disabled={connecting}
+            />
+            <span>Remember token on this device</span>
+          </label>
 
-        {errorMessage && <p className="error-text">{errorMessage}</p>}
+          {errorMessage && (
+            <p className="mf-alert mf-alert-error" role="alert">
+              {errorMessage}
+            </p>
+          )}
 
-        <div className="connection-actions">
           <button type="submit" disabled={connecting || baseURL.trim() === "" || token.trim() === ""}>
             {connecting ? "Connecting..." : "Connect"}
           </button>
-          {initialConnection && (
+        </form>
+
+        {initialConnection && (
+          <section className="mf-extra-block" aria-label="Additional saved connection features">
+            <p>Additional from existing frontend: clear saved connection.</p>
             <button type="button" className="button-secondary" disabled={connecting} onClick={onClearSaved}>
               Clear Saved Connection
             </button>
-          )}
-        </div>
-      </form>
+          </section>
+        )}
+      </section>
     </main>
   );
 }
