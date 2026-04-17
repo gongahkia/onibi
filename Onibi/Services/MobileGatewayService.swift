@@ -27,6 +27,7 @@ final class MobileGatewayService: ObservableObject {
     @Published private(set) var pairingToken = ""
     @Published private(set) var tailscaleStatus: TailscaleServeStatus = .unavailable
     @Published private(set) var lastError: String?
+    @Published private(set) var tokenIssuedAt: Date?
     @Published private(set) var lanInterfaces: [LocalNetworkInterface] = []
     @Published private(set) var virtualInterfaces: [LocalNetworkInterface] = []
     @Published var showVirtualInterfaces = false
@@ -45,14 +46,37 @@ final class MobileGatewayService: ObservableObject {
     private var settings: AppSettings
     private var cancellables = Set<AnyCancellable>()
 
+    private static let tokenIssuedAtKey = "onibi.pairingTokenIssuedAt"
+
     private init() {
         self.settings = SettingsViewModel.shared.settings
         self.localURLString = "http://127.0.0.1:\(settings.mobileAccessPort)"
         setupSubscriptions()
         loadToken()
+        loadTokenIssuedAt()
         syncRegistrySettings()
         refreshNetworkInfo()
     }
+
+    private func loadTokenIssuedAt() {
+        if let stored = UserDefaults.standard.object(forKey: Self.tokenIssuedAtKey) as? Date {
+            tokenIssuedAt = stored
+        }
+    }
+
+    private func markTokenIssuedNow() {
+        let now = Date()
+        tokenIssuedAt = now
+        UserDefaults.standard.set(now, forKey: Self.tokenIssuedAtKey)
+    }
+
+    /// Returns age in days (nil if never rotated on this machine).
+    var tokenAgeDays: Int? {
+        guard let issued = tokenIssuedAt else { return nil }
+        return Calendar.current.dateComponents([.day], from: issued, to: Date()).day
+    }
+
+    static let tokenRotationRecommendedDays = 30
 
     func bootstrap() {
         loadToken()
@@ -277,6 +301,7 @@ final class MobileGatewayService: ObservableObject {
     func rotatePairingToken() {
         do {
             pairingToken = try tokenStore.rotateToken()
+            markTokenIssuedNow()
             lastError = nil
             GatewayLog.auth.notice("pairing token rotated preview=\(GatewayLog.redact(self.pairingToken), privacy: .public)")
             DiagnosticsStore.shared.record(

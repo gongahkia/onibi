@@ -985,6 +985,26 @@ struct MobileAccessSettingsTab: View {
             }
 
             Section("Pairing") {
+                if let age = gatewayService.tokenAgeDays {
+                    if age >= MobileGatewayService.tokenRotationRecommendedDays {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                            Text("Token is \(age) days old — rotating is recommended.")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                        }
+                    } else {
+                        Text("Token age: \(age) day\(age == 1 ? "" : "s")")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                } else {
+                    Text("Token age unknown (rotate to start tracking).")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
                 HStack {
                     Text("Pairing token")
                     Spacer()
