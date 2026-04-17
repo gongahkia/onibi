@@ -92,9 +92,6 @@ export function SessionsView({
           <section className="mf-card mf-empty-state">
             <h2>No sessions available</h2>
             <p>No controllable terminal sessions are currently running on the host.</p>
-            <button type="button" className="button-secondary" onClick={onRefresh}>
-              Refresh
-            </button>
           </section>
         ) : (
           <ul className="mf-session-list">
