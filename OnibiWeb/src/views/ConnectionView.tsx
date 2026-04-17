@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import type { ConnectionConfig } from "../types";
+import { ONIBI_WEB_VERSION, type ConnectionConfig } from "../types";
 
 interface ConnectionViewProps {
   initialConnection: ConnectionConfig | null;
@@ -245,6 +245,10 @@ export function ConnectionView({
             </button>
           </section>
         )}
+
+        <footer className="mf-version-footer" aria-label="Version">
+          Onibi Web v{ONIBI_WEB_VERSION}
+        </footer>
       </section>
     </main>
   );

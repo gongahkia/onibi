@@ -657,3 +657,10 @@ button:hover:enabled {
 .mf-debug-level-info .mf-debug-level  { color: #82d9ff; }
 .mf-debug-level-debug .mf-debug-level { color: #888; }
 .mf-debug-empty { opacity: 0.6; padding: 0.3rem 0; }
+
+.mf-version-footer {
+  margin-top: 0.8rem;
+  font-size: 0.7rem;
+  opacity: 0.55;
+  text-align: center;
+}

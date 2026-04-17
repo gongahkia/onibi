@@ -14,7 +14,14 @@ struct MenuBarView: View {
     @State private var showSettings = false
     @State private var showClearConfirmation = false
     @State private var showQuitConfirmation = false
-    
+
+    private var appVersionString: String {
+        let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
+        if let build, !build.isEmpty { return "\(short) (\(build))" }
+        return short
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Ghostty status banner
@@ -179,9 +186,14 @@ struct MenuBarView: View {
             
             Spacer()
             
-            Text("\(viewModel.notifications.count) notifications")
-                .font(.caption2)
-                .foregroundColor(.secondary)
+            VStack(spacing: 1) {
+                Text("\(viewModel.notifications.count) notifications")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                Text("v\(appVersionString)")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary.opacity(0.7))
+            }
             
             Spacer()
             

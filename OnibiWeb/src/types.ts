@@ -160,3 +160,11 @@ export interface ConnectionConfig {
   baseURL: string;
   token: string;
 }
+
+declare global {
+  // Injected by vite.config.ts define: compile-time constant for the web build version.
+  const __ONIBI_WEB_VERSION__: string;
+}
+
+export const ONIBI_WEB_VERSION: string =
+  typeof __ONIBI_WEB_VERSION__ !== "undefined" ? __ONIBI_WEB_VERSION__ : "dev";
