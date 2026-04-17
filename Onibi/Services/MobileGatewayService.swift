@@ -410,8 +410,24 @@ final class MobileGatewayService: ObservableObject {
         }
     }
 
+    private static func peerDescription(_ connection: NWConnection) -> String {
+        switch connection.endpoint {
+        case .hostPort(let host, _):
+            switch host {
+            case .ipv4(let v4): return v4.debugDescription
+            case .ipv6(let v6): return v6.debugDescription
+            case .name(let name, _): return name
+            @unknown default: return "unknown"
+            }
+        default:
+            return "unknown"
+        }
+    }
+
     private func handle(connection: NWConnection) {
         connection.start(queue: queue)
+        let peer = Self.peerDescription(connection)
+        let connectionStart = Date()
         connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isComplete, receiveError in
             guard let self else {
                 connection.cancel()
@@ -484,10 +500,18 @@ final class MobileGatewayService: ObservableObject {
                     headers: request.headers,
                     body: request.body
                 )
-                GatewayLog.http.info("\(request.method, privacy: .public) \(request.path, privacy: .public) -> \(response.statusCode)")
+                let latencyMs = Int(Date().timeIntervalSince(connectionStart) * 1000)
+                GatewayLog.http.info("\(request.method, privacy: .public) \(request.path, privacy: .public) -> \(response.statusCode) (\(latencyMs)ms)")
                 if response.statusCode == 401 {
-                    GatewayLog.auth.notice("unauthorized request rejected for \(request.path, privacy: .public)")
+                    GatewayLog.auth.notice("unauthorized request rejected for \(request.path, privacy: .public) peer=\(peer, privacy: .public)")
                 }
+                GatewayRequestJournal.shared.record(
+                    method: request.method,
+                    path: request.path,
+                    statusCode: response.statusCode,
+                    latencyMs: latencyMs,
+                    peer: peer
+                )
                 self.send(response: response, over: connection)
             }
         }

@@ -672,6 +672,7 @@ struct MobileAccessSettingsTab: View {
     @ObservedObject private var gatewayService = MobileGatewayService.shared
     @ObservedObject private var proxyListener = LocalSessionProxyListener.shared
     @ObservedObject private var diagnostics = DiagnosticsStore.shared
+    @ObservedObject private var requestJournal = GatewayRequestJournal.shared
     @State private var revealToken = false
     @State private var showPairingQR = false
     @State private var logLevelFilter: LogLevelFilter = .all
@@ -1062,6 +1063,49 @@ struct MobileAccessSettingsTab: View {
                     }
                     .disabled(gatewayService.tailscaleStatus.baseURLString == nil)
                     Spacer()
+                }
+            }
+
+            Section {
+                DisclosureGroup("Recent Requests (\(requestJournal.entries.count))") {
+                    if requestJournal.entries.isEmpty {
+                        Text("No requests served since launch.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else {
+                        HStack {
+                            Button("Clear") { requestJournal.clear() }
+                            Spacer()
+                        }
+                        ForEach(requestJournal.entries.prefix(40)) { entry in
+                            HStack(alignment: .top, spacing: 6) {
+                                Text(entry.timestamp.formatted(.dateTime.hour().minute().second()))
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 58, alignment: .leading)
+                                Text(entry.method)
+                                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                    .frame(width: 40, alignment: .leading)
+                                Text(entry.path)
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Spacer()
+                                Text(String(entry.statusCode))
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .foregroundColor(entry.isSuccess ? .green : .red)
+                                Text("\(entry.latencyMs)ms")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 48, alignment: .trailing)
+                                Text(entry.peer)
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                                    .frame(width: 90, alignment: .trailing)
+                            }
+                        }
+                    }
                 }
             }
 
