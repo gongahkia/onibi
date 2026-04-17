@@ -10,6 +10,8 @@ const CORE_KEYS: Array<{ label: string; key: RemoteInputKey }> = [
   { label: "Tab", key: "tab" },
   { label: "Ctrl-C", key: "ctrl_c" },
   { label: "Ctrl-D", key: "ctrl_d" },
+  { label: "Ctrl-S", key: "ctrl_s" },
+  { label: "Ctrl-Q", key: "ctrl_q" },
   { label: "Bksp", key: "backspace" },
   { label: "Esc", key: "escape" },
   { label: "Delete", key: "delete" },

@@ -29,6 +29,10 @@ enum RemoteInputByteTranslator {
             return Data([0x03])
         case .ctrlD:
             return Data([0x04])
+        case .ctrlS:
+            return Data([0x13])
+        case .ctrlQ:
+            return Data([0x11])
         case .tab:
             return Data([0x09])
         case .backspace:

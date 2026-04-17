@@ -12,6 +12,8 @@ final class RemoteInputByteTranslatorTests: XCTestCase {
         XCTAssertEqual(try RemoteInputByteTranslator.data(for: .enter), Data([0x0D]))
         XCTAssertEqual(try RemoteInputByteTranslator.data(for: .ctrlC), Data([0x03]))
         XCTAssertEqual(try RemoteInputByteTranslator.data(for: .ctrlD), Data([0x04]))
+        XCTAssertEqual(try RemoteInputByteTranslator.data(for: .ctrlS), Data([0x13]))
+        XCTAssertEqual(try RemoteInputByteTranslator.data(for: .ctrlQ), Data([0x11]))
         XCTAssertEqual(try RemoteInputByteTranslator.data(for: .tab), Data([0x09]))
         XCTAssertEqual(try RemoteInputByteTranslator.data(for: .backspace), Data([0x7F]))
         XCTAssertEqual(try RemoteInputByteTranslator.data(for: .escape), Data([0x1B]))

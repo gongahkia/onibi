@@ -5,6 +5,8 @@ export type RemoteInputKey =
   | "enter"
   | "ctrl_c"
   | "ctrl_d"
+  | "ctrl_s"
+  | "ctrl_q"
   | "tab"
   | "backspace"
   | "escape"

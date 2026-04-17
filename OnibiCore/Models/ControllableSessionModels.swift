@@ -21,6 +21,8 @@ public enum RemoteInputKey: String, Codable, Sendable, CaseIterable {
     case enter
     case ctrlC = "ctrl_c"
     case ctrlD = "ctrl_d"
+    case ctrlS = "ctrl_s"
+    case ctrlQ = "ctrl_q"
     case tab
     case backspace
     case escape

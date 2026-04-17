@@ -160,6 +160,21 @@ button:hover:enabled {
   border-color: #06b6d4;
 }
 
+.mf-token-input-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.mf-token-input-row input {
+  flex: 1;
+}
+
+.mf-token-visibility-toggle {
+  min-width: 72px;
+  white-space: nowrap;
+}
+
 .mf-checkbox-row {
   display: flex;
   align-items: center;

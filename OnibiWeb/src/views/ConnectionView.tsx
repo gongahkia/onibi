@@ -21,10 +21,12 @@ export function ConnectionView({
   const [baseURL, setBaseURL] = useState(initialConnection?.baseURL ?? "http://127.0.0.1:8787");
   const [token, setToken] = useState(initialConnection?.token ?? "");
   const [rememberToken, setRememberToken] = useState(initialRememberToken);
+  const [tokenVisible, setTokenVisible] = useState(false);
 
   useEffect(() => {
     setBaseURL(initialConnection?.baseURL ?? "http://127.0.0.1:8787");
     setToken(initialConnection?.token ?? "");
+    setTokenVisible(false);
   }, [initialConnection]);
 
   useEffect(() => {
@@ -71,17 +73,29 @@ export function ConnectionView({
 
           <label className="mf-field">
             <span>Pairing Token</span>
-            <input
-              type="password"
-              value={token}
-              onChange={(event) => setToken(event.target.value)}
-              placeholder="Paste your latest token"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              required
-              disabled={connecting}
-            />
+            <div className="mf-token-input-row">
+              <input
+                type={tokenVisible ? "text" : "password"}
+                value={token}
+                onChange={(event) => setToken(event.target.value)}
+                placeholder="Paste your latest token"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                required
+                disabled={connecting}
+              />
+              <button
+                type="button"
+                className="button-secondary mf-token-visibility-toggle"
+                onClick={() => setTokenVisible((visible) => !visible)}
+                disabled={connecting}
+                aria-label={tokenVisible ? "Hide pairing token" : "Show pairing token"}
+                aria-pressed={tokenVisible}
+              >
+                {tokenVisible ? "Hide" : "Show"}
+              </button>
+            </div>
           </label>
 
           <label className="mf-checkbox-row">
