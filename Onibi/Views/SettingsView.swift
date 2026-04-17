@@ -1218,6 +1218,31 @@ struct MobileAccessSettingsTab: View {
                 }
             }
 
+            if gatewayService.firewallHint != nil || gatewayService.selfProbeResult != nil {
+                Section("Reachability") {
+                    if let outcome = gatewayService.selfProbeResult {
+                        HStack {
+                            Image(systemName: outcome.isOK ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundColor(outcome.isOK ? .green : .red)
+                            Text("Loopback probe: \(outcome.label)")
+                                .font(.caption)
+                        }
+                    }
+                    if let hint = gatewayService.firewallHint {
+                        HStack(alignment: .top) {
+                            Image(systemName: "info.circle")
+                                .foregroundColor(.orange)
+                            Text(hint)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        Button("Open Firewall Settings") {
+                            gatewayService.openFirewallSettings()
+                        }
+                    }
+                }
+            }
+
             if let error = gatewayService.lastError, !error.isEmpty {
                 Section("Last Error") {
                     Text(error)

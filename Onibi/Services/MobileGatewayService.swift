@@ -28,6 +28,8 @@ final class MobileGatewayService: ObservableObject {
     @Published private(set) var tailscaleStatus: TailscaleServeStatus = .unavailable
     @Published private(set) var lastError: String?
     @Published private(set) var tokenIssuedAt: Date?
+    @Published private(set) var firewallHint: String?
+    @Published private(set) var selfProbeResult: GatewayProbeOutcome?
     @Published private(set) var lanInterfaces: [LocalNetworkInterface] = []
     @Published private(set) var virtualInterfaces: [LocalNetworkInterface] = []
     @Published var showVirtualInterfaces = false
@@ -165,6 +167,9 @@ final class MobileGatewayService: ObservableObject {
                         self?.lastError = nil
                     }
                     GatewayLog.bind.info("listener ready on \(bindHost, privacy: .public):\(self?.settings.mobileAccessPort ?? 0)")
+                    if let self {
+                        Task { await self.runSelfProbe() }
+                    }
                     DiagnosticsStore.shared.record(
                         component: "MobileGatewayService",
                         level: .info,
@@ -255,6 +260,34 @@ final class MobileGatewayService: ObservableObject {
             Task {
                 await realtimeGateway.stop()
             }
+        }
+    }
+
+    /// Confirm the listener actually accepts loopback connections after bind.
+    /// Also publishes a firewall hint when bind mode is LAN/all (since macOS ALF
+    /// can silently drop inbound LAN connections even after NWListener reports ready).
+    func runSelfProbe() async {
+        let urls = ["http://127.0.0.1:\(settings.mobileAccessPort)"]
+        let results = await GatewayReachabilityProbe.shared.probeAll(baseURLs: urls)
+        let outcome = results.first?.outcome
+        let hint: String?
+        switch settings.mobileAccessBindMode {
+        case .loopback:
+            hint = nil
+        case .lan, .all:
+            hint = "If a phone on the same Wi-Fi can't connect, macOS Firewall may be blocking incoming traffic to the Onibi binary. Verify in System Settings."
+        }
+        await MainActor.run {
+            self.selfProbeResult = outcome
+            self.firewallHint = hint
+        }
+    }
+
+    /// Opens the macOS firewall preference pane for the user.
+    @MainActor
+    func openFirewallSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Firewall") {
+            NSWorkspace.shared.open(url)
         }
     }
 
