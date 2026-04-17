@@ -675,6 +675,8 @@ struct MobileAccessSettingsTab: View {
     @State private var revealToken = false
     @State private var showPairingQR = false
     @State private var logLevelFilter: LogLevelFilter = .all
+    @State private var probeResults: [GatewayProbeResult] = []
+    @State private var probing = false
 
     enum LogLevelFilter: String, CaseIterable, Identifiable {
         case all, info, warning, error
@@ -806,8 +808,30 @@ struct MobileAccessSettingsTab: View {
                             }
                         }
                     }
-                    Button("Rescan interfaces") {
-                        gatewayService.refreshNetworkInfo()
+                    HStack {
+                        Button("Rescan interfaces") {
+                            gatewayService.refreshNetworkInfo()
+                        }
+                        Button(probing ? "Probing…" : "Test Connection") {
+                            runReachabilityProbe()
+                        }
+                        .disabled(probing || gatewayService.advertisedURLs.isEmpty)
+                    }
+                    if !probeResults.isEmpty {
+                        ForEach(probeResults) { result in
+                            HStack {
+                                Image(systemName: result.outcome.isOK ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                    .foregroundColor(result.outcome.isOK ? .green : .red)
+                                Text(result.url)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Spacer()
+                                Text(result.outcome.label)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
                     }
                 }
             }
@@ -1034,6 +1058,19 @@ struct MobileAccessSettingsTab: View {
         .navigationTitle("Mobile Access")
         .task {
             await gatewayService.refreshTailscaleStatus()
+        }
+    }
+
+    private func runReachabilityProbe() {
+        let urls = gatewayService.advertisedURLs
+        probing = true
+        probeResults = []
+        Task {
+            let results = await GatewayReachabilityProbe.shared.probeAll(baseURLs: urls)
+            await MainActor.run {
+                self.probeResults = results
+                self.probing = false
+            }
         }
     }
 
