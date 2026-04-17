@@ -28,6 +28,8 @@ final class MobileGatewayService: ObservableObject {
     @Published private(set) var tailscaleStatus: TailscaleServeStatus = .unavailable
     @Published private(set) var lastError: String?
     @Published private(set) var lanInterfaces: [LocalNetworkInterface] = []
+    @Published private(set) var virtualInterfaces: [LocalNetworkInterface] = []
+    @Published var showVirtualInterfaces = false
     @Published private(set) var advertisedURLs: [String] = ["http://127.0.0.1:8787"]
 
     private let queue = DispatchQueue(label: "com.onibi.mobile-gateway", qos: .userInitiated)
@@ -67,7 +69,9 @@ final class MobileGatewayService: ObservableObject {
 
     /// Re-scans interfaces and recomputes the list of Base URLs a client can use.
     func refreshNetworkInfo() {
-        let interfaces = NetworkInterfaceScanner.ipv4Interfaces()
+        let physical = NetworkInterfaceScanner.ipv4Interfaces(includeVirtual: false)
+        let all = NetworkInterfaceScanner.ipv4Interfaces(includeVirtual: true)
+        let virtual = all.filter { $0.isVirtual }
         let port = settings.mobileAccessPort
         var urls: [String] = []
 
@@ -76,7 +80,7 @@ final class MobileGatewayService: ObservableObject {
             urls.append("http://127.0.0.1:\(port)")
         case .lan, .all:
             urls.append("http://127.0.0.1:\(port)")
-            for iface in interfaces {
+            for iface in physical {
                 urls.append("http://\(iface.ipv4):\(port)")
             }
         }
@@ -87,7 +91,8 @@ final class MobileGatewayService: ObservableObject {
         }
 
         DispatchQueue.main.async {
-            self.lanInterfaces = interfaces
+            self.lanInterfaces = physical
+            self.virtualInterfaces = virtual
             self.advertisedURLs = urls
         }
     }

@@ -764,22 +764,16 @@ struct MobileAccessSettingsTab: View {
                             .foregroundColor(.orange)
                     } else {
                         ForEach(gatewayService.lanInterfaces, id: \.ipv4) { iface in
-                            HStack {
-                                Text(iface.name)
-                                    .font(.caption)
-                                Spacer()
-                                let url = "http://\(iface.ipv4):\(viewModel.settings.mobileAccessPort)"
-                                Text(url)
-                                    .font(.system(.caption, design: .monospaced))
-                                    .textSelection(.enabled)
-                                    .foregroundColor(.secondary)
-                                Button {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(url, forType: .string)
-                                } label: {
-                                    Image(systemName: "doc.on.doc")
-                                }
-                                .buttonStyle(.borderless)
+                            interfaceRow(iface)
+                        }
+                    }
+
+                    if !gatewayService.virtualInterfaces.isEmpty {
+                        Toggle("Show VPN / virtual interfaces", isOn: $gatewayService.showVirtualInterfaces)
+                            .font(.caption)
+                        if gatewayService.showVirtualInterfaces {
+                            ForEach(gatewayService.virtualInterfaces, id: \.ipv4) { iface in
+                                interfaceRow(iface)
                             }
                         }
                     }
@@ -977,6 +971,47 @@ struct MobileAccessSettingsTab: View {
         .navigationTitle("Mobile Access")
         .task {
             await gatewayService.refreshTailscaleStatus()
+        }
+    }
+
+    @ViewBuilder
+    private func interfaceRow(_ iface: LocalNetworkInterface) -> some View {
+        HStack {
+            HStack(spacing: 4) {
+                Text(iface.name)
+                    .font(.caption)
+                if iface.isPrimary {
+                    Text("PRIMARY")
+                        .font(.system(size: 9, weight: .semibold))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color.green.opacity(0.2))
+                        .foregroundColor(.green)
+                        .cornerRadius(3)
+                }
+                if iface.isVirtual {
+                    Text("VIRTUAL")
+                        .font(.system(size: 9, weight: .semibold))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color.secondary.opacity(0.15))
+                        .foregroundColor(.secondary)
+                        .cornerRadius(3)
+                }
+            }
+            Spacer()
+            let url = "http://\(iface.ipv4):\(viewModel.settings.mobileAccessPort)"
+            Text(url)
+                .font(.system(.caption, design: .monospaced))
+                .textSelection(.enabled)
+                .foregroundColor(.secondary)
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(url, forType: .string)
+            } label: {
+                Image(systemName: "doc.on.doc")
+            }
+            .buttonStyle(.borderless)
         }
     }
 }
