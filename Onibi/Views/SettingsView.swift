@@ -677,6 +677,8 @@ struct MobileAccessSettingsTab: View {
     @State private var logLevelFilter: LogLevelFilter = .all
     @State private var probeResults: [GatewayProbeResult] = []
     @State private var probing = false
+    @State private var tunnelProbeOutcome: GatewayProbeOutcome?
+    @State private var tunnelProbeTask: Task<Void, Never>?
 
     enum LogLevelFilter: String, CaseIterable, Identifiable {
         case all, info, warning, error
@@ -891,10 +893,23 @@ struct MobileAccessSettingsTab: View {
                     .textFieldStyle(.roundedBorder)
                     .font(.caption)
                     .disableAutocorrection(true)
+                    .onChange(of: viewModel.settings.mobileAccessTunnelURL) { newValue in
+                        scheduleTunnelProbe(newValue)
+                    }
                 }
                 Text("Paste the HTTPS URL from cloudflared / ngrok / tailscale funnel. The gateway itself does not spawn tunnels — use your own command.")
                     .font(.caption)
                     .foregroundColor(.secondary)
+                if let outcome = tunnelProbeOutcome {
+                    HStack {
+                        Image(systemName: outcome.isOK ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .foregroundColor(outcome.isOK ? .green : .red)
+                        Text(outcome.label)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                }
                 if !viewModel.settings.mobileAccessTunnelURL.isEmpty {
                     HStack {
                         Button("Copy Tunnel URL") {
@@ -903,6 +918,10 @@ struct MobileAccessSettingsTab: View {
                         }
                         Button("Clear") {
                             viewModel.settings.mobileAccessTunnelURL = ""
+                            tunnelProbeOutcome = nil
+                        }
+                        Button("Re-probe") {
+                            runTunnelProbeNow()
                         }
                         Spacer()
                     }
@@ -1102,6 +1121,27 @@ struct MobileAccessSettingsTab: View {
         .task {
             await gatewayService.refreshTailscaleStatus()
         }
+    }
+
+    private func scheduleTunnelProbe(_ url: String) {
+        tunnelProbeTask?.cancel()
+        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            tunnelProbeOutcome = nil
+            return
+        }
+        tunnelProbeTask = Task {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if Task.isCancelled { return }
+            let results = await GatewayReachabilityProbe.shared.probeAll(baseURLs: [trimmed])
+            await MainActor.run {
+                self.tunnelProbeOutcome = results.first?.outcome
+            }
+        }
+    }
+
+    private func runTunnelProbeNow() {
+        scheduleTunnelProbe(viewModel.settings.mobileAccessTunnelURL)
     }
 
     private func runReachabilityProbe() {
