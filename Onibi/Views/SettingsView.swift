@@ -679,6 +679,7 @@ struct MobileAccessSettingsTab: View {
     @State private var probing = false
     @State private var tunnelProbeOutcome: GatewayProbeOutcome?
     @State private var tunnelProbeTask: Task<Void, Never>?
+    @State private var diagnosticsExportMessage: String?
 
     enum LogLevelFilter: String, CaseIterable, Identifiable {
         case all, info, warning, error
@@ -1064,6 +1065,23 @@ struct MobileAccessSettingsTab: View {
                 }
             }
 
+            Section("Diagnostics Bundle") {
+                HStack {
+                    Button("Export Diagnostics…") {
+                        exportDiagnosticsBundle()
+                    }
+                    Button("Copy as JSON") {
+                        copyDiagnosticsJSON()
+                    }
+                    Spacer()
+                }
+                if let message = diagnosticsExportMessage {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
             Section {
                 DisclosureGroup("Gateway Log (\(filteredGatewayEvents.count))") {
                     HStack {
@@ -1120,6 +1138,29 @@ struct MobileAccessSettingsTab: View {
         .navigationTitle("Mobile Access")
         .task {
             await gatewayService.refreshTailscaleStatus()
+        }
+    }
+
+    private func exportDiagnosticsBundle() {
+        do {
+            let url = try DiagnosticsBundleBuilder.writeToDownloads()
+            diagnosticsExportMessage = "Saved to \(url.path)"
+        } catch {
+            diagnosticsExportMessage = "Failed to save: \(error.localizedDescription)"
+        }
+    }
+
+    private func copyDiagnosticsJSON() {
+        do {
+            let bundle = DiagnosticsBundleBuilder.build()
+            let data = try DiagnosticsBundleBuilder.encode(bundle)
+            if let text = String(data: data, encoding: .utf8) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+                diagnosticsExportMessage = "\(data.count) bytes copied to clipboard."
+            }
+        } catch {
+            diagnosticsExportMessage = "Failed: \(error.localizedDescription)"
         }
     }
 
