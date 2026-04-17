@@ -7,8 +7,12 @@
 [macOS menubar app](#macos-menubar-app) to [monitor](#architecture) your [Ghostty](https://ghostty.org/) sessions with a companion web app.
 
 <div align="center">
-    <img src="./asset/logo/onibi.png" width="50%">
+    <img src="./asset/logo/onibi.png" width="25%">
 </div>
+
+## Why?
+
+[Here](https://x.com/mitchellh/status/1748397293232128333).
 
 ## Stack
 
@@ -28,7 +32,6 @@
 * **Native notifications**: macOS Notification Center with actionable buttons 
 * **False positive reduction**: Confidence scoring and deduplication 
 * **Theme sync**: Syncs popover theme colors from Ghostty config 
-
 
 ## Screenshots
 
