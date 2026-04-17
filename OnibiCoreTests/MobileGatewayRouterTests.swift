@@ -141,6 +141,81 @@ final class MobileGatewayRouterTests: XCTestCase {
         XCTAssertEqual(lastInput?.sessionId, "control-session-1")
         XCTAssertEqual(lastInput?.payload, .key(.enter))
     }
+
+    func testRateLimiterReturns429AfterRepeatedAuthFailures() async {
+        let tracker = AuthFailureTracker(windowSeconds: 60, maxFailures: 3)
+        let router = MobileGatewayRouter(
+            tokenProvider: { "secret-token" },
+            dataProvider: StubGatewayDataProvider(),
+            failureTracker: tracker
+        )
+
+        // Three unauthorized requests from the same peer.
+        for _ in 0..<3 {
+            let response = await router.route(
+                method: "GET",
+                path: "/api/v1/health",
+                headers: ["Authorization": "Bearer wrong"],
+                peer: "1.2.3.4"
+            )
+            XCTAssertEqual(response.statusCode, 401)
+        }
+
+        // Fourth request should be blocked with a 429 and Retry-After.
+        let blocked = await router.route(
+            method: "GET",
+            path: "/api/v1/health",
+            headers: ["Authorization": "Bearer wrong"],
+            peer: "1.2.3.4"
+        )
+        XCTAssertEqual(blocked.statusCode, 429)
+        XCTAssertNotNil(blocked.headers["Retry-After"])
+
+        // A different peer is not affected.
+        let ok = await router.route(
+            method: "GET",
+            path: "/api/v1/health",
+            headers: ["Authorization": "Bearer secret-token"],
+            peer: "5.6.7.8"
+        )
+        XCTAssertEqual(ok.statusCode, 200)
+    }
+
+    func testRateLimiterResetsOnSuccessfulAuth() async {
+        let tracker = AuthFailureTracker(windowSeconds: 60, maxFailures: 3)
+        let router = MobileGatewayRouter(
+            tokenProvider: { "secret-token" },
+            dataProvider: StubGatewayDataProvider(),
+            failureTracker: tracker
+        )
+
+        for _ in 0..<2 {
+            _ = await router.route(
+                method: "GET",
+                path: "/api/v1/health",
+                headers: ["Authorization": "Bearer wrong"],
+                peer: "1.2.3.4"
+            )
+        }
+        // Correct token resets.
+        _ = await router.route(
+            method: "GET",
+            path: "/api/v1/health",
+            headers: ["Authorization": "Bearer secret-token"],
+            peer: "1.2.3.4"
+        )
+        // Five more wrong requests should still NOT be blocked at first —
+        // bucket was cleared so the threshold starts over.
+        for _ in 0..<2 {
+            let r = await router.route(
+                method: "GET",
+                path: "/api/v1/health",
+                headers: ["Authorization": "Bearer wrong"],
+                peer: "1.2.3.4"
+            )
+            XCTAssertEqual(r.statusCode, 401, "expected 401 while under threshold after reset")
+        }
+    }
 }
 
 private actor StubGatewayDataProvider: MobileGatewayDataProvider {

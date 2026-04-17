@@ -39,6 +39,7 @@ final class MobileGatewayService: ObservableObject {
     private let sessionRegistry = ControllableSessionRegistry.shared
     private let realtimeGateway = RealtimeGatewayService.shared
     private let webAssetServer = WebAssetServer()
+    private let authFailureTracker = AuthFailureTracker()
     private var router: MobileGatewayRouter?
     private var listener: NWListener?
     private var settings: AppSettings
@@ -124,7 +125,8 @@ final class MobileGatewayService: ObservableObject {
             let listener = try NWListener(using: parameters)
             let router = MobileGatewayRouter(
                 tokenProvider: { [tokenStore] in try tokenStore.ensureToken() },
-                dataProvider: dataProvider
+                dataProvider: dataProvider,
+                failureTracker: authFailureTracker
             )
 
             Task {
@@ -498,7 +500,8 @@ final class MobileGatewayService: ObservableObject {
                     path: request.path,
                     queryItems: request.queryItems,
                     headers: request.headers,
-                    body: request.body
+                    body: request.body,
+                    peer: peer
                 )
                 let latencyMs = Int(Date().timeIntervalSince(connectionStart) * 1000)
                 GatewayLog.http.info("\(request.method, privacy: .public) \(request.path, privacy: .public) -> \(response.statusCode) (\(latencyMs)ms)")
@@ -683,6 +686,7 @@ final class MobileGatewayService: ObservableObject {
         case 409: return "Conflict"
         case 404: return "Not Found"
         case 405: return "Method Not Allowed"
+        case 429: return "Too Many Requests"
         case 503: return "Service Unavailable"
         case 500: return "Internal Server Error"
         default: return "OK"

@@ -72,13 +72,16 @@ public struct MobileGatewayResponse: Sendable {
 public struct MobileGatewayRouter: Sendable {
     private let tokenProvider: @Sendable () throws -> String?
     private let dataProvider: MobileGatewayDataProvider
+    private let failureTracker: AuthFailureTracker?
 
     public init(
         tokenProvider: @escaping @Sendable () throws -> String?,
-        dataProvider: MobileGatewayDataProvider
+        dataProvider: MobileGatewayDataProvider,
+        failureTracker: AuthFailureTracker? = nil
     ) {
         self.tokenProvider = tokenProvider
         self.dataProvider = dataProvider
+        self.failureTracker = failureTracker
     }
 
     public func route(
@@ -86,7 +89,8 @@ public struct MobileGatewayRouter: Sendable {
         path: String,
         queryItems: [URLQueryItem] = [],
         headers: [String: String] = [:],
-        body: Data = Data()
+        body: Data = Data(),
+        peer: String = "unknown"
     ) async -> MobileGatewayResponse {
         let normalizedMethod = method.uppercased()
 
@@ -95,8 +99,26 @@ public struct MobileGatewayRouter: Sendable {
             return jsonResponse(statusCode: 200, body: ["status": "ok"])
         }
 
+        // Rate-limit check before we ever touch the token.
+        let forwardedPeer = (headers.first(where: { $0.key.caseInsensitiveCompare("X-Forwarded-For") == .orderedSame })?.value)
+            .flatMap { $0.split(separator: ",").first.map { String($0).trimmingCharacters(in: .whitespaces) } }
+        let peerKey = (forwardedPeer?.isEmpty == false ? forwardedPeer : nil) ?? peer
+        if let failureTracker {
+            let decision = await failureTracker.evaluate(peer: peerKey)
+            if decision.shouldBlock {
+                return rateLimitResponse(retryAfter: decision.retryAfterSeconds)
+            }
+        }
+
         do {
-            guard try authorize(headers: headers) else {
+            if try authorize(headers: headers) {
+                if let failureTracker {
+                    await failureTracker.recordSuccess(peer: peerKey)
+                }
+            } else {
+                if let failureTracker {
+                    await failureTracker.recordFailure(peer: peerKey)
+                }
                 return jsonResponse(statusCode: 401, body: ["error": "unauthorized"])
             }
         } catch {
@@ -275,6 +297,25 @@ public struct MobileGatewayRouter: Sendable {
             headers: [
                 "Content-Type": "application/json; charset=utf-8",
                 "Content-Length": "\(data.count)"
+            ],
+            body: data
+        )
+    }
+
+    private func rateLimitResponse(retryAfter: Int) -> MobileGatewayResponse {
+        let data: Data
+        let body: [String: String] = ["error": "rate_limited", "retryAfter": String(retryAfter)]
+        do {
+            data = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
+        } catch {
+            data = Data("{\"error\":\"rate_limited\"}".utf8)
+        }
+        return MobileGatewayResponse(
+            statusCode: 429,
+            headers: [
+                "Content-Type": "application/json; charset=utf-8",
+                "Content-Length": "\(data.count)",
+                "Retry-After": String(retryAfter)
             ],
             body: data
         )
