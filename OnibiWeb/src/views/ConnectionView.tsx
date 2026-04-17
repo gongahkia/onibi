@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { ONIBI_WEB_VERSION, type ConnectionConfig } from "../types";
 import { forgetHost, loadRecentHosts, type RecentHost } from "../store/recentHosts";
+import { QRScanner } from "../components/QRScanner";
+import { parsePairingPayload } from "../lib/pairingPayload";
 
 interface ConnectionViewProps {
   initialConnection: ConnectionConfig | null;
@@ -16,39 +18,6 @@ type ConnectionMode = "lan" | "tunnel";
 const LAN_PLACEHOLDER = "http://192.168.1.20:8787";
 const TUNNEL_PLACEHOLDER = "https://your-tunnel.trycloudflare.com";
 
-/**
- * Accepts either:
- *   - JSON payload: {"type":"onibi_pairing","baseURL":"...","token":"..."}
- *   - Deep link:   onibi://pair?base=<urlencoded>&token=<urlencoded>
- */
-function parsePastedPayload(raw: string): { baseURL: string; token: string } | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-
-  try {
-    const parsed = JSON.parse(trimmed);
-    if (parsed && typeof parsed === "object" && typeof parsed.baseURL === "string" && typeof parsed.token === "string") {
-      return { baseURL: parsed.baseURL, token: parsed.token };
-    }
-  } catch {
-    // not JSON, fall through
-  }
-
-  if (trimmed.startsWith("onibi://")) {
-    try {
-      const url = new URL(trimmed);
-      const base = url.searchParams.get("base");
-      const token = url.searchParams.get("token");
-      if (base && token) {
-        return { baseURL: base, token };
-      }
-    } catch {
-      return null;
-    }
-  }
-
-  return null;
-}
 
 function detectMixedContent(pageProtocol: string, baseURL: string): boolean {
   if (pageProtocol !== "https:") return false;
@@ -80,6 +49,7 @@ export function ConnectionView({
   const [tokenVisible, setTokenVisible] = useState(false);
   const [pasteFeedback, setPasteFeedback] = useState<string | null>(null);
   const [recentHosts, setRecentHosts] = useState<RecentHost[]>(() => loadRecentHosts());
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   useEffect(() => {
     setBaseURL(initialConnection?.baseURL ?? "http://127.0.0.1:8787");
@@ -102,21 +72,36 @@ export function ConnectionView({
     onConnect({ baseURL: trimmedURL, token: trimmedToken }, rememberToken);
   };
 
+  const applyPayload = (raw: string, source: "paste" | "scan") => {
+    const parsed = parsePairingPayload(raw);
+    if (!parsed) {
+      setPasteFeedback(
+        source === "scan"
+          ? "Scanned code is not an Onibi pairing payload."
+          : "Clipboard does not contain an Onibi pairing payload."
+      );
+      return false;
+    }
+    setBaseURL(parsed.baseURL);
+    setToken(parsed.token);
+    setMode(parsed.baseURL.startsWith("https://") ? "tunnel" : "lan");
+    setPasteFeedback(source === "scan" ? "Pairing payload scanned." : "Pairing payload imported.");
+    return true;
+  };
+
   const handlePaste = async () => {
     setPasteFeedback(null);
     try {
       const clip = await navigator.clipboard.readText();
-      const parsed = parsePastedPayload(clip);
-      if (!parsed) {
-        setPasteFeedback("Clipboard does not contain an Onibi pairing payload.");
-        return;
-      }
-      setBaseURL(parsed.baseURL);
-      setToken(parsed.token);
-      setMode(parsed.baseURL.startsWith("https://") ? "tunnel" : "lan");
-      setPasteFeedback("Pairing payload imported.");
+      applyPayload(clip, "paste");
     } catch {
       setPasteFeedback("Clipboard read denied. Paste manually into the fields below.");
+    }
+  };
+
+  const handleScanned = (raw: string) => {
+    if (applyPayload(raw, "scan")) {
+      setScannerOpen(false);
     }
   };
 
@@ -231,13 +216,22 @@ export function ConnectionView({
           </button>
         </form>
 
-        <section className="mf-extra-block" aria-label="Paste pairing payload">
-          <p>Onibi can give you a JSON payload or an <code>onibi://</code> deep link. Paste either to prefill both fields.</p>
-          <button type="button" className="button-secondary" disabled={connecting} onClick={handlePaste}>
-            Paste Pairing Payload
-          </button>
+        <section className="mf-extra-block" aria-label="Import pairing payload">
+          <p>Scan the QR from the Mac's Settings, or paste the JSON / <code>onibi://</code> deep link.</p>
+          <div className="mf-import-actions">
+            <button type="button" className="button-secondary" disabled={connecting} onClick={() => setScannerOpen(true)}>
+              Scan QR
+            </button>
+            <button type="button" className="button-secondary" disabled={connecting} onClick={handlePaste}>
+              Paste Pairing Payload
+            </button>
+          </div>
           {pasteFeedback && <p className="mf-paste-feedback">{pasteFeedback}</p>}
         </section>
+
+        {scannerOpen && (
+          <QRScanner onDecoded={handleScanned} onClose={() => setScannerOpen(false)} />
+        )}
 
         {recentHosts.length > 0 && (
           <section className="mf-extra-block mf-recent-hosts" aria-label="Recently used hosts">
