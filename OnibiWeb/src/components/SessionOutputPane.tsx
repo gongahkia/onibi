@@ -129,15 +129,6 @@ export function SessionOutputPane({
     }
 
     lastRenderedChunkIdRef.current = entries[entries.length - 1].id;
-    fitAddonRef.current?.fit();
-
-    const cols = terminal.cols;
-    const rows = terminal.rows;
-    const lastReportedSize = lastReportedSizeRef.current;
-    if (!lastReportedSize || lastReportedSize.cols !== cols || lastReportedSize.rows !== rows) {
-      lastReportedSizeRef.current = { cols, rows };
-      onTerminalResizeRef.current(cols, rows);
-    }
   }, [entries]);
 
   return (

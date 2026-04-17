@@ -2,6 +2,7 @@ import type { ControllableSessionSnapshot } from "../types";
 
 interface SessionsViewProps {
   sessions: ControllableSessionSnapshot[];
+  outputPreviewBySession: Record<string, string>;
   realtimeState: string;
   onOpenSession: (sessionId: string) => void;
   onRefresh: () => void;
@@ -57,6 +58,7 @@ function formatActivity(isoTimestamp: string): string {
 
 export function SessionsView({
   sessions,
+  outputPreviewBySession,
   realtimeState,
   onOpenSession,
   onRefresh,
@@ -95,30 +97,37 @@ export function SessionsView({
           </section>
         ) : (
           <ul className="mf-session-list">
-            {sessions.map((session) => (
-              <li key={session.id}>
-                <button
-                  type="button"
-                  className="mf-session-card"
-                  onClick={() => onOpenSession(session.id)}
-                  disabled={!session.isControllable}
-                >
-                  <div className="mf-session-card-top">
-                    <strong>{session.displayName}</strong>
-                    <span className={statusClassName(session.status)}>{session.status}</span>
-                  </div>
+            {sessions.map((session) => {
+              const outputPreview = outputPreviewBySession[session.id];
+              return (
+                <li key={session.id}>
+                  <button
+                    type="button"
+                    className="mf-session-card"
+                    onClick={() => onOpenSession(session.id)}
+                    disabled={!session.isControllable}
+                  >
+                    <div className="mf-session-card-top">
+                      <strong>{session.displayName}</strong>
+                      <span className={statusClassName(session.status)}>{session.status}</span>
+                    </div>
 
-                  {session.lastCommandPreview && (
-                    <p className="mf-command-preview">{session.lastCommandPreview}</p>
-                  )}
+                    {session.lastCommandPreview && (
+                      <p className="mf-command-preview">{session.lastCommandPreview}</p>
+                    )}
 
-                  <div className="mf-session-card-bottom">
-                    <span>Last activity {formatActivity(session.lastActivityAt)}</span>
-                    {!session.isControllable && <span className="mf-readonly-pill">Read-only</span>}
-                  </div>
-                </button>
-              </li>
-            ))}
+                    {outputPreview && (
+                      <p className="mf-output-preview">{outputPreview}</p>
+                    )}
+
+                    <div className="mf-session-card-bottom">
+                      <span>Last activity {formatActivity(session.lastActivityAt)}</span>
+                      {!session.isControllable && <span className="mf-readonly-pill">Read-only</span>}
+                    </div>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

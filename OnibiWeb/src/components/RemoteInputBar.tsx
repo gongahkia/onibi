@@ -3,9 +3,14 @@ import { FormEvent, useRef, useState } from "react";
 interface RemoteInputBarProps {
   disabled: boolean;
   onSubmitLine: (text: string) => void;
+  autoEnter?: boolean;
 }
 
-export function RemoteInputBar({ disabled, onSubmitLine }: RemoteInputBarProps): JSX.Element {
+export function RemoteInputBar({
+  disabled,
+  onSubmitLine,
+  autoEnter = true
+}: RemoteInputBarProps): JSX.Element {
   const [text, setText] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -28,7 +33,7 @@ export function RemoteInputBar({ disabled, onSubmitLine }: RemoteInputBarProps):
         type="text"
         value={text}
         onChange={(event) => setText(event.target.value)}
-        placeholder="Type command"
+        placeholder={autoEnter ? "Type command (Send includes Enter)" : "Type command"}
         autoCapitalize="off"
         autoComplete="off"
         autoCorrect="off"
@@ -36,7 +41,7 @@ export function RemoteInputBar({ disabled, onSubmitLine }: RemoteInputBarProps):
         disabled={disabled}
       />
       <button type="submit" disabled={disabled || text.length === 0}>
-        Send
+        {autoEnter ? "Send ↵" : "Send"}
       </button>
     </form>
   );

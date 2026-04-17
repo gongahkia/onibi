@@ -330,6 +330,28 @@ button:hover:enabled {
   white-space: nowrap;
 }
 
+.mf-output-preview {
+  margin: 0;
+  border-radius: 0.55rem;
+  padding: 0.38rem 0.5rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+  font-size: 0.8rem;
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    "Cascadia Mono",
+    "Segoe UI Mono",
+    "Roboto Mono",
+    monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .mf-session-card-bottom {
   display: flex;
   align-items: center;
@@ -491,21 +513,6 @@ button:hover:enabled {
 .mf-key-strip-row button:hover:enabled {
   background: #f8fafc;
   border-color: #94a3b8;
-}
-
-.mf-key-strip-extra {
-  border: 1px solid #e2e8f0;
-  border-radius: 0.55rem;
-  background: #f8fafc;
-  padding: 0.45rem;
-}
-
-.mf-key-strip-extra summary {
-  font-size: 0.78rem;
-  color: #475569;
-  cursor: pointer;
-  user-select: none;
-  margin-bottom: 0.45rem;
 }
 
 .mf-input-bar {

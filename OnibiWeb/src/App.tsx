@@ -14,6 +14,7 @@ import {
   mergeBufferSnapshot,
   removeSession,
   replaceBuffer,
+  renderOutputPreview,
   sortSessionsByRecentActivity,
   type OutputBySession,
   type OutputEntry,
@@ -337,6 +338,17 @@ export default function App(): JSX.Element {
     return outputBySession[activeSession.id] ?? [];
   }, [activeSession, outputBySession]);
 
+  const outputPreviewBySession = useMemo<Record<string, string>>(() => {
+    const next: Record<string, string> = {};
+    for (const [sessionId, entries] of Object.entries(outputBySession)) {
+      const preview = renderOutputPreview(entries);
+      if (preview) {
+        next[sessionId] = preview;
+      }
+    }
+    return next;
+  }, [outputBySession]);
+
   useEffect(() => {
     if (realtimeState !== "authenticated") {
       subscribedSessionIDRef.current = null;
@@ -547,6 +559,7 @@ export default function App(): JSX.Element {
     return (
       <SessionsView
         sessions={sessions}
+        outputPreviewBySession={outputPreviewBySession}
         realtimeState={realtimeState}
         onDisconnect={clearConnection}
         onOpenSession={(sessionId) => {

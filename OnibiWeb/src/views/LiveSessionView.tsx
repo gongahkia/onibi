@@ -108,9 +108,9 @@ export function LiveSessionView({
 
       {session.isControllable && (
         <section className="mf-live-controls">
-          <p className="mf-live-hint">Tap terminal output to focus and type directly.</p>
+          <p className="mf-live-hint">Tap terminal output to focus and type directly. Send appends Enter by default.</p>
           <RemoteKeyStrip disabled={inputDisabled} onSendKey={onSendKey} />
-          <RemoteInputBar disabled={inputDisabled} onSubmitLine={onSendLine} />
+          <RemoteInputBar disabled={inputDisabled} onSubmitLine={onSendLine} autoEnter />
         </section>
       )}
     </main>

@@ -3,6 +3,8 @@ import {
   appendChunk,
   mergeBufferSnapshot,
   replaceBuffer,
+  renderOutput,
+  renderOutputPreview,
   type OutputBySession
 } from "../src/store/sessionStore";
 import type { SessionOutputChunk } from "../src/types";
@@ -14,6 +16,16 @@ function chunk(id: string, sessionId: string, text: string): SessionOutputChunk 
     stream: "stdout",
     timestamp: new Date().toISOString(),
     data: Buffer.from(text, "utf8").toString("base64")
+  };
+}
+
+function chunkWithBase64Data(id: string, sessionId: string, base64Data: string): SessionOutputChunk {
+  return {
+    id,
+    sessionId,
+    stream: "stdout",
+    timestamp: new Date().toISOString(),
+    data: base64Data
   };
 }
 
@@ -49,5 +61,28 @@ describe("sessionStore", () => {
     const merged = mergeBufferSnapshot(outputBySession, "s1", incomingSnapshot, "c2");
 
     expect((merged.s1 ?? []).map((entry) => entry.id)).toEqual(["c1", "c2"]);
+  });
+
+  it("decodes split utf-8 sequences across chunk boundaries", () => {
+    const fireBytes = Buffer.from("🔥", "utf8");
+    const head = fireBytes.subarray(0, 2).toString("base64");
+    const tail = fireBytes.subarray(2).toString("base64");
+
+    let outputBySession: OutputBySession = {};
+    outputBySession = appendChunk(outputBySession, chunkWithBase64Data("c1", "s1", head));
+    outputBySession = appendChunk(outputBySession, chunkWithBase64Data("c2", "s1", tail));
+
+    expect(renderOutput(outputBySession.s1 ?? [])).toBe("🔥");
+  });
+
+  it("renders sanitized output preview text", () => {
+    const chunks = [
+      chunk("c1", "s1", "\u001b[31mERROR\u001b[0m "),
+      chunk("c2", "s1", "build failed at step 3")
+    ];
+    const outputBySession = replaceBuffer({}, "s1", chunks);
+    const preview = renderOutputPreview(outputBySession.s1 ?? []);
+
+    expect(preview).toBe("ERROR build failed at step 3");
   });
 });
