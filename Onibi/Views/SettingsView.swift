@@ -742,8 +742,51 @@ struct MobileAccessSettingsTab: View {
         return components.url?.absoluteString ?? ""
     }
 
+    /// Convenience: reflects mobileAccessEnabled && remoteControlEnabled.
+    private var mobileAccessPresetOn: Binding<Bool> {
+        Binding(
+            get: {
+                viewModel.settings.mobileAccessEnabled && viewModel.settings.remoteControlEnabled
+            },
+            set: { newValue in
+                viewModel.settings.mobileAccessEnabled = newValue
+                viewModel.settings.remoteControlEnabled = newValue
+                if newValue && gatewayService.pairingToken.isEmpty {
+                    gatewayService.rotatePairingToken()
+                }
+            }
+        )
+    }
+
+    private var overallReadinessSummary: String {
+        let parts: [String] = [
+            gatewayService.isRunning ? "Running" : "Stopped",
+            "Bind: \(viewModel.settings.mobileAccessBindMode.displayName)",
+            viewModel.settings.remoteControlEnabled ? "Remote control ON" : "Remote control OFF"
+        ]
+        return parts.joined(separator: " · ")
+    }
+
     var body: some View {
         Form {
+            Section("Quick Start") {
+                Toggle(isOn: mobileAccessPresetOn) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Enable Mobile Access").font(.headline)
+                        Text("Turns on the gateway and remote control, and rotates a pairing token if one is missing.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                HStack {
+                    Image(systemName: gatewayService.isRunning ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .foregroundColor(gatewayService.isRunning ? .green : .secondary)
+                    Text(overallReadinessSummary)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
             Section("Gateway") {
                 Toggle("Enable mobile gateway", isOn: $viewModel.settings.mobileAccessEnabled)
 
