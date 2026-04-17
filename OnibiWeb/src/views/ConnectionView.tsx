@@ -93,7 +93,11 @@ export function ConnectionView({
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    onConnect({ baseURL, token }, rememberToken);
+    const trimmedURL = baseURL.trim();
+    const trimmedToken = token.replace(/\s+/g, "");
+    if (trimmedURL !== baseURL) setBaseURL(trimmedURL);
+    if (trimmedToken !== token) setToken(trimmedToken);
+    onConnect({ baseURL: trimmedURL, token: trimmedToken }, rememberToken);
   };
 
   const handlePaste = async () => {

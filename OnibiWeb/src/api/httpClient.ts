@@ -114,6 +114,6 @@ export function toUserFacingConnectionError(error: unknown): string {
 export function normalizeConnectionConfig(connection: ConnectionConfig): ConnectionConfig {
   return {
     baseURL: normalizeBaseURL(connection.baseURL),
-    token: connection.token.trim()
+    token: connection.token.replace(/\s+/g, "")
   };
 }
