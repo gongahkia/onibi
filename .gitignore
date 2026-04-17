@@ -68,3 +68,6 @@ OnibiWeb/dist/
 OnibiWeb/*.tsbuildinfo
 OnibiWeb/vite.config.js
 OnibiWeb/vite.config.d.ts
+
+CLAUDE.md
+AGENTS.md
