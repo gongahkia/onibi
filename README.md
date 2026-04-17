@@ -6,6 +6,10 @@
 
 [macOS menubar app](#macos-menubar-app) to [monitor](#architecture) your [Ghostty](https://ghostty.org/) sessions with a companion web app.
 
+<div align="center">
+    <img src="./asset/logo/onibi.png" width="50%">
+</div>
+
 ## Stack
 
 * *Scripting*: [Swift](https://www.swift.org/), [SwiftUI](https://developer.apple.com/xcode/swiftui/), [AppKit](https://developer.apple.com/documentation/appkit), [Combine](https://developer.apple.com/documentation/combine), [macOS Notification Center](https://developer.apple.com/documentation/usernotifications), [FSEvents](https://developer.apple.com/documentation/coreservices/file_system_events)

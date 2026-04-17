@@ -419,6 +419,14 @@ final class ShellHookInstaller: ObservableObject {
     }
     
     // MARK: - Installation
+
+    /// Install hooks for a shell, replacing any existing Onibi block.
+    func installOrUpdate(for shell: Shell) throws {
+        if case .installed = checkStatus(for: shell) {
+            try uninstall(from: shell)
+        }
+        try install(for: shell)
+    }
     
     /// Install hooks for a shell with backup
     func install(for shell: Shell) throws {

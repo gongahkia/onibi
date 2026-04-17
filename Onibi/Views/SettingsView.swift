@@ -73,6 +73,7 @@ struct SettingsView: View {
 
 struct GeneralSettingsTab: View {
     @ObservedObject var viewModel: SettingsViewModel
+    @ObservedObject private var shellHookInstaller = ShellHookInstaller.shared
     @State private var showResetConfirmation = false
     @State private var importExportAlertMessage = ""
     @State private var showImportExportAlert = false
@@ -131,6 +132,41 @@ struct GeneralSettingsTab: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
+
+            Section("Shell Integration") {
+                HStack {
+                    Text("Detected shell")
+                    Spacer()
+                    Text(targetShell.rawValue)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                HStack {
+                    Text("Hook status")
+                    Spacer()
+                    Text(targetShellStatusLabel)
+                        .font(.caption)
+                        .foregroundColor(targetShellStatusColor)
+                }
+
+                HStack {
+                    Button("Install / Update Hooks") {
+                        installOrUpdateShellHooks()
+                    }
+                    Button("Uninstall Hooks") {
+                        uninstallShellHooks()
+                    }
+                    Button("Refresh Status") {
+                        shellHookInstaller.checkAllShellStatuses()
+                    }
+                    Spacer()
+                }
+
+                Text("After changes, open a new terminal tab/window or run `exec zsh -l`.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
         .formStyle(.grouped)
         .navigationTitle("General")
@@ -155,6 +191,36 @@ struct GeneralSettingsTab: View {
             }
         } message: {
             Text("This will restore all settings to their default values. This action cannot be undone.")
+        }
+    }
+
+    private var targetShell: ShellHookInstaller.Shell {
+        shellHookInstaller.detectedShell ?? .zsh
+    }
+
+    private var targetShellStatus: ShellHookInstaller.InstallationStatus {
+        shellHookInstaller.shellStatuses[targetShell] ?? .notInstalled
+    }
+
+    private var targetShellStatusLabel: String {
+        switch targetShellStatus {
+        case .installed:
+            return "Installed"
+        case .notInstalled:
+            return "Not Installed"
+        case .error(let message):
+            return "Error: \(message)"
+        }
+    }
+
+    private var targetShellStatusColor: Color {
+        switch targetShellStatus {
+        case .installed:
+            return .green
+        case .notInstalled:
+            return .secondary
+        case .error:
+            return .red
         }
     }
     
@@ -193,6 +259,30 @@ struct GeneralSettingsTab: View {
             showImportExportAlert = true
         } catch {
             importExportAlertMessage = "Failed to export settings: \(error.localizedDescription)"
+            showImportExportAlert = true
+        }
+    }
+
+    private func installOrUpdateShellHooks() {
+        do {
+            try shellHookInstaller.installOrUpdate(for: targetShell)
+            shellHookInstaller.checkAllShellStatuses()
+            importExportAlertMessage = "Installed shell hooks for \(targetShell.rawValue). Open a new terminal tab/window."
+            showImportExportAlert = true
+        } catch {
+            importExportAlertMessage = "Failed to install shell hooks: \(error.localizedDescription)"
+            showImportExportAlert = true
+        }
+    }
+
+    private func uninstallShellHooks() {
+        do {
+            try shellHookInstaller.uninstall(from: targetShell)
+            shellHookInstaller.checkAllShellStatuses()
+            importExportAlertMessage = "Removed shell hooks from \(targetShell.rawValue)."
+            showImportExportAlert = true
+        } catch {
+            importExportAlertMessage = "Failed to uninstall shell hooks: \(error.localizedDescription)"
             showImportExportAlert = true
         }
     }
