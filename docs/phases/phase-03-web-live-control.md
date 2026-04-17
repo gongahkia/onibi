@@ -2,11 +2,11 @@
 
 ## Objective
 
-Create a first-class web client for Onibi that uses the same host API as the iPhone app and works on mobile and desktop browsers over the user's Tailscale-served host URL.
+Create a first-class web client for Onibi that uses the host API and works on mobile and desktop browsers over the user's Tailscale-served host URL.
 
 At the end of this phase, the web app must be able to:
 
-- connect to the same host URL and pairing token used by the iPhone app
+- connect to the same host URL and pairing token used by the host
 - list controllable sessions
 - open a live session
 - render buffered and live output
@@ -19,22 +19,21 @@ This phase should favor simplicity, directness, and operational reliability over
 
 - Do not edit `README.md`.
 - The web client must use the same host API and message contract introduced in Phase 01.
-- Keep the visual design intentionally simple and aligned with the existing iPhone app.
+- Keep the visual design intentionally simple and aligned with Onibi's existing host settings views.
 - Do not require a cloud backend.
 - The web app should be served by the user's own Onibi host over Tailscale, not by a separate hosted service.
 - Live behavior only needs to work while the browser tab is open.
 
 ## Current Repo Context
 
-This repo currently has no web frontend. It is a Swift/Xcode project with:
+This repo currently includes a web frontend and a Swift host with:
 
 - `Onibi/` macOS host app
 - `OnibiCore/` shared Swift models/services
-- `OnibiPhone/` iPhone app
+- `OnibiWeb/` companion web app
 - `Package.swift`
-- `project.yml`
 
-That means this phase will introduce a new web workspace into a repo that currently has no Node-based tooling.
+This phase focuses on continuing the web client as the primary companion experience.
 
 ## Recommended Web Stack
 
@@ -102,7 +101,7 @@ Store locally in browser storage:
 - `baseURL`
 - `pairingToken`
 
-These are already user-provided values in the iPhone app, so the web app should mirror that flow.
+These are user-provided values from the host app, so the web app should mirror that flow.
 
 ### Connection flow
 
@@ -204,7 +203,7 @@ Do not attempt full ANSI terminal rendering unless it is trivial and stable.
 
 This phase must not invent a web-only API.
 
-The web app must use the same conceptual message set as the iPhone app:
+The web app must use the same host message contract:
 
 - bootstrap via HTTP
 - realtime auth via websocket frame
@@ -267,7 +266,7 @@ Use a simple router. React Router is acceptable if needed; a tiny custom router 
 
 The app must work on:
 
-- iPhone Safari-sized viewports
+- iOS Safari-sized viewports
 - Android Chrome-sized viewports
 - desktop browsers
 

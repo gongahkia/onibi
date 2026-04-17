@@ -17,14 +17,13 @@ The repo contains:
 
 - `Onibi/`: macOS menubar host app
 - `OnibiCore/`: shared models and transport code
-- `OnibiPhone/`: existing iPhone client
+- `OnibiWeb/`: companion web client
 - `OnibiSessionProxy/`: local PTY-owning proxy executable
 - `docs/phases/`: project phase specs
 
 Relevant phase docs:
 
 - `docs/phases/phase-01-host-control-plane.md`
-- `docs/phases/phase-02-iphone-live-control.md`
 - `docs/phases/phase-03-web-live-control.md`
 - `docs/phases/phase-04-hardening-and-release.md`
 
@@ -414,67 +413,9 @@ The sections below are not required to close Phase 01, but they are the intended
 
 ## Future Scope: Phase 02
 
-Source of truth:
+- Deprecated and removed from this repo.
 
-- `docs/phases/phase-02-iphone-live-control.md`
-
-Goal:
-
-- upgrade the iPhone app from polling-only monitoring into a realtime live-control client
-
-### What to implement
-
-New shared transport and view-model code in `OnibiCore`:
-
-- `OnibiCore/Services/RealtimeGatewayClient.swift`
-- `OnibiCore/ViewModels/ControllableSessionsViewModel.swift`
-- `OnibiCore/ViewModels/LiveSessionViewModel.swift`
-
-New iPhone UI files in `OnibiPhone`:
-
-- `OnibiPhone/LiveSessionView.swift`
-- `OnibiPhone/RemoteInputBar.swift`
-- `OnibiPhone/RemoteKeyStrip.swift`
-- `OnibiPhone/SessionOutputView.swift`
-
-Upgrade the app flow so it:
-
-- uses `GET /api/v2/bootstrap` on startup or foreground
-- opens websocket only after bootstrap succeeds
-- maintains a session list from bootstrap plus realtime deltas
-- opens a live session view with buffered output plus live output
-- sends text and special keys through the realtime API
-
-### Detailed testing required for Phase 02
-
-Automated tests:
-
-- websocket message decoding and encoding
-- reconnect backoff behavior
-- session delta merge logic
-- transcript append behavior
-- transcript truncation-banner state
-- input frame construction for text and special keys
-- opening a session triggers subscribe plus buffer request
-- session removal while open updates the live-session state
-
-Manual QA:
-
-1. Pair iPhone app against a Phase-01-capable host.
-2. Confirm bootstrap loads controllable sessions.
-3. Open a live session and verify initial buffer appears.
-4. Send text input and see live output.
-5. Send `Ctrl-C`.
-6. Send arrow keys.
-7. Background and foreground the app and verify reconnect.
-8. Rotate token on the host and confirm the app surfaces re-pairing requirements.
-
-### Constraints for the implementing agent
-
-- do not redesign the app into a terminal emulator
-- preserve the current visual tone
-- keep most transport logic in `OnibiCore`, not `OnibiPhone`
-- do not add background push in this phase
+The iPhone companion app workstream has been removed. Companion-client scope now continues through the web app tracked in Phase 03.
 
 ## Future Scope: Phase 03
 
@@ -484,7 +425,7 @@ Source of truth:
 
 Goal:
 
-- introduce a web client that uses the same host API as the iPhone app
+- continue the web companion client as the primary remote-control experience
 
 ### What to implement
 
@@ -611,19 +552,16 @@ Host automated tests:
 
 Client automated tests:
 
-- iPhone unauthorized state after token rotation
-- iPhone reconnect stops on explicit unauthorized
 - web unauthorized bootstrap handling
 - web websocket auth rejection handling
 
 Manual QA matrix:
 
-1. macOS host + iPhone over Tailscale
-2. macOS host + mobile Safari over Tailscale
-3. macOS host + Android Chrome over Tailscale
-4. host sleep/wake while remote session is open
-5. token rotation while iPhone and web are connected
-6. broken proxy bootstrap while confirming local Ghostty still works
+1. macOS host + mobile Safari over Tailscale
+2. macOS host + Android Chrome over Tailscale
+3. host sleep/wake while remote session is open
+4. token rotation while web is connected
+5. broken proxy bootstrap while confirming local Ghostty still works
 
 ## Practical Next Recommended Order
 
@@ -632,9 +570,8 @@ If you are the next agent picking this up, do the work in this order:
 1. Finish Phase 01 manual QA using the exact commands in this document.
 2. Fix any real Ghostty/bootstrap bugs found during that QA.
 3. Add the highest-value missing host integration tests.
-4. Move to Phase 02 and keep transport code shared in `OnibiCore`.
-5. Only after Phase 02 is stable, start Phase 03 web work.
-6. Use Phase 04 as the reliability pass after both clients exist.
+4. Continue Phase 03 web work.
+5. Use Phase 04 as the reliability pass.
 
 ## Definition Of "Phase 01 Complete"
 

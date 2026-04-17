@@ -4,7 +4,7 @@
 
 # `Onibi`
 
-[MacOS menubar app](#macos-menubar-app) to [monitor](#architecture) your [Ghostty](https://ghostty.org/) sessions *(now with a companion [iOS app](#ios-app))*.
+[macOS menubar app](#macos-menubar-app) to [monitor](#architecture) your [Ghostty](https://ghostty.org/) sessions with a companion web app.
 
 ## Stack
 
@@ -28,7 +28,7 @@
 
 ## Screenshots
 
-### MacOS menubar app
+### macOS menubar app
 
 <div align="center">
     <img src="./asset/reference/2.png" width="30%">
@@ -53,10 +53,6 @@
     <img src="./asset/reference/10.png" width="32%">
 </div>
 
-### iOS app
-
-![](./asset/reference/13.png)
-
 ## Usage
 
 1. Clone the repo and build from source.
@@ -76,9 +72,7 @@ $ ./scripts/sync_web_assets.sh
 
 2. Or open in [Xcode](https://developer.apple.com/xcode/).
 
-```console
-$ open Onibi.xcodeproj
-```
+Open the package directly in Xcode and choose a run target from the package schemes.
 
 3. Install shell hooks for your terminal. Add the following to your `~/.zshrc`.
 

@@ -7,7 +7,6 @@ Stabilize the new remote-control system so it is safe enough to use daily as a p
 At the end of this phase, the system should be operationally understandable, diagnosable, and resilient enough for real usage across:
 
 - the macOS host
-- the native iPhone app
 - the web client
 
 This phase is where reliability and operational discipline matter more than feature expansion.
@@ -111,15 +110,6 @@ Recommended file targets:
 - `Onibi/Views/SettingsView.swift`
 - `OnibiCore/Models/MobileAPIModels.swift`
 
-### iPhone diagnostics
-
-Expose lightweight client-facing states:
-
-- last realtime connection time
-- current websocket state
-- last auth error
-- last session transport error
-
 ### Web diagnostics
 
 Expose lightweight debug information in a non-primary settings panel or footer:
@@ -201,14 +191,6 @@ Add tests for:
 - shell bootstrap fail-open path
 - diagnostics counters update as expected
 
-### iPhone-side
-
-Add tests for:
-
-- unauthorized state after token rotation
-- reconnect stops after explicit unauthorized response
-- session removed while open
-
 ### Web-side
 
 Add tests for:
@@ -221,12 +203,11 @@ Add tests for:
 
 Run at minimum:
 
-1. macOS host + iPhone app over Tailscale
-2. macOS host + mobile Safari web app over Tailscale
-3. macOS host + Android Chrome web app over Tailscale
-4. macOS host sleep/wake while a session is open remotely
-5. token rotation while both iPhone and web client are connected
-6. proxy bootstrap disabled or broken, ensuring local Ghostty still works
+1. macOS host + mobile Safari web app over Tailscale
+2. macOS host + Android Chrome web app over Tailscale
+3. macOS host sleep/wake while a session is open remotely
+4. token rotation while web client is connected
+5. proxy bootstrap disabled or broken, ensuring local Ghostty still works
 
 ## Release Checklist
 
@@ -238,7 +219,6 @@ The checklist should cover:
 - remote control kill switch verified
 - token rotation verified
 - diagnostics visible in host UI
-- iPhone reconnect and unauthorized behavior verified
 - web reconnect and unauthorized behavior verified
 - Tailscale Serve configuration path verified
 
@@ -248,7 +228,7 @@ This phase is complete when:
 
 - remote control can be disabled cleanly from the host
 - diagnostics are sufficient to debug pairing, proxy, websocket, and buffer failures
-- token rotation behaves predictably across host, iPhone, and web
+- token rotation behaves predictably across host and web
 - stale sessions and buffers are cleaned up automatically
 - shell bootstrap failures do not break normal Ghostty usage
 - the system is reliable enough for day-to-day paired-device use

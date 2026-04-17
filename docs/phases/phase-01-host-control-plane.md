@@ -13,7 +13,7 @@ At the end of this phase, the macOS host must be able to:
 - support the limited v1 remote key set: text, `Enter`, `Ctrl-C`, arrow keys, and space
 - broadcast session state and output to remote clients over a shared realtime API
 
-This phase does **not** need to ship polished client UX. It is the host and protocol foundation that later iPhone and web clients will consume.
+This phase does **not** need to ship polished client UX. It is the host and protocol foundation that later web clients will consume.
 
 ## Non-Negotiable Constraints
 
@@ -29,8 +29,8 @@ This phase does **not** need to ship polished client UX. It is the host and prot
 This repo currently has three relevant areas:
 
 - `Onibi/`: macOS menubar host app
-- `OnibiCore/`: shared models and networking code used by host and iPhone app
-- `OnibiPhone/`: existing iPhone client
+- `OnibiCore/`: shared models and networking code used by host and companion clients
+- `OnibiWeb/`: companion web client
 
 Current mobile host behavior:
 
@@ -84,7 +84,7 @@ Ghostty itself is not exposing a repo-local API here for stdin injection. The pr
    - Accepts remote input requests and forwards them to the correct session proxy.
 
 4. **Shared protocol models**
-   - Live in `OnibiCore/` so both iPhone and web clients can conform to the same contract.
+   - Live in `OnibiCore/` so companion clients can conform to the same contract.
 
 ## Recommended File And Module Layout
 
