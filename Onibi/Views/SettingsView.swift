@@ -671,8 +671,37 @@ struct MobileAccessSettingsTab: View {
     @ObservedObject var viewModel: SettingsViewModel
     @ObservedObject private var gatewayService = MobileGatewayService.shared
     @ObservedObject private var proxyListener = LocalSessionProxyListener.shared
+    @ObservedObject private var diagnostics = DiagnosticsStore.shared
     @State private var revealToken = false
     @State private var showPairingQR = false
+    @State private var logLevelFilter: LogLevelFilter = .all
+
+    enum LogLevelFilter: String, CaseIterable, Identifiable {
+        case all, info, warning, error
+        var id: String { rawValue }
+        var displayName: String { rawValue.capitalized }
+    }
+
+    private var filteredGatewayEvents: [DiagnosticsEvent] {
+        let gatewayEvents = diagnostics.events.filter { event in
+            let component = event.component
+            return component.hasPrefix("MobileGateway")
+                || component.hasPrefix("RealtimeGateway")
+                || component.hasPrefix("HostMobileGateway")
+        }
+        let filtered: [DiagnosticsEvent]
+        switch logLevelFilter {
+        case .all:
+            filtered = gatewayEvents
+        case .info:
+            filtered = gatewayEvents.filter { $0.level == .info || $0.level == .debug }
+        case .warning:
+            filtered = gatewayEvents.filter { $0.level == .warning }
+        case .error:
+            filtered = gatewayEvents.filter { $0.level == .error || $0.level == .critical }
+        }
+        return Array(filtered.prefix(50))
+    }
 
     private var pairingEndpointForQR: String {
         // Prefer a tunnel (HTTPS, routable) > Tailscale > first LAN IP > loopback
@@ -949,6 +978,40 @@ struct MobileAccessSettingsTab: View {
                 }
             }
 
+            Section {
+                DisclosureGroup("Gateway Log (\(filteredGatewayEvents.count))") {
+                    HStack {
+                        Picker("Level", selection: $logLevelFilter) {
+                            ForEach(LogLevelFilter.allCases) { filter in
+                                Text(filter.displayName).tag(filter)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        Spacer()
+                        Button("Copy") {
+                            let body = filteredGatewayEvents.map { event in
+                                let meta = event.metadata.isEmpty
+                                    ? ""
+                                    : " " + event.metadata.sorted(by: { $0.key < $1.key }).map { "\($0.key)=\($0.value)" }.joined(separator: " ")
+                                return "\(event.timestamp.ISO8601Format()) [\(event.level.rawValue)] \(event.component) \(event.message)\(meta)"
+                            }.joined(separator: "\n")
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(body, forType: .string)
+                        }
+                    }
+                    if filteredGatewayEvents.isEmpty {
+                        Text("No gateway events yet.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else {
+                        ForEach(filteredGatewayEvents) { event in
+                            logEventRow(event)
+                        }
+                    }
+                }
+            }
+
             if let error = gatewayService.lastError, !error.isEmpty {
                 Section("Last Error") {
                     Text(error)
@@ -971,6 +1034,41 @@ struct MobileAccessSettingsTab: View {
         .navigationTitle("Mobile Access")
         .task {
             await gatewayService.refreshTailscaleStatus()
+        }
+    }
+
+    @ViewBuilder
+    private func logEventRow(_ event: DiagnosticsEvent) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Text(event.timestamp.formatted(.dateTime.hour().minute().second()))
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundColor(.secondary)
+                .frame(width: 58, alignment: .leading)
+            Text(event.level.rawValue.uppercased())
+                .font(.system(size: 9, weight: .semibold))
+                .frame(width: 54, alignment: .leading)
+                .foregroundColor(colorForLevel(event.level))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(event.message)
+                    .font(.caption)
+                    .textSelection(.enabled)
+                if !event.metadata.isEmpty {
+                    Text(event.metadata.sorted(by: { $0.key < $1.key })
+                        .map { "\($0.key)=\($0.value)" }
+                        .joined(separator: " "))
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+
+    private func colorForLevel(_ level: DiagnosticsLevel) -> Color {
+        switch level {
+        case .debug: return .secondary
+        case .info: return .blue
+        case .warning: return .orange
+        case .error, .critical: return .red
         }
     }
 
