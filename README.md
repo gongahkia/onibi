@@ -78,7 +78,30 @@ $ ./scripts/sync_web_assets.sh
 
 Open the package directly in Xcode and choose a run target from the package schemes.
 
-3. Install shell hooks for your terminal. Add the following to your `~/.zshrc`.
+3. Install shell hooks for your terminal.
+
+Install automatically from CLI:
+
+```console
+$ ./scripts/install_shell_hooks.sh --shell zsh
+```
+
+Install with remote-control bootstrap + logging hooks:
+
+```console
+$ ./scripts/install_shell_hooks.sh --shell zsh --remote-control
+```
+
+Or with `make`:
+
+```console
+$ make install-hooks
+$ make install-hooks-remote
+```
+
+You can also install/update hooks in-app at `Settings -> General -> Shell Integration`.
+
+Manual fallback for `~/.zshrc`:
 
 ```zsh
 # onibi integration
