@@ -90,6 +90,11 @@ public struct MobileGatewayRouter: Sendable {
     ) async -> MobileGatewayResponse {
         let normalizedMethod = method.uppercased()
 
+        // Unauthenticated liveness probe for tunnels/load balancers. Returns no sensitive data.
+        if normalizedMethod == "GET" && path == "/api/v2/health" {
+            return jsonResponse(statusCode: 200, body: ["status": "ok"])
+        }
+
         do {
             guard try authorize(headers: headers) else {
                 return jsonResponse(statusCode: 401, body: ["error": "unauthorized"])

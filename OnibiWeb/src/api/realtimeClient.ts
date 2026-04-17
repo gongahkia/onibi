@@ -11,11 +11,18 @@ export type RealtimeConnectionState =
   | "authenticated"
   | "reconnecting";
 
+export interface RealtimeDebugEvent {
+  timestamp: number;
+  level: "debug" | "info" | "warn" | "error";
+  message: string;
+}
+
 export interface RealtimeClientOptions {
   connection: ConnectionConfig;
   onStateChange: (state: RealtimeConnectionState) => void;
   onMessage: (message: RealtimeServerMessage) => void;
   onError: (message: string) => void;
+  onDebugEvent?: (event: RealtimeDebugEvent) => void;
 }
 
 const RECONNECT_BASE_DELAY_MS = 700;
@@ -28,9 +35,24 @@ export class RealtimeClient {
   private shouldReconnect = true;
   private authenticated = false;
   private queuedMessages: RealtimeClientMessage[] = [];
+  private lastCloseCode: number | null = null;
+  private lastCloseReason: string | null = null;
 
   constructor(options: RealtimeClientOptions) {
     this.options = options;
+  }
+
+  get reconnectAttempts(): number {
+    return this.reconnectAttempt;
+  }
+
+  get lastClose(): { code: number; reason: string } | null {
+    if (this.lastCloseCode === null) return null;
+    return { code: this.lastCloseCode, reason: this.lastCloseReason ?? "" };
+  }
+
+  private emitDebug(level: RealtimeDebugEvent["level"], message: string): void {
+    this.options.onDebugEvent?.({ timestamp: Date.now(), level, message });
   }
 
   connect(): void {
@@ -80,6 +102,7 @@ export class RealtimeClient {
   private openSocket(): void {
     const url = this.websocketURL(this.options.connection.baseURL);
     this.options.onStateChange(this.reconnectAttempt > 0 ? "reconnecting" : "connecting");
+    this.emitDebug("info", `opening ${url} (attempt ${this.reconnectAttempt + 1})`);
 
     const socket = new WebSocket(url);
     this.socket = socket;
@@ -87,6 +110,7 @@ export class RealtimeClient {
 
     socket.onopen = () => {
       this.options.onStateChange("authenticating");
+      this.emitDebug("info", "socket open, sending auth");
       this.sendNow({
         type: "auth",
         token: this.options.connection.token
@@ -98,6 +122,7 @@ export class RealtimeClient {
       try {
         message = JSON.parse(String(event.data)) as RealtimeServerMessage;
       } catch {
+        this.emitDebug("error", "invalid JSON from server");
         this.options.onError("Received invalid realtime payload.");
         return;
       }
@@ -106,23 +131,31 @@ export class RealtimeClient {
         this.authenticated = true;
         this.reconnectAttempt = 0;
         this.options.onStateChange("authenticated");
+        this.emitDebug("info", `authenticated (host ${message.hostVersion ?? "?"})`);
         this.flushQueuedMessages();
       } else if (message.type === "error") {
         const code = message.code ?? "error";
         const detail = message.message ?? "unknown";
+        this.emitDebug("error", `server error ${code}: ${detail}`);
         this.options.onError(`${code}: ${detail}`);
+      } else {
+        this.emitDebug("debug", `recv ${message.type}`);
       }
 
       this.options.onMessage(message);
     };
 
     socket.onerror = () => {
+      this.emitDebug("error", "socket error event");
       this.options.onError("Realtime websocket error.");
     };
 
-    socket.onclose = () => {
+    socket.onclose = (event) => {
+      this.lastCloseCode = event.code;
+      this.lastCloseReason = event.reason;
       this.authenticated = false;
       this.socket = null;
+      this.emitDebug("warn", `socket closed code=${event.code} reason=${event.reason || "(none)"}`);
       this.options.onStateChange("disconnected");
       if (this.shouldReconnect) {
         this.scheduleReconnect();

@@ -2,7 +2,22 @@ import Foundation
 import AppKit
 import Combine
 import Network
+import os
 import OnibiCore
+
+enum GatewayLog {
+    static let subsystem = "com.onibi.gateway"
+    static let bind = Logger(subsystem: subsystem, category: "bind")
+    static let auth = Logger(subsystem: subsystem, category: "auth")
+    static let http = Logger(subsystem: subsystem, category: "http")
+    static let ws = Logger(subsystem: subsystem, category: "ws")
+
+    /// Keeps the first 4 chars + trailing ellipsis so logs never leak tokens.
+    static func redact(_ token: String) -> String {
+        guard token.count > 4 else { return "***" }
+        return String(token.prefix(4)) + "…" + "(\(token.count))"
+    }
+}
 
 final class MobileGatewayService: ObservableObject {
     static let shared = MobileGatewayService()
@@ -12,6 +27,8 @@ final class MobileGatewayService: ObservableObject {
     @Published private(set) var pairingToken = ""
     @Published private(set) var tailscaleStatus: TailscaleServeStatus = .unavailable
     @Published private(set) var lastError: String?
+    @Published private(set) var lanInterfaces: [LocalNetworkInterface] = []
+    @Published private(set) var advertisedURLs: [String] = ["http://127.0.0.1:8787"]
 
     private let queue = DispatchQueue(label: "com.onibi.mobile-gateway", qos: .userInitiated)
     private let tokenStore = PairingTokenStore(service: "com.onibi.mobile.host", account: "pairing-token")
@@ -31,18 +48,47 @@ final class MobileGatewayService: ObservableObject {
         setupSubscriptions()
         loadToken()
         syncRegistrySettings()
+        refreshNetworkInfo()
     }
 
     func bootstrap() {
         loadToken()
         localURLString = "http://127.0.0.1:\(settings.mobileAccessPort)"
         syncRegistrySettings()
+        refreshNetworkInfo()
         if settings.mobileAccessEnabled {
             start()
         } else {
             Task {
                 await refreshTailscaleStatus()
             }
+        }
+    }
+
+    /// Re-scans interfaces and recomputes the list of Base URLs a client can use.
+    func refreshNetworkInfo() {
+        let interfaces = NetworkInterfaceScanner.ipv4Interfaces()
+        let port = settings.mobileAccessPort
+        var urls: [String] = []
+
+        switch settings.mobileAccessBindMode {
+        case .loopback:
+            urls.append("http://127.0.0.1:\(port)")
+        case .lan, .all:
+            urls.append("http://127.0.0.1:\(port)")
+            for iface in interfaces {
+                urls.append("http://\(iface.ipv4):\(port)")
+            }
+        }
+
+        let trimmedTunnel = settings.mobileAccessTunnelURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedTunnel.isEmpty {
+            urls.append(trimmedTunnel)
+        }
+
+        DispatchQueue.main.async {
+            self.lanInterfaces = interfaces
+            self.advertisedURLs = urls
         }
     }
 
@@ -59,11 +105,13 @@ final class MobileGatewayService: ObservableObject {
         loadToken()
         localURLString = "http://127.0.0.1:\(settings.mobileAccessPort)"
         syncRegistrySettings()
+        refreshNetworkInfo()
 
+        let bindHost = settings.mobileAccessBindMode.bindHost
         let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
         parameters.requiredLocalEndpoint = .hostPort(
-            host: "127.0.0.1",
+            host: NWEndpoint.Host(bindHost),
             port: NWEndpoint.Port(rawValue: UInt16(settings.mobileAccessPort)) ?? 8787
         )
 
@@ -85,25 +133,32 @@ final class MobileGatewayService: ObservableObject {
                         self?.isRunning = true
                         self?.lastError = nil
                     }
+                    GatewayLog.bind.info("listener ready on \(bindHost, privacy: .public):\(self?.settings.mobileAccessPort ?? 0)")
                     DiagnosticsStore.shared.record(
                         component: "MobileGatewayService",
                         level: .info,
                         message: "gateway listener is ready",
                         metadata: [
-                            "port": String(self?.settings.mobileAccessPort ?? 0)
+                            "port": String(self?.settings.mobileAccessPort ?? 0),
+                            "host": bindHost,
+                            "bindMode": self?.settings.mobileAccessBindMode.rawValue ?? "loopback"
                         ]
                     )
                 case .failed(let error):
+                    let friendly = Self.describe(bindError: error, port: self?.settings.mobileAccessPort ?? 0)
                     DispatchQueue.main.async {
                         self?.isRunning = false
-                        self?.lastError = error.localizedDescription
+                        self?.lastError = friendly
                     }
+                    GatewayLog.bind.error("listener failed: \(friendly, privacy: .public)")
                     DiagnosticsStore.shared.record(
                         component: "MobileGatewayService",
                         level: .error,
                         message: "gateway listener failed",
                         metadata: [
-                            "reason": error.localizedDescription
+                            "reason": friendly,
+                            "host": bindHost,
+                            "port": String(self?.settings.mobileAccessPort ?? 0)
                         ]
                     )
                     ErrorReporter.shared.report(
@@ -151,22 +206,47 @@ final class MobileGatewayService: ObservableObject {
                 await refreshTailscaleStatus()
             }
         } catch {
+            let friendly = Self.describe(bindError: error, port: settings.mobileAccessPort)
+            GatewayLog.bind.critical("start failed: \(friendly, privacy: .public)")
             DiagnosticsStore.shared.record(
                 component: "MobileGatewayService",
                 level: .critical,
                 message: "failed to start gateway listener",
                 metadata: [
-                    "reason": error.localizedDescription,
-                    "port": String(settings.mobileAccessPort)
+                    "reason": friendly,
+                    "port": String(settings.mobileAccessPort),
+                    "bindMode": settings.mobileAccessBindMode.rawValue
                 ]
             )
             ErrorReporter.shared.report(error, context: "MobileGatewayService.start", severity: .critical)
-            lastError = error.localizedDescription
+            lastError = friendly
             isRunning = false
             Task {
                 await realtimeGateway.stop()
             }
         }
+    }
+
+    /// Map raw listener errors to something actionable ("port in use", etc.).
+    private static func describe(bindError error: Error, port: Int) -> String {
+        if let nwError = error as? NWError {
+            switch nwError {
+            case .posix(let code):
+                switch code {
+                case .EADDRINUSE:
+                    return "Port \(port) is already in use by another process. Pick a different port in Settings."
+                case .EACCES:
+                    return "Permission denied binding port \(port). Use a port ≥ 1024 or grant permission."
+                case .EADDRNOTAVAIL:
+                    return "Selected bind address is not available on this Mac right now."
+                default:
+                    return "POSIX \(code.rawValue): \(nwError.localizedDescription)"
+                }
+            default:
+                return nwError.localizedDescription
+            }
+        }
+        return error.localizedDescription
     }
 
     func stop() {
@@ -191,6 +271,7 @@ final class MobileGatewayService: ObservableObject {
         do {
             pairingToken = try tokenStore.rotateToken()
             lastError = nil
+            GatewayLog.auth.notice("pairing token rotated preview=\(GatewayLog.redact(self.pairingToken), privacy: .public)")
             DiagnosticsStore.shared.record(
                 component: "MobileGatewayService",
                 level: .info,
@@ -270,12 +351,18 @@ final class MobileGatewayService: ObservableObject {
                 guard let self else { return }
                 let previousPort = self.settings.mobileAccessPort
                 let previousEnabled = self.settings.mobileAccessEnabled
+                let previousBindMode = self.settings.mobileAccessBindMode
                 self.settings = newSettings
                 self.localURLString = "http://127.0.0.1:\(newSettings.mobileAccessPort)"
                 self.syncRegistrySettings()
+                self.refreshNetworkInfo()
+
+                let needsRestart =
+                    previousPort != newSettings.mobileAccessPort ||
+                    previousBindMode != newSettings.mobileAccessBindMode
 
                 if newSettings.mobileAccessEnabled {
-                    if !previousEnabled || previousPort != newSettings.mobileAccessPort {
+                    if !previousEnabled || needsRestart {
                         self.stop()
                         self.start()
                     }
@@ -392,6 +479,10 @@ final class MobileGatewayService: ObservableObject {
                     headers: request.headers,
                     body: request.body
                 )
+                GatewayLog.http.info("\(request.method, privacy: .public) \(request.path, privacy: .public) -> \(response.statusCode)")
+                if response.statusCode == 401 {
+                    GatewayLog.auth.notice("unauthorized request rejected for \(request.path, privacy: .public)")
+                }
                 self.send(response: response, over: connection)
             }
         }
@@ -482,6 +573,7 @@ final class MobileGatewayService: ObservableObject {
                     await self.realtimeGateway.attach(realtimeConnection)
                     realtimeConnection.start()
                 }
+                GatewayLog.ws.info("upgrade accepted for client \(clientID.uuidString, privacy: .public)")
             }
         )
 

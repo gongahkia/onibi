@@ -120,6 +120,28 @@ add-zsh-hook preexec _onibi_preexec
 add-zsh-hook precmd _onibi_precmd
 ```
 
+## Deployment (mobile web UI)
+
+The web UI is a React+Vite SPA (`OnibiWeb/`). It connects to a gateway (`MobileGatewayService`) that the macOS app exposes over HTTP + WebSocket. You can reach it two ways:
+
+| Mode | When to use | Docs |
+| --- | --- | --- |
+| **LAN** | Phone on the same Wi-Fi as the Mac | [docs/deployment-lan.md](./docs/deployment-lan.md) |
+| **Tunnel** | Phone off-network, or you want HTTPS | [docs/deployment-tunnel.md](./docs/deployment-tunnel.md) |
+
+Both modes share the same pairing flow: enable the gateway in Settings → Mobile Access, rotate a token, and paste the Base URL + token on the phone (or scan the QR / import the `onibi://` deep link).
+
+Relevant settings (Onibi → Settings → Mobile Access):
+
+- **Network Binding** — Loopback / LAN / All interfaces. Default Loopback is safest.
+- **Tunnel (optional) → Public URL** — paste your `cloudflared` / `ngrok` / Tailscale URL here. It will be included in the pairing QR.
+- **Pairing** — rotate tokens, show QR, copy deep link.
+
+Security and troubleshooting:
+
+- [docs/security.md](./docs/security.md) — threat model, auth caveats, hardening tips.
+- [docs/troubleshooting.md](./docs/troubleshooting.md) — common errors, log channels, debug drawer.
+
 ## Architecture
 
 <div align="center">

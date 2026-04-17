@@ -7,6 +7,38 @@ struct CustomTheme: Codable, Equatable {
     var accentColor: String?
 }
 
+/// Controls the network interface the mobile gateway listens on.
+/// loopback = 127.0.0.1 (most private), lan = Mac's LAN IP (same Wi-Fi), all = 0.0.0.0 (including VPNs / public)
+enum MobileAccessBindMode: String, Codable, CaseIterable {
+    case loopback
+    case lan
+    case all
+
+    var displayName: String {
+        switch self {
+        case .loopback: return "Loopback only (127.0.0.1)"
+        case .lan: return "LAN (same Wi-Fi)"
+        case .all: return "All interfaces (0.0.0.0)"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .loopback: return "Safest. Only this Mac can connect — use with a tunnel (ngrok, cloudflared, Tailscale)."
+        case .lan: return "Phones on the same Wi-Fi can connect. Plaintext HTTP — trust your network."
+        case .all: return "Binds every interface including VPNs. Only use on trusted networks."
+        }
+    }
+
+    /// Host string passed to NWListener / socket bind.
+    var bindHost: String {
+        switch self {
+        case .loopback: return "127.0.0.1"
+        case .lan, .all: return "0.0.0.0"
+        }
+    }
+}
+
 /// Log resource usage profile
 enum LogVolumeProfile: String, Codable, CaseIterable {
     case light
@@ -74,6 +106,8 @@ struct AppSettings: Codable, Equatable {
     var menubarIconStyle: String  // SF Symbol name for menubar icon
     var mobileAccessEnabled: Bool
     var mobileAccessPort: Int
+    var mobileAccessBindMode: MobileAccessBindMode
+    var mobileAccessTunnelURL: String
     var remoteControlEnabled: Bool
     var sessionProxySocketPath: String
     var sessionOutputBufferLineLimit: Int
@@ -90,6 +124,8 @@ struct AppSettings: Codable, Equatable {
         static let errorLogMaxRotations = 3
         static let notificationDeduplicationWindow: TimeInterval = 5.0
         static let mobileAccessPort = 8787
+        static let mobileAccessBindMode: MobileAccessBindMode = .loopback
+        static let mobileAccessTunnelURL: String = ""
         static let remoteControlEnabled = false
         static let sessionProxySocketPath = NSHomeDirectory() + "/.config/onibi/control.sock"
         static let sessionOutputBufferLineLimit = 1000
@@ -129,6 +165,8 @@ struct AppSettings: Codable, Equatable {
         menubarIconStyle: String = "terminal",
         mobileAccessEnabled: Bool = false,
         mobileAccessPort: Int = Defaults.mobileAccessPort,
+        mobileAccessBindMode: MobileAccessBindMode = Defaults.mobileAccessBindMode,
+        mobileAccessTunnelURL: String = Defaults.mobileAccessTunnelURL,
         remoteControlEnabled: Bool = Defaults.remoteControlEnabled,
         sessionProxySocketPath: String = Defaults.sessionProxySocketPath,
         sessionOutputBufferLineLimit: Int = Defaults.sessionOutputBufferLineLimit,
@@ -160,6 +198,8 @@ struct AppSettings: Codable, Equatable {
         self.menubarIconStyle = menubarIconStyle
         self.mobileAccessEnabled = mobileAccessEnabled
         self.mobileAccessPort = mobileAccessPort
+        self.mobileAccessBindMode = mobileAccessBindMode
+        self.mobileAccessTunnelURL = mobileAccessTunnelURL
         self.remoteControlEnabled = remoteControlEnabled
         self.sessionProxySocketPath = sessionProxySocketPath
         self.sessionOutputBufferLineLimit = sessionOutputBufferLineLimit
@@ -180,6 +220,11 @@ struct AppSettings: Codable, Equatable {
             copy.logFilePath = Defaults.logFilePath
         }
         copy.mobileAccessPort = min(max(1, copy.mobileAccessPort), 65535)
+        copy.mobileAccessTunnelURL = copy.mobileAccessTunnelURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !copy.mobileAccessTunnelURL.isEmpty,
+           URL(string: copy.mobileAccessTunnelURL)?.scheme == nil {
+            copy.mobileAccessTunnelURL = ""
+        }
         if copy.sessionProxySocketPath.isEmpty {
             copy.sessionProxySocketPath = Defaults.sessionProxySocketPath
         }
@@ -217,6 +262,8 @@ extension AppSettings {
         case menubarIconStyle
         case mobileAccessEnabled
         case mobileAccessPort
+        case mobileAccessBindMode
+        case mobileAccessTunnelURL
         case remoteControlEnabled
         case sessionProxySocketPath
         case sessionOutputBufferLineLimit
@@ -252,6 +299,8 @@ extension AppSettings {
             menubarIconStyle: try container.decodeIfPresent(String.self, forKey: .menubarIconStyle) ?? "terminal",
             mobileAccessEnabled: try container.decodeIfPresent(Bool.self, forKey: .mobileAccessEnabled) ?? false,
             mobileAccessPort: try container.decodeIfPresent(Int.self, forKey: .mobileAccessPort) ?? Defaults.mobileAccessPort,
+            mobileAccessBindMode: try container.decodeIfPresent(MobileAccessBindMode.self, forKey: .mobileAccessBindMode) ?? Defaults.mobileAccessBindMode,
+            mobileAccessTunnelURL: try container.decodeIfPresent(String.self, forKey: .mobileAccessTunnelURL) ?? Defaults.mobileAccessTunnelURL,
             remoteControlEnabled: try container.decodeIfPresent(Bool.self, forKey: .remoteControlEnabled) ?? Defaults.remoteControlEnabled,
             sessionProxySocketPath: try container.decodeIfPresent(String.self, forKey: .sessionProxySocketPath) ?? Defaults.sessionProxySocketPath,
             sessionOutputBufferLineLimit: try container.decodeIfPresent(Int.self, forKey: .sessionOutputBufferLineLimit) ?? Defaults.sessionOutputBufferLineLimit,
@@ -287,6 +336,8 @@ extension AppSettings {
         try container.encode(menubarIconStyle, forKey: .menubarIconStyle)
         try container.encode(mobileAccessEnabled, forKey: .mobileAccessEnabled)
         try container.encode(mobileAccessPort, forKey: .mobileAccessPort)
+        try container.encode(mobileAccessBindMode, forKey: .mobileAccessBindMode)
+        try container.encode(mobileAccessTunnelURL, forKey: .mobileAccessTunnelURL)
         try container.encode(remoteControlEnabled, forKey: .remoteControlEnabled)
         try container.encode(sessionProxySocketPath, forKey: .sessionProxySocketPath)
         try container.encode(sessionOutputBufferLineLimit, forKey: .sessionOutputBufferLineLimit)

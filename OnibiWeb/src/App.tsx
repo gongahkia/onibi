@@ -8,7 +8,8 @@ import {
   sendSessionInput,
   toUserFacingConnectionError
 } from "./api/httpClient";
-import { RealtimeClient, type RealtimeConnectionState } from "./api/realtimeClient";
+import { RealtimeClient, type RealtimeConnectionState, type RealtimeDebugEvent } from "./api/realtimeClient";
+import { DebugDrawer } from "./components/DebugDrawer";
 import {
   appendChunk,
   mergeBufferSnapshot,
@@ -137,9 +138,19 @@ export default function App(): JSX.Element {
   const [realtimeError, setRealtimeError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [realtimeState, setRealtimeState] = useState<RealtimeConnectionState>("disconnected");
+  const [debugEvents, setDebugEvents] = useState<RealtimeDebugEvent[]>([]);
+  const [reconnectAttempts, setReconnectAttempts] = useState(0);
+  const [lastCloseCode, setLastCloseCode] = useState<number | null>(null);
 
   const realtimeRef = useRef<RealtimeClient | null>(null);
   const subscribedSessionIDRef = useRef<string | null>(null);
+
+  const appendDebugEvent = useCallback((event: RealtimeDebugEvent) => {
+    setDebugEvents((existing) => {
+      const next = [...existing, event];
+      return next.length > 200 ? next.slice(next.length - 200) : next;
+    });
+  }, []);
 
   const navigate = useCallback((nextRoute: Route) => {
     const path = routePath(nextRoute);
@@ -264,6 +275,11 @@ export default function App(): JSX.Element {
           onStateChange: (state) => {
             if (!isCancelled) {
               setRealtimeState(state);
+              const current = realtimeRef.current;
+              if (current) {
+                setReconnectAttempts(current.reconnectAttempts);
+                setLastCloseCode(current.lastClose?.code ?? null);
+              }
             }
           },
           onMessage: (message) => {
@@ -274,6 +290,11 @@ export default function App(): JSX.Element {
           onError: (errorMessage) => {
             if (!isCancelled) {
               setRealtimeError(errorMessage);
+            }
+          },
+          onDebugEvent: (event) => {
+            if (!isCancelled) {
+              appendDebugEvent(event);
             }
           }
         });
@@ -542,8 +563,19 @@ export default function App(): JSX.Element {
   const primaryError = connectionError ?? realtimeError;
   const storedConnection = connection ?? loadStoredConnection();
 
+  const debugDrawer = (
+    <DebugDrawer
+      events={debugEvents}
+      realtimeState={realtimeState}
+      reconnectAttempts={reconnectAttempts}
+      lastCloseCode={lastCloseCode}
+      lastError={primaryError ?? inputError}
+    />
+  );
+
+  let content: JSX.Element;
   if (route.kind === "connect" || !connection) {
-    return (
+    content = (
       <ConnectionView
         initialConnection={storedConnection}
         initialRememberToken={rememberToken}
@@ -553,10 +585,8 @@ export default function App(): JSX.Element {
         onClearSaved={clearConnection}
       />
     );
-  }
-
-  if (route.kind === "sessions") {
-    return (
+  } else if (route.kind === "sessions") {
+    content = (
       <SessionsView
         sessions={sessions}
         outputPreviewBySession={outputPreviewBySession}
@@ -569,20 +599,27 @@ export default function App(): JSX.Element {
         onRefresh={refreshSessions}
       />
     );
+  } else {
+    content = (
+      <LiveSessionView
+        session={activeSession}
+        outputEntries={activeOutputEntries}
+        realtimeState={realtimeState}
+        inputError={inputError}
+        onBack={() => navigate({ kind: "sessions" })}
+        onReloadBuffer={() => reloadSessionBuffer(route.sessionId)}
+        onSendLine={(text) => sendLine(route.sessionId, text)}
+        onSendKey={(key) => sendKey(route.sessionId, key)}
+        onTerminalInput={(data) => sendTerminalData(route.sessionId, data)}
+        onTerminalResize={(cols, rows) => sendTerminalResize(route.sessionId, cols, rows)}
+      />
+    );
   }
 
   return (
-    <LiveSessionView
-      session={activeSession}
-      outputEntries={activeOutputEntries}
-      realtimeState={realtimeState}
-      inputError={inputError}
-      onBack={() => navigate({ kind: "sessions" })}
-      onReloadBuffer={() => reloadSessionBuffer(route.sessionId)}
-      onSendLine={(text) => sendLine(route.sessionId, text)}
-      onSendKey={(key) => sendKey(route.sessionId, key)}
-      onTerminalInput={(data) => sendTerminalData(route.sessionId, data)}
-      onTerminalResize={(cols, rows) => sendTerminalResize(route.sessionId, cols, rows)}
-    />
+    <>
+      {content}
+      {debugDrawer}
+    </>
   );
 }

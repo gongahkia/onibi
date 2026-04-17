@@ -675,7 +675,14 @@ struct MobileAccessSettingsTab: View {
     @State private var showPairingQR = false
 
     private var pairingEndpointForQR: String {
-        gatewayService.tailscaleStatus.baseURLString ?? gatewayService.localURLString
+        // Prefer a tunnel (HTTPS, routable) > Tailscale > first LAN IP > loopback
+        let tunnel = viewModel.settings.mobileAccessTunnelURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !tunnel.isEmpty { return tunnel }
+        if let tailnet = gatewayService.tailscaleStatus.baseURLString { return tailnet }
+        if let lan = gatewayService.advertisedURLs.first(where: { !$0.contains("127.0.0.1") }) {
+            return lan
+        }
+        return gatewayService.localURLString
     }
 
     private var pairingPayloadForQR: String {
@@ -690,6 +697,18 @@ struct MobileAccessSettingsTab: View {
             return ""
         }
         return text
+    }
+
+    /// onibi://pair?base=<urlencoded>&token=<urlencoded> — the web app accepts this via clipboard/paste.
+    private var pairingDeepLink: String {
+        var components = URLComponents()
+        components.scheme = "onibi"
+        components.host = "pair"
+        components.queryItems = [
+            URLQueryItem(name: "base", value: pairingEndpointForQR),
+            URLQueryItem(name: "token", value: gatewayService.pairingToken)
+        ]
+        return components.url?.absoluteString ?? ""
     }
 
     var body: some View {
@@ -723,6 +742,80 @@ struct MobileAccessSettingsTab: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .textSelection(.enabled)
+                }
+            }
+
+            Section("Network Binding") {
+                Picker("Bind mode", selection: $viewModel.settings.mobileAccessBindMode) {
+                    ForEach(MobileAccessBindMode.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                Text(viewModel.settings.mobileAccessBindMode.description)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                if viewModel.settings.mobileAccessBindMode != .loopback {
+                    if gatewayService.lanInterfaces.isEmpty {
+                        Text("No non-loopback interfaces detected.")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    } else {
+                        ForEach(gatewayService.lanInterfaces, id: \.ipv4) { iface in
+                            HStack {
+                                Text(iface.name)
+                                    .font(.caption)
+                                Spacer()
+                                let url = "http://\(iface.ipv4):\(viewModel.settings.mobileAccessPort)"
+                                Text(url)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .textSelection(.enabled)
+                                    .foregroundColor(.secondary)
+                                Button {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(url, forType: .string)
+                                } label: {
+                                    Image(systemName: "doc.on.doc")
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        }
+                    }
+                    Button("Rescan interfaces") {
+                        gatewayService.refreshNetworkInfo()
+                    }
+                }
+            }
+
+            Section("Tunnel (optional)") {
+                HStack {
+                    Text("Public URL")
+                    Spacer()
+                    TextField(
+                        "https://your-tunnel.example.com",
+                        text: $viewModel.settings.mobileAccessTunnelURL
+                    )
+                    .frame(maxWidth: 320)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption)
+                    .disableAutocorrection(true)
+                }
+                Text("Paste the HTTPS URL from cloudflared / ngrok / tailscale funnel. The gateway itself does not spawn tunnels — use your own command.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                if !viewModel.settings.mobileAccessTunnelURL.isEmpty {
+                    HStack {
+                        Button("Copy Tunnel URL") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(viewModel.settings.mobileAccessTunnelURL, forType: .string)
+                        }
+                        Button("Clear") {
+                            viewModel.settings.mobileAccessTunnelURL = ""
+                        }
+                        Spacer()
+                    }
                 }
             }
 
@@ -808,6 +901,10 @@ struct MobileAccessSettingsTab: View {
                     Button("Copy Pairing Payload") {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(pairingPayloadForQR, forType: .string)
+                    }
+                    Button("Copy Deep Link") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(pairingDeepLink, forType: .string)
                     }
                     Button("Rotate Token") {
                         gatewayService.rotatePairingToken()
