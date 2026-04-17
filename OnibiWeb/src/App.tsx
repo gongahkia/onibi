@@ -11,6 +11,7 @@ import {
 import { RealtimeClient, type RealtimeConnectionState, type RealtimeDebugEvent } from "./api/realtimeClient";
 import { DebugDrawer } from "./components/DebugDrawer";
 import { StaleBanner } from "./components/StaleBanner";
+import { rememberHost } from "./store/recentHosts";
 import {
   appendChunk,
   mergeBufferSnapshot,
@@ -267,6 +268,7 @@ export default function App(): JSX.Element {
         }
         setSessions(sortSessionsByRecentActivity(bootstrap.sessions));
         persistConnection(connection, rememberToken);
+        rememberHost(connection.baseURL);
         if (window.location.pathname === "/connect" || window.location.pathname === "/") {
           navigate({ kind: "sessions" });
         }

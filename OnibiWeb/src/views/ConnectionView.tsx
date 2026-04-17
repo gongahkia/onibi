@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { ONIBI_WEB_VERSION, type ConnectionConfig } from "../types";
+import { forgetHost, loadRecentHosts, type RecentHost } from "../store/recentHosts";
 
 interface ConnectionViewProps {
   initialConnection: ConnectionConfig | null;
@@ -78,6 +79,7 @@ export function ConnectionView({
   const [rememberToken, setRememberToken] = useState(initialRememberToken);
   const [tokenVisible, setTokenVisible] = useState(false);
   const [pasteFeedback, setPasteFeedback] = useState<string | null>(null);
+  const [recentHosts, setRecentHosts] = useState<RecentHost[]>(() => loadRecentHosts());
 
   useEffect(() => {
     setBaseURL(initialConnection?.baseURL ?? "http://127.0.0.1:8787");
@@ -236,6 +238,36 @@ export function ConnectionView({
           </button>
           {pasteFeedback && <p className="mf-paste-feedback">{pasteFeedback}</p>}
         </section>
+
+        {recentHosts.length > 0 && (
+          <section className="mf-extra-block mf-recent-hosts" aria-label="Recently used hosts">
+            <p>Recent hosts (tokens are never stored in this list):</p>
+            <ul>
+              {recentHosts.map((entry) => (
+                <li key={entry.baseURL}>
+                  <button
+                    type="button"
+                    className="button-secondary mf-recent-host-use"
+                    onClick={() => setBaseURL(entry.baseURL)}
+                    disabled={connecting}
+                  >
+                    Use
+                  </button>
+                  <code>{entry.baseURL}</code>
+                  <button
+                    type="button"
+                    className="mf-recent-host-forget"
+                    onClick={() => setRecentHosts(forgetHost(entry.baseURL))}
+                    aria-label={`Forget ${entry.baseURL}`}
+                    disabled={connecting}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {initialConnection && (
           <section className="mf-extra-block" aria-label="Additional saved connection features">
