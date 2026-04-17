@@ -150,9 +150,11 @@ export default function App(): JSX.Element {
   const appendDebugEvent = useCallback((event: RealtimeDebugEvent) => {
     setDebugEvents((existing) => {
       const next = [...existing, event];
-      return next.length > 200 ? next.slice(next.length - 200) : next;
+      return next.length > 500 ? next.slice(next.length - 500) : next;
     });
   }, []);
+
+  const clearDebugEvents = useCallback(() => setDebugEvents([]), []);
 
   const navigate = useCallback((nextRoute: Route) => {
     const path = routePath(nextRoute);
@@ -573,6 +575,7 @@ export default function App(): JSX.Element {
       reconnectAttempts={reconnectAttempts}
       lastCloseCode={lastCloseCode}
       lastError={primaryError ?? inputError}
+      onClear={clearDebugEvents}
     />
   );
 
