@@ -10,6 +10,7 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
     @Published private(set) var isRunning = false
     @Published private(set) var socketPath: String
     @Published private(set) var lastError: String?
+    @Published private(set) var connectionCount: Int = 0
 
     private let queue = DispatchQueue(label: "com.onibi.local-session-proxy-listener", qos: .userInitiated)
     private let registry = ControllableSessionRegistry.shared
@@ -176,6 +177,7 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
         }
         connections.removeAll()
         sessionConnectionIDs.removeAll()
+        publishConnectionCount()
 
         closeIfNeeded(&serverFileDescriptor)
         removeSocketFile(path: settings.sessionProxySocketPath)
@@ -224,6 +226,7 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
                     self?.handleDisconnect(connectionID: connectionID)
                 }
                 connections[connection.id] = connection
+                publishConnectionCount()
                 connection.start()
             } catch {
                 DiagnosticsStore.shared.record(
@@ -278,6 +281,15 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
         }
     }
 
+    private func publishConnectionCount() {
+        let count = connections.count
+        DispatchQueue.main.async {
+            if self.connectionCount != count {
+                self.connectionCount = count
+            }
+        }
+    }
+
     private func handleRegisterFrame(connectionID: UUID, frameData: Data) async throws {
         let message = try JSONDateCodec.decoder.decode(LocalSessionProxyRegisterMessage.self, from: frameData)
         guard let connection = connections[connectionID] else {
@@ -287,6 +299,7 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
         if let existingConnectionID = sessionConnectionIDs[message.sessionId], existingConnectionID != connectionID {
             connections[existingConnectionID]?.stop()
             connections.removeValue(forKey: existingConnectionID)
+            publishConnectionCount()
         }
 
         sessionConnectionIDs[message.sessionId] = connectionID
@@ -363,6 +376,7 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
         guard let connection = connections.removeValue(forKey: connectionID) else {
             return
         }
+        publishConnectionCount()
 
         let sessionId = connection.sessionId
         if let sessionId, sessionConnectionIDs[sessionId] == connectionID {

@@ -82,6 +82,10 @@ actor RealtimeGatewayService {
             self.registryObserverID = nil
         }
 
+        updateFlushTask?.cancel()
+        updateFlushTask = nil
+        pendingSessionUpdates.removeAll()
+
         let transports = clients.values.map(\.transport)
         clients.removeAll()
         for transport in transports {
@@ -257,20 +261,46 @@ actor RealtimeGatewayService {
 
         switch event {
         case .sessionAdded(let session):
+            // Add is latency-sensitive and rare — flush any pending updates for the same
+            // id first so clients can't see an update for a session they don't know about yet.
+            pendingSessionUpdates.removeValue(forKey: session.id)
             for client in authenticatedClients {
                 try? await client.transport.send(.sessionAdded(session))
             }
         case .sessionUpdated(let session):
-            for client in authenticatedClients {
-                try? await client.transport.send(.sessionUpdated(session))
-            }
+            pendingSessionUpdates[session.id] = session
+            scheduleUpdateFlush()
         case .sessionRemoved(let sessionId):
+            pendingSessionUpdates.removeValue(forKey: sessionId)
             for client in authenticatedClients {
                 try? await client.transport.send(.sessionRemoved(sessionId))
             }
         case .output(let chunk):
             for client in authenticatedClients where client.subscriptions.contains(chunk.sessionId) {
                 try? await client.transport.send(.output(sessionId: chunk.sessionId, chunk: chunk))
+            }
+        }
+    }
+
+    private func scheduleUpdateFlush() {
+        guard updateFlushTask == nil else { return }
+        updateFlushTask = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: await self.updateCoalesceWindowNanos)
+            await self.flushPendingSessionUpdates()
+        }
+    }
+
+    private func flushPendingSessionUpdates() async {
+        updateFlushTask = nil
+        guard !pendingSessionUpdates.isEmpty else { return }
+        let snapshots = Array(pendingSessionUpdates.values)
+        pendingSessionUpdates.removeAll()
+        let authenticatedClients = clients.values.filter(\.isAuthenticated)
+        guard !authenticatedClients.isEmpty else { return }
+        for snapshot in snapshots {
+            for client in authenticatedClients {
+                try? await client.transport.send(.sessionUpdated(snapshot))
             }
         }
     }

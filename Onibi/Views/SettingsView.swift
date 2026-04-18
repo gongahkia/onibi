@@ -673,6 +673,7 @@ struct MobileAccessSettingsTab: View {
     @ObservedObject private var cloudflared = CloudflaredService.shared
     @ObservedObject private var proxyListener = LocalSessionProxyListener.shared
     @ObservedObject private var diagnostics = DiagnosticsStore.shared
+    @ObservedObject private var shellHookInstaller = ShellHookInstaller.shared
     @ObservedObject private var requestJournal = GatewayRequestJournal.shared
     @ObservedObject private var connectedClients = ConnectedClientsViewModel.shared
     @State private var revealToken = false
@@ -1051,6 +1052,55 @@ struct MobileAccessSettingsTab: View {
                 }
             }
 
+            Section("Session Bridge (Ghostty)") {
+                HStack {
+                    Text("Shell hook")
+                    Spacer()
+                    Text(sessionBridgeHookLabel)
+                        .font(.caption)
+                        .foregroundColor(sessionBridgeHookColor)
+                }
+                HStack {
+                    Text("Remote control spawn")
+                    Spacer()
+                    Text(viewModel.settings.remoteControlEnabled ? "Included in hook" : "Disabled")
+                        .font(.caption)
+                        .foregroundColor(viewModel.settings.remoteControlEnabled ? .secondary : .orange)
+                }
+                HStack {
+                    Text("Proxy binary")
+                    Spacer()
+                    Text(SessionProxyCoordinator.shared.resolvedProxyBinaryPath() ?? "Not built — run `swift build`")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .textSelection(.enabled)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                HStack {
+                    Text("Live proxy processes")
+                    Spacer()
+                    Text("\(liveProxyCount)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                HStack {
+                    Button("Install / Update Hook") {
+                        installOrUpdateShellHooksHere()
+                    }
+                    Button("Open New Ghostty Tab") {
+                        openNewGhosttyTab()
+                    }
+                    Button("Refresh") {
+                        shellHookInstaller.checkAllShellStatuses()
+                    }
+                    Spacer()
+                }
+                Text("Onibi needs a zsh hook inside each Ghostty tab to register it as a controllable session. After Install, open a new Ghostty tab (or `exec zsh -l`) — existing tabs won't pick up the hook.")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+
             Section("Cloudflare Tunnel") {
                 HStack {
                     Text("Status")
@@ -1379,6 +1429,59 @@ struct MobileAccessSettingsTab: View {
             }
         } catch {
             diagnosticsExportMessage = "Failed: \(error.localizedDescription)"
+        }
+    }
+
+    private var liveProxyCount: Int {
+        proxyListener.connectionCount
+    }
+
+    private var sessionBridgeHookLabel: String {
+        let status = shellHookInstaller.shellStatuses[.zsh] ?? .notInstalled
+        switch status {
+        case .installed:
+            return "Installed (zsh)"
+        case .notInstalled:
+            return "Not installed"
+        case .error(let message):
+            return "Error: \(message)"
+        }
+    }
+
+    private var sessionBridgeHookColor: Color {
+        let status = shellHookInstaller.shellStatuses[.zsh] ?? .notInstalled
+        switch status {
+        case .installed: return .secondary
+        case .notInstalled: return .orange
+        case .error: return .red
+        }
+    }
+
+    private func installOrUpdateShellHooksHere() {
+        do {
+            try shellHookInstaller.installOrUpdate(for: .zsh)
+            shellHookInstaller.checkAllShellStatuses()
+        } catch {
+            DiagnosticsStore.shared.record(
+                component: "MobileAccessSettingsTab",
+                level: .error,
+                message: "shell hook install failed",
+                metadata: ["reason": error.localizedDescription]
+            )
+        }
+    }
+
+    private func openNewGhosttyTab() {
+        let script = """
+        tell application "Ghostty" to activate
+        tell application "System Events" to keystroke "t" using command down
+        """
+        var error: NSDictionary?
+        if let appleScript = NSAppleScript(source: script) {
+            appleScript.executeAndReturnError(&error)
+        }
+        if error != nil {
+            NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications/Ghostty.app"))
         }
     }
 
