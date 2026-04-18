@@ -124,7 +124,7 @@ export function ConnectionView({
         </svg>
       </button>
 
-      <section className="mf-card-connection">
+      <form className="mf-card-connection" onSubmit={handleSubmit}>
         <header className="mf-title-row">
           <h1>Onibi Web</h1>
           <p>Connect to your Ghostty terminal host.</p>
@@ -155,7 +155,7 @@ export function ConnectionView({
           </div>
         </div>
 
-        <form className="mf-form" onSubmit={handleSubmit}>
+        <div className="mf-fields">
           <label className="mf-field">
             <span>Host URL</span>
             <input
@@ -234,11 +234,16 @@ export function ConnectionView({
             />
             <span>Remember token on this device</span>
           </label>
+        </div>
 
-          <button type="submit" disabled={connecting || baseURL.trim() === "" || token.trim() === ""}>
-            {connecting ? "Connecting..." : "Connect"}
-          </button>
-        </form>
+        <button
+          type="submit"
+          className="mf-submit"
+          disabled={connecting || baseURL.trim() === "" || token.trim() === ""}
+        >
+          {connecting ? "Connecting..." : "Connect"}
+        </button>
+      </form>
 
         {scannerOpen && (
           <QRScanner onDecoded={handleScanned} onClose={() => setScannerOpen(false)} />
@@ -327,8 +332,6 @@ export function ConnectionView({
             </button>
           </section>
         )}
-
-      </section>
     </main>
   );
 }

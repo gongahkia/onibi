@@ -115,10 +115,63 @@ button:hover:enabled {
   width: min(420px, 100%);
   padding: 1.75rem 1.5rem 1.25rem;
   display: grid;
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    "title"
+    "mode"
+    "fields"
+    "action"
+    "extras";
   gap: 1.4rem;
   background: transparent;
   border: none;
   border-radius: 0;
+}
+
+.mf-card-connection > .mf-title-row { grid-area: title; }
+.mf-card-connection > .mf-mode-block { grid-area: mode; }
+.mf-card-connection > .mf-fields { grid-area: fields; }
+.mf-card-connection > .mf-submit { grid-area: action; }
+.mf-card-connection > .mf-extra-block { grid-area: extras; }
+
+.mf-fields {
+  display: grid;
+  gap: 1rem;
+}
+
+.mf-submit {
+  width: 100%;
+}
+
+/* Landscape / wide layout: two-column form with tabs stacked on the left. */
+@media (min-width: 760px) and (orientation: landscape), (min-width: 900px) {
+  .mf-card-connection {
+    width: min(780px, 92vw);
+    grid-template-columns: minmax(180px, 240px) 1fr;
+    grid-template-areas:
+      "title  title"
+      "mode   fields"
+      "action action"
+      "extras extras";
+    column-gap: 2.25rem;
+    row-gap: 1.5rem;
+    align-items: start;
+    padding: 2rem 2rem 1.5rem;
+  }
+
+  .mf-card-connection > .mf-mode-block .mf-mode-switcher {
+    grid-template-columns: 1fr;
+    padding: 4px;
+  }
+
+  .mf-card-connection > .mf-mode-block .mf-mode-switcher button {
+    min-height: 40px;
+    padding: 0.55rem 0.9rem;
+  }
+
+  .mf-submit {
+    justify-self: stretch;
+  }
 }
 
 .mf-title-row {
