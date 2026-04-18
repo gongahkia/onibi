@@ -50,6 +50,7 @@ def test_help_shows_all_commands() -> None:
         "diff",
         "explain",
         "rules",
+        "eval",
         "advisory",
         "baseline",
         "hook",
@@ -947,3 +948,60 @@ def test_suppressions_validate_fails_for_expired_or_stale_when_policy_requires(
 
     assert result.exit_code == 1
     assert "expired" in result.stdout
+
+
+def test_eval_help_lists_subcommands() -> None:
+    result = runner.invoke(app, ["eval", "--help"])
+
+    assert result.exit_code == 0
+    assert "audit" in result.stdout
+    assert "validate-all" in result.stdout
+    assert "compare-reports" in result.stdout
+
+
+def test_eval_compare_reports_cli_outputs_json(tmp_path: Path) -> None:
+    baseline = tmp_path / "baseline.json"
+    current = tmp_path / "current.json"
+    baseline.write_text(
+        json.dumps(
+            {
+                "results": {
+                    "overall": {
+                        "detection_rate": 0.8,
+                        "fp_suppression_rate": 0.7,
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    current.write_text(
+        json.dumps(
+            {
+                "results": {
+                    "overall": {
+                        "detection_rate": 0.82,
+                        "fp_suppression_rate": 0.69,
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "eval",
+            "compare-reports",
+            "--baseline-report",
+            str(baseline),
+            "--current-report",
+            str(current),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["comparison"]["overall"]["detection_rate"]["delta"] == pytest.approx(0.02)

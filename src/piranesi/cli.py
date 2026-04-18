@@ -136,6 +136,11 @@ hook_app = typer.Typer(
     help="Manage git hook integration.",
     no_args_is_help=True,
 )
+eval_app = typer.Typer(
+    add_completion=False,
+    help="Run evaluation harness commands.",
+    no_args_is_help=True,
+)
 app.add_typer(plugins_app, name="plugins")
 app.add_typer(rules_app, name="rules")
 app.add_typer(advisory_app, name="advisory")
@@ -143,6 +148,7 @@ app.add_typer(baseline_app, name="baseline")
 app.add_typer(suppressions_app, name="suppressions")
 app.add_typer(compliance_app, name="compliance")
 app.add_typer(hook_app, name="hook")
+app.add_typer(eval_app, name="eval")
 
 
 def _version_callback(value: bool) -> None:
@@ -3411,6 +3417,276 @@ def advisory_search(
         typer.echo("warnings:")
         for warning in status.warnings:
             typer.echo(f"- {warning}")
+
+
+def _run_eval_entrypoint(entrypoint: str, argv: list[str]) -> None:
+    try:
+        if entrypoint == "audit":
+            from eval.ground_truth_audit import main as eval_main
+        elif entrypoint == "validate_all":
+            from eval.validate_all import main as eval_main
+        elif entrypoint == "compare_reports":
+            from eval.compare_reports import main as eval_main
+        else:  # pragma: no cover - defensive; entrypoint is fixed by command handlers.
+            raise ValueError(f"unknown eval entrypoint: {entrypoint}")
+    except ModuleNotFoundError as exc:
+        typer.echo(
+            "error: evaluation harness modules are unavailable. "
+            "Use a source checkout that includes the eval/ directory."
+        )
+        raise typer.Exit(code=1) from exc
+    except ValueError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    try:
+        exit_code = eval_main(argv)
+    except ValueError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=1) from exc
+    if exit_code != 0:
+        raise typer.Exit(code=exit_code)
+
+
+def _append_repeatable_flags(argv: list[str], flag: str, values: list[str]) -> None:
+    for value in values:
+        argv.extend([flag, value])
+
+
+@eval_app.command("audit")
+def eval_audit(
+    gt_dir: Annotated[
+        Path,
+        typer.Option("--gt-dir", help="Ground-truth directory."),
+    ] = Path("eval/ground_truth"),
+    field: Annotated[
+        list[str] | None,
+        typer.Option("--field", help="Field to audit (repeatable)."),
+    ] = None,
+    required_field: Annotated[
+        list[str] | None,
+        typer.Option("--required-field", help="Field required to be present (repeatable)."),
+    ] = None,
+    filter_by: Annotated[
+        list[str] | None,
+        typer.Option("--filter", help="Filter entries by key=value (repeatable)."),
+    ] = None,
+    show_missing_limit: Annotated[
+        int,
+        typer.Option("--show-missing-limit", help="Maximum missing IDs to include per field."),
+    ] = 10,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+    fail_on_missing: Annotated[
+        bool,
+        typer.Option("--fail-on-missing", help="Exit non-zero when required fields are missing."),
+    ] = False,
+) -> None:
+    argv = [
+        "--gt-dir",
+        str(gt_dir),
+        "--show-missing-limit",
+        str(show_missing_limit),
+    ]
+    _append_repeatable_flags(argv, "--field", field or [])
+    _append_repeatable_flags(argv, "--required-field", required_field or [])
+    _append_repeatable_flags(argv, "--filter", filter_by or [])
+    if json_output:
+        argv.append("--json")
+    if fail_on_missing:
+        argv.append("--fail-on-missing")
+    _run_eval_entrypoint("audit", argv)
+
+
+@eval_app.command("validate-all")
+def eval_validate_all(
+    gt_dir: Annotated[
+        Path,
+        typer.Option("--gt-dir", help="Ground-truth directory."),
+    ] = Path("eval/ground_truth"),
+    fixtures_dir: Annotated[
+        Path | None,
+        typer.Option("--fixtures-dir", help="Optional base directory for relative fixture paths."),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", help="Write report to JSON."),
+    ] = None,
+    baseline_report: Annotated[
+        Path | None,
+        typer.Option("--baseline-report", help="Previous report JSON for delta comparisons."),
+    ] = None,
+    history_dir: Annotated[
+        Path,
+        typer.Option("--history-dir", help="Directory for validate_all history snapshots."),
+    ] = Path("eval/history"),
+    history_label: Annotated[
+        str | None,
+        typer.Option("--history-label", help="Optional label suffix for history snapshots."),
+    ] = None,
+    filter_by: Annotated[
+        list[str] | None,
+        typer.Option("--filter", help="Filter entries by key=value (repeatable)."),
+    ] = None,
+    group_by: Annotated[
+        list[str] | None,
+        typer.Option("--group-by", help="Group metric breakdown key (repeatable)."),
+    ] = None,
+    min_detection_rate: Annotated[
+        float | None,
+        typer.Option("--min-detection-rate", help="Minimum overall TP detection rate."),
+    ] = None,
+    min_fp_rate: Annotated[
+        float | None,
+        typer.Option("--min-fp-rate", help="Minimum overall FP suppression rate."),
+    ] = None,
+    min_detection_rate_delta: Annotated[
+        float | None,
+        typer.Option("--min-detection-rate-delta", help="Minimum overall detection-rate delta."),
+    ] = None,
+    min_fp_rate_delta: Annotated[
+        float | None,
+        typer.Option("--min-fp-rate-delta", help="Minimum overall FP-suppression-rate delta."),
+    ] = None,
+    min_group_detection_rate: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--min-group-detection-rate",
+            help="Per-group detection threshold group=value:rate (repeatable).",
+        ),
+    ] = None,
+    min_group_fp_rate: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--min-group-fp-rate",
+            help="Per-group FP suppression threshold group=value:rate (repeatable).",
+        ),
+    ] = None,
+    min_group_detection_delta: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--min-group-detection-delta",
+            help="Per-group detection delta threshold group=value:delta (repeatable).",
+        ),
+    ] = None,
+    min_group_fp_delta: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--min-group-fp-delta",
+            help="Per-group FP suppression delta threshold group=value:delta (repeatable).",
+        ),
+    ] = None,
+    keep_output: Annotated[
+        bool,
+        typer.Option("--keep-output", help="Keep per-fixture stage artifacts."),
+    ] = False,
+    no_history: Annotated[
+        bool,
+        typer.Option("--no-history", help="Disable history snapshot writing."),
+    ] = False,
+    verbose: Annotated[
+        bool,
+        typer.Option("--verbose", help="Stream Piranesi output while scanning."),
+    ] = False,
+) -> None:
+    argv = ["--gt-dir", str(gt_dir), "--history-dir", str(history_dir)]
+    if fixtures_dir is not None:
+        argv.extend(["--fixtures-dir", str(fixtures_dir)])
+    if output is not None:
+        argv.extend(["--output", str(output)])
+    if baseline_report is not None:
+        argv.extend(["--baseline-report", str(baseline_report)])
+    if history_label is not None:
+        argv.extend(["--history-label", history_label])
+    if min_detection_rate is not None:
+        argv.extend(["--min-detection-rate", str(min_detection_rate)])
+    if min_fp_rate is not None:
+        argv.extend(["--min-fp-rate", str(min_fp_rate)])
+    if min_detection_rate_delta is not None:
+        argv.extend(["--min-detection-rate-delta", str(min_detection_rate_delta)])
+    if min_fp_rate_delta is not None:
+        argv.extend(["--min-fp-rate-delta", str(min_fp_rate_delta)])
+    _append_repeatable_flags(argv, "--filter", filter_by or [])
+    _append_repeatable_flags(argv, "--group-by", group_by or [])
+    _append_repeatable_flags(argv, "--min-group-detection-rate", min_group_detection_rate or [])
+    _append_repeatable_flags(argv, "--min-group-fp-rate", min_group_fp_rate or [])
+    _append_repeatable_flags(argv, "--min-group-detection-delta", min_group_detection_delta or [])
+    _append_repeatable_flags(argv, "--min-group-fp-delta", min_group_fp_delta or [])
+    if keep_output:
+        argv.append("--keep-output")
+    if no_history:
+        argv.append("--no-history")
+    if verbose:
+        argv.append("--verbose")
+    _run_eval_entrypoint("validate_all", argv)
+
+
+@eval_app.command("compare-reports")
+def eval_compare_reports(
+    baseline_report: Annotated[
+        Path,
+        typer.Option("--baseline-report", help="Baseline validate_all report JSON path."),
+    ],
+    current_report: Annotated[
+        Path,
+        typer.Option("--current-report", help="Current validate_all report JSON path."),
+    ],
+    markdown_output: Annotated[
+        Path | None,
+        typer.Option("--markdown-output", help="Write markdown summary to this file."),
+    ] = None,
+    top: Annotated[
+        int,
+        typer.Option("--top", min=1, help="Top regressions per metric to include."),
+    ] = 10,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+    min_detection_rate_delta: Annotated[
+        float | None,
+        typer.Option("--min-detection-rate-delta", help="Minimum overall detection-rate delta."),
+    ] = None,
+    min_fp_rate_delta: Annotated[
+        float | None,
+        typer.Option("--min-fp-rate-delta", help="Minimum overall FP-suppression-rate delta."),
+    ] = None,
+    min_group_detection_delta: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--min-group-detection-delta",
+            help="Per-group detection delta threshold group=value:delta (repeatable).",
+        ),
+    ] = None,
+    min_group_fp_delta: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--min-group-fp-delta",
+            help="Per-group FP suppression delta threshold group=value:delta (repeatable).",
+        ),
+    ] = None,
+) -> None:
+    argv = [
+        "--baseline-report",
+        str(baseline_report),
+        "--current-report",
+        str(current_report),
+        "--top",
+        str(top),
+    ]
+    if markdown_output is not None:
+        argv.extend(["--markdown-output", str(markdown_output)])
+    if json_output:
+        argv.append("--json")
+    if min_detection_rate_delta is not None:
+        argv.extend(["--min-detection-rate-delta", str(min_detection_rate_delta)])
+    if min_fp_rate_delta is not None:
+        argv.extend(["--min-fp-rate-delta", str(min_fp_rate_delta)])
+    _append_repeatable_flags(argv, "--min-group-detection-delta", min_group_detection_delta or [])
+    _append_repeatable_flags(argv, "--min-group-fp-delta", min_group_fp_delta or [])
+    _run_eval_entrypoint("compare_reports", argv)
 
 
 @app.command(help=_RUN_HELP)
