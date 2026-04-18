@@ -26,6 +26,8 @@ def _ground_truth_entry(
     affected_files: list[str] | None = None,
     taint_source: str = "req.query.id",
     taint_sink: str = "db.query()",
+    taint_step_count: int | None = None,
+    taint_field_path: str | None = None,
 ) -> GroundTruthEntry:
     return GroundTruthEntry(
         id=entry_id,
@@ -44,6 +46,8 @@ def _ground_truth_entry(
         reference_exploit=None,
         reference_fix_commit=None,
         notes="fixture",
+        taint_step_count=taint_step_count,
+        taint_field_path=taint_field_path,
     )
 
 
@@ -54,6 +58,8 @@ def _finding(
     affected_files: tuple[str, ...] = ("src/app.ts",),
     taint_source: str = "req.query.id",
     taint_sink: str = "db.query()",
+    taint_step_count: int | None = None,
+    taint_field_path: str | None = None,
 ) -> scoring.NormalizedFinding:
     return scoring.NormalizedFinding(
         id=finding_id,
@@ -61,6 +67,8 @@ def _finding(
         affected_files=affected_files,
         taint_source=taint_source,
         taint_sink=taint_sink,
+        taint_step_count=taint_step_count,
+        taint_field_path=taint_field_path,
     )
 
 
@@ -128,6 +136,74 @@ def test_precision_recall_f1_with_partial_credit() -> None:
     assert precision == pytest.approx(0.5)
     assert recall == pytest.approx(0.75)
     assert f1 == pytest.approx(0.6)
+
+
+def test_match_weight_can_upgrade_partial_match_using_field_path() -> None:
+    entry = _ground_truth_entry(
+        entry_id="gt-003",
+        taint_source="req.body",
+        taint_sink="db.query()",
+        taint_field_path="body.email",
+    )
+    finding = _finding(
+        finding_id="f-4",
+        taint_source="request_body",
+        taint_sink="db.query()",
+        taint_field_path="req.body.email",
+    )
+    assert scoring.match_weight(finding, entry) == 1.0
+
+
+def test_match_weight_can_downgrade_exact_match_on_field_path_conflict() -> None:
+    entry = _ground_truth_entry(
+        entry_id="gt-004",
+        taint_source="req.body",
+        taint_sink="db.query()",
+        taint_field_path="body.id",
+    )
+    finding = _finding(
+        finding_id="f-5",
+        taint_source="req.body",
+        taint_sink="db.query()",
+        taint_field_path="body.name",
+    )
+    assert scoring.match_weight(finding, entry) == 0.5
+
+
+def test_match_weight_can_downgrade_exact_match_on_step_count_mismatch() -> None:
+    entry = _ground_truth_entry(
+        entry_id="gt-005",
+        taint_source="req.body",
+        taint_sink="db.query()",
+        taint_step_count=5,
+    )
+    finding = _finding(
+        finding_id="f-6",
+        taint_source="req.body",
+        taint_sink="db.query()",
+        taint_step_count=2,
+    )
+    assert scoring.match_weight(finding, entry) == 0.5
+
+
+def test_normalize_finding_extracts_field_path_and_step_count() -> None:
+    finding = scoring.normalize_finding(
+        {
+            "id": "f-7",
+            "cwe_id": "CWE-89",
+            "affected_files": ["src/app.ts"],
+            "source": {
+                "source_type": "request_body",
+                "parameter_name": "email",
+                "location": {"file": "src/app.ts", "line": 12},
+            },
+            "sink": {"api_name": "db.query", "location": {"file": "src/app.ts", "line": 14}},
+            "taint_path": [{"operation": "assignment"}, {"operation": "call_arg"}],
+        }
+    )
+    assert finding is not None
+    assert finding.taint_field_path == "body.email"
+    assert finding.taint_step_count == 2
 
 
 def test_edge_cases_for_metric_calculation() -> None:

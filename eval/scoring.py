@@ -60,6 +60,8 @@ class NormalizedFinding:
     severity: str | None = None
     rule_id: str | None = None
     tool: str | None = None
+    taint_step_count: int | None = None
+    taint_field_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +175,28 @@ def normalize_text(value: str | None) -> str:
     if value is None:
         return ""
     return _WHITESPACE_PATTERN.sub("", value).casefold()
+
+
+def normalize_field_path(value: str | None) -> str:
+    normalized = normalize_text(value)
+    if not normalized:
+        return ""
+    prefix_map = {
+        "request.body.": "body.",
+        "request.query.": "query.",
+        "request.params.": "params.",
+        "request.headers.": "headers.",
+        "request.cookies.": "cookies.",
+        "req.body.": "body.",
+        "req.query.": "query.",
+        "req.params.": "params.",
+        "req.headers.": "headers.",
+        "req.cookies.": "cookies.",
+    }
+    for prefix, replacement in prefix_map.items():
+        if normalized.startswith(prefix):
+            return replacement + normalized.removeprefix(prefix)
+    return normalized
 
 
 def normalize_file_path(value: str | None) -> str:
@@ -371,6 +395,66 @@ def _extract_description(payload: dict[str, Any]) -> str:
     return ""
 
 
+def _extract_taint_step_count(payload: dict[str, Any]) -> int | None:
+    direct = payload.get("taint_step_count")
+    if isinstance(direct, int) and direct > 0:
+        return direct
+    if isinstance(direct, float):
+        coerced = int(direct)
+        if coerced > 0:
+            return coerced
+    taint_path = _coerce_list(payload.get("taint_path"))
+    if taint_path:
+        return len(taint_path)
+    return None
+
+
+def _field_path_from_source_mapping(source: dict[str, Any]) -> str | None:
+    parameter_name = source.get("parameter_name")
+    if not isinstance(parameter_name, str) or not parameter_name.strip():
+        return None
+    source_type = source.get("source_type")
+    if not isinstance(source_type, str) or not source_type.strip():
+        return None
+    prefix_map = {
+        "request_body": "body",
+        "request_param": "query",
+        "query": "query",
+        "header": "headers",
+        "cookie": "cookies",
+        "path_param": "params",
+    }
+    prefix = prefix_map.get(source_type.strip().lower())
+    if prefix is None:
+        return None
+    return f"{prefix}.{parameter_name.strip()}"
+
+
+def _extract_taint_field_path(payload: dict[str, Any]) -> str | None:
+    for key in ("taint_field_path", "field_path"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    metadata = _coerce_mapping(payload.get("metadata"))
+    for key in ("taint_field_path", "field_path"):
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    source = _coerce_mapping(payload.get("source"))
+    source_path = _field_path_from_source_mapping(source)
+    if source_path:
+        return source_path
+
+    source_text = _extract_source_text(payload)
+    if source_text:
+        lowered = source_text.strip().lower()
+        if lowered.startswith("req.") or lowered.startswith("request."):
+            return source_text.strip()
+    return None
+
+
 def _extract_affected_files(payload: dict[str, Any]) -> tuple[str, ...]:
     files: set[str] = set()
     for raw_path in _coerce_list(payload.get("affected_files")):
@@ -439,6 +523,8 @@ def normalize_finding(payload: Any) -> NormalizedFinding | None:
         severity=finding.get("severity") if isinstance(finding.get("severity"), str) else None,
         rule_id=finding.get("rule_id") if isinstance(finding.get("rule_id"), str) else None,
         tool=finding.get("tool") if isinstance(finding.get("tool"), str) else None,
+        taint_step_count=_extract_taint_step_count(finding),
+        taint_field_path=_extract_taint_field_path(finding),
     )
 
 
@@ -644,16 +730,53 @@ def match_weight(finding: NormalizedFinding, entry: GroundTruthEntry) -> float:
 
     if finding_source and entry_source and finding_source == entry_source:
         if finding_sink and finding_sink == entry_sink:
-            return 1.0
-        return 0.5
+            base_weight = 1.0
+            return _refine_match_weight_with_ground_truth_details(base_weight, finding, entry)
+        base_weight = 0.5
+        return _refine_match_weight_with_ground_truth_details(base_weight, finding, entry)
 
     if finding_sink and finding_sink == entry_sink:
         line_weight = _line_match_weight(finding.line_numbers, tuple(entry.line_numbers))
         if line_weight > 0:
-            return line_weight
-        return 0.5
+            return _refine_match_weight_with_ground_truth_details(line_weight, finding, entry)
+        base_weight = 0.5
+        return _refine_match_weight_with_ground_truth_details(base_weight, finding, entry)
 
-    return _line_match_weight(finding.line_numbers, tuple(entry.line_numbers))
+    line_weight = _line_match_weight(finding.line_numbers, tuple(entry.line_numbers))
+    return _refine_match_weight_with_ground_truth_details(line_weight, finding, entry)
+
+
+def _refine_match_weight_with_ground_truth_details(
+    base_weight: float,
+    finding: NormalizedFinding,
+    entry: GroundTruthEntry,
+) -> float:
+    if base_weight <= 0.0:
+        return 0.0
+
+    weight = base_weight
+    entry_field_path = normalize_field_path(entry.taint_field_path)
+    finding_field_path = normalize_field_path(finding.taint_field_path)
+
+    if entry_field_path and finding_field_path:
+        if entry_field_path == finding_field_path and abs(weight - 0.5) < _FLOAT_TOLERANCE:
+            weight = 1.0
+        elif entry_field_path != finding_field_path and abs(weight - 1.0) < _FLOAT_TOLERANCE:
+            weight = 0.5
+
+    entry_steps = entry.taint_step_count
+    finding_steps = finding.taint_step_count
+    if (
+        isinstance(entry_steps, int)
+        and isinstance(finding_steps, int)
+        and entry_steps > 0
+        and finding_steps > 0
+        and abs(entry_steps - finding_steps) > 1
+        and abs(weight - 1.0) < _FLOAT_TOLERANCE
+    ):
+        weight = 0.5
+
+    return weight
 
 
 def _line_match_weight(
