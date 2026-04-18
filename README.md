@@ -191,6 +191,7 @@ uv run pytest
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Capability Matrix](docs/capabilities.md)
+- [Evaluation Harness](docs/evaluation-harness.md)
 - [Getting Started](docs/getting-started.md)
 - [Configuration Reference](docs/configuration.md)
 - [CI Integration](docs/ci-integration.md)

@@ -19,6 +19,27 @@ jobs:
           version: latest
       - run: uv sync --frozen
       - run: uv run python scripts/check_release_hygiene.py
+      - name: Audit ground-truth metadata (global)
+        run: |
+          uv run python eval/ground_truth_audit.py \
+            --gt-dir eval/ground_truth \
+            --required-field discovery_method \
+            --fail-on-missing
+      - name: Audit ground-truth metadata (synthetic quality gate)
+        run: |
+          uv run python eval/ground_truth_audit.py \
+            --gt-dir eval/ground_truth \
+            --filter discovery_method=synthetic \
+            --required-field language \
+            --required-field framework \
+            --fail-on-missing
+      - name: Audit ground-truth metadata (CVE quality gate)
+        run: |
+          uv run python eval/ground_truth_audit.py \
+            --gt-dir eval/ground_truth \
+            --filter discovery_method=cve_mining \
+            --required-field language \
+            --fail-on-missing
       - run: uv run ruff check src/ tests/
       - run: uv run ruff format --check src/ tests/
 
