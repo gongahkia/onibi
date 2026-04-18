@@ -3425,6 +3425,8 @@ def _run_eval_entrypoint(entrypoint: str, argv: list[str]) -> None:
             from eval.ground_truth_audit import main as eval_main
         elif entrypoint == "enrich_ground_truth":
             from eval.ground_truth_enrich import main as eval_main
+        elif entrypoint == "coverage_gaps":
+            from eval.coverage_gap_report import main as eval_main
         elif entrypoint == "validate_all":
             from eval.validate_all import main as eval_main
         elif entrypoint == "compare_reports":
@@ -3647,11 +3649,25 @@ def eval_enrich_ground_truth(
         bool,
         typer.Option("--write", help="Persist enriched values to YAML files."),
     ] = False,
+    taint_field_candidates_only: Annotated[
+        bool,
+        typer.Option(
+            "--taint-field-candidates-only",
+            help="Only enforce taint_field_path enrichment for explicitly inferable sources.",
+        ),
+    ] = False,
     fail_on_unresolved: Annotated[
         bool,
         typer.Option(
             "--fail-on-unresolved",
             help="Exit non-zero if unresolved entries remain for selected fields.",
+        ),
+    ] = False,
+    fail_on_updates: Annotated[
+        bool,
+        typer.Option(
+            "--fail-on-updates",
+            help="Exit non-zero if enrichment would update any fields in dry-run mode.",
         ),
     ] = False,
     json_output: Annotated[
@@ -3669,11 +3685,64 @@ def eval_enrich_ground_truth(
     _append_repeatable_flags(argv, "--filter", filter_by or [])
     if write:
         argv.append("--write")
+    if taint_field_candidates_only:
+        argv.append("--taint-field-candidates-only")
     if fail_on_unresolved:
         argv.append("--fail-on-unresolved")
+    if fail_on_updates:
+        argv.append("--fail-on-updates")
     if json_output:
         argv.append("--json")
     _run_eval_entrypoint("enrich_ground_truth", argv)
+
+
+@eval_app.command("coverage-gaps")
+def eval_coverage_gaps(
+    gt_dir: Annotated[
+        Path,
+        typer.Option("--gt-dir", help="Ground-truth directory."),
+    ] = Path("eval/ground_truth"),
+    dimension: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--dimension",
+            help="Slice dimension, e.g. cwe+language (repeatable).",
+        ),
+    ] = None,
+    filter_by: Annotated[
+        list[str] | None,
+        typer.Option("--filter", help="Filter entries by key=value (repeatable)."),
+    ] = None,
+    min_count: Annotated[
+        int,
+        typer.Option("--min-count", min=1, help="Minimum desired fixtures per slice."),
+    ] = 8,
+    max_results_per_dimension: Annotated[
+        int,
+        typer.Option(
+            "--max-results-per-dimension",
+            min=1,
+            help="Maximum gap rows to emit per requested dimension.",
+        ),
+    ] = 20,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+) -> None:
+    argv = [
+        "--gt-dir",
+        str(gt_dir),
+        "--min-count",
+        str(min_count),
+        "--max-results-per-dimension",
+        str(max_results_per_dimension),
+    ]
+    _append_repeatable_flags(argv, "--dimension", dimension or [])
+    _append_repeatable_flags(argv, "--filter", filter_by or [])
+    if json_output:
+        argv.append("--json")
+    _run_eval_entrypoint("coverage_gaps", argv)
 
 
 @eval_app.command("compare-reports")

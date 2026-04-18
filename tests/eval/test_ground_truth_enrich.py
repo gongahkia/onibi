@@ -91,7 +91,7 @@ def test_enrich_ground_truth_reports_unresolved_entries(tmp_path: Path, capsys) 
 
     assert exit_code == 0
     assert payload["updated_entries"] == 2
-    assert payload["updated_fields"] == 4
+    assert payload["updated_fields"] == 6
     assert payload["unresolved"]["language"]["count"] == 1
     assert payload["unresolved"]["framework"]["count"] == 1
     assert "gt-002" in payload["unresolved"]["language"]["entry_ids"]
@@ -126,6 +126,7 @@ def test_enrich_ground_truth_write_updates_yaml(tmp_path: Path, capsys) -> None:
     assert payload["language"] == "typescript"
     assert payload["framework"] == "general"
     assert payload["taint_step_count"] == 3
+    assert payload["taint_field_path"] == "query.id"
 
 
 def test_enrich_ground_truth_fail_on_unresolved(tmp_path: Path, capsys) -> None:
@@ -154,3 +155,77 @@ def test_enrich_ground_truth_fail_on_unresolved(tmp_path: Path, capsys) -> None:
 
     assert exit_code == 1
     assert payload["unresolved"]["language"]["count"] == 1
+
+
+def test_enrich_ground_truth_fail_on_updates(tmp_path: Path, capsys) -> None:
+    gt_dir = tmp_path / "ground_truth"
+    _write_entries(
+        gt_dir,
+        [
+            _entry(
+                entry_id="gt-005",
+                source_project="synthetic",
+                affected_files=["eval/synthetic/sqli-pg-raw.ts"],
+                taint_path=["req.query.id", "db.query(sql)", "sink"],
+            )
+        ],
+    )
+
+    exit_code = ground_truth_enrich.main(
+        [
+            "--gt-dir",
+            str(gt_dir),
+            "--fail-on-updates",
+            "--json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 2
+    assert payload["updated_fields"] > 0
+
+
+def test_enrich_ground_truth_taint_candidates_only_reduces_unresolved(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    gt_dir = tmp_path / "ground_truth"
+    _write_entries(
+        gt_dir,
+        [
+            _entry(
+                entry_id="gt-006",
+                source_project="synthetic",
+                affected_files=["eval/synthetic/sqli-pg-raw.ts"],
+                taint_path=["req.query.id", "db.query(sql)"],
+            ),
+            _entry(
+                entry_id="gt-007",
+                source_project="synthetic",
+                affected_files=["eval/synthetic/sqli-pg-raw.ts"],
+                taint_path=["input", "db.query(sql)"],
+            ),
+        ],
+    )
+    payload = yaml.safe_load((gt_dir / "gt-007.yaml").read_text(encoding="utf-8"))
+    payload["taint_source"] = "attacker-controlled SQL fragment"
+    (gt_dir / "gt-007.yaml").write_text(
+        yaml.safe_dump(payload, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    exit_code = ground_truth_enrich.main(
+        [
+            "--gt-dir",
+            str(gt_dir),
+            "--field",
+            "taint_field_path",
+            "--taint-field-candidates-only",
+            "--json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["updated_entries"] == 1
+    assert payload["unresolved"] == {}

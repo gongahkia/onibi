@@ -48,6 +48,22 @@ jobs:
             --field framework \
             --field taint_step_count \
             --fail-on-unresolved
+      - name: Field-path metadata freshness gate
+        run: |
+          uv run python eval/ground_truth_enrich.py \
+            --gt-dir eval/ground_truth \
+            --field taint_field_path \
+            --taint-field-candidates-only \
+            --fail-on-unresolved \
+            --fail-on-updates
+      - name: Field-sensitive benchmark metadata gate
+        run: |
+          uv run python eval/ground_truth_audit.py \
+            --gt-dir eval/ground_truth \
+            --filter source_project=synthetic-phase31 \
+            --required-field taint_field_path \
+            --required-field field_sensitive_label \
+            --fail-on-missing
       - run: uv run ruff check src/ tests/
       - run: uv run ruff format --check src/ tests/
 

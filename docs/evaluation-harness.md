@@ -4,6 +4,7 @@ This document covers the two evaluation utilities used to keep fixture quality a
 
 - `eval/ground_truth_audit.py`: metadata quality auditing for `eval/ground_truth`.
 - `eval/ground_truth_enrich.py`: deterministic metadata backfill for sparse ground-truth fields.
+- `eval/coverage_gap_report.py`: ranking report for under-covered fixture slices.
 - `eval/validate_all.py`: fixture execution and coverage scoring against ground truth.
 - `eval/compare_reports.py`: diff and regression summary between two `validate_all` reports.
 
@@ -61,6 +62,7 @@ python3 eval/ground_truth_enrich.py \
   --field language \
   --field framework \
   --field taint_step_count \
+  --field taint_field_path \
   --write
 ```
 
@@ -73,6 +75,44 @@ python3 eval/ground_truth_enrich.py \
   --field framework \
   --field taint_step_count \
   --fail-on-unresolved
+```
+
+Use `--fail-on-updates` to enforce that metadata is already committed:
+
+```bash
+python3 eval/ground_truth_enrich.py \
+  --gt-dir eval/ground_truth \
+  --field taint_field_path \
+  --taint-field-candidates-only \
+  --fail-on-unresolved \
+  --fail-on-updates
+```
+
+### Notes
+
+- `--taint-field-candidates-only` scopes unresolved checks to entries where `taint_field_path` can be inferred from explicit field-access syntax.
+- `--fail-on-updates` exits with code `2` when dry-run enrichment would modify any entry.
+
+## Coverage Gap Planning
+
+Find highest-priority slices to expand:
+
+```bash
+python3 eval/coverage_gap_report.py \
+  --gt-dir eval/ground_truth \
+  --dimension cwe+language \
+  --dimension cwe+framework \
+  --min-count 8
+```
+
+JSON output for automation:
+
+```bash
+python3 eval/coverage_gap_report.py \
+  --gt-dir eval/ground_truth \
+  --dimension cwe+language \
+  --filter discovery_method=synthetic \
+  --json
 ```
 
 ## Batch Fixture Validation

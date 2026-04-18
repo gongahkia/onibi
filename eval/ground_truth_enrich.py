@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import yaml
 
@@ -14,7 +15,7 @@ try:
 except ImportError:  # pragma: no cover - supports `python eval/ground_truth_enrich.py`
     from ground_truth.schema import GroundTruthEntry  # type: ignore[import-not-found,no-redef]
 
-_DEFAULT_FIELDS = ("language", "framework", "taint_step_count")
+_DEFAULT_FIELDS = ("language", "framework", "taint_step_count", "taint_field_path")
 _ALLOWED_FIELDS = frozenset(_DEFAULT_FIELDS)
 _SHOW_LIMIT_DEFAULT = 10
 
@@ -140,6 +141,14 @@ _PATH_FRAMEWORK_HINTS = (
     ("/wordpress/", "wordpress"),
     ("/symfony/", "symfony"),
 )
+
+_TAINT_FIELD_PATH_OVERRIDES = {
+    "gt-114": "body.search",
+    "gt-115": "body.cmd_input",
+    "gt-117": "body.file_path",
+    "gt-118": "body.proxy_url",
+    "gt-119": "body.expr_input",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -268,6 +277,274 @@ def infer_taint_step_count(payload: dict[str, Any]) -> int | None:
     return len(taint_path)
 
 
+def _sanitize_field_segment(value: str) -> str:
+    sanitized = re.sub(r"[^A-Za-z0-9_]+", "_", value.strip())
+    sanitized = sanitized.strip("_")
+    if not sanitized:
+        return "value"
+    return sanitized
+
+
+def _normalize_field_path(path: str) -> str:
+    parts = [_sanitize_field_segment(part) for part in path.split(".") if part.strip()]
+    if not parts:
+        return ""
+    return ".".join(parts)
+
+
+def _build_field_path(prefix: str, field: str, *, lowercase: bool = False) -> str:
+    value = _normalize_field_path(field)
+    if not value:
+        value = "value"
+    if lowercase:
+        value = value.lower()
+    return f"{prefix}.{value}"
+
+
+def _extract_python_typed_param(prefix: str, source_text: str) -> str | None:
+    pattern = re.compile(rf"\b([A-Za-z_][A-Za-z0-9_]*)\s*:\s*[^=]+?=\s*{prefix}\(")
+    match = pattern.search(source_text)
+    if match:
+        return match.group(1)
+    return None
+
+
+def infer_taint_field_path(payload: dict[str, Any]) -> str | None:
+    entry_id = str(payload.get("id") or "")
+    override = _TAINT_FIELD_PATH_OVERRIDES.get(entry_id)
+    if override is not None:
+        return override
+
+    taint_source = payload.get("taint_source")
+    if not isinstance(taint_source, str):
+        return None
+    source_text = taint_source.strip()
+    if not source_text:
+        return None
+
+    matchers: list[tuple[re.Pattern[str], Callable[[re.Match[str]], str]]] = [
+        (
+            re.compile(
+                r"(?:^|\b)(?:req|request)\.(body|query|params|cookies|headers|files)\.([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)*)"
+            ),
+            lambda match: _build_field_path(
+                match.group(1),
+                match.group(2),
+                lowercase=match.group(1) == "headers",
+            ),
+        ),
+        (
+            re.compile(r"(?:^|\b)req\.file\.([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)*)"),
+            lambda match: _build_field_path("files", f"file.{match.group(1)}"),
+        ),
+        (
+            re.compile(r"(?:^|\b)req\.file\b"),
+            lambda _match: "files.file",
+        ),
+        (
+            re.compile(r"(?:^|\b)params\.([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)*)"),
+            lambda match: _build_field_path("params", match.group(1)),
+        ),
+        (
+            re.compile(r"(?:^|\b)searchParams\.([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)*)"),
+            lambda match: _build_field_path("query", match.group(1)),
+        ),
+        (
+            re.compile(r"route\.snapshot\.queryParams\.([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)*)"),
+            lambda match: _build_field_path("query", match.group(1)),
+        ),
+        (
+            re.compile(
+                r"(?:^|\b)(body|query|params|headers|cookies|files)\.([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)*)"
+            ),
+            lambda match: _build_field_path(
+                match.group(1),
+                match.group(2),
+                lowercase=match.group(1) == "headers",
+            ),
+        ),
+        (
+            re.compile(r"(?:^|\b)(?:req|request)\.headers\[['\"]([^'\"]+)['\"]\]"),
+            lambda match: _build_field_path("headers", match.group(1), lowercase=True),
+        ),
+        (
+            re.compile(
+                r"(?:^|\b)(?:req|request)\.(body|query|params|cookies|headers|files)\[['\"]([^'\"]+)['\"]\]"
+            ),
+            lambda match: _build_field_path(
+                match.group(1),
+                match.group(2),
+                lowercase=match.group(1) == "headers",
+            ),
+        ),
+        (
+            re.compile(r"request\.nextUrl\.searchParams\.get\(['\"]([^'\"]+)['\"]\)"),
+            lambda match: _build_field_path("query", match.group(1)),
+        ),
+        (
+            re.compile(r"formData\.get\(['\"]([^'\"]+)['\"]\)"),
+            lambda match: _build_field_path("body", match.group(1)),
+        ),
+        (
+            re.compile(r"request\.(GET|args)\[['\"]([^'\"]+)['\"]\]", re.IGNORECASE),
+            lambda match: _build_field_path("query", match.group(2)),
+        ),
+        (
+            re.compile(r"request\.(POST|form)\[['\"]([^'\"]+)['\"]\]", re.IGNORECASE),
+            lambda match: _build_field_path("body", match.group(2)),
+        ),
+        (
+            re.compile(r"request\.(args|GET)\.get\(['\"]([^'\"]+)['\"]\)", re.IGNORECASE),
+            lambda match: _build_field_path("query", match.group(2)),
+        ),
+        (
+            re.compile(r"request\.(form|POST)\.get\(['\"]([^'\"]+)['\"]\)", re.IGNORECASE),
+            lambda match: _build_field_path("body", match.group(2)),
+        ),
+        (
+            re.compile(r"request\.(json|data)\[['\"]([^'\"]+)['\"]\]"),
+            lambda match: _build_field_path("body", match.group(2)),
+        ),
+        (
+            re.compile(r"request\.(json|data)\.get\(['\"]([^'\"]+)['\"]\)"),
+            lambda match: _build_field_path("body", match.group(2)),
+        ),
+        (
+            re.compile(r"request\.get_json\(\)\[['\"]([^'\"]+)['\"]\]"),
+            lambda match: _build_field_path("body", match.group(1)),
+        ),
+        (
+            re.compile(r"request\.getParameter\(['\"]([^'\"]+)['\"]\)"),
+            lambda match: _build_field_path("query", match.group(1)),
+        ),
+        (
+            re.compile(r"@Body\(['\"]([^'\"]+)['\"]\)"),
+            lambda match: _build_field_path("body", match.group(1)),
+        ),
+        (
+            re.compile(r"@Param\(['\"]([^'\"]+)['\"]\)"),
+            lambda match: _build_field_path("params", match.group(1)),
+        ),
+        (
+            re.compile(r"@Query\(['\"]([^'\"]+)['\"]\)"),
+            lambda match: _build_field_path("query", match.group(1)),
+        ),
+        (
+            re.compile(r"@Headers\(['\"]([^'\"]+)['\"]\)"),
+            lambda match: _build_field_path("headers", match.group(1), lowercase=True),
+        ),
+        (
+            re.compile(r"@CookieValue\(['\"]([^'\"]+)['\"]\)"),
+            lambda match: _build_field_path("cookies", match.group(1)),
+        ),
+        (
+            re.compile(r"@RequestHeader\(['\"]([^'\"]+)['\"]\)"),
+            lambda match: _build_field_path("headers", match.group(1), lowercase=True),
+        ),
+        (
+            re.compile(r"@RequestParam\(['\"]([^'\"]+)['\"]\)"),
+            lambda match: _build_field_path("query", match.group(1)),
+        ),
+        (
+            re.compile(r"@PathVariable\(['\"]([^'\"]+)['\"]\)"),
+            lambda match: _build_field_path("params", match.group(1)),
+        ),
+        (
+            re.compile(r"c\.Query\(['\"]([^'\"]+)['\"]\)"),
+            lambda match: _build_field_path("query", match.group(1)),
+        ),
+        (
+            re.compile(r"c\.QueryParam\(['\"]([^'\"]+)['\"]\)"),
+            lambda match: _build_field_path("query", match.group(1)),
+        ),
+        (
+            re.compile(r"ctx\.QueryParam\(['\"]([^'\"]+)['\"]\)"),
+            lambda match: _build_field_path("query", match.group(1)),
+        ),
+        (
+            re.compile(r"r\.URL\.Query\(\)\.Get\(['\"]([^'\"]+)['\"]\)"),
+            lambda match: _build_field_path("query", match.group(1)),
+        ),
+        (
+            re.compile(r"c\.PostForm\(['\"]([^'\"]+)['\"]\)"),
+            lambda match: _build_field_path("body", match.group(1)),
+        ),
+        (
+            re.compile(r"c\.FormValue\(['\"]([^'\"]+)['\"]\)"),
+            lambda match: _build_field_path("body", match.group(1)),
+        ),
+        (
+            re.compile(r"r\.FormValue\(['\"]([^'\"]+)['\"]\)"),
+            lambda match: _build_field_path("body", match.group(1)),
+        ),
+        (
+            re.compile(r"chi\.URLParam\(r, ['\"]([^'\"]+)['\"]\)"),
+            lambda match: _build_field_path("params", match.group(1)),
+        ),
+        (
+            re.compile(r"c\.Param\(['\"]([^'\"]+)['\"]\)"),
+            lambda match: _build_field_path("params", match.group(1)),
+        ),
+        (
+            re.compile(r"c\.GetHeader\(['\"]([^'\"]+)['\"]\)"),
+            lambda match: _build_field_path("headers", match.group(1), lowercase=True),
+        ),
+        (
+            re.compile(r"\$_GET\[['\"]([^'\"]+)['\"]\]"),
+            lambda match: _build_field_path("query", match.group(1)),
+        ),
+        (
+            re.compile(r"\$_POST\[['\"]([^'\"]+)['\"]\]"),
+            lambda match: _build_field_path("body", match.group(1)),
+        ),
+        (
+            re.compile(r"params\[:([A-Za-z_][A-Za-z0-9_]*)\]"),
+            lambda match: _build_field_path("params", match.group(1)),
+        ),
+        (
+            re.compile(r"document\.getElementById\(['\"]([^'\"]+)['\"]\)\.value"),
+            lambda match: _build_field_path("body", match.group(1)),
+        ),
+    ]
+
+    for pattern, resolver in matchers:
+        match = pattern.search(source_text)
+        if match:
+            inferred = resolver(match)
+            if inferred:
+                return inferred
+
+    if "@RequestParam" in source_text:
+        return "query.param"
+    if "@PathVariable" in source_text:
+        return "params.id"
+    if "@RequestBody" in source_text:
+        return "body.payload"
+
+    typed_query_name = _extract_python_typed_param("Query", source_text)
+    if typed_query_name is not None:
+        return _build_field_path("query", typed_query_name)
+
+    typed_body_name = _extract_python_typed_param("Body", source_text)
+    if typed_body_name is not None:
+        return _build_field_path("body", typed_body_name)
+
+    if source_text in {"req.body", "request.body", "request.data", "request.json"}:
+        return "body.*"
+
+    if source_text.startswith("request.get_data"):
+        return "body.raw"
+
+    return None
+
+
+def _entry_id(payload: dict[str, Any], fallback: str) -> str:
+    value = payload.get("id")
+    if isinstance(value, str) and value.strip():
+        return value
+    return fallback
+
+
 def _render_scalar(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
@@ -332,6 +609,7 @@ def enrich_ground_truth(
     filters: tuple[tuple[str, str], ...],
     write: bool,
     show_limit: int,
+    taint_field_candidates_only: bool,
 ) -> EnrichmentSummary:
     unresolved: dict[str, list[str]] = {field: [] for field in fields}
     files_written = 0
@@ -345,12 +623,13 @@ def enrich_ground_truth(
         considered_entries += 1
         updates: dict[str, Any] = {}
 
+        entry_id = _entry_id(payload, path.stem)
         inferred_language = str(payload.get("language")) if _is_present(payload.get("language")) else None
 
         if "language" in fields and not _is_present(payload.get("language")):
             candidate = infer_language(payload)
             if candidate is None:
-                unresolved["language"].append(str(payload.get("id") or path.stem))
+                unresolved["language"].append(entry_id)
             else:
                 updates["language"] = candidate
                 inferred_language = candidate
@@ -358,16 +637,24 @@ def enrich_ground_truth(
         if "framework" in fields and not _is_present(payload.get("framework")):
             candidate = infer_framework(payload, inferred_language=inferred_language)
             if candidate is None:
-                unresolved["framework"].append(str(payload.get("id") or path.stem))
+                unresolved["framework"].append(entry_id)
             else:
                 updates["framework"] = candidate
 
         if "taint_step_count" in fields and not _is_present(payload.get("taint_step_count")):
             candidate = infer_taint_step_count(payload)
             if candidate is None:
-                unresolved["taint_step_count"].append(str(payload.get("id") or path.stem))
+                unresolved["taint_step_count"].append(entry_id)
             else:
                 updates["taint_step_count"] = candidate
+
+        if "taint_field_path" in fields and not _is_present(payload.get("taint_field_path")):
+            candidate = infer_taint_field_path(payload)
+            if candidate is None:
+                if not taint_field_candidates_only:
+                    unresolved["taint_field_path"].append(entry_id)
+            else:
+                updates["taint_field_path"] = candidate
 
         if not updates:
             continue
@@ -439,7 +726,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--field",
         action="append",
         default=[],
-        help="Field to enrich (repeatable). Defaults to language, framework, taint_step_count.",
+        help=(
+            "Field to enrich (repeatable). "
+            "Defaults to language, framework, taint_step_count, taint_field_path."
+        ),
     )
     parser.add_argument(
         "--filter",
@@ -455,9 +745,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--write", action="store_true", help="Persist enriched values to YAML files.")
     parser.add_argument(
+        "--taint-field-candidates-only",
+        action="store_true",
+        help=(
+            "When enriching taint_field_path, only enforce unresolved checks on entries with "
+            "explicitly inferable field-access sources."
+        ),
+    )
+    parser.add_argument(
         "--fail-on-unresolved",
         action="store_true",
         help="Return exit code 1 if unresolved entries remain for selected fields.",
+    )
+    parser.add_argument(
+        "--fail-on-updates",
+        action="store_true",
+        help=(
+            "Return exit code 2 if enrichment would update any fields. "
+            "Use this as a CI freshness gate in dry-run mode."
+        ),
     )
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON output.")
     return parser.parse_args(argv)
@@ -475,6 +781,7 @@ def main(argv: list[str] | None = None) -> int:
         filters=filters,
         write=args.write,
         show_limit=max(1, args.show_limit),
+        taint_field_candidates_only=args.taint_field_candidates_only,
     )
 
     if args.json:
@@ -484,6 +791,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.fail_on_unresolved and any(summary.unresolved.values()):
         return 1
+    if args.fail_on_updates and summary.updated_fields > 0:
+        return 2
     return 0
 
 
