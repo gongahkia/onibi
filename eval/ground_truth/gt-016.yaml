@@ -18,3 +18,6 @@ exploitable: true
 reference_exploit: "GET /files/../../etc/passwd uses directory traversal to read system files outside uploads directory"
 reference_fix_commit: null
 notes: "Hand-crafted synthetic. Classic path traversal: user-controlled filename joined to base directory without canonicalization or containment check. Fix would use path.resolve() + startsWith() guard."
+language: typescript
+framework: general
+taint_step_count: 3

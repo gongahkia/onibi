@@ -20,3 +20,6 @@ exploitable: false
 reference_exploit: null
 reference_fix_commit: null
 notes: "Hand-crafted false positive. URL validation blocks non-HTTPS protocols and common internal/metadata IP ranges. While not a complete SSRF defense (DNS rebinding still possible), it represents a common safe pattern that should not be flagged."
+language: typescript
+framework: general
+taint_step_count: 5

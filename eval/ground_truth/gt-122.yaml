@@ -17,3 +17,6 @@ exploitable: true
 reference_exploit: "POST /api/yaml with !!python/object/apply:os.system ['id'] payload"
 reference_fix_commit: null
 notes: "yaml.load with yaml.Loader (not SafeLoader) allows arbitrary Python object instantiation."
+language: python
+framework: general
+taint_step_count: 2

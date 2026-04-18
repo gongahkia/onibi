@@ -18,3 +18,6 @@ exploitable: true
 reference_exploit: "POST /reports with body {\"format\":\"pdf; rm -rf /\"} executes arbitrary shell commands"
 reference_fix_commit: null
 notes: "Command injection via ProcessBuilder with shell=true pattern (bash -c). Interprocedural flow through service layer. Fix: use argument list, not shell string."
+language: java
+framework: spring-boot
+taint_step_count: 3

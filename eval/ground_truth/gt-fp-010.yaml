@@ -19,3 +19,6 @@ exploitable: false
 reference_exploit: null
 reference_fix_commit: null
 notes: "Hand-crafted false positive. User input selects from a predefined allowlist map. The actual URL passed to fetch() is never user-controlled, only the map key is. No SSRF possible."
+language: typescript
+framework: general
+taint_step_count: 4

@@ -17,3 +17,6 @@ exploitable: true
 reference_exploit: "GET /search?q=<script>alert(1)</script> triggers XSS in browser"
 reference_fix_commit: null
 notes: "Reflected XSS via unescaped user input written directly to response. Fix: use HtmlUtils.htmlEscape() or return via template engine."
+language: java
+framework: spring-boot
+taint_step_count: 2

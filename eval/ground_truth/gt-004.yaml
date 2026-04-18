@@ -21,3 +21,6 @@ exploitable: true
 reference_exploit: "Pass a where value containing ':myParam' pattern, with a replacements map that injects arbitrary SQL via the matching key"
 reference_fix_commit: "ccaa3996047fe00048d5993ab2dd43ebadd4f78b"
 notes: "CVE-2023-25813 (GHSA-wrh9-cjv3-2hpw). CVSS 10.0. Sequelize < 6.19.1. Fix: do not replace :replacements inside of strings. Context-sensitive because exploit requires understanding replacement semantics across two processing stages."
+language: javascript
+framework: node
+taint_step_count: 4

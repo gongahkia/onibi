@@ -20,3 +20,6 @@ exploitable: true
 reference_exploit: "GET /rest/track-order/<iframe src='javascript:alert(`xss`)'> reflects XSS payload in order tracking response"
 reference_fix_commit: null
 notes: "Reflected XSS via order tracking endpoint. Simple taint flow within single route handler. Juice Shop challenge: reflectedXssChallenge."
+language: typescript
+framework: express
+taint_step_count: 5

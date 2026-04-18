@@ -19,3 +19,6 @@ exploitable: true
 reference_exploit: "UNION-based and boolean-blind SQLi via crafted JSON key containing '::' followed by SQL payload to exfiltrate data"
 reference_fix_commit: "cb7f99ad05de56137672ab95586359ff6ceba004"
 notes: "CVE-2026-30951 (GHSA-6457-6jrx-69cr). CVSS 7.5. Sequelize <= 6.37.7. Fix: whitelist allowed SQL cast types. Context-sensitive: requires understanding JSON path splitting and cast type interpolation chain."
+language: javascript
+framework: node
+taint_step_count: 4

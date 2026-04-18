@@ -32,3 +32,4 @@ reference_urls:
 - https://nvd.nist.gov/vuln/detail/CVE-2026-22244
 - https://github.com/advisories/GHSA-5f29-2333-h9c7
 - https://github.com/open-metadata/OpenMetadata/commit/bffe7c45807763f9b682021d4211c478d2a08bb3
+taint_step_count: 3

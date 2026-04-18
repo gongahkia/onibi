@@ -32,3 +32,4 @@ reference_urls:
 - https://nvd.nist.gov/vuln/detail/CVE-2026-29793
 - https://github.com/advisories/GHSA-p9xr-7p9p-gpqx
 - https://github.com/feathersjs/feathers/releases/tag/v5.0.42
+taint_step_count: 3

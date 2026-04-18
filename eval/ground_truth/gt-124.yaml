@@ -17,3 +17,6 @@ exploitable: true
 reference_exploit: "POST /api/import with YAML containing JS-specific type coercion payload"
 reference_fix_commit: null
 notes: "js-yaml load() with default loader allows custom type instantiation. Use safeLoad() or safe schema."
+language: typescript
+framework: general
+taint_step_count: 2

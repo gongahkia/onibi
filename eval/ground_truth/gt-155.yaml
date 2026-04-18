@@ -20,3 +20,6 @@ reference_exploit: Trigger MakoTemplate() with attacker-controlled input describ
   in request.json["tpl"].
 reference_fix_commit: null
 notes: Mako Template constructor receives attacker-controlled source.
+language: python
+framework: general
+taint_step_count: 2

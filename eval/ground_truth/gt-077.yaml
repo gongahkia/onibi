@@ -17,3 +17,6 @@ exploitable: false
 reference_exploit: null
 reference_fix_commit: null
 notes: "False positive for NoSQL injection. Unlike the $where-based routes, this update uses a literal string _id equality check from a path parameter and does not interpret JavaScript or operator objects."
+language: typescript
+framework: express
+taint_step_count: 2

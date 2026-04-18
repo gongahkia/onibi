@@ -18,3 +18,6 @@ exploitable: false
 reference_exploit: null
 reference_fix_commit: null
 notes: XPath variable binding keeps the query structure static.
+language: java
+framework: general
+taint_step_count: 2

@@ -20,3 +20,6 @@ exploitable: true
 reference_exploit: "POST /dataerasure with body layout=../package.json leaks the beginning of package.json and appends '......', as covered by the upstream API test."
 reference_fix_commit: null
 notes: "Local file read via attacker-controlled Handlebars layout resolution. The view name stays fixed, but the spread render options make layout a file-system sink."
+language: typescript
+framework: express
+taint_step_count: 5

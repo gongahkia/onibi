@@ -17,3 +17,6 @@ exploitable: false
 reference_exploit: null
 reference_fix_commit: null
 notes: "Hand-crafted false positive. Apparent command injection exists in dead code behind an always-false condition (feature flag permanently disabled). The exec() call is syntactically present but never reachable. Tests that Piranesi's analysis respects control flow rather than pattern-matching on sink calls."
+language: typescript
+framework: general
+taint_step_count: 2

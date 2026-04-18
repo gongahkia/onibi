@@ -17,3 +17,6 @@ exploitable: true
 reference_exploit: "Header X-User-Comment: <img src=x onerror=alert(1)> — XSS via header source"
 reference_fix_commit: null
 notes: "Gin header source cast to template.HTML. Unusual attack vector via custom header, but exploitable if header is set by upstream proxy or user-controlled input."
+language: go
+framework: gin
+taint_step_count: 2

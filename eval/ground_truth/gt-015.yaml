@@ -18,3 +18,6 @@ exploitable: true
 reference_exploit: "GET /quarantine/..%5C..%5Cpackage.json uses backslash-encoded traversal to escape quarantine directory on Windows"
 reference_fix_commit: null
 notes: "Limited path traversal in quarantine file server. Same pattern as keyServer.ts and logfileServer.ts. Forward-slash block limits but does not eliminate exploitation (backslash, URL encoding)."
+language: typescript
+framework: express
+taint_step_count: 3

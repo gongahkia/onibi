@@ -17,3 +17,6 @@ exploitable: true
 reference_exploit: "POST /api/marshal with crafted marshal payload for code execution"
 reference_fix_commit: null
 notes: "marshal.loads on untrusted data can execute arbitrary code. Python docs explicitly warn against unmarshalling untrusted data."
+language: python
+framework: general
+taint_step_count: 2

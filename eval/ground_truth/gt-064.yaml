@@ -21,3 +21,6 @@ exploitable: true
 reference_exploit: "Uploading test/files/videoExploit.zip plants </script><script>alert(`xss`)</script> into owasp_promo.vtt and triggers XSS on GET /promotion."
 reference_fix_commit: null
 notes: "Stored XSS chained off the Zip Slip write primitive. The backend later embeds the attacker-controlled subtitle file directly into a script element."
+language: typescript
+framework: express
+taint_step_count: 5

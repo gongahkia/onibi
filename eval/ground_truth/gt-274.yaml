@@ -27,8 +27,9 @@ fix_commit: bf53329b61ca6afc5d28f6b8d2dc2e3ca740a9b2
 vulnerable_commit: ae38832a0f1347c5e96dda665402509a3458e302
 discovery_method: cve_mining
 language: javascript
-framework: null
+framework: node
 reference_urls:
 - https://nvd.nist.gov/vuln/detail/CVE-2021-31597
 - https://github.com/mjwwit/node-XMLHttpRequest/commit/bf53329b61ca6afc5d28f6b8d2dc2e3ca740a9b2
 - https://github.com/mjwwit/node-XMLHttpRequest/compare/v1.6.0...1.6.1
+taint_step_count: 3

@@ -19,3 +19,6 @@ exploitable: true
 reference_exploit: GET /app/redirect?url=https://evil.example/phish bounces the victim to an attacker-controlled site
 reference_fix_commit: null
 notes: Classic open redirect. DVNA performs no same-origin or allowlist validation before redirecting.
+language: javascript
+framework: express
+taint_step_count: 2

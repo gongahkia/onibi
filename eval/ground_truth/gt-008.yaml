@@ -21,3 +21,6 @@ exploitable: true
 reference_exploit: "Navigate to /#/search?q=<iframe src='javascript:alert(`xss`)'> executes arbitrary JS in victim's browser"
 reference_fix_commit: null
 notes: "DOM-based XSS in Angular SPA. Context-sensitive: requires understanding that bypassSecurityTrustHtml() intentionally defeats Angular's built-in XSS protection. Juice Shop challenges: localXssChallenge, xssBonusChallenge."
+language: typescript
+framework: express
+taint_step_count: 5

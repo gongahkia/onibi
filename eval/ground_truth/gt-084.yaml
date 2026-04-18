@@ -25,3 +25,6 @@ exploitable: true
 reference_exploit: 'Send `Referrer: //evil.example/phish` to a route that calls ctx.redirect(''back'')'
 reference_fix_commit: 7f58bdc05ae7e13e7b9125a098f33a18667c8c61
 notes: CVE-2025-62595. This is the incomplete-fix bypass for CVE-2025-8129; 2.16.3 removes the startsWith("/") fast path.
+language: javascript
+framework: koa
+taint_step_count: 5

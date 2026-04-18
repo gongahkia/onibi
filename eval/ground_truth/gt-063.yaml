@@ -19,3 +19,6 @@ exploitable: true
 reference_exploit: "Uploading a ZIP containing ../../ftp/legal.md overwrites ftp/legal.md outside uploads/complaints, exactly as in test/files/arbitraryFileWrite.zip."
 reference_fix_commit: null
 notes: "Classic Zip Slip arbitrary file write. The containment check is wrong because traversed absolute paths still include the workspace root."
+language: typescript
+framework: express
+taint_step_count: 4

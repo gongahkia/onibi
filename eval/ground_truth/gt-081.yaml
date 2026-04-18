@@ -22,3 +22,6 @@ exploitable: true
 reference_exploit: Call res.redirect('javascript:alert(document.domain)') in an app that reflects user input into redirect targets; clicking the generated link executes attacker-controlled JavaScript
 reference_fix_commit: 21df421ebc7a5249bb31101da666bbf22adc3f18
 notes: CVE-2024-43796. Vulnerable release 4.19.1, fixed in 4.20.0 by removing the attacker-controlled href anchor from the HTML redirect body.
+language: javascript
+framework: express
+taint_step_count: 4

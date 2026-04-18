@@ -32,3 +32,4 @@ reference_urls:
 - https://nvd.nist.gov/vuln/detail/CVE-2026-30941
 - https://github.com/advisories/GHSA-vgjh-hmwf-c588
 - https://github.com/parse-community/parse-server/releases/tag/8.6.14
+taint_step_count: 3

@@ -22,3 +22,6 @@ exploitable: true
 reference_exploit: "POST /profile with username=#{global.process.version} proves server-side evaluation; replacing the expression with a child_process payload yields full code execution when /profile is rendered."
 reference_fix_commit: null
 notes: "Legacy profile rendering performs eval() on a persisted username pattern. This is the server-side template/code-injection half of Juice Shop's SSTI challenge path."
+language: typescript
+framework: express
+taint_step_count: 6

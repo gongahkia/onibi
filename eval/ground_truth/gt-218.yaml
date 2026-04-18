@@ -27,3 +27,4 @@ vulnerable_commit: 463d1c92267d0b84e5df27f2aecad62859d5a57b
 discovery_method: cve_mining
 language: typescript
 taint_step_count: 2
+framework: node

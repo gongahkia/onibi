@@ -18,3 +18,6 @@ reference_exploit: null
 reference_fix_commit: null
 notes: Public-key variable without explicit algorithm restriction should trigger key
   confusion review.
+language: typescript
+framework: general
+taint_step_count: 1

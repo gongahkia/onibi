@@ -18,3 +18,6 @@ exploitable: true
 reference_exploit: "GET /rest/track-order/'||true||' turns the $where clause into this.orderId === ''||true||'' and returns orders that do not belong to the caller."
 reference_fix_commit: null
 notes: "NoSQL exfiltration in the order-tracking endpoint. User-controlled path data is embedded into JavaScript executed by the Mongo-style $where operator."
+language: typescript
+framework: express
+taint_step_count: 3

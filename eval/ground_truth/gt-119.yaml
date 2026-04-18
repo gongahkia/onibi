@@ -20,3 +20,6 @@ exploitable: true
 reference_exploit: "POST /api/eval with expr=__import__('os').system('id') for RCE"
 reference_fix_commit: null
 notes: "Cross-language code injection: TS frontend sends user expression to Flask route that passes it directly to Python eval()."
+language: mixed
+framework: general
+taint_step_count: 4

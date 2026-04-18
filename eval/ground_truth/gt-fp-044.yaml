@@ -19,3 +19,6 @@ exploitable: false
 reference_exploit: null
 reference_fix_commit: null
 notes: The template source is evaluated inside Jinja2 sandbox restrictions.
+language: python
+framework: general
+taint_step_count: 2

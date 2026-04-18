@@ -17,3 +17,6 @@ exploitable: false
 reference_exploit: null
 reference_fix_commit: null
 notes: "False positive for SQLi. Sequelize model methods generate parameterized SQL internally. The session-derived UserId filter and id comparison are data values, not raw SQL syntax."
+language: typescript
+framework: express
+taint_step_count: 2

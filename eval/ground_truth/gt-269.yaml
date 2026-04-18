@@ -32,3 +32,4 @@ reference_urls:
 - https://nvd.nist.gov/vuln/detail/CVE-2019-16303
 - https://github.com/advisories/GHSA-mwp6-j9wf-968c
 - https://github.com/jhipster/generator-jhipster/commit/88448b85fd3e8e49df103f0061359037c2c68ea7
+taint_step_count: 3

@@ -20,3 +20,6 @@ exploitable: true
 reference_exploit: "GET /api/read?path=../../../etc/passwd from frontend"
 reference_fix_commit: null
 notes: "Cross-language path traversal: TS frontend sends user-controlled file path to Flask route that opens it directly."
+language: mixed
+framework: general
+taint_step_count: 4

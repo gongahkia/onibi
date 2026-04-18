@@ -17,3 +17,6 @@ exploitable: true
 reference_exploit: "POST /api/load with crafted pickle payload for arbitrary code execution via __reduce__"
 reference_fix_commit: null
 notes: "pickle.loads on untrusted input is critical severity — allows arbitrary code execution via __reduce__ method."
+language: python
+framework: general
+taint_step_count: 2

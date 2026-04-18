@@ -17,3 +17,6 @@ exploitable: false
 reference_exploit: null
 reference_fix_commit: null
 notes: P-256 strength should not trigger CWE-326.
+language: typescript
+framework: general
+taint_step_count: 1

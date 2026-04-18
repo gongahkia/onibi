@@ -17,3 +17,6 @@ exploitable: false
 reference_exploit: null
 reference_fix_commit: null
 notes: "False positive for SQLi. The card lookup uses Sequelize's structured where clause, which binds values safely rather than interpolating them into SQL."
+language: typescript
+framework: express
+taint_step_count: 2

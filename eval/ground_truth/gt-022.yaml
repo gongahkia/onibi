@@ -18,3 +18,6 @@ exploitable: true
 reference_exploit: "POST /create with content=test','false'); DROP TABLE todo;-- destroys table via SQLi"
 reference_fix_commit: null
 notes: "Snyk Goof demo app. Classic SQLi via string concatenation in sqlite3 db.exec(). Intended to demonstrate SQLi vulnerability for Snyk scanning."
+language: javascript
+framework: express
+taint_step_count: 3

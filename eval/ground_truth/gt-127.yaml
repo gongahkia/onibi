@@ -17,3 +17,6 @@ exploitable: true
 reference_exploit: "GET /goto?url=https://evil.com for Location header redirect"
 reference_fix_commit: null
 notes: "Setting Location header directly from user input. Equivalent to res.redirect but via raw header manipulation."
+language: typescript
+framework: general
+taint_step_count: 2

@@ -18,3 +18,6 @@ exploitable: true
 reference_exploit: "Submit the action with sort=id DESC; DROP TABLE orders -- to alter or destroy query results."
 reference_fix_commit: null
 notes: "Hand-crafted synthetic. Server Action input is interpolated into an ORDER BY clause with no allowlist."
+language: typescript
+framework: general
+taint_step_count: 3

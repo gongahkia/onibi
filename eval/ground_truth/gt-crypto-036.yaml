@@ -17,3 +17,6 @@ exploitable: false
 reference_exploit: null
 reference_fix_commit: null
 notes: Default verified SSL context should not trigger CWE-295.
+language: python
+framework: general
+taint_step_count: 1

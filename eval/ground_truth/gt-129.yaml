@@ -17,3 +17,6 @@ exploitable: true
 reference_exploit: "POST /auth/next with next=https://evil.com"
 reference_fix_commit: null
 notes: "Flask redirect from form POST data. Common in login flows with 'next' parameter."
+language: python
+framework: general
+taint_step_count: 2

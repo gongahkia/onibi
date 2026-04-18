@@ -17,3 +17,6 @@ exploitable: true
 reference_exploit: "POST /admin/ping host=127.0.0.1;cat /etc/passwd — command injection via argument"
 reference_fix_commit: null
 notes: "User-controlled host passed directly to exec.Command. Even though the command name is static, the argument is tainted. Exploitation depends on shell interpretation; using exec.Command with separate args mitigates shell metachar injection but not argument injection."
+language: go
+framework: gin
+taint_step_count: 2

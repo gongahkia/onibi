@@ -20,3 +20,6 @@ reference_exploit: Trigger MVEL.eval() with attacker-controlled input described 
   request.getParameter("expr").
 reference_fix_commit: null
 notes: MVEL evaluates attacker-controlled expression text.
+language: java
+framework: general
+taint_step_count: 2

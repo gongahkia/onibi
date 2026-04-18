@@ -17,3 +17,6 @@ exploitable: true
 reference_exploit: "POST /rest/user/login with email=' OR 1=1-- bypasses authentication, logs in as admin"
 reference_fix_commit: null
 notes: "Authentication bypass via SQLi. Password is hashed before interpolation but email is completely unsanitized. Juice Shop challenges: loginAdminChallenge, loginBenderChallenge, loginJimChallenge."
+language: typescript
+framework: express
+taint_step_count: 2

@@ -17,3 +17,6 @@ exploitable: true
 reference_exploit: "GET /orders/1'+OR+'1'='1 dumps all orders"
 reference_fix_commit: null
 notes: "SQLi via path variable. Path variables are also attacker-controlled input. Fix: parameterized query."
+language: java
+framework: spring-boot
+taint_step_count: 2

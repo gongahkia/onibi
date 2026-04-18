@@ -20,3 +20,6 @@ exploitable: true
 reference_exploit: "PUT /api/Products/1 with description=<iframe src='javascript:alert(`xss`)'> persists XSS payload rendered to all users browsing products"
 reference_fix_commit: null
 notes: "Persistent/stored XSS via product descriptions. Inter-procedural: API write -> DB -> frontend component rendering. Juice Shop challenge: restfulXssChallenge."
+language: typescript
+framework: express
+taint_step_count: 5

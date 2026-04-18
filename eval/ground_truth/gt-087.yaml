@@ -24,3 +24,6 @@ exploitable: true
 reference_exploit: Send a malformed Content-Type such as application/json ;charset=utf-8 so reply-from misclassifies the body and forwards a mismatched header/body pair to the upstream service
 reference_fix_commit: c95ea2f4b6c6379a17b7cb78eb1275e158b85712
 notes: CVE-2023-51701. Fixed in 9.6.0 by switching to fast-content-type-parse for robust Content-Type parsing before proxy forwarding.
+language: javascript
+framework: fastify
+taint_step_count: 4

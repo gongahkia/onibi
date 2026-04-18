@@ -17,3 +17,6 @@ exploitable: false
 reference_exploit: null
 reference_fix_commit: null
 notes: "Hand-crafted false positive. Parameterized query using positional placeholder ($1) with bind parameter array. Superficially resembles SQLi because user input reaches db.query(), but parameterization prevents injection. Static analyzers commonly flag this pattern incorrectly."
+language: typescript
+framework: general
+taint_step_count: 2

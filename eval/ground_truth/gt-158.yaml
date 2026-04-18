@@ -19,3 +19,6 @@ reference_exploit: Trigger regex engine with attacker-controlled input described
   regex literal.
 reference_fix_commit: null
 notes: Representative bad email regex pattern.
+language: typescript
+framework: general
+taint_step_count: 2

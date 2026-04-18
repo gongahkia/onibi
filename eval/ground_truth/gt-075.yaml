@@ -17,3 +17,6 @@ exploitable: false
 reference_exploit: null
 reference_fix_commit: null
 notes: "False positive for SQLi. The route is intentionally vulnerable to broken access control, but the database access itself is a parameterized ORM lookup rather than a raw SQL string."
+language: typescript
+framework: express
+taint_step_count: 2

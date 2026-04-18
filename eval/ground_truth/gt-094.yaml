@@ -18,3 +18,6 @@ exploitable: true
 reference_exploit: "GET /api/files?file=../../../../etc/shadow traverses out of the uploads directory."
 reference_fix_commit: null
 notes: "Hand-crafted synthetic. App Router route handler reads a tainted file path from search parameters."
+language: typescript
+framework: general
+taint_step_count: 3

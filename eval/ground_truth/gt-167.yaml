@@ -19,3 +19,6 @@ reference_exploit: Trigger res.redirect() with attacker-controlled input describ
   in req.query.url.
 reference_fix_commit: null
 notes: Redirect target is attacker-controlled and not stripped of CRLF characters.
+language: typescript
+framework: general
+taint_step_count: 2

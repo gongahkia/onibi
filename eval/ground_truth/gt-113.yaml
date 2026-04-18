@@ -17,3 +17,6 @@ exploitable: false
 reference_exploit: null
 reference_fix_commit: null
 notes: "Bean validation (@Valid) with @Pattern constraint on category field limits input to alphanumeric. SQLi not exploitable in practice despite string concat pattern. Confidence should be reduced by @Valid sanitizer."
+language: java
+framework: spring-boot
+taint_step_count: 2

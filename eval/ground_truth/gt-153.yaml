@@ -19,3 +19,6 @@ reference_exploit: Trigger nunjucks.renderString() with attacker-controlled inpu
   described in req.body.tpl.
 reference_fix_commit: null
 notes: Attacker controls server-side Nunjucks template content.
+language: typescript
+framework: general
+taint_step_count: 2

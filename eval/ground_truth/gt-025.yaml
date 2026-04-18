@@ -21,3 +21,6 @@ exploitable: true
 reference_exploit: "POST /profile with lastName=<img src=x onerror=alert(1)> persists XSS payload in profile"
 reference_fix_commit: null
 notes: "Stored XSS via lastName field in NodeGoat profile. Same pattern as gt-007 (firstName) but different field. Both stored and rendered without sanitization."
+language: javascript
+framework: express
+taint_step_count: 4

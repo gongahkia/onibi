@@ -19,3 +19,6 @@ reference_exploit: Trigger ldap.NewSearchRequest() with attacker-controlled inpu
   described in r.FormValue("username").
 reference_fix_commit: null
 notes: go-ldap search request filter is built from unescaped input.
+language: go
+framework: general
+taint_step_count: 2

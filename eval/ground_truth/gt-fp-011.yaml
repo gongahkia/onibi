@@ -17,3 +17,6 @@ exploitable: false
 reference_exploit: null
 reference_fix_commit: null
 notes: "Hand-crafted false positive. res.json() sets Content-Type: application/json and JSON-encodes output. Browser will not execute JS from JSON response. Superficially resembles reflection but JSON serialization prevents XSS."
+language: typescript
+framework: general
+taint_step_count: 2

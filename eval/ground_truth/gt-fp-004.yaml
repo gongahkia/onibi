@@ -17,3 +17,6 @@ exploitable: false
 reference_exploit: null
 reference_fix_commit: null
 notes: "Hand-crafted false positive. Prisma ORM type-safe query API. User input reaches the database query, but Prisma's query builder generates parameterized SQL internally. No raw query or string interpolation involved. Pattern superficially resembles injection to naive analyzers that flag any user input reaching a DB call."
+language: typescript
+framework: general
+taint_step_count: 2

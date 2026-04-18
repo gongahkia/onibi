@@ -22,3 +22,6 @@ exploitable: true
 reference_exploit: Request a protected reply.from route using a path segment containing .. or %2e%2e to reach an upstream path that was meant to stay inaccessible
 reference_fix_commit: e740e22f55d14cfb53d32d4f1060ffca3ae1879e
 notes: CVE-2025-66415 / GHSA-2q7r-29rg-6m5h. Snyk classifies the issue as directory traversal; the upstream advisory states that adding .. (curl 8.7.1 emits %2e%2e) can bypass reply forwarding restrictions.
+language: javascript
+framework: fastify
+taint_step_count: 3

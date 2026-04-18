@@ -18,3 +18,6 @@ exploitable: false
 reference_exploit: null
 reference_fix_commit: null
 notes: CRLF characters are removed before the header is set.
+language: typescript
+framework: general
+taint_step_count: 2

@@ -20,3 +20,6 @@ exploitable: true
 reference_exploit: "POST /api/exec with cmd='; rm -rf /' from frontend form"
 reference_fix_commit: null
 notes: "Cross-language command injection: TS frontend sends raw command string to Flask route that passes it to subprocess with shell=True."
+language: mixed
+framework: general
+taint_step_count: 4

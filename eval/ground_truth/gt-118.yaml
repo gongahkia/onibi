@@ -20,3 +20,6 @@ exploitable: true
 reference_exploit: "POST /api/proxy with url=http://169.254.169.254/latest/meta-data/ for cloud metadata exfil"
 reference_fix_commit: null
 notes: "Cross-language SSRF: TS frontend sends user-controlled URL to Flask proxy endpoint that fetches it server-side."
+language: mixed
+framework: general
+taint_step_count: 4

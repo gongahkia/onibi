@@ -18,3 +18,6 @@ exploitable: false
 reference_exploit: null
 reference_fix_commit: null
 notes: "Hand-crafted false positive. escape-html library encodes <, >, &, ', \" preventing XSS. Taint path exists but sanitizer breaks exploitability."
+language: typescript
+framework: general
+taint_step_count: 3

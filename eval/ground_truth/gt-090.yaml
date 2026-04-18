@@ -20,3 +20,6 @@ exploitable: true
 reference_exploit: Upload XML containing <!ENTITY xxe SYSTEM "file:///etc/passwd"> and reference &xxe; inside <name> to disclose local file contents during import
 reference_fix_commit: null
 notes: 'Classic XXE sink: external entities are explicitly enabled during XML parsing.'
+language: javascript
+framework: express
+taint_step_count: 3

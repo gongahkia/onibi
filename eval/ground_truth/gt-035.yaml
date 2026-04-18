@@ -17,3 +17,6 @@ exploitable: true
 reference_exploit: "GET /search?q=<script>alert(1)</script> executes reflected XSS"
 reference_fix_commit: null
 notes: "Hand-crafted synthetic. Direct reflected XSS via res.send() with template literal. Most basic XSS pattern in Express."
+language: typescript
+framework: general
+taint_step_count: 2

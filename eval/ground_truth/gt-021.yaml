@@ -17,3 +17,6 @@ exploitable: true
 reference_exploit: "POST /ssrf with url=http://169.254.169.254/latest/meta-data/ reads AWS instance metadata"
 reference_fix_commit: null
 notes: "DVNA SSRF via axios. Server makes outbound request to user-controlled URL without allowlisting or validation."
+language: javascript
+framework: express
+taint_step_count: 2

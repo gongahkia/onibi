@@ -18,3 +18,6 @@ exploitable: true
 reference_exploit: "GET /users?id=1'+OR+'1'='1 dumps all users"
 reference_fix_commit: null
 notes: "Classic SQLi in Gin handler. User input from query param interpolated via fmt.Sprintf into raw SQL passed to db.Query. Fix: use parameterized query db.Query(\"SELECT * FROM users WHERE id = $1\", id)."
+language: go
+framework: gin
+taint_step_count: 3

@@ -18,3 +18,6 @@ exploitable: true
 reference_exploit: "Send a body like {\"sql\":\"' OR 1=1 --\"} so the awaited value reaches db.query()."
 reference_fix_commit: null
 notes: "Synthetic async/await SQLi case."
+language: typescript
+framework: general
+taint_step_count: 3

@@ -18,3 +18,6 @@ exploitable: true
 reference_exploit: "pass package name containing shell metacharacters (e.g., '; rm -rf /') to execute arbitrary OS commands"
 reference_fix_commit: "05e8c867aa20204d36e776c82a0cc0fcca25c83b"
 notes: "CVE-2021-21414 (GHSA-pxcc-hj8w-fmm7). @prisma/sdk < 2.20.0. Low severity in practice (internal-use function for tests/CLI building, not user-facing). Fix: escape shell args. Inter-procedural: function input -> shell execution."
+language: typescript
+framework: node
+taint_step_count: 3

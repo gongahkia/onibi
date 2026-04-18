@@ -17,3 +17,6 @@ exploitable: true
 reference_exploit: "Send Auth: <script>alert(1)</script> to the route and the value is reflected through res.send()"
 reference_fix_commit: null
 notes: "Synthetic NestJS reflected XSS example sourced from a decorator-bound header parameter."
+language: typescript
+framework: general
+taint_step_count: 2

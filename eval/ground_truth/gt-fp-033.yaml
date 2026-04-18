@@ -17,3 +17,6 @@ exploitable: false
 reference_exploit: null
 reference_fix_commit: null
 notes: "Parameterized query with $1 placeholder. db.Query receives static SQL string and user input as separate argument. Not vulnerable to SQLi."
+language: go
+framework: gin
+taint_step_count: 2

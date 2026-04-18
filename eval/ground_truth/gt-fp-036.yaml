@@ -18,3 +18,6 @@ exploitable: false
 reference_exploit: null
 reference_fix_commit: null
 notes: "Double protection: strconv.Atoi coerces to int (rejects non-numeric input) and parameterized query uses $1 placeholder. Not vulnerable."
+language: go
+framework: go-stdlib
+taint_step_count: 3

@@ -25,3 +25,6 @@ exploitable: true
 reference_exploit: Upload an XML product import whose <name> element contains <img src=x onerror=alert(1)> and then browse /app/products
 reference_fix_commit: null
 notes: Second-order stored XSS introduced through the XML bulk import path for product name.
+language: javascript
+framework: express
+taint_step_count: 5

@@ -20,3 +20,6 @@ exploitable: true
 reference_exploit: "POST /login with userName=<script>alert(1)</script>&password=x reflects XSS in error message"
 reference_fix_commit: null
 notes: "Reflected XSS via login error message in NodeGoat. Username is echoed back in error display with Swig autoescaping disabled globally."
+language: javascript
+framework: express
+taint_step_count: 4

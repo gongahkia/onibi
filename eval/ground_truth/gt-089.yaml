@@ -20,3 +20,6 @@ exploitable: true
 reference_exploit: Upload a legacy import file containing a node-serialize _$$ND_FUNC$$_ gadget so code executes during unserialize()
 reference_fix_commit: null
 notes: Direct unsafe-deserialization sink in node-serialize 0.0.4. Public gadget chains exist for arbitrary code execution.
+language: javascript
+framework: express
+taint_step_count: 3

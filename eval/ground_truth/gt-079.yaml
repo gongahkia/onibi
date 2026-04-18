@@ -23,3 +23,6 @@ exploitable: true
 reference_exploit: In an app that allowlists redirects before calling res.redirect(userUrl), supply a backslash-crafted URL that passes validation pre-encoding but is interpreted by the browser as an external redirect after Express encodes it
 reference_fix_commit: d36495d7e666f30c06fbb0e039771c5267d7d1d4
 notes: CVE-2024-29041. Vulnerable release 4.19.1, fixed in 4.19.2 by changing how res.location() encodes the path segment after the authority component.
+language: javascript
+framework: express
+taint_step_count: 4

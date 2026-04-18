@@ -18,3 +18,6 @@ exploitable: true
 reference_exploit: "Send a body like {\"sql\":\"SELECT 1; DROP TABLE users; --\"} so the callback receives attacker-controlled SQL and forwards it into db.query()."
 reference_fix_commit: null
 notes: "Synthetic callback-chain SQLi case covering taint transfer through an inline callback parameter."
+language: typescript
+framework: general
+taint_step_count: 3

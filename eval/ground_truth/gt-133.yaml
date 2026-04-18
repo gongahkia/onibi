@@ -18,3 +18,6 @@ exploitable: true
 reference_exploit: "Upload polyglot file with image header but .html extension for XSS via uploaded file"
 reference_fix_commit: null
 notes: "No MIME type validation on upload endpoint. Polyglot files can bypass client-side checks."
+language: typescript
+framework: general
+taint_step_count: 3

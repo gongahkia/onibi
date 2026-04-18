@@ -27,7 +27,8 @@ fix_commit: 2c55b278a491bf45313ecc0825cf800e2f7ff5c1
 vulnerable_commit: 6045ccf5aa3ad5dbd976acb1e722a9692a5d55fb
 discovery_method: cve_mining
 language: javascript
-framework: null
+framework: node
 reference_urls:
 - https://nvd.nist.gov/vuln/detail/CVE-2016-10536
 - https://github.com/socketio/engine.io-client/commit/2c55b278a491bf45313ecc0825cf800e2f7ff5c1
+taint_step_count: 3

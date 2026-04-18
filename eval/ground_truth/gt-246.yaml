@@ -32,3 +32,4 @@ reference_urls:
 - https://nvd.nist.gov/vuln/detail/CVE-2021-21249
 - https://github.com/theonedev/onedev/security/advisories/GHSA-7xhq-m2q9-6hpm
 - https://github.com/theonedev/onedev/commit/d6fc4212b1ac1e9bbe3ce444e95f9af1e3ab8b66
+taint_step_count: 3

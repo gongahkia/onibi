@@ -18,3 +18,6 @@ exploitable: true
 reference_exploit: "GET /proxy/user?userId=../../admin reads a different internal resource path"
 reference_fix_commit: null
 notes: "Hand-crafted synthetic. This is still SSRF-relevant because attacker input steers which internal endpoint is requested, but risk is lower than full URL control because origin is fixed."
+language: typescript
+framework: general
+taint_step_count: 3

@@ -17,3 +17,6 @@ exploitable: false
 reference_exploit: null
 reference_fix_commit: null
 notes: "False positive for SQLi. This is a parameterized ORM delete, not a raw SQL string. The route may have authorization concerns, but not injection."
+language: typescript
+framework: express
+taint_step_count: 2

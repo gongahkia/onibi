@@ -19,3 +19,6 @@ exploitable: true
 reference_exploit: "GET /allocations/1?threshold=0';while(true){} causes DoS via $where JS evaluation"
 reference_fix_commit: null
 notes: "NoSQL injection via MongoDB $where operator. Threshold param interpolated into JS string evaluated server-side by MongoDB. CWE-943 is the precise classification but grouped under injection/SQLi family."
+language: javascript
+framework: express
+taint_step_count: 3

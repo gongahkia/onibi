@@ -17,3 +17,6 @@ exploitable: true
 reference_exploit: "POST /auth/complete with next=https://evil.com for post-auth redirect hijack"
 reference_fix_commit: null
 notes: "Open redirect from POST body parameter. Less common but equally dangerous as query param variant."
+language: typescript
+framework: general
+taint_step_count: 2

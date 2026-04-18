@@ -17,3 +17,6 @@ exploitable: true
 reference_exploit: "POST /contributions with preTax=res.end(require('fs').readdirSync('.').toString()) achieves RCE, reading server filesystem"
 reference_fix_commit: null
 notes: "Server-side JS injection via eval(). CWE-94 (code injection) grouped under command injection category. Also affects req.body.afterTax and req.body.roth fields. Commented-out fix shows parseInt() should replace eval()."
+language: javascript
+framework: express
+taint_step_count: 2

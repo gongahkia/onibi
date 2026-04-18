@@ -18,3 +18,6 @@ exploitable: true
 reference_exploit: "GET /items?sort=1;DROP TABLE items-- injects arbitrary SQL via ORDER BY clause"
 reference_fix_commit: null
 notes: "Hand-crafted synthetic. knex.raw() with template literal. Developers often forget to parameterize ORDER BY/LIMIT clauses even when using query builders."
+language: typescript
+framework: general
+taint_step_count: 3

@@ -17,3 +17,6 @@ exploitable: true
 reference_exploit: "GET /login/callback?returnUrl=https://evil.com/phish for credential phishing"
 reference_fix_commit: null
 notes: "Classic open redirect from query parameter. Attacker can redirect user to phishing page after login."
+language: typescript
+framework: general
+taint_step_count: 2

@@ -19,3 +19,6 @@ reference_exploit: Trigger Ognl.getValue() with attacker-controlled input descri
   in request.getParameter("expr").
 reference_fix_commit: null
 notes: OGNL expression is fully attacker-controlled.
+language: java
+framework: general
+taint_step_count: 2

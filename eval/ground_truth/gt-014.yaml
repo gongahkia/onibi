@@ -20,3 +20,6 @@ exploitable: true
 reference_exploit: "GET /ftp/package.json.bak%2500.md passes .md extension check, null byte is stripped, serves package.json.bak bypassing allowlist"
 reference_fix_commit: null
 notes: "Null byte poisoning to bypass file type allowlist. Context-sensitive: requires understanding interaction between extension check, null byte stripping, and path resolution. Juice Shop challenges: easterEggLevelOneChallenge, nullByteChallenge."
+language: typescript
+framework: express
+taint_step_count: 5

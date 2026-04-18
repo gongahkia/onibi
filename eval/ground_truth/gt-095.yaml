@@ -18,3 +18,6 @@ exploitable: true
 reference_exploit: "Open /?preview=<img src=x onerror=alert(1)> to execute attacker-controlled HTML during SSR."
 reference_fix_commit: null
 notes: "Hand-crafted synthetic. Demonstrates SSR XSS in a server-rendered Next.js page via unsafe HTML rendering."
+language: typescript
+framework: general
+taint_step_count: 3

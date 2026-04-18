@@ -20,3 +20,6 @@ exploitable: true
 reference_exploit: "POST /api/search with q=' OR 1=1 -- from frontend form"
 reference_fix_commit: null
 notes: "Cross-language SQLi: TS frontend sends unsanitized user input to Flask route which builds SQL via f-string."
+language: mixed
+framework: general
+taint_step_count: 4

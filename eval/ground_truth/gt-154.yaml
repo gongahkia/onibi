@@ -19,3 +19,6 @@ reference_exploit: Trigger Template() with attacker-controlled input described i
   request.form["tpl"].
 reference_fix_commit: null
 notes: Jinja2 Template constructor receives attacker-controlled source.
+language: python
+framework: general
+taint_step_count: 2

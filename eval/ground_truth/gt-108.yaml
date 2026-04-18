@@ -17,3 +17,6 @@ exploitable: true
 reference_exploit: "GET /legacy?id=1+UNION+SELECT+username,password+FROM+users"
 reference_fix_commit: null
 notes: "SQLi in legacy servlet using HttpServletRequest directly. Fix: use JdbcTemplate with ? placeholders."
+language: java
+framework: servlet
+taint_step_count: 2

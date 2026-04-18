@@ -25,3 +25,6 @@ exploitable: true
 reference_exploit: Request a route via a path beginning with //evil.example/ and trigger res.redirect('./login'); the resulting Location header points at the attacker-controlled host
 reference_fix_commit: 21df421ebc7a5249bb31101da666bbf22adc3f18
 notes: CVE-2024-9266. Affected versions are Express 3.x; the supported fix path is to upgrade to Express 4.x or newer.
+language: javascript
+framework: express
+taint_step_count: 5

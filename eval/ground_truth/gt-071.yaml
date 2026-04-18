@@ -17,3 +17,6 @@ exploitable: false
 reference_exploit: null
 reference_fix_commit: null
 notes: "False positive for SQLi. This delete operation uses a parameterized ORM builder. No raw query, concatenation, or literal SQL fragment is constructed."
+language: typescript
+framework: express
+taint_step_count: 2

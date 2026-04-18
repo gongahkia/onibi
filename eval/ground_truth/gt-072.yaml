@@ -17,3 +17,6 @@ exploitable: false
 reference_exploit: null
 reference_fix_commit: null
 notes: "False positive for SQLi. The query is parameterized through Sequelize, and UserId is normally appended by authenticated middleware rather than being interpolated into raw SQL."
+language: typescript
+framework: express
+taint_step_count: 2

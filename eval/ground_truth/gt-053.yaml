@@ -25,3 +25,6 @@ exploitable: true
 reference_exploit: Update your profile so email=<img src=x onerror=alert(document.domain)> and then visit /app/admin/users
 reference_fix_commit: null
 notes: Stored DOM XSS via the profile edit flow. The admin user list populates the email column with innerHTML.
+language: javascript
+framework: express
+taint_step_count: 5

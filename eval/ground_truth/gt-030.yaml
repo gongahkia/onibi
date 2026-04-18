@@ -19,3 +19,6 @@ exploitable: true
 reference_exploit: "GET /data?endpoint=http://localhost:6379/ probes internal Redis via SSRF"
 reference_fix_commit: null
 notes: "Hand-crafted synthetic. Inter-procedural SSRF: taint crosses function boundary from route handler to fetchData helper. Axios is a common HTTP client in Node.js apps."
+language: typescript
+framework: general
+taint_step_count: 4

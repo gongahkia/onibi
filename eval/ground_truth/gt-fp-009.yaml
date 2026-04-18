@@ -19,3 +19,6 @@ exploitable: false
 reference_exploit: null
 reference_fix_commit: null
 notes: "Hand-crafted false positive. parseInt() with NaN check coerces input to integer, eliminating string-based SQL injection. The interpolated value is always a numeric literal. Type coercion breaks the taint chain."
+language: typescript
+framework: general
+taint_step_count: 4

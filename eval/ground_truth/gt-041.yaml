@@ -23,3 +23,6 @@ exploitable: true
 reference_exploit: POST /app/modifyproduct with name=<img src=x onerror=alert(document.domain)> stores the payload; visiting /app/products executes it
 reference_fix_commit: null
 notes: Second-order stored XSS through the product edit form. The name column is rendered with raw EJS output.
+language: javascript
+framework: express
+taint_step_count: 4

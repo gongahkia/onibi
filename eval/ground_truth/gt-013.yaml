@@ -18,3 +18,6 @@ exploitable: true
 reference_exploit: "GET /convert?filename=;cat /etc/passwd achieves arbitrary command execution via shell metacharacter injection"
 reference_fix_commit: null
 notes: "Hand-crafted synthetic. Classic CWE-78 pattern: user input concatenated into shell command string passed to exec(). Fix would use execFile() with argument array or validate/escape input."
+language: typescript
+framework: general
+taint_step_count: 3

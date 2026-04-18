@@ -18,3 +18,6 @@ exploitable: true
 reference_exploit: "Upload executable .js or .sh file, then access via web server for RCE"
 reference_fix_commit: null
 notes: "multer configured without fileFilter allows any file type. Combined with no extension check on write path."
+language: typescript
+framework: general
+taint_step_count: 3

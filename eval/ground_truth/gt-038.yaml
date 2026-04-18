@@ -18,3 +18,6 @@ exploitable: true
 reference_exploit: "GET /proxy/report?reportId=finance/quarterly reveals a chosen internal report path"
 reference_fix_commit: null
 notes: "Hand-crafted synthetic. Axios request destination keeps a fixed origin but attacker input selects the internal resource path."
+language: typescript
+framework: general
+taint_step_count: 3

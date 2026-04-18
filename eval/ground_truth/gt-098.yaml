@@ -17,3 +17,6 @@ exploitable: true
 reference_exploit: "GET /search?term=<script>alert(1)</script> reflects attacker HTML through res.send()"
 reference_fix_commit: null
 notes: "Synthetic NestJS reflected XSS example sourced from a decorator-bound query parameter."
+language: typescript
+framework: general
+taint_step_count: 2

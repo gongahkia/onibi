@@ -32,3 +32,4 @@ reference_urls:
 - https://nvd.nist.gov/vuln/detail/CVE-2026-34727
 - https://github.com/advisories/GHSA-8jvc-mcx6-r4cg
 - https://github.com/go-vikunja/vikunja/commit/b642b2a4536a3846e627a78dce2fdd1be425e6a1
+taint_step_count: 3

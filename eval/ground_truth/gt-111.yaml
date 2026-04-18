@@ -17,3 +17,6 @@ exploitable: true
 reference_exploit: "POST /webhook with header X-Callback-Url: http://internal-service:8080/admin"
 reference_fix_commit: null
 notes: "SSRF via request header used as RestTemplate target URL. Headers are attacker-controlled in web contexts. Fix: URL allowlist validation."
+language: java
+framework: spring-boot
+taint_step_count: 2

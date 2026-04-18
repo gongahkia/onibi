@@ -19,3 +19,6 @@ reference_exploit: Trigger res.setHeader() with attacker-controlled input descri
   in req.query.val.
 reference_fix_commit: null
 notes: User input is written directly into a response header.
+language: typescript
+framework: general
+taint_step_count: 2

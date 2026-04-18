@@ -18,3 +18,6 @@ exploitable: true
 reference_exploit: "GET /encryptionkeys/..%5C..%5Cpackage.json escapes the key directory on Windows-style path semantics and exposes application files."
 reference_fix_commit: null
 notes: "Same limited backslash traversal pattern already present in Juice Shop's other file-serving helpers. Exploitable on separator-normalizing platforms."
+language: typescript
+framework: express
+taint_step_count: 3

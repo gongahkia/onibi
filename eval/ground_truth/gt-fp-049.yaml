@@ -18,3 +18,6 @@ exploitable: false
 reference_exploit: null
 reference_fix_commit: null
 notes: SimpleEvaluationContext restricts high-risk SpEL capabilities.
+language: java
+framework: general
+taint_step_count: 2

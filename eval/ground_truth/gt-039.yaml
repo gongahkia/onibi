@@ -18,3 +18,6 @@ exploitable: true
 reference_exploit: "GET /proxy/export?file=secrets.csv requests an attacker-selected export from an internal service"
 reference_fix_commit: null
 notes: "Hand-crafted synthetic. User input controls the internal query string while the destination origin remains fixed, so this should be classified as path-segment SSRF rather than full URL SSRF."
+language: typescript
+framework: general
+taint_step_count: 3

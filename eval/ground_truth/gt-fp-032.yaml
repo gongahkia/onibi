@@ -18,3 +18,6 @@ exploitable: false
 reference_exploit: null
 reference_fix_commit: null
 notes: "Hand-crafted false positive. Runtime type narrowing guarantees the interpolated value is numeric, so string-based SQL injection is impossible."
+language: typescript
+framework: general
+taint_step_count: 3

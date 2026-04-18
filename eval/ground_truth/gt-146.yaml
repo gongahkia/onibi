@@ -19,3 +19,6 @@ reference_exploit: Trigger users.findOne() with attacker-controlled input descri
   in req.body.user.
 reference_fix_commit: null
 notes: A JSON body field can carry Mongo operators like $ne or $gt.
+language: typescript
+framework: general
+taint_step_count: 2

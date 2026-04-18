@@ -19,3 +19,6 @@ exploitable: true
 reference_exploit: POST /app/calc with eqn=cos.constructor("return process")().env reaches attacker-controlled JavaScript primitives in mathjs v3.x; public writeups extend the same primitive to OS-level command execution via process.binding()
 reference_fix_commit: null
 notes: DVNA pins mathjs 3.10.1, a version family with public expression-evaluation RCE research. This is a direct attacker-controlled code-evaluation sink.
+language: javascript
+framework: express
+taint_step_count: 2

@@ -25,3 +25,6 @@ exploitable: true
 reference_exploit: Upload a legacy JSON import file whose description value is <img src=x onerror=alert(1)> and then browse /app/products
 reference_fix_commit: null
 notes: Second-order stored XSS introduced through the legacy bulk import path for product description.
+language: javascript
+framework: express
+taint_step_count: 5

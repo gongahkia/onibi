@@ -32,3 +32,4 @@ reference_urls:
 - https://nvd.nist.gov/vuln/detail/CVE-2026-25731
 - https://github.com/advisories/GHSA-xrh9-w7qx-3gcc
 - https://github.com/kovidgoyal/calibre/commit/f0649b27512e987b95fcab2e1e0a3bcdafc23379
+taint_step_count: 3

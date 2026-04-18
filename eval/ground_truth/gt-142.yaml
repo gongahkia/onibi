@@ -18,3 +18,6 @@ exploitable: true
 reference_exploit: "Send an array of SQL strings in req.body.items so each element reaches db.query() inside the map callback."
 reference_fix_commit: null
 notes: "Synthetic higher-order map SQLi case."
+language: typescript
+framework: general
+taint_step_count: 3

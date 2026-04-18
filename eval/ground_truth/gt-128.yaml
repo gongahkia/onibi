@@ -17,3 +17,6 @@ exploitable: true
 reference_exploit: "GET /login/callback?return_url=https://evil.com"
 reference_fix_commit: null
 notes: "Flask redirect() with user-controlled URL. No origin validation."
+language: python
+framework: general
+taint_step_count: 2

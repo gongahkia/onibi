@@ -17,3 +17,6 @@ exploitable: true
 reference_exploit: "Set cookie theme=../../etc/passwd to read arbitrary files"
 reference_fix_commit: null
 notes: "Path traversal via cookie value. Cookies are attacker-controlled. Fix: validate theme against known set, canonicalize path."
+language: java
+framework: spring-boot
+taint_step_count: 2

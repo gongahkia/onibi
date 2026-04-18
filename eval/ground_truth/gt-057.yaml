@@ -18,3 +18,6 @@ exploitable: true
 reference_exploit: "PATCH /rest/products/reviews with {\"id\":{\"$ne\":null},\"message\":\"pwned\"} matches multiple review documents and overwrites their messages."
 reference_fix_commit: null
 notes: "NoSQL manipulation via operator injection in the update selector. The multi-document update makes the impact broader than a single forged review edit."
+language: typescript
+framework: express
+taint_step_count: 3

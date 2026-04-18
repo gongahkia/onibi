@@ -22,3 +22,6 @@ exploitable: true
 reference_exploit: Request //evil.example/ through an app using the middleware; the plugin redirects to the protocol-relative attacker host after trimming the trailing slash
 reference_fix_commit: 2500e4232ee8e5746ad0e8d1e83a9af22acd7d30
 notes: CVE-2021-23384. Fixed in 2.0.2 by verifying that the redirect target remains on ctx.origin before redirecting.
+language: javascript
+framework: koa
+taint_step_count: 3

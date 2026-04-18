@@ -18,3 +18,6 @@ exploitable: true
 reference_exploit: "POST /users with body {\"name\":\"' OR 1=1 --\"} injects into the raw TypeORM-style repository query"
 reference_fix_commit: null
 notes: "Synthetic NestJS body-decorator SQLi example covering raw repository.query() usage."
+language: typescript
+framework: general
+taint_step_count: 3

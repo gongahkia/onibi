@@ -21,3 +21,6 @@ exploitable: true
 reference_exploit: 'Send `Referrer: https://evil.example/phish` to a route that calls ctx.redirect(''back'')'
 reference_fix_commit: 979f5e448082b16ac5efa7a101e869e8bed357db
 notes: CVE-2025-8129. Fixed in 2.16.2 by introducing _getBackReferrer() and same-origin checks for back redirects.
+language: javascript
+framework: koa
+taint_step_count: 3
