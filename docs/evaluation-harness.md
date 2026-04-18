@@ -129,6 +129,12 @@ python3 eval/compare_reports.py \
   --current-report /tmp/piranesi-validate-all-current.json
 ```
 
+Compare latest two history snapshots automatically:
+
+```bash
+python3 eval/compare_reports.py --history-dir eval/history
+```
+
 Write a PR-friendly markdown summary:
 
 ```bash

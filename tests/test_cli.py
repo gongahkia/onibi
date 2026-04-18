@@ -1005,3 +1005,63 @@ def test_eval_compare_reports_cli_outputs_json(tmp_path: Path) -> None:
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     assert payload["comparison"]["overall"]["detection_rate"]["delta"] == pytest.approx(0.02)
+
+
+def test_eval_compare_reports_cli_supports_history_dir(tmp_path: Path) -> None:
+    history_dir = tmp_path / "history"
+    history_dir.mkdir(parents=True, exist_ok=True)
+    older = history_dir / "older.json"
+    newer = history_dir / "newer.json"
+    older.write_text(
+        json.dumps(
+            {
+                "results": {
+                    "overall": {
+                        "detection_rate": 0.8,
+                        "fp_suppression_rate": 0.7,
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    newer.write_text(
+        json.dumps(
+            {
+                "results": {
+                    "overall": {
+                        "detection_rate": 0.82,
+                        "fp_suppression_rate": 0.69,
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (history_dir / "index.json").write_text(
+        json.dumps(
+            {
+                "entries": [
+                    {"timestamp": "2026-04-18T12:00:00Z", "snapshot_path": str(older)},
+                    {"timestamp": "2026-04-18T12:05:00Z", "snapshot_path": str(newer)},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "eval",
+            "compare-reports",
+            "--history-dir",
+            str(history_dir),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["baseline_report"] == str(older)
+    assert payload["current_report"] == str(newer)

@@ -3626,13 +3626,23 @@ def eval_validate_all(
 @eval_app.command("compare-reports")
 def eval_compare_reports(
     baseline_report: Annotated[
-        Path,
+        Path | None,
         typer.Option("--baseline-report", help="Baseline validate_all report JSON path."),
-    ],
+    ] = None,
     current_report: Annotated[
-        Path,
+        Path | None,
         typer.Option("--current-report", help="Current validate_all report JSON path."),
-    ],
+    ] = None,
+    history_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--history-dir",
+            help=(
+                "History directory with index.json. "
+                "Use this instead of report paths to compare the latest two snapshots."
+            ),
+        ),
+    ] = None,
     markdown_output: Annotated[
         Path | None,
         typer.Option("--markdown-output", help="Write markdown summary to this file."),
@@ -3668,14 +3678,13 @@ def eval_compare_reports(
         ),
     ] = None,
 ) -> None:
-    argv = [
-        "--baseline-report",
-        str(baseline_report),
-        "--current-report",
-        str(current_report),
-        "--top",
-        str(top),
-    ]
+    argv = ["--top", str(top)]
+    if baseline_report is not None:
+        argv.extend(["--baseline-report", str(baseline_report)])
+    if current_report is not None:
+        argv.extend(["--current-report", str(current_report)])
+    if history_dir is not None:
+        argv.extend(["--history-dir", str(history_dir)])
     if markdown_output is not None:
         argv.extend(["--markdown-output", str(markdown_output)])
     if json_output:

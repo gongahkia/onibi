@@ -186,3 +186,62 @@ def test_compare_reports_writes_markdown_output(tmp_path: Path, capsys) -> None:
     assert "# Validate-All Comparison" in text
     assert "| Metric | Baseline | Current | Delta |" in text
     assert "Top regressions (detection_rate)" in text
+
+
+def test_compare_reports_can_resolve_latest_two_from_history_index(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    history_dir = tmp_path / "history"
+    history_dir.mkdir(parents=True, exist_ok=True)
+    older = history_dir / "validate-all-older.json"
+    newer = history_dir / "validate-all-newer.json"
+    _write_report(
+        older,
+        detection_rate=0.80,
+        fp_rate=0.74,
+        ts_detection_rate=0.85,
+        ts_fp_rate=0.70,
+    )
+    _write_report(
+        newer,
+        detection_rate=0.82,
+        fp_rate=0.73,
+        ts_detection_rate=0.84,
+        ts_fp_rate=0.69,
+    )
+    (history_dir / "index.json").write_text(
+        json.dumps(
+            {
+                "entries": [
+                    {"timestamp": "2026-04-18T12:00:00Z", "snapshot_path": str(older)},
+                    {"timestamp": "2026-04-18T12:05:00Z", "snapshot_path": str(newer)},
+                ]
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = compare_reports.main(
+        [
+            "--history-dir",
+            str(history_dir),
+            "--json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["baseline_report"] == str(older)
+    assert payload["current_report"] == str(newer)
+
+
+def test_compare_reports_requires_consistent_path_inputs() -> None:
+    with pytest.raises(ValueError, match="provide either both --baseline-report and --current-report"):
+        compare_reports.main(
+            [
+                "--baseline-report",
+                "/tmp/a.json",
+            ]
+        )

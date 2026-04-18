@@ -186,14 +186,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--baseline-report",
         type=Path,
-        required=True,
         help="Baseline validate_all report JSON path.",
     )
     parser.add_argument(
         "--current-report",
         type=Path,
-        required=True,
         help="Current validate_all report JSON path.",
+    )
+    parser.add_argument(
+        "--history-dir",
+        type=Path,
+        help=(
+            "History directory containing index.json and snapshots. "
+            "When provided without --baseline-report/--current-report, the latest two snapshots "
+            "from index.json are compared."
+        ),
     )
     parser.add_argument("--json", action="store_true", help="Emit JSON output.")
     parser.add_argument(
@@ -232,10 +239,48 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _resolve_reports_from_history(history_dir: Path) -> tuple[Path, Path]:
+    index_path = history_dir / "index.json"
+    if not index_path.exists():
+        raise ValueError(f"history index not found: {index_path}")
+    payload = json.loads(index_path.read_text(encoding="utf-8"))
+    entries = payload.get("entries", []) if isinstance(payload, dict) else []
+    if not isinstance(entries, list):
+        raise ValueError(f"invalid history index format: {index_path}")
+    valid_entries = [entry for entry in entries if isinstance(entry, dict)]
+    if len(valid_entries) < 2:
+        raise ValueError(
+            f"history index must contain at least two entries to compare: {index_path}"
+        )
+    baseline_raw = valid_entries[-2].get("snapshot_path")
+    current_raw = valid_entries[-1].get("snapshot_path")
+    if not isinstance(baseline_raw, str) or not isinstance(current_raw, str):
+        raise ValueError(f"history index entries missing snapshot_path: {index_path}")
+    baseline = Path(baseline_raw)
+    current = Path(current_raw)
+    if not baseline.is_absolute():
+        baseline = (history_dir / baseline).resolve(strict=False)
+    if not current.is_absolute():
+        current = (history_dir / current).resolve(strict=False)
+    return baseline, current
+
+
+def _resolve_report_paths(args: argparse.Namespace) -> tuple[Path, Path]:
+    if args.baseline_report is not None and args.current_report is not None:
+        return args.baseline_report, args.current_report
+    if args.baseline_report is None and args.current_report is None and args.history_dir is not None:
+        return _resolve_reports_from_history(args.history_dir)
+    raise ValueError(
+        "provide either both --baseline-report and --current-report, "
+        "or only --history-dir"
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    baseline_payload = _load_report(args.baseline_report)
-    current_payload = _load_report(args.current_report)
+    baseline_report, current_report = _resolve_report_paths(args)
+    baseline_payload = _load_report(baseline_report)
+    current_payload = _load_report(current_report)
 
     baseline_results = baseline_payload.get("results", {})
     current_results = current_payload.get("results", {})
@@ -244,8 +289,8 @@ def main(argv: list[str] | None = None) -> int:
 
     comparison = _build_baseline_comparison(current_results, baseline_results)
     output = {
-        "baseline_report": str(args.baseline_report),
-        "current_report": str(args.current_report),
+        "baseline_report": str(baseline_report),
+        "current_report": str(current_report),
         "comparison": comparison,
     }
 
@@ -255,8 +300,8 @@ def main(argv: list[str] | None = None) -> int:
         print(
             render_comparison_summary(
                 comparison,
-                baseline_report=args.baseline_report,
-                current_report=args.current_report,
+                baseline_report=baseline_report,
+                current_report=current_report,
                 top=max(args.top, 1),
             )
         )
@@ -266,8 +311,8 @@ def main(argv: list[str] | None = None) -> int:
         args.markdown_output.write_text(
             render_comparison_markdown(
                 comparison,
-                baseline_report=args.baseline_report,
-                current_report=args.current_report,
+                baseline_report=baseline_report,
+                current_report=current_report,
                 top=max(args.top, 1),
             ),
             encoding="utf-8",
