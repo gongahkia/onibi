@@ -23,3 +23,4 @@ notes: "Cross-language SSRF: TS frontend sends user-controlled URL to Flask prox
 language: mixed
 framework: general
 taint_step_count: 4
+taint_field_path: body.proxy_url

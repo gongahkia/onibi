@@ -23,3 +23,4 @@ notes: 'Classic XXE sink: external entities are explicitly enabled during XML pa
 language: javascript
 framework: express
 taint_step_count: 3
+taint_field_path: files.products.data

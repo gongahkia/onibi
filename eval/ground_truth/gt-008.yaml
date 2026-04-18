@@ -24,3 +24,4 @@ notes: "DOM-based XSS in Angular SPA. Context-sensitive: requires understanding 
 language: typescript
 framework: express
 taint_step_count: 5
+taint_field_path: query.q

@@ -24,3 +24,4 @@ notes: "Stored XSS chained off the Zip Slip write primitive. The backend later e
 language: typescript
 framework: express
 taint_step_count: 5
+taint_field_path: files.file.buffer

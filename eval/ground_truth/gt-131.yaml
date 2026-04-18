@@ -21,3 +21,4 @@ notes: "User-controlled filename in template string path. Combines CWE-434 with 
 language: typescript
 framework: general
 taint_step_count: 3
+taint_field_path: files.file.originalname

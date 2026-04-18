@@ -21,3 +21,4 @@ notes: "Hand-crafted false positive. Runtime type narrowing guarantees the inter
 language: typescript
 framework: general
 taint_step_count: 3
+taint_field_path: body.id

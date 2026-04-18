@@ -24,3 +24,4 @@ discovery_method: synthetic
 language: java
 framework: spring-boot
 taint_step_count: 3
+taint_field_path: body.payload

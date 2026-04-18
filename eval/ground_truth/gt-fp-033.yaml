@@ -20,3 +20,4 @@ notes: "Parameterized query with $1 placeholder. db.Query receives static SQL st
 language: go
 framework: gin
 taint_step_count: 2
+taint_field_path: query.id

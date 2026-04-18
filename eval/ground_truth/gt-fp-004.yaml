@@ -20,3 +20,4 @@ notes: "Hand-crafted false positive. Prisma ORM type-safe query API. User input 
 language: typescript
 framework: general
 taint_step_count: 2
+taint_field_path: body.email

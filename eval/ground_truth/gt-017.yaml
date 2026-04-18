@@ -21,3 +21,4 @@ notes: "DVNA (Damn Vulnerable NodeJS Application) authentication bypass via raw 
 language: javascript
 framework: express
 taint_step_count: 3
+taint_field_path: body.login

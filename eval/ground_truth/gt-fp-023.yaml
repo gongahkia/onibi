@@ -21,3 +21,4 @@ notes: "Hand-crafted false positive. parseInt() plus a NaN check narrows the inp
 language: typescript
 framework: general
 taint_step_count: 3
+taint_field_path: params.id

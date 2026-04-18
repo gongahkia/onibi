@@ -21,3 +21,4 @@ notes: "Snyk Goof path traversal. User input passed directly to fs.readFile() wi
 language: javascript
 framework: express
 taint_step_count: 3
+taint_field_path: query.path

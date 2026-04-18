@@ -21,3 +21,4 @@ notes: "Hand-crafted false positive. User input reaches exec() but only after st
 language: typescript
 framework: general
 taint_step_count: 3
+taint_field_path: query.action

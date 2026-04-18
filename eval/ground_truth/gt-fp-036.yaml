@@ -21,3 +21,4 @@ notes: "Double protection: strconv.Atoi coerces to int (rejects non-numeric inpu
 language: go
 framework: go-stdlib
 taint_step_count: 3
+taint_field_path: body.order_id

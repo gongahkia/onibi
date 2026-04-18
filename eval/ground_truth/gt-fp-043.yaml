@@ -21,3 +21,4 @@ notes: File-based template loading keeps source static.
 language: python
 framework: general
 taint_step_count: 2
+taint_field_path: body.name

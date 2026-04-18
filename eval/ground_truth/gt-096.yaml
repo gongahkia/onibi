@@ -21,3 +21,4 @@ notes: "Synthetic NestJS body-decorator SQLi example covering raw repository.que
 language: typescript
 framework: general
 taint_step_count: 3
+taint_field_path: body.name

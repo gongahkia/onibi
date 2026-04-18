@@ -20,3 +20,4 @@ notes: "Synthetic NestJS reflected XSS example sourced from a decorator-bound qu
 language: typescript
 framework: general
 taint_step_count: 2
+taint_field_path: query.term

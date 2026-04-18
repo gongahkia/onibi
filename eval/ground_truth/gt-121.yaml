@@ -20,3 +20,4 @@ notes: "pickle.loads on untrusted input is critical severity — allows arbitrar
 language: python
 framework: general
 taint_step_count: 2
+taint_field_path: body.raw

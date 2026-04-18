@@ -21,3 +21,4 @@ notes: "Command injection via ProcessBuilder with shell=true pattern (bash -c). 
 language: java
 framework: spring-boot
 taint_step_count: 3
+taint_field_path: body.payload

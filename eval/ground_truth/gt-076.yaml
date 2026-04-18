@@ -22,3 +22,4 @@ notes: "False positive for path traversal. User input controls the file contents
 language: typescript
 framework: express
 taint_step_count: 4
+taint_field_path: files.file.buffer

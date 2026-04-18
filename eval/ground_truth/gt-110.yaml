@@ -20,3 +20,4 @@ notes: "SQLi via path variable. Path variables are also attacker-controlled inpu
 language: java
 framework: spring-boot
 taint_step_count: 2
+taint_field_path: params.id

@@ -21,3 +21,4 @@ notes: mongo-sanitize strips operator keys before the query executes.
 language: typescript
 framework: general
 taint_step_count: 2
+taint_field_path: body.*

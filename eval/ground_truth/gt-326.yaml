@@ -24,3 +24,4 @@ discovery_method: synthetic
 language: python
 framework: django
 taint_step_count: 4
+taint_field_path: body.team

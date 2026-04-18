@@ -27,3 +27,4 @@ notes: Stored DOM XSS via user registration. The admin user list populates the e
 language: javascript
 framework: express
 taint_step_count: 4
+taint_field_path: body.email

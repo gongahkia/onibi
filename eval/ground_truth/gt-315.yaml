@@ -24,3 +24,4 @@ discovery_method: synthetic
 language: python
 framework: flask
 taint_step_count: 3
+taint_field_path: body.body

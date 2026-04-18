@@ -20,3 +20,4 @@ notes: "Authentication bypass via SQLi. Password is hashed before interpolation 
 language: typescript
 framework: express
 taint_step_count: 2
+taint_field_path: body.email

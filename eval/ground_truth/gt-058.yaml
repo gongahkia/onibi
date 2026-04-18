@@ -21,3 +21,4 @@ notes: "Legacy JSONP endpoint leaks authenticated data and executes in a script 
 language: typescript
 framework: express
 taint_step_count: 3
+taint_field_path: query.callback

@@ -20,3 +20,4 @@ notes: "Setting Location header directly from user input. Equivalent to res.redi
 language: typescript
 framework: general
 taint_step_count: 2
+taint_field_path: query.url

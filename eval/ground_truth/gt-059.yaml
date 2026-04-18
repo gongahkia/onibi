@@ -27,3 +27,4 @@ notes: "Persisted XSS through a proprietary HTTP header. The backend stores unsa
 language: typescript
 framework: express
 taint_step_count: 6
+taint_field_path: headers.true_client_ip

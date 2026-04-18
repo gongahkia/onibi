@@ -21,3 +21,4 @@ notes: "Hand-crafted false positive. Joi validates and coerces the input to an i
 language: typescript
 framework: general
 taint_step_count: 3
+taint_field_path: query.id

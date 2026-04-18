@@ -26,3 +26,4 @@ notes: Second-order stored XSS through the product edit form. The description co
 language: javascript
 framework: express
 taint_step_count: 4
+taint_field_path: body.description

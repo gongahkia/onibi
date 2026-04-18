@@ -28,3 +28,4 @@ discovery_method: cve_mining
 language: typescript
 taint_step_count: 2
 framework: node
+taint_field_path: body.linkpath

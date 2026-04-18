@@ -28,3 +28,4 @@ notes: Second-order stored XSS introduced through the legacy bulk import path fo
 language: javascript
 framework: express
 taint_step_count: 5
+taint_field_path: files.products.data

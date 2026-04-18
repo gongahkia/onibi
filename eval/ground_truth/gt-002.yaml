@@ -21,3 +21,4 @@ notes: "Classic UNION-based SQLi via Sequelize raw query. Template literal inter
 language: typescript
 framework: express
 taint_step_count: 3
+taint_field_path: query.q

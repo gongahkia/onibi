@@ -21,3 +21,4 @@ notes: "Hand-crafted synthetic. User input controls the internal query string wh
 language: typescript
 framework: general
 taint_step_count: 3
+taint_field_path: query.file

@@ -20,3 +20,4 @@ notes: "js-yaml load() with default loader allows custom type instantiation. Use
 language: typescript
 framework: general
 taint_step_count: 2
+taint_field_path: body.data

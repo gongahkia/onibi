@@ -21,3 +21,4 @@ notes: "False positive for SQLi. Both ORM calls are structured Sequelize operati
 language: typescript
 framework: express
 taint_step_count: 3
+taint_field_path: body.paymentId

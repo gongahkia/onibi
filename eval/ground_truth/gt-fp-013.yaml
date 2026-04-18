@@ -20,3 +20,4 @@ notes: "Hand-crafted false positive. execFile() with argument array does NOT inv
 language: typescript
 framework: general
 taint_step_count: 2
+taint_field_path: query.filename

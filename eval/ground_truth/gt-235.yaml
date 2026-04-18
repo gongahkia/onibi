@@ -34,3 +34,4 @@ reference_urls:
 - https://github.com/advisories/GHSA-5fw2-8jcv-xh87
 - https://github.com/parse-community/parse-server/releases/tag/8.6.38
 taint_step_count: 3
+taint_field_path: body.authData.anonymous.id

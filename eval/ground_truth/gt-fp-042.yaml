@@ -21,3 +21,4 @@ notes: User data reaches the template context, not the template source.
 language: typescript
 framework: general
 taint_step_count: 2
+taint_field_path: body.name

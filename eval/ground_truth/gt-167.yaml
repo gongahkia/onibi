@@ -22,3 +22,4 @@ notes: Redirect target is attacker-controlled and not stripped of CRLF character
 language: typescript
 framework: general
 taint_step_count: 2
+taint_field_path: query.url

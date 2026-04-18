@@ -33,3 +33,4 @@ reference_urls:
 - https://github.com/advisories/GHSA-vgjh-hmwf-c588
 - https://github.com/parse-community/parse-server/releases/tag/8.6.14
 taint_step_count: 3
+taint_field_path: body.token

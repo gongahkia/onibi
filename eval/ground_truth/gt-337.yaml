@@ -23,3 +23,4 @@ discovery_method: synthetic
 language: python
 framework: fastapi
 taint_step_count: 3
+taint_field_path: body.term

@@ -26,3 +26,4 @@ discovery_method: synthetic
 language: typescript
 framework: nestjs
 taint_step_count: 3
+taint_field_path: body.name

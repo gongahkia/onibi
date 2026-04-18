@@ -27,3 +27,4 @@ notes: CVE-2023-51701. Fixed in 9.6.0 by switching to fast-content-type-parse fo
 language: javascript
 framework: fastify
 taint_step_count: 4
+taint_field_path: headers.content_type

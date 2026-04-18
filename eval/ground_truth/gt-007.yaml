@@ -25,3 +25,4 @@ notes: "Multiple XSS vectors: href injection and HTML injection. Website field u
 language: javascript
 framework: express
 taint_step_count: 5
+taint_field_path: body.firstName

@@ -20,3 +20,4 @@ notes: "marshal.loads on untrusted data can execute arbitrary code. Python docs 
 language: python
 framework: general
 taint_step_count: 2
+taint_field_path: body.raw

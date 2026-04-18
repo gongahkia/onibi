@@ -20,3 +20,4 @@ notes: "Hand-crafted false positive. Parameterized query using positional placeh
 language: typescript
 framework: general
 taint_step_count: 2
+taint_field_path: query.userId

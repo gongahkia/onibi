@@ -20,3 +20,4 @@ notes: "Server-side JS injection via eval(). CWE-94 (code injection) grouped und
 language: javascript
 framework: express
 taint_step_count: 2
+taint_field_path: body.preTax

@@ -22,3 +22,4 @@ notes: Jinja2 Template constructor receives attacker-controlled source.
 language: python
 framework: general
 taint_step_count: 2
+taint_field_path: body.tpl

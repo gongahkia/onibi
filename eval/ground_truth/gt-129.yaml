@@ -20,3 +20,4 @@ notes: "Flask redirect from form POST data. Common in login flows with 'next' pa
 language: python
 framework: general
 taint_step_count: 2
+taint_field_path: body.next

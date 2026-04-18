@@ -23,3 +23,4 @@ notes: "Cross-language path traversal: TS frontend sends user-controlled file pa
 language: mixed
 framework: general
 taint_step_count: 4
+taint_field_path: body.file_path

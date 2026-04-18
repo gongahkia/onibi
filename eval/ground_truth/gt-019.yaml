@@ -21,3 +21,4 @@ notes: "DVNA reflected XSS via Handlebars unescaped interpolation. Triple-brace 
 language: javascript
 framework: express
 taint_step_count: 3
+taint_field_path: body.name

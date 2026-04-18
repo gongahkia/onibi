@@ -21,3 +21,4 @@ notes: "Same limited backslash traversal pattern already present in Juice Shop's
 language: typescript
 framework: express
 taint_step_count: 3
+taint_field_path: params.file

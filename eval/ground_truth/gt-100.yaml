@@ -21,3 +21,4 @@ notes: "Synthetic NestJS service-layer command injection example without relying
 language: typescript
 framework: general
 taint_step_count: 3
+taint_field_path: query.cmd

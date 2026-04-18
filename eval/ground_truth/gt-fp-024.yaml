@@ -21,3 +21,4 @@ notes: "Hand-crafted false positive. Number() coercion combined with a finite ch
 language: typescript
 framework: general
 taint_step_count: 3
+taint_field_path: query.minimum

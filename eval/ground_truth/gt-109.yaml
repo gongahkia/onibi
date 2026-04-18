@@ -20,3 +20,4 @@ notes: "Gin header source cast to template.HTML. Unusual attack vector via custo
 language: go
 framework: gin
 taint_step_count: 2
+taint_field_path: headers.x_user_comment

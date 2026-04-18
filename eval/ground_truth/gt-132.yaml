@@ -21,3 +21,4 @@ notes: "multer configured without fileFilter allows any file type. Combined with
 language: typescript
 framework: general
 taint_step_count: 3
+taint_field_path: files.file

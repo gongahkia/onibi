@@ -21,3 +21,4 @@ notes: XPath variable binding keeps the query structure static.
 language: java
 framework: general
 taint_step_count: 2
+taint_field_path: query.username

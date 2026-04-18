@@ -28,3 +28,4 @@ notes: Stored DOM XSS via the profile edit flow. The admin user list populates t
 language: javascript
 framework: express
 taint_step_count: 5
+taint_field_path: body.email

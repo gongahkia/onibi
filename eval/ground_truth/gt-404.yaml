@@ -24,3 +24,4 @@ discovery_method: synthetic
 language: java
 framework: spring-boot
 taint_step_count: 4
+taint_field_path: query.param

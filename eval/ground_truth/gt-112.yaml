@@ -20,3 +20,4 @@ notes: "Path traversal via cookie value. Cookies are attacker-controlled. Fix: v
 language: java
 framework: spring-boot
 taint_step_count: 2
+taint_field_path: cookies.theme

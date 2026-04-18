@@ -20,3 +20,4 @@ notes: "False positive for SQLi. Sequelize model methods generate parameterized 
 language: typescript
 framework: express
 taint_step_count: 2
+taint_field_path: params.id

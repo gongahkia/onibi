@@ -26,3 +26,4 @@ discovery_method: synthetic
 language: go
 framework: go
 taint_step_count: 4
+taint_field_path: query.next

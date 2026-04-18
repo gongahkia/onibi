@@ -22,3 +22,4 @@ notes: "filepath.Clean + strings.HasPrefix guard prevents directory traversal. T
 language: go
 framework: chi
 taint_step_count: 4
+taint_field_path: params.file

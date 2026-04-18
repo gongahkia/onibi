@@ -20,3 +20,4 @@ notes: "Hand-crafted false positive. Apparent command injection exists in dead c
 language: typescript
 framework: general
 taint_step_count: 2
+taint_field_path: query.cmd

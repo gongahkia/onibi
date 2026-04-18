@@ -24,3 +24,4 @@ notes: "Stored XSS via lastName field in NodeGoat profile. Same pattern as gt-00
 language: javascript
 framework: express
 taint_step_count: 4
+taint_field_path: body.lastName

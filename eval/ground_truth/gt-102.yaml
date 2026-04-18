@@ -21,3 +21,4 @@ notes: "Classic SQLi in Gin handler. User input from query param interpolated vi
 language: go
 framework: gin
 taint_step_count: 3
+taint_field_path: query.id

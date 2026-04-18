@@ -21,3 +21,4 @@ notes: "No MIME type validation on upload endpoint. Polyglot files can bypass cl
 language: typescript
 framework: general
 taint_step_count: 3
+taint_field_path: files.file

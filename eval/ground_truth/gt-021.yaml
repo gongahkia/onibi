@@ -20,3 +20,4 @@ notes: "DVNA SSRF via axios. Server makes outbound request to user-controlled UR
 language: javascript
 framework: express
 taint_step_count: 2
+taint_field_path: body.url

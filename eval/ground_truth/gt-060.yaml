@@ -25,3 +25,4 @@ notes: "Legacy profile rendering performs eval() on a persisted username pattern
 language: typescript
 framework: express
 taint_step_count: 6
+taint_field_path: body.username

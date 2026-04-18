@@ -22,3 +22,4 @@ notes: A JSON body field can carry Mongo operators like $ne or $gt.
 language: typescript
 framework: general
 taint_step_count: 2
+taint_field_path: body.user

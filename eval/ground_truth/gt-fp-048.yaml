@@ -21,3 +21,4 @@ notes: CRLF characters are removed before the header is set.
 language: typescript
 framework: general
 taint_step_count: 2
+taint_field_path: query.val

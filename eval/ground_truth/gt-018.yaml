@@ -21,3 +21,4 @@ notes: "DVNA command injection via string concatenation into exec(). Classic CWE
 language: javascript
 framework: express
 taint_step_count: 3
+taint_field_path: body.ping

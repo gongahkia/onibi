@@ -21,3 +21,4 @@ notes: "Hand-crafted synthetic. Path traversal via writeFile allows writing arbi
 language: typescript
 framework: general
 taint_step_count: 3
+taint_field_path: body.filename

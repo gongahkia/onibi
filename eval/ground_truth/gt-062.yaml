@@ -23,3 +23,4 @@ notes: "Local file read via attacker-controlled Handlebars layout resolution. Th
 language: typescript
 framework: express
 taint_step_count: 5
+taint_field_path: body.layout

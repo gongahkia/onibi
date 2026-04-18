@@ -22,3 +22,4 @@ notes: "Hand-crafted false positive. parseInt() with NaN check coerces input to 
 language: typescript
 framework: general
 taint_step_count: 4
+taint_field_path: params.id

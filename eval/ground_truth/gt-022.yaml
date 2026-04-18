@@ -21,3 +21,4 @@ notes: "Snyk Goof demo app. Classic SQLi via string concatenation in sqlite3 db.
 language: javascript
 framework: express
 taint_step_count: 3
+taint_field_path: body.content
