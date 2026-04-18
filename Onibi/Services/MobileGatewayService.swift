@@ -38,6 +38,7 @@ final class MobileGatewayService: ObservableObject {
     private let queue = DispatchQueue(label: "com.onibi.mobile-gateway", qos: .userInitiated)
     private let tokenStore = PairingTokenStore(service: "com.onibi.mobile.host", account: "pairing-token")
     private let tailscaleService = TailscaleServeService.shared
+    private let cloudflaredService = CloudflaredService.shared
     private let dataProvider = HostMobileGatewayDataProvider()
     private let sessionRegistry = ControllableSessionRegistry.shared
     private let realtimeGateway = RealtimeGatewayService.shared
@@ -324,6 +325,8 @@ final class MobileGatewayService: ObservableObject {
             message: "gateway listener stopped"
         )
 
+        cloudflaredService.stopTunnel()
+
         Task {
             await realtimeGateway.stop()
             await tailscaleService.disableServe()
@@ -368,6 +371,59 @@ final class MobileGatewayService: ObservableObject {
         }
     }
 
+    func enableTailscaleFunnel() {
+        Task {
+            do {
+                let status = try await tailscaleService.enableFunnel(port: settings.mobileAccessPort)
+                await MainActor.run {
+                    self.tailscaleStatus = status
+                    self.lastError = nil
+                }
+                if let url = await tailscaleService.funnelPublicURL(port: settings.mobileAccessPort) {
+                    await MainActor.run {
+                        SettingsViewModel.shared.settings.mobileAccessTunnelURL = url
+                    }
+                }
+                DiagnosticsStore.shared.record(
+                    component: "MobileGatewayService",
+                    level: .info,
+                    message: "tailscale funnel enabled",
+                    metadata: ["port": String(self.settings.mobileAccessPort)]
+                )
+            } catch {
+                await MainActor.run {
+                    self.lastError = error.localizedDescription
+                }
+                DiagnosticsStore.shared.record(
+                    component: "MobileGatewayService",
+                    level: .warning,
+                    message: "tailscale funnel enable failed",
+                    metadata: ["reason": error.localizedDescription]
+                )
+                ErrorReporter.shared.report(error, context: "MobileGatewayService.enableTailscaleFunnel", severity: .warning)
+            }
+        }
+    }
+
+    func disableTailscaleFunnel() {
+        Task {
+            await tailscaleService.disableFunnel()
+            await refreshTailscaleStatus()
+        }
+    }
+
+    func startCloudflaredTunnel() {
+        cloudflaredService.startTunnel(port: settings.mobileAccessPort)
+    }
+
+    func stopCloudflaredTunnel() {
+        cloudflaredService.stopTunnel()
+    }
+
+    func installCloudflared() {
+        cloudflaredService.installViaBrew()
+    }
+
     func enableTailscaleServe() {
         Task {
             do {
@@ -410,6 +466,23 @@ final class MobileGatewayService: ObservableObject {
     }
 
     private func setupSubscriptions() {
+        // Auto-populate tunnel URL when the managed cloudflared process publishes a public URL.
+        cloudflaredService.$status
+            .compactMap { $0.publicURL }
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { url in
+                guard SettingsViewModel.shared.settings.mobileAccessTunnelURL != url else { return }
+                SettingsViewModel.shared.settings.mobileAccessTunnelURL = url
+                DiagnosticsStore.shared.record(
+                    component: "MobileGatewayService",
+                    level: .info,
+                    message: "auto-populated tunnel URL from cloudflared",
+                    metadata: ["url": url]
+                )
+            }
+            .store(in: &cancellables)
+
         EventBus.shared.settingsPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] newSettings in

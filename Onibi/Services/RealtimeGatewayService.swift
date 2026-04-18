@@ -46,6 +46,13 @@ actor RealtimeGatewayService {
     private var clients: [UUID: ClientState] = [:]
     private var registryObserverID: UUID?
 
+    // Coalescing buffer: dozens of `session_updated` events can fire in the same ms when
+    // a shell hook churns metadata. We dedupe by session id and flush once per window
+    // to keep tunnels (Cloudflare Quick Tunnel in particular) from dropping under burst.
+    private var pendingSessionUpdates: [String: ControllableSessionSnapshot] = [:]
+    private var updateFlushTask: Task<Void, Never>?
+    private let updateCoalesceWindowNanos: UInt64 = 150_000_000 // 150ms
+
     init(
         registry: ControllableSessionRegistry = .shared,
         tokenProvider: @escaping @Sendable () throws -> String,

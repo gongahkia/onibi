@@ -670,6 +670,7 @@ struct LogsSettingsTab: View {
 struct MobileAccessSettingsTab: View {
     @ObservedObject var viewModel: SettingsViewModel
     @ObservedObject private var gatewayService = MobileGatewayService.shared
+    @ObservedObject private var cloudflared = CloudflaredService.shared
     @ObservedObject private var proxyListener = LocalSessionProxyListener.shared
     @ObservedObject private var diagnostics = DiagnosticsStore.shared
     @ObservedObject private var requestJournal = GatewayRequestJournal.shared
@@ -1050,6 +1051,82 @@ struct MobileAccessSettingsTab: View {
                 }
             }
 
+            Section("Cloudflare Tunnel") {
+                HStack {
+                    Text("Status")
+                    Spacer()
+                    Text(cloudflared.status.detail ?? "Unknown")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.trailing)
+                }
+
+                if let publicURL = cloudflared.status.publicURL {
+                    HStack {
+                        Text("Public URL")
+                        Spacer()
+                        Text(publicURL)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundColor(.secondary)
+                            .textSelection(.enabled)
+                    }
+                }
+
+                if !cloudflared.status.isInstalled {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("`cloudflared` is not installed. Install via Homebrew for one-click Quick Tunnels.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        HStack {
+                            Button(cloudflared.isInstalling ? "Installing…" : "Install cloudflared") {
+                                gatewayService.installCloudflared()
+                            }
+                            .disabled(cloudflared.isInstalling || !cloudflared.isBrewInstalled)
+                            if !cloudflared.isBrewInstalled {
+                                Text("Homebrew not detected — install from brew.sh first.")
+                                    .font(.caption2)
+                                    .foregroundColor(.orange)
+                            }
+                            Spacer()
+                        }
+                        if cloudflared.isInstalling || !cloudflared.installLog.isEmpty {
+                            ScrollView {
+                                Text(cloudflared.installLog)
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .frame(maxHeight: 120)
+                            .padding(6)
+                            .background(Color.black.opacity(0.75))
+                            .foregroundColor(.white)
+                            .cornerRadius(4)
+                        }
+                    }
+                } else {
+                    HStack {
+                        Button(cloudflared.status.isRunning ? "Stop Tunnel" : "Start Quick Tunnel") {
+                            if cloudflared.status.isRunning {
+                                gatewayService.stopCloudflaredTunnel()
+                            } else {
+                                gatewayService.startCloudflaredTunnel()
+                            }
+                        }
+                        .disabled(!gatewayService.isRunning)
+                        Button("Copy URL") {
+                            if let url = cloudflared.status.publicURL {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(url, forType: .string)
+                            }
+                        }
+                        .disabled(cloudflared.status.publicURL == nil)
+                        Spacer()
+                    }
+                    Text("Quick Tunnels are ephemeral — the URL rotates every restart. Use Tailscale Funnel below for a stable URL.")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+
             Section("Tailscale") {
                 HStack {
                     Text("Serve status")
@@ -1085,6 +1162,20 @@ struct MobileAccessSettingsTab: View {
                     .disabled(gatewayService.tailscaleStatus.baseURLString == nil)
                     Spacer()
                 }
+
+                HStack {
+                    Button("Enable Tailscale Funnel (public)") {
+                        gatewayService.enableTailscaleFunnel()
+                    }
+                    .disabled(!gatewayService.isRunning)
+                    Button("Disable Funnel") {
+                        gatewayService.disableTailscaleFunnel()
+                    }
+                    Spacer()
+                }
+                Text("Funnel exposes the port to the public internet via your tailnet DNS name. Requires Funnel to be allowed in your tailnet ACL.")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
             }
 
             Section {

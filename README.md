@@ -122,14 +122,17 @@ add-zsh-hook precmd _onibi_precmd
 
 ## Deployment (mobile web UI)
 
-The web UI is a React+Vite SPA (`OnibiWeb/`). It connects to a gateway (`MobileGatewayService`) that the macOS app exposes over HTTP + WebSocket. You can reach it two ways:
+The web UI is a React+Vite SPA (`OnibiWeb/`). It connects to a gateway (`MobileGatewayService`) that the macOS app exposes over HTTP + WebSocket. Three deployment modes:
 
-| Mode | When to use | Docs |
-| --- | --- | --- |
-| **LAN** | Phone on the same Wi-Fi as the Mac | [docs/deployment-lan.md](./docs/deployment-lan.md) |
-| **Tunnel** | Phone off-network, or you want HTTPS | [docs/deployment-tunnel.md](./docs/deployment-tunnel.md) |
+| Mode | Reachable from | HTTPS | Stable URL | Setup |
+| --- | --- | --- | --- | --- |
+| **LAN** | Same Wi-Fi | ❌ | IP-dependent | Zero |
+| **Cloudflare Quick Tunnel** | Anywhere | ✅ | ❌ (rotates) | One-click in-app (`brew install cloudflared`) |
+| **Tailscale Funnel** | Anywhere | ✅ | ✅ | One-time tailnet ACL setup |
 
-Both modes share the same pairing flow: enable the gateway in Settings → Mobile Access, rotate a token, and paste the Base URL + token on the phone (or scan the QR / import the `onibi://` deep link).
+Full setup and trade-offs: [docs/deployment-modes.md](./docs/deployment-modes.md). Per-mode deep-dives: [LAN](./docs/deployment-lan.md), [tunnel](./docs/deployment-tunnel.md).
+
+All three share the same pairing flow: enable the gateway in Settings → Mobile Access, rotate a token, and paste the Base URL + token on the phone (or scan the QR / import the `onibi://` deep link).
 
 Relevant settings (Onibi → Settings → Mobile Access):
 

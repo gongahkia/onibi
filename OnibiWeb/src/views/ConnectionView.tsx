@@ -1,16 +1,17 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { ConnectionConfig } from "../types";
 import { forgetHost, loadRecentHosts, type RecentHost } from "../store/recentHosts";
 import { QRScanner } from "../components/QRScanner";
 import { parsePairingPayload } from "../lib/pairingPayload";
+import type { RealtimeDebugEvent } from "../api/realtimeClient";
 
 interface ConnectionViewProps {
   initialConnection: ConnectionConfig | null;
   initialRememberToken: boolean;
   connecting: boolean;
-  errorMessage: string | null;
   onConnect: (connection: ConnectionConfig, rememberToken: boolean) => void;
   onClearSaved: () => void;
+  onNotify: (level: RealtimeDebugEvent["level"], message: string) => void;
 }
 
 type ConnectionMode = "lan" | "tunnel";
@@ -33,9 +34,9 @@ export function ConnectionView({
   initialConnection,
   initialRememberToken,
   connecting,
-  errorMessage,
   onConnect,
-  onClearSaved
+  onClearSaved,
+  onNotify
 }: ConnectionViewProps): JSX.Element {
   const initialMode: ConnectionMode = useMemo(() => {
     const candidate = initialConnection?.baseURL ?? "";
@@ -47,10 +48,10 @@ export function ConnectionView({
   const [token, setToken] = useState(initialConnection?.token ?? "");
   const [rememberToken, setRememberToken] = useState(initialRememberToken);
   const [tokenVisible, setTokenVisible] = useState(false);
-  const [pasteFeedback, setPasteFeedback] = useState<string | null>(null);
   const [recentHosts, setRecentHosts] = useState<RecentHost[]>(() => loadRecentHosts());
   const [scannerOpen, setScannerOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const lastMixedContentRef = useRef(false);
 
   useEffect(() => {
     setBaseURL(initialConnection?.baseURL ?? "http://127.0.0.1:8787");
@@ -64,6 +65,16 @@ export function ConnectionView({
 
   const mixedContent = detectMixedContent(window.location.protocol, baseURL);
 
+  useEffect(() => {
+    if (mixedContent && !lastMixedContentRef.current) {
+      onNotify(
+        "warn",
+        "Mixed content: page is HTTPS but Host URL is HTTP. Browsers will block the request — use the tunnel's HTTPS URL."
+      );
+    }
+    lastMixedContentRef.current = mixedContent;
+  }, [mixedContent, onNotify]);
+
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmedURL = baseURL.trim();
@@ -76,7 +87,8 @@ export function ConnectionView({
   const applyPayload = (raw: string, source: "paste" | "scan") => {
     const parsed = parsePairingPayload(raw);
     if (!parsed) {
-      setPasteFeedback(
+      onNotify(
+        "warn",
         source === "scan"
           ? "Scanned code is not an Onibi pairing payload."
           : "Clipboard does not contain an Onibi pairing payload."
@@ -86,7 +98,7 @@ export function ConnectionView({
     setBaseURL(parsed.baseURL);
     setToken(parsed.token);
     setMode(parsed.baseURL.startsWith("https://") ? "tunnel" : "lan");
-    setPasteFeedback(source === "scan" ? "Pairing payload scanned." : "Pairing payload imported.");
+    onNotify("info", source === "scan" ? "Pairing payload scanned." : "Pairing payload imported.");
     return true;
   };
 
@@ -176,7 +188,7 @@ export function ConnectionView({
               <button
                 type="button"
                 className="mf-token-icon-btn mf-token-scan-btn"
-                onClick={() => { setPasteFeedback(null); setScannerOpen(true); }}
+                onClick={() => setScannerOpen(true)}
                 disabled={connecting}
                 aria-label="Scan pairing QR with camera"
               >
@@ -211,7 +223,6 @@ export function ConnectionView({
                 )}
               </button>
             </div>
-            {pasteFeedback && <p className="mf-paste-feedback">{pasteFeedback}</p>}
           </label>
 
           <label className="mf-checkbox-row">
@@ -223,19 +234,6 @@ export function ConnectionView({
             />
             <span>Remember token on this device</span>
           </label>
-
-          {mixedContent && (
-            <p className="mf-alert mf-alert-warning" role="alert">
-              This page is loaded over HTTPS but the Host URL uses HTTP. Browsers will block the request.
-              Use the tunnel's HTTPS URL, or open this page over HTTP on LAN.
-            </p>
-          )}
-
-          {errorMessage && (
-            <p className="mf-alert mf-alert-error" role="alert">
-              {errorMessage}
-            </p>
-          )}
 
           <button type="submit" disabled={connecting || baseURL.trim() === "" || token.trim() === ""}>
             {connecting ? "Connecting..." : "Connect"}

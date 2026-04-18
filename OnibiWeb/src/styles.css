@@ -768,6 +768,14 @@ button:hover:enabled {
 }
 .mf-debug-pill-error { border-color: rgba(255, 122, 122, 0.55); }
 .mf-debug-pill-error:hover:enabled { border-color: rgba(255, 122, 122, 0.8); }
+.mf-debug-pill-pulse {
+  animation: mf-pill-pulse 900ms ease-out 1;
+}
+@keyframes mf-pill-pulse {
+  0%   { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15), 0 0 0 0 rgba(255, 184, 108, 0.6); }
+  50%  { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15), 0 0 0 10px rgba(255, 184, 108, 0); }
+  100% { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15), 0 0 0 0 rgba(255, 184, 108, 0); }
+}
 .mf-debug-pill-badge {
   background: #ff7a7a;
   color: #1a0808;

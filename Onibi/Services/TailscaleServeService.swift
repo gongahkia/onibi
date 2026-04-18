@@ -128,6 +128,75 @@ final class TailscaleServeService {
         }
     }
 
+    /// Exposes the local port on the public internet via Tailscale Funnel.
+    /// Requires the tailnet ACL to permit Funnel for this node. Surfaces the CLI stderr to aid debugging.
+    func enableFunnel(port: Int) async throws -> TailscaleServeStatus {
+        guard let binaryPath = resolveBinaryPath() else {
+            return .unavailable
+        }
+        do {
+            _ = try await runProcess(binaryPath: binaryPath, arguments: ["funnel", "--bg", String(port)])
+        } catch {
+            DiagnosticsStore.shared.record(
+                component: "TailscaleServeService",
+                level: .error,
+                message: "tailscale funnel enable failed",
+                metadata: [
+                    "reason": error.localizedDescription,
+                    "port": String(port)
+                ]
+            )
+            throw error
+        }
+        return await refreshStatus(port: port)
+    }
+
+    /// Disables public Funnel exposure. Leaves private Serve entries untouched when possible,
+    /// but `funnel reset` applies to all funnel rules on the node.
+    func disableFunnel() async {
+        guard let binaryPath = resolveBinaryPath() else { return }
+        do {
+            _ = try await runProcess(binaryPath: binaryPath, arguments: ["funnel", "reset"])
+        } catch {
+            DiagnosticsStore.shared.record(
+                component: "TailscaleServeService",
+                level: .warning,
+                message: "tailscale funnel reset failed",
+                metadata: [
+                    "reason": error.localizedDescription
+                ]
+            )
+        }
+    }
+
+    /// Parses `tailscale funnel status --json` to determine if the port is funneled and returns the public URL when so.
+    func funnelPublicURL(port: Int) async -> String? {
+        guard let binaryPath = resolveBinaryPath() else { return nil }
+        let output: String
+        do {
+            output = try await runProcess(binaryPath: binaryPath, arguments: ["funnel", "status", "--json"])
+        } catch {
+            return nil
+        }
+
+        guard let data = output.data(using: .utf8) else { return nil }
+        guard
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return nil
+        }
+
+        let dns = parseDNSName(from: try? await runProcess(binaryPath: binaryPath, arguments: ["status", "--json"]))
+        guard let dns else { return nil }
+
+        // Funnel status JSON shape: { "AllowFunnel": { "<host>:<port>": true }, "Web": { ... } }.
+        // We don't need the full schema — if any funnel is active for our port, assume https://<dns>:443 unless the port differs.
+        if let allow = json["AllowFunnel"] as? [String: Any], !allow.isEmpty {
+            return "https://\(dns)"
+        }
+        return nil
+    }
+
     private func resolveBinaryPath() -> String? {
         let candidates = [
             "/usr/local/bin/tailscale",

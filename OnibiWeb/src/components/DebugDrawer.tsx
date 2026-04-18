@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { RealtimeDebugEvent, RealtimeConnectionState } from "../api/realtimeClient";
 
 interface DebugDrawerProps {
@@ -45,6 +45,25 @@ export function DebugDrawer({
     () => events.filter((event) => event.level === "error").length,
     [events]
   );
+  const attentionCount = useMemo(
+    () => events.filter((event) => event.level === "error" || event.level === "warn").length,
+    [events]
+  );
+
+  const [pulse, setPulse] = useState(false);
+  const lastEventCountRef = useRef(events.length);
+  useEffect(() => {
+    if (events.length > lastEventCountRef.current) {
+      const latest = events[events.length - 1];
+      if (latest && (latest.level === "warn" || latest.level === "error")) {
+        setPulse(true);
+        const timer = window.setTimeout(() => setPulse(false), 900);
+        lastEventCountRef.current = events.length;
+        return () => window.clearTimeout(timer);
+      }
+    }
+    lastEventCountRef.current = events.length;
+  }, [events]);
 
   const copyAll = () => {
     const header = `state=${realtimeState} reconnects=${reconnectAttempts} lastClose=${lastCloseCode ?? "-"} lastError=${lastError ?? "-"}\n\n`;
@@ -75,10 +94,17 @@ export function DebugDrawer({
   };
 
   if (!open) {
+    const pillClass = [
+      "mf-debug-pill",
+      errorCount > 0 ? "mf-debug-pill-error" : "",
+      pulse ? "mf-debug-pill-pulse" : ""
+    ]
+      .filter(Boolean)
+      .join(" ");
     return (
       <button
         type="button"
-        className={errorCount > 0 ? "mf-debug-pill mf-debug-pill-error" : "mf-debug-pill"}
+        className={pillClass}
         onClick={() => setOpen(true)}
         aria-label="Open debug drawer"
       >
@@ -87,7 +113,7 @@ export function DebugDrawer({
           <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
         </svg>
         <span>{events.length}</span>
-        {errorCount > 0 && <span className="mf-debug-pill-badge">{errorCount}</span>}
+        {attentionCount > 0 && <span className="mf-debug-pill-badge">{attentionCount}</span>}
       </button>
     );
   }

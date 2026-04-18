@@ -156,6 +156,13 @@ export default function App(): JSX.Element {
 
   const clearDebugEvents = useCallback(() => setDebugEvents([]), []);
 
+  const notify = useCallback(
+    (level: RealtimeDebugEvent["level"], message: string) => {
+      appendDebugEvent({ timestamp: Date.now(), level, message });
+    },
+    [appendDebugEvent]
+  );
+
   const navigate = useCallback((nextRoute: Route) => {
     const path = routePath(nextRoute);
     if (window.location.pathname !== path) {
@@ -173,6 +180,37 @@ export default function App(): JSX.Element {
       window.removeEventListener("popstate", onPopState);
     };
   }, []);
+
+  const lastRealtimeStateRef = useRef<RealtimeConnectionState>("disconnected");
+  useEffect(() => {
+    const previous = lastRealtimeStateRef.current;
+    if (previous === realtimeState) return;
+    lastRealtimeStateRef.current = realtimeState;
+    switch (realtimeState) {
+      case "authenticated":
+        notify("info", "Connected to host (authenticated).");
+        break;
+      case "reconnecting":
+        notify("warn", `Reconnecting… (attempt ${reconnectAttempts})`);
+        break;
+      case "disconnected":
+        if (previous === "authenticated") {
+          notify("warn", "Disconnected from host.");
+        }
+        break;
+      default:
+        break;
+    }
+  }, [realtimeState, reconnectAttempts, notify]);
+
+  const lastPrimaryErrorRef = useRef<string | null>(null);
+  useEffect(() => {
+    const current = connectionError ?? realtimeError;
+    if (current && current !== lastPrimaryErrorRef.current) {
+      notify("error", current);
+    }
+    lastPrimaryErrorRef.current = current ?? null;
+  }, [connectionError, realtimeError, notify]);
 
   const disconnectRealtime = useCallback(() => {
     realtimeRef.current?.disconnect();
@@ -603,9 +641,9 @@ export default function App(): JSX.Element {
         initialConnection={storedConnection}
         initialRememberToken={rememberToken}
         connecting={connecting}
-        errorMessage={primaryError}
         onConnect={connectToHost}
         onClearSaved={clearConnection}
+        onNotify={notify}
       />
     );
   } else if (route.kind === "sessions") {
