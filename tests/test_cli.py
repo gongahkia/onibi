@@ -955,8 +955,55 @@ def test_eval_help_lists_subcommands() -> None:
 
     assert result.exit_code == 0
     assert "audit" in result.stdout
+    assert "enrich-ground-truth" in result.stdout
     assert "validate-all" in result.stdout
     assert "compare-reports" in result.stdout
+
+
+def test_eval_enrich_ground_truth_cli_outputs_json(tmp_path: Path) -> None:
+    gt_dir = tmp_path / "ground_truth"
+    gt_dir.mkdir(parents=True, exist_ok=True)
+    (gt_dir / "gt-001.yaml").write_text(
+        json.dumps(
+            {
+                "id": "gt-001",
+                "source_project": "synthetic",
+                "commit_hash": "deadbeef",
+                "cwe_id": "CWE-89",
+                "cwe_name": "SQL Injection",
+                "label": "true_positive",
+                "affected_files": ["eval/synthetic/sqli-pg-raw.ts"],
+                "line_numbers": [5],
+                "taint_source": "req.query.id",
+                "taint_sink": "db.query()",
+                "taint_path": ["req.query.id", "db.query(sql)"],
+                "complexity": "simple",
+                "exploitable": True,
+                "reference_exploit": None,
+                "reference_fix_commit": None,
+                "notes": "fixture",
+                "discovery_method": "synthetic",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "eval",
+            "enrich-ground-truth",
+            "--gt-dir",
+            str(gt_dir),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["updated_entries"] == 1
+    assert payload["updated_fields"] == 3
+    assert payload["unresolved"] == {}
 
 
 def test_eval_compare_reports_cli_outputs_json(tmp_path: Path) -> None:

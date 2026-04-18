@@ -3,6 +3,7 @@
 This document covers the two evaluation utilities used to keep fixture quality and detection coverage measurable:
 
 - `eval/ground_truth_audit.py`: metadata quality auditing for `eval/ground_truth`.
+- `eval/ground_truth_enrich.py`: deterministic metadata backfill for sparse ground-truth fields.
 - `eval/validate_all.py`: fixture execution and coverage scoring against ground truth.
 - `eval/compare_reports.py`: diff and regression summary between two `validate_all` reports.
 
@@ -41,6 +42,38 @@ python3 eval/ground_truth_audit.py \
 - `--filter` accepts repeatable `key=value` pairs.
 - `--required-field` is a strict gate for CI.
 - `--field` lets you audit additional metadata columns.
+
+## Ground Truth Metadata Enrichment
+
+Preview inferred updates without writing files:
+
+```bash
+python3 eval/ground_truth_enrich.py \
+  --gt-dir eval/ground_truth \
+  --json
+```
+
+Persist inferred fields:
+
+```bash
+python3 eval/ground_truth_enrich.py \
+  --gt-dir eval/ground_truth \
+  --field language \
+  --field framework \
+  --field taint_step_count \
+  --write
+```
+
+Use as a CI guardrail (dry-run + fail if unresolved values remain):
+
+```bash
+python3 eval/ground_truth_enrich.py \
+  --gt-dir eval/ground_truth \
+  --field language \
+  --field framework \
+  --field taint_step_count \
+  --fail-on-unresolved
+```
 
 ## Batch Fixture Validation
 

@@ -3423,6 +3423,8 @@ def _run_eval_entrypoint(entrypoint: str, argv: list[str]) -> None:
     try:
         if entrypoint == "audit":
             from eval.ground_truth_audit import main as eval_main
+        elif entrypoint == "enrich_ground_truth":
+            from eval.ground_truth_enrich import main as eval_main
         elif entrypoint == "validate_all":
             from eval.validate_all import main as eval_main
         elif entrypoint == "compare_reports":
@@ -3621,6 +3623,57 @@ def eval_validate_all(
     if verbose:
         argv.append("--verbose")
     _run_eval_entrypoint("validate_all", argv)
+
+
+@eval_app.command("enrich-ground-truth")
+def eval_enrich_ground_truth(
+    gt_dir: Annotated[
+        Path,
+        typer.Option("--gt-dir", help="Ground-truth directory."),
+    ] = Path("eval/ground_truth"),
+    field: Annotated[
+        list[str] | None,
+        typer.Option("--field", help="Field to enrich (repeatable)."),
+    ] = None,
+    filter_by: Annotated[
+        list[str] | None,
+        typer.Option("--filter", help="Filter entries by key=value (repeatable)."),
+    ] = None,
+    show_limit: Annotated[
+        int,
+        typer.Option("--show-limit", help="Maximum unresolved IDs to include per field."),
+    ] = 10,
+    write: Annotated[
+        bool,
+        typer.Option("--write", help="Persist enriched values to YAML files."),
+    ] = False,
+    fail_on_unresolved: Annotated[
+        bool,
+        typer.Option(
+            "--fail-on-unresolved",
+            help="Exit non-zero if unresolved entries remain for selected fields.",
+        ),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+) -> None:
+    argv = [
+        "--gt-dir",
+        str(gt_dir),
+        "--show-limit",
+        str(show_limit),
+    ]
+    _append_repeatable_flags(argv, "--field", field or [])
+    _append_repeatable_flags(argv, "--filter", filter_by or [])
+    if write:
+        argv.append("--write")
+    if fail_on_unresolved:
+        argv.append("--fail-on-unresolved")
+    if json_output:
+        argv.append("--json")
+    _run_eval_entrypoint("enrich_ground_truth", argv)
 
 
 @eval_app.command("compare-reports")
