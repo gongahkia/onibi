@@ -93,7 +93,34 @@ public struct MobileGatewayRouter: Sendable {
         peer: String = "unknown"
     ) async -> MobileGatewayResponse {
         let normalizedMethod = method.uppercased()
+        let requestOrigin = headers.first {
+            $0.key.caseInsensitiveCompare("Origin") == .orderedSame
+        }?.value
 
+        // CORS preflight — never hits auth. Browsers send this before any cross-origin non-simple request.
+        if normalizedMethod == "OPTIONS" {
+            return preflightResponse(origin: requestOrigin, requestHeaders: headers)
+        }
+
+        let response = await routeAuthenticated(
+            method: normalizedMethod,
+            path: path,
+            queryItems: queryItems,
+            headers: headers,
+            body: body,
+            peer: peer
+        )
+        return applyCORS(to: response, origin: requestOrigin)
+    }
+
+    private func routeAuthenticated(
+        method normalizedMethod: String,
+        path: String,
+        queryItems: [URLQueryItem],
+        headers: [String: String],
+        body: Data,
+        peer: String
+    ) async -> MobileGatewayResponse {
         // Unauthenticated liveness probe for tunnels/load balancers. Returns no sensitive data.
         if normalizedMethod == "GET" && path == "/api/v2/health" {
             return jsonResponse(statusCode: 200, body: ["status": "ok"])
@@ -336,6 +363,41 @@ public struct MobileGatewayRouter: Sendable {
             ],
             body: data
         )
+    }
+
+    private func preflightResponse(origin: String?, requestHeaders: [String: String]) -> MobileGatewayResponse {
+        let requestedHeaders = requestHeaders.first {
+            $0.key.caseInsensitiveCompare("Access-Control-Request-Headers") == .orderedSame
+        }?.value
+        var headers = Self.corsHeaders(for: origin, requestedHeaders: requestedHeaders)
+        headers["Content-Length"] = "0"
+        return MobileGatewayResponse(statusCode: 204, headers: headers, body: Data())
+    }
+
+    private func applyCORS(to response: MobileGatewayResponse, origin: String?) -> MobileGatewayResponse {
+        var headers = response.headers
+        for (key, value) in Self.corsHeaders(for: origin, requestedHeaders: nil) {
+            headers[key] = value
+        }
+        return MobileGatewayResponse(
+            statusCode: response.statusCode,
+            headers: headers,
+            body: response.body
+        )
+    }
+
+    private static func corsHeaders(for origin: String?, requestedHeaders: String?) -> [String: String] {
+        // Echo the caller's Origin so browsers allow responses in credentialed mode too.
+        // Authentication still flows through the Bearer token — CORS is not the security boundary.
+        let allowOrigin = (origin?.isEmpty == false ? origin : nil) ?? "*"
+        let allowHeaders = (requestedHeaders?.isEmpty == false ? requestedHeaders : nil) ?? "Authorization, Content-Type"
+        return [
+            "Access-Control-Allow-Origin": allowOrigin,
+            "Vary": "Origin",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": allowHeaders,
+            "Access-Control-Max-Age": "600"
+        ]
     }
 }
 

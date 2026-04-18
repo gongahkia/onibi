@@ -14,7 +14,12 @@ interface QRScannerProps {
 export function QRScanner({ onDecoded, onClose }: QRScannerProps): JSX.Element {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const onDecodedRef = useRef(onDecoded);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    onDecodedRef.current = onDecoded;
+  }, [onDecoded]);
 
   useEffect(() => {
     let stopped = false;
@@ -48,7 +53,7 @@ export function QRScanner({ onDecoded, onClose }: QRScannerProps): JSX.Element {
       const code = jsQR(imageData.data, width, height, { inversionAttempts: "attemptBoth" });
       if (code && code.data) {
         stopped = true;
-        onDecoded(code.data);
+        onDecodedRef.current(code.data);
         return;
       }
 
@@ -65,10 +70,22 @@ export function QRScanner({ onDecoded, onClose }: QRScannerProps): JSX.Element {
           video: { facingMode: { ideal: "environment" } },
           audio: false
         });
+        if (stopped) {
+          for (const track of stream.getTracks()) track.stop();
+          return;
+        }
         const video = videoRef.current;
         if (!video) return;
         video.srcObject = stream;
-        await video.play();
+        try {
+          await video.play();
+        } catch (playErr) {
+          if (playErr instanceof Error && (playErr.name === "AbortError" || /interrupted/i.test(playErr.message))) {
+            return;
+          }
+          throw playErr;
+        }
+        if (stopped) return;
         runOnce();
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown camera error";
@@ -85,7 +102,7 @@ export function QRScanner({ onDecoded, onClose }: QRScannerProps): JSX.Element {
         }
       }
     };
-  }, [onDecoded]);
+  }, []);
 
   return (
     <div className="mf-qr-scanner">
