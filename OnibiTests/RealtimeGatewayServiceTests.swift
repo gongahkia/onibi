@@ -132,13 +132,14 @@ final class RealtimeGatewayServiceTests: XCTestCase {
             timestamp: Date()
         )
 
-        let receivedOutput = await waitForCondition {
+        let receivedBoth = await waitForCondition {
             let messages = await transport.messages()
             return messages.contains { $0.type == .output }
+                && messages.contains { $0.type == .sessionUpdated }
         }
 
         let messages = await transport.messages()
-        XCTAssertTrue(receivedOutput)
+        XCTAssertTrue(receivedBoth)
         XCTAssertTrue(messages.contains { $0.type == .sessionUpdated })
         XCTAssertTrue(messages.contains { message in
             message.type == .output &&

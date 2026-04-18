@@ -90,8 +90,9 @@ button:hover:enabled {
 }
 
 .mf-page-center {
+  min-height: 100vh;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
 }
 
@@ -118,7 +119,6 @@ button:hover:enabled {
   background: transparent;
   border: none;
   border-radius: 0;
-  margin-top: clamp(1rem, 6vh, 4rem);
 }
 
 .mf-title-row {
