@@ -120,6 +120,65 @@ def render_comparison_summary(
     return "\n".join(lines)
 
 
+def render_comparison_markdown(
+    comparison: dict[str, Any],
+    *,
+    baseline_report: Path,
+    current_report: Path,
+    top: int,
+) -> str:
+    overall = comparison.get("overall", {})
+    detection = overall.get("detection_rate", {})
+    fp = overall.get("fp_suppression_rate", {})
+    lines = [
+        "# Validate-All Comparison",
+        "",
+        f"- Baseline: `{baseline_report}`",
+        f"- Current: `{current_report}`",
+        "",
+        "## Overall",
+        "",
+        "| Metric | Baseline | Current | Delta |",
+        "| --- | ---: | ---: | ---: |",
+        (
+            "| detection_rate | "
+            f"{_format_metric(detection.get('baseline'))} | "
+            f"{_format_metric(detection.get('current'))} | "
+            f"{_format_delta(detection.get('delta'))} |"
+        ),
+        (
+            "| fp_suppression_rate | "
+            f"{_format_metric(fp.get('baseline'))} | "
+            f"{_format_metric(fp.get('current'))} | "
+            f"{_format_delta(fp.get('delta'))} |"
+        ),
+    ]
+
+    for metric_key in ("detection_rate", "fp_suppression_rate"):
+        rows = _collect_group_metric_deltas(comparison, metric_key=metric_key)
+        regressions = [row for row in rows if isinstance(row.get("delta"), float) and row["delta"] < 0]
+        lines.extend(
+            [
+                "",
+                f"## Top regressions ({metric_key})",
+                "",
+                "| Group | Value | Baseline | Current | Delta |",
+                "| --- | --- | ---: | ---: | ---: |",
+            ]
+        )
+        if not regressions:
+            lines.append("| - | - | - | - | - |")
+            continue
+        for row in regressions[:top]:
+            lines.append(
+                "| "
+                f"{row['group']} | {row['value']} | "
+                f"{_format_metric(row['baseline'])} | {_format_metric(row['current'])} | {_format_delta(row['delta'])} |"
+            )
+
+    return "\n".join(lines) + "\n"
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Compare two validate_all report JSON files and summarize deltas."
@@ -137,6 +196,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Current validate_all report JSON path.",
     )
     parser.add_argument("--json", action="store_true", help="Emit JSON output.")
+    parser.add_argument(
+        "--markdown-output",
+        type=Path,
+        help="Optional markdown file path for PR/changelog-ready comparison output.",
+    )
     parser.add_argument(
         "--top",
         type=int,
@@ -195,6 +259,18 @@ def main(argv: list[str] | None = None) -> int:
                 current_report=args.current_report,
                 top=max(args.top, 1),
             )
+        )
+
+    if args.markdown_output is not None:
+        args.markdown_output.parent.mkdir(parents=True, exist_ok=True)
+        args.markdown_output.write_text(
+            render_comparison_markdown(
+                comparison,
+                baseline_report=args.baseline_report,
+                current_report=args.current_report,
+                top=max(args.top, 1),
+            ),
+            encoding="utf-8",
         )
 
     detection_delta = comparison["overall"]["detection_rate"]["delta"]

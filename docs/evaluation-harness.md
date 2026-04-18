@@ -56,6 +56,7 @@ python3 eval/validate_all.py \
 
 - `validate-all-<UTC timestamp>.json`
 - `latest.json` (overwritten on each run)
+- `index.json` (rolling snapshot index with key overall metrics)
 
 Control snapshot behavior:
 
@@ -126,6 +127,15 @@ Compare two saved `validate_all` reports:
 python3 eval/compare_reports.py \
   --baseline-report /tmp/piranesi-validate-all-baseline.json \
   --current-report /tmp/piranesi-validate-all-current.json
+```
+
+Write a PR-friendly markdown summary:
+
+```bash
+python3 eval/compare_reports.py \
+  --baseline-report /tmp/piranesi-validate-all-baseline.json \
+  --current-report /tmp/piranesi-validate-all-current.json \
+  --markdown-output /tmp/piranesi-validate-all-comparison.md
 ```
 
 JSON output with delta thresholds:
