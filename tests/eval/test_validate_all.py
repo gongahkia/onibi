@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
@@ -15,14 +16,18 @@ if str(REPO_ROOT / "eval") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "eval"))
 
 from eval.validate_all import (  # noqa: E402
+    _HISTORY_TIMESTAMP_FORMAT,
     _ValidationRecord,
     _aggregate,
     _build_baseline_comparison,
     _evaluate_group_delta_thresholds,
     _evaluate_group_thresholds,
+    _history_snapshot_filename,
     _normalize_group_by,
     _parse_group_delta_thresholds,
     _parse_group_thresholds,
+    _sanitize_history_label,
+    _write_history_snapshot,
 )
 
 
@@ -213,3 +218,37 @@ def test_evaluate_group_delta_thresholds_reports_failures() -> None:
     assert len(failures) == 2
     assert "delta -0.050 < -0.010" in failures[0]
     assert "group value absent" in failures[1]
+
+
+def test_history_label_is_sanitized() -> None:
+    assert _sanitize_history_label("release candidate #12") == "release-candidate-12"
+    assert _sanitize_history_label("..") is None
+    assert _sanitize_history_label(None) is None
+
+
+def test_history_snapshot_filename_uses_utc_stamp_and_optional_label() -> None:
+    ts = datetime(2026, 4, 18, 12, 30, 45, tzinfo=UTC)
+    assert _history_snapshot_filename(timestamp=ts, label=None) == "validate-all-20260418T123045Z.json"
+    assert (
+        _history_snapshot_filename(timestamp=ts, label="phase41")
+        == "validate-all-20260418T123045Z-phase41.json"
+    )
+    assert ts.strftime(_HISTORY_TIMESTAMP_FORMAT) == "20260418T123045Z"
+
+
+def test_write_history_snapshot_writes_snapshot_and_latest(tmp_path: Path) -> None:
+    report = {"timestamp": "2026-04-18T12:30:45Z", "results": {"overall": {"detection_rate": 0.8}}}
+    now = datetime(2026, 4, 18, 12, 30, 45, tzinfo=UTC)
+    snapshot = _write_history_snapshot(
+        report,
+        history_dir=tmp_path / "history",
+        now=now,
+        label="release#1",
+    )
+    assert snapshot.snapshot_path.name == "validate-all-20260418T123045Z-release-1.json"
+    assert snapshot.latest_path.name == "latest.json"
+    assert snapshot.snapshot_path.exists()
+    assert snapshot.latest_path.exists()
+    assert snapshot.snapshot_path.read_text(encoding="utf-8") == snapshot.latest_path.read_text(
+        encoding="utf-8"
+    )

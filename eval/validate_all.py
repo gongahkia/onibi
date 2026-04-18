@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
@@ -48,6 +49,12 @@ class _GroupDeltaThreshold:
     threshold: float
 
 
+@dataclass(frozen=True, slots=True)
+class _HistorySnapshot:
+    snapshot_path: Path
+    latest_path: Path
+
+
 _ALLOWED_GROUP_KEYS = {
     "cwe",
     "framework",
@@ -56,6 +63,8 @@ _ALLOWED_GROUP_KEYS = {
     "discovery_method",
     "source_project",
 }
+_HISTORY_TIMESTAMP_FORMAT = "%Y%m%dT%H%M%SZ"
+_HISTORY_LABEL_PATTERN = re.compile(r"[^A-Za-z0-9._-]+")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -69,6 +78,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Optional base directory for relative fixture paths.",
     )
     parser.add_argument("--output", type=Path, help="Write the validation report to JSON.")
+    parser.add_argument(
+        "--history-dir",
+        type=Path,
+        default=Path("eval/history"),
+        help="Directory for auto-written validate_all history snapshots.",
+    )
+    parser.add_argument(
+        "--history-label",
+        type=str,
+        help="Optional label suffix for history snapshots (sanitized).",
+    )
     parser.add_argument(
         "--baseline-report",
         type=Path,
@@ -146,6 +166,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument("--keep-output", action="store_true", help="Keep per-fixture stage artifacts.")
+    parser.add_argument(
+        "--no-history",
+        action="store_true",
+        help="Disable auto-writing timestamped history snapshots.",
+    )
     parser.add_argument("--verbose", action="store_true", help="Stream Piranesi output while scanning.")
     return parser.parse_args(argv)
 
@@ -542,6 +567,45 @@ def _evaluate_group_delta_thresholds(
     return failures
 
 
+def _sanitize_history_label(value: str | None) -> str | None:
+    if value is None:
+        return None
+    sanitized = _HISTORY_LABEL_PATTERN.sub("-", value.strip())
+    sanitized = sanitized.strip("-_.")
+    return sanitized or None
+
+
+def _history_snapshot_filename(
+    *,
+    timestamp: datetime,
+    label: str | None,
+) -> str:
+    stamp = timestamp.astimezone(UTC).strftime(_HISTORY_TIMESTAMP_FORMAT)
+    if label:
+        return f"validate-all-{stamp}-{label}.json"
+    return f"validate-all-{stamp}.json"
+
+
+def _write_history_snapshot(
+    report: dict[str, Any],
+    *,
+    history_dir: Path,
+    now: datetime,
+    label: str | None,
+) -> _HistorySnapshot:
+    history_dir.mkdir(parents=True, exist_ok=True)
+    filename = _history_snapshot_filename(
+        timestamp=now,
+        label=_sanitize_history_label(label),
+    )
+    snapshot_path = history_dir / filename
+    latest_path = history_dir / "latest.json"
+    serialized = json.dumps(report, indent=2) + "\n"
+    snapshot_path.write_text(serialized, encoding="utf-8")
+    latest_path.write_text(serialized, encoding="utf-8")
+    return _HistorySnapshot(snapshot_path=snapshot_path, latest_path=latest_path)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     detection_group_thresholds = _parse_group_thresholds(args.min_group_detection_rate)
@@ -621,6 +685,19 @@ def main(argv: list[str] | None = None) -> int:
             report["comparison"] = {
                 "baseline_report": str(args.baseline_report),
                 "metrics": comparison,
+            }
+
+        history_snapshot: _HistorySnapshot | None = None
+        if not args.no_history:
+            history_snapshot = _write_history_snapshot(
+                report,
+                history_dir=args.history_dir,
+                now=datetime.now(UTC),
+                label=args.history_label,
+            )
+            report["history"] = {
+                "snapshot_path": str(history_snapshot.snapshot_path),
+                "latest_path": str(history_snapshot.latest_path),
             }
 
         if args.output is not None:
