@@ -32,6 +32,15 @@ import type {
 import { ConnectionView } from "./views/ConnectionView";
 import { LiveSessionView } from "./views/LiveSessionView";
 import { SessionsView } from "./views/SessionsView";
+// MOCK_MODE — remove this import and all mockMode usages below before shipping
+import {
+  isMockMode,
+  mockSearchSuffix,
+  MOCK_CONNECTION,
+  mockSessions,
+  mockBufferChunks,
+  mockEchoChunk
+} from "./lib/mockMode";
 
 const STORAGE_KEY = "onibi-web.connection";
 const REMEMBER_TOKEN_KEY = "onibi-web.remember-token";
@@ -56,13 +65,15 @@ function parseRoute(pathname: string): Route {
 }
 
 function routePath(route: Route): string {
+  // MOCK_MODE — mockSearchSuffix() returns "?mock=1" while mock is active, "" otherwise
+  const suffix = mockSearchSuffix();
   if (route.kind === "connect") {
-    return "/";
+    return "/" + suffix;
   }
   if (route.kind === "sessions") {
-    return "/sessions";
+    return "/sessions" + suffix;
   }
-  return `/sessions/${encodeURIComponent(route.sessionId)}`;
+  return `/sessions/${encodeURIComponent(route.sessionId)}` + suffix;
 }
 
 function loadStoredConnection(): ConnectionConfig | null {
@@ -131,7 +142,10 @@ function nextClientRequestID(): string {
 
 export default function App(): JSX.Element {
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
-  const [connection, setConnection] = useState<ConnectionConfig | null>(() => loadStoredConnection());
+  // MOCK_MODE — seed synthetic connection so sessions/live routes render without a host
+  const [connection, setConnection] = useState<ConnectionConfig | null>(() =>
+    isMockMode() ? MOCK_CONNECTION : loadStoredConnection()
+  );
   const [rememberToken, setRememberToken] = useState<boolean>(() => loadRememberTokenPreference());
   const [sessions, setSessions] = useState<ControllableSessionSnapshot[]>([]);
   const [outputBySession, setOutputBySession] = useState<OutputBySession>({});
@@ -300,6 +314,21 @@ export default function App(): JSX.Element {
     setConnectionError(null);
     setRealtimeError(null);
 
+    // MOCK_MODE — skip network + WebSocket, seed fake sessions
+    if (isMockMode()) {
+      const seeded = sortSessionsByRecentActivity(mockSessions());
+      setSessions(seeded);
+      setRealtimeState("authenticated");
+      setConnecting(false);
+      if (window.location.pathname === "/" || window.location.pathname === "/connect") {
+        navigate({ kind: "sessions" });
+      }
+      notify("info", "Mock mode active — no live host connected.");
+      return () => {
+        isCancelled = true;
+      };
+    }
+
     const connect = async () => {
       try {
         const bootstrap = await fetchBootstrap(connection);
@@ -371,6 +400,10 @@ export default function App(): JSX.Element {
 
   useEffect(() => {
     if (!connection) {
+      return;
+    }
+    // MOCK_MODE — no polling when there's no real host
+    if (isMockMode()) {
       return;
     }
 
@@ -470,6 +503,11 @@ export default function App(): JSX.Element {
     if (!connection) {
       return;
     }
+    // MOCK_MODE
+    if (isMockMode()) {
+      setSessions(sortSessionsByRecentActivity(mockSessions()));
+      return;
+    }
     try {
       const snapshot = await fetchSessions(connection);
       setSessions(sortSessionsByRecentActivity(snapshot));
@@ -486,6 +524,11 @@ export default function App(): JSX.Element {
     if (!connection) {
       return;
     }
+    // MOCK_MODE
+    if (isMockMode()) {
+      setOutputBySession((existing) => replaceBuffer(existing, sessionId, mockBufferChunks(sessionId)));
+      return;
+    }
     try {
       const snapshot = await fetchSessionBuffer(connection, sessionId);
       setOutputBySession((existing) => replaceBuffer(existing, sessionId, snapshot.chunks));
@@ -500,6 +543,11 @@ export default function App(): JSX.Element {
 
   const sendKey = async (sessionId: string, key: RemoteInputKey) => {
     setInputError(null);
+    // MOCK_MODE
+    if (isMockMode()) {
+      setOutputBySession((existing) => appendChunk(existing, mockEchoChunk(sessionId, `[key:${key}]`)));
+      return;
+    }
     const realtime = realtimeRef.current;
     if (realtime && realtimeState === "authenticated") {
       realtime.send({
@@ -531,6 +579,16 @@ export default function App(): JSX.Element {
 
   const sendLine = async (sessionId: string, text: string) => {
     setInputError(null);
+    // MOCK_MODE — echo the typed line back into the buffer
+    if (isMockMode()) {
+      setOutputBySession((existing) => appendChunk(existing, mockEchoChunk(sessionId, "$ " + text)));
+      window.setTimeout(() => {
+        setOutputBySession((existing) =>
+          appendChunk(existing, mockEchoChunk(sessionId, `(mock) ran "${text}"`))
+        );
+      }, 180);
+      return;
+    }
     const realtime = realtimeRef.current;
     if (realtime && realtimeState === "authenticated") {
       realtime.send({
@@ -574,6 +632,11 @@ export default function App(): JSX.Element {
 
   const sendTerminalData = (sessionId: string, data: string) => {
     setInputError(null);
+    // MOCK_MODE — echo raw terminal input back
+    if (isMockMode()) {
+      setOutputBySession((existing) => appendChunk(existing, mockEchoChunk(sessionId, data)));
+      return;
+    }
     const realtime = realtimeRef.current;
     if (!realtime || realtimeState !== "authenticated") {
       setInputError("Realtime disconnected. Use reconnect or send commands via the input bar.");
