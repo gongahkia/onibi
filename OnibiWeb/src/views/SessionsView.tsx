@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import type { ControllableSessionSnapshot } from "../types";
 
 interface SessionsViewProps {
@@ -7,6 +8,8 @@ interface SessionsViewProps {
   onOpenSession: (sessionId: string) => void;
   onRefresh: () => void;
   onDisconnect: () => void;
+  onRemoveSession: (sessionId: string) => void;
+  onRenameSession: (sessionId: string, nextName: string) => void;
 }
 
 function statusClassName(status: ControllableSessionSnapshot["status"]): string {
@@ -26,34 +29,85 @@ function statusClassName(status: ControllableSessionSnapshot["status"]): string 
 
 function realtimeBadgeClass(realtimeState: string): string {
   if (realtimeState === "authenticated") {
-    return "mf-badge mf-badge-ok";
+    return "mf-badge mf-badge-compact mf-badge-ok";
   }
   if (realtimeState === "reconnecting" || realtimeState === "connecting" || realtimeState === "authenticating") {
-    return "mf-badge mf-badge-warn";
+    return "mf-badge mf-badge-compact mf-badge-warn";
   }
-  return "mf-badge";
+  return "mf-badge mf-badge-compact";
+}
+
+function realtimeShortLabel(realtimeState: string): string {
+  switch (realtimeState) {
+    case "authenticated":
+      return "Live";
+    case "connecting":
+      return "Connecting";
+    case "authenticating":
+      return "Auth";
+    case "reconnecting":
+      return "Reconnecting";
+    default:
+      return "Offline";
+  }
 }
 
 function formatActivity(isoTimestamp: string): string {
   const timestamp = Date.parse(isoTimestamp);
-  if (!Number.isFinite(timestamp)) {
-    return "unknown";
-  }
-
+  if (!Number.isFinite(timestamp)) return "unknown";
   const deltaMs = Date.now() - timestamp;
-  if (deltaMs < 60_000) {
-    return "just now";
-  }
-  if (deltaMs < 3_600_000) {
-    const minutes = Math.floor(deltaMs / 60_000);
-    return `${minutes}m ago`;
-  }
-  if (deltaMs < 86_400_000) {
-    const hours = Math.floor(deltaMs / 3_600_000);
-    return `${hours}h ago`;
-  }
-  const days = Math.floor(deltaMs / 86_400_000);
-  return `${days}d ago`;
+  if (deltaMs < 60_000) return "just now";
+  if (deltaMs < 3_600_000) return `${Math.floor(deltaMs / 60_000)}m ago`;
+  if (deltaMs < 86_400_000) return `${Math.floor(deltaMs / 3_600_000)}h ago`;
+  return `${Math.floor(deltaMs / 86_400_000)}d ago`;
+}
+
+function IconRefresh(): JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21 12a9 9 0 1 1-3-6.7" />
+      <path d="M21 4v5h-5" />
+    </svg>
+  );
+}
+
+function IconDisconnect(): JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M16 17l5-5-5-5" />
+      <path d="M21 12H9" />
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+    </svg>
+  );
+}
+
+function IconDots(): JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="5" r="1" />
+      <circle cx="12" cy="12" r="1" />
+      <circle cx="12" cy="19" r="1" />
+    </svg>
+  );
+}
+
+function IconTrash(): JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 6h18" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+    </svg>
+  );
+}
+
+function IconPencil(): JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+    </svg>
+  );
 }
 
 export function SessionsView({
@@ -62,30 +116,61 @@ export function SessionsView({
   realtimeState,
   onOpenSession,
   onRefresh,
-  onDisconnect
+  onDisconnect,
+  onRemoveSession,
+  onRenameSession
 }: SessionsViewProps): JSX.Element {
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!openMenuId) return;
+    const close = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpenMenuId(null);
+    };
+    window.addEventListener("mousedown", close);
+    return () => window.removeEventListener("mousedown", close);
+  }, [openMenuId]);
+
   return (
     <main className="mf-page">
       <div className="mf-shell">
         <header className="mf-card mf-header-card">
           <div className="mf-header-top">
-            <div>
+            <div className="mf-header-titles">
               <h1>Terminal Sessions</h1>
               <p>Choose a session to open live control.</p>
             </div>
-            <span className={realtimeBadgeClass(realtimeState)}>Realtime: {realtimeState}</span>
+            <span className={realtimeBadgeClass(realtimeState)} title={`Realtime: ${realtimeState}`}>
+              <span className="mf-badge-dot" aria-hidden="true" />
+              {realtimeShortLabel(realtimeState)}
+            </span>
           </div>
 
           {realtimeState !== "authenticated" && sessions.length > 0 && (
             <p className="mf-alert mf-alert-info">Using cached sessions while realtime reconnects.</p>
           )}
 
-          <div className="mf-header-actions">
-            <button type="button" className="button-secondary" onClick={onRefresh}>
-              Refresh
+          <div className="mf-header-actions mf-header-actions-icons">
+            <button
+              type="button"
+              className="mf-icon-btn"
+              onClick={onRefresh}
+              aria-label="Refresh sessions"
+              title="Refresh"
+            >
+              <IconRefresh />
             </button>
-            <button type="button" className="button-secondary" onClick={onDisconnect}>
-              Disconnect
+            <button
+              type="button"
+              className="mf-icon-btn mf-icon-btn-danger"
+              onClick={onDisconnect}
+              aria-label="Disconnect"
+              title="Disconnect"
+            >
+              <IconDisconnect />
             </button>
           </div>
         </header>
@@ -99,8 +184,9 @@ export function SessionsView({
           <ul className="mf-session-list">
             {sessions.map((session) => {
               const outputPreview = outputPreviewBySession[session.id];
+              const menuOpen = openMenuId === session.id;
               return (
-                <li key={session.id}>
+                <li key={session.id} className="mf-session-li">
                   <button
                     type="button"
                     className="mf-session-card"
@@ -125,12 +211,111 @@ export function SessionsView({
                       {!session.isControllable && <span className="mf-readonly-pill">Read-only</span>}
                     </div>
                   </button>
+
+                  <div className="mf-session-menu-wrap" ref={menuOpen ? menuRef : undefined}>
+                    <button
+                      type="button"
+                      className="mf-session-menu-btn"
+                      aria-label="Session actions"
+                      aria-expanded={menuOpen}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenMenuId(menuOpen ? null : session.id);
+                      }}
+                    >
+                      <IconDots />
+                    </button>
+                    {menuOpen && (
+                      <div className="mf-session-menu" role="menu">
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="mf-session-menu-item"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenMenuId(null);
+                            setRenamingId(session.id);
+                            setRenameDraft(session.displayName);
+                          }}
+                        >
+                          <IconPencil />
+                          <span>Rename</span>
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="mf-session-menu-item mf-session-menu-item-danger"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenMenuId(null);
+                            onRemoveSession(session.id);
+                          }}
+                        >
+                          <IconTrash />
+                          <span>Remove</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </li>
               );
             })}
           </ul>
         )}
       </div>
+
+      {renamingId && (
+        <div
+          className="mf-help-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Rename session"
+          onClick={() => setRenamingId(null)}
+        >
+          <div className="mf-help-panel mf-rename-panel" onClick={(e) => e.stopPropagation()}>
+            <header className="mf-help-header">
+              <h2>Rename session</h2>
+              <button
+                type="button"
+                className="mf-help-close"
+                onClick={() => setRenamingId(null)}
+                aria-label="Cancel rename"
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </header>
+            <form
+              className="mf-rename-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (renameDraft.trim()) {
+                  onRenameSession(renamingId, renameDraft);
+                  setRenamingId(null);
+                }
+              }}
+            >
+              <input
+                type="text"
+                value={renameDraft}
+                onChange={(e) => setRenameDraft(e.target.value)}
+                placeholder="Session name"
+                autoFocus
+                spellCheck={false}
+              />
+              <div className="mf-rename-actions">
+                <button type="button" className="button-secondary" onClick={() => setRenamingId(null)}>
+                  Cancel
+                </button>
+                <button type="submit" className="mf-submit" disabled={!renameDraft.trim()}>
+                  Save
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

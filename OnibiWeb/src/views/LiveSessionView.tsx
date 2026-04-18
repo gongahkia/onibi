@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { RemoteInputBar } from "../components/RemoteInputBar";
 import { RemoteKeyStrip } from "../components/RemoteKeyStrip";
 import { SessionOutputPane } from "../components/SessionOutputPane";
@@ -18,28 +19,61 @@ interface LiveSessionViewProps {
 }
 
 function realtimeBadgeClass(realtimeState: string): string {
-  if (realtimeState === "authenticated") {
-    return "mf-badge mf-badge-ok";
-  }
+  if (realtimeState === "authenticated") return "mf-badge mf-badge-compact mf-badge-ok";
   if (realtimeState === "reconnecting" || realtimeState === "connecting" || realtimeState === "authenticating") {
-    return "mf-badge mf-badge-warn";
+    return "mf-badge mf-badge-compact mf-badge-warn";
   }
-  return "mf-badge";
+  return "mf-badge mf-badge-compact";
+}
+
+function realtimeShortLabel(realtimeState: string): string {
+  switch (realtimeState) {
+    case "authenticated": return "Live";
+    case "connecting": return "Connecting";
+    case "authenticating": return "Auth";
+    case "reconnecting": return "Reconnecting";
+    default: return "Offline";
+  }
 }
 
 function statusClassName(status: ControllableSessionSnapshot["status"]): string {
   switch (status) {
-    case "running":
-      return "status-pill status-running";
-    case "starting":
-      return "status-pill status-starting";
-    case "exited":
-      return "status-pill status-exited";
-    case "failed":
-      return "status-pill status-failed";
-    default:
-      return "status-pill";
+    case "running": return "status-pill status-running";
+    case "starting": return "status-pill status-starting";
+    case "exited": return "status-pill status-exited";
+    case "failed": return "status-pill status-failed";
+    default: return "status-pill";
   }
+}
+
+function IconBack(): JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M15 18l-6-6 6-6" />
+    </svg>
+  );
+}
+
+function IconReload(): JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21 12a9 9 0 1 1-3-6.7" />
+      <path d="M21 4v5h-5" />
+    </svg>
+  );
+}
+
+function useIsLandscape(): boolean {
+  const [isLandscape, setIsLandscape] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(orientation: landscape) and (min-width: 720px)").matches : false
+  );
+  useEffect(() => {
+    const mql = window.matchMedia("(orientation: landscape) and (min-width: 720px)");
+    const handler = (e: MediaQueryListEvent) => setIsLandscape(e.matches);
+    mql.addEventListener("change", handler);
+    return () => mql.removeEventListener("change", handler);
+  }, []);
+  return isLandscape;
 }
 
 export function LiveSessionView({
@@ -54,6 +88,8 @@ export function LiveSessionView({
   onTerminalInput,
   onTerminalResize
 }: LiveSessionViewProps): JSX.Element {
+  const isLandscape = useIsLandscape();
+
   if (!session) {
     return (
       <main className="mf-page">
@@ -73,22 +109,29 @@ export function LiveSessionView({
   const inputDisabled = realtimeState !== "authenticated" || !session.isControllable || session.status !== "running";
 
   return (
-    <main className="mf-live-page">
+    <main className={`mf-live-page ${isLandscape ? "mf-live-landscape" : "mf-live-portrait"}`}>
       <header className="mf-live-header">
-        <div className="mf-live-header-main">
-          <button type="button" className="button-secondary" onClick={onBack}>
-            Back
-          </button>
-          <div className="mf-live-title">
-            <h1>{session.displayName}</h1>
-            <div className="mf-live-badges">
-              <span className={statusClassName(session.status)}>{session.status}</span>
-              <span className={realtimeBadgeClass(realtimeState)}>Realtime: {realtimeState}</span>
-            </div>
+        <button type="button" className="mf-icon-btn" onClick={onBack} aria-label="Back" title="Back">
+          <IconBack />
+        </button>
+        <div className="mf-live-title">
+          <h1>{session.displayName}</h1>
+          <div className="mf-live-badges">
+            <span className={statusClassName(session.status)}>{session.status}</span>
+            <span className={realtimeBadgeClass(realtimeState)} title={`Realtime: ${realtimeState}`}>
+              <span className="mf-badge-dot" aria-hidden="true" />
+              {realtimeShortLabel(realtimeState)}
+            </span>
           </div>
         </div>
-        <button type="button" className="button-secondary" onClick={onReloadBuffer}>
-          Reload Buffer
+        <button
+          type="button"
+          className="mf-icon-btn"
+          onClick={onReloadBuffer}
+          aria-label="Reload buffer"
+          title="Reload buffer"
+        >
+          <IconReload />
         </button>
       </header>
 
@@ -107,11 +150,18 @@ export function LiveSessionView({
       </section>
 
       {session.isControllable && (
-        <section className="mf-live-controls">
-          <p className="mf-live-hint">Tap terminal output to focus and type directly. Send appends Enter by default.</p>
-          <RemoteKeyStrip disabled={inputDisabled} onSendKey={onSendKey} />
-          <RemoteInputBar disabled={inputDisabled} onSubmitLine={onSendLine} autoEnter />
-        </section>
+        <>
+          <section className="mf-live-keys">
+            <RemoteKeyStrip
+              disabled={inputDisabled}
+              onSendKey={onSendKey}
+              layout={isLandscape ? "column" : "row"}
+            />
+          </section>
+          <section className="mf-live-input-footer">
+            <RemoteInputBar disabled={inputDisabled} onSubmitLine={onSendLine} autoEnter />
+          </section>
+        </>
       )}
     </main>
   );
