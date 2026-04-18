@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -27,6 +28,7 @@ from eval.validate_all import (  # noqa: E402
     _parse_group_delta_thresholds,
     _parse_group_thresholds,
     _sanitize_history_label,
+    _update_history_index,
     _write_history_snapshot,
 )
 
@@ -247,8 +249,37 @@ def test_write_history_snapshot_writes_snapshot_and_latest(tmp_path: Path) -> No
     )
     assert snapshot.snapshot_path.name == "validate-all-20260418T123045Z-release-1.json"
     assert snapshot.latest_path.name == "latest.json"
+    assert snapshot.index_path.name == "index.json"
     assert snapshot.snapshot_path.exists()
     assert snapshot.latest_path.exists()
+    assert snapshot.index_path.exists()
     assert snapshot.snapshot_path.read_text(encoding="utf-8") == snapshot.latest_path.read_text(
         encoding="utf-8"
     )
+    index_payload = json.loads(snapshot.index_path.read_text(encoding="utf-8"))
+    assert len(index_payload["entries"]) == 1
+    assert index_payload["entries"][0]["snapshot_path"] == str(snapshot.snapshot_path)
+
+
+def test_update_history_index_replaces_existing_snapshot_entry(tmp_path: Path) -> None:
+    history_dir = tmp_path / "history"
+    history_dir.mkdir(parents=True, exist_ok=True)
+    snapshot_path = history_dir / "validate-all-20260418T123045Z.json"
+
+    report_one = {
+        "timestamp": "2026-04-18T12:30:45Z",
+        "total_entries": 10,
+        "results": {"overall": {"detection_rate": 0.7, "fp_suppression_rate": 0.6}},
+    }
+    report_two = {
+        "timestamp": "2026-04-18T12:31:00Z",
+        "total_entries": 10,
+        "results": {"overall": {"detection_rate": 0.8, "fp_suppression_rate": 0.65}},
+    }
+
+    _update_history_index(report_one, history_dir=history_dir, snapshot_path=snapshot_path)
+    _update_history_index(report_two, history_dir=history_dir, snapshot_path=snapshot_path)
+
+    index_payload = json.loads((history_dir / "index.json").read_text(encoding="utf-8"))
+    assert len(index_payload["entries"]) == 1
+    assert index_payload["entries"][0]["detection_rate"] == pytest.approx(0.8)

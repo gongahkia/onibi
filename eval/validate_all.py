@@ -53,6 +53,7 @@ class _GroupDeltaThreshold:
 class _HistorySnapshot:
     snapshot_path: Path
     latest_path: Path
+    index_path: Path
 
 
 _ALLOWED_GROUP_KEYS = {
@@ -603,7 +604,56 @@ def _write_history_snapshot(
     serialized = json.dumps(report, indent=2) + "\n"
     snapshot_path.write_text(serialized, encoding="utf-8")
     latest_path.write_text(serialized, encoding="utf-8")
-    return _HistorySnapshot(snapshot_path=snapshot_path, latest_path=latest_path)
+    index_path = _update_history_index(
+        report,
+        history_dir=history_dir,
+        snapshot_path=snapshot_path,
+    )
+    return _HistorySnapshot(
+        snapshot_path=snapshot_path,
+        latest_path=latest_path,
+        index_path=index_path,
+    )
+
+
+def _update_history_index(
+    report: dict[str, Any],
+    *,
+    history_dir: Path,
+    snapshot_path: Path,
+    max_entries: int = 200,
+) -> Path:
+    index_path = history_dir / "index.json"
+    existing: list[dict[str, Any]] = []
+    if index_path.exists():
+        try:
+            payload = json.loads(index_path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict) and isinstance(payload.get("entries"), list):
+                existing = [item for item in payload["entries"] if isinstance(item, dict)]
+        except json.JSONDecodeError:
+            existing = []
+
+    overall = report.get("results", {}).get("overall", {})
+    entry = {
+        "timestamp": report.get("timestamp"),
+        "snapshot_path": str(snapshot_path),
+        "total_entries": report.get("total_entries"),
+        "detection_rate": overall.get("detection_rate"),
+        "fp_suppression_rate": overall.get("fp_suppression_rate"),
+    }
+
+    existing = [item for item in existing if item.get("snapshot_path") != str(snapshot_path)]
+    existing.append(entry)
+    existing.sort(key=lambda item: str(item.get("timestamp", "")))
+    if max_entries > 0 and len(existing) > max_entries:
+        existing = existing[-max_entries:]
+
+    payload = {
+        "updated_at": datetime.now(UTC).isoformat(),
+        "entries": existing,
+    }
+    index_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return index_path
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -698,6 +748,7 @@ def main(argv: list[str] | None = None) -> int:
             report["history"] = {
                 "snapshot_path": str(history_snapshot.snapshot_path),
                 "latest_path": str(history_snapshot.latest_path),
+                "index_path": str(history_snapshot.index_path),
             }
 
         if args.output is not None:
