@@ -4,6 +4,7 @@ This document covers the two evaluation utilities used to keep fixture quality a
 
 - `eval/ground_truth_audit.py`: metadata quality auditing for `eval/ground_truth`.
 - `eval/validate_all.py`: fixture execution and coverage scoring against ground truth.
+- `eval/compare_reports.py`: diff and regression summary between two `validate_all` reports.
 
 ## Ground Truth Metadata Audit
 
@@ -51,6 +52,26 @@ python3 eval/validate_all.py \
   --output /tmp/piranesi-validate-all.json
 ```
 
+`validate_all` writes history snapshots by default to `eval/history`:
+
+- `validate-all-<UTC timestamp>.json`
+- `latest.json` (overwritten on each run)
+
+Control snapshot behavior:
+
+```bash
+python3 eval/validate_all.py \
+  --gt-dir eval/ground_truth \
+  --history-dir /tmp/piranesi-history \
+  --history-label release-rc1
+```
+
+Disable snapshot writing:
+
+```bash
+python3 eval/validate_all.py --gt-dir eval/ground_truth --no-history
+```
+
 Global threshold gates:
 
 ```bash
@@ -96,3 +117,24 @@ python3 eval/validate_all.py \
 - `6`: overall FP-suppression-rate delta below `--min-fp-rate-delta`.
 - `7`: one or more `--min-group-detection-delta` thresholds failed.
 - `8`: one or more `--min-group-fp-delta` thresholds failed.
+
+## Report Comparison
+
+Compare two saved `validate_all` reports:
+
+```bash
+python3 eval/compare_reports.py \
+  --baseline-report /tmp/piranesi-validate-all-baseline.json \
+  --current-report /tmp/piranesi-validate-all-current.json
+```
+
+JSON output with delta thresholds:
+
+```bash
+python3 eval/compare_reports.py \
+  --baseline-report /tmp/piranesi-validate-all-baseline.json \
+  --current-report /tmp/piranesi-validate-all-current.json \
+  --json \
+  --min-detection-rate-delta -0.01 \
+  --min-group-detection-delta language=typescript:-0.02
+```
