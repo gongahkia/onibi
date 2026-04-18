@@ -143,20 +143,24 @@ button:hover:enabled {
   width: 100%;
 }
 
-/* Landscape / wide layout: two-column form with tabs stacked on the left. */
+/* Landscape / wide layout: title+tabs stacked on the left, fields on the right. */
 @media (min-width: 760px) and (orientation: landscape), (min-width: 900px) {
   .mf-card-connection {
     width: min(780px, 92vw);
-    grid-template-columns: minmax(180px, 240px) 1fr;
+    grid-template-columns: minmax(200px, 260px) 1fr;
     grid-template-areas:
-      "title  title"
+      "title  fields"
       "mode   fields"
       "action action"
       "extras extras";
     column-gap: 2.25rem;
-    row-gap: 1.5rem;
+    row-gap: 1.25rem;
     align-items: start;
     padding: 2rem 2rem 1.5rem;
+  }
+
+  .mf-card-connection > .mf-title-row {
+    margin-bottom: 0.25rem;
   }
 
   .mf-card-connection > .mf-mode-block .mf-mode-switcher {
@@ -167,6 +171,11 @@ button:hover:enabled {
   .mf-card-connection > .mf-mode-block .mf-mode-switcher button {
     min-height: 40px;
     padding: 0.55rem 0.9rem;
+  }
+
+  /* Keep the fields column aligned with the top of the left column (title). */
+  .mf-card-connection > .mf-fields {
+    align-self: start;
   }
 
   .mf-submit {
