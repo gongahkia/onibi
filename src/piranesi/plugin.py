@@ -81,6 +81,7 @@ _PLUGIN_API_MANIFEST: dict[str, object] = {
             "collect_source_specs",
             "collect_sink_specs",
             "collect_sanitizer_specs",
+            "plugin_api_manifest",
         ],
     },
     "experimental": {

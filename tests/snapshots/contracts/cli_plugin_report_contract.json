@@ -1,0 +1,182 @@
+{
+  "cli": {
+    "groups": {
+      "advisory": [
+        "import",
+        "search",
+        "status",
+        "update"
+      ],
+      "baseline": [
+        "save"
+      ],
+      "compliance": [
+        "bundle",
+        "evidence",
+        "maturity",
+        "summary"
+      ],
+      "eval": [
+        "audit",
+        "compare-reports",
+        "coverage-gaps",
+        "enrich-ground-truth",
+        "validate-all"
+      ],
+      "hook": [
+        "install",
+        "status",
+        "uninstall"
+      ],
+      "plugins": [
+        "list"
+      ],
+      "rules": [
+        "coverage",
+        "install",
+        "list",
+        "remove",
+        "scaffold",
+        "test",
+        "test-all",
+        "update",
+        "validate"
+      ],
+      "suppressions": [
+        "list",
+        "validate"
+      ]
+    },
+    "root_commands": [
+      "advisory",
+      "baseline",
+      "compliance",
+      "detect",
+      "diff",
+      "doctor",
+      "eval",
+      "explain",
+      "hook",
+      "init",
+      "legal",
+      "lsp",
+      "patch",
+      "plugins",
+      "report",
+      "rules",
+      "run",
+      "scan",
+      "suppress",
+      "suppressions",
+      "trends",
+      "triage",
+      "verify",
+      "version",
+      "watch"
+    ]
+  },
+  "plugin_api_manifest": {
+    "experimental": {
+      "framework_plugin_hooks": [
+        "tsconfig_overrides(self) -> dict[str, object]"
+      ]
+    },
+    "internal": {
+      "built_in_plugin_classes": [
+        "ExpressFramework",
+        "NestJSFramework",
+        "NextJSFramework",
+        "FastifyFramework",
+        "FlaskFramework",
+        "DjangoFramework",
+        "FastAPIFramework",
+        "SpringBootFramework",
+        "GinFramework",
+        "EchoFramework",
+        "ChiFramework",
+        "GoStdlibFramework",
+        "PhpFramework",
+        "LaravelFramework",
+        "SymfonyFramework",
+        "WordPressFramework",
+        "RubyFramework",
+        "RailsFramework",
+        "SinatraFramework"
+      ],
+      "registry_constant": "_BUILTIN_FRAMEWORK_PLUGINS"
+    },
+    "stable": {
+      "discovery_helpers": [
+        "discover_framework_plugins",
+        "discover_rule_plugins",
+        "discover_reporter_plugins",
+        "get_framework_plugins_by_name",
+        "collect_source_specs",
+        "collect_sink_specs",
+        "collect_sanitizer_specs",
+        "plugin_api_manifest"
+      ],
+      "entry_point_groups": [
+        "piranesi.frameworks",
+        "piranesi.rules",
+        "piranesi.reporters"
+      ],
+      "framework_plugin_interface": [
+        "name(self) -> str",
+        "detect(self, project_root: Path) -> bool",
+        "source_specs(self) -> list[SourceSpec]",
+        "sink_specs(self) -> list[SinkSpec]",
+        "sanitizer_specs(self) -> list[SanitizerSpec]"
+      ],
+      "reporter_plugin_interface": [
+        "name(self) -> str",
+        "format_id(self) -> str",
+        "render(self, report: object, output_dir: Path) -> Path"
+      ],
+      "rule_plugin_interface": [
+        "name(self) -> str",
+        "rule_files(self) -> list[Path]"
+      ]
+    },
+    "version": "1.0"
+  },
+  "report_contract": {
+    "known_limitation_fields": [
+      "affected_feature",
+      "docs_refs",
+      "id",
+      "impact",
+      "introduced_version",
+      "last_reviewed",
+      "severity",
+      "status",
+      "title",
+      "workaround"
+    ],
+    "piranesi_report_fields": [
+      "active_findings",
+      "advisory_db",
+      "appendix",
+      "cross_package_findings",
+      "dead_code_by_file",
+      "dead_code_functions",
+      "executive_summary",
+      "files_scanned",
+      "finding_clusters",
+      "findings",
+      "generated_at",
+      "known_limitations",
+      "ownership_context",
+      "package_findings",
+      "query_quality",
+      "scan_metadata",
+      "status_legend",
+      "suppressed_findings",
+      "suppressed_findings_by_package",
+      "suppression_lifecycle",
+      "target",
+      "unreachable_findings"
+    ]
+  },
+  "snapshot_version": 1
+}
