@@ -54,19 +54,14 @@ def launch_cli_tui(
     Binding = binding_module.Binding
     Horizontal = containers_module.Horizontal
     Vertical = containers_module.Vertical
-    DataTable = widgets_module.DataTable
     Footer = widgets_module.Footer
     Input = widgets_module.Input
     Static = widgets_module.Static
 
     class PiranesiLauncherApp(App[LauncherSelection | None]):
         BINDINGS: ClassVar[list[Any]] = [
-            Binding("up", "move_up", show=False),
-            Binding("down", "move_down", show=False),
-            Binding("k", "move_up", show=False),
-            Binding("j", "move_down", show=False),
             Binding("enter", "apply_path", show=False),
-            Binding("space", "apply_path", "Use Suggestion", show=True),
+            Binding("space", "apply_path", "Apply Path", show=True),
             Binding("tab", "autocomplete_path", "Autocomplete", show=True),
             Binding("r", "run_pipeline", "Run", show=True),
             Binding("t", "open_report", "Report", show=True),
@@ -99,11 +94,6 @@ def launch_cli_tui(
 
         #body {
             height: 1fr;
-        }
-
-        #suggestions {
-            width: 1fr;
-            min-width: 52;
         }
 
         #hint {
@@ -140,7 +130,6 @@ def launch_cli_tui(
             self.cwd = Path.cwd().resolve(strict=False)
             self.path_value = str(start_dir)
             self._status_note = ""
-            self._suggestions: list[Path] = []
             self._run_in_progress = False
             self._run_log_lines: list[str] = []
 
@@ -148,52 +137,27 @@ def launch_cli_tui(
             yield Static(_ASCII_BANNER, id="banner")
             yield Static("", id="status")
             yield Input(value=self.path_value, id="target_input")
-            with Horizontal(id="body"):
-                yield DataTable(id="suggestions")
-                with Vertical():
-                    yield Static("", id="hint")
-                    yield Static("", id="run_output")
+            with Horizontal(id="body"), Vertical():
+                yield Static("", id="hint")
+                yield Static("", id="run_output")
             yield Footer()
 
         def on_mount(self) -> None:
-            table = cast(Any, self.query_one("#suggestions"))
-            table.cursor_type = "row"
-            table.zebra_stripes = True
-            table.add_columns("Autocomplete Suggestion", "Type")
-            self._refresh_suggestions()
             self._update_target_from_input()
             self._refresh_status()
             cast(Any, self.query_one("#target_input")).focus()
 
-        def action_move_up(self) -> None:
-            self._set_row(self._selected_row() - 1)
-
-        def action_move_down(self) -> None:
-            self._set_row(self._selected_row() + 1)
-
         def action_apply_path(self) -> None:
-            suggestion = self._selected_suggestion()
-            if suggestion is not None:
-                self.path_value = str(suggestion)
-                cast(Any, self.query_one("#target_input")).value = self.path_value
             self._update_target_from_input(force=True)
-            self._refresh_suggestions()
             self._refresh_status()
 
         def action_autocomplete_path(self) -> None:
-            suggestion = self._selected_suggestion()
-            if suggestion is None:
-                suggestions = _autocomplete_directory_candidates(
-                    self.path_value,
-                    cwd=self.cwd,
-                )
-                suggestion = suggestions[0] if suggestions else None
+            suggestion = _first_autocomplete_match(self.path_value, cwd=self.cwd)
             if suggestion is None:
                 return
             self.path_value = str(suggestion)
             cast(Any, self.query_one("#target_input")).value = self.path_value
             self._update_target_from_input()
-            self._refresh_suggestions()
             self._refresh_status()
 
         def action_toggle_resume(self) -> None:
@@ -265,22 +229,7 @@ def launch_cli_tui(
                 return
             self.path_value = event.value
             self._update_target_from_input()
-            self._refresh_suggestions()
             self._refresh_status()
-
-        def _refresh_suggestions(self) -> None:
-            table = cast(Any, self.query_one("#suggestions"))
-            table.clear(columns=False)
-            self._suggestions = _autocomplete_directory_candidates(
-                self.path_value,
-                cwd=self.cwd,
-            )
-            if not self._suggestions:
-                table.add_row("(no matching directories)", "-")
-                return
-            for suggestion in self._suggestions:
-                table.add_row(_display_path(suggestion, cwd=self.cwd), "dir")
-            self._set_row(0)
 
         def _refresh_status(self) -> None:
             status = cast(Any, self.query_one("#status"))
@@ -308,9 +257,8 @@ def launch_cli_tui(
                     (
                         "Path Input",
                         "  type a directory path in the input box",
-                        "  tab              autocomplete selection",
-                        "  enter or space   apply selected suggestion",
-                        "  up/down or j/k   choose suggestion",
+                        "  tab              autocomplete typed path",
+                        "  enter or space   apply typed path",
                         "",
                         "Actions",
                         "  r run pipeline",
@@ -400,32 +348,6 @@ def launch_cli_tui(
             self._append_run_line(f"[piranesi] {message}")
             self._refresh_status()
 
-        def _selected_row(self) -> int:
-            table = cast(Any, self.query_one("#suggestions"))
-            coordinate = getattr(table, "cursor_coordinate", None)
-            row = getattr(coordinate, "row", 0) if coordinate is not None else 0
-            if isinstance(row, int):
-                return row
-            try:
-                return int(row)
-            except (TypeError, ValueError):
-                return 0
-
-        def _set_row(self, row: int) -> None:
-            if not self._suggestions:
-                return
-            table = cast(Any, self.query_one("#suggestions"))
-            bounded = max(0, min(row, len(self._suggestions) - 1))
-            table.cursor_coordinate = (bounded, 0)
-
-        def _selected_suggestion(self) -> Path | None:
-            if not self._suggestions:
-                return None
-            index = self._selected_row()
-            if index < 0 or index >= len(self._suggestions):
-                return None
-            return self._suggestions[index]
-
     app = PiranesiLauncherApp(
         start_dir=target_dir,
         output_dir=output_dir,
@@ -475,6 +397,13 @@ def _autocomplete_directory_candidates(
     fragment_lc = fragment.casefold()
     matches = [path for path in children if path.name.casefold().startswith(fragment_lc)]
     return matches[:limit]
+
+
+def _first_autocomplete_match(raw_value: str, *, cwd: Path) -> Path | None:
+    suggestions = _autocomplete_directory_candidates(raw_value, cwd=cwd)
+    if not suggestions:
+        return None
+    return suggestions[0]
 
 
 def _display_path(path: Path, *, cwd: Path) -> str:
