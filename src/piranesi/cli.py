@@ -3189,6 +3189,85 @@ def rules_coverage(
     typer.echo(render_rule_coverage_report(report))
 
 
+@advisory_app.command("sign-snapshot")
+def advisory_sign_snapshot(
+    snapshot_db: Annotated[
+        Path,
+        typer.Argument(help="Path to advisory DB snapshot file to sign."),
+    ],
+    manifest: Annotated[
+        Path | None,
+        typer.Option(
+            "--manifest",
+            help="Output path for detached snapshot manifest JSON.",
+        ),
+    ] = None,
+    key_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--key-file",
+            help="Shared trust key file used for HMAC signature generation.",
+        ),
+    ] = None,
+    signer: Annotated[
+        str | None,
+        typer.Option("--signer", help="Signer label recorded in the manifest."),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+) -> None:
+    from piranesi.advisory import load_trust_key, write_snapshot_manifest
+
+    snapshot_path = snapshot_db.expanduser().resolve(strict=False)
+    if not snapshot_path.is_file():
+        typer.echo(f"error: advisory DB snapshot not found: {snapshot_path}")
+        raise typer.Exit(code=1)
+
+    manifest_path = (
+        manifest.expanduser().resolve(strict=False)
+        if manifest is not None
+        else snapshot_path.with_suffix(snapshot_path.suffix + ".manifest.json")
+    )
+    signing_key = None
+    if key_file is not None:
+        try:
+            signing_key = load_trust_key(key_file.expanduser().resolve(strict=False))
+        except (OSError, ValueError) as exc:
+            typer.echo(f"error: failed to read trust key: {exc}")
+            raise typer.Exit(code=1) from exc
+
+    manifest_obj = write_snapshot_manifest(
+        snapshot_path,
+        manifest_path,
+        signing_key=signing_key,
+        signer=signer,
+    )
+    payload = {
+        "snapshot_path": str(snapshot_path),
+        "manifest_path": str(manifest_path),
+        "snapshot_sha256": manifest_obj.snapshot_sha256,
+        "file_size_bytes": manifest_obj.file_size_bytes,
+        "signature": (
+            None
+            if manifest_obj.signature is None
+            else {
+                "scheme": manifest_obj.signature.scheme,
+                "signer": manifest_obj.signature.signer,
+                "value": manifest_obj.signature.value,
+            }
+        ),
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+        return
+    typer.echo(f"snapshot: {snapshot_path}")
+    typer.echo(f"manifest: {manifest_path}")
+    typer.echo(f"snapshot_sha256: {manifest_obj.snapshot_sha256}")
+    typer.echo("signed: yes" if manifest_obj.signature is not None else "signed: no")
+
+
 @advisory_app.command("status")
 def advisory_status(
     project_root: Annotated[
@@ -3421,6 +3500,34 @@ def advisory_import(
         bool,
         typer.Option("--merge", help="Merge source DB into destination instead of replacing it."),
     ] = False,
+    manifest: Annotated[
+        Path | None,
+        typer.Option(
+            "--manifest",
+            help="Detached snapshot manifest for source DB verification.",
+        ),
+    ] = None,
+    trust_key: Annotated[
+        Path | None,
+        typer.Option(
+            "--trust-key",
+            help="Shared trust key used to verify manifest signatures.",
+        ),
+    ] = None,
+    require_manifest: Annotated[
+        bool,
+        typer.Option(
+            "--require-manifest",
+            help="Fail when --manifest is not provided.",
+        ),
+    ] = False,
+    require_verified_snapshot: Annotated[
+        bool,
+        typer.Option(
+            "--require-verified-snapshot",
+            help="Fail unless snapshot signature verifies successfully.",
+        ),
+    ] = False,
     stale_after_days: Annotated[
         int,
         typer.Option("--stale-after-days", help="Freshness warning threshold in days."),
@@ -3453,16 +3560,84 @@ def advisory_import(
         typer.Option("--json", help="Emit machine-readable JSON."),
     ] = False,
 ) -> None:
-    from piranesi.advisory import AdvisoryDB, get_advisory_db_status
+    from piranesi.advisory import (
+        AdvisoryDB,
+        AdvisorySnapshotProvenance,
+        get_advisory_db_status,
+        load_trust_key,
+        verify_snapshot_manifest,
+    )
+    from piranesi.advisory.db import utc_now
+    from piranesi.advisory.trust import SnapshotVerificationResult, compute_sha256
 
     source_path = source_db.expanduser().resolve(strict=False)
     if not source_path.is_file():
         typer.echo(f"error: advisory DB source not found: {source_path}")
         raise typer.Exit(code=1)
+    if require_manifest and manifest is None:
+        typer.echo("error: --require-manifest was set but --manifest was not provided")
+        raise typer.Exit(code=1)
+
+    manifest_path = (
+        manifest.expanduser().resolve(strict=False) if manifest is not None else None
+    )
+    verification_key: bytes | None = None
+    if trust_key is not None:
+        try:
+            verification_key = load_trust_key(trust_key.expanduser().resolve(strict=False))
+        except (OSError, ValueError) as exc:
+            typer.echo(f"error: failed to read trust key: {exc}")
+            raise typer.Exit(code=1) from exc
+
+    verification_result = None
+    if manifest_path is not None:
+        try:
+            verification_result = verify_snapshot_manifest(
+                source_path,
+                manifest_path,
+                verification_key=verification_key,
+            )
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            typer.echo(f"error: snapshot manifest verification failed: {exc}")
+            raise typer.Exit(code=1) from exc
+    else:
+        verification_result = SnapshotVerificationResult(
+            verified=False,
+            has_signature=False,
+            tampered=False,
+            reason="manifest not provided",
+            snapshot_sha256=compute_sha256(source_path),
+            manifest_sha256=None,
+            signature_scheme=None,
+            signature_signer=None,
+            signature_value=None,
+        )
+
+    if require_verified_snapshot and (verification_result is None or not verification_result.verified):
+        reason = "unknown reason" if verification_result is None else verification_result.reason
+        typer.echo(
+            "error: snapshot verification policy failed: "
+            f"require_verified_snapshot=true but verification did not pass ({reason})"
+        )
+        raise typer.Exit(code=1)
 
     db_path = _resolve_advisory_db_path(project_root, db)
+    provenance = AdvisorySnapshotProvenance(
+        source_path=str(source_path),
+        snapshot_sha256=verification_result.snapshot_sha256 if verification_result else None,
+        manifest_path=str(manifest_path) if manifest_path is not None else None,
+        manifest_sha256=verification_result.manifest_sha256 if verification_result else None,
+        signature_scheme=verification_result.signature_scheme if verification_result else None,
+        signature_signer=verification_result.signature_signer if verification_result else None,
+        signature_value=verification_result.signature_value if verification_result else None,
+        verified=bool(verification_result and verification_result.verified),
+        verification_reason=(
+            None if verification_result is None else verification_result.reason
+        ),
+        imported_at=utc_now(),
+    )
     with AdvisoryDB(db_path) as advisory_db:
-        advisory_db.import_from(source_path, merge=merge)
+        advisory_db.import_from(source_path, merge=merge, provenance=provenance)
 
     status = get_advisory_db_status(db_path, stale_after_days=stale_after_days)
     policy_outcome = _enforce_advisory_policy(
@@ -3473,6 +3648,15 @@ def advisory_import(
         on_unsigned=on_unsigned,
     )
     payload = _advisory_status_payload(status)
+    payload["verification"] = {
+        "manifest_path": str(manifest_path) if manifest_path is not None else None,
+        "verified": None if verification_result is None else verification_result.verified,
+        "has_signature": (
+            None if verification_result is None else verification_result.has_signature
+        ),
+        "tampered": None if verification_result is None else verification_result.tampered,
+        "reason": None if verification_result is None else verification_result.reason,
+    }
     payload["policy"] = _advisory_policy_payload(policy_outcome)
     if json_output:
         typer.echo(json.dumps(payload, indent=2))

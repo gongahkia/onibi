@@ -172,3 +172,120 @@ def test_advisory_update_uses_explicit_sync_command(
     assert payload["sync"]["total_upserted"] == 1
     assert payload["db"]["exists"] is True
     assert payload["db"]["advisory_count"] == 1
+
+
+def test_advisory_sign_snapshot_and_verified_import(tmp_path: Path) -> None:
+    source_db = tmp_path / "source.db"
+    destination_db = tmp_path / "destination.db"
+    key_file = tmp_path / "trust.key"
+    manifest_path = tmp_path / "source.db.manifest.json"
+    _seed_advisory_db(source_db)
+    key_file.write_text("shared-secret", encoding="utf-8")
+
+    sign_result = runner.invoke(
+        app,
+        [
+            "advisory",
+            "sign-snapshot",
+            str(source_db),
+            "--manifest",
+            str(manifest_path),
+            "--key-file",
+            str(key_file),
+            "--signer",
+            "security-team",
+            "--json",
+        ],
+    )
+    assert sign_result.exit_code == 0
+    sign_payload = json.loads(sign_result.stdout)
+    assert sign_payload["signature"]["scheme"] == "hmac-sha256"
+
+    import_result = runner.invoke(
+        app,
+        [
+            "advisory",
+            "import",
+            str(source_db),
+            "--db",
+            str(destination_db),
+            "--manifest",
+            str(manifest_path),
+            "--trust-key",
+            str(key_file),
+            "--require-verified-snapshot",
+            "--json",
+        ],
+    )
+    assert import_result.exit_code == 0
+    import_payload = json.loads(import_result.stdout)
+    assert import_payload["verification"]["verified"] is True
+    assert import_payload["trust_state"] == "verified"
+
+
+def test_advisory_import_rejects_tampered_snapshot_when_verification_required(
+    tmp_path: Path,
+) -> None:
+    source_db = tmp_path / "source.db"
+    destination_db = tmp_path / "destination.db"
+    key_file = tmp_path / "trust.key"
+    manifest_path = tmp_path / "source.db.manifest.json"
+    _seed_advisory_db(source_db)
+    key_file.write_text("shared-secret", encoding="utf-8")
+
+    sign_result = runner.invoke(
+        app,
+        [
+            "advisory",
+            "sign-snapshot",
+            str(source_db),
+            "--manifest",
+            str(manifest_path),
+            "--key-file",
+            str(key_file),
+            "--json",
+        ],
+    )
+    assert sign_result.exit_code == 0
+
+    source_db.write_bytes(source_db.read_bytes() + b"tamper")
+    import_result = runner.invoke(
+        app,
+        [
+            "advisory",
+            "import",
+            str(source_db),
+            "--db",
+            str(destination_db),
+            "--manifest",
+            str(manifest_path),
+            "--trust-key",
+            str(key_file),
+            "--require-verified-snapshot",
+            "--json",
+        ],
+    )
+    assert import_result.exit_code == 1
+    assert "snapshot verification policy failed" in import_result.stdout
+
+
+def test_advisory_import_require_manifest_fails_without_manifest(tmp_path: Path) -> None:
+    source_db = tmp_path / "source.db"
+    destination_db = tmp_path / "destination.db"
+    _seed_advisory_db(source_db)
+
+    result = runner.invoke(
+        app,
+        [
+            "advisory",
+            "import",
+            str(source_db),
+            "--db",
+            str(destination_db),
+            "--require-manifest",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "--require-manifest was set" in result.stdout
