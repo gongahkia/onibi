@@ -79,6 +79,25 @@ def test_redact_sensitive_text_masks_likely_credentials() -> None:
     assert "[REDACTED_PRIVATE_KEY]" in redacted
 
 
+def test_redact_sensitive_text_masks_provider_token_variants() -> None:
+    raw = (
+        "gh token: GITHUB_TOKEN_REDACTED\n"
+        "jwt: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+        "eyJzdWIiOiIxMjM0NTY3ODkwIn0."
+        "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c\n"
+        "bearer-only: Bearer tokenvalue123456\n"
+    )
+
+    redacted = sanitize.redact_sensitive_text(raw)
+
+    assert "GITHUB_TOKEN_REDACTED" not in redacted
+    assert "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9" not in redacted
+    assert "tokenvalue123456" not in redacted
+    assert "[REDACTED_GITHUB_TOKEN]" in redacted or "gh token: [REDACTED]" in redacted
+    assert "[REDACTED_JWT]" in redacted
+    assert "[REDACTED_TOKEN]" in redacted
+
+
 def test_redact_prompt_messages_redacts_nested_text_content() -> None:
     messages = [
         {"role": "system", "content": "Keep output strict JSON."},
@@ -97,3 +116,30 @@ def test_redact_prompt_messages_redacts_nested_text_content() -> None:
     assert "hunter2" not in redacted[1]["content"][0]["text"]
     assert "[REDACTED]" in redacted[1]["content"][0]["text"]
     assert "Bearer abcdef" not in redacted[1]["content"][1]["text"]
+
+
+def test_redact_prompt_messages_redacts_nested_sensitive_mapping_keys() -> None:
+    messages = [
+        {
+            "role": "user",
+            "content": {
+                "headers": {
+                    "Authorization": "Bearer top-secret-token-value",
+                    "X-Trace-Id": "trace-123",
+                },
+                "body": {
+                    "profile": {"sessionToken": "nested-session-token"},
+                    "events": [{"token": "event-token-value"}, {"note": "safe"}],
+                },
+            },
+        }
+    ]
+
+    redacted = sanitize.redact_prompt_messages(messages)
+    content = redacted[0]["content"]
+
+    assert content["headers"]["Authorization"] == "[REDACTED]"
+    assert content["headers"]["X-Trace-Id"] == "trace-123"
+    assert content["body"]["profile"]["sessionToken"] == "[REDACTED]"
+    assert content["body"]["events"][0]["token"] == "[REDACTED]"
+    assert content["body"]["events"][1]["note"] == "safe"

@@ -207,6 +207,10 @@ def test_build_compliance_evidence_bundle_writes_manifest_and_redacts(tmp_path: 
             {
                 "api_key": "sk-super-secret-token",
                 "headers": {"authorization": "Bearer sensitive-value"},
+                "events": [
+                    {"token": "GITHUB_TOKEN_REDACTED"},
+                    {"detail": {"session_id": "session-secret-value"}},
+                ],
             },
             indent=2,
         ),
@@ -215,6 +219,7 @@ def test_build_compliance_evidence_bundle_writes_manifest_and_redacts(tmp_path: 
     config_snapshot = tmp_path / "piranesi.toml"
     config_snapshot.write_text(
         'OPENAI_API_KEY = "sk-live-key"\n'
+        'GITHUB_TOKEN = "GITHUB_TOKEN_REDACTED"\n'
         "project = 'demo'\n",
         encoding="utf-8",
     )
@@ -243,8 +248,11 @@ def test_build_compliance_evidence_bundle_writes_manifest_and_redacts(tmp_path: 
     )
     assert verify_payload["api_key"] == "[REDACTED]"
     assert verify_payload["headers"]["authorization"] == "[REDACTED]"
+    assert verify_payload["events"][0]["token"] == "[REDACTED]"
+    assert verify_payload["events"][1]["detail"]["session_id"] == "[REDACTED]"
     config_payload = (output_dir / "artifacts" / "piranesi.toml").read_text(encoding="utf-8")
     assert "sk-live-key" not in config_payload
+    assert "GITHUB_TOKEN_REDACTED" not in config_payload
     assert "[REDACTED]" in config_payload
     metadata_payload = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
     assert metadata_payload["ownership"]["service"] == "payments-api"
