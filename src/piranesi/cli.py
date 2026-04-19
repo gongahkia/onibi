@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import signal
 import sys
@@ -18,10 +17,6 @@ from typing import Annotated, Any, cast
 
 import typer
 from pydantic import BaseModel, ValidationError
-from rich import box
-from rich.panel import Panel
-from rich.prompt import Confirm, Prompt
-from rich.table import Table
 
 from piranesi import __version__
 from piranesi.adapters import parse_external_tool_file
@@ -54,6 +49,7 @@ from piranesi.hooks.pre_commit import (
 )
 from piranesi.intel import build_enrichment_summary, normalize_adapter_result
 from piranesi.intel.schema import IntelSourceProvenance, NormalizationBundle
+from piranesi.launcher_tui import LauncherAction, LauncherSelection, launch_cli_tui
 from piranesi.llm.cost import CostTracker
 from piranesi.llm.provider import LLMProvider
 from piranesi.llm.router import ModelRouter
@@ -104,20 +100,12 @@ Exit codes:
   4 = budget exceeded
 """
 _ADVISORY_PROJECT_ROOT_HELP = "Project root used to resolve the default advisory DB."
-_UI_LLM_API_ENV_VARS = (
-    "OPENAI_API_KEY",
-    "ANTHROPIC_API_KEY",
-    "OPENROUTER_API_KEY",
-    "AZURE_OPENAI_API_KEY",
-    "GEMINI_API_KEY",
-    "GOOGLE_API_KEY",
-    "LITELLM_API_KEY",
-)
 
 app = typer.Typer(
     add_completion=False,
     help="CLI-native cybersecurity analysis tool for TypeScript/JavaScript source code.",
-    no_args_is_help=True,
+    no_args_is_help=False,
+    invoke_without_command=True,
 )
 
 plugins_app = typer.Typer(
@@ -1919,11 +1907,98 @@ def _load_hook_cli_config(config_path: Path) -> PiranesiConfig:
         raise typer.Exit(code=2) from exc
 
 
+def _interactive_tty_available() -> bool:
+    return sys.stdin.isatty() and sys.stderr.isatty()
+
+
+def _render_latest_summary(output_dir: Path) -> None:
+    report = _load_report_from_artifacts_dir(output_dir)
+    summary = report.executive_summary
+    print_summary_table(
+        "Latest Piranesi Summary",
+        {
+            "Output": output_dir,
+            "Findings detected": summary.findings_detected,
+            "Findings suppressed": summary.suppressed_findings,
+            "Findings confirmed": summary.findings_confirmed,
+            "Reachable findings": summary.reachable_findings,
+            "Unreachable findings": summary.unreachable_findings,
+            "Top risk finding": summary.highest_composite_risk_finding_id or "n/a",
+            "Top risk score": f"{summary.highest_composite_risk_score:.1f}",
+            "Duration (s)": f"{summary.duration_s:.1f}",
+            "LLM cost (USD)": f"{summary.total_llm_cost_usd:.4f}",
+        },
+    )
+
+    combined = (
+        list(report.findings) + list(report.active_findings) + list(report.unreachable_findings)
+    )
+    ranked = sorted(
+        (
+            (
+                str(getattr(finding, "finding_id", "n/a")),
+                float(getattr(finding, "composite_risk_score", 0.0) or 0.0),
+                str(getattr(finding, "severity", "unknown")).upper(),
+                str(getattr(finding, "title", "n/a")),
+            )
+            for finding in combined
+        ),
+        key=lambda item: item[1],
+        reverse=True,
+    )[:5]
+    if not ranked:
+        return
+    typer.echo("top risk findings:")
+    for finding_id, risk, severity, title in ranked:
+        typer.echo(f"- [{severity}] {finding_id} risk={risk:.1f} :: {title}")
+
+
+def _dispatch_launcher_selection(selection: LauncherSelection) -> None:
+    if selection.action is LauncherAction.QUIT:
+        return
+    if selection.action is LauncherAction.RUN:
+        run(
+            target_dir=selection.target_dir,
+            no_execute=selection.no_execute,
+            resume=selection.resume,
+            config=selection.config_path,
+            output=selection.output_dir,
+            trace=selection.trace_path,
+            authorized=True,
+            yes=True,
+        )
+        return
+    if selection.action is LauncherAction.REPORT_TUI:
+        report = _load_report_from_artifacts_dir(selection.output_dir)
+        display_report(report, output_dir=selection.output_dir)
+        return
+    if selection.action is LauncherAction.SUMMARY:
+        _render_latest_summary(selection.output_dir)
+        return
+    if selection.action is LauncherAction.DOCTOR:
+        report = build_doctor_report(selection.target_dir, config_path=selection.config_path)
+        typer.echo(render_doctor_report(report), nl=False)
+        return
+
+
 @app.callback()
 def main(
+    ctx: typer.Context,
     version: VersionOption = False,
 ) -> None:
     _ = version
+    if ctx.invoked_subcommand is not None:
+        return
+    if not _interactive_tty_available():
+        typer.echo(ctx.get_help())
+        raise typer.Exit()
+    ui(
+        target_dir=Path("."),
+        output=Path("./piranesi-output"),
+        config=Path("./piranesi.toml"),
+        trace=Path(".piranesi-trace.jsonl"),
+    )
+    raise typer.Exit()
 
 
 @app.command("version")
@@ -1952,194 +2027,12 @@ def doctor(
         raise typer.Exit(code=1)
 
 
-@dataclass(slots=True)
-class _UiDashboardState:
-    target_dir: Path
-    output_dir: Path
-    config_path: Path
-    trace_path: Path
-
-
-def _llm_api_configured() -> bool:
-    return any(os.getenv(name) for name in _UI_LLM_API_ENV_VARS)
-
-
-def _render_ui_dashboard(state: _UiDashboardState) -> None:
-    console.clear()
-    console.print(
-        Panel.fit(
-            "[bold cyan]PIRANESI[/bold cyan]  [dim]CLI Cybersecurity Workbench[/dim]",
-            border_style="cyan",
-            title="Control Center",
-        )
+@app.command(
+    help=(
+        "Launch the interactive launcher (arrow or hjkl navigation, "
+        "ASCII banner, directory picker)."
     )
-
-    status_table = Table(show_header=False, box=box.SIMPLE)
-    status_table.add_column("Field", style="bold")
-    status_table.add_column("Value")
-    status_table.add_row("Target", str(state.target_dir))
-    status_table.add_row("Output", str(state.output_dir))
-    status_table.add_row("Config", str(state.config_path))
-    status_table.add_row("Trace", str(state.trace_path))
-    status_table.add_row(
-        "LLM Mode",
-        "enabled" if _llm_api_configured() else "deterministic (no API key)",
-    )
-    console.print(status_table)
-
-    menu_table = Table(title="Actions", box=box.ROUNDED)
-    menu_table.add_column("Key", style="bold cyan", justify="center", no_wrap=True)
-    menu_table.add_column("Action", style="bold")
-    menu_table.add_column("Description")
-    menu_table.add_row(
-        "1",
-        "Run Pipeline",
-        "Run full pipeline with confirmation and current defaults.",
-    )
-    menu_table.add_row(
-        "2",
-        "Open Report TUI",
-        "Launch interactive report viewer from output artifacts.",
-    )
-    menu_table.add_row("3", "Show Summary", "Print latest report metrics and top-risk findings.")
-    menu_table.add_row("4", "Doctor", "Run environment readiness checks.")
-    menu_table.add_row("5", "Configure", "Update default target/output/config/trace paths.")
-    menu_table.add_row("q", "Quit", "Exit dashboard.")
-    console.print(menu_table)
-
-
-def _ui_pause() -> None:
-    console.input("[dim]Press Enter to continue...[/dim] ")
-
-
-def _ui_prompt_paths(state: _UiDashboardState) -> None:
-    state.target_dir = Path(
-        Prompt.ask("Default target directory", default=str(state.target_dir))
-    ).expanduser()
-    state.output_dir = Path(
-        Prompt.ask("Default output directory", default=str(state.output_dir))
-    ).expanduser()
-    state.config_path = Path(
-        Prompt.ask("Default config path", default=str(state.config_path))
-    ).expanduser()
-    state.trace_path = Path(
-        Prompt.ask("Default trace path", default=str(state.trace_path))
-    ).expanduser()
-
-
-def _ui_action_run_pipeline(state: _UiDashboardState) -> None:
-    target_dir = Path(Prompt.ask("Target directory", default=str(state.target_dir))).expanduser()
-    output_dir = Path(Prompt.ask("Output directory", default=str(state.output_dir))).expanduser()
-    config_path = Path(Prompt.ask("Config path", default=str(state.config_path))).expanduser()
-    trace_path = Path(Prompt.ask("Trace path", default=str(state.trace_path))).expanduser()
-    resume_default = (output_dir / "report.json").exists()
-    resume = Confirm.ask("Resume from existing artifacts if present?", default=resume_default)
-    no_execute = Confirm.ask("Run in no-execute mode?", default=False)
-
-    if not Confirm.ask(
-        "I confirm I have explicit authorization to test this target.",
-        default=False,
-    ):
-        console.print("[yellow]Run cancelled: authorization not confirmed.[/yellow]")
-        return
-
-    state.target_dir = target_dir
-    state.output_dir = output_dir
-    state.config_path = config_path
-    state.trace_path = trace_path
-
-    try:
-        run(
-            target_dir=target_dir,
-            no_execute=no_execute,
-            resume=resume,
-            config=config_path,
-            output=output_dir,
-            trace=trace_path,
-            authorized=True,
-            yes=True,
-        )
-    except typer.Exit as exc:
-        if exc.exit_code not in (None, 0):
-            console.print(f"[yellow]Pipeline exited with code {exc.exit_code}.[/yellow]")
-
-
-def _ui_action_open_report_tui(state: _UiDashboardState) -> None:
-    output_dir = Path(Prompt.ask("Artifacts directory", default=str(state.output_dir))).expanduser()
-    state.output_dir = output_dir
-    report = _load_report_from_artifacts_dir(output_dir)
-    display_report(report, output_dir=output_dir)
-
-
-def _ui_action_show_summary(state: _UiDashboardState) -> None:
-    output_dir = Path(Prompt.ask("Artifacts directory", default=str(state.output_dir))).expanduser()
-    state.output_dir = output_dir
-    report = _load_report_from_artifacts_dir(output_dir)
-    summary = report.executive_summary
-
-    print_summary_table(
-        "Latest Piranesi Summary",
-        {
-            "Output": output_dir,
-            "Findings detected": summary.findings_detected,
-            "Findings suppressed": summary.suppressed_findings,
-            "Findings confirmed": summary.findings_confirmed,
-            "Reachable findings": summary.reachable_findings,
-            "Unreachable findings": summary.unreachable_findings,
-            "Top risk finding": summary.highest_composite_risk_finding_id or "n/a",
-            "Top risk score": f"{summary.highest_composite_risk_score:.1f}",
-            "Duration (s)": f"{summary.duration_s:.1f}",
-            "LLM cost (USD)": f"{summary.total_llm_cost_usd:.4f}",
-        },
-    )
-
-    combined = (
-        list(report.findings) + list(report.active_findings) + list(report.unreachable_findings)
-    )
-    deduped: dict[str, Any] = {}
-    for finding in combined:
-        finding_id = getattr(finding, "finding_id", "")
-        if not finding_id:
-            continue
-        current = deduped.get(finding_id)
-        score = float(getattr(finding, "composite_risk_score", 0.0) or 0.0)
-        if current is None or score > float(getattr(current, "composite_risk_score", 0.0) or 0.0):
-            deduped[finding_id] = finding
-    top_findings = sorted(
-        deduped.values(),
-        key=lambda finding: float(getattr(finding, "composite_risk_score", 0.0) or 0.0),
-        reverse=True,
-    )[:5]
-    if not top_findings:
-        return
-
-    top_table = Table(title="Top Risk Findings", box=box.ROUNDED)
-    top_table.add_column("ID", overflow="fold")
-    top_table.add_column("Severity", style="bold")
-    top_table.add_column("Risk", justify="right")
-    top_table.add_column("Title", overflow="fold")
-    for finding in top_findings:
-        top_table.add_row(
-            str(getattr(finding, "finding_id", "n/a")),
-            str(getattr(finding, "severity", "unknown")).upper(),
-            f"{float(getattr(finding, 'composite_risk_score', 0.0) or 0.0):.1f}",
-            str(getattr(finding, "title", "n/a")),
-        )
-    console.print(top_table)
-
-
-def _ui_action_doctor(state: _UiDashboardState) -> None:
-    target_dir = Path(
-        Prompt.ask("Doctor target directory", default=str(state.target_dir))
-    ).expanduser()
-    config_path = Path(Prompt.ask("Config path", default=str(state.config_path))).expanduser()
-    state.target_dir = target_dir
-    state.config_path = config_path
-    report = build_doctor_report(target_dir, config_path=config_path)
-    typer.echo(render_doctor_report(report), nl=False)
-
-
-@app.command(help="Launch an interactive terminal dashboard for core Piranesi workflows.")
+)
 def ui(
     target_dir: Annotated[
         Path,
@@ -2149,56 +2042,25 @@ def ui(
     config: ConfigOption = Path("./piranesi.toml"),
     trace: TraceOption = Path(".piranesi-trace.jsonl"),
 ) -> None:
-    if not (sys.stdin.isatty() and sys.stderr.isatty()):
+    if not _interactive_tty_available():
         typer.echo("error: `piranesi ui` requires an interactive TTY.")
         raise typer.Exit(code=2)
-
-    state = _UiDashboardState(
-        target_dir=target_dir.expanduser().resolve(strict=False),
-        output_dir=output.expanduser().resolve(strict=False),
-        config_path=config.expanduser().resolve(strict=False),
-        trace_path=trace.expanduser().resolve(strict=False),
-    )
-
-    while True:
-        _render_ui_dashboard(state)
-        choice = Prompt.ask(
-            "Select action",
-            choices=["1", "2", "3", "4", "5", "q"],
-            default="1",
+    try:
+        selection = launch_cli_tui(
+            target_dir=target_dir.expanduser().resolve(strict=False),
+            output_dir=output.expanduser().resolve(strict=False),
+            config_path=config.expanduser().resolve(strict=False),
+            trace_path=trace.expanduser().resolve(strict=False),
         )
-        try:
-            if choice == "1":
-                _ui_action_run_pipeline(state)
-                _ui_pause()
-                continue
-            if choice == "2":
-                _ui_action_open_report_tui(state)
-                _ui_pause()
-                continue
-            if choice == "3":
-                _ui_action_show_summary(state)
-                _ui_pause()
-                continue
-            if choice == "4":
-                _ui_action_doctor(state)
-                _ui_pause()
-                continue
-            if choice == "5":
-                _ui_prompt_paths(state)
-                _ui_pause()
-                continue
-            return
-        except KeyboardInterrupt:
-            console.print("\n[yellow]Interrupted. Returning to dashboard menu.[/yellow]")
-            _ui_pause()
-        except typer.Exit as exc:
-            if exc.exit_code not in (None, 0):
-                console.print(f"[yellow]Action exited with code {exc.exit_code}.[/yellow]")
-            _ui_pause()
-        except Exception as exc:  # pragma: no cover - defensive guard for interactive loop
-            console.print(f"[red]Action failed:[/red] {exc}")
-            _ui_pause()
+    except ImportError as exc:
+        typer.echo(
+            "error: Textual is required for launcher UI. "
+            "Install extras with `uv sync --extra tui`."
+        )
+        raise typer.Exit(code=2) from exc
+    if selection is None:
+        return
+    _dispatch_launcher_selection(selection)
 
 
 @hook_app.command("install")

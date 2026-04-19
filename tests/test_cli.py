@@ -10,6 +10,7 @@ from typer.testing import CliRunner
 from piranesi.cli import app
 from piranesi.config import OwnershipConfig, load_config
 from piranesi.doctor import DoctorCheck, DoctorReport
+from piranesi.launcher_tui import LauncherAction, LauncherSelection
 from piranesi.models.finding import (
     VerificationAttempt,
     VerificationBodyExcerpt,
@@ -238,6 +239,41 @@ def test_ui_requires_interactive_tty() -> None:
 
     assert result.exit_code == 2
     assert "requires an interactive TTY" in result.stdout
+
+
+def test_no_args_launches_launcher_ui_when_interactive(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Path] = {}
+
+    monkeypatch.setattr("piranesi.cli._interactive_tty_available", lambda: True)
+
+    def _fake_launch(
+        *,
+        target_dir: Path,
+        output_dir: Path,
+        config_path: Path,
+        trace_path: Path,
+    ) -> LauncherSelection | None:
+        captured["target_dir"] = target_dir
+        captured["output_dir"] = output_dir
+        captured["config_path"] = config_path
+        captured["trace_path"] = trace_path
+        return LauncherSelection(
+            action=LauncherAction.QUIT,
+            target_dir=target_dir,
+            output_dir=output_dir,
+            config_path=config_path,
+            trace_path=trace_path,
+        )
+
+    monkeypatch.setattr("piranesi.cli.launch_cli_tui", _fake_launch)
+
+    result = runner.invoke(app, [])
+
+    assert result.exit_code == 0
+    assert captured["target_dir"] == Path(".").resolve(strict=False)
+    assert captured["output_dir"] == Path("./piranesi-output").resolve(strict=False)
+    assert captured["config_path"] == Path("./piranesi.toml").resolve(strict=False)
+    assert captured["trace_path"] == Path(".piranesi-trace.jsonl").resolve(strict=False)
 
 
 def test_lsp_help_lists_lsp_flags() -> None:
