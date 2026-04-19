@@ -32,6 +32,6 @@ P1.
 2. Mean time to classify failures (product vs env) reduced.
 
 ## Status
-- [ ] Planned
-- [ ] In progress
-- [ ] Completed
+- [x] Planned
+- [x] In progress
+- [x] Completed
