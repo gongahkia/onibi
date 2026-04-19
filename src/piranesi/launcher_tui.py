@@ -58,7 +58,6 @@ def launch_cli_tui(
     ModalScreen = screen_module.ModalScreen
     DataTable = widgets_module.DataTable
     Footer = widgets_module.Footer
-    Input = widgets_module.Input
     Static = widgets_module.Static
 
     class DirectoryPickerScreen(ModalScreen[Path | None]):
@@ -209,9 +208,6 @@ def launch_cli_tui(
 
     class PiranesiLauncherApp(App[LauncherSelection | None]):
         BINDINGS: ClassVar[list[Any]] = [
-            Binding("enter", "apply_path", show=False),
-            Binding("space", "apply_path", "Apply Path", show=True),
-            Binding("tab", "autocomplete_path", "Autocomplete", show=True),
             Binding("f", "open_path_finder", "Path Finder", show=True),
             Binding("ctrl+o", "open_path_finder", show=False),
             Binding("r", "run_pipeline", "Run", show=True),
@@ -237,14 +233,6 @@ def launch_cli_tui(
         #status {
             padding: 0 1;
             height: auto;
-        }
-
-        #target_input {
-            margin: 0 1;
-            height: 1;
-            border: none;
-            padding: 0;
-            background: transparent;
         }
 
         #body {
@@ -284,7 +272,8 @@ def launch_cli_tui(
             self.resume = False
             self.no_execute = False
             self.cwd = Path.cwd().resolve(strict=False)
-            self.path_value = str(start_dir)
+            self.start_dir = start_dir
+            self.target_dir: Path | None = None
             self._status_note = ""
             self._run_in_progress = False
             self._run_log_lines: list[str] = []
@@ -292,34 +281,19 @@ def launch_cli_tui(
         def compose(self) -> Any:
             yield Static(_ASCII_BANNER, id="banner")
             yield Static("", id="status")
-            yield Input(value=self.path_value, id="target_input")
             with Horizontal(id="body"), Vertical():
                 yield Static("", id="hint")
                 yield Static("", id="run_output")
             yield Footer()
 
         def on_mount(self) -> None:
-            self._update_target_from_input()
-            self._refresh_status()
-            cast(Any, self.query_one("#target_input")).focus()
-
-        def action_apply_path(self) -> None:
-            self._update_target_from_input(force=True)
-            self._refresh_status()
-
-        def action_autocomplete_path(self) -> None:
-            suggestion = _first_autocomplete_match(self.path_value, cwd=self.cwd)
-            if suggestion is None:
-                return
-            self.path_value = str(suggestion)
-            cast(Any, self.query_one("#target_input")).value = self.path_value
-            self._update_target_from_input()
+            self._status_note = "no target selected"
             self._refresh_status()
 
         def action_open_path_finder(self) -> None:
-            start = _resolve_input_directory(self.path_value, cwd=self.cwd)
+            start = self.target_dir if self.target_dir is not None else self.start_dir
             if not start.exists() or not start.is_dir():
-                start = self.target_dir
+                start = self.cwd
             self.push_screen(
                 DirectoryPickerScreen(start_dir=start),
                 self._on_path_finder_closed,
@@ -334,7 +308,9 @@ def launch_cli_tui(
             self._refresh_status()
 
         def action_run_pipeline(self) -> None:
-            if not self._ensure_valid_target():
+            if self.target_dir is None:
+                self._status_note = "select a target first (press f or Ctrl+O)"
+                self._refresh_status()
                 return
             if self._run_in_progress:
                 self._status_note = "pipeline already running"
@@ -367,7 +343,9 @@ def launch_cli_tui(
             self.exit(self._selection(LauncherAction.SUMMARY))
 
         def action_run_doctor(self) -> None:
-            if not self._ensure_valid_target():
+            if self.target_dir is None:
+                self._status_note = "select a target first (press f or Ctrl+O)"
+                self._refresh_status()
                 return
             self.exit(self._selection(LauncherAction.DOCTOR))
 
@@ -381,7 +359,7 @@ def launch_cli_tui(
         def _selection(self, action: LauncherAction) -> LauncherSelection:
             return LauncherSelection(
                 action=action,
-                target_dir=self.target_dir,
+                target_dir=self.target_dir or self.start_dir,
                 output_dir=self.output_dir,
                 config_path=self.config_path,
                 trace_path=self.trace_path,
@@ -389,24 +367,13 @@ def launch_cli_tui(
                 no_execute=self.no_execute,
             )
 
-        def on_input_changed(self, event: Any) -> None:
-            if getattr(event.input, "id", "") != "target_input":
-                return
-            self.path_value = event.value
-            self._update_target_from_input()
-            self._refresh_status()
-
         def _on_path_finder_closed(self, selected: Path | None) -> None:
             if selected is None:
-                cast(Any, self.query_one("#target_input")).focus()
                 return
             resolved = selected.resolve(strict=False)
-            self.path_value = str(resolved)
-            cast(Any, self.query_one("#target_input")).value = self.path_value
             self.target_dir = resolved
             self._status_note = "target selected via path finder"
             self._refresh_status()
-            cast(Any, self.query_one("#target_input")).focus()
 
         def _refresh_status(self) -> None:
             status = cast(Any, self.query_one("#status"))
@@ -414,8 +381,7 @@ def launch_cli_tui(
             status.update(
                 "\n".join(
                     (
-                        f"Typed path: {self.path_value or '.'}",
-                        f"Target: {self.target_dir}",
+                        f"Target: {self.target_dir or '(not selected)'}",
                         f"Output: {self.output_dir}",
                         f"Config: {self.config_path}",
                         f"Trace: {self.trace_path}",
@@ -432,11 +398,9 @@ def launch_cli_tui(
             hint.update(
                 "\n".join(
                     (
-                        "Path Input",
-                        "  type a directory path in the input box",
-                        "  tab              autocomplete typed path",
-                        "  enter or space   apply typed path",
+                        "Path Selection",
                         "  f / ctrl+o       open path finder overlay",
+                        "  choose target in picker before running",
                         "",
                         "Actions",
                         "  r run pipeline",
@@ -459,28 +423,6 @@ def launch_cli_tui(
             if not has_output:
                 return
             output.update("\n".join(self._run_log_lines[-240:]))
-
-        def _update_target_from_input(self, *, force: bool = False) -> None:
-            candidate = _resolve_input_directory(self.path_value, cwd=self.cwd)
-            if candidate.exists() and candidate.is_dir():
-                self.target_dir = candidate
-                self._status_note = "target directory ready"
-                return
-            if force:
-                self._status_note = "target path must be an existing directory"
-            else:
-                self._status_note = "typed path is not an existing directory"
-
-        def _ensure_valid_target(self) -> bool:
-            candidate = _resolve_input_directory(self.path_value, cwd=self.cwd)
-            if candidate.exists() and candidate.is_dir():
-                self.target_dir = candidate
-                self._status_note = "target directory ready"
-                self._refresh_status()
-                return True
-            self._status_note = "target path must be an existing directory"
-            self._refresh_status()
-            return False
 
         def _run_pipeline_thread(self, command: list[str]) -> None:
             try:
@@ -537,54 +479,6 @@ def launch_cli_tui(
     return result if isinstance(result, LauncherSelection) else None
 
 
-def _resolve_input_directory(raw_value: str, *, cwd: Path) -> Path:
-    text = raw_value.strip() or "."
-    expanded = Path(text).expanduser()
-    if expanded.is_absolute():
-        return expanded.resolve(strict=False)
-    return (cwd / expanded).resolve(strict=False)
-
-
-def _autocomplete_directory_candidates(
-    raw_value: str,
-    *,
-    cwd: Path,
-    limit: int = 200,
-) -> list[Path]:
-    text = raw_value.strip() or "."
-    expanded = Path(text).expanduser()
-    if not expanded.is_absolute():
-        expanded = (cwd / expanded).resolve(strict=False)
-    if text.endswith(("/", "\\")):
-        base_dir = expanded
-        fragment = ""
-    else:
-        base_dir = expanded.parent
-        fragment = expanded.name
-    if not base_dir.exists() or not base_dir.is_dir():
-        return []
-
-    try:
-        children = sorted(
-            (path for path in base_dir.iterdir() if path.is_dir()),
-            key=lambda path: path.name.casefold(),
-        )
-    except OSError:
-        return []
-    if not fragment:
-        return children[:limit]
-    fragment_lc = fragment.casefold()
-    matches = [path for path in children if path.name.casefold().startswith(fragment_lc)]
-    return matches[:limit]
-
-
-def _first_autocomplete_match(raw_value: str, *, cwd: Path) -> Path | None:
-    suggestions = _autocomplete_directory_candidates(raw_value, cwd=cwd)
-    if not suggestions:
-        return None
-    return suggestions[0]
-
-
 def _picker_directory_entries(current_dir: Path) -> list[Path]:
     entries: list[Path] = []
     parent = current_dir.parent
@@ -599,15 +493,6 @@ def _picker_directory_entries(current_dir: Path) -> list[Path]:
         children = []
     entries.extend(path.resolve(strict=False) for path in children)
     return entries
-
-
-def _display_path(path: Path, *, cwd: Path) -> str:
-    try:
-        relative = path.relative_to(cwd)
-    except ValueError:
-        return str(path)
-    value = str(relative)
-    return "." if value == "" else value
 
 
 def _build_pipeline_command(
