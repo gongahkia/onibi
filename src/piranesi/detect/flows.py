@@ -38,6 +38,8 @@ from piranesi.scan.queries import (
     build_flow_query,
     execute_json_query,
     execute_sanitizer_query,
+    execute_sink_query,
+    execute_source_query,
     normalize_flow_elements_for_sink_spec,
 )
 from piranesi.scan.specs import (
@@ -544,12 +546,21 @@ def extract_candidate_findings(
                 sink_specs=flow_sink_specs,
             )
         )
+    target_scan_files = _target_scan_files_for_lightweight_detectors(
+        server,
+        source_specs=resolved_source_specs,
+        sink_specs=resolved_sink_specs,
+        file_resolver=file_resolver,
+    )
+    if target_scan_files is None:
+        target_scan_files = _target_scan_files_from_findings(findings)
     findings.extend(
         extract_alias_findings(
             root,
             source_map=source_map,
             sink_specs=resolved_sink_specs,
             source_specs=resolved_source_specs,
+            files=target_scan_files,
         )
     )
     findings.extend(
@@ -557,6 +568,7 @@ def extract_candidate_findings(
             root,
             source_map=source_map,
             sink_specs=resolved_sink_specs,
+            files=target_scan_files,
         )
     )
     if field_sensitive:
@@ -825,6 +837,47 @@ def _collect_sanitizer_lookup(
                 continue
             sanitizer_lookup[node.node_id] = sanitizer_spec
     return sanitizer_lookup
+
+
+def _target_scan_files_for_lightweight_detectors(
+    server: JoernServer,
+    *,
+    source_specs: Sequence[SourceSpec],
+    sink_specs: Sequence[SinkSpec],
+    file_resolver: _NodeFileResolver,
+) -> tuple[Path, ...] | None:
+    candidate_paths: set[Path] = set()
+    for source_spec in source_specs:
+        with contextlib.suppress(CPGQLQueryError):
+            for node in execute_source_query(server, source_spec):
+                resolved = file_resolver.resolve(node)
+                if resolved is not None:
+                    candidate_paths.add(resolved.resolve(strict=False))
+    for sink_spec in sink_specs:
+        with contextlib.suppress(CPGQLQueryError):
+            for node in execute_sink_query(server, sink_spec):
+                resolved = file_resolver.resolve(node)
+                if resolved is not None:
+                    candidate_paths.add(resolved.resolve(strict=False))
+    if not candidate_paths:
+        return None
+    return tuple(sorted(candidate_paths, key=str))
+
+
+def _target_scan_files_from_findings(
+    findings: Sequence[CandidateFinding],
+) -> tuple[Path, ...] | None:
+    candidate_paths: set[Path] = set()
+    for finding in findings:
+        for raw_path in (finding.source.location.file, finding.sink.location.file):
+            if not raw_path or raw_path.startswith("<"):
+                continue
+            path = Path(raw_path).resolve(strict=False)
+            if path.exists():
+                candidate_paths.add(path)
+    if not candidate_paths:
+        return None
+    return tuple(sorted(candidate_paths, key=str))
 
 
 def _reduced_confidence_for_path(
