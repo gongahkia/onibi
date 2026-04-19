@@ -37,27 +37,23 @@ def test_help_shows_all_commands() -> None:
 
     assert result.exit_code == 0
     commands = [
-        "scan",
-        "detect",
-        "triage",
-        "verify",
-        "legal",
-        "patch",
-        "report",
-        "trends",
-        "suppress",
-        "suppressions",
-        "diff",
-        "explain",
-        "rules",
-        "eval",
-        "advisory",
-        "baseline",
-        "hook",
+        "version",
         "doctor",
         "init",
+        "explain",
+        "trends",
         "run",
-        "watch",
+        "plugins",
+        "rules",
+        "advisory",
+        "baseline",
+        "suppressions",
+        "compliance",
+        "hook",
+        "eval",
+        "intel",
+        "pipeline",
+        "dev",
     ]
     for command in commands:
         assert command in result.stdout
@@ -167,7 +163,7 @@ def test_run_help_lists_incremental_flag() -> None:
     assert "--proof-mode" in output
     assert "--target-profile" in output
     assert "--fail-on-new" in output
-    assert "--fail-on-new-severity" in output
+    assert "--fail-on-new-se" in output
 
 
 def test_diff_help_lists_pr_friendly_flags() -> None:
@@ -177,7 +173,32 @@ def test_diff_help_lists_pr_friendly_flags() -> None:
     assert result.exit_code == 0
     assert "--format" in output
     assert "--fail-on-new" in output
-    assert "--fail-on-new-severity" in output
+    assert "--fail-on-new-se" in output
+
+
+def test_pipeline_help_lists_stage_commands() -> None:
+    result = runner.invoke(app, ["pipeline", "--help"])
+    output = _plain_output(result.stdout)
+
+    assert result.exit_code == 0
+    for name in ("run", "scan", "detect", "triage", "verify", "legal", "patch", "report"):
+        assert name in output
+
+
+def test_suppressions_help_lists_add_alias() -> None:
+    result = runner.invoke(app, ["suppressions", "--help"])
+    output = _plain_output(result.stdout)
+
+    assert result.exit_code == 0
+    assert "add" in output
+
+
+def test_baseline_help_lists_diff_alias() -> None:
+    result = runner.invoke(app, ["baseline", "--help"])
+    output = _plain_output(result.stdout)
+
+    assert result.exit_code == 0
+    assert "diff" in output
 
 
 def test_verify_help_lists_proof_mode_flag() -> None:

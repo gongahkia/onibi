@@ -39,6 +39,7 @@ from piranesi.diff import (
     render_diff_markdown,
 )
 from piranesi.doctor import build_doctor_report, render_doctor_report
+from piranesi.graph import build_graph_from_enrichment
 from piranesi.hooks.pre_commit import (
     HookError,
     discover_staged_files,
@@ -46,6 +47,8 @@ from piranesi.hooks.pre_commit import (
     pre_commit_hook_status,
     uninstall_pre_commit_hook,
 )
+from piranesi.intel import build_enrichment_summary, normalize_adapter_result
+from piranesi.intel.schema import IntelSourceProvenance, NormalizationBundle
 from piranesi.llm.cost import CostTracker
 from piranesi.llm.provider import LLMProvider
 from piranesi.llm.router import ModelRouter
@@ -79,9 +82,6 @@ from piranesi.report.renderer import (
 )
 from piranesi.report.trends import build_trend_report, render_terminal_trends, write_trend_report
 from piranesi.report.tui import display_report
-from piranesi.graph import build_graph_from_enrichment
-from piranesi.intel import build_enrichment_summary, normalize_adapter_result
-from piranesi.intel.schema import IntelSourceProvenance, NormalizationBundle
 from piranesi.scaffold import scaffold_project
 from piranesi.scan.monorepo import detect_monorepo_manifest, select_packages
 from piranesi.threat import build_threat_model
@@ -146,6 +146,16 @@ eval_app = typer.Typer(
     help="Run evaluation harness commands.",
     no_args_is_help=True,
 )
+pipeline_app = typer.Typer(
+    add_completion=False,
+    help="Advanced stage-level pipeline controls (scan/detect/triage/verify/legal/patch/report).",
+    no_args_is_help=True,
+)
+dev_app = typer.Typer(
+    add_completion=False,
+    help="Developer productivity workflows (watch and LSP).",
+    no_args_is_help=True,
+)
 intel_app = typer.Typer(
     add_completion=False,
     help="Ingest and normalize offline external intelligence snapshots.",
@@ -160,6 +170,8 @@ app.add_typer(compliance_app, name="compliance")
 app.add_typer(hook_app, name="hook")
 app.add_typer(eval_app, name="eval")
 app.add_typer(intel_app, name="intel")
+app.add_typer(pipeline_app, name="pipeline")
+app.add_typer(dev_app, name="dev")
 
 
 def _version_callback(value: bool) -> None:
@@ -1992,7 +2004,7 @@ def init(
         typer.echo(f"  {index}. {step}")
 
 
-@app.command()
+@app.command(hidden=True)
 def scan(
     target_dir: TargetDirArg,
     include: IncludeOption = None,
@@ -2041,7 +2053,7 @@ def scan(
     )
 
 
-@app.command(help="Watch a directory and run incremental scans on file changes.")
+@app.command(help="Watch a directory and run incremental scans on file changes.", hidden=True)
 def watch(
     target_dir: TargetDirArg,
     filter_pattern: WatchFilterOption = None,
@@ -2136,7 +2148,7 @@ def watch(
         raise typer.Exit(code=summary.exit_code)
 
 
-@app.command(help="Start the Piranesi LSP server.")
+@app.command(help="Start the Piranesi LSP server.", hidden=True)
 def lsp(
     tcp: Annotated[
         bool,
@@ -2192,7 +2204,7 @@ def lsp(
         raise typer.Exit(code=3) from exc
 
 
-@app.command()
+@app.command(hidden=True)
 def detect(
     target_dir: TargetDirArg,
     include_tests: IncludeTestsOption = False,
@@ -2231,7 +2243,7 @@ def detect(
     )
 
 
-@app.command()
+@app.command(hidden=True)
 def triage(
     findings_file: FindingsFileArg,
     model: ModelOption = None,
@@ -2263,7 +2275,7 @@ def triage(
     )
 
 
-@app.command()
+@app.command(hidden=True)
 def verify(
     findings_file: FindingsFileArg,
     docker_image: DockerImageOption = None,
@@ -2305,7 +2317,7 @@ def verify(
     )
 
 
-@app.command()
+@app.command(hidden=True)
 def legal(
     findings_file: FindingsFileArg,
     config: ConfigOption = Path("./piranesi.toml"),
@@ -2335,7 +2347,7 @@ def legal(
     )
 
 
-@app.command()
+@app.command(hidden=True)
 def patch(
     findings_file: FindingsFileArg,
     model: ModelOption = None,
@@ -2369,7 +2381,7 @@ def patch(
     )
 
 
-@app.command()
+@app.command(hidden=True)
 def report(
     findings_file: FindingsFileArg,
     format: FormatOption = None,
@@ -2683,7 +2695,9 @@ def compliance_bundle(
             "output_dir": output.resolve(strict=False),
             "redact": redact,
             "manifest_path": output / manifest.checksum_manifest_path,
-            "config_snapshot": None if config_snapshot is None else config_snapshot.resolve(strict=False),
+            "config_snapshot": (
+                None if config_snapshot is None else config_snapshot.resolve(strict=False)
+            ),
             "file_count": len(manifest.files),
         },
     )
@@ -2694,7 +2708,7 @@ def compliance_bundle(
     typer.echo(f"manifest: {output / manifest.checksum_manifest_path}")
 
 
-@app.command()
+@app.command(hidden=True)
 def suppress(
     finding_id: Annotated[str, typer.Argument(help="Finding fingerprint to suppress.")],
     reason: Annotated[str, typer.Option("--reason", help="Suppression rationale.")],
@@ -3005,7 +3019,10 @@ def intel_normalize(
     ],
     tool: Annotated[
         str,
-        typer.Option("--tool", help="External tool type (sarif, codeql_sarif, semgrep, trivy, zap)."),
+        typer.Option(
+            "--tool",
+            help="External tool type (sarif, codeql_sarif, semgrep, trivy, zap).",
+        ),
     ],
     output: Annotated[
         Path,
@@ -3161,7 +3178,7 @@ def intel_summary(
     typer.echo(f"wrote enrichment summary to {output}")
 
 
-@app.command("diff")
+@app.command("diff", hidden=True)
 def diff_command(
     baseline_path: ComparisonTargetArg,
     current_path: ComparisonTargetArg,
@@ -3934,7 +3951,9 @@ def advisory_import(
             signature_value=None,
         )
 
-    if require_verified_snapshot and (verification_result is None or not verification_result.verified):
+    if require_verified_snapshot and (
+        verification_result is None or not verification_result.verified
+    ):
         reason = "unknown reason" if verification_result is None else verification_result.reason
         typer.echo(
             "error: snapshot verification policy failed: "
@@ -4858,3 +4877,25 @@ def run(
                 err=config_model.output.format == ReportFormat.TUI.value,
             )
         raise typer.Exit(code=1)
+
+
+def _register_collapsed_command_aliases() -> None:
+    """Register progressive-disclosure aliases without breaking compatibility."""
+
+    pipeline_app.command("run")(run)
+    pipeline_app.command("scan")(scan)
+    pipeline_app.command("detect")(detect)
+    pipeline_app.command("triage")(triage)
+    pipeline_app.command("verify")(verify)
+    pipeline_app.command("legal")(legal)
+    pipeline_app.command("patch")(patch)
+    pipeline_app.command("report")(report)
+
+    dev_app.command("watch")(watch)
+    dev_app.command("lsp")(lsp)
+
+    baseline_app.command("diff")(diff_command)
+    suppressions_app.command("add")(suppress)
+
+
+_register_collapsed_command_aliases()
