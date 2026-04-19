@@ -241,6 +241,10 @@ def launch_cli_tui(
 
         #target_input {
             margin: 0 1;
+            height: 1;
+            border: none;
+            padding: 0;
+            background: transparent;
         }
 
         #body {
