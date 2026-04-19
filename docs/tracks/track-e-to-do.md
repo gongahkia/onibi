@@ -29,6 +29,6 @@ P2.
 2. Number of scans using verified advisory context.
 
 ## Status
-- [ ] Planned
-- [ ] In progress
-- [ ] Completed
+- [x] Planned
+- [x] In progress
+- [x] Completed
