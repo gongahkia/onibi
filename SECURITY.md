@@ -75,3 +75,27 @@ Piranesi processes untrusted source code and should be treated as security-sensi
 - Resource exhaustion from pathological projects
 
 If your report relates to one of these areas, say so explicitly in the advisory so it can be triaged faster.
+
+## Redaction Scope and Limits
+
+Piranesi applies best-effort secret redaction in three primary paths:
+
+- Outbound LLM prompt payloads and message content.
+- Verification evidence artifacts written under `verification-evidence/`.
+- Compliance evidence bundle artifacts and copied config snapshots.
+
+Redaction currently targets common high-risk patterns, including:
+
+- Authorization and cookie header/value formats.
+- API key, token, password, and session-style key/value formats.
+- Common provider token prefixes and JWT-like bearer credentials.
+- Nested JSON/dict/list payloads where sensitive field names are present.
+
+Operational guarantees and caveats:
+
+- Piranesi attempts to prevent plain-text secret persistence for known patterns in those paths.
+- Redaction is pattern-based, not a formal data-loss-prevention system.
+- Novel encodings, obfuscation, chunked secrets, binary payloads, or provider-specific formats not covered by current patterns may bypass redaction.
+- Third-party tool output and external logs are outside this guarantee unless they pass through Piranesi artifact redaction.
+
+If policy requires zero chance of outbound model data exposure, run without LLM credentials and keep deterministic-only stages enabled.
