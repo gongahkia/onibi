@@ -19,6 +19,7 @@ import typer
 from pydantic import BaseModel, ValidationError
 
 from piranesi import __version__
+from piranesi.adapters import parse_external_tool_file
 from piranesi.audit import append_audit_event
 from piranesi.config import ConfigError, PiranesiConfig, load_config
 from piranesi.detect import (
@@ -78,6 +79,9 @@ from piranesi.report.renderer import (
 )
 from piranesi.report.trends import build_trend_report, render_terminal_trends, write_trend_report
 from piranesi.report.tui import display_report
+from piranesi.graph import build_graph_from_enrichment
+from piranesi.intel import build_enrichment_summary, normalize_adapter_result
+from piranesi.intel.schema import IntelSourceProvenance, NormalizationBundle
 from piranesi.scaffold import scaffold_project
 from piranesi.scan.monorepo import detect_monorepo_manifest, select_packages
 from piranesi.threat import build_threat_model
@@ -142,6 +146,11 @@ eval_app = typer.Typer(
     help="Run evaluation harness commands.",
     no_args_is_help=True,
 )
+intel_app = typer.Typer(
+    add_completion=False,
+    help="Ingest and normalize offline external intelligence snapshots.",
+    no_args_is_help=True,
+)
 app.add_typer(plugins_app, name="plugins")
 app.add_typer(rules_app, name="rules")
 app.add_typer(advisory_app, name="advisory")
@@ -150,6 +159,7 @@ app.add_typer(suppressions_app, name="suppressions")
 app.add_typer(compliance_app, name="compliance")
 app.add_typer(hook_app, name="hook")
 app.add_typer(eval_app, name="eval")
+app.add_typer(intel_app, name="intel")
 
 
 def _version_callback(value: bool) -> None:
@@ -2956,6 +2966,199 @@ def suppressions_validate(
     )
     if fail_on_invalid or fail_on_expired or fail_on_stale:
         raise typer.Exit(code=1)
+
+
+_INTEL_TOOLS = {"sarif", "codeql_sarif", "semgrep", "trivy", "zap"}
+_INTEL_TRUST_LEVELS = {"verified", "trusted", "untrusted"}
+
+
+def _resolve_intel_tool(raw_value: str) -> str:
+    candidate = raw_value.strip().lower()
+    if candidate not in _INTEL_TOOLS:
+        supported = ", ".join(sorted(_INTEL_TOOLS))
+        raise ValueError(f"unsupported intel tool '{raw_value}'. Supported values: {supported}")
+    return candidate
+
+
+def _resolve_intel_trust_level(raw_value: str) -> str:
+    candidate = raw_value.strip().lower()
+    if candidate not in _INTEL_TRUST_LEVELS:
+        supported = ", ".join(sorted(_INTEL_TRUST_LEVELS))
+        raise ValueError(
+            f"unsupported intel trust level '{raw_value}'. Supported values: {supported}"
+        )
+    return candidate
+
+
+def _load_normalization_bundle(path: Path) -> NormalizationBundle:
+    try:
+        return NormalizationBundle.model_validate_json(path.read_text(encoding="utf-8"))
+    except (OSError, ValidationError) as exc:
+        raise ValueError(f"invalid normalization bundle at {path}: {exc}") from exc
+
+
+@intel_app.command("normalize")
+def intel_normalize(
+    input_path: Annotated[
+        Path,
+        typer.Argument(help="Path to external snapshot JSON file."),
+    ],
+    tool: Annotated[
+        str,
+        typer.Option("--tool", help="External tool type (sarif, codeql_sarif, semgrep, trivy, zap)."),
+    ],
+    output: Annotated[
+        Path,
+        typer.Option("--output", "-o", help="Destination JSON file for normalized bundle."),
+    ],
+    source_name: Annotated[
+        str,
+        typer.Option("--source-name", help="Human-readable source label."),
+    ] = "external-snapshot",
+    trust_level: Annotated[
+        str,
+        typer.Option("--trust-level", help="Source trust level (verified, trusted, untrusted)."),
+    ] = "trusted",
+    stale_after_hours: Annotated[
+        int,
+        typer.Option("--stale-after-hours", min=1, help="Staleness horizon in hours."),
+    ] = 168,
+    collected_at: Annotated[
+        str | None,
+        typer.Option(
+            "--collected-at",
+            help="Optional source collection timestamp in ISO-8601 format.",
+        ),
+    ] = None,
+) -> None:
+    if not input_path.exists():
+        typer.echo(f"error: snapshot file not found: {input_path}")
+        raise typer.Exit(code=2)
+
+    try:
+        tool_key = _resolve_intel_tool(tool)
+        trust_key = _resolve_intel_trust_level(trust_level)
+    except ValueError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=2) from exc
+
+    parse_result = parse_external_tool_file(
+        tool=cast(Any, tool_key),
+        input_path=input_path,
+    )
+    source = IntelSourceProvenance.from_snapshot(
+        source_name=source_name,
+        tool=cast(Any, tool_key),
+        snapshot_path=input_path,
+        trust_level=cast(Any, trust_key),
+        stale_after_hours=stale_after_hours,
+        collected_at=collected_at,
+    )
+    bundle = normalize_adapter_result(parse_result=parse_result, source=source)
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(bundle.model_dump_json(indent=2), encoding="utf-8")
+    _write_audit_event(
+        output_dir=output.parent,
+        event_type="intel_snapshot_normalized",
+        stage="intel",
+        approved=True,
+        details={
+            "input_path": input_path.resolve(strict=False),
+            "output_path": output.resolve(strict=False),
+            "tool": tool_key,
+            "source_name": source_name,
+            "finding_count": len(bundle.findings),
+            "diagnostics": list(bundle.diagnostics),
+        },
+    )
+    typer.echo(
+        f"normalized {len(bundle.findings)} finding(s) from {tool_key} snapshot to {output}"
+    )
+
+
+@intel_app.command("graph")
+def intel_graph(
+    normalized_bundle: Annotated[
+        Path,
+        typer.Option("--normalized", help="Normalization bundle JSON path."),
+    ],
+    output: Annotated[
+        Path,
+        typer.Option("--output", "-o", help="Destination graph snapshot JSON path."),
+    ],
+) -> None:
+    try:
+        bundle = _load_normalization_bundle(normalized_bundle)
+    except ValueError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=2) from exc
+
+    graph = build_graph_from_enrichment(
+        source_name=bundle.source.source_name,
+        findings=list(bundle.findings),
+    )
+    errors = graph.validate_edges()
+    if errors:
+        typer.echo("error: graph validation failed:")
+        for error in errors:
+            typer.echo(f"- {error}")
+        raise typer.Exit(code=2)
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(graph.model_dump_json(indent=2), encoding="utf-8")
+    _write_audit_event(
+        output_dir=output.parent,
+        event_type="intel_graph_built",
+        stage="intel",
+        approved=True,
+        details={
+            "normalized_bundle": normalized_bundle.resolve(strict=False),
+            "output_path": output.resolve(strict=False),
+            "node_count": len(graph.nodes),
+            "edge_count": len(graph.edges),
+        },
+    )
+    typer.echo(f"wrote intelligence graph with {len(graph.nodes)} node(s) to {output}")
+
+
+@intel_app.command("summary")
+def intel_summary(
+    normalized_bundle: Annotated[
+        Path,
+        typer.Option("--normalized", help="Normalization bundle JSON path."),
+    ],
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Optional output JSON path."),
+    ] = None,
+) -> None:
+    try:
+        bundle = _load_normalization_bundle(normalized_bundle)
+    except ValueError as exc:
+        typer.echo(f"error: {exc}")
+        raise typer.Exit(code=2) from exc
+
+    summary = build_enrichment_summary(bundle)
+    payload = summary.model_dump_json(indent=2)
+    if output is None:
+        typer.echo(payload)
+        return
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(payload, encoding="utf-8")
+    _write_audit_event(
+        output_dir=output.parent,
+        event_type="intel_summary_generated",
+        stage="intel",
+        approved=True,
+        details={
+            "normalized_bundle": normalized_bundle.resolve(strict=False),
+            "output_path": output.resolve(strict=False),
+            "findings_total": summary.findings_total,
+        },
+    )
+    typer.echo(f"wrote enrichment summary to {output}")
 
 
 @app.command("diff")
