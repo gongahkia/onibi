@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import importlib
+import shlex
+import subprocess
+import threading
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -50,6 +53,7 @@ def launch_cli_tui(
     App = app_module.App
     Binding = binding_module.Binding
     Horizontal = containers_module.Horizontal
+    Vertical = containers_module.Vertical
     DataTable = widgets_module.DataTable
     Footer = widgets_module.Footer
     Input = widgets_module.Input
@@ -70,6 +74,7 @@ def launch_cli_tui(
             Binding("d", "run_doctor", "Doctor", show=True),
             Binding("u", "toggle_resume", "Resume", show=True),
             Binding("n", "toggle_no_execute", "No Execute", show=True),
+            Binding("c", "clear_output", "Clear Output", show=True),
             Binding("q", "quit_launcher", "Quit", show=True),
         ]
 
@@ -106,6 +111,15 @@ def launch_cli_tui(
             min-width: 42;
             padding: 1;
         }
+
+        #run_output {
+            width: 1fr;
+            min-width: 42;
+            height: 1fr;
+            padding: 1;
+            overflow: auto;
+            border: round $accent;
+        }
         """
 
         def __init__(
@@ -127,6 +141,8 @@ def launch_cli_tui(
             self.path_value = str(start_dir)
             self._status_note = ""
             self._suggestions: list[Path] = []
+            self._run_in_progress = False
+            self._run_log_lines: list[str] = []
 
         def compose(self) -> Any:
             yield Static(_ASCII_BANNER, id="banner")
@@ -134,7 +150,9 @@ def launch_cli_tui(
             yield Input(value=self.path_value, id="target_input")
             with Horizontal(id="body"):
                 yield DataTable(id="suggestions")
-                yield Static("", id="hint")
+                with Vertical():
+                    yield Static("", id="hint")
+                    yield Static("", id="run_output")
             yield Footer()
 
         def on_mount(self) -> None:
@@ -189,7 +207,29 @@ def launch_cli_tui(
         def action_run_pipeline(self) -> None:
             if not self._ensure_valid_target():
                 return
-            self.exit(self._selection(LauncherAction.RUN))
+            if self._run_in_progress:
+                self._status_note = "pipeline already running"
+                self._refresh_status()
+                return
+            command = _build_pipeline_command(
+                target_dir=self.target_dir,
+                output_dir=self.output_dir,
+                config_path=self.config_path,
+                trace_path=self.trace_path,
+                resume=self.resume,
+                no_execute=self.no_execute,
+            )
+            self._run_in_progress = True
+            self._status_note = "pipeline running"
+            self._append_run_line(f"$ {shlex.join(command)}")
+            self._append_run_line("")
+            self._refresh_status()
+            thread = threading.Thread(
+                target=self._run_pipeline_thread,
+                args=(command,),
+                daemon=True,
+            )
+            thread.start()
 
         def action_open_report(self) -> None:
             self.exit(self._selection(LauncherAction.REPORT_TUI))
@@ -204,6 +244,10 @@ def launch_cli_tui(
 
         def action_quit_launcher(self) -> None:
             self.exit(self._selection(LauncherAction.QUIT))
+
+        def action_clear_output(self) -> None:
+            self._run_log_lines.clear()
+            self._refresh_run_output()
 
         def _selection(self, action: LauncherAction) -> LauncherSelection:
             return LauncherSelection(
@@ -254,6 +298,7 @@ def launch_cli_tui(
                             f"resume={'on' if self.resume else 'off'} | "
                             f"no-execute={'on' if self.no_execute else 'off'}"
                         ),
+                        f"Pipeline: {'running' if self._run_in_progress else 'idle'}",
                         f"Status: {self._status_note or 'ready'}",
                     )
                 )
@@ -274,10 +319,19 @@ def launch_cli_tui(
                         "  d run doctor",
                         "  u toggle resume",
                         "  n toggle no-execute",
+                        "  c clear output",
                         "  q quit",
                     )
                 )
             )
+            self._refresh_run_output()
+
+        def _refresh_run_output(self) -> None:
+            output = cast(Any, self.query_one("#run_output"))
+            if not self._run_log_lines:
+                output.update("Pipeline output will stream here after pressing 'r'.")
+                return
+            output.update("\n".join(self._run_log_lines[-240:]))
 
         def _update_target_from_input(self, *, force: bool = False) -> None:
             candidate = _resolve_input_directory(self.path_value, cwd=self.cwd)
@@ -300,6 +354,51 @@ def launch_cli_tui(
             self._status_note = "target path must be an existing directory"
             self._refresh_status()
             return False
+
+        def _run_pipeline_thread(self, command: list[str]) -> None:
+            try:
+                process = subprocess.Popen(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                )
+            except OSError as exc:
+                self.call_from_thread(self._on_pipeline_error, f"failed to launch: {exc}")
+                return
+
+            assert process.stdout is not None
+            for line in process.stdout:
+                self.call_from_thread(self._append_run_line, line.rstrip("\n"))
+            return_code = process.wait()
+            self.call_from_thread(self._on_pipeline_complete, return_code)
+
+        def _append_run_line(self, line: str) -> None:
+            self._run_log_lines.append(line)
+            if len(self._run_log_lines) > 2000:
+                self._run_log_lines = self._run_log_lines[-2000:]
+            self._refresh_run_output()
+
+        def _on_pipeline_complete(self, return_code: int) -> None:
+            self._run_in_progress = False
+            if return_code == 0:
+                self._status_note = "pipeline completed successfully"
+                self._append_run_line("")
+                self._append_run_line("[piranesi] pipeline completed successfully")
+            else:
+                self._status_note = f"pipeline failed with exit code {return_code}"
+                self._append_run_line("")
+                self._append_run_line(
+                    f"[piranesi] pipeline failed with exit code {return_code}"
+                )
+            self._refresh_status()
+
+        def _on_pipeline_error(self, message: str) -> None:
+            self._run_in_progress = False
+            self._status_note = message
+            self._append_run_line(f"[piranesi] {message}")
+            self._refresh_status()
 
         def _selected_row(self) -> int:
             table = cast(Any, self.query_one("#suggestions"))
@@ -385,6 +484,38 @@ def _display_path(path: Path, *, cwd: Path) -> str:
         return str(path)
     value = str(relative)
     return "." if value == "" else value
+
+
+def _build_pipeline_command(
+    *,
+    target_dir: Path,
+    output_dir: Path,
+    config_path: Path,
+    trace_path: Path,
+    resume: bool,
+    no_execute: bool,
+) -> list[str]:
+    command = [
+        "uv",
+        "run",
+        "piranesi",
+        "pipeline",
+        "run",
+        str(target_dir),
+        "-o",
+        str(output_dir),
+        "--config",
+        str(config_path),
+        "--trace",
+        str(trace_path),
+        "--authorized",
+        "--yes",
+    ]
+    if resume:
+        command.append("--resume")
+    if no_execute:
+        command.append("--no-execute")
+    return command
 
 
 __all__ = ["LauncherAction", "LauncherSelection", "launch_cli_tui"]

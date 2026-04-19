@@ -4,6 +4,7 @@ from pathlib import Path
 
 from piranesi.launcher_tui import (
     _autocomplete_directory_candidates,
+    _build_pipeline_command,
     _display_path,
     _resolve_input_directory,
 )
@@ -29,3 +30,19 @@ def test_display_path_prefers_relative_from_cwd(tmp_path: Path) -> None:
     nested = (tmp_path / "examples" / "vuln-express").resolve(strict=False)
     rendered = _display_path(nested, cwd=tmp_path)
     assert rendered == "examples/vuln-express"
+
+
+def test_build_pipeline_command_includes_flags(tmp_path: Path) -> None:
+    command = _build_pipeline_command(
+        target_dir=tmp_path / "target",
+        output_dir=tmp_path / "out",
+        config_path=tmp_path / "piranesi.toml",
+        trace_path=tmp_path / ".trace.jsonl",
+        resume=True,
+        no_execute=True,
+    )
+    assert command[:6] == ["uv", "run", "piranesi", "pipeline", "run", str(tmp_path / "target")]
+    assert "--authorized" in command
+    assert "--yes" in command
+    assert "--resume" in command
+    assert "--no-execute" in command
