@@ -378,7 +378,7 @@ PORT = "4010"
 Run with:
 
 ```bash
-uv run piranesi verify .piranesi-out/vuln-express/triage.json \
+uv run piranesi pipeline verify .piranesi-out/vuln-express/triage.json \
   --authorized \
   --yes \
   --target-profile express_local

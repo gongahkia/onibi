@@ -517,7 +517,7 @@ The effort savings (200+ hours) justify the control tradeoff. If Joern's precisi
 - JVM 11+ (`brew install openjdk@11` on macOS)
 - Joern CLI (`brew install joern` on macOS or binary release from GitHub)
 - TypeScript compiler (`npm install -g typescript` or `npx tsc`)
-- These are system-level dependencies, not pip packages. `piranesi scan` checks for their presence and prints installation instructions if missing.
+- These are system-level dependencies, not pip packages. `piranesi pipeline scan` (or compatibility `piranesi scan`) checks for their presence and prints installation instructions if missing.
 
 **Directory structure** (Joern-backed):
 - `src/piranesi/scan/transpile.py` — TypeScript → JavaScript transpilation via tsc, source map handling
@@ -642,10 +642,10 @@ For re-scans of a previously analyzed codebase:
 The `--authorized` flag is **required** for any scan operation. The CLI will refuse to run without it. This is a legal and ethical safeguard: scanning code for vulnerabilities and generating exploits must only be done on code the operator is authorized to test.
 
 ```
-$ piranesi scan ./my-app
+$ piranesi pipeline scan ./my-app
 Error: --authorized flag required. Confirm you are authorized to scan this codebase.
 
-$ piranesi scan --authorized ./my-app
+$ piranesi pipeline scan --authorized ./my-app
 [scanning...]
 ```
 
