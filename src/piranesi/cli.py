@@ -246,6 +246,17 @@ class FailSeverity(StrEnum):
     CRITICAL = "critical"
 
 
+class AdvisoryTrustPolicy(StrEnum):
+    PERMISSIVE = "permissive"
+    VERIFIED_ONLY = "verified-only"
+
+
+class AdvisoryPolicyAction(StrEnum):
+    IGNORE = "ignore"
+    WARN = "warn"
+    FAIL = "fail"
+
+
 FormatOption = Annotated[
     ReportFormat | None,
     typer.Option("--format", help="Report format.", case_sensitive=False),
@@ -1772,6 +1783,36 @@ def _advisory_status_payload(status: Any) -> dict[str, object]:
     }
 
 
+def _advisory_policy_payload(outcome: Any) -> dict[str, object]:
+    return {
+        "mode": outcome.mode,
+        "allowed": outcome.allowed,
+        "freshness": outcome.freshness,
+        "trust_state": outcome.trust_state,
+        "violations": list(outcome.violations),
+        "warnings": list(outcome.warnings),
+    }
+
+
+def _enforce_advisory_policy(
+    *,
+    status: Any,
+    trust_policy: AdvisoryTrustPolicy,
+    on_missing: AdvisoryPolicyAction,
+    on_stale: AdvisoryPolicyAction,
+    on_unsigned: AdvisoryPolicyAction,
+) -> Any:
+    from piranesi.advisory import evaluate_trust_policy
+
+    return evaluate_trust_policy(
+        status,
+        mode=trust_policy.value,
+        on_missing=on_missing.value,
+        on_stale=on_stale.value,
+        on_unsigned=on_unsigned.value,
+    )
+
+
 def _load_hook_cli_config(config_path: Path) -> PiranesiConfig:
     if not config_path.exists():
         return PiranesiConfig()
@@ -3162,6 +3203,29 @@ def advisory_status(
         int,
         typer.Option("--stale-after-days", help="Freshness warning threshold in days."),
     ] = 14,
+    trust_policy: Annotated[
+        AdvisoryTrustPolicy,
+        typer.Option(
+            "--trust-policy",
+            help="Advisory trust policy mode.",
+            case_sensitive=False,
+        ),
+    ] = AdvisoryTrustPolicy.PERMISSIVE,
+    on_missing: Annotated[
+        AdvisoryPolicyAction,
+        typer.Option("--on-missing", help="Policy action when advisory DB is missing."),
+    ] = AdvisoryPolicyAction.WARN,
+    on_stale: Annotated[
+        AdvisoryPolicyAction,
+        typer.Option("--on-stale", help="Policy action when advisory DB is stale."),
+    ] = AdvisoryPolicyAction.WARN,
+    on_unsigned: Annotated[
+        AdvisoryPolicyAction,
+        typer.Option(
+            "--on-unsigned",
+            help="Policy action when advisory snapshot trust_state is unsigned/unverified.",
+        ),
+    ] = AdvisoryPolicyAction.WARN,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable JSON."),
@@ -3171,10 +3235,20 @@ def advisory_status(
 
     db_path = _resolve_advisory_db_path(project_root, db)
     status = get_advisory_db_status(db_path, stale_after_days=stale_after_days)
+    policy_outcome = _enforce_advisory_policy(
+        status=status,
+        trust_policy=trust_policy,
+        on_missing=on_missing,
+        on_stale=on_stale,
+        on_unsigned=on_unsigned,
+    )
     payload = _advisory_status_payload(status)
+    payload["policy"] = _advisory_policy_payload(policy_outcome)
 
     if json_output:
         typer.echo(json.dumps(payload, indent=2))
+        if not policy_outcome.allowed:
+            raise typer.Exit(code=1)
         return
 
     typer.echo(f"path: {payload['path']}")
@@ -3193,6 +3267,15 @@ def advisory_status(
         typer.echo("warnings:")
         for warning in payload["warnings"]:
             typer.echo(f"- {warning}")
+    if policy_outcome.warnings:
+        typer.echo("policy_warnings:")
+        for warning in policy_outcome.warnings:
+            typer.echo(f"- {warning}")
+    if policy_outcome.violations:
+        typer.echo("policy_violations:")
+        for violation in policy_outcome.violations:
+            typer.echo(f"- {violation}")
+        raise typer.Exit(code=1)
 
 
 @advisory_app.command("update")
@@ -3229,6 +3312,29 @@ def advisory_update(
         int,
         typer.Option("--stale-after-days", help="Freshness warning threshold in days."),
     ] = 14,
+    trust_policy: Annotated[
+        AdvisoryTrustPolicy,
+        typer.Option(
+            "--trust-policy",
+            help="Advisory trust policy mode.",
+            case_sensitive=False,
+        ),
+    ] = AdvisoryTrustPolicy.PERMISSIVE,
+    on_missing: Annotated[
+        AdvisoryPolicyAction,
+        typer.Option("--on-missing", help="Policy action when advisory DB is missing."),
+    ] = AdvisoryPolicyAction.WARN,
+    on_stale: Annotated[
+        AdvisoryPolicyAction,
+        typer.Option("--on-stale", help="Policy action when advisory DB is stale."),
+    ] = AdvisoryPolicyAction.WARN,
+    on_unsigned: Annotated[
+        AdvisoryPolicyAction,
+        typer.Option(
+            "--on-unsigned",
+            help="Policy action when advisory snapshot trust_state is unsigned/unverified.",
+        ),
+    ] = AdvisoryPolicyAction.WARN,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable JSON."),
@@ -3254,6 +3360,13 @@ def advisory_update(
         raise typer.Exit(code=1) from exc
 
     status = get_advisory_db_status(db_path, stale_after_days=stale_after_days)
+    policy_outcome = _enforce_advisory_policy(
+        status=status,
+        trust_policy=trust_policy,
+        on_missing=on_missing,
+        on_stale=on_stale,
+        on_unsigned=on_unsigned,
+    )
     payload = {
         "db": _advisory_status_payload(status),
         "sync": {
@@ -3262,9 +3375,12 @@ def advisory_update(
             "epss_updated": result.epss_updated,
             "exploit_updated": result.exploit_updated,
         },
+        "policy": _advisory_policy_payload(policy_outcome),
     }
     if json_output:
         typer.echo(json.dumps(payload, indent=2))
+        if not policy_outcome.allowed:
+            raise typer.Exit(code=1)
         return
 
     typer.echo(f"synced sources: {', '.join(sources)}")
@@ -3272,6 +3388,15 @@ def advisory_update(
     typer.echo(f"epss updates: {result.epss_updated}")
     typer.echo(f"exploit updates: {result.exploit_updated}")
     typer.echo(f"db freshness: {status.freshness}")
+    if policy_outcome.warnings:
+        typer.echo("policy_warnings:")
+        for warning in policy_outcome.warnings:
+            typer.echo(f"- {warning}")
+    if policy_outcome.violations:
+        typer.echo("policy_violations:")
+        for violation in policy_outcome.violations:
+            typer.echo(f"- {violation}")
+        raise typer.Exit(code=1)
     if status.warnings:
         typer.echo("warnings:")
         for warning in status.warnings:
@@ -3300,6 +3425,29 @@ def advisory_import(
         int,
         typer.Option("--stale-after-days", help="Freshness warning threshold in days."),
     ] = 14,
+    trust_policy: Annotated[
+        AdvisoryTrustPolicy,
+        typer.Option(
+            "--trust-policy",
+            help="Advisory trust policy mode.",
+            case_sensitive=False,
+        ),
+    ] = AdvisoryTrustPolicy.PERMISSIVE,
+    on_missing: Annotated[
+        AdvisoryPolicyAction,
+        typer.Option("--on-missing", help="Policy action when advisory DB is missing."),
+    ] = AdvisoryPolicyAction.WARN,
+    on_stale: Annotated[
+        AdvisoryPolicyAction,
+        typer.Option("--on-stale", help="Policy action when advisory DB is stale."),
+    ] = AdvisoryPolicyAction.WARN,
+    on_unsigned: Annotated[
+        AdvisoryPolicyAction,
+        typer.Option(
+            "--on-unsigned",
+            help="Policy action when advisory snapshot trust_state is unsigned/unverified.",
+        ),
+    ] = AdvisoryPolicyAction.WARN,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable JSON."),
@@ -3317,15 +3465,34 @@ def advisory_import(
         advisory_db.import_from(source_path, merge=merge)
 
     status = get_advisory_db_status(db_path, stale_after_days=stale_after_days)
+    policy_outcome = _enforce_advisory_policy(
+        status=status,
+        trust_policy=trust_policy,
+        on_missing=on_missing,
+        on_stale=on_stale,
+        on_unsigned=on_unsigned,
+    )
     payload = _advisory_status_payload(status)
+    payload["policy"] = _advisory_policy_payload(policy_outcome)
     if json_output:
         typer.echo(json.dumps(payload, indent=2))
+        if not policy_outcome.allowed:
+            raise typer.Exit(code=1)
         return
 
     mode = "merged" if merge else "replaced"
     typer.echo(f"{mode} advisory DB from {source_path} into {db_path}")
     typer.echo(f"advisories: {status.advisory_count}")
     typer.echo(f"freshness: {status.freshness}")
+    if policy_outcome.warnings:
+        typer.echo("policy_warnings:")
+        for warning in policy_outcome.warnings:
+            typer.echo(f"- {warning}")
+    if policy_outcome.violations:
+        typer.echo("policy_violations:")
+        for violation in policy_outcome.violations:
+            typer.echo(f"- {violation}")
+        raise typer.Exit(code=1)
     if status.warnings:
         typer.echo("warnings:")
         for warning in status.warnings:
@@ -3362,6 +3529,29 @@ def advisory_search(
         int,
         typer.Option("--stale-after-days", help="Freshness warning threshold in days."),
     ] = 14,
+    trust_policy: Annotated[
+        AdvisoryTrustPolicy,
+        typer.Option(
+            "--trust-policy",
+            help="Advisory trust policy mode.",
+            case_sensitive=False,
+        ),
+    ] = AdvisoryTrustPolicy.PERMISSIVE,
+    on_missing: Annotated[
+        AdvisoryPolicyAction,
+        typer.Option("--on-missing", help="Policy action when advisory DB is missing."),
+    ] = AdvisoryPolicyAction.WARN,
+    on_stale: Annotated[
+        AdvisoryPolicyAction,
+        typer.Option("--on-stale", help="Policy action when advisory DB is stale."),
+    ] = AdvisoryPolicyAction.WARN,
+    on_unsigned: Annotated[
+        AdvisoryPolicyAction,
+        typer.Option(
+            "--on-unsigned",
+            help="Policy action when advisory snapshot trust_state is unsigned/unverified.",
+        ),
+    ] = AdvisoryPolicyAction.WARN,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable JSON."),
@@ -3374,6 +3564,13 @@ def advisory_search(
     if not status.exists:
         typer.echo(f"error: advisory database not found at {db_path}")
         raise typer.Exit(code=1)
+    policy_outcome = _enforce_advisory_policy(
+        status=status,
+        trust_policy=trust_policy,
+        on_missing=on_missing,
+        on_stale=on_stale,
+        on_unsigned=on_unsigned,
+    )
 
     with AdvisoryDB(db_path) as advisory_db:
         rows = advisory_db.search_advisories(
@@ -3386,6 +3583,7 @@ def advisory_search(
     if json_output:
         payload = {
             "status": _advisory_status_payload(status),
+            "policy": _advisory_policy_payload(policy_outcome),
             "count": len(rows),
             "results": [
                 {
@@ -3405,6 +3603,8 @@ def advisory_search(
             ],
         }
         typer.echo(json.dumps(payload, indent=2))
+        if not policy_outcome.allowed:
+            raise typer.Exit(code=1)
         return
 
     typer.echo(f"results: {len(rows)}")
@@ -3425,6 +3625,15 @@ def advisory_search(
         typer.echo("warnings:")
         for warning in status.warnings:
             typer.echo(f"- {warning}")
+    if policy_outcome.warnings:
+        typer.echo("policy_warnings:")
+        for warning in policy_outcome.warnings:
+            typer.echo(f"- {warning}")
+    if policy_outcome.violations:
+        typer.echo("policy_violations:")
+        for violation in policy_outcome.violations:
+            typer.echo(f"- {violation}")
+        raise typer.Exit(code=1)
 
 
 def _run_eval_entrypoint(entrypoint: str, argv: list[str]) -> None:

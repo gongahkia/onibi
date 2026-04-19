@@ -10,6 +10,7 @@ from piranesi.advisory.epss import enrich_epss, epss_label
 from piranesi.advisory.exploit import check_exploit_availability
 from piranesi.advisory.lookup import lookup_dependencies, parse_lockfiles
 from piranesi.advisory.models import Advisory, AffectedPackage, ExploitStatus
+from piranesi.advisory.policy import AdvisoryPolicyOutcome, evaluate_trust_policy
 from piranesi.advisory.sync import SyncResult, sync_advisories
 from piranesi.advisory.trust import (
     SnapshotManifest,
@@ -38,11 +39,13 @@ __all__ = [
     "check_exploit_availability",
     "enrich_epss",
     "epss_label",
+    "evaluate_trust_policy",
     "get_advisory_db_status",
     "is_vulnerable",
     "load_snapshot_manifest",
     "load_trust_key",
     "lookup_dependencies",
+    "AdvisoryPolicyOutcome",
     "parse_lockfiles",
     "sync_advisories",
     "verify_snapshot_manifest",
