@@ -60,6 +60,19 @@ Set one LiteLLM-compatible credential to enable LLM-assisted stages: `OPENAI_API
 
 Use `--fail-severity high` to fail CI only on `high` or `critical` findings, or `--no-fail` to always exit `0` for findings while still writing artifacts.
 
+## CLI Shape
+
+Piranesi now follows a progressive-disclosure CLI layout:
+
+- Start with `piranesi run ...` for the default end-to-end flow.
+- Use grouped advanced controls when needed:
+  - `piranesi pipeline ...` for stage-level operations (`scan`, `detect`, `triage`, `verify`, `legal`, `patch`, `report`).
+  - `piranesi baseline diff ...` for baseline comparisons.
+  - `piranesi suppressions add ...` for suppression creation and lifecycle management.
+  - `piranesi dev ...` for developer workflows (`watch`, `lsp`).
+
+Backward-compatible top-level commands still work, but grouped commands are the recommended interface for new usage.
+
 ## Docker Quick Start
 
 Build and run Piranesi without a local Python/Node/Joern toolchain:

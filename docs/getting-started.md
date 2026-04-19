@@ -90,6 +90,19 @@ Notes:
 - `piranesi doctor .` is the fastest way to see what will work on the current machine.
 - Piranesi can run static scan/detect/report in deterministic mode without an LLM API key.
 
+## Command Model
+
+Piranesi uses progressive disclosure:
+
+- Start with `piranesi run ...` for the default end-to-end workflow.
+- Use grouped advanced commands only when you need fine-grained control:
+  - `piranesi pipeline ...` for stage-level operations (`scan`, `detect`, `triage`, `verify`, `legal`, `patch`, `report`)
+  - `piranesi baseline diff ...` for baseline comparison workflows
+  - `piranesi suppressions add ...` for suppression creation
+  - `piranesi dev ...` for editor/watch workflows (`lsp`, `watch`)
+
+Backward-compatible top-level command forms still work.
+
 ## Optional LLM Configuration
 
 Piranesi uses LiteLLM-compatible credentials for model-assisted triage, patch generation, and legal memo generation. Static scan/detect/report can run without these credentials. The runtime checks for at least one of these environment variables:
@@ -295,13 +308,13 @@ For fast local iteration, use the LSP server in your editor and `watch` in a ter
 Start LSP (stdio, default):
 
 ```bash
-uv run piranesi lsp --config ./piranesi.toml
+uv run piranesi dev lsp --config ./piranesi.toml
 ```
 
 Start watch mode with a tighter debounce window:
 
 ```bash
-uv run piranesi watch . \
+uv run piranesi dev watch . \
   --debounce 300 \
   --filter "**/*.{ts,tsx,js,jsx}" \
   --authorized \
