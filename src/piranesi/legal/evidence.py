@@ -22,8 +22,21 @@ _SENSITIVE_KEY_PATTERN = re.compile(
     r"(api[_-]?key|authorization|cookie|credential|password|secret|session|token)",
     re.IGNORECASE,
 )
+_SENSITIVE_ASSIGNMENT_PATTERN = re.compile(
+    r"""(?ix)
+    (?P<prefix>
+        \b[\w.-]*
+        (?:api[_-]?key|access[_-]?token|authorization|cookie|credential|password|passwd|secret|session(?:id)?|token)
+        [\w.-]*\b
+        \s*[:=]\s*
+        ['"]?
+    )
+    (?P<value>[^'"\s,;]+)
+    (?P<suffix>['"]?)
+    """
+)
 _SENSITIVE_VALUE_PATTERN = re.compile(
-    r"(bearer\s+[a-z0-9._\-]+|sk-[a-z0-9]{8,}|AKIA[0-9A-Z]{16})",
+    r"(?i)(bearer\s+[a-z0-9._\-]+|sk-[a-z0-9_-]{6,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})",
     re.IGNORECASE,
 )
 
@@ -489,7 +502,11 @@ def _redact_payload(value: Any) -> Any:
 
 
 def _redact_text(value: str) -> str:
-    return _SENSITIVE_VALUE_PATTERN.sub("[REDACTED]", value)
+    assigned_redacted = _SENSITIVE_ASSIGNMENT_PATTERN.sub(
+        r"\g<prefix>[REDACTED]\g<suffix>",
+        value,
+    )
+    return _SENSITIVE_VALUE_PATTERN.sub("[REDACTED]", assigned_redacted)
 
 
 def _sha256_file(path: Path) -> str:

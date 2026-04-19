@@ -56,17 +56,63 @@ _ALLOWED_HEADER_NAMES = frozenset(
         "x-powered-by",
     }
 )
-_INLINE_SECRET_PATTERNS = (
-    re.compile(
-        r"(?i)(?P<prefix>\\bauthorization\\s*[:=]\\s*)(?P<value>[^\\s,;]+(?:\\s+[^\\s,;]+)?)"
+_INLINE_SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(
+            r"""(?ix)
+            (?P<prefix>
+                (?:"|')?
+                [\w.-]*
+                (?:authorization|cookie|api[_-]?key|access[_-]?token|password|passwd|secret|session(?:id)?|token)
+                [\w.-]*
+                (?:"|')?
+                \s*:\s*
+                (?:"|')
+            )
+            (?P<value>[^"'\r\n]+)
+            (?P<suffix>(?:"|'))
+            """
+        ),
+        r"\g<prefix>[REDACTED]\g<suffix>",
     ),
-    re.compile(r"(?i)(?P<prefix>\\bcookie\\s*[:=]\\s*)(?P<value>[^\\n\\r]+)"),
-    re.compile(
-        r"(?i)(?P<prefix>\\b(?:api[_-]?key|password|passwd|secret|session|token)\\b\\s*[:=]\\s*)(?P<value>[^\\s,;]+)"
+    (
+        re.compile(
+            r"""(?ix)
+            (?P<prefix>
+                (?:"|')?
+                [\w.-]*
+                (?:api[_-]?key|access[_-]?token|password|passwd|secret|session(?:id)?|token)
+                [\w.-]*
+                (?:"|')?
+                \s*=\s*
+                (?:"|')
+            )
+            (?P<value>[^"'\r\n]+)
+            (?P<suffix>(?:"|'))
+            """
+        ),
+        r"\g<prefix>[REDACTED]\g<suffix>",
+    ),
+    (
+        re.compile(
+            r"(?i)(?P<prefix>\bauthorization\s*[:=]\s*)(?P<value>[^\s,;]+(?:\s+[^\s,;]+)?)"
+        ),
+        r"\g<prefix>[REDACTED]",
+    ),
+    (
+        re.compile(r"(?i)(?P<prefix>\bcookie\s*[:=]\s*)(?P<value>[^\n\r]+)"),
+        r"\g<prefix>[REDACTED]",
+    ),
+    (
+        re.compile(
+            r"(?i)(?P<prefix>\b(?:api[_-]?key|password|passwd|secret|session|token)\b\s*[:=]\s*)(?P<value>[^\s,;]+)"
+        ),
+        r"\g<prefix>[REDACTED]",
     ),
 )
 _ERROR_SIGNATURE_PATTERN = re.compile(r"\b[A-Z][A-Z0-9_:-]{2,}(?:\(\d+\))?\b")
 _SCREENSHOT_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
+_UNSAFE_ARTIFACT_STEM_PATTERN = re.compile(r"[^A-Za-z0-9._-]+")
 _PREVIEW_LENGTH = 240
 _FULL_BODY_LENGTH = 8192
 
@@ -259,9 +305,28 @@ def write_verification_evidence_artifact(
 ) -> str:
     evidence_dir = output_dir / "verification-evidence"
     evidence_dir.mkdir(parents=True, exist_ok=True)
-    path = evidence_dir / f"{finding_id}.json"
+    safe_stem = _safe_artifact_stem(finding_id)
+    evidence_root = evidence_dir.resolve(strict=False)
+    path = (evidence_root / f"{safe_stem}.json").resolve(strict=False)
+    if not path.is_relative_to(evidence_root):
+        raise ValueError("verification evidence artifact path escaped output directory")
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     return str(path)
+
+
+def _safe_artifact_stem(value: str) -> str:
+    trimmed = value.strip()
+    collapsed = _UNSAFE_ARTIFACT_STEM_PATTERN.sub("_", trimmed)
+    stem = collapsed.strip("._")
+    if not stem:
+        stem = "finding"
+    if stem != trimmed:
+        digest = sha256(trimmed.encode("utf-8")).hexdigest()[:8]
+        stem = f"{stem}-{digest}"
+    if len(stem) > 120:
+        digest = sha256(trimmed.encode("utf-8")).hexdigest()[:8]
+        stem = f"{stem[:111]}-{digest}"
+    return stem
 
 
 def _collect_sensitive_values(finding: CandidateFinding) -> set[str]:
@@ -608,8 +673,8 @@ def _sanitize_text(
         sanitized = sanitized.replace(token, "[REDACTED]")
         tracker.mark(field_name, occurrences)
 
-    for pattern in _INLINE_SECRET_PATTERNS:
-        sanitized, count = pattern.subn(r"\g<prefix>[REDACTED]", sanitized)
+    for pattern, replacement in _INLINE_SECRET_PATTERNS:
+        sanitized, count = pattern.subn(replacement, sanitized)
         tracker.mark(field_name, count)
 
     if max_length is not None and len(sanitized) > max_length:

@@ -36,10 +36,10 @@ _SENSITIVE_FIELD_VALUE_PATTERN = re.compile(
     """
 )
 _AUTHORIZATION_HEADER_PATTERN = re.compile(
-    r"(?i)(?P<prefix>\\bauthorization\\b\\s*[:=]\\s*)(?P<value>[^\\r\\n]+)"
+    r"(?i)(?P<prefix>\bauthorization\b\s*[:=]\s*)(?P<value>[^\r\n]+)"
 )
 _COOKIE_HEADER_PATTERN = re.compile(
-    r"(?i)(?P<prefix>\\b(?:set-cookie|cookie)\\b\\s*[:=]\\s*)(?P<value>[^\\r\\n]+)"
+    r"(?i)(?P<prefix>\b(?:set-cookie|cookie)\b\s*[:=]\s*)(?P<value>[^\r\n]+)"
 )
 _JSON_SENSITIVE_VALUE_PATTERN = re.compile(
     r"""(?ix)
@@ -51,16 +51,20 @@ _JSON_SENSITIVE_VALUE_PATTERN = re.compile(
     (?P<suffix>")
     """
 )
+_SENSITIVE_MESSAGE_KEY_PATTERN = re.compile(
+    r"(?i)(api[_-]?key|access[_-]?token|authorization|cookie|credential|password|passwd|secret|session(?:id)?|token)"
+)
 _PRIVATE_KEY_BLOCK_PATTERN = re.compile(
     r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----",
     re.DOTALL,
 )
 _PROVIDER_SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"\\bsk-[A-Za-z0-9]{20,}\\b"), "[REDACTED_API_KEY]"),
-    (re.compile(r"\\bgh[pousr]_[A-Za-z0-9]{20,}\\b"), "[REDACTED_GITHUB_TOKEN]"),
-    (re.compile(r"\\bAIza[0-9A-Za-z\\-_]{20,}\\b"), "[REDACTED_API_KEY]"),
+    (re.compile(r"\bsk-[A-Za-z0-9_-]{8,}\b"), "[REDACTED_API_KEY]"),
+    (re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b"), "[REDACTED_GITHUB_TOKEN]"),
+    (re.compile(r"\bAIza[0-9A-Za-z\-_]{20,}\b"), "[REDACTED_API_KEY]"),
+    (re.compile(r"\bBearer\s+[A-Za-z0-9._-]{8,}\b", re.IGNORECASE), "[REDACTED_TOKEN]"),
     (
-        re.compile(r"\\beyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\b"),
+        re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b"),
         "[REDACTED_JWT]",
     ),
 )
@@ -306,7 +310,13 @@ def _redact_value(value: Any) -> Any:
     if isinstance(value, tuple):
         return tuple(_redact_value(item) for item in value)
     if isinstance(value, dict):
-        return {key: _redact_value(item) for key, item in value.items()}
+        redacted: dict[Any, Any] = {}
+        for key, item in value.items():
+            if isinstance(key, str) and _SENSITIVE_MESSAGE_KEY_PATTERN.search(key):
+                redacted[key] = "[REDACTED]"
+            else:
+                redacted[key] = _redact_value(item)
+        return redacted
     return value
 
 
