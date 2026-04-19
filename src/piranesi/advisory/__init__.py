@@ -1,6 +1,7 @@
 from piranesi.advisory.db import (
     AdvisoryDB,
     AdvisoryDBStatus,
+    AdvisorySnapshotProvenance,
     SyncMetadata,
     advisory_db_path,
     get_advisory_db_status,
@@ -10,14 +11,27 @@ from piranesi.advisory.exploit import check_exploit_availability
 from piranesi.advisory.lookup import lookup_dependencies, parse_lockfiles
 from piranesi.advisory.models import Advisory, AffectedPackage, ExploitStatus
 from piranesi.advisory.sync import SyncResult, sync_advisories
+from piranesi.advisory.trust import (
+    SnapshotManifest,
+    SnapshotSignature,
+    SnapshotVerificationResult,
+    load_snapshot_manifest,
+    load_trust_key,
+    verify_snapshot_manifest,
+    write_snapshot_manifest,
+)
 from piranesi.advisory.version_match import is_vulnerable
 
 __all__ = [
     "Advisory",
     "AdvisoryDB",
     "AdvisoryDBStatus",
+    "AdvisorySnapshotProvenance",
     "AffectedPackage",
     "ExploitStatus",
+    "SnapshotManifest",
+    "SnapshotSignature",
+    "SnapshotVerificationResult",
     "SyncMetadata",
     "SyncResult",
     "advisory_db_path",
@@ -26,7 +40,11 @@ __all__ = [
     "epss_label",
     "get_advisory_db_status",
     "is_vulnerable",
+    "load_snapshot_manifest",
+    "load_trust_key",
     "lookup_dependencies",
     "parse_lockfiles",
     "sync_advisories",
+    "verify_snapshot_manifest",
+    "write_snapshot_manifest",
 ]

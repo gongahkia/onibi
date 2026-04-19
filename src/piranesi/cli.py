@@ -1761,6 +1761,13 @@ def _advisory_status_payload(status: Any) -> dict[str, object]:
         "freshness": status.freshness,
         "stale_after_days": status.stale_after_days,
         "age_days": status.age_days,
+        "trust_state": status.trust_state,
+        "provenance_verified": status.provenance_verified,
+        "provenance_signature_scheme": status.provenance_signature_scheme,
+        "provenance_signature_signer": status.provenance_signature_signer,
+        "provenance_snapshot_sha256": status.provenance_snapshot_sha256,
+        "provenance_manifest_sha256": status.provenance_manifest_sha256,
+        "provenance_imported_at": status.provenance_imported_at,
         "warnings": list(status.warnings),
     }
 
@@ -3179,6 +3186,7 @@ def advisory_status(
     typer.echo(f"last_updated: {payload['last_updated'] or 'unknown'}")
     typer.echo(f"checksum_sha256: {payload['checksum_sha256'] or 'n/a'}")
     typer.echo(f"freshness: {payload['freshness']}")
+    typer.echo(f"trust_state: {payload['trust_state']}")
     if payload["age_days"] is not None:
         typer.echo(f"age_days: {payload['age_days']:.2f}")
     if payload["warnings"]:

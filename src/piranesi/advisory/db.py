@@ -60,13 +60,27 @@ CREATE TABLE IF NOT EXISTS sync_metadata (
     record_count INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS advisory_snapshot_provenance (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    source_path TEXT,
+    snapshot_sha256 TEXT,
+    manifest_path TEXT,
+    manifest_sha256 TEXT,
+    signature_scheme TEXT,
+    signature_signer TEXT,
+    signature_value TEXT,
+    verified INTEGER NOT NULL DEFAULT 0,
+    verification_reason TEXT,
+    imported_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_affected_pkg ON affected_packages(ecosystem, name);
 CREATE INDEX IF NOT EXISTS idx_advisory_cve ON advisories(cve_id);
 CREATE INDEX IF NOT EXISTS idx_advisory_ghsa ON advisories(ghsa_id);
 CREATE INDEX IF NOT EXISTS idx_advisory_severity ON advisories(severity);
 CREATE INDEX IF NOT EXISTS idx_advisory_epss ON advisories(epss_score);
 """
-_ADVISORY_DB_SCHEMA_VERSION = 1
+_ADVISORY_DB_SCHEMA_VERSION = 2
 _DEFAULT_STALE_AFTER_DAYS = 14
 
 
@@ -97,7 +111,28 @@ class AdvisoryDBStatus:
     freshness: str
     stale_after_days: int
     age_days: float | None
+    trust_state: str
+    provenance_verified: bool | None
+    provenance_signature_scheme: str | None
+    provenance_signature_signer: str | None
+    provenance_snapshot_sha256: str | None
+    provenance_manifest_sha256: str | None
+    provenance_imported_at: str | None
     warnings: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class AdvisorySnapshotProvenance:
+    source_path: str | None
+    snapshot_sha256: str | None
+    manifest_path: str | None
+    manifest_sha256: str | None
+    signature_scheme: str | None
+    signature_signer: str | None
+    signature_value: str | None
+    verified: bool
+    verification_reason: str | None
+    imported_at: str
 
 
 def advisory_db_path(project_root: Path) -> Path:
@@ -483,7 +518,13 @@ class AdvisoryDB:
                     record_count=metadata.record_count,
                 )
 
-    def import_from(self, source_path: Path, *, merge: bool = False) -> None:
+    def import_from(
+        self,
+        source_path: Path,
+        *,
+        merge: bool = False,
+        provenance: AdvisorySnapshotProvenance | None = None,
+    ) -> None:
         if not merge:
             if source_path.resolve(strict=False) == self.path.resolve(strict=False):
                 return
@@ -494,6 +535,8 @@ class AdvisoryDB:
             self._conn.row_factory = sqlite3.Row
             self._conn.execute("PRAGMA foreign_keys = ON")
             self.ensure_schema()
+            if provenance is not None:
+                self.upsert_snapshot_provenance(provenance)
             return
         with AdvisoryDB(source_path) as source_db:
             self.upsert_advisories([row.advisory for row in source_db.iter_all_advisories()])
@@ -504,6 +547,8 @@ class AdvisoryDB:
                     last_cursor=metadata.last_cursor,
                     record_count=metadata.record_count,
                 )
+        if provenance is not None:
+            self.upsert_snapshot_provenance(provenance)
 
     def list_sync_metadata(self) -> list[SyncMetadata]:
         rows = self._conn.execute(
@@ -518,6 +563,87 @@ class AdvisoryDB:
             )
             for row in rows
         ]
+
+    def get_snapshot_provenance(self) -> AdvisorySnapshotProvenance | None:
+        row = self._conn.execute(
+            """
+            SELECT
+                source_path,
+                snapshot_sha256,
+                manifest_path,
+                manifest_sha256,
+                signature_scheme,
+                signature_signer,
+                signature_value,
+                verified,
+                verification_reason,
+                imported_at
+            FROM advisory_snapshot_provenance
+            WHERE id = 1
+            """
+        ).fetchone()
+        if row is None:
+            return None
+        return AdvisorySnapshotProvenance(
+            source_path=_nullable_text(row["source_path"]),
+            snapshot_sha256=_nullable_text(row["snapshot_sha256"]),
+            manifest_path=_nullable_text(row["manifest_path"]),
+            manifest_sha256=_nullable_text(row["manifest_sha256"]),
+            signature_scheme=_nullable_text(row["signature_scheme"]),
+            signature_signer=_nullable_text(row["signature_signer"]),
+            signature_value=_nullable_text(row["signature_value"]),
+            verified=bool(row["verified"]),
+            verification_reason=_nullable_text(row["verification_reason"]),
+            imported_at=str(row["imported_at"]),
+        )
+
+    def upsert_snapshot_provenance(self, provenance: AdvisorySnapshotProvenance) -> None:
+        self._conn.execute(
+            """
+            INSERT INTO advisory_snapshot_provenance (
+                id,
+                source_path,
+                snapshot_sha256,
+                manifest_path,
+                manifest_sha256,
+                signature_scheme,
+                signature_signer,
+                signature_value,
+                verified,
+                verification_reason,
+                imported_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                source_path = excluded.source_path,
+                snapshot_sha256 = excluded.snapshot_sha256,
+                manifest_path = excluded.manifest_path,
+                manifest_sha256 = excluded.manifest_sha256,
+                signature_scheme = excluded.signature_scheme,
+                signature_signer = excluded.signature_signer,
+                signature_value = excluded.signature_value,
+                verified = excluded.verified,
+                verification_reason = excluded.verification_reason,
+                imported_at = excluded.imported_at
+            """,
+            (
+                1,
+                provenance.source_path,
+                provenance.snapshot_sha256,
+                provenance.manifest_path,
+                provenance.manifest_sha256,
+                provenance.signature_scheme,
+                provenance.signature_signer,
+                provenance.signature_value,
+                1 if provenance.verified else 0,
+                provenance.verification_reason,
+                provenance.imported_at,
+            ),
+        )
+        self._conn.commit()
+
+    def clear_snapshot_provenance(self) -> None:
+        self._conn.execute("DELETE FROM advisory_snapshot_provenance")
+        self._conn.commit()
 
     def latest_updated_at(self) -> str | None:
         candidates: list[datetime] = []
@@ -587,6 +713,7 @@ class AdvisoryDB:
         self._conn.execute("DELETE FROM affected_packages")
         self._conn.execute("DELETE FROM advisories")
         self._conn.execute("DELETE FROM sync_metadata")
+        self._conn.execute("DELETE FROM advisory_snapshot_provenance")
         self._conn.commit()
 
 
@@ -777,6 +904,13 @@ def get_advisory_db_status(
             freshness="missing",
             stale_after_days=stale_after_days,
             age_days=None,
+            trust_state="missing",
+            provenance_verified=None,
+            provenance_signature_scheme=None,
+            provenance_signature_signer=None,
+            provenance_snapshot_sha256=None,
+            provenance_manifest_sha256=None,
+            provenance_imported_at=None,
             warnings=(
                 "advisory database file is missing; run `piranesi advisory update` "
                 "or `piranesi advisory import`.",
@@ -789,6 +923,7 @@ def get_advisory_db_status(
             advisory_count = db.advisory_count()
             affected_package_count = db.affected_package_count()
             sync_metadata = db.list_sync_metadata()
+            provenance = db.get_snapshot_provenance()
             sources = tuple(sorted(metadata.source for metadata in sync_metadata))
             last_updated = db.latest_updated_at()
             schema_version = db.schema_version()
@@ -805,12 +940,26 @@ def get_advisory_db_status(
             freshness="stale",
             stale_after_days=stale_after_days,
             age_days=None,
+            trust_state="unknown",
+            provenance_verified=None,
+            provenance_signature_scheme=None,
+            provenance_signature_signer=None,
+            provenance_snapshot_sha256=None,
+            provenance_manifest_sha256=None,
+            provenance_imported_at=None,
             warnings=(f"failed to read advisory database: {exc}",),
         )
 
     warnings: list[str] = []
     freshness = "fresh"
     age_days: float | None = None
+    trust_state = "unknown"
+    provenance_verified: bool | None = None
+    provenance_signature_scheme: str | None = None
+    provenance_signature_signer: str | None = None
+    provenance_snapshot_sha256: str | None = None
+    provenance_manifest_sha256: str | None = None
+    provenance_imported_at: str | None = None
 
     if advisory_count == 0:
         freshness = "empty"
@@ -836,6 +985,26 @@ def get_advisory_db_status(
             "advisory database schema version mismatch "
             f"(db={schema_version}, expected={_ADVISORY_DB_SCHEMA_VERSION})."
         )
+    if provenance is None:
+        trust_state = "unsigned"
+        warnings.append("advisory database has no snapshot provenance metadata.")
+    else:
+        provenance_verified = provenance.verified
+        provenance_signature_scheme = provenance.signature_scheme
+        provenance_signature_signer = provenance.signature_signer
+        provenance_snapshot_sha256 = provenance.snapshot_sha256
+        provenance_manifest_sha256 = provenance.manifest_sha256
+        provenance_imported_at = provenance.imported_at
+        if provenance.verified:
+            trust_state = "verified"
+        elif provenance.signature_value:
+            trust_state = "unverified"
+            detail = provenance.verification_reason or "verification failed"
+            warnings.append(f"snapshot signature verification failed: {detail}")
+        else:
+            trust_state = "unsigned"
+            detail = provenance.verification_reason or "snapshot is unsigned"
+            warnings.append(f"snapshot signature missing: {detail}")
 
     return AdvisoryDBStatus(
         path=resolved,
@@ -849,6 +1018,13 @@ def get_advisory_db_status(
         freshness=freshness,
         stale_after_days=stale_after_days,
         age_days=age_days,
+        trust_state=trust_state,
+        provenance_verified=provenance_verified,
+        provenance_signature_scheme=provenance_signature_scheme,
+        provenance_signature_signer=provenance_signature_signer,
+        provenance_snapshot_sha256=provenance_snapshot_sha256,
+        provenance_manifest_sha256=provenance_manifest_sha256,
+        provenance_imported_at=provenance_imported_at,
         warnings=tuple(warnings),
     )
 

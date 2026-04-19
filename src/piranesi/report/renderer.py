@@ -410,6 +410,13 @@ class AdvisoryDbFreshness(BaseModel):
     freshness: str = "missing"
     stale_after_days: int = 14
     age_days: float | None = None
+    trust_state: str = "missing"
+    provenance_verified: bool | None = None
+    provenance_signature_scheme: str | None = None
+    provenance_signature_signer: str | None = None
+    provenance_snapshot_sha256: str | None = None
+    provenance_manifest_sha256: str | None = None
+    provenance_imported_at: str | None = None
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -1721,6 +1728,13 @@ def _advisory_db_freshness(
         freshness=status.freshness,
         stale_after_days=status.stale_after_days,
         age_days=status.age_days,
+        trust_state=status.trust_state,
+        provenance_verified=status.provenance_verified,
+        provenance_signature_scheme=status.provenance_signature_scheme,
+        provenance_signature_signer=status.provenance_signature_signer,
+        provenance_snapshot_sha256=status.provenance_snapshot_sha256,
+        provenance_manifest_sha256=status.provenance_manifest_sha256,
+        provenance_imported_at=status.provenance_imported_at,
         warnings=list(status.warnings),
     )
 
