@@ -1,0 +1,29 @@
+id: gt-512
+source_project: synthetic-ratpack
+commit_hash: synthetic-no-commit
+cwe_id: CWE-338
+cwe_name: Use of Cryptographically Weak PRNG
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe338-synthetic-ratpack-session-token-vuln.java
+line_numbers:
+- 5
+- 6
+taint_source: userId
+taint_sink: new Random(predictableSeed)
+taint_path:
+- user-derived value influences seed selection
+- deterministic java.util.Random is instantiated with predictableSeed
+- generated token sequence is guessable by attackers
+complexity: simple
+exploitable: true
+reference_exploit: Infer token stream from known user identifier and reproduce session token outputs.
+reference_fix_commit: null
+notes: Synthetic ratpack-style weak randomness fixture for sparse-slice expansion.
+discovery_method: synthetic
+language: java
+framework: ratpack
+taint_step_count: 3
+taint_field_path: params.userId
+field_sensitive_label: true_positive
+

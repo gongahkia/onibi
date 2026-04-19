@@ -5,13 +5,11 @@ cwe_id: CWE-601
 cwe_name: Open Redirect
 label: true_positive
 affected_files:
-- lib/response.js
+- eval/cve_fixtures/cwe601-CVE-2025-62595-koa-back-redirect-bypass-vuln.js
 line_numbers:
-- 243
-- 247
-- 248
-- 281
-- 288
+- 3
+- 4
+- 11
 taint_source: Referrer header consumed by ctx.redirect('back')
 taint_sink: Location header via this.set('Location', ...)
 taint_path:
@@ -25,6 +23,9 @@ exploitable: true
 reference_exploit: 'Send `Referrer: //evil.example/phish` to a route that calls ctx.redirect(''back'')'
 reference_fix_commit: 7f58bdc05ae7e13e7b9125a098f33a18667c8c61
 notes: CVE-2025-62595. This is the incomplete-fix bypass for CVE-2025-8129; 2.16.3 removes the startsWith("/") fast path.
+discovery_method: cve_mining
 language: javascript
 framework: koa
 taint_step_count: 5
+taint_field_path: headers.referrer
+field_sensitive_label: true_positive

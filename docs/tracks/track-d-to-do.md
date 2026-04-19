@@ -31,6 +31,6 @@ P1/P2 continuous program.
 3. Percentage of runnable GT entries.
 
 ## Status
-- [ ] Planned
-- [ ] In progress
+- [x] Planned
+- [x] In progress
 - [ ] Completed

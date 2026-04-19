@@ -5,11 +5,10 @@ cwe_id: CWE-601
 cwe_name: Open Redirect
 label: true_positive
 affected_files:
-- lib/response.js
+- eval/cve_fixtures/cwe601-CVE-2025-8129-koa-back-redirect-vuln.js
 line_numbers:
-- 262
-- 264
-- 269
+- 2
+- 3
 taint_source: Referrer header consumed by ctx.redirect('back')
 taint_sink: Location header via this.set('Location', ...)
 taint_path:
@@ -21,6 +20,9 @@ exploitable: true
 reference_exploit: 'Send `Referrer: https://evil.example/phish` to a route that calls ctx.redirect(''back'')'
 reference_fix_commit: 979f5e448082b16ac5efa7a101e869e8bed357db
 notes: CVE-2025-8129. Fixed in 2.16.2 by introducing _getBackReferrer() and same-origin checks for back redirects.
+discovery_method: cve_mining
 language: javascript
 framework: koa
 taint_step_count: 3
+taint_field_path: headers.referrer
+field_sensitive_label: true_positive

@@ -1,0 +1,28 @@
+id: gt-509
+source_project: synthetic-gorilla
+commit_hash: synthetic-no-commit
+cwe_id: CWE-352
+cwe_name: Cross-Site Request Forgery
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe352-synthetic-gorilla-origin-check-safe.go
+line_numbers:
+- 9
+taint_source: r.Header.Get("Origin")
+taint_sink: checkSameOrigin() validates Origin when TLS context is present
+taint_path:
+- untrusted Origin header is extracted from the request
+- fixed logic uses TLS context to identify HTTPS server requests
+- comparison against allowedOrigin blocks forged cross-site traffic
+complexity: ctx
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: Safe gorilla-style CSRF origin validation fixture for sparse-slice balancing.
+discovery_method: synthetic
+language: go
+framework: gorilla
+taint_step_count: 3
+taint_field_path: headers.origin
+field_sensitive_label: false_positive
+
