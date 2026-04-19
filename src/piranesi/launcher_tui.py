@@ -48,21 +48,172 @@ def launch_cli_tui(
     app_module = importlib.import_module("textual.app")
     binding_module = importlib.import_module("textual.binding")
     containers_module = importlib.import_module("textual.containers")
+    screen_module = importlib.import_module("textual.screen")
     widgets_module = importlib.import_module("textual.widgets")
 
     App = app_module.App
     Binding = binding_module.Binding
     Horizontal = containers_module.Horizontal
     Vertical = containers_module.Vertical
+    ModalScreen = screen_module.ModalScreen
+    DataTable = widgets_module.DataTable
     Footer = widgets_module.Footer
     Input = widgets_module.Input
     Static = widgets_module.Static
+
+    class DirectoryPickerScreen(ModalScreen[Path | None]):
+        BINDINGS: ClassVar[list[Any]] = [
+            Binding("up", "move_up", show=False),
+            Binding("down", "move_down", show=False),
+            Binding("k", "move_up", show=False),
+            Binding("j", "move_down", show=False),
+            Binding("left", "parent_dir", show=False),
+            Binding("h", "parent_dir", show=False),
+            Binding("right", "enter_dir", show=False),
+            Binding("l", "enter_dir", show=False),
+            Binding("enter", "enter_dir", show=False),
+            Binding("space", "select_highlighted", "Select Highlighted", show=True),
+            Binding("s", "select_current", "Select Current", show=True),
+            Binding("escape", "cancel", show=False),
+            Binding("q", "cancel", "Cancel", show=True),
+        ]
+
+        CSS = """
+        DirectoryPickerScreen {
+            align: center middle;
+        }
+
+        #picker_modal {
+            width: 110;
+            height: 30;
+            border: round $accent;
+            background: $surface;
+            padding: 1;
+            layout: vertical;
+        }
+
+        #picker_path {
+            height: auto;
+            padding: 0 1;
+        }
+
+        #picker_table {
+            height: 1fr;
+        }
+
+        #picker_hint {
+            height: auto;
+            color: $text-muted;
+            padding: 0 1;
+        }
+        """
+
+        def __init__(self, *, start_dir: Path) -> None:
+            super().__init__()
+            self.current_dir = start_dir.resolve(strict=False)
+            self._entries: list[Path] = []
+
+        def compose(self) -> Any:
+            with Vertical(id="picker_modal"):
+                yield Static("Directory Picker", id="picker_title")
+                yield Static("", id="picker_path")
+                yield DataTable(id="picker_table")
+                yield Static(
+                    "Navigate: ↑↓/jk | Open: Enter/l | Parent: h/← | "
+                    "Select: Space (highlighted), s (current) | q/Esc cancel",
+                    id="picker_hint",
+                )
+
+        def on_mount(self) -> None:
+            table = cast(Any, self.query_one("#picker_table"))
+            table.cursor_type = "row"
+            table.zebra_stripes = True
+            table.add_columns("Folder", "Type")
+            self._refresh_table()
+            table.focus()
+
+        def action_move_up(self) -> None:
+            self._set_row(self._selected_row() - 1)
+
+        def action_move_down(self) -> None:
+            self._set_row(self._selected_row() + 1)
+
+        def action_parent_dir(self) -> None:
+            parent = self.current_dir.parent
+            if parent == self.current_dir:
+                return
+            self.current_dir = parent
+            self._refresh_table()
+
+        def action_enter_dir(self) -> None:
+            entry = self._selected_entry()
+            if entry is None:
+                return
+            self.current_dir = entry.resolve(strict=False)
+            self._refresh_table()
+
+        def action_select_highlighted(self) -> None:
+            entry = self._selected_entry()
+            if entry is None:
+                self.dismiss(None)
+                return
+            self.dismiss(entry.resolve(strict=False))
+
+        def action_select_current(self) -> None:
+            self.dismiss(self.current_dir.resolve(strict=False))
+
+        def action_cancel(self) -> None:
+            self.dismiss(None)
+
+        def _refresh_table(self) -> None:
+            path_label = cast(Any, self.query_one("#picker_path"))
+            path_label.update(f"Current: {self.current_dir}")
+            table = cast(Any, self.query_one("#picker_table"))
+            table.clear(columns=False)
+            self._entries = _picker_directory_entries(self.current_dir)
+            if not self._entries:
+                table.add_row("(no subdirectories)", "-")
+                return
+            for entry in self._entries:
+                if entry == self.current_dir.parent and self.current_dir.parent != self.current_dir:
+                    table.add_row("..", "parent")
+                else:
+                    table.add_row(entry.name, "dir")
+            self._set_row(0)
+
+        def _selected_row(self) -> int:
+            table = cast(Any, self.query_one("#picker_table"))
+            coordinate = getattr(table, "cursor_coordinate", None)
+            row = getattr(coordinate, "row", 0) if coordinate is not None else 0
+            if isinstance(row, int):
+                return row
+            try:
+                return int(row)
+            except (TypeError, ValueError):
+                return 0
+
+        def _set_row(self, row: int) -> None:
+            if not self._entries:
+                return
+            table = cast(Any, self.query_one("#picker_table"))
+            bounded = max(0, min(row, len(self._entries) - 1))
+            table.cursor_coordinate = (bounded, 0)
+
+        def _selected_entry(self) -> Path | None:
+            if not self._entries:
+                return None
+            index = self._selected_row()
+            if index < 0 or index >= len(self._entries):
+                return None
+            return self._entries[index]
 
     class PiranesiLauncherApp(App[LauncherSelection | None]):
         BINDINGS: ClassVar[list[Any]] = [
             Binding("enter", "apply_path", show=False),
             Binding("space", "apply_path", "Apply Path", show=True),
             Binding("tab", "autocomplete_path", "Autocomplete", show=True),
+            Binding("f", "open_path_finder", "Path Finder", show=True),
+            Binding("ctrl+o", "open_path_finder", show=False),
             Binding("r", "run_pipeline", "Run", show=True),
             Binding("t", "open_report", "Report", show=True),
             Binding("s", "show_summary", "Summary", show=True),
@@ -160,6 +311,15 @@ def launch_cli_tui(
             self._update_target_from_input()
             self._refresh_status()
 
+        def action_open_path_finder(self) -> None:
+            start = _resolve_input_directory(self.path_value, cwd=self.cwd)
+            if not start.exists() or not start.is_dir():
+                start = self.target_dir
+            self.push_screen(
+                DirectoryPickerScreen(start_dir=start),
+                self._on_path_finder_closed,
+            )
+
         def action_toggle_resume(self) -> None:
             self.resume = not self.resume
             self._refresh_status()
@@ -231,6 +391,19 @@ def launch_cli_tui(
             self._update_target_from_input()
             self._refresh_status()
 
+        def _on_path_finder_closed(self, selected: Path | None) -> None:
+            if selected is None:
+                self._status_note = "path finder cancelled"
+                self._refresh_status()
+                return
+            resolved = selected.resolve(strict=False)
+            self.path_value = str(resolved)
+            cast(Any, self.query_one("#target_input")).value = self.path_value
+            self.target_dir = resolved
+            self._status_note = "target selected via path finder"
+            self._refresh_status()
+            cast(Any, self.query_one("#target_input")).focus()
+
         def _refresh_status(self) -> None:
             status = cast(Any, self.query_one("#status"))
             hint = cast(Any, self.query_one("#hint"))
@@ -259,6 +432,7 @@ def launch_cli_tui(
                         "  type a directory path in the input box",
                         "  tab              autocomplete typed path",
                         "  enter or space   apply typed path",
+                        "  f / ctrl+o       open path finder overlay",
                         "",
                         "Actions",
                         "  r run pipeline",
@@ -404,6 +578,22 @@ def _first_autocomplete_match(raw_value: str, *, cwd: Path) -> Path | None:
     if not suggestions:
         return None
     return suggestions[0]
+
+
+def _picker_directory_entries(current_dir: Path) -> list[Path]:
+    entries: list[Path] = []
+    parent = current_dir.parent
+    if parent != current_dir:
+        entries.append(parent.resolve(strict=False))
+    try:
+        children = sorted(
+            (path for path in current_dir.iterdir() if path.is_dir()),
+            key=lambda path: path.name.casefold(),
+        )
+    except OSError:
+        children = []
+    entries.extend(path.resolve(strict=False) for path in children)
+    return entries
 
 
 def _display_path(path: Path, *, cwd: Path) -> str:

@@ -6,6 +6,7 @@ from piranesi.launcher_tui import (
     _autocomplete_directory_candidates,
     _build_pipeline_command,
     _display_path,
+    _picker_directory_entries,
     _resolve_input_directory,
 )
 
@@ -46,3 +47,15 @@ def test_build_pipeline_command_includes_flags(tmp_path: Path) -> None:
     assert "--yes" in command
     assert "--resume" in command
     assert "--no-execute" in command
+
+
+def test_picker_directory_entries_include_parent_then_children(tmp_path: Path) -> None:
+    current = tmp_path / "project"
+    current.mkdir()
+    (current / "b").mkdir()
+    (current / "a").mkdir()
+
+    entries = _picker_directory_entries(current)
+
+    assert entries[0] == tmp_path.resolve(strict=False)
+    assert [entry.name for entry in entries[1:]] == ["a", "b"]
