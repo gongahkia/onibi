@@ -1,0 +1,116 @@
+version: 1
+entries:
+  - benchmark: owasp_benchmark
+    benchmark_case_id: "OWASP-BENCHMARK:CWE-89:*"
+    cwe_id: CWE-89
+    language: java
+    framework: servlet
+    coverage_status: planned
+    mapped_ground_truth_ids: []
+    notes: "Ingest SQLi benchmark cases and map to Java servlet query sinks."
+  - benchmark: owasp_benchmark
+    benchmark_case_id: "OWASP-BENCHMARK:CWE-79:*"
+    cwe_id: CWE-79
+    language: java
+    framework: servlet
+    coverage_status: planned
+    mapped_ground_truth_ids: []
+    notes: "Ingest XSS benchmark cases with reflected sink templates."
+  - benchmark: owasp_benchmark
+    benchmark_case_id: "OWASP-BENCHMARK:CWE-352:*"
+    cwe_id: CWE-352
+    language: java
+    framework: spring
+    coverage_status: planned
+    mapped_ground_truth_ids: []
+    notes: "Ingest CSRF benchmark cases and map to middleware/filter enforcement."
+  - benchmark: owasp_benchmark
+    benchmark_case_id: "OWASP-BENCHMARK:CWE-643:*"
+    cwe_id: CWE-643
+    language: java
+    framework: spring
+    coverage_status: planned
+    mapped_ground_truth_ids: []
+    notes: "XPath injection coverage to improve sparse CWE-643 slices."
+  - benchmark: nist_juliet
+    benchmark_case_id: "JULIET:CWE89_SQL_Injection:*"
+    cwe_id: CWE-89
+    language: java
+    framework: general
+    coverage_status: planned
+    mapped_ground_truth_ids: []
+    notes: "Map Juliet SQLi bad/good variants to TP/FP corpus pairs."
+  - benchmark: nist_juliet
+    benchmark_case_id: "JULIET:CWE78_OS_Command_Injection:*"
+    cwe_id: CWE-78
+    language: java
+    framework: general
+    coverage_status: planned
+    mapped_ground_truth_ids: []
+    notes: "Map command-injection suites to Java sink wrappers."
+  - benchmark: nist_juliet
+    benchmark_case_id: "JULIET:CWE601_Open_Redirect:*"
+    cwe_id: CWE-601
+    language: java
+    framework: general
+    coverage_status: planned
+    mapped_ground_truth_ids: []
+    notes: "Map redirect variants for TP/FP balance in open-redirect slices."
+  - benchmark: nist_juliet
+    benchmark_case_id: "JULIET:CWE90_LDAP_Injection:*"
+    cwe_id: CWE-90
+    language: java
+    framework: general
+    coverage_status: planned
+    mapped_ground_truth_ids: []
+    notes: "Map LDAP injection for sparse CWE-90 slices."
+  - benchmark: internal_seed
+    benchmark_case_id: "WAVE1:CWE352:gorilla"
+    cwe_id: CWE-352
+    language: go
+    framework: gorilla
+    coverage_status: mapped
+    mapped_ground_truth_ids:
+      - gt-508
+      - gt-509
+    notes: "Track D wave-1 replayable pair."
+  - benchmark: internal_seed
+    benchmark_case_id: "WAVE1:CWE943:feathers"
+    cwe_id: CWE-943
+    language: javascript
+    framework: feathers
+    coverage_status: mapped
+    mapped_ground_truth_ids:
+      - gt-510
+      - gt-511
+    notes: "Track D wave-1 replayable pair."
+  - benchmark: internal_seed
+    benchmark_case_id: "WAVE1:CWE338:ratpack"
+    cwe_id: CWE-338
+    language: java
+    framework: ratpack
+    coverage_status: mapped
+    mapped_ground_truth_ids:
+      - gt-512
+      - gt-513
+    notes: "Track D wave-1 replayable pair."
+  - benchmark: internal_seed
+    benchmark_case_id: "WAVE1:CWE89:symfony"
+    cwe_id: CWE-89
+    language: php
+    framework: symfony
+    coverage_status: mapped
+    mapped_ground_truth_ids:
+      - gt-514
+      - gt-515
+    notes: "Track D wave-1 replayable pair."
+  - benchmark: internal_seed
+    benchmark_case_id: "WAVE1:CWE79_CWE601:koa"
+    cwe_id: CWE-601
+    language: javascript
+    framework: koa
+    coverage_status: mapped
+    mapped_ground_truth_ids:
+      - gt-516
+      - gt-517
+    notes: "Track D wave-1 safe replayable pairs for Koa CVE slices."
