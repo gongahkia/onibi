@@ -31,6 +31,8 @@ def test_lookup_npm_package(populated_db: AdvisoryDB, tmp_path: Path) -> None:
     assert finding.metadata["package"] == "lodash"
     assert finding.metadata["fix_version"] == "4.17.21"
     assert finding.metadata["epss_label"] == "actively_exploited_risk"
+    assert finding.metadata["advisory_priority_precedence"] == "epss_v4"
+    assert finding.metadata["epss_model_version"] == "v4"
 
 
 def test_lookup_no_match(populated_db: AdvisoryDB, tmp_path: Path) -> None:

@@ -1497,6 +1497,19 @@ def _risk_advisory_component(
     *,
     confirmed: ConfirmedFinding | None,
 ) -> tuple[float, str]:
+    explicit_score = candidate.metadata.get("advisory_priority_score")
+    explicit_precedence = _metadata_string(candidate.metadata.get("advisory_priority_precedence"))
+    explicit_reason = _metadata_string(candidate.metadata.get("advisory_priority_reason"))
+    if isinstance(explicit_score, (int, float)):
+        bounded = max(0.0, min(float(explicit_score), 10.0))
+        reason = (
+            explicit_reason
+            or "advisory priority score supplied by dependency intelligence pipeline"
+        )
+        if explicit_precedence:
+            reason = f"{reason}; precedence={explicit_precedence}"
+        return bounded, reason
+
     cve_ids: set[str] = set()
     if confirmed is not None:
         cve_ids.update(cve for cve in confirmed.related_cves if cve)
@@ -1520,6 +1533,10 @@ def _risk_advisory_component(
             points += 1.0
             reasons.append("moderate EPSS score")
     points = min(points, 10.0)
+    kev_listed = candidate.metadata.get("kev_listed")
+    if kev_listed is True:
+        points = min(10.0, points + 3.0)
+        reasons.append("CISA KEV listed")
     if not reasons:
         return 0.0, "no advisory/exploit feed signal attached"
     return points, "; ".join(reasons)

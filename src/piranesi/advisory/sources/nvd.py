@@ -115,7 +115,7 @@ def parse_nvd_cve_item(cve: Mapping[str, object]) -> Advisory | None:
 def _extract_cvss(metrics: object) -> tuple[str, float | None, str | None]:
     if not isinstance(metrics, Mapping):
         return "medium", None, None
-    for key in ("cvssMetricV31", "cvssMetricV30", "cvssMetricV2"):
+    for key in ("cvssMetricV40", "cvssMetricV31", "cvssMetricV30", "cvssMetricV2"):
         values = metrics.get(key)
         if not isinstance(values, Sequence) or not values:
             continue

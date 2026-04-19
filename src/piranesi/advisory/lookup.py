@@ -11,6 +11,7 @@ from pathlib import Path
 from piranesi.advisory.db import AdvisoryDB
 from piranesi.advisory.epss import epss_label
 from piranesi.advisory.models import Advisory, AffectedPackage, ExploitStatus, severity_rank
+from piranesi.advisory.risk import advisory_priority_signal
 from piranesi.advisory.version_match import is_vulnerable
 from piranesi.models import CandidateFinding, SourceLocation, TaintSink, TaintSource
 
@@ -312,6 +313,7 @@ def _build_lookup_finding(
 ) -> CandidateFinding:
     rendered_severity = advisory.severity
     adjusted = _adjusted_severity(advisory.severity, advisory.exploit_status)
+    priority = advisory_priority_signal(advisory)
     summary = _dependency_summary(
         package_name=dependency.name,
         package_version=dependency.version,
@@ -345,6 +347,13 @@ def _build_lookup_finding(
         "fix_version": advisory.fix_version,
         "cwe_ids": list(advisory.cwe_ids),
         "references": list(advisory.references),
+        "cvss_version": priority.cvss_version,
+        "epss_model_version": priority.epss_model_version,
+        "kev_listed": priority.kev_listed,
+        "advisory_priority_score": priority.score,
+        "advisory_priority_tier": priority.tier,
+        "advisory_priority_precedence": priority.precedence,
+        "advisory_priority_reason": priority.reason,
     }
     location = SourceLocation(
         file=str(dependency.manifest_path.resolve(strict=False)),

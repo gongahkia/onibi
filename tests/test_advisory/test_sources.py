@@ -16,6 +16,15 @@ def test_nvd_parse_cve_item_extracts_cvss_and_cwe() -> None:
             "references": [{"url": "https://nvd.nist.gov/vuln/detail/CVE-2026-1111"}],
             "weaknesses": [{"description": [{"lang": "en", "value": "CWE-1321"}]}],
             "metrics": {
+                "cvssMetricV40": [
+                    {
+                        "baseSeverity": "CRITICAL",
+                        "cvssData": {
+                            "baseScore": 9.8,
+                            "vectorString": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H",
+                        },
+                    }
+                ],
                 "cvssMetricV31": [
                     {
                         "baseSeverity": "HIGH",
@@ -45,8 +54,9 @@ def test_nvd_parse_cve_item_extracts_cvss_and_cwe() -> None:
 
     assert advisory is not None
     assert advisory.advisory_id == "CVE-2026-1111"
-    assert advisory.cvss_score == 8.8
-    assert advisory.severity == "high"
+    assert advisory.cvss_score == 9.8
+    assert advisory.cvss_vector.startswith("CVSS:4.0/")
+    assert advisory.severity == "critical"
     assert advisory.cwe_ids == ("CWE-1321",)
     assert advisory.fix_version == "4.17.21"
 
