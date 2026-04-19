@@ -1641,6 +1641,7 @@ def _extract_named_functions(
 
     for match in _FUNCTION_DECL_PATTERN.finditer(masked):
         name = match.group("name")
+        declaration_index = match.start("name")
         params_open = masked.find("(", match.end() - 1)
         if params_open < 0:
             continue
@@ -1653,7 +1654,7 @@ def _extract_named_functions(
         body_close = _find_matching(masked, body_open, "{", "}")
         if body_close < 0:
             continue
-        key = (name, match.start())
+        key = (name, declaration_index)
         if key in seen:
             continue
         seen.add(key)
@@ -1661,11 +1662,11 @@ def _extract_named_functions(
             _FunctionDef(
                 name=name,
                 file_path=file_path,
-                start_index=match.start(),
+                start_index=declaration_index,
                 end_index=body_close + 1,
                 body_start_index=body_open + 1,
                 body_end_index=body_close,
-                start_line=_index_to_line(line_starts, match.start()),
+                start_line=_index_to_line(line_starts, declaration_index),
                 end_line=_index_to_line(line_starts, body_close),
                 params=_split_parameters(text[params_open + 1 : params_close]),
                 body=text[body_open + 1 : body_close],
@@ -1674,6 +1675,7 @@ def _extract_named_functions(
 
     for match in _FUNCTION_EXPR_PATTERN.finditer(masked):
         name = match.group("name")
+        declaration_index = match.start("name")
         params_open = masked.find("(", match.end() - 1)
         if params_open < 0:
             continue
@@ -1686,7 +1688,7 @@ def _extract_named_functions(
         body_close = _find_matching(masked, body_open, "{", "}")
         if body_close < 0:
             continue
-        key = (name, match.start())
+        key = (name, declaration_index)
         if key in seen:
             continue
         seen.add(key)
@@ -1694,11 +1696,11 @@ def _extract_named_functions(
             _FunctionDef(
                 name=name,
                 file_path=file_path,
-                start_index=match.start(),
+                start_index=declaration_index,
                 end_index=body_close + 1,
                 body_start_index=body_open + 1,
                 body_end_index=body_close,
-                start_line=_index_to_line(line_starts, match.start()),
+                start_line=_index_to_line(line_starts, declaration_index),
                 end_line=_index_to_line(line_starts, body_close),
                 params=_split_parameters(text[params_open + 1 : params_close]),
                 body=text[body_open + 1 : body_close],
@@ -1707,38 +1709,37 @@ def _extract_named_functions(
 
     for match in _ARROW_FUNCTION_PATTERN.finditer(masked):
         name = match.group("name")
-        after_equals = masked.find("=", match.end() - 1)
+        declaration_index = match.start("name")
+        after_equals = masked.rfind("=", match.start(), match.end())
         if after_equals < 0:
             continue
-        cursor = after_equals + 1
-        while cursor < len(masked) and masked[cursor].isspace():
-            cursor += 1
+        cursor = _skip_whitespace(masked, after_equals + 1)
         if masked.startswith("async", cursor):
-            cursor += len("async")
-            while cursor < len(masked) and masked[cursor].isspace():
-                cursor += 1
-        params_start = cursor
+            async_end = cursor + len("async")
+            if async_end < len(masked) and _is_identifier_part(masked[async_end]):
+                continue
+            cursor = _skip_whitespace(masked, async_end)
         if cursor < len(masked) and masked[cursor] == "(":
             params_end = _find_matching(masked, cursor, "(", ")")
             if params_end < 0:
                 continue
             params_text = text[cursor + 1 : params_end]
-            arrow_index = masked.find("=>", params_end)
-            if arrow_index < 0:
+            arrow_index = _skip_whitespace(masked, params_end + 1)
+            if not masked.startswith("=>", arrow_index):
                 continue
             cursor = arrow_index + 2
         else:
-            while cursor < len(masked) and (
-                masked[cursor].isalnum() or masked[cursor] in {"_", "$"}
-            ):
+            if cursor >= len(masked) or not _is_identifier_start(masked[cursor]):
+                continue
+            params_start = cursor
+            while cursor < len(masked) and _is_identifier_part(masked[cursor]):
                 cursor += 1
             params_text = text[params_start:cursor]
-            arrow_index = masked.find("=>", cursor)
-            if arrow_index < 0:
+            arrow_index = _skip_whitespace(masked, cursor)
+            if not masked.startswith("=>", arrow_index):
                 continue
             cursor = arrow_index + 2
-        while cursor < len(masked) and masked[cursor].isspace():
-            cursor += 1
+        cursor = _skip_whitespace(masked, cursor)
         if cursor >= len(masked):
             continue
         if masked[cursor] == "{":
@@ -1756,7 +1757,7 @@ def _extract_named_functions(
                 continue
             body_close = body_end_index
             body_text = text[body_start_index : body_end_index + 1].strip()
-        key = (name, match.start())
+        key = (name, declaration_index)
         if key in seen:
             continue
         seen.add(key)
@@ -1764,11 +1765,11 @@ def _extract_named_functions(
             _FunctionDef(
                 name=name,
                 file_path=file_path,
-                start_index=match.start(),
+                start_index=declaration_index,
                 end_index=body_close + 1,
                 body_start_index=body_start_index,
                 body_end_index=body_end_index,
-                start_line=_index_to_line(line_starts, match.start()),
+                start_line=_index_to_line(line_starts, declaration_index),
                 end_line=_index_to_line(line_starts, body_close),
                 params=_split_parameters(params_text),
                 body=body_text,
@@ -1908,6 +1909,21 @@ def _find_matching(text: str, start: int, open_char: str, close_char: str) -> in
             if depth == 0:
                 return index
     return -1
+
+
+def _skip_whitespace(text: str, start: int) -> int:
+    cursor = start
+    while cursor < len(text) and text[cursor].isspace():
+        cursor += 1
+    return cursor
+
+
+def _is_identifier_start(char: str) -> bool:
+    return char.isalpha() or char in {"_", "$"}
+
+
+def _is_identifier_part(char: str) -> bool:
+    return char.isalnum() or char in {"_", "$"}
 
 
 def _find_arrow_expression_end(masked_text: str, start: int) -> int:
