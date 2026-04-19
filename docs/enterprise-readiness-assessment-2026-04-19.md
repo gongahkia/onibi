@@ -63,13 +63,13 @@ Primary blockers are not only coverage. They include:
 
 ## Actionable Improvement Program
 Improvements are organized into six implementation tracks:
-- [Track A](/Users/gongahkia/Desktop/coding/projects/piranesi/docs/tracks/track-a-to-do.md): Security and Data Boundary Hardening.
-- [Track B](/Users/gongahkia/Desktop/coding/projects/piranesi/docs/tracks/track-b-to-do.md): Detection Correctness and Signal Quality.
-- [Track C](/Users/gongahkia/Desktop/coding/projects/piranesi/docs/tracks/track-c-to-do.md): CI, Test Architecture, and Release Reliability.
-- [Track D](/Users/gongahkia/Desktop/coding/projects/piranesi/docs/tracks/track-d-to-do.md): Ground Truth and Coverage Expansion.
-- [Track E](/Users/gongahkia/Desktop/coding/projects/piranesi/docs/tracks/track-e-to-do.md): Advisory and Supply-Chain Trust.
-- [Track F](/Users/gongahkia/Desktop/coding/projects/piranesi/docs/tracks/track-f-to-do.md): Enterprise Rollout Controls and Operations.
-- [Track G](/Users/gongahkia/Desktop/coding/projects/piranesi/docs/tracks/track-g-to-do.md): Graph Intelligence, Cross-Tooling, and Agent Harness.
+- Track A: Security and Data Boundary Hardening.
+- Track B: Detection Correctness and Signal Quality.
+- Track C: CI, Test Architecture, and Release Reliability.
+- Track D: Ground Truth and Coverage Expansion.
+- Track E: Advisory and Supply-Chain Trust.
+- Track F: Enterprise Rollout Controls and Operations.
+- Track G: Graph Intelligence, Cross-Tooling, and Agent Harness.
 - Track F implementation docs:
   - [Enterprise Rollout Controls](/Users/gongahkia/Desktop/coding/projects/piranesi/docs/enterprise-rollout-controls.md)
   - [Incident Response Playbooks](/Users/gongahkia/Desktop/coding/projects/piranesi/docs/incident-response-playbooks.md)
