@@ -31,6 +31,6 @@ P2/P3.
 3. Incident MTTR for scanner platform issues.
 
 ## Status
-- [ ] Planned
-- [ ] In progress
-- [ ] Completed
+- [x] Planned
+- [x] In progress
+- [x] Completed
