@@ -69,10 +69,13 @@ Improvements are organized into six implementation tracks:
 - [Track D](/Users/gongahkia/Desktop/coding/projects/piranesi/docs/tracks/track-d-to-do.md): Ground Truth and Coverage Expansion.
 - [Track E](/Users/gongahkia/Desktop/coding/projects/piranesi/docs/tracks/track-e-to-do.md): Advisory and Supply-Chain Trust.
 - [Track F](/Users/gongahkia/Desktop/coding/projects/piranesi/docs/tracks/track-f-to-do.md): Enterprise Rollout Controls and Operations.
+- [Track G](/Users/gongahkia/Desktop/coding/projects/piranesi/docs/tracks/track-g-to-do.md): Graph Intelligence, Cross-Tooling, and Agent Harness.
 - Track F implementation docs:
   - [Enterprise Rollout Controls](/Users/gongahkia/Desktop/coding/projects/piranesi/docs/enterprise-rollout-controls.md)
   - [Incident Response Playbooks](/Users/gongahkia/Desktop/coding/projects/piranesi/docs/incident-response-playbooks.md)
   - [Rollout Governance And SLOs](/Users/gongahkia/Desktop/coding/projects/piranesi/docs/rollout-governance-and-slos.md)
+- Track G implementation docs:
+  - [Intel Integration](/Users/gongahkia/Desktop/coding/projects/piranesi/docs/intel-integration.md)
 
 ## Suggested Sequencing
 1. Complete Track A before any broad rollout.
@@ -80,6 +83,7 @@ Improvements are organized into six implementation tracks:
 3. Start Track D immediately as a continuing program after Track A starts stabilizing.
 4. Execute Track E before policy-driven production onboarding.
 5. Use Track F to gate organizational adoption by environment and risk tier.
+6. Use Track G to add optional enrichment and agent orchestration after Track F controls are stable.
 
 ## Exit Criteria For Enterprise-Candidate Status
 1. Zero known secret redaction regressions in required paths.

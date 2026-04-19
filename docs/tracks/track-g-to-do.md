@@ -53,6 +53,6 @@ P2/P3. Execute after Tracks A-F hardening and reliability milestones.
 4. Phase 4: policy-bound agent harness with controlled tool orchestration.
 
 ## Status
-- [ ] Planned
-- [ ] In progress
-- [ ] Completed
+- [x] Planned
+- [x] In progress
+- [x] Completed
