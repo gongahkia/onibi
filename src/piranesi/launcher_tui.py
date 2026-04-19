@@ -398,11 +398,8 @@ def launch_cli_tui(
             hint.update(
                 "\n".join(
                     (
-                        "Path Selection",
-                        "  f / ctrl+o       open path finder overlay",
-                        "  choose target in picker before running",
-                        "",
                         "Actions",
+                        "  f / ctrl+o       open path finder overlay",
                         "  r run pipeline",
                         "  t open report viewer",
                         "  s show summary",
