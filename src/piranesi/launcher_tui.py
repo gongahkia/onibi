@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import shlex
 import subprocess
 import threading
@@ -8,6 +9,9 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, ClassVar, cast
+
+from rich.syntax import Syntax
+from rich.text import Text
 
 _ASCII_BANNER = r"""
 ██████╗ ██╗██████╗  █████╗ ███╗   ██╗███████╗███████╗██╗
@@ -58,6 +62,7 @@ def launch_cli_tui(
     ModalScreen = screen_module.ModalScreen
     DataTable = widgets_module.DataTable
     Footer = widgets_module.Footer
+    RichLog = widgets_module.RichLog
     Static = widgets_module.Static
 
     class DirectoryPickerScreen(ModalScreen[Path | None]):
@@ -276,14 +281,21 @@ def launch_cli_tui(
             self.target_dir: Path | None = None
             self._status_note = ""
             self._run_in_progress = False
-            self._run_log_lines: list[str] = []
+            self._has_run_output = False
 
         def compose(self) -> Any:
             yield Static(_ASCII_BANNER, id="banner")
             yield Static("", id="status")
             with Horizontal(id="body"), Vertical():
                 yield Static("", id="hint")
-                yield Static("", id="run_output")
+                yield RichLog(
+                    id="run_output",
+                    wrap=True,
+                    highlight=False,
+                    markup=False,
+                    auto_scroll=True,
+                    max_lines=2000,
+                )
             yield Footer()
 
         def on_mount(self) -> None:
@@ -353,8 +365,10 @@ def launch_cli_tui(
             self.exit(self._selection(LauncherAction.QUIT))
 
         def action_clear_output(self) -> None:
-            self._run_log_lines.clear()
-            self._refresh_run_output()
+            output = cast(Any, self.query_one("#run_output"))
+            output.clear()
+            self._has_run_output = False
+            self._refresh_run_output_visibility()
 
         def _selection(self, action: LauncherAction) -> LauncherSelection:
             return LauncherSelection(
@@ -411,15 +425,12 @@ def launch_cli_tui(
                     )
                 )
             )
-            self._refresh_run_output()
+            self._refresh_run_output_visibility()
 
-        def _refresh_run_output(self) -> None:
+        def _refresh_run_output_visibility(self) -> None:
             output = cast(Any, self.query_one("#run_output"))
-            has_output = self._run_in_progress or bool(self._run_log_lines)
+            has_output = self._run_in_progress or self._has_run_output
             output.styles.display = "block" if has_output else "none"
-            if not has_output:
-                return
-            output.update("\n".join(self._run_log_lines[-240:]))
 
         def _run_pipeline_thread(self, command: list[str]) -> None:
             try:
@@ -441,10 +452,10 @@ def launch_cli_tui(
             self.call_from_thread(self._on_pipeline_complete, return_code)
 
         def _append_run_line(self, line: str) -> None:
-            self._run_log_lines.append(line)
-            if len(self._run_log_lines) > 2000:
-                self._run_log_lines = self._run_log_lines[-2000:]
-            self._refresh_run_output()
+            output = cast(Any, self.query_one("#run_output"))
+            output.write(_render_output_line(line), scroll_end=True)
+            self._has_run_output = True
+            self._refresh_run_output_visibility()
 
         def _on_pipeline_complete(self, return_code: int) -> None:
             self._run_in_progress = False
@@ -522,6 +533,27 @@ def _build_pipeline_command(
     if no_execute:
         command.append("--no-execute")
     return command
+
+
+def _render_output_line(line: str) -> Any:
+    stripped = line.strip()
+    if line.startswith("$ "):
+        command = line.removeprefix("$ ")
+        return Syntax(command, "bash", word_wrap=True)
+    if stripped.startswith("{") and stripped.endswith("}"):
+        try:
+            payload = json.loads(stripped)
+        except json.JSONDecodeError:
+            pass
+        else:
+            return Syntax(json.dumps(payload, indent=2), "json", word_wrap=True)
+    if "ERROR" in line or "failed" in line.lower():
+        return Text(line, style="bold red")
+    if "WARNING" in line:
+        return Text(line, style="yellow")
+    if "INFO" in line:
+        return Text(line, style="cyan")
+    return line
 
 
 __all__ = ["LauncherAction", "LauncherSelection", "launch_cli_tui"]
