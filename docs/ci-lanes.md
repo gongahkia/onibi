@@ -41,6 +41,19 @@
 - A merge is blocked unless `core-required`, `critical-regressions`, `security-regression`, and `extras-contract` are green.
 - `integration-optional` failures are visible but do not block merges.
 
+## Rollout Gate Automation
+- `scripts/check_rollout_gates.py` enforces environment-tier rollout controls after artifacts are produced.
+- Staging example:
+  - `python scripts/check_rollout_gates.py --tier staging --artifacts-dir piranesi-output`
+- Production example with drift checks:
+  - `python scripts/check_rollout_gates.py --tier prod --artifacts-dir piranesi-output --comparison-json eval/compare-reports.json`
+- Production gate coverage includes:
+  - required artifact presence (`scan.json`, `detect.json`, `verify.json`, `legal.json`, `report.json`)
+  - zero active critical findings
+  - suppression lifecycle hygiene (no invalid/expired/stale suppressions)
+  - audit-log controls (no unapproved policy overrides and no unredacted evidence exports)
+  - drift thresholds for detection and FP suppression when comparison data is available
+
 ## Release Checklist
 1. Confirm all required lanes are green on the release commit.
 2. Review `integration-optional` output and classify any failure as environment vs product.
