@@ -104,10 +104,16 @@ def test_coverage_gap_report_flags_underrepresented_slices(tmp_path: Path, capsy
 
     assert exit_code == 0
     assert payload["gap_count"] == 2
+    assert payload["plan_top_n"] == 10
+    assert len(payload["expansion_plan"]) == 2
     first = payload["gaps"][0]
     assert first["dimension"] == "cwe+language"
     assert first["slice_key"] == "CWE-22 | go"
     assert first["needed_for_min_count"] == 2
+    assert first["target_true_positive"] == 1
+    assert first["target_false_positive"] == 2
+    assert first["needed_true_positive"] == 0
+    assert first["needed_false_positive"] == 2
     assert "false_positive" in first["recommendation"]
 
 
@@ -116,4 +122,12 @@ def test_coverage_gap_report_validates_dimension_parts() -> None:
         coverage_gap_report.main([
             "--dimension",
             "cwe+invalid",
+        ])
+
+
+def test_coverage_gap_report_validates_plan_top_n() -> None:
+    with pytest.raises(ValueError, match="--plan-top-n must be >= 0"):
+        coverage_gap_report.main([
+            "--plan-top-n",
+            "-1",
         ])

@@ -33,6 +33,11 @@ class GapRow:
     count: int
     true_positive: int
     false_positive: int
+    target_true_positive: int
+    target_false_positive: int
+    needed_true_positive: int
+    needed_false_positive: int
+    needed_total: int
     needed_for_min_count: int
     recommendation: str
     priority: int
@@ -44,9 +49,38 @@ class GapRow:
             "count": self.count,
             "true_positive": self.true_positive,
             "false_positive": self.false_positive,
+            "target_true_positive": self.target_true_positive,
+            "target_false_positive": self.target_false_positive,
+            "needed_true_positive": self.needed_true_positive,
+            "needed_false_positive": self.needed_false_positive,
+            "needed_total": self.needed_total,
             "needed_for_min_count": self.needed_for_min_count,
             "recommendation": self.recommendation,
             "priority": self.priority,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class CoveragePlanRow:
+    rank: int
+    dimension: str
+    slice_key: str
+    needed_total: int
+    needed_true_positive: int
+    needed_false_positive: int
+    priority: int
+    recommendation: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "rank": self.rank,
+            "dimension": self.dimension,
+            "slice_key": self.slice_key,
+            "needed_total": self.needed_total,
+            "needed_true_positive": self.needed_true_positive,
+            "needed_false_positive": self.needed_false_positive,
+            "priority": self.priority,
+            "recommendation": self.recommendation,
         }
 
 
@@ -56,8 +90,10 @@ class CoverageGapReport:
     total_entries: int
     considered_entries: int
     min_count: int
+    plan_top_n: int
     dimensions: tuple[str, ...]
     gaps: tuple[GapRow, ...]
+    expansion_plan: tuple[CoveragePlanRow, ...]
 
     def to_dict(self) -> dict[str, Any]:
         by_dimension: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -68,10 +104,12 @@ class CoverageGapReport:
             "total_entries": self.total_entries,
             "considered_entries": self.considered_entries,
             "min_count": self.min_count,
+            "plan_top_n": self.plan_top_n,
             "dimensions": list(self.dimensions),
             "gap_count": len(self.gaps),
             "gaps": [gap.to_dict() for gap in self.gaps],
             "gaps_by_dimension": dict(by_dimension),
+            "expansion_plan": [row.to_dict() for row in self.expansion_plan],
         }
 
 
@@ -163,27 +201,47 @@ def _entry_dimension_value(entry: GroundTruthEntry, part: str) -> str:
     return "unknown"
 
 
-def _recommendation(*, tp_count: int, fp_count: int, needed_for_min_count: int) -> str:
+def _target_tp_fp(min_count: int) -> tuple[int, int]:
+    target_tp = max(1, min_count // 2)
+    target_fp = max(1, min_count - target_tp)
+    return target_tp, target_fp
+
+
+def _recommendation(
+    *,
+    needed_tp: int,
+    needed_fp: int,
+    needed_for_min_count: int,
+) -> str:
     actions: list[str] = []
     if needed_for_min_count > 0:
         actions.append(f"add {needed_for_min_count} fixtures to reach minimum count")
-    if tp_count == 0:
-        actions.append("add true_positive fixture(s)")
-    if fp_count == 0:
-        actions.append("add false_positive fixture(s)")
+    if needed_tp > 0:
+        actions.append(f"add {needed_tp} true_positive fixture(s)")
+    if needed_fp > 0:
+        actions.append(f"add {needed_fp} false_positive fixture(s)")
     if not actions:
         actions.append("maintain current coverage")
     return "; ".join(actions)
 
 
-def _priority(*, needed_for_min_count: int, tp_count: int, fp_count: int, count: int) -> int:
-    score = needed_for_min_count * 100
-    if tp_count == 0:
+def _priority(
+    *,
+    needed_total: int,
+    needed_tp: int,
+    needed_fp: int,
+    needed_for_min_count: int,
+    count: int,
+) -> int:
+    score = needed_total * 100
+    if needed_tp > 0:
         score += 40
-    if fp_count == 0:
+    if needed_fp > 0:
         score += 40
     if count <= 1:
         score += 10
+    if needed_for_min_count > 0:
+        score += 5
     return score
 
 
@@ -195,6 +253,7 @@ def build_coverage_gap_report(
     filters: tuple[tuple[str, str], ...],
     min_count: int,
     max_results_per_dimension: int,
+    plan_top_n: int,
 ) -> CoverageGapReport:
     filtered_entries = [
         entry
@@ -222,7 +281,12 @@ def build_coverage_gap_report(
             needed = max(0, min_count - counts["count"])
             tp_count = counts["tp"]
             fp_count = counts["fp"]
-            if needed == 0 and tp_count > 0 and fp_count > 0:
+            target_tp, target_fp = _target_tp_fp(min_count)
+            needed_tp = max(0, target_tp - tp_count)
+            needed_fp = max(0, target_fp - fp_count)
+            needed_total = needed_tp + needed_fp
+
+            if needed == 0 and needed_total == 0:
                 continue
 
             ranked_rows.append(
@@ -232,16 +296,22 @@ def build_coverage_gap_report(
                     count=counts["count"],
                     true_positive=tp_count,
                     false_positive=fp_count,
+                    target_true_positive=target_tp,
+                    target_false_positive=target_fp,
+                    needed_true_positive=needed_tp,
+                    needed_false_positive=needed_fp,
+                    needed_total=needed_total,
                     needed_for_min_count=needed,
                     recommendation=_recommendation(
-                        tp_count=tp_count,
-                        fp_count=fp_count,
+                        needed_tp=needed_tp,
+                        needed_fp=needed_fp,
                         needed_for_min_count=needed,
                     ),
                     priority=_priority(
+                        needed_total=needed_total,
+                        needed_tp=needed_tp,
+                        needed_fp=needed_fp,
                         needed_for_min_count=needed,
-                        tp_count=tp_count,
-                        fp_count=fp_count,
                         count=counts["count"],
                     ),
                 )
@@ -258,13 +328,43 @@ def build_coverage_gap_report(
         )
         gaps.extend(ranked_rows[:max_results_per_dimension])
 
+    expansion_plan: list[CoveragePlanRow] = []
+    if plan_top_n > 0:
+        combined = sorted(
+            gaps,
+            key=lambda row: (
+                row.priority,
+                row.needed_total,
+                row.needed_for_min_count,
+                -row.count,
+                row.dimension,
+                row.slice_key,
+            ),
+            reverse=True,
+        )
+        for index, row in enumerate(combined[:plan_top_n], start=1):
+            expansion_plan.append(
+                CoveragePlanRow(
+                    rank=index,
+                    dimension=row.dimension,
+                    slice_key=row.slice_key,
+                    needed_total=row.needed_total,
+                    needed_true_positive=row.needed_true_positive,
+                    needed_false_positive=row.needed_false_positive,
+                    priority=row.priority,
+                    recommendation=row.recommendation,
+                )
+            )
+
     return CoverageGapReport(
         gt_dir=str(gt_dir),
         total_entries=len(entries),
         considered_entries=len(filtered_entries),
         min_count=min_count,
+        plan_top_n=max(0, plan_top_n),
         dimensions=tuple("+".join(parts) for parts in dimensions),
         gaps=tuple(gaps),
+        expansion_plan=tuple(expansion_plan),
     )
 
 
@@ -274,6 +374,7 @@ def render_coverage_gap_report(report: CoverageGapReport) -> str:
         f"- Directory: {report.gt_dir}",
         f"- Entries considered: {report.considered_entries}/{report.total_entries}",
         f"- Minimum target per slice: {report.min_count}",
+        f"- Target TP/FP per slice: {_target_tp_fp(report.min_count)[0]}/{_target_tp_fp(report.min_count)[1]}",
         f"- Dimensions: {', '.join(report.dimensions)}",
         f"- Gap rows: {len(report.gaps)}",
         "",
@@ -290,12 +391,25 @@ def render_coverage_gap_report(report: CoverageGapReport) -> str:
             "- "
             f"{gap.slice_key}: count={gap.count} "
             f"tp={gap.true_positive} fp={gap.false_positive} "
+            f"target_tp={gap.target_true_positive} target_fp={gap.target_false_positive} "
+            f"need_tp={gap.needed_true_positive} need_fp={gap.needed_false_positive} "
             f"needed={gap.needed_for_min_count} priority={gap.priority}"
         )
         lines.append(f"  recommendation={gap.recommendation}")
 
     if not report.gaps:
         lines.append("No coverage gaps found for selected dimensions.")
+    elif report.expansion_plan:
+        lines.append("")
+        lines.append("Top Expansion Plan")
+        for row in report.expansion_plan:
+            lines.append(
+                "- "
+                f"#{row.rank} {row.dimension} :: {row.slice_key} "
+                f"(need_total={row.needed_total}, need_tp={row.needed_true_positive}, "
+                f"need_fp={row.needed_false_positive}, priority={row.priority})"
+            )
+            lines.append(f"  recommendation={row.recommendation}")
 
     return "\n".join(lines)
 
@@ -337,6 +451,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=20,
         help="Maximum reported gap rows per dimension.",
     )
+    parser.add_argument(
+        "--plan-top-n",
+        type=int,
+        default=10,
+        help="Top cross-dimension expansion plan rows to include.",
+    )
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON output.")
     return parser.parse_args(argv)
 
@@ -347,6 +467,8 @@ def main(argv: list[str] | None = None) -> int:
         raise ValueError("--min-count must be > 0")
     if args.max_results_per_dimension <= 0:
         raise ValueError("--max-results-per-dimension must be > 0")
+    if args.plan_top_n < 0:
+        raise ValueError("--plan-top-n must be >= 0")
 
     entries = load_ground_truth_entries(args.gt_dir)
     dimensions = _normalize_dimensions(args.dimension)
@@ -358,6 +480,7 @@ def main(argv: list[str] | None = None) -> int:
         filters=filters,
         min_count=args.min_count,
         max_results_per_dimension=args.max_results_per_dimension,
+        plan_top_n=args.plan_top_n,
     )
 
     if args.json:
