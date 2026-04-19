@@ -19,6 +19,7 @@ import typer
 from pydantic import BaseModel, ValidationError
 
 from piranesi import __version__
+from piranesi.audit import append_audit_event
 from piranesi.config import ConfigError, PiranesiConfig, load_config
 from piranesi.detect import (
     append_ignore_file_suppression,
@@ -549,6 +550,60 @@ def _proof_mode_override(proof_mode: ProofMode | None) -> str | None:
     if proof_mode is None:
         return None
     return proof_mode.value
+
+
+def _project_audit_output_dir(project_root: Path) -> Path:
+    return project_root.resolve(strict=False) / "piranesi-output"
+
+
+def _filtered_cli_overrides(extra_cli_overrides: Mapping[str, Any] | None) -> dict[str, Any]:
+    if not extra_cli_overrides:
+        return {}
+    return {key: value for key, value in extra_cli_overrides.items() if value is not None}
+
+
+def _write_audit_event(
+    *,
+    output_dir: Path,
+    event_type: str,
+    stage: str | None = None,
+    approved: bool | None = None,
+    details: Mapping[str, Any] | None = None,
+) -> None:
+    logger = logging.getLogger("piranesi.audit")
+    try:
+        append_audit_event(
+            output_dir=output_dir,
+            event_type=event_type,
+            stage=stage,
+            approved=approved,
+            details=details,
+        )
+    except OSError as exc:
+        logger.debug("failed to persist audit event %s: %s", event_type, exc)
+
+
+def _record_policy_override_event(
+    *,
+    stage: str,
+    options: CommonOptions,
+    extra_cli_overrides: Mapping[str, Any] | None,
+) -> None:
+    overrides = _filtered_cli_overrides(extra_cli_overrides)
+    if not overrides:
+        return
+    _write_audit_event(
+        output_dir=options.output_dir,
+        event_type="policy_override_applied",
+        stage=stage,
+        approved=options.authorized,
+        details={
+            "config_path": options.config_path.resolve(strict=False),
+            "output_dir": options.output_dir.resolve(strict=False),
+            "yes": options.assume_yes,
+            "overrides": overrides,
+        },
+    )
 
 
 def _parse_date_option(value: str | None, *, option_name: str) -> date | None:
@@ -1169,6 +1224,11 @@ def _load_cli_config(
 
     if options.debug:
         config.trace.log_prompts = True
+    _record_policy_override_event(
+        stage=stage,
+        options=options,
+        extra_cli_overrides=extra_cli_overrides,
+    )
     return config
 
 
@@ -2538,6 +2598,18 @@ def compliance_evidence(
         typer.echo(f"error: {exc}")
         raise typer.Exit(code=2) from exc
 
+    _write_audit_event(
+        output_dir=output,
+        event_type="compliance_evidence_exported",
+        stage="compliance",
+        approved=True,
+        details={
+            "framework": framework,
+            "artifacts_dir": artifacts_dir.resolve(strict=False),
+            "output_dir": output.resolve(strict=False),
+            "bundle_count": len(written),
+        },
+    )
     typer.echo(f"wrote {len(written)} evidence bundle(s) to {output}")
 
 
@@ -2590,6 +2662,21 @@ def compliance_bundle(
         typer.echo(f"error: {exc}")
         raise typer.Exit(code=2) from exc
 
+    _write_audit_event(
+        output_dir=output,
+        event_type="compliance_bundle_exported",
+        stage="compliance",
+        approved=True,
+        details={
+            "framework": framework,
+            "artifacts_dir": artifacts_dir.resolve(strict=False),
+            "output_dir": output.resolve(strict=False),
+            "redact": redact,
+            "manifest_path": output / manifest.checksum_manifest_path,
+            "config_snapshot": None if config_snapshot is None else config_snapshot.resolve(strict=False),
+            "file_count": len(manifest.files),
+        },
+    )
     typer.echo(
         "wrote compliance bundle with "
         f"{len(manifest.files)} file(s) to {output}"
@@ -2649,6 +2736,24 @@ def suppress(
         created=created_date,
         expires=expires_date,
         scope=scope,
+    )
+    _write_audit_event(
+        output_dir=_project_audit_output_dir(project_root),
+        event_type="suppression_created",
+        stage="detect",
+        approved=True,
+        details={
+            "project_root": project_root.resolve(strict=False),
+            "ignore_path": ignore_path.resolve(strict=False),
+            "finding_id": finding_id,
+            "scope": scope,
+            "owner": owner,
+            "reason_code": reason_code,
+            "ticket": ticket,
+            "reference": reference,
+            "created": None if created_date is None else created_date.isoformat(),
+            "expires": None if expires_date is None else expires_date.isoformat(),
+        },
     )
     typer.echo(f"added suppression for {finding_id} to {ignore_path}")
 
@@ -2807,6 +2912,19 @@ def suppressions_validate(
             "fail_on_stale": config_model.suppression.fail_on_stale,
         },
     }
+    _write_audit_event(
+        output_dir=_project_audit_output_dir(project_root),
+        event_type="suppression_validation_executed",
+        stage="detect",
+        approved=True,
+        details={
+            "project_root": project_root.resolve(strict=False),
+            "config_path": config_path.resolve(strict=False),
+            "findings": None if findings is None else findings.resolve(strict=False),
+            "summary": lifecycle.model_dump(mode="json"),
+            "policy": payload["policy"],
+        },
+    )
     if json_output:
         typer.echo(json.dumps(payload, indent=2))
     else:

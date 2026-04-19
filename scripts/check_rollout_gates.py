@@ -184,7 +184,8 @@ def _evaluate_audit_log(*, path: Path, tier: Tier) -> list[str]:
         event
         for event in events
         if event.get("event_type") in {"compliance_bundle_exported", "compliance_evidence_exported"}
-        and event.get("redact") is False
+        and isinstance(event.get("details"), dict)
+        and event["details"].get("redact") is False
     ]
     if tier == "prod" and unredacted_exports:
         failures.append(
