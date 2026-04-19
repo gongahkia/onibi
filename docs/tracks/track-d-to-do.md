@@ -33,4 +33,4 @@ P1/P2 continuous program.
 ## Status
 - [x] Planned
 - [x] In progress
-- [ ] Completed
+- [x] Completed
