@@ -152,3 +152,89 @@ def test_detect_stage_merges_discovered_sanitizers(
     sanitizer_names = [spec.name for spec in captured["sanitizer_specs"]]
     assert sanitizer_names[0] == "builtin_html_escape"
     assert sanitizer_names[-1] == "discovered_escapeHtml"
+
+
+def test_detect_stage_disables_category_llm_without_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    target_dir = tmp_path / "project"
+    _write(
+        target_dir / "src" / "app.js",
+        "app.get('/profile', (req, res) => res.send(req.query.name));\n",
+    )
+
+    captured: dict[str, tuple[object | None, object | None]] = {}
+
+    context = PipelineContext(
+        target_dir=target_dir,
+        output_dir=tmp_path / "out",
+        provider=SimpleNamespace(),  # type: ignore[arg-type]
+        router=SimpleNamespace(resolve=lambda _stage: "gpt-4o-mini"),  # type: ignore[arg-type]
+        cost_tracker=SimpleNamespace(total_usd=0.0),  # type: ignore[arg-type]
+        trace_writer=None,  # type: ignore[arg-type]
+    )
+    config = PiranesiConfig(output=OutputConfig(output_dir=str(context.output_dir)))
+
+    monkeypatch.setattr(pipeline_module, "_llm_is_configured", lambda: False)
+    monkeypatch.setattr(pipeline_module, "resolve_frameworks", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(pipeline_module, "discover_rule_plugins", lambda **_kwargs: ())
+    monkeypatch.setattr(pipeline_module, "get_source_specs", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(pipeline_module, "get_sink_specs", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(pipeline_module, "get_sanitizer_specs", lambda *_args, **_kwargs: [])
+
+    @contextmanager
+    def _fake_scan_session(
+        *_args: object,
+        **_kwargs: object,
+    ) -> Generator[tuple[None, SimpleNamespace], None, None]:
+        yield None, SimpleNamespace(joern_project_root=target_dir, source_map=None)
+
+    def _capture_extract(
+        *_args: object,
+        category_provider: object | None = None,
+        category_model: object | None = None,
+        **_kwargs: object,
+    ) -> tuple[()]:
+        captured["extract"] = (category_provider, category_model)
+        return ()
+
+    def _capture_custom(
+        *_args: object,
+        category_provider: object | None = None,
+        category_model: object | None = None,
+        **_kwargs: object,
+    ) -> tuple[()]:
+        captured["custom"] = (category_provider, category_model)
+        return ()
+
+    monkeypatch.setattr(pipeline_module, "_scan_session", _fake_scan_session)
+    monkeypatch.setattr(pipeline_module, "extract_candidate_findings", _capture_extract)
+    monkeypatch.setattr(pipeline_module, "execute_custom_rules", _capture_custom)
+    monkeypatch.setattr(
+        pipeline_module,
+        "extract_crypto_transport_findings",
+        lambda *_args, **_kwargs: (),
+    )
+    monkeypatch.setattr(pipeline_module, "extract_secret_findings", lambda *_args, **_kwargs: ())
+    monkeypatch.setattr(
+        pipeline_module,
+        "extract_misconfiguration_findings",
+        lambda *_args, **_kwargs: (),
+    )
+    monkeypatch.setattr(pipeline_module, "extract_redos_findings", lambda *_args, **_kwargs: ())
+    monkeypatch.setattr(
+        pipeline_module,
+        "extract_auth_access_findings",
+        lambda *_args, **_kwargs: (),
+    )
+    monkeypatch.setattr(
+        pipeline_module,
+        "scan_dependency_findings",
+        lambda *_args, **_kwargs: SimpleNamespace(findings=(), sbom_artifacts={}),
+    )
+
+    pipeline_module._detect_findings_for_target(context, config, target_dir)
+
+    assert captured["extract"] == (None, None)
+    assert captured["custom"] == (None, None)

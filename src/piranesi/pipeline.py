@@ -1343,6 +1343,10 @@ def _detect_findings_for_target(
     *,
     changed_files: set[Path] | None = None,
 ) -> list[CandidateFinding]:
+    llm_configured = _llm_is_configured()
+    category_provider = context.provider if llm_configured else None
+    category_model = _resolve_stage_model(context, "detector") if llm_configured else None
+
     frameworks = resolve_frameworks(target_dir, config.scan.frameworks)
     local_rules = list(load_rules(target_dir / "rules"))
     disabled_plugins = frozenset(config.plugins.disabled)
@@ -1392,8 +1396,8 @@ def _detect_findings_for_target(
                 source_specs=source_specs,
                 sink_specs=sink_specs,
                 sanitizer_specs=sanitizer_specs,
-                category_provider=context.provider,
-                category_model=_resolve_stage_model(context, "detector"),
+                category_provider=category_provider,
+                category_model=category_model,
             )
         )
         findings.extend(
@@ -1407,8 +1411,8 @@ def _detect_findings_for_target(
                 sink_specs=sink_specs,
                 sanitizer_specs=sanitizer_specs,
                 files=scanned_files,
-                category_provider=context.provider,
-                category_model=_resolve_stage_model(context, "detector"),
+                category_provider=category_provider,
+                category_model=category_model,
             )
         )
 
