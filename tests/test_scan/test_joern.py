@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import socket
 import subprocess
 from pathlib import Path
@@ -65,6 +66,12 @@ class FakeProcess:
         if self._alive:
             raise subprocess.TimeoutExpired(cmd="fake-joern", timeout=timeout or 0.0)
         return self._stdout, self._stderr
+
+
+def test_request_json_defaults_to_debug_logging() -> None:
+    defaults = JoernServer._request_json.__kwdefaults__
+    assert defaults is not None
+    assert defaults["log_level"] == logging.DEBUG
 
 
 def _fake_executable(path: Path) -> str:

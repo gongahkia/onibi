@@ -11,8 +11,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from rich.console import Console
 from rich.logging import RichHandler
+
+from piranesi.ui import console as ui_console
 
 _RESERVED_LOG_KEYS = {
     "args",
@@ -74,7 +75,7 @@ def setup_logging(
     is_tty = sys.stderr.isatty() and not json_logs
     if is_tty:
         handler: logging.Handler = RichHandler(
-            console=Console(stderr=True),
+            console=ui_console,
             rich_tracebacks=True,
             tracebacks_show_locals=debug,
             show_path=debug,

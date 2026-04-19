@@ -694,7 +694,7 @@ class JoernServer:
         *,
         timeout_seconds: float,
         event: str,
-        log_level: int = logging.INFO,
+        log_level: int = logging.DEBUG,
         log_failures: bool = True,
     ) -> JsonDict:
         url = f"{self.base_url}{endpoint}"
