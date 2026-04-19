@@ -1,0 +1,35 @@
+{
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "CodeQL",
+          "rules": [
+            {
+              "id": "js/sql-injection",
+              "name": "Potential SQL injection",
+              "shortDescription": {"text": "User-controlled SQL"},
+              "properties": {"tags": ["security", "CWE-89"]}
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "js/sql-injection",
+          "level": "error",
+          "message": {"text": "Untrusted data in SQL query"},
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {"uri": "src/db/query.ts"},
+                "region": {"startLine": 42, "startColumn": 13}
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

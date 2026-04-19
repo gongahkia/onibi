@@ -1,0 +1,17 @@
+{
+  "results": [
+    {
+      "check_id": "p/sql-injection",
+      "path": "app/routes/users.js",
+      "start": {"line": 18, "col": 7},
+      "extra": {
+        "message": "Potential SQL injection via string concatenation",
+        "severity": "ERROR",
+        "metadata": {
+          "cwe": ["CWE-89"],
+          "category": "security"
+        }
+      }
+    }
+  ]
+}

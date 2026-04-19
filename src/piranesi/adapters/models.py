@@ -61,7 +61,7 @@ class AdapterParseResult(BaseModel):
     diagnostics: list[AdapterDiagnostic] = Field(default_factory=list)
 
     @classmethod
-    def empty(cls, *, tool: ExternalTool, source_path: Path) -> "AdapterParseResult":
+    def empty(cls, *, tool: ExternalTool, source_path: Path) -> AdapterParseResult:
         return cls(
             tool=tool,
             source_path=str(source_path.resolve(strict=False)),

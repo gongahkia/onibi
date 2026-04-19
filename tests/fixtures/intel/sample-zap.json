@@ -1,0 +1,23 @@
+{
+  "site": [
+    {
+      "@name": "http://localhost:3000",
+      "alerts": [
+        {
+          "pluginid": "40018",
+          "alert": "SQL Injection",
+          "riskcode": "3",
+          "confidence": "2",
+          "cweid": "89",
+          "desc": "Possible SQL injection",
+          "instances": [
+            {
+              "uri": "http://localhost:3000/users?id=1",
+              "method": "GET"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
