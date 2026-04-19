@@ -260,6 +260,7 @@ def launch_cli_tui(
             padding: 1;
             overflow: auto;
             border: round $accent;
+            display: none;
         }
         """
 
@@ -393,8 +394,7 @@ def launch_cli_tui(
 
         def _on_path_finder_closed(self, selected: Path | None) -> None:
             if selected is None:
-                self._status_note = "path finder cancelled"
-                self._refresh_status()
+                cast(Any, self.query_one("#target_input")).focus()
                 return
             resolved = selected.resolve(strict=False)
             self.path_value = str(resolved)
@@ -450,8 +450,9 @@ def launch_cli_tui(
 
         def _refresh_run_output(self) -> None:
             output = cast(Any, self.query_one("#run_output"))
-            if not self._run_log_lines:
-                output.update("Pipeline output will stream here after pressing 'r'.")
+            has_output = self._run_in_progress or bool(self._run_log_lines)
+            output.styles.display = "block" if has_output else "none"
+            if not has_output:
                 return
             output.update("\n".join(self._run_log_lines[-240:]))
 
