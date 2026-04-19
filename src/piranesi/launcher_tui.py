@@ -52,6 +52,7 @@ def launch_cli_tui(
     Horizontal = containers_module.Horizontal
     DataTable = widgets_module.DataTable
     Footer = widgets_module.Footer
+    Input = widgets_module.Input
     Static = widgets_module.Static
 
     class PiranesiLauncherApp(App[LauncherSelection | None]):
@@ -60,12 +61,9 @@ def launch_cli_tui(
             Binding("down", "move_down", show=False),
             Binding("k", "move_up", show=False),
             Binding("j", "move_down", show=False),
-            Binding("left", "parent_dir", show=False),
-            Binding("h", "parent_dir", show=False),
-            Binding("right", "enter_dir", show=False),
-            Binding("l", "enter_dir", show=False),
-            Binding("enter", "enter_dir", show=False),
-            Binding("space", "select_target", "Select Target", show=True),
+            Binding("enter", "apply_path", show=False),
+            Binding("space", "apply_path", "Use Suggestion", show=True),
+            Binding("tab", "autocomplete_path", "Autocomplete", show=True),
             Binding("r", "run_pipeline", "Run", show=True),
             Binding("t", "open_report", "Report", show=True),
             Binding("s", "show_summary", "Summary", show=True),
@@ -90,11 +88,15 @@ def launch_cli_tui(
             height: auto;
         }
 
+        #target_input {
+            margin: 0 1;
+        }
+
         #body {
             height: 1fr;
         }
 
-        #directories {
+        #suggestions {
             width: 1fr;
             min-width: 52;
         }
@@ -115,31 +117,35 @@ def launch_cli_tui(
             trace_path: Path,
         ) -> None:
             super().__init__()
-            self.current_dir = start_dir
             self.target_dir = start_dir
             self.output_dir = output_dir
             self.config_path = config_path
             self.trace_path = trace_path
             self.resume = False
             self.no_execute = False
-            self._entries: list[Path] = []
+            self.cwd = Path.cwd().resolve(strict=False)
+            self.path_value = str(start_dir)
+            self._status_note = ""
+            self._suggestions: list[Path] = []
 
         def compose(self) -> Any:
             yield Static(_ASCII_BANNER, id="banner")
             yield Static("", id="status")
+            yield Input(value=self.path_value, id="target_input")
             with Horizontal(id="body"):
-                yield DataTable(id="directories")
+                yield DataTable(id="suggestions")
                 yield Static("", id="hint")
             yield Footer()
 
         def on_mount(self) -> None:
-            table = cast(Any, self.query_one("#directories"))
+            table = cast(Any, self.query_one("#suggestions"))
             table.cursor_type = "row"
             table.zebra_stripes = True
-            table.add_columns("Directory", "Type")
-            self._refresh_directory_table()
+            table.add_columns("Autocomplete Suggestion", "Type")
+            self._refresh_suggestions()
+            self._update_target_from_input()
             self._refresh_status()
-            table.focus()
+            cast(Any, self.query_one("#target_input")).focus()
 
         def action_move_up(self) -> None:
             self._set_row(self._selected_row() - 1)
@@ -147,23 +153,29 @@ def launch_cli_tui(
         def action_move_down(self) -> None:
             self._set_row(self._selected_row() + 1)
 
-        def action_parent_dir(self) -> None:
-            parent = self.current_dir.parent
-            if parent == self.current_dir:
-                return
-            self.current_dir = parent
-            self._refresh_directory_table()
+        def action_apply_path(self) -> None:
+            suggestion = self._selected_suggestion()
+            if suggestion is not None:
+                self.path_value = str(suggestion)
+                cast(Any, self.query_one("#target_input")).value = self.path_value
+            self._update_target_from_input(force=True)
+            self._refresh_suggestions()
+            self._refresh_status()
 
-        def action_enter_dir(self) -> None:
-            entry = self._selected_entry()
-            if entry is None:
+        def action_autocomplete_path(self) -> None:
+            suggestion = self._selected_suggestion()
+            if suggestion is None:
+                suggestions = _autocomplete_directory_candidates(
+                    self.path_value,
+                    cwd=self.cwd,
+                )
+                suggestion = suggestions[0] if suggestions else None
+            if suggestion is None:
                 return
-            self.current_dir = entry
-            self._refresh_directory_table()
-
-        def action_select_target(self) -> None:
-            entry = self._selected_entry()
-            self.target_dir = self.current_dir if entry is None else entry
+            self.path_value = str(suggestion)
+            cast(Any, self.query_one("#target_input")).value = self.path_value
+            self._update_target_from_input()
+            self._refresh_suggestions()
             self._refresh_status()
 
         def action_toggle_resume(self) -> None:
@@ -175,6 +187,8 @@ def launch_cli_tui(
             self._refresh_status()
 
         def action_run_pipeline(self) -> None:
+            if not self._ensure_valid_target():
+                return
             self.exit(self._selection(LauncherAction.RUN))
 
         def action_open_report(self) -> None:
@@ -184,6 +198,8 @@ def launch_cli_tui(
             self.exit(self._selection(LauncherAction.SUMMARY))
 
         def action_run_doctor(self) -> None:
+            if not self._ensure_valid_target():
+                return
             self.exit(self._selection(LauncherAction.DOCTOR))
 
         def action_quit_launcher(self) -> None:
@@ -200,21 +216,27 @@ def launch_cli_tui(
                 no_execute=self.no_execute,
             )
 
-        def _refresh_directory_table(self) -> None:
-            table = cast(Any, self.query_one("#directories"))
-            table.clear(columns=False)
-            self._entries = _directory_entries(self.current_dir)
-            if not self._entries:
-                table.add_row("(no subdirectories)", "-")
-                self._refresh_status()
+        def on_input_changed(self, event: Any) -> None:
+            if getattr(event.input, "id", "") != "target_input":
                 return
-            for entry in self._entries:
-                if entry == self.current_dir.parent and self.current_dir.parent != self.current_dir:
-                    table.add_row("..", "parent")
-                else:
-                    table.add_row(entry.name, "dir")
-            self._set_row(0)
+            self.path_value = event.value
+            self._update_target_from_input()
+            self._refresh_suggestions()
             self._refresh_status()
+
+        def _refresh_suggestions(self) -> None:
+            table = cast(Any, self.query_one("#suggestions"))
+            table.clear(columns=False)
+            self._suggestions = _autocomplete_directory_candidates(
+                self.path_value,
+                cwd=self.cwd,
+            )
+            if not self._suggestions:
+                table.add_row("(no matching directories)", "-")
+                return
+            for suggestion in self._suggestions:
+                table.add_row(_display_path(suggestion, cwd=self.cwd), "dir")
+            self._set_row(0)
 
         def _refresh_status(self) -> None:
             status = cast(Any, self.query_one("#status"))
@@ -222,7 +244,7 @@ def launch_cli_tui(
             status.update(
                 "\n".join(
                     (
-                        f"Current: {self.current_dir}",
+                        f"Typed path: {self.path_value or '.'}",
                         f"Target: {self.target_dir}",
                         f"Output: {self.output_dir}",
                         f"Config: {self.config_path}",
@@ -232,17 +254,18 @@ def launch_cli_tui(
                             f"resume={'on' if self.resume else 'off'} | "
                             f"no-execute={'on' if self.no_execute else 'off'}"
                         ),
+                        f"Status: {self._status_note or 'ready'}",
                     )
                 )
             )
             hint.update(
                 "\n".join(
                     (
-                        "Navigation",
-                        "  up/down or j/k  move",
-                        "  left/h           parent directory",
-                        "  right/l/enter    enter directory",
-                        "  space            set selected directory as target",
+                        "Path Input",
+                        "  type a directory path in the input box",
+                        "  tab              autocomplete selection",
+                        "  enter or space   apply selected suggestion",
+                        "  up/down or j/k   choose suggestion",
                         "",
                         "Actions",
                         "  r run pipeline",
@@ -256,8 +279,30 @@ def launch_cli_tui(
                 )
             )
 
+        def _update_target_from_input(self, *, force: bool = False) -> None:
+            candidate = _resolve_input_directory(self.path_value, cwd=self.cwd)
+            if candidate.exists() and candidate.is_dir():
+                self.target_dir = candidate
+                self._status_note = "target directory ready"
+                return
+            if force:
+                self._status_note = "target path must be an existing directory"
+            else:
+                self._status_note = "typed path is not an existing directory"
+
+        def _ensure_valid_target(self) -> bool:
+            candidate = _resolve_input_directory(self.path_value, cwd=self.cwd)
+            if candidate.exists() and candidate.is_dir():
+                self.target_dir = candidate
+                self._status_note = "target directory ready"
+                self._refresh_status()
+                return True
+            self._status_note = "target path must be an existing directory"
+            self._refresh_status()
+            return False
+
         def _selected_row(self) -> int:
-            table = cast(Any, self.query_one("#directories"))
+            table = cast(Any, self.query_one("#suggestions"))
             coordinate = getattr(table, "cursor_coordinate", None)
             row = getattr(coordinate, "row", 0) if coordinate is not None else 0
             if isinstance(row, int):
@@ -268,19 +313,19 @@ def launch_cli_tui(
                 return 0
 
         def _set_row(self, row: int) -> None:
-            if not self._entries:
+            if not self._suggestions:
                 return
-            table = cast(Any, self.query_one("#directories"))
-            bounded = max(0, min(row, len(self._entries) - 1))
+            table = cast(Any, self.query_one("#suggestions"))
+            bounded = max(0, min(row, len(self._suggestions) - 1))
             table.cursor_coordinate = (bounded, 0)
 
-        def _selected_entry(self) -> Path | None:
-            if not self._entries:
+        def _selected_suggestion(self) -> Path | None:
+            if not self._suggestions:
                 return None
             index = self._selected_row()
-            if index < 0 or index >= len(self._entries):
+            if index < 0 or index >= len(self._suggestions):
                 return None
-            return self._entries[index]
+            return self._suggestions[index]
 
     app = PiranesiLauncherApp(
         start_dir=target_dir,
@@ -292,21 +337,54 @@ def launch_cli_tui(
     return result if isinstance(result, LauncherSelection) else None
 
 
-def _directory_entries(current_dir: Path) -> list[Path]:
-    entries: list[Path] = []
-    parent = current_dir.parent
-    if parent != current_dir:
-        entries.append(parent)
+def _resolve_input_directory(raw_value: str, *, cwd: Path) -> Path:
+    text = raw_value.strip() or "."
+    expanded = Path(text).expanduser()
+    if expanded.is_absolute():
+        return expanded.resolve(strict=False)
+    return (cwd / expanded).resolve(strict=False)
+
+
+def _autocomplete_directory_candidates(
+    raw_value: str,
+    *,
+    cwd: Path,
+    limit: int = 200,
+) -> list[Path]:
+    text = raw_value.strip() or "."
+    expanded = Path(text).expanduser()
+    if not expanded.is_absolute():
+        expanded = (cwd / expanded).resolve(strict=False)
+    if text.endswith(("/", "\\")):
+        base_dir = expanded
+        fragment = ""
+    else:
+        base_dir = expanded.parent
+        fragment = expanded.name
+    if not base_dir.exists() or not base_dir.is_dir():
+        return []
 
     try:
         children = sorted(
-            (path for path in current_dir.iterdir() if path.is_dir()),
+            (path for path in base_dir.iterdir() if path.is_dir()),
             key=lambda path: path.name.casefold(),
         )
     except OSError:
-        children = []
-    entries.extend(children)
-    return entries
+        return []
+    if not fragment:
+        return children[:limit]
+    fragment_lc = fragment.casefold()
+    matches = [path for path in children if path.name.casefold().startswith(fragment_lc)]
+    return matches[:limit]
+
+
+def _display_path(path: Path, *, cwd: Path) -> str:
+    try:
+        relative = path.relative_to(cwd)
+    except ValueError:
+        return str(path)
+    value = str(relative)
+    return "." if value == "" else value
 
 
 __all__ = ["LauncherAction", "LauncherSelection", "launch_cli_tui"]
