@@ -91,7 +91,7 @@ def test_enrich_ground_truth_reports_unresolved_entries(tmp_path: Path, capsys) 
 
     assert exit_code == 0
     assert payload["updated_entries"] == 2
-    assert payload["updated_fields"] == 6
+    assert payload["updated_fields"] == 8
     assert payload["unresolved"]["language"]["count"] == 1
     assert payload["unresolved"]["framework"]["count"] == 1
     assert "gt-002" in payload["unresolved"]["language"]["entry_ids"]
@@ -127,6 +127,7 @@ def test_enrich_ground_truth_write_updates_yaml(tmp_path: Path, capsys) -> None:
     assert payload["framework"] == "general"
     assert payload["taint_step_count"] == 3
     assert payload["taint_field_path"] == "query.id"
+    assert payload["field_sensitive_label"] == "true_positive"
 
 
 def test_enrich_ground_truth_fail_on_unresolved(tmp_path: Path, capsys) -> None:
@@ -229,3 +230,42 @@ def test_enrich_ground_truth_taint_candidates_only_reduces_unresolved(
     assert exit_code == 0
     assert payload["updated_entries"] == 1
     assert payload["unresolved"] == {}
+
+
+def test_enrich_ground_truth_field_sensitive_label_requires_concrete_field_path(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    gt_dir = tmp_path / "ground_truth"
+    _write_entries(
+        gt_dir,
+        [
+            _entry(
+                entry_id="gt-008",
+                source_project="synthetic",
+                affected_files=["eval/synthetic/sqli-pg-raw.ts"],
+                taint_path=["req.body", "db.query(sql)"],
+            )
+        ],
+    )
+    payload = yaml.safe_load((gt_dir / "gt-008.yaml").read_text(encoding="utf-8"))
+    payload["taint_source"] = "req.body"
+    (gt_dir / "gt-008.yaml").write_text(
+        yaml.safe_dump(payload, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    exit_code = ground_truth_enrich.main(
+        [
+            "--gt-dir",
+            str(gt_dir),
+            "--field",
+            "field_sensitive_label",
+            "--json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["updated_entries"] == 0
+    assert payload["unresolved"]["field_sensitive_label"]["count"] == 1

@@ -30,3 +30,4 @@ language: typescript
 taint_step_count: 2
 framework: node
 taint_field_path: query.value
+field_sensitive_label: false_positive

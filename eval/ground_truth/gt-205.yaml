@@ -31,3 +31,4 @@ language: typescript
 taint_step_count: 3
 framework: node
 taint_field_path: body.link
+field_sensitive_label: true_positive

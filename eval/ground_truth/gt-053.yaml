@@ -29,3 +29,4 @@ language: javascript
 framework: express
 taint_step_count: 5
 taint_field_path: body.email
+field_sensitive_label: true_positive

@@ -25,3 +25,4 @@ language: typescript
 framework: express
 taint_step_count: 5
 taint_field_path: files.file.buffer
+field_sensitive_label: true_positive

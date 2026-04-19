@@ -24,3 +24,4 @@ language: mixed
 framework: general
 taint_step_count: 4
 taint_field_path: body.search
+field_sensitive_label: true_positive

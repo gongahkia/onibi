@@ -21,3 +21,4 @@ language: typescript
 framework: express
 taint_step_count: 2
 taint_field_path: body.UserId
+field_sensitive_label: false_positive

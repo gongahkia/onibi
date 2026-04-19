@@ -23,3 +23,4 @@ language: typescript
 framework: general
 taint_step_count: 4
 taint_field_path: params.file
+field_sensitive_label: false_positive

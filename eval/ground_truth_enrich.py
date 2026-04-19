@@ -15,7 +15,13 @@ try:
 except ImportError:  # pragma: no cover - supports `python eval/ground_truth_enrich.py`
     from ground_truth.schema import GroundTruthEntry  # type: ignore[import-not-found,no-redef]
 
-_DEFAULT_FIELDS = ("language", "framework", "taint_step_count", "taint_field_path")
+_DEFAULT_FIELDS = (
+    "language",
+    "framework",
+    "taint_step_count",
+    "taint_field_path",
+    "field_sensitive_label",
+)
 _ALLOWED_FIELDS = frozenset(_DEFAULT_FIELDS)
 _SHOW_LIMIT_DEFAULT = 10
 
@@ -538,6 +544,31 @@ def infer_taint_field_path(payload: dict[str, Any]) -> str | None:
     return None
 
 
+def infer_field_sensitive_label(
+    payload: dict[str, Any],
+    *,
+    inferred_taint_field_path: str | None = None,
+) -> str | None:
+    label = payload.get("label")
+    if not isinstance(label, str):
+        return None
+    normalized_label = label.strip()
+    if normalized_label not in {"true_positive", "false_positive"}:
+        return None
+
+    taint_field_path_raw = payload.get("taint_field_path")
+    taint_field_path: str | None = None
+    if isinstance(taint_field_path_raw, str) and taint_field_path_raw.strip():
+        taint_field_path = taint_field_path_raw.strip()
+    elif inferred_taint_field_path is not None and inferred_taint_field_path.strip():
+        taint_field_path = inferred_taint_field_path.strip()
+    if taint_field_path is None:
+        return None
+    if "*" in taint_field_path:
+        return None
+    return normalized_label
+
+
 def _entry_id(payload: dict[str, Any], fallback: str) -> str:
     value = payload.get("id")
     if isinstance(value, str) and value.strip():
@@ -656,6 +687,20 @@ def enrich_ground_truth(
             else:
                 updates["taint_field_path"] = candidate
 
+        if "field_sensitive_label" in fields and not _is_present(
+            payload.get("field_sensitive_label")
+        ):
+            candidate = infer_field_sensitive_label(
+                payload,
+                inferred_taint_field_path=str(updates.get("taint_field_path"))
+                if _is_present(updates.get("taint_field_path"))
+                else None,
+            )
+            if candidate is None:
+                unresolved["field_sensitive_label"].append(entry_id)
+            else:
+                updates["field_sensitive_label"] = candidate
+
         if not updates:
             continue
 
@@ -728,7 +773,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=[],
         help=(
             "Field to enrich (repeatable). "
-            "Defaults to language, framework, taint_step_count, taint_field_path."
+            "Defaults to language, framework, taint_step_count, taint_field_path, "
+            "field_sensitive_label."
         ),
     )
     parser.add_argument(

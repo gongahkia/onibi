@@ -24,3 +24,4 @@ language: go
 framework: echo
 taint_step_count: 3
 taint_field_path: params.path
+field_sensitive_label: true_positive

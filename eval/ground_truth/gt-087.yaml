@@ -28,3 +28,4 @@ language: javascript
 framework: fastify
 taint_step_count: 4
 taint_field_path: headers.content_type
+field_sensitive_label: true_positive

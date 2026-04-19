@@ -29,3 +29,4 @@ language: typescript
 taint_step_count: 2
 framework: node
 taint_field_path: body.iface
+field_sensitive_label: false_positive

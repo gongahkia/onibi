@@ -29,3 +29,4 @@ language: python
 framework: django
 taint_step_count: 4
 taint_field_path: headers.x_command
+field_sensitive_label: true_positive

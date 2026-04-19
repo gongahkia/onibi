@@ -25,3 +25,4 @@ language: python
 framework: django
 taint_step_count: 4
 taint_field_path: body.status
+field_sensitive_label: true_positive

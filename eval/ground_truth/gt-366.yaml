@@ -24,3 +24,4 @@ language: go
 framework: gin
 taint_step_count: 3
 taint_field_path: query.body
+field_sensitive_label: true_positive

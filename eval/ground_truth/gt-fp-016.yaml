@@ -24,3 +24,4 @@ language: typescript
 framework: general
 taint_step_count: 5
 taint_field_path: query.url
+field_sensitive_label: false_positive

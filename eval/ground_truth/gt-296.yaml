@@ -25,3 +25,4 @@ language: typescript
 framework: nestjs
 taint_step_count: 3
 taint_field_path: query.term
+field_sensitive_label: false_positive

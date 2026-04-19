@@ -27,3 +27,4 @@ language: go
 framework: go
 taint_step_count: 4
 taint_field_path: query.next
+field_sensitive_label: true_positive

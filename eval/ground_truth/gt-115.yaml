@@ -24,3 +24,4 @@ language: mixed
 framework: general
 taint_step_count: 4
 taint_field_path: body.cmd_input
+field_sensitive_label: true_positive
