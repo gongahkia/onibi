@@ -425,6 +425,7 @@ class KnownLimitation(BaseModel):
     status: str
     introduced_version: str
     last_reviewed: str
+    docs_refs: list[str] = Field(default_factory=list)
 
 
 class PiranesiReport(BaseModel):

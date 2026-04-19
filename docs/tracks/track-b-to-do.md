@@ -30,6 +30,6 @@ P1. Start after Track A begins; run in parallel with Track C.
 2. Per-framework precision floor established and enforced by CI gates.
 
 ## Status
-- [ ] Planned
-- [ ] In progress
-- [ ] Completed
+- [x] Planned
+- [x] In progress
+- [x] Completed

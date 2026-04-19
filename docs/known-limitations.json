@@ -1,17 +1,17 @@
 {
   "schema_version": "1.0",
-  "last_updated": "2026-04-16",
+  "last_updated": "2026-04-19",
   "limitations": [
     {
       "id": "KL-001",
-      "title": "Helper and wrapper sink aliasing can miss real SQLi flows",
-      "affected_feature": "TypeScript/JavaScript taint sink matching",
-      "severity": "high",
+      "title": "Wrapper sink promotion is improved but remains conservative for complex helper topologies",
+      "affected_feature": "TypeScript/JavaScript interprocedural sink promotion",
+      "severity": "medium",
       "impact": "false_negative_risk",
-      "workaround": "Author custom sink specs or custom rules for project-local DB helper wrappers and validate with focused fixtures.",
-      "status": "open",
+      "workaround": "Use project-local custom sink specs or custom rules for dynamic/cross-module helper chains and validate with focused fixtures.",
+      "status": "monitoring",
       "introduced_version": "0.1.0",
-      "last_reviewed": "2026-04-16",
+      "last_reviewed": "2026-04-19",
       "docs_refs": [
         "docs/capabilities.md",
         "docs/examples/vuln-express.md"
