@@ -43,6 +43,7 @@ def test_help_shows_all_commands() -> None:
         "explain",
         "trends",
         "run",
+        "ui",
         "plugins",
         "rules",
         "advisory",
@@ -219,6 +220,24 @@ def test_watch_help_lists_watch_mode_flags() -> None:
     assert "--debounce" in output
     assert "--on-finding" in output
     assert "--max-scans" in output
+
+
+def test_ui_help_lists_dashboard_flags() -> None:
+    result = runner.invoke(app, ["ui", "--help"])
+    output = _plain_output(result.stdout)
+
+    assert result.exit_code == 0
+    assert "--target" in output
+    assert "--output" in output
+    assert "--config" in output
+    assert "--trace" in output
+
+
+def test_ui_requires_interactive_tty() -> None:
+    result = runner.invoke(app, ["ui"])
+
+    assert result.exit_code == 2
+    assert "requires an interactive TTY" in result.stdout
 
 
 def test_lsp_help_lists_lsp_flags() -> None:
