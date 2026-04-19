@@ -222,6 +222,28 @@ class VerifyTargetProfileConfig(BaseModel):
     logs_path: str | None = None
 
 
+class RolloutPolicyProfileConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    verify_proof_mode: Literal["safe", "unsafe"] | None = None
+    verify_target_profile: str | None = None
+    max_cost_usd: float | None = None
+    max_tokens: int | None = None
+    trace_log_prompts: bool | None = None
+    suppression_fail_on_invalid: bool | None = None
+    suppression_fail_on_expired: bool | None = None
+    suppression_fail_on_stale: bool | None = None
+    allowed_models: list[str] = Field(default_factory=list)
+
+
+class RolloutConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    environment: Literal["dev", "staging", "prod"] | None = None
+    policy_profile: str | None = None
+    policy_profiles: dict[str, RolloutPolicyProfileConfig] = Field(default_factory=dict)
+
+
 class OwnershipPathMappingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -300,6 +322,7 @@ class PiranesiConfig(BaseModel):
     suppression: SuppressionConfig = Field(default_factory=SuppressionConfig)
     baseline: BaselineConfig = Field(default_factory=BaselineConfig)
     verify: VerifyConfig = Field(default_factory=VerifyConfig)
+    rollout: RolloutConfig = Field(default_factory=RolloutConfig)
     ownership: OwnershipConfig = Field(default_factory=OwnershipConfig)
     lsp: LspConfig = Field(default_factory=LspConfig)
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
@@ -319,14 +342,67 @@ def load_config(
     data = _apply_env_overrides(data, env or os.environ)
     data = _apply_cli_overrides(data, cli_overrides or {})
     try:
-        return PiranesiConfig.model_validate(data)
+        config = PiranesiConfig.model_validate(data)
     except ValidationError as exc:
         raise ConfigError(f"invalid config at {path}: {exc}") from exc
+    return _apply_rollout_policy_profile(config)
 
 
 def config_hash(config: PiranesiConfig) -> str:
     payload = json.dumps(config.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
     return sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _apply_rollout_policy_profile(config: PiranesiConfig) -> PiranesiConfig:
+    profile_name = config.rollout.policy_profile
+    if profile_name is None:
+        return config
+
+    profile = config.rollout.policy_profiles.get(profile_name)
+    if profile is None:
+        raise ConfigError(
+            "invalid rollout policy profile: "
+            f"{profile_name!r} not found in [rollout.policy_profiles]"
+        )
+
+    if profile.verify_proof_mode is not None:
+        config.verify.proof_mode = profile.verify_proof_mode
+    if profile.verify_target_profile is not None:
+        config.verify.target_profile = profile.verify_target_profile
+    if profile.max_cost_usd is not None:
+        config.budget.max_cost_usd = profile.max_cost_usd
+    if profile.max_tokens is not None:
+        config.budget.max_tokens = profile.max_tokens
+    if profile.trace_log_prompts is not None:
+        config.trace.log_prompts = profile.trace_log_prompts
+    if profile.suppression_fail_on_invalid is not None:
+        config.suppression.fail_on_invalid = profile.suppression_fail_on_invalid
+    if profile.suppression_fail_on_expired is not None:
+        config.suppression.fail_on_expired = profile.suppression_fail_on_expired
+    if profile.suppression_fail_on_stale is not None:
+        config.suppression.fail_on_stale = profile.suppression_fail_on_stale
+
+    if profile.allowed_models:
+        selected_models = {
+            "scanner": config.models.scanner,
+            "detector": config.models.detector,
+            "triage": config.models.triage,
+            "skeptic": config.models.skeptic,
+            "patcher": config.models.patcher,
+        }
+        disallowed = [
+            f"{stage}={model}"
+            for stage, model in selected_models.items()
+            if model is not None and model not in profile.allowed_models
+        ]
+        if disallowed:
+            allowed = ", ".join(profile.allowed_models)
+            joined = ", ".join(disallowed)
+            raise ConfigError(
+                "rollout policy profile rejected configured models: "
+                f"{joined}. Allowed models: {allowed}"
+            )
+    return config
 
 
 def _read_toml(path: Path) -> dict[str, Any]:

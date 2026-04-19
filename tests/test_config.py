@@ -31,6 +31,8 @@ def test_load_config_defaults(config_file: Callable[[str], Path]) -> None:
     assert config.suppression.fail_on_stale is False
     assert config.baseline.fail_on_new is False
     assert config.baseline.fail_on_new_severity == "low"
+    assert config.rollout.environment is None
+    assert config.rollout.policy_profile is None
 
 
 def test_load_config_from_file(fixtures_dir: Path) -> None:
@@ -282,3 +284,93 @@ def test_load_verify_target_profiles_from_file(config_file: Callable[[str], Path
     assert profile.teardown == "on_success"
     assert profile.logs_path == "verify/logs/express-dev.log"
     assert profile.env["PORT"] == "4010"
+
+
+def test_rollout_policy_profile_applies_verification_and_llm_controls(
+    config_file: Callable[[str], Path],
+) -> None:
+    path = config_file(
+        "\n".join(
+            [
+                "[models]",
+                'scanner = "gpt-4o-mini"',
+                'detector = "gpt-4o-mini"',
+                'triage = "gpt-4o-mini"',
+                'patcher = "gpt-4o-mini"',
+                "",
+                "[verify]",
+                'proof_mode = "unsafe"',
+                "",
+                "[budget]",
+                "max_cost_usd = 7.5",
+                "max_tokens = 250000",
+                "",
+                "[suppression]",
+                "fail_on_invalid = false",
+                "fail_on_expired = false",
+                "fail_on_stale = false",
+                "",
+                "[rollout]",
+                'environment = "prod"',
+                'policy_profile = "prod_strict"',
+                "",
+                "[rollout.policy_profiles.prod_strict]",
+                'verify_proof_mode = "safe"',
+                "max_cost_usd = 2.5",
+                "max_tokens = 100000",
+                "suppression_fail_on_invalid = true",
+                "suppression_fail_on_expired = true",
+                "suppression_fail_on_stale = true",
+                'allowed_models = ["gpt-4o-mini"]',
+            ]
+        )
+    )
+
+    config = load_config(path)
+
+    assert config.rollout.environment == "prod"
+    assert config.rollout.policy_profile == "prod_strict"
+    assert config.verify.proof_mode == "safe"
+    assert config.budget.max_cost_usd == 2.5
+    assert config.budget.max_tokens == 100000
+    assert config.suppression.fail_on_invalid is True
+    assert config.suppression.fail_on_expired is True
+    assert config.suppression.fail_on_stale is True
+
+
+def test_rollout_policy_profile_requires_existing_profile(
+    config_file: Callable[[str], Path],
+) -> None:
+    path = config_file(
+        "\n".join(
+            [
+                "[rollout]",
+                'policy_profile = "missing_profile"',
+            ]
+        )
+    )
+
+    with pytest.raises(ConfigError, match="invalid rollout policy profile"):
+        load_config(path)
+
+
+def test_rollout_policy_profile_rejects_disallowed_models(
+    config_file: Callable[[str], Path],
+) -> None:
+    path = config_file(
+        "\n".join(
+            [
+                "[models]",
+                'scanner = "gpt-4o"',
+                "",
+                "[rollout]",
+                'policy_profile = "strict_model_list"',
+                "",
+                "[rollout.policy_profiles.strict_model_list]",
+                'allowed_models = ["gpt-4o-mini"]',
+            ]
+        )
+    )
+
+    with pytest.raises(ConfigError, match="rollout policy profile rejected configured models"):
+        load_config(path)

@@ -77,6 +77,21 @@ logs_path = "./piranesi-output/verify-launch.log"
 [verify.target_profiles.express_local.env]
 PORT = "4010"
 
+[rollout]
+environment = "staging"
+policy_profile = "staging_guardrails"
+
+[rollout.policy_profiles.staging_guardrails]
+verify_proof_mode = "safe"
+verify_target_profile = "express_local"
+max_cost_usd = 3.0
+max_tokens = 200000
+trace_log_prompts = false
+suppression_fail_on_invalid = true
+suppression_fail_on_expired = true
+suppression_fail_on_stale = true
+allowed_models = ["gpt-4o-mini", "gpt-4o"]
+
 [ownership]
 service = "checkout-api"
 system = "payments-platform"
@@ -198,6 +213,32 @@ Reusable target launch profile used by `verify` or `run` when `verify.target_pro
 | `base_url` | `str \| null` | `null` | Base URL used for verification requests. Supports `{port}` placeholder from profile env `PORT`. |
 | `teardown` | `"always" \| "on_success" \| "never"` | `always` | Controls whether the launched process is terminated after verification. |
 | `logs_path` | `str \| null` | `null` | Optional path for persisted startup/runtime logs. Included in `verify.json` attempts when set. |
+
+### `[rollout]`
+
+Environment-aware policy selection for operational rollout controls.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `environment` | `"dev" \| "staging" \| "prod" \| null` | `null` | Environment label used by policy and governance tooling. |
+| `policy_profile` | `str \| null` | `null` | Optional selected profile key from `[rollout.policy_profiles]`. |
+| `policy_profiles` | `table` | `{}` | Named profile definitions that can lock verification and LLM controls. |
+
+### `[rollout.policy_profiles.<name>]`
+
+Reusable rollout policy profile for environment-specific controls.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `verify_proof_mode` | `"safe" \| "unsafe" \| null` | `null` | Overrides `verify.proof_mode` when profile is selected. |
+| `verify_target_profile` | `str \| null` | `null` | Overrides `verify.target_profile` when profile is selected. |
+| `max_cost_usd` | `float \| null` | `null` | Overrides `budget.max_cost_usd` to cap LLM spend per run. |
+| `max_tokens` | `int \| null` | `null` | Overrides `budget.max_tokens` for token budget control. |
+| `trace_log_prompts` | `bool \| null` | `null` | Overrides `trace.log_prompts`. Keep `false` in production unless explicitly approved. |
+| `suppression_fail_on_invalid` | `bool \| null` | `null` | Overrides `suppression.fail_on_invalid`. |
+| `suppression_fail_on_expired` | `bool \| null` | `null` | Overrides `suppression.fail_on_expired`. |
+| `suppression_fail_on_stale` | `bool \| null` | `null` | Overrides `suppression.fail_on_stale`. |
+| `allowed_models` | `list[str]` | `[]` | If non-empty, configured models must all be in this allowlist or config load fails. |
 
 ### `[ownership]`
 
