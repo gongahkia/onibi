@@ -339,6 +339,19 @@ final class MobileGatewayService: ObservableObject {
             pairingToken = try tokenStore.rotateToken()
             markTokenIssuedNow()
             lastError = nil
+            Task {
+                let disconnected = await realtimeGateway.disconnectAuthenticatedClients()
+                if disconnected > 0 {
+                    DiagnosticsStore.shared.record(
+                        component: "MobileGatewayService",
+                        level: .info,
+                        message: "disconnected realtime clients after token rotation",
+                        metadata: [
+                            "disconnectedClientCount": String(disconnected)
+                        ]
+                    )
+                }
+            }
             GatewayLog.auth.notice("pairing token rotated preview=\(GatewayLog.redact(self.pairingToken), privacy: .public)")
             DiagnosticsStore.shared.record(
                 component: "MobileGatewayService",
@@ -985,10 +998,11 @@ private actor HostMobileGatewayDataProvider: MobileGatewayDataProvider {
 
         let schedulerEventsProcessed = await MainActor.run { BackgroundTaskScheduler.shared.eventsProcessed }
         let tailscaleStatus = await MainActor.run { MobileGatewayService.shared.tailscaleStatus }
+        let tokenIssuedAt = await MainActor.run { MobileGatewayService.shared.tokenIssuedAt }
         let latestError = await MainActor.run { ErrorReporter.shared.recentErrors.first }
         let settings = await MainActor.run { SettingsViewModel.shared.settings }
         let registryDiagnostics = await sessionRegistry.diagnostics()
-        let connectedRealtimeClientCount = await RealtimeGatewayService.shared.connectedClientCount()
+        let realtimeDiagnostics = await RealtimeGatewayService.shared.diagnostics()
         let recentDiagnostics = DiagnosticsStore.shared.recentEvents(limit: 25)
             .map {
                 DiagnosticsEventPreview(
@@ -1014,10 +1028,15 @@ private actor HostMobileGatewayDataProvider: MobileGatewayDataProvider {
             latestErrorTimestamp: latestError?.timestamp,
             recentEvents: recentDiagnostics,
             controllableSessionCount: registryDiagnostics.sessionCount,
-            connectedRealtimeClientCount: connectedRealtimeClientCount,
+            connectedRealtimeClientCount: realtimeDiagnostics.connectedClientCount,
+            websocketAuthFailureCount: realtimeDiagnostics.websocketAuthFailureCount,
             proxyRegistrationFailureCount: registryDiagnostics.proxyRegistrationFailureCount,
+            proxyDisconnectCount: registryDiagnostics.proxyDisconnectCount,
             staleSessionCount: registryDiagnostics.staleSessionCount,
-            localProxySocketHealthy: FileManager.default.fileExists(atPath: settings.sessionProxySocketPath)
+            localProxySocketHealthy: FileManager.default.fileExists(atPath: settings.sessionProxySocketPath),
+            bufferTruncationCount: registryDiagnostics.bufferTruncationCount,
+            lastInputRoutingError: registryDiagnostics.lastInputRoutingError,
+            tokenIssuedAt: tokenIssuedAt
         )
     }
 

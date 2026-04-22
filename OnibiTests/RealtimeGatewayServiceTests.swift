@@ -193,6 +193,56 @@ final class RealtimeGatewayServiceTests: XCTestCase {
         XCTAssertEqual(messages, [])
     }
 
+    func testDisconnectAuthenticatedClientsClosesOnlyAuthenticatedSessions() async throws {
+        let service = makeService()
+        let authenticatedTransport = MockRealtimeTransport()
+        let pendingTransport = MockRealtimeTransport()
+
+        await service.attach(authenticatedTransport)
+        await service.attach(pendingTransport)
+
+        await service.receive(
+            text: try encode(
+                RealtimeClientMessage(type: .auth, token: "test-token")
+            ),
+            from: authenticatedTransport.id
+        )
+        await authenticatedTransport.clear()
+
+        let disconnected = await service.disconnectAuthenticatedClients()
+        let authenticatedCloseCount = await authenticatedTransport.closeCount()
+        let pendingCloseCount = await pendingTransport.closeCount()
+        let messages = await authenticatedTransport.messages()
+
+        XCTAssertEqual(disconnected, 1)
+        XCTAssertEqual(authenticatedCloseCount, 1)
+        XCTAssertEqual(pendingCloseCount, 0)
+        XCTAssertEqual(messages.map(\.type), [.error])
+        XCTAssertEqual(messages.first?.code, "token_rotated")
+    }
+
+    func testDiagnosticsTracksWebsocketAuthFailures() async throws {
+        let service = makeService()
+        let preAuthTransport = MockRealtimeTransport()
+        let badTokenTransport = MockRealtimeTransport()
+
+        await service.attach(preAuthTransport)
+        await service.receive(
+            text: try encode(RealtimeClientMessage(type: .subscribe, sessionId: "session-1")),
+            from: preAuthTransport.id
+        )
+
+        await service.attach(badTokenTransport)
+        await service.receive(
+            text: try encode(RealtimeClientMessage(type: .auth, token: "wrong-token")),
+            from: badTokenTransport.id
+        )
+
+        let diagnostics = await service.diagnostics()
+        XCTAssertEqual(diagnostics.websocketAuthFailureCount, 2)
+        XCTAssertEqual(diagnostics.connectedClientCount, 1)
+    }
+
     private func makeRegistry() -> ControllableSessionRegistry {
         ControllableSessionRegistry(
             defaultBufferLineLimit: 10,

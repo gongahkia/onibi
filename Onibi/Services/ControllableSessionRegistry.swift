@@ -51,6 +51,9 @@ struct ControllableSessionRegistryDiagnostics: Equatable, Sendable {
     let sessionCount: Int
     let staleSessionCount: Int
     let proxyRegistrationFailureCount: Int
+    let proxyDisconnectCount: Int
+    let bufferTruncationCount: Int
+    let lastInputRoutingError: String?
 }
 
 actor ControllableSessionRegistry {
@@ -69,6 +72,9 @@ actor ControllableSessionRegistry {
     private var defaultBufferByteLimit: Int
     private let staleSessionGracePeriod: TimeInterval
     private var proxyRegistrationFailureCount = 0
+    private var proxyDisconnectCount = 0
+    private var bufferTruncationCount = 0
+    private var lastInputRoutingError: String?
     private var observers: [UUID: ControllableSessionRegistryObserver] = [:]
 
     init(
@@ -102,6 +108,9 @@ actor ControllableSessionRegistry {
         let removedSessionIDs = Array(sessions.keys)
         sessions.removeAll()
         proxyRegistrationFailureCount = 0
+        proxyDisconnectCount = 0
+        bufferTruncationCount = 0
+        lastInputRoutingError = nil
         for sessionId in removedSessionIDs {
             emit(.sessionRemoved(sessionId))
         }
@@ -227,12 +236,15 @@ actor ControllableSessionRegistry {
             return
         }
 
-        let chunk = record.buffer.append(
+        let appendResult = record.buffer.append(
             sessionId: sessionId,
             stream: stream,
             data: data,
             timestamp: timestamp
         )
+        if appendResult.truncationEventCount > 0 {
+            bufferTruncationCount += appendResult.truncationEventCount
+        }
         record.lastHeartbeatAt = timestamp
         record.snapshot = record.snapshot.updating(
             lastActivityAt: timestamp,
@@ -240,7 +252,7 @@ actor ControllableSessionRegistry {
             bufferCursor: record.buffer.currentCursor
         )
         sessions[sessionId] = record
-        emit(.output(chunk))
+        emit(.output(appendResult.chunk))
         emit(.sessionUpdated(record.snapshot))
     }
 
@@ -272,7 +284,12 @@ actor ControllableSessionRegistry {
             throw RemoteControlError.inputUnavailable(sessionId)
         }
 
-        try await inputHandler(payload)
+        do {
+            try await inputHandler(payload)
+        } catch {
+            lastInputRoutingError = "send_input[\(sessionId)]: \(error.localizedDescription)"
+            throw error
+        }
         record.lastHeartbeatAt = timestamp
         record.snapshot = record.snapshot.updating(
             lastActivityAt: timestamp,
@@ -303,7 +320,12 @@ actor ControllableSessionRegistry {
             throw RemoteControlError.resizeUnavailable(sessionId)
         }
 
-        try await resizeHandler(payload)
+        do {
+            try await resizeHandler(payload)
+        } catch {
+            lastInputRoutingError = "resize[\(sessionId)]: \(error.localizedDescription)"
+            throw error
+        }
         record.lastHeartbeatAt = timestamp
         record.snapshot = record.snapshot.updating(
             lastActivityAt: timestamp,
@@ -320,6 +342,10 @@ actor ControllableSessionRegistry {
 
     func markProxyRegistrationFailure() {
         proxyRegistrationFailureCount += 1
+    }
+
+    func markProxyDisconnect() {
+        proxyDisconnectCount += 1
     }
 
     func expireDisconnectedSessions(now: Date = Date()) {
@@ -347,7 +373,10 @@ actor ControllableSessionRegistry {
         return ControllableSessionRegistryDiagnostics(
             sessionCount: sessions.count,
             staleSessionCount: staleSessionCount,
-            proxyRegistrationFailureCount: proxyRegistrationFailureCount
+            proxyRegistrationFailureCount: proxyRegistrationFailureCount,
+            proxyDisconnectCount: proxyDisconnectCount,
+            bufferTruncationCount: bufferTruncationCount,
+            lastInputRoutingError: lastInputRoutingError
         )
     }
 

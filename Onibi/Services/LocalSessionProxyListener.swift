@@ -384,6 +384,7 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
         }
 
         Task {
+            await registry.markProxyDisconnect()
             guard let sessionId else {
                 return
             }

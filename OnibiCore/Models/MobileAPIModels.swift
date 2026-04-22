@@ -198,9 +198,14 @@ public struct DiagnosticsResponse: Codable, Equatable, Sendable {
     public let recentEvents: [DiagnosticsEventPreview]
     public let controllableSessionCount: Int?
     public let connectedRealtimeClientCount: Int?
+    public let websocketAuthFailureCount: Int?
     public let proxyRegistrationFailureCount: Int?
+    public let proxyDisconnectCount: Int?
     public let staleSessionCount: Int?
     public let localProxySocketHealthy: Bool?
+    public let bufferTruncationCount: Int?
+    public let lastInputRoutingError: String?
+    public let tokenIssuedAt: Date?
 
     public init(
         generatedAt: Date,
@@ -218,9 +223,14 @@ public struct DiagnosticsResponse: Codable, Equatable, Sendable {
         recentEvents: [DiagnosticsEventPreview],
         controllableSessionCount: Int? = nil,
         connectedRealtimeClientCount: Int? = nil,
+        websocketAuthFailureCount: Int? = nil,
         proxyRegistrationFailureCount: Int? = nil,
+        proxyDisconnectCount: Int? = nil,
         staleSessionCount: Int? = nil,
-        localProxySocketHealthy: Bool? = nil
+        localProxySocketHealthy: Bool? = nil,
+        bufferTruncationCount: Int? = nil,
+        lastInputRoutingError: String? = nil,
+        tokenIssuedAt: Date? = nil
     ) {
         self.generatedAt = generatedAt
         self.hostVersion = hostVersion
@@ -237,9 +247,14 @@ public struct DiagnosticsResponse: Codable, Equatable, Sendable {
         self.recentEvents = recentEvents
         self.controllableSessionCount = controllableSessionCount
         self.connectedRealtimeClientCount = connectedRealtimeClientCount
+        self.websocketAuthFailureCount = websocketAuthFailureCount
         self.proxyRegistrationFailureCount = proxyRegistrationFailureCount
+        self.proxyDisconnectCount = proxyDisconnectCount
         self.staleSessionCount = staleSessionCount
         self.localProxySocketHealthy = localProxySocketHealthy
+        self.bufferTruncationCount = bufferTruncationCount
+        self.lastInputRoutingError = lastInputRoutingError
+        self.tokenIssuedAt = tokenIssuedAt
     }
 }
 

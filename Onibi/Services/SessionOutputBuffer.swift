@@ -1,6 +1,11 @@
 import Foundation
 import OnibiCore
 
+struct SessionOutputAppendResult {
+    let chunk: SessionOutputChunk
+    let truncationEventCount: Int
+}
+
 struct SessionOutputBuffer {
     private(set) var lineLimit: Int
     private(set) var byteLimit: Int
@@ -22,7 +27,7 @@ struct SessionOutputBuffer {
     mutating func reconfigure(lineLimit: Int, byteLimit: Int) {
         self.lineLimit = max(1, lineLimit)
         self.byteLimit = max(1, byteLimit)
-        trimIfNeeded()
+        _ = trimIfNeeded()
     }
 
     @discardableResult
@@ -31,8 +36,12 @@ struct SessionOutputBuffer {
         stream: SessionOutputStream,
         data: Data,
         timestamp: Date = Date()
-    ) -> SessionOutputChunk {
-        let normalizedData = normalizedData(from: data)
+    ) -> SessionOutputAppendResult {
+        var truncationEventCount = 0
+        let normalizedData = normalizedData(
+            from: data,
+            truncationEventCount: &truncationEventCount
+        )
         let chunk = SessionOutputChunk(
             sessionId: sessionId,
             stream: stream,
@@ -42,8 +51,11 @@ struct SessionOutputBuffer {
         chunks.append(chunk)
         totalBytes += chunk.data.count
         totalLines += estimatedLineCount(in: chunk.data)
-        trimIfNeeded()
-        return chunk
+        truncationEventCount += trimIfNeeded()
+        return SessionOutputAppendResult(
+            chunk: chunk,
+            truncationEventCount: truncationEventCount
+        )
     }
 
     func snapshot(for session: ControllableSessionSnapshot) -> SessionOutputBufferSnapshot {
@@ -55,17 +67,19 @@ struct SessionOutputBuffer {
         )
     }
 
-    private mutating func trimIfNeeded() {
+    private mutating func trimIfNeeded() -> Int {
+        var truncationEventCount = 0
         while chunks.count > 1 && (totalBytes > byteLimit || totalLines > lineLimit) {
             removeFirstChunk()
             isTruncated = true
+            truncationEventCount += 1
         }
 
         guard
             let lastChunk = chunks.last,
             totalBytes > byteLimit
         else {
-            return
+            return truncationEventCount
         }
 
         let trimmedData = Data(lastChunk.data.suffix(byteLimit))
@@ -84,6 +98,8 @@ struct SessionOutputBuffer {
         totalBytes += trimmedChunk.data.count
         totalLines += estimatedLineCount(in: trimmedChunk.data)
         isTruncated = true
+        truncationEventCount += 1
+        return truncationEventCount
     }
 
     private mutating func removeFirstChunk() {
@@ -96,12 +112,16 @@ struct SessionOutputBuffer {
         chunks.removeFirst()
     }
 
-    private mutating func normalizedData(from data: Data) -> Data {
+    private mutating func normalizedData(
+        from data: Data,
+        truncationEventCount: inout Int
+    ) -> Data {
         guard data.count > byteLimit else {
             return data
         }
 
         isTruncated = true
+        truncationEventCount += 1
         return Data(data.suffix(byteLimit))
     }
 

@@ -1,4 +1,4 @@
-.PHONY: build test web-sync install-hooks install-hooks-remote uninstall-hooks
+.PHONY: build test web-sync check-web-sync install-hooks install-hooks-remote uninstall-hooks
 
 build:
 	swift build
@@ -9,6 +9,9 @@ test:
 
 web-sync:
 	./scripts/sync_web_assets.sh
+
+check-web-sync:
+	./scripts/check_web_assets_synced.sh
 
 install-hooks:
 	./scripts/install_shell_hooks.sh --shell zsh

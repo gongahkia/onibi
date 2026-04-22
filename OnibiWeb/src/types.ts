@@ -82,9 +82,14 @@ export interface DiagnosticsResponse {
   recentEvents: DiagnosticsEventPreview[];
   controllableSessionCount?: number;
   connectedRealtimeClientCount?: number;
+  websocketAuthFailureCount?: number;
   proxyRegistrationFailureCount?: number;
+  proxyDisconnectCount?: number;
   staleSessionCount?: number;
   localProxySocketHealthy?: boolean;
+  bufferTruncationCount?: number;
+  lastInputRoutingError?: string;
+  tokenIssuedAt?: string;
 }
 
 export interface HostHealth {

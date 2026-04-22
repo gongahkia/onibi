@@ -35,6 +35,18 @@ final class SessionOutputBufferTests: XCTestCase {
         XCTAssertTrue(snapshot.truncated)
     }
 
+    func testAppendReportsTruncationEventCount() {
+        var buffer = SessionOutputBuffer(lineLimit: 10, byteLimit: 5)
+        let result = buffer.append(
+            sessionId: "session-1",
+            stream: .stdout,
+            data: Data("1234567890".utf8)
+        )
+
+        XCTAssertEqual(result.truncationEventCount, 1)
+        XCTAssertEqual(String(data: result.chunk.data, encoding: .utf8), "67890")
+    }
+
     func testBufferDropsOldestChunksWhenLineLimitIsExceeded() {
         var buffer = SessionOutputBuffer(lineLimit: 2, byteLimit: 1024)
         let session = makeSession()

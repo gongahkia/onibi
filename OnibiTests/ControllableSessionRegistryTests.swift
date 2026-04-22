@@ -100,6 +100,54 @@ final class ControllableSessionRegistryTests: XCTestCase {
         let snapshot = await registry.session(id: "session-1")
         XCTAssertNil(snapshot)
     }
+
+    func testDiagnosticsIncludesProxyDisconnectAndBufferTruncationCounts() async {
+        let registry = ControllableSessionRegistry(
+            defaultBufferLineLimit: 5,
+            defaultBufferByteLimit: 8,
+            staleSessionGracePeriod: 30
+        )
+
+        await registry.register(
+            ControllableSessionRegistration(
+                id: "session-1",
+                status: .running
+            )
+        )
+        await registry.appendOutput(
+            sessionId: "session-1",
+            data: Data("123456789012".utf8),
+            timestamp: Date()
+        )
+        await registry.markProxyDisconnect()
+
+        let diagnostics = await registry.diagnostics()
+        XCTAssertEqual(diagnostics.proxyDisconnectCount, 1)
+        XCTAssertEqual(diagnostics.bufferTruncationCount, 1)
+    }
+
+    func testDiagnosticsTracksLastInputRoutingError() async {
+        let registry = ControllableSessionRegistry(
+            defaultBufferLineLimit: 10,
+            defaultBufferByteLimit: 1024,
+            staleSessionGracePeriod: 30
+        )
+
+        await registry.register(
+            ControllableSessionRegistration(id: "session-1", status: .running),
+            inputHandler: { _ in
+                throw StubInputError.routingFailure
+            }
+        )
+
+        do {
+            _ = try await registry.sendInput(.text("pwd"), to: "session-1")
+            XCTFail("Expected input routing to fail")
+        } catch {}
+
+        let diagnostics = await registry.diagnostics()
+        XCTAssertEqual(diagnostics.lastInputRoutingError, "send_input[session-1]: routing failed")
+    }
 }
 
 private actor InputRecorder {
@@ -111,5 +159,16 @@ private actor InputRecorder {
 
     func payloads() -> [RemoteInputPayload] {
         values
+    }
+}
+
+private enum StubInputError: LocalizedError {
+    case routingFailure
+
+    var errorDescription: String? {
+        switch self {
+        case .routingFailure:
+            return "routing failed"
+        }
     }
 }

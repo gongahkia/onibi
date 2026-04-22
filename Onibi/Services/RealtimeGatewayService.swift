@@ -11,6 +11,11 @@ protocol RealtimeClientTransport: AnyObject, Sendable {
 }
 
 actor RealtimeGatewayService {
+    struct Diagnostics: Equatable, Sendable {
+        let connectedClientCount: Int
+        let websocketAuthFailureCount: Int
+    }
+
     static let shared = RealtimeGatewayService(
         registry: .shared,
         tokenProvider: {
@@ -45,6 +50,7 @@ actor RealtimeGatewayService {
     private let hostVersionProvider: @Sendable () -> String
     private var clients: [UUID: ClientState] = [:]
     private var registryObserverID: UUID?
+    private var websocketAuthFailureCount = 0
 
     // Coalescing buffer: dozens of `session_updated` events can fire in the same ms when
     // a shell hook churns metadata. We dedupe by session id and flush once per window
@@ -97,6 +103,13 @@ actor RealtimeGatewayService {
         clients.count
     }
 
+    func diagnostics() -> Diagnostics {
+        Diagnostics(
+            connectedClientCount: clients.count,
+            websocketAuthFailureCount: websocketAuthFailureCount
+        )
+    }
+
     func attach(_ transport: any RealtimeClientTransport, peer: String = "unknown") {
         clients[transport.id] = ClientState(
             transport: transport,
@@ -133,6 +146,28 @@ actor RealtimeGatewayService {
         await state.transport.close()
     }
 
+    /// Invalidates all currently authenticated clients, used when a security-critical
+    /// auth change happens (for example pairing token rotation).
+    @discardableResult
+    func disconnectAuthenticatedClients(
+        code: String = "token_rotated",
+        message: String = "Pairing token rotated. Re-pair with the latest token."
+    ) async -> Int {
+        let targets = clients.filter { $0.value.isAuthenticated }
+        guard !targets.isEmpty else { return 0 }
+
+        for clientID in targets.keys {
+            clients.removeValue(forKey: clientID)
+        }
+
+        for (_, state) in targets {
+            try? await state.transport.send(.error(code: code, message: message))
+            await state.transport.close()
+        }
+
+        return targets.count
+    }
+
     func receive(text: String, from clientID: UUID) async {
         guard var client = clients[clientID] else {
             return
@@ -148,6 +183,7 @@ actor RealtimeGatewayService {
 
         if !client.isAuthenticated {
             guard message.type == .auth else {
+                recordWebsocketAuthFailure(reason: "non_auth_frame_before_auth", clientID: clientID, peer: client.peer)
                 try? await client.transport.send(.error(code: "unauthorized", message: "Authenticate before sending realtime frames"))
                 return
             }
@@ -155,12 +191,14 @@ actor RealtimeGatewayService {
             do {
                 let expectedToken = try tokenProvider()
                 guard let token = message.token, token == expectedToken else {
+                    recordWebsocketAuthFailure(reason: "invalid_token", clientID: clientID, peer: client.peer)
                     try? await client.transport.send(.error(code: "unauthorized", message: "Invalid pairing token"))
                     await client.transport.close()
                     clients.removeValue(forKey: clientID)
                     return
                 }
             } catch {
+                recordWebsocketAuthFailure(reason: "auth_provider_failure", clientID: clientID, peer: client.peer)
                 try? await client.transport.send(.error(code: "auth_provider_failure", message: error.localizedDescription))
                 await client.transport.close()
                 clients.removeValue(forKey: clientID)
@@ -272,8 +310,16 @@ actor RealtimeGatewayService {
             scheduleUpdateFlush()
         case .sessionRemoved(let sessionId):
             pendingSessionUpdates.removeValue(forKey: sessionId)
-            for client in authenticatedClients {
-                try? await client.transport.send(.sessionRemoved(sessionId))
+            let authenticatedClientIDs = clients.compactMap { clientID, state in
+                state.isAuthenticated ? clientID : nil
+            }
+            for clientID in authenticatedClientIDs {
+                guard var state = clients[clientID] else {
+                    continue
+                }
+                state.subscriptions.remove(sessionId)
+                clients[clientID] = state
+                try? await state.transport.send(.sessionRemoved(sessionId))
             }
         case .output(let chunk):
             for client in authenticatedClients where client.subscriptions.contains(chunk.sessionId) {
@@ -320,6 +366,20 @@ actor RealtimeGatewayService {
         case .invalidResizePayload:
             return "invalid_resize_payload"
         }
+    }
+
+    private func recordWebsocketAuthFailure(reason: String, clientID: UUID, peer: String) {
+        websocketAuthFailureCount += 1
+        DiagnosticsStore.shared.record(
+            component: "RealtimeGatewayService",
+            level: .warning,
+            message: "websocket auth failure",
+            metadata: [
+                "reason": reason,
+                "clientID": clientID.uuidString,
+                "peer": peer
+            ]
+        )
     }
 
 }
