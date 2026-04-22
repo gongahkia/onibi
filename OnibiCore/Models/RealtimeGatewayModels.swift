@@ -7,6 +7,7 @@ public enum RealtimeClientMessageType: String, Codable, Sendable {
     case requestBuffer = "request_buffer"
     case sendInput = "send_input"
     case resize
+    case processAction = "process_action"
 }
 
 public enum RealtimeServerMessageType: String, Codable, Sendable {
@@ -18,6 +19,7 @@ public enum RealtimeServerMessageType: String, Codable, Sendable {
     case bufferSnapshot = "buffer_snapshot"
     case output
     case inputAccepted = "input_accepted"
+    case processActionAccepted = "process_action_accepted"
     case error
 }
 
@@ -37,6 +39,7 @@ public struct RealtimeClientMessage: Codable, Equatable, Sendable {
     public let fileName: String?
     public let cols: Int?
     public let rows: Int?
+    public let action: RemoteProcessAction?
     public let bufferCursor: String?
     public let bufferLimit: Int?
     public let viewportCols: Int?
@@ -54,6 +57,7 @@ public struct RealtimeClientMessage: Codable, Equatable, Sendable {
         fileName: String? = nil,
         cols: Int? = nil,
         rows: Int? = nil,
+        action: RemoteProcessAction? = nil,
         bufferCursor: String? = nil,
         bufferLimit: Int? = nil,
         viewportCols: Int? = nil,
@@ -70,6 +74,7 @@ public struct RealtimeClientMessage: Codable, Equatable, Sendable {
         self.fileName = fileName
         self.cols = cols
         self.rows = rows
+        self.action = action
         self.bufferCursor = bufferCursor
         self.bufferLimit = bufferLimit
         self.viewportCols = viewportCols
@@ -92,6 +97,14 @@ public struct RealtimeClientMessage: Codable, Equatable, Sendable {
         let payload = RemoteTerminalResizePayload(cols: cols, rows: rows)
         return payload.isValid ? payload : nil
     }
+
+    public var processActionPayload: RemoteProcessActionPayload? {
+        guard let action else {
+            return nil
+        }
+        let payload = RemoteProcessActionPayload(action: action)
+        return payload.isValid ? payload : nil
+    }
 }
 
 public struct RealtimeServerMessage: Codable, Equatable, Sendable {
@@ -112,6 +125,7 @@ public struct RealtimeServerMessage: Codable, Equatable, Sendable {
     public let viewportRows: Int?
     public let chunk: SessionOutputChunk?
     public let clientRequestId: String?
+    public let action: RemoteProcessAction?
     public let code: String?
     public let message: String?
 
@@ -133,6 +147,7 @@ public struct RealtimeServerMessage: Codable, Equatable, Sendable {
         viewportRows: Int? = nil,
         chunk: SessionOutputChunk? = nil,
         clientRequestId: String? = nil,
+        action: RemoteProcessAction? = nil,
         code: String? = nil,
         message: String? = nil
     ) {
@@ -153,6 +168,7 @@ public struct RealtimeServerMessage: Codable, Equatable, Sendable {
         self.viewportRows = viewportRows
         self.chunk = chunk
         self.clientRequestId = clientRequestId
+        self.action = action
         self.code = code
         self.message = message
     }
@@ -211,6 +227,19 @@ public struct RealtimeServerMessage: Codable, Equatable, Sendable {
             type: .inputAccepted,
             sessionId: sessionId,
             clientRequestId: clientRequestId
+        )
+    }
+
+    public static func processActionAccepted(
+        sessionId: String,
+        action: RemoteProcessAction,
+        clientRequestId: String?
+    ) -> RealtimeServerMessage {
+        RealtimeServerMessage(
+            type: .processActionAccepted,
+            sessionId: sessionId,
+            clientRequestId: clientRequestId,
+            action: action
         )
     }
 

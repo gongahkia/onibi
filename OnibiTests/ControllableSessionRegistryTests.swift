@@ -89,6 +89,32 @@ final class ControllableSessionRegistryTests: XCTestCase {
         XCTAssertEqual(recordedPayloads, [.key(.enter)])
     }
 
+    func testProcessActionRoutesPayloadToRegisteredHandler() async throws {
+        let registry = ControllableSessionRegistry(
+            defaultBufferLineLimit: 10,
+            defaultBufferByteLimit: 1024,
+            staleSessionGracePeriod: 30
+        )
+        let recorder = ProcessActionRecorder()
+
+        await registry.register(
+            ControllableSessionRegistration(id: "session-1", status: .running),
+            processActionHandler: { payload in
+                await recorder.record(payload)
+            }
+        )
+
+        let acceptance = try await registry.performProcessAction(
+            RemoteProcessActionPayload(action: .terminate),
+            for: "session-1"
+        )
+        let recordedPayloads = await recorder.payloads()
+
+        XCTAssertEqual(acceptance.sessionId, "session-1")
+        XCTAssertEqual(acceptance.action, .terminate)
+        XCTAssertEqual(recordedPayloads, [RemoteProcessActionPayload(action: .terminate)])
+    }
+
     func testSendInputFailsForNonControllableSession() async {
         let registry = ControllableSessionRegistry(
             defaultBufferLineLimit: 10,
@@ -249,6 +275,18 @@ private actor InputRecorder {
     }
 
     func payloads() -> [RemoteInputPayload] {
+        values
+    }
+}
+
+private actor ProcessActionRecorder {
+    private var values: [RemoteProcessActionPayload] = []
+
+    func record(_ payload: RemoteProcessActionPayload) {
+        values.append(payload)
+    }
+
+    func payloads() -> [RemoteProcessActionPayload] {
         values
     }
 }

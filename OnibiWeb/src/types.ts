@@ -3,6 +3,7 @@ export type SessionOutputStream = "stdout" | "stderr";
 export type TerminalEventKind = "bell" | "working_directory";
 export type SessionFlowControlState = "open" | "limited" | "blocked";
 export type RemoteInputKind = "text" | "key" | "paste" | "bytes" | "file";
+export type RemoteProcessAction = "interrupt" | "terminate" | "kill" | "close_input";
 export type RemoteInputKey =
   | "enter"
   | "ctrl_c"
@@ -91,6 +92,16 @@ export interface RemoteInputAcceptance {
   acceptedAt: string;
 }
 
+export interface RemoteProcessActionPayload {
+  action: RemoteProcessAction;
+}
+
+export interface RemoteProcessActionAcceptance {
+  sessionId: string;
+  action: RemoteProcessAction;
+  acceptedAt: string;
+}
+
 export interface DiagnosticsEventPreview {
   timestamp: string;
   component: string;
@@ -157,7 +168,8 @@ export type RealtimeClientMessageType =
   | "unsubscribe"
   | "request_buffer"
   | "send_input"
-  | "resize";
+  | "resize"
+  | "process_action";
 
 export interface RealtimeClientMessage {
   type: RealtimeClientMessageType;
@@ -170,6 +182,7 @@ export interface RealtimeClientMessage {
   fileName?: string;
   cols?: number;
   rows?: number;
+  action?: RemoteProcessAction;
   bufferCursor?: string;
   bufferLimit?: number;
   viewportCols?: number;
@@ -186,6 +199,7 @@ export type RealtimeServerMessageType =
   | "buffer_snapshot"
   | "output"
   | "input_accepted"
+  | "process_action_accepted"
   | "error";
 
 export interface RealtimeServerMessage {
@@ -206,6 +220,7 @@ export interface RealtimeServerMessage {
   viewportRows?: number;
   chunk?: SessionOutputChunk;
   clientRequestId?: string;
+  action?: RemoteProcessAction;
   code?: string;
   message?: string;
 }

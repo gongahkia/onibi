@@ -41,6 +41,13 @@ public enum RemoteInputKey: String, Codable, Sendable, CaseIterable {
     case space
 }
 
+public enum RemoteProcessAction: String, Codable, Sendable, CaseIterable {
+    case interrupt
+    case terminate
+    case kill
+    case closeInput = "close_input"
+}
+
 public enum RemoteControlError: Error, Equatable, Sendable {
     case sessionNotFound(String)
     case sessionNotControllable(String)
@@ -48,6 +55,8 @@ public enum RemoteControlError: Error, Equatable, Sendable {
     case invalidInputPayload
     case resizeUnavailable(String)
     case invalidResizePayload
+    case processActionUnavailable(String)
+    case invalidProcessActionPayload
 }
 
 public struct ControllableSessionSnapshot: Codable, Equatable, Identifiable, Sendable {
@@ -259,6 +268,30 @@ public struct RemoteTerminalResizeAcceptance: Codable, Equatable, Sendable {
         self.sessionId = sessionId
         self.cols = cols
         self.rows = rows
+        self.acceptedAt = acceptedAt
+    }
+}
+
+public struct RemoteProcessActionPayload: Codable, Equatable, Sendable {
+    public let action: RemoteProcessAction
+
+    public init(action: RemoteProcessAction) {
+        self.action = action
+    }
+
+    public var isValid: Bool {
+        true
+    }
+}
+
+public struct RemoteProcessActionAcceptance: Codable, Equatable, Sendable {
+    public let sessionId: String
+    public let action: RemoteProcessAction
+    public let acceptedAt: Date
+
+    public init(sessionId: String, action: RemoteProcessAction, acceptedAt: Date) {
+        self.sessionId = sessionId
+        self.action = action
         self.acceptedAt = acceptedAt
     }
 }

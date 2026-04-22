@@ -744,6 +744,31 @@ button:hover:enabled {
   gap: 0.45rem;
 }
 
+.mf-process-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.4rem;
+  overflow-x: auto;
+  padding-bottom: 0.45rem;
+}
+
+.mf-process-actions button {
+  min-height: 36px;
+  padding: 0.34rem 0.55rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.55rem;
+  background: #f8fafc;
+  color: #1f2937;
+  font-size: 0.78rem;
+  flex: 0 0 auto;
+}
+
+.mf-process-actions .mf-danger-action {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
 .mf-key-strip-row {
   display: flex;
   flex-wrap: nowrap;
@@ -1495,6 +1520,13 @@ button:hover:enabled {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+}
+.mf-live-landscape .mf-process-actions {
+  flex-direction: column;
+  overflow: visible;
+}
+.mf-live-landscape .mf-process-actions button {
+  width: 100%;
 }
 .mf-key-strip-column button {
   min-height: 40px;

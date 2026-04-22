@@ -3,6 +3,7 @@ import OnibiCore
 
 typealias SessionInputHandler = @Sendable (RemoteInputPayload) async throws -> Void
 typealias SessionResizeHandler = @Sendable (RemoteTerminalResizePayload) async throws -> Void
+typealias SessionProcessActionHandler = @Sendable (RemoteProcessActionPayload) async throws -> Void
 typealias ControllableSessionRegistryObserver = @Sendable (ControllableSessionRegistryEvent) -> Void
 
 enum ControllableSessionRegistryEvent: Equatable, Sendable {
@@ -93,6 +94,7 @@ actor ControllableSessionRegistry {
         var buffer: SessionOutputBuffer
         var inputHandler: SessionInputHandler?
         var resizeHandler: SessionResizeHandler?
+        var processActionHandler: SessionProcessActionHandler?
         var lastHeartbeatAt: Date
     }
 
@@ -162,7 +164,8 @@ actor ControllableSessionRegistry {
     func register(
         _ registration: ControllableSessionRegistration,
         inputHandler: SessionInputHandler? = nil,
-        resizeHandler: SessionResizeHandler? = nil
+        resizeHandler: SessionResizeHandler? = nil,
+        processActionHandler: SessionProcessActionHandler? = nil
     ) {
         let wasExistingSession = sessions[registration.id] != nil
         let existingBuffer = sessions[registration.id]?.buffer ??
@@ -173,6 +176,7 @@ actor ControllableSessionRegistry {
         let currentCursor = existingBuffer.currentCursor
         let currentHandler = inputHandler ?? sessions[registration.id]?.inputHandler
         let currentResizeHandler = resizeHandler ?? sessions[registration.id]?.resizeHandler
+        let currentProcessActionHandler = processActionHandler ?? sessions[registration.id]?.processActionHandler
 
         sessions[registration.id] = SessionRecord(
             snapshot: ControllableSessionSnapshot(
@@ -198,6 +202,7 @@ actor ControllableSessionRegistry {
             buffer: existingBuffer,
             inputHandler: currentHandler,
             resizeHandler: currentResizeHandler,
+            processActionHandler: currentProcessActionHandler,
             lastHeartbeatAt: registration.startedAt
         )
 
@@ -229,6 +234,14 @@ actor ControllableSessionRegistry {
             return
         }
         record.resizeHandler = resizeHandler
+        sessions[sessionId] = record
+    }
+
+    func setProcessActionHandler(_ processActionHandler: SessionProcessActionHandler?, for sessionId: String) {
+        guard var record = sessions[sessionId] else {
+            return
+        }
+        record.processActionHandler = processActionHandler
         sessions[sessionId] = record
     }
 
@@ -394,6 +407,46 @@ actor ControllableSessionRegistry {
             sessionId: sessionId,
             cols: payload.cols,
             rows: payload.rows,
+            acceptedAt: timestamp
+        )
+    }
+
+    func performProcessAction(
+        _ payload: RemoteProcessActionPayload,
+        for sessionId: String,
+        at timestamp: Date = Date()
+    ) async throws -> RemoteProcessActionAcceptance {
+        guard payload.isValid else {
+            throw RemoteControlError.invalidProcessActionPayload
+        }
+
+        guard var record = sessions[sessionId] else {
+            throw RemoteControlError.sessionNotFound(sessionId)
+        }
+
+        guard record.snapshot.isControllable else {
+            throw RemoteControlError.sessionNotControllable(sessionId)
+        }
+
+        guard let processActionHandler = record.processActionHandler else {
+            throw RemoteControlError.processActionUnavailable(sessionId)
+        }
+
+        do {
+            try await processActionHandler(payload)
+        } catch {
+            lastInputRoutingError = "process_action[\(sessionId)]: \(error.localizedDescription)"
+            throw error
+        }
+        record.lastHeartbeatAt = timestamp
+        record.snapshot = record.snapshot.updating(
+            lastActivityAt: timestamp,
+            bufferCursor: record.buffer.currentCursor
+        )
+        sessions[sessionId] = record
+        return RemoteProcessActionAcceptance(
+            sessionId: sessionId,
+            action: payload.action,
             acceptedAt: timestamp
         )
     }

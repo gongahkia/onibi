@@ -198,6 +198,52 @@ final class RealtimeGatewayServiceTests: XCTestCase {
         XCTAssertEqual(messages, [])
     }
 
+    func testProcessActionAcknowledgesAndRoutesPayload() async throws {
+        let registry = makeRegistry()
+        let service = makeService(registry: registry)
+        let transport = MockRealtimeTransport()
+        let recorder = ProcessActionRecorder()
+
+        await registry.register(
+            ControllableSessionRegistration(
+                id: "session-1",
+                status: .running
+            ),
+            processActionHandler: { payload in
+                await recorder.record(payload)
+            }
+        )
+
+        await service.attach(transport)
+        await service.receive(
+            text: try encode(
+                RealtimeClientMessage(type: .auth, token: "test-token")
+            ),
+            from: transport.id
+        )
+        await transport.clear()
+
+        await service.receive(
+            text: try encode(
+                RealtimeClientMessage(
+                    type: .processAction,
+                    sessionId: "session-1",
+                    action: .interrupt,
+                    clientRequestId: "action-1"
+                )
+            ),
+            from: transport.id
+        )
+
+        let payloads = await recorder.payloads()
+        let messages = await transport.messages()
+        XCTAssertEqual(payloads, [RemoteProcessActionPayload(action: .interrupt)])
+        XCTAssertEqual(messages.map(\.type), [.processActionAccepted])
+        XCTAssertEqual(messages.first?.sessionId, "session-1")
+        XCTAssertEqual(messages.first?.action, .interrupt)
+        XCTAssertEqual(messages.first?.clientRequestId, "action-1")
+    }
+
     func testRequestBufferSupportsCursorLimitAndViewport() async throws {
         let registry = makeRegistry()
         let service = makeService(registry: registry)
@@ -452,6 +498,18 @@ private actor ResizeRecorder {
     }
 
     func payloads() -> [RemoteTerminalResizePayload] {
+        values
+    }
+}
+
+private actor ProcessActionRecorder {
+    private var values: [RemoteProcessActionPayload] = []
+
+    func record(_ payload: RemoteProcessActionPayload) {
+        values.append(payload)
+    }
+
+    func payloads() -> [RemoteProcessActionPayload] {
         values
     }
 }

@@ -3,7 +3,7 @@ import { RemoteInputBar } from "../components/RemoteInputBar";
 import { RemoteKeyStrip } from "../components/RemoteKeyStrip";
 import { SessionOutputPane } from "../components/SessionOutputPane";
 import type { OutputEntry } from "../store/sessionStore";
-import type { ControllableSessionSnapshot, RemoteInputKey } from "../types";
+import type { ControllableSessionSnapshot, RemoteInputKey, RemoteProcessAction } from "../types";
 
 interface LiveSessionViewProps {
   session: ControllableSessionSnapshot | null;
@@ -18,6 +18,7 @@ interface LiveSessionViewProps {
   onSendKey: (key: RemoteInputKey) => void;
   onTerminalInput: (data: string) => void;
   onTerminalResize: (cols: number, rows: number) => void;
+  onProcessAction: (action: RemoteProcessAction) => void;
 }
 
 function realtimeBadgeClass(realtimeState: string): string {
@@ -109,7 +110,8 @@ export function LiveSessionView({
   onUploadFile,
   onSendKey,
   onTerminalInput,
-  onTerminalResize
+  onTerminalResize,
+  onProcessAction
 }: LiveSessionViewProps): JSX.Element {
   const isLandscape = useIsLandscape();
 
@@ -191,6 +193,22 @@ export function LiveSessionView({
       {session.isControllable && (
         <>
           <section className="mf-live-keys">
+            <div className="mf-process-actions" aria-label="Process actions">
+              <button type="button" disabled={inputDisabled} onClick={() => onProcessAction("interrupt")}>
+                Interrupt
+              </button>
+              <button type="button" disabled={inputDisabled} onClick={() => onProcessAction("close_input")}>
+                EOF
+              </button>
+              <button
+                type="button"
+                className="mf-danger-action"
+                disabled={inputDisabled}
+                onClick={() => onProcessAction("terminate")}
+              >
+                Terminate
+              </button>
+            </div>
             <RemoteKeyStrip
               disabled={inputDisabled}
               onSendKey={onSendKey}

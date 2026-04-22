@@ -272,7 +272,7 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
                     try await handleExitFrame(frameData: frameData)
                 case .heartbeat:
                     try await handleHeartbeatFrame(frameData: frameData)
-                case .input, .resize:
+                case .input, .resize, .processAction:
                     throw LocalSessionProxyListenerError.invalidFrameType(envelope.type.rawValue)
                 }
             } catch {
@@ -353,6 +353,9 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
             },
             resizeHandler: { payload in
                 try await writer.sendResize(payload, sessionId: message.sessionId)
+            },
+            processActionHandler: { payload in
+                try await writer.sendProcessAction(payload, sessionId: message.sessionId)
             }
         )
         await registry.updateSession(
@@ -495,6 +498,7 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
         )
         await registry.setInputHandler(nil, for: message.sessionId)
         await registry.setResizeHandler(nil, for: message.sessionId)
+        await registry.setProcessActionHandler(nil, for: message.sessionId)
     }
 
     private func handleHeartbeatFrame(frameData: Data) async throws {
@@ -521,6 +525,7 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
 
             await registry.setInputHandler(nil, for: sessionId)
             await registry.setResizeHandler(nil, for: sessionId)
+            await registry.setProcessActionHandler(nil, for: sessionId)
             if let snapshot = await registry.session(id: sessionId), snapshot.status != .exited {
                 await registry.updateSession(
                     id: sessionId,
@@ -689,6 +694,22 @@ private final class LocalSessionProxyConnectionWriter: @unchecked Sendable {
 
     func sendResize(_ payload: RemoteTerminalResizePayload, sessionId: String) async throws {
         let frame = LocalSessionProxyResizeMessage(sessionId: sessionId, payload: payload)
+        let data = try RealtimeGatewayCodec.encodeFrame(frame)
+
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                do {
+                    try writeAll(data, to: self.fileDescriptor)
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    func sendProcessAction(_ payload: RemoteProcessActionPayload, sessionId: String) async throws {
+        let frame = LocalSessionProxyProcessActionMessage(sessionId: sessionId, payload: payload)
         let data = try RealtimeGatewayCodec.encodeFrame(frame)
 
         try await withCheckedThrowingContinuation { continuation in

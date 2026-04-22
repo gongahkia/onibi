@@ -3,6 +3,8 @@ import type {
   GatewayBootstrapResponse,
   RemoteInputAcceptance,
   RemoteInputPayload,
+  RemoteProcessActionAcceptance,
+  RemoteProcessActionPayload,
   SessionOutputBufferSnapshot,
   ControllableSessionSnapshot
 } from "../types";
@@ -90,6 +92,17 @@ export async function sendSessionInput(
   payload: RemoteInputPayload
 ): Promise<RemoteInputAcceptance> {
   return requestJSON(connection, `/api/v2/sessions/${sessionId}/input`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function sendSessionProcessAction(
+  connection: ConnectionConfig,
+  sessionId: string,
+  payload: RemoteProcessActionPayload
+): Promise<RemoteProcessActionAcceptance> {
+  return requestJSON(connection, `/api/v2/sessions/${sessionId}/process-action`, {
     method: "POST",
     body: JSON.stringify(payload)
   });

@@ -979,6 +979,13 @@ private actor HostMobileGatewayDataProvider: MobileGatewayDataProvider {
         try await sessionRegistry.resizeTerminal(payload, for: sessionId)
     }
 
+    func performProcessAction(
+        id sessionId: String,
+        payload: RemoteProcessActionPayload
+    ) async throws -> RemoteProcessActionAcceptance? {
+        try await sessionRegistry.performProcessAction(payload, for: sessionId)
+    }
+
     func diagnostics() async throws -> DiagnosticsResponse {
         let logs = try await storageManager.loadLogs()
         let storageBytes: Int64

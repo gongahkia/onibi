@@ -6,6 +6,7 @@ import {
   fetchSessions,
   normalizeConnectionConfig,
   sendSessionInput,
+  sendSessionProcessAction,
   toUserFacingConnectionError
 } from "./api/httpClient";
 import { RealtimeClient, type RealtimeConnectionState, type RealtimeDebugEvent } from "./api/realtimeClient";
@@ -28,7 +29,8 @@ import type {
   ControllableSessionSnapshot,
   DiagnosticsResponse,
   RealtimeServerMessage,
-  RemoteInputKey
+  RemoteInputKey,
+  RemoteProcessAction
 } from "./types";
 import { ConnectionView } from "./views/ConnectionView";
 import { LiveSessionView } from "./views/LiveSessionView";
@@ -747,6 +749,31 @@ export default function App(): JSX.Element {
     });
   };
 
+  const sendProcessAction = async (sessionId: string, action: RemoteProcessAction) => {
+    setInputError(null);
+    const realtime = realtimeRef.current;
+    if (realtime && realtimeState === "authenticated") {
+      realtime.send({
+        type: "process_action",
+        sessionId,
+        action,
+        clientRequestId: nextClientRequestID()
+      });
+      return;
+    }
+
+    if (!connection) return;
+    try {
+      await sendSessionProcessAction(connection, sessionId, { action });
+    } catch (error) {
+      if (error instanceof APIError && error.statusCode === 401) {
+        handleUnauthorizedToken("Pairing token expired. Paste the latest token from the Mac host.");
+        return;
+      }
+      setInputError(toUserFacingConnectionError(error));
+    }
+  };
+
   const primaryError = connectionError ?? realtimeError;
   const storedConnection = connection ?? loadStoredConnection();
 
@@ -822,6 +849,7 @@ export default function App(): JSX.Element {
         onSendKey={(key) => sendKey(route.sessionId, key)}
         onTerminalInput={(data) => sendTerminalData(route.sessionId, data)}
         onTerminalResize={(cols, rows) => sendTerminalResize(route.sessionId, cols, rows)}
+        onProcessAction={(action) => sendProcessAction(route.sessionId, action)}
       />
     );
   }

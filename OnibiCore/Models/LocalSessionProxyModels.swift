@@ -13,6 +13,7 @@ public enum LocalSessionProxyFrameType: String, Codable, Sendable {
     case heartbeat
     case input
     case resize
+    case processAction = "process_action"
 }
 
 public struct LocalSessionProxyEnvelope: Codable, Equatable, Sendable {
@@ -363,5 +364,21 @@ public struct LocalSessionProxyResizeMessage: Codable, Equatable, Sendable {
 
     public var payload: RemoteTerminalResizePayload {
         RemoteTerminalResizePayload(cols: cols, rows: rows)
+    }
+}
+
+public struct LocalSessionProxyProcessActionMessage: Codable, Equatable, Sendable {
+    public let type: LocalSessionProxyFrameType
+    public let sessionId: String
+    public let action: RemoteProcessAction
+
+    public init(sessionId: String, payload: RemoteProcessActionPayload) {
+        self.type = .processAction
+        self.sessionId = sessionId
+        self.action = payload.action
+    }
+
+    public var payload: RemoteProcessActionPayload {
+        RemoteProcessActionPayload(action: action)
     }
 }

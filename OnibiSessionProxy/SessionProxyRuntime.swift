@@ -46,6 +46,7 @@ enum SessionProxyRuntimeError: LocalizedError {
     case invalidFrameType(String)
     case invalidOutputPayload
     case invalidResizePayload
+    case invalidProcessActionPayload
 
     var errorDescription: String? {
         switch self {
@@ -61,6 +62,8 @@ enum SessionProxyRuntimeError: LocalizedError {
             return "Failed to encode or decode session output"
         case .invalidResizePayload:
             return "Failed to decode resize payload"
+        case .invalidProcessActionPayload:
+            return "Failed to decode process action payload"
         }
     }
 }
@@ -311,6 +314,14 @@ final class SessionProxyRuntime {
             sendTerminalMetadataIfChanged(
                 RemoteTerminalResizePayload(cols: payload.cols, rows: payload.rows)
             )
+        case .processAction:
+            let message = try JSONDateCodec.decoder.decode(LocalSessionProxyProcessActionMessage.self, from: frameData)
+            let payload = message.payload
+            guard payload.isValid else {
+                throw SessionProxyRuntimeError.invalidProcessActionPayload
+            }
+            try applyProcessAction(payload.action)
+            sendHealth()
         case .register, .metadata, .output, .commandStart, .commandEnd, .terminalEvent, .health, .state, .exit, .heartbeat:
             throw SessionProxyRuntimeError.invalidFrameType(envelope.type.rawValue)
         }
@@ -513,6 +524,42 @@ final class SessionProxyRuntime {
         size.ws_col = UInt16(clamping: cols)
         size.ws_row = UInt16(clamping: rows)
         _ = ioctl(ptyMasterFD, TIOCSWINSZ, &size)
+    }
+
+    private func applyProcessAction(_ action: RemoteProcessAction) throws {
+        switch action {
+        case .interrupt:
+            let bytes = Data([0x03])
+            try writeAll(bytes, to: ptyMasterFD)
+            inputByteCount += bytes.count
+            lastInputAt = Date()
+        case .closeInput:
+            let bytes = Data([0x04])
+            try writeAll(bytes, to: ptyMasterFD)
+            inputByteCount += bytes.count
+            lastInputAt = Date()
+        case .terminate:
+            try signalChild(SIGTERM)
+        case .kill:
+            try signalChild(SIGKILL)
+        }
+    }
+
+    private func signalChild(_ signal: Int32) throws {
+        guard childPID > 0 else {
+            throw SessionProxyRuntimeError.posixFailure(function: "kill", code: ESRCH)
+        }
+
+        if Darwin.kill(-childPID, signal) == 0 {
+            return
+        }
+
+        let processGroupError = errno
+        if Darwin.kill(childPID, signal) == 0 {
+            return
+        }
+
+        throw SessionProxyRuntimeError.posixFailure(function: "kill", code: processGroupError)
     }
 
     private func currentTerminalSize() -> RemoteTerminalResizePayload? {

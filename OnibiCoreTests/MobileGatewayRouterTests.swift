@@ -142,6 +142,31 @@ final class MobileGatewayRouterTests: XCTestCase {
         XCTAssertEqual(lastInput?.payload, .key(.enter))
     }
 
+    func testProcessActionRouteAcceptsValidAction() async throws {
+        let provider = StubGatewayDataProvider()
+        let router = MobileGatewayRouter(
+            tokenProvider: { "secret-token" },
+            dataProvider: provider
+        )
+
+        let validBody = try JSONDateCodec.encoder.encode(RemoteProcessActionPayload(action: .interrupt))
+        let accepted = await router.route(
+            method: "POST",
+            path: "/api/v2/sessions/control-session-1/process-action",
+            headers: ["Authorization": "Bearer secret-token"],
+            body: validBody
+        )
+
+        XCTAssertEqual(accepted.statusCode, 200)
+        let payload = try JSONDateCodec.decoder.decode(RemoteProcessActionAcceptance.self, from: accepted.body)
+        XCTAssertEqual(payload.sessionId, "control-session-1")
+        XCTAssertEqual(payload.action, .interrupt)
+
+        let lastAction = await provider.recordedProcessAction()
+        XCTAssertEqual(lastAction?.sessionId, "control-session-1")
+        XCTAssertEqual(lastAction?.payload, RemoteProcessActionPayload(action: .interrupt))
+    }
+
     func testRateLimiterReturns429AfterRepeatedAuthFailures() async {
         let tracker = AuthFailureTracker(windowSeconds: 60, maxFailures: 3)
         let router = MobileGatewayRouter(
@@ -222,6 +247,7 @@ private actor StubGatewayDataProvider: MobileGatewayDataProvider {
     private(set) var lastCursor: Date?
     private(set) var lastLimit: Int?
     private(set) var lastInput: (sessionId: String, payload: RemoteInputPayload)?
+    private(set) var lastProcessAction: (sessionId: String, payload: RemoteProcessActionPayload)?
 
     func health() async throws -> HostHealth {
         HostHealth(
@@ -369,6 +395,18 @@ private actor StubGatewayDataProvider: MobileGatewayDataProvider {
         return RemoteInputAcceptance(sessionId: sessionId, acceptedAt: Date())
     }
 
+    func performProcessAction(
+        id sessionId: String,
+        payload: RemoteProcessActionPayload
+    ) async throws -> RemoteProcessActionAcceptance? {
+        guard sessionId == "control-session-1" else {
+            throw RemoteControlError.sessionNotFound(sessionId)
+        }
+
+        lastProcessAction = (sessionId, payload)
+        return RemoteProcessActionAcceptance(sessionId: sessionId, action: payload.action, acceptedAt: Date())
+    }
+
     func recordedCursor() -> Date? {
         lastCursor
     }
@@ -379,5 +417,9 @@ private actor StubGatewayDataProvider: MobileGatewayDataProvider {
 
     func recordedInput() -> (sessionId: String, payload: RemoteInputPayload)? {
         lastInput
+    }
+
+    func recordedProcessAction() -> (sessionId: String, payload: RemoteProcessActionPayload)? {
+        lastProcessAction
     }
 }

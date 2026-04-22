@@ -300,6 +300,34 @@ actor RealtimeGatewayService {
             } catch {
                 try? await client.transport.send(.error(code: "internal_error", message: error.localizedDescription))
             }
+        case .processAction:
+            guard let sessionId = message.sessionId else {
+                try? await client.transport.send(.error(code: "invalid_session_id", message: "Missing sessionId"))
+                return
+            }
+            guard let payload = message.processActionPayload else {
+                try? await client.transport.send(.error(code: "invalid_process_action_payload", message: "Invalid process action payload"))
+                return
+            }
+            do {
+                _ = try await registry.performProcessAction(payload, for: sessionId)
+                try? await client.transport.send(
+                    .processActionAccepted(
+                        sessionId: sessionId,
+                        action: payload.action,
+                        clientRequestId: message.clientRequestId
+                    )
+                )
+            } catch let error as RemoteControlError {
+                try? await client.transport.send(
+                    .error(
+                        code: errorCode(for: error),
+                        message: error.localizedDescription
+                    )
+                )
+            } catch {
+                try? await client.transport.send(.error(code: "internal_error", message: error.localizedDescription))
+            }
         }
     }
 
@@ -377,6 +405,10 @@ actor RealtimeGatewayService {
             return "resize_unavailable"
         case .invalidResizePayload:
             return "invalid_resize_payload"
+        case .processActionUnavailable:
+            return "process_action_unavailable"
+        case .invalidProcessActionPayload:
+            return "invalid_process_action_payload"
         }
     }
 
