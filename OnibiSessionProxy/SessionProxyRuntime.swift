@@ -85,6 +85,7 @@ final class SessionProxyRuntime {
     private var lastReportedTerminalSize: RemoteTerminalResizePayload?
     private var lastReportedTerminalTitle: String?
     private var titleParser = TerminalTitleParser()
+    private var commandLifecycleParser = TerminalCommandLifecycleParser()
     private var isShuttingDown = false
 
     init(configuration: SessionProxyLaunchConfiguration) {
@@ -245,6 +246,9 @@ final class SessionProxyRuntime {
                 if let title = titleParser.consume(chunk).last {
                     sendTerminalTitleMetadataIfChanged(title)
                 }
+                for event in commandLifecycleParser.consume(chunk) {
+                    sendCommandLifecycleEvent(event)
+                }
             }
         } catch {
             shutdown(exitCode: 1)
@@ -290,7 +294,7 @@ final class SessionProxyRuntime {
             sendTerminalMetadataIfChanged(
                 RemoteTerminalResizePayload(cols: payload.cols, rows: payload.rows)
             )
-        case .register, .metadata, .output, .state, .exit, .heartbeat:
+        case .register, .metadata, .output, .commandStart, .commandEnd, .state, .exit, .heartbeat:
             throw SessionProxyRuntimeError.invalidFrameType(envelope.type.rawValue)
         }
     }
@@ -525,6 +529,33 @@ final class SessionProxyRuntime {
                     terminalTitle: title
                 )
             )
+        } catch {
+            shutdown(exitCode: 1)
+        }
+    }
+
+    private func sendCommandLifecycleEvent(_ event: TerminalCommandLifecycleEvent) {
+        do {
+            switch event {
+            case .start(let command, let workingDirectory):
+                try sendFrame(
+                    LocalSessionProxyCommandStartMessage(
+                        sessionId: configuration.sessionId,
+                        command: command,
+                        workingDirectory: workingDirectory,
+                        timestamp: Date()
+                    )
+                )
+            case .end(let exitCode, let workingDirectory):
+                try sendFrame(
+                    LocalSessionProxyCommandEndMessage(
+                        sessionId: configuration.sessionId,
+                        exitCode: exitCode,
+                        workingDirectory: workingDirectory,
+                        timestamp: Date()
+                    )
+                )
+            }
         } catch {
             shutdown(exitCode: 1)
         }

@@ -14,6 +14,7 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
 
     private let queue = DispatchQueue(label: "com.onibi.local-session-proxy-listener", qos: .userInitiated)
     private let registry = ControllableSessionRegistry.shared
+    private let commandTracker = CommandLifecycleTracker()
 
     private var settings: AppSettings
     private var serverFileDescriptor: Int32 = -1
@@ -257,6 +258,10 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
                     try await handleMetadataFrame(frameData: frameData)
                 case .output:
                     try await handleOutputFrame(frameData: frameData)
+                case .commandStart:
+                    try await handleCommandStartFrame(frameData: frameData)
+                case .commandEnd:
+                    try await handleCommandEndFrame(frameData: frameData)
                 case .state:
                     try await handleStateFrame(frameData: frameData)
                 case .exit:
@@ -378,6 +383,48 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
             stream: message.stream,
             data: data,
             timestamp: message.timestamp
+        )
+    }
+
+    private func handleCommandStartFrame(frameData: Data) async throws {
+        let message = try JSONDateCodec.decoder.decode(LocalSessionProxyCommandStartMessage.self, from: frameData)
+        let assistantKind = AssistantClassifier.classify(command: message.command)
+        let displayCommand = CommandSanitizer.sanitize(command: message.command)
+        await commandTracker.recordStart(
+            sessionId: message.sessionId,
+            command: message.command,
+            timestamp: message.timestamp,
+            workingDirectory: message.workingDirectory,
+            assistantKind: assistantKind,
+            metadata: [
+                "assistantKind": assistantKind.rawValue,
+                "displayCommand": displayCommand,
+                "source": "session_proxy"
+            ]
+        )
+        await registry.updateSession(
+            id: message.sessionId,
+            status: .running,
+            workingDirectory: message.workingDirectory,
+            lastCommandPreview: displayCommand,
+            at: message.timestamp
+        )
+    }
+
+    private func handleCommandEndFrame(frameData: Data) async throws {
+        let message = try JSONDateCodec.decoder.decode(LocalSessionProxyCommandEndMessage.self, from: frameData)
+        let completed = await commandTracker.complete(
+            sessionId: message.sessionId,
+            exitCode: message.exitCode,
+            endedAt: message.timestamp
+        )
+        let workingDirectory = message.workingDirectory ?? completed?.workingDirectory
+        await registry.updateSession(
+            id: message.sessionId,
+            status: .running,
+            workingDirectory: workingDirectory,
+            lastCommandPreview: completed?.displayCommand,
+            at: message.timestamp
         )
     }
 

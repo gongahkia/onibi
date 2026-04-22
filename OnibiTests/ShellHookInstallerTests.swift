@@ -74,6 +74,8 @@ final class ShellHookInstallerTests: XCTestCase {
         XCTAssertTrue(script.contains(ShellHookInstaller.Shell.endMarker))
         XCTAssertTrue(script.contains("_onibi_preexec"))
         XCTAssertTrue(script.contains("_onibi_precmd"))
+        XCTAssertTrue(script.contains("OnibiCommandStart"))
+        XCTAssertTrue(script.contains("OnibiCommandEnd"))
     }
     
     func testBashHookScriptContainsMarkers() {
@@ -83,6 +85,8 @@ final class ShellHookInstallerTests: XCTestCase {
         XCTAssertTrue(script.contains(ShellHookInstaller.Shell.endMarker))
         XCTAssertTrue(script.contains("_onibi_preexec"))
         XCTAssertTrue(script.contains("PROMPT_COMMAND"))
+        XCTAssertTrue(script.contains("OnibiCommandStart"))
+        XCTAssertTrue(script.contains("OnibiCommandEnd"))
     }
     
     func testFishHookScriptContainsMarkers() {
@@ -92,6 +96,8 @@ final class ShellHookInstallerTests: XCTestCase {
         XCTAssertTrue(script.contains(ShellHookInstaller.Shell.endMarker))
         XCTAssertTrue(script.contains("_onibi_preexec"))
         XCTAssertTrue(script.contains("_onibi_postexec"))
+        XCTAssertTrue(script.contains("OnibiCommandStart"))
+        XCTAssertTrue(script.contains("OnibiCommandEnd"))
     }
     
     func testHookScriptIncludesLogPath() {

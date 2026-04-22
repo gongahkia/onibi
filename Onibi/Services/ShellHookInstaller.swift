@@ -102,14 +102,35 @@ final class ShellHookInstaller: ObservableObject {
             # >>> onibi >>>
             # Onibi Shell Integration - DO NOT EDIT
             \(bootstrapBlock)
+            _onibi_b64() {
+                printf "%s" "$1" | base64 | tr -d '\\n'
+            }
+
+            _onibi_emit_command_start() {
+                [[ "$ONIBI_SESSION_PROXY_ACTIVE" == "1" ]] || return 0
+                local command_b64 cwd_b64
+                command_b64="$(_onibi_b64 "$1")"
+                cwd_b64="$(_onibi_b64 "$PWD")"
+                printf '\\033]1337;OnibiCommandStart;command=%s;cwd=%s\\a' "$command_b64" "$cwd_b64"
+            }
+
+            _onibi_emit_command_end() {
+                [[ "$ONIBI_SESSION_PROXY_ACTIVE" == "1" ]] || return 0
+                local cwd_b64
+                cwd_b64="$(_onibi_b64 "$PWD")"
+                printf '\\033]1337;OnibiCommandEnd;exit=%s;cwd=%s\\a' "$1" "$cwd_b64"
+            }
+
             _onibi_preexec() {
                 local session_id="${TERM_SESSION_ID:-$$}"
+                _onibi_emit_command_start "$1"
                 echo "$(date -Iseconds)|CMD_START|$session_id|$1" >> \(logPath)
             }
             
             _onibi_precmd() {
                 local exit_code=$?
                 local session_id="${TERM_SESSION_ID:-$$}"
+                _onibi_emit_command_end "$exit_code"
                 echo "$(date -Iseconds)|CMD_END|$session_id|$exit_code" >> \(logPath)
             }
             
@@ -151,8 +172,28 @@ final class ShellHookInstaller: ObservableObject {
             # >>> onibi >>>
             # Onibi Shell Integration - DO NOT EDIT
             \(bootstrapBlock)
+            _onibi_b64() {
+                printf "%s" "$1" | base64 | tr -d '\\n'
+            }
+
+            _onibi_emit_command_start() {
+                [[ "$ONIBI_SESSION_PROXY_ACTIVE" == "1" ]] || return 0
+                local command_b64 cwd_b64
+                command_b64="$(_onibi_b64 "$1")"
+                cwd_b64="$(_onibi_b64 "$PWD")"
+                printf '\\033]1337;OnibiCommandStart;command=%s;cwd=%s\\a' "$command_b64" "$cwd_b64"
+            }
+
+            _onibi_emit_command_end() {
+                [[ "$ONIBI_SESSION_PROXY_ACTIVE" == "1" ]] || return 0
+                local cwd_b64
+                cwd_b64="$(_onibi_b64 "$PWD")"
+                printf '\\033]1337;OnibiCommandEnd;exit=%s;cwd=%s\\a' "$1" "$cwd_b64"
+            }
+
             _onibi_preexec() {
                 local session_id="${TERM_SESSION_ID:-$$}"
+                _onibi_emit_command_start "$BASH_COMMAND"
                 echo "$(date -Iseconds)|CMD_START|$session_id|$BASH_COMMAND" >> \(logPath)
             }
             
@@ -161,6 +202,7 @@ final class ShellHookInstaller: ObservableObject {
             # Check for existing PROMPT_COMMAND and preserve it
             _onibi_prompt_cmd() {
                 local _onibi_exit=$?
+                _onibi_emit_command_end "$_onibi_exit"
                 echo "$(date -Iseconds)|CMD_END|${TERM_SESSION_ID:-$$}|$_onibi_exit" >> \(logPath)
                 return $_onibi_exit
             }
@@ -204,13 +246,33 @@ final class ShellHookInstaller: ObservableObject {
             # >>> onibi >>>
             # Onibi Shell Integration - DO NOT EDIT
             \(bootstrapBlock)
+            function _onibi_b64
+                printf "%s" "$argv[1]" | base64 | tr -d '\\n'
+            end
+
+            function _onibi_emit_command_start
+                test "$ONIBI_SESSION_PROXY_ACTIVE" = "1"; or return 0
+                set -l command_b64 (_onibi_b64 "$argv[1]")
+                set -l cwd_b64 (_onibi_b64 "$PWD")
+                printf '\\033]1337;OnibiCommandStart;command=%s;cwd=%s\\a' "$command_b64" "$cwd_b64"
+            end
+
+            function _onibi_emit_command_end
+                test "$ONIBI_SESSION_PROXY_ACTIVE" = "1"; or return 0
+                set -l cwd_b64 (_onibi_b64 "$PWD")
+                printf '\\033]1337;OnibiCommandEnd;exit=%s;cwd=%s\\a' "$argv[1]" "$cwd_b64"
+            end
+
             function _onibi_preexec --on-event fish_preexec
                 set -l session_id (echo $TERM_SESSION_ID; or echo %self)
+                set -l command (string join " " -- $argv)
+                _onibi_emit_command_start "$command"
                 echo (date -Iseconds)"|CMD_START|$session_id|$argv" >> \(logPath)
             end
             
             function _onibi_postexec --on-event fish_postexec
                 set -l session_id (echo $TERM_SESSION_ID; or echo %self)
+                _onibi_emit_command_end "$status"
                 echo (date -Iseconds)"|CMD_END|$session_id|$status" >> \(logPath)
             end
             # <<< onibi <<<

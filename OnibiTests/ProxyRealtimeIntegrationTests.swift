@@ -76,6 +76,37 @@ final class ProxyRealtimeIntegrationTests: XCTestCase {
             XCTAssertTrue(didApplyMetadata)
 
             try proxyClient.sendFrame(
+                LocalSessionProxyCommandStartMessage(
+                    sessionId: sessionId,
+                    command: "npm run build -- --token sk-test",
+                    workingDirectory: "/tmp/updated",
+                    timestamp: Date()
+                )
+            )
+
+            let didApplyCommandStart = await waitUntil(timeoutSeconds: 1.0) {
+                let snapshot = await registry.session(id: sessionId)
+                return snapshot?.workingDirectory == "/tmp/updated" &&
+                    snapshot?.lastCommandPreview == "npm run build +3"
+            }
+            XCTAssertTrue(didApplyCommandStart)
+
+            try proxyClient.sendFrame(
+                LocalSessionProxyCommandEndMessage(
+                    sessionId: sessionId,
+                    exitCode: 0,
+                    workingDirectory: "/tmp/updated",
+                    timestamp: Date()
+                )
+            )
+
+            let didApplyCommandEnd = await waitUntil(timeoutSeconds: 1.0) {
+                let snapshot = await registry.session(id: sessionId)
+                return snapshot?.lastCommandPreview == "npm run build +3"
+            }
+            XCTAssertTrue(didApplyCommandEnd)
+
+            try proxyClient.sendFrame(
                 LocalSessionProxyOutputMessage(
                     sessionId: sessionId,
                     stream: .stdout,

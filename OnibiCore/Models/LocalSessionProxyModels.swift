@@ -4,6 +4,8 @@ public enum LocalSessionProxyFrameType: String, Codable, Sendable {
     case register
     case metadata
     case output
+    case commandStart = "command_start"
+    case commandEnd = "command_end"
     case state
     case exit
     case heartbeat
@@ -109,6 +111,48 @@ public struct LocalSessionProxyOutputMessage: Codable, Equatable, Sendable {
 
     public var decodedData: Data? {
         Data(base64Encoded: data)
+    }
+}
+
+public struct LocalSessionProxyCommandStartMessage: Codable, Equatable, Sendable {
+    public let type: LocalSessionProxyFrameType
+    public let sessionId: String
+    public let command: String
+    public let workingDirectory: String?
+    public let timestamp: Date
+
+    public init(
+        sessionId: String,
+        command: String,
+        workingDirectory: String? = nil,
+        timestamp: Date
+    ) {
+        self.type = .commandStart
+        self.sessionId = sessionId
+        self.command = command
+        self.workingDirectory = workingDirectory
+        self.timestamp = timestamp
+    }
+}
+
+public struct LocalSessionProxyCommandEndMessage: Codable, Equatable, Sendable {
+    public let type: LocalSessionProxyFrameType
+    public let sessionId: String
+    public let exitCode: Int?
+    public let workingDirectory: String?
+    public let timestamp: Date
+
+    public init(
+        sessionId: String,
+        exitCode: Int?,
+        workingDirectory: String? = nil,
+        timestamp: Date
+    ) {
+        self.type = .commandEnd
+        self.sessionId = sessionId
+        self.exitCode = exitCode
+        self.workingDirectory = workingDirectory
+        self.timestamp = timestamp
     }
 }
 
