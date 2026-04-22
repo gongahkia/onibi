@@ -17,7 +17,26 @@ final class SessionOutputBufferTests: XCTestCase {
         let snapshot = buffer.snapshot(for: session)
         XCTAssertEqual(snapshot.chunks.count, 1)
         XCTAssertEqual(snapshot.bufferCursor, snapshot.chunks.first?.id)
+        XCTAssertEqual(snapshot.startCursor, snapshot.chunks.first?.id)
+        XCTAssertEqual(snapshot.endCursor, snapshot.chunks.first?.id)
         XCTAssertEqual(String(data: snapshot.chunks[0].data, encoding: .utf8), "hello\n")
+    }
+
+    func testSnapshotCanReturnChunksAfterCursorWithLimit() {
+        var buffer = SessionOutputBuffer(lineLimit: 10, byteLimit: 1024)
+        let session = makeSession()
+
+        let first = buffer.append(sessionId: session.id, stream: .stdout, data: Data("one\n".utf8)).chunk
+        _ = buffer.append(sessionId: session.id, stream: .stdout, data: Data("two\n".utf8))
+        let third = buffer.append(sessionId: session.id, stream: .stdout, data: Data("three\n".utf8)).chunk
+
+        let snapshot = buffer.snapshot(for: session, after: first.id, limit: 1)
+
+        XCTAssertEqual(snapshot.chunks.count, 1)
+        XCTAssertEqual(String(data: snapshot.chunks[0].data, encoding: .utf8), "three\n")
+        XCTAssertEqual(snapshot.bufferCursor, third.id)
+        XCTAssertEqual(snapshot.startCursor, third.id)
+        XCTAssertEqual(snapshot.endCursor, third.id)
     }
 
     func testBufferDropsOldestChunksWhenByteLimitIsExceeded() {

@@ -235,11 +235,23 @@ actor RealtimeGatewayService {
                 try? await client.transport.send(.error(code: "invalid_session_id", message: "Missing sessionId"))
                 return
             }
-            guard let snapshot = await registry.bufferSnapshot(for: sessionId) else {
+            let bufferLimit = message.bufferLimit.map { max(1, min($0, 5_000)) }
+            guard let snapshot = await registry.bufferSnapshot(
+                for: sessionId,
+                after: message.bufferCursor,
+                limit: bufferLimit
+            ) else {
                 try? await client.transport.send(.error(code: "session_not_found", message: "Session not found"))
                 return
             }
-            try? await client.transport.send(.bufferSnapshot(snapshot))
+            try? await client.transport.send(
+                .bufferSnapshot(
+                    snapshot,
+                    requestCursor: message.bufferCursor,
+                    viewportCols: message.viewportCols,
+                    viewportRows: message.viewportRows
+                )
+            )
         case .sendInput:
             guard let sessionId = message.sessionId else {
                 try? await client.transport.send(.error(code: "invalid_session_id", message: "Missing sessionId"))

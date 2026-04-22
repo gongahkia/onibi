@@ -58,10 +58,23 @@ export function mergeBufferSnapshot(
   outputBySession: OutputBySession,
   sessionId: string,
   chunks: SessionOutputChunk[],
-  incomingCursor?: string | null
+  incomingCursor?: string | null,
+  requestCursor?: string | null
 ): OutputBySession {
   const existing = outputBySession[sessionId] ?? [];
   const incoming = toOutputEntries(sessionId, chunks, true);
+
+  if (requestCursor && existing.length > 0) {
+    const requestCursorIndex = existing.findIndex((entry) => entry.id === requestCursor);
+    if (requestCursorIndex >= 0) {
+      const knownIds = new Set(existing.map((entry) => entry.id));
+      const tail = incoming.filter((entry) => !knownIds.has(entry.id));
+      return {
+        ...outputBySession,
+        [sessionId]: [...existing, ...tail].slice(-MAX_CHUNK_COUNT_PER_SESSION)
+      };
+    }
+  }
 
   if (incomingCursor && existing.length > 0 && existing[existing.length - 1]?.id === incomingCursor) {
     return outputBySession

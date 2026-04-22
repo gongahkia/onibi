@@ -51,6 +51,8 @@ export interface SessionOutputChunk {
 export interface SessionOutputBufferSnapshot {
   session: ControllableSessionSnapshot;
   bufferCursor: string | null;
+  startCursor?: string | null;
+  endCursor?: string | null;
   chunks: SessionOutputChunk[];
   truncated: boolean;
 }
@@ -145,6 +147,10 @@ export interface RealtimeClientMessage {
   data?: string;
   cols?: number;
   rows?: number;
+  bufferCursor?: string;
+  bufferLimit?: number;
+  viewportCols?: number;
+  viewportRows?: number;
   clientRequestId?: string;
 }
 
@@ -169,7 +175,12 @@ export interface RealtimeServerMessage {
   sessionId?: string;
   chunks?: SessionOutputChunk[];
   bufferCursor?: string;
+  requestCursor?: string;
+  startCursor?: string;
+  endCursor?: string;
   truncated?: boolean;
+  viewportCols?: number;
+  viewportRows?: number;
   chunk?: SessionOutputChunk;
   clientRequestId?: string;
   code?: string;

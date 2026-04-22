@@ -42,6 +42,8 @@ type Route =
   | { kind: "sessions" }
   | { kind: "live"; sessionId: string };
 
+type ViewportSize = { cols: number; rows: number };
+
 function parseRoute(pathname: string): Route {
   if (pathname === "/" || pathname === "/connect") {
     return { kind: "connect" };
@@ -148,6 +150,12 @@ export default function App(): JSX.Element {
 
   const realtimeRef = useRef<RealtimeClient | null>(null);
   const subscribedSessionIDRef = useRef<string | null>(null);
+  const outputBySessionRef = useRef<OutputBySession>({});
+  const viewportBySessionRef = useRef<Record<string, ViewportSize>>({});
+
+  useEffect(() => {
+    outputBySessionRef.current = outputBySession;
+  }, [outputBySession]);
 
   const appendDebugEvent = useCallback((event: RealtimeDebugEvent) => {
     setDebugEvents((existing) => {
@@ -263,7 +271,13 @@ export default function App(): JSX.Element {
         case "buffer_snapshot":
           if (message.sessionId && message.chunks) {
             setOutputBySession((existing) =>
-              mergeBufferSnapshot(existing, message.sessionId!, message.chunks!, message.bufferCursor ?? null)
+              mergeBufferSnapshot(
+                existing,
+                message.sessionId!,
+                message.chunks!,
+                message.bufferCursor ?? null,
+                message.requestCursor ?? null
+              )
             );
           }
           return;
@@ -451,13 +465,19 @@ export default function App(): JSX.Element {
     }
 
     if (activeSessionID) {
+      const viewport = viewportBySessionRef.current[activeSessionID];
+      const entries = outputBySessionRef.current[activeSessionID] ?? [];
+      const latestCursor = entries[entries.length - 1]?.id;
       realtime.send({
         type: "subscribe",
         sessionId: activeSessionID
       });
       realtime.send({
         type: "request_buffer",
-        sessionId: activeSessionID
+        sessionId: activeSessionID,
+        bufferCursor: latestCursor,
+        viewportCols: viewport?.cols,
+        viewportRows: viewport?.rows
       });
     }
 
@@ -662,6 +682,7 @@ export default function App(): JSX.Element {
   };
 
   const sendTerminalResize = (sessionId: string, cols: number, rows: number) => {
+    viewportBySessionRef.current[sessionId] = { cols, rows };
     const realtime = realtimeRef.current;
     if (!realtime || realtimeState !== "authenticated") {
       return;

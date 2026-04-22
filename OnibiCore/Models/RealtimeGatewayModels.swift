@@ -36,6 +36,10 @@ public struct RealtimeClientMessage: Codable, Equatable, Sendable {
     public let data: String?
     public let cols: Int?
     public let rows: Int?
+    public let bufferCursor: String?
+    public let bufferLimit: Int?
+    public let viewportCols: Int?
+    public let viewportRows: Int?
     public let clientRequestId: String?
 
     public init(
@@ -48,6 +52,10 @@ public struct RealtimeClientMessage: Codable, Equatable, Sendable {
         data: String? = nil,
         cols: Int? = nil,
         rows: Int? = nil,
+        bufferCursor: String? = nil,
+        bufferLimit: Int? = nil,
+        viewportCols: Int? = nil,
+        viewportRows: Int? = nil,
         clientRequestId: String? = nil
     ) {
         self.type = type
@@ -59,6 +67,10 @@ public struct RealtimeClientMessage: Codable, Equatable, Sendable {
         self.data = data
         self.cols = cols
         self.rows = rows
+        self.bufferCursor = bufferCursor
+        self.bufferLimit = bufferLimit
+        self.viewportCols = viewportCols
+        self.viewportRows = viewportRows
         self.clientRequestId = clientRequestId
     }
 
@@ -89,7 +101,12 @@ public struct RealtimeServerMessage: Codable, Equatable, Sendable {
     public let sessionId: String?
     public let chunks: [SessionOutputChunk]?
     public let bufferCursor: String?
+    public let requestCursor: String?
+    public let startCursor: String?
+    public let endCursor: String?
     public let truncated: Bool?
+    public let viewportCols: Int?
+    public let viewportRows: Int?
     public let chunk: SessionOutputChunk?
     public let clientRequestId: String?
     public let code: String?
@@ -105,7 +122,12 @@ public struct RealtimeServerMessage: Codable, Equatable, Sendable {
         sessionId: String? = nil,
         chunks: [SessionOutputChunk]? = nil,
         bufferCursor: String? = nil,
+        requestCursor: String? = nil,
+        startCursor: String? = nil,
+        endCursor: String? = nil,
         truncated: Bool? = nil,
+        viewportCols: Int? = nil,
+        viewportRows: Int? = nil,
         chunk: SessionOutputChunk? = nil,
         clientRequestId: String? = nil,
         code: String? = nil,
@@ -120,7 +142,12 @@ public struct RealtimeServerMessage: Codable, Equatable, Sendable {
         self.sessionId = sessionId
         self.chunks = chunks
         self.bufferCursor = bufferCursor
+        self.requestCursor = requestCursor
+        self.startCursor = startCursor
+        self.endCursor = endCursor
         self.truncated = truncated
+        self.viewportCols = viewportCols
+        self.viewportRows = viewportRows
         self.chunk = chunk
         self.clientRequestId = clientRequestId
         self.code = code
@@ -152,13 +179,23 @@ public struct RealtimeServerMessage: Codable, Equatable, Sendable {
         RealtimeServerMessage(type: .sessionRemoved, sessionId: sessionId)
     }
 
-    public static func bufferSnapshot(_ snapshot: SessionOutputBufferSnapshot) -> RealtimeServerMessage {
+    public static func bufferSnapshot(
+        _ snapshot: SessionOutputBufferSnapshot,
+        requestCursor: String? = nil,
+        viewportCols: Int? = nil,
+        viewportRows: Int? = nil
+    ) -> RealtimeServerMessage {
         RealtimeServerMessage(
             type: .bufferSnapshot,
             sessionId: snapshot.session.id,
             chunks: snapshot.chunks,
             bufferCursor: snapshot.bufferCursor,
-            truncated: snapshot.truncated
+            requestCursor: requestCursor,
+            startCursor: snapshot.startCursor,
+            endCursor: snapshot.endCursor,
+            truncated: snapshot.truncated,
+            viewportCols: viewportCols,
+            viewportRows: viewportRows
         )
     }
 

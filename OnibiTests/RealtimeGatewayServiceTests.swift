@@ -198,6 +198,57 @@ final class RealtimeGatewayServiceTests: XCTestCase {
         XCTAssertEqual(messages, [])
     }
 
+    func testRequestBufferSupportsCursorLimitAndViewport() async throws {
+        let registry = makeRegistry()
+        let service = makeService(registry: registry)
+        let transport = MockRealtimeTransport()
+
+        await registry.register(
+            ControllableSessionRegistration(
+                id: "session-1",
+                status: .running
+            )
+        )
+        await registry.appendOutput(sessionId: "session-1", data: Data("one\n".utf8))
+        let cursor = await registry.bufferSnapshot(for: "session-1")?.bufferCursor
+        await registry.appendOutput(sessionId: "session-1", data: Data("two\n".utf8))
+        await registry.appendOutput(sessionId: "session-1", data: Data("three\n".utf8))
+
+        await service.attach(transport)
+        await service.receive(
+            text: try encode(
+                RealtimeClientMessage(type: .auth, token: "test-token")
+            ),
+            from: transport.id
+        )
+        await transport.clear()
+
+        await service.receive(
+            text: try encode(
+                RealtimeClientMessage(
+                    type: .requestBuffer,
+                    sessionId: "session-1",
+                    bufferCursor: cursor,
+                    bufferLimit: 1,
+                    viewportCols: 120,
+                    viewportRows: 40
+                )
+            ),
+            from: transport.id
+        )
+
+        let messages = await transport.messages()
+        XCTAssertEqual(messages.count, 1)
+        XCTAssertEqual(messages.first?.type, .bufferSnapshot)
+        XCTAssertEqual(messages.first?.requestCursor, cursor)
+        XCTAssertEqual(messages.first?.chunks?.count, 1)
+        XCTAssertEqual(String(data: messages.first?.chunks?.first?.data ?? Data(), encoding: .utf8), "three\n")
+        XCTAssertEqual(messages.first?.startCursor, messages.first?.chunks?.first?.id)
+        XCTAssertEqual(messages.first?.endCursor, messages.first?.chunks?.first?.id)
+        XCTAssertEqual(messages.first?.viewportCols, 120)
+        XCTAssertEqual(messages.first?.viewportRows, 40)
+    }
+
     func testDisconnectAuthenticatedClientsClosesOnlyAuthenticatedSessions() async throws {
         let service = makeService()
         let authenticatedTransport = MockRealtimeTransport()

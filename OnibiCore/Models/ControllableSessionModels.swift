@@ -129,17 +129,23 @@ public struct SessionOutputChunk: Codable, Equatable, Identifiable, Sendable {
 public struct SessionOutputBufferSnapshot: Codable, Equatable, Sendable {
     public let session: ControllableSessionSnapshot
     public let bufferCursor: String?
+    public let startCursor: String?
+    public let endCursor: String?
     public let chunks: [SessionOutputChunk]
     public let truncated: Bool
 
     public init(
         session: ControllableSessionSnapshot,
         bufferCursor: String?,
+        startCursor: String? = nil,
+        endCursor: String? = nil,
         chunks: [SessionOutputChunk],
         truncated: Bool
     ) {
         self.session = session
         self.bufferCursor = bufferCursor
+        self.startCursor = startCursor
+        self.endCursor = endCursor
         self.chunks = chunks
         self.truncated = truncated
     }

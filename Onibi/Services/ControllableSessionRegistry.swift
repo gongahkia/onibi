@@ -296,11 +296,15 @@ actor ControllableSessionRegistry {
         emit(.sessionUpdated(record.snapshot))
     }
 
-    func bufferSnapshot(for sessionId: String) -> SessionOutputBufferSnapshot? {
+    func bufferSnapshot(
+        for sessionId: String,
+        after cursor: String? = nil,
+        limit: Int? = nil
+    ) -> SessionOutputBufferSnapshot? {
         guard let record = sessions[sessionId] else {
             return nil
         }
-        return record.buffer.snapshot(for: record.snapshot)
+        return record.buffer.snapshot(for: record.snapshot, after: cursor, limit: limit)
     }
 
     func sendInput(

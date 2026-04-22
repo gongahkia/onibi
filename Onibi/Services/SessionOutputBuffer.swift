@@ -58,13 +58,35 @@ struct SessionOutputBuffer {
         )
     }
 
-    func snapshot(for session: ControllableSessionSnapshot) -> SessionOutputBufferSnapshot {
-        SessionOutputBufferSnapshot(
+    func snapshot(
+        for session: ControllableSessionSnapshot,
+        after cursor: String? = nil,
+        limit: Int? = nil
+    ) -> SessionOutputBufferSnapshot {
+        let requestedChunks = chunksAfter(cursor: cursor, limit: limit)
+        return SessionOutputBufferSnapshot(
             session: session,
             bufferCursor: currentCursor,
-            chunks: chunks,
+            startCursor: requestedChunks.first?.id,
+            endCursor: requestedChunks.last?.id,
+            chunks: requestedChunks,
             truncated: isTruncated
         )
+    }
+
+    private func chunksAfter(cursor: String?, limit: Int?) -> [SessionOutputChunk] {
+        let boundedLimit = limit.map { max(1, min($0, chunks.count)) }
+        let candidateChunks: [SessionOutputChunk]
+        if let cursor, let cursorIndex = chunks.firstIndex(where: { $0.id == cursor }) {
+            candidateChunks = Array(chunks.dropFirst(cursorIndex + 1))
+        } else {
+            candidateChunks = chunks
+        }
+
+        guard let boundedLimit, candidateChunks.count > boundedLimit else {
+            return candidateChunks
+        }
+        return Array(candidateChunks.suffix(boundedLimit))
     }
 
     private mutating func trimIfNeeded() -> Int {
