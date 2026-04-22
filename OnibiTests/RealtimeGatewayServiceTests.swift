@@ -243,6 +243,66 @@ final class RealtimeGatewayServiceTests: XCTestCase {
         XCTAssertEqual(diagnostics.connectedClientCount, 1)
     }
 
+    func testSessionRemovalClearsSubscriptionsBeforeSessionIDReuse() async throws {
+        let registry = ControllableSessionRegistry(
+            defaultBufferLineLimit: 10,
+            defaultBufferByteLimit: 1024,
+            staleSessionGracePeriod: 1
+        )
+        let service = makeService(registry: registry)
+        let transport = MockRealtimeTransport()
+        let sessionId = "session-1"
+
+        await service.start()
+        await registry.register(
+            ControllableSessionRegistration(
+                id: sessionId,
+                startedAt: Date().addingTimeInterval(-20),
+                status: .exited
+            )
+        )
+        await service.attach(transport)
+        await service.receive(
+            text: try encode(
+                RealtimeClientMessage(type: .auth, token: "test-token")
+            ),
+            from: transport.id
+        )
+        await service.receive(
+            text: try encode(
+                RealtimeClientMessage(type: .subscribe, sessionId: sessionId)
+            ),
+            from: transport.id
+        )
+        await transport.clear()
+
+        await registry.expireDisconnectedSessions(now: Date())
+        let didReceiveRemoved = await waitForCondition {
+            let messages = await transport.messages()
+            return messages.contains { $0.type == .sessionRemoved && $0.sessionId == sessionId }
+        }
+        XCTAssertTrue(didReceiveRemoved)
+
+        await transport.clear()
+        await registry.register(
+            ControllableSessionRegistration(
+                id: sessionId,
+                status: .running
+            )
+        )
+        await registry.appendOutput(
+            sessionId: sessionId,
+            data: Data("new output\n".utf8),
+            timestamp: Date()
+        )
+        try? await Task.sleep(nanoseconds: 120_000_000)
+
+        let messagesAfterReuse = await transport.messages()
+        XCTAssertFalse(messagesAfterReuse.contains { $0.type == .output })
+
+        await service.stop()
+    }
+
     private func makeRegistry() -> ControllableSessionRegistry {
         ControllableSessionRegistry(
             defaultBufferLineLimit: 10,
