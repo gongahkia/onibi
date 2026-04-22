@@ -41,7 +41,8 @@ final class ProxyRealtimeIntegrationTests: XCTestCase {
                     pid: 1234,
                     startedAt: Date(),
                     workingDirectory: "/tmp",
-                    hostname: "localhost"
+                    hostname: "localhost",
+                    proxyVersion: "integration-proxy"
                 )
             )
 
@@ -49,6 +50,28 @@ final class ProxyRealtimeIntegrationTests: XCTestCase {
                 await registry.session(id: sessionId) != nil
             }
             XCTAssertTrue(didRegister)
+            let registeredSnapshot = await registry.session(id: sessionId)
+            XCTAssertEqual(registeredSnapshot?.shell, "/bin/zsh")
+            XCTAssertEqual(registeredSnapshot?.pid, 1234)
+            XCTAssertEqual(registeredSnapshot?.hostname, "localhost")
+            XCTAssertEqual(registeredSnapshot?.proxyVersion, "integration-proxy")
+
+            try proxyClient.sendFrame(
+                LocalSessionProxyMetadataMessage(
+                    sessionId: sessionId,
+                    workingDirectory: "/tmp/updated",
+                    terminalCols: 132,
+                    terminalRows: 38
+                )
+            )
+
+            let didApplyMetadata = await waitUntil(timeoutSeconds: 1.0) {
+                let snapshot = await registry.session(id: sessionId)
+                return snapshot?.workingDirectory == "/tmp/updated" &&
+                    snapshot?.terminalCols == 132 &&
+                    snapshot?.terminalRows == 38
+            }
+            XCTAssertTrue(didApplyMetadata)
 
             try proxyClient.sendFrame(
                 LocalSessionProxyOutputMessage(

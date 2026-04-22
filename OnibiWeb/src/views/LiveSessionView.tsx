@@ -46,6 +46,12 @@ function statusClassName(status: ControllableSessionSnapshot["status"]): string 
   }
 }
 
+function shellName(shell?: string | null): string | null {
+  if (!shell) return null;
+  const parts = shell.split("/");
+  return parts[parts.length - 1] || shell;
+}
+
 function IconBack(): JSX.Element {
   return (
     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -107,6 +113,9 @@ export function LiveSessionView({
   }
 
   const inputDisabled = realtimeState !== "authenticated" || !session.isControllable || session.status !== "running";
+  const shell = shellName(session.shell);
+  const terminalSize =
+    session.terminalCols && session.terminalRows ? `${session.terminalCols}x${session.terminalRows}` : null;
 
   return (
     <main className={`mf-live-page ${isLandscape ? "mf-live-landscape" : "mf-live-portrait"}`}>
@@ -122,6 +131,8 @@ export function LiveSessionView({
               <span className="mf-badge-dot" aria-hidden="true" />
               {realtimeShortLabel(realtimeState)}
             </span>
+            {shell && <span className="mf-badge mf-badge-compact">{shell}</span>}
+            {terminalSize && <span className="mf-badge mf-badge-compact">{terminalSize}</span>}
           </div>
         </div>
         <button

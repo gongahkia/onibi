@@ -253,6 +253,8 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
                 switch envelope.type {
                 case .register:
                     try await handleRegisterFrame(connectionID: connectionID, frameData: frameData)
+                case .metadata:
+                    try await handleMetadataFrame(frameData: frameData)
                 case .output:
                     try await handleOutputFrame(frameData: frameData)
                 case .state:
@@ -331,7 +333,11 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
                 startedAt: message.startedAt,
                 status: .starting,
                 isControllable: true,
-                workingDirectory: message.workingDirectory
+                workingDirectory: message.workingDirectory,
+                shell: message.shell,
+                pid: message.pid,
+                hostname: message.hostname,
+                proxyVersion: message.proxyVersion
             ),
             inputHandler: { payload in
                 try await writer.sendInput(payload, sessionId: message.sessionId)
@@ -346,6 +352,17 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
             workingDirectory: message.workingDirectory,
             displayName: displayName(for: message),
             isControllable: true,
+            at: Date()
+        )
+    }
+
+    private func handleMetadataFrame(frameData: Data) async throws {
+        let message = try JSONDateCodec.decoder.decode(LocalSessionProxyMetadataMessage.self, from: frameData)
+        await registry.updateSession(
+            id: message.sessionId,
+            workingDirectory: message.workingDirectory,
+            terminalCols: message.terminalCols,
+            terminalRows: message.terminalRows,
             at: Date()
         )
     }

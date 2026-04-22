@@ -20,6 +20,12 @@ struct ControllableSessionRegistration: Sendable {
     let isControllable: Bool
     let workingDirectory: String?
     let lastCommandPreview: String?
+    let shell: String?
+    let pid: Int32?
+    let hostname: String?
+    let proxyVersion: String?
+    let terminalCols: Int?
+    let terminalRows: Int?
 
     init(
         id: String,
@@ -28,7 +34,13 @@ struct ControllableSessionRegistration: Sendable {
         status: SessionTransportStatus = .starting,
         isControllable: Bool = true,
         workingDirectory: String? = nil,
-        lastCommandPreview: String? = nil
+        lastCommandPreview: String? = nil,
+        shell: String? = nil,
+        pid: Int32? = nil,
+        hostname: String? = nil,
+        proxyVersion: String? = nil,
+        terminalCols: Int? = nil,
+        terminalRows: Int? = nil
     ) {
         self.id = id
         self.displayName = displayName ?? ControllableSessionRegistration.fallbackDisplayName(for: id)
@@ -37,6 +49,12 @@ struct ControllableSessionRegistration: Sendable {
         self.isControllable = isControllable
         self.workingDirectory = workingDirectory
         self.lastCommandPreview = lastCommandPreview
+        self.shell = shell
+        self.pid = pid
+        self.hostname = hostname
+        self.proxyVersion = proxyVersion
+        self.terminalCols = terminalCols
+        self.terminalRows = terminalRows
     }
 
     private static func fallbackDisplayName(for sessionId: String) -> String {
@@ -157,7 +175,13 @@ actor ControllableSessionRegistry {
                 isControllable: registration.isControllable,
                 workingDirectory: registration.workingDirectory,
                 lastCommandPreview: registration.lastCommandPreview,
-                bufferCursor: currentCursor
+                bufferCursor: currentCursor,
+                shell: registration.shell,
+                pid: registration.pid,
+                hostname: registration.hostname,
+                proxyVersion: registration.proxyVersion,
+                terminalCols: registration.terminalCols,
+                terminalRows: registration.terminalRows
             ),
             buffer: existingBuffer,
             inputHandler: currentHandler,
@@ -212,6 +236,8 @@ actor ControllableSessionRegistry {
         lastCommandPreview: String? = nil,
         displayName: String? = nil,
         isControllable: Bool? = nil,
+        terminalCols: Int? = nil,
+        terminalRows: Int? = nil,
         at timestamp: Date = Date()
     ) {
         guard var record = sessions[sessionId] else {
@@ -226,7 +252,9 @@ actor ControllableSessionRegistry {
             isControllable: isControllable,
             workingDirectory: workingDirectory ?? record.snapshot.workingDirectory,
             lastCommandPreview: lastCommandPreview ?? record.snapshot.lastCommandPreview,
-            bufferCursor: record.buffer.currentCursor
+            bufferCursor: record.buffer.currentCursor,
+            terminalCols: terminalCols ?? record.snapshot.terminalCols,
+            terminalRows: terminalRows ?? record.snapshot.terminalRows
         )
         sessions[sessionId] = record
         emit(.sessionUpdated(record.snapshot))
@@ -335,7 +363,9 @@ actor ControllableSessionRegistry {
         record.lastHeartbeatAt = timestamp
         record.snapshot = record.snapshot.updating(
             lastActivityAt: timestamp,
-            bufferCursor: record.buffer.currentCursor
+            bufferCursor: record.buffer.currentCursor,
+            terminalCols: payload.cols,
+            terminalRows: payload.rows
         )
         sessions[sessionId] = record
         return RemoteTerminalResizeAcceptance(
@@ -410,7 +440,13 @@ private extension ControllableSessionSnapshot {
         isControllable: Bool? = nil,
         workingDirectory: String? = nil,
         lastCommandPreview: String? = nil,
-        bufferCursor: String? = nil
+        bufferCursor: String? = nil,
+        shell: String? = nil,
+        pid: Int32? = nil,
+        hostname: String? = nil,
+        proxyVersion: String? = nil,
+        terminalCols: Int? = nil,
+        terminalRows: Int? = nil
     ) -> ControllableSessionSnapshot {
         ControllableSessionSnapshot(
             id: id,
@@ -421,7 +457,13 @@ private extension ControllableSessionSnapshot {
             isControllable: isControllable ?? self.isControllable,
             workingDirectory: workingDirectory ?? self.workingDirectory,
             lastCommandPreview: lastCommandPreview ?? self.lastCommandPreview,
-            bufferCursor: bufferCursor ?? self.bufferCursor
+            bufferCursor: bufferCursor ?? self.bufferCursor,
+            shell: shell ?? self.shell,
+            pid: pid ?? self.pid,
+            hostname: hostname ?? self.hostname,
+            proxyVersion: proxyVersion ?? self.proxyVersion,
+            terminalCols: terminalCols ?? self.terminalCols,
+            terminalRows: terminalRows ?? self.terminalRows
         )
     }
 }

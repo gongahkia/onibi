@@ -15,7 +15,14 @@ final class ControllableSessionRegistryTests: XCTestCase {
                 id: "session-1",
                 displayName: "Session 1",
                 startedAt: Date().addingTimeInterval(-5),
-                status: .starting
+                status: .starting,
+                workingDirectory: "/tmp/project",
+                shell: "/bin/zsh",
+                pid: 1234,
+                hostname: "mac.local",
+                proxyVersion: "1.0.0",
+                terminalCols: 120,
+                terminalRows: 40
             )
         )
         await registry.appendOutput(
@@ -29,6 +36,12 @@ final class ControllableSessionRegistryTests: XCTestCase {
 
         XCTAssertEqual(snapshot?.status, .running)
         XCTAssertNotNil(snapshot?.bufferCursor)
+        XCTAssertEqual(snapshot?.shell, "/bin/zsh")
+        XCTAssertEqual(snapshot?.pid, 1234)
+        XCTAssertEqual(snapshot?.hostname, "mac.local")
+        XCTAssertEqual(snapshot?.proxyVersion, "1.0.0")
+        XCTAssertEqual(snapshot?.terminalCols, 120)
+        XCTAssertEqual(snapshot?.terminalRows, 40)
         XCTAssertEqual(buffer?.chunks.count, 1)
         XCTAssertEqual(String(data: buffer?.chunks[0].data ?? Data(), encoding: .utf8), "ready\n")
     }

@@ -2,6 +2,7 @@ import Foundation
 
 public enum LocalSessionProxyFrameType: String, Codable, Sendable {
     case register
+    case metadata
     case output
     case state
     case exit
@@ -45,6 +46,27 @@ public struct LocalSessionProxyRegisterMessage: Codable, Equatable, Sendable {
         self.workingDirectory = workingDirectory
         self.hostname = hostname
         self.proxyVersion = proxyVersion
+    }
+}
+
+public struct LocalSessionProxyMetadataMessage: Codable, Equatable, Sendable {
+    public let type: LocalSessionProxyFrameType
+    public let sessionId: String
+    public let workingDirectory: String?
+    public let terminalCols: Int?
+    public let terminalRows: Int?
+
+    public init(
+        sessionId: String,
+        workingDirectory: String? = nil,
+        terminalCols: Int? = nil,
+        terminalRows: Int? = nil
+    ) {
+        self.type = .metadata
+        self.sessionId = sessionId
+        self.workingDirectory = workingDirectory
+        self.terminalCols = terminalCols
+        self.terminalRows = terminalRows
     }
 }
 

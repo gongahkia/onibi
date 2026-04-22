@@ -57,6 +57,12 @@ public struct ControllableSessionSnapshot: Codable, Equatable, Identifiable, Sen
     public let workingDirectory: String?
     public let lastCommandPreview: String?
     public let bufferCursor: String?
+    public let shell: String?
+    public let pid: Int32?
+    public let hostname: String?
+    public let proxyVersion: String?
+    public let terminalCols: Int?
+    public let terminalRows: Int?
 
     public init(
         id: String,
@@ -67,7 +73,13 @@ public struct ControllableSessionSnapshot: Codable, Equatable, Identifiable, Sen
         isControllable: Bool,
         workingDirectory: String?,
         lastCommandPreview: String?,
-        bufferCursor: String?
+        bufferCursor: String?,
+        shell: String? = nil,
+        pid: Int32? = nil,
+        hostname: String? = nil,
+        proxyVersion: String? = nil,
+        terminalCols: Int? = nil,
+        terminalRows: Int? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -78,6 +90,12 @@ public struct ControllableSessionSnapshot: Codable, Equatable, Identifiable, Sen
         self.workingDirectory = workingDirectory
         self.lastCommandPreview = lastCommandPreview
         self.bufferCursor = bufferCursor
+        self.shell = shell
+        self.pid = pid
+        self.hostname = hostname
+        self.proxyVersion = proxyVersion
+        self.terminalCols = terminalCols
+        self.terminalRows = terminalRows
     }
 }
 

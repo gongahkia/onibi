@@ -31,6 +31,12 @@ export interface ControllableSessionSnapshot {
   workingDirectory: string | null;
   lastCommandPreview: string | null;
   bufferCursor: string | null;
+  shell?: string | null;
+  pid?: number | null;
+  hostname?: string | null;
+  proxyVersion?: string | null;
+  terminalCols?: number | null;
+  terminalRows?: number | null;
 }
 
 export interface SessionOutputChunk {

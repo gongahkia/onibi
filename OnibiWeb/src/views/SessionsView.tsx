@@ -63,6 +63,24 @@ function formatActivity(isoTimestamp: string): string {
   return `${Math.floor(deltaMs / 86_400_000)}d ago`;
 }
 
+function shellName(shell?: string | null): string | null {
+  if (!shell) return null;
+  const parts = shell.split("/");
+  return parts[parts.length - 1] || shell;
+}
+
+function metadataLabels(session: ControllableSessionSnapshot): string[] {
+  const labels: string[] = [];
+  const shell = shellName(session.shell);
+  if (shell) labels.push(shell);
+  if (session.pid) labels.push(`pid ${session.pid}`);
+  if (session.terminalCols && session.terminalRows) {
+    labels.push(`${session.terminalCols}x${session.terminalRows}`);
+  }
+  if (session.hostname) labels.push(session.hostname);
+  return labels;
+}
+
 function IconRefresh(): JSX.Element {
   return (
     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -211,6 +229,7 @@ export function SessionsView({
             {sessions.map((session) => {
               const outputPreview = outputPreviewBySession[session.id];
               const menuOpen = openMenuId === session.id;
+              const metadata = metadataLabels(session);
               return (
                 <li key={session.id} className="mf-session-li">
                   <button
@@ -223,6 +242,14 @@ export function SessionsView({
                       <strong>{session.displayName}</strong>
                       <span className={statusClassName(session.status)}>{session.status}</span>
                     </div>
+
+                    {metadata.length > 0 && (
+                      <div className="mf-session-meta-row" aria-label="Session metadata">
+                        {metadata.map((label) => (
+                          <span key={label}>{label}</span>
+                        ))}
+                      </div>
+                    )}
 
                     {session.lastCommandPreview && (
                       <p className="mf-command-preview">{session.lastCommandPreview}</p>

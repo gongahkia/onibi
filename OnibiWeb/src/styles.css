@@ -524,6 +524,22 @@ button:hover:enabled {
   font-size: 0.97rem;
 }
 
+.mf-session-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.mf-session-meta-row span {
+  border: 1px solid var(--mf-line);
+  border-radius: 999px;
+  padding: 0.1rem 0.4rem;
+  color: var(--mf-ink-muted);
+  background: var(--mf-surface-subtle);
+  font-size: 0.72rem;
+  font-family: var(--mf-mono);
+}
+
 .mf-command-preview {
   margin: 0;
   border-radius: 0.55rem;

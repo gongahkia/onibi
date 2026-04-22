@@ -82,6 +82,7 @@ final class SessionProxyRuntime {
 
     private var hostBuffer = Data()
     private var originalTerminalState: termios?
+    private var lastReportedTerminalSize: RemoteTerminalResizePayload?
     private var isShuttingDown = false
 
     init(configuration: SessionProxyLaunchConfiguration) {
@@ -281,7 +282,10 @@ final class SessionProxyRuntime {
                 throw SessionProxyRuntimeError.invalidResizePayload
             }
             applyWindowSize(cols: payload.cols, rows: payload.rows)
-        case .register, .output, .state, .exit, .heartbeat:
+            sendTerminalMetadataIfChanged(
+                RemoteTerminalResizePayload(cols: payload.cols, rows: payload.rows)
+            )
+        case .register, .metadata, .output, .state, .exit, .heartbeat:
             throw SessionProxyRuntimeError.invalidFrameType(envelope.type.rawValue)
         }
     }
@@ -450,11 +454,15 @@ final class SessionProxyRuntime {
             return
         }
 
-        var size = winsize()
-        guard ioctl(STDIN_FILENO, TIOCGWINSZ, &size) == 0 else {
+        guard let terminalSize = currentTerminalSize() else {
             return
         }
+
+        var size = winsize()
+        size.ws_col = UInt16(clamping: terminalSize.cols)
+        size.ws_row = UInt16(clamping: terminalSize.rows)
         _ = ioctl(ptyMasterFD, TIOCSWINSZ, &size)
+        sendTerminalMetadataIfChanged(terminalSize)
     }
 
     private func applyWindowSize(cols: Int, rows: Int) {
@@ -466,6 +474,38 @@ final class SessionProxyRuntime {
         size.ws_col = UInt16(clamping: cols)
         size.ws_row = UInt16(clamping: rows)
         _ = ioctl(ptyMasterFD, TIOCSWINSZ, &size)
+    }
+
+    private func currentTerminalSize() -> RemoteTerminalResizePayload? {
+        var size = winsize()
+        guard ioctl(STDIN_FILENO, TIOCGWINSZ, &size) == 0 else {
+            return nil
+        }
+        let cols = Int(size.ws_col)
+        let rows = Int(size.ws_row)
+        guard cols > 0, rows > 0 else {
+            return nil
+        }
+        return RemoteTerminalResizePayload(cols: cols, rows: rows)
+    }
+
+    private func sendTerminalMetadataIfChanged(_ size: RemoteTerminalResizePayload) {
+        guard lastReportedTerminalSize != size else {
+            return
+        }
+        lastReportedTerminalSize = size
+        do {
+            try sendFrame(
+                LocalSessionProxyMetadataMessage(
+                    sessionId: configuration.sessionId,
+                    workingDirectory: configuration.workingDirectory,
+                    terminalCols: size.cols,
+                    terminalRows: size.rows
+                )
+            )
+        } catch {
+            shutdown(exitCode: 1)
+        }
     }
 
     private func sendFrame<T: Encodable>(_ frame: T) throws {
