@@ -1,6 +1,7 @@
 export type SessionTransportStatus = "starting" | "running" | "exited" | "failed";
 export type SessionOutputStream = "stdout" | "stderr";
 export type TerminalEventKind = "bell" | "working_directory";
+export type SessionFlowControlState = "open" | "limited" | "blocked";
 export type RemoteInputKind = "text" | "key" | "paste" | "bytes" | "file";
 export type RemoteInputKey =
   | "enter"
@@ -28,6 +29,17 @@ export interface TerminalEventSnapshot {
   timestamp: string;
 }
 
+export interface SessionHealthSnapshot {
+  timestamp: string;
+  canReceiveInput: boolean;
+  flowControl: SessionFlowControlState;
+  inputByteCount: number;
+  outputByteCount: number;
+  droppedOutputByteCount: number;
+  lastInputAt?: string | null;
+  lastOutputAt?: string | null;
+}
+
 export interface ControllableSessionSnapshot {
   id: string;
   displayName: string;
@@ -46,6 +58,7 @@ export interface ControllableSessionSnapshot {
   terminalRows?: number | null;
   terminalTitle?: string | null;
   lastTerminalEvent?: TerminalEventSnapshot | null;
+  health?: SessionHealthSnapshot | null;
 }
 
 export interface SessionOutputChunk {

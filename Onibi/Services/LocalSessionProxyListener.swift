@@ -264,6 +264,8 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
                     try await handleCommandEndFrame(frameData: frameData)
                 case .terminalEvent:
                     try await handleTerminalEventFrame(frameData: frameData)
+                case .health:
+                    try await handleHealthFrame(frameData: frameData)
                 case .state:
                     try await handleStateFrame(frameData: frameData)
                 case .exit:
@@ -460,6 +462,17 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
                 at: message.timestamp
             )
         }
+    }
+
+    private func handleHealthFrame(frameData: Data) async throws {
+        let message = try JSONDateCodec.decoder.decode(LocalSessionProxyHealthMessage.self, from: frameData)
+        await registry.updateSession(
+            id: message.sessionId,
+            status: .running,
+            isControllable: message.canReceiveInput,
+            health: message.snapshot,
+            at: message.timestamp
+        )
     }
 
     private func handleStateFrame(frameData: Data) async throws {

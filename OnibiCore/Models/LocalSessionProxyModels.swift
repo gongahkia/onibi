@@ -7,6 +7,7 @@ public enum LocalSessionProxyFrameType: String, Codable, Sendable {
     case commandStart = "command_start"
     case commandEnd = "command_end"
     case terminalEvent = "terminal_event"
+    case health
     case state
     case exit
     case heartbeat
@@ -112,6 +113,92 @@ public struct LocalSessionProxyOutputMessage: Codable, Equatable, Sendable {
 
     public var decodedData: Data? {
         Data(base64Encoded: data)
+    }
+}
+
+public enum SessionFlowControlState: String, Codable, Sendable {
+    case open
+    case limited
+    case blocked
+}
+
+public struct SessionHealthSnapshot: Codable, Equatable, Sendable {
+    public let timestamp: Date
+    public let canReceiveInput: Bool
+    public let flowControl: SessionFlowControlState
+    public let inputByteCount: Int
+    public let outputByteCount: Int
+    public let droppedOutputByteCount: Int
+    public let lastInputAt: Date?
+    public let lastOutputAt: Date?
+
+    public init(
+        timestamp: Date,
+        canReceiveInput: Bool,
+        flowControl: SessionFlowControlState,
+        inputByteCount: Int,
+        outputByteCount: Int,
+        droppedOutputByteCount: Int,
+        lastInputAt: Date? = nil,
+        lastOutputAt: Date? = nil
+    ) {
+        self.timestamp = timestamp
+        self.canReceiveInput = canReceiveInput
+        self.flowControl = flowControl
+        self.inputByteCount = inputByteCount
+        self.outputByteCount = outputByteCount
+        self.droppedOutputByteCount = droppedOutputByteCount
+        self.lastInputAt = lastInputAt
+        self.lastOutputAt = lastOutputAt
+    }
+}
+
+public struct LocalSessionProxyHealthMessage: Codable, Equatable, Sendable {
+    public let type: LocalSessionProxyFrameType
+    public let sessionId: String
+    public let timestamp: Date
+    public let canReceiveInput: Bool
+    public let flowControl: SessionFlowControlState
+    public let inputByteCount: Int
+    public let outputByteCount: Int
+    public let droppedOutputByteCount: Int
+    public let lastInputAt: Date?
+    public let lastOutputAt: Date?
+
+    public init(
+        sessionId: String,
+        timestamp: Date,
+        canReceiveInput: Bool,
+        flowControl: SessionFlowControlState,
+        inputByteCount: Int,
+        outputByteCount: Int,
+        droppedOutputByteCount: Int,
+        lastInputAt: Date? = nil,
+        lastOutputAt: Date? = nil
+    ) {
+        self.type = .health
+        self.sessionId = sessionId
+        self.timestamp = timestamp
+        self.canReceiveInput = canReceiveInput
+        self.flowControl = flowControl
+        self.inputByteCount = inputByteCount
+        self.outputByteCount = outputByteCount
+        self.droppedOutputByteCount = droppedOutputByteCount
+        self.lastInputAt = lastInputAt
+        self.lastOutputAt = lastOutputAt
+    }
+
+    public var snapshot: SessionHealthSnapshot {
+        SessionHealthSnapshot(
+            timestamp: timestamp,
+            canReceiveInput: canReceiveInput,
+            flowControl: flowControl,
+            inputByteCount: inputByteCount,
+            outputByteCount: outputByteCount,
+            droppedOutputByteCount: droppedOutputByteCount,
+            lastInputAt: lastInputAt,
+            lastOutputAt: lastOutputAt
+        )
     }
 }
 

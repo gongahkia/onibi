@@ -28,6 +28,7 @@ struct ControllableSessionRegistration: Sendable {
     let terminalRows: Int?
     let terminalTitle: String?
     let lastTerminalEvent: TerminalEventSnapshot?
+    let health: SessionHealthSnapshot?
 
     init(
         id: String,
@@ -44,7 +45,8 @@ struct ControllableSessionRegistration: Sendable {
         terminalCols: Int? = nil,
         terminalRows: Int? = nil,
         terminalTitle: String? = nil,
-        lastTerminalEvent: TerminalEventSnapshot? = nil
+        lastTerminalEvent: TerminalEventSnapshot? = nil,
+        health: SessionHealthSnapshot? = nil
     ) {
         self.id = id
         self.displayName = displayName ?? ControllableSessionRegistration.fallbackDisplayName(for: id)
@@ -61,6 +63,7 @@ struct ControllableSessionRegistration: Sendable {
         self.terminalRows = terminalRows
         self.terminalTitle = terminalTitle
         self.lastTerminalEvent = lastTerminalEvent
+        self.health = health
     }
 
     private static func fallbackDisplayName(for sessionId: String) -> String {
@@ -189,7 +192,8 @@ actor ControllableSessionRegistry {
                 terminalCols: registration.terminalCols,
                 terminalRows: registration.terminalRows,
                 terminalTitle: registration.terminalTitle,
-                lastTerminalEvent: registration.lastTerminalEvent
+                lastTerminalEvent: registration.lastTerminalEvent,
+                health: registration.health
             ),
             buffer: existingBuffer,
             inputHandler: currentHandler,
@@ -248,6 +252,7 @@ actor ControllableSessionRegistry {
         terminalRows: Int? = nil,
         terminalTitle: String? = nil,
         lastTerminalEvent: TerminalEventSnapshot? = nil,
+        health: SessionHealthSnapshot? = nil,
         at timestamp: Date = Date()
     ) {
         guard var record = sessions[sessionId] else {
@@ -266,7 +271,8 @@ actor ControllableSessionRegistry {
             terminalCols: terminalCols ?? record.snapshot.terminalCols,
             terminalRows: terminalRows ?? record.snapshot.terminalRows,
             terminalTitle: terminalTitle ?? record.snapshot.terminalTitle,
-            lastTerminalEvent: lastTerminalEvent ?? record.snapshot.lastTerminalEvent
+            lastTerminalEvent: lastTerminalEvent ?? record.snapshot.lastTerminalEvent,
+            health: health ?? record.snapshot.health
         )
         sessions[sessionId] = record
         emit(.sessionUpdated(record.snapshot))
@@ -464,7 +470,8 @@ private extension ControllableSessionSnapshot {
         terminalCols: Int? = nil,
         terminalRows: Int? = nil,
         terminalTitle: String? = nil,
-        lastTerminalEvent: TerminalEventSnapshot? = nil
+        lastTerminalEvent: TerminalEventSnapshot? = nil,
+        health: SessionHealthSnapshot? = nil
     ) -> ControllableSessionSnapshot {
         ControllableSessionSnapshot(
             id: id,
@@ -483,7 +490,8 @@ private extension ControllableSessionSnapshot {
             terminalCols: terminalCols ?? self.terminalCols,
             terminalRows: terminalRows ?? self.terminalRows,
             terminalTitle: terminalTitle ?? self.terminalTitle,
-            lastTerminalEvent: lastTerminalEvent ?? self.lastTerminalEvent
+            lastTerminalEvent: lastTerminalEvent ?? self.lastTerminalEvent,
+            health: health ?? self.health
         )
     }
 }

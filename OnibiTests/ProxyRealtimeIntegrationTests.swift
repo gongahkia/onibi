@@ -93,6 +93,29 @@ final class ProxyRealtimeIntegrationTests: XCTestCase {
             XCTAssertTrue(didApplyTerminalEvent)
 
             try proxyClient.sendFrame(
+                LocalSessionProxyHealthMessage(
+                    sessionId: sessionId,
+                    timestamp: Date(),
+                    canReceiveInput: true,
+                    flowControl: .open,
+                    inputByteCount: 42,
+                    outputByteCount: 2048,
+                    droppedOutputByteCount: 0,
+                    lastInputAt: Date(),
+                    lastOutputAt: Date()
+                )
+            )
+
+            let didApplyHealth = await waitUntil(timeoutSeconds: 1.0) {
+                let snapshot = await registry.session(id: sessionId)
+                return snapshot?.health?.canReceiveInput == true &&
+                    snapshot?.health?.flowControl == .open &&
+                    snapshot?.health?.inputByteCount == 42 &&
+                    snapshot?.health?.outputByteCount == 2048
+            }
+            XCTAssertTrue(didApplyHealth)
+
+            try proxyClient.sendFrame(
                 LocalSessionProxyCommandStartMessage(
                     sessionId: sessionId,
                     command: "npm run build -- --token sk-test",

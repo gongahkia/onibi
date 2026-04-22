@@ -87,6 +87,11 @@ final class SessionProxyRuntime {
     private var titleParser = TerminalTitleParser()
     private var commandLifecycleParser = TerminalCommandLifecycleParser()
     private var terminalEventParser = TerminalEventParser()
+    private var inputByteCount = 0
+    private var outputByteCount = 0
+    private var droppedOutputByteCount = 0
+    private var lastInputAt: Date?
+    private var lastOutputAt: Date?
     private var isShuttingDown = false
 
     init(configuration: SessionProxyLaunchConfiguration) {
@@ -217,6 +222,8 @@ final class SessionProxyRuntime {
 
             for chunk in chunks {
                 try writeAll(chunk, to: ptyMasterFD)
+                inputByteCount += chunk.count
+                lastInputAt = Date()
             }
         } catch {
             shutdown(exitCode: 1)
@@ -235,15 +242,18 @@ final class SessionProxyRuntime {
             }
 
             for chunk in chunks {
+                let timestamp = Date()
                 try writeAll(chunk, to: STDOUT_FILENO)
                 try sendFrame(
                     LocalSessionProxyOutputMessage(
                         sessionId: configuration.sessionId,
                         stream: .stdout,
-                        timestamp: Date(),
+                        timestamp: timestamp,
                         outputData: chunk
                     )
                 )
+                outputByteCount += chunk.count
+                lastOutputAt = timestamp
                 if let title = titleParser.consume(chunk).last {
                     sendTerminalTitleMetadataIfChanged(title)
                 }
@@ -288,6 +298,9 @@ final class SessionProxyRuntime {
             let message = try JSONDateCodec.decoder.decode(LocalSessionProxyInputMessage.self, from: frameData)
             let bytes = try RemoteInputByteTranslator.data(for: message.payload)
             try writeAll(bytes, to: ptyMasterFD)
+            inputByteCount += bytes.count
+            lastInputAt = Date()
+            sendHealth()
         case .resize:
             let message = try JSONDateCodec.decoder.decode(LocalSessionProxyResizeMessage.self, from: frameData)
             let payload = message.payload
@@ -298,7 +311,7 @@ final class SessionProxyRuntime {
             sendTerminalMetadataIfChanged(
                 RemoteTerminalResizePayload(cols: payload.cols, rows: payload.rows)
             )
-        case .register, .metadata, .output, .commandStart, .commandEnd, .terminalEvent, .state, .exit, .heartbeat:
+        case .register, .metadata, .output, .commandStart, .commandEnd, .terminalEvent, .health, .state, .exit, .heartbeat:
             throw SessionProxyRuntimeError.invalidFrameType(envelope.type.rawValue)
         }
     }
@@ -350,6 +363,19 @@ final class SessionProxyRuntime {
                     timestamp: Date()
                 )
             )
+            try sendFrame(currentHealthMessage(timestamp: Date()))
+        } catch {
+            shutdown(exitCode: 1)
+        }
+    }
+
+    private func sendHealth() {
+        guard !isShuttingDown else {
+            return
+        }
+
+        do {
+            try sendFrame(currentHealthMessage(timestamp: Date()))
         } catch {
             shutdown(exitCode: 1)
         }
@@ -589,6 +615,29 @@ final class SessionProxyRuntime {
         } catch {
             shutdown(exitCode: 1)
         }
+    }
+
+    private func currentHealthMessage(timestamp: Date) -> LocalSessionProxyHealthMessage {
+        let canReceiveInput = ptyMasterFD >= 0 && !isShuttingDown
+        let flowControl: SessionFlowControlState
+        if !canReceiveInput {
+            flowControl = .blocked
+        } else if droppedOutputByteCount > 0 {
+            flowControl = .limited
+        } else {
+            flowControl = .open
+        }
+        return LocalSessionProxyHealthMessage(
+            sessionId: configuration.sessionId,
+            timestamp: timestamp,
+            canReceiveInput: canReceiveInput,
+            flowControl: flowControl,
+            inputByteCount: inputByteCount,
+            outputByteCount: outputByteCount,
+            droppedOutputByteCount: droppedOutputByteCount,
+            lastInputAt: lastInputAt,
+            lastOutputAt: lastOutputAt
+        )
     }
 
     private func sendFrame<T: Encodable>(_ frame: T) throws {

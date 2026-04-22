@@ -75,6 +75,13 @@ function pathName(path?: string | null): string | null {
   return parts[parts.length - 1] || path;
 }
 
+function formatBytes(bytes?: number): string | null {
+  if (bytes === undefined) return null;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function metadataLabels(session: ControllableSessionSnapshot): string[] {
   const labels: string[] = [];
   const shell = shellName(session.shell);
@@ -86,6 +93,11 @@ function metadataLabels(session: ControllableSessionSnapshot): string[] {
     labels.push(`${session.terminalCols}x${session.terminalRows}`);
   }
   if (session.lastTerminalEvent?.kind === "bell") labels.push("bell");
+  if (session.health?.flowControl && session.health.flowControl !== "open") {
+    labels.push(`flow ${session.health.flowControl}`);
+  }
+  const outputBytes = formatBytes(session.health?.outputByteCount);
+  if (outputBytes) labels.push(`out ${outputBytes}`);
   if (session.hostname) labels.push(session.hostname);
   return labels;
 }

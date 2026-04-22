@@ -28,6 +28,14 @@ final class ControllableSessionRegistryTests: XCTestCase {
                     kind: .workingDirectory,
                     value: "/tmp/project",
                     timestamp: Date()
+                ),
+                health: SessionHealthSnapshot(
+                    timestamp: Date(),
+                    canReceiveInput: true,
+                    flowControl: .open,
+                    inputByteCount: 12,
+                    outputByteCount: 34,
+                    droppedOutputByteCount: 0
                 )
             )
         )
@@ -51,6 +59,10 @@ final class ControllableSessionRegistryTests: XCTestCase {
         XCTAssertEqual(snapshot?.terminalTitle, "vim README.md")
         XCTAssertEqual(snapshot?.lastTerminalEvent?.kind, .workingDirectory)
         XCTAssertEqual(snapshot?.lastTerminalEvent?.value, "/tmp/project")
+        XCTAssertEqual(snapshot?.health?.canReceiveInput, true)
+        XCTAssertEqual(snapshot?.health?.flowControl, .open)
+        XCTAssertEqual(snapshot?.health?.inputByteCount, 12)
+        XCTAssertEqual(snapshot?.health?.outputByteCount, 34)
         XCTAssertEqual(buffer?.chunks.count, 1)
         XCTAssertEqual(String(data: buffer?.chunks[0].data ?? Data(), encoding: .utf8), "ready\n")
     }

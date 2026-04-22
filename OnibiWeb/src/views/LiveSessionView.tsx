@@ -60,6 +60,13 @@ function pathName(path?: string | null): string | null {
   return parts[parts.length - 1] || path;
 }
 
+function formatBytes(bytes?: number): string | null {
+  if (bytes === undefined) return null;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function IconBack(): JSX.Element {
   return (
     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -128,6 +135,8 @@ export function LiveSessionView({
   const terminalSize =
     session.terminalCols && session.terminalRows ? `${session.terminalCols}x${session.terminalRows}` : null;
   const lastBell = session.lastTerminalEvent?.kind === "bell";
+  const flowControl = session.health?.flowControl;
+  const outputBytes = formatBytes(session.health?.outputByteCount);
 
   return (
     <main className={`mf-live-page ${isLandscape ? "mf-live-landscape" : "mf-live-portrait"}`}>
@@ -147,6 +156,10 @@ export function LiveSessionView({
             {shell && <span className="mf-badge mf-badge-compact">{shell}</span>}
             {cwd && <span className="mf-badge mf-badge-compact" title={session.workingDirectory ?? undefined}>cwd {cwd}</span>}
             {terminalSize && <span className="mf-badge mf-badge-compact">{terminalSize}</span>}
+            {flowControl && flowControl !== "open" && (
+              <span className="mf-badge mf-badge-compact mf-badge-warn">flow {flowControl}</span>
+            )}
+            {outputBytes && <span className="mf-badge mf-badge-compact">out {outputBytes}</span>}
             {lastBell && <span className="mf-badge mf-badge-compact mf-badge-warn">bell</span>}
           </div>
         </div>
