@@ -22,7 +22,7 @@ public enum RealtimeServerMessageType: String, Codable, Sendable {
 }
 
 public enum RealtimeProtocolVersion {
-    public static let current = 1
+    public static let current = 2
     public static let minimumSupported = 1
 }
 
@@ -33,6 +33,7 @@ public struct RealtimeClientMessage: Codable, Equatable, Sendable {
     public let kind: RemoteInputKind?
     public let text: String?
     public let key: RemoteInputKey?
+    public let data: String?
     public let cols: Int?
     public let rows: Int?
     public let clientRequestId: String?
@@ -44,6 +45,7 @@ public struct RealtimeClientMessage: Codable, Equatable, Sendable {
         kind: RemoteInputKind? = nil,
         text: String? = nil,
         key: RemoteInputKey? = nil,
+        data: String? = nil,
         cols: Int? = nil,
         rows: Int? = nil,
         clientRequestId: String? = nil
@@ -54,6 +56,7 @@ public struct RealtimeClientMessage: Codable, Equatable, Sendable {
         self.kind = kind
         self.text = text
         self.key = key
+        self.data = data
         self.cols = cols
         self.rows = rows
         self.clientRequestId = clientRequestId
@@ -63,7 +66,7 @@ public struct RealtimeClientMessage: Codable, Equatable, Sendable {
         guard let kind else {
             return nil
         }
-        let payload = RemoteInputPayload(kind: kind, text: text, key: key)
+        let payload = RemoteInputPayload(kind: kind, text: text, key: key, data: data)
         return payload.isValid ? payload : nil
     }
 

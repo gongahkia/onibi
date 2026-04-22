@@ -13,6 +13,7 @@ interface LiveSessionViewProps {
   onBack: () => void;
   onReloadBuffer: () => void;
   onSendLine: (text: string) => void;
+  onPasteText: (text: string) => void;
   onSendKey: (key: RemoteInputKey) => void;
   onTerminalInput: (data: string) => void;
   onTerminalResize: (cols: number, rows: number) => void;
@@ -90,6 +91,7 @@ export function LiveSessionView({
   onBack,
   onReloadBuffer,
   onSendLine,
+  onPasteText,
   onSendKey,
   onTerminalInput,
   onTerminalResize
@@ -171,7 +173,12 @@ export function LiveSessionView({
             />
           </section>
           <section className="mf-live-input-footer">
-            <RemoteInputBar disabled={inputDisabled} onSubmitLine={onSendLine} autoEnter />
+            <RemoteInputBar
+              disabled={inputDisabled}
+              onSubmitLine={onSendLine}
+              onPasteText={onPasteText}
+              autoEnter
+            />
           </section>
         </>
       )}

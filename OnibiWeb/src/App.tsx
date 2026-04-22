@@ -612,6 +612,38 @@ export default function App(): JSX.Element {
     }
   };
 
+  const sendPaste = async (sessionId: string, text: string) => {
+    setInputError(null);
+    const realtime = realtimeRef.current;
+    if (realtime && realtimeState === "authenticated") {
+      realtime.send({
+        type: "send_input",
+        sessionId,
+        kind: "paste",
+        text,
+        clientRequestId: nextClientRequestID()
+      });
+      return;
+    }
+
+    if (!connection) {
+      return;
+    }
+
+    try {
+      await sendSessionInput(connection, sessionId, {
+        kind: "paste",
+        text
+      });
+    } catch (error) {
+      if (error instanceof APIError && error.statusCode === 401) {
+        handleUnauthorizedToken("Pairing token expired. Paste the latest token from the Mac host.");
+        return;
+      }
+      setInputError(toUserFacingConnectionError(error));
+    }
+  };
+
   const sendTerminalData = (sessionId: string, data: string) => {
     setInputError(null);
     const realtime = realtimeRef.current;
@@ -713,6 +745,7 @@ export default function App(): JSX.Element {
         onBack={() => navigate({ kind: "sessions" })}
         onReloadBuffer={() => reloadSessionBuffer(route.sessionId)}
         onSendLine={(text) => sendLine(route.sessionId, text)}
+        onPasteText={(text) => sendPaste(route.sessionId, text)}
         onSendKey={(key) => sendKey(route.sessionId, key)}
         onTerminalInput={(data) => sendTerminalData(route.sessionId, data)}
         onTerminalResize={(cols, rows) => sendTerminalResize(route.sessionId, cols, rows)}

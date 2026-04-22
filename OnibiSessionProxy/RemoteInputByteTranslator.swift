@@ -18,6 +18,19 @@ enum RemoteInputByteTranslator {
                 throw RemoteControlError.invalidInputPayload
             }
             return try data(for: key)
+        case .paste:
+            guard let text = payload.text else {
+                throw RemoteControlError.invalidInputPayload
+            }
+            var data = Data([0x1B, 0x5B, 0x32, 0x30, 0x30, 0x7E])
+            data.append(Data(text.utf8))
+            data.append(contentsOf: [0x1B, 0x5B, 0x32, 0x30, 0x31, 0x7E])
+            return data
+        case .bytes:
+            guard let encoded = payload.data, let data = Data(base64Encoded: encoded) else {
+                throw RemoteControlError.invalidInputPayload
+            }
+            return data
         }
     }
 

@@ -1,6 +1,6 @@
 export type SessionTransportStatus = "starting" | "running" | "exited" | "failed";
 export type SessionOutputStream = "stdout" | "stderr";
-export type RemoteInputKind = "text" | "key";
+export type RemoteInputKind = "text" | "key" | "paste" | "bytes";
 export type RemoteInputKey =
   | "enter"
   | "ctrl_c"
@@ -59,6 +59,7 @@ export interface RemoteInputPayload {
   kind: RemoteInputKind;
   text?: string;
   key?: RemoteInputKey;
+  data?: string;
 }
 
 export interface RemoteInputAcceptance {
@@ -141,6 +142,7 @@ export interface RealtimeClientMessage {
   kind?: RemoteInputKind;
   text?: string;
   key?: RemoteInputKey;
+  data?: string;
   cols?: number;
   rows?: number;
   clientRequestId?: string;

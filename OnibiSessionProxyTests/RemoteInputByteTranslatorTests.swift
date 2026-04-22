@@ -8,6 +8,19 @@ final class RemoteInputByteTranslatorTests: XCTestCase {
         XCTAssertEqual(try RemoteInputByteTranslator.data(for: payload), Data("npm test".utf8))
     }
 
+    func testPastePayloadUsesBracketedPaste() throws {
+        let payload = RemoteInputPayload.paste("line 1\nline 2")
+        let expected = Data("\u{1B}[200~line 1\nline 2\u{1B}[201~".utf8)
+
+        XCTAssertEqual(try RemoteInputByteTranslator.data(for: payload), expected)
+    }
+
+    func testBytesPayloadDecodesBase64Bytes() throws {
+        let payload = RemoteInputPayload.bytes(Data([0x00, 0x1B, 0x7F]))
+
+        XCTAssertEqual(try RemoteInputByteTranslator.data(for: payload), Data([0x00, 0x1B, 0x7F]))
+    }
+
     func testKeyMappingsMatchV1Contract() throws {
         XCTAssertEqual(try RemoteInputByteTranslator.data(for: .enter), Data([0x0D]))
         XCTAssertEqual(try RemoteInputByteTranslator.data(for: .ctrlC), Data([0x03]))

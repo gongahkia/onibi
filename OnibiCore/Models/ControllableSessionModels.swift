@@ -15,6 +15,8 @@ public enum SessionOutputStream: String, Codable, Sendable {
 public enum RemoteInputKind: String, Codable, Sendable {
     case text
     case key
+    case paste
+    case bytes
 }
 
 public enum RemoteInputKey: String, Codable, Sendable, CaseIterable {
@@ -147,23 +149,33 @@ public struct RemoteInputPayload: Codable, Equatable, Sendable {
     public let kind: RemoteInputKind
     public let text: String?
     public let key: RemoteInputKey?
+    public let data: String?
 
     public init(
         kind: RemoteInputKind,
         text: String? = nil,
-        key: RemoteInputKey? = nil
+        key: RemoteInputKey? = nil,
+        data: String? = nil
     ) {
         self.kind = kind
         self.text = text
         self.key = key
+        self.data = data
     }
 
     public var isValid: Bool {
         switch kind {
         case .text:
-            return text != nil && key == nil
+            return text != nil && key == nil && data == nil
         case .key:
-            return key != nil && text == nil
+            return key != nil && text == nil && data == nil
+        case .paste:
+            return text != nil && key == nil && data == nil
+        case .bytes:
+            guard let data else {
+                return false
+            }
+            return text == nil && key == nil && Data(base64Encoded: data) != nil
         }
     }
 
@@ -173,6 +185,14 @@ public struct RemoteInputPayload: Codable, Equatable, Sendable {
 
     public static func key(_ key: RemoteInputKey) -> RemoteInputPayload {
         RemoteInputPayload(kind: .key, key: key)
+    }
+
+    public static func paste(_ text: String) -> RemoteInputPayload {
+        RemoteInputPayload(kind: .paste, text: text)
+    }
+
+    public static func bytes(_ data: Data) -> RemoteInputPayload {
+        RemoteInputPayload(kind: .bytes, data: data.base64EncodedString())
     }
 }
 
