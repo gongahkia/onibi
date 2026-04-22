@@ -101,6 +101,48 @@ final class ControllableSessionRegistryTests: XCTestCase {
         XCTAssertNil(snapshot)
     }
 
+    func testExpireDisconnectedSessionsKeepsRunningSessionsEvenWhenStale() async {
+        let registry = ControllableSessionRegistry(
+            defaultBufferLineLimit: 10,
+            defaultBufferByteLimit: 1024,
+            staleSessionGracePeriod: 1
+        )
+
+        await registry.register(
+            ControllableSessionRegistration(
+                id: "session-1",
+                startedAt: Date().addingTimeInterval(-30),
+                status: .running
+            )
+        )
+
+        await registry.expireDisconnectedSessions(now: Date())
+        let snapshot = await registry.session(id: "session-1")
+        XCTAssertNotNil(snapshot)
+        XCTAssertEqual(snapshot?.status, .running)
+    }
+
+    func testRecentHeartbeatPreventsStaleRemovalForExitedSession() async {
+        let registry = ControllableSessionRegistry(
+            defaultBufferLineLimit: 10,
+            defaultBufferByteLimit: 1024,
+            staleSessionGracePeriod: 5
+        )
+
+        await registry.register(
+            ControllableSessionRegistration(
+                id: "session-1",
+                startedAt: Date().addingTimeInterval(-30),
+                status: .exited
+            )
+        )
+
+        await registry.recordHeartbeat(for: "session-1", at: Date())
+        await registry.expireDisconnectedSessions(now: Date())
+        let snapshot = await registry.session(id: "session-1")
+        XCTAssertNotNil(snapshot)
+    }
+
     func testDiagnosticsIncludesProxyDisconnectAndBufferTruncationCounts() async {
         let registry = ControllableSessionRegistry(
             defaultBufferLineLimit: 5,
