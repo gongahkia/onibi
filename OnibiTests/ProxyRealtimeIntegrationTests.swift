@@ -220,6 +220,29 @@ final class ProxyRealtimeIntegrationTests: XCTestCase {
                 XCTAssertEqual(inputMessage.sessionId, sessionId)
                 XCTAssertEqual(inputMessage.payload, .paste("line 1\nline 2"))
             }
+
+            await transport.clear()
+            await service.receive(
+                text: try encode(
+                    RealtimeClientMessage(
+                        type: .sendInput,
+                        sessionId: sessionId,
+                        kind: .file,
+                        data: Data("echo file\n".utf8).base64EncodedString(),
+                        fileName: "script.sh",
+                        clientRequestId: "req-3"
+                    )
+                ),
+                from: transport.id
+            )
+
+            let fileFrame = try proxyClient.readFrame(timeoutSeconds: 1.0)
+            XCTAssertNotNil(fileFrame)
+            if let fileFrame {
+                let inputMessage = try JSONDateCodec.decoder.decode(LocalSessionProxyInputMessage.self, from: fileFrame)
+                XCTAssertEqual(inputMessage.sessionId, sessionId)
+                XCTAssertEqual(inputMessage.payload, .file(name: "script.sh", data: Data("echo file\n".utf8)))
+            }
         } catch {
             await service.stop()
             await restoreListenerSettings(originalSettings)

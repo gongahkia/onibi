@@ -17,6 +17,7 @@ public enum RemoteInputKind: String, Codable, Sendable {
     case key
     case paste
     case bytes
+    case file
 }
 
 public enum RemoteInputKey: String, Codable, Sendable, CaseIterable {
@@ -156,29 +157,41 @@ public struct RemoteInputPayload: Codable, Equatable, Sendable {
     public let text: String?
     public let key: RemoteInputKey?
     public let data: String?
+    public let fileName: String?
 
     public init(
         kind: RemoteInputKind,
         text: String? = nil,
         key: RemoteInputKey? = nil,
-        data: String? = nil
+        data: String? = nil,
+        fileName: String? = nil
     ) {
         self.kind = kind
         self.text = text
         self.key = key
         self.data = data
+        self.fileName = fileName
     }
 
     public var isValid: Bool {
         switch kind {
         case .text:
-            return text != nil && key == nil && data == nil
+            return text != nil && key == nil && data == nil && fileName == nil
         case .key:
-            return key != nil && text == nil && data == nil
+            return key != nil && text == nil && data == nil && fileName == nil
         case .paste:
-            return text != nil && key == nil && data == nil
+            return text != nil && key == nil && data == nil && fileName == nil
         case .bytes:
             guard let data else {
+                return false
+            }
+            return text == nil && key == nil && fileName == nil && Data(base64Encoded: data) != nil
+        case .file:
+            guard
+                let data,
+                let fileName,
+                !fileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else {
                 return false
             }
             return text == nil && key == nil && Data(base64Encoded: data) != nil
@@ -199,6 +212,10 @@ public struct RemoteInputPayload: Codable, Equatable, Sendable {
 
     public static func bytes(_ data: Data) -> RemoteInputPayload {
         RemoteInputPayload(kind: .bytes, data: data.base64EncodedString())
+    }
+
+    public static func file(name: String, data: Data) -> RemoteInputPayload {
+        RemoteInputPayload(kind: .file, data: data.base64EncodedString(), fileName: name)
     }
 }
 

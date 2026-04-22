@@ -780,6 +780,10 @@ button:hover:enabled {
   min-width: 76px;
 }
 
+.mf-hidden-file-input {
+  display: none;
+}
+
 @media (min-width: 768px) {
   .mf-page {
     padding: 1.25rem;

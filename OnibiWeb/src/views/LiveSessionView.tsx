@@ -14,6 +14,7 @@ interface LiveSessionViewProps {
   onReloadBuffer: () => void;
   onSendLine: (text: string) => void;
   onPasteText: (text: string) => void;
+  onUploadFile: (file: File) => void;
   onSendKey: (key: RemoteInputKey) => void;
   onTerminalInput: (data: string) => void;
   onTerminalResize: (cols: number, rows: number) => void;
@@ -92,6 +93,7 @@ export function LiveSessionView({
   onReloadBuffer,
   onSendLine,
   onPasteText,
+  onUploadFile,
   onSendKey,
   onTerminalInput,
   onTerminalResize
@@ -177,6 +179,7 @@ export function LiveSessionView({
               disabled={inputDisabled}
               onSubmitLine={onSendLine}
               onPasteText={onPasteText}
+              onUploadFile={onUploadFile}
               autoEnter
             />
           </section>

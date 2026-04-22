@@ -36,6 +36,7 @@ import { SessionsView } from "./views/SessionsView";
 
 const STORAGE_KEY = "onibi-web.connection";
 const REMEMBER_TOKEN_KEY = "onibi-web.remember-token";
+const MAX_INGRESS_FILE_BYTES = 128 * 1024;
 
 type Route =
   | { kind: "connect" }
@@ -43,6 +44,16 @@ type Route =
   | { kind: "live"; sessionId: string };
 
 type ViewportSize = { cols: number; rows: number };
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return btoa(binary);
+}
 
 function parseRoute(pathname: string): Route {
   if (pathname === "/" || pathname === "/connect") {
@@ -664,6 +675,46 @@ export default function App(): JSX.Element {
     }
   };
 
+  const sendFile = async (sessionId: string, file: File) => {
+    setInputError(null);
+    if (file.size > MAX_INGRESS_FILE_BYTES) {
+      setInputError("File is too large to paste into the session. Limit is 128 KB.");
+      return;
+    }
+
+    const data = arrayBufferToBase64(await file.arrayBuffer());
+    const realtime = realtimeRef.current;
+    if (realtime && realtimeState === "authenticated") {
+      realtime.send({
+        type: "send_input",
+        sessionId,
+        kind: "file",
+        fileName: file.name,
+        data,
+        clientRequestId: nextClientRequestID()
+      });
+      return;
+    }
+
+    if (!connection) {
+      return;
+    }
+
+    try {
+      await sendSessionInput(connection, sessionId, {
+        kind: "file",
+        fileName: file.name,
+        data
+      });
+    } catch (error) {
+      if (error instanceof APIError && error.statusCode === 401) {
+        handleUnauthorizedToken("Pairing token expired. Paste the latest token from the Mac host.");
+        return;
+      }
+      setInputError(toUserFacingConnectionError(error));
+    }
+  };
+
   const sendTerminalData = (sessionId: string, data: string) => {
     setInputError(null);
     const realtime = realtimeRef.current;
@@ -767,6 +818,7 @@ export default function App(): JSX.Element {
         onReloadBuffer={() => reloadSessionBuffer(route.sessionId)}
         onSendLine={(text) => sendLine(route.sessionId, text)}
         onPasteText={(text) => sendPaste(route.sessionId, text)}
+        onUploadFile={(file) => sendFile(route.sessionId, file)}
         onSendKey={(key) => sendKey(route.sessionId, key)}
         onTerminalInput={(data) => sendTerminalData(route.sessionId, data)}
         onTerminalResize={(cols, rows) => sendTerminalResize(route.sessionId, cols, rows)}

@@ -201,6 +201,7 @@ public struct LocalSessionProxyInputMessage: Codable, Equatable, Sendable {
     public let text: String?
     public let key: RemoteInputKey?
     public let data: String?
+    public let fileName: String?
 
     public init(sessionId: String, payload: RemoteInputPayload) {
         self.type = .input
@@ -209,10 +210,11 @@ public struct LocalSessionProxyInputMessage: Codable, Equatable, Sendable {
         self.text = payload.text
         self.key = payload.key
         self.data = payload.data
+        self.fileName = payload.fileName
     }
 
     public var payload: RemoteInputPayload {
-        RemoteInputPayload(kind: kind, text: text, key: key, data: data)
+        RemoteInputPayload(kind: kind, text: text, key: key, data: data, fileName: fileName)
     }
 }
 

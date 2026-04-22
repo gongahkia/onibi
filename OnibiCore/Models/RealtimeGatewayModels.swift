@@ -34,6 +34,7 @@ public struct RealtimeClientMessage: Codable, Equatable, Sendable {
     public let text: String?
     public let key: RemoteInputKey?
     public let data: String?
+    public let fileName: String?
     public let cols: Int?
     public let rows: Int?
     public let bufferCursor: String?
@@ -50,6 +51,7 @@ public struct RealtimeClientMessage: Codable, Equatable, Sendable {
         text: String? = nil,
         key: RemoteInputKey? = nil,
         data: String? = nil,
+        fileName: String? = nil,
         cols: Int? = nil,
         rows: Int? = nil,
         bufferCursor: String? = nil,
@@ -65,6 +67,7 @@ public struct RealtimeClientMessage: Codable, Equatable, Sendable {
         self.text = text
         self.key = key
         self.data = data
+        self.fileName = fileName
         self.cols = cols
         self.rows = rows
         self.bufferCursor = bufferCursor
@@ -78,7 +81,7 @@ public struct RealtimeClientMessage: Codable, Equatable, Sendable {
         guard let kind else {
             return nil
         }
-        let payload = RemoteInputPayload(kind: kind, text: text, key: key, data: data)
+        let payload = RemoteInputPayload(kind: kind, text: text, key: key, data: data, fileName: fileName)
         return payload.isValid ? payload : nil
     }
 

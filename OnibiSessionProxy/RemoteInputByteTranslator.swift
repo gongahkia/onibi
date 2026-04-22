@@ -22,16 +22,25 @@ enum RemoteInputByteTranslator {
             guard let text = payload.text else {
                 throw RemoteControlError.invalidInputPayload
             }
-            var data = Data([0x1B, 0x5B, 0x32, 0x30, 0x30, 0x7E])
-            data.append(Data(text.utf8))
-            data.append(contentsOf: [0x1B, 0x5B, 0x32, 0x30, 0x31, 0x7E])
-            return data
+            return bracketedPaste(Data(text.utf8))
         case .bytes:
             guard let encoded = payload.data, let data = Data(base64Encoded: encoded) else {
                 throw RemoteControlError.invalidInputPayload
             }
             return data
+        case .file:
+            guard let encoded = payload.data, let data = Data(base64Encoded: encoded) else {
+                throw RemoteControlError.invalidInputPayload
+            }
+            return bracketedPaste(data)
         }
+    }
+
+    private static func bracketedPaste(_ payload: Data) -> Data {
+        var data = Data([0x1B, 0x5B, 0x32, 0x30, 0x30, 0x7E])
+        data.append(payload)
+        data.append(contentsOf: [0x1B, 0x5B, 0x32, 0x30, 0x31, 0x7E])
+        return data
     }
 
     static func data(for key: RemoteInputKey) throws -> Data {

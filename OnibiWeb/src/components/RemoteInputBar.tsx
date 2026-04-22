@@ -4,6 +4,7 @@ interface RemoteInputBarProps {
   disabled: boolean;
   onSubmitLine: (text: string) => void;
   onPasteText?: (text: string) => void;
+  onUploadFile?: (file: File) => void;
   autoEnter?: boolean;
 }
 
@@ -11,10 +12,12 @@ export function RemoteInputBar({
   disabled,
   onSubmitLine,
   onPasteText,
+  onUploadFile,
   autoEnter = true
 }: RemoteInputBarProps): JSX.Element {
   const [text, setText] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -75,6 +78,25 @@ export function RemoteInputBar({
         <button type="button" disabled={disabled} onClick={handlePasteButton}>
           Paste
         </button>
+      )}
+      {onUploadFile && (
+        <>
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="mf-hidden-file-input"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) {
+                onUploadFile(file);
+              }
+              event.target.value = "";
+            }}
+          />
+          <button type="button" disabled={disabled} onClick={() => fileInputRef.current?.click()}>
+            File
+          </button>
+        </>
       )}
       <button type="submit" disabled={disabled || text.length === 0}>
         {autoEnter ? "Send ↵" : "Send"}
