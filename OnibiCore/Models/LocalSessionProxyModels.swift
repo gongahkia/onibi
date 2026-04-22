@@ -55,18 +55,21 @@ public struct LocalSessionProxyMetadataMessage: Codable, Equatable, Sendable {
     public let workingDirectory: String?
     public let terminalCols: Int?
     public let terminalRows: Int?
+    public let terminalTitle: String?
 
     public init(
         sessionId: String,
         workingDirectory: String? = nil,
         terminalCols: Int? = nil,
-        terminalRows: Int? = nil
+        terminalRows: Int? = nil,
+        terminalTitle: String? = nil
     ) {
         self.type = .metadata
         self.sessionId = sessionId
         self.workingDirectory = workingDirectory
         self.terminalCols = terminalCols
         self.terminalRows = terminalRows
+        self.terminalTitle = terminalTitle
     }
 }
 

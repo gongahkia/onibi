@@ -37,6 +37,7 @@ export interface ControllableSessionSnapshot {
   proxyVersion?: string | null;
   terminalCols?: number | null;
   terminalRows?: number | null;
+  terminalTitle?: string | null;
 }
 
 export interface SessionOutputChunk {

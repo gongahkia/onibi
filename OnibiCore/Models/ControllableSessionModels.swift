@@ -63,6 +63,7 @@ public struct ControllableSessionSnapshot: Codable, Equatable, Identifiable, Sen
     public let proxyVersion: String?
     public let terminalCols: Int?
     public let terminalRows: Int?
+    public let terminalTitle: String?
 
     public init(
         id: String,
@@ -79,7 +80,8 @@ public struct ControllableSessionSnapshot: Codable, Equatable, Identifiable, Sen
         hostname: String? = nil,
         proxyVersion: String? = nil,
         terminalCols: Int? = nil,
-        terminalRows: Int? = nil
+        terminalRows: Int? = nil,
+        terminalTitle: String? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -96,6 +98,7 @@ public struct ControllableSessionSnapshot: Codable, Equatable, Identifiable, Sen
         self.proxyVersion = proxyVersion
         self.terminalCols = terminalCols
         self.terminalRows = terminalRows
+        self.terminalTitle = terminalTitle
     }
 }
 

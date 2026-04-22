@@ -363,6 +363,7 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
             workingDirectory: message.workingDirectory,
             terminalCols: message.terminalCols,
             terminalRows: message.terminalRows,
+            terminalTitle: message.terminalTitle,
             at: Date()
         )
     }

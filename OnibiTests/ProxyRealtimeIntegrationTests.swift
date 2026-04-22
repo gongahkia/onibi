@@ -61,7 +61,8 @@ final class ProxyRealtimeIntegrationTests: XCTestCase {
                     sessionId: sessionId,
                     workingDirectory: "/tmp/updated",
                     terminalCols: 132,
-                    terminalRows: 38
+                    terminalRows: 38,
+                    terminalTitle: "tail -f app.log"
                 )
             )
 
@@ -69,7 +70,8 @@ final class ProxyRealtimeIntegrationTests: XCTestCase {
                 let snapshot = await registry.session(id: sessionId)
                 return snapshot?.workingDirectory == "/tmp/updated" &&
                     snapshot?.terminalCols == 132 &&
-                    snapshot?.terminalRows == 38
+                    snapshot?.terminalRows == 38 &&
+                    snapshot?.terminalTitle == "tail -f app.log"
             }
             XCTAssertTrue(didApplyMetadata)
 

@@ -125,6 +125,7 @@ export function LiveSessionView({
         </button>
         <div className="mf-live-title">
           <h1>{session.displayName}</h1>
+          {session.terminalTitle && <p className="mf-live-subtitle">{session.terminalTitle}</p>}
           <div className="mf-live-badges">
             <span className={statusClassName(session.status)}>{session.status}</span>
             <span className={realtimeBadgeClass(realtimeState)} title={`Realtime: ${realtimeState}`}>

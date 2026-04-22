@@ -83,6 +83,8 @@ final class SessionProxyRuntime {
     private var hostBuffer = Data()
     private var originalTerminalState: termios?
     private var lastReportedTerminalSize: RemoteTerminalResizePayload?
+    private var lastReportedTerminalTitle: String?
+    private var titleParser = TerminalTitleParser()
     private var isShuttingDown = false
 
     init(configuration: SessionProxyLaunchConfiguration) {
@@ -240,6 +242,9 @@ final class SessionProxyRuntime {
                         outputData: chunk
                     )
                 )
+                if let title = titleParser.consume(chunk).last {
+                    sendTerminalTitleMetadataIfChanged(title)
+                }
             }
         } catch {
             shutdown(exitCode: 1)
@@ -501,6 +506,23 @@ final class SessionProxyRuntime {
                     workingDirectory: configuration.workingDirectory,
                     terminalCols: size.cols,
                     terminalRows: size.rows
+                )
+            )
+        } catch {
+            shutdown(exitCode: 1)
+        }
+    }
+
+    private func sendTerminalTitleMetadataIfChanged(_ title: String) {
+        guard lastReportedTerminalTitle != title else {
+            return
+        }
+        lastReportedTerminalTitle = title
+        do {
+            try sendFrame(
+                LocalSessionProxyMetadataMessage(
+                    sessionId: configuration.sessionId,
+                    terminalTitle: title
                 )
             )
         } catch {

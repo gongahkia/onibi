@@ -540,6 +540,16 @@ button:hover:enabled {
   font-family: var(--mf-mono);
 }
 
+.mf-terminal-title {
+  margin: 0;
+  color: #0f172a;
+  font-size: 0.84rem;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .mf-command-preview {
   margin: 0;
   border-radius: 0.55rem;
@@ -671,6 +681,15 @@ button:hover:enabled {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.mf-live-subtitle {
+  margin: 0.12rem 0 0;
+  color: var(--mf-ink-muted);
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mf-live-badges {

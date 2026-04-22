@@ -251,6 +251,12 @@ export function SessionsView({
                       </div>
                     )}
 
+                    {session.terminalTitle && (
+                      <p className="mf-terminal-title" title={session.terminalTitle}>
+                        {session.terminalTitle}
+                      </p>
+                    )}
+
                     {session.lastCommandPreview && (
                       <p className="mf-command-preview">{session.lastCommandPreview}</p>
                     )}
