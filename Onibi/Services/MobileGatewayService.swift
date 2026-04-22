@@ -1021,6 +1021,8 @@ private actor HostMobileGatewayDataProvider: MobileGatewayDataProvider {
             errorCount: DiagnosticsStore.shared.count(for: .error),
             criticalCount: DiagnosticsStore.shared.count(for: .critical),
             schedulerEventsProcessed: schedulerEventsProcessed,
+            realtimeProtocolVersion: RealtimeProtocolVersion.current,
+            minimumSupportedRealtimeProtocolVersion: RealtimeProtocolVersion.minimumSupported,
             storageLogCount: logs.count,
             storageBytes: storageBytes,
             tailscaleStatus: tailscaleStatus.isServing ? "serving" : "not_serving",
@@ -1036,7 +1038,9 @@ private actor HostMobileGatewayDataProvider: MobileGatewayDataProvider {
             localProxySocketHealthy: FileManager.default.fileExists(atPath: settings.sessionProxySocketPath),
             bufferTruncationCount: registryDiagnostics.bufferTruncationCount,
             lastInputRoutingError: registryDiagnostics.lastInputRoutingError,
-            tokenIssuedAt: tokenIssuedAt
+            tokenIssuedAt: tokenIssuedAt,
+            latestProxyVersion: registryDiagnostics.latestProxyVersion,
+            proxyVersionMismatchCount: registryDiagnostics.proxyVersionMismatchCount
         )
     }
 

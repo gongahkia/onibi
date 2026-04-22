@@ -74,6 +74,8 @@ export interface DiagnosticsResponse {
   errorCount: number;
   criticalCount: number;
   schedulerEventsProcessed: number;
+  realtimeProtocolVersion?: number;
+  minimumSupportedRealtimeProtocolVersion?: number;
   storageLogCount: number;
   storageBytes: number;
   tailscaleStatus: string;
@@ -90,6 +92,8 @@ export interface DiagnosticsResponse {
   bufferTruncationCount?: number;
   lastInputRoutingError?: string;
   tokenIssuedAt?: string;
+  latestProxyVersion?: string;
+  proxyVersionMismatchCount?: number;
 }
 
 export interface HostHealth {
@@ -149,6 +153,8 @@ export type RealtimeServerMessageType =
 export interface RealtimeServerMessage {
   type: RealtimeServerMessageType;
   hostVersion?: string;
+  realtimeProtocolVersion?: number;
+  minimumSupportedRealtimeProtocolVersion?: number;
   sessions?: ControllableSessionSnapshot[];
   session?: ControllableSessionSnapshot;
   sessionId?: string;

@@ -32,4 +32,35 @@ final class SessionProxyLaunchConfigurationTests: XCTestCase {
             )
         )
     }
+
+    func testFallbackLaunchContextPrefersOnibiParentShell() {
+        let context = SessionProxyRuntime.fallbackLaunchContext(
+            environment: [
+                "ONIBI_PARENT_SHELL": "/bin/bash",
+                "ONIBI_PARENT_SHELL_ARGS": "--login",
+                "SHELL": "/bin/zsh"
+            ]
+        )
+
+        XCTAssertEqual(context.shellPath, "/bin/bash")
+        XCTAssertEqual(context.shellArguments, ["--login"])
+    }
+
+    func testFallbackLaunchContextFallsBackToShellEnvironment() {
+        let context = SessionProxyRuntime.fallbackLaunchContext(
+            environment: [
+                "SHELL": "/opt/homebrew/bin/fish",
+                "ONIBI_PARENT_SHELL_ARGS": "--interactive"
+            ]
+        )
+
+        XCTAssertEqual(context.shellPath, "/opt/homebrew/bin/fish")
+        XCTAssertEqual(context.shellArguments, ["--interactive"])
+    }
+
+    func testFallbackLaunchContextUsesDefaultShellWhenUnset() {
+        let context = SessionProxyRuntime.fallbackLaunchContext(environment: [:])
+        XCTAssertEqual(context.shellPath, "/bin/zsh")
+        XCTAssertEqual(context.shellArguments, [])
+    }
 }

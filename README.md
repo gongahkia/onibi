@@ -145,6 +145,13 @@ Security and troubleshooting:
 - [docs/security.md](./docs/security.md) — threat model, auth caveats, hardening tips.
 - [docs/troubleshooting.md](./docs/troubleshooting.md) — common errors, log channels, debug drawer.
 
+Smoke test the remote-control path from terminal:
+
+```console
+$ export ONIBI_PAIRING_TOKEN='<token>'
+$ make smoke-mobile-access
+```
+
 ## Architecture
 
 <div align="center">

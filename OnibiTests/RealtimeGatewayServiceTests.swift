@@ -46,6 +46,11 @@ final class RealtimeGatewayServiceTests: XCTestCase {
         let messages = await transport.messages()
         XCTAssertEqual(messages.map(\.type), [.authOK, .sessionsSnapshot])
         XCTAssertEqual(messages.first?.hostVersion, "9.9.9-test")
+        XCTAssertEqual(messages.first?.realtimeProtocolVersion, RealtimeProtocolVersion.current)
+        XCTAssertEqual(
+            messages.first?.minimumSupportedRealtimeProtocolVersion,
+            RealtimeProtocolVersion.minimumSupported
+        )
         XCTAssertEqual(messages.last?.sessions?.map(\.id), ["session-1"])
     }
 

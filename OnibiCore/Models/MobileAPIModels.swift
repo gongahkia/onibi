@@ -190,6 +190,8 @@ public struct DiagnosticsResponse: Codable, Equatable, Sendable {
     public let errorCount: Int
     public let criticalCount: Int
     public let schedulerEventsProcessed: Int
+    public let realtimeProtocolVersion: Int?
+    public let minimumSupportedRealtimeProtocolVersion: Int?
     public let storageLogCount: Int
     public let storageBytes: Int64
     public let tailscaleStatus: String
@@ -206,6 +208,8 @@ public struct DiagnosticsResponse: Codable, Equatable, Sendable {
     public let bufferTruncationCount: Int?
     public let lastInputRoutingError: String?
     public let tokenIssuedAt: Date?
+    public let latestProxyVersion: String?
+    public let proxyVersionMismatchCount: Int?
 
     public init(
         generatedAt: Date,
@@ -215,6 +219,8 @@ public struct DiagnosticsResponse: Codable, Equatable, Sendable {
         errorCount: Int,
         criticalCount: Int,
         schedulerEventsProcessed: Int,
+        realtimeProtocolVersion: Int? = nil,
+        minimumSupportedRealtimeProtocolVersion: Int? = nil,
         storageLogCount: Int,
         storageBytes: Int64,
         tailscaleStatus: String,
@@ -230,7 +236,9 @@ public struct DiagnosticsResponse: Codable, Equatable, Sendable {
         localProxySocketHealthy: Bool? = nil,
         bufferTruncationCount: Int? = nil,
         lastInputRoutingError: String? = nil,
-        tokenIssuedAt: Date? = nil
+        tokenIssuedAt: Date? = nil,
+        latestProxyVersion: String? = nil,
+        proxyVersionMismatchCount: Int? = nil
     ) {
         self.generatedAt = generatedAt
         self.hostVersion = hostVersion
@@ -239,6 +247,8 @@ public struct DiagnosticsResponse: Codable, Equatable, Sendable {
         self.errorCount = errorCount
         self.criticalCount = criticalCount
         self.schedulerEventsProcessed = schedulerEventsProcessed
+        self.realtimeProtocolVersion = realtimeProtocolVersion
+        self.minimumSupportedRealtimeProtocolVersion = minimumSupportedRealtimeProtocolVersion
         self.storageLogCount = storageLogCount
         self.storageBytes = storageBytes
         self.tailscaleStatus = tailscaleStatus
@@ -255,6 +265,8 @@ public struct DiagnosticsResponse: Codable, Equatable, Sendable {
         self.bufferTruncationCount = bufferTruncationCount
         self.lastInputRoutingError = lastInputRoutingError
         self.tokenIssuedAt = tokenIssuedAt
+        self.latestProxyVersion = latestProxyVersion
+        self.proxyVersionMismatchCount = proxyVersionMismatchCount
     }
 }
 

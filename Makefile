@@ -1,4 +1,4 @@
-.PHONY: build test web-sync check-web-sync install-hooks install-hooks-remote uninstall-hooks
+.PHONY: build test web-sync check-web-sync smoke-mobile-access install-hooks install-hooks-remote uninstall-hooks
 
 build:
 	swift build
@@ -12,6 +12,9 @@ web-sync:
 
 check-web-sync:
 	./scripts/check_web_assets_synced.sh
+
+smoke-mobile-access:
+	./scripts/smoke_mobile_access.sh
 
 install-hooks:
 	./scripts/install_shell_hooks.sh --shell zsh

@@ -26,6 +26,7 @@ public struct LocalSessionProxyRegisterMessage: Codable, Equatable, Sendable {
     public let startedAt: Date
     public let workingDirectory: String?
     public let hostname: String
+    public let proxyVersion: String?
 
     public init(
         sessionId: String,
@@ -33,7 +34,8 @@ public struct LocalSessionProxyRegisterMessage: Codable, Equatable, Sendable {
         pid: Int32,
         startedAt: Date,
         workingDirectory: String?,
-        hostname: String
+        hostname: String,
+        proxyVersion: String? = nil
     ) {
         self.type = .register
         self.sessionId = sessionId
@@ -42,6 +44,7 @@ public struct LocalSessionProxyRegisterMessage: Codable, Equatable, Sendable {
         self.startedAt = startedAt
         self.workingDirectory = workingDirectory
         self.hostname = hostname
+        self.proxyVersion = proxyVersion
     }
 }
 

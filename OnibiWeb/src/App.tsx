@@ -26,6 +26,7 @@ import {
 import type {
   ConnectionConfig,
   ControllableSessionSnapshot,
+  DiagnosticsResponse,
   RealtimeServerMessage,
   RemoteInputKey
 } from "./types";
@@ -134,6 +135,7 @@ export default function App(): JSX.Element {
   const [connection, setConnection] = useState<ConnectionConfig | null>(() => loadStoredConnection());
   const [rememberToken, setRememberToken] = useState<boolean>(() => loadRememberTokenPreference());
   const [sessions, setSessions] = useState<ControllableSessionSnapshot[]>([]);
+  const [diagnostics, setDiagnostics] = useState<DiagnosticsResponse | null>(null);
   const [outputBySession, setOutputBySession] = useState<OutputBySession>({});
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [inputError, setInputError] = useState<string | null>(null);
@@ -223,6 +225,7 @@ export default function App(): JSX.Element {
       clearPersistedTokenOnly();
       setConnection(null);
       setSessions([]);
+      setDiagnostics(null);
       setOutputBySession({});
       setConnectionError(message);
       setRealtimeError(null);
@@ -288,6 +291,7 @@ export default function App(): JSX.Element {
       disconnectRealtime();
       subscribedSessionIDRef.current = null;
       setSessions([]);
+      setDiagnostics(null);
       setOutputBySession({});
       if (route.kind !== "connect") {
         navigate({ kind: "connect" });
@@ -307,6 +311,19 @@ export default function App(): JSX.Element {
           return;
         }
         setSessions(sortSessionsByRecentActivity(bootstrap.sessions));
+        setDiagnostics(bootstrap.diagnostics);
+        if ((bootstrap.diagnostics.proxyVersionMismatchCount ?? 0) > 0) {
+          notify(
+            "warn",
+            `Proxy version mismatch detected (${bootstrap.diagnostics.proxyVersionMismatchCount}). Update host and proxy to the same version.`
+          );
+        }
+        if ((bootstrap.diagnostics.websocketAuthFailureCount ?? 0) > 0) {
+          notify(
+            "warn",
+            `Host reported ${bootstrap.diagnostics.websocketAuthFailureCount} websocket auth failures.`
+          );
+        }
         persistConnection(connection, rememberToken);
         rememberHost(connection.baseURL);
         if (window.location.pathname === "/connect" || window.location.pathname === "/") {
@@ -459,6 +476,7 @@ export default function App(): JSX.Element {
     clearPersistedConnection();
     subscribedSessionIDRef.current = null;
     setConnection(null);
+    setDiagnostics(null);
     setConnectionError(null);
     setInputError(null);
     setRealtimeError(null);
@@ -674,6 +692,7 @@ export default function App(): JSX.Element {
         sessions={sessions}
         outputPreviewBySession={outputPreviewBySession}
         realtimeState={realtimeState}
+        diagnostics={diagnostics}
         onDisconnect={clearConnection}
         onOpenSession={(sessionId) => {
           setInputError(null);

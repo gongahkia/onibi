@@ -305,6 +305,24 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
         sessionConnectionIDs[message.sessionId] = connectionID
         connection.sessionId = message.sessionId
 
+        if let proxyVersion = message.proxyVersion {
+            let hostVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+            let isCompatible = proxyVersion == hostVersion
+            await registry.recordProxyVersion(proxyVersion, isCompatible: isCompatible)
+            if !isCompatible {
+                DiagnosticsStore.shared.record(
+                    component: "LocalSessionProxyListener",
+                    level: .warning,
+                    message: "proxy version mismatch",
+                    metadata: [
+                        "proxyVersion": proxyVersion,
+                        "hostVersion": hostVersion,
+                        "sessionId": message.sessionId
+                    ]
+                )
+            }
+        }
+
         let writer = connection.writer
         await registry.register(
             ControllableSessionRegistration(

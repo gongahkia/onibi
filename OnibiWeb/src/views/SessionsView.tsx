@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import type { ControllableSessionSnapshot } from "../types";
+import type { ControllableSessionSnapshot, DiagnosticsResponse } from "../types";
 
 interface SessionsViewProps {
   sessions: ControllableSessionSnapshot[];
   outputPreviewBySession: Record<string, string>;
   realtimeState: string;
+  diagnostics: DiagnosticsResponse | null;
   onOpenSession: (sessionId: string) => void;
   onRefresh: () => void;
   onDisconnect: () => void;
@@ -114,6 +115,7 @@ export function SessionsView({
   sessions,
   outputPreviewBySession,
   realtimeState,
+  diagnostics,
   onOpenSession,
   onRefresh,
   onDisconnect,
@@ -151,6 +153,30 @@ export function SessionsView({
 
           {realtimeState !== "authenticated" && sessions.length > 0 && (
             <p className="mf-alert mf-alert-info">Using cached sessions while realtime reconnects.</p>
+          )}
+
+          {diagnostics && (
+            <div className="mf-runtime-strip" aria-label="Host runtime diagnostics">
+              <span className="mf-runtime-chip">Host v{diagnostics.hostVersion}</span>
+              {diagnostics.latestProxyVersion && (
+                <span className="mf-runtime-chip">Proxy v{diagnostics.latestProxyVersion}</span>
+              )}
+              {diagnostics.realtimeProtocolVersion !== undefined && (
+                <span className="mf-runtime-chip">
+                  Realtime v{diagnostics.realtimeProtocolVersion}
+                </span>
+              )}
+              {(diagnostics.proxyVersionMismatchCount ?? 0) > 0 && (
+                <span className="mf-runtime-chip mf-runtime-chip-warn">
+                  Proxy mismatches {diagnostics.proxyVersionMismatchCount}
+                </span>
+              )}
+              {(diagnostics.websocketAuthFailureCount ?? 0) > 0 && (
+                <span className="mf-runtime-chip mf-runtime-chip-warn">
+                  WS auth fails {diagnostics.websocketAuthFailureCount}
+                </span>
+              )}
+            </div>
           )}
 
           <div className="mf-header-actions mf-header-actions-icons">

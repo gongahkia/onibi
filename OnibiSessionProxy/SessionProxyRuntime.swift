@@ -32,7 +32,7 @@ struct SessionProxyLaunchConfiguration {
         self.workingDirectory = environment["PWD"]
     }
 
-    private static func parseShellArguments(_ rawValue: String) -> [String] {
+    static func parseShellArguments(_ rawValue: String) -> [String] {
         rawValue
             .split(whereSeparator: \.isWhitespace)
             .map(String.init)
@@ -99,7 +99,8 @@ final class SessionProxyRuntime {
                 pid: childPID,
                 startedAt: Date(),
                 workingDirectory: configuration.workingDirectory,
-                hostname: Host.current().localizedName ?? "localhost"
+                hostname: Host.current().localizedName ?? "localhost",
+                proxyVersion: configuration.version
             )
         )
         try sendFrame(
@@ -114,25 +115,37 @@ final class SessionProxyRuntime {
 
     func fallbackExecShell() -> Never {
         restoreParentTerminalIfNeeded()
+        Self.execShell(
+            shellPath: configuration.shellPath,
+            shellArguments: configuration.shellArguments,
+            environment: sanitizedEnvironment(from: ProcessInfo.processInfo.environment)
+        )
+    }
 
-        let shellPath = configuration.shellPath
-        let shellArguments = configuration.shellArguments
-        let environment = sanitizedEnvironment(from: ProcessInfo.processInfo.environment)
+    static func fallbackLaunchContext(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> (shellPath: String, shellArguments: [String]) {
+        let shellPath = environment["ONIBI_PARENT_SHELL"]
+            ?? environment["SHELL"]
+            ?? "/bin/zsh"
+        let shellArguments = SessionProxyLaunchConfiguration.parseShellArguments(
+            environment["ONIBI_PARENT_SHELL_ARGS"] ?? ""
+        )
+        return (shellPath, shellArguments)
+    }
 
-        var argvStorage = makeCStringArray([shellPath] + shellArguments)
-        var envStorage = makeCStringArray(environment.map { "\($0.key)=\($0.value)" })
-
-        let result = shellPath.withCString { shellCString in
-            argvStorage.withUnsafeMutableBufferPointer { argvBuffer in
-                envStorage.withUnsafeMutableBufferPointer { envBuffer in
-                    execve(shellCString, argvBuffer.baseAddress, envBuffer.baseAddress)
-                }
-            }
-        }
-
-        let code = result == -1 ? errno : 127
-        fputs("OnibiSessionProxy fallback exec failed: \(String(cString: strerror(code)))\n", stderr)
-        Darwin.exit(code)
+    static func fallbackExecShell(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Never {
+        let context = fallbackLaunchContext(environment: environment)
+        var sanitizedEnvironment = environment
+        sanitizedEnvironment["ONIBI_SESSION_PROXY_ACTIVE"] = "1"
+        sanitizedEnvironment["ONIBI_PARENT_SHELL"] = context.shellPath
+        execShell(
+            shellPath: context.shellPath,
+            shellArguments: context.shellArguments,
+            environment: sanitizedEnvironment
+        )
     }
 
     private func startSources() {
@@ -467,6 +480,27 @@ final class SessionProxyRuntime {
         copy["ONIBI_PARENT_SHELL"] = configuration.shellPath
         copy["ONIBI_PROXY_VERSION"] = configuration.version
         return copy
+    }
+
+    private static func execShell(
+        shellPath: String,
+        shellArguments: [String],
+        environment: [String: String]
+    ) -> Never {
+        var argvStorage = makeCStringArray([shellPath] + shellArguments)
+        var envStorage = makeCStringArray(environment.map { "\($0.key)=\($0.value)" })
+
+        let result = shellPath.withCString { shellCString in
+            argvStorage.withUnsafeMutableBufferPointer { argvBuffer in
+                envStorage.withUnsafeMutableBufferPointer { envBuffer in
+                    execve(shellCString, argvBuffer.baseAddress, envBuffer.baseAddress)
+                }
+            }
+        }
+
+        let code = result == -1 ? errno : 127
+        fputs("OnibiSessionProxy fallback exec failed: \(String(cString: strerror(code)))\n", stderr)
+        Darwin.exit(code)
     }
 }
 

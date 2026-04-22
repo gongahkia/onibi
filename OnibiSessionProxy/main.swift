@@ -5,7 +5,7 @@ do {
     configuration = try SessionProxyLaunchConfiguration()
 } catch {
     fputs("OnibiSessionProxy configuration error: \(error.localizedDescription)\n", stderr)
-    Darwin.exit(1)
+    SessionProxyRuntime.fallbackExecShell()
 }
 
 let runtime = SessionProxyRuntime(configuration: configuration)

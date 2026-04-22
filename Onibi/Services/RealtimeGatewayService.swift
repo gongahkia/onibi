@@ -332,7 +332,7 @@ actor RealtimeGatewayService {
         guard updateFlushTask == nil else { return }
         updateFlushTask = Task { [weak self] in
             guard let self else { return }
-            try? await Task.sleep(nanoseconds: await self.updateCoalesceWindowNanos)
+            try? await Task.sleep(nanoseconds: self.updateCoalesceWindowNanos)
             await self.flushPendingSessionUpdates()
         }
     }

@@ -27,6 +27,7 @@ export interface RealtimeClientOptions {
 
 const RECONNECT_BASE_DELAY_MS = 700;
 const RECONNECT_MAX_DELAY_MS = 8000;
+const WEB_REALTIME_PROTOCOL_VERSION = 1;
 
 export class RealtimeClient {
   private readonly options: RealtimeClientOptions;
@@ -128,6 +129,27 @@ export class RealtimeClient {
       }
 
       if (message.type === "auth_ok") {
+        const serverProtocolVersion = message.realtimeProtocolVersion;
+        const minSupportedProtocolVersion = message.minimumSupportedRealtimeProtocolVersion;
+        if (
+          typeof minSupportedProtocolVersion === "number" &&
+          WEB_REALTIME_PROTOCOL_VERSION < minSupportedProtocolVersion
+        ) {
+          const compatibilityError = `Realtime protocol mismatch: web=${WEB_REALTIME_PROTOCOL_VERSION} min_supported=${minSupportedProtocolVersion}`;
+          this.emitDebug("error", compatibilityError);
+          this.options.onError(compatibilityError);
+          this.disconnect();
+          return;
+        } else if (
+          typeof serverProtocolVersion === "number" &&
+          serverProtocolVersion !== WEB_REALTIME_PROTOCOL_VERSION
+        ) {
+          this.emitDebug(
+            "warn",
+            `Realtime protocol differs: web=${WEB_REALTIME_PROTOCOL_VERSION} host=${serverProtocolVersion}`
+          );
+        }
+
         this.authenticated = true;
         this.reconnectAttempt = 0;
         this.options.onStateChange("authenticated");

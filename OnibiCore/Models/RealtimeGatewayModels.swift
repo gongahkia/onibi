@@ -21,6 +21,11 @@ public enum RealtimeServerMessageType: String, Codable, Sendable {
     case error
 }
 
+public enum RealtimeProtocolVersion {
+    public static let current = 1
+    public static let minimumSupported = 1
+}
+
 public struct RealtimeClientMessage: Codable, Equatable, Sendable {
     public let type: RealtimeClientMessageType
     public let token: String?
@@ -74,6 +79,8 @@ public struct RealtimeClientMessage: Codable, Equatable, Sendable {
 public struct RealtimeServerMessage: Codable, Equatable, Sendable {
     public let type: RealtimeServerMessageType
     public let hostVersion: String?
+    public let realtimeProtocolVersion: Int?
+    public let minimumSupportedRealtimeProtocolVersion: Int?
     public let sessions: [ControllableSessionSnapshot]?
     public let session: ControllableSessionSnapshot?
     public let sessionId: String?
@@ -88,6 +95,8 @@ public struct RealtimeServerMessage: Codable, Equatable, Sendable {
     public init(
         type: RealtimeServerMessageType,
         hostVersion: String? = nil,
+        realtimeProtocolVersion: Int? = nil,
+        minimumSupportedRealtimeProtocolVersion: Int? = nil,
         sessions: [ControllableSessionSnapshot]? = nil,
         session: ControllableSessionSnapshot? = nil,
         sessionId: String? = nil,
@@ -101,6 +110,8 @@ public struct RealtimeServerMessage: Codable, Equatable, Sendable {
     ) {
         self.type = type
         self.hostVersion = hostVersion
+        self.realtimeProtocolVersion = realtimeProtocolVersion
+        self.minimumSupportedRealtimeProtocolVersion = minimumSupportedRealtimeProtocolVersion
         self.sessions = sessions
         self.session = session
         self.sessionId = sessionId
@@ -114,7 +125,12 @@ public struct RealtimeServerMessage: Codable, Equatable, Sendable {
     }
 
     public static func authOK(hostVersion: String) -> RealtimeServerMessage {
-        RealtimeServerMessage(type: .authOK, hostVersion: hostVersion)
+        RealtimeServerMessage(
+            type: .authOK,
+            hostVersion: hostVersion,
+            realtimeProtocolVersion: RealtimeProtocolVersion.current,
+            minimumSupportedRealtimeProtocolVersion: RealtimeProtocolVersion.minimumSupported
+        )
     }
 
     public static func sessionsSnapshot(_ sessions: [ControllableSessionSnapshot]) -> RealtimeServerMessage {

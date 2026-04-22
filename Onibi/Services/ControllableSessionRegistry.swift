@@ -54,6 +54,8 @@ struct ControllableSessionRegistryDiagnostics: Equatable, Sendable {
     let proxyDisconnectCount: Int
     let bufferTruncationCount: Int
     let lastInputRoutingError: String?
+    let latestProxyVersion: String?
+    let proxyVersionMismatchCount: Int
 }
 
 actor ControllableSessionRegistry {
@@ -75,6 +77,8 @@ actor ControllableSessionRegistry {
     private var proxyDisconnectCount = 0
     private var bufferTruncationCount = 0
     private var lastInputRoutingError: String?
+    private var latestProxyVersion: String?
+    private var proxyVersionMismatchCount = 0
     private var observers: [UUID: ControllableSessionRegistryObserver] = [:]
 
     init(
@@ -111,6 +115,8 @@ actor ControllableSessionRegistry {
         proxyDisconnectCount = 0
         bufferTruncationCount = 0
         lastInputRoutingError = nil
+        latestProxyVersion = nil
+        proxyVersionMismatchCount = 0
         for sessionId in removedSessionIDs {
             emit(.sessionRemoved(sessionId))
         }
@@ -348,6 +354,13 @@ actor ControllableSessionRegistry {
         proxyDisconnectCount += 1
     }
 
+    func recordProxyVersion(_ version: String, isCompatible: Bool) {
+        latestProxyVersion = version
+        if !isCompatible {
+            proxyVersionMismatchCount += 1
+        }
+    }
+
     func expireDisconnectedSessions(now: Date = Date()) {
         let staleSessionIds = sessions.compactMap { sessionId, record -> String? in
             let age = now.timeIntervalSince(record.lastHeartbeatAt)
@@ -376,7 +389,9 @@ actor ControllableSessionRegistry {
             proxyRegistrationFailureCount: proxyRegistrationFailureCount,
             proxyDisconnectCount: proxyDisconnectCount,
             bufferTruncationCount: bufferTruncationCount,
-            lastInputRoutingError: lastInputRoutingError
+            lastInputRoutingError: lastInputRoutingError,
+            latestProxyVersion: latestProxyVersion,
+            proxyVersionMismatchCount: proxyVersionMismatchCount
         )
     }
 

@@ -190,6 +190,21 @@ final class ControllableSessionRegistryTests: XCTestCase {
         let diagnostics = await registry.diagnostics()
         XCTAssertEqual(diagnostics.lastInputRoutingError, "send_input[session-1]: routing failed")
     }
+
+    func testDiagnosticsTracksLatestProxyVersionAndMismatchCount() async {
+        let registry = ControllableSessionRegistry(
+            defaultBufferLineLimit: 10,
+            defaultBufferByteLimit: 1024,
+            staleSessionGracePeriod: 30
+        )
+
+        await registry.recordProxyVersion("1.0.0", isCompatible: false)
+        await registry.recordProxyVersion("1.0.1", isCompatible: true)
+
+        let diagnostics = await registry.diagnostics()
+        XCTAssertEqual(diagnostics.latestProxyVersion, "1.0.1")
+        XCTAssertEqual(diagnostics.proxyVersionMismatchCount, 1)
+    }
 }
 
 private actor InputRecorder {

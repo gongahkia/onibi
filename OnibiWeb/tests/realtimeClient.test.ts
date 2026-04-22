@@ -136,4 +136,30 @@ describe("RealtimeClient", () => {
     expect(states).toContain("reconnecting");
     expect(states.at(-1)).toBe("authenticated");
   });
+
+  it("surfaces realtime protocol incompatibility on auth", () => {
+    const errors: string[] = [];
+    const client = new RealtimeClient({
+      connection: {
+        baseURL: "http://127.0.0.1:8787",
+        token: "token"
+      },
+      onStateChange: () => undefined,
+      onMessage: () => undefined,
+      onError: (message) => {
+        errors.push(message);
+      }
+    });
+
+    client.connect();
+    const socket = MockWebSocket.instances[0];
+    socket.serverOpen();
+    socket.serverMessage({
+      type: "auth_ok",
+      realtimeProtocolVersion: 2,
+      minimumSupportedRealtimeProtocolVersion: 2
+    });
+
+    expect(errors.at(-1)).toContain("Realtime protocol mismatch");
+  });
 });
