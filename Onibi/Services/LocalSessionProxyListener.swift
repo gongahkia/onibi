@@ -262,6 +262,8 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
                     try await handleCommandStartFrame(frameData: frameData)
                 case .commandEnd:
                     try await handleCommandEndFrame(frameData: frameData)
+                case .terminalEvent:
+                    try await handleTerminalEventFrame(frameData: frameData)
                 case .state:
                     try await handleStateFrame(frameData: frameData)
                 case .exit:
@@ -426,6 +428,38 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
             lastCommandPreview: completed?.displayCommand,
             at: message.timestamp
         )
+    }
+
+    private func handleTerminalEventFrame(frameData: Data) async throws {
+        let message = try JSONDateCodec.decoder.decode(LocalSessionProxyTerminalEventMessage.self, from: frameData)
+        switch message.event {
+        case .workingDirectory:
+            guard let workingDirectory = message.value, !workingDirectory.isEmpty else {
+                return
+            }
+            await registry.updateSession(
+                id: message.sessionId,
+                status: .running,
+                workingDirectory: workingDirectory,
+                lastTerminalEvent: message.snapshot,
+                at: message.timestamp
+            )
+        case .bell:
+            DiagnosticsStore.shared.record(
+                component: "LocalSessionProxyListener",
+                level: .debug,
+                message: "terminal bell",
+                metadata: [
+                    "sessionId": message.sessionId
+                ]
+            )
+            await registry.updateSession(
+                id: message.sessionId,
+                status: .running,
+                lastTerminalEvent: message.snapshot,
+                at: message.timestamp
+            )
+        }
     }
 
     private func handleStateFrame(frameData: Data) async throws {

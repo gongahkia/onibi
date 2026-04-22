@@ -69,14 +69,23 @@ function shellName(shell?: string | null): string | null {
   return parts[parts.length - 1] || shell;
 }
 
+function pathName(path?: string | null): string | null {
+  if (!path) return null;
+  const parts = path.split("/").filter(Boolean);
+  return parts[parts.length - 1] || path;
+}
+
 function metadataLabels(session: ControllableSessionSnapshot): string[] {
   const labels: string[] = [];
   const shell = shellName(session.shell);
   if (shell) labels.push(shell);
+  const cwd = pathName(session.workingDirectory);
+  if (cwd) labels.push(`cwd ${cwd}`);
   if (session.pid) labels.push(`pid ${session.pid}`);
   if (session.terminalCols && session.terminalRows) {
     labels.push(`${session.terminalCols}x${session.terminalRows}`);
   }
+  if (session.lastTerminalEvent?.kind === "bell") labels.push("bell");
   if (session.hostname) labels.push(session.hostname);
   return labels;
 }

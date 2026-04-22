@@ -86,6 +86,7 @@ final class SessionProxyRuntime {
     private var lastReportedTerminalTitle: String?
     private var titleParser = TerminalTitleParser()
     private var commandLifecycleParser = TerminalCommandLifecycleParser()
+    private var terminalEventParser = TerminalEventParser()
     private var isShuttingDown = false
 
     init(configuration: SessionProxyLaunchConfiguration) {
@@ -249,6 +250,9 @@ final class SessionProxyRuntime {
                 for event in commandLifecycleParser.consume(chunk) {
                     sendCommandLifecycleEvent(event)
                 }
+                for event in terminalEventParser.consume(chunk) {
+                    sendTerminalEvent(event)
+                }
             }
         } catch {
             shutdown(exitCode: 1)
@@ -294,7 +298,7 @@ final class SessionProxyRuntime {
             sendTerminalMetadataIfChanged(
                 RemoteTerminalResizePayload(cols: payload.cols, rows: payload.rows)
             )
-        case .register, .metadata, .output, .commandStart, .commandEnd, .state, .exit, .heartbeat:
+        case .register, .metadata, .output, .commandStart, .commandEnd, .terminalEvent, .state, .exit, .heartbeat:
             throw SessionProxyRuntimeError.invalidFrameType(envelope.type.rawValue)
         }
     }
@@ -552,6 +556,32 @@ final class SessionProxyRuntime {
                         sessionId: configuration.sessionId,
                         exitCode: exitCode,
                         workingDirectory: workingDirectory,
+                        timestamp: Date()
+                    )
+                )
+            }
+        } catch {
+            shutdown(exitCode: 1)
+        }
+    }
+
+    private func sendTerminalEvent(_ event: TerminalEvent) {
+        do {
+            switch event {
+            case .bell:
+                try sendFrame(
+                    LocalSessionProxyTerminalEventMessage(
+                        sessionId: configuration.sessionId,
+                        event: .bell,
+                        timestamp: Date()
+                    )
+                )
+            case .workingDirectory(let workingDirectory):
+                try sendFrame(
+                    LocalSessionProxyTerminalEventMessage(
+                        sessionId: configuration.sessionId,
+                        event: .workingDirectory,
+                        value: workingDirectory,
                         timestamp: Date()
                     )
                 )

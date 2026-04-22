@@ -6,6 +6,7 @@ public enum LocalSessionProxyFrameType: String, Codable, Sendable {
     case output
     case commandStart = "command_start"
     case commandEnd = "command_end"
+    case terminalEvent = "terminal_event"
     case state
     case exit
     case heartbeat
@@ -111,6 +112,48 @@ public struct LocalSessionProxyOutputMessage: Codable, Equatable, Sendable {
 
     public var decodedData: Data? {
         Data(base64Encoded: data)
+    }
+}
+
+public enum TerminalEventKind: String, Codable, Sendable {
+    case bell
+    case workingDirectory = "working_directory"
+}
+
+public struct TerminalEventSnapshot: Codable, Equatable, Sendable {
+    public let kind: TerminalEventKind
+    public let value: String?
+    public let timestamp: Date
+
+    public init(kind: TerminalEventKind, value: String? = nil, timestamp: Date) {
+        self.kind = kind
+        self.value = value
+        self.timestamp = timestamp
+    }
+}
+
+public struct LocalSessionProxyTerminalEventMessage: Codable, Equatable, Sendable {
+    public let type: LocalSessionProxyFrameType
+    public let sessionId: String
+    public let event: TerminalEventKind
+    public let value: String?
+    public let timestamp: Date
+
+    public init(
+        sessionId: String,
+        event: TerminalEventKind,
+        value: String? = nil,
+        timestamp: Date
+    ) {
+        self.type = .terminalEvent
+        self.sessionId = sessionId
+        self.event = event
+        self.value = value
+        self.timestamp = timestamp
+    }
+
+    public var snapshot: TerminalEventSnapshot {
+        TerminalEventSnapshot(kind: event, value: value, timestamp: timestamp)
     }
 }
 

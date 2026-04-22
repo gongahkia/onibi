@@ -76,17 +76,34 @@ final class ProxyRealtimeIntegrationTests: XCTestCase {
             XCTAssertTrue(didApplyMetadata)
 
             try proxyClient.sendFrame(
+                LocalSessionProxyTerminalEventMessage(
+                    sessionId: sessionId,
+                    event: .workingDirectory,
+                    value: "/tmp/event-cwd",
+                    timestamp: Date()
+                )
+            )
+
+            let didApplyTerminalEvent = await waitUntil(timeoutSeconds: 1.0) {
+                let snapshot = await registry.session(id: sessionId)
+                return snapshot?.workingDirectory == "/tmp/event-cwd" &&
+                    snapshot?.lastTerminalEvent?.kind == .workingDirectory &&
+                    snapshot?.lastTerminalEvent?.value == "/tmp/event-cwd"
+            }
+            XCTAssertTrue(didApplyTerminalEvent)
+
+            try proxyClient.sendFrame(
                 LocalSessionProxyCommandStartMessage(
                     sessionId: sessionId,
                     command: "npm run build -- --token sk-test",
-                    workingDirectory: "/tmp/updated",
+                    workingDirectory: "/tmp/event-cwd",
                     timestamp: Date()
                 )
             )
 
             let didApplyCommandStart = await waitUntil(timeoutSeconds: 1.0) {
                 let snapshot = await registry.session(id: sessionId)
-                return snapshot?.workingDirectory == "/tmp/updated" &&
+                return snapshot?.workingDirectory == "/tmp/event-cwd" &&
                     snapshot?.lastCommandPreview == "npm run build +3"
             }
             XCTAssertTrue(didApplyCommandStart)
@@ -95,7 +112,7 @@ final class ProxyRealtimeIntegrationTests: XCTestCase {
                 LocalSessionProxyCommandEndMessage(
                     sessionId: sessionId,
                     exitCode: 0,
-                    workingDirectory: "/tmp/updated",
+                    workingDirectory: "/tmp/event-cwd",
                     timestamp: Date()
                 )
             )

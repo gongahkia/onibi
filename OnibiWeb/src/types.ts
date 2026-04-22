@@ -1,5 +1,6 @@
 export type SessionTransportStatus = "starting" | "running" | "exited" | "failed";
 export type SessionOutputStream = "stdout" | "stderr";
+export type TerminalEventKind = "bell" | "working_directory";
 export type RemoteInputKind = "text" | "key" | "paste" | "bytes" | "file";
 export type RemoteInputKey =
   | "enter"
@@ -21,6 +22,12 @@ export type RemoteInputKey =
   | "arrow_right"
   | "space";
 
+export interface TerminalEventSnapshot {
+  kind: TerminalEventKind;
+  value?: string | null;
+  timestamp: string;
+}
+
 export interface ControllableSessionSnapshot {
   id: string;
   displayName: string;
@@ -38,6 +45,7 @@ export interface ControllableSessionSnapshot {
   terminalCols?: number | null;
   terminalRows?: number | null;
   terminalTitle?: string | null;
+  lastTerminalEvent?: TerminalEventSnapshot | null;
 }
 
 export interface SessionOutputChunk {

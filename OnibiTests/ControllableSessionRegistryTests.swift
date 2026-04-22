@@ -23,7 +23,12 @@ final class ControllableSessionRegistryTests: XCTestCase {
                 proxyVersion: "1.0.0",
                 terminalCols: 120,
                 terminalRows: 40,
-                terminalTitle: "vim README.md"
+                terminalTitle: "vim README.md",
+                lastTerminalEvent: TerminalEventSnapshot(
+                    kind: .workingDirectory,
+                    value: "/tmp/project",
+                    timestamp: Date()
+                )
             )
         )
         await registry.appendOutput(
@@ -44,6 +49,8 @@ final class ControllableSessionRegistryTests: XCTestCase {
         XCTAssertEqual(snapshot?.terminalCols, 120)
         XCTAssertEqual(snapshot?.terminalRows, 40)
         XCTAssertEqual(snapshot?.terminalTitle, "vim README.md")
+        XCTAssertEqual(snapshot?.lastTerminalEvent?.kind, .workingDirectory)
+        XCTAssertEqual(snapshot?.lastTerminalEvent?.value, "/tmp/project")
         XCTAssertEqual(buffer?.chunks.count, 1)
         XCTAssertEqual(String(data: buffer?.chunks[0].data ?? Data(), encoding: .utf8), "ready\n")
     }

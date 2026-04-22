@@ -54,6 +54,12 @@ function shellName(shell?: string | null): string | null {
   return parts[parts.length - 1] || shell;
 }
 
+function pathName(path?: string | null): string | null {
+  if (!path) return null;
+  const parts = path.split("/").filter(Boolean);
+  return parts[parts.length - 1] || path;
+}
+
 function IconBack(): JSX.Element {
   return (
     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -118,8 +124,10 @@ export function LiveSessionView({
 
   const inputDisabled = realtimeState !== "authenticated" || !session.isControllable || session.status !== "running";
   const shell = shellName(session.shell);
+  const cwd = pathName(session.workingDirectory);
   const terminalSize =
     session.terminalCols && session.terminalRows ? `${session.terminalCols}x${session.terminalRows}` : null;
+  const lastBell = session.lastTerminalEvent?.kind === "bell";
 
   return (
     <main className={`mf-live-page ${isLandscape ? "mf-live-landscape" : "mf-live-portrait"}`}>
@@ -137,7 +145,9 @@ export function LiveSessionView({
               {realtimeShortLabel(realtimeState)}
             </span>
             {shell && <span className="mf-badge mf-badge-compact">{shell}</span>}
+            {cwd && <span className="mf-badge mf-badge-compact" title={session.workingDirectory ?? undefined}>cwd {cwd}</span>}
             {terminalSize && <span className="mf-badge mf-badge-compact">{terminalSize}</span>}
+            {lastBell && <span className="mf-badge mf-badge-compact mf-badge-warn">bell</span>}
           </div>
         </div>
         <button
