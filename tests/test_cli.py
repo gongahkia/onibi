@@ -40,6 +40,7 @@ def test_help_shows_all_commands() -> None:
     commands = [
         "version",
         "doctor",
+        "validate-evidence",
         "init",
         "explain",
         "trends",
@@ -164,6 +165,7 @@ def test_run_help_lists_incremental_flag() -> None:
     assert "--sbom" in output
     assert "--proof-mode" in output
     assert "--target-profile" in output
+    assert "--debug-bundle" in output
     assert "--fail-on-new" in output
     assert "--fail-on-new-se" in output
 
@@ -185,6 +187,14 @@ def test_pipeline_help_lists_stage_commands() -> None:
     assert result.exit_code == 0
     for name in ("run", "scan", "detect", "triage", "verify", "legal", "patch", "report"):
         assert name in output
+
+
+def test_dev_help_lists_launch_plan() -> None:
+    result = runner.invoke(app, ["dev", "--help"])
+    output = _plain_output(result.stdout)
+
+    assert result.exit_code == 0
+    assert "launch-plan" in output
 
 
 def test_suppressions_help_lists_add_alias() -> None:

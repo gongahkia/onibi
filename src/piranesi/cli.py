@@ -55,7 +55,7 @@ from piranesi.llm.provider import LLMProvider
 from piranesi.llm.router import ModelRouter
 from piranesi.llm.trace import TraceLogger
 from piranesi.models import ScanResult
-from piranesi.observability import log_error_context, setup_logging
+from piranesi.observability import command_archive, log_error_context, setup_logging
 from piranesi.pipeline import (
     DetectArtifact,
     LegalArtifact,
@@ -88,6 +88,12 @@ from piranesi.scan.monorepo import detect_monorepo_manifest, select_packages
 from piranesi.threat import build_threat_model
 from piranesi.trace import TraceBudgetExceededError, TraceWriter
 from piranesi.ui import console, print_summary_table, stage_header
+from piranesi.verify import (
+    infer_launch_plan,
+    render_evidence_validation_report,
+    render_launch_plan,
+    validate_evidence_bundle,
+)
 from piranesi.watch import WatchDependencyError, WatchModeError, run_watch_mode
 
 _RUN_HELP = """Run the full Piranesi pipeline.
@@ -248,6 +254,11 @@ class ComplianceFormat(StrEnum):
     TERMINAL = "terminal"
 
 
+class EvidenceValidationCliFormat(StrEnum):
+    TEXT = "text"
+    JSON = "json"
+
+
 class BaselineDiffFormat(StrEnum):
     TEXT = "text"
     MARKDOWN = "markdown"
@@ -311,6 +322,10 @@ BaselineDiffFormatOption = Annotated[
 ComplianceFormatOption = Annotated[
     ComplianceFormat,
     typer.Option("--format", help="Compliance output format.", case_sensitive=False),
+]
+EvidenceValidationFormatOption = Annotated[
+    EvidenceValidationCliFormat,
+    typer.Option("--format", help="Evidence validation output format.", case_sensitive=False),
 ]
 SbomOption = Annotated[
     SbomFormat | None,
@@ -472,6 +487,13 @@ DebugOption = Annotated[
 JsonLogsOption = Annotated[
     bool,
     typer.Option("--json-logs", help="Emit JSONL logs to stderr."),
+]
+DebugBundleOption = Annotated[
+    bool,
+    typer.Option(
+        "--debug-bundle",
+        help="Archive subprocess commands, outputs, and stage timings under OUTPUT/debug.",
+    ),
 ]
 TraceOption = Annotated[
     Path,
@@ -1953,6 +1975,19 @@ def _render_latest_summary(output_dir: Path) -> None:
         typer.echo(f"- [{severity}] {finding_id} risk={risk:.1f} :: {title}")
 
 
+def _write_debug_stage_timings(output_dir: Path, stage_timings_s: Mapping[str, float]) -> None:
+    debug_dir = output_dir / "debug"
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "stage_timings_s": dict(stage_timings_s),
+        "total_s": sum(stage_timings_s.values()),
+    }
+    (debug_dir / "stage-timings.json").write_text(
+        json.dumps(payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+
 def _dispatch_launcher_selection(selection: LauncherSelection) -> None:
     if selection.action is LauncherAction.QUIT:
         return
@@ -2024,6 +2059,27 @@ def doctor(
         return
     typer.echo(render_doctor_report(report), nl=False)
     if not report.ready:
+        raise typer.Exit(code=1)
+
+
+@app.command("validate-evidence", help="Validate report and verification evidence artifacts.")
+def validate_evidence(
+    output_dir: Annotated[
+        Path,
+        typer.Argument(help="Piranesi output directory containing report.json and verify.json."),
+    ] = Path("./piranesi-output"),
+    format: EvidenceValidationFormatOption = EvidenceValidationCliFormat.TEXT,
+    strict: Annotated[
+        bool,
+        typer.Option("--strict", help="Require corroborating evidence for candidate findings too."),
+    ] = False,
+) -> None:
+    validation_report = validate_evidence_bundle(output_dir, strict=strict)
+    if format == EvidenceValidationCliFormat.JSON:
+        typer.echo(validation_report.model_dump_json(indent=2))
+    else:
+        typer.echo(render_evidence_validation_report(validation_report), nl=False)
+    if not validation_report.valid:
         raise typer.Exit(code=1)
 
 
@@ -4721,6 +4777,7 @@ def run(
     max_parallel: MaxParallelOption = None,
     no_cache: NoCacheOption = False,
     profile: ProfileOption = False,
+    debug_bundle: DebugBundleOption = False,
     config: ConfigOption = Path("./piranesi.toml"),
     output: OutputOption = Path("./piranesi-output"),
     verbose: VerboseOption = False,
@@ -4876,7 +4933,9 @@ def run(
             selected_files=selected_files,
             render_ui=sys.stderr.isatty() and not json_logs,
         )
-        with _hook_timeout(active_hook_timeout):
+        with _hook_timeout(active_hook_timeout), command_archive(
+            options.output_dir / "debug" if debug_bundle else None
+        ):
             pipeline_result = run_pipeline(
                 config_model,
                 context,
@@ -4884,6 +4943,8 @@ def run(
                 resume=resume,
                 render_ui=sys.stderr.isatty() and not json_logs,
             )
+        if debug_bundle:
+            _write_debug_stage_timings(options.output_dir, context.stage_timings_s)
     except HookTimeoutExceededError:
         typer.echo(f"scan exceeded {active_hook_timeout}s; skipping staged pre-commit scan.")
         return
@@ -5004,6 +5065,22 @@ def run(
         raise typer.Exit(code=1)
 
 
+def dev_launch_plan(
+    target_dir: TargetDirArg = Path("."),
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+) -> None:
+    plan = infer_launch_plan(target_dir)
+    if json_output:
+        typer.echo(plan.model_dump_json(indent=2))
+        return
+    typer.echo(render_launch_plan(plan), nl=False)
+    if not plan.candidates:
+        raise typer.Exit(code=1)
+
+
 def _register_collapsed_command_aliases() -> None:
     """Register progressive-disclosure aliases without breaking compatibility."""
 
@@ -5018,6 +5095,7 @@ def _register_collapsed_command_aliases() -> None:
 
     dev_app.command("watch")(watch)
     dev_app.command("lsp")(lsp)
+    dev_app.command("launch-plan")(dev_launch_plan)
 
     baseline_app.command("diff")(diff_command)
     suppressions_app.command("add")(suppress)

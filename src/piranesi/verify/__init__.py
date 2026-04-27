@@ -28,6 +28,13 @@ from piranesi.verify.constraints import (
     parse_path_condition,
     select_exploit_template_spec,
 )
+from piranesi.verify.launch import (
+    LaunchCandidate,
+    LaunchPlan,
+    infer_launch_plan,
+    render_launch_plan,
+    render_target_profile_snippet,
+)
 from piranesi.verify.preconditions import (
     VerificationPreconditionEvaluation,
     evaluate_verification_preconditions,
@@ -63,6 +70,13 @@ from piranesi.verify.solver import (
     synthesize_payload,
     translate_condition,
 )
+from piranesi.verify.validation import (
+    EvidenceValidationCheck,
+    EvidenceValidationReport,
+    FindingEvidenceValidation,
+    render_evidence_validation_report,
+    validate_evidence_bundle,
+)
 
 __all__ = [
     "DEFAULT_INTERNAL_PORT",
@@ -70,10 +84,15 @@ __all__ = [
     "FORBIDDEN_PAYLOAD_PATTERNS",
     "ConfirmationLevel",
     "ConfirmationResult",
+    "EvidenceValidationCheck",
+    "EvidenceValidationReport",
     "ExploitResult",
     "ExploitTemplate",
     "ExploitTemplateSpec",
+    "FindingEvidenceValidation",
     "IntBound",
+    "LaunchCandidate",
+    "LaunchPlan",
     "LogicalAnd",
     "LogicalNot",
     "LogicalOr",
@@ -105,9 +124,13 @@ __all__ = [
     "extract_exploit_template",
     "fire_payload",
     "generate_reproducer_script",
+    "infer_launch_plan",
     "is_safe_payload",
     "normalize_constraint_set",
     "parse_path_condition",
+    "render_evidence_validation_report",
+    "render_launch_plan",
+    "render_target_profile_snippet",
     "run_in_sandbox",
     "safe_payload_candidates",
     "select_exploit_template_spec",
@@ -116,6 +139,7 @@ __all__ = [
     "start_container",
     "synthesize_payload",
     "translate_condition",
+    "validate_evidence_bundle",
     "wait_for_ready",
     "write_reproducer_script",
 ]
