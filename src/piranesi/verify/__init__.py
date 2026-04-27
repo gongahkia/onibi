@@ -31,9 +31,14 @@ from piranesi.verify.constraints import (
 from piranesi.verify.launch import (
     LaunchCandidate,
     LaunchPlan,
+    LaunchProbeResult,
+    LaunchProfileWriteResult,
     infer_launch_plan,
+    probe_launch_candidate,
     render_launch_plan,
+    render_probe_result,
     render_target_profile_snippet,
+    write_target_profile,
 )
 from piranesi.verify.preconditions import (
     VerificationPreconditionEvaluation,
@@ -93,6 +98,8 @@ __all__ = [
     "IntBound",
     "LaunchCandidate",
     "LaunchPlan",
+    "LaunchProbeResult",
+    "LaunchProfileWriteResult",
     "LogicalAnd",
     "LogicalNot",
     "LogicalOr",
@@ -128,8 +135,10 @@ __all__ = [
     "is_safe_payload",
     "normalize_constraint_set",
     "parse_path_condition",
+    "probe_launch_candidate",
     "render_evidence_validation_report",
     "render_launch_plan",
+    "render_probe_result",
     "render_target_profile_snippet",
     "run_in_sandbox",
     "safe_payload_candidates",
@@ -142,4 +151,5 @@ __all__ = [
     "validate_evidence_bundle",
     "wait_for_ready",
     "write_reproducer_script",
+    "write_target_profile",
 ]

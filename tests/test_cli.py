@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
-from piranesi.cli import app
+from piranesi.cli import _load_local_llm_env, app
 from piranesi.config import OwnershipConfig, load_config
 from piranesi.doctor import DoctorCheck, DoctorReport
 from piranesi.launcher_tui import LauncherAction, LauncherSelection
@@ -31,6 +32,32 @@ _ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 def _plain_output(output: str) -> str:
     return _ANSI_RE.sub("", output)
+
+
+def test_cli_loads_local_openai_env_alias(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    (tmp_path / ".env").write_text("OPENAI-API-KEY=sk-local-test\n", encoding="utf-8")
+
+    _load_local_llm_env()
+
+    assert os.environ["OPENAI_API_KEY"] == "sk-local-test"
+
+
+def test_cli_local_env_does_not_override_existing_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-existing")
+    (tmp_path / ".env").write_text("OPENAI_API_KEY=sk-local-test\n", encoding="utf-8")
+
+    _load_local_llm_env()
+
+    assert os.environ["OPENAI_API_KEY"] == "sk-existing"
 
 
 def test_help_shows_all_commands() -> None:

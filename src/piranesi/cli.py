@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import signal
 import sys
@@ -90,9 +91,12 @@ from piranesi.trace import TraceBudgetExceededError, TraceWriter
 from piranesi.ui import console, print_summary_table, stage_header
 from piranesi.verify import (
     infer_launch_plan,
+    probe_launch_candidate,
     render_evidence_validation_report,
     render_launch_plan,
+    render_probe_result,
     validate_evidence_bundle,
+    write_target_profile,
 )
 from piranesi.watch import WatchDependencyError, WatchModeError, run_watch_mode
 
@@ -181,12 +185,57 @@ app.add_typer(intel_app, name="intel")
 app.add_typer(pipeline_app, name="pipeline")
 app.add_typer(dev_app, name="dev")
 
+_LOCAL_LLM_ENV_ALIASES = {
+    "OPENAI_API_KEY": "OPENAI_API_KEY",
+    "OPENAI-API-KEY": "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY": "ANTHROPIC_API_KEY",
+    "OPENROUTER_API_KEY": "OPENROUTER_API_KEY",
+    "AZURE_OPENAI_API_KEY": "AZURE_OPENAI_API_KEY",
+    "GEMINI_API_KEY": "GEMINI_API_KEY",
+    "GOOGLE_API_KEY": "GOOGLE_API_KEY",
+    "LITELLM_API_KEY": "LITELLM_API_KEY",
+}
+
 
 def _version_callback(value: bool) -> None:
     if not value:
         return
     typer.echo(f"piranesi {__version__}")
     raise typer.Exit()
+
+
+def _load_local_llm_env(path: Path = Path(".env")) -> None:
+    dotenv_path = path.expanduser().resolve(strict=False)
+    if not dotenv_path.is_file():
+        return
+    try:
+        lines = dotenv_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].strip()
+        if "=" not in line:
+            continue
+        raw_name, raw_value = line.split("=", 1)
+        target_name = _LOCAL_LLM_ENV_ALIASES.get(raw_name.strip())
+        if target_name is None or os.getenv(target_name):
+            continue
+        value = _clean_dotenv_value(raw_value)
+        if value:
+            os.environ[target_name] = value
+
+
+def _clean_dotenv_value(value: str) -> str:
+    cleaned = value.strip()
+    if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in {"'", '"'}:
+        return cleaned[1:-1]
+    if " #" in cleaned:
+        cleaned = cleaned.split(" #", 1)[0].rstrip()
+    return cleaned
 
 
 TargetDirArg = Annotated[Path, typer.Argument(help="Target directory.")]
@@ -1327,6 +1376,7 @@ def _run_single_stage(
     no_execute: bool = False,
 ) -> StageResult:
     """Run a single pipeline stage, replacing the old stub."""
+    _load_local_llm_env()
     setup_logging(
         verbose=options.verbose,
         quiet=options.quiet,
@@ -2053,6 +2103,7 @@ def doctor(
         typer.Option("--json", help="Emit machine-readable JSON."),
     ] = False,
 ) -> None:
+    _load_local_llm_env()
     report = build_doctor_report(target_dir, config_path=config)
     if json_output:
         typer.echo(report.model_dump_json(indent=2))
@@ -2254,6 +2305,7 @@ def watch(
     authorized: AuthorizedOption = False,
     yes: YesOption = False,
 ) -> None:
+    _load_local_llm_env()
     options = _common_options(
         config=config,
         output=output,
@@ -2580,6 +2632,7 @@ def report(
     authorized: AuthorizedOption = False,
     yes: YesOption = False,
 ) -> None:
+    _load_local_llm_env()
     options = _common_options(
         config=config,
         output=output,
@@ -4788,6 +4841,7 @@ def run(
     authorized: AuthorizedOption = False,
     yes: YesOption = False,
 ) -> None:
+    _load_local_llm_env()
     options = _common_options(
         config=config,
         output=output,
@@ -5071,12 +5125,60 @@ def dev_launch_plan(
         bool,
         typer.Option("--json", help="Emit machine-readable JSON."),
     ] = False,
+    write_profile: Annotated[
+        str | None,
+        typer.Option("--write-profile", help="Write the first inferred profile to piranesi.toml."),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Replace an existing profile when used with --write-profile."),
+    ] = False,
+    probe: Annotated[
+        bool,
+        typer.Option("--probe", help="Start the first inferred candidate and poll readiness."),
+    ] = False,
+    output: OutputOption = Path("./piranesi-output"),
+    config: ConfigOption = Path("./piranesi.toml"),
 ) -> None:
     plan = infer_launch_plan(target_dir)
+    write_result = None
+    probe_result = None
+    if (write_profile is not None or probe) and not plan.candidates:
+        typer.echo(render_launch_plan(plan), nl=False)
+        raise typer.Exit(code=1)
+    if write_profile is not None:
+        try:
+            write_result = write_target_profile(
+                config,
+                plan.candidates[0],
+                profile_name=write_profile,
+                force=force,
+            )
+        except ValueError as exc:
+            typer.echo(f"error: {exc}")
+            raise typer.Exit(code=2) from exc
+    if probe:
+        probe_result = probe_launch_candidate(target_dir, plan.candidates[0], output_dir=output)
     if json_output:
-        typer.echo(plan.model_dump_json(indent=2))
+        payload: dict[str, object] = {"plan": plan.model_dump(mode="json")}
+        if write_result is not None:
+            payload["write_profile"] = write_result.model_dump(mode="json")
+        if probe_result is not None:
+            payload["probe"] = probe_result.model_dump(mode="json")
+        typer.echo(json.dumps(payload, indent=2))
+        if probe_result is not None and not probe_result.ready:
+            raise typer.Exit(code=1)
         return
     typer.echo(render_launch_plan(plan), nl=False)
+    if write_result is not None:
+        typer.echo(
+            f"Wrote profile `{write_result.profile_name}` to {write_result.config_path}"
+        )
+    if probe_result is not None:
+        typer.echo("")
+        typer.echo(render_probe_result(probe_result), nl=False)
+        if not probe_result.ready:
+            raise typer.Exit(code=1)
     if not plan.candidates:
         raise typer.Exit(code=1)
 

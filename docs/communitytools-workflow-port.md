@@ -178,13 +178,16 @@ verification. The first bounded workflow is:
 ```bash
 piranesi dev launch-plan ./app
 piranesi dev launch-plan ./app --json
+piranesi dev launch-plan ./app --write-profile auto --probe
 ```
 
 This infers local launch candidates from `package.json`, common Python app entry
-points, and basic Docker hints, then prints a `[verify.target_profiles.<name>]`
-snippet. The verify stage can then use `--target-profile <name>` to start the app
-locally, run readiness checks, replay safe proof requests, and tear the process
-down.
+points, and basic Docker hints, then prints or writes a
+`[verify.target_profiles.<name>]` snippet. With `--probe`, Piranesi starts the
+first inferred candidate locally, polls readiness, writes launch logs to
+`piranesi-output/debug/`, and tears the process down. The verify stage can then
+use `--target-profile <name>` to start the app locally, run readiness checks,
+replay safe proof requests, and tear the process down.
 
 Keep this local and explicit. Do not turn launch enumeration into broad crawling
 or remote exploitation; external recon should enter through `intel normalize`.
