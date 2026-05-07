@@ -432,7 +432,21 @@ struct AppearanceSettingsTab: View {
         "bolt",
         "sparkles",
         "waveform",
-        "eye"
+        "eye",
+        "display",
+        "desktopcomputer",
+        "laptopcomputer",
+        "keyboard",
+        "cpu",
+        "memorychip",
+        "server.rack",
+        "network",
+        "antenna.radiowaves.left.and.right",
+        "dot.radiowaves.left.and.right",
+        "bolt.badge.clock",
+        "checkmark.seal",
+        "exclamationmark.triangle",
+        "scope"
     ]
 
     private let iconColumns = [
