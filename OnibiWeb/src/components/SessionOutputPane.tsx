@@ -57,7 +57,15 @@ export function SessionOutputPane({
       }
 
       if (!engineRef.current) {
-        engineRef.current = createGhosttyTerminalEngine(cols, rows);
+        engineRef.current = createGhosttyTerminalEngine(cols, rows, {
+          onBackendReady: () => {
+            const activeCanvas = canvasRef.current;
+            const activeEngine = engineRef.current;
+            if (activeCanvas && activeEngine) {
+              renderTerminal(activeCanvas, activeEngine, true);
+            }
+          }
+        });
       } else {
         engineRef.current.resize(cols, rows);
       }
@@ -103,6 +111,7 @@ export function SessionOutputPane({
       container.removeEventListener("touchstart", focusTerminal);
       container.removeEventListener("keydown", onKeyDown);
       container.removeEventListener("beforeinput", onBeforeInput as EventListener);
+      engineRef.current?.dispose?.();
       engineRef.current = null;
       lastRenderedChunkIdRef.current = null;
       lastReportedSizeRef.current = null;
