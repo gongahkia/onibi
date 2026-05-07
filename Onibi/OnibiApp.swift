@@ -11,6 +11,15 @@ struct OnibiApp: App {
         Settings {
             SettingsView()
         }
+        .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates...") {
+                    UpdaterController.shared.checkForUpdates()
+                    NotificationCenter.default.post(name: .openSettingsWindow, object: nil)
+                }
+                .keyboardShortcut("u", modifiers: [.command])
+            }
+        }
         
         WindowGroup("Logs", id: "logs") {
             DetailedLogsView()
@@ -101,6 +110,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         BackgroundTaskScheduler.shared.start()
         LocalSessionProxyListener.shared.bootstrap()
         MobileGatewayService.shared.bootstrap()
+
+        UpdaterController.shared.performAutomaticCheckIfNeeded()
         
         // Register URL handler
         NSAppleEventManager.shared().setEventHandler(

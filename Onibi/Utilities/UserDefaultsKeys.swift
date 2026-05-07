@@ -10,4 +10,10 @@ enum UserDefaultsKeys {
     
     /// Key for custom pattern rules
     static let customPatterns = "customPatterns"
+
+    /// Key for enabling automatic GitHub release checks
+    static let updatesAutoCheckEnabled = "onibi.updates.autoCheckEnabled"
+
+    /// Key for the last GitHub release check timestamp
+    static let updatesLastCheckAt = "onibi.updates.lastCheckAt"
 }

@@ -1928,109 +1928,266 @@ struct FilterRuleEditor: View {
 // MARK: - About Settings Tab
 
 struct AboutSettingsTab: View {
+    @ObservedObject private var updater = UpdaterController.shared
     @State private var ghosttyVersion: String = "Checking..."
     @State private var ghosttyInstalled: Bool = false
     @State private var ghosttyConfigPath: String = ""
+    @State private var showingReleaseDetails = false
+    @State private var showingInstallGuidance = false
     
     var body: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "terminal.fill")
-                .font(.system(size: 64))
-                .foregroundColor(.accentColor)
-            
-            VStack(spacing: 8) {
-                Text("Onibi")
-                    .font(.title)
-                    .fontWeight(.bold)
+        ScrollView {
+            VStack(spacing: 24) {
+                Image(systemName: "terminal.fill")
+                    .font(.system(size: 64))
+                    .foregroundColor(.accentColor)
                 
-                Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0")")
-                    .font(.subheadline)
+                VStack(spacing: 8) {
+                    Text("Onibi")
+                        .font(.title)
+                        .fontWeight(.bold)
+                    
+                    Text("Version \(appVersion)")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                
+                Text("A macOS menubar application for displaying Ghostty terminal output, notifications, and task completions.")
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 40)
+                
+                updateSection
+                
+                // Ghostty diagnostics section
+                ghosttyDiagnosticsSection
+                
+                VStack(spacing: 8) {
+                    Button(action: copyDiagnostics) {
+                        Label("Copy Diagnostics", systemImage: "doc.on.clipboard")
+                    }
+                    .buttonStyle(.bordered)
+                    
+                    Link("GitHub Repository", destination: URL(string: "https://github.com/gongahkia/onibi")!)
+                    Link("Report an Issue", destination: URL(string: "https://github.com/gongahkia/onibi/issues")!)
+                }
+                .font(.subheadline)
+                
+                Text("Made with love for the Ghostty community")
+                    .font(.caption)
                     .foregroundColor(.secondary)
             }
-            
-            Text("A macOS menubar application for displaying Ghostty terminal output, notifications, and task completions.")
-                .multilineTextAlignment(.center)
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 40)
-            
-            Divider()
-                .frame(width: 200)
-            
-            // Ghostty diagnostics section
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("Ghostty Status:")
-                        .font(.headline)
-                    Spacer()
-                    Image(systemName: ghosttyInstalled ? "checkmark.circle.fill" : "xmark.circle.fill")
-                        .foregroundColor(ghosttyInstalled ? .green : .red)
-                }
-                
-                if ghosttyInstalled {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text("Version:")
-                                .foregroundColor(.secondary)
-                            Spacer()
-                            Text(ghosttyVersion)
-                                .font(.caption)
-                                .textSelection(.enabled)
-                        }
-                        
-                        HStack {
-                            Text("Config Path:")
-                                .foregroundColor(.secondary)
-                            Spacer()
-                            Text(ghosttyConfigPath)
-                                .font(.caption)
-                                .textSelection(.enabled)
-                                .lineLimit(1)
-                        }
-                        
-                        Button(action: openGhosttyConfig) {
-                            Label("Open Ghostty Config", systemImage: "doc.text")
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(ghosttyConfigPath.isEmpty || !FileManager.default.fileExists(atPath: ghosttyConfigPath))
-                    }
-                    .padding(.leading, 8)
-                } else {
-                    Text("Ghostty not found in PATH")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .padding(.leading, 8)
-                }
-            }
             .padding()
-            .background(Color.secondary.opacity(0.1))
-            .cornerRadius(8)
-            .padding(.horizontal, 40)
-            
-            Divider()
-                .frame(width: 200)
-            
-            VStack(spacing: 8) {
-                Button(action: copyDiagnostics) {
-                    Label("Copy Diagnostics", systemImage: "doc.on.clipboard")
-                }
-                .buttonStyle(.bordered)
-                
-                Link("GitHub Repository", destination: URL(string: "https://github.com/gongahkia/onibi")!)
-                Link("Report an Issue", destination: URL(string: "https://github.com/gongahkia/onibi/issues")!)
-            }
-            .font(.subheadline)
-            
-            Spacer()
-            
-            Text("Made with ❤️ for the Ghostty community")
-                .font(.caption)
-                .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding()
         .task {
             await loadGhosttyInfo()
         }
+        .sheet(isPresented: $showingReleaseDetails) {
+            if let release = updater.availableRelease {
+                UpdateAvailableView(
+                    release: release,
+                    downloadState: updater.downloadState,
+                    onDownload: updater.openAvailableReleaseDownload,
+                    onRetry: updater.retryAvailableReleaseDownload,
+                    onOpenReleases: updater.openReleasesPage,
+                    onShowInstall: { showingInstallGuidance = true }
+                )
+            }
+        }
+        .sheet(isPresented: $showingInstallGuidance) {
+            UpdateInstallGuidanceView(
+                downloadState: updater.downloadState,
+                onOpenDMG: updater.openAvailableReleaseDownload,
+                onRevealDMG: updater.revealDownloadedReleaseInFinder,
+                onRevealCurrentApp: updater.revealCurrentAppInFinder,
+                onQuit: updater.quitForUpdateInstall
+            )
+        }
+        .alert(item: $updater.toast) { toast in
+            Alert(
+                title: Text(toastTitle(for: toast.kind)),
+                message: Text(toast.message),
+                dismissButton: .default(Text("OK"))
+            )
+        }
+    }
+
+    private var updateSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Updates")
+                    .font(.headline)
+                Spacer()
+                updateStatusBadge
+            }
+
+            Toggle("Automatically check daily", isOn: $updater.automaticallyChecksForUpdates)
+
+            if let lastCheckAt = updater.lastCheckAt {
+                labeledValue("Last checked", value: formatDateTime(lastCheckAt))
+            } else {
+                labeledValue("Last checked", value: "Never")
+            }
+
+            if let release = updater.availableRelease {
+                labeledValue("Latest available", value: "Version \(release.version)")
+                labeledValue("Published", value: formatDate(release.publishedAt))
+            } else {
+                labeledValue("Latest available", value: "No newer release found")
+            }
+
+            downloadStatusView
+
+            HStack {
+                Button(action: { updater.checkForUpdatesNow(trigger: .manual) }) {
+                    Label("Check for Updates Now", systemImage: "arrow.clockwise")
+                }
+                .disabled(updater.isChecking)
+
+                if updater.availableRelease != nil {
+                    Button("What's New") {
+                        showingReleaseDetails = true
+                    }
+
+                    Button(updateActionTitle) {
+                        updater.openAvailableReleaseDownload()
+                    }
+                    .disabled(isDownloadActionDisabled)
+                }
+
+                Button("View Releases Page") {
+                    updater.openReleasesPage()
+                }
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding()
+        .background(Color.secondary.opacity(0.1))
+        .cornerRadius(8)
+        .padding(.horizontal, 40)
+    }
+
+    @ViewBuilder
+    private var updateStatusBadge: some View {
+        if updater.isChecking {
+            ProgressView()
+                .controlSize(.small)
+        } else if updater.availableRelease != nil {
+            Label("Available", systemImage: "arrow.down.circle.fill")
+                .font(.caption)
+                .foregroundColor(.accentColor)
+        } else {
+            Label("Current", systemImage: "checkmark.circle.fill")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var downloadStatusView: some View {
+        switch updater.downloadState {
+        case .idle:
+            EmptyView()
+        case .downloading(let progress):
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Downloading DMG...")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                ProgressView(value: progress)
+            }
+        case .downloaded(let url):
+            HStack {
+                Label("Downloaded \(url.lastPathComponent)", systemImage: "checkmark.circle")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Button("Install Guidance") {
+                    showingInstallGuidance = true
+                }
+                .buttonStyle(.link)
+            }
+        case .failed(let message):
+            HStack {
+                Label(message, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundColor(.orange)
+                Spacer()
+                Button("Retry") {
+                    updater.retryAvailableReleaseDownload()
+                }
+                .buttonStyle(.link)
+            }
+        }
+    }
+
+    private var ghosttyDiagnosticsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Ghostty Status:")
+                    .font(.headline)
+                Spacer()
+                Image(systemName: ghosttyInstalled ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    .foregroundColor(ghosttyInstalled ? .green : .red)
+            }
+            
+            if ghosttyInstalled {
+                VStack(alignment: .leading, spacing: 6) {
+                    labeledValue("Version:", value: ghosttyVersion)
+                    labeledValue("Config Path:", value: ghosttyConfigPath)
+                    
+                    Button(action: openGhosttyConfig) {
+                        Label("Open Ghostty Config", systemImage: "doc.text")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(ghosttyConfigPath.isEmpty || !FileManager.default.fileExists(atPath: ghosttyConfigPath))
+                }
+                .padding(.leading, 8)
+            } else {
+                Text("Ghostty not found in PATH")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.leading, 8)
+            }
+        }
+        .padding()
+        .background(Color.secondary.opacity(0.1))
+        .cornerRadius(8)
+        .padding(.horizontal, 40)
+    }
+
+    private func labeledValue(_ title: String, value: String) -> some View {
+        HStack {
+            Text(title)
+                .foregroundColor(.secondary)
+            Spacer()
+            Text(value)
+                .font(.caption)
+                .textSelection(.enabled)
+                .lineLimit(1)
+        }
+    }
+
+    private var updateActionTitle: String {
+        switch updater.downloadState {
+        case .downloaded:
+            return "Open Downloaded DMG"
+        case .failed:
+            return "Retry Download"
+        default:
+            return "Download"
+        }
+    }
+
+    private var isDownloadActionDisabled: Bool {
+        if case .downloading = updater.downloadState {
+            return true
+        }
+        return false
+    }
+
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
     }
     
     private func loadGhosttyInfo() async {
@@ -2061,7 +2218,6 @@ struct AboutSettingsTab: View {
     }
     
     private func copyDiagnostics() {
-        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
         let osVersion = ProcessInfo.processInfo.operatingSystemVersionString
         let settings = SettingsViewModel.shared.settings
         let logPath = settings.logFilePath
@@ -2091,6 +2247,177 @@ struct AboutSettingsTab: View {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(diagnostics, forType: .string)
+    }
+
+    private func toastTitle(for kind: ToastState.Kind) -> String {
+        switch kind {
+        case .info:
+            return "Updates"
+        case .success:
+            return "Update Check"
+        case .warning:
+            return "Update Warning"
+        }
+    }
+
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter.string(from: date)
+    }
+
+    private func formatDateTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+}
+
+struct UpdateAvailableView: View {
+    let release: AvailableRelease
+    let downloadState: DownloadState
+    let onDownload: () -> Void
+    let onRetry: () -> Void
+    let onOpenReleases: () -> Void
+    let onShowInstall: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(release.title)
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                    Text("Version \(release.version) - \(release.publishedAt.formatted(date: .abbreviated, time: .omitted))")
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                Button("Done") {
+                    dismiss()
+                }
+            }
+
+            ScrollView {
+                Text(release.notes.isEmpty ? "This release does not include notes." : release.notes)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
+            .frame(minHeight: 180)
+
+            HStack {
+                Button(primaryActionTitle) {
+                    runPrimaryAction()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(primaryActionDisabled)
+
+                Button("Install Guidance") {
+                    onShowInstall()
+                }
+
+                Button("View Releases Page") {
+                    onOpenReleases()
+                }
+
+                Spacer()
+            }
+        }
+        .padding()
+        .frame(width: 560, height: 420)
+    }
+
+    private var primaryActionTitle: String {
+        switch downloadState {
+        case .downloaded:
+            return "Open Downloaded DMG"
+        case .failed:
+            return "Retry Download"
+        default:
+            return "Download DMG"
+        }
+    }
+
+    private var primaryActionDisabled: Bool {
+        if case .downloading = downloadState {
+            return true
+        }
+        return false
+    }
+
+    private func runPrimaryAction() {
+        if case .failed = downloadState {
+            onRetry()
+        } else {
+            onDownload()
+        }
+    }
+}
+
+struct UpdateInstallGuidanceView: View {
+    let downloadState: DownloadState
+    let onOpenDMG: () -> Void
+    let onRevealDMG: () -> Void
+    let onRevealCurrentApp: () -> Void
+    let onQuit: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Install Update")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                Spacer()
+                Button("Done") {
+                    dismiss()
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("1. Open the downloaded DMG.")
+                Text("2. Drag Onibi into Applications and replace the existing copy.")
+                Text("3. Quit this running copy, then launch the updated app.")
+                Text("Your Onibi settings, logs, and user data are stored separately and are preserved.")
+                    .foregroundColor(.secondary)
+            }
+            .textSelection(.enabled)
+
+            HStack {
+                Button("Open Downloaded DMG") {
+                    onOpenDMG()
+                }
+                .disabled(!hasDownloadedDMG)
+
+                Button("Reveal DMG in Finder") {
+                    onRevealDMG()
+                }
+                .disabled(!hasDownloadedDMG)
+
+                Button("Reveal Current App") {
+                    onRevealCurrentApp()
+                }
+
+                Spacer()
+
+                Button("Quit Onibi") {
+                    onQuit()
+                }
+            }
+        }
+        .padding()
+        .frame(width: 540)
+    }
+
+    private var hasDownloadedDMG: Bool {
+        if case .downloaded = downloadState {
+            return true
+        }
+        return false
     }
 }
 
