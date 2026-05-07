@@ -48,18 +48,7 @@ struct OnboardingView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Page content
-            TabView(selection: $currentPage) {
-                // Step 0: Persona Selection
-                PersonaSelectionView(selectedPersona: $settingsViewModel.settings.userPersona)
-                    .tag(0)
-                
-                // Content Pages
-                ForEach(pages.indices, id: \.self) { index in
-                    OnboardingPageView(page: pages[index])
-                        .tag(index + 1)
-                }
-            }
-            .tabViewStyle(.automatic)
+            currentPageContent
             
             // Navigation
             HStack {
@@ -99,6 +88,15 @@ struct OnboardingView: View {
             .padding()
         }
         .frame(width: 500, height: 450)
+    }
+
+    @ViewBuilder
+    private var currentPageContent: some View {
+        if currentPage == 0 {
+            PersonaSelectionView(selectedPersona: $settingsViewModel.settings.userPersona)
+        } else {
+            OnboardingPageView(page: pages[currentPage - 1])
+        }
     }
     
     private func finishOnboarding() {
