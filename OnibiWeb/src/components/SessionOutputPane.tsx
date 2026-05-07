@@ -23,6 +23,7 @@ export function SessionOutputPane({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const engineRef = useRef<GhosttyTerminalEngine | null>(null);
   const renderStateRef = useRef<TerminalRenderState>({});
+  const renderSchedulerRef = useRef<TerminalRenderScheduler | null>(null);
   const lastRenderedChunkIdRef = useRef<string | null>(null);
   const onTerminalInputRef = useRef(onTerminalInput);
   const onTerminalResizeRef = useRef(onTerminalResize);
@@ -43,6 +44,12 @@ export function SessionOutputPane({
       return;
     }
 
+    renderSchedulerRef.current = createTerminalRenderScheduler(
+      () => canvasRef.current,
+      () => engineRef.current,
+      renderStateRef.current
+    );
+
     const reportSize = () => {
       const rect = container.getBoundingClientRect();
       const cols = Math.max(1, Math.floor(rect.width / CELL_WIDTH));
@@ -60,17 +67,13 @@ export function SessionOutputPane({
       if (!engineRef.current) {
         engineRef.current = createGhosttyTerminalEngine(cols, rows, {
           onBackendReady: () => {
-            const activeCanvas = canvasRef.current;
-            const activeEngine = engineRef.current;
-            if (activeCanvas && activeEngine) {
-              renderTerminal(activeCanvas, activeEngine, renderStateRef.current, true);
-            }
+            renderSchedulerRef.current?.schedule(true);
           }
         });
       } else {
         engineRef.current.resize(cols, rows);
       }
-      renderTerminal(canvas, engineRef.current, renderStateRef.current, true);
+      renderSchedulerRef.current?.schedule(true);
 
       const lastReportedSize = lastReportedSizeRef.current;
       if (!lastReportedSize || lastReportedSize.cols !== cols || lastReportedSize.rows !== rows) {
@@ -112,6 +115,8 @@ export function SessionOutputPane({
       container.removeEventListener("touchstart", focusTerminal);
       container.removeEventListener("keydown", onKeyDown);
       container.removeEventListener("beforeinput", onBeforeInput as EventListener);
+      renderSchedulerRef.current?.dispose();
+      renderSchedulerRef.current = null;
       engineRef.current?.dispose?.();
       engineRef.current = null;
       renderStateRef.current = {};
@@ -130,7 +135,7 @@ export function SessionOutputPane({
     if (entries.length === 0) {
       engine.reset();
       lastRenderedChunkIdRef.current = null;
-      renderTerminal(canvas, engine, renderStateRef.current, true);
+      renderSchedulerRef.current?.schedule(true);
       return;
     }
 
@@ -154,7 +159,7 @@ export function SessionOutputPane({
     }
 
     lastRenderedChunkIdRef.current = entries[entries.length - 1].id;
-    renderTerminal(canvas, engine, renderStateRef.current);
+    renderSchedulerRef.current?.schedule();
   }, [entries]);
 
   return (
@@ -176,6 +181,64 @@ export interface TerminalRenderState {
     row: number;
     col: number;
     visible: boolean;
+  };
+}
+
+interface TerminalRenderScheduler {
+  schedule(forceFullRender?: boolean): void;
+  cancel(): void;
+  dispose(): void;
+}
+
+export function createTerminalRenderScheduler(
+  getCanvas: () => HTMLCanvasElement | null,
+  getEngine: () => GhosttyTerminalEngine | null,
+  renderState: TerminalRenderState,
+  requestFrame: (callback: FrameRequestCallback) => number = window.requestAnimationFrame,
+  cancelFrame: (handle: number) => void = window.cancelAnimationFrame
+): TerminalRenderScheduler {
+  let frameHandle: number | null = null;
+  let pendingForceFullRender = false;
+  let disposed = false;
+
+  const render = () => {
+    frameHandle = null;
+    if (disposed) {
+      return;
+    }
+    const canvas = getCanvas();
+    const engine = getEngine();
+    if (!canvas || !engine) {
+      pendingForceFullRender = false;
+      return;
+    }
+    const forceFullRender = pendingForceFullRender;
+    pendingForceFullRender = false;
+    renderTerminal(canvas, engine, renderState, forceFullRender);
+  };
+
+  return {
+    schedule(forceFullRender = false) {
+      if (disposed) {
+        return;
+      }
+      pendingForceFullRender = pendingForceFullRender || forceFullRender;
+      if (frameHandle !== null) {
+        return;
+      }
+      frameHandle = requestFrame(render);
+    },
+    cancel() {
+      if (frameHandle !== null) {
+        cancelFrame(frameHandle);
+        frameHandle = null;
+      }
+      pendingForceFullRender = false;
+    },
+    dispose() {
+      disposed = true;
+      this.cancel();
+    }
   };
 }
 

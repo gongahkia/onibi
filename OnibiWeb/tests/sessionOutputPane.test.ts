@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { renderTerminal, type TerminalRenderState } from "../src/components/SessionOutputPane";
+import {
+  createTerminalRenderScheduler,
+  renderTerminal,
+  type TerminalRenderState
+} from "../src/components/SessionOutputPane";
 import type { GhosttySnapshot, GhosttyTerminalEngine } from "../src/lib/ghosttyTerminal";
 
 class MockCanvasContext {
@@ -97,5 +101,109 @@ describe("renderTerminal", () => {
 
     expect(context.fillTexts.map((call) => call.text)).toEqual(["alpha", "beta", "delta"]);
     expect(renderState.lastCursor).toEqual({ row: 3, col: 2, visible: true });
+  });
+});
+
+describe("createTerminalRenderScheduler", () => {
+  it("coalesces repeated triggers into one animation-frame render", () => {
+    const context = new MockCanvasContext();
+    const canvas = createMockCanvas(context);
+    const engine = createMockEngine(
+      [
+        {
+          rows: ["alpha"],
+          cursor: { row: 0, col: 0, visible: true },
+          bell: false
+        }
+      ],
+      [[0]]
+    );
+    const callbacks: FrameRequestCallback[] = [];
+    const scheduler = createTerminalRenderScheduler(
+      () => canvas,
+      () => engine,
+      {},
+      (callback) => {
+        callbacks.push(callback);
+        return callbacks.length;
+      },
+      vi.fn()
+    );
+
+    scheduler.schedule();
+    scheduler.schedule();
+    scheduler.schedule();
+
+    expect(callbacks).toHaveLength(1);
+    callbacks[0](0);
+    expect(engine.snapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets a full render win over a pending partial render", () => {
+    const context = new MockCanvasContext();
+    const canvas = createMockCanvas(context);
+    const engine = createMockEngine(
+      [
+        {
+          rows: ["alpha", "beta"],
+          cursor: { row: 1, col: 0, visible: true },
+          bell: false
+        }
+      ],
+      [[1], []]
+    );
+    const callbacks: FrameRequestCallback[] = [];
+    const scheduler = createTerminalRenderScheduler(
+      () => canvas,
+      () => engine,
+      {},
+      (callback) => {
+        callbacks.push(callback);
+        return callbacks.length;
+      },
+      vi.fn()
+    );
+
+    scheduler.schedule();
+    scheduler.schedule(true);
+
+    callbacks[0](0);
+    expect(context.fillTexts.map((call) => call.text)).toEqual(["alpha", "beta"]);
+  });
+
+  it("cancels pending frames and skips renders after disposal", () => {
+    const context = new MockCanvasContext();
+    const canvas = createMockCanvas(context);
+    const engine = createMockEngine(
+      [
+        {
+          rows: ["alpha"],
+          cursor: { row: 0, col: 0, visible: true },
+          bell: false
+        }
+      ],
+      [[0]]
+    );
+    const callbacks: FrameRequestCallback[] = [];
+    const cancelFrame = vi.fn();
+    const scheduler = createTerminalRenderScheduler(
+      () => canvas,
+      () => engine,
+      {},
+      (callback) => {
+        callbacks.push(callback);
+        return callbacks.length;
+      },
+      cancelFrame
+    );
+
+    scheduler.schedule();
+    scheduler.dispose();
+    callbacks[0](0);
+    scheduler.schedule(true);
+
+    expect(cancelFrame).toHaveBeenCalledWith(1);
+    expect(engine.snapshot).not.toHaveBeenCalled();
+    expect(callbacks).toHaveLength(1);
   });
 });
