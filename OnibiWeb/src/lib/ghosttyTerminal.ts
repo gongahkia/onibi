@@ -28,8 +28,22 @@ export const GHOSTTY_COMMIT = "0deaac08ed1a95330346afabbad03da701708331";
 
 const GHOSTTY_WASM_PATH = "/ghostty-vt.wasm";
 const GHOSTTY_SUCCESS = 0;
-const GHOSTTY_FORMATTER_FORMAT_PLAIN = 0;
 const REPLAY_BUFFER_LIMIT_BYTES = 8 * 1024 * 1024;
+const GHOSTTY_RENDER_STATE_DIRTY_FALSE = 0;
+const GHOSTTY_RENDER_STATE_DIRTY_PARTIAL = 1;
+const GHOSTTY_RENDER_STATE_DIRTY_FULL = 2;
+const GHOSTTY_RENDER_STATE_DATA_DIRTY = 3;
+const GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR = 4;
+const GHOSTTY_RENDER_STATE_DATA_CURSOR_VISIBLE = 11;
+const GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_HAS_VALUE = 14;
+const GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_X = 15;
+const GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_Y = 16;
+const GHOSTTY_RENDER_STATE_OPTION_DIRTY = 0;
+const GHOSTTY_RENDER_STATE_ROW_DATA_DIRTY = 1;
+const GHOSTTY_RENDER_STATE_ROW_DATA_CELLS = 3;
+const GHOSTTY_RENDER_STATE_ROW_OPTION_DIRTY = 0;
+const GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_LEN = 3;
+const GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF = 4;
 
 interface GhosttyTerminalEngineOptions {
   enableWasm?: boolean;
@@ -71,19 +85,23 @@ interface GhosttyWasmExports extends WebAssembly.Exports {
   ) => number;
   ghostty_terminal_vt_write: (termPtr: number, dataPtr: number, len: number) => void;
   ghostty_terminal_get: (termPtr: number, key: number, outPtr: number) => number;
-  ghostty_formatter_terminal_new: (
+  ghostty_render_state_new: (allocatorPtr: number, renderStatePtrPtr: number) => number;
+  ghostty_render_state_update: (renderStatePtr: number, termPtr: number) => number;
+  ghostty_render_state_get: (renderStatePtr: number, key: number, outPtr: number) => number;
+  ghostty_render_state_set: (renderStatePtr: number, key: number, valuePtr: number) => number;
+  ghostty_render_state_free: (renderStatePtr: number) => void;
+  ghostty_render_state_row_iterator_new: (
     allocatorPtr: number,
-    formatterPtrPtr: number,
-    termPtr: number,
-    optsPtr: number
+    rowIteratorPtrPtr: number
   ) => number;
-  ghostty_formatter_format_alloc: (
-    formatterPtr: number,
-    allocatorPtr: number,
-    outPtrPtr: number,
-    outLenPtr: number
-  ) => number;
-  ghostty_formatter_free: (formatterPtr: number) => void;
+  ghostty_render_state_row_iterator_next: (rowIteratorPtr: number) => boolean;
+  ghostty_render_state_row_iterator_free: (rowIteratorPtr: number) => void;
+  ghostty_render_state_row_get: (rowIteratorPtr: number, key: number, outPtr: number) => number;
+  ghostty_render_state_row_set: (rowIteratorPtr: number, key: number, valuePtr: number) => number;
+  ghostty_render_state_row_cells_new: (allocatorPtr: number, rowCellsPtrPtr: number) => number;
+  ghostty_render_state_row_cells_next: (rowCellsPtr: number) => boolean;
+  ghostty_render_state_row_cells_get: (rowCellsPtr: number, key: number, outPtr: number) => number;
+  ghostty_render_state_row_cells_free: (rowCellsPtr: number) => void;
 }
 
 interface GhosttyWasmModule {
@@ -206,8 +224,14 @@ class HybridGhosttyTerminalEngine implements GhosttyTerminalEngine {
 class GhosttyWasmTerminalEngine implements GhosttyTerminalEngine {
   private readonly module: GhosttyWasmModule;
   private readonly decoder = new TextDecoder("utf-8");
-  private readonly dirtyRows = new Set<number>();
   private termPtr: number;
+  private renderStatePtr: number;
+  private rowStrings: string[];
+  private pendingDirtyRows: number[] = [];
+  private needsRenderStateSync = true;
+  private forceFullDirty = true;
+  private graphemeBufferPtr = 0;
+  private graphemeBufferCodepoints = 0;
   private cols: number;
   private rows: number;
   private bell = false;
@@ -217,7 +241,8 @@ class GhosttyWasmTerminalEngine implements GhosttyTerminalEngine {
     this.cols = Math.max(1, cols);
     this.rows = Math.max(1, rows);
     this.termPtr = this.createTerminal(this.cols, this.rows);
-    this.markAllDirty();
+    this.renderStatePtr = this.createRenderState();
+    this.rowStrings = this.createEmptyRows();
   }
 
   resize(cols: number, rows: number): void {
@@ -233,7 +258,8 @@ class GhosttyWasmTerminalEngine implements GhosttyTerminalEngine {
     if (result !== GHOSTTY_SUCCESS) {
       throw new Error(`ghostty_terminal_resize failed with result ${result}`);
     }
-    this.markAllDirty();
+    this.rowStrings = this.createEmptyRows();
+    this.markRenderStateDirty();
   }
 
   ingest(bytes: Uint8Array): void {
@@ -247,38 +273,46 @@ class GhosttyWasmTerminalEngine implements GhosttyTerminalEngine {
     try {
       new Uint8Array(this.memory.buffer).set(bytes, dataPtr);
       this.exports.ghostty_terminal_vt_write(this.termPtr, dataPtr, bytes.byteLength);
-      this.markAllDirty();
+      this.needsRenderStateSync = true;
     } finally {
       this.exports.ghostty_wasm_free_u8_array(dataPtr, bytes.byteLength);
     }
   }
 
   snapshot(): GhosttySnapshot {
+    this.syncRenderState();
     return {
-      rows: this.formatPlainRows(),
-      cursor: {
-        row: clamp(this.getTerminalU16(4), 0, this.rows - 1),
-        col: clamp(this.getTerminalU16(3), 0, this.cols - 1),
-        visible: this.getTerminalBool(7)
-      },
+      rows: [...this.rowStrings],
+      cursor: this.getCursorState(),
       title: this.getTerminalString(12),
       bell: this.bell
     };
   }
 
   takeDirtyRows(): number[] {
-    const rows = [...this.dirtyRows].sort((left, right) => left - right);
-    this.dirtyRows.clear();
+    this.syncRenderState();
+    const rows = this.pendingDirtyRows;
+    this.pendingDirtyRows = [];
     return rows;
   }
 
   reset(): void {
     this.exports.ghostty_terminal_reset(this.termPtr);
     this.bell = false;
-    this.markAllDirty();
+    this.rowStrings = this.createEmptyRows();
+    this.markRenderStateDirty();
   }
 
   dispose(): void {
+    if (this.graphemeBufferPtr !== 0) {
+      this.exports.ghostty_wasm_free_u8_array(this.graphemeBufferPtr, this.graphemeBufferCodepoints * 4);
+      this.graphemeBufferPtr = 0;
+      this.graphemeBufferCodepoints = 0;
+    }
+    if (this.renderStatePtr !== 0) {
+      this.exports.ghostty_render_state_free(this.renderStatePtr);
+      this.renderStatePtr = 0;
+    }
     if (this.termPtr !== 0) {
       this.exports.ghostty_terminal_free(this.termPtr);
       this.termPtr = 0;
@@ -317,81 +351,304 @@ class GhosttyWasmTerminalEngine implements GhosttyTerminalEngine {
     }
   }
 
-  private formatPlainRows(): string[] {
-    const formatterPtr = this.createFormatter();
-    const outPtrPtr = this.exports.ghostty_wasm_alloc_opaque();
-    const outLenPtr = this.exports.ghostty_wasm_alloc_usize();
+  private createRenderState(): number {
+    const renderStatePtrPtr = this.exports.ghostty_wasm_alloc_opaque();
+    try {
+      const result = this.exports.ghostty_render_state_new(0, renderStatePtrPtr);
+      if (result !== GHOSTTY_SUCCESS) {
+        throw new Error(`ghostty_render_state_new failed with result ${result}`);
+      }
+      return new DataView(this.memory.buffer).getUint32(renderStatePtrPtr, true);
+    } finally {
+      this.exports.ghostty_wasm_free_opaque(renderStatePtrPtr);
+    }
+  }
+
+  private syncRenderState(): void {
+    if (!this.needsRenderStateSync && !this.forceFullDirty) {
+      return;
+    }
+
+    const updateResult = this.exports.ghostty_render_state_update(
+      this.renderStatePtr,
+      this.termPtr
+    );
+    if (updateResult !== GHOSTTY_SUCCESS) {
+      throw new Error(`ghostty_render_state_update failed with result ${updateResult}`);
+    }
+
+    const dirtyState = this.getRenderStateU32(GHOSTTY_RENDER_STATE_DATA_DIRTY);
+    if (dirtyState === GHOSTTY_RENDER_STATE_DIRTY_FALSE && !this.forceFullDirty) {
+      this.needsRenderStateSync = false;
+      return;
+    }
+    if (
+      dirtyState !== GHOSTTY_RENDER_STATE_DIRTY_PARTIAL &&
+      dirtyState !== GHOSTTY_RENDER_STATE_DIRTY_FULL &&
+      !this.forceFullDirty
+    ) {
+      throw new Error(`Unexpected ghostty render-state dirty value ${dirtyState}`);
+    }
+
+    const shouldRebuildAll =
+      this.forceFullDirty || dirtyState === GHOSTTY_RENDER_STATE_DIRTY_FULL;
+    const changedRows = this.readChangedRows(shouldRebuildAll);
+    this.pendingDirtyRows = mergeSortedRows(this.pendingDirtyRows, changedRows);
+    this.clearRenderStateDirty();
+    this.forceFullDirty = false;
+    this.needsRenderStateSync = false;
+  }
+
+  private readChangedRows(shouldRebuildAll: boolean): number[] {
+    const rowIteratorPtrPtr = this.exports.ghostty_wasm_alloc_opaque();
+    const rowCellsPtrPtr = this.exports.ghostty_wasm_alloc_opaque();
+    const rowDirtyPtr = this.exports.ghostty_wasm_alloc_u8_array(1);
+    const cellGraphemeLenPtr = this.exports.ghostty_wasm_alloc_u8_array(4);
+    const cleanRowPtr = this.exports.ghostty_wasm_alloc_u8_array(1);
+    const changedRows: number[] = [];
 
     try {
-      const result = this.exports.ghostty_formatter_format_alloc(
-        formatterPtr,
-        0,
-        outPtrPtr,
-        outLenPtr
-      );
-      if (result !== GHOSTTY_SUCCESS) {
-        throw new Error(`ghostty_formatter_format_alloc failed with result ${result}`);
-      }
+      const pointerView = new DataView(this.memory.buffer);
+      pointerView.setUint32(rowIteratorPtrPtr, 0, true);
+      pointerView.setUint32(rowCellsPtrPtr, 0, true);
+      this.createRowIterator(rowIteratorPtrPtr);
+      this.createRowCells(rowCellsPtrPtr);
+      const rowIteratorPtr = new DataView(this.memory.buffer).getUint32(rowIteratorPtrPtr, true);
+      const rowCellsPtr = new DataView(this.memory.buffer).getUint32(rowCellsPtrPtr, true);
+      this.populateRowIterator(rowIteratorPtrPtr);
+      new Uint8Array(this.memory.buffer)[cleanRowPtr] = 0;
 
+      let rowIndex = 0;
+      while (
+        rowIndex < this.rows &&
+        this.exports.ghostty_render_state_row_iterator_next(rowIteratorPtr)
+      ) {
+        const rowDirty = shouldRebuildAll || this.getRowDirty(rowIteratorPtr, rowDirtyPtr);
+        if (rowDirty) {
+          this.populateRowCells(rowIteratorPtr, rowCellsPtrPtr);
+          this.rowStrings[rowIndex] = this.readRowString(rowCellsPtr, cellGraphemeLenPtr);
+          changedRows.push(rowIndex);
+          this.setRowClean(rowIteratorPtr, cleanRowPtr);
+        }
+        rowIndex += 1;
+      }
+    } finally {
       const view = new DataView(this.memory.buffer);
-      const outPtr = view.getUint32(outPtrPtr, true);
-      const outLen = view.getUint32(outLenPtr, true);
-      const text = this.decoder.decode(new Uint8Array(this.memory.buffer, outPtr, outLen));
-      this.exports.ghostty_free(0, outPtr, outLen);
-      return normalizeSnapshotRows(text, this.rows);
-    } finally {
-      this.exports.ghostty_wasm_free_opaque(outPtrPtr);
-      this.exports.ghostty_wasm_free_usize(outLenPtr);
-      this.exports.ghostty_formatter_free(formatterPtr);
+      const rowCellsPtr = view.getUint32(rowCellsPtrPtr, true);
+      const rowIteratorPtr = view.getUint32(rowIteratorPtrPtr, true);
+      if (rowCellsPtr !== 0) {
+        this.exports.ghostty_render_state_row_cells_free(rowCellsPtr);
+      }
+      if (rowIteratorPtr !== 0) {
+        this.exports.ghostty_render_state_row_iterator_free(rowIteratorPtr);
+      }
+      this.exports.ghostty_wasm_free_u8_array(cleanRowPtr, 1);
+      this.exports.ghostty_wasm_free_u8_array(cellGraphemeLenPtr, 4);
+      this.exports.ghostty_wasm_free_u8_array(rowDirtyPtr, 1);
+      this.exports.ghostty_wasm_free_opaque(rowCellsPtrPtr);
+      this.exports.ghostty_wasm_free_opaque(rowIteratorPtrPtr);
+    }
+
+    return changedRows;
+  }
+
+  private createRowIterator(rowIteratorPtrPtr: number): void {
+    const result = this.exports.ghostty_render_state_row_iterator_new(0, rowIteratorPtrPtr);
+    if (result !== GHOSTTY_SUCCESS) {
+      throw new Error(`ghostty_render_state_row_iterator_new failed with result ${result}`);
     }
   }
 
-  private createFormatter(): number {
-    const optionsLayout = this.layoutFor("GhosttyFormatterTerminalOptions");
-    const optsPtr = this.exports.ghostty_wasm_alloc_u8_array(optionsLayout.size);
-    const formatterPtrPtr = this.exports.ghostty_wasm_alloc_opaque();
+  private populateRowIterator(rowIteratorPtrPtr: number): void {
+    const result = this.exports.ghostty_render_state_get(
+      this.renderStatePtr,
+      GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR,
+      rowIteratorPtrPtr
+    );
+    if (result !== GHOSTTY_SUCCESS) {
+      throw new Error(`ghostty_render_state_get row iterator failed with result ${result}`);
+    }
+  }
 
-    try {
-      new Uint8Array(this.memory.buffer, optsPtr, optionsLayout.size).fill(0);
-      const optsView = new DataView(this.memory.buffer, optsPtr, optionsLayout.size);
-      this.setField(optsView, "GhosttyFormatterTerminalOptions", "size", optionsLayout.size);
-      this.setField(
-        optsView,
-        "GhosttyFormatterTerminalOptions",
-        "emit",
-        GHOSTTY_FORMATTER_FORMAT_PLAIN
+  private createRowCells(rowCellsPtrPtr: number): void {
+    const result = this.exports.ghostty_render_state_row_cells_new(0, rowCellsPtrPtr);
+    if (result !== GHOSTTY_SUCCESS) {
+      throw new Error(`ghostty_render_state_row_cells_new failed with result ${result}`);
+    }
+  }
+
+  private populateRowCells(rowIteratorPtr: number, rowCellsPtrPtr: number): void {
+    const result = this.exports.ghostty_render_state_row_get(
+      rowIteratorPtr,
+      GHOSTTY_RENDER_STATE_ROW_DATA_CELLS,
+      rowCellsPtrPtr
+    );
+    if (result !== GHOSTTY_SUCCESS) {
+      throw new Error(`ghostty_render_state_row_get cells failed with result ${result}`);
+    }
+  }
+
+  private getRowDirty(rowIteratorPtr: number, rowDirtyPtr: number): boolean {
+    new Uint8Array(this.memory.buffer)[rowDirtyPtr] = 0;
+    const result = this.exports.ghostty_render_state_row_get(
+      rowIteratorPtr,
+      GHOSTTY_RENDER_STATE_ROW_DATA_DIRTY,
+      rowDirtyPtr
+    );
+    if (result !== GHOSTTY_SUCCESS) {
+      throw new Error(`ghostty_render_state_row_get dirty failed with result ${result}`);
+    }
+    return new Uint8Array(this.memory.buffer)[rowDirtyPtr] !== 0;
+  }
+
+  private setRowClean(rowIteratorPtr: number, cleanRowPtr: number): void {
+    const result = this.exports.ghostty_render_state_row_set(
+      rowIteratorPtr,
+      GHOSTTY_RENDER_STATE_ROW_OPTION_DIRTY,
+      cleanRowPtr
+    );
+    if (result !== GHOSTTY_SUCCESS) {
+      throw new Error(`ghostty_render_state_row_set dirty failed with result ${result}`);
+    }
+  }
+
+  private readRowString(rowCellsPtr: number, cellGraphemeLenPtr: number): string {
+    let row = "";
+    let col = 0;
+    while (
+      col < this.cols &&
+      this.exports.ghostty_render_state_row_cells_next(rowCellsPtr)
+    ) {
+      const text = this.readCellText(rowCellsPtr, cellGraphemeLenPtr);
+      row += text === "" ? " " : text;
+      col += 1;
+    }
+    return row.padEnd(this.cols, " ");
+  }
+
+  private readCellText(rowCellsPtr: number, cellGraphemeLenPtr: number): string {
+    new DataView(this.memory.buffer).setUint32(cellGraphemeLenPtr, 0, true);
+    const lenResult = this.exports.ghostty_render_state_row_cells_get(
+      rowCellsPtr,
+      GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_LEN,
+      cellGraphemeLenPtr
+    );
+    if (lenResult !== GHOSTTY_SUCCESS) {
+      return "";
+    }
+
+    const graphemeLen = new DataView(this.memory.buffer).getUint32(cellGraphemeLenPtr, true);
+    if (graphemeLen === 0) {
+      return "";
+    }
+
+    this.ensureGraphemeBuffer(graphemeLen);
+    const bufResult = this.exports.ghostty_render_state_row_cells_get(
+      rowCellsPtr,
+      GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF,
+      this.graphemeBufferPtr
+    );
+    if (bufResult !== GHOSTTY_SUCCESS) {
+      return "";
+    }
+
+    const view = new DataView(this.memory.buffer, this.graphemeBufferPtr, graphemeLen * 4);
+    const codepoints: number[] = [];
+    for (let index = 0; index < graphemeLen; index += 1) {
+      const codepoint = view.getUint32(index * 4, true);
+      if (codepoint > 0 && codepoint <= 0x10ffff) {
+        codepoints.push(codepoint);
+      }
+    }
+    return codepoints.length === 0 ? "" : String.fromCodePoint(...codepoints);
+  }
+
+  private ensureGraphemeBuffer(codepoints: number): void {
+    if (this.graphemeBufferPtr !== 0 && this.graphemeBufferCodepoints >= codepoints) {
+      return;
+    }
+    if (this.graphemeBufferPtr !== 0) {
+      this.exports.ghostty_wasm_free_u8_array(
+        this.graphemeBufferPtr,
+        this.graphemeBufferCodepoints * 4
       );
-      this.setField(optsView, "GhosttyFormatterTerminalOptions", "unwrap", 0);
-      this.setField(optsView, "GhosttyFormatterTerminalOptions", "trim", 1);
-      this.setNestedSizedStructFields(optsView);
+    }
+    this.graphemeBufferCodepoints = Math.max(32, codepoints);
+    this.graphemeBufferPtr = this.exports.ghostty_wasm_alloc_u8_array(
+      this.graphemeBufferCodepoints * 4
+    );
+  }
 
-      const result = this.exports.ghostty_formatter_terminal_new(
+  private getRenderStateU32(key: number): number {
+    return this.withOutPointer(4, (ptr) => {
+      const result = this.exports.ghostty_render_state_get(this.renderStatePtr, key, ptr);
+      if (result !== GHOSTTY_SUCCESS) {
+        return 0;
+      }
+      return new DataView(this.memory.buffer, ptr, 4).getUint32(0, true);
+    });
+  }
+
+  private getRenderStateU16(key: number): number {
+    return this.withOutPointer(2, (ptr) => {
+      const result = this.exports.ghostty_render_state_get(this.renderStatePtr, key, ptr);
+      if (result !== GHOSTTY_SUCCESS) {
+        return 0;
+      }
+      return new DataView(this.memory.buffer, ptr, 2).getUint16(0, true);
+    });
+  }
+
+  private getRenderStateBool(key: number): boolean {
+    return this.withOutPointer(1, (ptr) => {
+      const result = this.exports.ghostty_render_state_get(this.renderStatePtr, key, ptr);
+      return result === GHOSTTY_SUCCESS && new DataView(this.memory.buffer, ptr, 1).getUint8(0) !== 0;
+    });
+  }
+
+  private clearRenderStateDirty(): void {
+    this.withOutPointer(4, (ptr) => {
+      new DataView(this.memory.buffer, ptr, 4).setUint32(
         0,
-        formatterPtrPtr,
-        this.termPtr,
-        optsPtr
+        GHOSTTY_RENDER_STATE_DIRTY_FALSE,
+        true
+      );
+      const result = this.exports.ghostty_render_state_set(
+        this.renderStatePtr,
+        GHOSTTY_RENDER_STATE_OPTION_DIRTY,
+        ptr
       );
       if (result !== GHOSTTY_SUCCESS) {
-        throw new Error(`ghostty_formatter_terminal_new failed with result ${result}`);
+        throw new Error(`ghostty_render_state_set dirty failed with result ${result}`);
       }
-
-      return new DataView(this.memory.buffer).getUint32(formatterPtrPtr, true);
-    } finally {
-      this.exports.ghostty_wasm_free_u8_array(optsPtr, optionsLayout.size);
-      this.exports.ghostty_wasm_free_opaque(formatterPtrPtr);
-    }
+    });
   }
 
-  private setNestedSizedStructFields(optsView: DataView): void {
-    const extraOffset = this.fieldInfo("GhosttyFormatterTerminalOptions", "extra").offset;
-    const extraLayout = this.layoutFor("GhosttyFormatterTerminalExtra");
-    const extraSizeField = this.fieldInfo("GhosttyFormatterTerminalExtra", "size");
-    optsView.setUint32(extraOffset + extraSizeField.offset, extraLayout.size, true);
+  private getCursorState(): GhosttyCursorState {
+    const hasViewportCursor = this.getRenderStateBool(
+      GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_HAS_VALUE
+    );
+    if (hasViewportCursor) {
+      return {
+        row: clamp(
+          this.getRenderStateU16(GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_Y),
+          0,
+          this.rows - 1
+        ),
+        col: clamp(
+          this.getRenderStateU16(GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_X),
+          0,
+          this.cols - 1
+        ),
+        visible: this.getRenderStateBool(GHOSTTY_RENDER_STATE_DATA_CURSOR_VISIBLE)
+      };
+    }
 
-    const screenOffset = this.fieldInfo("GhosttyFormatterTerminalExtra", "screen").offset;
-    const screenLayout = this.layoutFor("GhosttyFormatterScreenExtra");
-    const screenSizeField = this.fieldInfo("GhosttyFormatterScreenExtra", "size");
-    optsView.setUint32(extraOffset + screenOffset + screenSizeField.offset, screenLayout.size, true);
+    return {
+      row: clamp(this.getTerminalU16(4), 0, this.rows - 1),
+      col: clamp(this.getTerminalU16(3), 0, this.cols - 1),
+      visible: false
+    };
   }
 
   private getTerminalU16(key: number): number {
@@ -401,13 +658,6 @@ class GhosttyWasmTerminalEngine implements GhosttyTerminalEngine {
         return 0;
       }
       return new DataView(this.memory.buffer, ptr, 2).getUint16(0, true);
-    });
-  }
-
-  private getTerminalBool(key: number): boolean {
-    return this.withOutPointer(1, (ptr) => {
-      const result = this.exports.ghostty_terminal_get(this.termPtr, key, ptr);
-      return result === GHOSTTY_SUCCESS && new DataView(this.memory.buffer, ptr, 1).getUint8(0) !== 0;
     });
   }
 
@@ -475,10 +725,14 @@ class GhosttyWasmTerminalEngine implements GhosttyTerminalEngine {
     return layout;
   }
 
-  private markAllDirty(): void {
-    for (let row = 0; row < this.rows; row += 1) {
-      this.dirtyRows.add(row);
-    }
+  private createEmptyRows(): string[] {
+    return Array.from({ length: this.rows }, () => " ".repeat(this.cols));
+  }
+
+  private markRenderStateDirty(): void {
+    this.pendingDirtyRows = [];
+    this.forceFullDirty = true;
+    this.needsRenderStateSync = true;
   }
 }
 
@@ -653,17 +907,16 @@ function readCString(memory: WebAssembly.Memory, ptr: number): string {
   return new TextDecoder().decode(bytes.subarray(ptr, end));
 }
 
-function normalizeSnapshotRows(text: string, rowCount: number): string[] {
-  const rows = text.replace(/\r\n/g, "\n").split("\n");
-  while (rows.length < rowCount) {
-    rows.push("");
-  }
-  if (rows.length > rowCount) {
-    return rows.slice(rows.length - rowCount);
-  }
-  return rows;
-}
-
 function clamp(value: number, lowerBound: number, upperBound: number): number {
   return Math.max(lowerBound, Math.min(value, upperBound));
+}
+
+function mergeSortedRows(left: number[], right: number[]): number[] {
+  if (left.length === 0) {
+    return right;
+  }
+  if (right.length === 0) {
+    return left;
+  }
+  return [...new Set([...left, ...right])].sort((a, b) => a - b);
 }

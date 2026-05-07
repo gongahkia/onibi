@@ -720,7 +720,7 @@ button:hover:enabled {
   box-shadow: 0 12px 32px rgba(2, 6, 23, 0.22);
 }
 
-.mf-xterm-container {
+.mf-terminal-container {
   width: 100%;
   height: 100%;
   touch-action: manipulation;

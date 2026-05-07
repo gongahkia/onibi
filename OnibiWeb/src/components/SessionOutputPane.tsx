@@ -158,7 +158,7 @@ export function SessionOutputPane({
   return (
     <section className="mf-output-pane">
       <div
-        className="mf-xterm-container mf-canvas-terminal"
+        className="mf-terminal-container mf-canvas-terminal"
         ref={containerRef}
         tabIndex={0}
         spellCheck={false}
@@ -180,6 +180,9 @@ function renderTerminal(
   }
   const snapshot = engine.snapshot();
   const rows = forceFullRender ? snapshot.rows.map((_, index) => index) : engine.takeDirtyRows();
+  if (forceFullRender) {
+    engine.takeDirtyRows();
+  }
   if (forceFullRender) {
     context.fillStyle = "#0d1117";
     context.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
