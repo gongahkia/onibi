@@ -16,7 +16,7 @@ export interface GhosttySnapshot {
 }
 
 export interface GhosttyTerminalEngine {
-  resize(cols: number, rows: number): void;
+  resize(cols: number, rows: number, cellWidthPx?: number, cellHeightPx?: number): void;
   ingest(bytes: Uint8Array): void;
   snapshot(): GhosttySnapshot;
   takeDirtyRows(): number[];
@@ -141,11 +141,11 @@ class HybridGhosttyTerminalEngine implements GhosttyTerminalEngine {
     }
   }
 
-  resize(cols: number, rows: number): void {
+  resize(cols: number, rows: number, cellWidthPx?: number, cellHeightPx?: number): void {
     this.cols = Math.max(1, cols);
     this.rows = Math.max(1, rows);
     this.fallback.resize(this.cols, this.rows);
-    this.wasm?.resize(this.cols, this.rows);
+    this.wasm?.resize(this.cols, this.rows, cellWidthPx, cellHeightPx);
   }
 
   ingest(bytes: Uint8Array): void {
@@ -245,15 +245,15 @@ class GhosttyWasmTerminalEngine implements GhosttyTerminalEngine {
     this.rowStrings = this.createEmptyRows();
   }
 
-  resize(cols: number, rows: number): void {
+  resize(cols: number, rows: number, cellWidthPx = 8, cellHeightPx = 20): void {
     this.cols = Math.max(1, cols);
     this.rows = Math.max(1, rows);
     const result = this.exports.ghostty_terminal_resize(
       this.termPtr,
       this.cols,
       this.rows,
-      8,
-      20
+      Math.max(1, Math.round(cellWidthPx)),
+      Math.max(1, Math.round(cellHeightPx))
     );
     if (result !== GHOSTTY_SUCCESS) {
       throw new Error(`ghostty_terminal_resize failed with result ${result}`);

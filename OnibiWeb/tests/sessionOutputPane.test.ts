@@ -2,8 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createTerminalRenderScheduler,
   cellFromPoint,
+  calculateTerminalSize,
   copyTextForSelection,
+  FALLBACK_TERMINAL_METRICS,
   keyEventToTerminalInput,
+  measureTerminalMetrics,
   normalizedSelection,
   renderTerminal,
   routeTerminalPaste,
@@ -128,6 +131,7 @@ describe("createTerminalRenderScheduler", () => {
     const scheduler = createTerminalRenderScheduler(
       () => canvas,
       () => engine,
+      () => FALLBACK_TERMINAL_METRICS,
       {},
       (callback) => {
         callbacks.push(callback);
@@ -162,6 +166,7 @@ describe("createTerminalRenderScheduler", () => {
     const scheduler = createTerminalRenderScheduler(
       () => canvas,
       () => engine,
+      () => FALLBACK_TERMINAL_METRICS,
       {},
       (callback) => {
         callbacks.push(callback);
@@ -195,6 +200,7 @@ describe("createTerminalRenderScheduler", () => {
     const scheduler = createTerminalRenderScheduler(
       () => canvas,
       () => engine,
+      () => FALLBACK_TERMINAL_METRICS,
       {},
       (callback) => {
         callbacks.push(callback);
@@ -315,5 +321,56 @@ describe("terminal selection helpers", () => {
         expect.objectContaining({ x: 0, y: 20, width: 25.200000000000003, height: 20 })
       ])
     );
+  });
+});
+
+describe("terminal metrics", () => {
+  it("calculates terminal size from injected metrics", () => {
+    expect(
+      calculateTerminalSize(101, 91, {
+        cellWidth: 10,
+        lineHeight: 18,
+        fontSize: 14,
+        textTopOffset: 2
+      })
+    ).toEqual({ cols: 10, rows: 5 });
+  });
+
+  it("measures monospace cell width and line height with fallbacks", () => {
+    const metrics = measureTerminalMetrics({
+      measureText: (sample: string) => ({
+        width: sample.length * 9,
+        actualBoundingBoxAscent: 12,
+        actualBoundingBoxDescent: 4
+      })
+    } as unknown as CanvasRenderingContext2D);
+
+    expect(metrics.cellWidth).toBe(9);
+    expect(metrics.lineHeight).toBe(22);
+  });
+
+  it("uses injected metrics for cursor and text placement", () => {
+    const context = new MockCanvasContext();
+    const renderState: TerminalRenderState = {};
+    const engine = createMockEngine(
+      [
+        {
+          rows: ["abc"],
+          cursor: { row: 0, col: 2, visible: true },
+          bell: false
+        }
+      ],
+      [[0]]
+    );
+
+    renderTerminal(createMockCanvas(context), engine, renderState, false, {
+      cellWidth: 10,
+      lineHeight: 18,
+      fontSize: 14,
+      textTopOffset: 3
+    });
+
+    expect(context.fillTexts[0]).toEqual({ text: "abc", x: 0, y: 3 });
+    expect(context.fillRects).toContainEqual({ x: 20, y: 3, width: 2, height: 12 });
   });
 });

@@ -15,6 +15,22 @@ const FONT_SIZE = 14;
 const LINE_HEIGHT = 20;
 const CELL_WIDTH = 8.4;
 const SELECTION_COLOR = "rgba(56, 139, 253, 0.35)";
+const TEXT_TOP_OFFSET = 2;
+const METRIC_SAMPLE = "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm";
+
+export interface TerminalViewMetrics {
+  cellWidth: number;
+  lineHeight: number;
+  fontSize: number;
+  textTopOffset: number;
+}
+
+export const FALLBACK_TERMINAL_METRICS: TerminalViewMetrics = {
+  cellWidth: CELL_WIDTH,
+  lineHeight: LINE_HEIGHT,
+  fontSize: FONT_SIZE,
+  textTopOffset: TEXT_TOP_OFFSET
+};
 
 export function SessionOutputPane({
   entries,
@@ -27,6 +43,7 @@ export function SessionOutputPane({
   const engineRef = useRef<GhosttyTerminalEngine | null>(null);
   const renderStateRef = useRef<TerminalRenderState>({});
   const renderSchedulerRef = useRef<TerminalRenderScheduler | null>(null);
+  const metricsRef = useRef<TerminalViewMetrics>(FALLBACK_TERMINAL_METRICS);
   const lastRenderedChunkIdRef = useRef<string | null>(null);
   const onTerminalInputRef = useRef(onTerminalInput);
   const onTerminalPasteRef = useRef(onTerminalPaste);
@@ -55,13 +72,12 @@ export function SessionOutputPane({
     renderSchedulerRef.current = createTerminalRenderScheduler(
       () => canvasRef.current,
       () => engineRef.current,
+      () => metricsRef.current,
       renderStateRef.current
     );
 
     const reportSize = () => {
       const rect = container.getBoundingClientRect();
-      const cols = Math.max(1, Math.floor(rect.width / CELL_WIDTH));
-      const rows = Math.max(1, Math.floor(rect.height / LINE_HEIGHT));
       const pixelRatio = window.devicePixelRatio || 1;
       canvas.width = Math.floor(rect.width * pixelRatio);
       canvas.height = Math.floor(rect.height * pixelRatio);
@@ -70,7 +86,11 @@ export function SessionOutputPane({
       const context = canvas.getContext("2d");
       if (context) {
         context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+        context.font = terminalFont(FALLBACK_TERMINAL_METRICS);
+        metricsRef.current = measureTerminalMetrics(context);
       }
+      const metrics = metricsRef.current;
+      const { cols, rows } = calculateTerminalSize(rect.width, rect.height, metrics);
 
       if (!engineRef.current) {
         engineRef.current = createGhosttyTerminalEngine(cols, rows, {
@@ -79,7 +99,7 @@ export function SessionOutputPane({
           }
         });
       } else {
-        engineRef.current.resize(cols, rows);
+        engineRef.current.resize(cols, rows, metrics.cellWidth, metrics.lineHeight);
       }
       renderSchedulerRef.current?.schedule(true);
 
@@ -132,7 +152,7 @@ export function SessionOutputPane({
         return;
       }
       focusTerminal();
-      const cell = cellFromPointerEvent(container, event);
+      const cell = cellFromPointerEvent(container, event, metricsRef.current);
       const previousSelection = renderStateRef.current.selection;
       renderStateRef.current.selection = {
         anchor: cell,
@@ -149,7 +169,7 @@ export function SessionOutputPane({
       }
       const nextSelection = {
         anchor: selection.anchor,
-        head: cellFromPointerEvent(container, event)
+        head: cellFromPointerEvent(container, event, metricsRef.current)
       };
       markSelectionRowsDirty(renderStateRef.current, selection, nextSelection);
       renderStateRef.current.selection = nextSelection;
@@ -162,7 +182,7 @@ export function SessionOutputPane({
       }
       const nextSelection = {
         anchor: selection.anchor,
-        head: cellFromPointerEvent(container, event)
+        head: cellFromPointerEvent(container, event, metricsRef.current)
       };
       const finalSelection = hasSelectionRange(nextSelection) ? nextSelection : undefined;
       markSelectionRowsDirty(renderStateRef.current, selection, finalSelection);
@@ -300,6 +320,7 @@ interface TerminalRenderScheduler {
 export function createTerminalRenderScheduler(
   getCanvas: () => HTMLCanvasElement | null,
   getEngine: () => GhosttyTerminalEngine | null,
+  getMetrics: () => TerminalViewMetrics,
   renderState: TerminalRenderState,
   requestFrame: (callback: FrameRequestCallback) => number = window.requestAnimationFrame,
   cancelFrame: (handle: number) => void = window.cancelAnimationFrame
@@ -321,7 +342,7 @@ export function createTerminalRenderScheduler(
     }
     const forceFullRender = pendingForceFullRender;
     pendingForceFullRender = false;
-    renderTerminal(canvas, engine, renderState, forceFullRender);
+    renderTerminal(canvas, engine, renderState, forceFullRender, getMetrics());
   };
 
   return {
@@ -353,7 +374,8 @@ export function renderTerminal(
   canvas: HTMLCanvasElement,
   engine: GhosttyTerminalEngine,
   renderState: TerminalRenderState = {},
-  forceFullRender = false
+  forceFullRender = false,
+  metrics: TerminalViewMetrics = FALLBACK_TERMINAL_METRICS
 ): void {
   const context = canvas.getContext("2d");
   if (!context) {
@@ -384,24 +406,24 @@ export function renderTerminal(
     context.fillStyle = "#0d1117";
     context.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
   }
-  context.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
+  context.font = terminalFont(metrics);
   context.textBaseline = "top";
   context.fillStyle = "#0d1117";
   for (const row of rows) {
-    context.fillRect(0, row * LINE_HEIGHT, canvas.clientWidth, LINE_HEIGHT);
-    drawSelectionOverlay(context, row, renderState.selection, snapshot.rows[row]?.length ?? 0);
+    context.fillRect(0, row * metrics.lineHeight, canvas.clientWidth, metrics.lineHeight);
+    drawSelectionOverlay(context, row, renderState.selection, snapshot.rows[row]?.length ?? 0, metrics);
     context.fillStyle = "#f3f4f6";
-    context.fillText(snapshot.rows[row] ?? "", 0, row * LINE_HEIGHT + 2);
+    context.fillText(snapshot.rows[row] ?? "", 0, row * metrics.lineHeight + metrics.textTopOffset);
     context.fillStyle = "#0d1117";
   }
 
   if (snapshot.cursor.visible) {
     context.fillStyle = "#f3f4f6";
     context.fillRect(
-      snapshot.cursor.col * CELL_WIDTH,
-      snapshot.cursor.row * LINE_HEIGHT + 2,
+      snapshot.cursor.col * metrics.cellWidth,
+      snapshot.cursor.row * metrics.lineHeight + metrics.textTopOffset,
       2,
-      LINE_HEIGHT - 4
+      metrics.lineHeight - metrics.textTopOffset * 2
     );
   }
   renderState.lastCursor = { ...snapshot.cursor };
@@ -412,10 +434,11 @@ export function cellFromPoint(
   clientY: number,
   bounds: Pick<DOMRect, "left" | "top" | "width" | "height">,
   rowCount: number,
-  colCount: number
+  colCount: number,
+  metrics: TerminalViewMetrics = FALLBACK_TERMINAL_METRICS
 ): TerminalCellPosition {
-  const col = clamp(Math.floor((clientX - bounds.left) / CELL_WIDTH), 0, Math.max(0, colCount - 1));
-  const row = clamp(Math.floor((clientY - bounds.top) / LINE_HEIGHT), 0, Math.max(0, rowCount - 1));
+  const col = clamp(Math.floor((clientX - bounds.left) / metrics.cellWidth), 0, Math.max(0, colCount - 1));
+  const row = clamp(Math.floor((clientY - bounds.top) / metrics.lineHeight), 0, Math.max(0, rowCount - 1));
   return { row, col };
 }
 
@@ -453,12 +476,12 @@ export function copyTextForSelection(
 
 function cellFromPointerEvent(
   container: HTMLDivElement,
-  event: Pick<PointerEvent, "clientX" | "clientY">
+  event: Pick<PointerEvent, "clientX" | "clientY">,
+  metrics: TerminalViewMetrics
 ): TerminalCellPosition {
   const bounds = container.getBoundingClientRect();
-  const rows = Math.max(1, Math.floor(bounds.height / LINE_HEIGHT));
-  const cols = Math.max(1, Math.floor(bounds.width / CELL_WIDTH));
-  return cellFromPoint(event.clientX, event.clientY, bounds, rows, cols);
+  const { cols, rows } = calculateTerminalSize(bounds.width, bounds.height, metrics);
+  return cellFromPoint(event.clientX, event.clientY, bounds, rows, cols, metrics);
 }
 
 function hasSelectionRange(selection: TerminalSelection | undefined): selection is TerminalSelection {
@@ -502,7 +525,8 @@ function drawSelectionOverlay(
   context: CanvasRenderingContext2D,
   row: number,
   selection: TerminalSelection | undefined,
-  colCount: number
+  colCount: number,
+  metrics: TerminalViewMetrics
 ): void {
   const normalized = normalizedSelection(selection);
   if (!normalized || row < normalized.start.row || row > normalized.end.row) {
@@ -512,12 +536,49 @@ function drawSelectionOverlay(
   const endCol = row === normalized.end.row ? normalized.end.col : Math.max(0, colCount - 1);
   context.fillStyle = SELECTION_COLOR;
   context.fillRect(
-    startCol * CELL_WIDTH,
-    row * LINE_HEIGHT,
-    (endCol - startCol + 1) * CELL_WIDTH,
-    LINE_HEIGHT
+    startCol * metrics.cellWidth,
+    row * metrics.lineHeight,
+    (endCol - startCol + 1) * metrics.cellWidth,
+    metrics.lineHeight
   );
   context.fillStyle = "#0d1117";
+}
+
+export function measureTerminalMetrics(context: CanvasRenderingContext2D): TerminalViewMetrics {
+  const measured = context.measureText?.(METRIC_SAMPLE);
+  const measuredCellWidth = measured?.width ? measured.width / METRIC_SAMPLE.length : 0;
+  const fontBoxHeight =
+    measured && Number.isFinite(measured.actualBoundingBoxAscent + measured.actualBoundingBoxDescent)
+      ? measured.actualBoundingBoxAscent + measured.actualBoundingBoxDescent
+      : 0;
+  const lineHeight =
+    fontBoxHeight > 0
+      ? Math.max(Math.ceil(fontBoxHeight + 6), FALLBACK_TERMINAL_METRICS.lineHeight)
+      : FALLBACK_TERMINAL_METRICS.lineHeight;
+  return {
+    cellWidth:
+      Number.isFinite(measuredCellWidth) && measuredCellWidth > 0
+        ? measuredCellWidth
+        : FALLBACK_TERMINAL_METRICS.cellWidth,
+    lineHeight,
+    fontSize: FONT_SIZE,
+    textTopOffset: Math.max(1, Math.floor((lineHeight - FONT_SIZE) / 2))
+  };
+}
+
+export function calculateTerminalSize(
+  width: number,
+  height: number,
+  metrics: TerminalViewMetrics
+): { cols: number; rows: number } {
+  return {
+    cols: Math.max(1, Math.floor(width / metrics.cellWidth)),
+    rows: Math.max(1, Math.floor(height / metrics.lineHeight))
+  };
+}
+
+function terminalFont(metrics: TerminalViewMetrics): string {
+  return `${metrics.fontSize}px ${FONT_FAMILY}`;
 }
 
 function clamp(value: number, min: number, max: number): number {
