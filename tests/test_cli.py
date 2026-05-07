@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 from piranesi.cli import _load_local_llm_env, app
 from piranesi.config import OwnershipConfig, load_config
 from piranesi.doctor import DoctorCheck, DoctorReport
+from piranesi.host import analyze_snapshot, load_host_input
 from piranesi.launcher_tui import LauncherAction, LauncherSelection
 from piranesi.models.finding import (
     VerificationAttempt,
@@ -28,6 +29,7 @@ from tests._pipeline_fixtures import fixture_artifacts
 
 runner = CliRunner()
 _ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+HOST_FIXTURES = Path(__file__).parent / "fixtures" / "host"
 
 
 def _plain_output(output: str) -> str:
@@ -364,6 +366,7 @@ def test_lsp_command_invokes_server(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    pytest.importorskip("lsprotocol")
     from piranesi.lsp import server as lsp_server
 
     config_path = tmp_path / "piranesi.toml"
@@ -1113,6 +1116,115 @@ def test_suppressions_validate_fails_for_expired_or_stale_when_policy_requires(
 
     assert result.exit_code == 1
     assert "expired" in result.stdout
+
+
+def test_suppressions_validate_auto_detects_host_report_directory(tmp_path: Path) -> None:
+    report = analyze_snapshot(load_host_input(HOST_FIXTURES / "debian-vulnerable"))
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+    (output_dir / "host-report.json").write_text(report.model_dump_json(indent=2), encoding="utf-8")
+    active_id = report.findings[0].id
+    expired_id = report.findings[1].id
+    (tmp_path / ".piranesi-ignore").write_text(
+        (
+            "suppressions:\n"
+            f"  - id: {active_id}\n"
+            '    reason: "accepted risk"\n'
+            "    expires: 2026-06-16\n"
+            "  - id: host-not-present\n"
+            '    reason: "stale host suppression"\n'
+            "    expires: 2026-06-16\n"
+            f"  - id: {expired_id}\n"
+            '    reason: "expired host suppression"\n'
+            "    expires: 2026-01-01\n"
+            "  - cwe: CWE-79\n"
+            '    path: "src/**"\n'
+            '    reason: "ignored for host reports"\n'
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "piranesi.toml").write_text(
+        "\n".join(
+            [
+                "[suppression]",
+                "fail_on_invalid = true",
+                "fail_on_expired = true",
+                "fail_on_stale = true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "suppressions",
+            "validate",
+            "--project-root",
+            str(tmp_path),
+            "--findings",
+            str(output_dir),
+            "--config",
+            str(tmp_path / "piranesi.toml"),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    assert payload["summary"]["active_rules"] == 1
+    assert payload["summary"]["stale_rules"] == 1
+    assert payload["summary"]["expired_rules"] == 1
+    assert payload["summary"]["inline_suppressions"] == 0
+    assert payload["summary"]["stale_selectors"] == ["id=host-not-present"]
+
+
+def test_suppressions_validate_host_report_invalid_yaml_and_artifact_exit_codes(
+    tmp_path: Path,
+) -> None:
+    report = analyze_snapshot(load_host_input(HOST_FIXTURES / "debian-vulnerable"))
+    host_report_path = tmp_path / "host-report.json"
+    host_report_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+    (tmp_path / "piranesi.toml").write_text(
+        "[suppression]\nfail_on_invalid = true\nfail_on_expired = false\nfail_on_stale = false\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".piranesi-ignore").write_text("suppressions: [", encoding="utf-8")
+
+    invalid_yaml = runner.invoke(
+        app,
+        [
+            "suppressions",
+            "validate",
+            "--project-root",
+            str(tmp_path),
+            "--findings",
+            str(host_report_path),
+            "--config",
+            str(tmp_path / "piranesi.toml"),
+            "--json",
+        ],
+    )
+    assert invalid_yaml.exit_code == 1
+    assert json.loads(invalid_yaml.stdout)["summary"]["invalid_rules"] == 1
+
+    host_report_path.write_text('{"findings": []}', encoding="utf-8")
+    (tmp_path / ".piranesi-ignore").write_text("suppressions: []", encoding="utf-8")
+    invalid_artifact = runner.invoke(
+        app,
+        [
+            "suppressions",
+            "validate",
+            "--project-root",
+            str(tmp_path),
+            "--findings",
+            str(host_report_path),
+            "--config",
+            str(tmp_path / "piranesi.toml"),
+        ],
+    )
+    assert invalid_artifact.exit_code == 2
+    assert "invalid host report artifact" in invalid_artifact.stdout
 
 
 def test_eval_help_lists_subcommands() -> None:

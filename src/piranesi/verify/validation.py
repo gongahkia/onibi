@@ -4,7 +4,9 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from piranesi.host import HostPostureReport
 
 _SEVERITY_ORDER = ("informational", "low", "medium", "high", "critical")
 _RISK_ORDER = ("low", "medium", "high", "critical")
@@ -81,39 +83,71 @@ def _validate_host_evidence_bundle(
     report_payload: Any,
 ) -> EvidenceValidationReport:
     checks: list[EvidenceValidationCheck] = []
+    parsed_report: HostPostureReport | None = None
+    schema_error: str | None = None
+    try:
+        parsed_report = HostPostureReport.model_validate(report_payload)
+    except ValidationError as exc:
+        schema_error = str(exc.errors()[0].get("msg", exc))
     checks.append(
         _check(
-            "host_report_shape",
-            isinstance(report_payload, dict)
-            and isinstance(report_payload.get("findings"), list)
-            and isinstance(report_payload.get("summary"), dict),
-            "host-report.json contains host findings and summary",
+            "host_report_schema",
+            parsed_report is not None,
+            "host-report.json matches the host posture report schema"
+            if schema_error is None
+            else f"host-report.json schema validation failed: {schema_error}",
         )
     )
-    snapshot = report_payload.get("snapshot") if isinstance(report_payload, dict) else None
+    snapshot = parsed_report.snapshot if parsed_report is not None else None
     checks.append(
         _check(
-            "snapshot_embedded",
-            isinstance(snapshot, dict)
-            and isinstance(snapshot.get("identity"), dict)
-            and bool(snapshot.get("identity", {}).get("hostname")),
+            "host_snapshot_identity",
+            snapshot is not None and bool(snapshot.identity.hostname),
             "embedded snapshot identity is present",
         )
     )
-    findings = report_payload.get("findings") if isinstance(report_payload, dict) else []
-    finding_count = len(findings) if isinstance(findings, list) else 0
-    validation = FindingEvidenceValidation(
-        finding_id="host-report.json",
-        valid=all(check.passed for check in checks),
-        checks=checks,
+    finding_count = len(parsed_report.findings) if parsed_report is not None else 0
+    validations = [
+        FindingEvidenceValidation(
+            finding_id="host-report.json",
+            valid=all(check.passed for check in checks),
+            checks=checks,
+        )
+    ]
+    if parsed_report is not None:
+        validations.extend(_validate_host_finding(finding) for finding in parsed_report.findings)
+    report_valid = validations[0].valid
+    host_valid_findings = sum(1 for finding in validations[1:] if finding.valid)
+    invalid_findings = (
+        finding_count - host_valid_findings if report_valid else max(finding_count, 1)
     )
     return EvidenceValidationReport(
         output_dir=str(output_dir),
-        valid=validation.valid,
+        valid=report_valid and invalid_findings == 0,
         checked_findings=finding_count,
-        valid_findings=finding_count if validation.valid else 0,
-        invalid_findings=0 if validation.valid else finding_count,
-        findings=[validation],
+        valid_findings=host_valid_findings if report_valid else 0,
+        invalid_findings=invalid_findings,
+        findings=validations,
+    )
+
+
+def _validate_host_finding(finding: Any) -> FindingEvidenceValidation:
+    checks = [
+        _check("host_finding_id", bool(finding.id), "finding id is present"),
+        _check("host_finding_title", bool(finding.title), "finding title is present"),
+        _check("host_finding_category", bool(finding.category), "finding category is present"),
+        _check("host_finding_severity", bool(finding.severity), "finding severity is present"),
+        _check(
+            "host_finding_remediation",
+            bool(finding.remediation),
+            "finding remediation is present",
+        ),
+        _check("host_finding_source", bool(finding.source_tool), "finding source tool is present"),
+    ]
+    return FindingEvidenceValidation(
+        finding_id=finding.id,
+        valid=all(check.passed for check in checks),
+        checks=checks,
     )
 
 

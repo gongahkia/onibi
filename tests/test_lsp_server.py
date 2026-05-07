@@ -3,12 +3,18 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from lsprotocol import types
-from pygls.uris import from_fs_path
 
-from piranesi.lsp.server import IncrementalPipelineScanner, create_server, finding_to_diagnostic
-from piranesi.models import SourceLocation, TaintSink, TaintSource, TaintStep
-from piranesi.models.finding import CandidateFinding
+types = pytest.importorskip("lsprotocol.types")
+uris = pytest.importorskip("pygls.uris")
+from_fs_path = uris.from_fs_path
+
+from piranesi.lsp.server import (  # noqa: E402
+    IncrementalPipelineScanner,
+    create_server,
+    finding_to_diagnostic,
+)
+from piranesi.models import SourceLocation, TaintSink, TaintSource, TaintStep  # noqa: E402
+from piranesi.models.finding import CandidateFinding  # noqa: E402
 
 
 class _FakeScanner:

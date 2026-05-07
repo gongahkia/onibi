@@ -24,6 +24,12 @@ from piranesi.host.models import (
     UserAccount,
 )
 from piranesi.host.report import write_host_report_outputs
+from piranesi.host.suppression import (
+    HostSuppressionOutcome,
+    apply_host_suppressions,
+    apply_host_suppressions_with_lifecycle,
+    summarize_host_suppression_lifecycle,
+)
 
 __all__ = [
     "CollectionCapabilityHealth",
@@ -40,13 +46,17 @@ __all__ = [
     "HostPostureReport",
     "HostProcess",
     "HostSnapshot",
+    "HostSuppressionOutcome",
     "ListeningPort",
     "NetworkInterface",
     "OsRelease",
     "ServiceState",
     "UserAccount",
     "analyze_snapshot",
+    "apply_host_suppressions",
+    "apply_host_suppressions_with_lifecycle",
     "collect_host_evidence",
     "load_host_input",
+    "summarize_host_suppression_lifecycle",
     "write_host_report_outputs",
 ]

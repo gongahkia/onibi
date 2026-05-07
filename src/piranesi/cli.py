@@ -54,6 +54,8 @@ from piranesi.host import (
     HostInputError,
     HostPostureReport,
     analyze_snapshot,
+    apply_host_suppressions,
+    apply_host_suppressions_with_lifecycle,
     collect_host_evidence,
     load_host_input,
     write_host_report_outputs,
@@ -1724,48 +1726,6 @@ def _host_findings_at_or_above(
     ]
 
 
-def _apply_host_suppressions(
-    report: HostPostureReport,
-    rules: list[Any],
-) -> HostPostureReport:
-    if not rules:
-        return report
-    active_id_rules = {
-        rule.id: _host_suppression_reason(rule)
-        for rule in rules
-        if getattr(rule, "id", None) is not None and not _host_rule_is_expired(rule)
-    }
-    if not active_id_rules:
-        return report
-    findings = [
-        finding.model_copy(
-            update={
-                "suppressed": finding.id in active_id_rules,
-                "suppression_reason": active_id_rules.get(finding.id),
-            }
-        )
-        for finding in report.findings
-    ]
-    return report.model_copy(update={"findings": findings})
-
-
-def _host_suppression_reason(rule: Any) -> str:
-    reason = getattr(rule, "reason", None)
-    ticket = getattr(rule, "ticket", None)
-    if reason and ticket:
-        return f"{reason} (ticket: {ticket})"
-    if reason:
-        return str(reason)
-    if ticket:
-        return f"ticket: {ticket}"
-    return "suppressed"
-
-
-def _host_rule_is_expired(rule: Any) -> bool:
-    expires = getattr(rule, "expires", None)
-    return expires is not None and expires < datetime_cls.now(UTC).date()
-
-
 def _print_diff(
     baseline_path: Path,
     current_path: Path,
@@ -2427,7 +2387,7 @@ def assess(
             provider=provider,
             treat_private_as_public=treat_private_as_public,
         )
-        report = _apply_host_suppressions(report, ignore_validation.rules)
+        report = apply_host_suppressions(report, ignore_validation.rules)
         write_host_report_outputs(report, output, report_format=report_format.value)
     except TraceBudgetExceededError as exc:
         log_error_context(
@@ -3403,14 +3363,35 @@ def suppress(
     typer.echo(f"added suppression for {finding_id} to {ignore_path}")
 
 
-def _load_detect_findings_for_suppression_validation(path: Path) -> list[Any]:
+@dataclass(frozen=True)
+class _SuppressionValidationFindings:
+    kind: str
+    findings: list[Any]
+    host_report: HostPostureReport | None = None
+
+
+def _load_findings_for_suppression_validation(path: Path) -> _SuppressionValidationFindings:
     candidate_path = path
     if path.is_dir():
-        candidate_path = path / "detect.json"
+        host_report_path = path / "host-report.json"
+        detect_path = path / "detect.json"
+        candidate_path = host_report_path if host_report_path.exists() else detect_path
     if not candidate_path.exists():
         raise ValueError(
-            "suppression validation requires detect findings; "
+            "suppression validation requires detect or host findings; "
             f"missing artifact at {candidate_path}"
+        )
+    if candidate_path.name == "host-report.json":
+        try:
+            report = HostPostureReport.model_validate_json(
+                candidate_path.read_text(encoding="utf-8")
+            )
+        except (OSError, ValidationError) as exc:
+            raise ValueError(f"invalid host report artifact at {candidate_path}: {exc}") from exc
+        return _SuppressionValidationFindings(
+            kind="host",
+            findings=list(report.findings),
+            host_report=report,
         )
     try:
         detect_artifact = DetectArtifact.model_validate_json(
@@ -3418,7 +3399,10 @@ def _load_detect_findings_for_suppression_validation(path: Path) -> list[Any]:
         )
     except (OSError, ValidationError) as exc:
         raise ValueError(f"invalid detect artifact at {candidate_path}: {exc}") from exc
-    return list(detect_artifact.findings)
+    return _SuppressionValidationFindings(
+        kind="detect",
+        findings=list(detect_artifact.findings),
+    )
 
 
 def _collect_inline_suppressions_from_findings(findings: list[Any]) -> list[Any]:
@@ -3531,22 +3515,36 @@ def suppressions_validate(
     validation = load_ignore_file_with_diagnostics(project_root)
     detected_findings: list[Any] = []
     inline: list[Any] = []
+    host_report: HostPostureReport | None = None
+    findings_kind = "none"
     evaluate_stale = False
     if findings is not None:
         try:
-            detected_findings = _load_detect_findings_for_suppression_validation(findings)
+            loaded_findings = _load_findings_for_suppression_validation(findings)
         except ValueError as exc:
             typer.echo(f"error: {exc}")
             raise typer.Exit(code=2) from exc
-        inline = _collect_inline_suppressions_from_findings(detected_findings)
+        findings_kind = loaded_findings.kind
+        detected_findings = loaded_findings.findings
+        host_report = loaded_findings.host_report
+        if findings_kind == "detect":
+            inline = _collect_inline_suppressions_from_findings(detected_findings)
         evaluate_stale = True
-    outcome = apply_suppressions_with_lifecycle(
-        detected_findings,
-        validation.rules,
-        inline,
-        invalid_entries=validation.invalid_entries,
-        evaluate_stale=evaluate_stale,
-    )
+    if host_report is not None:
+        outcome = apply_host_suppressions_with_lifecycle(
+            host_report,
+            validation.rules,
+            invalid_entries=validation.invalid_entries,
+            evaluate_stale=evaluate_stale,
+        )
+    else:
+        outcome = apply_suppressions_with_lifecycle(
+            detected_findings,
+            validation.rules,
+            inline,
+            invalid_entries=validation.invalid_entries,
+            evaluate_stale=evaluate_stale,
+        )
     lifecycle = outcome.lifecycle
     payload = {
         "path": validation.path,
@@ -3566,6 +3564,7 @@ def suppressions_validate(
             "project_root": project_root.resolve(strict=False),
             "config_path": config_path.resolve(strict=False),
             "findings": None if findings is None else findings.resolve(strict=False),
+            "findings_kind": findings_kind,
             "summary": lifecycle.model_dump(mode="json"),
             "policy": payload["policy"],
         },
@@ -3584,7 +3583,10 @@ def suppressions_validate(
         if lifecycle.stale_evaluated:
             typer.echo(f"Stale rules: {lifecycle.stale_rules}")
         else:
-            typer.echo("Stale rules: not evaluated (pass --findings detect.json)")
+            typer.echo(
+                "Stale rules: not evaluated "
+                "(pass --findings detect.json or host-report.json)"
+            )
         if lifecycle.expired_selectors:
             typer.echo(f"Expired selectors: {' | '.join(lifecycle.expired_selectors)}")
         if lifecycle.stale_selectors:
