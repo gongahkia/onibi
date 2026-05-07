@@ -87,11 +87,23 @@ top_actions = report.get("top_actions")
 if not isinstance(top_actions, list):
     raise SystemExit("host-report.json is missing top_actions")
 
+collection_health = report.get("collection_health")
+if not isinstance(collection_health, dict):
+    raise SystemExit("host-report.json is missing collection_health")
+status_counts = collection_health.get("status_counts")
+if not isinstance(status_counts, dict):
+    raise SystemExit("collection_health is missing status_counts")
+
 snapshot = report.get("snapshot")
 identity = snapshot.get("identity") if isinstance(snapshot, dict) else None
 hostname = identity.get("hostname") if isinstance(identity, dict) else None
 if not hostname:
     raise SystemExit("host-report.json is missing snapshot.identity.hostname")
+
+summary = ", ".join(
+    f"{key}={value}" for key, value in sorted(status_counts.items()) if value
+) or "none"
+print(f"collection health: {summary}")
 PY
 
 printf 'Host smoke check completed.\n'

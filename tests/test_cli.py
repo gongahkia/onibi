@@ -104,6 +104,7 @@ def test_doctor_command_renders_readiness(monkeypatch: pytest.MonkeyPatch, tmp_p
         checks=[
             DoctorCheck(name="python", status="ok", summary="Python 3.12"),
             DoctorCheck(name="llm", status="warn", summary="no API key configured"),
+            DoctorCheck(name="sysctl", status="ok", summary="sysctl available"),
         ],
     )
 
@@ -115,6 +116,7 @@ def test_doctor_command_renders_readiness(monkeypatch: pytest.MonkeyPatch, tmp_p
     assert "Host collection ready: yes" in result.stdout
     assert "Host assessment ready: yes" in result.stdout
     assert "[WARN] llm" in result.stdout
+    assert "[OK] sysctl" in result.stdout
 
 
 def test_doctor_json_output(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -134,6 +136,48 @@ def test_doctor_json_output(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     payload = json.loads(result.stdout)
     assert payload["collect_ready"] is True
     assert payload["assess_ready"] is True
+
+
+def test_assess_cli_writes_collection_health_with_manifest(tmp_path: Path) -> None:
+    input_dir = tmp_path / "evidence"
+    output_dir = tmp_path / "out"
+    raw_osquery = input_dir / "raw" / "osquery"
+    raw_osquery.mkdir(parents=True)
+    (raw_osquery / "system_info.json").write_text(
+        json.dumps([{"hostname": "manifest-vm"}]),
+        encoding="utf-8",
+    )
+    (raw_osquery / "deb_packages.json").write_text(
+        json.dumps([{"name": "openssl", "version": "3.0.2"}]),
+        encoding="utf-8",
+    )
+    (input_dir / "collection-manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "output_dir": str(input_dir),
+                "raw_dir": str(input_dir / "raw"),
+                "commands": [
+                    {"tool": "osquery", "name": "system_info", "status": "ok"},
+                    {"tool": "osquery", "name": "deb_packages", "status": "ok"},
+                    {"tool": "trivy", "name": "filesystem_scan", "status": "missing"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        ["assess", str(input_dir), "--output", str(output_dir), "--format", "both"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads((output_dir / "host-report.json").read_text(encoding="utf-8"))
+    markdown = (output_dir / "host-report.md").read_text(encoding="utf-8")
+    assert payload["collection_health"]["status_counts"]["missing"] == 1
+    assert payload["collection_health"]["optional"]["trivy"]["status"] == "warn"
+    assert "## Collection Health" in markdown
 
 
 def test_scan_authorized_yes_runs_stage_and_creates_trace(tmp_path: Path) -> None:

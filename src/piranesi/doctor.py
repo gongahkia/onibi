@@ -22,6 +22,15 @@ LLM_API_ENV_VARS = (
     "GOOGLE_API_KEY",
     "LITELLM_API_KEY",
 )
+HOST_OPTIONAL_HELPERS: dict[str, list[str]] = {
+    "ufw": ["ufw", "--version"],
+    "iptables": ["iptables", "--version"],
+    "nft": ["nft", "--version"],
+    "apt": ["apt", "--version"],
+    "sshd": ["sshd", "-T"],
+    "getent": ["getent", "--version"],
+    "sysctl": ["sysctl", "--version"],
+}
 
 
 class CommandRunner(Protocol):
@@ -97,6 +106,16 @@ def build_doctor_report(
             executable_lookup=executable_lookup,
             command_runner=command_runner,
         ),
+        *[
+            _command_check(
+                name,
+                command,
+                required=False,
+                executable_lookup=executable_lookup,
+                command_runner=command_runner,
+            )
+            for name, command in HOST_OPTIONAL_HELPERS.items()
+        ],
         _llm_check(),
     ]
 
@@ -105,9 +124,8 @@ def build_doctor_report(
         for check in checks
         if check.name in {"python", "target", "platform", "osquery"}
     }
-    optional_tools = {
-        check.name: check.status for check in checks if check.name in {"trivy", "llm"}
-    }
+    optional_names = {"trivy", "llm", *HOST_OPTIONAL_HELPERS}
+    optional_tools = {check.name: check.status for check in checks if check.name in optional_names}
     warnings = [check.summary for check in checks if check.status == "warn"]
     next_steps = [
         check.next_step
@@ -305,6 +323,13 @@ def _install_hint(name: str) -> str:
     hints = {
         "osquery": "Install osquery to enable `piranesi collect`.",
         "trivy": "Install Trivy to add package CVE evidence to host assessment.",
+        "ufw": "Install ufw or ensure another firewall helper is available.",
+        "iptables": "Install iptables or ensure another firewall helper is available.",
+        "nft": "Install nftables or ensure another firewall helper is available.",
+        "apt": "Install apt to add Debian/Ubuntu package update evidence.",
+        "sshd": "Install OpenSSH server utilities to collect effective SSH configuration.",
+        "getent": "Install libc-bin or equivalent getent support for admin group evidence.",
+        "sysctl": "Install procps to collect kernel hardening settings.",
     }
     return hints.get(name, f"Install {name}.")
 

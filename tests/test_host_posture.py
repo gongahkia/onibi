@@ -339,6 +339,88 @@ def test_collect_host_evidence_writes_snapshot_manifest_and_raw_layout(tmp_path:
         for command in manifest["commands"]
     )
 
+    assessed = analyze_snapshot(load_host_input(tmp_path))
+    assert assessed.collection_health is not None
+    assert assessed.collection_health.status_counts["missing"] >= 1
+    assert assessed.collection_health.required["osquery"].status == "ok"
+    assert assessed.collection_health.optional["trivy"].status == "warn"
+    assert not any(
+        finding.title == "Missing Trivy vulnerability evidence"
+        for finding in assessed.findings
+    )
+
+
+def test_manifest_missing_optional_commands_are_health_warnings_not_findings(
+    tmp_path: Path,
+) -> None:
+    _write_minimal_raw_bundle(tmp_path)
+    _write_manifest(
+        tmp_path,
+        [
+            {"tool": "osquery", "name": "deb_packages", "status": "ok"},
+            {"tool": "osquery", "name": "system_info", "status": "ok"},
+            {"tool": "trivy", "name": "filesystem_scan", "status": "missing"},
+            {"tool": "system", "name": "ufw_status", "status": "missing"},
+            {"tool": "system", "name": "iptables_rules", "status": "missing"},
+            {"tool": "system", "name": "nft_ruleset", "status": "missing"},
+            {"tool": "system", "name": "apt_upgradable", "status": "missing"},
+            {"tool": "system", "name": "sshd_effective_config", "status": "missing"},
+            {"tool": "system", "name": "group_sudo", "status": "missing"},
+            {"tool": "system", "name": "group_admin", "status": "missing"},
+            {"tool": "system", "name": "group_wheel", "status": "missing"},
+            {"tool": "system", "name": "sysctl_net_ipv4_ip_forward", "status": "missing"},
+            {
+                "tool": "system",
+                "name": "sysctl_net_ipv6_conf_all_forwarding",
+                "status": "missing",
+            },
+            {
+                "tool": "system",
+                "name": "sysctl_kernel_unprivileged_bpf_disabled",
+                "status": "missing",
+            },
+            {"tool": "system", "name": "sysctl_kernel_kptr_restrict", "status": "missing"},
+        ],
+    )
+
+    report = analyze_snapshot(load_host_input(tmp_path))
+
+    assert report.collection_health is not None
+    assert report.collection_health.optional["firewall"].status == "warn"
+    assert report.collection_health.optional["sysctl"].status == "warn"
+    assert "firewall" not in report.snapshot.config
+    assert "sysctl" not in report.snapshot.config
+    titles = {finding.title for finding in report.findings}
+    assert "Missing Trivy vulnerability evidence" not in titles
+    assert "Firewall appears inactive while public services are exposed" not in titles
+    assert not any(title.startswith("IPv") for title in titles)
+
+
+def test_failed_and_timeout_commands_are_grouped_by_capability(tmp_path: Path) -> None:
+    _write_minimal_raw_bundle(tmp_path)
+    _write_manifest(
+        tmp_path,
+        [
+            {"tool": "osquery", "name": "deb_packages", "status": "ok"},
+            {"tool": "system", "name": "ufw_status", "status": "failed"},
+            {"tool": "system", "name": "iptables_rules", "status": "timeout"},
+            {"tool": "system", "name": "nft_ruleset", "status": "missing"},
+            {"tool": "system", "name": "apt_upgradable", "status": "failed"},
+        ],
+    )
+
+    health = analyze_snapshot(load_host_input(tmp_path)).collection_health
+
+    assert health is not None
+    assert health.status_counts["failed"] == 2
+    assert health.status_counts["timeout"] == 1
+    assert health.optional["firewall"].commands_by_status == {
+        "missing": 1,
+        "failed": 1,
+        "timeout": 1,
+    }
+    assert health.optional["apt_updates"].status == "warn"
+
 
 def test_collect_optional_command_failures_do_not_fail_collection(tmp_path: Path) -> None:
     result = collect_host_evidence(
@@ -393,6 +475,7 @@ def test_host_doctor_reports_full_readiness_when_tools_exist(tmp_path: Path) -> 
     assert report.collect_ready is True
     assert report.required_tools["osquery"] == "ok"
     assert report.optional_tools["trivy"] == "ok"
+    assert report.optional_tools["sysctl"] == "ok"
 
 
 def test_host_doctor_treats_trivy_as_optional(tmp_path: Path) -> None:
@@ -405,6 +488,7 @@ def test_host_doctor_treats_trivy_as_optional(tmp_path: Path) -> None:
     assert report.assess_ready is True
     assert report.collect_ready is True
     assert report.optional_tools["trivy"] == "warn"
+    assert report.optional_tools["ufw"] == "warn"
 
 
 def test_host_doctor_marks_collection_not_ready_without_osquery(tmp_path: Path) -> None:
@@ -449,6 +533,20 @@ def _write_minimal_raw_bundle(
     )
     for name, payload in (commands or {}).items():
         (raw_commands / f"{name}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _write_manifest(root: Path, commands: list[dict[str, str]]) -> None:
+    (root / "collection-manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "output_dir": str(root),
+                "raw_dir": str(root / "raw"),
+                "commands": commands,
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def _fake_lookup_without_trivy(name: str) -> str | None:
@@ -532,7 +630,17 @@ def _fake_runner_with_failing_ufw(
 
 
 def _fake_doctor_lookup_all_tools(name: str) -> str | None:
-    if name in {"osqueryi", "trivy"}:
+    if name in {
+        "osqueryi",
+        "trivy",
+        "ufw",
+        "iptables",
+        "nft",
+        "apt",
+        "sshd",
+        "getent",
+        "sysctl",
+    }:
         return f"/usr/local/bin/{name}"
     return None
 
@@ -566,4 +674,6 @@ def _fake_doctor_runner(
         )
     if executable == "trivy":
         return subprocess.CompletedProcess(command, 0, stdout="Version: 0.50.0\n", stderr="")
+    if executable in {"ufw", "iptables", "nft", "apt", "sshd", "getent", "sysctl"}:
+        return subprocess.CompletedProcess(command, 0, stdout=f"{executable} ok\n", stderr="")
     return subprocess.CompletedProcess(command, 1, stdout="", stderr="unexpected")

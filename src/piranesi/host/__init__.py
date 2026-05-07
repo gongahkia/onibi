@@ -8,6 +8,8 @@ from piranesi.host.collect import (
 )
 from piranesi.host.ingest import HostInputError, load_host_input
 from piranesi.host.models import (
+    CollectionCapabilityHealth,
+    CollectionHealth,
     EvidenceItem,
     HostFinding,
     HostIdentity,
@@ -24,7 +26,9 @@ from piranesi.host.models import (
 from piranesi.host.report import write_host_report_outputs
 
 __all__ = [
+    "CollectionCapabilityHealth",
     "CollectionCommandResult",
+    "CollectionHealth",
     "EvidenceItem",
     "HostCollectionError",
     "HostCollectionManifest",

@@ -44,6 +44,21 @@ def render_host_markdown(report: HostPostureReport) -> str:
     lines.extend(["", "## Evidence Inventory", ""])
     for key, count in sorted(report.evidence_inventory.items()):
         lines.append(f"- {key}: {count}")
+    if report.collection_health is not None:
+        lines.extend(["", "## Collection Health", ""])
+        status_counts = report.collection_health.status_counts
+        rendered_counts = ", ".join(
+            f"{key}={value}" for key, value in sorted(status_counts.items()) if value
+        )
+        lines.append(f"- Command statuses: {rendered_counts or 'none recorded'}")
+        for name, health in sorted(report.collection_health.required.items()):
+            lines.append(f"- Required `{name}`: `{health.status}` - {health.message}")
+            if health.remediation:
+                lines.append(f"  remediation: {health.remediation}")
+        for name, health in sorted(report.collection_health.optional.items()):
+            lines.append(f"- Optional `{name}`: `{health.status}` - {health.message}")
+            if health.remediation:
+                lines.append(f"  remediation: {health.remediation}")
     lines.extend(["", "## Findings", ""])
     if not report.findings:
         lines.append("No host posture findings were identified.")

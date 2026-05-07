@@ -9,6 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from piranesi.host.models import (
     AnalysisMode,
+    CollectionCapabilityHealth,
+    CollectionHealth,
     EvidenceItem,
     HostFinding,
     HostPostureReport,
@@ -64,6 +66,29 @@ _REQUIRED_EVIDENCE = {
         "Collect it with `piranesi collect` osquery query `users`."
     ),
 }
+_COLLECTION_STATUSES = ("ok", "missing", "failed", "timeout", "skipped")
+_CAPABILITY_COMMANDS: dict[str, tuple[str, ...]] = {
+    "trivy": ("filesystem_scan",),
+    "firewall": ("ufw_status", "iptables_rules", "nft_ruleset"),
+    "apt_updates": ("apt_upgradable",),
+    "sshd_config": ("sshd_config", "sshd_effective_config"),
+    "admin_groups": ("group_sudo", "group_admin", "group_wheel"),
+    "sysctl": (
+        "sysctl_net_ipv4_ip_forward",
+        "sysctl_net_ipv6_conf_all_forwarding",
+        "sysctl_kernel_unprivileged_bpf_disabled",
+        "sysctl_kernel_kptr_restrict",
+    ),
+}
+_CAPABILITY_REMEDIATION = {
+    "osquery": "Install osquery and rerun `piranesi collect`.",
+    "trivy": "Install Trivy or run collection with `--no-trivy` when CVE evidence is not needed.",
+    "firewall": "Install or permit at least one firewall helper: ufw, iptables, or nft.",
+    "apt_updates": "Ensure `apt list --upgradable` can run for Debian/Ubuntu patch evidence.",
+    "sshd_config": "Ensure `sshd -T` or osquery sshd_config evidence can be collected.",
+    "admin_groups": "Ensure `getent group` can run for sudo/admin/wheel group evidence.",
+    "sysctl": "Ensure `sysctl -n` can run for kernel hardening evidence.",
+}
 
 
 class _LlmHostFinding(BaseModel):
@@ -111,6 +136,7 @@ def analyze_snapshot(
             findings.append(_llm_unavailable_finding(snapshot))
     ranked = _rank_findings(_dedupe_findings(findings))
     evidence_inventory = _evidence_inventory(snapshot)
+    collection_health = collection_health_from_snapshot(snapshot)
     return HostPostureReport(
         target=snapshot.identity.hostname,
         generated_at=datetime.now(UTC).isoformat(),
@@ -121,6 +147,7 @@ def analyze_snapshot(
         top_actions=_top_actions(ranked),
         findings=ranked,
         evidence_inventory=evidence_inventory,
+        collection_health=collection_health,
         known_limitations=[
             "Phase 1 supports Debian/Ubuntu-oriented host evidence only.",
             "Raw bundle ingestion is first-class for osquery and Trivy JSON outputs.",
@@ -142,6 +169,53 @@ def deterministic_findings(snapshot: HostSnapshot) -> list[HostFinding]:
     findings.extend(_privileged_user_findings(snapshot))
     findings.extend(_missing_evidence_findings(snapshot))
     return findings
+
+
+def collection_health_from_snapshot(snapshot: HostSnapshot) -> CollectionHealth | None:
+    manifest = _collection_manifest(snapshot)
+    if manifest is None:
+        return None
+    commands = _manifest_commands(manifest)
+    status_counts = Counter(_command_status(command) for command in commands)
+    required = {
+        "osquery": _capability_health(
+            name="osquery",
+            commands=[
+                command
+                for command in commands
+                if _command_tool(command) == "osquery" and _command_name(command) != "version"
+            ],
+            required=True,
+            alternatives=False,
+        )
+    }
+    optional: dict[str, CollectionCapabilityHealth] = {}
+    for name, command_names in _CAPABILITY_COMMANDS.items():
+        optional[name] = _capability_health(
+            name=name,
+            commands=[
+                command
+                for command in commands
+                if _command_name(command) in command_names
+                or (name == "trivy" and _command_tool(command) == "trivy")
+            ],
+            required=False,
+            alternatives=name in {"firewall", "sshd_config"},
+        )
+    warnings = [
+        f"{name}: {health.message}"
+        for name, health in optional.items()
+        if health.status == "warn"
+    ]
+    if required["osquery"].status != "ok":
+        warnings.insert(0, f"osquery: {required['osquery'].message}")
+    return CollectionHealth(
+        manifest_present=True,
+        status_counts={status: status_counts.get(status, 0) for status in _COLLECTION_STATUSES},
+        required=required,
+        optional=optional,
+        warnings=warnings,
+    )
 
 
 def llm_findings(
@@ -636,10 +710,28 @@ def _privileged_user_findings(snapshot: HostSnapshot) -> list[HostFinding]:
 
 def _missing_evidence_findings(snapshot: HostSnapshot) -> list[HostFinding]:
     findings: list[HostFinding] = []
+    manifest = _collection_manifest(snapshot)
     for field_name, description in _REQUIRED_EVIDENCE.items():
         value = getattr(snapshot, field_name)
         if value:
             continue
+        command_name = _required_evidence_command(field_name)
+        command = _manifest_command_by_name(manifest, command_name) if manifest else None
+        status = _command_status(command) if command is not None else None
+        remediation = description
+        evidence = [EvidenceItem(source="piranesi", key="missing", value=field_name)]
+        if status and status != "ok":
+            remediation = (
+                f"Collector command `{command_name}` ended with status `{status}`. "
+                "Review collection health and rerun collection after fixing the helper."
+            )
+            evidence.append(
+                EvidenceItem(
+                    source="collection_manifest",
+                    key=command_name,
+                    value=status,
+                )
+            )
         findings.append(
             HostFinding(
                 id=host_finding_id("missing_evidence", snapshot.identity.hostname, field_name),
@@ -648,12 +740,12 @@ def _missing_evidence_findings(snapshot: HostSnapshot) -> list[HostFinding]:
                 severity="informational",
                 confidence=1.0,
                 affected_component=field_name,
-                evidence=[EvidenceItem(source="piranesi", key="missing", value=field_name)],
-                remediation=description,
+                evidence=evidence,
+                remediation=remediation,
                 source_tool="piranesi",
             )
         )
-    if "trivy" not in snapshot.raw_evidence:
+    if "trivy" not in snapshot.raw_evidence and not _manifest_has_tool(manifest, "trivy"):
         findings.append(
             HostFinding(
                 id=host_finding_id("missing_evidence", snapshot.identity.hostname, "trivy"),
@@ -671,6 +763,143 @@ def _missing_evidence_findings(snapshot: HostSnapshot) -> list[HostFinding]:
             )
         )
     return findings
+
+
+def _capability_health(
+    *,
+    name: str,
+    commands: list[dict[str, object]],
+    required: bool,
+    alternatives: bool,
+) -> CollectionCapabilityHealth:
+    status_counts = Counter(_command_status(command) for command in commands)
+    command_names = sorted({_command_name(command) for command in commands})
+    status = _capability_status(
+        status_counts=status_counts,
+        command_count=len(commands),
+        required=required,
+        alternatives=alternatives,
+    )
+    message = _capability_message(name=name, status=status, commands=commands)
+    return CollectionCapabilityHealth(
+        status=status,
+        required=required,
+        commands_by_status={
+            item: status_counts.get(item, 0)
+            for item in _COLLECTION_STATUSES
+            if status_counts.get(item, 0)
+        },
+        command_names=command_names,
+        message=message,
+        remediation=None if status == "ok" else _CAPABILITY_REMEDIATION.get(name),
+    )
+
+
+def _capability_status(
+    *,
+    status_counts: Counter[str],
+    command_count: int,
+    required: bool,
+    alternatives: bool,
+) -> Literal["ok", "warn", "fail", "skipped"]:
+    ok_count = status_counts.get("ok", 0)
+    skipped_count = status_counts.get("skipped", 0)
+    bad_count = (
+        status_counts.get("missing", 0)
+        + status_counts.get("failed", 0)
+        + status_counts.get("timeout", 0)
+    )
+    if command_count == 0:
+        return "fail" if required else "warn"
+    if required:
+        if ok_count == 0:
+            return "fail"
+        return "warn" if bad_count else "ok"
+    if skipped_count == command_count:
+        return "skipped"
+    if alternatives:
+        return "ok" if ok_count else "warn"
+    if ok_count and bad_count == 0:
+        return "ok"
+    return "warn"
+
+
+def _capability_message(
+    *,
+    name: str,
+    status: Literal["ok", "warn", "fail", "skipped"],
+    commands: list[dict[str, object]],
+) -> str:
+    if status == "ok":
+        return "collection evidence is available"
+    if status == "skipped":
+        return "collection was skipped"
+    if not commands:
+        return "no manifest commands were recorded for this capability"
+    grouped = Counter(_command_status(command) for command in commands)
+    details = ", ".join(
+        f"{status_name}={grouped[status_name]}"
+        for status_name in _COLLECTION_STATUSES
+        if grouped.get(status_name, 0)
+    )
+    prefix = (
+        "required collection is incomplete"
+        if name == "osquery"
+        else "optional evidence is incomplete"
+    )
+    return f"{prefix} ({details})"
+
+
+def _collection_manifest(snapshot: HostSnapshot) -> dict[str, object] | None:
+    raw = snapshot.raw_evidence.get("collection_manifest")
+    return raw if isinstance(raw, dict) else None
+
+
+def _manifest_commands(manifest: dict[str, object]) -> list[dict[str, object]]:
+    raw_commands = manifest.get("commands")
+    if not isinstance(raw_commands, list):
+        return []
+    return [command for command in raw_commands if isinstance(command, dict)]
+
+
+def _manifest_command_by_name(
+    manifest: dict[str, object] | None,
+    name: str,
+) -> dict[str, object] | None:
+    if manifest is None:
+        return None
+    for command in _manifest_commands(manifest):
+        if _command_name(command) == name:
+            return command
+    return None
+
+
+def _manifest_has_tool(manifest: dict[str, object] | None, tool: str) -> bool:
+    if manifest is None:
+        return False
+    return any(_command_tool(command) == tool for command in _manifest_commands(manifest))
+
+
+def _command_tool(command: dict[str, object]) -> str:
+    return str(command.get("tool") or "")
+
+
+def _command_name(command: dict[str, object]) -> str:
+    return str(command.get("name") or "")
+
+
+def _command_status(command: dict[str, object]) -> str:
+    status = str(command.get("status") or "")
+    return status if status in _COLLECTION_STATUSES else "failed"
+
+
+def _required_evidence_command(field_name: str) -> str:
+    commands = {
+        "packages": "deb_packages",
+        "listening_ports": "listening_ports",
+        "users": "users",
+    }
+    return commands[field_name]
 
 
 def _llm_unavailable_finding(

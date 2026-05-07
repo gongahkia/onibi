@@ -135,6 +135,27 @@ class HostFinding(BaseModel):
     rationale: str | None = None
 
 
+class CollectionCapabilityHealth(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["ok", "warn", "fail", "skipped"]
+    required: bool = False
+    commands_by_status: dict[str, int] = Field(default_factory=dict)
+    command_names: list[str] = Field(default_factory=list)
+    message: str
+    remediation: str | None = None
+
+
+class CollectionHealth(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    manifest_present: bool = True
+    status_counts: dict[str, int] = Field(default_factory=dict)
+    required: dict[str, CollectionCapabilityHealth] = Field(default_factory=dict)
+    optional: dict[str, CollectionCapabilityHealth] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class HostPostureReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -147,6 +168,7 @@ class HostPostureReport(BaseModel):
     top_actions: list[dict[str, object]] = Field(default_factory=list)
     findings: list[HostFinding] = Field(default_factory=list)
     evidence_inventory: dict[str, int] = Field(default_factory=dict)
+    collection_health: CollectionHealth | None = None
     known_limitations: list[str] = Field(default_factory=list)
     snapshot: HostSnapshot
 

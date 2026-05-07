@@ -30,16 +30,22 @@ class HostInputError(RuntimeError):
 def load_host_input(path: str | Path) -> HostSnapshot:
     input_path = Path(path).expanduser().resolve(strict=False)
     if input_path.is_file():
-        return _load_snapshot_file(input_path)
+        return _load_snapshot_file(
+            input_path,
+            manifest_path=input_path.parent / "collection-manifest.json",
+        )
     if input_path.is_dir():
         snapshot_file = input_path / "host_snapshot.json"
         if snapshot_file.is_file():
-            return _load_snapshot_file(snapshot_file)
+            return _load_snapshot_file(
+                snapshot_file,
+                manifest_path=input_path / "collection-manifest.json",
+            )
         return _load_tool_bundle(input_path)
     raise HostInputError(f"host input does not exist: {input_path}")
 
 
-def _load_snapshot_file(path: Path) -> HostSnapshot:
+def _load_snapshot_file(path: Path, *, manifest_path: Path | None = None) -> HostSnapshot:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
         snapshot = HostSnapshot.model_validate(payload)
@@ -47,7 +53,10 @@ def _load_snapshot_file(path: Path) -> HostSnapshot:
         raise HostInputError(f"invalid host snapshot {path}: {exc}") from exc
     provenance = dict(snapshot.tool_provenance)
     provenance.setdefault("piranesi_snapshot", str(path))
-    return snapshot.model_copy(update={"tool_provenance": provenance})
+    snapshot = snapshot.model_copy(update={"tool_provenance": provenance})
+    if manifest_path is not None:
+        snapshot = _with_collection_manifest(snapshot, manifest_path)
+    return snapshot
 
 
 def _load_tool_bundle(root: Path) -> HostSnapshot:
@@ -86,7 +95,7 @@ def _load_tool_bundle(root: Path) -> HostSnapshot:
     if command_payloads:
         raw_evidence["commands"] = command_payloads
 
-    return HostSnapshot(
+    snapshot = HostSnapshot(
         identity=identity,
         os=os_release,
         kernel=kernel,
@@ -104,6 +113,28 @@ def _load_tool_bundle(root: Path) -> HostSnapshot:
             "commands": str(commands_dir) if command_payloads and commands_dir else "",
         },
         raw_evidence=raw_evidence,
+    )
+    return _with_collection_manifest(snapshot, root / "collection-manifest.json")
+
+
+def _with_collection_manifest(snapshot: HostSnapshot, manifest_path: Path) -> HostSnapshot:
+    if not manifest_path.is_file():
+        return snapshot
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HostInputError(f"invalid collection manifest {manifest_path}: {exc}") from exc
+    if not isinstance(manifest, dict):
+        raise HostInputError(f"invalid collection manifest {manifest_path}: expected JSON object")
+    raw_evidence = dict(snapshot.raw_evidence)
+    raw_evidence.setdefault("collection_manifest", manifest)
+    provenance = dict(snapshot.tool_provenance)
+    provenance.setdefault("collection_manifest", str(manifest_path))
+    return snapshot.model_copy(
+        update={
+            "raw_evidence": raw_evidence,
+            "tool_provenance": provenance,
+        }
     )
 
 
