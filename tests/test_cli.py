@@ -67,26 +67,19 @@ def test_help_shows_all_commands() -> None:
     commands = [
         "version",
         "doctor",
+        "assess",
         "validate-evidence",
         "init",
         "explain",
         "trends",
-        "run",
         "ui",
-        "plugins",
-        "rules",
-        "advisory",
-        "baseline",
-        "suppressions",
-        "compliance",
-        "hook",
-        "eval",
-        "intel",
-        "pipeline",
-        "dev",
     ]
     for command in commands:
         assert command in result.stdout
+
+    hidden_legacy_commands = ["run", "pipeline", "rules", "plugins", "dev"]
+    for command in hidden_legacy_commands:
+        assert command not in result.stdout
 
 
 def test_scan_requires_authorized_flag(tmp_path: Path) -> None:

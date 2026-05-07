@@ -48,6 +48,12 @@ from piranesi.hooks.pre_commit import (
     pre_commit_hook_status,
     uninstall_pre_commit_hook,
 )
+from piranesi.host import (
+    HostInputError,
+    analyze_snapshot,
+    load_host_input,
+    write_host_report_outputs,
+)
 from piranesi.intel import build_enrichment_summary, normalize_adapter_result
 from piranesi.intel.schema import IntelSourceProvenance, NormalizationBundle
 from piranesi.launcher_tui import LauncherAction, LauncherSelection, launch_cli_tui
@@ -100,7 +106,7 @@ from piranesi.verify import (
 )
 from piranesi.watch import WatchDependencyError, WatchModeError, run_watch_mode
 
-_RUN_HELP = """Run the full Piranesi pipeline.
+_RUN_HELP = """Run the legacy source-code security pipeline.
 
 Exit codes:
   0 = no findings (or --no-fail)
@@ -113,7 +119,7 @@ _ADVISORY_PROJECT_ROOT_HELP = "Project root used to resolve the default advisory
 
 app = typer.Typer(
     add_completion=False,
-    help="CLI-native cybersecurity analysis tool for TypeScript/JavaScript source code.",
+    help="CLI-native VM and Linux host security posture assessment tool.",
     no_args_is_help=False,
     invoke_without_command=True,
 )
@@ -173,17 +179,17 @@ intel_app = typer.Typer(
     help="Ingest and normalize offline external intelligence snapshots.",
     no_args_is_help=True,
 )
-app.add_typer(plugins_app, name="plugins")
-app.add_typer(rules_app, name="rules")
-app.add_typer(advisory_app, name="advisory")
-app.add_typer(baseline_app, name="baseline")
-app.add_typer(suppressions_app, name="suppressions")
-app.add_typer(compliance_app, name="compliance")
-app.add_typer(hook_app, name="hook")
-app.add_typer(eval_app, name="eval")
-app.add_typer(intel_app, name="intel")
-app.add_typer(pipeline_app, name="pipeline")
-app.add_typer(dev_app, name="dev")
+app.add_typer(plugins_app, name="plugins", hidden=True)
+app.add_typer(rules_app, name="rules", hidden=True)
+app.add_typer(advisory_app, name="advisory", hidden=True)
+app.add_typer(baseline_app, name="baseline", hidden=True)
+app.add_typer(suppressions_app, name="suppressions", hidden=True)
+app.add_typer(compliance_app, name="compliance", hidden=True)
+app.add_typer(hook_app, name="hook", hidden=True)
+app.add_typer(eval_app, name="eval", hidden=True)
+app.add_typer(intel_app, name="intel", hidden=True)
+app.add_typer(pipeline_app, name="pipeline", hidden=True)
+app.add_typer(dev_app, name="dev", hidden=True)
 
 _LOCAL_LLM_ENV_ALIASES = {
     "OPENAI_API_KEY": "OPENAI_API_KEY",
@@ -227,6 +233,10 @@ def _load_local_llm_env(path: Path = Path(".env")) -> None:
         value = _clean_dotenv_value(raw_value)
         if value:
             os.environ[target_name] = value
+
+
+def _host_llm_is_configured() -> bool:
+    return any(os.getenv(name) for name in set(_LOCAL_LLM_ENV_ALIASES.values()))
 
 
 def _clean_dotenv_value(value: str) -> str:
@@ -291,6 +301,18 @@ class ReportFormat(StrEnum):
     CSV = "csv"
     TUI = "tui"
     COMPLIANCE = "compliance"
+
+
+class HostAnalysisMode(StrEnum):
+    DETERMINISTIC = "deterministic"
+    LLM = "llm"
+    BOTH = "both"
+
+
+class HostReportFormat(StrEnum):
+    JSON = "json"
+    MARKDOWN = "markdown"
+    BOTH = "both"
 
 
 class TrendFormat(StrEnum):
@@ -2111,6 +2133,123 @@ def doctor(
     typer.echo(render_doctor_report(report), nl=False)
     if not report.ready:
         raise typer.Exit(code=1)
+
+
+@app.command("assess", help="Assess a Linux VM host snapshot or osquery/Trivy evidence bundle.")
+def assess(
+    input_path: Annotated[
+        Path,
+        typer.Argument(
+            help=(
+                "Path to host_snapshot.json or a raw bundle directory containing "
+                "osquery/ or trivy/."
+            )
+        ),
+    ],
+    analysis: Annotated[
+        HostAnalysisMode,
+        typer.Option("--analysis", help="Analysis mode.", case_sensitive=False),
+    ] = HostAnalysisMode.DETERMINISTIC,
+    report_format: Annotated[
+        HostReportFormat,
+        typer.Option("--format", help="Report output format.", case_sensitive=False),
+    ] = HostReportFormat.BOTH,
+    config: ConfigOption = Path("./piranesi.toml"),
+    output: OutputOption = Path("./piranesi-output"),
+    verbose: VerboseOption = False,
+    quiet: QuietOption = False,
+    debug: DebugOption = False,
+    json_logs: JsonLogsOption = False,
+    trace: TraceOption = Path(".piranesi-trace.jsonl"),
+) -> None:
+    _load_local_llm_env()
+    options = _common_options(
+        config=config,
+        output=output,
+        verbose=verbose,
+        quiet=quiet,
+        debug=debug,
+        json_logs=json_logs,
+        trace=trace,
+        authorized=True,
+        yes=True,
+    )
+    setup_logging(
+        verbose=options.verbose,
+        quiet=options.quiet,
+        debug=options.debug,
+        json_logs=options.json_logs,
+    )
+    logger = logging.getLogger("piranesi.assess")
+    config_model = _load_cli_config(stage="assess", options=options)
+    try:
+        snapshot = load_host_input(input_path)
+    except HostInputError as exc:
+        log_error_context(
+            logger,
+            event="host_input_invalid",
+            what="host_input",
+            on_what=str(input_path),
+            why=str(exc),
+            next_step="provide host_snapshot.json or osquery/Trivy JSON bundle",
+            debug="use a directory with osquery/*.json and/or trivy/*.json",
+        )
+        raise typer.Exit(code=2) from exc
+
+    provider: LLMProvider | None = None
+    trace_writer: TraceWriter | None = None
+    cost_tracker: CostTracker | None = None
+    if analysis in {HostAnalysisMode.LLM, HostAnalysisMode.BOTH} and _host_llm_is_configured():
+        cost_tracker = CostTracker()
+        trace_writer = TraceWriter(config_model.trace, config_model.budget)
+        router = ModelRouter(config_model, cost_tracker)
+        trace_logger = TraceLogger(trace_writer, log_prompts=config_model.trace.log_prompts)
+        provider = LLMProvider(trace_logger, cost_tracker, router=router)
+
+    try:
+        if trace_writer is not None:
+            trace_writer.open()
+        report = analyze_snapshot(
+            snapshot,
+            analysis=cast(Any, analysis.value),
+            provider=provider,
+        )
+        write_host_report_outputs(report, output, report_format=report_format.value)
+    except TraceBudgetExceededError as exc:
+        log_error_context(
+            logger,
+            event="trace_budget_exceeded",
+            what="trace_budget",
+            on_what=str(trace),
+            why=str(exc),
+            next_step="exiting_with_code_4",
+            debug="reduce LLM usage or raise budget.max_cost_usd",
+        )
+        raise typer.Exit(code=4) from exc
+    finally:
+        if trace_writer is not None:
+            trace_writer.close()
+
+    if not quiet:
+        by_severity = report.summary.get("by_severity", {})
+        severity_summary = json.dumps(by_severity, sort_keys=True)
+        if sys.stderr.isatty() and not json_logs:
+            print_summary_table(
+                "Piranesi Host Assessment",
+                {
+                    "Target": report.target,
+                    "Analysis": ", ".join(report.analysis_modes),
+                    "Score": f"{report.posture_score}/100",
+                    "Findings": report.summary.get("findings_total", 0),
+                    "Severity": severity_summary,
+                    "Output": output.resolve(strict=False),
+                },
+            )
+        else:
+            typer.echo(f"target: {report.target}")
+            typer.echo(f"score: {report.posture_score}/100")
+            typer.echo(f"findings: {report.summary.get('findings_total', 0)}")
+            typer.echo(f"output: {output.resolve(strict=False)}")
 
 
 @app.command("validate-evidence", help="Validate report and verification evidence artifacts.")
@@ -4795,7 +4934,7 @@ def eval_compare_reports(
     _run_eval_entrypoint("compare_reports", argv)
 
 
-@app.command(help=_RUN_HELP)
+@app.command(help=_RUN_HELP, hidden=True)
 def run(
     target_dir: TargetDirArg,
     include: IncludeOption = None,

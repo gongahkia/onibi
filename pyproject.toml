@@ -1,12 +1,20 @@
 [project]
 name = "piranesi"
 version = "0.2.0"
-description = "CLI-native cybersecurity analysis tool for TypeScript/JavaScript source code"
+description = "CLI-native VM and Linux host security posture assessment tool"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.12"
 authors = [{ name = "piranesi contributors" }]
-keywords = ["security", "typescript", "javascript", "sast", "static-analysis", "owasp"]
+keywords = [
+    "security",
+    "vm",
+    "linux",
+    "host-posture",
+    "vulnerability-management",
+    "osquery",
+    "trivy",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",

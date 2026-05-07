@@ -1,214 +1,136 @@
 ![](https://github.com/gongahkia/piranesi/actions/workflows/ci.yml/badge.svg)
 
-# `Piranesi`
+# Piranesi
 
-Piranesi is an alpha, local-first AppSec analysis CLI that turns source code into explainable security, exploitability, and compliance artifacts. It uses Joern-backed taint discovery to surface candidate vulnerabilities, can verify exploits in Docker, and can attach legal and patch context when LLM credentials are configured.
+Piranesi is an alpha, local-first VM and Linux host posture assessment CLI. It turns
+host evidence into a focused vulnerability and exposure report for VM sandbox,
+homelab, lab-infra, and security review workflows.
+
+The current center of gravity is a snapshot workflow: collect evidence from a VM or
+host, run `piranesi assess`, and review JSON/Markdown reports. The first supported
+raw evidence bundle format is osquery plus Trivy JSON. Deterministic analysis works
+without LLM credentials; optional LLM analysis can add evidence-bound posture
+reasoning when a LiteLLM-compatible API key is configured.
 
 ## Status
 
-`v0.2.0` is an alpha release. The stable center of gravity is TypeScript/JavaScript web application analysis, especially small Express targets. Broader language, framework, compliance, verification, and workflow features are present at different maturity levels; see [docs/capabilities.md](docs/capabilities.md). The verify stage is validated on the bundled XSS fixture, and the example docs include real runs on both a hand-crafted vulnerable app and OWASP NodeGoat. Real-world projects still produce misses and false positives, so the example writeups call those out explicitly.
+`v0.2.0` is being pivoted from the earlier JavaScript/TypeScript SAST prototype into
+the VM vulnerability sandbox proposal. The legacy source-code pipeline still exists
+internally for now, but it is no longer the primary public use case.
+
+Phase 1 targets Debian/Ubuntu-style Linux host evidence and produces a snapshot
+report. It does not yet ship a local collector, fleet dashboard, ticket sync, PDF
+export, Windows support, or cloud inventory ingestion.
 
 ## What It Does
 
-- Transpiles JS/TS projects into a Joern-friendly analysis workspace.
-- Extracts tainted source-to-sink flows for SQLi, XSS, path traversal, command injection, SSRF, and related classes.
-- Generates stage artifacts for `scan`, `detect`, `triage`, `verify`, `legal`, `patch`, and `report`.
-- Verifies exploitable findings in Docker when execution is enabled.
-- Runs static scan/detect/report in deterministic mode without LLM credentials.
-- Supports BYOK LLM routing for model-assisted triage, patch generation, and legal memo generation.
+- Loads a canonical `host_snapshot.json` or a raw evidence bundle directory.
+- Normalizes osquery host facts: OS, kernel, packages, listening ports, users,
+  services, and selected SSH configuration.
+- Reads Trivy JSON output for package vulnerability evidence.
+- Flags exposed high-risk services, public SSH exposure, SSH hardening gaps,
+  privileged local accounts, package CVEs, and missing evidence coverage.
+- Writes `host-report.json` and/or `host-report.md`.
+- Supports deterministic, LLM-only, or combined analysis modes.
 
 ## Requirements
 
 - Python 3.12+
-- `uv` for source-checkout development, or `pip install piranesi` for packaged use
-- Joern plus a working JVM
-- TypeScript compiler (`tsc`)
-- Docker for the verify stage
-- Optional LLM API key for model-assisted triage, patch generation, and legal memo drafting
+- `uv` for source-checkout development
+- Optional: osquery on the assessed VM/host
+- Optional: Trivy for package vulnerability evidence
+- Optional: one LiteLLM-compatible API key for `--analysis llm` or `--analysis both`
 
-The full installation walkthrough is in [docs/getting-started.md](docs/getting-started.md).
+Supported LLM environment variables are `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+`OPENROUTER_API_KEY`, `AZURE_OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, and
+`LITELLM_API_KEY`.
 
 ## Quick Start
 
 ```bash
 uv sync
 uv run piranesi --version
-uv run piranesi init
 
-brew install joern openjdk@17
-npm install --global typescript
-open -a Docker
-
-uv run piranesi doctor .
-
-cd examples/vuln-express
-npm install
-cd ../..
-
-uv run piranesi run examples/vuln-express \
-  --authorized \
-  --yes \
-  --output .piranesi-out/vuln-express \
-  --no-execute
+uv run piranesi assess tests/fixtures/host/debian-vulnerable \
+  --output piranesi-output \
+  --analysis deterministic \
+  --format both
 ```
 
-`piranesi doctor .` reports whether the local machine is ready for deterministic scanning, LLM-assisted triage/patching, and Docker-backed verification.
+This writes:
 
-`--no-execute` skips Docker exploit execution. Without an LLM credential, `piranesi run` uses deterministic mode: static scan/detect/report still run, triage preserves reachable findings without model-backed false-positive discrimination, and patch generation is skipped.
+- `piranesi-output/host-report.json`
+- `piranesi-output/host-report.md`
 
-Set one LiteLLM-compatible credential to enable LLM-assisted stages: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `AZURE_OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, or `LITELLM_API_KEY`.
-
-Use `--fail-severity high` to fail CI only on `high` or `critical` findings, or `--no-fail` to always exit `0` for findings while still writing artifacts.
-
-## CLI Shape
-
-Piranesi now follows a progressive-disclosure CLI layout:
-
-- Start with `piranesi run ...` for the default end-to-end flow.
-- Use grouped advanced controls when needed:
-  - `piranesi pipeline ...` for stage-level operations (`scan`, `detect`, `triage`, `verify`, `legal`, `patch`, `report`).
-  - `piranesi baseline diff ...` for baseline comparisons.
-  - `piranesi suppressions add ...` for suppression creation and lifecycle management.
-  - `piranesi dev ...` for developer workflows (`watch`, `lsp`).
-
-Backward-compatible top-level commands still work, but grouped commands are the recommended interface for new usage.
-
-## Docker Quick Start
-
-Build and run Piranesi without a local Python/Node/Joern toolchain:
+Use a canonical snapshot directly:
 
 ```bash
-docker build -t piranesi:local .
-docker run --rm \
-  --user "$(id -u):$(id -g)" \
-  -v "$PWD":/workspace \
-  -w /workspace \
-  piranesi:local \
-  run . --authorized --yes --no-execute --output /workspace/piranesi-output
+uv run piranesi assess path/to/host_snapshot.json --output piranesi-output
 ```
 
-This path is deterministic/no-LLM by default. Pass LLM keys at runtime only (for example `-e OPENAI_API_KEY`) when needed.
-See [docs/docker.md](docs/docker.md) for mounts, config/output paths, and permission troubleshooting.
+Use optional evidence-bound LLM reasoning:
 
-## Real Output
+```bash
+OPENAI_API_KEY=... uv run piranesi assess path/to/evidence-bundle \
+  --analysis both \
+  --output piranesi-output
+```
 
-The compact summary below was produced from a real run against [`examples/vuln-express`](examples/vuln-express):
+## Raw Bundle Layout
+
+Piranesi accepts a directory containing `osquery/*.json` and/or `trivy/*.json`:
 
 ```text
-$ uv run python docs/examples/run_detect_summary.py examples/vuln-express
-Piranesi Detect Summary
-Target: /Users/gongahkia/Desktop/coding/projects/piranesi/examples/vuln-express
-Transpile failures tolerated: 0
-Candidate findings: 4
-By CWE:
-  CWE-22: 1
-  CWE-78: 1
-  CWE-79: 1
-  CWE-918: 1
-Findings:
-  - CWE-78 | source=cmd | sink=execSync | /Users/gongahkia/Desktop/coding/projects/piranesi/examples/vuln-express/app.js:49
-  - CWE-79 | source=q | sink=res.send | /Users/gongahkia/Desktop/coding/projects/piranesi/examples/vuln-express/app.js:31
-  - CWE-22 | source=file | sink=fs.readFileSync | /Users/gongahkia/Desktop/coding/projects/piranesi/examples/vuln-express/app.js:43
-  - CWE-918 | source=url | sink=fetch | /Users/gongahkia/Desktop/coding/projects/piranesi/examples/vuln-express/app.js:55
+evidence-bundle/
+  osquery/
+    system_info.json
+    os_version.json
+    kernel_info.json
+    deb_packages.json
+    listening_ports.json
+    users.json
+    sshd_config.json
+  trivy/
+    results.json
 ```
 
-## Example Results
+If `host_snapshot.json` exists at the bundle root, Piranesi treats it as the canonical
+input and skips raw bundle normalization.
 
-| Target | Invocation used | What Piranesi found | Misses / noise |
-| --- | --- | --- | --- |
-| `examples/vuln-express` | `uv run piranesi run ... --no-execute` | 4 candidate findings: XSS, path traversal, command injection, SSRF | Missed the planted SQLi, 0 false positives in the current sample |
-| OWASP NodeGoat | `uv run python docs/examples/run_detect_summary.py workspace/nodegoat/app --show-limit 16` | 32 candidates, including `eval(req.body.*)` and several `res.render` flows | 17 clear SSRF false positives, missed the `$where` NoSQL injection |
+## Canonical Snapshot Shape
 
-Full writeups:
+The stable internal interchange format is `HostSnapshot`:
 
-- [Hand-Crafted Vulnerable Express App](docs/examples/vuln-express.md)
-- [OWASP NodeGoat](docs/examples/nodegoat.md)
-- [Getting Started](docs/getting-started.md)
-- [Configuration Reference](docs/configuration.md)
-- [Docker Usage](docs/docker.md)
-
-## SARIF Output
-
-Generate SARIF 2.1.0 reports with `--format sarif`:
-
-```bash
-uv run piranesi run examples/vuln-express \
-  --format sarif \
-  --authorized \
-  --yes \
-  --output .piranesi-out/vuln-express
+```json
+{
+  "schema_version": 1,
+  "identity": { "hostname": "debian-vm-01" },
+  "os": { "name": "Ubuntu", "version_id": "22.04" },
+  "kernel": "5.15.0-101-generic",
+  "packages": [],
+  "listening_ports": [],
+  "processes": [],
+  "services": [],
+  "users": [],
+  "config": {},
+  "tool_provenance": {},
+  "raw_evidence": {}
+}
 ```
 
-This writes `report.sarif.json` alongside the standard JSON and Markdown reports. The SARIF output includes taint-flow `codeFlows`, inline `fixes` from patch diffs, and regulatory metadata.
-
-## GitHub Actions
-
-Add Piranesi to your CI pipeline and upload results to GitHub code scanning:
-
-```yaml
-name: piranesi
-
-on:
-  pull_request:
-  push:
-    branches: [main]
-
-jobs:
-  scan:
-    runs-on: ubuntu-latest
-    env:
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-    permissions:
-      contents: read
-      actions: read
-      security-events: write
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install Piranesi
-        run: pip install piranesi
-      - name: Run Piranesi
-        id: piranesi
-        continue-on-error: true
-        run: |
-          piranesi run . \
-            --format sarif \
-            --authorized \
-            --yes \
-            --output .piranesi-output
-      - name: Upload SARIF
-        if: always() && hashFiles('.piranesi-output/report.sarif.json') != ''
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: .piranesi-output/report.sarif.json
-          category: piranesi
-      - name: Fail on findings
-        if: steps.piranesi.outcome == 'failure'
-        run: exit 1
-```
-
-See [docs/ci-integration.md](docs/ci-integration.md) for GitLab CI, Docker-based, and generic CI examples.
+See `tests/fixtures/host/debian-clean/host_snapshot.json` for a complete example.
 
 ## Development
 
 ```bash
 uv sync
-uv build
-uv run piranesi --help
-uv run pytest
+uv run pytest tests/test_host_posture.py
+uv run piranesi assess tests/fixtures/host/debian-vulnerable
 ```
 
-## Documentation
-
-- [Architecture](docs/ARCHITECTURE.md)
-- [Capability Matrix](docs/capabilities.md)
-- [Evaluation Harness](docs/evaluation-harness.md)
-- [Communitytools Workflow Port](docs/communitytools-workflow-port.md)
-- [Getting Started](docs/getting-started.md)
-- [Configuration Reference](docs/configuration.md)
-- [CI Integration](docs/ci-integration.md)
+The older source-code analysis modules are still in the tree during the pivot. Treat
+new work as belonging to the host posture surface unless a change explicitly supports
+migration or backward compatibility.
 
 ## License
 

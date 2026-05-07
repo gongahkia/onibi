@@ -1,0 +1,12 @@
+[
+  {
+    "name": "openssl",
+    "version": "1.1.1f-1ubuntu2.16",
+    "arch": "amd64"
+  },
+  {
+    "name": "redis-server",
+    "version": "6:6.0.16-1ubuntu1",
+    "arch": "amd64"
+  }
+]
