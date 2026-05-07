@@ -68,6 +68,18 @@ OPTIONAL_TEXT_COMMANDS: dict[str, list[str]] = {
     "group_sudo": ["getent", "group", "sudo"],
     "group_admin": ["getent", "group", "admin"],
     "group_wheel": ["getent", "group", "wheel"],
+    "sysctl_net_ipv4_ip_forward": ["sysctl", "-n", "net.ipv4.ip_forward"],
+    "sysctl_net_ipv6_conf_all_forwarding": [
+        "sysctl",
+        "-n",
+        "net.ipv6.conf.all.forwarding",
+    ],
+    "sysctl_kernel_unprivileged_bpf_disabled": [
+        "sysctl",
+        "-n",
+        "kernel.unprivileged_bpf_disabled",
+    ],
+    "sysctl_kernel_kptr_restrict": ["sysctl", "-n", "kernel.kptr_restrict"],
 }
 
 

@@ -27,10 +27,13 @@ support, or cloud inventory ingestion.
 - Collects local VM/host evidence with osquery and optional Trivy.
 - Loads a canonical `host_snapshot.json` or a raw evidence bundle directory.
 - Normalizes osquery host facts: OS, kernel, packages, listening ports, users,
-  services, and selected SSH configuration.
+  services, network interfaces, process inventory, sudo evidence, selected SSH
+  configuration, firewall/update command evidence, and selected kernel sysctl values.
 - Reads Trivy JSON output for package vulnerability evidence.
 - Flags exposed high-risk services, public SSH exposure, SSH hardening gaps,
-  privileged local accounts, package CVEs, and missing evidence coverage.
+  privileged local accounts, package CVEs, pending security updates, missing
+  unattended security update automation, weak sysctl values, and missing evidence
+  coverage.
 - Writes `host-report.json` and/or `host-report.md`.
 - Supports deterministic, LLM-only, or combined analysis modes.
 
@@ -101,17 +104,34 @@ piranesi-evidence/
       system_info.json
       os_version.json
       kernel_info.json
+      interface_addresses.json
       deb_packages.json
       listening_ports.json
+      processes.json
       users.json
       systemd_units.json
       sshd_config.json
+      sudoers.json
     trivy/
       results.json
+    commands/
+      apt_upgradable.json
+      ufw_status.json
+      iptables_rules.json
+      nft_ruleset.json
+      sshd_effective_config.json
+      group_sudo.json
+      group_admin.json
+      group_wheel.json
+      sysctl_net_ipv4_ip_forward.json
+      sysctl_net_ipv6_conf_all_forwarding.json
+      sysctl_kernel_unprivileged_bpf_disabled.json
+      sysctl_kernel_kptr_restrict.json
 ```
 
 Piranesi also accepts a hand-built bundle containing `osquery/*.json` and/or
-`trivy/*.json` at the bundle root:
+`trivy/*.json` at the bundle root. Command evidence may also be provided at
+`commands/*.json`:
 
 ```text
 evidence-bundle/
@@ -119,16 +139,27 @@ evidence-bundle/
     system_info.json
     os_version.json
     kernel_info.json
+    interface_addresses.json
     deb_packages.json
     listening_ports.json
+    processes.json
     users.json
     sshd_config.json
+    sudoers.json
   trivy/
     results.json
+  commands/
+    apt_upgradable.json
+    ufw_status.json
+    sysctl_kernel_kptr_restrict.json
 ```
 
 If `host_snapshot.json` exists at the bundle root, Piranesi treats it as the canonical
 input and skips raw bundle normalization.
+
+JSON reports include `host_metadata` and `top_actions` in addition to the canonical
+snapshot and finding list. Markdown reports render matching `Host Metadata` and
+`Top Actions` sections for operator review.
 
 ## Canonical Snapshot Shape
 
@@ -160,6 +191,7 @@ uv sync
 uv run pytest tests/test_host_posture.py
 uv run piranesi collect --output piranesi-evidence --no-trivy
 uv run piranesi assess piranesi-evidence
+scripts/host_smoke_check.sh
 ```
 
 The older source-code analysis modules are still in the tree during the pivot. Treat

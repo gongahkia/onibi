@@ -1,9 +1,9 @@
 # Capability Matrix
 
-Piranesi is an alpha AppSec analysis CLI. The stable center of gravity is
-TypeScript/JavaScript web application analysis; broader language, compliance,
-verification, and workflow features are present but should be interpreted by
-maturity level.
+Piranesi is an alpha local-first VM and Linux host posture CLI. The current
+stable-alpha surface is Debian/Ubuntu host evidence collection and assessment.
+The older source-code AppSec pipeline remains in the repository for compatibility
+and migration work, but it is no longer the primary public workflow.
 
 Machine-readable known limitations are tracked in [`docs/known-limitations.json`](./known-limitations.json). Generated reports also include active registry entries in `report.json` (`known_limitations`) and `report.md`.
 
@@ -16,12 +16,26 @@ Machine-readable known limitations are tracked in [`docs/known-limitations.json`
 | Experimental | Implemented for early validation; expect false positives, misses, or rough UX. |
 | Pattern-Only | Lightweight syntactic or heuristic checks, not full semantic analysis. |
 
-## Language And Framework Coverage
+## Host Posture Coverage
 
 | Area | Maturity | Current Scope | Main Limitations |
 | --- | --- | --- | --- |
-| TypeScript/JavaScript | Stable Alpha | Joern-backed transpile, source/sink specs, taint paths, sanitizer confidence, SARIF/report output. | Real-world helper/wrapper patterns still create misses. |
-| Express | Stable Alpha | `req.body`, `req.query`, `req.params`, headers/cookies, response output, redirects, file/shell/HTTP sinks. | Route and helper aliasing still need stronger receiver/type disambiguation. |
+| Debian/Ubuntu local collection | Stable Alpha | `piranesi collect` gathers osquery JSON, optional Trivy JSON, and read-only command evidence under `raw/`. | Requires `osqueryi`; optional tools may be missing or permission-limited. |
+| Canonical host snapshots | Stable Alpha | `host_snapshot.json` is accepted directly and remains the stable interchange format. | Snapshot completeness depends on supplied evidence. |
+| Raw bundle ingestion | Stable Alpha | Accepts collector-style `raw/osquery`, `raw/trivy`, `raw/commands` and root-level `osquery`, `trivy`, `commands` layouts. | Raw JSON must match osquery, Trivy, or Piranesi command wrapper shapes. |
+| Deterministic assessment | Stable Alpha | Exposed services, SSH hardening, firewall/update posture, unattended-upgrades, selected sysctl values, privileged accounts, Trivy CVEs, evidence coverage, `host_metadata`, and `top_actions`. | Linux-only and intentionally conservative when evidence is absent. |
+| LLM host analysis | Beta | Optional evidence-bound host reasoning for `--analysis llm` or `--analysis both`. | Requires LiteLLM-compatible credentials and does not replace deterministic findings. |
+| Smoke harness | Stable Alpha | `scripts/host_smoke_check.sh` validates real-VM collection and deterministic assessment structure. | Local-only; it does not create or boot VMs. |
+
+## Application Security Coverage
+
+The source-code analysis features below are maintained as compatibility surfaces
+during the host-posture pivot.
+
+| Area | Maturity | Current Scope | Main Limitations |
+| --- | --- | --- | --- |
+| TypeScript/JavaScript | Beta | Joern-backed transpile, source/sink specs, taint paths, sanitizer confidence, SARIF/report output. | Compatibility workflow during the host-posture pivot; real-world helper/wrapper patterns still create misses. |
+| Express | Beta | `req.body`, `req.query`, `req.params`, headers/cookies, response output, redirects, file/shell/HTTP sinks. | Compatibility workflow during the host-posture pivot; route and helper aliasing still need stronger receiver/type disambiguation. |
 | Fastify | Beta | Request sources, reply sinks, schema-validation sanitizer hints. | Framework-specific plugins and lifecycle hooks are incomplete. |
 | Next.js | Beta | Pages API routes, app routes, server actions, request body/header/search-param sources. | Server/client boundary and middleware modeling are incomplete. |
 | NestJS | Beta | Decorated controller parameter sources and redirect/body patterns. | Decorator lowering and dependency-injection flows remain brittle. |
@@ -31,16 +45,16 @@ Machine-readable known limitations are tracked in [`docs/known-limitations.json`
 | PHP | Pattern-Only | Raw PHP, Laravel/Symfony/WordPress-oriented vulnerable pattern checks. | Mostly syntactic; no full Joern-backed PHP taint parity. |
 | Ruby | Pattern-Only | Rails/Sinatra-style pattern checks for common injection classes. | Mostly syntactic; no full semantic taint parity. |
 
-## Pipeline Feature Coverage
+## Legacy Pipeline Feature Coverage
 
 | Feature | Maturity | Notes |
 | --- | --- | --- |
-| `scan` / `detect` artifacts | Stable Alpha | Main pipeline contract; emits inspectable JSON. |
-| Deterministic no-LLM mode | Stable Alpha | Static scan/detect/report can run without API keys; triage passes reachable findings through. |
+| `scan` / `detect` artifacts | Beta | Compatibility pipeline contract; emits inspectable JSON. |
+| Deterministic no-LLM mode | Beta | Static scan/detect/report can run without API keys; triage passes reachable findings through. |
 | LLM triage | Beta | Requires LiteLLM-compatible credentials; improves false-positive discrimination but should not be treated as authoritative. |
 | Patch generation | Experimental | LLM-backed and skipped in deterministic mode. Generated patches require review. |
 | Docker exploit verification | Experimental | Includes structured, safe-by-default templates for `CWE-89` (SQLi), `CWE-78` (command injection), `CWE-918` (SSRF loopback probes), `CWE-22` (path traversal), `CWE-601` (open redirect), `CWE-79` (reflected XSS), `CWE-502` (insecure deserialization markers), and weak crypto classes (`CWE-327`/`CWE-326`/`CWE-319`). `verify.proof_mode` defaults to `safe`, which excludes destructive templates; `unsafe` is explicit opt-in. Verification can also use reusable `verify.target_profiles` for startup/readiness/base URL reuse across runs. Attempts emit preconditions, proof mode, target profile, startup failures, launch log path, evidence strings, and skip/inconclusive reasons in `verify.json` and report explanations. |
-| SARIF output | Stable Alpha | Suitable for CI/code-scanning ingestion. |
+| SARIF output | Beta | Suitable for CI/code-scanning ingestion in the legacy source-code pipeline. |
 | JUnit/CSV/TUI output | Beta | Useful for integration and review workflows. |
 | Baseline diff (`new`/`changed`/`fixed`/`existing`) | Beta | `piranesi baseline diff` (or compatibility `piranesi diff`) and `piranesi run --baseline ...` produce deterministic baseline comparisons plus PR-friendly `baseline-diff.md` / `baseline-diff.json` artifacts. |
 | Finding clustering | Beta | Reports preserve individual findings while grouping related findings by CWE and sink location. |

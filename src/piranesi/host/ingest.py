@@ -347,6 +347,9 @@ def _config_from_evidence(
     updates = _updates_from_commands(command_payloads)
     if updates:
         config["updates"] = updates
+    sysctl = _sysctl_from_commands(command_payloads)
+    if sysctl:
+        config["sysctl"] = sysctl
     sudo = _sudo_config_from_evidence(payloads, command_payloads)
     if sudo:
         config["sudo"] = sudo
@@ -444,6 +447,30 @@ def _updates_from_commands(command_payloads: dict[str, object]) -> dict[str, obj
         "source": "apt_upgradable",
         "upgradable": updates,
         "security_count": sum(1 for update in updates if update["security"]),
+    }
+
+
+def _sysctl_from_commands(command_payloads: dict[str, object]) -> dict[str, object]:
+    command_names = {
+        "sysctl_net_ipv4_ip_forward": "net.ipv4.ip_forward",
+        "sysctl_net_ipv6_conf_all_forwarding": "net.ipv6.conf.all.forwarding",
+        "sysctl_kernel_unprivileged_bpf_disabled": "kernel.unprivileged_bpf_disabled",
+        "sysctl_kernel_kptr_restrict": "kernel.kptr_restrict",
+    }
+    values: dict[str, str] = {}
+    sources: list[str] = []
+    for command_name, setting in command_names.items():
+        stdout = _command_stdout(command_payloads.get(command_name))
+        if stdout is None:
+            continue
+        value = stdout.strip().splitlines()[0].strip() if stdout.strip() else ""
+        values[setting] = value
+        sources.append(command_name)
+    if not values:
+        return {}
+    return {
+        "values": values,
+        "sources": sources,
     }
 
 

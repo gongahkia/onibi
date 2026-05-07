@@ -182,6 +182,7 @@ def test_raw_bundle_normalizes_real_vm_posture_evidence(tmp_path: Path) -> None:
     assert "Redis is listening on a public interface" in titles
     assert "Firewall appears inactive while public services are exposed" in titles
     assert "Security package updates are pending" in titles
+    assert "Automatic security updates are not installed" in titles
     assert "SSH permits empty passwords" in titles
     assert report.host_metadata["ip_addresses"] == ["10.42.0.9"]
     assert {action["category"] for action in report.top_actions} >= {
@@ -189,6 +190,125 @@ def test_raw_bundle_normalizes_real_vm_posture_evidence(tmp_path: Path) -> None:
         "patching",
         "identity",
     }
+
+
+def test_unattended_upgrades_absent_with_apt_evidence_triggers_finding(
+    tmp_path: Path,
+) -> None:
+    _write_minimal_raw_bundle(
+        tmp_path,
+        packages=[{"name": "openssl", "version": "1.1.1f-1ubuntu2.16"}],
+        commands={
+            "apt_upgradable": {
+                "stdout": (
+                    "Listing...\n"
+                    "openssl/jammy-security 1.1.1f-1ubuntu2.17 amd64 "
+                    "[upgradable from: 1.1.1f-1ubuntu2.16]\n"
+                ),
+                "stderr": "",
+            }
+        },
+    )
+
+    report = analyze_snapshot(load_host_input(tmp_path))
+
+    titles = {finding.title for finding in report.findings}
+    assert "Security package updates are pending" in titles
+    assert "Automatic security updates are not installed" in titles
+
+
+def test_unattended_upgrades_installed_suppresses_finding(tmp_path: Path) -> None:
+    _write_minimal_raw_bundle(
+        tmp_path,
+        packages=[
+            {"name": "openssl", "version": "1.1.1f-1ubuntu2.16"},
+            {"name": "unattended-upgrades", "version": "2.9.1+nmu3ubuntu1"},
+        ],
+        commands={
+            "apt_upgradable": {
+                "stdout": (
+                    "Listing...\n"
+                    "openssl/jammy-security 1.1.1f-1ubuntu2.17 amd64 "
+                    "[upgradable from: 1.1.1f-1ubuntu2.16]\n"
+                ),
+                "stderr": "",
+            }
+        },
+    )
+
+    report = analyze_snapshot(load_host_input(tmp_path))
+
+    titles = {finding.title for finding in report.findings}
+    assert "Security package updates are pending" in titles
+    assert "Automatic security updates are not installed" not in titles
+
+
+def test_sysctl_command_evidence_triggers_only_insecure_value_findings(
+    tmp_path: Path,
+) -> None:
+    _write_minimal_raw_bundle(
+        tmp_path,
+        commands={
+            "sysctl_net_ipv4_ip_forward": {"stdout": "1\n", "stderr": ""},
+            "sysctl_net_ipv6_conf_all_forwarding": {"stdout": "0\n", "stderr": ""},
+            "sysctl_kernel_unprivileged_bpf_disabled": {"stdout": "0\n", "stderr": ""},
+            "sysctl_kernel_kptr_restrict": {"stdout": "0\n", "stderr": ""},
+        },
+    )
+
+    snapshot = load_host_input(tmp_path)
+    report = analyze_snapshot(snapshot)
+
+    titles = {finding.title for finding in report.findings}
+    assert snapshot.config["sysctl"] == {
+        "values": {
+            "net.ipv4.ip_forward": "1",
+            "net.ipv6.conf.all.forwarding": "0",
+            "kernel.unprivileged_bpf_disabled": "0",
+            "kernel.kptr_restrict": "0",
+        },
+        "sources": [
+            "sysctl_net_ipv4_ip_forward",
+            "sysctl_net_ipv6_conf_all_forwarding",
+            "sysctl_kernel_unprivileged_bpf_disabled",
+            "sysctl_kernel_kptr_restrict",
+        ],
+    }
+    assert "IPv4 packet forwarding is enabled" in titles
+    assert "IPv6 packet forwarding is enabled" not in titles
+    assert "Unprivileged BPF is enabled" in titles
+    assert "Kernel pointer exposure is unrestricted" in titles
+
+
+def test_missing_sysctl_evidence_does_not_create_sysctl_findings(tmp_path: Path) -> None:
+    _write_minimal_raw_bundle(tmp_path)
+
+    report = analyze_snapshot(load_host_input(tmp_path))
+
+    assert "sysctl" not in report.snapshot.config
+    assert not any(
+        finding.affected_component
+        and finding.affected_component.startswith(("net.", "kernel."))
+        for finding in report.findings
+    )
+
+
+def test_smoke_style_bundle_writes_report_metadata_and_top_actions(tmp_path: Path) -> None:
+    evidence_dir = tmp_path / "evidence"
+    report_dir = tmp_path / "report"
+    _write_minimal_raw_bundle(
+        evidence_dir,
+        packages=[{"name": "openssl", "version": "1.1.1f-1ubuntu2.16"}],
+        commands={"apt_upgradable": {"stdout": "Listing...\n", "stderr": ""}},
+    )
+
+    report = analyze_snapshot(load_host_input(evidence_dir))
+    write_host_report_outputs(report, report_dir, report_format="both")
+
+    payload = json.loads((report_dir / "host-report.json").read_text(encoding="utf-8"))
+    assert payload["host_metadata"]["hostname"] == "minimal-vm"
+    assert payload["top_actions"]
+    assert payload["snapshot"]["identity"]["hostname"] == "minimal-vm"
 
 
 def test_collect_host_evidence_writes_snapshot_manifest_and_raw_layout(tmp_path: Path) -> None:
@@ -307,6 +427,28 @@ def test_llm_mode_without_provider_reports_coverage() -> None:
 
     assert report.analysis_modes == ["llm"]
     assert [finding.title for finding in report.findings] == ["LLM host analysis was not completed"]
+
+
+def _write_minimal_raw_bundle(
+    root: Path,
+    *,
+    packages: list[dict[str, str]] | None = None,
+    commands: dict[str, object] | None = None,
+) -> None:
+    raw_osquery = root / "raw" / "osquery"
+    raw_commands = root / "raw" / "commands"
+    raw_osquery.mkdir(parents=True)
+    raw_commands.mkdir(parents=True)
+    (raw_osquery / "system_info.json").write_text(
+        json.dumps([{"hostname": "minimal-vm", "uuid": "minimal-vm-id"}]),
+        encoding="utf-8",
+    )
+    (raw_osquery / "deb_packages.json").write_text(
+        json.dumps(packages or [{"name": "openssl", "version": "1.1.1f-1ubuntu2.16"}]),
+        encoding="utf-8",
+    )
+    for name, payload in (commands or {}).items():
+        (raw_commands / f"{name}.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
 def _fake_lookup_without_trivy(name: str) -> str | None:

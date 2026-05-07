@@ -73,7 +73,9 @@ def _evaluate_verify_artifact(*, verify_payload: dict[str, Any], tier: Tier) -> 
         return failures
 
     error_attempts = [
-        attempt for attempt in attempts if isinstance(attempt, dict) and attempt.get("status") == "error"
+        attempt
+        for attempt in attempts
+        if isinstance(attempt, dict) and attempt.get("status") == "error"
     ]
     if tier in {"staging", "prod"} and error_attempts:
         failures.append(f"verify.json contains {len(error_attempts)} error attempt(s)")
@@ -196,7 +198,9 @@ def _evaluate_audit_log(*, path: Path, tier: Tier) -> list[str]:
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Validate rollout gates for dev/staging/prod tiers.")
+    parser = argparse.ArgumentParser(
+        description="Validate rollout gates for dev/staging/prod tiers."
+    )
     parser.add_argument(
         "--tier",
         required=True,
@@ -257,7 +261,9 @@ def main(argv: list[str] | None = None) -> int:
         if tier == "prod":
             critical = _active_critical_findings(report_payload)
             if critical > 0:
-                failures.append(f"active critical findings must be 0 for prod rollout (got {critical})")
+                failures.append(
+                    f"active critical findings must be 0 for prod rollout (got {critical})"
+                )
 
     verify_path = artifacts_dir / "verify.json"
     if verify_path.exists():

@@ -137,6 +137,8 @@ def deterministic_findings(snapshot: HostSnapshot) -> list[HostFinding]:
     findings.extend(_ssh_config_findings(snapshot))
     findings.extend(_firewall_findings(snapshot))
     findings.extend(_pending_security_update_findings(snapshot))
+    findings.extend(_unattended_upgrade_findings(snapshot))
+    findings.extend(_sysctl_findings(snapshot))
     findings.extend(_privileged_user_findings(snapshot))
     findings.extend(_missing_evidence_findings(snapshot))
     return findings
@@ -495,6 +497,106 @@ def _pending_security_update_findings(snapshot: HostSnapshot) -> list[HostFindin
     ]
 
 
+def _unattended_upgrade_findings(snapshot: HostSnapshot) -> list[HostFinding]:
+    updates = snapshot.config.get("updates")
+    if not isinstance(updates, dict) or updates.get("source") != "apt_upgradable":
+        return []
+    if not snapshot.packages:
+        return []
+    installed_packages = {package.name for package in snapshot.packages}
+    if "unattended-upgrades" in installed_packages:
+        return []
+    return [
+        HostFinding(
+            id=host_finding_id("updates", snapshot.identity.hostname, "unattended-upgrades"),
+            title="Automatic security updates are not installed",
+            category="patching",
+            severity="medium",
+            confidence=0.8,
+            affected_component="unattended-upgrades",
+            evidence=[
+                EvidenceItem(
+                    source="osquery",
+                    key="package_inventory",
+                    value="unattended-upgrades absent",
+                ),
+                EvidenceItem(
+                    source="system",
+                    key="apt.update_evidence",
+                    value=str(updates.get("source")),
+                ),
+            ],
+            remediation=(
+                "Install and configure `unattended-upgrades` or document an equivalent "
+                "automated security patch process for this Debian/Ubuntu host."
+            ),
+            source_tool="piranesi",
+            rationale=(
+                "Package inventory and apt update evidence were present, but the "
+                "unattended-upgrades package was not installed."
+            ),
+        )
+    ]
+
+
+def _sysctl_findings(snapshot: HostSnapshot) -> list[HostFinding]:
+    sysctl = snapshot.config.get("sysctl")
+    if not isinstance(sysctl, dict):
+        return []
+    values = sysctl.get("values")
+    if not isinstance(values, dict):
+        return []
+    checks: tuple[tuple[str, str, str, Severity, str], ...] = (
+        (
+            "net.ipv4.ip_forward",
+            "1",
+            "IPv4 packet forwarding is enabled",
+            "medium",
+            "Disable IPv4 forwarding unless this VM is intentionally acting as a router.",
+        ),
+        (
+            "net.ipv6.conf.all.forwarding",
+            "1",
+            "IPv6 packet forwarding is enabled",
+            "medium",
+            "Disable IPv6 forwarding unless this VM is intentionally acting as a router.",
+        ),
+        (
+            "kernel.unprivileged_bpf_disabled",
+            "0",
+            "Unprivileged BPF is enabled",
+            "medium",
+            "Disable unprivileged BPF where compatible with workload requirements.",
+        ),
+        (
+            "kernel.kptr_restrict",
+            "0",
+            "Kernel pointer exposure is unrestricted",
+            "low",
+            "Set `kernel.kptr_restrict` to `1` or stricter unless debugging requires it.",
+        ),
+    )
+    findings: list[HostFinding] = []
+    for setting, weak_value, title, severity, remediation in checks:
+        value = _string(values.get(setting))
+        if value != weak_value:
+            continue
+        findings.append(
+            HostFinding(
+                id=host_finding_id("sysctl", snapshot.identity.hostname, setting, value),
+                title=title,
+                category="misconfiguration",
+                severity=severity,
+                confidence=0.85,
+                affected_component=setting,
+                evidence=[EvidenceItem(source="system", key=f"sysctl.{setting}", value=value)],
+                remediation=remediation,
+                source_tool="piranesi",
+            )
+        )
+    return findings
+
+
 def _privileged_user_findings(snapshot: HostSnapshot) -> list[HostFinding]:
     findings: list[HostFinding] = []
     for user in snapshot.users:
@@ -666,6 +768,7 @@ def _summary(findings: list[HostFinding]) -> dict[str, object]:
 def _evidence_inventory(snapshot: HostSnapshot) -> dict[str, int]:
     firewall = snapshot.config.get("firewall")
     updates = snapshot.config.get("updates")
+    sysctl = snapshot.config.get("sysctl")
     return {
         "packages": len(snapshot.packages),
         "network_interfaces": len(snapshot.network_interfaces),
@@ -677,6 +780,7 @@ def _evidence_inventory(snapshot: HostSnapshot) -> dict[str, int]:
         "config_sections": len(snapshot.config),
         "firewall_evidence": 1 if isinstance(firewall, dict) else 0,
         "update_evidence": 1 if isinstance(updates, dict) else 0,
+        "sysctl_evidence": 1 if isinstance(sysctl, dict) else 0,
         "raw_tools": len(snapshot.raw_evidence),
     }
 
@@ -692,6 +796,7 @@ def _host_metadata(snapshot: HostSnapshot, inventory: dict[str, int]) -> dict[st
         "users": inventory["users"] > 0,
         "firewall": inventory["firewall_evidence"] > 0,
         "updates": inventory["update_evidence"] > 0,
+        "sysctl": inventory["sysctl_evidence"] > 0,
         "trivy": "trivy" in snapshot.raw_evidence,
     }
     return {
