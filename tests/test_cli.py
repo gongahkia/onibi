@@ -99,10 +99,8 @@ def test_doctor_command_renders_readiness(monkeypatch: pytest.MonkeyPatch, tmp_p
         target=str(tmp_path),
         config_path=str(tmp_path / "piranesi.toml"),
         ready=True,
-        deterministic_ready=True,
-        full_pipeline_ready=False,
-        frameworks=["express"],
-        scan_targets=2,
+        collect_ready=True,
+        assess_ready=True,
         checks=[
             DoctorCheck(name="python", status="ok", summary="Python 3.12"),
             DoctorCheck(name="llm", status="warn", summary="no API key configured"),
@@ -114,8 +112,8 @@ def test_doctor_command_renders_readiness(monkeypatch: pytest.MonkeyPatch, tmp_p
     result = runner.invoke(app, ["doctor", str(tmp_path)])
 
     assert result.exit_code == 0
-    assert "Deterministic scan ready: yes" in result.stdout
-    assert "Full LLM-assisted pipeline ready: no" in result.stdout
+    assert "Host collection ready: yes" in result.stdout
+    assert "Host assessment ready: yes" in result.stdout
     assert "[WARN] llm" in result.stdout
 
 
@@ -125,8 +123,8 @@ def test_doctor_json_output(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
         target=str(tmp_path),
         config_path=str(tmp_path / "piranesi.toml"),
         ready=True,
-        deterministic_ready=True,
-        full_pipeline_ready=True,
+        collect_ready=True,
+        assess_ready=True,
     )
     monkeypatch.setattr("piranesi.cli.build_doctor_report", lambda *_args, **_kwargs: report)
 
@@ -134,8 +132,8 @@ def test_doctor_json_output(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
 
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
-    assert payload["deterministic_ready"] is True
-    assert payload["full_pipeline_ready"] is True
+    assert payload["collect_ready"] is True
+    assert payload["assess_ready"] is True
 
 
 def test_scan_authorized_yes_runs_stage_and_creates_trace(tmp_path: Path) -> None:
@@ -507,7 +505,8 @@ def test_init_scaffolds_detected_framework_defaults(
     assert 'id: "finding-123"' in ignore_payload
     assert "Detected: Express" in result.stdout
     assert "Run `piranesi doctor .`" in result.stdout
-    assert "Run `piranesi run . --authorized --yes --no-execute`" in result.stdout
+    assert "Run `piranesi collect --output piranesi-evidence`" in result.stdout
+    assert "Run `piranesi assess piranesi-evidence --output piranesi-output`" in result.stdout
 
 
 def test_init_scaffolds_explicit_framework_defaults(

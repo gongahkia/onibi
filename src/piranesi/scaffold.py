@@ -386,9 +386,9 @@ def _next_steps(*, frameworks: tuple[str, ...], languages: tuple[str, ...]) -> t
         steps.append("Install Bundler dependencies first if the project has a Gemfile.")
     steps.extend(
         [
-            "Run `piranesi doctor .` to verify local dependencies and scan readiness.",
-            "Run `piranesi run . --authorized --yes --no-execute` for a safe first scan.",
-            "Remove `--no-execute` after Docker is ready and you want exploit verification.",
+            "Run `piranesi doctor .` to verify host posture readiness.",
+            "Run `piranesi collect --output piranesi-evidence` on the VM or host.",
+            "Run `piranesi assess piranesi-evidence --output piranesi-output`.",
         ]
     )
     if frameworks == ("auto",):

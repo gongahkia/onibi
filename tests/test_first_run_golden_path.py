@@ -48,21 +48,19 @@ def test_first_run_golden_path_init_doctor_run_and_explain(
         target=str(project_root),
         config_path=str(project_root / "piranesi.toml"),
         ready=True,
-        deterministic_ready=True,
-        full_pipeline_ready=False,
-        frameworks=["express"],
-        scan_targets=1,
+        collect_ready=False,
+        assess_ready=True,
     )
     monkeypatch.setattr("piranesi.cli.build_doctor_report", lambda *_args, **_kwargs: doctor_report)
 
     doctor_result = runner.invoke(app, ["doctor", "."])
     assert doctor_result.exit_code == 0
-    assert "Deterministic scan ready: yes" in doctor_result.stdout
+    assert "Host assessment ready: yes" in doctor_result.stdout
 
     output_dir = project_root / ".piranesi-out"
 
     def fake_run_pipeline(*_args, **kwargs) -> PipelineRunResult:  # type: ignore[no-untyped-def]
-        context = kwargs["context"]
+        context = kwargs.get("context") or _args[1]
         context.output_dir.mkdir(parents=True, exist_ok=True)
         artifacts = fixture_artifacts(project_root)
         report = build_report(

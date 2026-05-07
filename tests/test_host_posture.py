@@ -8,6 +8,7 @@ import pytest
 from typer.testing import CliRunner
 
 from piranesi.cli import app
+from piranesi.doctor import build_doctor_report
 from piranesi.host import (
     HostCollectionError,
     analyze_snapshot,
@@ -141,6 +142,44 @@ def test_collect_cli_reports_collection_errors(
     assert result.exit_code == 2
 
 
+def test_host_doctor_reports_full_readiness_when_tools_exist(tmp_path: Path) -> None:
+    report = build_doctor_report(
+        tmp_path,
+        executable_lookup=_fake_doctor_lookup_all_tools,
+        command_runner=_fake_doctor_runner,
+    )
+
+    assert report.assess_ready is True
+    assert report.collect_ready is True
+    assert report.required_tools["osquery"] == "ok"
+    assert report.optional_tools["trivy"] == "ok"
+
+
+def test_host_doctor_treats_trivy_as_optional(tmp_path: Path) -> None:
+    report = build_doctor_report(
+        tmp_path,
+        executable_lookup=_fake_doctor_lookup_osquery_only,
+        command_runner=_fake_doctor_runner,
+    )
+
+    assert report.assess_ready is True
+    assert report.collect_ready is True
+    assert report.optional_tools["trivy"] == "warn"
+
+
+def test_host_doctor_marks_collection_not_ready_without_osquery(tmp_path: Path) -> None:
+    report = build_doctor_report(
+        tmp_path,
+        executable_lookup=lambda _name: None,
+        command_runner=_fake_doctor_runner,
+    )
+
+    assert report.assess_ready is True
+    assert report.collect_ready is False
+    assert report.required_tools["osquery"] == "fail"
+    assert any("osquery" in step for step in report.next_steps)
+
+
 def test_llm_mode_without_provider_reports_coverage() -> None:
     snapshot = load_host_input(FIXTURES / "debian-vulnerable")
 
@@ -192,3 +231,41 @@ def _fake_osquery_runner(
     else:
         payload = []
     return subprocess.CompletedProcess(command, 0, stdout=json.dumps(payload), stderr="")
+
+
+def _fake_doctor_lookup_all_tools(name: str) -> str | None:
+    if name in {"osqueryi", "trivy"}:
+        return f"/usr/local/bin/{name}"
+    return None
+
+
+def _fake_doctor_lookup_osquery_only(name: str) -> str | None:
+    if name == "osqueryi":
+        return "/usr/local/bin/osqueryi"
+    return None
+
+
+def _fake_doctor_runner(
+    args: object,
+    *,
+    check: bool,
+    capture_output: bool,
+    text: bool,
+    timeout: int,
+) -> subprocess.CompletedProcess[str]:
+    assert check is False
+    assert capture_output is True
+    assert text is True
+    assert timeout == 5
+    command = list(args) if isinstance(args, list | tuple) else [str(args)]
+    executable = Path(str(command[0])).name
+    if executable == "osqueryi":
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="osqueryi version 5.12.0\n",
+            stderr="",
+        )
+    if executable == "trivy":
+        return subprocess.CompletedProcess(command, 0, stdout="Version: 0.50.0\n", stderr="")
+    return subprocess.CompletedProcess(command, 1, stdout="", stderr="unexpected")

@@ -52,6 +52,8 @@ Supported LLM environment variables are `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
 uv sync
 uv run piranesi --version
 
+uv run piranesi doctor .
+
 uv run piranesi collect --output piranesi-evidence
 
 uv run piranesi assess piranesi-evidence \
