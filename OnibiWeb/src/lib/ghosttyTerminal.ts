@@ -622,16 +622,20 @@ async function instantiateGhosttyWasm(wasmURL: string): Promise<GhosttyWasmModul
     throw new Error(`Failed to load ${wasmURL}: ${response.status}`);
   }
   const wasmBytes = await response.arrayBuffer();
+  let wasmExports: GhosttyWasmExports | null = null;
   const wasmModule = await WebAssembly.instantiate(wasmBytes, {
     env: {
       log: (ptr: number, len: number) => {
-        const exports = wasmModule.instance.exports as GhosttyWasmExports;
-        const text = new TextDecoder().decode(new Uint8Array(exports.memory.buffer, ptr, len));
+        if (!wasmExports) {
+          return;
+        }
+        const text = new TextDecoder().decode(new Uint8Array(wasmExports.memory.buffer, ptr, len));
         console.debug("[ghostty-vt]", text);
       }
     }
   });
   const exports = wasmModule.instance.exports as GhosttyWasmExports;
+  wasmExports = exports;
   const jsonPtr = exports.ghostty_type_json();
   const layoutText = readCString(exports.memory, jsonPtr);
   return {
