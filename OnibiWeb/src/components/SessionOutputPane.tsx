@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
+import { createGhosttyTerminalEngine, type GhosttyTerminalEngine } from "../lib/ghosttyTerminal";
 import type { OutputEntry } from "../store/sessionStore";
 
 interface SessionOutputPaneProps {
@@ -9,14 +8,20 @@ interface SessionOutputPaneProps {
   onTerminalResize: (cols: number, rows: number) => void;
 }
 
+const FONT_FAMILY =
+  '"JetBrains Mono Nerd Font", "JetBrainsMono Nerd Font", "JetBrainsMonoNL Nerd Font", "Symbols Nerd Font Mono", "MesloLGS NF", "Hack Nerd Font Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, "Cascadia Mono", "Segoe UI Mono", "Roboto Mono", monospace';
+const FONT_SIZE = 14;
+const LINE_HEIGHT = 20;
+const CELL_WIDTH = 8.4;
+
 export function SessionOutputPane({
   entries,
   onTerminalInput,
   onTerminalResize
 }: SessionOutputPaneProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const terminalRef = useRef<Terminal | null>(null);
-  const fitAddonRef = useRef<FitAddon | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const engineRef = useRef<GhosttyTerminalEngine | null>(null);
   const lastRenderedChunkIdRef = useRef<string | null>(null);
   const onTerminalInputRef = useRef(onTerminalInput);
   const onTerminalResizeRef = useRef(onTerminalResize);
@@ -32,81 +37,89 @@ export function SessionOutputPane({
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) {
+    const canvas = canvasRef.current;
+    if (!container || !canvas) {
       return;
     }
 
-    const terminal = new Terminal({
-      allowProposedApi: false,
-      convertEol: false,
-      cursorBlink: true,
-      fontFamily:
-        '"JetBrains Mono Nerd Font", "JetBrainsMono Nerd Font", "JetBrainsMonoNL Nerd Font", "Symbols Nerd Font Mono", "MesloLGS NF", "Hack Nerd Font Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, "Cascadia Mono", "Segoe UI Mono", "Roboto Mono", monospace',
-      fontSize: 14,
-      theme: {
-        background: "#0d1117",
-        foreground: "#f3f4f6",
-        cursor: "#f3f4f6"
-      }
-    });
-    const fitAddon = new FitAddon();
-    terminal.loadAddon(fitAddon);
-    terminal.open(container);
-    fitAddon.fit();
-    terminal.focus();
-
     const reportSize = () => {
-      const cols = terminal.cols;
-      const rows = terminal.rows;
+      const rect = container.getBoundingClientRect();
+      const cols = Math.max(1, Math.floor(rect.width / CELL_WIDTH));
+      const rows = Math.max(1, Math.floor(rect.height / LINE_HEIGHT));
+      const pixelRatio = window.devicePixelRatio || 1;
+      canvas.width = Math.floor(rect.width * pixelRatio);
+      canvas.height = Math.floor(rect.height * pixelRatio);
+      canvas.style.width = `${rect.width}px`;
+      canvas.style.height = `${rect.height}px`;
+      const context = canvas.getContext("2d");
+      if (context) {
+        context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      }
+
+      if (!engineRef.current) {
+        engineRef.current = createGhosttyTerminalEngine(cols, rows);
+      } else {
+        engineRef.current.resize(cols, rows);
+      }
+      renderTerminal(canvas, engineRef.current, true);
+
       const lastReportedSize = lastReportedSizeRef.current;
-      if (lastReportedSize && lastReportedSize.cols === cols && lastReportedSize.rows === rows) {
+      if (!lastReportedSize || lastReportedSize.cols !== cols || lastReportedSize.rows !== rows) {
+        lastReportedSizeRef.current = { cols, rows };
+        onTerminalResizeRef.current(cols, rows);
+      }
+    };
+
+    const focusTerminal = () => {
+      container.focus();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      const data = keyEventToTerminalInput(event);
+      if (!data) {
         return;
       }
-      lastReportedSizeRef.current = { cols, rows };
-      onTerminalResizeRef.current(cols, rows);
-    };
-
-    const onResize = () => {
-      fitAddon.fit();
-      reportSize();
-    };
-    const focusTerminal = () => {
-      terminal.focus();
-    };
-    const inputDisposable = terminal.onData((data) => {
+      event.preventDefault();
       onTerminalInputRef.current(data);
-    });
+    };
+    const onBeforeInput = (event: InputEvent) => {
+      if (event.data) {
+        event.preventDefault();
+        onTerminalInputRef.current(event.data);
+      }
+    };
 
+    const resizeObserver = new ResizeObserver(reportSize);
+    resizeObserver.observe(container);
     container.addEventListener("pointerdown", focusTerminal);
     container.addEventListener("touchstart", focusTerminal, { passive: true });
-    window.addEventListener("resize", onResize);
-    onResize();
-
-    terminalRef.current = terminal;
-    fitAddonRef.current = fitAddon;
+    container.addEventListener("keydown", onKeyDown);
+    container.addEventListener("beforeinput", onBeforeInput as EventListener);
+    reportSize();
+    container.focus();
 
     return () => {
-      window.removeEventListener("resize", onResize);
+      resizeObserver.disconnect();
       container.removeEventListener("pointerdown", focusTerminal);
       container.removeEventListener("touchstart", focusTerminal);
-      inputDisposable.dispose();
-      terminal.dispose();
-      terminalRef.current = null;
-      fitAddonRef.current = null;
+      container.removeEventListener("keydown", onKeyDown);
+      container.removeEventListener("beforeinput", onBeforeInput as EventListener);
+      engineRef.current = null;
       lastRenderedChunkIdRef.current = null;
       lastReportedSizeRef.current = null;
     };
   }, []);
 
   useEffect(() => {
-    const terminal = terminalRef.current;
-    if (!terminal) {
+    const canvas = canvasRef.current;
+    const engine = engineRef.current;
+    if (!canvas || !engine) {
       return;
     }
 
     if (entries.length === 0) {
-      terminal.reset();
+      engine.reset();
       lastRenderedChunkIdRef.current = null;
+      renderTerminal(canvas, engine, true);
       return;
     }
 
@@ -118,22 +131,99 @@ export function SessionOutputPane({
       if (lastIndex >= 0) {
         startIndex = lastIndex + 1;
       } else {
-        terminal.reset();
+        engine.reset();
       }
     } else {
-      terminal.reset();
+      engine.reset();
     }
 
     for (let index = startIndex; index < entries.length; index += 1) {
-      terminal.write(entries[index].text);
+      const bytes = entries[index].bytes ?? new TextEncoder().encode(entries[index].text);
+      engine.ingest(bytes);
     }
 
     lastRenderedChunkIdRef.current = entries[entries.length - 1].id;
+    renderTerminal(canvas, engine);
   }, [entries]);
 
   return (
     <section className="mf-output-pane">
-      <div className="mf-xterm-container" ref={containerRef} />
+      <div
+        className="mf-xterm-container mf-canvas-terminal"
+        ref={containerRef}
+        tabIndex={0}
+        spellCheck={false}
+      >
+        <canvas ref={canvasRef} />
+      </div>
     </section>
   );
+}
+
+function renderTerminal(
+  canvas: HTMLCanvasElement,
+  engine: GhosttyTerminalEngine,
+  forceFullRender = false
+): void {
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return;
+  }
+  const snapshot = engine.snapshot();
+  const rows = forceFullRender ? snapshot.rows.map((_, index) => index) : engine.takeDirtyRows();
+  if (forceFullRender) {
+    context.fillStyle = "#0d1117";
+    context.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+  }
+  context.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
+  context.textBaseline = "top";
+  context.fillStyle = "#0d1117";
+  for (const row of rows) {
+    context.fillRect(0, row * LINE_HEIGHT, canvas.clientWidth, LINE_HEIGHT);
+    context.fillStyle = "#f3f4f6";
+    context.fillText(snapshot.rows[row] ?? "", 0, row * LINE_HEIGHT + 2);
+    context.fillStyle = "#0d1117";
+  }
+
+  if (snapshot.cursor.visible) {
+    context.fillStyle = "#f3f4f6";
+    context.fillRect(
+      snapshot.cursor.col * CELL_WIDTH,
+      snapshot.cursor.row * LINE_HEIGHT + 2,
+      2,
+      LINE_HEIGHT - 4
+    );
+  }
+}
+
+function keyEventToTerminalInput(event: KeyboardEvent): string | null {
+  if (event.metaKey) {
+    return null;
+  }
+  if (event.ctrlKey && event.key.length === 1) {
+    const code = event.key.toUpperCase().charCodeAt(0) - 64;
+    if (code > 0 && code < 32) {
+      return String.fromCharCode(code);
+    }
+  }
+  switch (event.key) {
+    case "Enter":
+      return "\r";
+    case "Tab":
+      return "\t";
+    case "Backspace":
+      return "\u007f";
+    case "Escape":
+      return "\u001b";
+    case "ArrowUp":
+      return "\u001b[A";
+    case "ArrowDown":
+      return "\u001b[B";
+    case "ArrowRight":
+      return "\u001b[C";
+    case "ArrowLeft":
+      return "\u001b[D";
+    default:
+      return event.key.length === 1 ? event.key : null;
+  }
 }

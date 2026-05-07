@@ -7,7 +7,19 @@ import OnibiCore
 protocol RealtimeClientTransport: AnyObject, Sendable {
     var id: UUID { get }
     func send(_ message: RealtimeServerMessage) async throws
+    func sendOutputBatch(_ frame: RealtimeOutputBatchFrame) async throws
     func close() async
+}
+
+extension RealtimeClientTransport {
+    func sendOutputBatch(_ frame: RealtimeOutputBatchFrame) async throws {
+        try await send(
+            .output(
+                sessionId: frame.header.sessionId,
+                chunk: frame.chunkRepresentation
+            )
+        )
+    }
 }
 
 actor RealtimeGatewayService {
@@ -363,7 +375,7 @@ actor RealtimeGatewayService {
             }
         case .output(let chunk):
             for client in authenticatedClients where client.subscriptions.contains(chunk.sessionId) {
-                try? await client.transport.send(.output(sessionId: chunk.sessionId, chunk: chunk))
+                try? await client.transport.sendOutputBatch(RealtimeOutputBatchFrame(chunk: chunk))
             }
         }
     }
@@ -440,6 +452,12 @@ final class GatewayWebSocketConnection: @unchecked Sendable, RealtimeClientTrans
 
     private var receiveBuffer = Data()
     private var isClosed = false
+    private var outboundQueue: [QueuedWebSocketFrame] = []
+    private var outboundQueuedBytes = 0
+    private var isSendingOutboundFrame = false
+    private var overflowNoticeQueued = false
+    private var droppedLiveOutputBytes = 0
+    private let outboundQueueByteLimit = 4 * 1024 * 1024
 
     init(
         id: UUID = UUID(),
@@ -490,7 +508,17 @@ final class GatewayWebSocketConnection: @unchecked Sendable, RealtimeClientTrans
 
     func send(_ message: RealtimeServerMessage) async throws {
         let data = try GatewayWebSocketJSONCodec.encode(message)
-        try await sendFrame(.text(data))
+        enqueueFrame(.text(data))
+    }
+
+    func sendOutputBatch(_ frame: RealtimeOutputBatchFrame) async throws {
+        let data = try RealtimeGatewayCodec.encodeRealtimeOutputBatch(frame)
+        enqueueFrame(
+            .binary(data),
+            isDroppableLiveOutput: true,
+            liveOutputByteCount: frame.data.count,
+            sessionId: frame.header.sessionId
+        )
     }
 
     func close() async {
@@ -499,7 +527,7 @@ final class GatewayWebSocketConnection: @unchecked Sendable, RealtimeClientTrans
         }
 
         isClosed = true
-        try? await sendFrame(.close(Data()))
+        enqueueFrame(.close(Data()))
         connection.cancel()
         onDisconnect(id)
     }
@@ -559,6 +587,8 @@ final class GatewayWebSocketConnection: @unchecked Sendable, RealtimeClientTrans
             if let text = String(data: frame.payload, encoding: .utf8) {
                 onText(text)
             }
+        case .binary:
+            break
         case .ping:
             Task {
                 try? await sendFrame(.pong(frame.payload))
@@ -570,6 +600,108 @@ final class GatewayWebSocketConnection: @unchecked Sendable, RealtimeClientTrans
         case .pong:
             break
         }
+    }
+
+    private func enqueueFrame(
+        _ frame: WebSocketOutboundFrame,
+        isDroppableLiveOutput: Bool = false,
+        liveOutputByteCount: Int = 0,
+        sessionId: String? = nil
+    ) {
+        guard !isClosed else {
+            return
+        }
+
+        do {
+            let data = try WebSocketFrameCodec.encode(frame)
+            queue.async { [weak self] in
+                self?.enqueueEncodedFrame(
+                    data,
+                    isDroppableLiveOutput: isDroppableLiveOutput,
+                    liveOutputByteCount: liveOutputByteCount,
+                    sessionId: sessionId
+                )
+            }
+        } catch {
+            Task {
+                await self.close()
+            }
+        }
+    }
+
+    private func enqueueEncodedFrame(
+        _ data: Data,
+        isDroppableLiveOutput: Bool,
+        liveOutputByteCount: Int,
+        sessionId: String?
+    ) {
+        guard !isClosed else {
+            return
+        }
+
+        if isDroppableLiveOutput && outboundQueuedBytes + data.count > outboundQueueByteLimit {
+            droppedLiveOutputBytes += liveOutputByteCount
+            if let sessionId, !overflowNoticeQueued {
+                do {
+                    let overflow = RealtimeServerMessage.outputOverflow(
+                        sessionId: sessionId,
+                        droppedByteCount: droppedLiveOutputBytes,
+                        queuedByteCount: outboundQueuedBytes
+                    )
+                    let overflowData = try GatewayWebSocketJSONCodec.encode(overflow)
+                    let encodedOverflow = try WebSocketFrameCodec.encode(.text(overflowData))
+                    outboundQueue.append(QueuedWebSocketFrame(data: encodedOverflow))
+                    outboundQueuedBytes += encodedOverflow.count
+                    overflowNoticeQueued = true
+                    drainOutboundQueue()
+                } catch {
+                    Task {
+                        await self.close()
+                    }
+                }
+            }
+            return
+        }
+
+        outboundQueue.append(QueuedWebSocketFrame(data: data))
+        outboundQueuedBytes += data.count
+        drainOutboundQueue()
+    }
+
+    private func drainOutboundQueue() {
+        guard !isClosed, !isSendingOutboundFrame, !outboundQueue.isEmpty else {
+            return
+        }
+
+        isSendingOutboundFrame = true
+        let frame = outboundQueue.removeFirst()
+        outboundQueuedBytes = max(0, outboundQueuedBytes - frame.data.count)
+        connection.send(content: frame.data, completion: .contentProcessed { [weak self] error in
+            guard let self else { return }
+            self.queue.async {
+                if let error {
+                    DiagnosticsStore.shared.record(
+                        component: "GatewayWebSocketConnection",
+                        level: .warning,
+                        message: "websocket send failed",
+                        metadata: ["reason": error.localizedDescription]
+                    )
+                    Task {
+                        await self.close()
+                    }
+                } else {
+                    self.isSendingOutboundFrame = false
+                    if self.outboundQueue.isEmpty {
+                        self.overflowNoticeQueued = false
+                    }
+                    self.drainOutboundQueue()
+                }
+            }
+        })
+    }
+
+    private struct QueuedWebSocketFrame {
+        let data: Data
     }
 
     private func sendFrame(_ frame: WebSocketOutboundFrame) async throws {
@@ -620,6 +752,7 @@ private struct WebSocketFrame {
 
 private enum WebSocketOpcode: UInt8 {
     case text = 0x1
+    case binary = 0x2
     case close = 0x8
     case ping = 0x9
     case pong = 0xA
@@ -627,6 +760,7 @@ private enum WebSocketOpcode: UInt8 {
 
 private enum WebSocketOutboundFrame {
     case text(Data)
+    case binary(Data)
     case pong(Data)
     case close(Data)
 
@@ -634,6 +768,8 @@ private enum WebSocketOutboundFrame {
         switch self {
         case .text:
             return .text
+        case .binary:
+            return .binary
         case .pong:
             return .pong
         case .close:
@@ -643,7 +779,7 @@ private enum WebSocketOutboundFrame {
 
     var payload: Data {
         switch self {
-        case .text(let data), .pong(let data), .close(let data):
+        case .text(let data), .binary(let data), .pong(let data), .close(let data):
             return data
         }
     }

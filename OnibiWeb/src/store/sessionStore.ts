@@ -1,5 +1,6 @@
 import type {
   ControllableSessionSnapshot,
+  RealtimeOutputBatch,
   SessionOutputChunk,
   SessionOutputStream
 } from "../types";
@@ -16,6 +17,7 @@ export interface OutputEntry {
   stream: SessionOutputStream;
   timestamp: string;
   text: string;
+  bytes?: Uint8Array;
 }
 
 export type OutputBySession = Record<string, OutputEntry[]>;
@@ -122,6 +124,33 @@ export function appendChunk(
   };
 }
 
+export function appendOutputBatch(
+  outputBySession: OutputBySession,
+  batch: RealtimeOutputBatch
+): OutputBySession {
+  const chunk: SessionOutputChunk = {
+    id: batch.header.endCursor,
+    sessionId: batch.header.sessionId,
+    stream: batch.header.stream,
+    timestamp: batch.header.timestamp,
+    data: bytesToBase64(batch.data)
+  };
+  const entry = toOutputEntry(chunk, batch.data);
+  const existing = outputBySession[chunk.sessionId] ?? [];
+  if (existing.some((item) => item.id === entry.id)) {
+    return outputBySession;
+  }
+  const next = [...existing, entry];
+  if (next.length > MAX_CHUNK_COUNT_PER_SESSION) {
+    next.splice(0, next.length - MAX_CHUNK_COUNT_PER_SESSION);
+  }
+
+  return {
+    ...outputBySession,
+    [chunk.sessionId]: next
+  };
+}
+
 export function renderOutput(entries: OutputEntry[]): string {
   return entries.map((entry) => entry.text).join("");
 }
@@ -168,13 +197,14 @@ function toOutputEntries(
   return chunks.map((chunk) => toOutputEntry(chunk));
 }
 
-function toOutputEntry(chunk: SessionOutputChunk): OutputEntry {
+function toOutputEntry(chunk: SessionOutputChunk, bytes?: Uint8Array): OutputEntry {
   return {
     id: chunk.id,
     sessionId: chunk.sessionId,
     stream: chunk.stream,
     timestamp: chunk.timestamp,
-    text: decodeChunkText(chunk.sessionId, chunk.data)
+    text: bytes ? decodeChunkBytes(chunk.sessionId, bytes) : decodeChunkText(chunk.sessionId, chunk.data),
+    bytes
   };
 }
 
@@ -198,4 +228,25 @@ function decodeChunkText(sessionId: string, base64Data: string): string {
   } catch {
     return "[invalid output chunk]";
   }
+}
+
+function decodeChunkBytes(sessionId: string, bytes: Uint8Array): string {
+  let decoder = UTF8_DECODERS_BY_SESSION.get(sessionId);
+  if (!decoder) {
+    decoder = new TextDecoder("utf-8");
+    UTF8_DECODERS_BY_SESSION.set(sessionId, decoder);
+  }
+
+  return decoder.decode(bytes, {
+    stream: true
+  });
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return btoa(binary);
 }

@@ -726,6 +726,17 @@ button:hover:enabled {
   touch-action: manipulation;
 }
 
+.mf-canvas-terminal {
+  outline: none;
+  overflow: hidden;
+}
+
+.mf-canvas-terminal canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .mf-live-controls {
   border-top: 1px solid #dbe3ee;
   background: #ffffff;

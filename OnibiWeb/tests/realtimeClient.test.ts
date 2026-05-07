@@ -46,6 +46,12 @@ class MockWebSocket {
     } as MessageEvent);
   }
 
+  serverBinary(data: ArrayBuffer): void {
+    this.onmessage?.({
+      data
+    } as MessageEvent);
+  }
+
   serverClose(): void {
     this.readyState = MockWebSocket.CLOSED;
     this.onclose?.(new CloseEvent("close"));
@@ -157,9 +163,62 @@ describe("RealtimeClient", () => {
     socket.serverMessage({
       type: "auth_ok",
       realtimeProtocolVersion: 2,
-      minimumSupportedRealtimeProtocolVersion: 2
+      minimumSupportedRealtimeProtocolVersion: 4
     });
 
     expect(errors.at(-1)).toContain("Realtime protocol mismatch");
   });
+
+  it("decodes binary realtime output batches", () => {
+    const messages: RealtimeServerMessage[] = [];
+    const client = new RealtimeClient({
+      connection: {
+        baseURL: "http://127.0.0.1:8787",
+        token: "token"
+      },
+      onStateChange: () => undefined,
+      onMessage: (message) => {
+        messages.push(message);
+      },
+      onError: () => undefined
+    });
+
+    client.connect();
+    const socket = MockWebSocket.instances[0];
+    socket.serverOpen();
+    socket.serverMessage({ type: "auth_ok" });
+
+    socket.serverBinary(makeOutputBatchFrame("session-1", "cursor-1", new Uint8Array([104, 105])));
+
+    const outputMessage = messages.find((message) => message.type === "output_batch");
+    expect(outputMessage?.sessionId).toBe("session-1");
+    expect(outputMessage?.batch?.header.endCursor).toBe("cursor-1");
+    expect([...((outputMessage?.batch?.data ?? new Uint8Array()))]).toEqual([104, 105]);
+  });
 });
+
+function makeOutputBatchFrame(sessionId: string, cursor: string, data: Uint8Array): ArrayBuffer {
+  const header = new TextEncoder().encode(
+    JSON.stringify({
+      type: "output_batch",
+      sessionId,
+      stream: "stdout",
+      timestamp: "1970-01-01T00:00:00Z",
+      startCursor: cursor,
+      endCursor: cursor,
+      chunkIds: [cursor],
+      byteCount: data.byteLength,
+      droppedByteCount: 0,
+      truncated: false
+    })
+  );
+  const frame = new Uint8Array(1 + 4 + header.byteLength + data.byteLength);
+  frame[0] = 0x01;
+  frame[1] = (header.byteLength >> 24) & 0xff;
+  frame[2] = (header.byteLength >> 16) & 0xff;
+  frame[3] = (header.byteLength >> 8) & 0xff;
+  frame[4] = header.byteLength & 0xff;
+  frame.set(header, 5);
+  frame.set(data, 5 + header.byteLength);
+  return frame.buffer;
+}

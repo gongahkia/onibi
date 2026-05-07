@@ -24,6 +24,15 @@ public struct LocalSessionProxyEnvelope: Codable, Equatable, Sendable {
     }
 }
 
+public enum LocalSessionProxyProtocolVersion {
+    public static let current = 2
+}
+
+public enum LocalSessionProxyFrameKind {
+    public static let json: UInt8 = 0x01
+    public static let output: UInt8 = 0x02
+}
+
 public struct LocalSessionProxyRegisterMessage: Codable, Equatable, Sendable {
     public let type: LocalSessionProxyFrameType
     public let sessionId: String
@@ -33,6 +42,7 @@ public struct LocalSessionProxyRegisterMessage: Codable, Equatable, Sendable {
     public let workingDirectory: String?
     public let hostname: String
     public let proxyVersion: String?
+    public let proxyProtocolVersion: Int?
 
     public init(
         sessionId: String,
@@ -41,7 +51,8 @@ public struct LocalSessionProxyRegisterMessage: Codable, Equatable, Sendable {
         startedAt: Date,
         workingDirectory: String?,
         hostname: String,
-        proxyVersion: String? = nil
+        proxyVersion: String? = nil,
+        proxyProtocolVersion: Int? = LocalSessionProxyProtocolVersion.current
     ) {
         self.type = .register
         self.sessionId = sessionId
@@ -51,6 +62,7 @@ public struct LocalSessionProxyRegisterMessage: Codable, Equatable, Sendable {
         self.workingDirectory = workingDirectory
         self.hostname = hostname
         self.proxyVersion = proxyVersion
+        self.proxyProtocolVersion = proxyProtocolVersion
     }
 }
 
@@ -117,6 +129,43 @@ public struct LocalSessionProxyOutputMessage: Codable, Equatable, Sendable {
     }
 }
 
+public struct LocalSessionProxyOutputHeader: Codable, Equatable, Sendable {
+    public let type: LocalSessionProxyFrameType
+    public let sessionId: String
+    public let stream: SessionOutputStream
+    public let timestamp: Date
+    public let byteCount: Int
+    public let droppedOutputByteCount: Int
+    public let truncated: Bool
+
+    public init(
+        sessionId: String,
+        stream: SessionOutputStream,
+        timestamp: Date,
+        byteCount: Int,
+        droppedOutputByteCount: Int = 0,
+        truncated: Bool = false
+    ) {
+        self.type = .output
+        self.sessionId = sessionId
+        self.stream = stream
+        self.timestamp = timestamp
+        self.byteCount = byteCount
+        self.droppedOutputByteCount = droppedOutputByteCount
+        self.truncated = truncated
+    }
+}
+
+public struct LocalSessionProxyOutputFrame: Equatable, Sendable {
+    public let header: LocalSessionProxyOutputHeader
+    public let data: Data
+
+    public init(header: LocalSessionProxyOutputHeader, data: Data) {
+        self.header = header
+        self.data = data
+    }
+}
+
 public enum SessionFlowControlState: String, Codable, Sendable {
     case open
     case limited
@@ -130,6 +179,8 @@ public struct SessionHealthSnapshot: Codable, Equatable, Sendable {
     public let inputByteCount: Int
     public let outputByteCount: Int
     public let droppedOutputByteCount: Int
+    public let queuedOutputByteCount: Int
+    public let lastBackpressureAt: Date?
     public let lastInputAt: Date?
     public let lastOutputAt: Date?
 
@@ -140,6 +191,8 @@ public struct SessionHealthSnapshot: Codable, Equatable, Sendable {
         inputByteCount: Int,
         outputByteCount: Int,
         droppedOutputByteCount: Int,
+        queuedOutputByteCount: Int = 0,
+        lastBackpressureAt: Date? = nil,
         lastInputAt: Date? = nil,
         lastOutputAt: Date? = nil
     ) {
@@ -149,6 +202,8 @@ public struct SessionHealthSnapshot: Codable, Equatable, Sendable {
         self.inputByteCount = inputByteCount
         self.outputByteCount = outputByteCount
         self.droppedOutputByteCount = droppedOutputByteCount
+        self.queuedOutputByteCount = queuedOutputByteCount
+        self.lastBackpressureAt = lastBackpressureAt
         self.lastInputAt = lastInputAt
         self.lastOutputAt = lastOutputAt
     }
@@ -163,6 +218,8 @@ public struct LocalSessionProxyHealthMessage: Codable, Equatable, Sendable {
     public let inputByteCount: Int
     public let outputByteCount: Int
     public let droppedOutputByteCount: Int
+    public let queuedOutputByteCount: Int
+    public let lastBackpressureAt: Date?
     public let lastInputAt: Date?
     public let lastOutputAt: Date?
 
@@ -174,6 +231,8 @@ public struct LocalSessionProxyHealthMessage: Codable, Equatable, Sendable {
         inputByteCount: Int,
         outputByteCount: Int,
         droppedOutputByteCount: Int,
+        queuedOutputByteCount: Int = 0,
+        lastBackpressureAt: Date? = nil,
         lastInputAt: Date? = nil,
         lastOutputAt: Date? = nil
     ) {
@@ -185,6 +244,8 @@ public struct LocalSessionProxyHealthMessage: Codable, Equatable, Sendable {
         self.inputByteCount = inputByteCount
         self.outputByteCount = outputByteCount
         self.droppedOutputByteCount = droppedOutputByteCount
+        self.queuedOutputByteCount = queuedOutputByteCount
+        self.lastBackpressureAt = lastBackpressureAt
         self.lastInputAt = lastInputAt
         self.lastOutputAt = lastOutputAt
     }
@@ -197,6 +258,8 @@ public struct LocalSessionProxyHealthMessage: Codable, Equatable, Sendable {
             inputByteCount: inputByteCount,
             outputByteCount: outputByteCount,
             droppedOutputByteCount: droppedOutputByteCount,
+            queuedOutputByteCount: queuedOutputByteCount,
+            lastBackpressureAt: lastBackpressureAt,
             lastInputAt: lastInputAt,
             lastOutputAt: lastOutputAt
         )

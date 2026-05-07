@@ -18,14 +18,90 @@ public enum RealtimeServerMessageType: String, Codable, Sendable {
     case sessionRemoved = "session_removed"
     case bufferSnapshot = "buffer_snapshot"
     case output
+    case outputOverflow = "output_overflow"
     case inputAccepted = "input_accepted"
     case processActionAccepted = "process_action_accepted"
     case error
 }
 
 public enum RealtimeProtocolVersion {
-    public static let current = 2
-    public static let minimumSupported = 1
+    public static let current = 3
+    public static let minimumSupported = 3
+}
+
+public enum RealtimeBinaryFrameKind {
+    public static let outputBatch: UInt8 = 0x01
+}
+
+public struct RealtimeOutputBatchHeader: Codable, Equatable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let stream: SessionOutputStream
+    public let timestamp: Date
+    public let startCursor: String
+    public let endCursor: String
+    public let chunkIds: [String]
+    public let byteCount: Int
+    public let droppedByteCount: Int
+    public let truncated: Bool
+
+    public init(
+        sessionId: String,
+        stream: SessionOutputStream,
+        timestamp: Date,
+        startCursor: String,
+        endCursor: String,
+        chunkIds: [String],
+        byteCount: Int,
+        droppedByteCount: Int = 0,
+        truncated: Bool = false
+    ) {
+        self.type = "output_batch"
+        self.sessionId = sessionId
+        self.stream = stream
+        self.timestamp = timestamp
+        self.startCursor = startCursor
+        self.endCursor = endCursor
+        self.chunkIds = chunkIds
+        self.byteCount = byteCount
+        self.droppedByteCount = droppedByteCount
+        self.truncated = truncated
+    }
+}
+
+public struct RealtimeOutputBatchFrame: Equatable, Sendable {
+    public let header: RealtimeOutputBatchHeader
+    public let data: Data
+
+    public init(header: RealtimeOutputBatchHeader, data: Data) {
+        self.header = header
+        self.data = data
+    }
+
+    public init(chunk: SessionOutputChunk, droppedByteCount: Int = 0, truncated: Bool = false) {
+        self.header = RealtimeOutputBatchHeader(
+            sessionId: chunk.sessionId,
+            stream: chunk.stream,
+            timestamp: chunk.timestamp,
+            startCursor: chunk.id,
+            endCursor: chunk.id,
+            chunkIds: [chunk.id],
+            byteCount: chunk.data.count,
+            droppedByteCount: droppedByteCount,
+            truncated: truncated
+        )
+        self.data = chunk.data
+    }
+
+    public var chunkRepresentation: SessionOutputChunk {
+        SessionOutputChunk(
+            id: header.endCursor,
+            sessionId: header.sessionId,
+            stream: header.stream,
+            timestamp: header.timestamp,
+            data: data
+        )
+    }
 }
 
 public struct RealtimeClientMessage: Codable, Equatable, Sendable {
@@ -124,6 +200,8 @@ public struct RealtimeServerMessage: Codable, Equatable, Sendable {
     public let viewportCols: Int?
     public let viewportRows: Int?
     public let chunk: SessionOutputChunk?
+    public let droppedByteCount: Int?
+    public let queuedByteCount: Int?
     public let clientRequestId: String?
     public let action: RemoteProcessAction?
     public let code: String?
@@ -146,6 +224,8 @@ public struct RealtimeServerMessage: Codable, Equatable, Sendable {
         viewportCols: Int? = nil,
         viewportRows: Int? = nil,
         chunk: SessionOutputChunk? = nil,
+        droppedByteCount: Int? = nil,
+        queuedByteCount: Int? = nil,
         clientRequestId: String? = nil,
         action: RemoteProcessAction? = nil,
         code: String? = nil,
@@ -167,6 +247,8 @@ public struct RealtimeServerMessage: Codable, Equatable, Sendable {
         self.viewportCols = viewportCols
         self.viewportRows = viewportRows
         self.chunk = chunk
+        self.droppedByteCount = droppedByteCount
+        self.queuedByteCount = queuedByteCount
         self.clientRequestId = clientRequestId
         self.action = action
         self.code = code
@@ -220,6 +302,19 @@ public struct RealtimeServerMessage: Codable, Equatable, Sendable {
 
     public static func output(sessionId: String, chunk: SessionOutputChunk) -> RealtimeServerMessage {
         RealtimeServerMessage(type: .output, sessionId: sessionId, chunk: chunk)
+    }
+
+    public static func outputOverflow(
+        sessionId: String,
+        droppedByteCount: Int,
+        queuedByteCount: Int
+    ) -> RealtimeServerMessage {
+        RealtimeServerMessage(
+            type: .outputOverflow,
+            sessionId: sessionId,
+            droppedByteCount: droppedByteCount,
+            queuedByteCount: queuedByteCount
+        )
     }
 
     public static func inputAccepted(sessionId: String, clientRequestId: String?) -> RealtimeServerMessage {

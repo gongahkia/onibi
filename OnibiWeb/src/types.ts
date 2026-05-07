@@ -37,6 +37,8 @@ export interface SessionHealthSnapshot {
   inputByteCount: number;
   outputByteCount: number;
   droppedOutputByteCount: number;
+  queuedOutputByteCount?: number;
+  lastBackpressureAt?: string | null;
   lastInputAt?: string | null;
   lastOutputAt?: string | null;
 }
@@ -77,6 +79,11 @@ export interface SessionOutputBufferSnapshot {
   endCursor?: string | null;
   chunks: SessionOutputChunk[];
   truncated: boolean;
+  droppedChunkCount?: number;
+  droppedByteCount?: number;
+  oldestCursor?: string | null;
+  newestCursor?: string | null;
+  truncationEventCount?: number;
 }
 
 export interface RemoteInputPayload {
@@ -198,9 +205,29 @@ export type RealtimeServerMessageType =
   | "session_removed"
   | "buffer_snapshot"
   | "output"
+  | "output_batch"
+  | "output_overflow"
   | "input_accepted"
   | "process_action_accepted"
   | "error";
+
+export interface RealtimeOutputBatchHeader {
+  type: "output_batch";
+  sessionId: string;
+  stream: SessionOutputStream;
+  timestamp: string;
+  startCursor: string;
+  endCursor: string;
+  chunkIds: string[];
+  byteCount: number;
+  droppedByteCount: number;
+  truncated: boolean;
+}
+
+export interface RealtimeOutputBatch {
+  header: RealtimeOutputBatchHeader;
+  data: Uint8Array;
+}
 
 export interface RealtimeServerMessage {
   type: RealtimeServerMessageType;
@@ -219,6 +246,9 @@ export interface RealtimeServerMessage {
   viewportCols?: number;
   viewportRows?: number;
   chunk?: SessionOutputChunk;
+  batch?: RealtimeOutputBatch;
+  droppedByteCount?: number;
+  queuedByteCount?: number;
   clientRequestId?: string;
   action?: RemoteProcessAction;
   code?: string;

@@ -9,8 +9,12 @@ struct SessionOutputAppendResult {
 struct SessionOutputBuffer {
     private(set) var lineLimit: Int
     private(set) var byteLimit: Int
-    private(set) var chunks: [SessionOutputChunk] = []
+    private var storage: [SessionOutputChunk?] = []
+    private var headIndex = 0
     private(set) var isTruncated = false
+    private(set) var droppedChunkCount = 0
+    private(set) var droppedByteCount = 0
+    private(set) var truncationEventCount = 0
 
     private var totalBytes = 0
     private var totalLines = 0
@@ -20,14 +24,29 @@ struct SessionOutputBuffer {
         self.byteLimit = max(1, byteLimit)
     }
 
+    var chunks: [SessionOutputChunk] {
+        guard headIndex < storage.count else {
+            return []
+        }
+        return Array(storage[headIndex...].compactMap { $0 })
+    }
+
     var currentCursor: String? {
-        chunks.last?.id
+        storage.last??.id
+    }
+
+    var oldestCursor: String? {
+        storage.indices.lazy
+            .filter { $0 >= headIndex }
+            .compactMap { storage[$0]?.id }
+            .first
     }
 
     mutating func reconfigure(lineLimit: Int, byteLimit: Int) {
         self.lineLimit = max(1, lineLimit)
         self.byteLimit = max(1, byteLimit)
         _ = trimIfNeeded()
+        compactIfNeeded(force: true)
     }
 
     @discardableResult
@@ -37,25 +56,21 @@ struct SessionOutputBuffer {
         data: Data,
         timestamp: Date = Date()
     ) -> SessionOutputAppendResult {
-        var truncationEventCount = 0
-        let normalizedData = normalizedData(
-            from: data,
-            truncationEventCount: &truncationEventCount
-        )
+        var eventCount = 0
+        let normalizedData = normalizedData(from: data, truncationEventCount: &eventCount)
         let chunk = SessionOutputChunk(
             sessionId: sessionId,
             stream: stream,
             timestamp: timestamp,
             data: normalizedData
         )
-        chunks.append(chunk)
+        storage.append(chunk)
         totalBytes += chunk.data.count
         totalLines += estimatedLineCount(in: chunk.data)
-        truncationEventCount += trimIfNeeded()
-        return SessionOutputAppendResult(
-            chunk: chunk,
-            truncationEventCount: truncationEventCount
-        )
+        eventCount += trimIfNeeded()
+        truncationEventCount += eventCount
+        compactIfNeeded()
+        return SessionOutputAppendResult(chunk: chunk, truncationEventCount: eventCount)
     }
 
     func snapshot(
@@ -70,43 +85,62 @@ struct SessionOutputBuffer {
             startCursor: requestedChunks.first?.id,
             endCursor: requestedChunks.last?.id,
             chunks: requestedChunks,
-            truncated: isTruncated
+            truncated: isTruncated,
+            droppedChunkCount: droppedChunkCount,
+            droppedByteCount: droppedByteCount,
+            oldestCursor: oldestCursor,
+            newestCursor: currentCursor,
+            truncationEventCount: truncationEventCount
         )
     }
 
     private func chunksAfter(cursor: String?, limit: Int?) -> [SessionOutputChunk] {
-        let boundedLimit = limit.map { max(1, min($0, chunks.count)) }
-        let candidateChunks: [SessionOutputChunk]
-        if let cursor, let cursorIndex = chunks.firstIndex(where: { $0.id == cursor }) {
-            candidateChunks = Array(chunks.dropFirst(cursorIndex + 1))
-        } else {
-            candidateChunks = chunks
+        var startIndex = headIndex
+        if let cursor {
+            for index in headIndex..<storage.count where storage[index]?.id == cursor {
+                startIndex = index + 1
+                break
+            }
         }
 
-        guard let boundedLimit, candidateChunks.count > boundedLimit else {
-            return candidateChunks
+        var result: [SessionOutputChunk] = []
+        result.reserveCapacity(storage.count - startIndex)
+        for index in startIndex..<storage.count {
+            if let chunk = storage[index] {
+                result.append(chunk)
+            }
         }
-        return Array(candidateChunks.suffix(boundedLimit))
+
+        guard let limit else {
+            return result
+        }
+        let boundedLimit = max(1, min(limit, result.count))
+        guard result.count > boundedLimit else {
+            return result
+        }
+        return Array(result.suffix(boundedLimit))
     }
 
     private mutating func trimIfNeeded() -> Int {
-        var truncationEventCount = 0
-        while chunks.count > 1 && (totalBytes > byteLimit || totalLines > lineLimit) {
-            removeFirstChunk()
+        var eventCount = 0
+        while liveChunkCount > 1 && (totalBytes > byteLimit || totalLines > lineLimit) {
+            removeOldestChunk()
             isTruncated = true
-            truncationEventCount += 1
+            eventCount += 1
         }
 
         guard
-            let lastChunk = chunks.last,
+            let lastIndex = storage.indices.last,
+            let lastChunk = storage[lastIndex],
             totalBytes > byteLimit
         else {
-            return truncationEventCount
+            return eventCount
         }
 
         let trimmedData = Data(lastChunk.data.suffix(byteLimit))
         totalBytes -= lastChunk.data.count
         totalLines -= estimatedLineCount(in: lastChunk.data)
+        droppedByteCount += max(0, lastChunk.data.count - trimmedData.count)
 
         let trimmedChunk = SessionOutputChunk(
             id: lastChunk.id,
@@ -116,22 +150,27 @@ struct SessionOutputBuffer {
             data: trimmedData
         )
 
-        chunks[chunks.count - 1] = trimmedChunk
+        storage[lastIndex] = trimmedChunk
         totalBytes += trimmedChunk.data.count
         totalLines += estimatedLineCount(in: trimmedChunk.data)
         isTruncated = true
-        truncationEventCount += 1
-        return truncationEventCount
+        return eventCount + 1
     }
 
-    private mutating func removeFirstChunk() {
-        guard let firstChunk = chunks.first else {
+    private mutating func removeOldestChunk() {
+        while headIndex < storage.count {
+            guard let chunk = storage[headIndex] else {
+                headIndex += 1
+                continue
+            }
+            totalBytes -= chunk.data.count
+            totalLines -= estimatedLineCount(in: chunk.data)
+            droppedChunkCount += 1
+            droppedByteCount += chunk.data.count
+            storage[headIndex] = nil
+            headIndex += 1
             return
         }
-
-        totalBytes -= firstChunk.data.count
-        totalLines -= estimatedLineCount(in: firstChunk.data)
-        chunks.removeFirst()
     }
 
     private mutating func normalizedData(
@@ -144,7 +183,20 @@ struct SessionOutputBuffer {
 
         isTruncated = true
         truncationEventCount += 1
+        droppedByteCount += data.count - byteLimit
         return Data(data.suffix(byteLimit))
+    }
+
+    private var liveChunkCount: Int {
+        storage.count - headIndex
+    }
+
+    private mutating func compactIfNeeded(force: Bool = false) {
+        guard force || headIndex > 1024 && headIndex * 2 > storage.count else {
+            return
+        }
+        storage.removeFirst(headIndex)
+        headIndex = 0
     }
 
     private func estimatedLineCount(in data: Data) -> Int {

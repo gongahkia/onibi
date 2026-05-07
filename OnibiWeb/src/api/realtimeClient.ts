@@ -1,5 +1,6 @@
 import type {
   ConnectionConfig,
+  RealtimeOutputBatchHeader,
   RealtimeClientMessage,
   RealtimeServerMessage
 } from "../types";
@@ -27,7 +28,8 @@ export interface RealtimeClientOptions {
 
 const RECONNECT_BASE_DELAY_MS = 700;
 const RECONNECT_MAX_DELAY_MS = 8000;
-const WEB_REALTIME_PROTOCOL_VERSION = 1;
+const WEB_REALTIME_PROTOCOL_VERSION = 3;
+const REALTIME_BINARY_OUTPUT_BATCH_KIND = 0x01;
 
 export class RealtimeClient {
   private readonly options: RealtimeClientOptions;
@@ -106,6 +108,7 @@ export class RealtimeClient {
     this.emitDebug("info", `opening ${url} (attempt ${this.reconnectAttempt + 1})`);
 
     const socket = new WebSocket(url);
+    socket.binaryType = "arraybuffer";
     this.socket = socket;
     this.authenticated = false;
 
@@ -121,9 +124,23 @@ export class RealtimeClient {
     socket.onmessage = (event) => {
       let message: RealtimeServerMessage;
       try {
-        message = JSON.parse(String(event.data)) as RealtimeServerMessage;
+        if (event.data instanceof ArrayBuffer) {
+          message = decodeBinaryRealtimeMessage(event.data);
+        } else if (event.data instanceof Blob) {
+          void event.data.arrayBuffer().then((buffer) => {
+            try {
+              this.options.onMessage(decodeBinaryRealtimeMessage(buffer));
+            } catch {
+              this.emitDebug("error", "invalid binary realtime payload from server");
+              this.options.onError("Received invalid realtime binary payload.");
+            }
+          });
+          return;
+        } else {
+          message = JSON.parse(String(event.data)) as RealtimeServerMessage;
+        }
       } catch {
-        this.emitDebug("error", "invalid JSON from server");
+        this.emitDebug("error", "invalid realtime payload from server");
         this.options.onError("Received invalid realtime payload.");
         return;
       }
@@ -222,4 +239,36 @@ export class RealtimeClient {
     target.protocol = target.protocol === "https:" ? "wss:" : "ws:";
     return target.toString();
   }
+}
+
+function decodeBinaryRealtimeMessage(buffer: ArrayBuffer): RealtimeServerMessage {
+  const bytes = new Uint8Array(buffer);
+  if (bytes.length < 5 || bytes[0] !== REALTIME_BINARY_OUTPUT_BATCH_KIND) {
+    throw new Error("Unsupported realtime binary frame");
+  }
+  const headerLength =
+    (bytes[1] << 24) |
+    (bytes[2] << 16) |
+    (bytes[3] << 8) |
+    bytes[4];
+  const headerStart = 5;
+  const bodyStart = headerStart + headerLength;
+  if (headerLength <= 0 || bodyStart > bytes.length) {
+    throw new Error("Invalid realtime binary header");
+  }
+
+  const headerText = new TextDecoder("utf-8").decode(bytes.subarray(headerStart, bodyStart));
+  const header = JSON.parse(headerText) as RealtimeOutputBatchHeader;
+  if (header.type !== "output_batch") {
+    throw new Error("Unsupported realtime binary payload");
+  }
+
+  return {
+    type: "output_batch",
+    sessionId: header.sessionId,
+    batch: {
+      header,
+      data: bytes.slice(bodyStart)
+    }
+  };
 }

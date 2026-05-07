@@ -234,7 +234,7 @@ final class ProxyRealtimeIntegrationTests: XCTestCase {
             let frame = try proxyClient.readFrame(timeoutSeconds: 1.0)
             XCTAssertNotNil(frame)
             if let frame {
-                let inputMessage = try JSONDateCodec.decoder.decode(LocalSessionProxyInputMessage.self, from: frame)
+                let inputMessage = try RealtimeGatewayCodec.decodeProxyJSONFrame(LocalSessionProxyInputMessage.self, from: frame)
                 XCTAssertEqual(inputMessage.sessionId, sessionId)
                 XCTAssertEqual(inputMessage.payload, .key(.enter))
             }
@@ -256,7 +256,7 @@ final class ProxyRealtimeIntegrationTests: XCTestCase {
             let pasteFrame = try proxyClient.readFrame(timeoutSeconds: 1.0)
             XCTAssertNotNil(pasteFrame)
             if let pasteFrame {
-                let inputMessage = try JSONDateCodec.decoder.decode(LocalSessionProxyInputMessage.self, from: pasteFrame)
+                let inputMessage = try RealtimeGatewayCodec.decodeProxyJSONFrame(LocalSessionProxyInputMessage.self, from: pasteFrame)
                 XCTAssertEqual(inputMessage.sessionId, sessionId)
                 XCTAssertEqual(inputMessage.payload, .paste("line 1\nline 2"))
             }
@@ -279,7 +279,7 @@ final class ProxyRealtimeIntegrationTests: XCTestCase {
             let fileFrame = try proxyClient.readFrame(timeoutSeconds: 1.0)
             XCTAssertNotNil(fileFrame)
             if let fileFrame {
-                let inputMessage = try JSONDateCodec.decoder.decode(LocalSessionProxyInputMessage.self, from: fileFrame)
+                let inputMessage = try RealtimeGatewayCodec.decodeProxyJSONFrame(LocalSessionProxyInputMessage.self, from: fileFrame)
                 XCTAssertEqual(inputMessage.sessionId, sessionId)
                 XCTAssertEqual(inputMessage.payload, .file(name: "script.sh", data: Data("echo file\n".utf8)))
             }
@@ -305,7 +305,7 @@ final class ProxyRealtimeIntegrationTests: XCTestCase {
             let actionFrame = try proxyClient.readFrame(timeoutSeconds: 1.0)
             XCTAssertNotNil(actionFrame)
             if let actionFrame {
-                let actionMessage = try JSONDateCodec.decoder.decode(LocalSessionProxyProcessActionMessage.self, from: actionFrame)
+                let actionMessage = try RealtimeGatewayCodec.decodeProxyJSONFrame(LocalSessionProxyProcessActionMessage.self, from: actionFrame)
                 XCTAssertEqual(actionMessage.sessionId, sessionId)
                 XCTAssertEqual(actionMessage.payload, RemoteProcessActionPayload(action: .terminate))
             }

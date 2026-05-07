@@ -302,7 +302,7 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
     }
 
     private func handleRegisterFrame(connectionID: UUID, frameData: Data) async throws {
-        let message = try JSONDateCodec.decoder.decode(LocalSessionProxyRegisterMessage.self, from: frameData)
+        let message = try RealtimeGatewayCodec.decodeProxyJSONFrame(LocalSessionProxyRegisterMessage.self, from: frameData)
         guard let connection = connections[connectionID] else {
             return
         }
@@ -369,7 +369,7 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
     }
 
     private func handleMetadataFrame(frameData: Data) async throws {
-        let message = try JSONDateCodec.decoder.decode(LocalSessionProxyMetadataMessage.self, from: frameData)
+        let message = try RealtimeGatewayCodec.decodeProxyJSONFrame(LocalSessionProxyMetadataMessage.self, from: frameData)
         await registry.updateSession(
             id: message.sessionId,
             workingDirectory: message.workingDirectory,
@@ -381,20 +381,17 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
     }
 
     private func handleOutputFrame(frameData: Data) async throws {
-        let message = try JSONDateCodec.decoder.decode(LocalSessionProxyOutputMessage.self, from: frameData)
-        guard let data = message.decodedData else {
-            throw LocalSessionProxyListenerError.invalidOutputPayload
-        }
+        let frame = try RealtimeGatewayCodec.decodeProxyOutputFrame(from: frameData)
         await registry.appendOutput(
-            sessionId: message.sessionId,
-            stream: message.stream,
-            data: data,
-            timestamp: message.timestamp
+            sessionId: frame.header.sessionId,
+            stream: frame.header.stream,
+            data: frame.data,
+            timestamp: frame.header.timestamp
         )
     }
 
     private func handleCommandStartFrame(frameData: Data) async throws {
-        let message = try JSONDateCodec.decoder.decode(LocalSessionProxyCommandStartMessage.self, from: frameData)
+        let message = try RealtimeGatewayCodec.decodeProxyJSONFrame(LocalSessionProxyCommandStartMessage.self, from: frameData)
         let assistantKind = AssistantClassifier.classify(command: message.command)
         let displayCommand = CommandSanitizer.sanitize(command: message.command)
         await commandTracker.recordStart(
@@ -419,7 +416,7 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
     }
 
     private func handleCommandEndFrame(frameData: Data) async throws {
-        let message = try JSONDateCodec.decoder.decode(LocalSessionProxyCommandEndMessage.self, from: frameData)
+        let message = try RealtimeGatewayCodec.decodeProxyJSONFrame(LocalSessionProxyCommandEndMessage.self, from: frameData)
         let completed = await commandTracker.complete(
             sessionId: message.sessionId,
             exitCode: message.exitCode,
@@ -436,7 +433,7 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
     }
 
     private func handleTerminalEventFrame(frameData: Data) async throws {
-        let message = try JSONDateCodec.decoder.decode(LocalSessionProxyTerminalEventMessage.self, from: frameData)
+        let message = try RealtimeGatewayCodec.decodeProxyJSONFrame(LocalSessionProxyTerminalEventMessage.self, from: frameData)
         switch message.event {
         case .workingDirectory:
             guard let workingDirectory = message.value, !workingDirectory.isEmpty else {
@@ -468,7 +465,7 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
     }
 
     private func handleHealthFrame(frameData: Data) async throws {
-        let message = try JSONDateCodec.decoder.decode(LocalSessionProxyHealthMessage.self, from: frameData)
+        let message = try RealtimeGatewayCodec.decodeProxyJSONFrame(LocalSessionProxyHealthMessage.self, from: frameData)
         await registry.updateSession(
             id: message.sessionId,
             status: .running,
@@ -479,7 +476,7 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
     }
 
     private func handleStateFrame(frameData: Data) async throws {
-        let message = try JSONDateCodec.decoder.decode(LocalSessionProxyStateMessage.self, from: frameData)
+        let message = try RealtimeGatewayCodec.decodeProxyJSONFrame(LocalSessionProxyStateMessage.self, from: frameData)
         await registry.updateSession(
             id: message.sessionId,
             status: message.status,
@@ -489,7 +486,7 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
     }
 
     private func handleExitFrame(frameData: Data) async throws {
-        let message = try JSONDateCodec.decoder.decode(LocalSessionProxyExitMessage.self, from: frameData)
+        let message = try RealtimeGatewayCodec.decodeProxyJSONFrame(LocalSessionProxyExitMessage.self, from: frameData)
         await registry.updateSession(
             id: message.sessionId,
             status: .exited,
@@ -502,7 +499,7 @@ final class LocalSessionProxyListener: ObservableObject, @unchecked Sendable {
     }
 
     private func handleHeartbeatFrame(frameData: Data) async throws {
-        let message = try JSONDateCodec.decoder.decode(LocalSessionProxyHeartbeatMessage.self, from: frameData)
+        let message = try RealtimeGatewayCodec.decodeProxyJSONFrame(LocalSessionProxyHeartbeatMessage.self, from: frameData)
         await registry.recordHeartbeat(for: message.sessionId, at: message.timestamp)
     }
 

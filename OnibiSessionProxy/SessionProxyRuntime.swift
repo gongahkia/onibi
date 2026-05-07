@@ -81,6 +81,8 @@ final class SessionProxyRuntime {
     private var ptyReadSource: DispatchSourceRead?
     private var processSource: DispatchSourceProcess?
     private var heartbeatTimer: DispatchSourceTimer?
+    private var outputFlushTimer: DispatchSourceTimer?
+    private var hostWriteSource: DispatchSourceWrite?
     private var winchSource: DispatchSourceSignal?
 
     private var hostBuffer = Data()
@@ -93,9 +95,17 @@ final class SessionProxyRuntime {
     private var inputByteCount = 0
     private var outputByteCount = 0
     private var droppedOutputByteCount = 0
+    private var queuedOutputByteCount = 0
+    private var lastBackpressureAt: Date?
     private var lastInputAt: Date?
     private var lastOutputAt: Date?
     private var isShuttingDown = false
+    private var pendingOutputData = Data()
+    private var pendingOutputTimestamp: Date?
+    private var hostWriteQueue: [PendingHostWrite] = []
+    private let outputBatchInterval: DispatchTimeInterval = .milliseconds(16)
+    private let outputBatchByteLimit = 64 * 1024
+    private let hostOutputQueueByteLimit = 4 * 1024 * 1024
 
     init(configuration: SessionProxyLaunchConfiguration) {
         self.configuration = configuration
@@ -186,6 +196,14 @@ final class SessionProxyRuntime {
         self.hostReadSource = hostReadSource
         hostReadSource.resume()
 
+        let hostWriteSource = DispatchSource.makeWriteSource(fileDescriptor: hostSocketFD, queue: queue)
+        hostWriteSource.setEventHandler { [weak self] in
+            self?.drainHostWriteQueue()
+        }
+        hostWriteSource.setCancelHandler {}
+        self.hostWriteSource = hostWriteSource
+        hostWriteSource.resume()
+
         let processSource = DispatchSource.makeProcessSource(identifier: childPID, eventMask: .exit, queue: queue)
         processSource.setEventHandler { [weak self] in
             self?.handleChildExit()
@@ -201,6 +219,14 @@ final class SessionProxyRuntime {
         }
         self.heartbeatTimer = heartbeatTimer
         heartbeatTimer.resume()
+
+        let outputFlushTimer = DispatchSource.makeTimerSource(queue: queue)
+        outputFlushTimer.schedule(deadline: .now() + outputBatchInterval, repeating: outputBatchInterval)
+        outputFlushTimer.setEventHandler { [weak self] in
+            self?.flushPendingOutput()
+        }
+        self.outputFlushTimer = outputFlushTimer
+        outputFlushTimer.resume()
 
         Darwin.signal(SIGWINCH, SIG_IGN)
         let winchSource = DispatchSource.makeSignalSource(signal: SIGWINCH, queue: queue)
@@ -247,14 +273,7 @@ final class SessionProxyRuntime {
             for chunk in chunks {
                 let timestamp = Date()
                 try writeAll(chunk, to: STDOUT_FILENO)
-                try sendFrame(
-                    LocalSessionProxyOutputMessage(
-                        sessionId: configuration.sessionId,
-                        stream: .stdout,
-                        timestamp: timestamp,
-                        outputData: chunk
-                    )
-                )
+                enqueueOutput(chunk, timestamp: timestamp)
                 outputByteCount += chunk.count
                 lastOutputAt = timestamp
                 if let title = titleParser.consume(chunk).last {
@@ -298,14 +317,14 @@ final class SessionProxyRuntime {
         let envelope = try RealtimeGatewayCodec.decodeEnvelope(from: frameData)
         switch envelope.type {
         case .input:
-            let message = try JSONDateCodec.decoder.decode(LocalSessionProxyInputMessage.self, from: frameData)
+            let message = try RealtimeGatewayCodec.decodeProxyJSONFrame(LocalSessionProxyInputMessage.self, from: frameData)
             let bytes = try RemoteInputByteTranslator.data(for: message.payload)
             try writeAll(bytes, to: ptyMasterFD)
             inputByteCount += bytes.count
             lastInputAt = Date()
             sendHealth()
         case .resize:
-            let message = try JSONDateCodec.decoder.decode(LocalSessionProxyResizeMessage.self, from: frameData)
+            let message = try RealtimeGatewayCodec.decodeProxyJSONFrame(LocalSessionProxyResizeMessage.self, from: frameData)
             let payload = message.payload
             guard payload.isValid else {
                 throw SessionProxyRuntimeError.invalidResizePayload
@@ -315,7 +334,7 @@ final class SessionProxyRuntime {
                 RemoteTerminalResizePayload(cols: payload.cols, rows: payload.rows)
             )
         case .processAction:
-            let message = try JSONDateCodec.decoder.decode(LocalSessionProxyProcessActionMessage.self, from: frameData)
+            let message = try RealtimeGatewayCodec.decodeProxyJSONFrame(LocalSessionProxyProcessActionMessage.self, from: frameData)
             let payload = message.payload
             guard payload.isValid else {
                 throw SessionProxyRuntimeError.invalidProcessActionPayload
@@ -331,6 +350,7 @@ final class SessionProxyRuntime {
         guard !isShuttingDown else {
             return
         }
+        flushPendingOutput()
 
         var status: Int32 = 0
         let waitResult = waitpid(childPID, &status, 0)
@@ -413,6 +433,12 @@ final class SessionProxyRuntime {
         heartbeatTimer?.cancel()
         heartbeatTimer = nil
 
+        outputFlushTimer?.cancel()
+        outputFlushTimer = nil
+
+        hostWriteSource?.cancel()
+        hostWriteSource = nil
+
         winchSource?.cancel()
         winchSource = nil
 
@@ -461,6 +487,7 @@ final class SessionProxyRuntime {
                     throw SessionProxyRuntimeError.posixFailure(function: "connect", code: errno)
                 }
             }
+            try setNonBlocking(fd)
             return fd
         } catch {
             var closeFD = fd
@@ -682,6 +709,8 @@ final class SessionProxyRuntime {
             inputByteCount: inputByteCount,
             outputByteCount: outputByteCount,
             droppedOutputByteCount: droppedOutputByteCount,
+            queuedOutputByteCount: queuedOutputByteCount,
+            lastBackpressureAt: lastBackpressureAt,
             lastInputAt: lastInputAt,
             lastOutputAt: lastOutputAt
         )
@@ -689,7 +718,99 @@ final class SessionProxyRuntime {
 
     private func sendFrame<T: Encodable>(_ frame: T) throws {
         let data = try RealtimeGatewayCodec.encodeFrame(frame)
-        try writeAll(data, to: hostSocketFD)
+        enqueueHostWrite(data, outputByteCount: 0, isDroppableOutput: false)
+    }
+
+    private func enqueueOutput(_ data: Data, timestamp: Date) {
+        if pendingOutputData.isEmpty {
+            pendingOutputTimestamp = timestamp
+        }
+        pendingOutputData.append(data)
+        if pendingOutputData.count >= outputBatchByteLimit {
+            flushPendingOutput()
+        }
+    }
+
+    private func flushPendingOutput() {
+        guard !pendingOutputData.isEmpty else {
+            return
+        }
+
+        let data = pendingOutputData
+        let timestamp = pendingOutputTimestamp ?? Date()
+        pendingOutputData.removeAll(keepingCapacity: true)
+        pendingOutputTimestamp = nil
+
+        do {
+            let frame = LocalSessionProxyOutputFrame(
+                header: LocalSessionProxyOutputHeader(
+                    sessionId: configuration.sessionId,
+                    stream: .stdout,
+                    timestamp: timestamp,
+                    byteCount: data.count,
+                    droppedOutputByteCount: droppedOutputByteCount
+                ),
+                data: data
+            )
+            let encoded = try RealtimeGatewayCodec.encodeProxyOutputFrame(frame)
+            enqueueHostWrite(encoded, outputByteCount: data.count, isDroppableOutput: true)
+        } catch {
+            droppedOutputByteCount += data.count
+        }
+    }
+
+    private func enqueueHostWrite(
+        _ data: Data,
+        outputByteCount: Int,
+        isDroppableOutput: Bool
+    ) {
+        if isDroppableOutput && queuedOutputByteCount + outputByteCount > hostOutputQueueByteLimit {
+            droppedOutputByteCount += outputByteCount
+            lastBackpressureAt = Date()
+            return
+        }
+
+        hostWriteQueue.append(
+            PendingHostWrite(
+                data: data,
+                offset: 0,
+                outputByteCount: outputByteCount,
+                isDroppableOutput: isDroppableOutput
+            )
+        )
+        if isDroppableOutput {
+            queuedOutputByteCount += outputByteCount
+        }
+        drainHostWriteQueue()
+    }
+
+    private func drainHostWriteQueue() {
+        guard hostSocketFD >= 0, !isShuttingDown else {
+            return
+        }
+
+        while !hostWriteQueue.isEmpty {
+            var frame = hostWriteQueue.removeFirst()
+            let result = writeSome(frame.data, offset: frame.offset, to: hostSocketFD)
+            switch result {
+            case .wrote(let byteCount):
+                frame.offset += byteCount
+                if frame.offset < frame.data.count {
+                    hostWriteQueue.insert(frame, at: 0)
+                    return
+                }
+                if frame.isDroppableOutput {
+                    queuedOutputByteCount = max(0, queuedOutputByteCount - frame.outputByteCount)
+                }
+            case .wouldBlock:
+                hostWriteQueue.insert(frame, at: 0)
+                lastBackpressureAt = Date()
+                return
+            case .failed:
+                shutdown(exitCode: 1)
+                return
+            }
+        }
     }
 
     private func sanitizedEnvironment(from environment: [String: String]) -> [String: String] {
@@ -721,6 +842,19 @@ final class SessionProxyRuntime {
         fputs("OnibiSessionProxy fallback exec failed: \(String(cString: strerror(code)))\n", stderr)
         Darwin.exit(code)
     }
+}
+
+private struct PendingHostWrite {
+    let data: Data
+    var offset: Int
+    let outputByteCount: Int
+    let isDroppableOutput: Bool
+}
+
+private enum NonBlockingWriteResult {
+    case wrote(Int)
+    case wouldBlock
+    case failed
 }
 
 private func readAvailable(from fileDescriptor: Int32) throws -> [Data] {
@@ -765,6 +899,28 @@ private func writeAll(_ data: Data, to fileDescriptor: Int32) throws {
                 throw SessionProxyRuntimeError.posixFailure(function: "write", code: errno)
             }
         }
+    }
+}
+
+private func writeSome(_ data: Data, offset: Int, to fileDescriptor: Int32) -> NonBlockingWriteResult {
+    guard offset < data.count else {
+        return .wrote(0)
+    }
+
+    return data.withUnsafeBytes { rawBuffer in
+        guard let baseAddress = rawBuffer.baseAddress else {
+            return .wrote(0)
+        }
+
+        let pointer = baseAddress.advanced(by: offset)
+        let written = Darwin.write(fileDescriptor, pointer, rawBuffer.count - offset)
+        if written > 0 {
+            return .wrote(written)
+        }
+        if written == -1 && (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return .wouldBlock
+        }
+        return .failed
     }
 }
 

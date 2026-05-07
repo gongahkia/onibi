@@ -14,6 +14,7 @@ import { DebugDrawer } from "./components/DebugDrawer";
 import { StaleBanner } from "./components/StaleBanner";
 import { rememberHost } from "./store/recentHosts";
 import {
+  appendOutputBatch,
   appendChunk,
   mergeBufferSnapshot,
   removeSession,
@@ -299,6 +300,23 @@ export default function App(): JSX.Element {
             setOutputBySession((existing) => appendChunk(existing, message.chunk!));
           }
           return;
+        case "output_batch":
+          if (message.batch) {
+            setOutputBySession((existing) => appendOutputBatch(existing, message.batch!));
+          }
+          return;
+        case "output_overflow":
+          if (message.sessionId) {
+            notify(
+              "warn",
+              `Output overflow for ${message.sessionId}: dropped ${message.droppedByteCount ?? 0} bytes. Reloading buffer.`
+            );
+            realtimeRef.current?.send({
+              type: "request_buffer",
+              sessionId: message.sessionId
+            });
+          }
+          return;
         case "error":
           if (message.code === "unauthorized") {
             handleUnauthorizedToken("Pairing token expired. Paste the latest token from the Mac host.");
@@ -310,7 +328,7 @@ export default function App(): JSX.Element {
           return;
       }
     },
-    [handleUnauthorizedToken]
+    [handleUnauthorizedToken, notify]
   );
 
   useEffect(() => {

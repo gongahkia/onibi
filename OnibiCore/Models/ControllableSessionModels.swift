@@ -149,6 +149,11 @@ public struct SessionOutputBufferSnapshot: Codable, Equatable, Sendable {
     public let endCursor: String?
     public let chunks: [SessionOutputChunk]
     public let truncated: Bool
+    public let droppedChunkCount: Int
+    public let droppedByteCount: Int
+    public let oldestCursor: String?
+    public let newestCursor: String?
+    public let truncationEventCount: Int
 
     public init(
         session: ControllableSessionSnapshot,
@@ -156,7 +161,12 @@ public struct SessionOutputBufferSnapshot: Codable, Equatable, Sendable {
         startCursor: String? = nil,
         endCursor: String? = nil,
         chunks: [SessionOutputChunk],
-        truncated: Bool
+        truncated: Bool,
+        droppedChunkCount: Int = 0,
+        droppedByteCount: Int = 0,
+        oldestCursor: String? = nil,
+        newestCursor: String? = nil,
+        truncationEventCount: Int = 0
     ) {
         self.session = session
         self.bufferCursor = bufferCursor
@@ -164,6 +174,11 @@ public struct SessionOutputBufferSnapshot: Codable, Equatable, Sendable {
         self.endCursor = endCursor
         self.chunks = chunks
         self.truncated = truncated
+        self.droppedChunkCount = droppedChunkCount
+        self.droppedByteCount = droppedByteCount
+        self.oldestCursor = oldestCursor
+        self.newestCursor = newestCursor
+        self.truncationEventCount = truncationEventCount
     }
 }
 
