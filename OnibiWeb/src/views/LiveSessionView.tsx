@@ -17,6 +17,7 @@ interface LiveSessionViewProps {
   onUploadFile: (file: File) => void;
   onSendKey: (key: RemoteInputKey) => void;
   onTerminalInput: (data: string) => void;
+  onTerminalPaste: (text: string) => void;
   onTerminalResize: (cols: number, rows: number) => void;
   onProcessAction: (action: RemoteProcessAction) => void;
 }
@@ -110,6 +111,7 @@ export function LiveSessionView({
   onUploadFile,
   onSendKey,
   onTerminalInput,
+  onTerminalPaste,
   onTerminalResize,
   onProcessAction
 }: LiveSessionViewProps): JSX.Element {
@@ -131,7 +133,7 @@ export function LiveSessionView({
     );
   }
 
-  const inputDisabled = realtimeState !== "authenticated" || !session.isControllable || session.status !== "running";
+  const inputDisabled = isLiveTerminalInputDisabled(realtimeState, session);
   const shell = shellName(session.shell);
   const cwd = pathName(session.workingDirectory);
   const terminalSize =
@@ -186,6 +188,11 @@ export function LiveSessionView({
         <SessionOutputPane
           entries={outputEntries}
           onTerminalInput={onTerminalInput}
+          onTerminalPaste={(text) => {
+            if (!inputDisabled) {
+              onTerminalPaste(text);
+            }
+          }}
           onTerminalResize={onTerminalResize}
         />
       </section>
@@ -228,4 +235,11 @@ export function LiveSessionView({
       )}
     </main>
   );
+}
+
+export function isLiveTerminalInputDisabled(
+  realtimeState: string,
+  session: Pick<ControllableSessionSnapshot, "isControllable" | "status">
+): boolean {
+  return realtimeState !== "authenticated" || !session.isControllable || session.status !== "running";
 }

@@ -866,6 +866,7 @@ export default function App(): JSX.Element {
         onUploadFile={(file) => sendFile(route.sessionId, file)}
         onSendKey={(key) => sendKey(route.sessionId, key)}
         onTerminalInput={(data) => sendTerminalData(route.sessionId, data)}
+        onTerminalPaste={(text) => sendPaste(route.sessionId, text)}
         onTerminalResize={(cols, rows) => sendTerminalResize(route.sessionId, cols, rows)}
         onProcessAction={(action) => sendProcessAction(route.sessionId, action)}
       />

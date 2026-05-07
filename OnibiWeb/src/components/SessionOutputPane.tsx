@@ -5,6 +5,7 @@ import type { OutputEntry } from "../store/sessionStore";
 interface SessionOutputPaneProps {
   entries: OutputEntry[];
   onTerminalInput: (data: string) => void;
+  onTerminalPaste: (text: string) => void;
   onTerminalResize: (cols: number, rows: number) => void;
 }
 
@@ -17,6 +18,7 @@ const CELL_WIDTH = 8.4;
 export function SessionOutputPane({
   entries,
   onTerminalInput,
+  onTerminalPaste,
   onTerminalResize
 }: SessionOutputPaneProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -26,12 +28,17 @@ export function SessionOutputPane({
   const renderSchedulerRef = useRef<TerminalRenderScheduler | null>(null);
   const lastRenderedChunkIdRef = useRef<string | null>(null);
   const onTerminalInputRef = useRef(onTerminalInput);
+  const onTerminalPasteRef = useRef(onTerminalPaste);
   const onTerminalResizeRef = useRef(onTerminalResize);
   const lastReportedSizeRef = useRef<{ cols: number; rows: number } | null>(null);
 
   useEffect(() => {
     onTerminalInputRef.current = onTerminalInput;
   }, [onTerminalInput]);
+
+  useEffect(() => {
+    onTerminalPasteRef.current = onTerminalPaste;
+  }, [onTerminalPaste]);
 
   useEffect(() => {
     onTerminalResizeRef.current = onTerminalResize;
@@ -99,6 +106,12 @@ export function SessionOutputPane({
         onTerminalInputRef.current(event.data);
       }
     };
+    const onPaste = (event: ClipboardEvent) => {
+      const pastedText = event.clipboardData?.getData("text") ?? "";
+      if (routeTerminalPaste(pastedText, onTerminalInputRef.current, onTerminalPasteRef.current)) {
+        event.preventDefault();
+      }
+    };
 
     const resizeObserver = new ResizeObserver(reportSize);
     resizeObserver.observe(container);
@@ -106,6 +119,7 @@ export function SessionOutputPane({
     container.addEventListener("touchstart", focusTerminal, { passive: true });
     container.addEventListener("keydown", onKeyDown);
     container.addEventListener("beforeinput", onBeforeInput as EventListener);
+    container.addEventListener("paste", onPaste);
     reportSize();
     container.focus();
 
@@ -115,6 +129,7 @@ export function SessionOutputPane({
       container.removeEventListener("touchstart", focusTerminal);
       container.removeEventListener("keydown", onKeyDown);
       container.removeEventListener("beforeinput", onBeforeInput as EventListener);
+      container.removeEventListener("paste", onPaste);
       renderSchedulerRef.current?.dispose();
       renderSchedulerRef.current = null;
       engineRef.current?.dispose?.();
@@ -174,6 +189,22 @@ export function SessionOutputPane({
       </div>
     </section>
   );
+}
+
+export function routeTerminalPaste(
+  text: string,
+  onTerminalInput: (data: string) => void,
+  onTerminalPaste: (text: string) => void
+): boolean {
+  if (!text) {
+    return false;
+  }
+  if (!text.includes("\n") && !text.includes("\r") && Array.from(text).length === 1) {
+    onTerminalInput(text);
+    return true;
+  }
+  onTerminalPaste(text);
+  return true;
 }
 
 export interface TerminalRenderState {

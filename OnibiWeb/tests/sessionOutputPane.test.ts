@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createTerminalRenderScheduler,
   renderTerminal,
+  routeTerminalPaste,
   type TerminalRenderState
 } from "../src/components/SessionOutputPane";
 import type { GhosttySnapshot, GhosttyTerminalEngine } from "../src/lib/ghosttyTerminal";
@@ -205,5 +206,37 @@ describe("createTerminalRenderScheduler", () => {
     expect(cancelFrame).toHaveBeenCalledWith(1);
     expect(engine.snapshot).not.toHaveBeenCalled();
     expect(callbacks).toHaveLength(1);
+  });
+});
+
+describe("routeTerminalPaste", () => {
+  it("routes multiline clipboard text through terminal paste", () => {
+    const input = vi.fn();
+    const paste = vi.fn();
+
+    expect(routeTerminalPaste("one\ntwo", input, paste)).toBe(true);
+
+    expect(input).not.toHaveBeenCalled();
+    expect(paste).toHaveBeenCalledWith("one\ntwo");
+  });
+
+  it("lets single-character paste continue through terminal text input", () => {
+    const input = vi.fn();
+    const paste = vi.fn();
+
+    expect(routeTerminalPaste("x", input, paste)).toBe(true);
+
+    expect(input).toHaveBeenCalledWith("x");
+    expect(paste).not.toHaveBeenCalled();
+  });
+
+  it("ignores empty clipboard text", () => {
+    const input = vi.fn();
+    const paste = vi.fn();
+
+    expect(routeTerminalPaste("", input, paste)).toBe(false);
+
+    expect(input).not.toHaveBeenCalled();
+    expect(paste).not.toHaveBeenCalled();
   });
 });
