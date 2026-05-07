@@ -1,5 +1,20 @@
 export interface GhosttyCell {
   text: string;
+  foreground?: string;
+  background?: string;
+  bold?: boolean;
+  italic?: boolean;
+  inverse?: boolean;
+  underline?: boolean;
+  strikethrough?: boolean;
+  invisible?: boolean;
+}
+
+export interface GhosttyRenderColors {
+  background: string;
+  foreground: string;
+  cursor?: string;
+  palette: string[];
 }
 
 export interface GhosttyCursorState {
@@ -10,6 +25,8 @@ export interface GhosttyCursorState {
 
 export interface GhosttySnapshot {
   rows: string[];
+  styledRows?: GhosttyCell[][];
+  colors?: GhosttyRenderColors;
   cursor: GhosttyCursorState;
   title?: string;
   bell: boolean;
@@ -34,6 +51,7 @@ const GHOSTTY_RENDER_STATE_DIRTY_PARTIAL = 1;
 const GHOSTTY_RENDER_STATE_DIRTY_FULL = 2;
 const GHOSTTY_RENDER_STATE_DATA_DIRTY = 3;
 const GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR = 4;
+const GHOSTTY_RENDER_STATE_DATA_COLORS = 9;
 const GHOSTTY_RENDER_STATE_DATA_CURSOR_VISIBLE = 11;
 const GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_HAS_VALUE = 14;
 const GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_X = 15;
@@ -42,6 +60,7 @@ const GHOSTTY_RENDER_STATE_OPTION_DIRTY = 0;
 const GHOSTTY_RENDER_STATE_ROW_DATA_DIRTY = 1;
 const GHOSTTY_RENDER_STATE_ROW_DATA_CELLS = 3;
 const GHOSTTY_RENDER_STATE_ROW_OPTION_DIRTY = 0;
+const GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE = 2;
 const GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_LEN = 3;
 const GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF = 4;
 
@@ -227,6 +246,8 @@ class GhosttyWasmTerminalEngine implements GhosttyTerminalEngine {
   private termPtr: number;
   private renderStatePtr: number;
   private rowStrings: string[];
+  private styledRows: GhosttyCell[][];
+  private colors: GhosttyRenderColors | undefined;
   private pendingDirtyRows: number[] = [];
   private needsRenderStateSync = true;
   private forceFullDirty = true;
@@ -243,6 +264,7 @@ class GhosttyWasmTerminalEngine implements GhosttyTerminalEngine {
     this.termPtr = this.createTerminal(this.cols, this.rows);
     this.renderStatePtr = this.createRenderState();
     this.rowStrings = this.createEmptyRows();
+    this.styledRows = this.createEmptyStyledRows();
   }
 
   resize(cols: number, rows: number, cellWidthPx = 8, cellHeightPx = 20): void {
@@ -259,6 +281,7 @@ class GhosttyWasmTerminalEngine implements GhosttyTerminalEngine {
       throw new Error(`ghostty_terminal_resize failed with result ${result}`);
     }
     this.rowStrings = this.createEmptyRows();
+    this.styledRows = this.createEmptyStyledRows();
     this.markRenderStateDirty();
   }
 
@@ -283,6 +306,8 @@ class GhosttyWasmTerminalEngine implements GhosttyTerminalEngine {
     this.syncRenderState();
     return {
       rows: [...this.rowStrings],
+      styledRows: this.styledRows.map((row) => row.map((cell) => ({ ...cell }))),
+      colors: this.colors ? { ...this.colors, palette: [...this.colors.palette] } : undefined,
       cursor: this.getCursorState(),
       title: this.getTerminalString(12),
       bell: this.bell
@@ -300,6 +325,7 @@ class GhosttyWasmTerminalEngine implements GhosttyTerminalEngine {
     this.exports.ghostty_terminal_reset(this.termPtr);
     this.bell = false;
     this.rowStrings = this.createEmptyRows();
+    this.styledRows = this.createEmptyStyledRows();
     this.markRenderStateDirty();
   }
 
@@ -404,10 +430,12 @@ class GhosttyWasmTerminalEngine implements GhosttyTerminalEngine {
     const rowCellsPtrPtr = this.exports.ghostty_wasm_alloc_opaque();
     const rowDirtyPtr = this.exports.ghostty_wasm_alloc_u8_array(1);
     const cellGraphemeLenPtr = this.exports.ghostty_wasm_alloc_u8_array(4);
+    const cellStylePtr = this.exports.ghostty_wasm_alloc_u8_array(this.layoutFor("GhosttyStyle").size);
     const cleanRowPtr = this.exports.ghostty_wasm_alloc_u8_array(1);
     const changedRows: number[] = [];
 
     try {
+      this.colors = this.readRenderColors();
       const pointerView = new DataView(this.memory.buffer);
       pointerView.setUint32(rowIteratorPtrPtr, 0, true);
       pointerView.setUint32(rowCellsPtrPtr, 0, true);
@@ -426,7 +454,9 @@ class GhosttyWasmTerminalEngine implements GhosttyTerminalEngine {
         const rowDirty = shouldRebuildAll || this.getRowDirty(rowIteratorPtr, rowDirtyPtr);
         if (rowDirty) {
           this.populateRowCells(rowIteratorPtr, rowCellsPtrPtr);
-          this.rowStrings[rowIndex] = this.readRowString(rowCellsPtr, cellGraphemeLenPtr);
+          const cells = this.readRowCells(rowCellsPtr, cellGraphemeLenPtr, cellStylePtr);
+          this.styledRows[rowIndex] = cells;
+          this.rowStrings[rowIndex] = cells.map((cell) => cell.text || " ").join("").padEnd(this.cols, " ");
           changedRows.push(rowIndex);
           this.setRowClean(rowIteratorPtr, cleanRowPtr);
         }
@@ -443,6 +473,7 @@ class GhosttyWasmTerminalEngine implements GhosttyTerminalEngine {
         this.exports.ghostty_render_state_row_iterator_free(rowIteratorPtr);
       }
       this.exports.ghostty_wasm_free_u8_array(cleanRowPtr, 1);
+      this.exports.ghostty_wasm_free_u8_array(cellStylePtr, this.layoutFor("GhosttyStyle").size);
       this.exports.ghostty_wasm_free_u8_array(cellGraphemeLenPtr, 4);
       this.exports.ghostty_wasm_free_u8_array(rowDirtyPtr, 1);
       this.exports.ghostty_wasm_free_opaque(rowCellsPtrPtr);
@@ -512,18 +543,71 @@ class GhosttyWasmTerminalEngine implements GhosttyTerminalEngine {
     }
   }
 
-  private readRowString(rowCellsPtr: number, cellGraphemeLenPtr: number): string {
-    let row = "";
+  private readRowCells(
+    rowCellsPtr: number,
+    cellGraphemeLenPtr: number,
+    cellStylePtr: number
+  ): GhosttyCell[] {
+    const cells: GhosttyCell[] = [];
     let col = 0;
     while (
       col < this.cols &&
       this.exports.ghostty_render_state_row_cells_next(rowCellsPtr)
     ) {
       const text = this.readCellText(rowCellsPtr, cellGraphemeLenPtr);
-      row += text === "" ? " " : text;
+      cells.push({
+        text: text === "" ? " " : text,
+        ...this.readCellStyle(rowCellsPtr, cellStylePtr)
+      });
       col += 1;
     }
-    return row.padEnd(this.cols, " ");
+    while (cells.length < this.cols) {
+      cells.push({ text: " " });
+    }
+    return cells;
+  }
+
+  private readCellStyle(rowCellsPtr: number, cellStylePtr: number): Omit<GhosttyCell, "text"> {
+    new Uint8Array(this.memory.buffer, cellStylePtr, this.layoutFor("GhosttyStyle").size).fill(0);
+    const result = this.exports.ghostty_render_state_row_cells_get(
+      rowCellsPtr,
+      GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE,
+      cellStylePtr
+    );
+    if (result !== GHOSTTY_SUCCESS) {
+      return {};
+    }
+    const view = new DataView(this.memory.buffer, cellStylePtr, this.layoutFor("GhosttyStyle").size);
+    const styleLayout = this.layoutFor("GhosttyStyle");
+    const underline = view.getInt32(styleLayout.fields.underline.offset, true) !== 0;
+    return {
+      foreground: this.readStyleColor(view, styleLayout.fields.fg_color.offset),
+      background: this.readStyleColor(view, styleLayout.fields.bg_color.offset),
+      bold: view.getUint8(styleLayout.fields.bold.offset) !== 0 || undefined,
+      italic: view.getUint8(styleLayout.fields.italic.offset) !== 0 || undefined,
+      inverse: view.getUint8(styleLayout.fields.inverse.offset) !== 0 || undefined,
+      invisible: view.getUint8(styleLayout.fields.invisible.offset) !== 0 || undefined,
+      strikethrough: view.getUint8(styleLayout.fields.strikethrough.offset) !== 0 || undefined,
+      underline: underline || undefined
+    };
+  }
+
+  private readStyleColor(view: DataView, styleColorOffset: number): string | undefined {
+    const styleColorLayout = this.layoutFor("GhosttyStyleColor");
+    const tag = view.getUint32(styleColorOffset + styleColorLayout.fields.tag.offset, true);
+    const valueOffset = styleColorOffset + styleColorLayout.fields.value.offset;
+    if (tag === 1) {
+      const paletteIndex = view.getUint8(valueOffset);
+      return this.colors?.palette[paletteIndex];
+    }
+    if (tag === 2) {
+      return rgbToCss(
+        view.getUint8(valueOffset),
+        view.getUint8(valueOffset + 1),
+        view.getUint8(valueOffset + 2)
+      );
+    }
+    return undefined;
   }
 
   private readCellText(rowCellsPtr: number, cellGraphemeLenPtr: number): string {
@@ -587,6 +671,37 @@ class GhosttyWasmTerminalEngine implements GhosttyTerminalEngine {
       }
       return new DataView(this.memory.buffer, ptr, 4).getUint32(0, true);
     });
+  }
+
+  private readRenderColors(): GhosttyRenderColors | undefined {
+    const colorsLayout = this.layoutFor("GhosttyRenderStateColors");
+    return this.withOutPointer(colorsLayout.size, (ptr) => {
+      const result = this.exports.ghostty_render_state_get(
+        this.renderStatePtr,
+        GHOSTTY_RENDER_STATE_DATA_COLORS,
+        ptr
+      );
+      if (result !== GHOSTTY_SUCCESS) {
+        return undefined;
+      }
+      const view = new DataView(this.memory.buffer, ptr, colorsLayout.size);
+      const paletteOffset = colorsLayout.fields.palette.offset;
+      const palette: string[] = [];
+      for (let index = 0; index < 256; index += 1) {
+        palette.push(this.readRgb(view, paletteOffset + index * 3));
+      }
+      const cursorHasValue = view.getUint8(colorsLayout.fields.cursor_has_value.offset) !== 0;
+      return {
+        background: this.readRgb(view, colorsLayout.fields.background.offset),
+        foreground: this.readRgb(view, colorsLayout.fields.foreground.offset),
+        cursor: cursorHasValue ? this.readRgb(view, colorsLayout.fields.cursor.offset) : undefined,
+        palette
+      };
+    });
+  }
+
+  private readRgb(view: DataView, offset: number): string {
+    return rgbToCss(view.getUint8(offset), view.getUint8(offset + 1), view.getUint8(offset + 2));
   }
 
   private getRenderStateU16(key: number): number {
@@ -727,6 +842,12 @@ class GhosttyWasmTerminalEngine implements GhosttyTerminalEngine {
 
   private createEmptyRows(): string[] {
     return Array.from({ length: this.rows }, () => " ".repeat(this.cols));
+  }
+
+  private createEmptyStyledRows(): GhosttyCell[][] {
+    return Array.from({ length: this.rows }, () =>
+      Array.from({ length: this.cols }, () => ({ text: " " }))
+    );
   }
 
   private markRenderStateDirty(): void {
@@ -905,6 +1026,10 @@ function readCString(memory: WebAssembly.Memory, ptr: number): string {
     end += 1;
   }
   return new TextDecoder().decode(bytes.subarray(ptr, end));
+}
+
+function rgbToCss(red: number, green: number, blue: number): string {
+  return `rgb(${red}, ${green}, ${blue})`;
 }
 
 function clamp(value: number, lowerBound: number, upperBound: number): number {

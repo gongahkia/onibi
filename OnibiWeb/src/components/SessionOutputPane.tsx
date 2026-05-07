@@ -1,5 +1,10 @@
 import { useEffect, useRef } from "react";
-import { createGhosttyTerminalEngine, type GhosttyTerminalEngine } from "../lib/ghosttyTerminal";
+import {
+  createGhosttyTerminalEngine,
+  type GhosttyCell,
+  type GhosttyRenderColors,
+  type GhosttyTerminalEngine
+} from "../lib/ghosttyTerminal";
 import type { OutputEntry } from "../store/sessionStore";
 
 interface SessionOutputPaneProps {
@@ -15,6 +20,8 @@ const FONT_SIZE = 14;
 const LINE_HEIGHT = 20;
 const CELL_WIDTH = 8.4;
 const SELECTION_COLOR = "rgba(56, 139, 253, 0.35)";
+const DEFAULT_BACKGROUND = "#0d1117";
+const DEFAULT_FOREGROUND = "#f3f4f6";
 const TEXT_TOP_OFFSET = 2;
 const METRIC_SAMPLE = "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm";
 const BACKLOG_MAX_BATCH_BYTES = 64 * 1024;
@@ -507,24 +514,31 @@ export function renderTerminal(
   const rows = [...rowSet]
     .filter((row) => row >= 0 && row < snapshot.rows.length)
     .sort((left, right) => left - right);
+  const colors = snapshot.colors ?? defaultRenderColors();
 
   if (forceFullRender) {
-    context.fillStyle = "#0d1117";
+    context.fillStyle = colors.background;
     context.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
   }
   context.font = terminalFont(metrics);
   context.textBaseline = "top";
-  context.fillStyle = "#0d1117";
   for (const row of rows) {
+    context.fillStyle = colors.background;
     context.fillRect(0, row * metrics.lineHeight, canvas.clientWidth, metrics.lineHeight);
-    drawSelectionOverlay(context, row, renderState.selection, snapshot.rows[row]?.length ?? 0, metrics);
-    context.fillStyle = "#f3f4f6";
-    context.fillText(snapshot.rows[row] ?? "", 0, row * metrics.lineHeight + metrics.textTopOffset);
-    context.fillStyle = "#0d1117";
+    const styledRow = snapshot.styledRows?.[row];
+    if (styledRow) {
+      drawStyledRowBackgrounds(context, row, styledRow, colors, metrics);
+      drawSelectionOverlay(context, row, renderState.selection, styledRow.length, metrics);
+      drawStyledRowText(context, row, styledRow, colors, metrics);
+    } else {
+      drawSelectionOverlay(context, row, renderState.selection, snapshot.rows[row]?.length ?? 0, metrics);
+      context.fillStyle = colors.foreground;
+      context.fillText(snapshot.rows[row] ?? "", 0, row * metrics.lineHeight + metrics.textTopOffset);
+    }
   }
 
   if (snapshot.cursor.visible) {
-    context.fillStyle = "#f3f4f6";
+    context.fillStyle = colors.cursor ?? colors.foreground;
     context.fillRect(
       snapshot.cursor.col * metrics.cellWidth,
       snapshot.cursor.row * metrics.lineHeight + metrics.textTopOffset,
@@ -650,6 +664,75 @@ function drawSelectionOverlay(
   context.fillStyle = "#0d1117";
 }
 
+function drawStyledRowBackgrounds(
+  context: CanvasRenderingContext2D,
+  row: number,
+  cells: GhosttyCell[],
+  colors: GhosttyRenderColors,
+  metrics: TerminalViewMetrics
+): void {
+  cells.forEach((cell, col) => {
+    const resolved = resolveCellColors(cell, colors);
+    if (resolved.background === colors.background) {
+      return;
+    }
+    context.fillStyle = resolved.background;
+    context.fillRect(
+      col * metrics.cellWidth,
+      row * metrics.lineHeight,
+      metrics.cellWidth,
+      metrics.lineHeight
+    );
+  });
+}
+
+function drawStyledRowText(
+  context: CanvasRenderingContext2D,
+  row: number,
+  cells: GhosttyCell[],
+  colors: GhosttyRenderColors,
+  metrics: TerminalViewMetrics
+): void {
+  cells.forEach((cell, col) => {
+    if (cell.invisible || cell.text === "") {
+      return;
+    }
+    const resolved = resolveCellColors(cell, colors);
+    context.font = terminalFont(metrics, cell);
+    context.fillStyle = resolved.foreground;
+    const x = col * metrics.cellWidth;
+    const y = row * metrics.lineHeight + metrics.textTopOffset;
+    context.fillText(cell.text, x, y);
+    if (cell.underline) {
+      context.fillRect(x, row * metrics.lineHeight + metrics.lineHeight - 3, metrics.cellWidth, 1);
+    }
+    if (cell.strikethrough) {
+      context.fillRect(x, row * metrics.lineHeight + Math.floor(metrics.lineHeight / 2), metrics.cellWidth, 1);
+    }
+  });
+  context.font = terminalFont(metrics);
+}
+
+function resolveCellColors(
+  cell: GhosttyCell,
+  colors: GhosttyRenderColors
+): { foreground: string; background: string } {
+  const foreground = cell.foreground ?? colors.foreground;
+  const background = cell.background ?? colors.background;
+  return cell.inverse
+    ? { foreground: background, background: foreground }
+    : { foreground, background };
+}
+
+function defaultRenderColors(): GhosttyRenderColors {
+  return {
+    background: DEFAULT_BACKGROUND,
+    foreground: DEFAULT_FOREGROUND,
+    cursor: DEFAULT_FOREGROUND,
+    palette: []
+  };
+}
+
 export function measureTerminalMetrics(context: CanvasRenderingContext2D): TerminalViewMetrics {
   const measured = context.measureText?.(METRIC_SAMPLE);
   const measuredCellWidth = measured?.width ? measured.width / METRIC_SAMPLE.length : 0;
@@ -683,8 +766,9 @@ export function calculateTerminalSize(
   };
 }
 
-function terminalFont(metrics: TerminalViewMetrics): string {
-  return `${metrics.fontSize}px ${FONT_FAMILY}`;
+function terminalFont(metrics: TerminalViewMetrics, cell?: Pick<GhosttyCell, "bold" | "italic">): string {
+  const style = [cell?.italic ? "italic" : "", cell?.bold ? "700" : ""].filter(Boolean).join(" ");
+  return `${style ? `${style} ` : ""}${metrics.fontSize}px ${FONT_FAMILY}`;
 }
 
 function clamp(value: number, min: number, max: number): number {

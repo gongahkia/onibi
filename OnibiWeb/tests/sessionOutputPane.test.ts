@@ -21,17 +21,17 @@ class MockCanvasContext {
   fillStyle = "";
   font = "";
   textBaseline = "";
-  fillRects: Array<{ x: number; y: number; width: number; height: number }> = [];
-  fillTexts: Array<{ text: string; x: number; y: number }> = [];
+  fillRects: Array<{ x: number; y: number; width: number; height: number; fillStyle: string }> = [];
+  fillTexts: Array<{ text: string; x: number; y: number; fillStyle: string; font: string }> = [];
 
   setTransform = vi.fn();
 
   fillRect(x: number, y: number, width: number, height: number): void {
-    this.fillRects.push({ x, y, width, height });
+    this.fillRects.push({ x, y, width, height, fillStyle: this.fillStyle });
   }
 
   fillText(text: string, x: number, y: number): void {
-    this.fillTexts.push({ text, x, y });
+    this.fillTexts.push({ text, x, y, fillStyle: this.fillStyle, font: this.font });
   }
 }
 
@@ -372,8 +372,130 @@ describe("terminal metrics", () => {
       textTopOffset: 3
     });
 
-    expect(context.fillTexts[0]).toEqual({ text: "abc", x: 0, y: 3 });
-    expect(context.fillRects).toContainEqual({ x: 20, y: 3, width: 2, height: 12 });
+    expect(context.fillTexts[0]).toEqual(expect.objectContaining({ text: "abc", x: 0, y: 3 }));
+    expect(context.fillRects).toContainEqual(
+      expect.objectContaining({ x: 20, y: 3, width: 2, height: 12 })
+    );
+  });
+});
+
+describe("styled terminal rendering", () => {
+  it("draws styled cell foreground, background, and bold italic font", () => {
+    const context = new MockCanvasContext();
+    const engine = createMockEngine(
+      [
+        {
+          rows: ["A"],
+          styledRows: [
+            [
+              {
+                text: "A",
+                foreground: "rgb(204, 102, 102)",
+                background: "rgb(29, 31, 33)",
+                bold: true,
+                italic: true
+              }
+            ]
+          ],
+          colors: {
+            background: "rgb(0, 0, 0)",
+            foreground: "rgb(255, 255, 255)",
+            cursor: "rgb(255, 255, 255)",
+            palette: []
+          },
+          cursor: { row: 0, col: 0, visible: false },
+          bell: false
+        }
+      ],
+      [[0]]
+    );
+
+    renderTerminal(createMockCanvas(context), engine, {});
+
+    expect(context.fillRects).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ x: 0, y: 0, width: 8.4, height: 20, fillStyle: "rgb(29, 31, 33)" })
+      ])
+    );
+    expect(context.fillTexts).toEqual([
+      expect.objectContaining({
+        text: "A",
+        fillStyle: "rgb(204, 102, 102)"
+      })
+    ]);
+    expect(context.fillTexts[0].font).toContain("italic 700");
+  });
+
+  it("applies inverse colors and keeps selection overlay over styled backgrounds", () => {
+    const context = new MockCanvasContext();
+    const engine = createMockEngine(
+      [
+        {
+          rows: ["AB"],
+          styledRows: [
+            [
+              {
+                text: "A",
+                foreground: "rgb(1, 2, 3)",
+                background: "rgb(4, 5, 6)",
+                inverse: true
+              },
+              { text: "B" }
+            ]
+          ],
+          colors: {
+            background: "rgb(0, 0, 0)",
+            foreground: "rgb(255, 255, 255)",
+            palette: []
+          },
+          cursor: { row: 0, col: 0, visible: false },
+          bell: false
+        }
+      ],
+      [[0]]
+    );
+
+    renderTerminal(
+      createMockCanvas(context),
+      engine,
+      {
+        selection: {
+          anchor: { row: 0, col: 0 },
+          head: { row: 0, col: 1 }
+        }
+      },
+      false
+    );
+
+    expect(context.fillRects).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ x: 0, y: 0, width: 8.4, height: 20, fillStyle: "rgb(1, 2, 3)" }),
+        expect.objectContaining({ x: 0, y: 0, width: 16.8, height: 20, fillStyle: "rgba(56, 139, 253, 0.35)" })
+      ])
+    );
+    expect(context.fillTexts[0]).toEqual(
+      expect.objectContaining({ text: "A", fillStyle: "rgb(4, 5, 6)" })
+    );
+  });
+
+  it("keeps plain row drawing when styled data is unavailable", () => {
+    const context = new MockCanvasContext();
+    const engine = createMockEngine(
+      [
+        {
+          rows: ["plain"],
+          cursor: { row: 0, col: 0, visible: false },
+          bell: false
+        }
+      ],
+      [[0]]
+    );
+
+    renderTerminal(createMockCanvas(context), engine, {});
+
+    expect(context.fillTexts).toEqual([
+      expect.objectContaining({ text: "plain", x: 0, y: 2, fillStyle: "#f3f4f6" })
+    ]);
   });
 });
 

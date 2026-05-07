@@ -103,6 +103,41 @@ describe("createGhosttyTerminalEngine", () => {
     }
   }, 10_000);
 
+  it("exposes styled render-state cells for ANSI colors and text attributes", async () => {
+    const engine = await createReadyWasmEngine(12, 3);
+
+    try {
+      engine.ingest(encoder.encode("\u001b[31;1;3mA\u001b[0m\u001b[7mB\u001b[0m"));
+      const snapshot = engine.snapshot();
+      const firstCell = snapshot.styledRows?.[0]?.[0];
+      const secondCell = snapshot.styledRows?.[0]?.[1];
+
+      expect(snapshot.rows[0].startsWith("AB")).toBe(true);
+      expect(firstCell).toEqual(
+        expect.objectContaining({
+          text: "A",
+          foreground: expect.stringMatching(/^rgb\(/),
+          bold: true,
+          italic: true
+        })
+      );
+      expect(secondCell).toEqual(
+        expect.objectContaining({
+          text: "B",
+          inverse: true
+        })
+      );
+      expect(snapshot.colors).toEqual(
+        expect.objectContaining({
+          background: expect.stringMatching(/^rgb\(/),
+          foreground: expect.stringMatching(/^rgb\(/)
+        })
+      );
+    } finally {
+      engine.dispose?.();
+    }
+  }, 10_000);
+
   it("clears cached rows and marks every row dirty on reset", async () => {
     const engine = await createReadyWasmEngine(8, 3);
 
