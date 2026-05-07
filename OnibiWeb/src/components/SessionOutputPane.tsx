@@ -22,6 +22,7 @@ export function SessionOutputPane({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const engineRef = useRef<GhosttyTerminalEngine | null>(null);
+  const renderStateRef = useRef<TerminalRenderState>({});
   const lastRenderedChunkIdRef = useRef<string | null>(null);
   const onTerminalInputRef = useRef(onTerminalInput);
   const onTerminalResizeRef = useRef(onTerminalResize);
@@ -62,14 +63,14 @@ export function SessionOutputPane({
             const activeCanvas = canvasRef.current;
             const activeEngine = engineRef.current;
             if (activeCanvas && activeEngine) {
-              renderTerminal(activeCanvas, activeEngine, true);
+              renderTerminal(activeCanvas, activeEngine, renderStateRef.current, true);
             }
           }
         });
       } else {
         engineRef.current.resize(cols, rows);
       }
-      renderTerminal(canvas, engineRef.current, true);
+      renderTerminal(canvas, engineRef.current, renderStateRef.current, true);
 
       const lastReportedSize = lastReportedSizeRef.current;
       if (!lastReportedSize || lastReportedSize.cols !== cols || lastReportedSize.rows !== rows) {
@@ -113,6 +114,7 @@ export function SessionOutputPane({
       container.removeEventListener("beforeinput", onBeforeInput as EventListener);
       engineRef.current?.dispose?.();
       engineRef.current = null;
+      renderStateRef.current = {};
       lastRenderedChunkIdRef.current = null;
       lastReportedSizeRef.current = null;
     };
@@ -128,7 +130,7 @@ export function SessionOutputPane({
     if (entries.length === 0) {
       engine.reset();
       lastRenderedChunkIdRef.current = null;
-      renderTerminal(canvas, engine, true);
+      renderTerminal(canvas, engine, renderStateRef.current, true);
       return;
     }
 
@@ -152,7 +154,7 @@ export function SessionOutputPane({
     }
 
     lastRenderedChunkIdRef.current = entries[entries.length - 1].id;
-    renderTerminal(canvas, engine);
+    renderTerminal(canvas, engine, renderStateRef.current);
   }, [entries]);
 
   return (
@@ -169,9 +171,18 @@ export function SessionOutputPane({
   );
 }
 
-function renderTerminal(
+export interface TerminalRenderState {
+  lastCursor?: {
+    row: number;
+    col: number;
+    visible: boolean;
+  };
+}
+
+export function renderTerminal(
   canvas: HTMLCanvasElement,
   engine: GhosttyTerminalEngine,
+  renderState: TerminalRenderState = {},
   forceFullRender = false
 ): void {
   const context = canvas.getContext("2d");
@@ -179,10 +190,21 @@ function renderTerminal(
     return;
   }
   const snapshot = engine.snapshot();
-  const rows = forceFullRender ? snapshot.rows.map((_, index) => index) : engine.takeDirtyRows();
+  const dirtyRows = forceFullRender ? snapshot.rows.map((_, index) => index) : engine.takeDirtyRows();
   if (forceFullRender) {
     engine.takeDirtyRows();
   }
+  const rowSet = new Set(dirtyRows);
+  if (renderState.lastCursor?.visible) {
+    rowSet.add(renderState.lastCursor.row);
+  }
+  if (snapshot.cursor.visible) {
+    rowSet.add(snapshot.cursor.row);
+  }
+  const rows = [...rowSet]
+    .filter((row) => row >= 0 && row < snapshot.rows.length)
+    .sort((left, right) => left - right);
+
   if (forceFullRender) {
     context.fillStyle = "#0d1117";
     context.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
@@ -206,6 +228,7 @@ function renderTerminal(
       LINE_HEIGHT - 4
     );
   }
+  renderState.lastCursor = { ...snapshot.cursor };
 }
 
 function keyEventToTerminalInput(event: KeyboardEvent): string | null {
