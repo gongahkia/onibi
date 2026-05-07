@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createTerminalRenderScheduler,
+  cellFromPoint,
+  copyTextForSelection,
+  keyEventToTerminalInput,
+  normalizedSelection,
   renderTerminal,
   routeTerminalPaste,
+  type TerminalSelection,
   type TerminalRenderState
 } from "../src/components/SessionOutputPane";
 import type { GhosttySnapshot, GhosttyTerminalEngine } from "../src/lib/ghosttyTerminal";
@@ -238,5 +243,77 @@ describe("routeTerminalPaste", () => {
 
     expect(input).not.toHaveBeenCalled();
     expect(paste).not.toHaveBeenCalled();
+  });
+});
+
+describe("terminal selection helpers", () => {
+  it("maps pointer coordinates to clamped terminal cells", () => {
+    const bounds = { left: 10, top: 20, width: 84, height: 60 };
+
+    expect(cellFromPoint(19, 41, bounds, 3, 10)).toEqual({ row: 1, col: 1 });
+    expect(cellFromPoint(-100, -100, bounds, 3, 10)).toEqual({ row: 0, col: 0 });
+    expect(cellFromPoint(500, 500, bounds, 3, 10)).toEqual({ row: 2, col: 9 });
+  });
+
+  it("normalizes reversed selections", () => {
+    const selection: TerminalSelection = {
+      anchor: { row: 2, col: 4 },
+      head: { row: 0, col: 1 }
+    };
+
+    expect(normalizedSelection(selection)).toEqual({
+      start: { row: 0, col: 1 },
+      end: { row: 2, col: 4 }
+    });
+  });
+
+  it("copies selected text while trimming row padding only at selected row ends", () => {
+    const selection: TerminalSelection = {
+      anchor: { row: 0, col: 1 },
+      head: { row: 2, col: 3 }
+    };
+
+    expect(copyTextForSelection([" ab c   ", "  keep  mid  ", "tail   "], selection)).toBe(
+      "ab c\n  keep  mid\ntail"
+    );
+  });
+
+  it("keeps Ctrl+C as terminal input when there is no selection", () => {
+    const event = new KeyboardEvent("keydown", {
+      key: "c",
+      ctrlKey: true
+    });
+
+    expect(keyEventToTerminalInput(event)).toBe("\u0003");
+  });
+
+  it("draws selection highlights on selected rows", () => {
+    const context = new MockCanvasContext();
+    const renderState: TerminalRenderState = {
+      selection: {
+        anchor: { row: 0, col: 1 },
+        head: { row: 1, col: 2 }
+      },
+      extraDirtyRows: new Set([0, 1])
+    };
+    const engine = createMockEngine(
+      [
+        {
+          rows: ["abcd", "efgh"],
+          cursor: { row: 0, col: 0, visible: false },
+          bell: false
+        }
+      ],
+      [[]]
+    );
+
+    renderTerminal(createMockCanvas(context), engine, renderState);
+
+    expect(context.fillRects).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ x: 8.4, y: 0, width: 25.200000000000003, height: 20 }),
+        expect.objectContaining({ x: 0, y: 20, width: 25.200000000000003, height: 20 })
+      ])
+    );
   });
 });
