@@ -17,6 +17,8 @@ const CELL_WIDTH = 8.4;
 const SELECTION_COLOR = "rgba(56, 139, 253, 0.35)";
 const TEXT_TOP_OFFSET = 2;
 const METRIC_SAMPLE = "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm";
+const BACKLOG_MAX_BATCH_BYTES = 64 * 1024;
+const BACKLOG_MAX_BATCH_ENTRIES = 256;
 
 export interface TerminalViewMetrics {
   cellWidth: number;
@@ -43,6 +45,7 @@ export function SessionOutputPane({
   const engineRef = useRef<GhosttyTerminalEngine | null>(null);
   const renderStateRef = useRef<TerminalRenderState>({});
   const renderSchedulerRef = useRef<TerminalRenderScheduler | null>(null);
+  const backlogProcessorRef = useRef<TerminalBacklogProcessor | null>(null);
   const metricsRef = useRef<TerminalViewMetrics>(FALLBACK_TERMINAL_METRICS);
   const lastRenderedChunkIdRef = useRef<string | null>(null);
   const onTerminalInputRef = useRef(onTerminalInput);
@@ -214,6 +217,8 @@ export function SessionOutputPane({
       container.removeEventListener("paste", onPaste);
       renderSchedulerRef.current?.dispose();
       renderSchedulerRef.current = null;
+      backlogProcessorRef.current?.cancel();
+      backlogProcessorRef.current = null;
       engineRef.current?.dispose?.();
       engineRef.current = null;
       renderStateRef.current = {};
@@ -230,6 +235,8 @@ export function SessionOutputPane({
     }
 
     if (entries.length === 0) {
+      backlogProcessorRef.current?.cancel();
+      backlogProcessorRef.current = null;
       engine.reset();
       lastRenderedChunkIdRef.current = null;
       renderStateRef.current.selection = undefined;
@@ -245,19 +252,40 @@ export function SessionOutputPane({
       if (lastIndex >= 0) {
         startIndex = lastIndex + 1;
       } else {
+        backlogProcessorRef.current?.cancel();
         engine.reset();
+        renderSchedulerRef.current?.schedule(true);
       }
     } else {
+      backlogProcessorRef.current?.cancel();
       engine.reset();
+      renderSchedulerRef.current?.schedule(true);
     }
 
-    for (let index = startIndex; index < entries.length; index += 1) {
-      const bytes = entries[index].bytes ?? new TextEncoder().encode(entries[index].text);
-      engine.ingest(bytes);
+    if (startIndex >= entries.length) {
+      return;
     }
 
-    lastRenderedChunkIdRef.current = entries[entries.length - 1].id;
-    renderSchedulerRef.current?.schedule();
+    backlogProcessorRef.current?.cancel();
+    const processor = createTerminalBacklogProcessor({
+      entries,
+      startIndex,
+      ingestEntry: (entry) => {
+        const bytes = entry.bytes ?? new TextEncoder().encode(entry.text);
+        engine.ingest(bytes);
+      },
+      onEntryIngested: (entry) => {
+        lastRenderedChunkIdRef.current = entry.id;
+      },
+      scheduleRender: () => renderSchedulerRef.current?.schedule(),
+      onComplete: () => {
+        if (backlogProcessorRef.current === processor) {
+          backlogProcessorRef.current = null;
+        }
+      }
+    });
+    backlogProcessorRef.current = processor;
+    processor.start();
   }, [entries]);
 
   return (
@@ -315,6 +343,84 @@ interface TerminalRenderScheduler {
   schedule(forceFullRender?: boolean): void;
   cancel(): void;
   dispose(): void;
+}
+
+interface TerminalBacklogProcessor {
+  start(): void;
+  cancel(): void;
+}
+
+interface TerminalBacklogProcessorOptions {
+  entries: OutputEntry[];
+  startIndex: number;
+  ingestEntry: (entry: OutputEntry) => void;
+  onEntryIngested: (entry: OutputEntry) => void;
+  scheduleRender: () => void;
+  onComplete?: () => void;
+  maxBatchBytes?: number;
+  maxBatchEntries?: number;
+  requestFrame?: (callback: FrameRequestCallback) => number;
+  cancelFrame?: (handle: number) => void;
+}
+
+export function createTerminalBacklogProcessor({
+  entries,
+  startIndex,
+  ingestEntry,
+  onEntryIngested,
+  scheduleRender,
+  onComplete,
+  maxBatchBytes = BACKLOG_MAX_BATCH_BYTES,
+  maxBatchEntries = BACKLOG_MAX_BATCH_ENTRIES,
+  requestFrame = window.requestAnimationFrame,
+  cancelFrame = window.cancelAnimationFrame
+}: TerminalBacklogProcessorOptions): TerminalBacklogProcessor {
+  let index = startIndex;
+  let frameHandle: number | null = null;
+  let cancelled = false;
+
+  const processBatch = () => {
+    frameHandle = null;
+    if (cancelled) {
+      return;
+    }
+    let batchBytes = 0;
+    let batchEntries = 0;
+    while (index < entries.length && batchEntries < maxBatchEntries) {
+      const entry = entries[index];
+      const entryBytes = entry.bytes?.byteLength ?? new TextEncoder().encode(entry.text).byteLength;
+      ingestEntry(entry);
+      onEntryIngested(entry);
+      index += 1;
+      batchEntries += 1;
+      batchBytes += entryBytes;
+      if (batchBytes >= maxBatchBytes) {
+        break;
+      }
+    }
+    scheduleRender();
+    if (index < entries.length) {
+      frameHandle = requestFrame(processBatch);
+    } else {
+      onComplete?.();
+    }
+  };
+
+  return {
+    start() {
+      if (cancelled || frameHandle !== null) {
+        return;
+      }
+      frameHandle = requestFrame(processBatch);
+    },
+    cancel() {
+      cancelled = true;
+      if (frameHandle !== null) {
+        cancelFrame(frameHandle);
+        frameHandle = null;
+      }
+    }
+  };
 }
 
 export function createTerminalRenderScheduler(

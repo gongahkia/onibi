@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createTerminalRenderScheduler,
+  createTerminalBacklogProcessor,
   cellFromPoint,
   calculateTerminalSize,
   copyTextForSelection,
@@ -14,6 +15,7 @@ import {
   type TerminalRenderState
 } from "../src/components/SessionOutputPane";
 import type { GhosttySnapshot, GhosttyTerminalEngine } from "../src/lib/ghosttyTerminal";
+import type { OutputEntry } from "../src/store/sessionStore";
 
 class MockCanvasContext {
   fillStyle = "";
@@ -374,3 +376,109 @@ describe("terminal metrics", () => {
     expect(context.fillRects).toContainEqual({ x: 20, y: 3, width: 2, height: 12 });
   });
 });
+
+describe("createTerminalBacklogProcessor", () => {
+  it("ingests catch-up entries in bounded animation-frame batches", () => {
+    const entries = [entry("1", "ab"), entry("2", "cd"), entry("3", "ef")];
+    const ingested: string[] = [];
+    const advanced: string[] = [];
+    const callbacks: FrameRequestCallback[] = [];
+    const scheduleRender = vi.fn();
+    const processor = createTerminalBacklogProcessor({
+      entries,
+      startIndex: 0,
+      ingestEntry: (item) => ingested.push(item.text),
+      onEntryIngested: (item) => advanced.push(item.id),
+      scheduleRender,
+      maxBatchEntries: 2,
+      maxBatchBytes: 100,
+      requestFrame: (callback) => {
+        callbacks.push(callback);
+        return callbacks.length;
+      },
+      cancelFrame: vi.fn()
+    });
+
+    processor.start();
+    expect(callbacks).toHaveLength(1);
+
+    callbacks[0](0);
+    expect(ingested).toEqual(["ab", "cd"]);
+    expect(advanced).toEqual(["1", "2"]);
+    expect(scheduleRender).toHaveBeenCalledTimes(1);
+    expect(callbacks).toHaveLength(2);
+
+    callbacks[1](0);
+    expect(ingested).toEqual(["ab", "cd", "ef"]);
+    expect(advanced).toEqual(["1", "2", "3"]);
+    expect(scheduleRender).toHaveBeenCalledTimes(2);
+  });
+
+  it("cancels stale backlog work before the next batch runs", () => {
+    const entries = [entry("1", "ab"), entry("2", "cd")];
+    const ingested: string[] = [];
+    const callbacks: FrameRequestCallback[] = [];
+    const cancelFrame = vi.fn();
+    const processor = createTerminalBacklogProcessor({
+      entries,
+      startIndex: 0,
+      ingestEntry: (item) => ingested.push(item.id),
+      onEntryIngested: vi.fn(),
+      scheduleRender: vi.fn(),
+      maxBatchEntries: 1,
+      requestFrame: (callback) => {
+        callbacks.push(callback);
+        return callbacks.length;
+      },
+      cancelFrame
+    });
+
+    processor.start();
+    processor.cancel();
+    callbacks[0](0);
+
+    expect(cancelFrame).toHaveBeenCalledWith(1);
+    expect(ingested).toEqual([]);
+  });
+
+  it("renders between backlog batches and completes after the last ingested chunk", () => {
+    const entries = [entry("1", "a"), entry("2", "b")];
+    const callbacks: FrameRequestCallback[] = [];
+    const onComplete = vi.fn();
+    const scheduleRender = vi.fn();
+    const advanced: string[] = [];
+    const processor = createTerminalBacklogProcessor({
+      entries,
+      startIndex: 0,
+      ingestEntry: vi.fn(),
+      onEntryIngested: (item) => advanced.push(item.id),
+      scheduleRender,
+      onComplete,
+      maxBatchEntries: 1,
+      requestFrame: (callback) => {
+        callbacks.push(callback);
+        return callbacks.length;
+      },
+      cancelFrame: vi.fn()
+    });
+
+    processor.start();
+    callbacks[0](0);
+    callbacks[1](0);
+
+    expect(advanced).toEqual(["1", "2"]);
+    expect(scheduleRender).toHaveBeenCalledTimes(2);
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+});
+
+function entry(id: string, text: string): OutputEntry {
+  return {
+    id,
+    text,
+    bytes: new TextEncoder().encode(text),
+    sessionId: "s1",
+    stream: "stdout",
+    timestamp: new Date(0).toISOString()
+  };
+}
