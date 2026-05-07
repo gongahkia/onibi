@@ -97,6 +97,100 @@ def test_load_collector_raw_layout_without_snapshot(tmp_path: Path) -> None:
     assert "trivy" in snapshot.raw_evidence
 
 
+def test_raw_bundle_normalizes_real_vm_posture_evidence(tmp_path: Path) -> None:
+    raw_osquery = tmp_path / "raw" / "osquery"
+    raw_commands = tmp_path / "raw" / "commands"
+    raw_trivy = tmp_path / "raw" / "trivy"
+    raw_osquery.mkdir(parents=True)
+    raw_commands.mkdir(parents=True)
+    raw_trivy.mkdir(parents=True)
+    (raw_osquery / "system_info.json").write_text(
+        json.dumps([{"hostname": "real-vm", "uuid": "real-vm-id"}]),
+        encoding="utf-8",
+    )
+    (raw_osquery / "interface_addresses.json").write_text(
+        json.dumps(
+            [
+                {"interface": "lo", "address": "127.0.0.1", "mask": "255.0.0.0", "type": "ipv4"},
+                {
+                    "interface": "eth0",
+                    "address": "10.42.0.9",
+                    "mask": "255.255.0.0",
+                    "type": "ipv4",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (raw_osquery / "processes.json").write_text(
+        json.dumps([{"pid": "944", "name": "redis-server", "user": "redis"}]),
+        encoding="utf-8",
+    )
+    (raw_osquery / "listening_ports.json").write_text(
+        json.dumps(
+            [{"protocol": "tcp", "address": "0.0.0.0", "port": "6379", "pid": "944"}]  # noqa: S104
+        ),
+        encoding="utf-8",
+    )
+    (raw_osquery / "users.json").write_text(
+        json.dumps(
+            [
+                {"username": "root", "uid": "0", "gid": "0", "groups": "root"},
+                {"username": "deployer", "uid": "1001", "gid": "1001", "groups": "sudo"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (raw_osquery / "deb_packages.json").write_text(
+        json.dumps([{"name": "openssl", "version": "1.1.1f-1ubuntu2.16"}]),
+        encoding="utf-8",
+    )
+    (raw_osquery / "sshd_config.json").write_text(
+        json.dumps([{"key": "PermitEmptyPasswords", "value": "yes"}]),
+        encoding="utf-8",
+    )
+    (raw_commands / "ufw_status.json").write_text(
+        json.dumps({"stdout": "Status: inactive\n", "stderr": ""}),
+        encoding="utf-8",
+    )
+    (raw_commands / "apt_upgradable.json").write_text(
+        json.dumps(
+            {
+                "stdout": (
+                    "Listing...\n"
+                    "openssl/jammy-security 1.1.1f-1ubuntu2.17 amd64 "
+                    "[upgradable from: 1.1.1f-1ubuntu2.16]\n"
+                ),
+                "stderr": "",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (raw_trivy / "results.json").write_text(json.dumps({"Results": []}), encoding="utf-8")
+
+    snapshot = load_host_input(tmp_path)
+    report = analyze_snapshot(snapshot)
+
+    titles = {finding.title for finding in report.findings}
+    assert snapshot.identity.ip_addresses == ["10.42.0.9"]
+    assert snapshot.listening_ports[0].process == "redis-server"
+    assert snapshot.config["firewall"] == {
+        "ufw_status": "inactive",
+        "active": False,
+        "sources": ["ufw_status"],
+    }
+    assert "Redis is listening on a public interface" in titles
+    assert "Firewall appears inactive while public services are exposed" in titles
+    assert "Security package updates are pending" in titles
+    assert "SSH permits empty passwords" in titles
+    assert report.host_metadata["ip_addresses"] == ["10.42.0.9"]
+    assert {action["category"] for action in report.top_actions} >= {
+        "exposure",
+        "patching",
+        "identity",
+    }
+
+
 def test_collect_host_evidence_writes_snapshot_manifest_and_raw_layout(tmp_path: Path) -> None:
     result = collect_host_evidence(
         tmp_path,
@@ -111,11 +205,37 @@ def test_collect_host_evidence_writes_snapshot_manifest_and_raw_layout(tmp_path:
     assert manifest_path.is_file()
     assert (tmp_path / "raw" / "osquery" / "system_info.json").is_file()
     assert result.snapshot.identity.hostname == "collector-vm-01"
+    assert result.snapshot.identity.ip_addresses == ["10.0.0.20"]
+    assert result.snapshot.listening_ports[0].process == "sshd"
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["tool_versions"]["osquery"] == "osqueryi version 5.12.0"
     assert any(
         command["tool"] == "trivy" and command["status"] == "missing"
+        for command in manifest["commands"]
+    )
+    assert any(
+        command["tool"] == "system" and command["status"] == "missing"
+        for command in manifest["commands"]
+    )
+
+
+def test_collect_optional_command_failures_do_not_fail_collection(tmp_path: Path) -> None:
+    result = collect_host_evidence(
+        tmp_path,
+        include_trivy=False,
+        executable_lookup=_fake_lookup_with_failing_ufw,
+        command_runner=_fake_runner_with_failing_ufw,
+    )
+
+    manifest = json.loads((tmp_path / "collection-manifest.json").read_text(encoding="utf-8"))
+    assert result.snapshot.identity.hostname == "collector-vm-01"
+    assert any(
+        command["name"] == "ufw_status" and command["status"] == "failed"
+        for command in manifest["commands"]
+    )
+    assert any(
+        command["name"] == "filesystem_scan" and command["status"] == "skipped"
         for command in manifest["commands"]
     )
 
@@ -195,6 +315,12 @@ def _fake_lookup_without_trivy(name: str) -> str | None:
     return None
 
 
+def _fake_lookup_with_failing_ufw(name: str) -> str | None:
+    if name == "ufw":
+        return "/usr/sbin/ufw"
+    return _fake_lookup_without_trivy(name)
+
+
 def _fake_osquery_runner(
     args: object,
     *,
@@ -220,10 +346,22 @@ def _fake_osquery_runner(
         payload = [{"name": "Ubuntu", "version": "24.04", "id": "ubuntu"}]
     elif "from kernel_info" in query:
         payload = [{"version": "6.8.0-31-generic"}]
+    elif "from interface_addresses" in query:
+        payload = [
+            {"interface": "lo", "address": "127.0.0.1", "mask": "255.0.0.0", "type": "ipv4"},
+            {
+                "interface": "ens3",
+                "address": "10.0.0.20",
+                "mask": "255.255.255.0",
+                "type": "ipv4",
+            },
+        ]
     elif "from deb_packages" in query:
         payload = [{"name": "openssh-server", "version": "1:9.6p1", "arch": "amd64"}]
     elif "from listening_ports" in query:
         payload = [{"protocol": "tcp", "address": "127.0.0.1", "port": "22", "pid": "100"}]
+    elif "from processes" in query:
+        payload = [{"pid": "100", "name": "sshd", "path": "/usr/sbin/sshd", "user": "root"}]
     elif "from users" in query:
         payload = [{"username": "root", "uid": "0", "gid": "0", "shell": "/bin/bash"}]
     elif "from systemd_units" in query:
@@ -231,6 +369,24 @@ def _fake_osquery_runner(
     else:
         payload = []
     return subprocess.CompletedProcess(command, 0, stdout=json.dumps(payload), stderr="")
+
+
+def _fake_runner_with_failing_ufw(
+    args: object,
+    *,
+    capture_output: bool,
+    text: bool,
+    timeout: int,
+) -> subprocess.CompletedProcess[str]:
+    command = list(args) if isinstance(args, list | tuple) else [str(args)]
+    if command[0] == "/usr/sbin/ufw":
+        return subprocess.CompletedProcess(command, 1, stdout="", stderr="permission denied")
+    return _fake_osquery_runner(
+        command,
+        capture_output=capture_output,
+        text=text,
+        timeout=timeout,
+    )
 
 
 def _fake_doctor_lookup_all_tools(name: str) -> str | None:

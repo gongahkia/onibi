@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ from piranesi.host.models import (
     HostProcess,
     HostSnapshot,
     ListeningPort,
+    NetworkInterface,
     OsRelease,
     ServiceState,
     UserAccount,
@@ -51,35 +53,45 @@ def _load_snapshot_file(path: Path) -> HostSnapshot:
 def _load_tool_bundle(root: Path) -> HostSnapshot:
     osquery_dir = _tool_dir(root, "osquery")
     trivy_dir = _tool_dir(root, "trivy")
+    commands_dir = _tool_dir(root, "commands")
     osquery_payloads = _load_json_files(osquery_dir) if osquery_dir is not None else {}
     trivy_payloads = _load_json_files(trivy_dir) if trivy_dir is not None else {}
-    if not osquery_payloads and not trivy_payloads:
+    command_payloads = _load_json_files(commands_dir) if commands_dir is not None else {}
+    if not osquery_payloads and not trivy_payloads and not command_payloads:
         raise HostInputError(
             f"raw host bundle at {root} must contain host_snapshot.json, "
-            "osquery/*.json, trivy/*.json, raw/osquery/*.json, or raw/trivy/*.json"
+            "osquery/*.json, trivy/*.json, commands/*.json, raw/osquery/*.json, "
+            "raw/trivy/*.json, or raw/commands/*.json"
         )
 
-    identity = _identity_from_osquery(osquery_payloads) or HostIdentity(hostname=root.name)
+    network_interfaces = _network_interfaces_from_osquery(osquery_payloads)
+    identity = _identity_from_osquery(
+        osquery_payloads,
+        network_interfaces=network_interfaces,
+    ) or HostIdentity(hostname=root.name, ip_addresses=_ip_addresses(network_interfaces))
     os_release = _os_from_osquery(osquery_payloads)
     kernel = _kernel_from_osquery(osquery_payloads)
     packages = _packages_from_osquery(osquery_payloads)
-    listening_ports = _listening_ports_from_osquery(osquery_payloads)
     processes = _processes_from_osquery(osquery_payloads)
+    listening_ports = _listening_ports_from_osquery(osquery_payloads, processes=processes)
     users = _users_from_osquery(osquery_payloads)
     services = _services_from_osquery(osquery_payloads)
-    config = _config_from_osquery(osquery_payloads)
+    config = _config_from_evidence(osquery_payloads, command_payloads)
 
     raw_evidence: dict[str, object] = {}
     if osquery_payloads:
         raw_evidence["osquery"] = osquery_payloads
     if trivy_payloads:
         raw_evidence["trivy"] = trivy_payloads
+    if command_payloads:
+        raw_evidence["commands"] = command_payloads
 
     return HostSnapshot(
         identity=identity,
         os=os_release,
         kernel=kernel,
         packages=packages,
+        network_interfaces=network_interfaces,
         listening_ports=listening_ports,
         processes=processes,
         services=services,
@@ -89,6 +101,7 @@ def _load_tool_bundle(root: Path) -> HostSnapshot:
             "bundle": str(root),
             "osquery": str(osquery_dir) if osquery_payloads and osquery_dir else "",
             "trivy": str(trivy_dir) if trivy_payloads and trivy_dir else "",
+            "commands": str(commands_dir) if command_payloads and commands_dir else "",
         },
         raw_evidence=raw_evidence,
     )
@@ -140,7 +153,11 @@ def _all_rows(payloads: dict[str, object], *names: str) -> list[dict[str, Any]]:
     return rows
 
 
-def _identity_from_osquery(payloads: dict[str, object]) -> HostIdentity | None:
+def _identity_from_osquery(
+    payloads: dict[str, object],
+    *,
+    network_interfaces: list[NetworkInterface],
+) -> HostIdentity | None:
     info = _first(_all_rows(payloads, "system_info", "hostname"))
     if info is None:
         return None
@@ -150,6 +167,7 @@ def _identity_from_osquery(payloads: dict[str, object]) -> HostIdentity | None:
     return HostIdentity(
         hostname=hostname,
         host_id=_string(info.get("uuid")) or _string(info.get("hardware_serial")),
+        ip_addresses=_ip_addresses(network_interfaces),
     )
 
 
@@ -191,12 +209,37 @@ def _packages_from_osquery(payloads: dict[str, object]) -> list[HostPackage]:
     return _dedupe_models(packages, key=lambda item: (item.name, item.version))
 
 
-def _listening_ports_from_osquery(payloads: dict[str, object]) -> list[ListeningPort]:
+def _network_interfaces_from_osquery(payloads: dict[str, object]) -> list[NetworkInterface]:
+    interfaces: list[NetworkInterface] = []
+    for row in _all_rows(payloads, "interface_addresses", "network_interfaces"):
+        address = _string(row.get("address")) or _string(row.get("ip_address"))
+        name = _string(row.get("interface")) or _string(row.get("name"))
+        if not address or not name or not _is_ip_address(address):
+            continue
+        interfaces.append(
+            NetworkInterface(
+                name=name,
+                address=address,
+                family=_string(row.get("type")) or _ip_family(address),
+                mask=_string(row.get("mask")) or _string(row.get("netmask")),
+            )
+        )
+    return _dedupe_models(interfaces, key=lambda item: (item.name, item.address))
+
+
+def _listening_ports_from_osquery(
+    payloads: dict[str, object],
+    *,
+    processes: list[HostProcess],
+) -> list[ListeningPort]:
     ports: list[ListeningPort] = []
+    processes_by_pid = {process.pid: process for process in processes}
     for row in _all_rows(payloads, "listening_ports", "process_open_sockets"):
         port = _int(row.get("port") or row.get("local_port"))
         if port is None:
             continue
+        pid = _int(row.get("pid"))
+        process = processes_by_pid.get(pid) if pid is not None else None
         ports.append(
             ListeningPort(
                 protocol=(_string(row.get("protocol")) or "tcp").lower(),
@@ -206,8 +249,12 @@ def _listening_ports_from_osquery(payloads: dict[str, object]) -> list[Listening
                     or _DEFAULT_LISTEN_ADDRESS
                 ),
                 port=port,
-                process=_string(row.get("process_name")) or _string(row.get("name")),
-                pid=_int(row.get("pid")),
+                process=(
+                    _string(row.get("process_name"))
+                    or _string(row.get("name"))
+                    or (process.name if process is not None else None)
+                ),
+                pid=pid,
             )
         )
     return _dedupe_models(
@@ -279,17 +326,161 @@ def _services_from_osquery(payloads: dict[str, object]) -> list[ServiceState]:
     return _dedupe_models(services, key=lambda item: item.name)
 
 
-def _config_from_osquery(payloads: dict[str, object]) -> dict[str, object]:
+def _config_from_evidence(
+    payloads: dict[str, object],
+    command_payloads: dict[str, object],
+) -> dict[str, object]:
     config: dict[str, object] = {}
     ssh_rows = _all_rows(payloads, "ssh_config", "sshd_config")
-    if ssh_rows:
-        ssh_config: dict[str, str] = {}
-        for row in ssh_rows:
-            key = _string(row.get("key")) or _string(row.get("option"))
-            value = _string(row.get("value"))
-            if key and value is not None:
-                ssh_config[key] = value
+    ssh_config: dict[str, str] = {}
+    for row in ssh_rows:
+        key = _string(row.get("key")) or _string(row.get("option"))
+        value = _string(row.get("value"))
+        if key and value is not None:
+            ssh_config[key] = value
+    ssh_config.update(_parse_sshd_effective_config(command_payloads))
+    if ssh_config:
         config["ssh"] = ssh_config
+    firewall = _firewall_config_from_commands(command_payloads)
+    if firewall:
+        config["firewall"] = firewall
+    updates = _updates_from_commands(command_payloads)
+    if updates:
+        config["updates"] = updates
+    sudo = _sudo_config_from_evidence(payloads, command_payloads)
+    if sudo:
+        config["sudo"] = sudo
+    return config
+
+
+def _parse_sshd_effective_config(command_payloads: dict[str, object]) -> dict[str, str]:
+    stdout = _command_stdout(command_payloads.get("sshd_effective_config"))
+    config: dict[str, str] = {}
+    if not stdout:
+        return config
+    names = {
+        "permitrootlogin": "PermitRootLogin",
+        "passwordauthentication": "PasswordAuthentication",
+        "permitemptypasswords": "PermitEmptyPasswords",
+        "kbdinteractiveauthentication": "KbdInteractiveAuthentication",
+        "challengeresponseauthentication": "ChallengeResponseAuthentication",
+    }
+    for line in stdout.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) != 2:
+            continue
+        key = names.get(parts[0].lower())
+        if key:
+            config.setdefault(key, parts[1].strip())
+    return config
+
+
+def _firewall_config_from_commands(command_payloads: dict[str, object]) -> dict[str, object]:
+    ufw_stdout = _command_stdout(command_payloads.get("ufw_status"))
+    iptables_stdout = _command_stdout(command_payloads.get("iptables_rules"))
+    nft_stdout = _command_stdout(command_payloads.get("nft_ruleset"))
+    config: dict[str, object] = {}
+    sources: list[str] = []
+    if ufw_stdout is not None:
+        sources.append("ufw_status")
+        status = _parse_ufw_status(ufw_stdout)
+        config["ufw_status"] = status or "unknown"
+        if status == "active":
+            config["active"] = True
+        elif status == "inactive":
+            config["active"] = False
+    if iptables_stdout is not None:
+        sources.append("iptables_rules")
+        rules = [line for line in iptables_stdout.splitlines() if line.strip().startswith("-A ")]
+        config["iptables_rule_count"] = len(rules)
+        if rules and "active" not in config:
+            config["active"] = True
+    if nft_stdout is not None:
+        sources.append("nft_ruleset")
+        rules = [line for line in nft_stdout.splitlines() if line.strip()]
+        config["nft_rule_count"] = len(rules)
+        if rules and "active" not in config:
+            config["active"] = True
+    if sources:
+        config["sources"] = sources
+    return config
+
+
+def _parse_ufw_status(stdout: str) -> str | None:
+    for line in stdout.splitlines():
+        normalized = line.strip().lower()
+        if normalized.startswith("status:"):
+            status = normalized.split(":", 1)[1].strip()
+            if status.startswith("active"):
+                return "active"
+            if status.startswith("inactive"):
+                return "inactive"
+            return status or None
+    return None
+
+
+def _updates_from_commands(command_payloads: dict[str, object]) -> dict[str, object]:
+    stdout = _command_stdout(command_payloads.get("apt_upgradable"))
+    if stdout is None:
+        return {}
+    updates: list[dict[str, object]] = []
+    for line in stdout.splitlines():
+        if not line or line.startswith("Listing...") or "/" not in line:
+            continue
+        package, rest = line.split("/", 1)
+        fields = rest.split()
+        candidate = fields[0] if fields else "unknown"
+        installed = _installed_version_from_apt_line(rest)
+        is_security = "-security" in rest or "security" in rest.lower()
+        updates.append(
+            {
+                "package": package,
+                "candidate": candidate,
+                "installed": installed,
+                "security": is_security,
+            }
+        )
+    return {
+        "source": "apt_upgradable",
+        "upgradable": updates,
+        "security_count": sum(1 for update in updates if update["security"]),
+    }
+
+
+def _installed_version_from_apt_line(rest: str) -> str | None:
+    marker = "upgradable from: "
+    if marker not in rest:
+        return None
+    return rest.split(marker, 1)[1].strip("] ")
+
+
+def _sudo_config_from_evidence(
+    payloads: dict[str, object],
+    command_payloads: dict[str, object],
+) -> dict[str, object]:
+    admin_groups: list[dict[str, object]] = []
+    for group in ("sudo", "admin", "wheel"):
+        stdout = _command_stdout(command_payloads.get(f"group_{group}"))
+        if not stdout:
+            continue
+        parts = stdout.strip().split(":")
+        members = parts[3].split(",") if len(parts) >= 4 and parts[3] else []
+        admin_groups.append({"group": group, "members": [item for item in members if item]})
+    sudoers_rows = _all_rows(payloads, "sudoers")
+    sudoers = [
+        {
+            "path": _string(row.get("path")),
+            "key": _string(row.get("key")),
+            "value": _string(row.get("value")),
+        }
+        for row in sudoers_rows
+        if _string(row.get("value"))
+    ]
+    config: dict[str, object] = {}
+    if admin_groups:
+        config["admin_groups"] = admin_groups
+    if sudoers:
+        config["sudoers_entries"] = sudoers
     return config
 
 
@@ -311,6 +502,59 @@ def _int(value: object) -> int | None:
         return int(str(value))
     except ValueError:
         return None
+
+
+def _command_stdout(payload: object) -> str | None:
+    if isinstance(payload, dict):
+        stdout = payload.get("stdout")
+        return str(stdout) if stdout is not None else None
+    if isinstance(payload, str):
+        return payload
+    return None
+
+
+def _ip_addresses(interfaces: list[NetworkInterface]) -> list[str]:
+    addresses: list[str] = []
+    for interface in interfaces:
+        if _is_loopback_or_link_local(interface.address):
+            continue
+        addresses.append(interface.address)
+    return _dedupe_values(addresses)
+
+
+def _is_ip_address(value: str) -> bool:
+    try:
+        ip_address(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _ip_family(value: str) -> str | None:
+    try:
+        parsed = ip_address(value)
+    except ValueError:
+        return None
+    return f"ipv{parsed.version}"
+
+
+def _is_loopback_or_link_local(value: str) -> bool:
+    try:
+        parsed = ip_address(value)
+    except ValueError:
+        return True
+    return parsed.is_loopback or parsed.is_link_local
+
+
+def _dedupe_values(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        deduped.append(item)
+    return deduped
 
 
 def _dedupe_models[T](items: list[T], *, key: Callable[[T], object]) -> list[T]:

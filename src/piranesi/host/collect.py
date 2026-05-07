@@ -22,9 +22,21 @@ OSQUERY_QUERIES: dict[str, str] = {
         "as pretty_name from os_version;"
     ),
     "kernel_info": "select version from kernel_info;",
+    "interface_addresses": (
+        "select interface, address, mask, type from interface_addresses;"
+    ),
     "deb_packages": "select name, version, arch from deb_packages;",
-    "listening_ports": "select protocol, address, port, pid from listening_ports;",
-    "processes": "select pid, name, path, cmdline from processes;",
+    "listening_ports": (
+        "select lp.protocol, lp.address, lp.port, lp.pid, p.name as process_name, "
+        "p.path as process_path, u.username as user "
+        "from listening_ports lp "
+        "left join processes p on lp.pid = p.pid "
+        "left join users u on p.uid = u.uid;"
+    ),
+    "processes": (
+        "select p.pid, p.name, p.path, p.cmdline, u.username as user "
+        "from processes p left join users u on p.uid = u.uid;"
+    ),
     "users": (
         "select u.username, u.uid, u.gid, u.shell, group_concat(g.groupname) as groups "
         "from users u "
@@ -36,8 +48,26 @@ OSQUERY_QUERIES: dict[str, str] = {
     "sshd_config": (
         "select label as key, value from augeas "
         "where path = '/etc/ssh/sshd_config' "
-        "and label in ('PermitRootLogin', 'PasswordAuthentication');"
+        "and label in ("
+        "'PermitRootLogin', 'PasswordAuthentication', 'PermitEmptyPasswords', "
+        "'KbdInteractiveAuthentication', 'ChallengeResponseAuthentication'"
+        ");"
     ),
+    "sudoers": (
+        "select path, label as key, value from augeas "
+        "where path like '/etc/sudoers%' and value != '';"
+    ),
+}
+
+OPTIONAL_TEXT_COMMANDS: dict[str, list[str]] = {
+    "ufw_status": ["ufw", "status", "verbose"],
+    "iptables_rules": ["iptables", "-S"],
+    "nft_ruleset": ["nft", "list", "ruleset"],
+    "apt_upgradable": ["apt", "list", "--upgradable"],
+    "sshd_effective_config": ["sshd", "-T"],
+    "group_sudo": ["getent", "group", "sudo"],
+    "group_admin": ["getent", "group", "admin"],
+    "group_wheel": ["getent", "group", "wheel"],
 }
 
 
@@ -109,9 +139,11 @@ def collect_host_evidence(
     raw_dir = output_path / "raw"
     osquery_dir = raw_dir / "osquery"
     trivy_dir = raw_dir / "trivy"
+    commands_dir = raw_dir / "commands"
     output_path.mkdir(parents=True, exist_ok=True)
     osquery_dir.mkdir(parents=True, exist_ok=True)
     trivy_dir.mkdir(parents=True, exist_ok=True)
+    commands_dir.mkdir(parents=True, exist_ok=True)
 
     manifest = HostCollectionManifest(
         output_dir=str(output_path),
@@ -154,6 +186,18 @@ def collect_host_evidence(
         manifest.commands.append(status)
         if status.status == "ok":
             successful_osquery_outputs += 1
+
+    for name, command in OPTIONAL_TEXT_COMMANDS.items():
+        manifest.commands.append(
+            _run_optional_text_command(
+                name=name,
+                command=command,
+                output_file=commands_dir / f"{name}.json",
+                timeout_seconds=timeout_seconds,
+                executable_lookup=executable_lookup,
+                command_runner=command_runner,
+            )
+        )
 
     if include_trivy:
         _collect_trivy(
@@ -349,6 +393,72 @@ def _run_json_command(
         tool=tool,
         name=name,
         command=command,
+        status="ok",
+        exit_code=0,
+        output_file=str(output_file),
+    )
+
+
+def _run_optional_text_command(
+    *,
+    name: str,
+    command: list[str],
+    output_file: Path,
+    timeout_seconds: int,
+    executable_lookup: ExecutableLookup,
+    command_runner: CommandRunner,
+) -> CollectionCommandResult:
+    executable = command[0]
+    resolved = executable_lookup(executable)
+    if resolved is None:
+        return CollectionCommandResult(
+            tool="system",
+            name=name,
+            command=command,
+            status="missing",
+            stderr=f"{executable} was not found on PATH",
+        )
+    resolved_command = [resolved, *command[1:]]
+    try:
+        completed = command_runner(
+            resolved_command,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        return CollectionCommandResult(
+            tool="system",
+            name=name,
+            command=resolved_command,
+            status="timeout",
+            stderr=f"system command timed out after {timeout_seconds}s",
+        )
+    if completed.returncode != 0:
+        return CollectionCommandResult(
+            tool="system",
+            name=name,
+            command=resolved_command,
+            status="failed",
+            exit_code=completed.returncode,
+            stderr=_compact_stderr(completed.stderr),
+        )
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    output_file.write_text(
+        json.dumps(
+            {
+                "command": resolved_command,
+                "stdout": completed.stdout,
+                "stderr": completed.stderr,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return CollectionCommandResult(
+        tool="system",
+        name=name,
+        command=resolved_command,
         status="ok",
         exit_code=0,
         output_file=str(output_file),

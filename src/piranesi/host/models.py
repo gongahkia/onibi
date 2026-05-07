@@ -69,6 +69,15 @@ class HostProcess(BaseModel):
     user: str | None = None
 
 
+class NetworkInterface(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    address: str
+    family: str | None = None
+    mask: str | None = None
+
+
 class ServiceState(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -98,6 +107,7 @@ class HostSnapshot(BaseModel):
     os: OsRelease = Field(default_factory=OsRelease)
     kernel: str | None = None
     packages: list[HostPackage] = Field(default_factory=list)
+    network_interfaces: list[NetworkInterface] = Field(default_factory=list)
     listening_ports: list[ListeningPort] = Field(default_factory=list)
     processes: list[HostProcess] = Field(default_factory=list)
     services: list[ServiceState] = Field(default_factory=list)
@@ -133,6 +143,8 @@ class HostPostureReport(BaseModel):
     analysis_modes: list[AnalysisMode] = Field(default_factory=_default_analysis_modes)
     posture_score: int = Field(ge=0, le=100)
     summary: dict[str, object]
+    host_metadata: dict[str, object] = Field(default_factory=dict)
+    top_actions: list[dict[str, object]] = Field(default_factory=list)
     findings: list[HostFinding] = Field(default_factory=list)
     evidence_inventory: dict[str, int] = Field(default_factory=dict)
     known_limitations: list[str] = Field(default_factory=list)

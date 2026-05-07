@@ -51,9 +51,18 @@ _HIGH_RISK_PORTS = {
 }
 _ADMIN_GROUPS = {"sudo", "admin", "wheel"}
 _REQUIRED_EVIDENCE = {
-    "packages": "Package inventory is required for CVE and patch posture.",
-    "listening_ports": "Listening port inventory is required for exposure analysis.",
-    "users": "User inventory is required for privilege posture.",
+    "packages": (
+        "Package inventory is required for CVE and patch posture. "
+        "Collect it with `piranesi collect` osquery query `deb_packages`."
+    ),
+    "listening_ports": (
+        "Listening port inventory is required for exposure analysis. "
+        "Collect it with `piranesi collect` osquery query `listening_ports`."
+    ),
+    "users": (
+        "User inventory is required for privilege posture. "
+        "Collect it with `piranesi collect` osquery query `users`."
+    ),
 }
 
 
@@ -101,14 +110,17 @@ def analyze_snapshot(
         else:
             findings.append(_llm_unavailable_finding(snapshot))
     ranked = _rank_findings(_dedupe_findings(findings))
+    evidence_inventory = _evidence_inventory(snapshot)
     return HostPostureReport(
         target=snapshot.identity.hostname,
         generated_at=datetime.now(UTC).isoformat(),
         analysis_modes=modes,
         posture_score=_posture_score(ranked),
         summary=_summary(ranked),
+        host_metadata=_host_metadata(snapshot, evidence_inventory),
+        top_actions=_top_actions(ranked),
         findings=ranked,
-        evidence_inventory=_evidence_inventory(snapshot),
+        evidence_inventory=evidence_inventory,
         known_limitations=[
             "Phase 1 supports Debian/Ubuntu-oriented host evidence only.",
             "Raw bundle ingestion is first-class for osquery and Trivy JSON outputs.",
@@ -123,6 +135,8 @@ def deterministic_findings(snapshot: HostSnapshot) -> list[HostFinding]:
     findings.extend(_trivy_vulnerability_findings(snapshot))
     findings.extend(_exposed_port_findings(snapshot))
     findings.extend(_ssh_config_findings(snapshot))
+    findings.extend(_firewall_findings(snapshot))
+    findings.extend(_pending_security_update_findings(snapshot))
     findings.extend(_privileged_user_findings(snapshot))
     findings.extend(_missing_evidence_findings(snapshot))
     return findings
@@ -367,7 +381,118 @@ def _ssh_config_findings(snapshot: HostSnapshot) -> list[HostFinding]:
                 source_tool="osquery",
             )
         )
+    if normalized.get("permitemptypasswords") == "yes":
+        findings.append(
+            HostFinding(
+                id=host_finding_id("ssh", snapshot.identity.hostname, "permitemptypasswords"),
+                title="SSH permits empty passwords",
+                category="misconfiguration",
+                severity="critical",
+                confidence=0.95,
+                affected_component="sshd_config",
+                control_refs=["CIS Ubuntu Linux: Disable SSH empty passwords"],
+                evidence=[
+                    EvidenceItem(
+                        source="osquery",
+                        key="ssh.PermitEmptyPasswords",
+                        value=str(
+                            ssh.get("PermitEmptyPasswords")
+                            or ssh.get("permitemptypasswords")
+                        ),
+                    )
+                ],
+                remediation=(
+                    "Set `PermitEmptyPasswords no`, lock any account with an empty "
+                    "password, and restart sshd."
+                ),
+                source_tool="osquery",
+            )
+        )
     return findings
+
+
+def _firewall_findings(snapshot: HostSnapshot) -> list[HostFinding]:
+    public_ports = [port for port in snapshot.listening_ports if _is_public(port)]
+    if not public_ports:
+        return []
+    firewall = snapshot.config.get("firewall")
+    if not isinstance(firewall, dict) or firewall.get("active") is not False:
+        return []
+    highest: Severity = (
+        "high" if any(port.port in _HIGH_RISK_PORTS for port in public_ports) else "medium"
+    )
+    services = ", ".join(_port_label(port) for port in public_ports[:8])
+    return [
+        HostFinding(
+            id=host_finding_id("firewall", snapshot.identity.hostname, "inactive"),
+            title="Firewall appears inactive while public services are exposed",
+            category="exposure",
+            severity=highest,
+            confidence=0.85,
+            affected_component="firewall",
+            evidence=[
+                EvidenceItem(
+                    source="system",
+                    key="firewall.active",
+                    value=str(firewall.get("active")),
+                ),
+                EvidenceItem(source="osquery", key="public_listeners", value=services),
+            ],
+            remediation=(
+                "Enable a host firewall and allow only required source networks for "
+                f"public listeners: {services}."
+            ),
+            source_tool="piranesi",
+        )
+    ]
+
+
+def _pending_security_update_findings(snapshot: HostSnapshot) -> list[HostFinding]:
+    updates = snapshot.config.get("updates")
+    if not isinstance(updates, dict):
+        return []
+    raw_updates = updates.get("upgradable")
+    if not isinstance(raw_updates, list):
+        return []
+    security_updates = [
+        update
+        for update in raw_updates
+        if isinstance(update, dict) and update.get("security") is True
+    ]
+    if not security_updates:
+        return []
+    packages = [
+        str(update.get("package"))
+        for update in security_updates
+        if update.get("package") is not None
+    ]
+    return [
+        HostFinding(
+            id=host_finding_id("updates", snapshot.identity.hostname, "security"),
+            title="Security package updates are pending",
+            category="patching",
+            severity="high",
+            confidence=0.9,
+            affected_component="apt",
+            evidence=[
+                EvidenceItem(
+                    source="system",
+                    key="apt.security_updates",
+                    value=", ".join(packages[:12]),
+                ),
+                EvidenceItem(
+                    source="system",
+                    key="apt.security_update_count",
+                    value=str(len(security_updates)),
+                ),
+            ],
+            remediation=(
+                "Apply pending security updates with the approved Debian/Ubuntu "
+                "patch workflow and reboot if kernel or core libraries changed."
+            ),
+            source_tool="piranesi",
+        )
+    ]
 
 
 def _privileged_user_findings(snapshot: HostSnapshot) -> list[HostFinding]:
@@ -487,6 +612,11 @@ def _port_evidence(port: ListeningPort) -> EvidenceItem:
     )
 
 
+def _port_label(port: ListeningPort) -> str:
+    process = f" ({port.process})" if port.process else ""
+    return f"{port.protocol}/{port.address}:{port.port}{process}"
+
+
 def _normalize_severity(value: object) -> Severity:
     normalized = str(value or "").strip().lower()
     if normalized in _SEVERITY_RANK:
@@ -534,15 +664,89 @@ def _summary(findings: list[HostFinding]) -> dict[str, object]:
 
 
 def _evidence_inventory(snapshot: HostSnapshot) -> dict[str, int]:
+    firewall = snapshot.config.get("firewall")
+    updates = snapshot.config.get("updates")
     return {
         "packages": len(snapshot.packages),
+        "network_interfaces": len(snapshot.network_interfaces),
+        "ip_addresses": len(snapshot.identity.ip_addresses),
         "listening_ports": len(snapshot.listening_ports),
         "processes": len(snapshot.processes),
         "services": len(snapshot.services),
         "users": len(snapshot.users),
         "config_sections": len(snapshot.config),
+        "firewall_evidence": 1 if isinstance(firewall, dict) else 0,
+        "update_evidence": 1 if isinstance(updates, dict) else 0,
         "raw_tools": len(snapshot.raw_evidence),
     }
+
+
+def _host_metadata(snapshot: HostSnapshot, inventory: dict[str, int]) -> dict[str, object]:
+    tools = sorted(key for key, value in snapshot.tool_provenance.items() if value)
+    raw_tools = sorted(snapshot.raw_evidence)
+    evidence_complete = {
+        "packages": inventory["packages"] > 0,
+        "network": inventory["network_interfaces"] > 0 or inventory["ip_addresses"] > 0,
+        "listening_ports": inventory["listening_ports"] > 0,
+        "processes": inventory["processes"] > 0,
+        "users": inventory["users"] > 0,
+        "firewall": inventory["firewall_evidence"] > 0,
+        "updates": inventory["update_evidence"] > 0,
+        "trivy": "trivy" in snapshot.raw_evidence,
+    }
+    return {
+        "hostname": snapshot.identity.hostname,
+        "host_id": snapshot.identity.host_id,
+        "os": {
+            "name": snapshot.os.name,
+            "version": snapshot.os.version,
+            "id": snapshot.os.id,
+            "version_id": snapshot.os.version_id,
+            "pretty_name": snapshot.os.pretty_name,
+        },
+        "kernel": snapshot.kernel,
+        "ip_addresses": snapshot.identity.ip_addresses,
+        "tools": tools,
+        "raw_tools": raw_tools,
+        "evidence_completeness": evidence_complete,
+    }
+
+
+def _top_actions(findings: list[HostFinding]) -> list[dict[str, object]]:
+    groups = [
+        (
+            "exposure",
+            "Reduce externally reachable services first.",
+            {"exposure", "compound-risk"},
+        ),
+        (
+            "patching",
+            "Apply security updates and fixed package versions.",
+            {"patching", "vulnerability"},
+        ),
+        (
+            "identity",
+            "Review privileged local accounts and SSH authentication.",
+            {"identity", "misconfiguration"},
+        ),
+        ("coverage", "Collect missing evidence to improve confidence.", {"coverage"}),
+    ]
+    actions: list[dict[str, object]] = []
+    for category, action, categories in groups:
+        matching = [finding for finding in findings if finding.category in categories]
+        if not matching:
+            continue
+        highest = matching[0].severity
+        actions.append(
+            {
+                "category": category,
+                "action": action,
+                "severity": highest,
+                "finding_ids": [finding.id for finding in matching[:5]],
+                "finding_titles": [finding.title for finding in matching[:5]],
+            }
+        )
+    return actions
 
 
 def _evidence_by_key(snapshot: HostSnapshot) -> dict[str, EvidenceItem]:
