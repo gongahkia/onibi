@@ -422,7 +422,22 @@ struct NotificationsSettingsTab: View {
 struct AppearanceSettingsTab: View {
     @ObservedObject var viewModel: SettingsViewModel
     
-    private let iconOptions = ["terminal", "terminal.fill", "chevron.left.forwardslash.chevron.right"]
+    private let iconOptions = [
+        "terminal",
+        "terminal.fill",
+        "chevron.left.forwardslash.chevron.right",
+        "command",
+        "command.circle",
+        "bell.badge",
+        "bolt",
+        "sparkles",
+        "waveform",
+        "eye"
+    ]
+
+    private let iconColumns = [
+        GridItem(.adaptive(minimum: 40), spacing: 8)
+    ]
     
     var body: some View {
         Form {
@@ -476,10 +491,9 @@ struct AppearanceSettingsTab: View {
             }
             
             Section("Menubar Icon") {
-                HStack {
+                VStack(alignment: .leading, spacing: 10) {
                     Text("Icon style")
-                    Spacer()
-                    HStack(spacing: 16) {
+                    LazyVGrid(columns: iconColumns, alignment: .leading, spacing: 8) {
                         ForEach(iconOptions, id: \.self) { iconName in
                             iconOption(iconName, selected: viewModel.settings.menubarIconStyle == iconName)
                                 .onTapGesture {
