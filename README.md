@@ -6,11 +6,11 @@ Piranesi is an alpha, local-first VM and Linux host posture assessment CLI. It t
 host evidence into a focused vulnerability and exposure report for VM sandbox,
 homelab, lab-infra, and security review workflows.
 
-The current center of gravity is a snapshot workflow: collect evidence from a VM or
-host, run `piranesi assess`, and review JSON/Markdown reports. The first supported
-raw evidence bundle format is osquery plus Trivy JSON. Deterministic analysis works
-without LLM credentials; optional LLM analysis can add evidence-bound posture
-reasoning when a LiteLLM-compatible API key is configured.
+The current center of gravity is a local VM snapshot workflow: run `piranesi collect`
+on a Linux VM or host, run `piranesi assess`, and review JSON/Markdown reports. The
+first supported raw evidence bundle format is osquery plus Trivy JSON. Deterministic
+analysis works without LLM credentials; optional LLM analysis can add evidence-bound
+posture reasoning when a LiteLLM-compatible API key is configured.
 
 ## Status
 
@@ -19,11 +19,12 @@ the VM vulnerability sandbox proposal. The legacy source-code pipeline still exi
 internally for now, but it is no longer the primary public use case.
 
 Phase 1 targets Debian/Ubuntu-style Linux host evidence and produces a snapshot
-report. It does not yet ship a local collector, fleet dashboard, ticket sync, PDF
-export, Windows support, or cloud inventory ingestion.
+report. It does not yet ship fleet dashboards, ticket sync, PDF export, Windows
+support, or cloud inventory ingestion.
 
 ## What It Does
 
+- Collects local VM/host evidence with osquery and optional Trivy.
 - Loads a canonical `host_snapshot.json` or a raw evidence bundle directory.
 - Normalizes osquery host facts: OS, kernel, packages, listening ports, users,
   services, and selected SSH configuration.
@@ -51,7 +52,9 @@ Supported LLM environment variables are `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
 uv sync
 uv run piranesi --version
 
-uv run piranesi assess tests/fixtures/host/debian-vulnerable \
+uv run piranesi collect --output piranesi-evidence
+
+uv run piranesi assess piranesi-evidence \
   --output piranesi-output \
   --analysis deterministic \
   --format both
@@ -68,6 +71,13 @@ Use a canonical snapshot directly:
 uv run piranesi assess path/to/host_snapshot.json --output piranesi-output
 ```
 
+Use the bundled development fixture without collecting local host evidence:
+
+```bash
+uv run piranesi assess tests/fixtures/host/debian-vulnerable \
+  --output piranesi-output
+```
+
 Use optional evidence-bound LLM reasoning:
 
 ```bash
@@ -78,7 +88,28 @@ OPENAI_API_KEY=... uv run piranesi assess path/to/evidence-bundle \
 
 ## Raw Bundle Layout
 
-Piranesi accepts a directory containing `osquery/*.json` and/or `trivy/*.json`:
+`piranesi collect` writes a collector layout:
+
+```text
+piranesi-evidence/
+  host_snapshot.json
+  collection-manifest.json
+  raw/
+    osquery/
+      system_info.json
+      os_version.json
+      kernel_info.json
+      deb_packages.json
+      listening_ports.json
+      users.json
+      systemd_units.json
+      sshd_config.json
+    trivy/
+      results.json
+```
+
+Piranesi also accepts a hand-built bundle containing `osquery/*.json` and/or
+`trivy/*.json` at the bundle root:
 
 ```text
 evidence-bundle/
@@ -125,7 +156,8 @@ See `tests/fixtures/host/debian-clean/host_snapshot.json` for a complete example
 ```bash
 uv sync
 uv run pytest tests/test_host_posture.py
-uv run piranesi assess tests/fixtures/host/debian-vulnerable
+uv run piranesi collect --output piranesi-evidence --no-trivy
+uv run piranesi assess piranesi-evidence
 ```
 
 The older source-code analysis modules are still in the tree during the pivot. Treat

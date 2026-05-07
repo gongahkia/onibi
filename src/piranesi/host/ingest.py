@@ -49,12 +49,14 @@ def _load_snapshot_file(path: Path) -> HostSnapshot:
 
 
 def _load_tool_bundle(root: Path) -> HostSnapshot:
-    osquery_payloads = _load_json_files(root / "osquery")
-    trivy_payloads = _load_json_files(root / "trivy")
+    osquery_dir = _tool_dir(root, "osquery")
+    trivy_dir = _tool_dir(root, "trivy")
+    osquery_payloads = _load_json_files(osquery_dir) if osquery_dir is not None else {}
+    trivy_payloads = _load_json_files(trivy_dir) if trivy_dir is not None else {}
     if not osquery_payloads and not trivy_payloads:
         raise HostInputError(
             f"raw host bundle at {root} must contain host_snapshot.json, "
-            "osquery/*.json, or trivy/*.json"
+            "osquery/*.json, trivy/*.json, raw/osquery/*.json, or raw/trivy/*.json"
         )
 
     identity = _identity_from_osquery(osquery_payloads) or HostIdentity(hostname=root.name)
@@ -85,11 +87,21 @@ def _load_tool_bundle(root: Path) -> HostSnapshot:
         config=config,
         tool_provenance={
             "bundle": str(root),
-            "osquery": str(root / "osquery") if osquery_payloads else "",
-            "trivy": str(root / "trivy") if trivy_payloads else "",
+            "osquery": str(osquery_dir) if osquery_payloads and osquery_dir else "",
+            "trivy": str(trivy_dir) if trivy_payloads and trivy_dir else "",
         },
         raw_evidence=raw_evidence,
     )
+
+
+def _tool_dir(root: Path, name: str) -> Path | None:
+    direct = root / name
+    if direct.is_dir():
+        return direct
+    collected = root / "raw" / name
+    if collected.is_dir():
+        return collected
+    return None
 
 
 def _load_json_files(path: Path) -> dict[str, object]:

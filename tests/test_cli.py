@@ -67,6 +67,7 @@ def test_help_shows_all_commands() -> None:
     assert result.exit_code == 0
     commands = [
         "version",
+        "collect",
         "doctor",
         "assess",
         "validate-evidence",

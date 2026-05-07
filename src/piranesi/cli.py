@@ -49,8 +49,10 @@ from piranesi.hooks.pre_commit import (
     uninstall_pre_commit_hook,
 )
 from piranesi.host import (
+    HostCollectionError,
     HostInputError,
     analyze_snapshot,
+    collect_host_evidence,
     load_host_input,
     write_host_report_outputs,
 )
@@ -2111,6 +2113,82 @@ def main(
 @app.command("version")
 def version_command() -> None:
     typer.echo(f"piranesi {__version__}")
+
+
+@app.command("collect", help="Collect local Linux VM host evidence for assessment.")
+def collect(
+    output: OutputOption = Path("./piranesi-evidence"),
+    include_trivy: Annotated[
+        bool,
+        typer.Option(
+            "--trivy/--no-trivy",
+            help="Run Trivy filesystem vulnerability collection when trivy is available.",
+        ),
+    ] = True,
+    trivy_target: Annotated[
+        Path,
+        typer.Option("--trivy-target", help="Filesystem path passed to `trivy fs`."),
+    ] = Path("/"),
+    timeout: Annotated[
+        int,
+        typer.Option("--timeout", min=1, help="Timeout in seconds for each osquery command."),
+    ] = 30,
+    trivy_timeout: Annotated[
+        int,
+        typer.Option("--trivy-timeout", min=1, help="Timeout in seconds for the Trivy scan."),
+    ] = 300,
+    verbose: VerboseOption = False,
+    quiet: QuietOption = False,
+    debug: DebugOption = False,
+    json_logs: JsonLogsOption = False,
+) -> None:
+    setup_logging(verbose=verbose, quiet=quiet, debug=debug, json_logs=json_logs)
+    logger = logging.getLogger("piranesi.collect")
+    try:
+        result = collect_host_evidence(
+            output,
+            include_trivy=include_trivy,
+            trivy_target=trivy_target,
+            timeout_seconds=timeout,
+            trivy_timeout_seconds=trivy_timeout,
+        )
+    except HostCollectionError as exc:
+        log_error_context(
+            logger,
+            event="host_collection_failed",
+            what="host_collection",
+            on_what=str(output),
+            why=str(exc),
+            next_step="install osquery and rerun `piranesi collect`",
+            debug="collection-manifest.json may contain partial command results",
+        )
+        raise typer.Exit(code=2) from exc
+
+    if quiet:
+        return
+    ok_commands = sum(1 for command in result.manifest.commands if command.status == "ok")
+    failed_commands = sum(
+        1
+        for command in result.manifest.commands
+        if command.status in {"failed", "timeout", "missing"}
+    )
+    if sys.stderr.isatty() and not json_logs:
+        print_summary_table(
+            "Piranesi Host Collection",
+            {
+                "Target": result.snapshot.identity.hostname,
+                "Snapshot": result.snapshot_path,
+                "Manifest": result.manifest_path,
+                "Commands OK": ok_commands,
+                "Commands Not Collected": failed_commands,
+            },
+        )
+    else:
+        typer.echo(f"target: {result.snapshot.identity.hostname}")
+        typer.echo(f"snapshot: {result.snapshot_path}")
+        typer.echo(f"manifest: {result.manifest_path}")
+        typer.echo(f"commands_ok: {ok_commands}")
+        typer.echo(f"commands_not_collected: {failed_commands}")
 
 
 @app.command(help="Diagnose local readiness and explain what Piranesi can run automatically.")

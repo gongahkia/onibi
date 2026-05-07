@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import cast
 
 from piranesi.host.models import HostFinding, HostPostureReport
 
@@ -72,4 +73,4 @@ def _finding_lines(finding: HostFinding) -> list[str]:
 
 
 def host_report_payload(report: HostPostureReport) -> dict[str, object]:
-    return json.loads(report.model_dump_json())
+    return cast(dict[str, object], json.loads(report.model_dump_json()))

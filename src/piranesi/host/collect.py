@@ -1,0 +1,370 @@
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+from collections.abc import Callable, Sequence
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Literal, Protocol
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from piranesi.host.ingest import HostInputError, load_host_input
+from piranesi.host.models import HostSnapshot
+
+CollectionStatus = Literal["ok", "missing", "failed", "timeout", "skipped"]
+
+OSQUERY_QUERIES: dict[str, str] = {
+    "system_info": "select hostname, uuid, hardware_serial, computer_name from system_info;",
+    "os_version": (
+        "select name, version, platform as id, version as version_id, name || ' ' || version "
+        "as pretty_name from os_version;"
+    ),
+    "kernel_info": "select version from kernel_info;",
+    "deb_packages": "select name, version, arch from deb_packages;",
+    "listening_ports": "select protocol, address, port, pid from listening_ports;",
+    "processes": "select pid, name, path, cmdline from processes;",
+    "users": (
+        "select u.username, u.uid, u.gid, u.shell, group_concat(g.groupname) as groups "
+        "from users u "
+        "left join user_groups ug on u.uid = ug.uid "
+        "left join groups g on ug.gid = g.gid "
+        "group by u.username, u.uid, u.gid, u.shell;"
+    ),
+    "systemd_units": "select name, active_state, unit_file_state from systemd_units;",
+    "sshd_config": (
+        "select label as key, value from augeas "
+        "where path = '/etc/ssh/sshd_config' "
+        "and label in ('PermitRootLogin', 'PasswordAuthentication');"
+    ),
+}
+
+
+class CommandRunner(Protocol):
+    def __call__(
+        self,
+        args: Sequence[str],
+        *,
+        capture_output: bool,
+        text: bool,
+        timeout: int,
+    ) -> subprocess.CompletedProcess[str]:
+        """Run a command and return a completed process."""
+
+
+ExecutableLookup = Callable[[str], str | None]
+
+
+class CollectionCommandResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tool: str
+    name: str
+    command: list[str] = Field(default_factory=list)
+    status: CollectionStatus
+    exit_code: int | None = None
+    output_file: str | None = None
+    stderr: str | None = None
+
+
+class HostCollectionManifest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: int = 1
+    collected_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    output_dir: str
+    raw_dir: str
+    snapshot_file: str | None = None
+    tool_versions: dict[str, str] = Field(default_factory=dict)
+    commands: list[CollectionCommandResult] = Field(default_factory=list)
+
+
+class HostCollectionResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    output_dir: str
+    manifest_path: str
+    snapshot_path: str
+    raw_dir: str
+    snapshot: HostSnapshot
+    manifest: HostCollectionManifest
+
+
+class HostCollectionError(RuntimeError):
+    """Raised when local host collection cannot produce usable evidence."""
+
+
+def collect_host_evidence(
+    output_dir: str | Path,
+    *,
+    include_trivy: bool = True,
+    trivy_target: str | Path = Path("/"),
+    timeout_seconds: int = 30,
+    trivy_timeout_seconds: int = 300,
+    executable_lookup: ExecutableLookup = shutil.which,
+    command_runner: CommandRunner = subprocess.run,
+) -> HostCollectionResult:
+    output_path = Path(output_dir).expanduser().resolve(strict=False)
+    raw_dir = output_path / "raw"
+    osquery_dir = raw_dir / "osquery"
+    trivy_dir = raw_dir / "trivy"
+    output_path.mkdir(parents=True, exist_ok=True)
+    osquery_dir.mkdir(parents=True, exist_ok=True)
+    trivy_dir.mkdir(parents=True, exist_ok=True)
+
+    manifest = HostCollectionManifest(
+        output_dir=str(output_path),
+        raw_dir=str(raw_dir),
+    )
+    manifest_path = output_path / "collection-manifest.json"
+    osquery_path = executable_lookup("osqueryi")
+    if osquery_path is None:
+        manifest.commands.append(
+            CollectionCommandResult(
+                tool="osquery",
+                name="discovery",
+                status="missing",
+                stderr="osqueryi was not found on PATH",
+            )
+        )
+        _write_manifest(manifest_path, manifest)
+        raise HostCollectionError("osqueryi was not found on PATH")
+
+    osquery_version = _tool_version(
+        tool="osquery",
+        executable=osquery_path,
+        command_runner=command_runner,
+        timeout_seconds=timeout_seconds,
+        commands=manifest.commands,
+    )
+    if osquery_version:
+        manifest.tool_versions["osquery"] = osquery_version
+
+    successful_osquery_outputs = 0
+    for name, query in OSQUERY_QUERIES.items():
+        status = _run_json_command(
+            tool="osquery",
+            name=name,
+            command=[osquery_path, "--json", query],
+            output_file=osquery_dir / f"{name}.json",
+            timeout_seconds=timeout_seconds,
+            command_runner=command_runner,
+        )
+        manifest.commands.append(status)
+        if status.status == "ok":
+            successful_osquery_outputs += 1
+
+    if include_trivy:
+        _collect_trivy(
+            trivy_dir=trivy_dir,
+            target=trivy_target,
+            timeout_seconds=trivy_timeout_seconds,
+            executable_lookup=executable_lookup,
+            command_runner=command_runner,
+            manifest=manifest,
+        )
+    else:
+        manifest.commands.append(
+            CollectionCommandResult(
+                tool="trivy",
+                name="filesystem_scan",
+                status="skipped",
+                stderr="Trivy collection disabled by --no-trivy",
+            )
+        )
+
+    if successful_osquery_outputs == 0:
+        _write_manifest(manifest_path, manifest)
+        raise HostCollectionError("osqueryi did not produce usable JSON evidence")
+
+    try:
+        snapshot = load_host_input(output_path)
+    except HostInputError as exc:
+        _write_manifest(manifest_path, manifest)
+        raise HostCollectionError(str(exc)) from exc
+
+    snapshot_path = output_path / "host_snapshot.json"
+    snapshot_path.write_text(snapshot.model_dump_json(indent=2), encoding="utf-8")
+    manifest.snapshot_file = str(snapshot_path)
+    _write_manifest(manifest_path, manifest)
+    return HostCollectionResult(
+        output_dir=str(output_path),
+        manifest_path=str(manifest_path),
+        snapshot_path=str(snapshot_path),
+        raw_dir=str(raw_dir),
+        snapshot=snapshot,
+        manifest=manifest,
+    )
+
+
+def _collect_trivy(
+    *,
+    trivy_dir: Path,
+    target: str | Path,
+    timeout_seconds: int,
+    executable_lookup: ExecutableLookup,
+    command_runner: CommandRunner,
+    manifest: HostCollectionManifest,
+) -> None:
+    trivy_path = executable_lookup("trivy")
+    if trivy_path is None:
+        manifest.commands.append(
+            CollectionCommandResult(
+                tool="trivy",
+                name="filesystem_scan",
+                status="missing",
+                stderr="trivy was not found on PATH",
+            )
+        )
+        return
+    trivy_version = _tool_version(
+        tool="trivy",
+        executable=trivy_path,
+        command_runner=command_runner,
+        timeout_seconds=30,
+        commands=manifest.commands,
+    )
+    if trivy_version:
+        manifest.tool_versions["trivy"] = trivy_version
+    manifest.commands.append(
+        _run_json_command(
+            tool="trivy",
+            name="filesystem_scan",
+            command=[
+                trivy_path,
+                "fs",
+                "--format",
+                "json",
+                "--quiet",
+                "--scanners",
+                "vuln",
+                str(target),
+            ],
+            output_file=trivy_dir / "results.json",
+            timeout_seconds=timeout_seconds,
+            command_runner=command_runner,
+        )
+    )
+
+
+def _tool_version(
+    *,
+    tool: str,
+    executable: str,
+    command_runner: CommandRunner,
+    timeout_seconds: int,
+    commands: list[CollectionCommandResult],
+) -> str | None:
+    command = [executable, "--version"]
+    try:
+        completed = command_runner(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        commands.append(
+            CollectionCommandResult(
+                tool=tool,
+                name="version",
+                command=command,
+                status="timeout",
+                stderr=f"{tool} version command timed out",
+            )
+        )
+        return None
+    if completed.returncode != 0:
+        commands.append(
+            CollectionCommandResult(
+                tool=tool,
+                name="version",
+                command=command,
+                status="failed",
+                exit_code=completed.returncode,
+                stderr=_compact_stderr(completed.stderr),
+            )
+        )
+        return None
+    commands.append(
+        CollectionCommandResult(
+            tool=tool,
+            name="version",
+            command=command,
+            status="ok",
+            exit_code=0,
+        )
+    )
+    return _first_line(completed.stdout)
+
+
+def _run_json_command(
+    *,
+    tool: str,
+    name: str,
+    command: list[str],
+    output_file: Path,
+    timeout_seconds: int,
+    command_runner: CommandRunner,
+) -> CollectionCommandResult:
+    try:
+        completed = command_runner(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        return CollectionCommandResult(
+            tool=tool,
+            name=name,
+            command=command,
+            status="timeout",
+            stderr=f"{tool} command timed out after {timeout_seconds}s",
+        )
+    if completed.returncode != 0:
+        return CollectionCommandResult(
+            tool=tool,
+            name=name,
+            command=command,
+            status="failed",
+            exit_code=completed.returncode,
+            stderr=_compact_stderr(completed.stderr),
+        )
+    try:
+        payload = json.loads(completed.stdout or "[]")
+    except json.JSONDecodeError as exc:
+        return CollectionCommandResult(
+            tool=tool,
+            name=name,
+            command=command,
+            status="failed",
+            exit_code=completed.returncode,
+            stderr=f"invalid JSON output: {exc}",
+        )
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    output_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return CollectionCommandResult(
+        tool=tool,
+        name=name,
+        command=command,
+        status="ok",
+        exit_code=0,
+        output_file=str(output_file),
+    )
+
+
+def _write_manifest(path: Path, manifest: HostCollectionManifest) -> None:
+    path.write_text(manifest.model_dump_json(indent=2), encoding="utf-8")
+
+
+def _first_line(value: str) -> str:
+    return next((line.strip() for line in value.splitlines() if line.strip()), "")
+
+
+def _compact_stderr(value: str | None) -> str | None:
+    if value is None:
+        return None
+    rendered = " ".join(value.split())
+    return rendered[:500] if rendered else None

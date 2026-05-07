@@ -10,6 +10,10 @@ Severity = Literal["informational", "low", "medium", "high", "critical"]
 AnalysisMode = Literal["deterministic", "llm"]
 
 
+def _default_analysis_modes() -> list[AnalysisMode]:
+    return ["deterministic"]
+
+
 class EvidenceItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -126,7 +130,7 @@ class HostPostureReport(BaseModel):
 
     target: str
     generated_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
-    analysis_modes: list[AnalysisMode] = Field(default_factory=lambda: ["deterministic"])
+    analysis_modes: list[AnalysisMode] = Field(default_factory=_default_analysis_modes)
     posture_score: int = Field(ge=0, le=100)
     summary: dict[str, object]
     findings: list[HostFinding] = Field(default_factory=list)
