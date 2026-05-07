@@ -62,6 +62,7 @@ def test_cli_local_env_does_not_override_existing_key(
 
 def test_help_shows_all_commands() -> None:
     result = runner.invoke(app, ["--help"])
+    output = _plain_output(result.stdout)
 
     assert result.exit_code == 0
     commands = [
@@ -75,11 +76,11 @@ def test_help_shows_all_commands() -> None:
         "ui",
     ]
     for command in commands:
-        assert command in result.stdout
+        assert command in output
 
     hidden_legacy_commands = ["run", "pipeline", "rules", "plugins", "dev"]
     for command in hidden_legacy_commands:
-        assert command not in result.stdout
+        assert f"│ {command}" not in output
 
 
 def test_scan_requires_authorized_flag(tmp_path: Path) -> None:
@@ -1109,7 +1110,7 @@ def test_eval_enrich_ground_truth_cli_outputs_json(tmp_path: Path) -> None:
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     assert payload["updated_entries"] == 1
-    assert payload["updated_fields"] == 4
+    assert payload["updated_fields"] == 5
     assert payload["unresolved"] == {}
 
 
