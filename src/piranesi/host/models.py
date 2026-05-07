@@ -121,6 +121,8 @@ class HostFinding(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
+    rule_id: str | None = None
+    instance_key: str | None = None
     title: str
     category: str
     severity: Severity
@@ -133,6 +135,8 @@ class HostFinding(BaseModel):
     source_tool: str
     analysis_mode: AnalysisMode = "deterministic"
     rationale: str | None = None
+    suppressed: bool = False
+    suppression_reason: str | None = None
 
 
 class CollectionCapabilityHealth(BaseModel):

@@ -124,6 +124,9 @@ def _finding_lines(finding: HostFinding) -> list[str]:
         lines.append(f"- CVEs: {', '.join(finding.cve_ids)}")
     if finding.control_refs:
         lines.append(f"- Controls: {', '.join(finding.control_refs)}")
+    if finding.suppressed:
+        reason = finding.suppression_reason or "suppressed"
+        lines.append(f"- Suppressed: yes ({reason})")
     lines.extend(["", "**Evidence**"])
     for item in finding.evidence:
         lines.append(f"- `{item.source}` `{item.key}`: {item.value}")

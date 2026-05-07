@@ -11,6 +11,7 @@ from piranesi.cli import app
 from piranesi.doctor import build_doctor_report
 from piranesi.host import (
     HostCollectionError,
+    ListeningPort,
     analyze_snapshot,
     collect_host_evidence,
     load_host_input,
@@ -18,6 +19,7 @@ from piranesi.host import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "host"
+runner = CliRunner()
 
 
 def test_load_raw_osquery_trivy_bundle_and_analyze() -> None:
@@ -73,6 +75,213 @@ def test_assess_cli_writes_host_reports(tmp_path: Path) -> None:
     payload = json.loads((output_dir / "host-report.json").read_text(encoding="utf-8"))
     assert payload["target"] == "debian-vm-01"
     assert payload["summary"]["findings_total"] >= 5
+    assert "piranesi init" not in result.output
+
+
+def test_host_finding_ids_are_stable_for_service_port_and_sysctl_value_changes(
+    tmp_path: Path,
+) -> None:
+    _write_minimal_raw_bundle(tmp_path)
+    snapshot = load_host_input(tmp_path)
+    redis_6379 = snapshot.model_copy(
+        update={
+            "listening_ports": [
+                ListeningPort(
+                    protocol="tcp",
+                    address="0.0.0.0",
+                    port=6379,
+                    process="redis-server",
+                    pid=944,
+                )
+            ],
+            "config": {"sysctl": {"values": {"net.ipv4.ip_forward": "1"}}},
+        },
+        deep=True,
+    )
+    redis_6380 = redis_6379.model_copy(
+        update={
+            "listening_ports": [
+                ListeningPort(
+                    protocol="tcp",
+                    address="0.0.0.0",
+                    port=6380,
+                    process="redis-server",
+                    pid=944,
+                )
+            ],
+            "config": {"sysctl": {"values": {"net.ipv4.ip_forward": "true"}}},
+        },
+        deep=True,
+    )
+
+    first = analyze_snapshot(redis_6379)
+    second = analyze_snapshot(redis_6380)
+
+    first_redis = next(finding for finding in first.findings if "Redis" in finding.title)
+    second_redis = next(finding for finding in second.findings if "Redis" in finding.title)
+    assert first_redis.id == second_redis.id
+    assert first_redis.rule_id == "host.listener.high_risk_service"
+    first_sysctl = next(
+        finding
+        for finding in first.findings
+        if finding.affected_component == "net.ipv4.ip_forward"
+    )
+    assert first_sysctl.id == "host-" + first_sysctl.id.removeprefix("host-")
+    assert first_sysctl.instance_key == "net.ipv4.ip_forward"
+
+
+def test_host_cve_and_privileged_user_ids_are_scoped_by_instance() -> None:
+    report = analyze_snapshot(load_host_input(FIXTURES / "debian-vulnerable"))
+
+    cve_findings = [finding for finding in report.findings if finding.cve_ids]
+    user_findings = [finding for finding in report.findings if finding.category == "identity"]
+
+    assert len({finding.id for finding in cve_findings}) == len(cve_findings)
+    assert all(finding.instance_key for finding in cve_findings)
+    assert {finding.instance_key for finding in user_findings} == {"deployer"}
+
+
+def test_assess_applies_host_id_suppression_and_fail_severity_ignores_it(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    fixture_report = analyze_snapshot(load_host_input(FIXTURES / "debian-vulnerable"))
+    high_findings = [finding for finding in fixture_report.findings if finding.severity == "high"]
+    (tmp_path / ".piranesi-ignore").write_text(
+        "suppressions:\n"
+        + "".join(
+            f"  - id: {finding.id}\n    reason: accepted risk\n"
+            for finding in high_findings
+        ),
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "out"
+
+    result = runner.invoke(
+        app,
+        [
+            "assess",
+            str(FIXTURES / "debian-vulnerable"),
+            "--output",
+            str(output_dir),
+            "--fail-severity",
+            "high",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads((output_dir / "host-report.json").read_text(encoding="utf-8"))
+    suppressed = next(
+        finding for finding in payload["findings"] if finding["id"] == high_findings[0].id
+    )
+    assert suppressed["suppressed"] is True
+    assert suppressed["suppression_reason"] == "accepted risk"
+
+
+def test_assess_fail_severity_and_no_fail_for_host_findings(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+
+    fail = runner.invoke(
+        app,
+        [
+            "assess",
+            str(FIXTURES / "debian-vulnerable"),
+            "--output",
+            str(output_dir),
+            "--fail-severity",
+            "high",
+        ],
+    )
+    no_fail = runner.invoke(
+        app,
+        [
+            "assess",
+            str(FIXTURES / "debian-vulnerable"),
+            "--output",
+            str(output_dir),
+            "--fail-severity",
+            "high",
+            "--no-fail",
+        ],
+    )
+
+    assert fail.exit_code == 1
+    assert no_fail.exit_code == 0, no_fail.stdout
+
+
+def test_assess_invalid_host_suppression_yaml_exits_2(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".piranesi-ignore").write_text("suppressions: [", encoding="utf-8")
+
+    result = runner.invoke(app, ["assess", str(FIXTURES / "debian-clean" / "host_snapshot.json")])
+
+    assert result.exit_code == 2
+
+
+def test_public_listener_classification_defaults_and_private_override(tmp_path: Path) -> None:
+    _write_minimal_raw_bundle(tmp_path)
+    snapshot = load_host_input(tmp_path)
+    addresses = [
+        "127.0.0.1",
+        "10.0.0.5",
+        "172.16.0.5",
+        "192.168.1.5",
+        "169.254.1.5",
+        "fc00::1",
+        "0.0.0.0",
+        "::",
+        "8.8.8.8",
+        "2001:4860:4860::8888",
+    ]
+    snapshot = snapshot.model_copy(
+        update={
+            "listening_ports": [
+                ListeningPort(
+                    protocol="tcp",
+                    address=address,
+                    port=6379,
+                    process=f"redis-{index}",
+                )
+                for index, address in enumerate(addresses)
+            ]
+        },
+        deep=True,
+    )
+
+    default_report = analyze_snapshot(snapshot)
+    lab_report = analyze_snapshot(snapshot, treat_private_as_public=True)
+
+    default_addresses = {
+        finding.evidence[0].value.removeprefix("tcp/").split(":6379", 1)[0]
+        for finding in default_report.findings
+        if finding.title == "Redis is listening on a public interface"
+    }
+    lab_addresses = {
+        finding.evidence[0].value.removeprefix("tcp/").split(":6379", 1)[0]
+        for finding in lab_report.findings
+        if finding.title == "Redis is listening on a public interface"
+    }
+    assert default_addresses == {"0.0.0.0", "::", "8.8.8.8", "2001:4860:4860::8888"}
+    assert {"10.0.0.5", "172.16.0.5", "192.168.1.5", "fc00::1"} <= lab_addresses
+
+
+def test_explain_and_validate_evidence_support_host_report(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+    report = analyze_snapshot(load_host_input(FIXTURES / "debian-vulnerable"))
+    write_host_report_outputs(report, output_dir, report_format="json")
+    finding_id = report.findings[0].id
+
+    explain = runner.invoke(app, ["explain", finding_id, "--output", str(output_dir)])
+    validate = runner.invoke(app, ["validate-evidence", str(output_dir)])
+
+    assert explain.exit_code == 0, explain.stdout
+    assert "Piranesi Host Finding Explanation" in explain.stdout
+    assert validate.exit_code == 0, validate.stdout
+    assert "Valid: yes" in validate.stdout
 
 
 def test_load_collector_raw_layout_without_snapshot(tmp_path: Path) -> None:

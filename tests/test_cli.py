@@ -553,6 +553,20 @@ def test_init_scaffolds_detected_framework_defaults(
     assert "Run `piranesi assess piranesi-evidence --output piranesi-output`" in result.stdout
 
 
+def test_init_host_workflow_scaffolds_host_first_defaults(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["init", "--workflow", "host"])
+
+    assert result.exit_code == 0
+    assert "Host workflow selected" in result.stdout
+    assert "piranesi collect --output piranesi-evidence" in result.stdout
+    assert "host-finding-id" in (tmp_path / ".piranesi-ignore").read_text(encoding="utf-8")
+
+
 def test_init_scaffolds_explicit_framework_defaults(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

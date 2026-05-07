@@ -309,7 +309,7 @@ def _linux_distribution() -> str | None:
 
 
 def _all_ok(checks: list[DoctorCheck], names: set[str]) -> bool:
-    return all(_check_status(checks, name) == "ok" for name in names)
+    return all(_check_status(checks, name) in {"ok", "warn"} for name in names)
 
 
 def _check_status(checks: list[DoctorCheck], name: str) -> str | None:

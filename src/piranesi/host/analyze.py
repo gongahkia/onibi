@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import ipaddress
 from collections import Counter
 from datetime import UTC, datetime
 from typing import Literal, cast
@@ -115,8 +116,12 @@ def analyze_snapshot(
     *,
     analysis: AnalysisSelection = "deterministic",
     provider: LLMProvider | None = None,
+    treat_private_as_public: bool = False,
 ) -> HostPostureReport:
-    deterministic = deterministic_findings(snapshot)
+    deterministic = deterministic_findings(
+        snapshot,
+        treat_private_as_public=treat_private_as_public,
+    )
     findings = list(deterministic)
     modes: list[AnalysisMode] = ["deterministic"]
     if analysis == "llm":
@@ -157,12 +162,26 @@ def analyze_snapshot(
     )
 
 
-def deterministic_findings(snapshot: HostSnapshot) -> list[HostFinding]:
+def deterministic_findings(
+    snapshot: HostSnapshot,
+    *,
+    treat_private_as_public: bool = False,
+) -> list[HostFinding]:
     findings: list[HostFinding] = []
     findings.extend(_trivy_vulnerability_findings(snapshot))
-    findings.extend(_exposed_port_findings(snapshot))
+    findings.extend(
+        _exposed_port_findings(
+            snapshot,
+            treat_private_as_public=treat_private_as_public,
+        )
+    )
     findings.extend(_ssh_config_findings(snapshot))
-    findings.extend(_firewall_findings(snapshot))
+    findings.extend(
+        _firewall_findings(
+            snapshot,
+            treat_private_as_public=treat_private_as_public,
+        )
+    )
     findings.extend(_pending_security_update_findings(snapshot))
     findings.extend(_unattended_upgrade_findings(snapshot))
     findings.extend(_sysctl_findings(snapshot))
@@ -324,6 +343,8 @@ def _trivy_vulnerability_findings(snapshot: HostSnapshot) -> list[HostFinding]:
                 findings.append(
                     HostFinding(
                         id=host_finding_id("trivy", snapshot.identity.hostname, pkg_name, vuln_id),
+                        rule_id="host.cve.trivy",
+                        instance_key=f"{pkg_name}:{vuln_id}",
                         title=title,
                         category="vulnerability",
                         severity=severity,
@@ -345,21 +366,27 @@ def _trivy_vulnerability_findings(snapshot: HostSnapshot) -> list[HostFinding]:
     return findings
 
 
-def _exposed_port_findings(snapshot: HostSnapshot) -> list[HostFinding]:
+def _exposed_port_findings(
+    snapshot: HostSnapshot,
+    *,
+    treat_private_as_public: bool = False,
+) -> list[HostFinding]:
     findings: list[HostFinding] = []
     for port in snapshot.listening_ports:
-        if not _is_public(port):
+        if not _is_public(port, treat_private_as_public=treat_private_as_public):
             continue
-        if port.port in _HIGH_RISK_PORTS:
-            service = _HIGH_RISK_PORTS[port.port]
+        instance_key = _listener_instance_key(port)
+        service = _high_risk_service(port)
+        if service is not None:
             findings.append(
                 HostFinding(
                     id=host_finding_id(
-                        "port",
+                        "host.listener.high_risk_service",
                         snapshot.identity.hostname,
-                        port.protocol,
-                        port.port,
+                        instance_key,
                     ),
+                    rule_id="host.listener.high_risk_service",
+                    instance_key=instance_key,
                     title=f"{service} is listening on a public interface",
                     category="exposure",
                     severity="high",
@@ -377,11 +404,12 @@ def _exposed_port_findings(snapshot: HostSnapshot) -> list[HostFinding]:
             findings.append(
                 HostFinding(
                     id=host_finding_id(
-                        "ssh_exposed",
+                        "host.listener.ssh_public",
                         snapshot.identity.hostname,
-                        port.protocol,
-                        port.port,
+                        instance_key,
                     ),
+                    rule_id="host.listener.ssh_public",
+                    instance_key=instance_key,
                     title="SSH is reachable on a public interface",
                     category="exposure",
                     severity="medium",
@@ -408,6 +436,8 @@ def _ssh_config_findings(snapshot: HostSnapshot) -> list[HostFinding]:
         findings.append(
             HostFinding(
                 id=host_finding_id("ssh", snapshot.identity.hostname, "permitrootlogin"),
+                rule_id="host.ssh.permit_root_login",
+                instance_key="permitrootlogin",
                 title="SSH root login is allowed",
                 category="misconfiguration",
                 severity="high",
@@ -432,6 +462,8 @@ def _ssh_config_findings(snapshot: HostSnapshot) -> list[HostFinding]:
         findings.append(
             HostFinding(
                 id=host_finding_id("ssh", snapshot.identity.hostname, "passwordauthentication"),
+                rule_id="host.ssh.password_authentication",
+                instance_key="passwordauthentication",
                 title="SSH password authentication is enabled",
                 category="misconfiguration",
                 severity="medium",
@@ -461,6 +493,8 @@ def _ssh_config_findings(snapshot: HostSnapshot) -> list[HostFinding]:
         findings.append(
             HostFinding(
                 id=host_finding_id("ssh", snapshot.identity.hostname, "permitemptypasswords"),
+                rule_id="host.ssh.permit_empty_passwords",
+                instance_key="permitemptypasswords",
                 title="SSH permits empty passwords",
                 category="misconfiguration",
                 severity="critical",
@@ -487,8 +521,16 @@ def _ssh_config_findings(snapshot: HostSnapshot) -> list[HostFinding]:
     return findings
 
 
-def _firewall_findings(snapshot: HostSnapshot) -> list[HostFinding]:
-    public_ports = [port for port in snapshot.listening_ports if _is_public(port)]
+def _firewall_findings(
+    snapshot: HostSnapshot,
+    *,
+    treat_private_as_public: bool = False,
+) -> list[HostFinding]:
+    public_ports = [
+        port
+        for port in snapshot.listening_ports
+        if _is_public(port, treat_private_as_public=treat_private_as_public)
+    ]
     if not public_ports:
         return []
     firewall = snapshot.config.get("firewall")
@@ -501,6 +543,8 @@ def _firewall_findings(snapshot: HostSnapshot) -> list[HostFinding]:
     return [
         HostFinding(
             id=host_finding_id("firewall", snapshot.identity.hostname, "inactive"),
+            rule_id="host.firewall.inactive_public_services",
+            instance_key="inactive",
             title="Firewall appears inactive while public services are exposed",
             category="exposure",
             severity=highest,
@@ -545,6 +589,8 @@ def _pending_security_update_findings(snapshot: HostSnapshot) -> list[HostFindin
     return [
         HostFinding(
             id=host_finding_id("updates", snapshot.identity.hostname, "security"),
+            rule_id="host.updates.security_pending",
+            instance_key="security",
             title="Security package updates are pending",
             category="patching",
             severity="high",
@@ -583,6 +629,8 @@ def _unattended_upgrade_findings(snapshot: HostSnapshot) -> list[HostFinding]:
     return [
         HostFinding(
             id=host_finding_id("updates", snapshot.identity.hostname, "unattended-upgrades"),
+            rule_id="host.updates.unattended_upgrades_missing",
+            instance_key="unattended-upgrades",
             title="Automatic security updates are not installed",
             category="patching",
             severity="medium",
@@ -657,7 +705,9 @@ def _sysctl_findings(snapshot: HostSnapshot) -> list[HostFinding]:
             continue
         findings.append(
             HostFinding(
-                id=host_finding_id("sysctl", snapshot.identity.hostname, setting, value),
+                id=host_finding_id("sysctl", snapshot.identity.hostname, setting),
+                rule_id=f"host.sysctl.{setting}",
+                instance_key=setting,
                 title=title,
                 category="misconfiguration",
                 severity=severity,
@@ -685,6 +735,8 @@ def _privileged_user_findings(snapshot: HostSnapshot) -> list[HostFinding]:
                         snapshot.identity.hostname,
                         user.username,
                     ),
+                    rule_id="host.identity.privileged_user",
+                    instance_key=user.username,
                     title=f"Privileged local account present: {user.username}",
                     category="identity",
                     severity="medium",
@@ -735,6 +787,8 @@ def _missing_evidence_findings(snapshot: HostSnapshot) -> list[HostFinding]:
         findings.append(
             HostFinding(
                 id=host_finding_id("missing_evidence", snapshot.identity.hostname, field_name),
+                rule_id="host.coverage.missing_evidence",
+                instance_key=field_name,
                 title=f"Missing host evidence: {field_name}",
                 category="coverage",
                 severity="informational",
@@ -749,6 +803,8 @@ def _missing_evidence_findings(snapshot: HostSnapshot) -> list[HostFinding]:
         findings.append(
             HostFinding(
                 id=host_finding_id("missing_evidence", snapshot.identity.hostname, "trivy"),
+                rule_id="host.coverage.missing_trivy",
+                instance_key="trivy",
                 title="Missing Trivy vulnerability evidence",
                 category="coverage",
                 severity="low",
@@ -909,6 +965,8 @@ def _llm_unavailable_finding(
 ) -> HostFinding:
     return HostFinding(
         id=host_finding_id("llm_unavailable", snapshot.identity.hostname, reason),
+        rule_id="host.coverage.llm_unavailable",
+        instance_key="llm",
         title="LLM host analysis was not completed",
         category="coverage",
         severity="informational",
@@ -929,9 +987,50 @@ def _trivy_results(payload: object) -> list[dict[str, object]]:
     return []
 
 
-def _is_public(port: ListeningPort) -> bool:
+def _is_public(port: ListeningPort, *, treat_private_as_public: bool = False) -> bool:
     address = port.address.strip().lower()
-    return address in _PUBLIC_BIND_ADDRESSES or not address.startswith(("127.", "::1", "localhost"))
+    if address in _PUBLIC_BIND_ADDRESSES:
+        return True
+    if address == "localhost":
+        return False
+    try:
+        ip = ipaddress.ip_address(address.split("%", 1)[0])
+    except ValueError:
+        return False
+    if ip.is_loopback or ip.is_link_local or ip.is_multicast:
+        return False
+    if ip.is_unspecified:
+        return False
+    if ip.is_private:
+        return treat_private_as_public
+    return ip.is_global
+
+
+def _listener_instance_key(port: ListeningPort) -> str:
+    if port.process:
+        return f"{port.protocol}:{port.process.lower()}"
+    if port.pid is not None:
+        return f"{port.protocol}:pid:{port.pid}"
+    return f"{port.protocol}:{port.port}"
+
+
+def _high_risk_service(port: ListeningPort) -> str | None:
+    if port.port in _HIGH_RISK_PORTS:
+        return _HIGH_RISK_PORTS[port.port]
+    process = (port.process or "").lower()
+    if "redis" in process:
+        return "Redis"
+    if "mysql" in process or "mariadb" in process:
+        return "MySQL"
+    if "postgres" in process:
+        return "PostgreSQL"
+    if "mongo" in process:
+        return "MongoDB"
+    if "memcached" in process:
+        return "Memcached"
+    if "elasticsearch" in process:
+        return "Elasticsearch"
+    return None
 
 
 def _port_evidence(port: ListeningPort) -> EvidenceItem:

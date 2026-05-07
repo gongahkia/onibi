@@ -44,6 +44,10 @@ def validate_evidence_bundle(
     strict: bool = False,
 ) -> EvidenceValidationReport:
     root = Path(output_dir).expanduser().resolve(strict=False)
+    host_report_payload = _load_json(root / "host-report.json")
+    if host_report_payload is not None and not (root / "report.json").exists():
+        return _validate_host_evidence_bundle(root, host_report_payload)
+
     report_payload = _load_json(root / "report.json")
     verify_payload = _load_json(root / "verify.json")
     warnings: list[str] = []
@@ -69,6 +73,47 @@ def validate_evidence_bundle(
         invalid_findings=invalid_findings,
         findings=validations,
         warnings=warnings,
+    )
+
+
+def _validate_host_evidence_bundle(
+    output_dir: Path,
+    report_payload: Any,
+) -> EvidenceValidationReport:
+    checks: list[EvidenceValidationCheck] = []
+    checks.append(
+        _check(
+            "host_report_shape",
+            isinstance(report_payload, dict)
+            and isinstance(report_payload.get("findings"), list)
+            and isinstance(report_payload.get("summary"), dict),
+            "host-report.json contains host findings and summary",
+        )
+    )
+    snapshot = report_payload.get("snapshot") if isinstance(report_payload, dict) else None
+    checks.append(
+        _check(
+            "snapshot_embedded",
+            isinstance(snapshot, dict)
+            and isinstance(snapshot.get("identity"), dict)
+            and bool(snapshot.get("identity", {}).get("hostname")),
+            "embedded snapshot identity is present",
+        )
+    )
+    findings = report_payload.get("findings") if isinstance(report_payload, dict) else []
+    finding_count = len(findings) if isinstance(findings, list) else 0
+    validation = FindingEvidenceValidation(
+        finding_id="host-report.json",
+        valid=all(check.passed for check in checks),
+        checks=checks,
+    )
+    return EvidenceValidationReport(
+        output_dir=str(output_dir),
+        valid=validation.valid,
+        checked_findings=finding_count,
+        valid_findings=finding_count if validation.valid else 0,
+        invalid_findings=0 if validation.valid else finding_count,
+        findings=[validation],
     )
 
 

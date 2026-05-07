@@ -106,6 +106,7 @@ def scaffold_project(
     project_root: str | Path,
     *,
     requested_framework: str | None = None,
+    workflow: str = "sast",
 ) -> InitScaffold:
     root = Path(project_root).resolve(strict=False)
     if not root.exists():
@@ -113,7 +114,14 @@ def scaffold_project(
     if not root.is_dir():
         raise ValueError(f"project root is not a directory: {root}")
 
-    frameworks, detection_message = _resolve_frameworks(root, requested_framework)
+    normalized_workflow = workflow.strip().lower()
+    if normalized_workflow not in {"sast", "host"}:
+        raise ValueError("workflow must be one of: sast, host")
+    frameworks, detection_message = (
+        ((), "Host workflow selected; skipping application framework detection.")
+        if normalized_workflow == "host"
+        else _resolve_frameworks(root, requested_framework)
+    )
     languages = _resolve_languages(root, frameworks)
     config_path = root / _CONFIG_FILENAME
     ignore_path = root / _IGNORE_FILENAME
@@ -123,7 +131,12 @@ def scaffold_project(
         render_config_template(frameworks=frameworks, languages=languages),
         encoding="utf-8",
     )
-    ignore_path.write_text(render_ignore_template(), encoding="utf-8")
+    ignore_path.write_text(
+        render_host_ignore_template()
+        if normalized_workflow == "host"
+        else render_ignore_template(),
+        encoding="utf-8",
+    )
 
     return InitScaffold(
         project_root=root,
@@ -132,7 +145,11 @@ def scaffold_project(
         config_path=config_path,
         ignore_path=ignore_path,
         detection_message=detection_message,
-        next_steps=_next_steps(frameworks=frameworks, languages=languages),
+        next_steps=(
+            _host_next_steps()
+            if normalized_workflow == "host"
+            else _next_steps(frameworks=frameworks, languages=languages)
+        ),
     )
 
 
@@ -280,6 +297,23 @@ def render_ignore_template() -> str:
     )
 
 
+def render_host_ignore_template() -> str:
+    return "\n".join(
+        [
+            "# Host-level Piranesi suppressions.",
+            "# Suppress by host finding id after review:",
+            "# suppressions:",
+            '#   - id: "host-finding-id"',
+            '#     reason: "accepted risk for isolated lab host"',
+            '#     owner: "platform-security"',
+            '#     ticket: "SEC-123"',
+            '#     expires: "2026-06-30"',
+            "suppressions: []",
+            "",
+        ]
+    )
+
+
 def _resolve_frameworks(
     project_root: Path,
     requested_framework: str | None,
@@ -396,6 +430,15 @@ def _next_steps(*, frameworks: tuple[str, ...], languages: tuple[str, ...]) -> t
     return tuple(steps)
 
 
+def _host_next_steps() -> tuple[str, ...]:
+    return (
+        "Run `piranesi doctor .` to verify host posture readiness.",
+        "Run `piranesi collect --output piranesi-evidence` on the VM or host.",
+        "Run `piranesi assess piranesi-evidence --output piranesi-output`.",
+        "Use `piranesi suppress <host-finding-id>` only for reviewed, time-bound host exceptions.",
+    )
+
+
 def _toml_bool(value: bool) -> str:
     return "true" if value else "false"
 
@@ -408,6 +451,7 @@ def _toml_list(values: tuple[str, ...]) -> str:
 __all__ = [
     "InitScaffold",
     "render_config_template",
+    "render_host_ignore_template",
     "render_ignore_template",
     "scaffold_project",
 ]

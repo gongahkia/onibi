@@ -50,7 +50,9 @@ from piranesi.hooks.pre_commit import (
 )
 from piranesi.host import (
     HostCollectionError,
+    HostFinding,
     HostInputError,
+    HostPostureReport,
     analyze_snapshot,
     collect_host_evidence,
     load_host_input,
@@ -791,6 +793,13 @@ def _load_report_from_artifacts_dir(artifacts_dir: Path) -> PiranesiReport:
     return cast(PiranesiReport, _load_artifact_file(report_path, PiranesiReport))
 
 
+def _load_host_report_from_artifacts_dir(artifacts_dir: Path) -> HostPostureReport:
+    report_path = artifacts_dir / "host-report.json"
+    if not report_path.exists():
+        raise ValueError(f"host report artifact not found: {report_path}")
+    return cast(HostPostureReport, _load_artifact_file(report_path, HostPostureReport))
+
+
 ReportFindingMatch = CombinedFinding | CandidateReportFinding | SuppressedFinding
 
 
@@ -811,6 +820,45 @@ def _find_report_finding(
         if finding.finding_id == finding_id:
             return _resolve_finding_status("suppressed", finding), finding
     return None
+
+
+def _find_host_report_finding(
+    report: HostPostureReport,
+    finding_id: str,
+) -> HostFinding | None:
+    for finding in report.findings:
+        if finding.id == finding_id:
+            return finding
+    return None
+
+
+def _render_host_finding_explanation(finding: HostFinding) -> str:
+    lines = [
+        "# Piranesi Host Finding Explanation",
+        "",
+        f"ID: {finding.id}",
+        f"Status: {'suppressed' if finding.suppressed else 'active'}",
+        f"Title: {finding.title}",
+        f"Severity: {finding.severity.upper()}",
+        f"Category: {finding.category}",
+        f"Confidence: {finding.confidence:.2f}",
+        f"Source: {finding.source_tool}",
+    ]
+    if finding.rule_id:
+        lines.append(f"Rule: {finding.rule_id}")
+    if finding.instance_key:
+        lines.append(f"Instance: {finding.instance_key}")
+    if finding.affected_component:
+        lines.append(f"Affected component: {finding.affected_component}")
+    if finding.suppressed:
+        lines.append(f"Suppression: {finding.suppression_reason or 'suppressed'}")
+    lines.extend(["", "Evidence:"])
+    for item in finding.evidence:
+        lines.append(f"- {item.source} {item.key}: {item.value}")
+    if finding.rationale:
+        lines.extend(["", f"Rationale: {finding.rationale}"])
+    lines.extend(["", f"Remediation: {finding.remediation}", ""])
+    return "\n".join(lines)
 
 
 def _render_finding_explanation(status: str, finding: ReportFindingMatch) -> str:
@@ -1314,11 +1362,14 @@ def _load_cli_config(
                 debug="use an existing --config path or run without --config to use defaults",
             )
             raise typer.Exit(code=2)
-        logger.warning(
-            "config file %s not found — using defaults. "
-            "run `piranesi init` to generate a configuration file.",
-            options.config_path,
-        )
+        if stage == "assess":
+            logger.warning("config file %s not found — using defaults.", options.config_path)
+        else:
+            logger.warning(
+                "config file %s not found — using defaults. "
+                "run `piranesi init` to generate a configuration file.",
+                options.config_path,
+            )
         from piranesi.config import _apply_cli_overrides
 
         data = _apply_cli_overrides({}, cli_overrides)
@@ -1659,6 +1710,60 @@ def _severity_rank(severity: str) -> int:
     if normalized == FailSeverity.CRITICAL.value:
         return 3
     return -1
+
+
+def _host_findings_at_or_above(
+    findings: list[HostFinding],
+    minimum_severity: str,
+) -> list[HostFinding]:
+    threshold = _severity_rank(minimum_severity)
+    return [
+        finding
+        for finding in findings
+        if not finding.suppressed and _severity_rank(finding.severity) >= threshold
+    ]
+
+
+def _apply_host_suppressions(
+    report: HostPostureReport,
+    rules: list[Any],
+) -> HostPostureReport:
+    if not rules:
+        return report
+    active_id_rules = {
+        rule.id: _host_suppression_reason(rule)
+        for rule in rules
+        if getattr(rule, "id", None) is not None and not _host_rule_is_expired(rule)
+    }
+    if not active_id_rules:
+        return report
+    findings = [
+        finding.model_copy(
+            update={
+                "suppressed": finding.id in active_id_rules,
+                "suppression_reason": active_id_rules.get(finding.id),
+            }
+        )
+        for finding in report.findings
+    ]
+    return report.model_copy(update={"findings": findings})
+
+
+def _host_suppression_reason(rule: Any) -> str:
+    reason = getattr(rule, "reason", None)
+    ticket = getattr(rule, "ticket", None)
+    if reason and ticket:
+        return f"{reason} (ticket: {ticket})"
+    if reason:
+        return str(reason)
+    if ticket:
+        return f"ticket: {ticket}"
+    return "suppressed"
+
+
+def _host_rule_is_expired(rule: Any) -> bool:
+    expires = getattr(rule, "expires", None)
+    return expires is not None and expires < datetime_cls.now(UTC).date()
 
 
 def _print_diff(
@@ -2232,6 +2337,22 @@ def assess(
         HostReportFormat,
         typer.Option("--format", help="Report output format.", case_sensitive=False),
     ] = HostReportFormat.BOTH,
+    fail_severity: Annotated[
+        FailSeverity | None,
+        typer.Option(
+            "--fail-severity",
+            help="Exit 1 when unsuppressed host findings at or above this severity exist.",
+            case_sensitive=False,
+        ),
+    ] = None,
+    no_fail: NoFailOption = False,
+    treat_private_as_public: Annotated[
+        bool,
+        typer.Option(
+            "--treat-private-as-public",
+            help="Treat private-interface listeners as exposed for lab hardening assessments.",
+        ),
+    ] = False,
     config: ConfigOption = Path("./piranesi.toml"),
     output: OutputOption = Path("./piranesi-output"),
     verbose: VerboseOption = False,
@@ -2260,6 +2381,19 @@ def assess(
     )
     logger = logging.getLogger("piranesi.assess")
     config_model = _load_cli_config(stage="assess", options=options)
+    ignore_validation = load_ignore_file_with_diagnostics(Path.cwd())
+    if ignore_validation.invalid_entries:
+        for entry in ignore_validation.invalid_entries:
+            log_error_context(
+                logger,
+                event="host_ignore_invalid",
+                what="suppression",
+                on_what=ignore_validation.path,
+                why=entry,
+                next_step="fix .piranesi-ignore and rerun assess",
+                debug="host assess supports active id suppressions",
+            )
+        raise typer.Exit(code=2)
     try:
         snapshot = load_host_input(input_path)
     except HostInputError as exc:
@@ -2291,7 +2425,9 @@ def assess(
             snapshot,
             analysis=cast(Any, analysis.value),
             provider=provider,
+            treat_private_as_public=treat_private_as_public,
         )
+        report = _apply_host_suppressions(report, ignore_validation.rules)
         write_host_report_outputs(report, output, report_format=report_format.value)
     except TraceBudgetExceededError as exc:
         log_error_context(
@@ -2328,6 +2464,11 @@ def assess(
             typer.echo(f"score: {report.posture_score}/100")
             typer.echo(f"findings: {report.summary.get('findings_total', 0)}")
             typer.echo(f"output: {output.resolve(strict=False)}")
+
+    if fail_severity is not None and not no_fail:
+        failing = _host_findings_at_or_above(report.findings, fail_severity.value)
+        if failing:
+            raise typer.Exit(code=1)
 
 
 @app.command("validate-evidence", help="Validate report and verification evidence artifacts.")
@@ -2437,9 +2578,13 @@ def init(
         str | None,
         typer.Option("--framework", help="Framework to scaffold instead of auto-detecting."),
     ] = None,
+    workflow: Annotated[
+        str,
+        typer.Option("--workflow", help="Workflow defaults to scaffold: sast or host."),
+    ] = "sast",
 ) -> None:
     try:
-        scaffold = scaffold_project(Path("."), requested_framework=framework)
+        scaffold = scaffold_project(Path("."), requested_framework=framework, workflow=workflow)
     except ValueError as exc:
         typer.echo(f"error: {exc}")
         raise typer.Exit(code=2) from exc
@@ -2900,11 +3045,36 @@ def explain(
         typer.Option("--json", help="Emit machine-readable JSON."),
     ] = False,
 ) -> None:
+    host_mode = False
+    host_report: HostPostureReport | None = None
     try:
         report_model = _load_report_from_artifacts_dir(output)
     except ValueError as exc:
-        typer.echo(f"error: {exc}")
-        raise typer.Exit(code=2) from exc
+        try:
+            host_report = _load_host_report_from_artifacts_dir(output)
+        except ValueError:
+            typer.echo(f"error: {exc}")
+            raise typer.Exit(code=2) from exc
+        host_mode = True
+
+    if host_mode and host_report is not None:
+        host_match = _find_host_report_finding(host_report, finding_id)
+        if host_match is None:
+            typer.echo(f"error: finding '{finding_id}' not found in {output / 'host-report.json'}")
+            raise typer.Exit(code=1)
+        if json_output:
+            typer.echo(
+                json.dumps(
+                    {
+                        "status": "suppressed" if host_match.suppressed else "active",
+                        "finding": host_match.model_dump(mode="json"),
+                    },
+                    indent=2,
+                )
+            )
+            return
+        typer.echo(_render_host_finding_explanation(host_match), nl=False)
+        return
 
     match = _find_report_finding(report_model, finding_id)
     if match is None:
