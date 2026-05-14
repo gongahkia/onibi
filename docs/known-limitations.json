@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "last_updated": "2026-04-19",
+  "last_updated": "2026-05-14",
   "limitations": [
     {
       "id": "KL-001",
@@ -34,17 +34,18 @@
     },
     {
       "id": "KL-003",
-      "title": "LLM prompt redaction and token budgeting are heuristic",
+      "title": "Non-host LLM redaction and token budgeting remain heuristic",
       "affected_feature": "LLM triage and patch generation",
       "severity": "medium",
       "impact": "privacy_and_output_quality_risk",
-      "workaround": "Run deterministic mode (no LLM credentials) for strict data-boundary requirements and review LLM outputs before action.",
-      "status": "open",
+      "workaround": "Use deterministic mode for strict data-boundary requirements outside the host workflow. Host LLM analysis applies dedicated structured redaction before provider calls, but all LLM outputs should still be reviewed before action.",
+      "status": "monitoring",
       "introduced_version": "0.1.0",
-      "last_reviewed": "2026-04-16",
+      "last_reviewed": "2026-05-14",
       "docs_refs": [
         "docs/getting-started.md",
-        "docs/ARCHITECTURE.md"
+        "docs/ARCHITECTURE.md",
+        "docs/host-posture.md"
       ]
     },
     {

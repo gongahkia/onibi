@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import json
 import ipaddress
+import json
 from collections import Counter
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -14,12 +15,18 @@ from piranesi.host.models import (
     CollectionHealth,
     EvidenceItem,
     HostFinding,
+    HostHypothesis,
+    HostHypothesisReport,
     HostPostureReport,
     HostSnapshot,
+    HypothesisType,
     ListeningPort,
+    RedactionStatus,
     Severity,
+    UserAccount,
     host_finding_id,
 )
+from piranesi.host.redaction import redact_host_llm_payload
 from piranesi.llm.provider import LLMProvider
 from piranesi.llm.router import TokenBudgetExceededError
 
@@ -80,6 +87,12 @@ _CAPABILITY_COMMANDS: dict[str, tuple[str, ...]] = {
         "sysctl_kernel_unprivileged_bpf_disabled",
         "sysctl_kernel_kptr_restrict",
     ),
+    "auth_evidence": (
+        "who_sessions",
+        "last_logins",
+        "lastb_failures",
+        "journalctl_sshd_auth_summary",
+    ),
 }
 _CAPABILITY_REMEDIATION = {
     "osquery": "Install osquery and rerun `piranesi collect`.",
@@ -89,6 +102,9 @@ _CAPABILITY_REMEDIATION = {
     "sshd_config": "Ensure `sshd -T` or osquery sshd_config evidence can be collected.",
     "admin_groups": "Ensure `getent group` can run for sudo/admin/wheel group evidence.",
     "sysctl": "Ensure `sysctl -n` can run for kernel hardening evidence.",
+    "lynis": "Install Lynis and rerun `piranesi collect --lynis` for hardening baseline evidence.",
+    "openscap": "Install OpenSCAP and rerun `piranesi collect --openscap` for compliance baseline evidence.",
+    "auth_evidence": "Ensure `who`, `last`, `lastb`, and journalctl are available for auth evidence.",
 }
 
 
@@ -111,6 +127,45 @@ class _LlmHostAnalysis(BaseModel):
     findings: list[_LlmHostFinding] = Field(default_factory=list)
 
 
+class _LlmHostHypothesis(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str
+    hypothesis_type: HypothesisType
+    confidence: float = Field(ge=0.0, le=1.0)
+    severity_if_true: Severity
+    supporting_evidence_keys: list[str] = Field(min_length=1)
+    missing_evidence: list[str] = Field(min_length=1)
+    reasoning_summary: str
+    suggested_followup_probes: list[str] = Field(default_factory=list)
+    analyst_questions: list[str] = Field(default_factory=list)
+
+
+class _LlmHostHypothesisAnalysis(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    hypotheses: list[_LlmHostHypothesis] = Field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class _HostLlmFindingResult:
+    findings: list[HostFinding]
+    redaction_status: RedactionStatus
+
+
+@dataclass(frozen=True, slots=True)
+class _HostLlmHypothesisResult:
+    hypotheses: list[HostHypothesis]
+    redaction_status: RedactionStatus
+
+
+@dataclass(frozen=True, slots=True)
+class _HostLlmPrompt:
+    prompt: str
+    redaction_status: RedactionStatus
+    evidence_key_map: dict[str, str]
+
+
 def analyze_snapshot(
     snapshot: HostSnapshot,
     *,
@@ -124,20 +179,34 @@ def analyze_snapshot(
     )
     findings = list(deterministic)
     modes: list[AnalysisMode] = ["deterministic"]
+    llm_redaction: RedactionStatus | None = None
     if analysis == "llm":
         modes = ["llm"]
-        findings = (
-            llm_findings(snapshot, findings=deterministic, provider=provider)
-            if provider
-            else []
-        )
+        if provider:
+            llm_result = _llm_findings_with_redaction(
+                snapshot,
+                findings=deterministic,
+                provider=provider,
+            )
+            findings = llm_result.findings
+            llm_redaction = llm_result.redaction_status
+        else:
+            findings = []
+            llm_redaction = _llm_redaction_not_applied()
         if not findings:
             findings.append(_llm_unavailable_finding(snapshot))
     elif analysis == "both":
         modes = ["deterministic", "llm"]
         if provider is not None:
-            findings.extend(llm_findings(snapshot, findings=deterministic, provider=provider))
+            llm_result = _llm_findings_with_redaction(
+                snapshot,
+                findings=deterministic,
+                provider=provider,
+            )
+            findings.extend(llm_result.findings)
+            llm_redaction = llm_result.redaction_status
         else:
+            llm_redaction = _llm_redaction_not_applied()
             findings.append(_llm_unavailable_finding(snapshot))
     ranked = _rank_findings(_dedupe_findings(findings))
     evidence_inventory = _evidence_inventory(snapshot)
@@ -153,6 +222,7 @@ def analyze_snapshot(
         findings=ranked,
         evidence_inventory=evidence_inventory,
         collection_health=collection_health,
+        llm_redaction=llm_redaction,
         known_limitations=[
             "Phase 1 supports Debian/Ubuntu-oriented host evidence only.",
             "Raw bundle ingestion is first-class for osquery and Trivy JSON outputs.",
@@ -187,6 +257,8 @@ def deterministic_findings(
     findings.extend(_sysctl_findings(snapshot))
     findings.extend(_privileged_user_findings(snapshot))
     findings.extend(_missing_evidence_findings(snapshot))
+    findings.extend(_baseline_check_findings(snapshot))
+    findings.extend(_auth_evidence_findings(snapshot))
     return findings
 
 
@@ -210,17 +282,42 @@ def collection_health_from_snapshot(snapshot: HostSnapshot) -> CollectionHealth 
     }
     optional: dict[str, CollectionCapabilityHealth] = {}
     for name, command_names in _CAPABILITY_COMMANDS.items():
+        capability_commands = [
+            command
+            for command in commands
+            if _command_name(command) in command_names
+            or (name == "trivy" and _command_tool(command) == "trivy")
+        ]
+        if (
+            name == "auth_evidence"
+            and not capability_commands
+            and not snapshot.login_sessions
+            and not snapshot.auth_event_summaries
+        ):
+            continue
         optional[name] = _capability_health(
             name=name,
-            commands=[
-                command
-                for command in commands
-                if _command_name(command) in command_names
-                or (name == "trivy" and _command_tool(command) == "trivy")
-            ],
+            commands=capability_commands,
             required=False,
             alternatives=name in {"firewall", "sshd_config"},
         )
+    for baseline_tool in ("lynis", "openscap"):
+        tool_commands = [
+            command for command in commands if _command_tool(command) == baseline_tool
+        ]
+        if tool_commands or _manifest_has_tool(manifest, baseline_tool):
+            optional[baseline_tool] = _capability_health(
+                name=baseline_tool,
+                commands=tool_commands,
+                required=False,
+                alternatives=False,
+            )
+        elif baseline_tool in (snapshot.raw_evidence if snapshot else {}):
+            optional[baseline_tool] = CollectionCapabilityHealth(
+                status="ok",
+                required=False,
+                message="baseline evidence is available from raw bundle",
+            )
     warnings = [
         f"{name}: {health.message}"
         for name, health in optional.items()
@@ -243,7 +340,69 @@ def llm_findings(
     findings: list[HostFinding],
     provider: LLMProvider,
 ) -> list[HostFinding]:
-    prompt = _llm_prompt(snapshot, findings)
+    return _llm_findings_with_redaction(
+        snapshot,
+        findings=findings,
+        provider=provider,
+    ).findings
+
+
+def build_host_hypothesis_report(
+    snapshot: HostSnapshot,
+    *,
+    provider: LLMProvider | None = None,
+) -> HostHypothesisReport:
+    deterministic = deterministic_hypotheses(snapshot)
+    hypotheses = list(deterministic)
+    analysis_modes: list[AnalysisMode] = ["deterministic"]
+    llm_redaction: RedactionStatus | None = None
+    if provider is not None:
+        analysis_modes.append("llm")
+        llm_result = _llm_hypotheses_with_redaction(
+            snapshot,
+            deterministic=deterministic,
+            provider=provider,
+        )
+        hypotheses.extend(llm_result.hypotheses)
+        llm_redaction = llm_result.redaction_status
+    return HostHypothesisReport(
+        target=snapshot.identity.hostname,
+        generated_at=datetime.now(UTC).isoformat(),
+        analysis_modes=analysis_modes,
+        hypotheses=_rank_hypotheses(_dedupe_hypotheses(hypotheses)),
+        llm_redaction=llm_redaction,
+    )
+
+
+def deterministic_hypotheses(snapshot: HostSnapshot) -> list[HostHypothesis]:
+    hypotheses: list[HostHypothesis] = []
+    hypotheses.extend(_public_ssh_auth_gap_hypotheses(snapshot))
+    hypotheses.extend(_public_database_evidence_gap_hypotheses(snapshot))
+    hypotheses.extend(_package_cve_ambiguity_hypotheses(snapshot))
+    hypotheses.extend(_kernel_hardening_patch_gap_hypotheses(snapshot))
+    return hypotheses
+
+
+def llm_hypotheses(
+    snapshot: HostSnapshot,
+    *,
+    deterministic: list[HostHypothesis],
+    provider: LLMProvider,
+) -> list[HostHypothesis]:
+    return _llm_hypotheses_with_redaction(
+        snapshot,
+        deterministic=deterministic,
+        provider=provider,
+    ).hypotheses
+
+
+def _llm_findings_with_redaction(
+    snapshot: HostSnapshot,
+    *,
+    findings: list[HostFinding],
+    provider: LLMProvider,
+) -> _HostLlmFindingResult:
+    prompt = _redacted_llm_prompt(snapshot, findings)
     try:
         response = provider.complete(
             stage="triage",
@@ -256,31 +415,40 @@ def llm_findings(
                         "Do not invent missing host facts."
                     ),
                 },
-                {"role": "user", "content": prompt},
+                {"role": "user", "content": prompt.prompt},
             ],
             max_tokens=1200,
         )
     except TokenBudgetExceededError as exc:
-        return [_llm_unavailable_finding(snapshot, reason=str(exc))]
+        return _HostLlmFindingResult(
+            findings=[_llm_unavailable_finding(snapshot, reason=str(exc))],
+            redaction_status=prompt.redaction_status,
+        )
     except Exception as exc:
-        return [_llm_unavailable_finding(snapshot, reason=f"LLM analysis failed: {exc}")]
+        return _HostLlmFindingResult(
+            findings=[_llm_unavailable_finding(snapshot, reason=f"LLM analysis failed: {exc}")],
+            redaction_status=prompt.redaction_status,
+        )
     try:
         payload = _LlmHostAnalysis.model_validate_json(response.content)
     except (ValidationError, ValueError):
-        return [
-            _llm_unavailable_finding(
-                snapshot,
-                reason="LLM returned an invalid host analysis payload",
-            )
-        ]
+        return _HostLlmFindingResult(
+            findings=[
+                _llm_unavailable_finding(
+                    snapshot,
+                    reason="LLM returned an invalid host analysis payload",
+                )
+            ],
+            redaction_status=prompt.redaction_status,
+        )
 
     evidence_by_key = _evidence_by_key(snapshot)
     rendered: list[HostFinding] = []
     for item in payload.findings:
         evidence = [
-            evidence_by_key[key]
+            evidence_by_key[prompt.evidence_key_map.get(key, key)]
             for key in item.evidence_keys
-            if key in evidence_by_key
+            if prompt.evidence_key_map.get(key, key) in evidence_by_key
         ]
         if not evidence:
             continue
@@ -304,7 +472,311 @@ def llm_findings(
                 rationale=item.rationale,
             )
         )
-    return rendered
+    return _HostLlmFindingResult(
+        findings=rendered,
+        redaction_status=prompt.redaction_status,
+    )
+
+
+def _public_ssh_auth_gap_hypotheses(snapshot: HostSnapshot) -> list[HostHypothesis]:
+    public_ssh_ports = [
+        port
+        for port in snapshot.listening_ports
+        if port.port == 22 and _is_public(port)
+    ]
+    if not public_ssh_ports or not _ssh_password_auth_enabled(snapshot):
+        return []
+    privileged = _privileged_nonroot_users(snapshot)
+    if not privileged or snapshot.login_sessions or snapshot.auth_event_summaries:
+        return []
+    evidence = [_port_evidence(public_ssh_ports[0]), _ssh_password_auth_evidence(snapshot)]
+    evidence.extend(_user_privilege_evidence(user) for user in privileged[:5])
+    return [
+        HostHypothesis(
+            id=host_finding_id(
+                "hypothesis",
+                "public_ssh_password_privileged_auth_gap",
+                snapshot.identity.hostname,
+            ),
+            title=(
+                "Public SSH with password authentication may expose privileged accounts, "
+                "but auth evidence is missing"
+            ),
+            hypothesis_type="compound_misconfiguration",
+            confidence=0.64,
+            severity_if_true="high",
+            supporting_evidence=evidence,
+            missing_evidence=[
+                "Redacted SSH authentication success and failure summaries",
+                "`last` and `lastb` login history for privileged accounts",
+                "Effective sshd access controls such as AllowUsers, AllowGroups, and MFA",
+            ],
+            reasoning_summary=(
+                "The snapshot shows public SSH, password authentication, and privileged "
+                "local accounts. There is no authentication evidence to confirm whether "
+                "those accounts are being targeted or used."
+            ),
+            suggested_followup_probes=[
+                "followup.ssh.last_logins",
+                "followup.ssh.lastb_failures",
+                "followup.ssh.auth_summary",
+                "followup.ssh.sshd_effective_config",
+            ],
+            analyst_questions=[
+                "Are privileged accounts allowed to authenticate over SSH?",
+                "Is there compensating control such as source allowlisting or MFA?",
+            ],
+        )
+    ]
+
+
+def _public_database_evidence_gap_hypotheses(snapshot: HostSnapshot) -> list[HostHypothesis]:
+    firewall = snapshot.config.get("firewall")
+    if isinstance(firewall, dict):
+        return []
+    hypotheses: list[HostHypothesis] = []
+    for port in snapshot.listening_ports:
+        service = _database_service_name(port)
+        if service is None or not _is_public(port) or not _service_config_unknown(snapshot, port):
+            continue
+        hypotheses.append(
+            HostHypothesis(
+                id=host_finding_id(
+                    "hypothesis",
+                    "public_database_missing_firewall_unknown_config",
+                    snapshot.identity.hostname,
+                    port.protocol,
+                    port.port,
+                    port.process,
+                ),
+                title=(
+                    f"Public {service} exposure may depend on missing firewall "
+                    "and service-configuration evidence"
+                ),
+                hypothesis_type="configuration_ambiguity",
+                confidence=0.58,
+                severity_if_true="high",
+                supporting_evidence=[_port_evidence(port)],
+                missing_evidence=[
+                    "Host firewall rule inventory",
+                    f"{service} effective bind/listen and authentication configuration",
+                    "Cloud or upstream network ACL evidence",
+                ],
+                reasoning_summary=(
+                    f"{service} appears reachable on a public interface, but the "
+                    "snapshot lacks firewall and service-specific configuration evidence. "
+                    "The report should not assume whether access is actually restricted."
+                ),
+                suggested_followup_probes=[
+                    "followup.firewall.ufw_status",
+                    "followup.firewall.iptables_rules",
+                    _service_probe_id(service, "process_detail"),
+                    _service_probe_id(service, "service_unit"),
+                ],
+                analyst_questions=[
+                    f"Is {service} intentionally reachable from untrusted networks?",
+                    "Where is source restriction enforced if the host firewall evidence is absent?",
+                ],
+            )
+        )
+    return hypotheses
+
+
+def _package_cve_ambiguity_hypotheses(snapshot: HostSnapshot) -> list[HostHypothesis]:
+    public_ports = [
+        port
+        for port in snapshot.listening_ports
+        if _is_public(port)
+    ]
+    if not public_ports:
+        return []
+    hypotheses: list[HostHypothesis] = []
+    for vuln in _trivy_vulnerabilities(snapshot):
+        vuln_id = _string(vuln.get("VulnerabilityID"))
+        pkg_name = _string(vuln.get("PkgName"))
+        if not vuln_id or not pkg_name:
+            continue
+        installed = _string(vuln.get("InstalledVersion")) or "unknown"
+        fixed = _string(vuln.get("FixedVersion"))
+        severity = _normalize_severity(vuln.get("Severity"))
+        evidence = [
+            EvidenceItem(source="trivy", key="vulnerability", value=vuln_id),
+            EvidenceItem(source="trivy", key="package", value=pkg_name),
+            EvidenceItem(source="trivy", key="installed_version", value=installed),
+        ]
+        if fixed:
+            evidence.append(EvidenceItem(source="trivy", key="fixed_version", value=fixed))
+        evidence.extend(_port_evidence(port) for port in public_ports[:3])
+        hypotheses.append(
+            HostHypothesis(
+                id=host_finding_id(
+                    "hypothesis",
+                    "package_cve_service_ambiguity",
+                    snapshot.identity.hostname,
+                    pkg_name,
+                    vuln_id,
+                ),
+                title=(
+                    f"{vuln_id} in {pkg_name} may matter more if exposed services "
+                    "load the affected package"
+                ),
+                hypothesis_type="dependency_risk",
+                confidence=0.46,
+                severity_if_true=severity,
+                supporting_evidence=evidence,
+                missing_evidence=[
+                    "Process-to-package or loaded-library linkage for public services",
+                    "Service restart state after package updates",
+                    "Whether the vulnerable code path is reachable in the observed workload",
+                ],
+                reasoning_summary=(
+                    f"Trivy reports {vuln_id} for {pkg_name}, and public services are "
+                    "present. The snapshot does not prove which service, if any, loads "
+                    "or exposes the affected package, so this remains a dependency-risk "
+                    "hypothesis rather than an additional finding."
+                ),
+                suggested_followup_probes=[
+                    "followup.process.open_files",
+                    "followup.process.loaded_libraries",
+                    "followup.package.reverse_dependencies",
+                    "followup.service.restart_status",
+                ],
+                analyst_questions=[
+                    f"Which running services load {pkg_name} or link against it?",
+                    "Has the service been restarted since the fixed package became available?",
+                ],
+            )
+        )
+    return hypotheses
+
+
+def _kernel_hardening_patch_gap_hypotheses(snapshot: HostSnapshot) -> list[HostHypothesis]:
+    public_ports = [
+        port
+        for port in snapshot.listening_ports
+        if _is_public(port)
+    ]
+    if not public_ports or isinstance(snapshot.config.get("updates"), dict):
+        return []
+    weak_sysctls = _sysctl_findings(snapshot)
+    if not weak_sysctls:
+        return []
+    evidence: list[EvidenceItem] = []
+    evidence.extend(_port_evidence(port) for port in public_ports[:3])
+    for finding in weak_sysctls[:4]:
+        evidence.extend(finding.evidence)
+    return [
+        HostHypothesis(
+            id=host_finding_id(
+                "hypothesis",
+                "weak_kernel_hardening_public_services_patch_gap",
+                snapshot.identity.hostname,
+            ),
+            title=(
+                "Weak kernel hardening could increase exposure impact when public "
+                "services and patch evidence are present only partially"
+            ),
+            hypothesis_type="novel_attack_path",
+            confidence=0.5,
+            severity_if_true="medium",
+            supporting_evidence=evidence,
+            missing_evidence=[
+                "Current kernel and package patch status",
+                "Kernel CVE scan evidence",
+                "Rationale for weak sysctl values on this workload",
+            ],
+            reasoning_summary=(
+                "The snapshot shows public services and weak kernel hardening settings, "
+                "but lacks patch evidence. This does not confirm exploitation risk; it "
+                "identifies evidence to collect before assessing chained impact."
+            ),
+            suggested_followup_probes=[
+                "followup.updates.apt_upgradable",
+                "followup.sysctl.kernel_hardening",
+                "followup.vulnerability.trivy_filesystem",
+            ],
+            analyst_questions=[
+                "Are the weak sysctl values required for this host role?",
+                "Is there a documented kernel patch process for exposed hosts?",
+            ],
+        )
+    ]
+
+
+def _llm_hypotheses_with_redaction(
+    snapshot: HostSnapshot,
+    *,
+    deterministic: list[HostHypothesis],
+    provider: LLMProvider,
+) -> _HostLlmHypothesisResult:
+    prompt = _redacted_hypothesis_llm_prompt(snapshot, deterministic)
+    try:
+        response = provider.complete(
+            stage="triage",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You propose evidence-bound Linux host security hypotheses. "
+                        "Hypotheses are not confirmed findings. Do not provide exploit "
+                        "payloads or active exploitation steps."
+                    ),
+                },
+                {"role": "user", "content": prompt.prompt},
+            ],
+            max_tokens=1400,
+        )
+    except TokenBudgetExceededError:
+        return _HostLlmHypothesisResult(
+            hypotheses=[],
+            redaction_status=prompt.redaction_status,
+        )
+    except Exception:
+        return _HostLlmHypothesisResult(
+            hypotheses=[],
+            redaction_status=prompt.redaction_status,
+        )
+    try:
+        payload = _LlmHostHypothesisAnalysis.model_validate_json(response.content)
+    except (ValidationError, ValueError):
+        return _HostLlmHypothesisResult(
+            hypotheses=[],
+            redaction_status=prompt.redaction_status,
+        )
+
+    evidence_by_key = _evidence_by_key(snapshot)
+    rendered: list[HostHypothesis] = []
+    for item in payload.hypotheses:
+        evidence = [
+            evidence_by_key[prompt.evidence_key_map.get(key, key)]
+            for key in item.supporting_evidence_keys
+            if prompt.evidence_key_map.get(key, key) in evidence_by_key
+        ]
+        if not evidence:
+            continue
+        rendered.append(
+            HostHypothesis(
+                id=host_finding_id(
+                    "hypothesis",
+                    "llm",
+                    snapshot.identity.hostname,
+                    item.title,
+                ),
+                title=item.title,
+                hypothesis_type=item.hypothesis_type,
+                confidence=item.confidence,
+                severity_if_true=item.severity_if_true,
+                supporting_evidence=evidence,
+                missing_evidence=item.missing_evidence,
+                reasoning_summary=item.reasoning_summary,
+                suggested_followup_probes=item.suggested_followup_probes,
+                analyst_questions=item.analyst_questions,
+            )
+        )
+    return _HostLlmHypothesisResult(
+        hypotheses=rendered,
+        redaction_status=prompt.redaction_status,
+    )
 
 
 def _trivy_vulnerability_findings(snapshot: HostSnapshot) -> list[HostFinding]:
@@ -821,6 +1293,157 @@ def _missing_evidence_findings(snapshot: HostSnapshot) -> list[HostFinding]:
     return findings
 
 
+def _baseline_check_findings(snapshot: HostSnapshot) -> list[HostFinding]:
+    findings: list[HostFinding] = []
+    confidence_by_source = {"openscap": 0.9, "lynis": 0.75}
+    for check in snapshot.baseline_checks:
+        if check.result in {"pass", "not_applicable"}:
+            continue
+        severity = check.severity or ("medium" if check.result == "fail" else "low")
+        findings.append(
+            HostFinding(
+                id=host_finding_id(
+                    "baseline", snapshot.identity.hostname, check.source, check.check_id
+                ),
+                rule_id=f"host.baseline.{check.source}",
+                instance_key=f"{check.source}:{check.check_id}",
+                title=check.title,
+                category="baseline",
+                severity=severity,
+                confidence=confidence_by_source.get(check.source, 0.7),
+                affected_component=check.check_id,
+                control_refs=list(check.control_refs),
+                evidence=list(check.evidence),
+                remediation=check.remediation or f"Review {check.source} check {check.check_id}.",
+                source_tool=check.source,
+            )
+        )
+    return findings
+
+
+def _auth_evidence_findings(snapshot: HostSnapshot) -> list[HostFinding]:
+    findings: list[HostFinding] = []
+
+    ssh_failures = [e for e in snapshot.auth_event_summaries if e.event_type in {"ssh_failed_password", "login_failure"}]
+    total_ssh_failures = sum(e.count for e in ssh_failures)
+
+    is_public_ssh = any(
+        port.port == 22 and _is_public(port)
+        for port in snapshot.listening_ports
+    )
+
+    ssh_config = snapshot.config.get("ssh")
+    password_auth_enabled = False
+    if isinstance(ssh_config, dict):
+        normalized = {str(k).lower(): str(v).strip().lower() for k, v in ssh_config.items()}
+        password_auth_enabled = normalized.get("passwordauthentication") == "yes"
+
+    if total_ssh_failures > 50:
+        findings.append(
+            HostFinding(
+                id=host_finding_id("auth", snapshot.identity.hostname, "ssh_failed_password_spike"),
+                rule_id="host.auth.ssh_failed_password_spike",
+                instance_key="ssh_failed_password",
+                title=f"High volume of failed SSH password attempts ({total_ssh_failures})",
+                category="auth",
+                severity="medium" if (is_public_ssh and password_auth_enabled) else "low",
+                confidence=0.9,
+                affected_component="sshd",
+                evidence=[EvidenceItem(source="auth_logs", key="failed_ssh_attempts", value=str(total_ssh_failures))],
+                remediation="Review SSH exposure, configure fail2ban, or disable password authentication.",
+                source_tool="auth_logs",
+            )
+        )
+
+    root_attempts = [e for e in snapshot.auth_event_summaries if e.event_type == "ssh_root_login"]
+    if root_attempts:
+        total_root = sum(e.count for e in root_attempts)
+        findings.append(
+            HostFinding(
+                id=host_finding_id("auth", snapshot.identity.hostname, "ssh_root_login"),
+                rule_id="host.auth.root_login_attempts",
+                instance_key="ssh_root_login",
+                title="SSH root login attempts detected",
+                category="auth",
+                severity="high" if is_public_ssh else "medium",
+                confidence=0.9,
+                affected_component="sshd",
+                evidence=[EvidenceItem(source="auth_logs", key="root_login_attempts", value=str(total_root))],
+                remediation="Ensure PermitRootLogin is disabled in sshd_config.",
+                source_tool="auth_logs",
+            )
+        )
+
+    admin_users = set()
+    for user in snapshot.users:
+        if user.username == "root":
+            continue
+        if any(g in _ADMIN_GROUPS for g in user.groups):
+            admin_users.add(user.username)
+
+    active_privileged = [s for s in snapshot.login_sessions if s.username in admin_users]
+    if active_privileged:
+        usernames = sorted({s.username for s in active_privileged})
+        findings.append(
+            HostFinding(
+                id=host_finding_id("auth", snapshot.identity.hostname, "active_privileged_session"),
+                rule_id="host.auth.active_privileged_session",
+                instance_key="active_privileged_session",
+                title=f"Active privileged sessions: {', '.join(usernames)}",
+                category="auth",
+                severity="informational",
+                confidence=0.9,
+                affected_component="session",
+                evidence=[EvidenceItem(source="auth_logs", key="active_privileged_sessions", value=str(len(active_privileged)))],
+                remediation="Review active sessions for unauthorized access.",
+                source_tool="auth_logs",
+            )
+        )
+
+    if is_public_ssh and password_auth_enabled and total_ssh_failures > 0 and admin_users:
+        findings.append(
+            HostFinding(
+                id=host_finding_id("auth", snapshot.identity.hostname, "compound_ssh_brute_force"),
+                rule_id="host.auth.compound_ssh_brute_force",
+                instance_key="compound_ssh_brute_force",
+                title="Public SSH is exposed to brute-force attacks against privileged accounts",
+                category="compound-risk",
+                severity="high",
+                confidence=0.95,
+                affected_component="sshd",
+                evidence=[
+                    EvidenceItem(source="compound", key="public_ssh", value="true"),
+                    EvidenceItem(source="compound", key="password_auth", value="yes"),
+                    EvidenceItem(source="compound", key="failed_attempts", value=str(total_ssh_failures)),
+                    EvidenceItem(source="compound", key="privileged_accounts", value=str(len(admin_users))),
+                ],
+                remediation="Disable password authentication immediately and enforce key-based auth.",
+                source_tool="compound",
+            )
+        )
+
+    sudo_events = [e for e in snapshot.auth_event_summaries if e.event_type == "sudo_command"]
+    if sudo_events:
+        total_sudo = sum(e.count for e in sudo_events)
+        findings.append(
+            HostFinding(
+                id=host_finding_id("auth", snapshot.identity.hostname, "sudo_activity"),
+                rule_id="host.auth.sudo_activity_present",
+                instance_key="sudo_activity",
+                title=f"Sudo activity detected ({total_sudo} events)",
+                category="auth",
+                severity="informational",
+                confidence=0.9,
+                affected_component="sudo",
+                evidence=[EvidenceItem(source="auth_logs", key="sudo_events", value=str(total_sudo))],
+                remediation="Review sudo logs for suspicious commands.",
+                source_tool="auth_logs",
+            )
+        )
+
+    return findings
+
+
 def _capability_health(
     *,
     name: str,
@@ -979,6 +1602,120 @@ def _llm_unavailable_finding(
     )
 
 
+def _ssh_password_auth_enabled(snapshot: HostSnapshot) -> bool:
+    ssh = snapshot.config.get("ssh")
+    if not isinstance(ssh, dict):
+        return False
+    normalized = {str(key).lower(): str(value).strip().lower() for key, value in ssh.items()}
+    return normalized.get("passwordauthentication") == "yes"
+
+
+def _ssh_password_auth_evidence(snapshot: HostSnapshot) -> EvidenceItem:
+    ssh = snapshot.config.get("ssh")
+    value = "unknown"
+    if isinstance(ssh, dict):
+        value = str(ssh.get("PasswordAuthentication") or ssh.get("passwordauthentication") or value)
+    return EvidenceItem(source="osquery", key="ssh.PasswordAuthentication", value=value)
+
+
+def _privileged_nonroot_users(snapshot: HostSnapshot) -> list[UserAccount]:
+    users: list[UserAccount] = []
+    for user in snapshot.users:
+        if user.username == "root":
+            continue
+        groups = {group.lower() for group in user.groups}
+        if user.uid == 0 or groups & _ADMIN_GROUPS:
+            users.append(user)
+    return users
+
+
+def _user_privilege_evidence(user: UserAccount) -> EvidenceItem:
+    groups = ", ".join(user.groups) or "unknown"
+    return EvidenceItem(
+        source="osquery",
+        key="privileged_user",
+        value=f"{user.username} groups={groups}",
+    )
+
+
+def _database_service_name(port: ListeningPort) -> str | None:
+    service = _high_risk_service(port)
+    if service in {"MySQL", "PostgreSQL", "Redis", "Elasticsearch", "Memcached", "MongoDB"}:
+        return service
+    return None
+
+
+def _service_config_unknown(snapshot: HostSnapshot, port: ListeningPort) -> bool:
+    service = _database_service_name(port)
+    if service is None:
+        return True
+    service_key = service.lower()
+    process = (port.process or "").lower()
+    service_names = {item.name.lower() for item in snapshot.services}
+    has_service_state = any(
+        token in name
+        for name in service_names
+        for token in _service_match_tokens(service_key, process)
+    )
+    config = snapshot.config.get(service_key)
+    has_config = isinstance(config, dict)
+    return not (has_service_state and has_config)
+
+
+def _service_match_tokens(service_key: str, process: str) -> set[str]:
+    tokens = {service_key}
+    if process:
+        tokens.add(process)
+        tokens.add(process.replace("-server", ""))
+    if service_key == "postgresql":
+        tokens.add("postgres")
+    if service_key == "mongodb":
+        tokens.add("mongo")
+    return {token for token in tokens if token}
+
+
+def _service_probe_id(service: str, suffix: str) -> str:
+    normalized = service.lower()
+    if normalized == "postgresql":
+        normalized = "postgres"
+    return f"followup.{normalized}.{suffix}"
+
+
+def _trivy_vulnerabilities(snapshot: HostSnapshot) -> list[dict[str, object]]:
+    raw = snapshot.raw_evidence.get("trivy")
+    payloads = raw if isinstance(raw, dict) else {}
+    vulnerabilities: list[dict[str, object]] = []
+    for payload in payloads.values():
+        for result in _trivy_results(payload):
+            raw_vulns = result.get("Vulnerabilities")
+            if isinstance(raw_vulns, list):
+                vulnerabilities.extend(
+                    item for item in raw_vulns if isinstance(item, dict)
+                )
+    return vulnerabilities
+
+
+def _rank_hypotheses(hypotheses: list[HostHypothesis]) -> list[HostHypothesis]:
+    return sorted(
+        hypotheses,
+        key=lambda item: (_SEVERITY_RANK[item.severity_if_true], item.confidence, item.title),
+        reverse=True,
+    )
+
+
+def _dedupe_hypotheses(hypotheses: list[HostHypothesis]) -> list[HostHypothesis]:
+    deduped: dict[str, HostHypothesis] = {}
+    for hypothesis in hypotheses:
+        existing = deduped.get(hypothesis.id)
+        if (
+            existing is None
+            or _SEVERITY_RANK[hypothesis.severity_if_true]
+            > _SEVERITY_RANK[existing.severity_if_true]
+        ):
+            deduped[hypothesis.id] = hypothesis
+    return list(deduped.values())
+
+
 def _trivy_results(payload: object) -> list[dict[str, object]]:
     if isinstance(payload, dict) and isinstance(payload.get("Results"), list):
         return [item for item in payload["Results"] if isinstance(item, dict)]
@@ -1110,6 +1847,12 @@ def _evidence_inventory(snapshot: HostSnapshot) -> dict[str, int]:
         "update_evidence": 1 if isinstance(updates, dict) else 0,
         "sysctl_evidence": 1 if isinstance(sysctl, dict) else 0,
         "raw_tools": len(snapshot.raw_evidence),
+        "login_sessions": len(snapshot.login_sessions),
+        "auth_event_summaries": len(snapshot.auth_event_summaries),
+        "failed_ssh_attempts": sum(
+            1 for e in snapshot.auth_event_summaries
+            if e.event_type in {"ssh_failed_password", "ssh_invalid_user"}
+        ),
     }
 
 
@@ -1142,6 +1885,12 @@ def _host_metadata(snapshot: HostSnapshot, inventory: dict[str, int]) -> dict[st
         "tools": tools,
         "raw_tools": raw_tools,
         "evidence_completeness": evidence_complete,
+        "active_sessions_count": len(snapshot.login_sessions),
+        "auth_event_summary_count": len(snapshot.auth_event_summaries),
+        "failed_ssh_attempt_count": sum(
+            1 for e in snapshot.auth_event_summaries
+            if e.event_type in {"ssh_failed_password", "ssh_invalid_user"}
+        ),
     }
 
 
@@ -1163,6 +1912,16 @@ def _top_actions(findings: list[HostFinding]) -> list[dict[str, object]]:
             {"identity", "misconfiguration"},
         ),
         ("coverage", "Collect missing evidence to improve confidence.", {"coverage"}),
+        (
+            "baseline",
+            "Review and remediate failed hardening and compliance baseline checks.",
+            {"baseline", "compliance"},
+        ),
+        (
+            "auth",
+            "Review authentication evidence for brute-force or unauthorized access patterns.",
+            {"auth", "compound-risk"},
+        ),
     ]
     actions: list[dict[str, object]] = []
     for category, action, categories in groups:
@@ -1197,10 +1956,75 @@ def _evidence_by_key(snapshot: HostSnapshot) -> dict[str, EvidenceItem]:
     for user in snapshot.users:
         key = f"user:{user.username}"
         evidence[key] = EvidenceItem(source="osquery", key="user", value=user.username)
+    for service in snapshot.services:
+        key = f"service:{service.name}"
+        state = []
+        if service.enabled is not None:
+            state.append(f"enabled={service.enabled}")
+        if service.running is not None:
+            state.append(f"running={service.running}")
+        evidence[key] = EvidenceItem(
+            source=service.source,
+            key="service",
+            value=f"{service.name} {' '.join(state)}".strip(),
+        )
+    for process in snapshot.processes:
+        key = f"process:{process.pid}:{process.name}"
+        evidence[key] = EvidenceItem(
+            source="osquery",
+            key="process",
+            value=f"{process.name} pid={process.pid}",
+        )
     return evidence
 
 
-def _llm_prompt(snapshot: HostSnapshot, findings: list[HostFinding]) -> str:
+def _llm_redaction_not_applied() -> RedactionStatus:
+    return RedactionStatus(
+        applied=False,
+        redacted_value_count=0,
+        categories={},
+        mode="strict",
+    )
+
+
+def _redacted_llm_prompt(snapshot: HostSnapshot, findings: list[HostFinding]) -> _HostLlmPrompt:
+    payload = _host_llm_payload(snapshot, findings)
+    redacted = redact_host_llm_payload(payload)
+    redacted_payload = cast(dict[str, Any], redacted.payload)
+    raw_keys = payload["available_evidence_keys"]
+    rendered_keys = redacted_payload.get("available_evidence_keys", [])
+    evidence_key_map = {
+        str(redacted_key): str(raw_key)
+        for raw_key, redacted_key in zip(raw_keys, rendered_keys, strict=False)
+    }
+    return _HostLlmPrompt(
+        prompt=_llm_prompt_from_payload(redacted_payload),
+        redaction_status=redacted.status,
+        evidence_key_map=evidence_key_map,
+    )
+
+
+def _redacted_hypothesis_llm_prompt(
+    snapshot: HostSnapshot,
+    deterministic: list[HostHypothesis],
+) -> _HostLlmPrompt:
+    payload = _host_hypothesis_llm_payload(snapshot, deterministic)
+    redacted = redact_host_llm_payload(payload)
+    redacted_payload = cast(dict[str, Any], redacted.payload)
+    raw_keys = payload["available_evidence_keys"]
+    rendered_keys = redacted_payload.get("available_evidence_keys", [])
+    evidence_key_map = {
+        str(redacted_key): str(raw_key)
+        for raw_key, redacted_key in zip(raw_keys, rendered_keys, strict=False)
+    }
+    return _HostLlmPrompt(
+        prompt=_hypothesis_llm_prompt_from_payload(redacted_payload),
+        redaction_status=redacted.status,
+        evidence_key_map=evidence_key_map,
+    )
+
+
+def _host_llm_payload(snapshot: HostSnapshot, findings: list[HostFinding]) -> dict[str, Any]:
     evidence_keys = sorted(_evidence_by_key(snapshot))
     deterministic = [
         {
@@ -1211,14 +2035,80 @@ def _llm_prompt(snapshot: HostSnapshot, findings: list[HostFinding]) -> str:
         }
         for finding in findings[:25]
     ]
-    payload = {
+    return {
         "host": snapshot.identity.model_dump(mode="json"),
         "os": snapshot.os.model_dump(mode="json"),
         "kernel": snapshot.kernel,
         "evidence_inventory": _evidence_inventory(snapshot),
         "available_evidence_keys": evidence_keys[:200],
+        "packages": [
+            package.model_dump(mode="json")
+            for package in snapshot.packages[:100]
+        ],
+        "services": [
+            service.model_dump(mode="json")
+            for service in snapshot.services[:100]
+        ],
+        "listening_ports": [
+            port.model_dump(mode="json")
+            for port in snapshot.listening_ports[:100]
+        ],
+        "processes": [
+            process.model_dump(mode="json")
+            for process in snapshot.processes[:100]
+        ],
+        "users": [
+            user.model_dump(mode="json")
+            for user in snapshot.users[:100]
+        ],
+        "login_sessions": [
+            session.model_dump(mode="json")
+            for session in snapshot.login_sessions[:100]
+        ],
+        "auth_event_summaries": [
+            event.model_dump(mode="json")
+            for event in snapshot.auth_event_summaries[:100]
+        ],
         "deterministic_findings": deterministic,
     }
+
+
+def _host_hypothesis_llm_payload(
+    snapshot: HostSnapshot,
+    deterministic: list[HostHypothesis],
+) -> dict[str, Any]:
+    deterministic_findings_summary = [
+        {
+            "title": finding.title,
+            "severity": finding.severity,
+            "category": finding.category,
+            "component": finding.affected_component,
+        }
+        for finding in deterministic_findings(snapshot)[:25]
+    ]
+    deterministic_hypotheses_summary = [
+        {
+            "title": hypothesis.title,
+            "hypothesis_type": hypothesis.hypothesis_type,
+            "confidence": hypothesis.confidence,
+            "severity_if_true": hypothesis.severity_if_true,
+            "missing_evidence": hypothesis.missing_evidence,
+        }
+        for hypothesis in deterministic[:25]
+    ]
+    payload = _host_llm_payload(snapshot, deterministic_findings(snapshot))
+    payload["available_evidence_keys"] = sorted(_evidence_by_key(snapshot))[:250]
+    payload["confirmed_findings"] = deterministic_findings_summary
+    payload["deterministic_hypotheses"] = deterministic_hypotheses_summary
+    payload["hypothesis_instructions"] = {
+        "status": "hypotheses_are_not_confirmed_findings",
+        "allowed_output": "follow-up probes and analyst questions only",
+        "disallowed_output": "exploit payloads, exploit code, or confirmed claims without evidence",
+    }
+    return payload
+
+
+def _llm_prompt_from_payload(payload: dict[str, Any]) -> str:
     schema = {
         "findings": [
             {
@@ -1240,6 +2130,43 @@ def _llm_prompt(snapshot: HostSnapshot, findings: list[HostFinding]) -> str:
         "Analyze this Linux host posture snapshot. Return JSON only, matching this shape:\n"
         f"{json.dumps(schema, indent=2)}\n\n"
         "Only use evidence_keys listed in the input. Host evidence:\n"
+        f"{json.dumps(payload, indent=2, sort_keys=True)}"
+    )
+
+
+def _hypothesis_llm_prompt_from_payload(payload: dict[str, Any]) -> str:
+    schema = {
+        "hypotheses": [
+            {
+                "title": "string",
+                "hypothesis_type": (
+                    "compound_misconfiguration|novel_attack_path|dependency_risk|"
+                    "configuration_ambiguity"
+                ),
+                "confidence": 0.0,
+                "severity_if_true": "informational|low|medium|high|critical",
+                "supporting_evidence_keys": ["keys from available_evidence_keys"],
+                "missing_evidence": ["specific evidence required before confirmation"],
+                "reasoning_summary": "concise summary, no hidden chain-of-thought",
+                "suggested_followup_probes": ["safe probe IDs or questions, no payloads"],
+                "analyst_questions": ["questions for an operator or analyst"],
+            }
+        ]
+    }
+    return (
+        "Generate Linux host security hypotheses from this redacted evidence. Return JSON only, "
+        "matching this shape exactly:\n"
+        f"{json.dumps(schema, indent=2)}\n\n"
+        "Rules:\n"
+        "- Every hypothesis must cite available supporting_evidence_keys.\n"
+        "- Every hypothesis must list missing_evidence required before confirmation.\n"
+        "- Hypotheses are not confirmed findings and must not be written as "
+        "confirmed vulnerabilities.\n"
+        "- Do not claim a vulnerability is confirmed unless it is already in confirmed_findings.\n"
+        "- Suggest safe follow-up probes or analyst questions only; do not "
+        "provide exploit payloads.\n"
+        "- Use concise reasoning_summary text only.\n\n"
+        "Host evidence:\n"
         f"{json.dumps(payload, indent=2, sort_keys=True)}"
     )
 

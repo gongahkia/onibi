@@ -1,0 +1,1 @@
+{"stdout": "Failed password for root from 10.0.0.5 port 22 ssh2\nInvalid user admin2 from 10.0.0.6\nadmin : TTY=pts/0 ; PWD=/home/admin ; USER=root ; COMMAND=/usr/bin/cat /etc/shadow password=mysecret", "exit_code": 0}

@@ -82,7 +82,7 @@ Implemented today:
 - Local host evidence collection with osquery.
 - Optional Trivy filesystem vulnerability evidence.
 - Canonical `host_snapshot.json` loading.
-- Raw bundle ingestion from `osquery/`, `trivy/`, and `commands/` evidence.
+- Raw bundle ingestion from `osquery/`, `trivy/`, `commands/`, `lynis/`, and `openscap/` evidence.
 - Deterministic findings for:
   - high-risk public listeners
   - public SSH exposure
@@ -93,13 +93,16 @@ Implemented today:
   - missing unattended security updates
   - selected weak sysctl values
   - missing core evidence coverage
+  - Lynis baseline warnings and suggestions
+  - OpenSCAP failed XCCDF rule results with control references
+- Adaptive probing: deterministic follow-up probe plans from initial findings.
+- Safe allowlisted probe executor - no arbitrary command execution.
+- Separate evidence-bound host hypothesis reports that never count as findings.
 - Optional LLM analysis constrained to supplied evidence.
-- `host-report.json` and `host-report.md` output.
+- `host-report.json`, `host-report.md`, `host-report.pdf`, and static dashboard output.
 
 Not implemented yet:
 
-- PDF export
-- static dashboard
 - fleet dashboard
 - ticket sync
 - Windows support
@@ -133,6 +136,11 @@ This writes:
 piranesi-output/
   host-report.json
   host-report.md
+  host-report.pdf
+  host-dashboard/
+    index.html
+    host-report.json
+    assets/
 ```
 
 Collect evidence on a Linux VM or host:
@@ -150,10 +158,28 @@ uv run piranesi assess piranesi-evidence \
   --format both
 ```
 
+Generate a separate hypothesis report for possible evidence gaps and follow-up:
+
+```bash
+uv run piranesi hypothesize piranesi-evidence --output piranesi-output
+```
+
 Collect without Trivy when it is unavailable or too expensive:
 
 ```bash
 uv run piranesi collect --output piranesi-evidence --no-trivy
+```
+
+Collect with optional Lynis hardening baseline:
+
+```bash
+uv run piranesi collect --output piranesi-evidence --lynis
+```
+
+Collect bounded, redacted authentication/session evidence only when explicitly needed:
+
+```bash
+uv run piranesi collect --output piranesi-evidence --auth-evidence
 ```
 
 ## Host Evidence
@@ -192,6 +218,10 @@ piranesi-evidence/
       sysctl_net_ipv6_conf_all_forwarding.json
       sysctl_kernel_unprivileged_bpf_disabled.json
       sysctl_kernel_kptr_restrict.json
+    lynis/
+      report.dat
+    openscap/
+      results.xml
 ```
 
 Piranesi also accepts hand-built bundles:
@@ -254,6 +284,7 @@ Host reports include:
 - top actions
 - evidence inventory
 - collection health
+- LLM redaction metadata when LLM host analysis is requested
 - findings with severity, confidence, evidence, remediation, and control references
 - known limitations
 - embedded canonical snapshot
@@ -275,6 +306,24 @@ Write both:
 ```bash
 uv run piranesi assess piranesi-evidence --format both --output piranesi-output
 ```
+
+Write PDF, dashboard, or every host output:
+
+```bash
+uv run piranesi assess piranesi-evidence --format pdf --output piranesi-output
+uv run piranesi assess piranesi-evidence --format dashboard --output piranesi-output
+uv run piranesi assess piranesi-evidence --format all --output piranesi-output
+```
+
+Hypothesis reports are written separately as `host-hypotheses.json` and
+`host-hypotheses.md`:
+
+```bash
+uv run piranesi hypothesize piranesi-evidence --output piranesi-output
+```
+
+Hypotheses are not confirmed findings. They do not affect `findings_total`,
+`--fail-severity`, or posture score.
 
 ## LLM Analysis
 
@@ -300,6 +349,16 @@ Supported environment variables:
 - `LITELLM_API_KEY`
 
 LLM output is advisory and must remain tied to explicit snapshot evidence.
+Before host evidence is sent to an LLM, Piranesi builds a structured host payload
+and applies strict host redaction. Hostnames, usernames, IPs, MAC addresses, home
+paths, command lines, and likely secrets are replaced with stable placeholders
+such as `[HOSTNAME_1]`, `[USER_1]`, `[PRIVATE_IP_1]`, and `[SECRET]`. Package and
+service names are preserved so vulnerability context remains useful. LLM prompt
+traces contain the redacted prompt only.
+
+`piranesi hypothesize` may also use the configured LLM provider. Its prompt requires
+available evidence citations, explicit missing evidence, concise reasoning summaries,
+and safe follow-up probes or analyst questions rather than exploit payloads.
 
 ## Roadmap
 
@@ -307,13 +366,7 @@ The roadmap is organized as implementation specs in `todo1.md` through `todo20.m
 
 Near-term product depth:
 
-- PDF and static dashboard outputs
-- Lynis and OpenSCAP evidence support
-- adaptive follow-up probing
-- auth/log evidence
-- evidence-bound hypothesis reports
 - exploitability, blast-radius, and urgency scoring
-- host-specific LLM redaction
 - fleet assessment
 - host benchmark harness
 - structured CIS/NIST control mapping
@@ -336,11 +389,27 @@ Adoption and scale:
 ```bash
 piranesi --version
 piranesi doctor .
-piranesi collect --output piranesi-evidence [--trivy | --no-trivy]
+piranesi collect --output piranesi-evidence [--trivy | --no-trivy] [--lynis] [--openscap] [--auth-evidence]
 piranesi assess <host_snapshot.json|evidence-bundle> \
   --output piranesi-output \
   --analysis deterministic|llm|both \
-  --format json|markdown|both
+  --format json|markdown|both|pdf|dashboard|all
+piranesi hypothesize <host_snapshot.json|evidence-bundle> --output piranesi-output
+piranesi probe <evidence-bundle> --output probe-plan.json
+piranesi collect-followup <probe-plan.json> --output piranesi-evidence-followup
+```
+
+Adaptive probing workflow:
+
+```bash
+# 1. Generate probe plan from initial findings
+uv run piranesi probe piranesi-evidence --output probe-plan.json
+# 2. Review the plan
+cat probe-plan.json | python3 -m json.tool
+# 3. Execute allowed follow-up probes
+uv run piranesi collect-followup probe-plan.json --output piranesi-evidence-followup
+# 4. Re-assess with follow-up evidence
+uv run piranesi assess piranesi-evidence-followup --output piranesi-output --format both
 ```
 
 Useful assessment options:
@@ -353,6 +422,9 @@ Useful assessment options:
 | `--format json` | Write `host-report.json`. |
 | `--format markdown` | Write `host-report.md`. |
 | `--format both` | Write JSON and Markdown reports. |
+| `--format pdf` | Write `host-report.pdf`. |
+| `--format dashboard` | Write a static local dashboard under `host-dashboard/`. |
+| `--format all` | Write JSON, Markdown, PDF, and dashboard outputs. |
 | `--fail-severity high` | Exit non-zero when unsuppressed findings meet the threshold. |
 | `--no-fail` | Write reports without failing the command on findings. |
 | `--treat-private-as-public` | Treat private-interface listeners as exposed for lab hardening. |

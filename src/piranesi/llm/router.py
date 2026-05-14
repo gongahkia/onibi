@@ -126,6 +126,12 @@ class ModelRouter:
                     f"token budget exhausted for stage={stage}: "
                     f"used={self._token_budget_used} / max={self.config.budget.max_tokens}"
                 )
+            if remaining_before <= minimum_completion:
+                raise TokenBudgetExceededError(
+                    "token budget exhausted before minimum completion allocation for "
+                    f"stage={stage} (remaining={remaining_before}, "
+                    f"minimum_completion_tokens={minimum_completion})"
+                )
             max_prompt_tokens = max(1, remaining_before - minimum_completion)
             prompt_tokens = self.estimate_prompt_tokens(normalized_messages)
             adjusted_messages = [dict(message) for message in normalized_messages]

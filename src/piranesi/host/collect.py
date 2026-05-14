@@ -10,7 +10,7 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from piranesi.host.ingest import HostInputError, load_host_input
+from piranesi.host.ingest import HostInputError, load_host_input, redact_auth_value
 from piranesi.host.models import HostSnapshot
 
 CollectionStatus = Literal["ok", "missing", "failed", "timeout", "skipped"]
@@ -82,6 +82,16 @@ OPTIONAL_TEXT_COMMANDS: dict[str, list[str]] = {
     "sysctl_kernel_kptr_restrict": ["sysctl", "-n", "kernel.kptr_restrict"],
 }
 
+AUTH_TEXT_COMMANDS: dict[str, list[str]] = {
+    "who_sessions": ["who"],
+    "last_logins": ["last", "-n", "50"],
+    "lastb_failures": ["lastb", "-n", "50"],
+    "journalctl_sshd_auth_summary": [
+        "journalctl", "-u", "ssh", "--since", "-7d",
+        "--no-pager", "-n", "100",
+    ],
+}
+
 
 class CommandRunner(Protocol):
     def __call__(
@@ -141,6 +151,9 @@ def collect_host_evidence(
     output_dir: str | Path,
     *,
     include_trivy: bool = True,
+    include_lynis: bool = False,
+    include_openscap: bool = False,
+    include_auth_evidence: bool = False,
     trivy_target: str | Path = Path("/"),
     timeout_seconds: int = 30,
     trivy_timeout_seconds: int = 300,
@@ -152,6 +165,8 @@ def collect_host_evidence(
     osquery_dir = raw_dir / "osquery"
     trivy_dir = raw_dir / "trivy"
     commands_dir = raw_dir / "commands"
+    lynis_dir = raw_dir / "lynis"
+    openscap_dir = raw_dir / "openscap"
     output_path.mkdir(parents=True, exist_ok=True)
     osquery_dir.mkdir(parents=True, exist_ok=True)
     trivy_dir.mkdir(parents=True, exist_ok=True)
@@ -211,6 +226,22 @@ def collect_host_evidence(
             )
         )
 
+    if include_auth_evidence:
+        for name, command in AUTH_TEXT_COMMANDS.items():
+            manifest.commands.append(
+                _run_optional_text_command(
+                    name=name,
+                    command=command,
+                    output_file=commands_dir / f"{name}.json",
+                    timeout_seconds=timeout_seconds,
+                    executable_lookup=executable_lookup,
+                    command_runner=command_runner,
+                    redact=True,
+                    max_stdout_lines=120,
+                    max_stdout_chars=16_000,
+                )
+            )
+
     if include_trivy:
         _collect_trivy(
             trivy_dir=trivy_dir,
@@ -228,6 +259,22 @@ def collect_host_evidence(
                 status="skipped",
                 stderr="Trivy collection disabled by --no-trivy",
             )
+        )
+
+    if include_lynis:
+        _collect_lynis(
+            lynis_dir=lynis_dir,
+            timeout_seconds=timeout_seconds,
+            executable_lookup=executable_lookup,
+            command_runner=command_runner,
+            manifest=manifest,
+        )
+
+    if include_openscap:
+        _collect_openscap(
+            openscap_dir=openscap_dir,
+            executable_lookup=executable_lookup,
+            manifest=manifest,
         )
 
     if successful_osquery_outputs == 0:
@@ -419,6 +466,9 @@ def _run_optional_text_command(
     timeout_seconds: int,
     executable_lookup: ExecutableLookup,
     command_runner: CommandRunner,
+    redact: bool = False,
+    max_stdout_lines: int | None = None,
+    max_stdout_chars: int | None = None,
 ) -> CollectionCommandResult:
     executable = command[0]
     resolved = executable_lookup(executable)
@@ -456,12 +506,18 @@ def _run_optional_text_command(
             stderr=_compact_stderr(completed.stderr),
         )
     output_file.parent.mkdir(parents=True, exist_ok=True)
+    stdout = _bounded_stdout(
+        completed.stdout,
+        redact=redact,
+        max_lines=max_stdout_lines,
+        max_chars=max_stdout_chars,
+    )
     output_file.write_text(
         json.dumps(
             {
                 "command": resolved_command,
-                "stdout": completed.stdout,
-                "stderr": completed.stderr,
+                "stdout": stdout,
+                "stderr": _compact_stderr(completed.stderr),
             },
             indent=2,
         ),
@@ -474,6 +530,106 @@ def _run_optional_text_command(
         status="ok",
         exit_code=0,
         output_file=str(output_file),
+    )
+
+def _collect_lynis(
+    *,
+    lynis_dir: Path,
+    timeout_seconds: int,
+    executable_lookup: ExecutableLookup,
+    command_runner: CommandRunner,
+    manifest: HostCollectionManifest,
+) -> None:
+    lynis_path = executable_lookup("lynis")
+    if lynis_path is None:
+        manifest.commands.append(
+            CollectionCommandResult(
+                tool="lynis",
+                name="audit_system",
+                status="missing",
+                stderr="lynis was not found on PATH",
+            )
+        )
+        return
+    lynis_dir.mkdir(parents=True, exist_ok=True)
+    command = [lynis_path, "audit", "system", "--no-colors", "--quiet"]
+    try:
+        completed = command_runner(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        manifest.commands.append(
+            CollectionCommandResult(
+                tool="lynis",
+                name="audit_system",
+                command=command,
+                status="timeout",
+                stderr=f"lynis audit timed out after {timeout_seconds}s",
+            )
+        )
+        return
+    # lynis exits 0 on success; non-zero may still produce a report
+    report_sources = [
+        Path("/var/log/lynis-report.dat"),
+        Path("/tmp/lynis-report.dat"),  # noqa: S108
+    ]
+    report_dat = None
+    for candidate in report_sources:
+        if candidate.is_file():
+            report_dat = candidate
+            break
+    if report_dat is not None:
+        import shutil as _shutil
+        _shutil.copy2(report_dat, lynis_dir / "report.dat")
+    manifest.commands.append(
+        CollectionCommandResult(
+            tool="lynis",
+            name="audit_system",
+            command=command,
+            status="ok" if report_dat is not None or completed.returncode == 0 else "failed",
+            exit_code=completed.returncode,
+            output_file=str(lynis_dir / "report.dat") if report_dat else None,
+            stderr=_compact_stderr(completed.stderr),
+        )
+    )
+
+
+def _collect_openscap(
+    *,
+    openscap_dir: Path,
+    executable_lookup: ExecutableLookup,
+    manifest: HostCollectionManifest,
+) -> None:
+    oscap_path = executable_lookup("oscap")
+    if oscap_path is None:
+        manifest.commands.append(
+            CollectionCommandResult(
+                tool="openscap",
+                name="xccdf_eval",
+                status="missing",
+                stderr=(
+                    "oscap was not found on PATH. Live OpenSCAP profile execution "
+                    "requires distribution-specific SCAP content packages. "
+                    "Place pre-existing results.xml in raw/openscap/ for ingestion."
+                ),
+            )
+        )
+        return
+    # Discovery only — live profile execution requires SCAP content
+    openscap_dir.mkdir(parents=True, exist_ok=True)
+    manifest.commands.append(
+        CollectionCommandResult(
+            tool="openscap",
+            name="xccdf_eval",
+            status="skipped",
+            stderr=(
+                "oscap found but live profile execution requires SCAP content "
+                "packages. Place pre-existing results.xml in raw/openscap/."
+            ),
+        )
     )
 
 
@@ -490,3 +646,23 @@ def _compact_stderr(value: str | None) -> str | None:
         return None
     rendered = " ".join(value.split())
     return rendered[:500] if rendered else None
+
+
+def _bounded_stdout(
+    value: str | None,
+    *,
+    redact: bool,
+    max_lines: int | None,
+    max_chars: int | None,
+) -> str:
+    rendered = value or ""
+    if redact:
+        rendered = redact_auth_value(rendered)
+    if max_lines is not None:
+        lines = rendered.splitlines()
+        if len(lines) > max_lines:
+            rendered = "\n".join(lines[:max_lines])
+            rendered += f"\n[TRUNCATED after {max_lines} lines]"
+    if max_chars is not None and len(rendered) > max_chars:
+        rendered = rendered[:max_chars] + f"\n[TRUNCATED after {max_chars} characters]"
+    return rendered

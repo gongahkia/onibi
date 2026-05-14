@@ -1,0 +1,27 @@
+
+# Lynis Results - https://cisofy.com/lynis/
+# Lynis audit system
+#
+
+hardening_index=72
+
+warning[]=AUTH-9216|Set the password expiration for user|admin|-|-|
+
+warning[]=FILE-6310|Syslog daemon not running|-|-|-|
+
+suggestion[]=SSH-7408|Consider hardening SSH configuration|AllowTcpForwarding (set YES to NO)|-|-|
+
+suggestion[]=AUTH-9328|Default umask in /etc/profile or /etc/profile.d/custom.sh could be more strict like 027|-|-|-|
+
+suggestion[]=NETW-3032|Consider running ARP spoofing protection software|-|-|-|
+
+tests_performed=187
+lynis_version=3.0.8
+
+# Tests performed
+test[]=SSH-7402|1|SSH daemon configuration file ownership|
+test[]=SSH-7408|1|SSH daemon configuration file permissions|
+test[]=AUTH-9216|0|Check password expiration|
+test[]=FILE-6310|0|Check syslog daemon|
+test[]=AUTH-9328|1|Check default umask|
+test[]=NETW-3032|1|ARP spoofing protection|

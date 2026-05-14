@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from ipaddress import ip_address
 from pathlib import Path
@@ -9,11 +10,15 @@ from typing import Any
 from pydantic import ValidationError
 
 from piranesi.host.models import (
+    AuthEventSummary,
+    BaselineCheck,
+    EvidenceItem,
     HostIdentity,
     HostPackage,
     HostProcess,
     HostSnapshot,
     ListeningPort,
+    LoginSession,
     NetworkInterface,
     OsRelease,
     ServiceState,
@@ -63,14 +68,18 @@ def _load_tool_bundle(root: Path) -> HostSnapshot:
     osquery_dir = _tool_dir(root, "osquery")
     trivy_dir = _tool_dir(root, "trivy")
     commands_dir = _tool_dir(root, "commands")
+    lynis_dir = _tool_dir(root, "lynis")
+    openscap_dir = _tool_dir(root, "openscap")
     osquery_payloads = _load_json_files(osquery_dir) if osquery_dir is not None else {}
     trivy_payloads = _load_json_files(trivy_dir) if trivy_dir is not None else {}
     command_payloads = _load_json_files(commands_dir) if commands_dir is not None else {}
-    if not osquery_payloads and not trivy_payloads and not command_payloads:
+    has_baseline = lynis_dir is not None or openscap_dir is not None
+    if not osquery_payloads and not trivy_payloads and not command_payloads and not has_baseline:
         raise HostInputError(
             f"raw host bundle at {root} must contain host_snapshot.json, "
-            "osquery/*.json, trivy/*.json, commands/*.json, raw/osquery/*.json, "
-            "raw/trivy/*.json, or raw/commands/*.json"
+            "osquery/*.json, trivy/*.json, commands/*.json, lynis/report.dat, "
+            "openscap/results.xml, raw/osquery/*.json, raw/trivy/*.json, "
+            "or raw/commands/*.json"
         )
 
     network_interfaces = _network_interfaces_from_osquery(osquery_payloads)
@@ -87,6 +96,14 @@ def _load_tool_bundle(root: Path) -> HostSnapshot:
     services = _services_from_osquery(osquery_payloads)
     config = _config_from_evidence(osquery_payloads, command_payloads)
 
+    baseline_checks: list[BaselineCheck] = []
+    if lynis_dir is not None:
+        baseline_checks.extend(_parse_lynis_report(lynis_dir))
+    if openscap_dir is not None:
+        baseline_checks.extend(_parse_openscap_results(openscap_dir))
+
+    login_sessions, auth_events = _auth_evidence_from_commands(command_payloads)
+
     raw_evidence: dict[str, object] = {}
     if osquery_payloads:
         raw_evidence["osquery"] = osquery_payloads
@@ -94,6 +111,21 @@ def _load_tool_bundle(root: Path) -> HostSnapshot:
         raw_evidence["trivy"] = trivy_payloads
     if command_payloads:
         raw_evidence["commands"] = command_payloads
+    if lynis_dir is not None:
+        raw_evidence["lynis"] = {"source_dir": str(lynis_dir)}
+    if openscap_dir is not None:
+        raw_evidence["openscap"] = {"source_dir": str(openscap_dir)}
+
+    provenance: dict[str, str] = {
+        "bundle": str(root),
+        "osquery": str(osquery_dir) if osquery_payloads and osquery_dir else "",
+        "trivy": str(trivy_dir) if trivy_payloads and trivy_dir else "",
+        "commands": str(commands_dir) if command_payloads and commands_dir else "",
+    }
+    if lynis_dir is not None:
+        provenance["lynis"] = str(lynis_dir)
+    if openscap_dir is not None:
+        provenance["openscap"] = str(openscap_dir)
 
     snapshot = HostSnapshot(
         identity=identity,
@@ -105,13 +137,11 @@ def _load_tool_bundle(root: Path) -> HostSnapshot:
         processes=processes,
         services=services,
         users=users,
+        baseline_checks=baseline_checks,
+        login_sessions=login_sessions,
+        auth_event_summaries=auth_events,
         config=config,
-        tool_provenance={
-            "bundle": str(root),
-            "osquery": str(osquery_dir) if osquery_payloads and osquery_dir else "",
-            "trivy": str(trivy_dir) if trivy_payloads and trivy_dir else "",
-            "commands": str(commands_dir) if command_payloads and commands_dir else "",
-        },
+        tool_provenance=provenance,
         raw_evidence=raw_evidence,
     )
     return _with_collection_manifest(snapshot, root / "collection-manifest.json")
@@ -615,6 +645,170 @@ def _dedupe_values(items: list[str]) -> list[str]:
     return deduped
 
 
+# ---------------------------------------------------------------------------
+# Lynis report.dat parser
+# ---------------------------------------------------------------------------
+
+def _parse_lynis_report(lynis_dir: Path) -> list[BaselineCheck]:
+    report_dat = lynis_dir / "report.dat"
+    if not report_dat.is_file():
+        return []
+    try:
+        text = report_dat.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    checks: list[BaselineCheck] = []
+    hardening_index: str | None = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("hardening_index="):
+            hardening_index = stripped.split("=", 1)[1].strip()
+            continue
+        if stripped.startswith("warning[]="):
+            parts = stripped.split("=", 1)[1].split("|")
+            check_id = parts[0].strip() if parts else ""
+            title = parts[1].strip() if len(parts) > 1 else check_id
+            affected = parts[2].strip() if len(parts) > 2 else ""
+            if not check_id:
+                continue
+            checks.append(BaselineCheck(
+                source="lynis",
+                check_id=check_id,
+                title=title or check_id,
+                result="warn",
+                severity="medium",
+                evidence=[
+                    EvidenceItem(source="lynis", key="warning", value=f"{check_id}: {title}"),
+                    *([
+                        EvidenceItem(source="lynis", key="affected", value=affected)
+                    ] if affected and affected != "-" else []),
+                ],
+            ))
+        elif stripped.startswith("suggestion[]="):
+            parts = stripped.split("=", 1)[1].split("|")
+            check_id = parts[0].strip() if parts else ""
+            title = parts[1].strip() if len(parts) > 1 else check_id
+            detail = parts[2].strip() if len(parts) > 2 else ""
+            if not check_id:
+                continue
+            remediation = detail if detail and detail != "-" else None
+            checks.append(BaselineCheck(
+                source="lynis",
+                check_id=check_id,
+                title=title or check_id,
+                result="fail",
+                severity="low",
+                evidence=[
+                    EvidenceItem(source="lynis", key="suggestion", value=f"{check_id}: {title}"),
+                ],
+                remediation=remediation,
+            ))
+    if hardening_index is not None:
+        hardening_score = _int(hardening_index)
+        checks.insert(0, BaselineCheck(
+            source="lynis",
+            check_id="LYNIS-HARDENING-INDEX",
+            title=f"Lynis hardening index: {hardening_index}",
+            result=(
+                "unknown"
+                if hardening_score is None
+                else "pass"
+                if hardening_score >= 80
+                else "warn"
+            ),
+            severity="informational",
+            evidence=[
+                EvidenceItem(source="lynis", key="hardening_index", value=hardening_index),
+            ],
+        ))
+    return checks
+
+
+# ---------------------------------------------------------------------------
+# OpenSCAP XCCDF XML parser
+# ---------------------------------------------------------------------------
+
+_XCCDF_NS = "http://checklists.nist.gov/xccdf/1.2"
+
+
+def _parse_openscap_results(openscap_dir: Path) -> list[BaselineCheck]:
+    results_xml = openscap_dir / "results.xml"
+    if not results_xml.is_file():
+        return []
+    try:
+        tree = ET.parse(results_xml)  # noqa: S314
+    except (OSError, ET.ParseError):
+        return []
+    root = tree.getroot()
+    ns = {"xccdf": _XCCDF_NS}
+    rules_by_id: dict[str, ET.Element] = {}
+    for rule_el in root.iter(f"{{{_XCCDF_NS}}}Rule"):
+        rid = rule_el.get("id", "")
+        if rid:
+            rules_by_id[rid] = rule_el
+    checks: list[BaselineCheck] = []
+    for rr in root.iter(f"{{{_XCCDF_NS}}}rule-result"):
+        idref = rr.get("idref", "")
+        result_el = rr.find(f"{{{_XCCDF_NS}}}result")
+        raw_result = (result_el.text or "").strip().lower() if result_el is not None else "unknown"
+        result = _openscap_result(raw_result)
+        rule_el = rules_by_id.get(idref)
+        severity_raw = (rule_el.get("severity", "") if rule_el is not None else "").lower()
+        severity = _openscap_severity(severity_raw)
+        title_el = rule_el.find(f"{{{_XCCDF_NS}}}title") if rule_el is not None else None
+        title = (title_el.text or idref).strip() if title_el is not None else idref
+        desc_el = rule_el.find(f"{{{_XCCDF_NS}}}description") if rule_el is not None else None
+        description = (desc_el.text or "").strip() if desc_el is not None else ""
+        fix_el = rule_el.find(f"{{{_XCCDF_NS}}}fixtext") if rule_el is not None else None
+        remediation = (fix_el.text or "").strip() if fix_el is not None else None
+        control_refs: list[str] = []
+        if rule_el is not None:
+            for ident_el in rule_el.findall(f"{{{_XCCDF_NS}}}ident"):
+                ident_text = (ident_el.text or "").strip()
+                if ident_text:
+                    control_refs.append(ident_text)
+        evidence = [EvidenceItem(source="openscap", key="rule_result", value=f"{idref}: {raw_result}")]
+        if description:
+            evidence.append(EvidenceItem(source="openscap", key="description", value=description))
+        checks.append(BaselineCheck(
+            source="openscap",
+            check_id=idref,
+            title=title,
+            result=result,
+            severity=severity,
+            control_refs=control_refs,
+            evidence=evidence,
+            remediation=remediation or None,
+        ))
+    return checks
+
+
+def _openscap_result(raw: str) -> str:
+    mapping = {
+        "pass": "pass",
+        "fail": "fail",
+        "error": "fail",
+        "unknown": "unknown",
+        "notapplicable": "not_applicable",
+        "notchecked": "unknown",
+        "notselected": "not_applicable",
+        "informational": "pass",
+        "fixed": "pass",
+    }
+    return mapping.get(raw, "unknown")
+
+
+def _openscap_severity(raw: str) -> str | None:
+    mapping = {
+        "high": "high",
+        "medium": "medium",
+        "low": "low",
+        "unknown": None,
+        "": None,
+    }
+    return mapping.get(raw)
+
+
 def _dedupe_models[T](items: list[T], *, key: Callable[[T], object]) -> list[T]:
     seen: set[object] = set()
     deduped: list[T] = []
@@ -625,3 +819,184 @@ def _dedupe_models[T](items: list[T], *, key: Callable[[T], object]) -> list[T]:
         seen.add(marker)
         deduped.append(item)
     return deduped
+
+
+# ---------------------------------------------------------------------------
+# Redaction helper
+# ---------------------------------------------------------------------------
+
+import re as _re
+
+_SECRET_PATTERNS: list[_re.Pattern[str]] = [
+    _re.compile(r"(?i)(password|passwd|secret|token|key|api[_-]?key|bearer)\s*[=:]\s*\S+"),
+    _re.compile(r"(?i)(AWS_SECRET|PRIVATE_KEY|ssh-rsa|ssh-ed25519)\s+\S+"),
+    _re.compile(r"-----BEGIN [A-Z ]+-----"),
+]
+
+
+def redact_auth_value(text: str) -> str:
+    """Redact likely secrets and sensitive arguments from auth evidence text."""
+    result = text
+    for pattern in _SECRET_PATTERNS:
+        result = pattern.sub("[REDACTED]", result)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Auth evidence parsing
+# ---------------------------------------------------------------------------
+
+
+def _auth_evidence_from_commands(
+    command_payloads: dict[str, object],
+) -> tuple[list[LoginSession], list[AuthEventSummary]]:
+    sessions: list[LoginSession] = []
+    events: list[AuthEventSummary] = []
+
+    who_data = command_payloads.get("who_sessions")
+    if who_data is not None:
+        sessions.extend(_parse_who_sessions(who_data))
+
+    last_data = command_payloads.get("last_logins")
+    if last_data is not None:
+        events.extend(_parse_last_logins(last_data))
+
+    lastb_data = command_payloads.get("lastb_failures")
+    if lastb_data is not None:
+        events.extend(_parse_lastb_failures(lastb_data))
+
+    journal_data = command_payloads.get("journalctl_sshd_auth_summary")
+    if journal_data is not None:
+        events.extend(_parse_journalctl_ssh(journal_data))
+
+    return sessions, events
+
+
+def _parse_who_sessions(payload: object) -> list[LoginSession]:
+    text = _command_stdout(payload)
+    if not text or not text.strip():
+        return []
+    sessions: list[LoginSession] = []
+    for line in text.strip().splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        username = parts[0]
+        tty = parts[1] if len(parts) > 1 else None
+        # who format: user tty date time (source)
+        started_at = None
+        if len(parts) >= 4:
+            started_at = f"{parts[2]} {parts[3]}"
+        source = None
+        if len(parts) >= 5 and parts[-1].startswith("(") and parts[-1].endswith(")"):
+            source = parts[-1][1:-1]
+        sessions.append(LoginSession(
+            username=username,
+            tty=tty,
+            started_at=started_at,
+            source=source,
+        ))
+    return sessions
+
+
+def _parse_last_logins(payload: object) -> list[AuthEventSummary]:
+    text = _command_stdout(payload)
+    if not text or not text.strip():
+        return []
+    events: list[AuthEventSummary] = []
+    for line in text.strip().splitlines():
+        parts = line.split()
+        if len(parts) < 2 or parts[0] in {"wtmp", "btmp", "reboot", ""}:
+            continue
+        username = parts[0]
+        # last format: user tty source day month time - time (duration)
+        source_ip = None
+        if len(parts) >= 3 and ("." in parts[2] or ":" in parts[2]):
+            source_ip = parts[2]
+        events.append(AuthEventSummary(
+            event_type="login_success",
+            username=username,
+            source_ip=source_ip,
+            evidence_source="last",
+        ))
+    return events
+
+
+def _parse_lastb_failures(payload: object) -> list[AuthEventSummary]:
+    text = _command_stdout(payload)
+    if not text or not text.strip():
+        return []
+    events: list[AuthEventSummary] = []
+    for line in text.strip().splitlines():
+        parts = line.split()
+        if len(parts) < 2 or parts[0] in {"btmp", "wtmp", ""}:
+            continue
+        username = parts[0]
+        source_ip = None
+        if len(parts) >= 3 and ("." in parts[2] or ":" in parts[2]):
+            source_ip = parts[2]
+        events.append(AuthEventSummary(
+            event_type="login_failure",
+            username=username,
+            source_ip=source_ip,
+            evidence_source="lastb",
+        ))
+    return events
+
+
+_SSH_FAILED_RE = _re.compile(
+    r"Failed password for (?:invalid user )?(\S+) from (\S+)"
+)
+_SSH_INVALID_RE = _re.compile(
+    r"Invalid user (\S+) from (\S+)"
+)
+_SSH_ROOT_RE = _re.compile(
+    r"(?:Failed password|Accepted password|Accepted publickey) for root from (\S+)"
+)
+_SUDO_RE = _re.compile(
+    r"(\S+) : .* COMMAND=(.*)"
+)
+
+
+def _parse_journalctl_ssh(payload: object) -> list[AuthEventSummary]:
+    text = _command_stdout(payload)
+    if not text or not text.strip():
+        return []
+    events: list[AuthEventSummary] = []
+    for line in text.strip().splitlines():
+        line = redact_auth_value(line)
+        m = _SSH_ROOT_RE.search(line)
+        if m:
+            events.append(AuthEventSummary(
+                event_type="ssh_root_login",
+                username="root",
+                source_ip=m.group(1),
+                evidence_source="journalctl",
+            ))
+            continue
+        m = _SSH_FAILED_RE.search(line)
+        if m:
+            events.append(AuthEventSummary(
+                event_type="ssh_failed_password",
+                username=m.group(1),
+                source_ip=m.group(2),
+                evidence_source="journalctl",
+            ))
+            continue
+        m = _SSH_INVALID_RE.search(line)
+        if m:
+            events.append(AuthEventSummary(
+                event_type="ssh_invalid_user",
+                username=m.group(1),
+                source_ip=m.group(2),
+                evidence_source="journalctl",
+            ))
+            continue
+        m = _SUDO_RE.search(line)
+        if m:
+            events.append(AuthEventSummary(
+                event_type="sudo_command",
+                username=m.group(1),
+                evidence_source="journalctl",
+            ))
+    return events

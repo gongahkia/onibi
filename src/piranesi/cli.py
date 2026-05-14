@@ -56,8 +56,10 @@ from piranesi.host import (
     analyze_snapshot,
     apply_host_suppressions,
     apply_host_suppressions_with_lifecycle,
+    build_host_hypothesis_report,
     collect_host_evidence,
     load_host_input,
+    write_host_hypothesis_outputs,
     write_host_report_outputs,
 )
 from piranesi.intel import build_enrichment_summary, normalize_adapter_result
@@ -319,6 +321,9 @@ class HostReportFormat(StrEnum):
     JSON = "json"
     MARKDOWN = "markdown"
     BOTH = "both"
+    PDF = "pdf"
+    DASHBOARD = "dashboard"
+    ALL = "all"
 
 
 class TrendFormat(StrEnum):
@@ -2202,6 +2207,30 @@ def collect(
         int,
         typer.Option("--trivy-timeout", min=1, help="Timeout in seconds for the Trivy scan."),
     ] = 300,
+    include_lynis: Annotated[
+        bool,
+        typer.Option(
+            "--lynis",
+            help="Run Lynis hardening audit when lynis is available (opt-in).",
+        ),
+    ] = False,
+    include_openscap: Annotated[
+        bool,
+        typer.Option(
+            "--openscap",
+            help="Discover OpenSCAP and prepare for XCCDF ingestion (opt-in).",
+        ),
+    ] = False,
+    include_auth_evidence: Annotated[
+        bool,
+        typer.Option(
+            "--auth-evidence",
+            help=(
+                "Collect bounded, redacted authentication/session evidence. "
+                "Disabled by default to avoid raw auth log collection."
+            ),
+        ),
+    ] = False,
     verbose: VerboseOption = False,
     quiet: QuietOption = False,
     debug: DebugOption = False,
@@ -2213,6 +2242,9 @@ def collect(
         result = collect_host_evidence(
             output,
             include_trivy=include_trivy,
+            include_lynis=include_lynis,
+            include_openscap=include_openscap,
+            include_auth_evidence=include_auth_evidence,
             trivy_target=trivy_target,
             timeout_seconds=timeout,
             trivy_timeout_seconds=trivy_timeout,
@@ -2429,6 +2461,239 @@ def assess(
         failing = _host_findings_at_or_above(report.findings, fail_severity.value)
         if failing:
             raise typer.Exit(code=1)
+
+
+@app.command(
+    "hypothesize",
+    help="Generate evidence-bound host hypotheses separate from confirmed findings.",
+)
+def hypothesize(
+    input_path: Annotated[
+        Path,
+        typer.Argument(
+            help=(
+                "Path to host_snapshot.json or a raw bundle directory containing "
+                "osquery/ or trivy/."
+            )
+        ),
+    ],
+    config: ConfigOption = Path("./piranesi.toml"),
+    output: OutputOption = Path("./piranesi-output"),
+    verbose: VerboseOption = False,
+    quiet: QuietOption = False,
+    debug: DebugOption = False,
+    json_logs: JsonLogsOption = False,
+    trace: TraceOption = Path(".piranesi-trace.jsonl"),
+) -> None:
+    _load_local_llm_env()
+    options = _common_options(
+        config=config,
+        output=output,
+        verbose=verbose,
+        quiet=quiet,
+        debug=debug,
+        json_logs=json_logs,
+        trace=trace,
+        authorized=True,
+        yes=True,
+    )
+    setup_logging(
+        verbose=options.verbose,
+        quiet=options.quiet,
+        debug=options.debug,
+        json_logs=options.json_logs,
+    )
+    logger = logging.getLogger("piranesi.hypothesize")
+    config_model = _load_cli_config(stage="hypothesize", options=options)
+    try:
+        snapshot = load_host_input(input_path)
+    except HostInputError as exc:
+        log_error_context(
+            logger,
+            event="host_input_invalid",
+            what="host_input",
+            on_what=str(input_path),
+            why=str(exc),
+            next_step="provide host_snapshot.json or osquery/Trivy JSON bundle",
+            debug="use a directory with osquery/*.json and/or trivy/*.json",
+        )
+        raise typer.Exit(code=2) from exc
+
+    provider: LLMProvider | None = None
+    trace_writer: TraceWriter | None = None
+    cost_tracker: CostTracker | None = None
+    if _host_llm_is_configured():
+        cost_tracker = CostTracker()
+        trace_writer = TraceWriter(config_model.trace, config_model.budget)
+        router = ModelRouter(config_model, cost_tracker)
+        trace_logger = TraceLogger(trace_writer, log_prompts=config_model.trace.log_prompts)
+        provider = LLMProvider(trace_logger, cost_tracker, router=router)
+
+    try:
+        if trace_writer is not None:
+            trace_writer.open()
+        report = build_host_hypothesis_report(snapshot, provider=provider)
+        write_host_hypothesis_outputs(report, output)
+    except TraceBudgetExceededError as exc:
+        log_error_context(
+            logger,
+            event="trace_budget_exceeded",
+            what="trace_budget",
+            on_what=str(trace),
+            why=str(exc),
+            next_step="exiting_with_code_4",
+            debug="reduce LLM usage or raise budget.max_cost_usd",
+        )
+        raise typer.Exit(code=4) from exc
+    finally:
+        if trace_writer is not None:
+            trace_writer.close()
+
+    if not quiet:
+        if sys.stderr.isatty() and not json_logs:
+            print_summary_table(
+                "Piranesi Host Hypotheses",
+                {
+                    "Target": report.target,
+                    "Analysis": ", ".join(report.analysis_modes),
+                    "Hypotheses": len(report.hypotheses),
+                    "Output": output.resolve(strict=False),
+                    "Findings impact": "none",
+                },
+            )
+        else:
+            typer.echo(f"target: {report.target}")
+            typer.echo(f"analysis: {', '.join(report.analysis_modes)}")
+            typer.echo(f"hypotheses: {len(report.hypotheses)}")
+            typer.echo("findings_impact: none")
+            typer.echo(f"output: {output.resolve(strict=False)}")
+
+
+@app.command("probe", help="Generate a safe follow-up probe plan from an initial evidence bundle.")
+def probe(
+    input_path: Annotated[
+        Path,
+        typer.Argument(
+            help="Path to host_snapshot.json or raw evidence bundle directory."
+        ),
+    ],
+    output: Annotated[
+        Path,
+        typer.Option("--output", help="Path to write the probe plan JSON."),
+    ] = Path("./probe-plan.json"),
+    verbose: VerboseOption = False,
+    quiet: QuietOption = False,
+    debug: DebugOption = False,
+    json_logs: JsonLogsOption = False,
+) -> None:
+    setup_logging(verbose=verbose, quiet=quiet, debug=debug, json_logs=json_logs)
+    logger = logging.getLogger("piranesi.probe")
+    try:
+        snapshot = load_host_input(input_path)
+    except HostInputError as exc:
+        log_error_context(
+            logger,
+            event="host_input_invalid",
+            what="host_input",
+            on_what=str(input_path),
+            why=str(exc),
+            next_step="provide host_snapshot.json or osquery/Trivy JSON bundle",
+            debug="use a directory with osquery/*.json and/or trivy/*.json",
+        )
+        raise typer.Exit(code=2) from exc
+
+    from piranesi.host.analyze import deterministic_findings
+    from piranesi.host.probe import generate_probe_plan
+
+    findings = deterministic_findings(snapshot)
+    plan = generate_probe_plan(snapshot, findings, base_input=input_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(plan.model_dump_json(indent=2), encoding="utf-8")
+    if not quiet:
+        typer.echo(f"probe plan: {output}")
+        typer.echo(f"target: {plan.target}")
+        typer.echo(f"probes: {len(plan.probes)}")
+        for p in plan.probes:
+            typer.echo(f"  - {p.id} ({p.capability}): {p.reason}")
+
+
+@app.command(
+    "collect-followup",
+    help="Execute allowed follow-up probes from a probe plan.",
+)
+def collect_followup(
+    plan_path: Annotated[
+        Path,
+        typer.Argument(help="Path to a probe-plan.json generated by `piranesi probe`."),
+    ],
+    output: OutputOption = Path("./piranesi-evidence-followup"),
+    timeout: Annotated[
+        int,
+        typer.Option("--timeout", min=1, help="Timeout in seconds for each probe command."),
+    ] = 30,
+    verbose: VerboseOption = False,
+    quiet: QuietOption = False,
+    debug: DebugOption = False,
+    json_logs: JsonLogsOption = False,
+) -> None:
+    setup_logging(verbose=verbose, quiet=quiet, debug=debug, json_logs=json_logs)
+    logger = logging.getLogger("piranesi.collect-followup")
+    if not plan_path.is_file():
+        log_error_context(
+            logger,
+            event="probe_plan_missing",
+            what="probe_plan",
+            on_what=str(plan_path),
+            why="probe plan file does not exist",
+            next_step="run `piranesi probe <evidence>` first",
+            debug="",
+        )
+        raise typer.Exit(code=2)
+    try:
+        from piranesi.host.models import ProbePlan
+
+        raw = json.loads(plan_path.read_text(encoding="utf-8"))
+        plan = ProbePlan.model_validate(raw)
+    except Exception as exc:
+        log_error_context(
+            logger,
+            event="probe_plan_invalid",
+            what="probe_plan",
+            on_what=str(plan_path),
+            why=str(exc),
+            next_step="regenerate with `piranesi probe <evidence>`",
+            debug="",
+        )
+        raise typer.Exit(code=2) from exc
+
+    from piranesi.host.probe import execute_probe_plan
+
+    result = execute_probe_plan(
+        plan,
+        output,
+        timeout_seconds=timeout,
+    )
+    if not quiet:
+        if sys.stderr.isatty() and not json_logs:
+            print_summary_table(
+                "Piranesi Follow-up Probes",
+                {
+                    "Target": plan.target,
+                    "Probes Total": len(plan.probes),
+                    "Executed": result.executed,
+                    "Skipped": result.skipped,
+                    "Failed": result.failed,
+                    "Rejected": result.rejected,
+                    "Output": output.resolve(strict=False),
+                },
+            )
+        else:
+            typer.echo(f"target: {plan.target}")
+            typer.echo(f"executed: {result.executed}")
+            typer.echo(f"skipped: {result.skipped}")
+            typer.echo(f"failed: {result.failed}")
+            typer.echo(f"rejected: {result.rejected}")
+            typer.echo(f"output: {output.resolve(strict=False)}")
 
 
 @app.command("validate-evidence", help="Validate report and verification evidence artifacts.")

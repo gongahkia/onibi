@@ -1,4 +1,8 @@
-from piranesi.host.analyze import analyze_snapshot
+from piranesi.host.analyze import (
+    analyze_snapshot,
+    build_host_hypothesis_report,
+    deterministic_hypotheses,
+)
 from piranesi.host.collect import (
     CollectionCommandResult,
     HostCollectionError,
@@ -8,10 +12,14 @@ from piranesi.host.collect import (
 )
 from piranesi.host.ingest import HostInputError, load_host_input
 from piranesi.host.models import (
+    BaselineCheck,
     CollectionCapabilityHealth,
     CollectionHealth,
     EvidenceItem,
+    FollowupProbe,
     HostFinding,
+    HostHypothesis,
+    HostHypothesisReport,
     HostIdentity,
     HostPackage,
     HostPostureReport,
@@ -20,10 +28,24 @@ from piranesi.host.models import (
     ListeningPort,
     NetworkInterface,
     OsRelease,
+    ProbePlan,
+    RedactionStatus,
     ServiceState,
     UserAccount,
 )
-from piranesi.host.report import write_host_report_outputs
+from piranesi.host.probe import (
+    ALLOWED_PROBES,
+    ProbeExecutionError,
+    ProbeExecutionResult,
+    execute_probe_plan,
+    generate_probe_plan,
+)
+from piranesi.host.redaction import (
+    HostRedactionPolicy,
+    RedactedPayload,
+    redact_host_llm_payload,
+)
+from piranesi.host.report import write_host_hypothesis_outputs, write_host_report_outputs
 from piranesi.host.suppression import (
     HostSuppressionOutcome,
     apply_host_suppressions,
@@ -32,31 +54,48 @@ from piranesi.host.suppression import (
 )
 
 __all__ = [
+    "ALLOWED_PROBES",
+    "BaselineCheck",
     "CollectionCapabilityHealth",
     "CollectionCommandResult",
     "CollectionHealth",
     "EvidenceItem",
+    "FollowupProbe",
     "HostCollectionError",
     "HostCollectionManifest",
     "HostCollectionResult",
     "HostFinding",
+    "HostHypothesis",
+    "HostHypothesisReport",
     "HostIdentity",
     "HostInputError",
     "HostPackage",
     "HostPostureReport",
     "HostProcess",
+    "HostRedactionPolicy",
     "HostSnapshot",
     "HostSuppressionOutcome",
     "ListeningPort",
     "NetworkInterface",
     "OsRelease",
+    "ProbeExecutionError",
+    "ProbeExecutionResult",
+    "ProbePlan",
+    "RedactionStatus",
+    "RedactedPayload",
     "ServiceState",
     "UserAccount",
     "analyze_snapshot",
     "apply_host_suppressions",
     "apply_host_suppressions_with_lifecycle",
+    "build_host_hypothesis_report",
     "collect_host_evidence",
+    "deterministic_hypotheses",
+    "execute_probe_plan",
+    "generate_probe_plan",
     "load_host_input",
+    "redact_host_llm_payload",
     "summarize_host_suppression_lifecycle",
+    "write_host_hypothesis_outputs",
     "write_host_report_outputs",
 ]
