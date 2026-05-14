@@ -1,65 +1,127 @@
-![](https://github.com/gongahkia/piranesi/actions/workflows/ci.yml/badge.svg)
+<p align="center">
+  <a href="https://github.com/gongahkia/piranesi">
+    <img alt="Piranesi" src="asset/logo/imaginary-prisons.jpg" width="180">
+  </a>
+</p>
 
-# Piranesi
+<h1 align="center">Piranesi</h1>
 
-Piranesi is an alpha, local-first VM and Linux host posture assessment CLI. It turns
-host evidence into a focused vulnerability and exposure report for VM sandbox,
-homelab, lab-infra, and security review workflows.
+<p align="center">
+  <strong>Local-first host posture workbench for Linux VMs, labs, and security review.</strong>
+</p>
 
-The current center of gravity is a local VM snapshot workflow: run `piranesi collect`
-on a Linux VM or host, run `piranesi assess`, and review JSON/Markdown reports. The
-first supported raw evidence bundle format is osquery plus Trivy JSON. Deterministic
-analysis works without LLM credentials; optional LLM analysis can add evidence-bound
-posture reasoning when a LiteLLM-compatible API key is configured.
+<p align="center">
+  <a href="https://github.com/gongahkia/piranesi/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/gongahkia/piranesi/actions/workflows/ci.yml/badge.svg" /></a>
+  <a href="https://github.com/gongahkia/piranesi/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" /></a>
+  <a href="https://github.com/gongahkia/piranesi"><img alt="Status" src="https://img.shields.io/badge/status-alpha-orange?style=flat-square" /></a>
+</p>
 
-## Status
+---
 
-`v0.2.0` is being pivoted from the earlier JavaScript/TypeScript SAST prototype into
-the VM vulnerability sandbox proposal. The legacy source-code pipeline still exists
-internally for now, but it is no longer the primary public use case.
+Piranesi turns local host evidence into focused, evidence-bound posture reports.
+It collects and normalizes signals from tools like osquery and Trivy, then explains
+what matters: exposed services, SSH hardening gaps, package CVEs, firewall/update
+posture, privileged accounts, kernel hardening issues, missing evidence, and
+operator-ready next actions.
 
-Phase 1 targets Debian/Ubuntu-style Linux host evidence and produces a snapshot
-report. It does not yet ship fleet dashboards, ticket sync, PDF export, Windows
-support, or cloud inventory ingestion.
+The product direction is deliberately not "another black-box scanner." Piranesi is
+a local-first evidence workbench: bring host evidence in, keep it inspectable, rank
+and explain risk, and produce reports that an engineer or analyst can act on.
 
-## What It Does
+> `v0.2.0` is an alpha pivot from the earlier source-code security prototype into
+> VM and Linux host posture assessment. The legacy source-code pipeline remains in
+> the tree for compatibility, but the primary product surface is now host posture.
 
-- Collects local VM/host evidence with osquery and optional Trivy.
-- Loads a canonical `host_snapshot.json` or a raw evidence bundle directory.
-- Normalizes osquery host facts: OS, kernel, packages, listening ports, users,
-  services, network interfaces, process inventory, sudo evidence, selected SSH
-  configuration, firewall/update command evidence, and selected kernel sysctl values.
-- Reads Trivy JSON output for package vulnerability evidence.
-- Flags exposed high-risk services, public SSH exposure, SSH hardening gaps,
-  privileged local accounts, package CVEs, pending security updates, missing
-  unattended security update automation, weak sysctl values, and missing evidence
-  coverage.
-- Writes `host-report.json` and/or `host-report.md`.
-- Supports deterministic, LLM-only, or combined analysis modes.
+## Table Of Contents
 
-## Requirements
+- [Why Piranesi](#why-piranesi)
+- [Current Scope](#current-scope)
+- [Quick Start](#quick-start)
+- [Host Evidence](#host-evidence)
+- [Reports](#reports)
+- [LLM Analysis](#llm-analysis)
+- [Roadmap](#roadmap)
+- [CLI Reference](#cli-reference)
+- [Development](#development)
+- [License](#license)
 
-- Python 3.12+
-- `uv` for source-checkout development
-- Optional: osquery on the assessed VM/host
-- Optional: Trivy for package vulnerability evidence
-- Optional: one LiteLLM-compatible API key for `--analysis llm` or `--analysis both`
+---
 
-Supported LLM environment variables are `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
-`OPENROUTER_API_KEY`, `AZURE_OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, and
-`LITELLM_API_KEY`.
+## Why Piranesi
+
+Security teams already have plenty of scanners. Piranesi is aimed at the gap before
+and around those platforms: VM sandboxes, homelabs, lab infrastructure, offline
+reviews, airgapped evidence bundles, and teams that want a transparent local report
+before adopting heavier fleet tooling.
+
+Piranesi's positioning:
+
+- **Local-first:** deterministic assessment works without API keys or cloud upload.
+- **Evidence-bound:** findings cite concrete snapshot, osquery, Trivy, or command evidence.
+- **Composable:** Piranesi normalizes existing tools instead of trying to replace them.
+- **Analyst-ready:** reports include metadata, evidence inventory, collection health,
+  top actions, remediation, and known limitations.
+- **Developer-friendly:** everything is CLI-native, JSON-first, fixture-testable, and
+  suitable for CI or local review.
+
+The long-term wedge is a local posture workbench that composes osquery, Trivy,
+Lynis, OpenSCAP, policy-as-code, adaptive probing, fleet summaries, and benchmarked
+evidence quality into one practical workflow.
+
+## Current Scope
+
+Piranesi currently supports a single-host Debian/Ubuntu-oriented workflow:
+
+```bash
+piranesi collect  # run on a Linux VM or host
+piranesi assess   # turn evidence into JSON/Markdown reports
+```
+
+Implemented today:
+
+- Local host evidence collection with osquery.
+- Optional Trivy filesystem vulnerability evidence.
+- Canonical `host_snapshot.json` loading.
+- Raw bundle ingestion from `osquery/`, `trivy/`, and `commands/` evidence.
+- Deterministic findings for:
+  - high-risk public listeners
+  - public SSH exposure
+  - SSH hardening gaps
+  - privileged local accounts
+  - Trivy package CVEs
+  - pending security updates
+  - missing unattended security updates
+  - selected weak sysctl values
+  - missing core evidence coverage
+- Optional LLM analysis constrained to supplied evidence.
+- `host-report.json` and `host-report.md` output.
+
+Not implemented yet:
+
+- PDF export
+- static dashboard
+- fleet dashboard
+- ticket sync
+- Windows support
+- cloud inventory ingestion
+- long-running agent
+
+See [docs/capabilities.md](docs/capabilities.md) for the detailed capability matrix.
 
 ## Quick Start
+
+From a source checkout:
 
 ```bash
 uv sync
 uv run piranesi --version
-
 uv run piranesi doctor .
+```
 
-uv run piranesi collect --output piranesi-evidence
+Assess the bundled vulnerable host fixture:
 
-uv run piranesi assess piranesi-evidence \
+```bash
+uv run piranesi assess tests/fixtures/host/debian-vulnerable \
   --output piranesi-output \
   --analysis deterministic \
   --format both
@@ -67,33 +129,36 @@ uv run piranesi assess piranesi-evidence \
 
 This writes:
 
-- `piranesi-output/host-report.json`
-- `piranesi-output/host-report.md`
-
-Use a canonical snapshot directly:
-
-```bash
-uv run piranesi assess path/to/host_snapshot.json --output piranesi-output
+```text
+piranesi-output/
+  host-report.json
+  host-report.md
 ```
 
-Use the bundled development fixture without collecting local host evidence:
+Collect evidence on a Linux VM or host:
 
 ```bash
-uv run piranesi assess tests/fixtures/host/debian-vulnerable \
-  --output piranesi-output
+uv run piranesi collect --output piranesi-evidence
 ```
 
-Use optional evidence-bound LLM reasoning:
+Assess that evidence:
 
 ```bash
-OPENAI_API_KEY=... uv run piranesi assess path/to/evidence-bundle \
-  --analysis both \
-  --output piranesi-output
+uv run piranesi assess piranesi-evidence \
+  --output piranesi-output \
+  --analysis deterministic \
+  --format both
 ```
 
-## Raw Bundle Layout
+Collect without Trivy when it is unavailable or too expensive:
 
-`piranesi collect` writes a collector layout:
+```bash
+uv run piranesi collect --output piranesi-evidence --no-trivy
+```
+
+## Host Evidence
+
+`piranesi collect` writes a local evidence bundle:
 
 ```text
 piranesi-evidence/
@@ -129,9 +194,7 @@ piranesi-evidence/
       sysctl_kernel_kptr_restrict.json
 ```
 
-Piranesi also accepts a hand-built bundle containing `osquery/*.json` and/or
-`trivy/*.json` at the bundle root. Command evidence may also be provided at
-`commands/*.json`:
+Piranesi also accepts hand-built bundles:
 
 ```text
 evidence-bundle/
@@ -154,14 +217,8 @@ evidence-bundle/
     sysctl_kernel_kptr_restrict.json
 ```
 
-If `host_snapshot.json` exists at the bundle root, Piranesi treats it as the canonical
-input and skips raw bundle normalization.
-
-JSON reports include `host_metadata` and `top_actions` in addition to the canonical
-snapshot and finding list. Markdown reports render matching `Host Metadata` and
-`Top Actions` sections for operator review.
-
-## Canonical Snapshot Shape
+If `host_snapshot.json` exists at the bundle root, Piranesi treats it as the
+canonical input and skips raw bundle normalization.
 
 The stable internal interchange format is `HostSnapshot`:
 
@@ -182,7 +239,123 @@ The stable internal interchange format is `HostSnapshot`:
 }
 ```
 
-See `tests/fixtures/host/debian-clean/host_snapshot.json` for a complete example.
+See [docs/host-posture.md](docs/host-posture.md) for collection details and
+permission notes.
+
+## Reports
+
+Host reports include:
+
+- target and generated timestamp
+- analysis modes
+- posture score
+- severity summary
+- host metadata
+- top actions
+- evidence inventory
+- collection health
+- findings with severity, confidence, evidence, remediation, and control references
+- known limitations
+- embedded canonical snapshot
+
+Write JSON only:
+
+```bash
+uv run piranesi assess piranesi-evidence --format json --output piranesi-output
+```
+
+Write Markdown only:
+
+```bash
+uv run piranesi assess piranesi-evidence --format markdown --output piranesi-output
+```
+
+Write both:
+
+```bash
+uv run piranesi assess piranesi-evidence --format both --output piranesi-output
+```
+
+## LLM Analysis
+
+Deterministic assessment does not require LLM credentials.
+
+Optional LLM analysis can add evidence-bound posture reasoning when a
+LiteLLM-compatible API key is configured:
+
+```bash
+OPENAI_API_KEY=... uv run piranesi assess piranesi-evidence \
+  --analysis both \
+  --output piranesi-output
+```
+
+Supported environment variables:
+
+- `OPENAI_API_KEY`
+- `ANTHROPIC_API_KEY`
+- `OPENROUTER_API_KEY`
+- `AZURE_OPENAI_API_KEY`
+- `GEMINI_API_KEY`
+- `GOOGLE_API_KEY`
+- `LITELLM_API_KEY`
+
+LLM output is advisory and must remain tied to explicit snapshot evidence.
+
+## Roadmap
+
+The roadmap is organized as implementation specs in `todo1.md` through `todo20.md`.
+
+Near-term product depth:
+
+- PDF and static dashboard outputs
+- Lynis and OpenSCAP evidence support
+- adaptive follow-up probing
+- auth/log evidence
+- evidence-bound hypothesis reports
+- exploitability, blast-radius, and urgency scoring
+- host-specific LLM redaction
+- fleet assessment
+- host benchmark harness
+- structured CIS/NIST control mapping
+
+Adoption and scale:
+
+- frictionless install, demo, and onboarding
+- agentless SSH collection
+- stable report API and embeddable library mode
+- workflow exporters for SARIF, tickets, CSV, and webhooks
+- policy-as-code gates
+- remediation planning and before/after tracking
+- multi-platform host support
+- container and Kubernetes evidence normalization
+- local web review workbench
+- community host rules, fixtures, and benchmarks
+
+## CLI Reference
+
+```bash
+piranesi --version
+piranesi doctor .
+piranesi collect --output piranesi-evidence [--trivy | --no-trivy]
+piranesi assess <host_snapshot.json|evidence-bundle> \
+  --output piranesi-output \
+  --analysis deterministic|llm|both \
+  --format json|markdown|both
+```
+
+Useful assessment options:
+
+| Option | Description |
+| --- | --- |
+| `--analysis deterministic` | Run deterministic host analysis only. |
+| `--analysis llm` | Run LLM-only host analysis when credentials are configured. |
+| `--analysis both` | Combine deterministic and LLM analysis. |
+| `--format json` | Write `host-report.json`. |
+| `--format markdown` | Write `host-report.md`. |
+| `--format both` | Write JSON and Markdown reports. |
+| `--fail-severity high` | Exit non-zero when unsuppressed findings meet the threshold. |
+| `--no-fail` | Write reports without failing the command on findings. |
+| `--treat-private-as-public` | Treat private-interface listeners as exposed for lab hardening. |
 
 ## Development
 
@@ -194,14 +367,10 @@ uv run piranesi assess piranesi-evidence
 scripts/host_smoke_check.sh
 ```
 
-The older source-code analysis modules are still in the tree during the pivot. Treat
-new work as belonging to the host posture surface unless a change explicitly supports
-migration or backward compatibility.
+The older source-code analysis modules are still present during the pivot. Treat
+new work as belonging to the host posture surface unless a change explicitly
+supports migration or backward compatibility.
 
 ## License
 
-Apache 2.0
-
-<div align="center">
-    <img src="./asset/logo/imaginary-prisons.jpg" width="50%">
-</div>
+Apache-2.0. See [LICENSE](LICENSE).
