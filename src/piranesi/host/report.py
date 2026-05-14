@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import cast
 
 from piranesi.host.models import (
+    FleetHostSummary,
+    FleetReport,
     HostFinding,
     HostHypothesis,
     HostHypothesisReport,
@@ -45,6 +47,27 @@ def write_host_hypothesis_outputs(
         render_host_hypotheses_markdown(report),
         encoding="utf-8",
     )
+
+
+def write_fleet_report_outputs(
+    report: FleetReport,
+    output_dir: str | Path,
+    *,
+    report_format: str = "both",
+) -> None:
+    path = Path(output_dir)
+    path.mkdir(parents=True, exist_ok=True)
+    format_name = report_format.lower()
+    if format_name in {"json", "both"}:
+        (path / "fleet-report.json").write_text(
+            report.model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+    if format_name in {"markdown", "md", "both"}:
+        (path / "fleet-report.md").write_text(
+            render_fleet_markdown(report),
+            encoding="utf-8",
+        )
 
 
 def render_host_markdown(report: HostPostureReport) -> str:
@@ -116,6 +139,114 @@ def render_host_markdown(report: HostPostureReport) -> str:
     for limitation in report.known_limitations:
         lines.append(f"- {limitation}")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def render_fleet_markdown(report: FleetReport) -> str:
+    summary = report.summary
+    lines = [
+        "# Piranesi Fleet Report",
+        "",
+        f"- Generated: `{report.generated_at}`",
+        f"- Hosts: **{report.host_count}**",
+        f"- Successful hosts: **{report.success_count}**",
+        f"- Failed hosts: **{report.failure_count}**",
+        f"- Findings: **{summary.get('findings_total', 0)}**",
+        "",
+        "## Severity Summary",
+        "",
+    ]
+    by_severity = summary.get("by_severity")
+    if isinstance(by_severity, dict) and by_severity:
+        for severity, count in by_severity.items():
+            lines.append(f"- {severity}: {count}")
+    else:
+        lines.append("No findings were identified.")
+    lines.extend(["", "## Worst Hosts", ""])
+    worst_hosts = summary.get("worst_hosts")
+    if isinstance(worst_hosts, list) and worst_hosts:
+        for host in worst_hosts:
+            if isinstance(host, dict):
+                lines.append(
+                    "- "
+                    f"`{host.get('target')}` score={host.get('posture_score')}/100 "
+                    f"findings={host.get('findings_total')}"
+                )
+    else:
+        lines.append("No successful hosts were assessed.")
+    lines.extend(["", "## Highest-Risk Findings", ""])
+    high_risks = summary.get("highest_risk_findings")
+    if isinstance(high_risks, list) and high_risks:
+        for finding in high_risks:
+            if isinstance(finding, dict):
+                lines.append(
+                    "- "
+                    f"`{finding.get('target')}` "
+                    f"{float(finding.get('risk_total') or 0.0):.1f}/100 "
+                    f"`{finding.get('severity')}` {finding.get('title')}"
+                )
+    else:
+        lines.append("No unsuppressed findings were identified.")
+    lines.extend(["", "## Hosts", ""])
+    for host in report.hosts:
+        lines.extend(_fleet_host_lines(host))
+    failures = [host for host in report.hosts if host.status == "error"]
+    if failures:
+        lines.extend(["", "## Failed Hosts", ""])
+        for host in failures:
+            lines.append(f"- `{host.target}`: {host.error}")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def render_fleet_terminal(report: FleetReport) -> str:
+    summary = report.summary
+    lines = [
+        "Piranesi Fleet Report",
+        f"hosts: {report.host_count} ok={report.success_count} failed={report.failure_count}",
+        f"findings: {summary.get('findings_total', 0)}",
+    ]
+    worst_hosts = summary.get("worst_hosts")
+    if isinstance(worst_hosts, list) and worst_hosts:
+        lines.append("worst_hosts:")
+        for host in worst_hosts[:5]:
+            if isinstance(host, dict):
+                lines.append(
+                    f"  - {host.get('target')}: score={host.get('posture_score')}/100 "
+                    f"findings={host.get('findings_total')}"
+                )
+    failures = [host for host in report.hosts if host.status == "error"]
+    if failures:
+        lines.append("failed_hosts:")
+        for host in failures:
+            lines.append(f"  - {host.target}: {host.error}")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _fleet_host_lines(host: FleetHostSummary) -> list[str]:
+    lines = [
+        f"### {host.target}",
+        "",
+        f"- Status: `{host.status}`",
+        f"- Evidence: `{host.evidence_path}`",
+    ]
+    if host.status == "ok":
+        lines.extend(
+            [
+                f"- Report: `{host.report_path}`",
+                f"- Posture score: `{host.posture_score}/100`",
+                f"- Findings: `{host.findings_total}`",
+            ]
+        )
+        if host.by_severity:
+            rendered = ", ".join(
+                f"{severity}={count}" for severity, count in host.by_severity.items()
+            )
+            lines.append(f"- Severity: {rendered}")
+        if host.top_risks:
+            lines.append("- Top risks: " + "; ".join(host.top_risks))
+    elif host.error:
+        lines.append(f"- Error: {host.error}")
+    lines.append("")
+    return lines
 
 
 def render_host_hypotheses_markdown(report: HostHypothesisReport) -> str:
@@ -216,8 +347,11 @@ def _top_action_lines(action: dict[str, object]) -> list[str]:
     category = str(action.get("category") or "action").title()
     summary = str(action.get("action") or "Review related findings.")
     severity = str(action.get("severity") or "informational")
+    risk_total = action.get("risk_total")
     titles = action.get("finding_titles")
     lines = [f"### {category}", "", f"- Severity: `{severity}`", f"- Action: {summary}"]
+    if isinstance(risk_total, int | float):
+        lines.append(f"- Top risk: `{float(risk_total):.1f}/100`")
     if isinstance(titles, list) and titles:
         lines.append(f"- Related findings: {', '.join(str(title) for title in titles)}")
     lines.append("")
@@ -233,6 +367,16 @@ def _finding_lines(finding: HostFinding) -> list[str]:
         f"- Confidence: `{finding.confidence:.2f}`",
         f"- Source: `{finding.source_tool}`",
     ]
+    if finding.risk is not None:
+        lines.append(f"- Risk score: `{finding.risk.total:.1f}/100`")
+        lines.append(
+            "- Risk dimensions: "
+            f"severity={finding.risk.severity:.2f}, "
+            f"exploitability={finding.risk.exploitability:.2f}, "
+            f"blast_radius={finding.risk.blast_radius:.2f}, "
+            f"urgency={finding.risk.remediation_urgency:.2f}, "
+            f"evidence={finding.risk.evidence_quality:.2f}"
+        )
     if finding.affected_component:
         lines.append(f"- Affected component: `{finding.affected_component}`")
     if finding.cve_ids:
@@ -247,6 +391,10 @@ def _finding_lines(finding: HostFinding) -> list[str]:
         lines.append(f"- `{item.source}` `{item.key}`: {item.value}")
     if finding.rationale:
         lines.extend(["", f"**Rationale:** {finding.rationale}"])
+    if finding.risk is not None and finding.risk.rationale:
+        lines.extend(["", "**Risk Rationale**"])
+        for item in finding.risk.rationale:
+            lines.append(f"- {item}")
     lines.extend(["", f"**Remediation:** {finding.remediation}", ""])
     return lines
 
@@ -296,7 +444,11 @@ def _pdf_report_lines(report: HostPostureReport) -> list[str]:
     ]
     if report.top_actions:
         for action in report.top_actions:
-            lines.append(f"- {action.get('category', 'action')}: {action.get('action', '')}")
+            risk = action.get("risk_total")
+            risk_text = f" risk={float(risk):.1f}/100" if isinstance(risk, int | float) else ""
+            lines.append(
+                f"- {action.get('category', 'action')}: {action.get('action', '')}{risk_text}"
+            )
     else:
         lines.append("No priority actions were identified.")
     lines.extend(["", "Evidence Inventory"])
@@ -331,10 +483,14 @@ def _pdf_report_lines(report: HostPostureReport) -> list[str]:
                 f"Category: {finding.category}",
                 f"Confidence: {finding.confidence:.2f}",
                 f"Source: {finding.source_tool}",
+                f"Risk score: {finding.risk.total:.1f}/100" if finding.risk else "Risk score: n/a",
                 f"Component: {finding.affected_component or 'n/a'}",
                 f"Remediation: {finding.remediation}",
             ]
         )
+        if finding.risk is not None:
+            for reason in finding.risk.rationale[:5]:
+                lines.append(f"Risk rationale: {reason}")
         for item in finding.evidence:
             lines.append(f"Evidence: {item.source} {item.key}: {item.value}")
     lines.extend(["", "Known Limitations"])
@@ -479,6 +635,7 @@ def _dashboard_html(report_json: str) -> str:
           <thead>
             <tr>
               <th>Severity</th>
+              <th>Risk</th>
               <th>Category</th>
               <th>Finding</th>
               <th>Confidence</th>
@@ -653,6 +810,7 @@ function renderMetrics() {
   const metadata = report.host_metadata || {};
   const metrics = [
     ["Findings", summary.findings_total || 0],
+    ["Max risk", summary.risk?.max_total ?? 0],
     ["Public services", report.snapshot?.listening_ports?.length || 0],
     ["Packages", report.snapshot?.packages?.length || 0],
     ["Evidence classes", Object.keys(report.evidence_inventory || {}).length],
@@ -684,7 +842,7 @@ function renderFindings() {
   const tbody = document.getElementById("findingsTable");
   tbody.innerHTML = "";
   if (!visibleFindings.length) {
-    tbody.innerHTML = `<tr><td colspan="4" class="muted">No findings match the selected filters.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="muted">No findings match the selected filters.</td></tr>`;
     document.getElementById("findingDetail").innerHTML = "";
     return;
   }
@@ -692,6 +850,7 @@ function renderFindings() {
     const row = document.createElement("tr");
     row.innerHTML = `
       <td><span class="severity ${finding.severity}">${finding.severity}</span></td>
+      <td>${Number(finding.risk?.total || 0).toFixed(1)}</td>
       <td>${text(finding.category)}</td>
       <td>${text(finding.title)}</td>
       <td>${Number(finding.confidence || 0).toFixed(2)}</td>
@@ -704,10 +863,12 @@ function renderFindings() {
 
 function renderDetail(finding) {
   const evidence = finding.evidence || [];
+  const risk = finding.risk;
   document.getElementById("findingDetail").innerHTML = `
     <h3>${text(finding.title)}</h3>
-    <p class="muted">${text(finding.affected_component)} | ${text(finding.source_tool)}</p>
+    <p class="muted">${text(finding.affected_component)} | ${text(finding.source_tool)} | risk ${risk ? Number(risk.total).toFixed(1) + "/100" : "n/a"}</p>
     <p>${text(finding.remediation)}</p>
+    ${risk ? `<p>${text((risk.rationale || []).slice(0, 3).join("; "))}</p>` : ""}
     <ul class="list">
       ${evidence.map((item) => `<li><code>${text(item.source)}</code> <code>${text(item.key)}</code>: ${text(item.value)}</li>`).join("")}
     </ul>

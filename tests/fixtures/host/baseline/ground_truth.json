@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "expected_findings": [
+    {
+      "id": "openscap-audit-log-storage",
+      "rule_id": "host.baseline.openscap",
+      "instance_key": "openscap:xccdf_org.example_rule_audit_log_storage",
+      "severity": "high",
+      "title_contains": "audit log storage"
+    },
+    {
+      "id": "openscap-password-max-age",
+      "rule_id": "host.baseline.openscap",
+      "instance_key": "openscap:xccdf_org.example_rule_password_max_age",
+      "severity": "medium",
+      "title_contains": "password expiration"
+    },
+    {
+      "id": "lynis-password-expiration",
+      "rule_id": "host.baseline.lynis",
+      "instance_key": "lynis:AUTH-9216",
+      "severity": "medium"
+    },
+    {
+      "id": "lynis-syslog",
+      "rule_id": "host.baseline.lynis",
+      "instance_key": "lynis:FILE-6310",
+      "severity": "medium"
+    },
+    {
+      "id": "lynis-umask",
+      "rule_id": "host.baseline.lynis",
+      "instance_key": "lynis:AUTH-9328",
+      "severity": "low"
+    },
+    {
+      "id": "lynis-arp-protection",
+      "rule_id": "host.baseline.lynis",
+      "instance_key": "lynis:NETW-3032",
+      "severity": "low"
+    },
+    {
+      "id": "lynis-ssh-hardening",
+      "rule_id": "host.baseline.lynis",
+      "instance_key": "lynis:SSH-7408",
+      "severity": "low"
+    }
+  ],
+  "expected_absent": [],
+  "allowed_extra": [
+    {
+      "id": "allowed-lynis-hardening-index",
+      "rule_id": "host.baseline.lynis",
+      "instance_key": "lynis:LYNIS-HARDENING-INDEX",
+      "severity": "informational",
+      "note": "Hardening index is an informational baseline metric, not a fixture vulnerability."
+    },
+    {
+      "id": "allowed-missing-trivy",
+      "rule_id": "host.coverage.missing_trivy",
+      "category": "coverage",
+      "note": "Trivy is intentionally absent from the baseline-tool fixture."
+    },
+    {
+      "id": "allowed-missing-core-evidence",
+      "rule_id": "host.coverage.missing_evidence",
+      "category": "coverage",
+      "note": "This fixture is limited to Lynis/OpenSCAP baseline evidence."
+    }
+  ],
+  "notes": "Fixture targets local Lynis and OpenSCAP ingestion."
+}

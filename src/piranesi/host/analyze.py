@@ -18,6 +18,7 @@ from piranesi.host.models import (
     HostHypothesis,
     HostHypothesisReport,
     HostPostureReport,
+    HostRiskScore,
     HostSnapshot,
     HypothesisType,
     ListeningPort,
@@ -47,6 +48,13 @@ _SEVERITY_PENALTIES = {
     "medium": 8,
     "low": 3,
     "informational": 1,
+}
+_SEVERITY_SCORE = {
+    "critical": 1.0,
+    "high": 0.8,
+    "medium": 0.55,
+    "low": 0.25,
+    "informational": 0.05,
 }
 _HIGH_RISK_PORTS = {
     21: "FTP",
@@ -208,7 +216,12 @@ def analyze_snapshot(
         else:
             llm_redaction = _llm_redaction_not_applied()
             findings.append(_llm_unavailable_finding(snapshot))
-    ranked = _rank_findings(_dedupe_findings(findings))
+    scored = _score_findings(
+        snapshot,
+        _dedupe_findings(findings),
+        treat_private_as_public=treat_private_as_public,
+    )
+    ranked = _rank_findings(scored)
     evidence_inventory = _evidence_inventory(snapshot)
     collection_health = collection_health_from_snapshot(snapshot)
     return HostPostureReport(
@@ -1793,10 +1806,291 @@ def _normalize_severity(value: object) -> Severity:
     return "medium"
 
 
+def _score_findings(
+    snapshot: HostSnapshot,
+    findings: list[HostFinding],
+    *,
+    treat_private_as_public: bool = False,
+) -> list[HostFinding]:
+    return [
+        finding.model_copy(
+            update={
+                "risk": _risk_score_for_finding(
+                    snapshot,
+                    finding,
+                    treat_private_as_public=treat_private_as_public,
+                )
+            }
+        )
+        for finding in findings
+    ]
+
+
+def _risk_score_for_finding(
+    snapshot: HostSnapshot,
+    finding: HostFinding,
+    *,
+    treat_private_as_public: bool,
+) -> HostRiskScore:
+    severity = _SEVERITY_SCORE[finding.severity]
+    confidence = _clamp01(finding.confidence)
+    exploitability, exploitability_reasons = _risk_exploitability(
+        snapshot,
+        finding,
+        treat_private_as_public=treat_private_as_public,
+    )
+    blast_radius, blast_radius_reasons = _risk_blast_radius(
+        snapshot,
+        finding,
+        treat_private_as_public=treat_private_as_public,
+    )
+    urgency, urgency_reasons = _risk_remediation_urgency(
+        snapshot,
+        finding,
+        treat_private_as_public=treat_private_as_public,
+    )
+    evidence_quality, evidence_reasons = _risk_evidence_quality(snapshot, finding)
+    total = 100.0 * (
+        0.24 * severity
+        + 0.16 * confidence
+        + 0.24 * exploitability
+        + 0.16 * blast_radius
+        + 0.14 * urgency
+        + 0.06 * evidence_quality
+    )
+    rationale = [
+        f"severity={finding.severity}",
+        f"confidence={finding.confidence:.2f}",
+        *exploitability_reasons,
+        *blast_radius_reasons,
+        *urgency_reasons,
+        *evidence_reasons,
+    ]
+    if finding.category == "coverage":
+        total = min(total * 0.35, 18.0)
+        rationale.append("coverage finding capped so missing evidence does not dominate risk")
+    elif finding.severity == "informational":
+        total = min(total, 25.0)
+        rationale.append("informational severity caps maximum risk")
+    return HostRiskScore(
+        total=round(_clamp(total, 0.0, 100.0), 1),
+        severity=round(severity, 3),
+        confidence=round(confidence, 3),
+        exploitability=round(exploitability, 3),
+        blast_radius=round(blast_radius, 3),
+        remediation_urgency=round(urgency, 3),
+        evidence_quality=round(evidence_quality, 3),
+        rationale=_dedupe_rationale(rationale),
+    )
+
+
+def _risk_exploitability(
+    snapshot: HostSnapshot,
+    finding: HostFinding,
+    *,
+    treat_private_as_public: bool,
+) -> tuple[float, list[str]]:
+    if finding.category == "coverage":
+        return 0.02, ["coverage gap has very low direct exploitability"]
+    score = 0.25
+    reasons: list[str] = []
+    related_ports = _finding_related_ports(
+        snapshot,
+        finding,
+        treat_private_as_public=treat_private_as_public,
+    )
+    public_related = [
+        port
+        for port in related_ports
+        if _is_public(port, treat_private_as_public=treat_private_as_public)
+    ]
+    if public_related and finding.category != "vulnerability":
+        score = max(score, 0.72)
+        reasons.append("related service is reachable on an exposed interface")
+    if any(_is_public(port) for port in public_related) and finding.category != "vulnerability":
+        score = max(score, 0.82)
+        reasons.append("related service is internet-routable or any-address bound")
+    if any(_high_risk_service(port) for port in public_related) and finding.category != "vulnerability":
+        score = max(score, 0.9)
+        reasons.append("public high-risk service has high exploitability priority")
+    if finding.rule_id == "host.listener.ssh_public":
+        score = max(score, 0.74)
+        reasons.append("public SSH is commonly targeted")
+    if finding.rule_id == "host.ssh.password_authentication" and _has_public_ssh(
+        snapshot,
+        treat_private_as_public=treat_private_as_public,
+    ):
+        score = max(score, 0.86)
+        reasons.append("SSH password authentication is enabled while SSH is exposed")
+    if finding.category == "auth":
+        score = max(score, 0.7)
+        reasons.append("authentication activity provides exploitation-attempt context")
+    if finding.category == "vulnerability":
+        intel = _finding_vulnerability_intel(snapshot, finding)
+        if _intel_known_exploited(intel):
+            score = max(score, 0.95)
+            reasons.append("local exploit intelligence marks the CVE as known exploited")
+        elif _intel_weaponized_or_poc(intel):
+            score = max(score, 0.86)
+            reasons.append("local exploit intelligence reports exploit availability")
+        elif (epss := _intel_epss_score(intel)) is not None:
+            if epss >= 0.5:
+                score = max(score, 0.85)
+                reasons.append(f"local EPSS score {epss:.3f} indicates high exploit probability")
+            elif epss >= 0.1:
+                score = max(score, 0.66)
+                reasons.append(
+                    f"local EPSS score {epss:.3f} indicates elevated exploit probability"
+                )
+        else:
+            score = max(score, 0.58 if finding.severity == "high" else 0.45)
+            reasons.append("package CVE has no local exploit telemetry")
+        if _public_ports(snapshot, treat_private_as_public=treat_private_as_public):
+            score = max(score, 0.55)
+            reasons.append("public services exist but package-to-service linkage is unconfirmed")
+    if not reasons:
+        reasons.append("no direct exposure or exploit-intel signal")
+    return _clamp01(score), reasons
+
+
+def _risk_blast_radius(
+    snapshot: HostSnapshot,
+    finding: HostFinding,
+    *,
+    treat_private_as_public: bool,
+) -> tuple[float, list[str]]:
+    if finding.category == "coverage":
+        return 0.02, ["coverage gap has no direct blast radius"]
+    score = 0.25
+    reasons: list[str] = []
+    related_ports = _finding_related_ports(
+        snapshot,
+        finding,
+        treat_private_as_public=treat_private_as_public,
+    )
+    public_related = [
+        port
+        for port in related_ports
+        if _is_public(port, treat_private_as_public=treat_private_as_public)
+    ]
+    if public_related:
+        score = max(score, 0.68)
+        reasons.append("affected service is exposed beyond localhost")
+    if any(port.address.strip().lower() in _PUBLIC_BIND_ADDRESSES for port in public_related):
+        score = max(score, 0.82)
+        reasons.append("any-address bind expands reachable network scope")
+    if any(_high_risk_service(port) for port in public_related):
+        score = max(score, 0.86)
+        reasons.append("high-risk service can affect host or data-plane blast radius")
+    if finding.category == "vulnerability" and _public_ports(
+        snapshot,
+        treat_private_as_public=treat_private_as_public,
+    ):
+        score = max(score, 0.55)
+        reasons.append("host has public services that may expose vulnerable packages")
+    if finding.category == "identity" or _finding_is_privilege_related(finding):
+        score = max(score, 0.72)
+        reasons.append("privileged account or root-impacting setting increases impact")
+    if _finding_is_kernel_related(finding):
+        score = max(score, 0.7)
+        reasons.append("kernel-level setting can affect whole-host isolation")
+    if len(snapshot.identity.ip_addresses) + len(snapshot.network_interfaces) > 2:
+        score = min(1.0, score + 0.08)
+        reasons.append("multiple interfaces or addresses increase reachable surface")
+    if any(port.process or port.pid is not None for port in related_ports):
+        score = min(1.0, score + 0.06)
+        reasons.append("process evidence confirms the service is active")
+    if not reasons:
+        reasons.append("blast radius appears local or component-scoped")
+    return _clamp01(score), reasons
+
+
+def _risk_remediation_urgency(
+    snapshot: HostSnapshot,
+    finding: HostFinding,
+    *,
+    treat_private_as_public: bool,
+) -> tuple[float, list[str]]:
+    if finding.category == "coverage":
+        return 0.1, ["coverage follow-up is useful but not directly urgent"]
+    score = 0.28
+    reasons: list[str] = []
+    if finding.severity == "critical":
+        score = max(score, 0.9)
+        reasons.append("critical severity requires immediate triage")
+    if _has_fixed_version(finding):
+        score = max(score, 0.82)
+        reasons.append("fixed package version is available")
+    if finding.rule_id == "host.updates.security_pending":
+        score = max(score, 0.86)
+        reasons.append("security update evidence is pending")
+    if finding.rule_id and finding.rule_id.startswith("host.ssh."):
+        score = max(score, 0.76)
+        reasons.append("SSH hardening is a direct configuration change")
+    if finding.rule_id == "host.firewall.inactive_public_services":
+        score = max(score, 0.8)
+        reasons.append("firewall remediation can immediately reduce exposed surface")
+    if _finding_is_kernel_related(finding) or _finding_core_package(finding):
+        score = max(score, 0.72)
+        reasons.append("kernel or core package issue may require reboot or restart planning")
+    if _finding_vulnerability_intel(snapshot, finding) and (
+        _intel_known_exploited(_finding_vulnerability_intel(snapshot, finding))
+        or _intel_weaponized_or_poc(_finding_vulnerability_intel(snapshot, finding))
+    ):
+        score = max(score, 0.9)
+        reasons.append("local exploit intelligence increases remediation urgency")
+    if _finding_related_ports(
+        snapshot,
+        finding,
+        treat_private_as_public=treat_private_as_public,
+    ):
+        score = max(score, 0.62)
+        reasons.append("affected exposed service can be reduced or restricted")
+    if not reasons:
+        reasons.append("routine remediation priority")
+    return _clamp01(score), reasons
+
+
+def _risk_evidence_quality(
+    snapshot: HostSnapshot,
+    finding: HostFinding,
+) -> tuple[float, list[str]]:
+    if finding.category == "coverage":
+        return 0.18, ["coverage finding has intentionally low evidence-quality weight"]
+    score = 0.35 if finding.evidence else 0.18
+    reasons: list[str] = []
+    sources = {item.source for item in finding.evidence}
+    if finding.evidence:
+        score += min(0.2, len(finding.evidence) * 0.05)
+        reasons.append(f"{len(finding.evidence)} evidence item(s) cite source data")
+    if len(sources) > 1:
+        score += 0.18
+        reasons.append("multiple evidence sources corroborate the finding")
+    direct_sources = {"osquery", "trivy", "system", "auth_logs", "lynis", "openscap"}
+    if sources & direct_sources:
+        score += 0.12
+        reasons.append("direct host or tool evidence is present")
+    if finding.analysis_mode == "llm":
+        score = min(score, 0.52)
+        reasons.append("LLM-derived finding is capped below deterministic evidence")
+    manifest = _collection_manifest(snapshot)
+    if manifest is not None and finding.source_tool != "llm":
+        score += 0.04
+        reasons.append("collection manifest is available for auditability")
+    if not reasons:
+        reasons.append("limited direct evidence")
+    return _clamp01(score), reasons
+
+
 def _rank_findings(findings: list[HostFinding]) -> list[HostFinding]:
     return sorted(
         findings,
-        key=lambda item: (_SEVERITY_RANK[item.severity], item.confidence, item.title),
+        key=lambda item: (
+            _finding_risk_total(item),
+            _SEVERITY_RANK[item.severity],
+            item.confidence,
+            item.title,
+        ),
         reverse=True,
     )
 
@@ -1811,22 +2105,38 @@ def _dedupe_findings(findings: list[HostFinding]) -> list[HostFinding]:
 
 
 def _posture_score(findings: list[HostFinding]) -> int:
-    penalty = 0
-    for finding in findings:
-        if finding.category == "coverage":
-            penalty += 2 if finding.severity == "low" else 1
-            continue
-        penalty += _SEVERITY_PENALTIES[finding.severity]
-    return max(0, 100 - penalty)
+    non_coverage = [
+        _finding_risk_total(finding)
+        for finding in findings
+        if finding.category != "coverage"
+    ]
+    coverage = [
+        _finding_risk_total(finding)
+        for finding in findings
+        if finding.category == "coverage"
+    ]
+    penalty = 0.0
+    for index, risk_total in enumerate(sorted(non_coverage, reverse=True)):
+        penalty += risk_total * 0.38 * (0.72**index)
+    penalty += min(5.0, sum(score * 0.05 for score in coverage))
+    return max(0, 100 - round(min(95.0, penalty)))
 
 
 def _summary(findings: list[HostFinding]) -> dict[str, object]:
     by_severity = Counter(finding.severity for finding in findings)
     by_category = Counter(finding.category for finding in findings)
+    risk_totals = [_finding_risk_total(finding) for finding in findings]
     return {
         "findings_total": len(findings),
         "by_severity": dict(sorted(by_severity.items())),
         "by_category": dict(sorted(by_category.items())),
+        "risk": {
+            "max_total": max(risk_totals, default=0.0),
+            "average_total": round(sum(risk_totals) / len(risk_totals), 1)
+            if risk_totals
+            else 0.0,
+            "top_finding_id": findings[0].id if findings else None,
+        },
     }
 
 
@@ -1925,20 +2235,233 @@ def _top_actions(findings: list[HostFinding]) -> list[dict[str, object]]:
     ]
     actions: list[dict[str, object]] = []
     for category, action, categories in groups:
-        matching = [finding for finding in findings if finding.category in categories]
+        matching = _rank_findings([finding for finding in findings if finding.category in categories])
         if not matching:
             continue
         highest = matching[0].severity
+        risk_total = _finding_risk_total(matching[0])
         actions.append(
             {
                 "category": category,
                 "action": action,
                 "severity": highest,
+                "risk_total": risk_total,
                 "finding_ids": [finding.id for finding in matching[:5]],
                 "finding_titles": [finding.title for finding in matching[:5]],
             }
         )
-    return actions
+    return sorted(actions, key=lambda item: float(item.get("risk_total") or 0.0), reverse=True)
+
+
+def _finding_risk_total(finding: HostFinding) -> float:
+    if finding.risk is not None:
+        return finding.risk.total
+    return round(_SEVERITY_SCORE[finding.severity] * finding.confidence * 100.0, 1)
+
+
+def _finding_related_ports(
+    snapshot: HostSnapshot,
+    finding: HostFinding,
+    *,
+    treat_private_as_public: bool,
+) -> list[ListeningPort]:
+    public_ports = _public_ports(snapshot, treat_private_as_public=treat_private_as_public)
+    if finding.rule_id == "host.firewall.inactive_public_services":
+        return public_ports
+    text = _finding_search_text(finding)
+    related: list[ListeningPort] = []
+    for port in snapshot.listening_ports:
+        if _port_matches_text(port, text):
+            related.append(port)
+    if not related and finding.category == "vulnerability":
+        return public_ports[:3]
+    return related
+
+
+def _public_ports(
+    snapshot: HostSnapshot,
+    *,
+    treat_private_as_public: bool,
+) -> list[ListeningPort]:
+    return [
+        port
+        for port in snapshot.listening_ports
+        if _is_public(port, treat_private_as_public=treat_private_as_public)
+    ]
+
+
+def _has_public_ssh(snapshot: HostSnapshot, *, treat_private_as_public: bool) -> bool:
+    return any(
+        port.port == 22
+        and _is_public(port, treat_private_as_public=treat_private_as_public)
+        for port in snapshot.listening_ports
+    )
+
+
+def _port_matches_text(port: ListeningPort, text: str) -> bool:
+    tokens = {
+        f":{port.port}",
+        f"/{port.port}",
+        f"{port.protocol}/{port.port}",
+        f"{port.protocol}/{port.address}:{port.port}",
+    }
+    if port.process:
+        tokens.add(port.process.lower())
+        tokens.add(port.process.lower().replace("-server", ""))
+    if port.port == 22:
+        tokens.update({"ssh", "sshd"})
+    service = _high_risk_service(port)
+    if service is not None:
+        tokens.add(service.lower())
+    return any(token and token in text for token in tokens)
+
+
+def _finding_search_text(finding: HostFinding) -> str:
+    parts = [
+        finding.title,
+        finding.category,
+        finding.affected_component or "",
+        finding.instance_key or "",
+        finding.rule_id or "",
+        finding.remediation,
+        finding.rationale or "",
+    ]
+    parts.extend(f"{item.key} {item.value}" for item in finding.evidence)
+    return " ".join(parts).lower()
+
+
+def _finding_is_privilege_related(finding: HostFinding) -> bool:
+    text = _finding_search_text(finding)
+    return any(
+        token in text
+        for token in ("privileged", "root", "sudo", "wheel", "permitrootlogin")
+    )
+
+
+def _finding_is_kernel_related(finding: HostFinding) -> bool:
+    text = _finding_search_text(finding)
+    return "kernel" in text or "sysctl" in text or "net.ipv" in text
+
+
+def _finding_core_package(finding: HostFinding) -> bool:
+    component = (finding.affected_component or "").lower()
+    return component in {"openssl", "libssl", "linux", "linux-image", "glibc", "libc6"}
+
+
+def _has_fixed_version(finding: HostFinding) -> bool:
+    return any(item.key == "fixed_version" and item.value.strip() for item in finding.evidence)
+
+
+def _finding_vulnerability_intel(
+    snapshot: HostSnapshot,
+    finding: HostFinding,
+) -> dict[str, object]:
+    if not finding.cve_ids:
+        return {}
+    intel: dict[str, object] = {}
+    for cve_id in finding.cve_ids:
+        intel.update(_local_advisory_intel(snapshot, cve_id))
+        for vuln in _trivy_vulnerabilities(snapshot):
+            if _string(vuln.get("VulnerabilityID")) == cve_id:
+                intel.update(_intel_from_vulnerability_payload(vuln))
+    return intel
+
+
+def _local_advisory_intel(snapshot: HostSnapshot, cve_id: str) -> dict[str, object]:
+    raw = snapshot.raw_evidence.get("advisory_intel") or snapshot.raw_evidence.get("advisory")
+    if isinstance(raw, dict):
+        direct = raw.get(cve_id)
+        if isinstance(direct, dict):
+            return dict(direct)
+        nested = raw.get("vulnerabilities")
+        if isinstance(nested, dict) and isinstance(nested.get(cve_id), dict):
+            return dict(cast(dict[str, object], nested[cve_id]))
+        if isinstance(nested, list):
+            return _intel_from_list(nested, cve_id)
+    if isinstance(raw, list):
+        return _intel_from_list(raw, cve_id)
+    return {}
+
+
+def _intel_from_list(items: list[object], cve_id: str) -> dict[str, object]:
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        raw_id = item.get("cve") or item.get("cve_id") or item.get("id") or item.get("CVE")
+        if str(raw_id) == cve_id:
+            return dict(item)
+    return {}
+
+
+def _intel_from_vulnerability_payload(vuln: dict[str, object]) -> dict[str, object]:
+    intel: dict[str, object] = {}
+    for key in (
+        "EPSS",
+        "epss",
+        "epss_score",
+        "EPSSScore",
+        "CISAKEV",
+        "cisa_kev",
+        "kev",
+        "known_exploited",
+        "KnownExploited",
+        "ExploitStatus",
+        "exploit_status",
+    ):
+        if key in vuln:
+            intel[key] = vuln[key]
+    return intel
+
+
+def _intel_epss_score(intel: dict[str, object]) -> float | None:
+    for key in ("epss_score", "EPSSScore", "epss", "EPSS"):
+        value = intel.get(key)
+        if isinstance(value, dict):
+            value = value.get("score") or value.get("epss")
+        try:
+            if value is not None:
+                return float(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _intel_known_exploited(intel: dict[str, object]) -> bool:
+    for key in ("kev", "cisa_kev", "CISAKEV", "known_exploited", "KnownExploited"):
+        if _truthy(intel.get(key)):
+            return True
+    status = str(intel.get("exploit_status") or intel.get("ExploitStatus") or "").lower()
+    return status in {"in_the_wild", "known_exploited", "cisa_kev", "kev"}
+
+
+def _intel_weaponized_or_poc(intel: dict[str, object]) -> bool:
+    status = str(intel.get("exploit_status") or intel.get("ExploitStatus") or "").lower()
+    return status in {"weaponized", "poc_available", "poc", "proof_of_concept"}
+
+
+def _truthy(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "known", "kev"}
+
+
+def _clamp01(value: float) -> float:
+    return _clamp(value, 0.0, 1.0)
+
+
+def _clamp(value: float, lower: float, upper: float) -> float:
+    return max(lower, min(upper, value))
+
+
+def _dedupe_rationale(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    rendered: list[str] = []
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        rendered.append(item)
+    return rendered[:12]
 
 
 def _evidence_by_key(snapshot: HostSnapshot) -> dict[str, EvidenceItem]:

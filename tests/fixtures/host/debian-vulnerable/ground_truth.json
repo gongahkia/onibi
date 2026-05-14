@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "expected_findings": [
+    {
+      "id": "public-redis",
+      "rule_id": "host.listener.high_risk_service",
+      "instance_key": "tcp:redis-server",
+      "severity": "high",
+      "title_contains": "Redis"
+    },
+    {
+      "id": "ssh-root-login",
+      "rule_id": "host.ssh.permit_root_login",
+      "instance_key": "permitrootlogin",
+      "severity": "high"
+    },
+    {
+      "id": "openssl-cve",
+      "rule_id": "host.cve.trivy",
+      "instance_key": "openssl:CVE-2023-0464",
+      "severity": "high",
+      "title_contains": "OpenSSL"
+    },
+    {
+      "id": "ssh-password-auth",
+      "rule_id": "host.ssh.password_authentication",
+      "instance_key": "passwordauthentication",
+      "severity": "medium"
+    },
+    {
+      "id": "public-ssh",
+      "rule_id": "host.listener.ssh_public",
+      "instance_key": "tcp:sshd",
+      "severity": "medium"
+    },
+    {
+      "id": "privileged-deployer",
+      "rule_id": "host.identity.privileged_user",
+      "instance_key": "deployer",
+      "severity": "medium"
+    }
+  ],
+  "expected_absent": [
+    {
+      "id": "absent-empty-ssh-passwords",
+      "rule_id": "host.ssh.permit_empty_passwords"
+    }
+  ],
+  "allowed_extra": [],
+  "notes": "Raw osquery plus Trivy fixture for deterministic host findings."
+}

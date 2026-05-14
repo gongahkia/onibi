@@ -126,6 +126,29 @@ evidence. When LLM credentials are configured, hypothesis generation uses the sa
 host redaction layer as LLM assessment and requires cited evidence, missing
 evidence, concise reasoning, and safe follow-up probes or analyst questions.
 
+Assess a local fleet evidence directory:
+
+```bash
+uv run piranesi fleet assess fleet-evidence --output fleet-output
+uv run piranesi fleet summarize fleet-output
+```
+
+The fleet input directory should contain one child evidence bundle per host, for
+example `fleet-evidence/vm-001/host_snapshot.json` or
+`fleet-evidence/vm-002/raw/osquery/...`. The output includes per-host reports under
+`fleet-output/hosts/<name>/` plus `fleet-report.json` and `fleet-report.md`.
+Individual host failures are recorded and assessment continues unless `--fail-fast`
+is set. Fleet assessment supports `--fail-severity` and
+`--treat-private-as-public`.
+
+One manual collection pattern is:
+
+```bash
+scp -r vm-001:/tmp/piranesi-evidence fleet-evidence/vm-001
+scp -r vm-002:/tmp/piranesi-evidence fleet-evidence/vm-002
+uv run piranesi fleet assess fleet-evidence --output fleet-output
+```
+
 Run the local smoke harness inside a Debian/Ubuntu VM:
 
 ```bash
@@ -159,6 +182,59 @@ Current deterministic host findings cover:
 - Lynis warnings and suggestions when `lynis/report.dat` is present in the bundle.
 - OpenSCAP failed XCCDF rule results when `openscap/results.xml` is present.
 - Control references (CCE, CIS) preserved from OpenSCAP evidence.
+
+## Risk Ranking
+
+Every host finding includes a deterministic `risk` object in JSON and a risk
+summary in Markdown. The score combines severity, confidence, exploitability,
+blast radius, remediation urgency, and evidence quality into a `total` from 0 to
+100. Ranking and top actions use this risk total first, then severity and
+confidence as tie-breakers.
+
+Risk scoring uses only collected evidence and optional local intel embedded in the
+bundle. It does not make live network calls during `assess`. Coverage findings are
+capped so missing evidence can still guide follow-up without outranking direct
+exposure, vulnerability, identity, or baseline findings.
+
+## Evaluation
+
+Host fixtures can carry explicit `ground_truth.json` files with expected findings,
+expected-absent checks, and allowed opportunistic findings. The host benchmark
+harness uses rule IDs and instance keys for matching so tests are not brittle
+title-only comparisons.
+
+Run the local host benchmark:
+
+```bash
+uv run python eval/host_benchmark.py \
+  --fixtures tests/fixtures/host \
+  --output /tmp/piranesi-host-benchmark
+```
+
+The output directory contains:
+
+```text
+host_benchmark.json
+host_benchmark.md
+findings_matrix.csv
+```
+
+The JSON and Markdown reports include fixture count, expected issue count,
+detected issue count, true positives, false positives, false negatives, precision,
+recall, F1, evidence coverage score, mean findings per host, mean top-action
+count, and a time-to-triage proxy. The triage-speed metrics are explicitly
+proxies: they use deduplicated finding count, top-action count, evidence
+completeness, remediation presence, risk-score presence, and report sections
+needed for top-three action decisions. They are not measured human analyst time.
+
+Baseline comparisons are local-only. Trivy, Lynis, and OpenSCAP baselines are
+scored only for fixtures that contain those evidence types; missing baseline
+evidence is recorded as a skip with a reason. The deterministic+LLM baseline is
+skipped by the standalone script unless a caller injects an LLM provider.
+
+Current fixture metrics are useful for regression tracking and false-positive
+accounting. They do not prove broad coverage-improvement or analyst-time claims;
+those need a larger corpus and a measured user study.
 
 ## Troubleshooting
 

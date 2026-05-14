@@ -201,6 +201,19 @@ class RedactionStatus(BaseModel):
     mode: str = "strict"
 
 
+class HostRiskScore(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    total: float = Field(ge=0.0, le=100.0)
+    severity: float = Field(ge=0.0, le=1.0)
+    confidence: float = Field(ge=0.0, le=1.0)
+    exploitability: float = Field(ge=0.0, le=1.0)
+    blast_radius: float = Field(ge=0.0, le=1.0)
+    remediation_urgency: float = Field(ge=0.0, le=1.0)
+    evidence_quality: float = Field(ge=0.0, le=1.0)
+    rationale: list[str] = Field(default_factory=list)
+
+
 class HostFinding(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -219,6 +232,7 @@ class HostFinding(BaseModel):
     source_tool: str
     analysis_mode: AnalysisMode = "deterministic"
     rationale: str | None = None
+    risk: HostRiskScore | None = None
     suppressed: bool = False
     suppression_reason: str | None = None
 
@@ -288,6 +302,32 @@ class HostHypothesisReport(BaseModel):
     analysis_modes: list[AnalysisMode] = Field(default_factory=_default_analysis_modes)
     hypotheses: list[HostHypothesis] = Field(default_factory=list)
     llm_redaction: RedactionStatus | None = None
+
+
+class FleetHostSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target: str
+    evidence_path: str
+    report_path: str = ""
+    status: Literal["ok", "error"] = "ok"
+    posture_score: int = Field(default=0, ge=0, le=100)
+    findings_total: int = 0
+    by_severity: dict[str, int] = Field(default_factory=dict)
+    top_risks: list[str] = Field(default_factory=list)
+    error: str | None = None
+
+
+class FleetReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: int = 1
+    generated_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    host_count: int = 0
+    success_count: int = 0
+    failure_count: int = 0
+    summary: dict[str, object] = Field(default_factory=dict)
+    hosts: list[FleetHostSummary] = Field(default_factory=list)
 
 
 def host_finding_id(*parts: object) -> str:

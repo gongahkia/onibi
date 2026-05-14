@@ -56,12 +56,18 @@ from piranesi.host import (
     analyze_snapshot,
     apply_host_suppressions,
     apply_host_suppressions_with_lifecycle,
+    assess_fleet_evidence,
     build_host_hypothesis_report,
     collect_host_evidence,
+    fleet_findings_at_or_above,
+    load_fleet_report,
     load_host_input,
+    render_fleet_markdown,
+    render_fleet_terminal,
     write_host_hypothesis_outputs,
     write_host_report_outputs,
 )
+from piranesi.host.fleet import FleetInputError
 from piranesi.intel import build_enrichment_summary, normalize_adapter_result
 from piranesi.intel.schema import IntelSourceProvenance, NormalizationBundle
 from piranesi.launcher_tui import LauncherAction, LauncherSelection, launch_cli_tui
@@ -187,6 +193,11 @@ intel_app = typer.Typer(
     help="Ingest and normalize offline external intelligence snapshots.",
     no_args_is_help=True,
 )
+fleet_app = typer.Typer(
+    add_completion=False,
+    help="Assess and summarize multiple host evidence bundles.",
+    no_args_is_help=True,
+)
 app.add_typer(plugins_app, name="plugins", hidden=True)
 app.add_typer(rules_app, name="rules", hidden=True)
 app.add_typer(advisory_app, name="advisory", hidden=True)
@@ -196,6 +207,7 @@ app.add_typer(compliance_app, name="compliance", hidden=True)
 app.add_typer(hook_app, name="hook", hidden=True)
 app.add_typer(eval_app, name="eval", hidden=True)
 app.add_typer(intel_app, name="intel", hidden=True)
+app.add_typer(fleet_app, name="fleet")
 app.add_typer(pipeline_app, name="pipeline", hidden=True)
 app.add_typer(dev_app, name="dev", hidden=True)
 
@@ -324,6 +336,18 @@ class HostReportFormat(StrEnum):
     PDF = "pdf"
     DASHBOARD = "dashboard"
     ALL = "all"
+
+
+class FleetReportFormat(StrEnum):
+    JSON = "json"
+    MARKDOWN = "markdown"
+    BOTH = "both"
+
+
+class FleetSummaryFormat(StrEnum):
+    TERMINAL = "terminal"
+    MARKDOWN = "markdown"
+    JSON = "json"
 
 
 class TrendFormat(StrEnum):
@@ -2461,6 +2485,195 @@ def assess(
         failing = _host_findings_at_or_above(report.findings, fail_severity.value)
         if failing:
             raise typer.Exit(code=1)
+
+
+@fleet_app.command("assess", help="Assess a directory of host evidence bundles.")
+def fleet_assess(
+    fleet_evidence: Annotated[
+        Path,
+        typer.Argument(help="Directory whose child directories are host evidence bundles."),
+    ],
+    analysis: Annotated[
+        HostAnalysisMode,
+        typer.Option("--analysis", help="Analysis mode.", case_sensitive=False),
+    ] = HostAnalysisMode.DETERMINISTIC,
+    report_format: Annotated[
+        FleetReportFormat,
+        typer.Option("--format", help="Fleet and per-host report format.", case_sensitive=False),
+    ] = FleetReportFormat.BOTH,
+    fail_fast: Annotated[
+        bool,
+        typer.Option("--fail-fast", help="Stop after the first child evidence bundle failure."),
+    ] = False,
+    fail_severity: Annotated[
+        FailSeverity | None,
+        typer.Option(
+            "--fail-severity",
+            help="Exit 1 when any unsuppressed host finding meets the threshold.",
+            case_sensitive=False,
+        ),
+    ] = None,
+    no_fail: NoFailOption = False,
+    treat_private_as_public: Annotated[
+        bool,
+        typer.Option(
+            "--treat-private-as-public",
+            help="Treat private-interface listeners as exposed for lab hardening assessments.",
+        ),
+    ] = False,
+    jobs: Annotated[
+        int,
+        typer.Option("--jobs", min=1, help="Number of workers. v1 processes sequentially."),
+    ] = 1,
+    config: ConfigOption = Path("./piranesi.toml"),
+    output: OutputOption = Path("./piranesi-fleet-output"),
+    verbose: VerboseOption = False,
+    quiet: QuietOption = False,
+    debug: DebugOption = False,
+    json_logs: JsonLogsOption = False,
+    trace: TraceOption = Path(".piranesi-trace.jsonl"),
+) -> None:
+    _load_local_llm_env()
+    options = _common_options(
+        config=config,
+        output=output,
+        verbose=verbose,
+        quiet=quiet,
+        debug=debug,
+        json_logs=json_logs,
+        trace=trace,
+        authorized=True,
+        yes=True,
+    )
+    setup_logging(
+        verbose=options.verbose,
+        quiet=options.quiet,
+        debug=options.debug,
+        json_logs=options.json_logs,
+    )
+    logger = logging.getLogger("piranesi.fleet.assess")
+    config_model = _load_cli_config(stage="fleet", options=options)
+    root_ignore = load_ignore_file_with_diagnostics(fleet_evidence)
+    if root_ignore.invalid_entries:
+        for entry in root_ignore.invalid_entries:
+            log_error_context(
+                logger,
+                event="fleet_ignore_invalid",
+                what="suppression",
+                on_what=root_ignore.path,
+                why=entry,
+                next_step="fix the fleet .piranesi-ignore and rerun fleet assess",
+                debug="fleet assess applies root rules plus child bundle rules",
+            )
+        raise typer.Exit(code=2)
+
+    provider: LLMProvider | None = None
+    trace_writer: TraceWriter | None = None
+    cost_tracker: CostTracker | None = None
+    if analysis in {HostAnalysisMode.LLM, HostAnalysisMode.BOTH} and _host_llm_is_configured():
+        cost_tracker = CostTracker()
+        trace_writer = TraceWriter(config_model.trace, config_model.budget)
+        router = ModelRouter(config_model, cost_tracker)
+        trace_logger = TraceLogger(trace_writer, log_prompts=config_model.trace.log_prompts)
+        provider = LLMProvider(trace_logger, cost_tracker, router=router)
+
+    try:
+        if trace_writer is not None:
+            trace_writer.open()
+        result = assess_fleet_evidence(
+            fleet_evidence,
+            output,
+            analysis=cast(Any, analysis.value),
+            provider=provider,
+            report_format=report_format.value,
+            fail_fast=fail_fast,
+            treat_private_as_public=treat_private_as_public,
+            root_suppression_rules=root_ignore.rules,
+            jobs=jobs,
+        )
+    except FleetInputError as exc:
+        log_error_context(
+            logger,
+            event="fleet_input_invalid",
+            what="fleet_input",
+            on_what=str(fleet_evidence),
+            why=str(exc),
+            next_step="provide a directory containing child host evidence bundles",
+            debug="expected layout: fleet-evidence/<host>/host_snapshot.json or raw/",
+        )
+        raise typer.Exit(code=2) from exc
+    except TraceBudgetExceededError as exc:
+        log_error_context(
+            logger,
+            event="trace_budget_exceeded",
+            what="trace_budget",
+            on_what=str(trace),
+            why=str(exc),
+            next_step="exiting_with_code_4",
+            debug="reduce LLM usage or raise budget.max_cost_usd",
+        )
+        raise typer.Exit(code=4) from exc
+    finally:
+        if trace_writer is not None:
+            trace_writer.close()
+
+    if not quiet:
+        if sys.stderr.isatty() and not json_logs:
+            print_summary_table(
+                "Piranesi Fleet Assessment",
+                {
+                    "Hosts": result.report.host_count,
+                    "Successful": result.report.success_count,
+                    "Failed": result.report.failure_count,
+                    "Findings": result.report.summary.get("findings_total", 0),
+                    "Output": output.resolve(strict=False),
+                },
+            )
+        else:
+            typer.echo(f"hosts: {result.report.host_count}")
+            typer.echo(f"successful: {result.report.success_count}")
+            typer.echo(f"failed: {result.report.failure_count}")
+            typer.echo(f"findings: {result.report.summary.get('findings_total', 0)}")
+            typer.echo(f"output: {output.resolve(strict=False)}")
+
+    if result.fail_fast_triggered:
+        raise typer.Exit(code=2)
+    if fail_severity is not None and not no_fail:
+        failing = fleet_findings_at_or_above(result.host_reports, fail_severity.value)
+        if failing:
+            raise typer.Exit(code=1)
+
+
+@fleet_app.command("summarize", help="Summarize an existing fleet assessment output.")
+def fleet_summarize(
+    fleet_output: Annotated[
+        Path,
+        typer.Argument(help="Directory containing fleet-report.json, or the JSON report path."),
+    ],
+    output_format: Annotated[
+        FleetSummaryFormat,
+        typer.Option("--format", help="Summary output format.", case_sensitive=False),
+    ] = FleetSummaryFormat.TERMINAL,
+) -> None:
+    try:
+        report = load_fleet_report(fleet_output)
+    except Exception as exc:
+        log_error_context(
+            logging.getLogger("piranesi.fleet.summarize"),
+            event="fleet_report_invalid",
+            what="fleet_report",
+            on_what=str(fleet_output),
+            why=str(exc),
+            next_step="run `piranesi fleet assess` first",
+            debug="expected fleet-report.json",
+        )
+        raise typer.Exit(code=2) from exc
+    if output_format == FleetSummaryFormat.JSON:
+        typer.echo(report.model_dump_json(indent=2))
+    elif output_format == FleetSummaryFormat.MARKDOWN:
+        typer.echo(render_fleet_markdown(report), nl=False)
+    else:
+        typer.echo(render_fleet_terminal(report), nl=False)
 
 
 @app.command(

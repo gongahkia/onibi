@@ -72,6 +72,7 @@ def test_help_shows_all_commands() -> None:
         "collect",
         "doctor",
         "assess",
+        "fleet",
         "validate-evidence",
         "init",
         "explain",

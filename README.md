@@ -39,6 +39,7 @@ and explain risk, and produce reports that an engineer or analyst can act on.
 - [Quick Start](#quick-start)
 - [Host Evidence](#host-evidence)
 - [Reports](#reports)
+- [Evaluation](#evaluation)
 - [LLM Analysis](#llm-analysis)
 - [Roadmap](#roadmap)
 - [CLI Reference](#cli-reference)
@@ -98,6 +99,8 @@ Implemented today:
 - Adaptive probing: deterministic follow-up probe plans from initial findings.
 - Safe allowlisted probe executor - no arbitrary command execution.
 - Separate evidence-bound host hypothesis reports that never count as findings.
+- Fleet assessment across multiple local host evidence bundles.
+- Host benchmark harness with fixture ground truth, precision/recall/F1, and CSV matrix output.
 - Optional LLM analysis constrained to supplied evidence.
 - `host-report.json`, `host-report.md`, `host-report.pdf`, and static dashboard output.
 
@@ -279,6 +282,7 @@ Host reports include:
 - target and generated timestamp
 - analysis modes
 - posture score
+- risk-based finding order and per-finding risk scores
 - severity summary
 - host metadata
 - top actions
@@ -286,6 +290,7 @@ Host reports include:
 - collection health
 - LLM redaction metadata when LLM host analysis is requested
 - findings with severity, confidence, evidence, remediation, and control references
+- deterministic risk rationale for severity, exploitability, blast radius, remediation urgency, and evidence quality
 - known limitations
 - embedded canonical snapshot
 
@@ -324,6 +329,35 @@ uv run piranesi hypothesize piranesi-evidence --output piranesi-output
 
 Hypotheses are not confirmed findings. They do not affect `findings_total`,
 `--fail-severity`, or posture score.
+
+## Evaluation
+
+Run the host benchmark harness against the checked-in fixtures:
+
+```bash
+uv run python eval/host_benchmark.py \
+  --fixtures tests/fixtures/host \
+  --output eval/reports/host-benchmark
+```
+
+The harness reads `ground_truth.json` from each host fixture and writes:
+
+```text
+eval/reports/host-benchmark/
+  host_benchmark.json
+  host_benchmark.md
+  findings_matrix.csv
+```
+
+Metrics include fixture count, expected and detected issue counts, true positives,
+false positives, false negatives, precision, recall, F1, evidence coverage score,
+mean findings per host, mean top-action count, and a time-to-triage proxy.
+The triage-speed values are explicitly proxies, not measured analyst time.
+
+Current benchmark outputs support local fixture-level regression tracking and
+baseline comparisons where evidence is present. They do not prove the broader
+15-25% coverage-improvement or 30-40% analyst-time claims; those still require a
+larger benchmark corpus and a measured user study.
 
 ## LLM Analysis
 
@@ -366,10 +400,8 @@ The roadmap is organized as implementation specs in `todo1.md` through `todo20.m
 
 Near-term product depth:
 
-- exploitability, blast-radius, and urgency scoring
-- fleet assessment
-- host benchmark harness
 - structured CIS/NIST control mapping
+- larger host benchmark corpus and measured analyst study
 
 Adoption and scale:
 
@@ -395,9 +427,25 @@ piranesi assess <host_snapshot.json|evidence-bundle> \
   --analysis deterministic|llm|both \
   --format json|markdown|both|pdf|dashboard|all
 piranesi hypothesize <host_snapshot.json|evidence-bundle> --output piranesi-output
+piranesi fleet assess <fleet-evidence> --output fleet-output
+piranesi fleet summarize <fleet-output>
 piranesi probe <evidence-bundle> --output probe-plan.json
 piranesi collect-followup <probe-plan.json> --output piranesi-evidence-followup
+python eval/host_benchmark.py --fixtures tests/fixtures/host --output eval/reports/host-benchmark
 ```
+
+Fleet assessment expects one child directory per host bundle:
+
+```bash
+scp -r vm-001:/tmp/piranesi-evidence fleet-evidence/vm-001
+scp -r vm-002:/tmp/piranesi-evidence fleet-evidence/vm-002
+uv run piranesi fleet assess fleet-evidence --output fleet-output
+uv run piranesi fleet summarize fleet-output
+```
+
+Fleet output contains per-host reports under `hosts/<name>/` plus
+`fleet-report.json` and `fleet-report.md`. Individual host failures are recorded
+and assessment continues unless `--fail-fast` is set.
 
 Adaptive probing workflow:
 

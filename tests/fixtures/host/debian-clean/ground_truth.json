@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "clean_fixture": true,
+  "expected_findings": [],
+  "expected_absent": [
+    {
+      "id": "absent-public-high-risk-listener",
+      "rule_id": "host.listener.high_risk_service"
+    },
+    {
+      "id": "absent-ssh-password-auth",
+      "rule_id": "host.ssh.password_authentication"
+    },
+    {
+      "id": "absent-ssh-root-login",
+      "rule_id": "host.ssh.permit_root_login"
+    },
+    {
+      "id": "absent-trivy-cve",
+      "rule_id": "host.cve.trivy"
+    }
+  ],
+  "allowed_extra": [],
+  "notes": "Clean Debian fixture should not produce non-coverage findings."
+}

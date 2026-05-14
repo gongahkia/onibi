@@ -28,7 +28,9 @@ from piranesi.host import (
     write_host_report_outputs,
 )
 
-FIXTURES = Path(__file__).parent / "fixtures" / "host"
+FIXTURES_ROOT = Path(__file__).parent / "fixtures"
+FIXTURES = FIXTURES_ROOT / "host"
+FLEET_FIXTURES = FIXTURES_ROOT / "fleet"
 runner = CliRunner()
 
 
@@ -145,6 +147,271 @@ def test_assess_cli_writes_all_host_outputs(tmp_path: Path) -> None:
     assert (output_dir / "host-dashboard" / "index.html").is_file()
     assert (output_dir / "host-dashboard" / "assets" / "host-dashboard.css").is_file()
     assert (output_dir / "host-dashboard" / "assets" / "host-dashboard.js").is_file()
+
+
+def test_host_findings_include_deterministic_risk_scores() -> None:
+    report = analyze_snapshot(load_host_input(FIXTURES / "debian-vulnerable"))
+
+    assert report.findings
+    assert all(finding.risk is not None for finding in report.findings)
+    assert report.summary["risk"]["max_total"] == report.findings[0].risk.total
+
+
+def test_public_redis_ranks_above_missing_trivy_coverage() -> None:
+    snapshot = HostSnapshot(
+        identity=HostIdentity(hostname="redis-risk-vm"),
+        listening_ports=[
+            ListeningPort(
+                protocol="tcp",
+                address="8.8.8.8",
+                port=6379,
+                process="redis-server",
+            )
+        ],
+    )
+
+    report = analyze_snapshot(snapshot)
+    titles = [finding.title for finding in report.findings]
+
+    assert titles.index("Redis is listening on a public interface") < titles.index(
+        "Missing Trivy vulnerability evidence"
+    )
+    redis = next(finding for finding in report.findings if finding.title.startswith("Redis"))
+    missing = next(
+        finding
+        for finding in report.findings
+        if finding.title == "Missing Trivy vulnerability evidence"
+    )
+    assert redis.risk is not None
+    assert missing.risk is not None
+    assert redis.risk.total > missing.risk.total
+
+
+def test_public_ssh_password_auth_ranks_above_ssh_public_alone() -> None:
+    snapshot = HostSnapshot(
+        identity=HostIdentity(hostname="ssh-risk-vm"),
+        listening_ports=[
+            ListeningPort(protocol="tcp", address="8.8.8.8", port=22, process="sshd")
+        ],
+        config={"ssh": {"PasswordAuthentication": "yes", "PermitRootLogin": "no"}},
+    )
+
+    report = analyze_snapshot(snapshot)
+    titles = [finding.title for finding in report.findings]
+
+    assert titles.index("SSH password authentication is enabled") < titles.index(
+        "SSH is reachable on a public interface"
+    )
+
+
+def test_cve_fixed_version_sets_remediation_urgency() -> None:
+    report = analyze_snapshot(load_host_input(FIXTURES / "debian-vulnerable"))
+
+    cve = next(finding for finding in report.findings if finding.cve_ids == ["CVE-2023-0464"])
+
+    assert cve.risk is not None
+    assert cve.risk.remediation_urgency >= 0.8
+    assert any("fixed package version" in item for item in cve.risk.rationale)
+
+
+def test_local_kev_epss_intel_raises_cve_exploitability() -> None:
+    snapshot = load_host_input(FIXTURES / "debian-vulnerable")
+    base = analyze_snapshot(snapshot)
+    raw_evidence = dict(snapshot.raw_evidence)
+    raw_evidence["advisory_intel"] = {
+        "CVE-2023-0464": {
+            "kev": True,
+            "epss_score": 0.92,
+            "exploit_status": "in_the_wild",
+        }
+    }
+    enriched = analyze_snapshot(snapshot.model_copy(update={"raw_evidence": raw_evidence}))
+
+    base_cve = next(
+        finding for finding in base.findings if finding.cve_ids == ["CVE-2023-0464"]
+    )
+    enriched_cve = next(
+        finding for finding in enriched.findings if finding.cve_ids == ["CVE-2023-0464"]
+    )
+
+    assert base_cve.risk is not None
+    assert enriched_cve.risk is not None
+    assert enriched_cve.risk.exploitability > base_cve.risk.exploitability
+    assert any("known exploited" in item for item in enriched_cve.risk.rationale)
+
+
+def test_coverage_findings_do_not_dominate_top_actions() -> None:
+    snapshot = HostSnapshot(
+        identity=HostIdentity(hostname="coverage-risk-vm"),
+        listening_ports=[
+            ListeningPort(protocol="tcp", address="8.8.8.8", port=6379, process="redis-server")
+        ],
+    )
+
+    report = analyze_snapshot(snapshot)
+
+    assert report.top_actions[0]["category"] == "exposure"
+    coverage_action = next(action for action in report.top_actions if action["category"] == "coverage")
+    assert float(coverage_action["risk_total"]) < float(report.top_actions[0]["risk_total"])
+
+
+def test_host_markdown_includes_risk_score(tmp_path: Path) -> None:
+    report = analyze_snapshot(load_host_input(FIXTURES / "debian-vulnerable"))
+
+    write_host_report_outputs(report, tmp_path, report_format="markdown")
+    markdown = (tmp_path / "host-report.md").read_text(encoding="utf-8")
+
+    assert "Risk score:" in markdown
+    assert "Risk Rationale" in markdown
+
+
+def test_fleet_assess_writes_reports_and_records_invalid_host(tmp_path: Path) -> None:
+    output_dir = tmp_path / "fleet-out"
+
+    result = runner.invoke(
+        app,
+        ["fleet", "assess", str(FLEET_FIXTURES), "--output", str(output_dir)],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert (output_dir / "fleet-report.json").is_file()
+    assert (output_dir / "fleet-report.md").is_file()
+    assert (output_dir / "hosts" / "vm-clean" / "host-report.json").is_file()
+    assert (output_dir / "hosts" / "vm-vulnerable" / "host-report.json").is_file()
+    payload = json.loads((output_dir / "fleet-report.json").read_text(encoding="utf-8"))
+    assert payload["host_count"] == 3
+    assert payload["success_count"] == 2
+    assert payload["failure_count"] == 1
+    assert [Path(host["evidence_path"]).name for host in payload["hosts"]] == [
+        "vm-clean",
+        "vm-invalid",
+        "vm-vulnerable",
+    ]
+    invalid = next(host for host in payload["hosts"] if host["target"] == "vm-invalid")
+    assert invalid["status"] == "error"
+    assert payload["summary"]["findings_total"] >= 5
+    assert payload["summary"]["highest_risk_findings"]
+    markdown = (output_dir / "fleet-report.md").read_text(encoding="utf-8")
+    assert "Piranesi Fleet Report" in markdown
+    assert "Failed Hosts" in markdown
+
+
+def test_fleet_assess_fail_fast_stops_on_invalid_host(tmp_path: Path) -> None:
+    output_dir = tmp_path / "fleet-out"
+
+    result = runner.invoke(
+        app,
+        [
+            "fleet",
+            "assess",
+            str(FLEET_FIXTURES),
+            "--output",
+            str(output_dir),
+            "--fail-fast",
+        ],
+    )
+
+    assert result.exit_code == 2, result.stdout
+    payload = json.loads((output_dir / "fleet-report.json").read_text(encoding="utf-8"))
+    assert [Path(host["evidence_path"]).name for host in payload["hosts"]] == [
+        "vm-clean",
+        "vm-invalid",
+    ]
+    assert not (output_dir / "hosts" / "vm-vulnerable" / "host-report.json").exists()
+
+
+def test_fleet_assess_fail_severity_exits_after_writing_reports(tmp_path: Path) -> None:
+    output_dir = tmp_path / "fleet-out"
+
+    result = runner.invoke(
+        app,
+        [
+            "fleet",
+            "assess",
+            str(FLEET_FIXTURES),
+            "--output",
+            str(output_dir),
+            "--fail-severity",
+            "high",
+        ],
+    )
+
+    assert result.exit_code == 1, result.stdout
+    assert (output_dir / "fleet-report.json").is_file()
+    assert (output_dir / "hosts" / "vm-vulnerable" / "host-report.json").is_file()
+
+
+def test_fleet_assess_treat_private_as_public(tmp_path: Path) -> None:
+    fleet_dir = tmp_path / "fleet"
+    host_dir = fleet_dir / "vm-private"
+    host_dir.mkdir(parents=True)
+    (host_dir / "host_snapshot.json").write_text(
+        json.dumps(
+            {
+                "identity": {"hostname": "private-redis"},
+                "listening_ports": [
+                    {
+                        "protocol": "tcp",
+                        "address": "10.0.0.5",
+                        "port": 6379,
+                        "process": "redis-server",
+                    }
+                ],
+                "packages": [{"name": "redis-server", "version": "6.0"}],
+                "users": [{"username": "root", "uid": 0, "gid": 0, "groups": ["root"]}],
+                "raw_evidence": {"trivy": {"results": {"Results": []}}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "fleet-out"
+
+    result = runner.invoke(
+        app,
+        [
+            "fleet",
+            "assess",
+            str(fleet_dir),
+            "--output",
+            str(output_dir),
+            "--treat-private-as-public",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    host_report = json.loads(
+        (output_dir / "hosts" / "vm-private" / "host-report.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    titles = {finding["title"] for finding in host_report["findings"]}
+    assert "Redis is listening on a public interface" in titles
+
+
+def test_fleet_summarize_reads_existing_output(tmp_path: Path) -> None:
+    output_dir = tmp_path / "fleet-out"
+    assess_result = runner.invoke(
+        app,
+        ["fleet", "assess", str(FLEET_FIXTURES), "--output", str(output_dir)],
+    )
+    assert assess_result.exit_code == 0, assess_result.stdout
+
+    terminal = runner.invoke(app, ["fleet", "summarize", str(output_dir)])
+    markdown = runner.invoke(
+        app,
+        ["fleet", "summarize", str(output_dir), "--format", "markdown"],
+    )
+    json_result = runner.invoke(
+        app,
+        ["fleet", "summarize", str(output_dir), "--format", "json"],
+    )
+
+    assert terminal.exit_code == 0, terminal.stdout
+    assert "Piranesi Fleet Report" in terminal.stdout
+    assert markdown.exit_code == 0, markdown.stdout
+    assert "# Piranesi Fleet Report" in markdown.stdout
+    assert json_result.exit_code == 0, json_result.stdout
+    assert json.loads(json_result.stdout)["host_count"] == 3
 
 
 def test_deterministic_host_hypotheses_from_vulnerable_fixture() -> None:
