@@ -9,6 +9,10 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from piranesi.host.controls import (
+    apply_host_control_mappings,
+    control_summary_for_findings,
+)
 from piranesi.host.models import (
     AnalysisMode,
     CollectionCapabilityHealth,
@@ -216,9 +220,10 @@ def analyze_snapshot(
         else:
             llm_redaction = _llm_redaction_not_applied()
             findings.append(_llm_unavailable_finding(snapshot))
+    controlled = apply_host_control_mappings(_dedupe_findings(findings))
     scored = _score_findings(
         snapshot,
-        _dedupe_findings(findings),
+        controlled,
         treat_private_as_public=treat_private_as_public,
     )
     ranked = _rank_findings(scored)
@@ -230,6 +235,7 @@ def analyze_snapshot(
         analysis_modes=modes,
         posture_score=_posture_score(ranked),
         summary=_summary(ranked),
+        control_summary=control_summary_for_findings(ranked),
         host_metadata=_host_metadata(snapshot, evidence_inventory),
         top_actions=_top_actions(ranked),
         findings=ranked,

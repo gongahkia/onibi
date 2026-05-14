@@ -89,6 +89,8 @@ def render_host_markdown(report: HostPostureReport) -> str:
         lines.append("No priority actions were identified.")
     for action in report.top_actions:
         lines.extend(_top_action_lines(action))
+    lines.extend(["", "## Control Summary", ""])
+    lines.extend(_control_summary_lines(report))
     lines.extend(["", "## Evidence Inventory", ""])
     for key, count in sorted(report.evidence_inventory.items()):
         lines.append(f"- {key}: {count}")
@@ -383,6 +385,16 @@ def _finding_lines(finding: HostFinding) -> list[str]:
         lines.append(f"- CVEs: {', '.join(finding.cve_ids)}")
     if finding.control_refs:
         lines.append(f"- Controls: {', '.join(finding.control_refs)}")
+    if finding.structured_control_refs:
+        lines.append("- Structured controls:")
+        for control in finding.structured_control_refs:
+            version = f" {control.version}" if control.version else ""
+            lines.append(
+                "  - "
+                f"{control.framework}{version} `{control.control_id}` - "
+                f"{control.title} "
+                f"(confidence {control.mapping_confidence:.2f})"
+            )
     if finding.suppressed:
         reason = finding.suppression_reason or "suppressed"
         lines.append(f"- Suppressed: yes ({reason})")
@@ -401,6 +413,32 @@ def _finding_lines(finding: HostFinding) -> list[str]:
 
 def host_report_payload(report: HostPostureReport) -> dict[str, object]:
     return cast(dict[str, object], json.loads(report.model_dump_json()))
+
+
+def _control_summary_lines(report: HostPostureReport) -> list[str]:
+    summary = report.control_summary
+    frameworks = summary.get("frameworks")
+    if not isinstance(frameworks, dict) or not frameworks:
+        return ["No structured host control mappings were attached."]
+    lines = [
+        f"- Mapped findings: {summary.get('mapped_findings', 0)}",
+        f"- Unmapped findings: {summary.get('unmapped_findings', 0)}",
+    ]
+    mapping_note = summary.get("mapping_note")
+    if mapping_note:
+        lines.append(f"- Note: {mapping_note}")
+    lines.append("")
+    for framework, payload in sorted(frameworks.items()):
+        if not isinstance(payload, dict):
+            continue
+        lines.append(
+            "- "
+            f"{framework}: mapped_findings={payload.get('mapped_findings', 0)}, "
+            f"mapped_controls={payload.get('mapped_controls', 0)}, "
+            f"highest_severity={payload.get('highest_severity') or 'n/a'}, "
+            f"average_confidence={float(payload.get('average_mapping_confidence') or 0.0):.3f}"
+        )
+    return lines
 
 
 def render_host_pdf(report: HostPostureReport) -> bytes:
@@ -454,6 +492,9 @@ def _pdf_report_lines(report: HostPostureReport) -> list[str]:
     lines.extend(["", "Evidence Inventory"])
     for key, count in sorted(report.evidence_inventory.items()):
         lines.append(f"- {key}: {count}")
+    lines.extend(["", "Control Summary"])
+    for line in _control_summary_lines(report):
+        lines.append(line)
     if report.collection_health is not None:
         lines.extend(["", "Collection Health"])
         for name, health in sorted(report.collection_health.required.items()):
@@ -488,6 +529,13 @@ def _pdf_report_lines(report: HostPostureReport) -> list[str]:
                 f"Remediation: {finding.remediation}",
             ]
         )
+        for control in finding.structured_control_refs[:6]:
+            version = f" {control.version}" if control.version else ""
+            lines.append(
+                "Structured control: "
+                f"{control.framework}{version} {control.control_id} "
+                f"confidence={control.mapping_confidence:.2f}"
+            )
         if finding.risk is not None:
             for reason in finding.risk.rationale[:5]:
                 lines.append(f"Risk rationale: {reason}")
@@ -808,12 +856,14 @@ function optionList(select, values, label) {
 function renderMetrics() {
   const summary = report.summary || {};
   const metadata = report.host_metadata || {};
+  const frameworks = Object.keys(report.control_summary?.frameworks || {});
   const metrics = [
     ["Findings", summary.findings_total || 0],
     ["Max risk", summary.risk?.max_total ?? 0],
     ["Public services", report.snapshot?.listening_ports?.length || 0],
     ["Packages", report.snapshot?.packages?.length || 0],
     ["Evidence classes", Object.keys(report.evidence_inventory || {}).length],
+    ["Control frameworks", frameworks.length],
     ["Auth summaries", metadata.auth_event_summary_count || 0],
   ];
   document.getElementById("metrics").innerHTML = metrics.map(([label, value]) =>
@@ -864,11 +914,15 @@ function renderFindings() {
 function renderDetail(finding) {
   const evidence = finding.evidence || [];
   const risk = finding.risk;
+  const controls = finding.structured_control_refs || [];
   document.getElementById("findingDetail").innerHTML = `
     <h3>${text(finding.title)}</h3>
     <p class="muted">${text(finding.affected_component)} | ${text(finding.source_tool)} | risk ${risk ? Number(risk.total).toFixed(1) + "/100" : "n/a"}</p>
     <p>${text(finding.remediation)}</p>
     ${risk ? `<p>${text((risk.rationale || []).slice(0, 3).join("; "))}</p>` : ""}
+    ${controls.length ? `<h4>Structured Controls</h4><ul class="list">${
+      controls.map((control) => `<li>${text(control.framework)} ${text(control.version || "")} <code>${text(control.control_id)}</code>: ${text(control.title)} (${Number(control.mapping_confidence || 0).toFixed(2)})</li>`).join("")
+    }</ul>` : ""}
     <ul class="list">
       ${evidence.map((item) => `<li><code>${text(item.source)}</code> <code>${text(item.key)}</code>: ${text(item.value)}</li>`).join("")}
     </ul>

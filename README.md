@@ -39,6 +39,7 @@ and explain risk, and produce reports that an engineer or analyst can act on.
 - [Quick Start](#quick-start)
 - [Host Evidence](#host-evidence)
 - [Reports](#reports)
+- [Control Mapping](#control-mapping)
 - [Evaluation](#evaluation)
 - [LLM Analysis](#llm-analysis)
 - [Roadmap](#roadmap)
@@ -101,6 +102,7 @@ Implemented today:
 - Separate evidence-bound host hypothesis reports that never count as findings.
 - Fleet assessment across multiple local host evidence bundles.
 - Host benchmark harness with fixture ground truth, precision/recall/F1, and CSV matrix output.
+- Structured host control mappings for CIS Ubuntu Linux, NIST CSF 2.0, and NIST SP 800-53 families.
 - Optional LLM analysis constrained to supplied evidence.
 - `host-report.json`, `host-report.md`, `host-report.pdf`, and static dashboard output.
 
@@ -288,8 +290,9 @@ Host reports include:
 - top actions
 - evidence inventory
 - collection health
+- structured control summary by framework
 - LLM redaction metadata when LLM host analysis is requested
-- findings with severity, confidence, evidence, remediation, and control references
+- findings with severity, confidence, evidence, remediation, legacy control references, and structured controls
 - deterministic risk rationale for severity, exploitability, blast radius, remediation urgency, and evidence quality
 - known limitations
 - embedded canonical snapshot
@@ -329,6 +332,24 @@ uv run piranesi hypothesize piranesi-evidence --output piranesi-output
 
 Hypotheses are not confirmed findings. They do not affect `findings_total`,
 `--fail-severity`, or posture score.
+
+## Control Mapping
+
+Host findings keep the legacy `control_refs` strings and now also include
+`structured_control_refs` with framework, version, control ID or family, title,
+mapping confidence, and rationale. Reports include a `control_summary` grouped by
+framework.
+
+Current deterministic host mappings cover broad CIS Ubuntu Linux families, NIST
+CSF 2.0 categories, and NIST SP 800-53 Rev. 5 families. Exact control IDs are not
+invented: when Piranesi does not have local support for an exact benchmark item,
+the mapping is deliberately broad and carries lower confidence. Lynis and OpenSCAP
+findings preserve their own local check or XCCDF identifiers as structured
+controls, and OpenSCAP-supplied CCE/CIS references remain in legacy
+`control_refs` while also being rendered as structured references.
+
+These mappings are supporting evidence for triage and audit preparation. They are
+not a compliance attestation or a complete CIS/NIST profile assessment.
 
 ## Evaluation
 
@@ -396,11 +417,12 @@ and safe follow-up probes or analyst questions rather than exploit payloads.
 
 ## Roadmap
 
-The roadmap is organized as implementation specs in `todo1.md` through `todo20.md`.
+The completed host-depth roadmap has been removed from the active todo set. The
+remaining adoption and scale roadmap is organized as implementation specs in
+`todo11.md` through `todo20.md`.
 
 Near-term product depth:
 
-- structured CIS/NIST control mapping
 - larger host benchmark corpus and measured analyst study
 
 Adoption and scale:

@@ -214,6 +214,17 @@ class HostRiskScore(BaseModel):
     rationale: list[str] = Field(default_factory=list)
 
 
+class HostControlRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    framework: str
+    version: str | None = None
+    control_id: str
+    title: str
+    mapping_confidence: float = Field(ge=0.0, le=1.0)
+    rationale: str | None = None
+
+
 class HostFinding(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -227,6 +238,7 @@ class HostFinding(BaseModel):
     affected_component: str | None = None
     cve_ids: list[str] = Field(default_factory=list)
     control_refs: list[str] = Field(default_factory=list)
+    structured_control_refs: list[HostControlRef] = Field(default_factory=list)
     evidence: list[EvidenceItem] = Field(default_factory=list)
     remediation: str
     source_tool: str
@@ -282,6 +294,7 @@ class HostPostureReport(BaseModel):
     analysis_modes: list[AnalysisMode] = Field(default_factory=_default_analysis_modes)
     posture_score: int = Field(ge=0, le=100)
     summary: dict[str, object]
+    control_summary: dict[str, object] = Field(default_factory=dict)
     host_metadata: dict[str, object] = Field(default_factory=dict)
     top_actions: list[dict[str, object]] = Field(default_factory=list)
     findings: list[HostFinding] = Field(default_factory=list)

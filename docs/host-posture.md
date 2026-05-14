@@ -181,7 +181,8 @@ Current deterministic host findings cover:
 - Coverage gaps for core evidence classes.
 - Lynis warnings and suggestions when `lynis/report.dat` is present in the bundle.
 - OpenSCAP failed XCCDF rule results when `openscap/results.xml` is present.
-- Control references (CCE, CIS) preserved from OpenSCAP evidence.
+- Legacy control references (CCE, CIS) preserved from OpenSCAP evidence.
+- Structured CIS/NIST/Lynis/OpenSCAP control references attached to host findings.
 
 ## Risk Ranking
 
@@ -195,6 +196,42 @@ Risk scoring uses only collected evidence and optional local intel embedded in t
 bundle. It does not make live network calls during `assess`. Coverage findings are
 capped so missing evidence can still guide follow-up without outranking direct
 exposure, vulnerability, identity, or baseline findings.
+
+## Control Mapping
+
+Each `HostFinding` keeps the compatibility `control_refs` string list and adds
+`structured_control_refs`. A structured control reference includes:
+
+- framework
+- version when known
+- control ID or broad family/category
+- title
+- mapping confidence from 0.0 to 1.0
+- rationale
+
+`HostPostureReport` also includes `control_summary`, which groups mapped findings
+by framework and records mapped control count, highest severity, and average
+mapping confidence.
+
+Supported host-control mapping families:
+
+- CIS Ubuntu Linux broad hardening families for SSH, firewall, patching, kernel,
+  privileged accounts, and vulnerability management.
+- NIST CSF 2.0 categories such as `PR.AA`, `PR.PS`, `DE.CM`, `ID.AM`, and
+  `ID.RA`.
+- NIST SP 800-53 Rev. 5 families such as `AC family`, `IA family`, `SC family`,
+  `CM family`, `SI family`, `RA family`, and `AU family`.
+- Lynis check IDs and OpenSCAP XCCDF rule IDs when those tools provide local
+  baseline evidence.
+
+Piranesi does not invent precise CIS or NIST control IDs where it lacks local
+supporting evidence. Broad family/category mappings use lower confidence and state
+that exact profile control selection depends on the environment. OpenSCAP-supplied
+CCE/CIS references remain in `control_refs` and are also rendered as structured
+references sourced from the OpenSCAP evidence.
+
+Control mappings support triage and audit preparation. They are not a compliance
+attestation, a full CIS benchmark result, or a complete NIST control assessment.
 
 ## Evaluation
 
@@ -261,7 +298,8 @@ those need a larger corpus and a measured user study.
 
 When Lynis or OpenSCAP evidence is present in a bundle, Piranesi parses it into
 typed `BaselineCheck` models and converts failed/warn checks into deterministic
-findings with evidence, remediation, and control references.
+findings with evidence, remediation, legacy control references, and structured
+tool-supplied control references.
 
 ```text
 evidence-bundle/

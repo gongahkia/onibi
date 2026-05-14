@@ -10,6 +10,7 @@ from piranesi.detect.suppression import (
     SuppressionLifecycleSummary,
     SuppressionRule,
 )
+from piranesi.host.controls import control_summary_for_findings
 from piranesi.host.models import HostFinding, HostPostureReport
 
 
@@ -51,7 +52,12 @@ def apply_host_suppressions_with_lifecycle(
         today=today,
     )
     return HostSuppressionOutcome(
-        report=report.model_copy(update={"findings": findings}),
+        report=report.model_copy(
+            update={
+                "findings": findings,
+                "control_summary": control_summary_for_findings(findings),
+            }
+        ),
         lifecycle=lifecycle,
     )
 

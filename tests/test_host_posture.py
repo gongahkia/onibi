@@ -23,6 +23,7 @@ from piranesi.host import (
     analyze_snapshot,
     build_host_hypothesis_report,
     collect_host_evidence,
+    host_control_mapping_status,
     load_host_input,
     write_host_hypothesis_outputs,
     write_host_report_outputs,
@@ -263,6 +264,99 @@ def test_host_markdown_includes_risk_score(tmp_path: Path) -> None:
 
     assert "Risk score:" in markdown
     assert "Risk Rationale" in markdown
+
+
+def test_host_control_registry_covers_known_rule_ids_or_documents_no_map() -> None:
+    known_rule_ids = {
+        "host.cve.trivy",
+        "host.listener.high_risk_service",
+        "host.listener.ssh_public",
+        "host.ssh.permit_root_login",
+        "host.ssh.password_authentication",
+        "host.ssh.permit_empty_passwords",
+        "host.firewall.inactive_public_services",
+        "host.updates.security_pending",
+        "host.updates.unattended_upgrades_missing",
+        "host.sysctl.net.ipv4.ip_forward",
+        "host.sysctl.net.ipv6.conf.all.forwarding",
+        "host.sysctl.kernel.unprivileged_bpf_disabled",
+        "host.sysctl.kernel.kptr_restrict",
+        "host.identity.privileged_user",
+        "host.coverage.missing_evidence",
+        "host.coverage.missing_trivy",
+        "host.auth.ssh_failed_password_spike",
+        "host.auth.root_login_attempts",
+        "host.auth.active_privileged_session",
+        "host.auth.sudo_activity_present",
+        "host.auth.compound_ssh_brute_force",
+        "host.baseline.lynis",
+        "host.baseline.openscap",
+        "host.coverage.llm_unavailable",
+    }
+
+    missing = [rule_id for rule_id in sorted(known_rule_ids) if not host_control_mapping_status(rule_id)]
+
+    assert missing == []
+
+
+def test_host_findings_include_structured_control_mappings() -> None:
+    report = analyze_snapshot(load_host_input(FIXTURES / "debian-vulnerable"))
+
+    assert report.control_summary["mapped_findings"] == report.summary["findings_total"]
+    assert "NIST CSF" in report.control_summary["frameworks"]
+    assert "CIS Ubuntu Linux" in report.control_summary["frameworks"]
+
+    root_login = next(
+        finding for finding in report.findings
+        if finding.rule_id == "host.ssh.permit_root_login"
+    )
+    assert root_login.control_refs == ["CIS Ubuntu Linux: Disable SSH root login"]
+    assert any(
+        control.framework == "CIS Ubuntu Linux"
+        and control.mapping_confidence >= 0.7
+        for control in root_login.structured_control_refs
+    )
+
+    redis = next(
+        finding for finding in report.findings
+        if finding.rule_id == "host.listener.high_risk_service"
+    )
+    assert any(
+        control.framework == "NIST CSF" and control.control_id == "PR.PS"
+        for control in redis.structured_control_refs
+    )
+
+
+def test_coverage_findings_map_to_visibility_controls() -> None:
+    report = analyze_snapshot(HostSnapshot(identity=HostIdentity(hostname="coverage-vm")))
+    coverage = [
+        finding for finding in report.findings
+        if finding.rule_id in {"host.coverage.missing_evidence", "host.coverage.missing_trivy"}
+    ]
+
+    assert coverage
+    assert all(finding.structured_control_refs for finding in coverage)
+    assert any(
+        control.framework == "NIST CSF" and control.control_id in {"ID.AM", "ID.RA", "GV.OC"}
+        for finding in coverage
+        for control in finding.structured_control_refs
+    )
+
+
+def test_host_markdown_and_json_render_structured_controls(tmp_path: Path) -> None:
+    report = analyze_snapshot(load_host_input(FIXTURES / "debian-vulnerable"))
+
+    write_host_report_outputs(report, tmp_path, report_format="both")
+
+    payload = json.loads((tmp_path / "host-report.json").read_text(encoding="utf-8"))
+    markdown = (tmp_path / "host-report.md").read_text(encoding="utf-8")
+
+    assert "control_summary" in payload
+    assert payload["findings"][0]["control_refs"] == report.findings[0].control_refs
+    assert payload["findings"][0]["structured_control_refs"]
+    assert "## Control Summary" in markdown
+    assert "Structured controls:" in markdown
+    assert "NIST CSF" in markdown
 
 
 def test_fleet_assess_writes_reports_and_records_invalid_host(tmp_path: Path) -> None:
@@ -1742,9 +1836,13 @@ def test_openscap_control_refs_preserved() -> None:
         if f.source_tool == "openscap" and f.category == "baseline"
     ]
     refs_found = set()
+    structured_found = set()
     for f in scap_findings:
         refs_found.update(f.control_refs)
+        structured_found.update((ref.framework, ref.control_id) for ref in f.structured_control_refs)
     assert any("CCE-" in r or "CIS-" in r for r in refs_found)
+    assert ("OpenSCAP XCCDF", "xccdf_org.example_rule_password_max_age") in structured_found
+    assert ("Common Configuration Enumeration", "CCE-27051-2") in structured_found
 
 
 def test_missing_optional_baseline_tools_create_health_warnings(tmp_path: Path) -> None:
