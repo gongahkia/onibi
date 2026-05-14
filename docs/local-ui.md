@@ -1,10 +1,11 @@
 # Local Review Workbench
 
-Piranesi can inspect host and fleet reports in a local-only web UI:
+Piranesi can inspect host, fleet, and source-code reports in a local-only web UI:
 
 ```bash
 piranesi ui piranesi-output
 piranesi ui fleet-output
+piranesi ui source-output
 piranesi ui --watch piranesi-output
 ```
 
@@ -15,10 +16,25 @@ By default the server binds to `127.0.0.1` and does not open a browser. Pass
 piranesi ui piranesi-output --open
 ```
 
-The report path must be either a directory containing `host-report.json` or
-`fleet-report.json`, or one of those report files directly. The UI serves only
-embedded static assets and redacted report API responses; it does not expose the
-report directory as a general file server.
+The report path must be either a directory containing `host-report.json`,
+`fleet-report.json`, or source-code `report.json`, or one of those report files
+directly. The UI serves only embedded static assets and redacted report API
+responses; it does not expose the report directory as a general file server.
+
+## ZIP Workbench
+
+Use the local web workbench to upload a ZIP of a web app, run the deterministic
+source-code scan, and review the generated report:
+
+```bash
+piranesi ui --workbench --open
+```
+
+The first workbench version accepts ZIP uploads only. It extracts into a local
+job directory, rejects unsafe archive paths and symlinks, runs `piranesi run`
+with `--no-execute --no-fail --format both`, and then shows the resulting
+`report.json`/`report.md` in the same review interface. URL and GitHub import
+are tracked as follow-up work.
 
 ## Views
 
@@ -32,6 +48,8 @@ The first version of the workbench includes:
 - top actions
 - suppression review
 - fleet summary for `fleet-report.json`
+- source-code application review for `report.json`
+- ZIP upload workbench with local scan progress
 
 ## Watch Mode
 

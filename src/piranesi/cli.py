@@ -3869,11 +3869,60 @@ def ui(
         bool,
         typer.Option("--watch", help="Reload report files on each browser request."),
     ] = False,
+    workbench: Annotated[
+        bool,
+        typer.Option(
+            "--workbench",
+            help="Launch the local web workbench for ZIP upload and source-code review.",
+        ),
+    ] = False,
+    jobs_dir: Annotated[
+        Path | None,
+        typer.Option("--jobs-dir", help="Directory for local workbench upload and scan jobs."),
+    ] = None,
+    max_upload_mb: Annotated[
+        int,
+        typer.Option("--max-upload-mb", min=1, help="Maximum ZIP upload size in MB."),
+    ] = 100,
+    scan_timeout_seconds: Annotated[
+        int,
+        typer.Option("--scan-timeout", min=1, help="Workbench scan timeout in seconds."),
+    ] = 900,
     open_browser: Annotated[
         bool,
         typer.Option("--open/--no-open", help="Open the local UI in the default browser."),
     ] = False,
 ) -> None:
+    if workbench:
+        if host == "0.0.0.0":  # noqa: S104 - explicit opt-in bind with warning.
+            typer.echo(
+                "warning: binding to 0.0.0.0 exposes the local review UI on the network.",
+                err=True,
+            )
+        try:
+            if not _interactive_tty_available() and not open_browser:
+                typer.echo(f"local workbench would bind to http://{host}:{port}")
+                return
+            typer.echo(f"serving Piranesi review UI at http://{host}:{port}")
+            typer.echo("press Ctrl-C to stop")
+            run_ui_server(
+                UiServerOptions(
+                    report_path=report_path,
+                    host=host,
+                    port=port,
+                    watch=watch,
+                    open_browser=open_browser,
+                    workbench=True,
+                    jobs_dir=jobs_dir,
+                    max_upload_mb=max_upload_mb,
+                    scan_timeout_seconds=scan_timeout_seconds,
+                )
+            )
+        except (OSError, UiServerError) as exc:
+            typer.echo(f"error: {exc}", err=True)
+            raise typer.Exit(code=2) from exc
+        return
+
     if report_path is not None:
         if host == "0.0.0.0":  # noqa: S104 - explicit opt-in bind with warning.
             typer.echo(

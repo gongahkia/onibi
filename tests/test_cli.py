@@ -386,7 +386,18 @@ def test_ui_help_lists_dashboard_flags() -> None:
     assert "--host" in output
     assert "--port" in output
     assert "--watch" in output
+    assert "--workbench" in output
+    assert "--jobs-dir" in output
+    assert "--max-upload-mb" in output
+    assert "--scan-timeout" in output
     assert "--open" in output
+
+
+def test_ui_workbench_noninteractive_reports_bind_url() -> None:
+    result = runner.invoke(app, ["ui", "--workbench", "--port", "0"])
+
+    assert result.exit_code == 0
+    assert "local workbench would bind" in result.stdout
 
 
 def test_ui_requires_interactive_tty() -> None:
