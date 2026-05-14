@@ -1,10 +1,4 @@
-name: Piranesi CI
-
-on:
-  push:
-    branches: [main, master]
-  pull_request:
-    branches: [main, master]
+name: Piranesi CI/CD on Push
 
 permissions:
   contents: read
