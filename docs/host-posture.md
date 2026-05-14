@@ -7,6 +7,21 @@ the copied bundle elsewhere.
 
 ## Install On Debian/Ubuntu
 
+For packaged use:
+
+```bash
+python3 -m pip install --user pipx
+python3 -m pipx ensurepath
+pipx install piranesi
+piranesi quickstart
+piranesi demo --output piranesi-demo-output
+piranesi doctor --host
+```
+
+The demo uses bundled fixtures and deterministic analysis, so it does not require
+osquery, Trivy, a Linux VM, or LLM credentials. Use it first to inspect the report
+shape, then run `piranesi doctor --host` on the machine where collection will run.
+
 Install development prerequisites from a source checkout:
 
 ```bash
@@ -53,12 +68,22 @@ Package names, service names, ports, severities, and evidence key relationships 
 preserved. Reports include `llm_redaction` metadata, and prompt traces contain only
 the redacted prompt.
 
+## Platform Coverage
+
+| Platform family | Tier | Package inventory | Update evidence | Firewall evidence | Notes |
+| --- | --- | --- | --- | --- | --- |
+| Debian/Ubuntu | Stable Alpha | `deb_packages` | `apt list --upgradable` | `ufw`, `iptables`, `nft` | Includes unattended-upgrades and selected sysctl checks. |
+| RHEL/CentOS/Rocky/Alma/Fedora | Alpha | `rpm_packages` | `dnf updateinfo list security`, `yum updateinfo list security` | `firewall-cmd --state`, `iptables`, `nft` | SELinux state is parsed from `getenforce`. Debian-only checks are health warnings, not findings. |
+| Amazon Linux | Alpha | `rpm_packages` | `yum`/`dnf` security update output | `firewall-cmd --state`, `iptables`, `nft` | Treated as an RPM-family platform with Amazon Linux metadata. |
+| Alpine | Experimental | `apk_packages` | `apk version -l '<'` | Supplied raw evidence only | No unattended-upgrades finding; unsupported Debian/systemd checks are health warnings. |
+| macOS | Experimental read-only posture | Snapshot/raw evidence only | Not implemented | Not implemented | No Windows support is implemented. |
+
 ## Commands
 
 Check readiness:
 
 ```bash
-uv run piranesi doctor .
+uv run piranesi doctor --host
 ```
 
 Collect evidence without Trivy:
@@ -103,6 +128,44 @@ uv run piranesi assess piranesi-evidence \
   --format both
 ```
 
+Apply deterministic policy-as-code gates:
+
+```bash
+uv run piranesi policy validate examples/policies/production-linux.toml
+uv run piranesi assess piranesi-evidence \
+  --output piranesi-output \
+  --policy examples/policies/production-linux.toml
+```
+
+Policy results are written into `policy_profile`, `policy_summary`,
+`policy_gate_results`, and `required_evidence_status` fields in JSON reports.
+See [docs/policy-as-code.md](policy-as-code.md) for the policy language and
+starter profiles.
+
+Generate a review-only remediation plan from a completed report:
+
+```bash
+uv run piranesi remediate plan piranesi-output/host-report.json \
+  --output piranesi-output/remediation-plan.md
+uv run piranesi remediate checklist piranesi-output/host-report.json --format markdown
+```
+
+After applying fixes through your normal change process, collect and assess again,
+then compare before/after reports:
+
+```bash
+uv run piranesi host diff \
+  piranesi-output-before/host-report.json \
+  piranesi-output-after/host-report.json
+uv run piranesi remediate verify \
+  piranesi-output-before/host-report.json \
+  piranesi-output-after/host-report.json
+```
+
+The diff classifies findings as `new`, `fixed`, `changed`, `unchanged`, and
+`suppressed`. See [docs/remediation-workflow.md](remediation-workflow.md) for the
+full closure workflow.
+
 Host assessment also supports PDF and static dashboard outputs:
 
 ```bash
@@ -110,6 +173,75 @@ uv run piranesi assess piranesi-evidence --output piranesi-output --format pdf
 uv run piranesi assess piranesi-evidence --output piranesi-output --format dashboard
 uv run piranesi assess piranesi-evidence --output piranesi-output --format all
 ```
+
+Inspect existing host or fleet reports in the local-only review workbench:
+
+```bash
+uv run piranesi ui piranesi-output
+uv run piranesi ui fleet-output
+uv run piranesi ui --watch piranesi-output
+```
+
+The UI binds to `127.0.0.1` by default, serves only embedded local assets, and
+uses redacted summary API responses. See [docs/local-ui.md](local-ui.md) for
+security and review workflow details.
+
+Validate community host rules, fixtures, and benchmark submissions locally:
+
+```bash
+uv run piranesi host rule scaffold "Disable risky service"
+uv run piranesi host rule test-all rules/community/host
+uv run piranesi host fixture validate tests/fixtures/host/debian-vulnerable
+uv run piranesi host benchmark submit --fixture tests/fixtures/host/debian-vulnerable
+```
+
+Community host rules are constrained TOML data and cannot execute shell commands
+or import Python. See [docs/contributing-host-rules.md](contributing-host-rules.md)
+and [docs/community-benchmarks.md](community-benchmarks.md).
+
+Assess adjacent local infrastructure evidence separately from host posture:
+
+```bash
+uv run piranesi container assess --image tests/fixtures/container/trivy-image.json --output piranesi-container-output
+uv run piranesi container assess --docker-host local --output piranesi-containers
+uv run piranesi k8s assess tests/fixtures/k8s --output piranesi-k8s-output
+```
+
+Container and Kubernetes reports use compatible evidence inventory, risk, and top
+action concepts without folding infrastructure resources into `HostSnapshot`.
+See [docs/container-kubernetes.md](container-kubernetes.md).
+
+Export public JSON schemas for integrations:
+
+```bash
+uv run piranesi schema host-report --output host-report.schema.json
+uv run piranesi schema host-snapshot --output host-snapshot.schema.json
+uv run piranesi schema fleet-report --output fleet-report.schema.json
+```
+
+The same contracts are available through the Typer-free Python API:
+
+```python
+from piranesi.host.api import assess_host_bundle
+
+report = assess_host_bundle("piranesi-evidence")
+payload = assess_host_bundle("piranesi-evidence", format="dict")
+```
+
+See [docs/api.md](api.md) for schema compatibility rules and public/internal
+module boundaries.
+
+Export findings into common security workflows:
+
+```bash
+uv run piranesi export sarif piranesi-output/host-report.json --output host.sarif.json
+uv run piranesi export csv fleet-output/fleet-report.json --output fleet-findings.csv
+uv run piranesi export github-issues piranesi-output/host-report.json --dry-run
+uv run piranesi export jira piranesi-output/host-report.json --project SEC --dry-run
+```
+
+See [docs/integrations.md](integrations.md) for redaction defaults, webhook
+delivery, and ticket creation requirements.
 
 Generate evidence-bound hypotheses separately from confirmed findings:
 
@@ -148,6 +280,22 @@ scp -r vm-001:/tmp/piranesi-evidence fleet-evidence/vm-001
 scp -r vm-002:/tmp/piranesi-evidence fleet-evidence/vm-002
 uv run piranesi fleet assess fleet-evidence --output fleet-output
 ```
+
+Piranesi can also collect the same reassessable bundle layout over SSH without
+installing an agent:
+
+```bash
+uv run piranesi remote collect --host vm-001 --output fleet-evidence/vm-001 --no-trivy
+uv run piranesi remote collect --hosts hosts.txt --output fleet-evidence --jobs 4 --no-trivy
+uv run piranesi remote doctor --hosts hosts.txt --no-trivy
+uv run piranesi fleet assess fleet-evidence --output fleet-output
+```
+
+Remote collection runs read-only commands through SSH and records every command
+array in `collection-manifest.json`. `--dry-run` prints the planned command arrays
+without writing evidence. Sudo-dependent evidence is skipped unless `--sudo-mode`
+is set to `prompt` or `passwordless`; use `--no-trivy` when you want only
+non-sudo host posture signals.
 
 Run the local smoke harness inside a Debian/Ubuntu VM:
 

@@ -72,7 +72,7 @@ evidence quality into one practical workflow.
 
 ## Current Scope
 
-Piranesi currently supports a single-host Debian/Ubuntu-oriented workflow:
+Piranesi currently supports a single-host and small-fleet Linux host workflow:
 
 ```bash
 piranesi collect  # run on a Linux VM or host
@@ -83,8 +83,10 @@ Implemented today:
 
 - Local host evidence collection with osquery.
 - Optional Trivy filesystem vulnerability evidence.
+- Agentless SSH collection for existing Linux hosts.
 - Canonical `host_snapshot.json` loading.
 - Raw bundle ingestion from `osquery/`, `trivy/`, `commands/`, `lynis/`, and `openscap/` evidence.
+- Debian/Ubuntu, RPM-family, Amazon Linux, and Alpine package/update normalization into the same report model.
 - Deterministic findings for:
   - high-risk public listeners
   - public SSH exposure
@@ -118,6 +120,27 @@ See [docs/capabilities.md](docs/capabilities.md) for the detailed capability mat
 
 ## Quick Start
 
+### Try Piranesi in 10 minutes
+
+Packaged install path:
+
+```bash
+pipx install piranesi
+piranesi quickstart
+piranesi demo --output piranesi-demo-output
+piranesi doctor --host
+```
+
+`piranesi demo` uses bundled host evidence fixtures and deterministic assessment.
+It writes `host-report.json` and `host-report.md` without cloning the repository,
+installing osquery/Trivy, or configuring LLM credentials.
+
+Containerized evaluation:
+
+```bash
+docker run --rm -v "$PWD:/workspace" ghcr.io/gongahkia/piranesi:latest demo
+```
+
 From a source checkout:
 
 ```bash
@@ -129,23 +152,15 @@ uv run piranesi doctor .
 Assess the bundled vulnerable host fixture:
 
 ```bash
-uv run piranesi assess tests/fixtures/host/debian-vulnerable \
-  --output piranesi-output \
-  --analysis deterministic \
-  --format both
+uv run piranesi demo --output piranesi-demo-output
 ```
 
 This writes:
 
 ```text
-piranesi-output/
+piranesi-demo-output/
   host-report.json
   host-report.md
-  host-report.pdf
-  host-dashboard/
-    index.html
-    host-report.json
-    assets/
 ```
 
 Collect evidence on a Linux VM or host:
@@ -417,39 +432,48 @@ and safe follow-up probes or analyst questions rather than exploit payloads.
 
 ## Roadmap
 
-The completed host-depth roadmap has been removed from the active todo set. The
-remaining adoption and scale roadmap is organized as implementation specs in
-`todo11.md` through `todo20.md`.
+The host-depth, adoption, and scale roadmap has landed. The active roadmap is now
+focused on production hardening, distribution, and credibility work.
 
-Near-term product depth:
+Near-term product hardening:
 
 - larger host benchmark corpus and measured analyst study
+- signed release artifacts and recurring release smoke tests
+- expanded integration fixtures for GitHub, Jira, Slack/webhooks, Docker, and Kubernetes
+- more remote collection compatibility testing across common Linux distributions
 
-Adoption and scale:
+Distribution and community:
 
-- frictionless install, demo, and onboarding
-- agentless SSH collection
-- stable report API and embeddable library mode
-- workflow exporters for SARIF, tickets, CSV, and webhooks
-- policy-as-code gates
-- remediation planning and before/after tracking
-- multi-platform host support
-- container and Kubernetes evidence normalization
-- local web review workbench
-- community host rules, fixtures, and benchmarks
+- publish PyPI/pipx and container release channels
+- document support guarantees for public APIs, schemas, and rule-pack formats
+- grow community fixture, policy, mapping, and benchmark contributions
 
 ## CLI Reference
 
 ```bash
 piranesi --version
+piranesi quickstart
+piranesi demo --output piranesi-demo-output
+piranesi doctor --host
 piranesi doctor .
 piranesi collect --output piranesi-evidence [--trivy | --no-trivy] [--lynis] [--openscap] [--auth-evidence]
+piranesi remote collect --host vm-001 --output fleet-evidence/vm-001 --no-trivy
+piranesi remote collect --hosts hosts.txt --output fleet-evidence --jobs 4 --no-trivy
+piranesi remote doctor --hosts hosts.txt --no-trivy
+piranesi host rule test-all rules/community/host
+piranesi host fixture validate tests/fixtures/host/debian-vulnerable
+piranesi host benchmark submit --fixture tests/fixtures/host/debian-vulnerable
+piranesi container assess --image tests/fixtures/container/trivy-image.json --output piranesi-container-output
+piranesi container assess --docker-host local --output piranesi-containers
+piranesi k8s assess tests/fixtures/k8s --output piranesi-k8s-output
 piranesi assess <host_snapshot.json|evidence-bundle> \
   --output piranesi-output \
   --analysis deterministic|llm|both \
   --format json|markdown|both|pdf|dashboard|all
+piranesi ui piranesi-output [--watch] [--open]
 piranesi hypothesize <host_snapshot.json|evidence-bundle> --output piranesi-output
 piranesi fleet assess <fleet-evidence> --output fleet-output
+piranesi ui fleet-output
 piranesi fleet summarize <fleet-output>
 piranesi probe <evidence-bundle> --output probe-plan.json
 piranesi collect-followup <probe-plan.json> --output piranesi-evidence-followup
@@ -459,6 +483,7 @@ python eval/host_benchmark.py --fixtures tests/fixtures/host --output eval/repor
 Fleet assessment expects one child directory per host bundle:
 
 ```bash
+piranesi remote collect --hosts hosts.txt --output fleet-evidence --jobs 4 --no-trivy
 scp -r vm-001:/tmp/piranesi-evidence fleet-evidence/vm-001
 scp -r vm-002:/tmp/piranesi-evidence fleet-evidence/vm-002
 uv run piranesi fleet assess fleet-evidence --output fleet-output
@@ -467,6 +492,8 @@ uv run piranesi fleet summarize fleet-output
 
 Fleet output contains per-host reports under `hosts/<name>/` plus
 `fleet-report.json` and `fleet-report.md`. Individual host failures are recorded
+and remote collection writes `remote-collection-summary.json` plus Markdown when
+collecting multiple hosts.
 and assessment continues unless `--fail-fast` is set.
 
 Adaptive probing workflow:
@@ -498,6 +525,22 @@ Useful assessment options:
 | `--fail-severity high` | Exit non-zero when unsuppressed findings meet the threshold. |
 | `--no-fail` | Write reports without failing the command on findings. |
 | `--treat-private-as-public` | Treat private-interface listeners as exposed for lab hardening. |
+
+Use `piranesi ui <piranesi-output|fleet-output>` to inspect existing JSON reports
+in a local-only review workbench. It binds to `127.0.0.1` by default, supports
+`--watch`, and does not serve arbitrary files from the report directory. See
+[docs/local-ui.md](docs/local-ui.md).
+
+Use `piranesi host rule scaffold`, `piranesi host rule test-all`, and
+`piranesi host fixture validate` to contribute constrained community host rules
+and benchmark fixtures. See
+[docs/contributing-host-rules.md](docs/contributing-host-rules.md) and
+[docs/community-benchmarks.md](docs/community-benchmarks.md).
+
+Use `piranesi container assess` and `piranesi k8s assess` to normalize adjacent
+container image, local Docker, and Kubernetes manifest evidence without diluting
+the host posture model. See
+[docs/container-kubernetes.md](docs/container-kubernetes.md).
 
 ## Development
 

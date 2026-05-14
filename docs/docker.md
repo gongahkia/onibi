@@ -9,6 +9,29 @@ Python/Node/Joern on the host.
 docker build -t piranesi:local .
 ```
 
+## Try The Bundled Demo
+
+The demo flow writes deterministic host posture reports from packaged fixtures and
+does not need LLM credentials:
+
+```bash
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -v "$PWD":/workspace \
+  ghcr.io/gongahkia/piranesi:latest \
+  demo --output /workspace/piranesi-demo-output
+```
+
+For a locally built image:
+
+```bash
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -v "$PWD":/workspace \
+  piranesi:local \
+  demo --output /workspace/piranesi-demo-output
+```
+
 ## Scan A Local Repository
 
 Run from the repository you want to scan:

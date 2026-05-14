@@ -26,6 +26,8 @@ OSQUERY_QUERIES: dict[str, str] = {
         "select interface, address, mask, type from interface_addresses;"
     ),
     "deb_packages": "select name, version, arch from deb_packages;",
+    "rpm_packages": "select name, version, release, arch from rpm_packages;",
+    "apk_packages": "select name, version, arch from apk_packages;",
     "listening_ports": (
         "select lp.protocol, lp.address, lp.port, lp.pid, p.name as process_name, "
         "p.path as process_path, u.username as user "
@@ -64,6 +66,11 @@ OPTIONAL_TEXT_COMMANDS: dict[str, list[str]] = {
     "iptables_rules": ["iptables", "-S"],
     "nft_ruleset": ["nft", "list", "ruleset"],
     "apt_upgradable": ["apt", "list", "--upgradable"],
+    "dnf_security_updates": ["dnf", "updateinfo", "list", "security"],
+    "yum_security_updates": ["yum", "updateinfo", "list", "security"],
+    "apk_version_outdated": ["apk", "version", "-l", "<"],
+    "firewalld_state": ["firewall-cmd", "--state"],
+    "selinux_getenforce": ["getenforce"],
     "sshd_effective_config": ["sshd", "-T"],
     "group_sudo": ["getent", "group", "sudo"],
     "group_admin": ["getent", "group", "admin"],

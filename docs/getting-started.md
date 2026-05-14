@@ -1,11 +1,46 @@
 # Getting Started
 
-This guide gets a fresh machine to the first reproducible Piranesi scan. It covers the host dependencies, the repository setup, and the artifacts you should expect from the first run.
+This guide gets a fresh machine to the first reproducible Piranesi host posture
+report. It covers the packaged path, the source-checkout path, and the artifacts
+you should expect from the first run.
+
+## Try Piranesi In 10 Minutes
+
+Install the CLI with pipx and run the no-credentials demo:
+
+```bash
+pipx install piranesi
+piranesi quickstart
+piranesi demo --output piranesi-demo-output
+piranesi doctor --host
+```
+
+The demo assesses bundled Debian/Ubuntu-style host evidence and writes:
+
+```text
+piranesi-demo-output/
+  host-report.json
+  host-report.md
+```
+
+No osquery, Trivy, Linux VM, or LLM API key is required for the demo.
+`piranesi doctor --host` then reports only host-posture collection dependencies
+and next steps for real evidence collection.
 
 ## Prerequisites
 
 - Python 3.12+
-- `uv` for source-checkout development, or `pip install piranesi` for packaged use
+- `pipx` for packaged use, or `uv` for source-checkout development
+
+Only real host collection needs Linux host tooling:
+
+- osquery for `piranesi collect`
+- Trivy for optional package CVE evidence
+- Lynis for optional hardening baseline evidence
+- OpenSCAP for optional XCCDF baseline evidence
+
+The legacy source-code scanner also needs:
+
 - Joern
 - A working JVM for Joern
 - Node.js and npm
@@ -40,9 +75,8 @@ cd piranesi
 uv sync
 ```
 
-If you are consuming a packaged release instead of hacking on the repository,
-install with `python -m pip install piranesi` and run `piranesi doctor .` inside
-the target repository.
+If you are consuming a packaged release instead of hacking on the repository, use
+`pipx install piranesi`, then run `piranesi quickstart`.
 
 For a new target repository, scaffold the local config before the first run:
 
@@ -74,7 +108,9 @@ Custom rule authoring starter packs are available at `examples/rule-packs/`. See
 Run these once before the first scan:
 
 ```bash
-uv run piranesi doctor .
+uv run piranesi quickstart
+uv run piranesi demo --output piranesi-demo-output
+uv run piranesi doctor --host
 joern --help
 java -version
 npx tsc --version
@@ -87,7 +123,8 @@ Notes:
 
 - Some Joern installs do not support `joern --version`. `joern --help` plus a successful Joern-backed scan is the practical validation path in this repository.
 - The first `docker info` may fail if Docker Desktop is still starting.
-- `piranesi doctor .` is the fastest way to see what will work on the current machine.
+- `piranesi doctor --host` is the fastest way to see what host collection can run
+  on the current machine.
 - Piranesi can run static scan/detect/report in deterministic mode without an LLM API key.
 
 ## Command Model

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from importlib.metadata import entry_points
 from pathlib import Path
 
 import pytest
@@ -69,10 +70,18 @@ def test_help_shows_all_commands() -> None:
     assert result.exit_code == 0
     commands = [
         "version",
+        "quickstart",
+        "demo",
         "collect",
         "doctor",
         "assess",
         "fleet",
+        "container",
+        "k8s",
+        "schema",
+        "policy",
+        "export",
+        "remote",
         "validate-evidence",
         "init",
         "explain",
@@ -85,6 +94,36 @@ def test_help_shows_all_commands() -> None:
     hidden_legacy_commands = ["run", "pipeline", "rules", "plugins", "dev"]
     for command in hidden_legacy_commands:
         assert f"│ {command}" not in output
+
+
+def test_quickstart_exits_zero_and_prints_next_steps() -> None:
+    result = runner.invoke(app, ["quickstart"])
+
+    assert result.exit_code == 0
+    assert "piranesi demo --output" in result.stdout
+    assert "piranesi doctor --host" in result.stdout
+    assert "piranesi assess piranesi-evidence" in result.stdout
+    assert "LLM" not in result.stdout
+
+
+def test_demo_writes_json_and_markdown_from_bundled_fixture(tmp_path: Path) -> None:
+    output_dir = tmp_path / "demo"
+
+    result = runner.invoke(app, ["demo", "--output", str(output_dir)])
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads((output_dir / "host-report.json").read_text(encoding="utf-8"))
+    markdown = (output_dir / "host-report.md").read_text(encoding="utf-8")
+    assert payload["target"] == "debian-vm-01"
+    assert payload["summary"]["findings_total"] >= 5
+    assert "Piranesi Host Posture Report" in markdown
+    assert "LLM" not in result.stdout
+
+
+def test_package_console_script_resolves() -> None:
+    scripts = {entry.name: entry.value for entry in entry_points(group="console_scripts")}
+
+    assert scripts["piranesi"] == "piranesi.cli:app"
 
 
 def test_scan_requires_authorized_flag(tmp_path: Path) -> None:
@@ -139,6 +178,41 @@ def test_doctor_json_output(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     payload = json.loads(result.stdout)
     assert payload["collect_ready"] is True
     assert payload["assess_ready"] is True
+
+
+def test_doctor_host_focus_omits_llm_dependency_noise(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+    report = DoctorReport(
+        piranesi_version="0.2.0",
+        target=str(tmp_path),
+        config_path=str(tmp_path / "piranesi.toml"),
+        ready=True,
+        collect_ready=True,
+        assess_ready=True,
+        checks=[
+            DoctorCheck(name="python", status="ok", summary="Python 3.12"),
+            DoctorCheck(name="osquery", status="ok", summary="osqueryi version 5.12.0"),
+            DoctorCheck(name="trivy", status="warn", summary="trivy not found on PATH"),
+            DoctorCheck(name="sysctl", status="ok", summary="sysctl available"),
+        ],
+    )
+
+    def _fake_build_doctor_report(*_args: object, **kwargs: object) -> DoctorReport:
+        captured.update(kwargs)
+        return report
+
+    monkeypatch.setattr("piranesi.cli.build_doctor_report", _fake_build_doctor_report)
+
+    result = runner.invoke(app, ["doctor", "--host", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert captured["host_only"] is True
+    assert "[OK] osquery" in result.stdout
+    assert "[WARN] trivy" in result.stdout
+    assert "llm" not in result.stdout.lower()
 
 
 def test_assess_cli_writes_collection_health_with_manifest(tmp_path: Path) -> None:
@@ -309,6 +383,10 @@ def test_ui_help_lists_dashboard_flags() -> None:
     assert "--output" in output
     assert "--config" in output
     assert "--trace" in output
+    assert "--host" in output
+    assert "--port" in output
+    assert "--watch" in output
+    assert "--open" in output
 
 
 def test_ui_requires_interactive_tty() -> None:

@@ -1,0 +1,9 @@
+[
+  {
+    "name": "Amazon Linux",
+    "version": "2023",
+    "id": "amzn",
+    "version_id": "2023",
+    "pretty_name": "Amazon Linux 2023"
+  }
+]

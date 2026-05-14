@@ -7,6 +7,11 @@ from pathlib import Path
 import pytest
 
 from piranesi.host import HostFinding, HostIdentity, HostSnapshot, analyze_snapshot
+from piranesi.host.community import (
+    HostCommunityError,
+    validate_host_benchmark_submission,
+    validate_host_fixture,
+)
 from piranesi.host.eval import (
     HostGroundTruth,
     HostGroundTruthMatcher,
@@ -19,6 +24,7 @@ from piranesi.host.eval import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "host"
+COMMUNITY_FIXTURE = FIXTURES / "debian-vulnerable"
 
 
 def _finding(
@@ -174,7 +180,9 @@ def test_benchmark_records_optional_baseline_skips() -> None:
     assert baselines["lynis_only"].skipped_fixture_count >= 1
     assert baselines["openscap_only"].skipped_fixture_count >= 1
     assert baselines["piranesi_deterministic_llm"].status == "skipped"
-    assert "LLM baseline disabled" in (baselines["piranesi_deterministic_llm"].skip_reason or "")
+    assert "LLM baseline disabled" in (
+        baselines["piranesi_deterministic_llm"].skip_reason or ""
+    )
 
 
 def test_report_rendering_and_output_files(tmp_path: Path) -> None:
@@ -230,3 +238,59 @@ def test_markdown_renderer_lists_false_positive_and_false_negative() -> None:
     assert "host.extra" in markdown
     assert "Primary False Negatives" in markdown
     assert "host.a" in markdown
+
+
+def test_fixture_validation_for_host_bundle() -> None:
+    result = validate_host_fixture(COMMUNITY_FIXTURE)
+
+    assert result.status == "ok"
+    assert result.has_ground_truth is True
+    assert result.expected_findings == 6
+    assert result.evidence_inventory["packages"] == 2
+
+
+def test_fixture_validation_reports_invalid_bundle(tmp_path: Path) -> None:
+    result = validate_host_fixture(tmp_path / "missing")
+
+    assert result.status == "error"
+    assert result.errors
+
+
+def test_benchmark_metadata_validation() -> None:
+    submission = validate_host_benchmark_submission(COMMUNITY_FIXTURE)
+
+    assert submission.schema_version == 1
+    assert submission.target == "debian-vm-01"
+    assert submission.platform_family == "debian"
+    assert submission.expected_findings == 6
+    assert submission.expected_absent == 1
+
+
+def test_benchmark_submission_requires_ground_truth(tmp_path: Path) -> None:
+    fixture = tmp_path / "fixture"
+    fixture.mkdir()
+    (fixture / "host_snapshot.json").write_text(
+        """
+{
+  "schema_version": 1,
+  "identity": {"hostname": "community-fixture", "host_id": null, "ip_addresses": []},
+  "os": {"name": "unknown", "version": null, "id": null, "version_id": null, "pretty_name": null},
+  "packages": [],
+  "network_interfaces": [],
+  "listening_ports": [],
+  "processes": [],
+  "services": [],
+  "users": [],
+  "baseline_checks": [],
+  "login_sessions": [],
+  "auth_event_summaries": [],
+  "config": {},
+  "tool_provenance": {},
+  "raw_evidence": {}
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(HostCommunityError, match="ground_truth"):
+        validate_host_benchmark_submission(fixture)

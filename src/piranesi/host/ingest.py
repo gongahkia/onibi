@@ -94,7 +94,12 @@ def _load_tool_bundle(root: Path) -> HostSnapshot:
     listening_ports = _listening_ports_from_osquery(osquery_payloads, processes=processes)
     users = _users_from_osquery(osquery_payloads)
     services = _services_from_osquery(osquery_payloads)
-    config = _config_from_evidence(osquery_payloads, command_payloads)
+    config = _config_from_evidence(
+        osquery_payloads,
+        command_payloads,
+        os_release=os_release,
+        packages=packages,
+    )
 
     baseline_checks: list[BaselineCheck] = []
     if lynis_dir is not None:
@@ -252,9 +257,29 @@ def _kernel_from_osquery(payloads: dict[str, object]) -> str | None:
     return _string(row.get("version")) or _string(row.get("release"))
 
 
+def _rpm_version(row: dict[str, Any]) -> str | None:
+    version = _string(row.get("version"))
+    if not version:
+        return None
+    release = _string(row.get("release"))
+    epoch = _string(row.get("epoch"))
+    rendered = f"{version}-{release}" if release else version
+    return f"{epoch}:{rendered}" if epoch and epoch != "0" else rendered
+
+
+def _package_manager_from_row(row: dict[str, Any]) -> str:
+    raw = (_string(row.get("package_manager")) or _string(row.get("manager")) or "").lower()
+    if raw in {"deb", "rpm", "apk", "brew", "winget"}:
+        return raw
+    source = (_string(row.get("source")) or "").lower()
+    if source in {"deb", "rpm", "apk", "brew", "winget"}:
+        return source
+    return "unknown"
+
+
 def _packages_from_osquery(payloads: dict[str, object]) -> list[HostPackage]:
     packages: list[HostPackage] = []
-    for row in _all_rows(payloads, "deb_packages", "packages"):
+    for row in _all_rows(payloads, "deb_packages"):
         name = _string(row.get("name"))
         version = _string(row.get("version"))
         if not name or not version:
@@ -265,9 +290,55 @@ def _packages_from_osquery(payloads: dict[str, object]) -> list[HostPackage]:
                 version=version,
                 source="osquery",
                 architecture=_string(row.get("arch")) or _string(row.get("architecture")),
+                package_manager="deb",
             )
         )
-    return _dedupe_models(packages, key=lambda item: (item.name, item.version))
+    for row in _all_rows(payloads, "rpm_packages"):
+        name = _string(row.get("name"))
+        version = _rpm_version(row)
+        if not name or not version:
+            continue
+        packages.append(
+            HostPackage(
+                name=name,
+                version=version,
+                source="osquery",
+                architecture=_string(row.get("arch")) or _string(row.get("architecture")),
+                package_manager="rpm",
+            )
+        )
+    for row in _all_rows(payloads, "apk_packages"):
+        name = _string(row.get("name"))
+        version = _string(row.get("version"))
+        if not name or not version:
+            continue
+        packages.append(
+            HostPackage(
+                name=name,
+                version=version,
+                source="osquery",
+                architecture=_string(row.get("arch")) or _string(row.get("architecture")),
+                package_manager="apk",
+            )
+        )
+    for row in _all_rows(payloads, "packages"):
+        name = _string(row.get("name"))
+        version = _string(row.get("version"))
+        if not name or not version:
+            continue
+        packages.append(
+            HostPackage(
+                name=name,
+                version=version,
+                source="osquery",
+                architecture=_string(row.get("arch")) or _string(row.get("architecture")),
+                package_manager=_package_manager_from_row(row),
+            )
+        )
+    return _dedupe_models(
+        packages,
+        key=lambda item: (item.name, item.version, item.package_manager),
+    )
 
 
 def _network_interfaces_from_osquery(payloads: dict[str, object]) -> list[NetworkInterface]:
@@ -390,8 +461,13 @@ def _services_from_osquery(payloads: dict[str, object]) -> list[ServiceState]:
 def _config_from_evidence(
     payloads: dict[str, object],
     command_payloads: dict[str, object],
+    *,
+    os_release: OsRelease,
+    packages: list[HostPackage],
 ) -> dict[str, object]:
     config: dict[str, object] = {}
+    platform_config = _platform_config(os_release, packages)
+    config["platform"] = platform_config
     ssh_rows = _all_rows(payloads, "ssh_config", "sshd_config")
     ssh_config: dict[str, str] = {}
     for row in ssh_rows:
@@ -408,6 +484,9 @@ def _config_from_evidence(
     updates = _updates_from_commands(command_payloads)
     if updates:
         config["updates"] = updates
+    selinux = _selinux_from_commands(command_payloads)
+    if selinux:
+        config["selinux"] = selinux
     sysctl = _sysctl_from_commands(command_payloads)
     if sysctl:
         config["sysctl"] = sysctl
@@ -415,6 +494,71 @@ def _config_from_evidence(
     if sudo:
         config["sudo"] = sudo
     return config
+
+
+def _platform_config(
+    os_release: OsRelease,
+    packages: list[HostPackage],
+) -> dict[str, object]:
+    family = _platform_family(os_release)
+    package_manager = _platform_package_manager(family, packages)
+    supported = ["packages", "listeners", "users", "services"]
+    unsupported: list[str] = []
+    if family in {"debian"}:
+        supported.extend(["apt_updates", "ufw", "sysctl"])
+    elif family in {"rhel", "amazon"}:
+        supported.extend(["rpm_updates", "firewalld", "selinux", "sysctl"])
+        unsupported.extend(["apt_updates", "unattended_upgrades"])
+    elif family == "alpine":
+        supported.extend(["apk_updates"])
+        unsupported.extend(["apt_updates", "unattended_upgrades", "systemd_services"])
+    elif family == "macos":
+        supported.extend(["listeners", "users"])
+        unsupported.extend(["linux_sysctl", "linux_firewall", "linux_package_updates"])
+    else:
+        unsupported.extend(["platform_specific_updates"])
+    return {
+        "platform_family": family,
+        "package_manager": package_manager,
+        "supported_checks": _dedupe_values(supported),
+        "unsupported_checks": _dedupe_values(unsupported),
+        "confidence": "high" if os_release.id or os_release.name != "unknown" else "low",
+    }
+
+
+def _platform_family(os_release: OsRelease) -> str:
+    raw_id = (os_release.id or "").lower()
+    name = (os_release.name or "").lower()
+    pretty = (os_release.pretty_name or "").lower()
+    material = " ".join([raw_id, name, pretty])
+    if raw_id in {"debian", "ubuntu"} or "debian" in material or "ubuntu" in material:
+        return "debian"
+    if raw_id in {"rhel", "centos", "rocky", "almalinux", "fedora"} or any(
+        token in material
+        for token in ("red hat", "centos", "rocky", "alma", "fedora")
+    ):
+        return "rhel"
+    if raw_id in {"amzn", "amazon"} or "amazon linux" in material:
+        return "amazon"
+    if raw_id == "alpine" or "alpine" in material:
+        return "alpine"
+    if raw_id == "darwin" or "macos" in material or "mac os" in material:
+        return "macos"
+    return "unknown"
+
+
+def _platform_package_manager(family: str, packages: list[HostPackage]) -> str:
+    managers = {package.package_manager for package in packages if package.package_manager}
+    for preferred in ("deb", "rpm", "apk", "brew", "winget"):
+        if preferred in managers:
+            return preferred
+    return {
+        "debian": "deb",
+        "rhel": "rpm",
+        "amazon": "rpm",
+        "alpine": "apk",
+        "macos": "brew",
+    }.get(family, "unknown")
 
 
 def _parse_sshd_effective_config(command_payloads: dict[str, object]) -> dict[str, str]:
@@ -443,6 +587,7 @@ def _firewall_config_from_commands(command_payloads: dict[str, object]) -> dict[
     ufw_stdout = _command_stdout(command_payloads.get("ufw_status"))
     iptables_stdout = _command_stdout(command_payloads.get("iptables_rules"))
     nft_stdout = _command_stdout(command_payloads.get("nft_ruleset"))
+    firewalld_stdout = _command_stdout(command_payloads.get("firewalld_state"))
     config: dict[str, object] = {}
     sources: list[str] = []
     if ufw_stdout is not None:
@@ -465,6 +610,17 @@ def _firewall_config_from_commands(command_payloads: dict[str, object]) -> dict[
         config["nft_rule_count"] = len(rules)
         if rules and "active" not in config:
             config["active"] = True
+    if firewalld_stdout is not None:
+        sources.append("firewalld_state")
+        firewalld_lines = [
+            line.strip() for line in firewalld_stdout.splitlines() if line.strip()
+        ]
+        state = firewalld_lines[0].lower() if firewalld_lines else "unknown"
+        config["firewalld_state"] = state or "unknown"
+        if state == "running":
+            config["active"] = True
+        elif state in {"not running", "stopped", "inactive"}:
+            config["active"] = False
     if sources:
         config["sources"] = sources
     return config
@@ -485,8 +641,45 @@ def _parse_ufw_status(stdout: str) -> str | None:
 
 def _updates_from_commands(command_payloads: dict[str, object]) -> dict[str, object]:
     stdout = _command_stdout(command_payloads.get("apt_upgradable"))
-    if stdout is None:
-        return {}
+    if stdout is not None:
+        updates = _parse_apt_updates(stdout)
+        return {
+            "source": "apt_upgradable",
+            "package_manager": "deb",
+            "upgradable": updates,
+            "security_count": sum(1 for update in updates if update["security"]),
+        }
+    dnf_stdout = _command_stdout(command_payloads.get("dnf_security_updates"))
+    if dnf_stdout is not None:
+        updates = _parse_rpm_security_updates(dnf_stdout)
+        return {
+            "source": "dnf_security_updates",
+            "package_manager": "rpm",
+            "upgradable": updates,
+            "security_count": len(updates),
+        }
+    yum_stdout = _command_stdout(command_payloads.get("yum_security_updates"))
+    if yum_stdout is not None:
+        updates = _parse_rpm_security_updates(yum_stdout)
+        return {
+            "source": "yum_security_updates",
+            "package_manager": "rpm",
+            "upgradable": updates,
+            "security_count": len(updates),
+        }
+    apk_stdout = _command_stdout(command_payloads.get("apk_version_outdated"))
+    if apk_stdout is not None:
+        updates = _parse_apk_updates(apk_stdout)
+        return {
+            "source": "apk_version_outdated",
+            "package_manager": "apk",
+            "upgradable": updates,
+            "security_count": 0,
+        }
+    return {}
+
+
+def _parse_apt_updates(stdout: str) -> list[dict[str, object]]:
     updates: list[dict[str, object]] = []
     for line in stdout.splitlines():
         if not line or line.startswith("Listing...") or "/" not in line:
@@ -504,10 +697,86 @@ def _updates_from_commands(command_payloads: dict[str, object]) -> dict[str, obj
                 "security": is_security,
             }
         )
+    return updates
+
+
+def _parse_rpm_security_updates(stdout: str) -> list[dict[str, object]]:
+    updates: list[dict[str, object]] = []
+    for line in stdout.splitlines():
+        normalized = line.strip()
+        if not normalized or normalized.lower().startswith(("last metadata", "updates info")):
+            continue
+        fields = normalized.split()
+        package_field = next(
+            (
+                field
+                for field in reversed(fields)
+                if "." in field and not field.upper().startswith(("RHSA", "ALAS"))
+            ),
+            fields[-1] if fields else "",
+        )
+        if not package_field:
+            continue
+        name = package_field.rsplit(".", 1)[0]
+        advisory = next(
+            (field for field in fields if field.upper().startswith(("RHSA", "ALAS", "FEDORA"))),
+            None,
+        )
+        severity = next(
+            (
+                field.rstrip("/Sec.").lower()
+                for field in fields
+                if field.lower().rstrip("/sec.") in {"critical", "important", "moderate", "low"}
+            ),
+            None,
+        )
+        updates.append(
+            {
+                "package": name,
+                "candidate": "unknown",
+                "installed": None,
+                "security": True,
+                "advisory": advisory,
+                "severity": severity,
+            }
+        )
+    return updates
+
+
+def _parse_apk_updates(stdout: str) -> list[dict[str, object]]:
+    updates: list[dict[str, object]] = []
+    for line in stdout.splitlines():
+        normalized = line.strip()
+        if not normalized:
+            continue
+        parts = normalized.split()
+        package = parts[0]
+        if "-" in package:
+            name, installed = package.rsplit("-", 1)
+        else:
+            name, installed = package, None
+        candidate = parts[-1] if parts else "unknown"
+        updates.append(
+            {
+                "package": name,
+                "candidate": candidate,
+                "installed": installed,
+                "security": False,
+            }
+        )
+    return updates
+
+
+def _selinux_from_commands(command_payloads: dict[str, object]) -> dict[str, object]:
+    stdout = _command_stdout(command_payloads.get("selinux_getenforce"))
+    if stdout is None:
+        return {}
+    state = stdout.strip().splitlines()[0].strip() if stdout.strip() else "unknown"
     return {
-        "source": "apt_upgradable",
-        "upgradable": updates,
-        "security_count": sum(1 for update in updates if update["security"]),
+        "state": state,
+        "enabled": state.lower() not in {"disabled", "unknown"},
+        "enforcing": state.lower() == "enforcing",
+        "source": "getenforce",
     }
 
 

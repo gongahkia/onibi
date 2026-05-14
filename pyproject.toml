@@ -6,6 +6,7 @@ readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.12"
 authors = [{ name = "piranesi contributors" }]
+maintainers = [{ name = "piranesi contributors" }]
 keywords = [
     "security",
     "vm",
@@ -26,6 +27,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Security",
     "Topic :: Software Development :: Quality Assurance",
+    "Operating System :: POSIX :: Linux",
 ]
 dependencies = [
     "typer>=0.12.0",
@@ -46,6 +48,8 @@ Homepage = "https://github.com/gongahkia/piranesi"
 Repository = "https://github.com/gongahkia/piranesi"
 Issues = "https://github.com/gongahkia/piranesi/issues"
 Documentation = "https://github.com/gongahkia/piranesi/tree/main/docs"
+Changelog = "https://github.com/gongahkia/piranesi/blob/main/CHANGELOG.md"
+Security = "https://github.com/gongahkia/piranesi/blob/main/SECURITY.md"
 
 [project.scripts]
 piranesi = "piranesi.cli:app"
@@ -77,6 +81,18 @@ exclude = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/piranesi"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/piranesi/**",
+    "rules/**",
+    "examples/rule-packs/**",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "SECURITY.md",
+    "pyproject.toml",
+]
 
 [dependency-groups]
 dev = [

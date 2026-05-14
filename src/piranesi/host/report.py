@@ -91,6 +91,9 @@ def render_host_markdown(report: HostPostureReport) -> str:
         lines.extend(_top_action_lines(action))
     lines.extend(["", "## Control Summary", ""])
     lines.extend(_control_summary_lines(report))
+    if report.policy_profile is not None:
+        lines.extend(["", "## Policy", ""])
+        lines.extend(_policy_lines(report))
     lines.extend(["", "## Evidence Inventory", ""])
     for key, count in sorted(report.evidence_inventory.items()):
         lines.append(f"- {key}: {count}")
@@ -163,6 +166,9 @@ def render_fleet_markdown(report: FleetReport) -> str:
             lines.append(f"- {severity}: {count}")
     else:
         lines.append("No findings were identified.")
+    if report.policy_profile is not None:
+        lines.extend(["", "## Policy", ""])
+        lines.extend(_fleet_policy_lines(report))
     lines.extend(["", "## Worst Hosts", ""])
     worst_hosts = summary.get("worst_hosts")
     if isinstance(worst_hosts, list) and worst_hosts:
@@ -197,6 +203,74 @@ def render_fleet_markdown(report: FleetReport) -> str:
         for host in failures:
             lines.append(f"- `{host.target}`: {host.error}")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _policy_lines(report: HostPostureReport) -> list[str]:
+    summary = report.policy_summary
+    lines = [
+        f"- Profile: `{report.policy_profile}`",
+        f"- Passed: `{str(summary.get('passed', False)).lower()}`",
+        f"- Failed gates: {summary.get('failed_gate_count', 0)}",
+        f"- Warnings: {summary.get('warning_count', 0)}",
+        "",
+        "### Gate Results",
+        "",
+    ]
+    if report.policy_gate_results:
+        for gate in report.policy_gate_results:
+            lines.append(
+                "- "
+                f"`{gate.get('status')}` `{gate.get('gate_id')}`: {gate.get('message')}"
+            )
+            finding_ids = gate.get("finding_ids")
+            if isinstance(finding_ids, list) and finding_ids:
+                lines.append(f"  findings: {', '.join(str(item) for item in finding_ids)}")
+    else:
+        lines.append("No policy gates were configured.")
+    lines.extend(["", "### Required Evidence", ""])
+    if report.required_evidence_status:
+        for evidence in report.required_evidence_status:
+            lines.append(
+                "- "
+                f"`{evidence.get('status')}` `{evidence.get('name')}`: "
+                f"{evidence.get('message')}"
+            )
+    else:
+        lines.append("No required evidence checks were configured.")
+    return lines
+
+
+def _fleet_policy_lines(report: FleetReport) -> list[str]:
+    summary = report.policy_summary
+    lines = [
+        f"- Profile: `{report.policy_profile}`",
+        f"- Passed: `{str(summary.get('passed', False)).lower()}`",
+        f"- Host policy failures: {summary.get('host_policy_failures', 0)}",
+        f"- Failed gates: {summary.get('failed_gate_count', 0)}",
+        f"- Warnings: {summary.get('warning_count', 0)}",
+        "",
+        "### Fleet Gate Results",
+        "",
+    ]
+    if report.policy_gate_results:
+        for gate in report.policy_gate_results:
+            lines.append(
+                "- "
+                f"`{gate.get('status')}` `{gate.get('gate_id')}`: {gate.get('message')}"
+            )
+    else:
+        lines.append("No fleet policy gates were configured.")
+    lines.extend(["", "### Required Evidence", ""])
+    if report.required_evidence_status:
+        for evidence in report.required_evidence_status:
+            lines.append(
+                "- "
+                f"`{evidence.get('status')}` `{evidence.get('name')}`: "
+                f"{evidence.get('message')}"
+            )
+    else:
+        lines.append("No required evidence checks were configured.")
+    return lines
 
 
 def render_fleet_terminal(report: FleetReport) -> str:

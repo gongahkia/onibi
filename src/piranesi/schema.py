@@ -1,0 +1,50 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any, Literal
+
+from pydantic import BaseModel
+
+from piranesi import __version__
+from piranesi.host.models import FleetReport, HostPostureReport, HostSnapshot
+
+SchemaName = Literal["host-report", "host-snapshot", "fleet-report"]
+
+_SCHEMA_MODELS: dict[str, type[BaseModel]] = {
+    "host-report": HostPostureReport,
+    "host-snapshot": HostSnapshot,
+    "fleet-report": FleetReport,
+}
+
+
+class SchemaExportError(ValueError):
+    """Raised when a public schema name is unknown or cannot be exported."""
+
+
+def available_schemas() -> tuple[str, ...]:
+    return tuple(sorted(_SCHEMA_MODELS))
+
+
+def build_schema(name: SchemaName | str) -> dict[str, Any]:
+    """Return a JSON Schema dictionary for a stable public Piranesi payload."""
+    model = _SCHEMA_MODELS.get(name)
+    if model is None:
+        joined = ", ".join(available_schemas())
+        raise SchemaExportError(f"unknown schema {name!r}; available schemas: {joined}")
+    schema = model.model_json_schema()
+    schema.setdefault("$schema", "https://json-schema.org/draft/2020-12/schema")
+    schema.setdefault("x-piranesi-version", __version__)
+    schema.setdefault("x-piranesi-schema-name", name)
+    schema.setdefault("x-piranesi-compatibility", "stable-alpha-additive")
+    return schema
+
+
+def write_schema(name: SchemaName | str, output_path: str | Path) -> Path:
+    """Write a public JSON Schema and return the resolved output path."""
+    path = Path(output_path).expanduser().resolve(strict=False)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(build_schema(name), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return path

@@ -27,6 +27,11 @@ HOST_OPTIONAL_HELPERS: dict[str, list[str]] = {
     "iptables": ["iptables", "--version"],
     "nft": ["nft", "--version"],
     "apt": ["apt", "--version"],
+    "dnf": ["dnf", "--version"],
+    "yum": ["yum", "--version"],
+    "apk": ["apk", "--version"],
+    "firewall-cmd": ["firewall-cmd", "--version"],
+    "getenforce": ["getenforce"],
     "sshd": ["sshd", "-T"],
     "getent": ["getent", "--version"],
     "sysctl": ["sysctl", "--version"],
@@ -83,6 +88,7 @@ def build_doctor_report(
     target_dir: str | Path,
     *,
     config_path: str | Path = "piranesi.toml",
+    host_only: bool = False,
     executable_lookup: ExecutableLookup = shutil.which,
     command_runner: CommandRunner = subprocess.run,
 ) -> DoctorReport:
@@ -116,15 +122,18 @@ def build_doctor_report(
             )
             for name, command in HOST_OPTIONAL_HELPERS.items()
         ],
-        _llm_check(),
     ]
+    if not host_only:
+        checks.append(_llm_check())
 
     required_tools = {
         check.name: check.status
         for check in checks
         if check.name in {"python", "target", "platform", "osquery"}
     }
-    optional_names = {"trivy", "llm", *HOST_OPTIONAL_HELPERS}
+    optional_names = {"trivy", *HOST_OPTIONAL_HELPERS}
+    if not host_only:
+        optional_names.add("llm")
     optional_tools = {check.name: check.status for check in checks if check.name in optional_names}
     warnings = [check.summary for check in checks if check.status == "warn"]
     next_steps = [
@@ -142,7 +151,9 @@ def build_doctor_report(
         config_path=str(config_file),
         ready=assess_ready,
         deterministic_ready=assess_ready,
-        full_pipeline_ready=collect_ready and _check_status(checks, "llm") == "ok",
+        full_pipeline_ready=(
+            collect_ready if host_only else collect_ready and _check_status(checks, "llm") == "ok"
+        ),
         collect_ready=collect_ready,
         assess_ready=assess_ready,
         required_tools=required_tools,

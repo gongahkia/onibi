@@ -1,0 +1,8 @@
+{
+  "target": "legacy-vm",
+  "posture_score": 92,
+  "summary": {
+    "findings_total": 0,
+    "by_severity": {}
+  }
+}

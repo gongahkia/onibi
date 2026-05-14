@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 Severity = Literal["informational", "low", "medium", "high", "critical"]
 AnalysisMode = Literal["deterministic", "llm"]
+PackageManager = Literal["deb", "rpm", "apk", "brew", "winget", "unknown"]
 HypothesisType = Literal[
     "compound_misconfiguration",
     "novel_attack_path",
@@ -53,6 +54,7 @@ class HostPackage(BaseModel):
     version: str
     source: str = "snapshot"
     architecture: str | None = None
+    package_manager: PackageManager | None = None
 
 
 class ListeningPort(BaseModel):
@@ -289,6 +291,7 @@ class CollectionHealth(BaseModel):
 class HostPostureReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    schema_version: int = 1
     target: str
     generated_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     analysis_modes: list[AnalysisMode] = Field(default_factory=_default_analysis_modes)
@@ -301,6 +304,10 @@ class HostPostureReport(BaseModel):
     evidence_inventory: dict[str, int] = Field(default_factory=dict)
     collection_health: CollectionHealth | None = None
     probe_metadata: dict[str, object] | None = None
+    policy_profile: str | None = None
+    policy_summary: dict[str, object] = Field(default_factory=dict)
+    policy_gate_results: list[dict[str, object]] = Field(default_factory=list)
+    required_evidence_status: list[dict[str, object]] = Field(default_factory=list)
     llm_redaction: RedactionStatus | None = None
     known_limitations: list[str] = Field(default_factory=list)
     snapshot: HostSnapshot
@@ -340,6 +347,10 @@ class FleetReport(BaseModel):
     success_count: int = 0
     failure_count: int = 0
     summary: dict[str, object] = Field(default_factory=dict)
+    policy_profile: str | None = None
+    policy_summary: dict[str, object] = Field(default_factory=dict)
+    policy_gate_results: list[dict[str, object]] = Field(default_factory=list)
+    required_evidence_status: list[dict[str, object]] = Field(default_factory=list)
     hosts: list[FleetHostSummary] = Field(default_factory=list)
 
 

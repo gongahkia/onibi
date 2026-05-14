@@ -1,0 +1,3 @@
+[
+  {"interface": "eth0", "address": "10.0.5.20", "type": "ipv4", "mask": "255.255.255.0"}
+]

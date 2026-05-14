@@ -3,6 +3,10 @@
 Piranesi plugin extension points are split into **stable**, **experimental**, and **internal** surfaces.
 Use this page to decide what external plugin code can safely depend on.
 
+For non-plugin host posture integrations, use the public library and schema
+contracts in [`docs/api.md`](api.md). Plugin hooks and the embeddable host API are
+separate compatibility surfaces.
+
 ## Stability Levels
 
 - `stable`: backward compatibility is expected across patch/minor releases; breaking changes require a documented major-version transition.
@@ -10,6 +14,17 @@ Use this page to decide what external plugin code can safely depend on.
 - `internal`: implementation detail; do not depend on this surface from external plugins.
 
 ## Stable Surfaces (`v1.0`)
+
+Host posture library surface:
+
+- `piranesi.host.api.assess_host_bundle`
+- `piranesi.host.api.load_host_report`
+- `piranesi.host.api.collect_host_evidence`
+- `piranesi.host.models.HostPostureReport`
+- `piranesi.host.models.HostSnapshot`
+- `piranesi.host.models.FleetReport`
+- `piranesi.schema.build_schema`
+- `piranesi.schema.write_schema`
 
 Entry point groups:
 

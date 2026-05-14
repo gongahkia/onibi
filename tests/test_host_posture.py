@@ -1316,6 +1316,22 @@ def test_host_doctor_marks_collection_not_ready_without_osquery(tmp_path: Path) 
     assert any("osquery" in step for step in report.next_steps)
 
 
+def test_host_doctor_host_only_focuses_on_host_posture_tools(tmp_path: Path) -> None:
+    report = build_doctor_report(
+        tmp_path,
+        host_only=True,
+        executable_lookup=_fake_doctor_lookup_osquery_only,
+        command_runner=_fake_doctor_runner,
+    )
+
+    check_names = {check.name for check in report.checks}
+
+    assert {"python", "target", "platform", "osquery", "trivy", "sysctl"} <= check_names
+    assert "llm" not in check_names
+    assert "llm" not in report.optional_tools
+    assert all("API key" not in step for step in report.next_steps)
+
+
 def test_llm_mode_without_provider_reports_coverage() -> None:
     snapshot = load_host_input(FIXTURES / "debian-vulnerable")
 

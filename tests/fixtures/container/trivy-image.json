@@ -1,0 +1,33 @@
+{
+  "SchemaVersion": 2,
+  "ArtifactName": "registry.example/app:vulnerable",
+  "ArtifactType": "container_image",
+  "Metadata": {
+    "ImageID": "sha256:abc123",
+    "ImageConfig": {
+      "config": {
+        "User": "",
+        "Env": [
+          "PATH=/usr/local/bin:/usr/bin"
+        ]
+      }
+    }
+  },
+  "Results": [
+    {
+      "Target": "registry.example/app:vulnerable (debian 12)",
+      "Class": "os-pkgs",
+      "Type": "debian",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2024-0001",
+          "PkgName": "openssl",
+          "InstalledVersion": "3.0.0-1",
+          "FixedVersion": "3.0.0-2",
+          "Severity": "HIGH",
+          "Title": "OpenSSL fixture vulnerability"
+        }
+      ]
+    }
+  ]
+}

@@ -75,7 +75,7 @@ _ADMIN_GROUPS = {"sudo", "admin", "wheel"}
 _REQUIRED_EVIDENCE = {
     "packages": (
         "Package inventory is required for CVE and patch posture. "
-        "Collect it with `piranesi collect` osquery query `deb_packages`."
+        "Collect it with the platform package inventory query."
     ),
     "listening_ports": (
         "Listening port inventory is required for exposure analysis. "
@@ -89,8 +89,11 @@ _REQUIRED_EVIDENCE = {
 _COLLECTION_STATUSES = ("ok", "missing", "failed", "timeout", "skipped")
 _CAPABILITY_COMMANDS: dict[str, tuple[str, ...]] = {
     "trivy": ("filesystem_scan",),
-    "firewall": ("ufw_status", "iptables_rules", "nft_ruleset"),
+    "firewall": ("ufw_status", "iptables_rules", "nft_ruleset", "firewalld_state"),
     "apt_updates": ("apt_upgradable",),
+    "rpm_updates": ("dnf_security_updates", "yum_security_updates"),
+    "apk_updates": ("apk_version_outdated",),
+    "selinux": ("selinux_getenforce",),
     "sshd_config": ("sshd_config", "sshd_effective_config"),
     "admin_groups": ("group_sudo", "group_admin", "group_wheel"),
     "sysctl": (
@@ -111,6 +114,9 @@ _CAPABILITY_REMEDIATION = {
     "trivy": "Install Trivy or run collection with `--no-trivy` when CVE evidence is not needed.",
     "firewall": "Install or permit at least one firewall helper: ufw, iptables, or nft.",
     "apt_updates": "Ensure `apt list --upgradable` can run for Debian/Ubuntu patch evidence.",
+    "rpm_updates": "Ensure `dnf updateinfo list security` or yum equivalent can run.",
+    "apk_updates": "Ensure `apk version -l '<'` can run for Alpine package update evidence.",
+    "selinux": "Ensure `getenforce` can run for SELinux state evidence.",
     "sshd_config": "Ensure `sshd -T` or osquery sshd_config evidence can be collected.",
     "admin_groups": "Ensure `getent group` can run for sudo/admin/wheel group evidence.",
     "sysctl": "Ensure `sysctl -n` can run for kernel hardening evidence.",
@@ -243,7 +249,7 @@ def analyze_snapshot(
         collection_health=collection_health,
         llm_redaction=llm_redaction,
         known_limitations=[
-            "Phase 1 supports Debian/Ubuntu-oriented host evidence only.",
+            "Host evidence coverage varies by platform family; see host_metadata.platform.",
             "Raw bundle ingestion is first-class for osquery and Trivy JSON outputs.",
             "LLM analysis is advisory and must remain tied to explicit snapshot evidence.",
         ],
@@ -300,7 +306,13 @@ def collection_health_from_snapshot(snapshot: HostSnapshot) -> CollectionHealth 
         )
     }
     optional: dict[str, CollectionCapabilityHealth] = {}
+    platform_config = _platform_config(snapshot)
+    unsupported_checks = [
+        str(item) for item in platform_config.get("unsupported_checks", [])
+    ] if platform_config else []
     for name, command_names in _CAPABILITY_COMMANDS.items():
+        if _capability_is_irrelevant(name, platform_config):
+            continue
         capability_commands = [
             command
             for command in commands
@@ -319,6 +331,18 @@ def collection_health_from_snapshot(snapshot: HostSnapshot) -> CollectionHealth 
             commands=capability_commands,
             required=False,
             alternatives=name in {"firewall", "sshd_config"},
+        )
+    for unsupported in unsupported_checks:
+        optional[f"unsupported_{unsupported}"] = CollectionCapabilityHealth(
+            status="warn",
+            required=False,
+            command_names=[],
+            message=(
+                f"{unsupported} is not supported for platform family "
+                f"{platform_config.get('platform_family', 'unknown')}; skipped instead of "
+                "creating distro-specific findings"
+            ),
+            remediation="Use the supported evidence source for this platform family.",
         )
     for baseline_tool in ("lynis", "openscap"):
         tool_commands = [
@@ -351,6 +375,77 @@ def collection_health_from_snapshot(snapshot: HostSnapshot) -> CollectionHealth 
         optional=optional,
         warnings=warnings,
     )
+
+
+def _platform_config(snapshot: HostSnapshot) -> dict[str, object] | None:
+    raw = snapshot.config.get("platform")
+    if isinstance(raw, dict):
+        return raw
+    family = _platform_family_from_snapshot(snapshot)
+    package_manager = _package_manager_from_snapshot(snapshot, family)
+    return {
+        "platform_family": family,
+        "package_manager": package_manager,
+        "supported_checks": ["packages", "listeners", "users", "services"],
+        "unsupported_checks": [],
+        "confidence": "low",
+    }
+
+
+def _platform_family_from_snapshot(snapshot: HostSnapshot) -> str:
+    raw_id = (snapshot.os.id or "").lower()
+    material = " ".join(
+        [
+            raw_id,
+            (snapshot.os.name or "").lower(),
+            (snapshot.os.pretty_name or "").lower(),
+        ]
+    )
+    if raw_id in {"debian", "ubuntu"} or "debian" in material or "ubuntu" in material:
+        return "debian"
+    if raw_id in {"rhel", "centos", "rocky", "almalinux", "fedora"} or any(
+        token in material for token in ("red hat", "centos", "rocky", "alma", "fedora")
+    ):
+        return "rhel"
+    if raw_id in {"amzn", "amazon"} or "amazon linux" in material:
+        return "amazon"
+    if raw_id == "alpine" or "alpine" in material:
+        return "alpine"
+    if raw_id == "darwin" or "macos" in material or "mac os" in material:
+        return "macos"
+    return "unknown"
+
+
+def _package_manager_from_snapshot(snapshot: HostSnapshot, family: str) -> str:
+    managers = {package.package_manager for package in snapshot.packages if package.package_manager}
+    for preferred in ("deb", "rpm", "apk", "brew", "winget"):
+        if preferred in managers:
+            return preferred
+    return {
+        "debian": "deb",
+        "rhel": "rpm",
+        "amazon": "rpm",
+        "alpine": "apk",
+        "macos": "brew",
+    }.get(family, "unknown")
+
+
+def _capability_is_irrelevant(
+    capability: str,
+    platform_config: dict[str, object] | None,
+) -> bool:
+    if platform_config is None:
+        return False
+    family = str(platform_config.get("platform_family") or "unknown")
+    if capability == "apt_updates":
+        return family not in {"debian", "unknown"}
+    if capability == "rpm_updates":
+        return family not in {"rhel", "amazon"}
+    if capability == "apk_updates":
+        return family != "alpine"
+    if capability == "selinux":
+        return family not in {"rhel", "amazon"}
+    return False
 
 
 def llm_findings(
@@ -1077,6 +1172,7 @@ def _pending_security_update_findings(snapshot: HostSnapshot) -> list[HostFindin
         for update in security_updates
         if update.get("package") is not None
     ]
+    package_manager = str(updates.get("package_manager") or "unknown")
     return [
         HostFinding(
             id=host_finding_id("updates", snapshot.identity.hostname, "security"),
@@ -1086,22 +1182,22 @@ def _pending_security_update_findings(snapshot: HostSnapshot) -> list[HostFindin
             category="patching",
             severity="high",
             confidence=0.9,
-            affected_component="apt",
+            affected_component=package_manager,
             evidence=[
                 EvidenceItem(
                     source="system",
-                    key="apt.security_updates",
+                    key=f"{package_manager}.security_updates",
                     value=", ".join(packages[:12]),
                 ),
                 EvidenceItem(
                     source="system",
-                    key="apt.security_update_count",
+                    key=f"{package_manager}.security_update_count",
                     value=str(len(security_updates)),
                 ),
             ],
             remediation=(
-                "Apply pending security updates with the approved Debian/Ubuntu "
-                "patch workflow and reboot if kernel or core libraries changed."
+                "Apply pending security updates with the approved platform patch workflow "
+                "and reboot if kernel or core libraries changed."
             ),
             source_tool="piranesi",
         )
@@ -1111,6 +1207,9 @@ def _pending_security_update_findings(snapshot: HostSnapshot) -> list[HostFindin
 def _unattended_upgrade_findings(snapshot: HostSnapshot) -> list[HostFinding]:
     updates = snapshot.config.get("updates")
     if not isinstance(updates, dict) or updates.get("source") != "apt_upgradable":
+        return []
+    platform_config = _platform_config(snapshot)
+    if platform_config and platform_config.get("package_manager") not in {"deb", "unknown"}:
         return []
     if not snapshot.packages:
         return []
@@ -1258,7 +1357,7 @@ def _missing_evidence_findings(snapshot: HostSnapshot) -> list[HostFinding]:
         value = getattr(snapshot, field_name)
         if value:
             continue
-        command_name = _required_evidence_command(field_name)
+        command_name = _required_evidence_command(snapshot, field_name)
         command = _manifest_command_by_name(manifest, command_name) if manifest else None
         status = _command_status(command) if command is not None else None
         remediation = description
@@ -1591,12 +1690,18 @@ def _command_status(command: dict[str, object]) -> str:
     return status if status in _COLLECTION_STATUSES else "failed"
 
 
-def _required_evidence_command(field_name: str) -> str:
+def _required_evidence_command(snapshot: HostSnapshot, field_name: str) -> str:
     commands = {
-        "packages": "deb_packages",
         "listening_ports": "listening_ports",
         "users": "users",
     }
+    if field_name == "packages":
+        package_manager = str((_platform_config(snapshot) or {}).get("package_manager") or "")
+        return {
+            "deb": "deb_packages",
+            "rpm": "rpm_packages",
+            "apk": "apk_packages",
+        }.get(package_manager, "packages")
     return commands[field_name]
 
 
@@ -2186,6 +2291,7 @@ def _host_metadata(snapshot: HostSnapshot, inventory: dict[str, int]) -> dict[st
         "sysctl": inventory["sysctl_evidence"] > 0,
         "trivy": "trivy" in snapshot.raw_evidence,
     }
+    platform_config = _platform_config(snapshot) or {}
     return {
         "hostname": snapshot.identity.hostname,
         "host_id": snapshot.identity.host_id,
@@ -2207,6 +2313,11 @@ def _host_metadata(snapshot: HostSnapshot, inventory: dict[str, int]) -> dict[st
             1 for e in snapshot.auth_event_summaries
             if e.event_type in {"ssh_failed_password", "ssh_invalid_user"}
         ),
+        "platform": platform_config,
+        "platform_family": platform_config.get("platform_family", "unknown"),
+        "package_manager": platform_config.get("package_manager", "unknown"),
+        "supported_checks": platform_config.get("supported_checks", []),
+        "unsupported_checks": platform_config.get("unsupported_checks", []),
     }
 
 

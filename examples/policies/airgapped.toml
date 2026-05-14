@@ -1,0 +1,26 @@
+[host.policy]
+profile = "airgapped"
+minimum_score = 80
+max_severity = "high"
+allow_suppressed = true
+
+[host.policy.fleet]
+max_failed_hosts = 0
+max_policy_failures = 0
+
+[[host.policy.required_evidence]]
+name = "trivy"
+required = true
+action = "warn"
+
+[[host.policy.required_evidence]]
+name = "openscap"
+required = true
+action = "warn"
+
+[[host.policy.gates]]
+id = "public-listeners-require-review"
+category = "exposure"
+when = "public_listener"
+max_risk = 85
+action = "warn"

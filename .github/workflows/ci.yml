@@ -165,7 +165,13 @@ jobs:
       - uses: astral-sh/setup-uv@v4
         with:
           version: latest
-      - run: uv build
+      - name: Build release artifacts and checksums
+        run: |
+          uv build
+          uv run piranesi schema host-report --output dist/host-report.schema.json
+          uv run piranesi schema host-snapshot --output dist/host-snapshot.schema.json
+          uv run piranesi schema fleet-report --output dist/fleet-report.schema.json
+          shasum -a 256 dist/* > dist/SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: dist

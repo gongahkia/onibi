@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import platform
 import re
 import signal
 import sys
@@ -13,6 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, date
 from datetime import datetime as datetime_cls
 from enum import StrEnum
+from importlib import resources
 from pathlib import Path
 from typing import Annotated, Any, cast
 
@@ -40,6 +42,14 @@ from piranesi.diff import (
     render_diff_markdown,
 )
 from piranesi.doctor import build_doctor_report, render_doctor_report
+from piranesi.exporters import (
+    ExporterError,
+    export_csv,
+    export_github_issues,
+    export_jira_issues,
+    export_sarif,
+    export_webhook,
+)
 from piranesi.graph import build_graph_from_enrichment
 from piranesi.hooks.pre_commit import (
     HookError,
@@ -50,24 +60,65 @@ from piranesi.hooks.pre_commit import (
 )
 from piranesi.host import (
     HostCollectionError,
+    HostCommunityError,
     HostFinding,
     HostInputError,
+    HostPolicy,
+    HostPolicyError,
     HostPostureReport,
+    RemoteCollectionError,
+    RemoteHostTarget,
     analyze_snapshot,
+    apply_host_policy,
     apply_host_suppressions,
     apply_host_suppressions_with_lifecycle,
     assess_fleet_evidence,
     build_host_hypothesis_report,
     collect_host_evidence,
+    collect_remote_host,
+    collect_remote_hosts,
+    diff_host_reports,
+    doctor_remote_hosts,
     fleet_findings_at_or_above,
     load_fleet_report,
     load_host_input,
+    load_host_policy,
+    parse_remote_hosts_file,
+    policy_failed,
+    render_fixture_validation,
     render_fleet_markdown,
     render_fleet_terminal,
+    render_host_diff_markdown,
+    render_policy_validation,
+    render_remediation_checklist,
+    render_remediation_verification_markdown,
+    render_remote_collection_summary,
+    render_remote_doctor,
+    render_rule_test_all_result,
+    render_rule_test_result,
+    scaffold_host_rule,
+    test_all_host_rule_packs,
+    test_host_rule_pack,
+    validate_host_benchmark_submission,
+    validate_host_fixture,
+    verify_remediation,
     write_host_hypothesis_outputs,
     write_host_report_outputs,
+    write_remediation_plan,
 )
 from piranesi.host.fleet import FleetInputError
+from piranesi.infrastructure import (
+    ContainerInputError,
+    KubernetesInputError,
+    assess_container_image,
+    assess_kubernetes_snapshot,
+    assess_running_containers,
+    collect_kubernetes_api_snapshot,
+    collect_local_docker_snapshots,
+    collect_trivy_image_snapshot,
+    load_kubernetes_snapshot,
+    write_infrastructure_report_outputs,
+)
 from piranesi.intel import build_enrichment_summary, normalize_adapter_result
 from piranesi.intel.schema import IntelSourceProvenance, NormalizationBundle
 from piranesi.launcher_tui import LauncherAction, LauncherSelection, launch_cli_tui
@@ -106,9 +157,11 @@ from piranesi.report.trends import build_trend_report, render_terminal_trends, w
 from piranesi.report.tui import display_report
 from piranesi.scaffold import scaffold_project
 from piranesi.scan.monorepo import detect_monorepo_manifest, select_packages
+from piranesi.schema import SchemaExportError, write_schema
 from piranesi.threat import build_threat_model
 from piranesi.trace import TraceBudgetExceededError, TraceWriter
 from piranesi.ui import console, print_summary_table, stage_header
+from piranesi.ui_server import UiServerError, UiServerOptions, load_report_state, run_ui_server
 from piranesi.verify import (
     infer_launch_plan,
     probe_launch_candidate,
@@ -198,6 +251,61 @@ fleet_app = typer.Typer(
     help="Assess and summarize multiple host evidence bundles.",
     no_args_is_help=True,
 )
+container_app = typer.Typer(
+    add_completion=False,
+    help="Assess local container images and running containers.",
+    no_args_is_help=True,
+)
+k8s_app = typer.Typer(
+    add_completion=False,
+    help="Assess Kubernetes manifests or read-only API snapshots.",
+    no_args_is_help=True,
+)
+schema_app = typer.Typer(
+    add_completion=False,
+    help="Export public JSON schemas.",
+    no_args_is_help=True,
+)
+policy_app = typer.Typer(
+    add_completion=False,
+    help="Validate and apply host posture policy files.",
+    no_args_is_help=True,
+)
+remediate_app = typer.Typer(
+    add_completion=False,
+    help="Generate host remediation plans and verify closure.",
+    no_args_is_help=True,
+)
+host_app = typer.Typer(
+    add_completion=False,
+    help="Host report utilities.",
+    no_args_is_help=True,
+)
+host_rule_app = typer.Typer(
+    add_completion=False,
+    help="Scaffold and test constrained community host rules.",
+    no_args_is_help=True,
+)
+host_fixture_app = typer.Typer(
+    add_completion=False,
+    help="Validate host evidence fixtures.",
+    no_args_is_help=True,
+)
+host_benchmark_app = typer.Typer(
+    add_completion=False,
+    help="Validate community host benchmark submissions.",
+    no_args_is_help=True,
+)
+remote_app = typer.Typer(
+    add_completion=False,
+    help="Agentless remote host collection over SSH.",
+    no_args_is_help=True,
+)
+export_app = typer.Typer(
+    add_completion=False,
+    help="Export host and fleet findings to security workflows.",
+    no_args_is_help=True,
+)
 app.add_typer(plugins_app, name="plugins", hidden=True)
 app.add_typer(rules_app, name="rules", hidden=True)
 app.add_typer(advisory_app, name="advisory", hidden=True)
@@ -208,6 +316,17 @@ app.add_typer(hook_app, name="hook", hidden=True)
 app.add_typer(eval_app, name="eval", hidden=True)
 app.add_typer(intel_app, name="intel", hidden=True)
 app.add_typer(fleet_app, name="fleet")
+app.add_typer(container_app, name="container")
+app.add_typer(k8s_app, name="k8s")
+app.add_typer(schema_app, name="schema")
+app.add_typer(policy_app, name="policy")
+app.add_typer(remediate_app, name="remediate")
+app.add_typer(host_app, name="host")
+host_app.add_typer(host_rule_app, name="rule")
+host_app.add_typer(host_fixture_app, name="fixture")
+host_app.add_typer(host_benchmark_app, name="benchmark")
+app.add_typer(remote_app, name="remote")
+app.add_typer(export_app, name="export")
 app.add_typer(pipeline_app, name="pipeline", hidden=True)
 app.add_typer(dev_app, name="dev", hidden=True)
 
@@ -336,6 +455,17 @@ class HostReportFormat(StrEnum):
     PDF = "pdf"
     DASHBOARD = "dashboard"
     ALL = "all"
+
+
+class RemediationCliFormat(StrEnum):
+    JSON = "json"
+    MARKDOWN = "markdown"
+
+
+class RemoteSudoMode(StrEnum):
+    NEVER = "never"
+    PROMPT = "prompt"
+    PASSWORDLESS = "passwordless"
 
 
 class FleetReportFormat(StrEnum):
@@ -905,10 +1035,7 @@ def _render_finding_explanation(status: str, finding: ReportFindingMatch) -> str
         f"CWE: {finding.cwe}",
         f"Severity: {finding.severity.upper()}",
         f"Confidence: {finding.confidence:.2f}",
-        (
-            f"Composite risk: {finding.composite_risk_score:.1f}/100 "
-            f"({finding.composite_risk_band})"
-        ),
+        (f"Composite risk: {finding.composite_risk_score:.1f}/100 ({finding.composite_risk_band})"),
         (
             f"Source: {finding.source_location.file}:{finding.source_location.line} "
             f"({finding.taint_source})"
@@ -976,45 +1103,21 @@ def _render_finding_explanation(status: str, finding: ReportFindingMatch) -> str
                 f"- Path: {path.source_to_sink}",
                 f"- Nodes: {path.path_node_count} (edges: {path.path_edge_count})",
                 f"- Operations: {operations}",
-                (
-                    "- Sanitizer steps on path: "
-                    f"{'yes' if path.includes_sanitizer_steps else 'no'}"
-                ),
+                (f"- Sanitizer steps on path: {'yes' if path.includes_sanitizer_steps else 'no'}"),
                 "",
                 "Verification state:",
                 f"- State: {explanation.verification_state.state}",
-                (
-                    "- Verified: "
-                    f"{'yes' if explanation.verification_state.verified else 'no'}"
-                ),
-                (
-                    "- Outcome: "
-                    f"{explanation.verification_state.outcome or 'not_attempted'}"
-                ),
-                (
-                    "- Proof mode: "
-                    f"{explanation.verification_state.proof_mode or 'n/a'}"
-                ),
-                (
-                    "- Target profile: "
-                    f"{explanation.verification_state.target_profile or 'n/a'}"
-                ),
+                (f"- Verified: {'yes' if explanation.verification_state.verified else 'no'}"),
+                (f"- Outcome: {explanation.verification_state.outcome or 'not_attempted'}"),
+                (f"- Proof mode: {explanation.verification_state.proof_mode or 'n/a'}"),
+                (f"- Target profile: {explanation.verification_state.target_profile or 'n/a'}"),
                 (
                     "- Verification method: "
                     f"{explanation.verification_state.verification_method or 'n/a'}"
                 ),
-                (
-                    "- Verification reason: "
-                    f"{explanation.verification_state.reason or 'n/a'}"
-                ),
-                (
-                    "- Startup error: "
-                    f"{explanation.verification_state.startup_error or 'n/a'}"
-                ),
-                (
-                    "- Launch logs: "
-                    f"{explanation.verification_state.launch_log_path or 'n/a'}"
-                ),
+                (f"- Verification reason: {explanation.verification_state.reason or 'n/a'}"),
+                (f"- Startup error: {explanation.verification_state.startup_error or 'n/a'}"),
+                (f"- Launch logs: {explanation.verification_state.launch_log_path or 'n/a'}"),
                 (
                     "- Triage: "
                     f"{explanation.verification_state.triage_verdict or 'n/a'} "
@@ -2209,6 +2312,263 @@ def version_command() -> None:
     typer.echo(f"piranesi {__version__}")
 
 
+@app.command(help="Print the shortest deterministic path to a useful first host report.")
+def quickstart() -> None:
+    system = platform.system() or "unknown"
+    report_view_command = _quickstart_report_view_command(system)
+    lines = [
+        f"Piranesi quickstart v{__version__}",
+        "",
+        "Try the bundled host posture demo first:",
+        "  piranesi demo --output piranesi-demo-output",
+        "",
+        "Inspect the generated report:",
+        f"  {report_view_command}",
+        "",
+        "Check real-host collection readiness:",
+        "  piranesi doctor --host",
+        "",
+    ]
+    if system == "Linux":
+        lines.extend(
+            [
+                "Collect evidence on a Debian/Ubuntu VM or host:",
+                "  piranesi collect --output piranesi-evidence",
+                "",
+                "Assess that evidence without LLM credentials:",
+                "  piranesi assess piranesi-evidence \\",
+                "    --output piranesi-output --analysis deterministic",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                f"Current platform: {system}. Host collection targets Debian/Ubuntu Linux.",
+                "Run collection inside the VM, then copy the evidence bundle back here:",
+                "  piranesi assess piranesi-evidence \\",
+                "    --output piranesi-output --analysis deterministic",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "Source checkout workflow is unchanged:",
+            "  uv sync",
+            "  uv run piranesi demo --output piranesi-demo-output",
+        ]
+    )
+    typer.echo("\n".join(lines) + "\n")
+
+
+def _quickstart_report_view_command(system: str) -> str:
+    if system == "Darwin":
+        return "open piranesi-demo-output/host-report.md"
+    if system == "Windows":
+        return "start piranesi-demo-output\\host-report.md"
+    return "less piranesi-demo-output/host-report.md"
+
+
+@app.command(help="Generate a no-credentials host posture report from bundled fixtures.")
+def demo(
+    output: OutputOption = Path("./piranesi-demo-output"),
+    quiet: QuietOption = False,
+) -> None:
+    fixture = resources.files("piranesi").joinpath("fixtures/host/debian-vulnerable")
+    with resources.as_file(fixture) as fixture_path:
+        try:
+            snapshot = load_host_input(fixture_path)
+        except HostInputError as exc:
+            raise typer.Exit(code=2) from exc
+    report = analyze_snapshot(snapshot, analysis="deterministic")
+    write_host_report_outputs(report, output, report_format="both")
+    if quiet:
+        return
+    resolved_output = output.resolve(strict=False)
+    typer.echo("Piranesi demo report written.")
+    typer.echo(f"output: {resolved_output}")
+    typer.echo(f"json: {resolved_output / 'host-report.json'}")
+    typer.echo(f"markdown: {resolved_output / 'host-report.md'}")
+    typer.echo("")
+    typer.echo("Next steps:")
+    typer.echo("- Run `piranesi quickstart` for the shortest real-host path.")
+    typer.echo("- Run `piranesi doctor --host` before collecting evidence on a Linux VM.")
+
+
+@remote_app.command("collect", help="Collect read-only host evidence over SSH.")
+def remote_collect(
+    host: Annotated[
+        str | None,
+        typer.Option("--host", help="Single remote host to collect."),
+    ] = None,
+    hosts: Annotated[
+        Path | None,
+        typer.Option("--hosts", help="File containing one remote host per line."),
+    ] = None,
+    output: OutputOption = Path("./fleet-evidence"),
+    user: Annotated[
+        str | None,
+        typer.Option("--user", help="SSH username."),
+    ] = None,
+    identity_file: Annotated[
+        Path | None,
+        typer.Option("--identity-file", help="SSH private key path."),
+    ] = None,
+    port: Annotated[
+        int,
+        typer.Option("--port", min=1, max=65535, help="SSH port."),
+    ] = 22,
+    sudo_mode: Annotated[
+        RemoteSudoMode,
+        typer.Option("--sudo-mode", help="Sudo mode for explicit opt-in evidence."),
+    ] = RemoteSudoMode.NEVER,
+    jobs: Annotated[
+        int,
+        typer.Option("--jobs", min=1, help="Concurrent remote collections for --hosts."),
+    ] = 1,
+    timeout: Annotated[
+        int,
+        typer.Option("--timeout", min=1, help="Timeout per remote command in seconds."),
+    ] = 30,
+    include_trivy: Annotated[
+        bool,
+        typer.Option("--trivy/--no-trivy", help="Collect remote Trivy filesystem evidence."),
+    ] = True,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="Print planned remote commands without collecting evidence.",
+        ),
+    ] = False,
+) -> None:
+    try:
+        targets = _remote_targets(
+            host=host,
+            hosts=hosts,
+            user=user,
+            port=port,
+            identity_file=identity_file,
+        )
+        if len(targets) == 1 and host is not None:
+            result = collect_remote_host(
+                targets[0],
+                output,
+                sudo_mode=cast(Any, sudo_mode.value),
+                include_trivy=include_trivy,
+                timeout_seconds=timeout,
+                dry_run=dry_run,
+            )
+            if dry_run:
+                _echo_remote_dry_run([result])
+            else:
+                typer.echo(f"remote collection: {result.status}")
+                typer.echo(f"host: {result.target.host}")
+                typer.echo(f"output: {result.output_dir}")
+                if result.manifest_path:
+                    typer.echo(f"manifest: {result.manifest_path}")
+                if result.snapshot_path:
+                    typer.echo(f"snapshot: {result.snapshot_path}")
+                if result.error:
+                    typer.echo(f"error: {result.error}", err=True)
+                    raise typer.Exit(code=2)
+            return
+
+        summary = collect_remote_hosts(
+            targets,
+            output,
+            sudo_mode=cast(Any, sudo_mode.value),
+            include_trivy=include_trivy,
+            jobs=jobs,
+            timeout_seconds=timeout,
+            dry_run=dry_run,
+        )
+    except RemoteCollectionError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    if dry_run:
+        _echo_remote_dry_run(summary.results)
+        return
+    typer.echo(render_remote_collection_summary(summary), nl=False)
+    if summary.failure_count:
+        raise typer.Exit(code=1)
+
+
+@remote_app.command("doctor", help="Check remote host collection readiness over SSH.")
+def remote_doctor(
+    hosts: Annotated[
+        Path,
+        typer.Option("--hosts", help="File containing one remote host per line."),
+    ],
+    user: Annotated[
+        str | None,
+        typer.Option("--user", help="SSH username."),
+    ] = None,
+    identity_file: Annotated[
+        Path | None,
+        typer.Option("--identity-file", help="SSH private key path."),
+    ] = None,
+    port: Annotated[
+        int,
+        typer.Option("--port", min=1, max=65535, help="SSH port."),
+    ] = 22,
+    timeout: Annotated[
+        int,
+        typer.Option("--timeout", min=1, help="Timeout per remote command in seconds."),
+    ] = 30,
+    include_trivy: Annotated[
+        bool,
+        typer.Option("--trivy/--no-trivy", help="Check remote Trivy availability."),
+    ] = True,
+) -> None:
+    targets = parse_remote_hosts_file(
+        hosts,
+        user=user,
+        port=port,
+        identity_file=str(identity_file) if identity_file is not None else None,
+    )
+    checks = doctor_remote_hosts(
+        targets,
+        include_trivy=include_trivy,
+        timeout_seconds=timeout,
+    )
+    typer.echo(render_remote_doctor(checks), nl=False)
+    if any(check.status == "failed" for check in checks):
+        raise typer.Exit(code=1)
+
+
+def _remote_targets(
+    *,
+    host: str | None,
+    hosts: Path | None,
+    user: str | None,
+    port: int,
+    identity_file: Path | None,
+) -> list[RemoteHostTarget]:
+    if bool(host) == bool(hosts):
+        raise RemoteCollectionError("pass exactly one of --host or --hosts")
+    identity = str(identity_file) if identity_file is not None else None
+    if host is not None:
+        return [
+            RemoteHostTarget(
+                host=host,
+                user=user,
+                port=port,
+                identity_file=identity,
+            )
+        ]
+    if hosts is None:
+        raise RemoteCollectionError("missing --host or --hosts")
+    return parse_remote_hosts_file(hosts, user=user, port=port, identity_file=identity)
+
+
+def _echo_remote_dry_run(results: list[Any]) -> None:
+    typer.echo("remote collection dry-run")
+    for result in results:
+        typer.echo(f"host: {result.target.host}")
+        for command in result.planned_commands:
+            typer.echo(f"  - {json.dumps(command)}")
+
+
 @app.command("collect", help="Collect local Linux VM host evidence for assessment.")
 def collect(
     output: OutputOption = Path("./piranesi-evidence"),
@@ -2319,19 +2679,548 @@ def doctor(
         typer.Argument(help="Target directory to inspect."),
     ] = Path("."),
     config: ConfigOption = Path("./piranesi.toml"),
+    host: Annotated[
+        bool,
+        typer.Option(
+            "--host",
+            help="Focus on host-posture collect/assess dependencies and deterministic next steps.",
+        ),
+    ] = False,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable JSON."),
     ] = False,
 ) -> None:
     _load_local_llm_env()
-    report = build_doctor_report(target_dir, config_path=config)
+    report = build_doctor_report(target_dir, config_path=config, host_only=host)
     if json_output:
         typer.echo(report.model_dump_json(indent=2))
         return
     typer.echo(render_doctor_report(report), nl=False)
     if not report.ready:
         raise typer.Exit(code=1)
+
+
+SchemaOutputOption = Annotated[
+    Path,
+    typer.Option("--output", help="Write the JSON schema to this path."),
+]
+
+
+@schema_app.command("host-report", help="Export the public HostPostureReport JSON schema.")
+def schema_host_report(output: SchemaOutputOption) -> None:
+    _write_public_schema("host-report", output)
+
+
+@schema_app.command("host-snapshot", help="Export the public HostSnapshot JSON schema.")
+def schema_host_snapshot(output: SchemaOutputOption) -> None:
+    _write_public_schema("host-snapshot", output)
+
+
+@schema_app.command("fleet-report", help="Export the public FleetReport JSON schema.")
+def schema_fleet_report(output: SchemaOutputOption) -> None:
+    _write_public_schema("fleet-report", output)
+
+
+def _write_public_schema(name: str, output: Path) -> None:
+    try:
+        written = write_schema(name, output)
+    except SchemaExportError as exc:
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"schema: {name}")
+    typer.echo(f"output: {written}")
+
+
+@export_app.command("sarif", help="Export host or fleet findings as SARIF 2.1.0.")
+def export_sarif_command(
+    report: Annotated[
+        Path,
+        typer.Argument(help="Path to host-report.json or fleet-report.json."),
+    ],
+    output: Annotated[
+        Path,
+        typer.Option("--output", help="Write SARIF JSON to this path."),
+    ],
+    include_suppressed: Annotated[
+        bool,
+        typer.Option(
+            "--include-suppressed",
+            help="Include suppressed findings in the exported artifact.",
+        ),
+    ] = False,
+) -> None:
+    try:
+        result = export_sarif(report, output=output, include_suppressed=include_suppressed)
+    except Exception as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    _echo_export_result(result)
+
+
+@export_app.command("csv", help="Export host or fleet findings as CSV.")
+def export_csv_command(
+    report: Annotated[
+        Path,
+        typer.Argument(help="Path to host-report.json or fleet-report.json."),
+    ],
+    output: Annotated[
+        Path,
+        typer.Option("--output", help="Write CSV findings to this path."),
+    ],
+    include_suppressed: Annotated[
+        bool,
+        typer.Option(
+            "--include-suppressed",
+            help="Include suppressed findings in the exported artifact.",
+        ),
+    ] = False,
+) -> None:
+    try:
+        result = export_csv(report, output=output, include_suppressed=include_suppressed)
+    except Exception as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    _echo_export_result(result)
+
+
+@export_app.command("webhook", help="Build or send a redacted webhook payload.")
+def export_webhook_command(
+    report: Annotated[
+        Path,
+        typer.Argument(help="Path to host-report.json or fleet-report.json."),
+    ],
+    url: Annotated[
+        str,
+        typer.Option("--url", help="Webhook URL."),
+    ],
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run/--send",
+            help="Preview the webhook payload instead of sending it.",
+        ),
+    ] = True,
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", help="Allow externally visible webhook delivery."),
+    ] = False,
+    include_raw_snapshot: Annotated[
+        bool,
+        typer.Option(
+            "--include-raw-snapshot",
+            help="Include the raw host snapshot in the outbound payload.",
+        ),
+    ] = False,
+    redact: Annotated[
+        bool,
+        typer.Option(
+            "--redact/--no-redact",
+            help="Redact sensitive host metadata in outbound payloads.",
+        ),
+    ] = True,
+) -> None:
+    try:
+        result = export_webhook(
+            report,
+            url=url,
+            dry_run=dry_run,
+            yes=yes,
+            include_raw_snapshot=include_raw_snapshot,
+            redact=redact,
+        )
+    except ExporterError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    except Exception as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=3) from exc
+    _echo_export_result(result)
+
+
+@export_app.command("github-issues", help="Preview or create GitHub issues for active findings.")
+def export_github_issues_command(
+    report: Annotated[
+        Path,
+        typer.Argument(help="Path to host-report.json or fleet-report.json."),
+    ],
+    repo: Annotated[
+        str | None,
+        typer.Option("--repo", help="GitHub repository as owner/name for real creation."),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run/--create",
+            help="Preview issue creation instead of creating tickets.",
+        ),
+    ] = True,
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", help="Allow externally visible GitHub issue creation."),
+    ] = False,
+) -> None:
+    try:
+        result = export_github_issues(report, repo=repo, dry_run=dry_run, yes=yes)
+    except ExporterError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    except Exception as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=3) from exc
+    _echo_export_result(result)
+
+
+@export_app.command("jira", help="Preview or create Jira tickets for active findings.")
+def export_jira_command(
+    report: Annotated[
+        Path,
+        typer.Argument(help="Path to host-report.json or fleet-report.json."),
+    ],
+    project: Annotated[
+        str,
+        typer.Option("--project", help="Jira project key."),
+    ],
+    url: Annotated[
+        str | None,
+        typer.Option("--url", help="Jira base URL for real creation."),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run/--create",
+            help="Preview ticket creation instead of creating tickets.",
+        ),
+    ] = True,
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", help="Allow externally visible Jira ticket creation."),
+    ] = False,
+) -> None:
+    try:
+        result = export_jira_issues(
+            report,
+            project=project,
+            url=url,
+            dry_run=dry_run,
+            yes=yes,
+        )
+    except ExporterError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    except Exception as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=3) from exc
+    _echo_export_result(result)
+
+
+def _echo_export_result(result: Any) -> None:
+    typer.echo(f"integration: {result.integration}")
+    typer.echo(f"status: {result.status}")
+    typer.echo(f"items: {result.item_count}")
+    if result.dry_run:
+        typer.echo("dry_run: true")
+    if result.output_path:
+        typer.echo(f"output: {result.output_path}")
+    if result.audit_log_path:
+        typer.echo(f"audit_log: {result.audit_log_path}")
+    if result.preview:
+        typer.echo("preview:")
+        for item in result.preview[:5]:
+            typer.echo(
+                "  - "
+                f"{item.get('severity', 'unknown')} "
+                f"{item.get('finding_id', 'unknown')} "
+                f"{item.get('title', '')}"
+            )
+
+
+@policy_app.command("validate", help="Validate a host posture policy TOML file.")
+def policy_validate(
+    policy_path: Annotated[
+        Path,
+        typer.Argument(help="Path to a Piranesi host policy TOML file."),
+    ],
+) -> None:
+    try:
+        policy = load_host_policy(policy_path)
+    except HostPolicyError as exc:
+        typer.echo(f"invalid policy: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(render_policy_validation(policy), nl=False)
+
+
+def _load_policy_for_cli(policy_path: Path | None) -> HostPolicy | None:
+    if policy_path is None:
+        return None
+    try:
+        return load_host_policy(policy_path)
+    except HostPolicyError as exc:
+        typer.echo(f"invalid policy: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+
+
+@remediate_app.command("plan", help="Write review-only remediation plan JSON and Markdown.")
+def remediate_plan(
+    host_report: Annotated[
+        Path,
+        typer.Argument(help="Path to a host-report.json artifact."),
+    ],
+    output: Annotated[
+        Path,
+        typer.Option("--output", help="Markdown remediation plan path."),
+    ] = Path("remediation-plan.md"),
+) -> None:
+    try:
+        markdown_path, json_path = write_remediation_plan(host_report, output)
+    except Exception as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"remediation markdown: {markdown_path}")
+    typer.echo(f"remediation json: {json_path}")
+
+
+@remediate_app.command("checklist", help="Render a remediation checklist from a host report.")
+def remediate_checklist(
+    host_report: Annotated[
+        Path,
+        typer.Argument(help="Path to a host-report.json artifact."),
+    ],
+    output_format: Annotated[
+        RemediationCliFormat,
+        typer.Option("--format", help="Checklist output format.", case_sensitive=False),
+    ] = RemediationCliFormat.MARKDOWN,
+) -> None:
+    try:
+        rendered = render_remediation_checklist(
+            host_report,
+            output_format=cast(Any, output_format.value),
+        )
+    except Exception as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(rendered, nl=False)
+
+
+@remediate_app.command("verify", help="Compare before/after host reports for closure.")
+def remediate_verify(
+    before_report: Annotated[
+        Path,
+        typer.Argument(help="Path to the before host-report.json artifact."),
+    ],
+    after_report: Annotated[
+        Path,
+        typer.Argument(help="Path to the after host-report.json artifact."),
+    ],
+    output_format: Annotated[
+        RemediationCliFormat,
+        typer.Option("--format", help="Verification output format.", case_sensitive=False),
+    ] = RemediationCliFormat.MARKDOWN,
+) -> None:
+    try:
+        verification = verify_remediation(before_report, after_report)
+    except Exception as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    if output_format == RemediationCliFormat.JSON:
+        typer.echo(verification.model_dump_json(indent=2))
+    else:
+        typer.echo(render_remediation_verification_markdown(verification), nl=False)
+    if not verification.passed:
+        raise typer.Exit(code=1)
+
+
+@host_app.command("diff", help="Compare before/after host posture reports.")
+def host_diff(
+    before_report: Annotated[
+        Path,
+        typer.Argument(help="Path to the before host-report.json artifact."),
+    ],
+    after_report: Annotated[
+        Path,
+        typer.Argument(help="Path to the after host-report.json artifact."),
+    ],
+    output_format: Annotated[
+        RemediationCliFormat,
+        typer.Option("--format", help="Diff output format.", case_sensitive=False),
+    ] = RemediationCliFormat.MARKDOWN,
+) -> None:
+    try:
+        diff = diff_host_reports(before_report, after_report)
+    except Exception as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    if output_format == RemediationCliFormat.JSON:
+        typer.echo(diff.model_dump_json(indent=2))
+    else:
+        typer.echo(render_host_diff_markdown(diff), nl=False)
+
+
+@host_rule_app.command("scaffold", help="Create a constrained community host rule TOML template.")
+def host_rule_scaffold(
+    title: Annotated[
+        str,
+        typer.Argument(help="Human-readable rule title."),
+    ],
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="Directory for community host rule TOML files."),
+    ] = Path("rules/community/host"),
+) -> None:
+    try:
+        path = scaffold_host_rule(title, output_dir=output_dir)
+    except HostCommunityError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"created host rule scaffold: {path}")
+
+
+@host_rule_app.command("test", help="Run one constrained community host rule against a fixture.")
+def host_rule_test(
+    rule_path: Annotated[
+        Path,
+        typer.Argument(help="Path to a community host rule TOML file."),
+    ],
+    fixture_path: Annotated[
+        Path,
+        typer.Argument(help="Path to a host evidence fixture bundle."),
+    ],
+) -> None:
+    try:
+        result = test_host_rule_pack(rule_path, fixture_path)
+    except (HostCommunityError, HostInputError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(render_rule_test_result(result), nl=False)
+    if not result.passed:
+        raise typer.Exit(code=1)
+
+
+@host_rule_app.command("test-all", help="Run all constrained community host rules with fixtures.")
+def host_rule_test_all(
+    rules_root: Annotated[
+        Path,
+        typer.Argument(help="Directory containing community host rule TOML files."),
+    ] = Path("rules/community/host"),
+) -> None:
+    try:
+        result = test_all_host_rule_packs(rules_root)
+    except HostCommunityError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(render_rule_test_all_result(result), nl=False)
+    if result.failed:
+        raise typer.Exit(code=1)
+
+
+@host_fixture_app.command("validate", help="Validate a host evidence fixture bundle.")
+def host_fixture_validate(
+    fixture_path: Annotated[
+        Path,
+        typer.Argument(help="Path to a host evidence fixture bundle."),
+    ],
+) -> None:
+    result = validate_host_fixture(fixture_path)
+    typer.echo(render_fixture_validation(result), nl=False)
+    if result.status != "ok":
+        raise typer.Exit(code=2)
+
+
+@host_benchmark_app.command(
+    "submit",
+    help="Validate local metadata for a community benchmark fixture.",
+)
+def host_benchmark_submit(
+    fixture: Annotated[
+        Path,
+        typer.Option("--fixture", help="Host fixture bundle proposed for benchmark submission."),
+    ],
+) -> None:
+    try:
+        submission = validate_host_benchmark_submission(fixture)
+    except HostCommunityError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(submission.model_dump_json(indent=2))
+
+
+@container_app.command("assess", help="Assess a container image or local Docker containers.")
+def container_assess(
+    image: Annotated[
+        str | None,
+        typer.Option(
+            "--image",
+            help=(
+                "Container image reference to scan with Trivy, or a local Trivy image JSON "
+                "file to ingest."
+            ),
+        ),
+    ] = None,
+    docker_host: Annotated[
+        str | None,
+        typer.Option(
+            "--docker-host",
+            help="Use `local` to read running containers from the local Docker daemon.",
+        ),
+    ] = None,
+    output: OutputOption = Path("./piranesi-container-output"),
+) -> None:
+    if bool(image) == bool(docker_host):
+        typer.echo("error: pass exactly one of --image or --docker-host", err=True)
+        raise typer.Exit(code=2)
+    try:
+        if image is not None:
+            snapshot = collect_trivy_image_snapshot(image)
+            report = assess_container_image(snapshot)
+        else:
+            if docker_host != "local":
+                typer.echo("error: only --docker-host local is supported", err=True)
+                raise typer.Exit(code=2)
+            snapshots = collect_local_docker_snapshots()
+            report = assess_running_containers(snapshots)
+        write_infrastructure_report_outputs(report, output, prefix="container")
+    except (ContainerInputError, json.JSONDecodeError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"wrote container report: {output.resolve(strict=False)}")
+
+
+@k8s_app.command("assess", help="Assess Kubernetes manifests or a read-only API snapshot.")
+def k8s_assess(
+    manifests: Annotated[
+        Path | None,
+        typer.Argument(help="Directory or file containing Kubernetes manifests."),
+    ] = None,
+    kubeconfig: Annotated[
+        Path | None,
+        typer.Option("--kubeconfig", help="Kubeconfig for read-only kubectl collection."),
+    ] = None,
+    namespace: Annotated[
+        str | None,
+        typer.Option("--namespace", help="Kubernetes namespace for read-only API collection."),
+    ] = None,
+    output: OutputOption = Path("./piranesi-k8s-output"),
+) -> None:
+    if manifests is not None and kubeconfig is not None:
+        typer.echo("error: pass manifests or --kubeconfig, not both", err=True)
+        raise typer.Exit(code=2)
+    if manifests is None and kubeconfig is None:
+        typer.echo("error: pass a manifest path or --kubeconfig", err=True)
+        raise typer.Exit(code=2)
+    try:
+        if manifests is not None:
+            snapshot = load_kubernetes_snapshot(manifests)
+        else:
+            assert kubeconfig is not None
+            snapshot = collect_kubernetes_api_snapshot(
+                kubeconfig=kubeconfig,
+                namespace=namespace,
+            )
+        report = assess_kubernetes_snapshot(snapshot)
+        write_infrastructure_report_outputs(report, output, prefix="k8s")
+    except (KubernetesInputError, json.JSONDecodeError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"wrote Kubernetes report: {output.resolve(strict=False)}")
 
 
 @app.command("assess", help="Assess a Linux VM host snapshot or osquery/Trivy evidence bundle.")
@@ -2369,6 +3258,10 @@ def assess(
             help="Treat private-interface listeners as exposed for lab hardening assessments.",
         ),
     ] = False,
+    policy: Annotated[
+        Path | None,
+        typer.Option("--policy", help="Apply a host posture policy TOML file."),
+    ] = None,
     config: ConfigOption = Path("./piranesi.toml"),
     output: OutputOption = Path("./piranesi-output"),
     verbose: VerboseOption = False,
@@ -2397,6 +3290,7 @@ def assess(
     )
     logger = logging.getLogger("piranesi.assess")
     config_model = _load_cli_config(stage="assess", options=options)
+    policy_model = _load_policy_for_cli(policy)
     ignore_validation = load_ignore_file_with_diagnostics(Path.cwd())
     if ignore_validation.invalid_entries:
         for entry in ignore_validation.invalid_entries:
@@ -2444,6 +3338,8 @@ def assess(
             treat_private_as_public=treat_private_as_public,
         )
         report = apply_host_suppressions(report, ignore_validation.rules)
+        if policy_model is not None:
+            report = apply_host_policy(report, policy_model)
         write_host_report_outputs(report, output, report_format=report_format.value)
     except TraceBudgetExceededError as exc:
         log_error_context(
@@ -2485,6 +3381,8 @@ def assess(
         failing = _host_findings_at_or_above(report.findings, fail_severity.value)
         if failing:
             raise typer.Exit(code=1)
+    if policy_model is not None and not no_fail and policy_failed(report):
+        raise typer.Exit(code=1)
 
 
 @fleet_app.command("assess", help="Assess a directory of host evidence bundles.")
@@ -2521,6 +3419,10 @@ def fleet_assess(
             help="Treat private-interface listeners as exposed for lab hardening assessments.",
         ),
     ] = False,
+    policy: Annotated[
+        Path | None,
+        typer.Option("--policy", help="Apply a host posture policy TOML file to each host."),
+    ] = None,
     jobs: Annotated[
         int,
         typer.Option("--jobs", min=1, help="Number of workers. v1 processes sequentially."),
@@ -2553,6 +3455,7 @@ def fleet_assess(
     )
     logger = logging.getLogger("piranesi.fleet.assess")
     config_model = _load_cli_config(stage="fleet", options=options)
+    policy_model = _load_policy_for_cli(policy)
     root_ignore = load_ignore_file_with_diagnostics(fleet_evidence)
     if root_ignore.invalid_entries:
         for entry in root_ignore.invalid_entries:
@@ -2589,6 +3492,7 @@ def fleet_assess(
             fail_fast=fail_fast,
             treat_private_as_public=treat_private_as_public,
             root_suppression_rules=root_ignore.rules,
+            policy=policy_model,
             jobs=jobs,
         )
     except FleetInputError as exc:
@@ -2642,6 +3546,8 @@ def fleet_assess(
         failing = fleet_findings_at_or_above(result.host_reports, fail_severity.value)
         if failing:
             raise typer.Exit(code=1)
+    if policy_model is not None and not no_fail and policy_failed(result.report):
+        raise typer.Exit(code=1)
 
 
 @fleet_app.command("summarize", help="Summarize an existing fleet assessment output.")
@@ -2786,9 +3692,7 @@ def hypothesize(
 def probe(
     input_path: Annotated[
         Path,
-        typer.Argument(
-            help="Path to host_snapshot.json or raw evidence bundle directory."
-        ),
+        typer.Argument(help="Path to host_snapshot.json or raw evidence bundle directory."),
     ],
     output: Annotated[
         Path,
@@ -2937,6 +3841,15 @@ def validate_evidence(
     )
 )
 def ui(
+    report_path: Annotated[
+        Path | None,
+        typer.Argument(
+            help=(
+                "Host or fleet report directory to inspect. When omitted, launches "
+                "the interactive terminal launcher."
+            ),
+        ),
+    ] = None,
     target_dir: Annotated[
         Path,
         typer.Option("--target", help="Default target directory for dashboard actions."),
@@ -2944,7 +3857,54 @@ def ui(
     output: OutputOption = Path("./piranesi-output"),
     config: ConfigOption = Path("./piranesi.toml"),
     trace: TraceOption = Path(".piranesi-trace.jsonl"),
+    host: Annotated[
+        str,
+        typer.Option("--host", help="Bind address for the local review server."),
+    ] = "127.0.0.1",
+    port: Annotated[
+        int,
+        typer.Option("--port", min=0, max=65535, help="Bind port for the local review server."),
+    ] = 8765,
+    watch: Annotated[
+        bool,
+        typer.Option("--watch", help="Reload report files on each browser request."),
+    ] = False,
+    open_browser: Annotated[
+        bool,
+        typer.Option("--open/--no-open", help="Open the local UI in the default browser."),
+    ] = False,
 ) -> None:
+    if report_path is not None:
+        if host == "0.0.0.0":  # noqa: S104 - explicit opt-in bind with warning.
+            typer.echo(
+                "warning: binding to 0.0.0.0 exposes the local review UI on the network.",
+                err=True,
+            )
+        try:
+            if not _interactive_tty_available() and not open_browser:
+                state = load_report_state(report_path, watch=watch)
+                typer.echo(
+                    f"loaded {state.report_type} report: "
+                    f"{state.report_path.resolve(strict=False)}"
+                )
+                typer.echo(f"local UI would bind to http://{host}:{port}")
+                return
+            typer.echo(f"serving Piranesi review UI at http://{host}:{port}")
+            typer.echo("press Ctrl-C to stop")
+            run_ui_server(
+                UiServerOptions(
+                    report_path=report_path,
+                    host=host,
+                    port=port,
+                    watch=watch,
+                    open_browser=open_browser,
+                )
+            )
+        except (OSError, UiServerError) as exc:
+            typer.echo(f"error: {exc}", err=True)
+            raise typer.Exit(code=2) from exc
+        return
+
     if not _interactive_tty_available():
         typer.echo("error: `piranesi ui` requires an interactive TTY.")
         raise typer.Exit(code=2)
@@ -2957,8 +3917,7 @@ def ui(
         )
     except ImportError as exc:
         typer.echo(
-            "error: Textual is required for launcher UI. "
-            "Install extras with `uv sync --extra tui`."
+            "error: Textual is required for launcher UI. Install extras with `uv sync --extra tui`."
         )
         raise typer.Exit(code=2) from exc
     if selection is None:
@@ -3529,9 +4488,7 @@ def explain(
         }
         if explanation is not None:
             payload["explanation"] = explanation.model_dump(mode="json")
-        typer.echo(
-            json.dumps(payload, indent=2)
-        )
+        typer.echo(json.dumps(payload, indent=2))
         return
     typer.echo(_render_finding_explanation(status, finding), nl=False)
 
@@ -3760,10 +4717,7 @@ def compliance_bundle(
             "file_count": len(manifest.files),
         },
     )
-    typer.echo(
-        "wrote compliance bundle with "
-        f"{len(manifest.files)} file(s) to {output}"
-    )
+    typer.echo(f"wrote compliance bundle with {len(manifest.files)} file(s) to {output}")
     typer.echo(f"manifest: {output / manifest.checksum_manifest_path}")
 
 
@@ -4062,8 +5016,7 @@ def suppressions_validate(
             typer.echo(f"Stale rules: {lifecycle.stale_rules}")
         else:
             typer.echo(
-                "Stale rules: not evaluated "
-                "(pass --findings detect.json or host-report.json)"
+                "Stale rules: not evaluated (pass --findings detect.json or host-report.json)"
             )
         if lifecycle.expired_selectors:
             typer.echo(f"Expired selectors: {' | '.join(lifecycle.expired_selectors)}")
@@ -4190,9 +5143,7 @@ def intel_normalize(
             "diagnostics": list(bundle.diagnostics),
         },
     )
-    typer.echo(
-        f"normalized {len(bundle.findings)} finding(s) from {tool_key} snapshot to {output}"
-    )
+    typer.echo(f"normalized {len(bundle.findings)} finding(s) from {tool_key} snapshot to {output}")
 
 
 @intel_app.command("graph")
@@ -4295,9 +5246,7 @@ def diff_command(
     if fail_on_new is True and new_findings_at_or_above(
         diff_result,
         minimum_severity=(
-            FailSeverity.LOW.value
-            if fail_on_new_severity is None
-            else fail_on_new_severity.value
+            FailSeverity.LOW.value if fail_on_new_severity is None else fail_on_new_severity.value
         ),
     ):
         raise typer.Exit(code=1)
@@ -4427,9 +5376,7 @@ def rules_scaffold(
 
     rule_file.write_text(_rule_scaffold_template(slug), encoding="utf-8")
     vulnerable_fixture.write_text(
-        "export function vulnerable(req: any, db: any) {\n"
-        "  db.query(req.query.id);\n"
-        "}\n",
+        "export function vulnerable(req: any, db: any) {\n  db.query(req.query.id);\n}\n",
         encoding="utf-8",
     )
     safe_fixture.write_text(
@@ -5017,9 +5964,7 @@ def advisory_import(
         typer.echo("error: --require-manifest was set but --manifest was not provided")
         raise typer.Exit(code=1)
 
-    manifest_path = (
-        manifest.expanduser().resolve(strict=False) if manifest is not None else None
-    )
+    manifest_path = manifest.expanduser().resolve(strict=False) if manifest is not None else None
     verification_key: bytes | None = None
     if trust_key is not None:
         try:
@@ -5072,9 +6017,7 @@ def advisory_import(
         signature_signer=verification_result.signature_signer if verification_result else None,
         signature_value=verification_result.signature_value if verification_result else None,
         verified=bool(verification_result and verification_result.verified),
-        verification_reason=(
-            None if verification_result is None else verification_result.reason
-        ),
+        verification_reason=(None if verification_result is None else verification_result.reason),
         imported_at=utc_now(),
     )
     with AdvisoryDB(db_path) as advisory_db:
@@ -5854,8 +6797,9 @@ def run(
             selected_files=selected_files,
             render_ui=sys.stderr.isatty() and not json_logs,
         )
-        with _hook_timeout(active_hook_timeout), command_archive(
-            options.output_dir / "debug" if debug_bundle else None
+        with (
+            _hook_timeout(active_hook_timeout),
+            command_archive(options.output_dir / "debug" if debug_bundle else None),
         ):
             pipeline_result = run_pipeline(
                 config_model,
@@ -6038,9 +6982,7 @@ def dev_launch_plan(
         return
     typer.echo(render_launch_plan(plan), nl=False)
     if write_result is not None:
-        typer.echo(
-            f"Wrote profile `{write_result.profile_name}` to {write_result.config_path}"
-        )
+        typer.echo(f"Wrote profile `{write_result.profile_name}` to {write_result.config_path}")
     if probe_result is not None:
         typer.echo("")
         typer.echo(render_probe_result(probe_result), nl=False)

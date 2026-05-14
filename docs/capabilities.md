@@ -21,7 +21,11 @@ Machine-readable known limitations are tracked in [`docs/known-limitations.json`
 | Area | Maturity | Current Scope | Main Limitations |
 | --- | --- | --- | --- |
 | Debian/Ubuntu local collection | Stable Alpha | `piranesi collect` gathers osquery JSON, optional Trivy JSON, and read-only command evidence under `raw/`. | Requires `osqueryi`; optional tools may be missing or permission-limited. |
+| Multi-platform Linux assessment | Alpha | RHEL/CentOS/Rocky/Alma/Fedora, Amazon Linux, and Alpine raw bundles normalize into the same `HostSnapshot` and `HostPostureReport` contracts with platform metadata. | Collection helpers vary by distribution; unsupported distro-specific checks are surfaced as collection-health warnings. |
 | Canonical host snapshots | Stable Alpha | `host_snapshot.json` is accepted directly and remains the stable interchange format. | Snapshot completeness depends on supplied evidence. |
+| Public host API and schemas | Stable Alpha | `piranesi.host.api` exposes deterministic assessment, report parsing, typed exceptions, and `piranesi schema ...` exports for host report, snapshot, and fleet report contracts. | Stable-alpha compatibility is additive; use documented public modules rather than internal host implementation modules. |
+| Policy-as-code gates | Stable Alpha | TOML policies validate required evidence, risk/severity thresholds, rule-specific gates, allowed exposure, suppression behavior, minimum score, and fleet policy summaries. | Deterministic only; no general-purpose scripting or remote policy server. |
+| Remediation planning and host diff | Stable Alpha | `piranesi remediate plan`, `remediate checklist`, `host diff`, and `remediate verify` generate review-only plans and before/after closure tracking. | Does not auto-remediate or generate configuration-management changes. |
 | Raw bundle ingestion | Stable Alpha | Accepts collector-style `raw/osquery`, `raw/trivy`, `raw/commands` and root-level `osquery`, `trivy`, `commands` layouts. | Raw JSON must match osquery, Trivy, or Piranesi command wrapper shapes. |
 | Deterministic assessment | Stable Alpha | Exposed services, SSH hardening, firewall/update posture, unattended-upgrades, selected sysctl values, privileged accounts, Trivy CVEs, evidence coverage, `host_metadata`, and `top_actions`. | Linux-only and intentionally conservative when evidence is absent. |
 | LLM host analysis | Beta | Optional evidence-bound host reasoning for `--analysis llm` or `--analysis both`. | Requires LiteLLM-compatible credentials and does not replace deterministic findings. |
@@ -121,3 +125,10 @@ or formal risk acceptance decisions.
 Plugin extension-point stability levels and versioning guidance are documented in
 `docs/plugin-api.md`. The stable contract is also exported programmatically via
 `piranesi.plugin.plugin_api_manifest()`.
+
+## Public API Stability
+
+Host posture library and schema compatibility rules are documented in
+`docs/api.md`. Integrations should depend on `piranesi.host.api`,
+`piranesi.host.models`, and `piranesi.schema`; other host modules are internal
+unless they are explicitly promoted in that document.

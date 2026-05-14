@@ -10,6 +10,7 @@ from piranesi.detect.suppression import SuppressionRule, load_ignore_file_with_d
 from piranesi.host.analyze import AnalysisSelection, analyze_snapshot
 from piranesi.host.ingest import HostInputError, load_host_input
 from piranesi.host.models import FleetHostSummary, FleetReport, HostFinding, HostPostureReport
+from piranesi.host.policy import HostPolicy, apply_fleet_policy, apply_host_policy
 from piranesi.host.report import write_fleet_report_outputs, write_host_report_outputs
 from piranesi.host.suppression import apply_host_suppressions
 from piranesi.llm.provider import LLMProvider
@@ -45,6 +46,7 @@ def assess_fleet_evidence(
     fail_fast: bool = False,
     treat_private_as_public: bool = False,
     root_suppression_rules: Sequence[SuppressionRule] = (),
+    policy: HostPolicy | None = None,
     jobs: int = 1,
 ) -> FleetAssessResult:
     _ = jobs
@@ -71,6 +73,8 @@ def assess_fleet_evidence(
                 report,
                 [*root_suppression_rules, *child_rules],
             )
+            if policy is not None:
+                report = apply_host_policy(report, policy)
             host_output = output_path / "hosts" / child.name
             write_host_report_outputs(report, host_output, report_format=report_format)
             host_summaries.append(_successful_host_summary(child, report))
@@ -81,6 +85,8 @@ def assess_fleet_evidence(
                 fail_fast_triggered = True
                 break
     fleet_report = build_fleet_report(host_summaries, host_reports)
+    if policy is not None:
+        fleet_report = apply_fleet_policy(fleet_report, host_reports, policy)
     write_fleet_report_outputs(fleet_report, output_path, report_format=report_format)
     return FleetAssessResult(
         report=fleet_report,

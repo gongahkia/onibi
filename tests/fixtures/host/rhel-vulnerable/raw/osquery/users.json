@@ -1,0 +1,4 @@
+[
+  {"username": "root", "uid": "0", "gid": "0", "shell": "/bin/bash", "groups": "root"},
+  {"username": "ops", "uid": "1001", "gid": "1001", "shell": "/bin/bash", "groups": "wheel"}
+]
