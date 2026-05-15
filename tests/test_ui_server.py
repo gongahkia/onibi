@@ -86,10 +86,7 @@ def _multipart_zip(filename: str, payload: bytes) -> tuple[bytes, dict[str, str]
     body = b"".join(
         [
             f"--{boundary}\r\n".encode(),
-            (
-                'Content-Disposition: form-data; name="archive"; '
-                f'filename="{filename}"\r\n'
-            ).encode(),
+            (f'Content-Disposition: form-data; name="archive"; filename="{filename}"\r\n').encode(),
             b"Content-Type: application/zip\r\n\r\n",
             payload,
             f"\r\n--{boundary}--\r\n".encode(),

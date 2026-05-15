@@ -8,7 +8,6 @@ from typer.testing import CliRunner
 from piranesi.audit import append_audit_event
 from piranesi.cli import app
 
-
 runner = CliRunner()
 
 

@@ -94,9 +94,7 @@ _INLINE_SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         r"\g<prefix>[REDACTED]\g<suffix>",
     ),
     (
-        re.compile(
-            r"(?i)(?P<prefix>\bauthorization\s*[:=]\s*)(?P<value>[^\s,;]+(?:\s+[^\s,;]+)?)"
-        ),
+        re.compile(r"(?i)(?P<prefix>\bauthorization\s*[:=]\s*)(?P<value>[^\s,;]+(?:\s+[^\s,;]+)?)"),
         r"\g<prefix>[REDACTED]",
     ),
     (

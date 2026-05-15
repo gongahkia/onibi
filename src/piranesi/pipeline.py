@@ -2349,7 +2349,8 @@ def _run_verify_stage(
             template=template,
             target_dir=context.target_dir,
             proof_mode=proof_mode,
-            target_profile_name=None if selected_profile is None else selected_profile.name,
+            target_profile_name=None if active_profile is None else active_profile.name,
+            target_profile_base_url=None if active_profile is None else active_profile.base_url,
             no_execute=context.no_execute,
         )
         attempt_fields = {
@@ -2479,8 +2480,7 @@ def _run_verify_stage(
             _append_attempt(
                 status="inconclusive",
                 reason=(
-                    "verification inconclusive: sandbox did not return "
-                    "baseline+exploit captures"
+                    "verification inconclusive: sandbox did not return baseline+exploit captures"
                 ),
                 evidence=["MISSING_SANDBOX_CAPTURES"],
                 payload=payload,

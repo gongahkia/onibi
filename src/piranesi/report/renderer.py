@@ -497,14 +497,10 @@ def build_report(
         candidate for candidate in detected_findings if not candidate.suppressed
     ]
     reachable_candidates = [
-        candidate
-        for candidate in unsuppressed_candidates
-        if candidate.reachability == "reachable"
+        candidate for candidate in unsuppressed_candidates if candidate.reachability == "reachable"
     ]
     unreachable_candidates = [
-        candidate
-        for candidate in unsuppressed_candidates
-        if candidate.reachability != "reachable"
+        candidate for candidate in unsuppressed_candidates if candidate.reachability != "reachable"
     ]
     active_candidate_pool = (
         list(unsuppressed_candidates) if include_unreachable else reachable_candidates
@@ -733,9 +729,7 @@ def build_report(
             highest_composite_risk_band=(
                 None if top_risk is None else top_risk.composite_risk_band
             ),
-            highest_composite_risk_finding_id=(
-                None if top_risk is None else top_risk.finding_id
-            ),
+            highest_composite_risk_finding_id=(None if top_risk is None else top_risk.finding_id),
             top_composite_risk_findings=[
                 finding.finding_id for finding in risk_ranked_findings[:5]
             ],
@@ -2080,9 +2074,7 @@ def _relative_report_path(path: str, *, target_dir: Path) -> str:
         return candidate.as_posix()
     try:
         return (
-            candidate.resolve(strict=False)
-            .relative_to(target_dir.resolve(strict=False))
-            .as_posix()
+            candidate.resolve(strict=False).relative_to(target_dir.resolve(strict=False)).as_posix()
         )
     except ValueError:
         return candidate.as_posix()

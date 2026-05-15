@@ -367,7 +367,9 @@ class _UiRequestHandler(BaseHTTPRequestHandler):
             return
         content_length = self.headers.get("Content-Length")
         if content_length is None:
-            self._send_json({"error": "Content-Length is required"}, status=HTTPStatus.LENGTH_REQUIRED)
+            self._send_json(
+                {"error": "Content-Length is required"}, status=HTTPStatus.LENGTH_REQUIRED
+            )
             return
         try:
             length = int(content_length)
@@ -526,7 +528,9 @@ def _findings_payload(
     return {"findings": [_finding_payload(finding) for finding in findings]}
 
 
-def _source_report_summary(report: PiranesiReport, *, report_dir: Path | None = None) -> dict[str, Any]:
+def _source_report_summary(
+    report: PiranesiReport, *, report_dir: Path | None = None
+) -> dict[str, Any]:
     summary = report.executive_summary
     target = _source_target_label(report.target)
     report_md_available = bool(report_dir is not None and (report_dir / "report.md").is_file())
@@ -702,7 +706,9 @@ def _source_remediation(finding: Any) -> str:
     if "78" in cwe:
         return "Avoid shell execution with untrusted input; use argument arrays and allowlists."
     if "918" in cwe:
-        return "Restrict outbound requests to trusted destinations and block internal network targets."
+        return (
+            "Restrict outbound requests to trusted destinations and block internal network targets."
+        )
     return "Review the source-to-sink path and add framework-appropriate validation, encoding, or access control."
 
 
@@ -809,8 +815,7 @@ def _parse_zip_upload(*, content_type: str, body: bytes) -> tuple[str, bytes]:
     if "multipart/form-data" not in content_type:
         raise UiServerError("upload must be multipart/form-data with a ZIP file")
     message = BytesParser(policy=policy.default).parsebytes(
-        f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode()
-        + body
+        f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode() + body
     )
     if not message.is_multipart():
         raise UiServerError("upload body is not multipart")
@@ -879,9 +884,7 @@ def _safe_extract_zip(
                 continue
             file_count += 1
             if file_count > workbench.max_extracted_files:
-                raise UiServerError(
-                    f"ZIP contains more than {workbench.max_extracted_files} files"
-                )
+                raise UiServerError(f"ZIP contains more than {workbench.max_extracted_files} files")
             total_size += info.file_size
             if total_size > workbench.max_extracted_bytes:
                 limit_mb = workbench.max_extracted_bytes // (1024 * 1024)
@@ -915,9 +918,7 @@ def _unsafe_zip_member(info: zipfile.ZipInfo) -> bool:
 
 def _detect_project_dir(extract_dir: Path) -> Path:
     children = [
-        child
-        for child in extract_dir.iterdir()
-        if child.name not in {"__MACOSX", ".DS_Store"}
+        child for child in extract_dir.iterdir() if child.name not in {"__MACOSX", ".DS_Store"}
     ]
     if len(children) == 1 and children[0].is_dir():
         return children[0]

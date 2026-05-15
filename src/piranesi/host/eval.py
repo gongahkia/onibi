@@ -209,10 +209,10 @@ def matches_ground_truth(finding: HostFinding, matcher: HostGroundTruthMatcher) 
         return False
     if matcher.category is not None and finding.category != matcher.category:
         return False
-    if matcher.title_contains is not None:
-        if matcher.title_contains.casefold() not in finding.title.casefold():
-            return False
-    return True
+    return (
+        matcher.title_contains is None
+        or matcher.title_contains.casefold() in finding.title.casefold()
+    )
 
 
 def evaluate_host_findings(
@@ -433,10 +433,7 @@ def build_host_benchmark_report(
             by_baseline[baseline].append(result)
             findings_matrix.extend(result.matrix)
 
-    baseline_results = [
-        _baseline_result(name, results)
-        for name, results in by_baseline.items()
-    ]
+    baseline_results = [_baseline_result(name, results) for name, results in by_baseline.items()]
     primary = next(result for result in baseline_results if result.name == PRIMARY_BASELINE)
     metrics = primary.metrics or HostBenchmarkMetrics()
     return HostBenchmarkReport(
@@ -519,12 +516,14 @@ def render_host_benchmark_markdown(report: HostBenchmarkReport) -> str:
         )
 
     false_positives = [
-        row for row in report.findings_matrix
+        row
+        for row in report.findings_matrix
         if row.baseline == report.primary_baseline
         and row.status in {"false_positive", "expected_absent_violation"}
     ]
     false_negatives = [
-        row for row in report.findings_matrix
+        row
+        for row in report.findings_matrix
         if row.baseline == report.primary_baseline and row.status == "false_negative"
     ]
     lines.extend(["", "## Primary False Positives", ""])
@@ -639,8 +638,7 @@ def _select_baseline_findings(
         if not any(check.source == "lynis" for check in snapshot.baseline_checks):
             return _skip_selected(deterministic_report, "Lynis evidence is not present.")
         findings = [
-            finding for finding in deterministic_report.findings
-            if finding.source_tool == "lynis"
+            finding for finding in deterministic_report.findings if finding.source_tool == "lynis"
         ]
         return _SelectedBaseline(
             report=deterministic_report,
@@ -651,7 +649,8 @@ def _select_baseline_findings(
         if not any(check.source == "openscap" for check in snapshot.baseline_checks):
             return _skip_selected(deterministic_report, "OpenSCAP evidence is not present.")
         findings = [
-            finding for finding in deterministic_report.findings
+            finding
+            for finding in deterministic_report.findings
             if finding.source_tool == "openscap"
         ]
         return _SelectedBaseline(
@@ -698,9 +697,7 @@ def _baseline_result(
     skipped = [result for result in results if result.status != "ok"]
     if not assessed:
         reason_counts = Counter(result.skip_reason or "skipped" for result in skipped)
-        reason = "; ".join(
-            f"{reason} ({count})" for reason, count in sorted(reason_counts.items())
-        )
+        reason = "; ".join(f"{reason} ({count})" for reason, count in sorted(reason_counts.items()))
         return HostBenchmarkBaselineResult(
             name=name,
             status="skipped",
@@ -741,16 +738,13 @@ def _metrics_from_matrix(
     rows = [row for group in matrix_groups for row in group]
     true_positives = sum(1 for row in rows if row.status == "true_positive")
     false_positives = sum(
-        1 for row in rows
-        if row.status in {"false_positive", "expected_absent_violation"}
+        1 for row in rows if row.status in {"false_positive", "expected_absent_violation"}
     )
     false_negatives = sum(1 for row in rows if row.status == "false_negative")
     allowed_extra = sum(1 for row in rows if row.status == "allowed_extra")
     skipped = sum(1 for row in rows if row.status == "skipped")
     expected_absent = sum(1 for row in rows if row.status == "expected_absent_pass")
-    expected_absent_violations = sum(
-        1 for row in rows if row.status == "expected_absent_violation"
-    )
+    expected_absent_violations = sum(1 for row in rows if row.status == "expected_absent_violation")
     expected_issue_count = true_positives + false_negatives
     detected_issue_count = true_positives + false_positives
     precision = _precision(true_positives, false_positives, expected_issue_count)
@@ -846,7 +840,8 @@ def _best_matching_finding(
     used_finding_ids: set[str],
 ) -> HostFinding | None:
     candidates = [
-        finding for finding in findings
+        finding
+        for finding in findings
         if finding.id not in used_finding_ids and matches_ground_truth(finding, matcher)
     ]
     if not candidates:
@@ -930,19 +925,17 @@ def _matrix_row(
         rule_id=finding.rule_id if finding is not None else None,
         instance_key=finding.instance_key if finding is not None else None,
         severity=(
-            finding.severity
-            if finding is not None
-            else expected.severity if expected else None
+            finding.severity if finding is not None else expected.severity if expected else None
         ),
         title=(
-            finding.title
-            if finding is not None
-            else expected.title_contains if expected else None
+            finding.title if finding is not None else expected.title_contains if expected else None
         ),
         source_tool=(
             finding.source_tool
             if finding is not None
-            else expected.source_tool if expected else None
+            else expected.source_tool
+            if expected
+            else None
         ),
         expected_id=expected_id,
         expected_rule_id=expected.rule_id if expected is not None else None,

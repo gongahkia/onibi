@@ -843,8 +843,12 @@ def test_explain_command_renders_candidate_statuses(tmp_path: Path) -> None:
             "suppression_reason": "accepted risk",
         }
     )
-    triaged_active = artifacts["triage"].findings[0].model_copy(  # type: ignore[attr-defined]
-        update={"finding": active, "triage_verdict": "true_positive", "triage_mode": "llm"}
+    triaged_active = (
+        artifacts["triage"]
+        .findings[0]
+        .model_copy(  # type: ignore[attr-defined]
+            update={"finding": active, "triage_verdict": "true_positive", "triage_mode": "llm"}
+        )
     )
     verification_attempt = VerificationAttempt(
         finding_id="finding-active",
@@ -975,8 +979,7 @@ def test_explain_command_can_emit_json(tmp_path: Path) -> None:
     assert payload["explanation"]["verification_state"]["state"] == "verified_confirmed"
     assert payload["explanation"]["confidence"]["model_version"] == "v1"
     assert (
-        payload["explanation"]["confidence"]["final_confidence"]
-        == payload["finding"]["confidence"]
+        payload["explanation"]["confidence"]["final_confidence"] == payload["finding"]["confidence"]
     )
     assert payload["finding"]["finding_id"] == "finding-001"
     assert "ownership" in payload["finding"]
@@ -1007,8 +1010,12 @@ def test_explain_command_json_includes_active_candidate_confidence_breakdown(
             ],
         }
     )
-    triaged_active = artifacts["triage"].findings[0].model_copy(  # type: ignore[attr-defined]
-        update={"finding": active, "triage_verdict": "true_positive", "triage_mode": "llm"}
+    triaged_active = (
+        artifacts["triage"]
+        .findings[0]
+        .model_copy(  # type: ignore[attr-defined]
+            update={"finding": active, "triage_verdict": "true_positive", "triage_mode": "llm"}
+        )
     )
     report = build_report(
         scan_result=artifacts["scan"],  # type: ignore[arg-type]

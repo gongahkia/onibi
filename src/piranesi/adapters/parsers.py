@@ -104,11 +104,7 @@ def _parse_sarif(*, payload: dict[str, Any], tool: ExternalTool) -> list[Externa
             tags = rule.get("properties", {}).get("tags") if isinstance(rule, dict) else None
             if isinstance(tags, list):
                 cwe_ids.extend(
-                    [
-                        tag
-                        for tag in tags
-                        if isinstance(tag, str) and tag.upper().startswith("CWE-")
-                    ]
+                    [tag for tag in tags if isinstance(tag, str) and tag.upper().startswith("CWE-")]
                 )
 
             location = _first_location(item)

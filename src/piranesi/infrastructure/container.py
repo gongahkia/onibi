@@ -103,9 +103,7 @@ def load_running_container_snapshots(path: str | Path) -> list[RunningContainerS
     else:
         raw_containers = payload if isinstance(payload, list) else [payload]
     return [
-        _parse_docker_container_payload(item)
-        for item in raw_containers
-        if isinstance(item, dict)
+        _parse_docker_container_payload(item) for item in raw_containers if isinstance(item, dict)
     ]
 
 
@@ -125,9 +123,9 @@ def parse_docker_inspect(payload: dict[str, Any]) -> RunningContainerSnapshot:
     ]
     return RunningContainerSnapshot(
         container_id=_string(payload.get("Id")) or _string(payload.get("ID")) or "unknown",
-        name=(
-            _string(payload.get("Name")) or _string(payload.get("Names")) or "unknown"
-        ).lstrip("/"),
+        name=(_string(payload.get("Name")) or _string(payload.get("Names")) or "unknown").lstrip(
+            "/"
+        ),
         image=_string(config.get("Image")) or _string(payload.get("Image")) or "unknown",
         image_id=_string(payload.get("ImageID")),
         privileged=bool(host_config.get("Privileged")),
@@ -320,8 +318,7 @@ def _image_findings(snapshot: ContainerImageSnapshot) -> list[InfrastructureFind
                     )
                 ],
                 remediation=(
-                    "Set a non-root USER in the image and ensure filesystem "
-                    "permissions support it."
+                    "Set a non-root USER in the image and ensure filesystem permissions support it."
                 ),
                 risk=_risk("medium", 0.8),
             )
@@ -342,8 +339,7 @@ def _running_container_findings(snapshot: RunningContainerSnapshot) -> list[Infr
                 resource=resource,
                 evidence=[EvidenceItem(source="docker", key="Privileged", value="true")],
                 remediation=(
-                    "Run the container without --privileged and grant only "
-                    "required capabilities."
+                    "Run the container without --privileged and grant only required capabilities."
                 ),
             )
         )
@@ -395,8 +391,7 @@ def _running_container_findings(snapshot: RunningContainerSnapshot) -> list[Infr
                         ),
                     ],
                     remediation=(
-                        "Remove host-sensitive mounts or make narrowly scoped "
-                        "read-only mounts."
+                        "Remove host-sensitive mounts or make narrowly scoped read-only mounts."
                     ),
                 )
             )
@@ -487,9 +482,7 @@ def _summary(findings: list[InfrastructureFinding]) -> dict[str, object]:
         "by_category": dict(sorted(by_category.items())),
         "risk": {
             "max_total": max(risk_totals) if risk_totals else 0.0,
-            "average_total": round(sum(risk_totals) / len(risk_totals), 2)
-            if risk_totals
-            else 0.0,
+            "average_total": round(sum(risk_totals) / len(risk_totals), 2) if risk_totals else 0.0,
         },
     }
 

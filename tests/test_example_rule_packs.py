@@ -33,12 +33,8 @@ def test_example_rule_packs_include_receiver_constrained_sinks() -> None:
     assert '.where(_.receiver.code("res|reply"))' in (
         rules["example-node-express-open-redirect"].sink_pattern or ""
     )
-    assert "(?:w|rw|writer)" in (
-        rules["example-go-nethttp-header-injection"].sink_pattern or ""
-    )
-    assert "(?:Kernel\\.)?" in (
-        rules["example-ruby-rails-command-injection"].sink_pattern or ""
-    )
+    assert "(?:w|rw|writer)" in (rules["example-go-nethttp-header-injection"].sink_pattern or "")
+    assert "(?:Kernel\\.)?" in (rules["example-ruby-rails-command-injection"].sink_pattern or "")
 
 
 def test_example_rule_packs_are_marked_as_examples() -> None:

@@ -37,9 +37,7 @@ def test_infer_launch_plan_detects_python_http_server_port(tmp_path: Path) -> No
     (tmp_path / "package.json").write_text(
         json.dumps(
             {
-                "scripts": {
-                    "start": "python3 -m http.server 8123 --bind 127.0.0.1"
-                },
+                "scripts": {"start": "python3 -m http.server 8123 --bind 127.0.0.1"},
                 "dependencies": {},
             }
         ),

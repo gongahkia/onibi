@@ -141,5 +141,5 @@ def test_redact_prompt_messages_redacts_nested_sensitive_mapping_keys() -> None:
     assert content["headers"]["Authorization"] == "[REDACTED]"
     assert content["headers"]["X-Trace-Id"] == "trace-123"
     assert content["body"]["profile"]["sessionToken"] == "[REDACTED]"
-    assert content["body"]["events"][0]["token"] == "[REDACTED]"
+    assert content["body"]["events"][0]["token"] == "[REDACTED]"  # noqa: S105
     assert content["body"]["events"][1]["note"] == "safe"

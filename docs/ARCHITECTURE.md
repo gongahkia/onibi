@@ -2,18 +2,35 @@
 
 ## 1. System Overview
 
-Piranesi is a CLI-native, BYOK cybersecurity analysis tool that scans TypeScript/JavaScript source code for security vulnerabilities using real inter-procedural taint analysis, generates verified exploits via SMT constraint solving and sandboxed execution, and maps confirmed findings to regulatory obligations via a datalog-style rule engine.
+Piranesi is a local-first evidence workbench for host, application, and
+infrastructure security review. The stable-alpha workflow collects and normalizes
+Linux host evidence from osquery, Trivy, Lynis, OpenSCAP, and bounded command
+output into evidence-bound posture reports. Compatibility workflows still support
+source-code scanning, verification, compliance mapping, and report generation for
+application review.
 
 ### Architectural Philosophy
 
-The system is a **pipeline of independent stages**, each implemented as a CLI subcommand. Each stage reads a structured JSON artifact produced by the prior stage and emits its own structured JSON artifact. This gives:
+The system is a set of **local artifact pipelines**, each exposed through CLI
+subcommands and inspectable JSON/Markdown outputs. Host posture, fleet,
+container, Kubernetes, and source-code workflows all follow the same bias:
+normalize supplied evidence, keep intermediate artifacts on disk, and make risk
+decisions auditable. This gives:
 
 - **Composability**: stages can be run independently, cached, retried, or replaced.
 - **Debuggability**: every intermediate artifact is inspectable JSON on disk.
 - **Testability**: each stage has a clean contract (input schema -> output schema) and can be tested in isolation with fixture data.
 - **Reproducibility**: deterministic hashing of findings means re-runs produce stable IDs.
 
-Python 3.12+. No daemon, no server, no GUI. CLI-first, structured output, BYOK for LLM providers.
+Python 3.12+. CLI-first, structured output, local UI optional. The web workbench
+is an on-demand loopback HTTP server for local report review and ZIP uploads; it
+is not a hosted service or background daemon. LLM-backed stages are BYOK and
+optional.
+
+The source-code pipeline details below describe the compatibility application
+security workflow. Host posture architecture is implemented under `host/` and
+uses `HostSnapshot`, `HostPostureReport`, fleet reports, policy gates,
+remediation planning, and local UI rendering as first-class surfaces.
 
 ---
 
@@ -35,6 +52,8 @@ graph TB
     end
 
     subgraph Pipeline["Pipeline Stages"]
+        HOST[host/]
+        INFRA[infrastructure/]
         SCAN[scan/]
         DETECT[detect/]
         TRIAGE[triage/]
@@ -42,6 +61,10 @@ graph TB
         LEGAL[legal/]
         PATCH[patch/]
         REPORT[report/]
+    end
+
+    subgraph LocalUI["Local Review UI"]
+        UISERVER[ui_server/]
     end
 
     subgraph Models["Data Models (pydantic)"]
@@ -69,13 +92,18 @@ graph TB
     CMD --> CFGLOAD
     CFGLOAD --> TOML
     CMD --> SCAN
+    CMD --> HOST
+    CMD --> INFRA
     CMD --> DETECT
     CMD --> TRIAGE
     CMD --> VERIFY
     CMD --> LEGAL
     CMD --> PATCH
     CMD --> REPORT
+    CMD --> UISERVER
 
+    HOST --> Models
+    INFRA --> Models
     SCAN --> TSC
     SCAN --> JOERN
     DETECT --> JOERN
@@ -107,19 +135,22 @@ graph TB
 | `cli.py` | typer entry point. Parses args, loads config, dispatches to stage runner. |
 | `config.py` | Reads `piranesi.toml`, merges with CLI overrides, validates via pydantic. |
 | `trace.py` | Appends structured `TraceEntry` records for every LLM call. JSON Lines format. |
+| `host/` | Host evidence ingestion, deterministic posture analysis, policy gates, remediation plans, fleet assessment, and host report rendering. |
+| `infrastructure/` | Local container image, running-container, and Kubernetes evidence normalization. |
+| `ui_server/` | On-demand local HTTP review workbench for host, fleet, source-code reports, and ZIP-upload application review. |
 | `scan/` | TS transpilation, Joern CPG import, source/sink queries, attack surface mapping. |
 | `detect/` | Data flow extraction via Joern CPGQL, path condition extraction, data category classification. |
 | `triage/` | Adversarial skeptic agent + ensemble FP discrimination via LLM. |
 | `verify/` | Path constraint -> Z3 solving -> concrete payload -> Docker sandbox execution. |
 | `legal/` | Forward-chaining datalog engine maps findings to regulatory obligations. |
 | `patch/` | LLM-generated patch + re-verification via reproducer. |
-| `report/` | Aggregates all artifacts into markdown report + PR body. |
+| `report/` | Aggregates source-code artifacts into markdown report + PR body. |
 | `llm/` | LiteLLM wrapper, cost-aware routing, calibrated ensembling. |
 | `models/` | Pydantic data models shared across all stages. The pipeline contracts. |
 
 ---
 
-## 3. Data Flow
+## 3. Source-Code Compatibility Data Flow
 
 ```
                           piranesi.toml
@@ -166,7 +197,11 @@ graph TB
 | `patch` | `verify.json` | `patch.json` | `list[PatchResult]` |
 | `report` | `legal.json` + `patch.json` | `report.md` + `pr_body.md` | `FinalReport` |
 
-All intermediate artifacts are written to `.piranesi/` in the project root by default (configurable via `output_dir` in `piranesi.toml`). JSON files use 2-space indentation for human readability.
+Source-code intermediate artifacts are written to the configured output
+directory. JSON files use 2-space indentation for human readability. Host,
+fleet, container, and Kubernetes workflows write their own report contracts such
+as `host-report.json`, `fleet-report.json`, `container-report.json`, and
+`k8s-report.json`.
 
 The `legal` and `patch` stages both consume `verify.json` independently and can run in parallel. `report` waits for both.
 

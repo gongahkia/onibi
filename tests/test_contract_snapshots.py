@@ -6,10 +6,7 @@ from pathlib import Path
 from piranesi.contracts import build_contract_snapshot
 
 _SNAPSHOT_PATH = (
-    Path(__file__).resolve().parent
-    / "snapshots"
-    / "contracts"
-    / "cli_plugin_report_contract.json"
+    Path(__file__).resolve().parent / "snapshots" / "contracts" / "cli_plugin_report_contract.json"
 )
 
 

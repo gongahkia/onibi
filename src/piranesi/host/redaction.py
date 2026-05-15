@@ -4,7 +4,7 @@ import copy
 import re
 from dataclasses import dataclass, field
 from ipaddress import ip_address
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -30,7 +30,7 @@ class RedactedPayload:
 @dataclass(slots=True)
 class _RedactionContext:
     policy: HostRedactionPolicy
-    registry: "_PlaceholderRegistry" = field(default_factory=lambda: _PlaceholderRegistry())
+    registry: _PlaceholderRegistry = field(default_factory=lambda: _PlaceholderRegistry())
     hostnames: set[str] = field(default_factory=set)
     usernames: set[str] = field(default_factory=set)
 
@@ -61,17 +61,13 @@ class _PlaceholderRegistry:
         )
 
 
-_EMAIL_PATTERN = re.compile(
-    r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b"
-)
+_EMAIL_PATTERN = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
 _MAC_PATTERN = re.compile(r"(?i)\b[0-9a-f]{2}(?::[0-9a-f]{2}){5}\b")
 _IPV4_PATTERN = re.compile(
     r"(?<![\w.])(?:25[0-5]|2[0-4]\d|1?\d?\d)"
     r"(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}(?![\w.])"
 )
-_IPV6_PATTERN = re.compile(
-    r"(?<![\w.])(?:[A-Fa-f0-9]{0,4}:){2,}[A-Fa-f0-9:.%]+(?![\w.])"
-)
+_IPV6_PATTERN = re.compile(r"(?<![\w.])(?:[A-Fa-f0-9]{0,4}:){2,}[A-Fa-f0-9:.%]+(?![\w.])")
 _HOME_PATH_PATTERN = re.compile(
     r"""(?x)
     (?<![\w])
@@ -132,7 +128,9 @@ def redact_host_llm_payload(
     )
 
 
-def _collect_known_values(value: object, *, path: tuple[str, ...], context: _RedactionContext) -> None:
+def _collect_known_values(
+    value: object, *, path: tuple[str, ...], context: _RedactionContext
+) -> None:
     if isinstance(value, dict):
         for key, item in value.items():
             _collect_known_values(item, path=(*path, str(key)), context=context)
@@ -201,11 +199,7 @@ def _redact_string(value: str, *, path: tuple[str, ...], context: _RedactionCont
 def _preserve_string(path: tuple[str, ...], policy: HostRedactionPolicy) -> bool:
     if len(path) >= 3 and path[-1] == "name" and path[-3] == "packages":
         return policy.preserve_package_names
-    if len(path) >= 3 and path[-1] == "name" and path[-3] == "services":
-        return True
-    if len(path) >= 3 and path[-1] == "name" and path[-3] == "processes":
-        return True
-    return False
+    return len(path) >= 3 and path[-1] == "name" and path[-3] in {"services", "processes"}
 
 
 def _redact_secrets(value: str, context: _RedactionContext) -> str:
@@ -285,9 +279,7 @@ def _redact_exact_values(
     for raw in sorted(values, key=len, reverse=True):
         if not raw:
             continue
-        pattern = re.compile(
-            rf"(?<![A-Za-z0-9_.-]){re.escape(raw)}(?![A-Za-z0-9_.-])"
-        )
+        pattern = re.compile(rf"(?<![A-Za-z0-9_.-]){re.escape(raw)}(?![A-Za-z0-9_.-])")
         rendered = pattern.sub(
             lambda match, raw_value=raw: context.registry.placeholder(category, raw_value),
             rendered,

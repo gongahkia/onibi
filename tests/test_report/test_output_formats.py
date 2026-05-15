@@ -211,9 +211,7 @@ def test_markdown_renders_ownership_context_and_finding_metadata(tmp_path: Path)
             repository="acme/identity",
             environment="staging",
             control_owner="grc-identity",
-            control_mappings=[
-                {"framework": "SOC2", "control": "CC6.6", "owner": "grc-controls"}
-            ],
+            control_mappings=[{"framework": "SOC2", "control": "CC6.6", "owner": "grc-controls"}],
         ),
     )
 

@@ -41,7 +41,7 @@ def test_discovers_js_sanitizers(tmp_path: Path) -> None:
 def test_discovers_python_sanitizers(tmp_path: Path) -> None:
     _write(
         tmp_path / "b.py",
-        "def sanitize_sql(x): return x.replace(\"'\", \"''\")\n"
+        'def sanitize_sql(x): return x.replace("\'", "\'\'")\n'
         "def validate_url(u): return u.startswith('http')\n"
         "def unrelated(): pass\n",
     )

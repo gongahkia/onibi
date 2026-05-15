@@ -193,9 +193,7 @@ def test_public_redis_ranks_above_missing_trivy_coverage() -> None:
 def test_public_ssh_password_auth_ranks_above_ssh_public_alone() -> None:
     snapshot = HostSnapshot(
         identity=HostIdentity(hostname="ssh-risk-vm"),
-        listening_ports=[
-            ListeningPort(protocol="tcp", address="8.8.8.8", port=22, process="sshd")
-        ],
+        listening_ports=[ListeningPort(protocol="tcp", address="8.8.8.8", port=22, process="sshd")],
         config={"ssh": {"PasswordAuthentication": "yes", "PermitRootLogin": "no"}},
     )
 
@@ -230,9 +228,7 @@ def test_local_kev_epss_intel_raises_cve_exploitability() -> None:
     }
     enriched = analyze_snapshot(snapshot.model_copy(update={"raw_evidence": raw_evidence}))
 
-    base_cve = next(
-        finding for finding in base.findings if finding.cve_ids == ["CVE-2023-0464"]
-    )
+    base_cve = next(finding for finding in base.findings if finding.cve_ids == ["CVE-2023-0464"])
     enriched_cve = next(
         finding for finding in enriched.findings if finding.cve_ids == ["CVE-2023-0464"]
     )
@@ -254,7 +250,9 @@ def test_coverage_findings_do_not_dominate_top_actions() -> None:
     report = analyze_snapshot(snapshot)
 
     assert report.top_actions[0]["category"] == "exposure"
-    coverage_action = next(action for action in report.top_actions if action["category"] == "coverage")
+    coverage_action = next(
+        action for action in report.top_actions if action["category"] == "coverage"
+    )
     assert float(coverage_action["risk_total"]) < float(report.top_actions[0]["risk_total"])
 
 
@@ -296,7 +294,9 @@ def test_host_control_registry_covers_known_rule_ids_or_documents_no_map() -> No
         "host.coverage.llm_unavailable",
     }
 
-    missing = [rule_id for rule_id in sorted(known_rule_ids) if not host_control_mapping_status(rule_id)]
+    missing = [
+        rule_id for rule_id in sorted(known_rule_ids) if not host_control_mapping_status(rule_id)
+    ]
 
     assert missing == []
 
@@ -309,18 +309,17 @@ def test_host_findings_include_structured_control_mappings() -> None:
     assert "CIS Ubuntu Linux" in report.control_summary["frameworks"]
 
     root_login = next(
-        finding for finding in report.findings
-        if finding.rule_id == "host.ssh.permit_root_login"
+        finding for finding in report.findings if finding.rule_id == "host.ssh.permit_root_login"
     )
     assert root_login.control_refs == ["CIS Ubuntu Linux: Disable SSH root login"]
     assert any(
-        control.framework == "CIS Ubuntu Linux"
-        and control.mapping_confidence >= 0.7
+        control.framework == "CIS Ubuntu Linux" and control.mapping_confidence >= 0.7
         for control in root_login.structured_control_refs
     )
 
     redis = next(
-        finding for finding in report.findings
+        finding
+        for finding in report.findings
         if finding.rule_id == "host.listener.high_risk_service"
     )
     assert any(
@@ -332,7 +331,8 @@ def test_host_findings_include_structured_control_mappings() -> None:
 def test_coverage_findings_map_to_visibility_controls() -> None:
     report = analyze_snapshot(HostSnapshot(identity=HostIdentity(hostname="coverage-vm")))
     coverage = [
-        finding for finding in report.findings
+        finding
+        for finding in report.findings
         if finding.rule_id in {"host.coverage.missing_evidence", "host.coverage.missing_trivy"}
     ]
 
@@ -476,9 +476,7 @@ def test_fleet_assess_treat_private_as_public(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.stdout
     host_report = json.loads(
-        (output_dir / "hosts" / "vm-private" / "host-report.json").read_text(
-            encoding="utf-8"
-        )
+        (output_dir / "hosts" / "vm-private" / "host-report.json").read_text(encoding="utf-8")
     )
     titles = {finding["title"] for finding in host_report["findings"]}
     assert "Redis is listening on a public interface" in titles
@@ -544,13 +542,8 @@ def test_weak_kernel_hardening_hypothesis_requires_public_service_and_patch_gap(
 
     report = build_host_hypothesis_report(snapshot)
 
-    assert any(
-        "Weak kernel hardening" in hypothesis.title
-        for hypothesis in report.hypotheses
-    )
-    hypothesis = next(
-        item for item in report.hypotheses if "Weak kernel hardening" in item.title
-    )
+    assert any("Weak kernel hardening" in hypothesis.title for hypothesis in report.hypotheses)
+    hypothesis = next(item for item in report.hypotheses if "Weak kernel hardening" in item.title)
     assert hypothesis.hypothesis_type == "novel_attack_path"
     assert hypothesis.must_not_treat_as_finding is True
 
@@ -663,7 +656,7 @@ def test_host_finding_ids_are_stable_for_service_port_and_sysctl_value_changes(
             "listening_ports": [
                 ListeningPort(
                     protocol="tcp",
-                    address="0.0.0.0",
+                    address="0.0.0.0",  # noqa: S104
                     port=6379,
                     process="redis-server",
                     pid=944,
@@ -678,7 +671,7 @@ def test_host_finding_ids_are_stable_for_service_port_and_sysctl_value_changes(
             "listening_ports": [
                 ListeningPort(
                     protocol="tcp",
-                    address="0.0.0.0",
+                    address="0.0.0.0",  # noqa: S104
                     port=6380,
                     process="redis-server",
                     pid=944,
@@ -697,9 +690,7 @@ def test_host_finding_ids_are_stable_for_service_port_and_sysctl_value_changes(
     assert first_redis.id == second_redis.id
     assert first_redis.rule_id == "host.listener.high_risk_service"
     first_sysctl = next(
-        finding
-        for finding in first.findings
-        if finding.affected_component == "net.ipv4.ip_forward"
+        finding for finding in first.findings if finding.affected_component == "net.ipv4.ip_forward"
     )
     assert first_sysctl.id == "host-" + first_sysctl.id.removeprefix("host-")
     assert first_sysctl.instance_key == "net.ipv4.ip_forward"
@@ -726,8 +717,7 @@ def test_assess_applies_host_id_suppression_and_fail_severity_ignores_it(
     (tmp_path / ".piranesi-ignore").write_text(
         "suppressions:\n"
         + "".join(
-            f"  - id: {finding.id}\n    reason: accepted risk\n"
-            for finding in high_findings
+            f"  - id: {finding.id}\n    reason: accepted risk\n" for finding in high_findings
         ),
         encoding="utf-8",
     )
@@ -807,7 +797,7 @@ def test_public_listener_classification_defaults_and_private_override(tmp_path: 
         "192.168.1.5",
         "169.254.1.5",
         "fc00::1",
-        "0.0.0.0",
+        "0.0.0.0",  # noqa: S104
         "::",
         "8.8.8.8",
         "2001:4860:4860::8888",
@@ -840,7 +830,7 @@ def test_public_listener_classification_defaults_and_private_override(tmp_path: 
         for finding in lab_report.findings
         if finding.title == "Redis is listening on a public interface"
     }
-    assert default_addresses == {"0.0.0.0", "::", "8.8.8.8", "2001:4860:4860::8888"}
+    assert default_addresses == {"0.0.0.0", "::", "8.8.8.8", "2001:4860:4860::8888"}  # noqa: S104
     assert {"10.0.0.5", "172.16.0.5", "192.168.1.5", "fc00::1"} <= lab_addresses
 
 
@@ -1071,8 +1061,7 @@ def test_missing_sysctl_evidence_does_not_create_sysctl_findings(tmp_path: Path)
 
     assert "sysctl" not in report.snapshot.config
     assert not any(
-        finding.affected_component
-        and finding.affected_component.startswith(("net.", "kernel."))
+        finding.affected_component and finding.affected_component.startswith(("net.", "kernel."))
         for finding in report.findings
     )
 
@@ -1129,8 +1118,7 @@ def test_collect_host_evidence_writes_snapshot_manifest_and_raw_layout(tmp_path:
     assert assessed.collection_health.required["osquery"].status == "ok"
     assert assessed.collection_health.optional["trivy"].status == "warn"
     assert not any(
-        finding.title == "Missing Trivy vulnerability evidence"
-        for finding in assessed.findings
+        finding.title == "Missing Trivy vulnerability evidence" for finding in assessed.findings
     )
     assert not any(
         command["name"]
@@ -1516,8 +1504,8 @@ def _sensitive_llm_snapshot() -> HostSnapshot:
             ServiceState(name="ssh.service", enabled=True, running=True, source="osquery"),
         ],
         users=[
-            UserAccount(username="root", uid=0, gid=0, shell="/bin/bash", groups=["root"]),
-            UserAccount(
+            UserAccount(username="root", uid=0, gid=0, shell="/bin/bash", groups=["root"]),  # noqa: S604
+            UserAccount(  # noqa: S604
                 username="deployer",
                 uid=1001,
                 gid=1001,
@@ -1796,6 +1784,7 @@ def test_load_openscap_only_evidence_and_analyze(tmp_path: Path) -> None:
         json.dumps([{"hostname": "scap-vm"}]), encoding="utf-8"
     )
     import shutil
+
     shutil.copy2(BASELINE_FIXTURES / "openscap" / "results.xml", openscap_dir / "results.xml")
 
     snapshot = load_host_input(tmp_path)
@@ -1834,13 +1823,9 @@ def test_passed_baseline_checks_do_not_become_findings() -> None:
     snapshot = load_host_input(BASELINE_FIXTURES)
     report = analyze_snapshot(snapshot)
 
-    baseline_finding_ids = {
-        f.instance_key for f in report.findings if f.category == "baseline"
-    }
+    baseline_finding_ids = {f.instance_key for f in report.findings if f.category == "baseline"}
     passed_ids = {
-        f"{c.source}:{c.check_id}"
-        for c in snapshot.baseline_checks
-        if c.result == "pass"
+        f"{c.source}:{c.check_id}" for c in snapshot.baseline_checks if c.result == "pass"
     }
     assert not (baseline_finding_ids & passed_ids)
 
@@ -1850,14 +1835,15 @@ def test_openscap_control_refs_preserved() -> None:
     report = analyze_snapshot(snapshot)
 
     scap_findings = [
-        f for f in report.findings
-        if f.source_tool == "openscap" and f.category == "baseline"
+        f for f in report.findings if f.source_tool == "openscap" and f.category == "baseline"
     ]
     refs_found = set()
     structured_found = set()
     for f in scap_findings:
         refs_found.update(f.control_refs)
-        structured_found.update((ref.framework, ref.control_id) for ref in f.structured_control_refs)
+        structured_found.update(
+            (ref.framework, ref.control_id) for ref in f.structured_control_refs
+        )
     assert any("CCE-" in r or "CIS-" in r for r in refs_found)
     assert ("OpenSCAP XCCDF", "xccdf_org.example_rule_password_max_age") in structured_found
     assert ("Common Configuration Enumeration", "CCE-27051-2") in structured_found
@@ -1912,9 +1898,7 @@ def test_assess_cli_baseline_fixture(tmp_path: Path) -> None:
     assert (output_dir / "host-report.json").is_file()
     payload = json.loads((output_dir / "host-report.json").read_text(encoding="utf-8"))
     assert payload["target"] == "baseline-vm"
-    assert any(
-        f["category"] == "baseline" for f in payload["findings"]
-    )
+    assert any(f["category"] == "baseline" for f in payload["findings"])
 
 
 # ---------------------------------------------------------------------------
@@ -1922,6 +1906,7 @@ def test_assess_cli_baseline_fixture(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 AUTH_FIXTURES = FIXTURES / "auth-evidence"
+
 
 def test_auth_evidence_parsing_and_findings():
     from piranesi.host.analyze import deterministic_findings
@@ -1934,7 +1919,9 @@ def test_auth_evidence_parsing_and_findings():
     assert session.username == "admin"
     assert session.source == "192.168.1.100"
 
-    assert sum(e.count for e in snapshot.auth_event_summaries if e.event_type == "login_failure") == 51
+    assert (
+        sum(e.count for e in snapshot.auth_event_summaries if e.event_type == "login_failure") == 51
+    )
     assert any(e.event_type == "ssh_root_login" for e in snapshot.auth_event_summaries)
     assert any(e.event_type == "sudo_command" for e in snapshot.auth_event_summaries)
 
@@ -1951,7 +1938,10 @@ def test_auth_evidence_parsing_and_findings():
 def test_auth_redaction_removes_secrets():
     from piranesi.host.ingest import redact_auth_value
 
-    sudo_log = "admin : TTY=pts/0 ; PWD=/home/admin ; USER=root ; COMMAND=/usr/bin/cat /etc/shadow password=mysecret"
+    sudo_log = (
+        "admin : TTY=pts/0 ; PWD=/home/admin ; USER=root ; "
+        "COMMAND=/usr/bin/cat /etc/shadow password=mysecret"
+    )
     redacted = redact_auth_value(sudo_log)
     assert "mysecret" not in redacted
     assert "[REDACTED]" in redacted
@@ -1978,7 +1968,10 @@ def test_missing_auth_logs_creates_warning_not_finding():
     findings = deterministic_findings(snapshot)
 
     # Missing auth logs should not create a finding
-    assert not any(f.rule_id == "host.evidence.missing" and f.affected_component == "auth_evidence" for f in findings)
+    assert not any(
+        f.rule_id == "host.evidence.missing" and f.affected_component == "auth_evidence"
+        for f in findings
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2049,10 +2042,7 @@ def test_executor_rejects_unknown_probe_ids(tmp_path: Path) -> None:
     assert result.rejected == 1
     assert result.executed == 0
     # verify manifest records the rejection
-    assert any(
-        "REJECTED" in (cmd.stderr or "")
-        for cmd in result.manifest.commands
-    )
+    assert any("REJECTED" in (cmd.stderr or "") for cmd in result.manifest.commands)
 
 
 def test_executor_rejects_modified_command(tmp_path: Path) -> None:
@@ -2118,7 +2108,9 @@ def test_executor_writes_manifest_and_followup_dir(tmp_path: Path) -> None:
     assert (tmp_path / "raw" / "followup" / "last_logins.json").is_file()
     # verify manifest has the executed command
     manifest = json.loads((tmp_path / "collection-manifest.json").read_text(encoding="utf-8"))
-    assert any(cmd["name"] == "last_logins" and cmd["status"] == "ok" for cmd in manifest["commands"])
+    assert any(
+        cmd["name"] == "last_logins" and cmd["status"] == "ok" for cmd in manifest["commands"]
+    )
 
 
 def test_probe_plan_is_json_serializable() -> None:

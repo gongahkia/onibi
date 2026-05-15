@@ -35,9 +35,12 @@ def test_cve_function_data_missing_file_falls_back_to_empty_map(
     dep_reachability._load_cve_function_maps.cache_clear()
 
     try:
-        assert dep_reachability._curated_targets_for_finding(
-            "lodash",
-            ["CVE-2021-23337"],
-        ) == ()
+        assert (
+            dep_reachability._curated_targets_for_finding(
+                "lodash",
+                ["CVE-2021-23337"],
+            )
+            == ()
+        )
     finally:
         dep_reachability._load_cve_function_maps.cache_clear()

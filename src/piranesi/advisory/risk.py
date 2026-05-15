@@ -46,9 +46,7 @@ def advisory_priority_signal(advisory: Advisory) -> AdvisoryPrioritySignal:
         else:
             score = 3.5
         precedence = "epss_v4"
-        reason = (
-            f"EPSS v4 probability {epss:.3f} used as primary exploit-likelihood signal"
-        )
+        reason = f"EPSS v4 probability {epss:.3f} used as primary exploit-likelihood signal"
     elif advisory.cvss_score is not None:
         cvss = float(advisory.cvss_score)
         if cvss >= 9.0:
@@ -59,10 +57,7 @@ def advisory_priority_signal(advisory: Advisory) -> AdvisoryPrioritySignal:
             score = 5.0
         else:
             score = 3.5
-        if cvss_version == "4.0":
-            precedence = "cvss_v4"
-        else:
-            precedence = "cvss_legacy"
+        precedence = "cvss_v4" if cvss_version == "4.0" else "cvss_legacy"
         reason = (
             f"CVSS {cvss_version or 'unknown'} base score {cvss:.1f} used as primary impact signal"
         )
@@ -77,7 +72,9 @@ def advisory_priority_signal(advisory: Advisory) -> AdvisoryPrioritySignal:
         else:
             score = 3.0
         precedence = "severity"
-        reason = f"fallback to advisory severity '{severity}' due missing CVSS/EPSS/exploit telemetry"
+        reason = (
+            f"fallback to advisory severity '{severity}' due missing CVSS/EPSS/exploit telemetry"
+        )
     return AdvisoryPrioritySignal(
         score=score,
         tier=_priority_tier(score),

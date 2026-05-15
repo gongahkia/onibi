@@ -33,9 +33,7 @@ def test_public_service_finding() -> None:
     report = assess_kubernetes_snapshot(snapshot)
 
     public = [
-        finding
-        for finding in report.findings
-        if finding.rule_id == "k8s.service.public_exposure"
+        finding for finding in report.findings if finding.rule_id == "k8s.service.public_exposure"
     ]
     assert len(public) == 1
     assert public[0].affected_resource == "default/Service/risky-web"
@@ -46,4 +44,3 @@ def test_fixture_tests_require_no_external_cluster() -> None:
 
     assert snapshot.source.endswith("tests/fixtures/k8s")
     assert snapshot.raw_evidence["resource_count"] == 2
-

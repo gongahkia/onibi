@@ -3906,7 +3906,8 @@ def ui(
     if workbench:
         if host == "0.0.0.0":  # noqa: S104 - explicit opt-in bind with warning.
             typer.echo(
-                "warning: binding to 0.0.0.0 exposes the local review UI on the network.",
+                "warning: binding to 0.0.0.0 exposes the unauthenticated local review UI "
+                "on the network; use only behind a trusted access-control layer.",
                 err=True,
             )
         try:
@@ -3936,15 +3937,15 @@ def ui(
     if report_path is not None:
         if host == "0.0.0.0":  # noqa: S104 - explicit opt-in bind with warning.
             typer.echo(
-                "warning: binding to 0.0.0.0 exposes the local review UI on the network.",
+                "warning: binding to 0.0.0.0 exposes the unauthenticated local review UI "
+                "on the network; use only behind a trusted access-control layer.",
                 err=True,
             )
         try:
             if not _interactive_tty_available() and not open_browser:
                 state = load_report_state(report_path, watch=watch)
                 typer.echo(
-                    f"loaded {state.report_type} report: "
-                    f"{state.report_path.resolve(strict=False)}"
+                    f"loaded {state.report_type} report: {state.report_path.resolve(strict=False)}"
                 )
                 typer.echo(f"local UI would bind to http://{host}:{port}")
                 return

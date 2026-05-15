@@ -126,9 +126,7 @@ def collect_kubernetes_api_snapshot(
     payload = json.loads(result.stdout)
     items = payload.get("items") if isinstance(payload, dict) else None
     documents = (
-        [item for item in items if isinstance(item, dict)]
-        if isinstance(items, list)
-        else []
+        [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
     )
     return snapshot_from_kubernetes_documents(documents, source="kubernetes-api")
 
@@ -461,9 +459,7 @@ def _summary(findings: list[InfrastructureFinding]) -> dict[str, object]:
         "by_category": dict(sorted(by_category.items())),
         "risk": {
             "max_total": max(risk_totals) if risk_totals else 0.0,
-            "average_total": round(sum(risk_totals) / len(risk_totals), 2)
-            if risk_totals
-            else 0.0,
+            "average_total": round(sum(risk_totals) / len(risk_totals), 2) if risk_totals else 0.0,
         },
     }
 

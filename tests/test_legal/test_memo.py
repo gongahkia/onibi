@@ -29,9 +29,7 @@ def test_assess_finding_renders_pdpa_mas_and_ccpa_memo_for_fintech_sqli() -> Non
     assert pdpa_standard.evidence_role == "compliance_support"
     assert pdpa_standard.mapping_metadata is not None
     assert pdpa_standard.mapping_metadata.control_id == pdpa_standard.section
-    assert pdpa_standard.mapping_metadata.framework_name.startswith(
-        "Personal Data Protection Act"
-    )
+    assert pdpa_standard.mapping_metadata.framework_name.startswith("Personal Data Protection Act")
     assert pdpa_standard.mapping_metadata.last_reviewed == "2026-04-16"
     assert pdpa_standard.mapping_metadata.reviewer == "Piranesi compliance maintainers"
     assert pdpa_standard.mapping_metadata.source is not None

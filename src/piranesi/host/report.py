@@ -1,3 +1,5 @@
+# ruff: noqa: E501
+
 from __future__ import annotations
 
 import json
@@ -101,7 +103,8 @@ def render_host_markdown(report: HostPostureReport) -> str:
         lines.append(f"- {key}: {count}")
 
     auth_metadata = {
-        k: v for k, v in report.host_metadata.items()
+        k: v
+        for k, v in report.host_metadata.items()
         if k in {"active_sessions_count", "auth_event_summary_count", "failed_ssh_attempt_count"}
     }
     if any(v for v in auth_metadata.values() if isinstance(v, int) and v > 0):
@@ -117,8 +120,7 @@ def render_host_markdown(report: HostPostureReport) -> str:
         lines.append(f"- Redacted values: {report.llm_redaction.redacted_value_count}")
         if report.llm_redaction.categories:
             rendered = ", ".join(
-                f"{key}={value}"
-                for key, value in sorted(report.llm_redaction.categories.items())
+                f"{key}={value}" for key, value in sorted(report.llm_redaction.categories.items())
             )
             lines.append(f"- Categories: {rendered}")
 
@@ -199,10 +201,7 @@ def _decision_statement(report: HostPostureReport) -> str:
     if highest in {"critical", "high"} or max_risk >= 70:
         return "Prioritize remediation before treating this host as production-ready."
     if highest == "medium" or max_risk >= 50:
-        return (
-            "Review and schedule remediation; risk is material but bounded by "
-            "supplied evidence."
-        )
+        return "Review and schedule remediation; risk is material but bounded by supplied evidence."
     return (
         "Track low-risk cleanup and close evidence gaps before relying on this "
         "as a clean bill of health."
@@ -379,10 +378,7 @@ def _policy_lines(report: HostPostureReport) -> list[str]:
     ]
     if report.policy_gate_results:
         for gate in report.policy_gate_results:
-            lines.append(
-                "- "
-                f"`{gate.get('status')}` `{gate.get('gate_id')}`: {gate.get('message')}"
-            )
+            lines.append(f"- `{gate.get('status')}` `{gate.get('gate_id')}`: {gate.get('message')}")
             finding_ids = gate.get("finding_ids")
             if isinstance(finding_ids, list) and finding_ids:
                 lines.append(f"  findings: {', '.join(str(item) for item in finding_ids)}")
@@ -392,9 +388,7 @@ def _policy_lines(report: HostPostureReport) -> list[str]:
     if report.required_evidence_status:
         for evidence in report.required_evidence_status:
             lines.append(
-                "- "
-                f"`{evidence.get('status')}` `{evidence.get('name')}`: "
-                f"{evidence.get('message')}"
+                f"- `{evidence.get('status')}` `{evidence.get('name')}`: {evidence.get('message')}"
             )
     else:
         lines.append("No required evidence checks were configured.")
@@ -415,19 +409,14 @@ def _fleet_policy_lines(report: FleetReport) -> list[str]:
     ]
     if report.policy_gate_results:
         for gate in report.policy_gate_results:
-            lines.append(
-                "- "
-                f"`{gate.get('status')}` `{gate.get('gate_id')}`: {gate.get('message')}"
-            )
+            lines.append(f"- `{gate.get('status')}` `{gate.get('gate_id')}`: {gate.get('message')}")
     else:
         lines.append("No fleet policy gates were configured.")
     lines.extend(["", "### Required Evidence", ""])
     if report.required_evidence_status:
         for evidence in report.required_evidence_status:
             lines.append(
-                "- "
-                f"`{evidence.get('status')}` `{evidence.get('name')}`: "
-                f"{evidence.get('message')}"
+                f"- `{evidence.get('status')}` `{evidence.get('name')}`: {evidence.get('message')}"
             )
     else:
         lines.append("No required evidence checks were configured.")
@@ -506,8 +495,7 @@ def render_host_hypotheses_markdown(report: HostHypothesisReport) -> str:
         lines.append(f"- Redacted values: {report.llm_redaction.redacted_value_count}")
         if report.llm_redaction.categories:
             rendered = ", ".join(
-                f"{key}={value}"
-                for key, value in sorted(report.llm_redaction.categories.items())
+                f"{key}={value}" for key, value in sorted(report.llm_redaction.categories.items())
             )
             lines.append(f"- Categories: {rendered}")
         lines.append("")
@@ -797,7 +785,9 @@ def _render_value(value: object) -> str:
     return str(value)
 
 
-def _paginate_pdf_lines(lines: list[str], *, width: int = 92, per_page: int = 48) -> list[list[str]]:
+def _paginate_pdf_lines(
+    lines: list[str], *, width: int = 92, per_page: int = 48
+) -> list[list[str]]:
     wrapped: list[str] = []
     for line in lines:
         wrapped.extend(_wrap_pdf_line(line, width=width))
@@ -849,7 +839,13 @@ def _build_simple_pdf(pages: list[list[str]]) -> bytes:
                 f"/Resources << /Font << /F1 3 0 R >> >> /Contents {content_number} 0 R >>"
             ).encode()
         )
-        objects.append(b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream")
+        objects.append(
+            b"<< /Length "
+            + str(len(content)).encode()
+            + b" >>\nstream\n"
+            + content
+            + b"\nendstream"
+        )
     return _assemble_pdf(objects)
 
 
@@ -879,8 +875,7 @@ def _assemble_pdf(objects: list[bytes]) -> bytes:
     xref = [f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode()]
     xref.extend(f"{offset:010d} 00000 n \n".encode() for offset in offsets)
     trailer = (
-        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
-        f"startxref\n{xref_start}\n%%EOF\n"
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_start}\n%%EOF\n"
     ).encode()
     return b"".join([*chunks, *xref, trailer])
 

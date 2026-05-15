@@ -243,11 +243,7 @@ def diff_result_payload(diff_result: DiffResult) -> dict[str, object]:
 
 def new_findings_at_or_above(diff_result: DiffResult, *, minimum_severity: str) -> list[Finding]:
     threshold = _severity_rank(minimum_severity)
-    return [
-        finding
-        for finding in diff_result.new
-        if _severity_rank(finding.severity) >= threshold
-    ]
+    return [finding for finding in diff_result.new if _severity_rank(finding.severity) >= threshold]
 
 
 def stable_fingerprint(finding: CandidateFinding) -> str:

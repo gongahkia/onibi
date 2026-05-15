@@ -21,7 +21,9 @@ def test_nvd_parse_cve_item_extracts_cvss_and_cwe() -> None:
                         "baseSeverity": "CRITICAL",
                         "cvssData": {
                             "baseScore": 9.8,
-                            "vectorString": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H",
+                            "vectorString": (
+                                "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H"
+                            ),
                         },
                     }
                 ],
@@ -33,7 +35,7 @@ def test_nvd_parse_cve_item_extracts_cvss_and_cwe() -> None:
                             "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
                         },
                     }
-                ]
+                ],
             },
             "configurations": [
                 {

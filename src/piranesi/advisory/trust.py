@@ -238,7 +238,7 @@ def load_trust_key(path: Path) -> bytes:
 
 
 def _snapshot_signature_digest(snapshot_sha256: str, file_size_bytes: int) -> bytes:
-    return f"{snapshot_sha256}:{file_size_bytes}".encode("utf-8")
+    return f"{snapshot_sha256}:{file_size_bytes}".encode()
 
 
 def _hmac_sign(message: bytes, key: str | bytes) -> str:

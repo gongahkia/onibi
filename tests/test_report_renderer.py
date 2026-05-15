@@ -59,8 +59,7 @@ def test_report_renderer_writes_expected_structure(tmp_path: Path) -> None:
         == "matched finding CWE CWE-89 [carriers=body; route=POST /login]"
     )
     assert (
-        payload["findings"][0]["explanation"]["verification_state"]["state"]
-        == "verified_confirmed"
+        payload["findings"][0]["explanation"]["verification_state"]["state"] == "verified_confirmed"
     )
     assert payload["findings"][0]["explanation"]["confidence"]["model_version"] == "v1"
     assert (
@@ -121,9 +120,10 @@ def test_composite_risk_score_increases_when_finding_is_verified(tmp_path: Path)
         stage_timings_s={"scan": 0.1, "detect": 0.1, "report": 0.1},
     )
 
-    assert static_report.active_findings[0].composite_risk_score < confirmed_report.findings[
-        0
-    ].composite_risk_score
+    assert (
+        static_report.active_findings[0].composite_risk_score
+        < confirmed_report.findings[0].composite_risk_score
+    )
     assert static_report.active_findings[0].composite_risk_band in {"medium", "high"}
     assert confirmed_report.findings[0].composite_risk_band in {"high", "critical"}
 
@@ -386,12 +386,16 @@ def test_report_renderer_exposes_evidence_status_levels(tmp_path: Path) -> None:
             "suppression_reason": "accepted risk",
         }
     )
-    triaged_active = artifacts["triage"].findings[0].model_copy(  # type: ignore[attr-defined]
-        update={
-            "finding": active,
-            "triage_verdict": "true_positive",
-            "triage_mode": "llm",
-        }
+    triaged_active = (
+        artifacts["triage"]
+        .findings[0]
+        .model_copy(  # type: ignore[attr-defined]
+            update={
+                "finding": active,
+                "triage_verdict": "true_positive",
+                "triage_mode": "llm",
+            }
+        )
     )
 
     report = build_report(
@@ -440,12 +444,16 @@ def test_report_renderer_exposes_evidence_status_levels(tmp_path: Path) -> None:
 def test_report_renderer_keeps_deterministic_triage_as_static_candidate(tmp_path: Path) -> None:
     artifacts = fixture_artifacts(tmp_path)
     active = artifacts["detect"].findings[0].model_copy(update={"id": "finding-static"})  # type: ignore[attr-defined]
-    deterministic_triaged = artifacts["triage"].findings[0].model_copy(  # type: ignore[attr-defined]
-        update={
-            "finding": active,
-            "triage_verdict": "true_positive",
-            "triage_mode": "deterministic",
-        }
+    deterministic_triaged = (
+        artifacts["triage"]
+        .findings[0]
+        .model_copy(  # type: ignore[attr-defined]
+            update={
+                "finding": active,
+                "triage_verdict": "true_positive",
+                "triage_mode": "deterministic",
+            }
+        )
     )
     report = build_report(
         scan_result=artifacts["scan"],  # type: ignore[arg-type]
@@ -467,15 +475,23 @@ def test_report_renderer_includes_verification_skip_reason_and_preconditions(
     tmp_path: Path,
 ) -> None:
     artifacts = fixture_artifacts(tmp_path)
-    active = artifacts["detect"].findings[0].model_copy(  # type: ignore[attr-defined]
-        update={"id": "finding-active"}
+    active = (
+        artifacts["detect"]
+        .findings[0]
+        .model_copy(  # type: ignore[attr-defined]
+            update={"id": "finding-active"}
+        )
     )
-    triaged = artifacts["triage"].findings[0].model_copy(  # type: ignore[attr-defined]
-        update={
-            "finding": active,
-            "triage_verdict": "true_positive",
-            "triage_mode": "deterministic",
-        }
+    triaged = (
+        artifacts["triage"]
+        .findings[0]
+        .model_copy(  # type: ignore[attr-defined]
+            update={
+                "finding": active,
+                "triage_verdict": "true_positive",
+                "triage_mode": "deterministic",
+            }
+        )
     )
     launch_log_path = str(tmp_path / "verify-launch.log")
     screenshot_path = str(tmp_path / "verify-screen.png")
@@ -567,8 +583,7 @@ def test_report_renderer_includes_verification_skip_reason_and_preconditions(
     assert verification_state["missing_preconditions"] == ["route_mapping"]
     assert verification_state["rich_evidence"]["attempted_route"] == "/search"
     assert (
-        verification_state["rich_evidence"]["response_diff_summary"]["status_code_changed"]
-        is True
+        verification_state["rich_evidence"]["response_diff_summary"]["status_code_changed"] is True
     )
     assert verification_state["rich_evidence"]["redaction_status"]["applied"] is True
     assert verification_state["evidence_artifact_path"].endswith("finding-active.json")

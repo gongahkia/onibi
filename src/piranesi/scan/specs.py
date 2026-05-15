@@ -360,9 +360,7 @@ BUILTIN_SINK_SPECS: tuple[SinkSpec, ...] = (
     ),
     SinkSpec(
         name="mongodb_where_chain",
-        pattern=(
-            'cpg.call.name("[$]where|where").code(".*[.][$]?where[(].*")'
-        ),
+        pattern=('cpg.call.name("[$]where|where").code(".*[.][$]?where[(].*")'),
         sink_type=SinkType.NOSQL_QUERY,
         cwe_id="CWE-943",
         severity="critical",

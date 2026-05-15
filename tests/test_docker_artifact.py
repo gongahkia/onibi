@@ -25,7 +25,7 @@ def test_dockerignore_excludes_large_dev_context() -> None:
 
 def test_docker_smoke_script_exists() -> None:
     root = Path(__file__).resolve().parents[1]
-    script = (root / "scripts" / "docker_smoke_check.sh")
+    script = root / "scripts" / "docker_smoke_check.sh"
     payload = script.read_text(encoding="utf-8")
 
     assert script.exists()

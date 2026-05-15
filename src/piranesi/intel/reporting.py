@@ -23,11 +23,7 @@ class EnrichmentReportSummary(BaseModel):
 
 def build_enrichment_summary(bundle: NormalizationBundle) -> EnrichmentReportSummary:
     severity_counts = Counter(item.severity for item in bundle.findings)
-    cwe_counts = Counter(
-        cwe
-        for finding in bundle.findings
-        for cwe in finding.cwe_ids
-    )
+    cwe_counts = Counter(cwe for finding in bundle.findings for cwe in finding.cwe_ids)
     trust_score = bundle.findings[0].trust_score if bundle.findings else 0.0
     stale_score = bundle.findings[0].staleness_score if bundle.findings else 0.0
     return EnrichmentReportSummary(

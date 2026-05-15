@@ -335,11 +335,7 @@ def _parse_regex_char_class(pattern: str, index: int) -> tuple[z3.ReRef | None, 
             items.append(z3.Range(left, right))
             index = next_index
             continue
-        item = (
-            _regex_shorthand(left[1:])
-            if left.startswith("\\")
-            else z3.Re(z3.StringVal(left))
-        )
+        item = _regex_shorthand(left[1:]) if left.startswith("\\") else z3.Re(z3.StringVal(left))
         if item is None:
             return None, index
         items.append(item)
@@ -566,9 +562,7 @@ def _regex_sequence_excludes_char(pattern: str, forbidden: str) -> bool:
     return True
 
 
-def _regex_atom_excludes_char(
-    pattern: str, index: int, forbidden: str
-) -> tuple[bool | None, int]:
+def _regex_atom_excludes_char(pattern: str, index: int, forbidden: str) -> tuple[bool | None, int]:
     char = pattern[index]
     if char == "[":
         return _regex_class_excludes_char(pattern, index, forbidden)
@@ -590,9 +584,7 @@ def _regex_atom_excludes_char(
     return char != forbidden, index + 1
 
 
-def _regex_class_excludes_char(
-    pattern: str, index: int, forbidden: str
-) -> tuple[bool | None, int]:
+def _regex_class_excludes_char(pattern: str, index: int, forbidden: str) -> tuple[bool | None, int]:
     index += 1
     negated = index < len(pattern) and pattern[index] == "^"
     if negated:
@@ -1611,8 +1603,12 @@ class _ConcolicEngine:
             # through. Enables reasoning about double-encoding bypass: a sink
             # guarded by Contains("'") still sees the payload after decodeURIComponent.
             if func.name in {
-                "encodeURIComponent", "encodeURI", "escape",
-                "decodeURIComponent", "decodeURI", "unescape",
+                "encodeURIComponent",
+                "encodeURI",
+                "escape",
+                "decodeURIComponent",
+                "decodeURI",
+                "unescape",
             }:
                 return self._to_string(args[0] if args else z3.StringVal(""), state)
             called = self._get_function(func.name)

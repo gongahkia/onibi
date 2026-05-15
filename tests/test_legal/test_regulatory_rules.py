@@ -676,6 +676,24 @@ def test_discover_rule_files_loads_community_specs(tmp_path: Path) -> None:
     assert specs[0].framework == "EXAMPLE"
 
 
+def test_discover_rule_files_skips_host_rule_schema(tmp_path: Path) -> None:
+    host_rules = tmp_path / "community" / "host"
+    host_rules.mkdir(parents=True)
+    host_rule = host_rules / "ssh-password-authentication.toml"
+    host_rule.write_text(
+        "[rule]\n"
+        'id = "community.ssh.password-authentication-enabled"\n'
+        'title = "SSH password authentication should be disabled"\n'
+        "[[match]]\n"
+        'evidence = "config.ssh.PasswordAuthentication"\n'
+        'equals = "yes"\n',
+        encoding="utf-8",
+    )
+
+    assert host_rule not in discover_rule_files(tmp_path)
+    assert load_all_rule_specs(tmp_path) == []
+
+
 def test_malformed_toml_rejected_with_clear_error(tmp_path: Path) -> None:
     bad = tmp_path / "bad.toml"
     bad.write_text(

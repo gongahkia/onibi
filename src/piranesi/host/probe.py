@@ -6,17 +6,17 @@ Safety invariants:
 - Probe plans are JSON-reviewable before execution.
 - Unknown probe IDs are rejected at execution time.
 """
+
 from __future__ import annotations
 
 import json
 import shutil
 import subprocess
 from collections.abc import Callable, Sequence
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from piranesi.host.collect import (
     CollectionCommandResult,
@@ -27,7 +27,6 @@ from piranesi.host.ingest import HostInputError, load_host_input, redact_auth_va
 from piranesi.host.models import (
     FollowupProbe,
     HostFinding,
-    HostPostureReport,
     HostSnapshot,
     ProbePlan,
 )
@@ -45,117 +44,155 @@ def _register(probe: FollowupProbe) -> FollowupProbe:
 
 
 # --- SSH follow-ups ---
-_register(FollowupProbe(
-    id="followup.ssh.last_logins",
-    reason="Public SSH with password auth — collect recent login history.",
-    capability="auth",
-    command=["last", "-n", "25"],
-    output_name="last_logins",
-    risk="read_only",
-    redaction_hints=["ip_address", "username"],
-))
-_register(FollowupProbe(
-    id="followup.ssh.lastb_failures",
-    reason="Public SSH with password auth — collect recent failed login attempts.",
-    capability="auth",
-    command=["lastb", "-n", "25"],
-    output_name="lastb_failures",
-    risk="potentially_sensitive",
-    redaction_hints=["ip_address", "username"],
-))
-_register(FollowupProbe(
-    id="followup.ssh.sshd_effective_config",
-    reason="SSH config findings present but sshd -T not collected.",
-    capability="sshd_config",
-    command=["sshd", "-T"],
-    output_name="sshd_effective_config",
-    risk="read_only",
-))
+_register(
+    FollowupProbe(
+        id="followup.ssh.last_logins",
+        reason="Public SSH with password auth — collect recent login history.",
+        capability="auth",
+        command=["last", "-n", "25"],
+        output_name="last_logins",
+        risk="read_only",
+        redaction_hints=["ip_address", "username"],
+    )
+)
+_register(
+    FollowupProbe(
+        id="followup.ssh.lastb_failures",
+        reason="Public SSH with password auth — collect recent failed login attempts.",
+        capability="auth",
+        command=["lastb", "-n", "25"],
+        output_name="lastb_failures",
+        risk="potentially_sensitive",
+        redaction_hints=["ip_address", "username"],
+    )
+)
+_register(
+    FollowupProbe(
+        id="followup.ssh.sshd_effective_config",
+        reason="SSH config findings present but sshd -T not collected.",
+        capability="sshd_config",
+        command=["sshd", "-T"],
+        output_name="sshd_effective_config",
+        risk="read_only",
+    )
+)
 
 # --- Redis follow-ups ---
-_register(FollowupProbe(
-    id="followup.redis.process_detail",
-    reason="Public Redis — collect process command line and arguments.",
-    capability="service",
-    osquery="select p.pid, p.name, p.path, p.cmdline, u.username as user from processes p left join users u on p.uid = u.uid where p.name = 'redis-server';",
-    output_name="redis_process_detail",
-    risk="read_only",
-))
-_register(FollowupProbe(
-    id="followup.redis.service_unit",
-    reason="Public Redis — collect systemd service unit state.",
-    capability="service",
-    osquery="select name, active_state, sub_state, unit_file_state, fragment_path from systemd_units where name like 'redis%';",
-    output_name="redis_service_unit",
-    risk="read_only",
-))
+_register(
+    FollowupProbe(
+        id="followup.redis.process_detail",
+        reason="Public Redis — collect process command line and arguments.",
+        capability="service",
+        osquery=(
+            "select p.pid, p.name, p.path, p.cmdline, u.username as user from processes p "
+            "left join users u on p.uid = u.uid where p.name = 'redis-server';"
+        ),
+        output_name="redis_process_detail",
+        risk="read_only",
+    )
+)
+_register(
+    FollowupProbe(
+        id="followup.redis.service_unit",
+        reason="Public Redis — collect systemd service unit state.",
+        capability="service",
+        osquery=(
+            "select name, active_state, sub_state, unit_file_state, fragment_path from "
+            "systemd_units where name like 'redis%';"
+        ),
+        output_name="redis_service_unit",
+        risk="read_only",
+    )
+)
 
 # --- Firewall follow-ups ---
-_register(FollowupProbe(
-    id="followup.firewall.ufw_status",
-    reason="Firewall evidence missing — try ufw status.",
-    capability="firewall",
-    command=["ufw", "status", "verbose"],
-    output_name="ufw_status",
-    risk="read_only",
-))
-_register(FollowupProbe(
-    id="followup.firewall.iptables_rules",
-    reason="Firewall evidence missing — try iptables -S.",
-    capability="firewall",
-    command=["iptables", "-S"],
-    output_name="iptables_rules",
-    risk="read_only",
-))
-_register(FollowupProbe(
-    id="followup.firewall.nft_ruleset",
-    reason="Firewall evidence missing — try nft list ruleset.",
-    capability="firewall",
-    command=["nft", "list", "ruleset"],
-    output_name="nft_ruleset",
-    risk="read_only",
-))
+_register(
+    FollowupProbe(
+        id="followup.firewall.ufw_status",
+        reason="Firewall evidence missing — try ufw status.",
+        capability="firewall",
+        command=["ufw", "status", "verbose"],
+        output_name="ufw_status",
+        risk="read_only",
+    )
+)
+_register(
+    FollowupProbe(
+        id="followup.firewall.iptables_rules",
+        reason="Firewall evidence missing — try iptables -S.",
+        capability="firewall",
+        command=["iptables", "-S"],
+        output_name="iptables_rules",
+        risk="read_only",
+    )
+)
+_register(
+    FollowupProbe(
+        id="followup.firewall.nft_ruleset",
+        reason="Firewall evidence missing — try nft list ruleset.",
+        capability="firewall",
+        command=["nft", "list", "ruleset"],
+        output_name="nft_ruleset",
+        risk="read_only",
+    )
+)
 
 # --- Privileged user follow-ups ---
-_register(FollowupProbe(
-    id="followup.identity.sudoers",
-    reason="Privileged user found — collect sudoers entries.",
-    capability="admin_groups",
-    osquery="select path, label as key, value from augeas where path like '/etc/sudoers%' and value != '';",
-    output_name="sudoers_entries",
-    risk="read_only",
-))
-_register(FollowupProbe(
-    id="followup.identity.group_sudo",
-    reason="Privileged user found — collect sudo group membership.",
-    capability="admin_groups",
-    command=["getent", "group", "sudo"],
-    output_name="group_sudo",
-    risk="read_only",
-))
-_register(FollowupProbe(
-    id="followup.identity.group_wheel",
-    reason="Privileged user found — collect wheel group membership.",
-    capability="admin_groups",
-    command=["getent", "group", "wheel"],
-    output_name="group_wheel",
-    risk="read_only",
-))
+_register(
+    FollowupProbe(
+        id="followup.identity.sudoers",
+        reason="Privileged user found — collect sudoers entries.",
+        capability="admin_groups",
+        osquery=(
+            "select path, label as key, value from augeas where path like '/etc/sudoers%' "
+            "and value != '';"
+        ),
+        output_name="sudoers_entries",
+        risk="read_only",
+    )
+)
+_register(
+    FollowupProbe(
+        id="followup.identity.group_sudo",
+        reason="Privileged user found — collect sudo group membership.",
+        capability="admin_groups",
+        command=["getent", "group", "sudo"],
+        output_name="group_sudo",
+        risk="read_only",
+    )
+)
+_register(
+    FollowupProbe(
+        id="followup.identity.group_wheel",
+        reason="Privileged user found — collect wheel group membership.",
+        capability="admin_groups",
+        command=["getent", "group", "wheel"],
+        output_name="group_wheel",
+        risk="read_only",
+    )
+)
 
 # --- Database follow-ups ---
-_register(FollowupProbe(
-    id="followup.db.service_unit",
-    reason="Public database port — collect systemd service unit state.",
-    capability="service",
-    osquery="select name, active_state, sub_state, unit_file_state, fragment_path from systemd_units where name like '%sql%' or name like '%mongo%' or name like '%elastic%';",
-    output_name="db_service_unit",
-    risk="read_only",
-))
+_register(
+    FollowupProbe(
+        id="followup.db.service_unit",
+        reason="Public database port — collect systemd service unit state.",
+        capability="service",
+        osquery=(
+            "select name, active_state, sub_state, unit_file_state, fragment_path from "
+            "systemd_units where name like '%sql%' or name like '%mongo%' or name like "
+            "'%elastic%';"
+        ),
+        output_name="db_service_unit",
+        risk="read_only",
+    )
+)
 
 
 # ---------------------------------------------------------------------------
 # Deterministic probe plan generation
 # ---------------------------------------------------------------------------
+
 
 class ProbeGenerationError(RuntimeError):
     """Raised when probe plan generation fails."""
@@ -200,18 +237,20 @@ def generate_probe_plan(
             _add_probe(probes, seen_ids, "followup.db.service_unit", [finding.id])
 
         # Missing firewall evidence
-        if finding.rule_id == "host.coverage.missing_evidence" and "firewall" in (finding.affected_component or "").lower():
-            if not has_firewall:
-                _add_probe(probes, seen_ids, "followup.firewall.ufw_status", [finding.id])
-                _add_probe(probes, seen_ids, "followup.firewall.iptables_rules", [finding.id])
-                _add_probe(probes, seen_ids, "followup.firewall.nft_ruleset", [finding.id])
+        if (
+            finding.rule_id == "host.coverage.missing_evidence"
+            and "firewall" in (finding.affected_component or "").lower()
+            and not has_firewall
+        ):
+            _add_probe(probes, seen_ids, "followup.firewall.ufw_status", [finding.id])
+            _add_probe(probes, seen_ids, "followup.firewall.iptables_rules", [finding.id])
+            _add_probe(probes, seen_ids, "followup.firewall.nft_ruleset", [finding.id])
 
         # Firewall inactive with public listeners
-        if finding.rule_id == "host.firewall.inactive":
-            if not has_firewall:
-                _add_probe(probes, seen_ids, "followup.firewall.ufw_status", [finding.id])
-                _add_probe(probes, seen_ids, "followup.firewall.iptables_rules", [finding.id])
-                _add_probe(probes, seen_ids, "followup.firewall.nft_ruleset", [finding.id])
+        if finding.rule_id == "host.firewall.inactive" and not has_firewall:
+            _add_probe(probes, seen_ids, "followup.firewall.ufw_status", [finding.id])
+            _add_probe(probes, seen_ids, "followup.firewall.iptables_rules", [finding.id])
+            _add_probe(probes, seen_ids, "followup.firewall.nft_ruleset", [finding.id])
 
         # Privileged user
         if finding.rule_id == "host.identity.privileged_user":
@@ -263,6 +302,7 @@ def _has_firewall_evidence(snapshot: HostSnapshot) -> bool:
 # Safe probe executor
 # ---------------------------------------------------------------------------
 
+
 class ProbeExecutionError(RuntimeError):
     """Raised when probe execution encounters a safety violation."""
 
@@ -310,9 +350,7 @@ def execute_probe_plan(
     _merge_base_input(plan.base_input, out)
 
     # write probe plan for auditability
-    (followup_dir / "probe-plan.json").write_text(
-        plan.model_dump_json(indent=2), encoding="utf-8"
-    )
+    (followup_dir / "probe-plan.json").write_text(plan.model_dump_json(indent=2), encoding="utf-8")
 
     manifest = HostCollectionManifest(
         output_dir=str(out),
@@ -328,13 +366,15 @@ def execute_probe_plan(
         # SAFETY: reject any probe not in the allowlist
         if probe.id not in ALLOWED_PROBES:
             rejected += 1
-            manifest.commands.append(CollectionCommandResult(
-                tool="followup",
-                name=probe.output_name,
-                command=probe.command or [],
-                status="failed",
-                stderr=f"REJECTED: probe {probe.id} is not in the allowlist",
-            ))
+            manifest.commands.append(
+                CollectionCommandResult(
+                    tool="followup",
+                    name=probe.output_name,
+                    command=probe.command or [],
+                    status="failed",
+                    stderr=f"REJECTED: probe {probe.id} is not in the allowlist",
+                )
+            )
             continue
 
         allowed = ALLOWED_PROBES[probe.id]
@@ -342,23 +382,27 @@ def execute_probe_plan(
         # SAFETY: verify the command matches the allowlisted template exactly
         if probe.command is not None and probe.command != allowed.command:
             rejected += 1
-            manifest.commands.append(CollectionCommandResult(
-                tool="followup",
-                name=probe.output_name,
-                command=probe.command,
-                status="failed",
-                stderr=f"REJECTED: probe {probe.id} command does not match allowlist",
-            ))
+            manifest.commands.append(
+                CollectionCommandResult(
+                    tool="followup",
+                    name=probe.output_name,
+                    command=probe.command,
+                    status="failed",
+                    stderr=f"REJECTED: probe {probe.id} command does not match allowlist",
+                )
+            )
             continue
 
         if probe.osquery is not None and probe.osquery != allowed.osquery:
             rejected += 1
-            manifest.commands.append(CollectionCommandResult(
-                tool="followup",
-                name=probe.output_name,
-                status="failed",
-                stderr=f"REJECTED: probe {probe.id} osquery does not match allowlist",
-            ))
+            manifest.commands.append(
+                CollectionCommandResult(
+                    tool="followup",
+                    name=probe.output_name,
+                    status="failed",
+                    stderr=f"REJECTED: probe {probe.id} osquery does not match allowlist",
+                )
+            )
             continue
 
         # execute the probe
@@ -384,12 +428,14 @@ def execute_probe_plan(
             )
         else:
             skipped += 1
-            manifest.commands.append(CollectionCommandResult(
-                tool="followup",
-                name=probe.output_name,
-                status="skipped",
-                stderr="probe has no command or osquery query",
-            ))
+            manifest.commands.append(
+                CollectionCommandResult(
+                    tool="followup",
+                    name=probe.output_name,
+                    status="skipped",
+                    stderr="probe has no command or osquery query",
+                )
+            )
             continue
 
         if result == "ok":
@@ -401,13 +447,16 @@ def execute_probe_plan(
 
     # write probe results summary
     (followup_dir / "probe-results.json").write_text(
-        json.dumps({
-            "executed": executed,
-            "skipped": skipped,
-            "failed": failed,
-            "rejected": rejected,
-            "total": len(plan.probes),
-        }, indent=2),
+        json.dumps(
+            {
+                "executed": executed,
+                "skipped": skipped,
+                "failed": failed,
+                "rejected": rejected,
+                "total": len(plan.probes),
+            },
+            indent=2,
+        ),
         encoding="utf-8",
     )
 
@@ -440,13 +489,15 @@ def _execute_command_probe(
     assert probe.command is not None
     executable = executable_lookup(probe.command[0])
     if executable is None:
-        manifest.commands.append(CollectionCommandResult(
-            tool="followup",
-            name=probe.output_name,
-            command=probe.command,
-            status="missing",
-            stderr=f"{probe.command[0]} not found on PATH",
-        ))
+        manifest.commands.append(
+            CollectionCommandResult(
+                tool="followup",
+                name=probe.output_name,
+                command=probe.command,
+                status="missing",
+                stderr=f"{probe.command[0]} not found on PATH",
+            )
+        )
         return "missing"
     resolved = [executable, *probe.command[1:]]
     try:
@@ -457,13 +508,15 @@ def _execute_command_probe(
             timeout=timeout_seconds,
         )
     except subprocess.TimeoutExpired:
-        manifest.commands.append(CollectionCommandResult(
-            tool="followup",
-            name=probe.output_name,
-            command=resolved,
-            status="timeout",
-            stderr=f"timed out after {timeout_seconds}s",
-        ))
+        manifest.commands.append(
+            CollectionCommandResult(
+                tool="followup",
+                name=probe.output_name,
+                command=resolved,
+                status="timeout",
+                stderr=f"timed out after {timeout_seconds}s",
+            )
+        )
         return "timeout"
     output_file = commands_dir / f"{probe.output_name}.json"
     output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -480,15 +533,17 @@ def _execute_command_probe(
         encoding="utf-8",
     )
     status: CollectionStatus = "ok" if completed.returncode == 0 else "failed"
-    manifest.commands.append(CollectionCommandResult(
-        tool="followup",
-        name=probe.output_name,
-        command=resolved,
-        status=status,
-        exit_code=completed.returncode,
-        output_file=str(output_file),
-        stderr=completed.stderr[:200] if completed.stderr else None,
-    ))
+    manifest.commands.append(
+        CollectionCommandResult(
+            tool="followup",
+            name=probe.output_name,
+            command=resolved,
+            status=status,
+            exit_code=completed.returncode,
+            output_file=str(output_file),
+            stderr=completed.stderr[:200] if completed.stderr else None,
+        )
+    )
     return status
 
 
@@ -504,12 +559,14 @@ def _execute_osquery_probe(
     assert probe.osquery is not None
     osqueryi = executable_lookup("osqueryi")
     if osqueryi is None:
-        manifest.commands.append(CollectionCommandResult(
-            tool="followup",
-            name=probe.output_name,
-            status="missing",
-            stderr="osqueryi not found on PATH",
-        ))
+        manifest.commands.append(
+            CollectionCommandResult(
+                tool="followup",
+                name=probe.output_name,
+                status="missing",
+                stderr="osqueryi not found on PATH",
+            )
+        )
         return "missing"
     command = [osqueryi, "--json", probe.osquery]
     try:
@@ -520,13 +577,15 @@ def _execute_osquery_probe(
             timeout=timeout_seconds,
         )
     except subprocess.TimeoutExpired:
-        manifest.commands.append(CollectionCommandResult(
-            tool="followup",
-            name=probe.output_name,
-            command=command,
-            status="timeout",
-            stderr=f"timed out after {timeout_seconds}s",
-        ))
+        manifest.commands.append(
+            CollectionCommandResult(
+                tool="followup",
+                name=probe.output_name,
+                command=command,
+                status="timeout",
+                stderr=f"timed out after {timeout_seconds}s",
+            )
+        )
         return "timeout"
     output_file = osquery_dir / f"{probe.output_name}.json"
     output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -536,15 +595,17 @@ def _execute_osquery_probe(
         encoding="utf-8",
     )
     status: CollectionStatus = "ok" if completed.returncode == 0 else "failed"
-    manifest.commands.append(CollectionCommandResult(
-        tool="followup",
-        name=probe.output_name,
-        command=command,
-        status=status,
-        exit_code=completed.returncode,
-        output_file=str(output_file),
-        stderr=completed.stderr[:200] if completed.stderr else None,
-    ))
+    manifest.commands.append(
+        CollectionCommandResult(
+            tool="followup",
+            name=probe.output_name,
+            command=command,
+            status=status,
+            exit_code=completed.returncode,
+            output_file=str(output_file),
+            stderr=completed.stderr[:200] if completed.stderr else None,
+        )
+    )
     return status
 
 

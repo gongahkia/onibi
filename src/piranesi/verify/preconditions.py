@@ -23,6 +23,7 @@ def evaluate_verification_preconditions(
     proof_mode: ProofMode,
     target_profile_name: str | None,
     no_execute: bool,
+    target_profile_base_url: str | None = None,
 ) -> VerificationPreconditionEvaluation:
     metadata = finding.metadata
     target_has_package = (target_dir / "package.json").is_file()
@@ -39,6 +40,16 @@ def evaluate_verification_preconditions(
                 status="user_provided",
                 value=user_target_url,
                 source="finding.metadata.verification_target_url",
+            )
+        )
+    elif target_profile_name is not None:
+        preconditions.append(
+            VerificationPrecondition(
+                key="target_url",
+                description="Base URL used for dynamic verification requests",
+                status="user_provided",
+                value=target_profile_base_url or target_profile_name,
+                source="config.verify.target_profile",
             )
         )
     elif target_has_package:
@@ -129,9 +140,7 @@ def evaluate_verification_preconditions(
                 description="HTTP method required to reach the vulnerable route",
                 status="missing",
                 source="source snippet route inference",
-                next_step=(
-                    "Add finding.metadata['verification_http_method'] with GET/POST/etc."
-                ),
+                next_step=("Add finding.metadata['verification_http_method'] with GET/POST/etc."),
             )
         )
 
@@ -260,8 +269,7 @@ def evaluate_verification_preconditions(
                     status="missing",
                     source="finding metadata",
                     next_step=(
-                        "Provide finding.metadata['verification_callback_url'] "
-                        "for callback tests."
+                        "Provide finding.metadata['verification_callback_url'] for callback tests."
                     ),
                 )
             )
@@ -285,7 +293,7 @@ def evaluate_verification_preconditions(
                 value="not required",
                 source="template defaults",
             )
-            )
+        )
 
     if template.destructive_payloads and proof_mode != "unsafe":
         preconditions.append(
@@ -295,7 +303,7 @@ def evaluate_verification_preconditions(
                 status="missing",
                 source="config.verify.proof_mode",
                 next_step=(
-                    "Rerun with --proof-mode unsafe or set [verify].proof_mode = \"unsafe\" "
+                    'Rerun with --proof-mode unsafe or set [verify].proof_mode = "unsafe" '
                     "to enable destructive probe templates."
                 ),
             )

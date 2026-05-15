@@ -679,9 +679,8 @@ def _wait_for_profile_ready(
                 return True, None
             stderr = probe.stderr.strip() if probe.stderr else ""
             stdout = probe.stdout.strip() if probe.stdout else ""
-            last_error = (
-                f"TARGET_PROFILE_READINESS_COMMAND_FAILED({probe.returncode})"
-                + (f": {stderr or stdout}" if (stderr or stdout) else "")
+            last_error = f"TARGET_PROFILE_READINESS_COMMAND_FAILED({probe.returncode})" + (
+                f": {stderr or stdout}" if (stderr or stdout) else ""
             )
         else:
             try:

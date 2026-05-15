@@ -1944,12 +1944,7 @@ def _find_arrow_expression_end(masked_text: str, start: int) -> int:
             brace_depth += 1
         elif char == "}":
             brace_depth = max(0, brace_depth - 1)
-        elif (
-            char in {"\n", ";"}
-            and paren_depth == 0
-            and bracket_depth == 0
-            and brace_depth == 0
-        ):
+        elif char in {"\n", ";"} and paren_depth == 0 and bracket_depth == 0 and brace_depth == 0:
             return index - 1
     return len(masked_text) - 1
 

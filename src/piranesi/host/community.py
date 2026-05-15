@@ -392,8 +392,7 @@ def render_fixture_validation(result: HostFixtureValidationResult) -> str:
     if result.evidence_inventory:
         lines.append("evidence:")
         lines.extend(
-            f"- {key}: {value}"
-            for key, value in sorted(result.evidence_inventory.items())
+            f"- {key}: {value}" for key, value in sorted(result.evidence_inventory.items())
         )
     if result.errors:
         lines.append("errors:")

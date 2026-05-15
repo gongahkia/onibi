@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re as _re
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from ipaddress import ip_address
@@ -204,8 +205,7 @@ def _rows(payload: object) -> list[dict[str, Any]]:
             if isinstance(value, list):
                 return [item for item in value if isinstance(item, dict)]
         if all(
-            isinstance(value, (str, int, float, bool, type(None)))
-            for value in payload.values()
+            isinstance(value, (str, int, float, bool, type(None))) for value in payload.values()
         ):
             return [payload]
     return []
@@ -534,8 +534,7 @@ def _platform_family(os_release: OsRelease) -> str:
     if raw_id in {"debian", "ubuntu"} or "debian" in material or "ubuntu" in material:
         return "debian"
     if raw_id in {"rhel", "centos", "rocky", "almalinux", "fedora"} or any(
-        token in material
-        for token in ("red hat", "centos", "rocky", "alma", "fedora")
+        token in material for token in ("red hat", "centos", "rocky", "alma", "fedora")
     ):
         return "rhel"
     if raw_id in {"amzn", "amazon"} or "amazon linux" in material:
@@ -612,9 +611,7 @@ def _firewall_config_from_commands(command_payloads: dict[str, object]) -> dict[
             config["active"] = True
     if firewalld_stdout is not None:
         sources.append("firewalld_state")
-        firewalld_lines = [
-            line.strip() for line in firewalld_stdout.splitlines() if line.strip()
-        ]
+        firewalld_lines = [line.strip() for line in firewalld_stdout.splitlines() if line.strip()]
         state = firewalld_lines[0].lower() if firewalld_lines else "unknown"
         config["firewalld_state"] = state or "unknown"
         if state == "running":
@@ -918,6 +915,7 @@ def _dedupe_values(items: list[str]) -> list[str]:
 # Lynis report.dat parser
 # ---------------------------------------------------------------------------
 
+
 def _parse_lynis_report(lynis_dir: Path) -> list[BaselineCheck]:
     report_dat = lynis_dir / "report.dat"
     if not report_dat.is_file():
@@ -940,19 +938,23 @@ def _parse_lynis_report(lynis_dir: Path) -> list[BaselineCheck]:
             affected = parts[2].strip() if len(parts) > 2 else ""
             if not check_id:
                 continue
-            checks.append(BaselineCheck(
-                source="lynis",
-                check_id=check_id,
-                title=title or check_id,
-                result="warn",
-                severity="medium",
-                evidence=[
-                    EvidenceItem(source="lynis", key="warning", value=f"{check_id}: {title}"),
-                    *([
-                        EvidenceItem(source="lynis", key="affected", value=affected)
-                    ] if affected and affected != "-" else []),
-                ],
-            ))
+            checks.append(
+                BaselineCheck(
+                    source="lynis",
+                    check_id=check_id,
+                    title=title or check_id,
+                    result="warn",
+                    severity="medium",
+                    evidence=[
+                        EvidenceItem(source="lynis", key="warning", value=f"{check_id}: {title}"),
+                        *(
+                            [EvidenceItem(source="lynis", key="affected", value=affected)]
+                            if affected and affected != "-"
+                            else []
+                        ),
+                    ],
+                )
+            )
         elif stripped.startswith("suggestion[]="):
             parts = stripped.split("=", 1)[1].split("|")
             check_id = parts[0].strip() if parts else ""
@@ -961,35 +963,42 @@ def _parse_lynis_report(lynis_dir: Path) -> list[BaselineCheck]:
             if not check_id:
                 continue
             remediation = detail if detail and detail != "-" else None
-            checks.append(BaselineCheck(
-                source="lynis",
-                check_id=check_id,
-                title=title or check_id,
-                result="fail",
-                severity="low",
-                evidence=[
-                    EvidenceItem(source="lynis", key="suggestion", value=f"{check_id}: {title}"),
-                ],
-                remediation=remediation,
-            ))
+            checks.append(
+                BaselineCheck(
+                    source="lynis",
+                    check_id=check_id,
+                    title=title or check_id,
+                    result="fail",
+                    severity="low",
+                    evidence=[
+                        EvidenceItem(
+                            source="lynis", key="suggestion", value=f"{check_id}: {title}"
+                        ),
+                    ],
+                    remediation=remediation,
+                )
+            )
     if hardening_index is not None:
         hardening_score = _int(hardening_index)
-        checks.insert(0, BaselineCheck(
-            source="lynis",
-            check_id="LYNIS-HARDENING-INDEX",
-            title=f"Lynis hardening index: {hardening_index}",
-            result=(
-                "unknown"
-                if hardening_score is None
-                else "pass"
-                if hardening_score >= 80
-                else "warn"
+        checks.insert(
+            0,
+            BaselineCheck(
+                source="lynis",
+                check_id="LYNIS-HARDENING-INDEX",
+                title=f"Lynis hardening index: {hardening_index}",
+                result=(
+                    "unknown"
+                    if hardening_score is None
+                    else "pass"
+                    if hardening_score >= 80
+                    else "warn"
+                ),
+                severity="informational",
+                evidence=[
+                    EvidenceItem(source="lynis", key="hardening_index", value=hardening_index),
+                ],
             ),
-            severity="informational",
-            evidence=[
-                EvidenceItem(source="lynis", key="hardening_index", value=hardening_index),
-            ],
-        ))
+        )
     return checks
 
 
@@ -1009,7 +1018,6 @@ def _parse_openscap_results(openscap_dir: Path) -> list[BaselineCheck]:
     except (OSError, ET.ParseError):
         return []
     root = tree.getroot()
-    ns = {"xccdf": _XCCDF_NS}
     rules_by_id: dict[str, ET.Element] = {}
     for rule_el in root.iter(f"{{{_XCCDF_NS}}}Rule"):
         rid = rule_el.get("id", "")
@@ -1036,19 +1044,23 @@ def _parse_openscap_results(openscap_dir: Path) -> list[BaselineCheck]:
                 ident_text = (ident_el.text or "").strip()
                 if ident_text:
                     control_refs.append(ident_text)
-        evidence = [EvidenceItem(source="openscap", key="rule_result", value=f"{idref}: {raw_result}")]
+        evidence = [
+            EvidenceItem(source="openscap", key="rule_result", value=f"{idref}: {raw_result}")
+        ]
         if description:
             evidence.append(EvidenceItem(source="openscap", key="description", value=description))
-        checks.append(BaselineCheck(
-            source="openscap",
-            check_id=idref,
-            title=title,
-            result=result,
-            severity=severity,
-            control_refs=control_refs,
-            evidence=evidence,
-            remediation=remediation or None,
-        ))
+        checks.append(
+            BaselineCheck(
+                source="openscap",
+                check_id=idref,
+                title=title,
+                result=result,
+                severity=severity,
+                control_refs=control_refs,
+                evidence=evidence,
+                remediation=remediation or None,
+            )
+        )
     return checks
 
 
@@ -1093,8 +1105,6 @@ def _dedupe_models[T](items: list[T], *, key: Callable[[T], object]) -> list[T]:
 # ---------------------------------------------------------------------------
 # Redaction helper
 # ---------------------------------------------------------------------------
-
-import re as _re
 
 _SECRET_PATTERNS: list[_re.Pattern[str]] = [
     _re.compile(r"(?i)(password|passwd|secret|token|key|api[_-]?key|bearer)\s*[=:]\s*\S+"),
@@ -1159,12 +1169,14 @@ def _parse_who_sessions(payload: object) -> list[LoginSession]:
         source = None
         if len(parts) >= 5 and parts[-1].startswith("(") and parts[-1].endswith(")"):
             source = parts[-1][1:-1]
-        sessions.append(LoginSession(
-            username=username,
-            tty=tty,
-            started_at=started_at,
-            source=source,
-        ))
+        sessions.append(
+            LoginSession(
+                username=username,
+                tty=tty,
+                started_at=started_at,
+                source=source,
+            )
+        )
     return sessions
 
 
@@ -1182,12 +1194,14 @@ def _parse_last_logins(payload: object) -> list[AuthEventSummary]:
         source_ip = None
         if len(parts) >= 3 and ("." in parts[2] or ":" in parts[2]):
             source_ip = parts[2]
-        events.append(AuthEventSummary(
-            event_type="login_success",
-            username=username,
-            source_ip=source_ip,
-            evidence_source="last",
-        ))
+        events.append(
+            AuthEventSummary(
+                event_type="login_success",
+                username=username,
+                source_ip=source_ip,
+                evidence_source="last",
+            )
+        )
     return events
 
 
@@ -1204,27 +1218,23 @@ def _parse_lastb_failures(payload: object) -> list[AuthEventSummary]:
         source_ip = None
         if len(parts) >= 3 and ("." in parts[2] or ":" in parts[2]):
             source_ip = parts[2]
-        events.append(AuthEventSummary(
-            event_type="login_failure",
-            username=username,
-            source_ip=source_ip,
-            evidence_source="lastb",
-        ))
+        events.append(
+            AuthEventSummary(
+                event_type="login_failure",
+                username=username,
+                source_ip=source_ip,
+                evidence_source="lastb",
+            )
+        )
     return events
 
 
-_SSH_FAILED_RE = _re.compile(
-    r"Failed password for (?:invalid user )?(\S+) from (\S+)"
-)
-_SSH_INVALID_RE = _re.compile(
-    r"Invalid user (\S+) from (\S+)"
-)
+_SSH_FAILED_RE = _re.compile(r"Failed password for (?:invalid user )?(\S+) from (\S+)")
+_SSH_INVALID_RE = _re.compile(r"Invalid user (\S+) from (\S+)")
 _SSH_ROOT_RE = _re.compile(
     r"(?:Failed password|Accepted password|Accepted publickey) for root from (\S+)"
 )
-_SUDO_RE = _re.compile(
-    r"(\S+) : .* COMMAND=(.*)"
-)
+_SUDO_RE = _re.compile(r"(\S+) : .* COMMAND=(.*)")
 
 
 def _parse_journalctl_ssh(payload: object) -> list[AuthEventSummary]:
@@ -1236,36 +1246,44 @@ def _parse_journalctl_ssh(payload: object) -> list[AuthEventSummary]:
         line = redact_auth_value(line)
         m = _SSH_ROOT_RE.search(line)
         if m:
-            events.append(AuthEventSummary(
-                event_type="ssh_root_login",
-                username="root",
-                source_ip=m.group(1),
-                evidence_source="journalctl",
-            ))
+            events.append(
+                AuthEventSummary(
+                    event_type="ssh_root_login",
+                    username="root",
+                    source_ip=m.group(1),
+                    evidence_source="journalctl",
+                )
+            )
             continue
         m = _SSH_FAILED_RE.search(line)
         if m:
-            events.append(AuthEventSummary(
-                event_type="ssh_failed_password",
-                username=m.group(1),
-                source_ip=m.group(2),
-                evidence_source="journalctl",
-            ))
+            events.append(
+                AuthEventSummary(
+                    event_type="ssh_failed_password",
+                    username=m.group(1),
+                    source_ip=m.group(2),
+                    evidence_source="journalctl",
+                )
+            )
             continue
         m = _SSH_INVALID_RE.search(line)
         if m:
-            events.append(AuthEventSummary(
-                event_type="ssh_invalid_user",
-                username=m.group(1),
-                source_ip=m.group(2),
-                evidence_source="journalctl",
-            ))
+            events.append(
+                AuthEventSummary(
+                    event_type="ssh_invalid_user",
+                    username=m.group(1),
+                    source_ip=m.group(2),
+                    evidence_source="journalctl",
+                )
+            )
             continue
         m = _SUDO_RE.search(line)
         if m:
-            events.append(AuthEventSummary(
-                event_type="sudo_command",
-                username=m.group(1),
-                evidence_source="journalctl",
-            ))
+            events.append(
+                AuthEventSummary(
+                    event_type="sudo_command",
+                    username=m.group(1),
+                    evidence_source="journalctl",
+                )
+            )
     return events

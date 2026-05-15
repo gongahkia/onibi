@@ -169,9 +169,7 @@ def render_evidence_validation_report(report: EvidenceValidationReport) -> str:
         lines.append("")
         lines.append(f"- {'PASS' if finding.valid else 'FAIL'} {finding.finding_id}")
         for check in finding.checks:
-            lines.append(
-                f"  - [{'PASS' if check.passed else 'FAIL'}] {check.name}: {check.detail}"
-            )
+            lines.append(f"  - [{'PASS' if check.passed else 'FAIL'}] {check.name}: {check.detail}")
     return "\n".join(lines) + "\n"
 
 

@@ -100,12 +100,8 @@ def test_precision_recall_f1_false_positives_and_false_negatives() -> None:
             HostGroundTruthMatcher(id="expected-a", rule_id="host.a", instance_key="a"),
             HostGroundTruthMatcher(id="expected-b", rule_id="host.b", instance_key="b"),
         ],
-        expected_absent=[
-            HostGroundTruthMatcher(id="absent-c", rule_id="host.c", instance_key="c")
-        ],
-        allowed_extra=[
-            HostGroundTruthMatcher(id="allowed-d", rule_id="host.d", instance_key="d")
-        ],
+        expected_absent=[HostGroundTruthMatcher(id="absent-c", rule_id="host.c", instance_key="c")],
+        allowed_extra=[HostGroundTruthMatcher(id="allowed-d", rule_id="host.d", instance_key="d")],
     )
 
     result = evaluate_host_findings(
@@ -180,9 +176,7 @@ def test_benchmark_records_optional_baseline_skips() -> None:
     assert baselines["lynis_only"].skipped_fixture_count >= 1
     assert baselines["openscap_only"].skipped_fixture_count >= 1
     assert baselines["piranesi_deterministic_llm"].status == "skipped"
-    assert "LLM baseline disabled" in (
-        baselines["piranesi_deterministic_llm"].skip_reason or ""
-    )
+    assert "LLM baseline disabled" in (baselines["piranesi_deterministic_llm"].skip_reason or "")
 
 
 def test_report_rendering_and_output_files(tmp_path: Path) -> None:

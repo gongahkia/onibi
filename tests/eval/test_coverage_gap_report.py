@@ -119,15 +119,19 @@ def test_coverage_gap_report_flags_underrepresented_slices(tmp_path: Path, capsy
 
 def test_coverage_gap_report_validates_dimension_parts() -> None:
     with pytest.raises(ValueError, match="unsupported dimension part"):
-        coverage_gap_report.main([
-            "--dimension",
-            "cwe+invalid",
-        ])
+        coverage_gap_report.main(
+            [
+                "--dimension",
+                "cwe+invalid",
+            ]
+        )
 
 
 def test_coverage_gap_report_validates_plan_top_n() -> None:
     with pytest.raises(ValueError, match="--plan-top-n must be >= 0"):
-        coverage_gap_report.main([
-            "--plan-top-n",
-            "-1",
-        ])
+        coverage_gap_report.main(
+            [
+                "--plan-top-n",
+                "-1",
+            ]
+        )

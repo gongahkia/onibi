@@ -3,12 +3,11 @@ from __future__ import annotations
 import json
 import sys
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
-
-from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -18,7 +17,6 @@ if str(REPO_ROOT / "eval") not in sys.path:
 
 from eval.validate_all import (  # noqa: E402
     _HISTORY_TIMESTAMP_FORMAT,
-    _ValidationRecord,
     _aggregate,
     _build_baseline_comparison,
     _evaluate_group_delta_thresholds,
@@ -29,6 +27,7 @@ from eval.validate_all import (  # noqa: E402
     _parse_group_thresholds,
     _sanitize_history_label,
     _update_history_index,
+    _ValidationRecord,
     _write_history_snapshot,
 )
 
@@ -157,9 +156,7 @@ def test_evaluate_group_thresholds_reports_failures() -> None:
             "typescript": {"detection_rate": 0.5, "fp_suppression_rate": 1.0},
         }
     }
-    thresholds = _parse_group_thresholds(
-        ["language=typescript:0.8", "language=python:0.7"]
-    )
+    thresholds = _parse_group_thresholds(["language=typescript:0.8", "language=python:0.7"])
     failures = _evaluate_group_thresholds(
         per_group,
         thresholds,
@@ -191,10 +188,9 @@ def test_build_baseline_comparison_calculates_overall_and_group_deltas() -> None
     comparison = _build_baseline_comparison(current, baseline)
     assert comparison["overall"]["detection_rate"]["delta"] == pytest.approx(0.05)
     assert comparison["overall"]["fp_suppression_rate"]["delta"] == pytest.approx(-0.02)
-    assert (
-        comparison["per_group"]["language"]["typescript"]["detection_rate"]["delta"]
-        == pytest.approx(0.05)
-    )
+    assert comparison["per_group"]["language"]["typescript"]["detection_rate"][
+        "delta"
+    ] == pytest.approx(0.05)
 
 
 def test_evaluate_group_delta_thresholds_reports_failures() -> None:
@@ -208,9 +204,7 @@ def test_evaluate_group_delta_thresholds_reports_failures() -> None:
             }
         }
     }
-    thresholds = _parse_group_delta_thresholds(
-        ["language=typescript:-0.01", "language=python:0.0"]
-    )
+    thresholds = _parse_group_delta_thresholds(["language=typescript:-0.01", "language=python:0.0"])
     failures = _evaluate_group_delta_thresholds(
         comparison,
         thresholds,
@@ -230,7 +224,9 @@ def test_history_label_is_sanitized() -> None:
 
 def test_history_snapshot_filename_uses_utc_stamp_and_optional_label() -> None:
     ts = datetime(2026, 4, 18, 12, 30, 45, tzinfo=UTC)
-    assert _history_snapshot_filename(timestamp=ts, label=None) == "validate-all-20260418T123045Z.json"
+    assert (
+        _history_snapshot_filename(timestamp=ts, label=None) == "validate-all-20260418T123045Z.json"
+    )
     assert (
         _history_snapshot_filename(timestamp=ts, label="phase41")
         == "validate-all-20260418T123045Z-phase41.json"

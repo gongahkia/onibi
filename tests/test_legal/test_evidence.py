@@ -196,9 +196,7 @@ def test_build_compliance_evidence_bundle_writes_manifest_and_redacts(tmp_path: 
             repository="acme/payments",
             environment="prod",
             control_owner="grc-core",
-            control_mappings=[
-                {"framework": "SOC2", "control": "CC6.6", "owner": "soc-owner"}
-            ],
+            control_mappings=[{"framework": "SOC2", "control": "CC6.6", "owner": "soc-owner"}],
         ),
     )
     (artifacts_dir / "report.json").write_text(report.model_dump_json(indent=2), encoding="utf-8")
@@ -248,7 +246,7 @@ def test_build_compliance_evidence_bundle_writes_manifest_and_redacts(tmp_path: 
     )
     assert verify_payload["api_key"] == "[REDACTED]"
     assert verify_payload["headers"]["authorization"] == "[REDACTED]"
-    assert verify_payload["events"][0]["token"] == "[REDACTED]"
+    assert verify_payload["events"][0]["token"] == "[REDACTED]"  # noqa: S105
     assert verify_payload["events"][1]["detail"]["session_id"] == "[REDACTED]"
     config_payload = (output_dir / "artifacts" / "piranesi.toml").read_text(encoding="utf-8")
     assert "sk-live-key" not in config_payload

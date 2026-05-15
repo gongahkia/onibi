@@ -255,11 +255,7 @@ def _evidence_gaps_by_host(
         completeness = report.host_metadata.get("evidence_completeness")
         if not isinstance(completeness, dict):
             continue
-        missing = [
-            str(key)
-            for key, value in sorted(completeness.items())
-            if value is False
-        ]
+        missing = [str(key) for key, value in sorted(completeness.items()) if value is False]
         if missing:
             gaps[report.target] = missing
     return gaps

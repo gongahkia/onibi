@@ -4,10 +4,12 @@
       "advisory": [
         "import",
         "search",
+        "sign-snapshot",
         "status",
         "update"
       ],
       "baseline": [
+        "diff",
         "save"
       ],
       "compliance": [
@@ -16,6 +18,14 @@
         "maturity",
         "summary"
       ],
+      "container": [
+        "assess"
+      ],
+      "dev": [
+        "launch-plan",
+        "lsp",
+        "watch"
+      ],
       "eval": [
         "audit",
         "compare-reports",
@@ -23,13 +33,60 @@
         "enrich-ground-truth",
         "validate-all"
       ],
+      "export": [
+        "csv",
+        "github-issues",
+        "jira",
+        "sarif",
+        "webhook"
+      ],
+      "fleet": [
+        "assess",
+        "summarize"
+      ],
       "hook": [
         "install",
         "status",
         "uninstall"
       ],
+      "host": [
+        "benchmark",
+        "diff",
+        "fixture",
+        "rule"
+      ],
+      "intel": [
+        "graph",
+        "normalize",
+        "summary"
+      ],
+      "k8s": [
+        "assess"
+      ],
+      "pipeline": [
+        "detect",
+        "legal",
+        "patch",
+        "report",
+        "run",
+        "scan",
+        "triage",
+        "verify"
+      ],
       "plugins": [
         "list"
+      ],
+      "policy": [
+        "validate"
+      ],
+      "remediate": [
+        "checklist",
+        "plan",
+        "verify"
+      ],
+      "remote": [
+        "collect",
+        "doctor"
       ],
       "rules": [
         "coverage",
@@ -42,34 +99,61 @@
         "update",
         "validate"
       ],
+      "schema": [
+        "fleet-report",
+        "host-report",
+        "host-snapshot"
+      ],
       "suppressions": [
+        "add",
         "list",
         "validate"
       ]
     },
     "root_commands": [
       "advisory",
+      "assess",
       "baseline",
+      "collect",
+      "collect-followup",
       "compliance",
+      "container",
+      "demo",
       "detect",
+      "dev",
       "diff",
       "doctor",
       "eval",
       "explain",
+      "export",
+      "fleet",
       "hook",
+      "host",
+      "hypothesize",
       "init",
+      "intel",
+      "k8s",
       "legal",
       "lsp",
       "patch",
+      "pipeline",
       "plugins",
+      "policy",
+      "probe",
+      "quickstart",
+      "remediate",
+      "remote",
       "report",
       "rules",
       "run",
       "scan",
+      "schema",
       "suppress",
       "suppressions",
       "trends",
       "triage",
+      "ui",
+      "validate-evidence",
       "verify",
       "version",
       "watch"

@@ -121,8 +121,12 @@ _CAPABILITY_REMEDIATION = {
     "admin_groups": "Ensure `getent group` can run for sudo/admin/wheel group evidence.",
     "sysctl": "Ensure `sysctl -n` can run for kernel hardening evidence.",
     "lynis": "Install Lynis and rerun `piranesi collect --lynis` for hardening baseline evidence.",
-    "openscap": "Install OpenSCAP and rerun `piranesi collect --openscap` for compliance baseline evidence.",
-    "auth_evidence": "Ensure `who`, `last`, `lastb`, and journalctl are available for auth evidence.",
+    "openscap": (
+        "Install OpenSCAP and rerun `piranesi collect --openscap` for compliance baseline evidence."
+    ),
+    "auth_evidence": (
+        "Ensure `who`, `last`, `lastb`, and journalctl are available for auth evidence."
+    ),
 }
 
 
@@ -307,9 +311,11 @@ def collection_health_from_snapshot(snapshot: HostSnapshot) -> CollectionHealth 
     }
     optional: dict[str, CollectionCapabilityHealth] = {}
     platform_config = _platform_config(snapshot)
-    unsupported_checks = [
-        str(item) for item in platform_config.get("unsupported_checks", [])
-    ] if platform_config else []
+    unsupported_checks = (
+        [str(item) for item in platform_config.get("unsupported_checks", [])]
+        if platform_config
+        else []
+    )
     for name, command_names in _CAPABILITY_COMMANDS.items():
         if _capability_is_irrelevant(name, platform_config):
             continue
@@ -345,9 +351,7 @@ def collection_health_from_snapshot(snapshot: HostSnapshot) -> CollectionHealth 
             remediation="Use the supported evidence source for this platform family.",
         )
     for baseline_tool in ("lynis", "openscap"):
-        tool_commands = [
-            command for command in commands if _command_tool(command) == baseline_tool
-        ]
+        tool_commands = [command for command in commands if _command_tool(command) == baseline_tool]
         if tool_commands or _manifest_has_tool(manifest, baseline_tool):
             optional[baseline_tool] = _capability_health(
                 name=baseline_tool,
@@ -362,9 +366,7 @@ def collection_health_from_snapshot(snapshot: HostSnapshot) -> CollectionHealth 
                 message="baseline evidence is available from raw bundle",
             )
     warnings = [
-        f"{name}: {health.message}"
-        for name, health in optional.items()
-        if health.status == "warn"
+        f"{name}: {health.message}" for name, health in optional.items() if health.status == "warn"
     ]
     if required["osquery"].status != "ok":
         warnings.insert(0, f"osquery: {required['osquery'].message}")
@@ -594,9 +596,7 @@ def _llm_findings_with_redaction(
 
 def _public_ssh_auth_gap_hypotheses(snapshot: HostSnapshot) -> list[HostHypothesis]:
     public_ssh_ports = [
-        port
-        for port in snapshot.listening_ports
-        if port.port == 22 and _is_public(port)
+        port for port in snapshot.listening_ports if port.port == 22 and _is_public(port)
     ]
     if not public_ssh_ports or not _ssh_password_auth_enabled(snapshot):
         return []
@@ -697,11 +697,7 @@ def _public_database_evidence_gap_hypotheses(snapshot: HostSnapshot) -> list[Hos
 
 
 def _package_cve_ambiguity_hypotheses(snapshot: HostSnapshot) -> list[HostHypothesis]:
-    public_ports = [
-        port
-        for port in snapshot.listening_ports
-        if _is_public(port)
-    ]
+    public_ports = [port for port in snapshot.listening_ports if _is_public(port)]
     if not public_ports:
         return []
     hypotheses: list[HostHypothesis] = []
@@ -765,11 +761,7 @@ def _package_cve_ambiguity_hypotheses(snapshot: HostSnapshot) -> list[HostHypoth
 
 
 def _kernel_hardening_patch_gap_hypotheses(snapshot: HostSnapshot) -> list[HostHypothesis]:
-    public_ports = [
-        port
-        for port in snapshot.listening_ports
-        if _is_public(port)
-    ]
+    public_ports = [port for port in snapshot.listening_ports if _is_public(port)]
     if not public_ports or isinstance(snapshot.config.get("updates"), dict):
         return []
     weak_sysctls = _sysctl_findings(snapshot)
@@ -1063,8 +1055,7 @@ def _ssh_config_findings(snapshot: HostSnapshot) -> list[HostFinding]:
                         source="osquery",
                         key="ssh.PasswordAuthentication",
                         value=str(
-                            ssh.get("PasswordAuthentication")
-                            or ssh.get("passwordauthentication")
+                            ssh.get("PasswordAuthentication") or ssh.get("passwordauthentication")
                         ),
                     )
                 ],
@@ -1092,8 +1083,7 @@ def _ssh_config_findings(snapshot: HostSnapshot) -> list[HostFinding]:
                         source="osquery",
                         key="ssh.PermitEmptyPasswords",
                         value=str(
-                            ssh.get("PermitEmptyPasswords")
-                            or ssh.get("permitemptypasswords")
+                            ssh.get("PermitEmptyPasswords") or ssh.get("permitemptypasswords")
                         ),
                     )
                 ],
@@ -1341,8 +1331,7 @@ def _privileged_user_findings(snapshot: HostSnapshot) -> list[HostFinding]:
                         ),
                     ],
                     remediation=(
-                        "Review whether this account still requires administrator "
-                        "privileges."
+                        "Review whether this account still requires administrator privileges."
                     ),
                     source_tool="osquery",
                 )
@@ -1442,13 +1431,14 @@ def _baseline_check_findings(snapshot: HostSnapshot) -> list[HostFinding]:
 def _auth_evidence_findings(snapshot: HostSnapshot) -> list[HostFinding]:
     findings: list[HostFinding] = []
 
-    ssh_failures = [e for e in snapshot.auth_event_summaries if e.event_type in {"ssh_failed_password", "login_failure"}]
+    ssh_failures = [
+        e
+        for e in snapshot.auth_event_summaries
+        if e.event_type in {"ssh_failed_password", "login_failure"}
+    ]
     total_ssh_failures = sum(e.count for e in ssh_failures)
 
-    is_public_ssh = any(
-        port.port == 22 and _is_public(port)
-        for port in snapshot.listening_ports
-    )
+    is_public_ssh = any(port.port == 22 and _is_public(port) for port in snapshot.listening_ports)
 
     ssh_config = snapshot.config.get("ssh")
     password_auth_enabled = False
@@ -1467,8 +1457,14 @@ def _auth_evidence_findings(snapshot: HostSnapshot) -> list[HostFinding]:
                 severity="medium" if (is_public_ssh and password_auth_enabled) else "low",
                 confidence=0.9,
                 affected_component="sshd",
-                evidence=[EvidenceItem(source="auth_logs", key="failed_ssh_attempts", value=str(total_ssh_failures))],
-                remediation="Review SSH exposure, configure fail2ban, or disable password authentication.",
+                evidence=[
+                    EvidenceItem(
+                        source="auth_logs", key="failed_ssh_attempts", value=str(total_ssh_failures)
+                    )
+                ],
+                remediation=(
+                    "Review SSH exposure, configure fail2ban, or disable password authentication."
+                ),
                 source_tool="auth_logs",
             )
         )
@@ -1486,7 +1482,11 @@ def _auth_evidence_findings(snapshot: HostSnapshot) -> list[HostFinding]:
                 severity="high" if is_public_ssh else "medium",
                 confidence=0.9,
                 affected_component="sshd",
-                evidence=[EvidenceItem(source="auth_logs", key="root_login_attempts", value=str(total_root))],
+                evidence=[
+                    EvidenceItem(
+                        source="auth_logs", key="root_login_attempts", value=str(total_root)
+                    )
+                ],
                 remediation="Ensure PermitRootLogin is disabled in sshd_config.",
                 source_tool="auth_logs",
             )
@@ -1512,7 +1512,13 @@ def _auth_evidence_findings(snapshot: HostSnapshot) -> list[HostFinding]:
                 severity="informational",
                 confidence=0.9,
                 affected_component="session",
-                evidence=[EvidenceItem(source="auth_logs", key="active_privileged_sessions", value=str(len(active_privileged)))],
+                evidence=[
+                    EvidenceItem(
+                        source="auth_logs",
+                        key="active_privileged_sessions",
+                        value=str(len(active_privileged)),
+                    )
+                ],
                 remediation="Review active sessions for unauthorized access.",
                 source_tool="auth_logs",
             )
@@ -1532,10 +1538,16 @@ def _auth_evidence_findings(snapshot: HostSnapshot) -> list[HostFinding]:
                 evidence=[
                     EvidenceItem(source="compound", key="public_ssh", value="true"),
                     EvidenceItem(source="compound", key="password_auth", value="yes"),
-                    EvidenceItem(source="compound", key="failed_attempts", value=str(total_ssh_failures)),
-                    EvidenceItem(source="compound", key="privileged_accounts", value=str(len(admin_users))),
+                    EvidenceItem(
+                        source="compound", key="failed_attempts", value=str(total_ssh_failures)
+                    ),
+                    EvidenceItem(
+                        source="compound", key="privileged_accounts", value=str(len(admin_users))
+                    ),
                 ],
-                remediation="Disable password authentication immediately and enforce key-based auth.",
+                remediation=(
+                    "Disable password authentication immediately and enforce key-based auth."
+                ),
                 source_tool="compound",
             )
         )
@@ -1553,7 +1565,9 @@ def _auth_evidence_findings(snapshot: HostSnapshot) -> list[HostFinding]:
                 severity="informational",
                 confidence=0.9,
                 affected_component="sudo",
-                evidence=[EvidenceItem(source="auth_logs", key="sudo_events", value=str(total_sudo))],
+                evidence=[
+                    EvidenceItem(source="auth_logs", key="sudo_events", value=str(total_sudo))
+                ],
                 remediation="Review sudo logs for suspicious commands.",
                 source_tool="auth_logs",
             )
@@ -1813,9 +1827,7 @@ def _trivy_vulnerabilities(snapshot: HostSnapshot) -> list[dict[str, object]]:
         for result in _trivy_results(payload):
             raw_vulns = result.get("Vulnerabilities")
             if isinstance(raw_vulns, list):
-                vulnerabilities.extend(
-                    item for item in raw_vulns if isinstance(item, dict)
-                )
+                vulnerabilities.extend(item for item in raw_vulns if isinstance(item, dict))
     return vulnerabilities
 
 
@@ -2021,7 +2033,10 @@ def _risk_exploitability(
     if any(_is_public(port) for port in public_related) and finding.category != "vulnerability":
         score = max(score, 0.82)
         reasons.append("related service is internet-routable or any-address bound")
-    if any(_high_risk_service(port) for port in public_related) and finding.category != "vulnerability":
+    if (
+        any(_high_risk_service(port) for port in public_related)
+        and finding.category != "vulnerability"
+    ):
         score = max(score, 0.9)
         reasons.append("public high-risk service has high exploitability priority")
     if finding.rule_id == "host.listener.ssh_public":
@@ -2217,14 +2232,10 @@ def _dedupe_findings(findings: list[HostFinding]) -> list[HostFinding]:
 
 def _posture_score(findings: list[HostFinding]) -> int:
     non_coverage = [
-        _finding_risk_total(finding)
-        for finding in findings
-        if finding.category != "coverage"
+        _finding_risk_total(finding) for finding in findings if finding.category != "coverage"
     ]
     coverage = [
-        _finding_risk_total(finding)
-        for finding in findings
-        if finding.category == "coverage"
+        _finding_risk_total(finding) for finding in findings if finding.category == "coverage"
     ]
     penalty = 0.0
     for index, risk_total in enumerate(sorted(non_coverage, reverse=True)):
@@ -2243,9 +2254,7 @@ def _summary(findings: list[HostFinding]) -> dict[str, object]:
         "by_category": dict(sorted(by_category.items())),
         "risk": {
             "max_total": max(risk_totals, default=0.0),
-            "average_total": round(sum(risk_totals) / len(risk_totals), 1)
-            if risk_totals
-            else 0.0,
+            "average_total": round(sum(risk_totals) / len(risk_totals), 1) if risk_totals else 0.0,
             "top_finding_id": findings[0].id if findings else None,
         },
     }
@@ -2271,7 +2280,8 @@ def _evidence_inventory(snapshot: HostSnapshot) -> dict[str, int]:
         "login_sessions": len(snapshot.login_sessions),
         "auth_event_summaries": len(snapshot.auth_event_summaries),
         "failed_ssh_attempts": sum(
-            1 for e in snapshot.auth_event_summaries
+            1
+            for e in snapshot.auth_event_summaries
             if e.event_type in {"ssh_failed_password", "ssh_invalid_user"}
         ),
     }
@@ -2310,7 +2320,8 @@ def _host_metadata(snapshot: HostSnapshot, inventory: dict[str, int]) -> dict[st
         "active_sessions_count": len(snapshot.login_sessions),
         "auth_event_summary_count": len(snapshot.auth_event_summaries),
         "failed_ssh_attempt_count": sum(
-            1 for e in snapshot.auth_event_summaries
+            1
+            for e in snapshot.auth_event_summaries
             if e.event_type in {"ssh_failed_password", "ssh_invalid_user"}
         ),
         "platform": platform_config,
@@ -2352,7 +2363,9 @@ def _top_actions(findings: list[HostFinding]) -> list[dict[str, object]]:
     ]
     actions: list[dict[str, object]] = []
     for category, action, categories in groups:
-        matching = _rank_findings([finding for finding in findings if finding.category in categories])
+        matching = _rank_findings(
+            [finding for finding in findings if finding.category in categories]
+        )
         if not matching:
             continue
         highest = matching[0].severity
@@ -2409,8 +2422,7 @@ def _public_ports(
 
 def _has_public_ssh(snapshot: HostSnapshot, *, treat_private_as_public: bool) -> bool:
     return any(
-        port.port == 22
-        and _is_public(port, treat_private_as_public=treat_private_as_public)
+        port.port == 22 and _is_public(port, treat_private_as_public=treat_private_as_public)
         for port in snapshot.listening_ports
     )
 
@@ -2450,8 +2462,7 @@ def _finding_search_text(finding: HostFinding) -> str:
 def _finding_is_privilege_related(finding: HostFinding) -> bool:
     text = _finding_search_text(finding)
     return any(
-        token in text
-        for token in ("privileged", "root", "sudo", "wheel", "permitrootlogin")
+        token in text for token in ("privileged", "root", "sudo", "wheel", "permitrootlogin")
     )
 
 
@@ -2681,33 +2692,18 @@ def _host_llm_payload(snapshot: HostSnapshot, findings: list[HostFinding]) -> di
         "kernel": snapshot.kernel,
         "evidence_inventory": _evidence_inventory(snapshot),
         "available_evidence_keys": evidence_keys[:200],
-        "packages": [
-            package.model_dump(mode="json")
-            for package in snapshot.packages[:100]
-        ],
-        "services": [
-            service.model_dump(mode="json")
-            for service in snapshot.services[:100]
-        ],
+        "packages": [package.model_dump(mode="json") for package in snapshot.packages[:100]],
+        "services": [service.model_dump(mode="json") for service in snapshot.services[:100]],
         "listening_ports": [
-            port.model_dump(mode="json")
-            for port in snapshot.listening_ports[:100]
+            port.model_dump(mode="json") for port in snapshot.listening_ports[:100]
         ],
-        "processes": [
-            process.model_dump(mode="json")
-            for process in snapshot.processes[:100]
-        ],
-        "users": [
-            user.model_dump(mode="json")
-            for user in snapshot.users[:100]
-        ],
+        "processes": [process.model_dump(mode="json") for process in snapshot.processes[:100]],
+        "users": [user.model_dump(mode="json") for user in snapshot.users[:100]],
         "login_sessions": [
-            session.model_dump(mode="json")
-            for session in snapshot.login_sessions[:100]
+            session.model_dump(mode="json") for session in snapshot.login_sessions[:100]
         ],
         "auth_event_summaries": [
-            event.model_dump(mode="json")
-            for event in snapshot.auth_event_summaries[:100]
+            event.model_dump(mode="json") for event in snapshot.auth_event_summaries[:100]
         ],
         "deterministic_findings": deterministic,
     }
@@ -2754,8 +2750,7 @@ def _llm_prompt_from_payload(payload: dict[str, Any]) -> str:
             {
                 "title": "string",
                 "category": (
-                    "vulnerability|exposure|misconfiguration|identity|coverage|"
-                    "compound-risk"
+                    "vulnerability|exposure|misconfiguration|identity|coverage|compound-risk"
                 ),
                 "severity": "informational|low|medium|high|critical",
                 "confidence": 0.0,

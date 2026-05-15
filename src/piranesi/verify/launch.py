@@ -360,8 +360,7 @@ def _toml_escape(value: str) -> str:
 
 def _profile_exists(text: str, profile_name: str) -> bool:
     return any(
-        line.strip() == f"[verify.target_profiles.{profile_name}]"
-        for line in text.splitlines()
+        line.strip() == f"[verify.target_profiles.{profile_name}]" for line in text.splitlines()
     )
 
 

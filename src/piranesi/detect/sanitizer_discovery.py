@@ -65,17 +65,37 @@ _FN_PATTERNS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = (
 # keyword-suffix -> (SanitizerKind, tuple[cwe])
 _KEYWORD_MAP: tuple[tuple[re.Pattern[str], SanitizerKind, tuple[str, ...]], ...] = (
     (re.compile(r"(?i)html[_]?escape|escape[_]?html"), SanitizerKind.ESCAPE, ("CWE-79",)),
-    (re.compile(r"(?i)escape[_]?shell|shell[_]?escape|shell[_]?quote"), SanitizerKind.ESCAPE, ("CWE-78",)),
-    (re.compile(r"(?i)escape[_]?sql|sql[_]?escape|quote[_]?sql"), SanitizerKind.ESCAPE, ("CWE-89",)),
-    (re.compile(r"(?i)sanitize[_]?html|clean[_]?html|strip[_]?tags|strip[_]?html"),
-     SanitizerKind.SANITIZE, ("CWE-79",)),
+    (
+        re.compile(r"(?i)escape[_]?shell|shell[_]?escape|shell[_]?quote"),
+        SanitizerKind.ESCAPE,
+        ("CWE-78",),
+    ),
+    (
+        re.compile(r"(?i)escape[_]?sql|sql[_]?escape|quote[_]?sql"),
+        SanitizerKind.ESCAPE,
+        ("CWE-89",),
+    ),
+    (
+        re.compile(r"(?i)sanitize[_]?html|clean[_]?html|strip[_]?tags|strip[_]?html"),
+        SanitizerKind.SANITIZE,
+        ("CWE-79",),
+    ),
     (re.compile(r"(?i)sanitize[_]?sql|clean[_]?sql"), SanitizerKind.SANITIZE, ("CWE-89",)),
-    (re.compile(r"(?i)sanitize[_]?path|normalize[_]?path|clean[_]?path"),
-     SanitizerKind.NORMALIZE, ("CWE-22",)),
-    (re.compile(r"(?i)sanitize[_]?url|validate[_]?url|check[_]?url"),
-     SanitizerKind.VALIDATE, ("CWE-601", "CWE-918")),
-    (re.compile(r"(?i)validate[_]?input|check[_]?input|validate[_]?param"),
-     SanitizerKind.VALIDATE, ("CWE-79", "CWE-89", "CWE-22")),
+    (
+        re.compile(r"(?i)sanitize[_]?path|normalize[_]?path|clean[_]?path"),
+        SanitizerKind.NORMALIZE,
+        ("CWE-22",),
+    ),
+    (
+        re.compile(r"(?i)sanitize[_]?url|validate[_]?url|check[_]?url"),
+        SanitizerKind.VALIDATE,
+        ("CWE-601", "CWE-918"),
+    ),
+    (
+        re.compile(r"(?i)validate[_]?input|check[_]?input|validate[_]?param"),
+        SanitizerKind.VALIDATE,
+        ("CWE-79", "CWE-89", "CWE-22"),
+    ),
     (re.compile(r"(?i)^sanitize|^clean"), SanitizerKind.SANITIZE, ("CWE-79", "CWE-89", "CWE-78")),
     (re.compile(r"(?i)^escape|^encode"), SanitizerKind.ESCAPE, ("CWE-79",)),
     (re.compile(r"(?i)^strip"), SanitizerKind.SANITIZE, ("CWE-79",)),
@@ -83,11 +103,24 @@ _KEYWORD_MAP: tuple[tuple[re.Pattern[str], SanitizerKind, tuple[str, ...]], ...]
     (re.compile(r"(?i)^filter"), SanitizerKind.VALIDATE, ("CWE-79", "CWE-89")),
 )
 
-_EXCLUDED_DIRS = frozenset({
-    "node_modules", ".git", ".venv", "venv", "__pycache__", ".pytest_cache",
-    "dist", "build", ".next", "target", "vendor", ".piranesi-out", ".piranesi-cache",
-    "piranesi-output",
-})
+_EXCLUDED_DIRS = frozenset(
+    {
+        "node_modules",
+        ".git",
+        ".venv",
+        "venv",
+        "__pycache__",
+        ".pytest_cache",
+        "dist",
+        "build",
+        ".next",
+        "target",
+        "vendor",
+        ".piranesi-out",
+        ".piranesi-cache",
+        "piranesi-output",
+    }
+)
 _PIRANESI_TRACE_PREFIX = ".piranesi-trace"
 
 
@@ -145,10 +178,7 @@ def discover_custom_sanitizers(
     Discovered specs have ``is_custom``-like semantics via reduced confidence
     and ``blocks_flow=False`` so they downgrade findings rather than suppress.
     """
-    if isinstance(roots, (str, Path)):
-        roots = [Path(roots)]
-    else:
-        roots = [Path(r) for r in roots]
+    roots = [Path(roots)] if isinstance(roots, (str, Path)) else [Path(r) for r in roots]
 
     seen: dict[str, SanitizerSpec] = {}
     for path in _iter_source_files(roots):

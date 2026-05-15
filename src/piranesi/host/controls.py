@@ -79,45 +79,85 @@ HOST_CONTROL_MAPPINGS: dict[str, tuple[HostControlRef, ...]] = {
         _nist_csf("PR.PS", "Platform Security", 0.62, "exposed service hardening"),
         _nist_csf("DE.CM", "Continuous Monitoring", 0.5, "network exposure visibility"),
         _nist_800_53("CM family", "Configuration Management", 0.52, "service exposure management"),
-        _nist_800_53("SC family", "System and Communications Protection", 0.5, "boundary protection family"),
+        _nist_800_53(
+            "SC family", "System and Communications Protection", 0.5, "boundary protection family"
+        ),
         _cis("network-service-hardening", "Network service hardening", 0.48),
     ),
     "host.listener.ssh_public": (
-        _nist_csf("PR.AA", "Identity Management, Authentication and Access Control", 0.58, "remote administration exposure"),
+        _nist_csf(
+            "PR.AA",
+            "Identity Management, Authentication and Access Control",
+            0.58,
+            "remote administration exposure",
+        ),
         _nist_csf("PR.PS", "Platform Security", 0.55, "platform service exposure"),
         _nist_800_53("AC family", "Access Control", 0.5, "remote access control family"),
         _cis("ssh-hardening", "SSH daemon hardening", 0.58),
     ),
     "host.ssh.permit_root_login": (
         _cis("ssh-root-login", "Ensure SSH root login is disabled", 0.74),
-        _nist_csf("PR.AA", "Identity Management, Authentication and Access Control", 0.65, "privileged remote authentication"),
+        _nist_csf(
+            "PR.AA",
+            "Identity Management, Authentication and Access Control",
+            0.65,
+            "privileged remote authentication",
+        ),
         _nist_800_53("AC family", "Access Control", 0.58, "privileged access control family"),
-        _nist_800_53("IA family", "Identification and Authentication", 0.56, "administrator authentication family"),
+        _nist_800_53(
+            "IA family",
+            "Identification and Authentication",
+            0.56,
+            "administrator authentication family",
+        ),
     ),
     "host.ssh.password_authentication": (
         _cis("ssh-password-authentication", "Harden SSH password authentication", 0.68),
-        _nist_csf("PR.AA", "Identity Management, Authentication and Access Control", 0.64, "remote authentication strength"),
-        _nist_800_53("IA family", "Identification and Authentication", 0.56, "authentication mechanism family"),
+        _nist_csf(
+            "PR.AA",
+            "Identity Management, Authentication and Access Control",
+            0.64,
+            "remote authentication strength",
+        ),
+        _nist_800_53(
+            "IA family",
+            "Identification and Authentication",
+            0.56,
+            "authentication mechanism family",
+        ),
     ),
     "host.ssh.permit_empty_passwords": (
         _cis("ssh-empty-passwords", "Ensure SSH empty passwords are disabled", 0.76),
-        _nist_csf("PR.AA", "Identity Management, Authentication and Access Control", 0.68, "authentication credential strength"),
-        _nist_800_53("IA family", "Identification and Authentication", 0.6, "authenticator management family"),
+        _nist_csf(
+            "PR.AA",
+            "Identity Management, Authentication and Access Control",
+            0.68,
+            "authentication credential strength",
+        ),
+        _nist_800_53(
+            "IA family", "Identification and Authentication", 0.6, "authenticator management family"
+        ),
     ),
     "host.firewall.inactive_public_services": (
         _nist_csf("PR.PS", "Platform Security", 0.66, "host firewall and platform hardening"),
         _nist_csf("DE.CM", "Continuous Monitoring", 0.54, "network exposure monitoring"),
-        _nist_800_53("SC family", "System and Communications Protection", 0.58, "boundary protection family"),
+        _nist_800_53(
+            "SC family", "System and Communications Protection", 0.58, "boundary protection family"
+        ),
         _cis("host-firewall", "Host firewall and network filtering", 0.58),
     ),
     "host.updates.security_pending": (
         _nist_csf("PR.PS", "Platform Security", 0.62, "platform update management"),
-        _nist_800_53("SI family", "System and Information Integrity", 0.56, "flaw remediation family"),
+        _nist_800_53(
+            "SI family", "System and Information Integrity", 0.56, "flaw remediation family"
+        ),
         _cis("patch-management", "Security update management", 0.52),
     ),
     "host.updates.unattended_upgrades_missing": (
         _nist_csf("PR.PS", "Platform Security", 0.58, "platform update process"),
-        _nist_800_53("SI family", "System and Information Integrity", 0.52, "flaw remediation process family"),
+        _nist_800_53(
+            "SI family", "System and Information Integrity", 0.52, "flaw remediation process family"
+        ),
         _cis("patch-management", "Security update management", 0.5),
     ),
     "host.sysctl.net.ipv4.ip_forward": (
@@ -141,19 +181,31 @@ HOST_CONTROL_MAPPINGS: dict[str, tuple[HostControlRef, ...]] = {
         _cis("kernel-hardening", "Kernel hardening", 0.48),
     ),
     "host.identity.privileged_user": (
-        _nist_csf("PR.AA", "Identity Management, Authentication and Access Control", 0.64, "privileged account review"),
+        _nist_csf(
+            "PR.AA",
+            "Identity Management, Authentication and Access Control",
+            0.64,
+            "privileged account review",
+        ),
         _nist_800_53("AC family", "Access Control", 0.58, "least privilege family"),
         _cis("privileged-account-management", "Privileged local account management", 0.5),
     ),
     "host.coverage.missing_evidence": (
         _nist_csf("ID.AM", "Asset Management", 0.5, "host inventory visibility"),
         _nist_csf("GV.OC", "Organizational Context", 0.42, "evidence governance visibility"),
-        _nist_800_53("CA family", "Assessment, Authorization, and Monitoring", 0.42, "assessment evidence family"),
+        _nist_800_53(
+            "CA family",
+            "Assessment, Authorization, and Monitoring",
+            0.42,
+            "assessment evidence family",
+        ),
     ),
     "host.coverage.missing_trivy": (
         _nist_csf("ID.RA", "Risk Assessment", 0.5, "vulnerability evidence coverage"),
         _nist_csf("DE.CM", "Continuous Monitoring", 0.42, "vulnerability monitoring visibility"),
-        _nist_800_53("RA family", "Risk Assessment", 0.44, "vulnerability scanning evidence family"),
+        _nist_800_53(
+            "RA family", "Risk Assessment", 0.44, "vulnerability scanning evidence family"
+        ),
     ),
     "host.auth.ssh_failed_password_spike": (
         _nist_csf("DE.CM", "Continuous Monitoring", 0.62, "authentication event monitoring"),
@@ -162,11 +214,21 @@ HOST_CONTROL_MAPPINGS: dict[str, tuple[HostControlRef, ...]] = {
     ),
     "host.auth.root_login_attempts": (
         _nist_csf("DE.CM", "Continuous Monitoring", 0.62, "privileged authentication monitoring"),
-        _nist_csf("PR.AA", "Identity Management, Authentication and Access Control", 0.54, "privileged access monitoring"),
+        _nist_csf(
+            "PR.AA",
+            "Identity Management, Authentication and Access Control",
+            0.54,
+            "privileged access monitoring",
+        ),
         _nist_800_53("AU family", "Audit and Accountability", 0.56, "audit review family"),
     ),
     "host.auth.active_privileged_session": (
-        _nist_csf("PR.AA", "Identity Management, Authentication and Access Control", 0.52, "privileged session review"),
+        _nist_csf(
+            "PR.AA",
+            "Identity Management, Authentication and Access Control",
+            0.52,
+            "privileged session review",
+        ),
         _nist_800_53("AC family", "Access Control", 0.48, "privileged access family"),
     ),
     "host.auth.sudo_activity_present": (
@@ -174,7 +236,12 @@ HOST_CONTROL_MAPPINGS: dict[str, tuple[HostControlRef, ...]] = {
         _nist_800_53("AU family", "Audit and Accountability", 0.5, "audit review family"),
     ),
     "host.auth.compound_ssh_brute_force": (
-        _nist_csf("PR.AA", "Identity Management, Authentication and Access Control", 0.66, "remote privileged authentication risk"),
+        _nist_csf(
+            "PR.AA",
+            "Identity Management, Authentication and Access Control",
+            0.66,
+            "remote privileged authentication risk",
+        ),
         _nist_csf("DE.CM", "Continuous Monitoring", 0.62, "authentication attack monitoring"),
         _nist_800_53("AC family", "Access Control", 0.56, "remote access family"),
         _nist_800_53("AU family", "Audit and Accountability", 0.54, "audit review family"),
@@ -238,9 +305,9 @@ def control_summary_for_findings(findings: list[HostFinding]) -> dict[str, objec
         }
 
     return {
-        "mapped_findings": len({
-            finding.id for finding in active_findings if finding.structured_control_refs
-        }),
+        "mapped_findings": len(
+            {finding.id for finding in active_findings if finding.structured_control_refs}
+        ),
         "unmapped_findings": sum(unmapped.values()),
         "frameworks": frameworks,
         "unmapped_rule_ids": dict(sorted(unmapped.items())),

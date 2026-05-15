@@ -262,9 +262,7 @@ def compile_rule(rule: CustomRule) -> CompiledRule:
         )
     if rule.category is not None and rule.category not in _VALID_RULE_CATEGORIES:
         allowed_categories = ", ".join(sorted(_VALID_RULE_CATEGORIES))
-        errors.append(
-            f"unknown category '{rule.category}'; expected one of: {allowed_categories}"
-        )
+        errors.append(f"unknown category '{rule.category}'; expected one of: {allowed_categories}")
 
     kinds = _rule_pattern_kinds(rule, builtin=builtin)
     if isinstance(kinds, RuleValidationError):
@@ -1051,9 +1049,7 @@ def _validate_document_shape(document: Mapping[str, Any], *, path: Path) -> None
             raise RuleValidationError(f"{path}: [rule.{section_name}] must be a TOML table")
         unknown_section_fields = _unknown_keys(raw_section.keys(), allowed_fields)
         if unknown_section_fields:
-            fields = ", ".join(
-                f"rule.{section_name}.{field}" for field in unknown_section_fields
-            )
+            fields = ", ".join(f"rule.{section_name}.{field}" for field in unknown_section_fields)
             raise RuleValidationError(f"{path}: unknown field(s): {fields}")
 
 

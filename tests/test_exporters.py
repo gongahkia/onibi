@@ -54,9 +54,7 @@ def test_generate_sarif_skips_suppressed_findings(tmp_path: Path) -> None:
     report.findings[0].suppression_reason = "accepted lab risk"
 
     sarif = generate_sarif(report)
-    exported_ids = {
-        result["properties"]["findingId"] for result in sarif["runs"][0]["results"]
-    }
+    exported_ids = {result["properties"]["findingId"] for result in sarif["runs"][0]["results"]}
 
     assert report.findings[0].id not in exported_ids
 

@@ -61,9 +61,7 @@ def _write_entries(directory: Path, entries: list[GroundTruthEntry]) -> None:
         )
 
 
-def test_corpus_quality_reports_runnable_and_field_coverage(
-    tmp_path: Path, capsys
-) -> None:
+def test_corpus_quality_reports_runnable_and_field_coverage(tmp_path: Path, capsys) -> None:
     gt_dir = tmp_path / "ground_truth"
     existing_fixture = tmp_path / "fixtures" / "present.ts"
     existing_fixture.parent.mkdir(parents=True, exist_ok=True)

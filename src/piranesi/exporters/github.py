@@ -22,9 +22,7 @@ PostCallable = Callable[..., Any]
 
 def build_github_issue(finding: Any) -> dict[str, Any]:
     title = f"[Piranesi] {finding.severity.upper()}: {finding.title}"
-    evidence = "\n".join(
-        f"- {item['source']}:{item['key']}" for item in finding.evidence[:5]
-    )
+    evidence = "\n".join(f"- {item['source']}:{item['key']}" for item in finding.evidence[:5])
     body = "\n".join(
         [
             f"Finding ID: `{finding.finding_id}`",

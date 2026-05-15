@@ -53,10 +53,7 @@ def normalize_adapter_result(
             )
         )
 
-    diagnostics = [
-        f"{item.level}: {item.message}"
-        for item in parse_result.diagnostics
-    ]
+    diagnostics = [f"{item.level}: {item.message}" for item in parse_result.diagnostics]
     return NormalizationBundle.create(source=source, findings=normalized, diagnostics=diagnostics)
 
 

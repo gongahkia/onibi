@@ -46,9 +46,7 @@ _HARDCODED_BASE_URL_TEMPLATE_PATTERN = re.compile(
 _HARDCODED_BASE_URL_FORMAT_STRING_PATTERN = re.compile(
     r'^<operator>[.]formatString\("https?://[^/$?"]+(?::\d+)?[/?#][^"]*", .+\)$'
 )
-_DOTTED_CALLEE_PATTERN = re.compile(
-    r"(?P<callee>[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+)\s*\("
-)
+_DOTTED_CALLEE_PATTERN = re.compile(r"(?P<callee>[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+)\s*\(")
 _PARENT_CALL_QUERY_BY_NODE_TYPE = {
     "CALL": "cpg.call.id({node_id}L).astParent.toJsonPretty",
     "IDENTIFIER": "cpg.identifier.id({node_id}L).astParent.toJsonPretty",
@@ -282,8 +280,7 @@ def _node_matches_sink_receiver_constraints(node: QueryNode, sink_spec: SinkSpec
     ):
         return False
     return not (
-        sink_spec.exclude_receivers
-        and _receiver_matches_any(receiver, sink_spec.exclude_receivers)
+        sink_spec.exclude_receivers and _receiver_matches_any(receiver, sink_spec.exclude_receivers)
     )
 
 

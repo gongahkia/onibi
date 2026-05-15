@@ -89,14 +89,16 @@ The default bind address is local loopback:
 piranesi ui piranesi-output --host 127.0.0.1 --port 8765
 ```
 
-Binding to `0.0.0.0` prints an explicit warning because the workbench becomes
-reachable from the network:
+Binding to `0.0.0.0` prints an explicit warning because the workbench is
+unauthenticated and becomes reachable from the network:
 
 ```bash
 piranesi ui piranesi-output --host 0.0.0.0
 ```
 
-Keep the default unless you are deliberately testing in an isolated environment.
+Keep the default unless you are deliberately testing in an isolated environment
+or you have placed the UI behind a trusted access-control layer such as an SSH
+tunnel, VPN-only listener, or authenticated reverse proxy.
 
 ## Redaction
 

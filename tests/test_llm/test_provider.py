@@ -183,7 +183,7 @@ def test_provider_applies_router_token_budget_adjustments(
         return litellm.mock_completion(
             model="openai/gpt-4o-mini",
             messages=messages,
-            mock_response="{\"ok\":true}",
+            mock_response='{"ok":true}',
             **kwargs,
         )
 
@@ -198,7 +198,7 @@ def test_provider_applies_router_token_budget_adjustments(
         max_tokens=512,
     )
 
-    assert response.content == "{\"ok\":true}"
+    assert response.content == '{"ok":true}'
     assert observed_max_tokens and observed_max_tokens[0] < 512
     assert "token budget" in observed_messages[0][1]["content"]
     assert router.used_tokens > 0
@@ -217,7 +217,7 @@ def test_provider_redacts_sensitive_values_before_llm_call(
         return litellm.mock_completion(
             model="openai/gpt-4o-mini",
             messages=messages,
-            mock_response="{\"ok\":true}",
+            mock_response='{"ok":true}',
         )
 
     monkeypatch.setattr("piranesi.llm.provider.litellm.completion", _completion)
@@ -237,7 +237,7 @@ def test_provider_redacts_sensitive_values_before_llm_call(
         ],
     )
 
-    assert response.content == "{\"ok\":true}"
+    assert response.content == '{"ok":true}'
     outbound = captured_messages[0][0]["content"]
     assert "sk-abcdefghijklmnopqrstuvwx" not in outbound
     assert "hunter2" not in outbound

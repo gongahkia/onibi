@@ -51,9 +51,27 @@ def default_rules_path(filename: str) -> Path:
 
 
 def discover_rule_files(rules_dir: Path | None = None) -> list[Path]:
-    """Find all *.toml files in rules/ and rules/community/."""
+    """Find regulatory *.toml rule documents.
+
+    The repository also contains host-posture community rules under ``rules/``.
+    Those files intentionally use a different schema, so regulatory discovery
+    must not feed them into the compliance/legal rule loader.
+    """
     base = rules_dir or default_rules_dir()
-    return sorted(p for p in base.glob("**/*.toml") if not p.name.startswith("_"))
+    return sorted(
+        path
+        for path in base.glob("**/*.toml")
+        if not path.name.startswith("_") and not _is_non_regulatory_rule_file(path)
+    )
+
+
+def _is_non_regulatory_rule_file(path: Path) -> bool:
+    try:
+        with path.open("rb") as handle:
+            data = tomllib.load(handle)
+    except tomllib.TOMLDecodeError:
+        return False
+    return "rules" not in data and {"rule", "match"}.issubset(data)
 
 
 def load_rule_specs(path: Path) -> list[RegulatoryRuleSpec]:

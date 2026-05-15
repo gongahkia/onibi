@@ -237,11 +237,13 @@ def test_compare_reports_can_resolve_latest_two_from_history_index(
     assert payload["current_report"] == str(newer)
 
 
-def test_compare_reports_requires_consistent_path_inputs() -> None:
-    with pytest.raises(ValueError, match="provide either both --baseline-report and --current-report"):
+def test_compare_reports_requires_consistent_path_inputs(tmp_path: Path) -> None:
+    with pytest.raises(
+        ValueError, match="provide either both --baseline-report and --current-report"
+    ):
         compare_reports.main(
             [
                 "--baseline-report",
-                "/tmp/a.json",
+                str(tmp_path / "a.json"),
             ]
         )

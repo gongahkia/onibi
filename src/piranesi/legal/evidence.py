@@ -259,8 +259,7 @@ def build_compliance_evidence_bundle(
 
     for bundle in bundles:
         control_path = (
-            controls_output
-            / f"{_slug(bundle.framework)}_{_slug(bundle.control_ref)}.json"
+            controls_output / f"{_slug(bundle.framework)}_{_slug(bundle.control_ref)}.json"
         )
         payload = bundle.model_dump(mode="json")
         if redact:
@@ -577,15 +576,12 @@ def _control_mapping_metadata(
     confidence = _mapping_confidence(specs=specs, framework_key=framework_key)
     return ComplianceMappingMetadata(
         framework_name=(
-            framework.long_label
-            if framework is not None
-            else primary.framework.replace("_", " ")
+            framework.long_label if framework is not None else primary.framework.replace("_", " ")
         ),
         framework_version=None if framework is None else framework.version,
         control_id=control_ref,
         mapping_rationale=(
-            f"Control {control_ref} mapped via {len(specs)} rule(s) "
-            f"({rule_ids}) using {rationale}."
+            f"Control {control_ref} mapped via {len(specs)} rule(s) ({rule_ids}) using {rationale}."
         ),
         last_reviewed=None if framework is None else framework.mapping_last_reviewed,
         reviewer=None if framework is None else framework.mapping_reviewer,

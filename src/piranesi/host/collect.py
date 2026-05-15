@@ -22,9 +22,7 @@ OSQUERY_QUERIES: dict[str, str] = {
         "as pretty_name from os_version;"
     ),
     "kernel_info": "select version from kernel_info;",
-    "interface_addresses": (
-        "select interface, address, mask, type from interface_addresses;"
-    ),
+    "interface_addresses": ("select interface, address, mask, type from interface_addresses;"),
     "deb_packages": "select name, version, arch from deb_packages;",
     "rpm_packages": "select name, version, release, arch from rpm_packages;",
     "apk_packages": "select name, version, arch from apk_packages;",
@@ -94,8 +92,14 @@ AUTH_TEXT_COMMANDS: dict[str, list[str]] = {
     "last_logins": ["last", "-n", "50"],
     "lastb_failures": ["lastb", "-n", "50"],
     "journalctl_sshd_auth_summary": [
-        "journalctl", "-u", "ssh", "--since", "-7d",
-        "--no-pager", "-n", "100",
+        "journalctl",
+        "-u",
+        "ssh",
+        "--since",
+        "-7d",
+        "--no-pager",
+        "-n",
+        "100",
     ],
 }
 
@@ -539,6 +543,7 @@ def _run_optional_text_command(
         output_file=str(output_file),
     )
 
+
 def _collect_lynis(
     *,
     lynis_dir: Path,
@@ -590,6 +595,7 @@ def _collect_lynis(
             break
     if report_dat is not None:
         import shutil as _shutil
+
         _shutil.copy2(report_dat, lynis_dir / "report.dat")
     manifest.commands.append(
         CollectionCommandResult(

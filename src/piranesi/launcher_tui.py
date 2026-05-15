@@ -466,9 +466,7 @@ def launch_cli_tui(
             else:
                 self._status_note = f"pipeline failed with exit code {return_code}"
                 self._append_run_line("")
-                self._append_run_line(
-                    f"[piranesi] pipeline failed with exit code {return_code}"
-                )
+                self._append_run_line(f"[piranesi] pipeline failed with exit code {return_code}")
             self._refresh_status()
 
         def _on_pipeline_error(self, message: str) -> None:

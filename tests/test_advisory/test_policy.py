@@ -176,6 +176,4 @@ def test_cli_advisory_status_fails_when_unsigned_policy_is_fail(tmp_path: Path) 
     assert result.exit_code == 1
     payload = json.loads(result.stdout)
     assert payload["policy"]["allowed"] is False
-    assert any(
-        "not cryptographically verified" in item for item in payload["policy"]["violations"]
-    )
+    assert any("not cryptographically verified" in item for item in payload["policy"]["violations"])
