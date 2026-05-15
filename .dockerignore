@@ -14,7 +14,9 @@ asset
 dist
 docs
 eval
-examples
+examples/*
+!examples/rule-packs/
+!examples/rule-packs/**
 piranesi-output
 tests
 workspace

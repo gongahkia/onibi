@@ -9,7 +9,8 @@ def test_dockerfile_configures_non_root_and_deterministic_install() -> None:
 
     assert "USER piranesi" in dockerfile
     assert 'ENTRYPOINT ["piranesi"]' in dockerfile
-    assert "uv pip install --system --no-cache --locked ." in dockerfile
+    assert "uv build --wheel" in dockerfile
+    assert "/opt/piranesi/bin/pip install --no-cache-dir dist/*.whl" in dockerfile
     assert "OPENAI_API_KEY" not in dockerfile
     assert "ANTHROPIC_API_KEY" not in dockerfile
 

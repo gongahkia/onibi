@@ -4,6 +4,9 @@ Community benchmarks are host evidence fixtures with ground-truth labels. They
 help measure whether deterministic rules detect real posture issues without
 inflating false positives.
 
+For the complete contributor and maintainer checklist, see
+[Community Contribution Workflow](community-contribution-workflow.md).
+
 ## Validate A Fixture
 
 ```bash

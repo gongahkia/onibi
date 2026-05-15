@@ -168,7 +168,7 @@ def test_benchmark_records_optional_baseline_skips() -> None:
     report = build_host_benchmark_report(FIXTURES)
     baselines = {baseline.name: baseline for baseline in report.baselines}
 
-    assert report.fixture_count == 4
+    assert report.fixture_count == 7
     assert report.metrics.precision == pytest.approx(1.0)
     assert report.metrics.recall == pytest.approx(1.0)
     assert report.metrics.f1 == pytest.approx(1.0)
@@ -241,6 +241,16 @@ def test_fixture_validation_for_host_bundle() -> None:
     assert result.has_ground_truth is True
     assert result.expected_findings == 6
     assert result.evidence_inventory["packages"] == 2
+
+
+def test_benchmark_corpus_covers_linux_platform_families() -> None:
+    report = build_host_benchmark_report(FIXTURES)
+    fixtures = {row.fixture for row in report.findings_matrix}
+
+    assert any("debian-vulnerable" in fixture for fixture in fixtures)
+    assert any("rhel-vulnerable" in fixture for fixture in fixtures)
+    assert any("amazon-linux" in fixture for fixture in fixtures)
+    assert any("alpine-minimal" in fixture for fixture in fixtures)
 
 
 def test_fixture_validation_reports_invalid_bundle(tmp_path: Path) -> None:

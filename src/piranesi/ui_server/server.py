@@ -19,6 +19,7 @@ from email import policy
 from email.parser import BytesParser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib import resources
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -257,7 +258,7 @@ def _create_workbench(
         else (Path.home() / ".piranesi" / "ui-jobs").resolve(strict=False)
     )
     resolved_jobs_dir.mkdir(parents=True, exist_ok=True)
-    return WorkbenchState(
+    workbench = WorkbenchState(
         jobs_dir=resolved_jobs_dir,
         max_upload_bytes=max_upload_bytes,
         max_extracted_bytes=500 * 1024 * 1024,
@@ -265,6 +266,8 @@ def _create_workbench(
         scan_timeout_seconds=scan_timeout_seconds,
         scan_runner=scan_runner or _default_scan_runner,
     )
+    _load_job_index(workbench)
+    return workbench
 
 
 class _UiRequestHandler(BaseHTTPRequestHandler):
@@ -292,8 +295,37 @@ class _UiRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/preflight":
             self._send_json(_preflight_payload(self.server_state))
             return
+        if parsed.path == "/api/samples":
+            self._send_json(_sample_gallery_payload(self.server_state))
+            return
+        if parsed.path == "/api/samples/app-vuln-express.zip":
+            try:
+                self._send_bytes(
+                    _sample_app_zip(),
+                    content_type="application/zip",
+                    filename="piranesi-vuln-express.zip",
+                )
+            except UiServerError as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.NOT_FOUND)
+            return
         if parsed.path == "/api/findings":
             self._send_json(_findings_payload(self.server_state, parse_qs(parsed.query)))
+            return
+        if parsed.path == "/api/handoff/preview":
+            try:
+                self._send_json(_handoff_preview_payload(self.server_state, parse_qs(parsed.query)))
+            except UiServerError as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path.startswith("/api/artifacts/"):
+            try:
+                body, content_type, filename = _state_artifact(
+                    self.server_state,
+                    parsed.path.rsplit("/", maxsplit=1)[-1],
+                )
+                self._send_bytes(body, content_type=content_type, filename=filename)
+            except UiServerError as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.NOT_FOUND)
             return
         if parsed.path == "/api/artifacts/report-md":
             try:
@@ -304,15 +336,34 @@ class _UiRequestHandler(BaseHTTPRequestHandler):
             except UiServerError as exc:
                 self._send_json({"error": str(exc)}, status=HTTPStatus.NOT_FOUND)
             return
-        if parsed.path.startswith("/api/app-scans/"):
+        if parsed.path == "/api/app-scans" or parsed.path.startswith("/api/app-scans/"):
             self._handle_app_scan_get(parsed.path, parse_qs(parsed.query))
             return
         self._send_json({"error": "not found"}, status=HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/api/app-scans/sample/app-vuln-express":
+            self._handle_sample_app_scan_post()
+            return
+        if parsed.path == "/api/app-scans/import-url":
+            self._handle_url_import_post()
+            return
+        if parsed.path == "/api/handoff/send":
+            self._handle_handoff_send(parse_qs(parsed.query))
+            return
         if parsed.path == "/api/app-scans":
             self._handle_app_scan_post()
+            return
+        if parsed.path.startswith("/api/app-scans/") and parsed.path.endswith("/handoff/send"):
+            self._handle_handoff_send(parse_qs(parsed.query))
+            return
+        self._send_json({"error": "not found"}, status=HTTPStatus.NOT_FOUND)
+
+    def do_DELETE(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/app-scans/"):
+            self._handle_app_scan_delete(parsed.path)
             return
         self._send_json({"error": "not found"}, status=HTTPStatus.NOT_FOUND)
 
@@ -331,7 +382,14 @@ class _UiRequestHandler(BaseHTTPRequestHandler):
             return
         if len(parts) == 2:
             with workbench.lock:
-                jobs = [_job_payload(job) for job in workbench.jobs.values()]
+                jobs = [
+                    _job_payload(job)
+                    for job in sorted(
+                        workbench.jobs.values(),
+                        key=lambda item: item.created_at,
+                        reverse=True,
+                    )
+                ]
             self._send_json({"jobs": jobs})
             return
         job = _get_job(workbench, parts[2])
@@ -355,14 +413,55 @@ class _UiRequestHandler(BaseHTTPRequestHandler):
             return
         if len(parts) == 5 and parts[3] == "artifacts" and parts[4] == "report-md":
             try:
-                self._send_text(
-                    _read_job_markdown(job),
-                    content_type="text/markdown; charset=utf-8",
-                )
+                body, content_type, filename = _job_artifact(job, parts[4])
+                self._send_bytes(body, content_type=content_type, filename=filename)
             except UiServerError as exc:
                 self._send_json({"error": str(exc)}, status=HTTPStatus.CONFLICT)
             return
+        if len(parts) == 5 and parts[3] == "artifacts":
+            try:
+                body, content_type, filename = _job_artifact(job, parts[4])
+                self._send_bytes(body, content_type=content_type, filename=filename)
+            except UiServerError as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.CONFLICT)
+            return
+        if len(parts) == 5 and parts[3] == "handoff" and parts[4] == "preview":
+            try:
+                self._send_json(_job_handoff_preview_payload(job, query))
+            except UiServerError as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
         self._send_json({"error": "not found"}, status=HTTPStatus.NOT_FOUND)
+
+    def _handle_app_scan_delete(self, path: str) -> None:
+        workbench = self.server_state.workbench
+        if workbench is None:
+            self._send_json({"error": "workbench is not enabled"}, status=HTTPStatus.NOT_FOUND)
+            return
+        parts = path.strip("/").split("/")
+        if len(parts) != 3 or parts[0] != "api" or parts[1] != "app-scans":
+            self._send_json({"error": "not found"}, status=HTTPStatus.NOT_FOUND)
+            return
+        with workbench.lock:
+            job = workbench.jobs.get(parts[2])
+            if job is None:
+                self._send_json({"error": "job not found"}, status=HTTPStatus.NOT_FOUND)
+                return
+            if job.status in {"queued", "running"}:
+                self._send_json(
+                    {"error": "cannot delete a running scan"},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            if not _is_job_dir_safe(workbench, job.job_dir):
+                self._send_json({"error": "unsafe job directory"}, status=HTTPStatus.CONFLICT)
+                return
+            workbench.jobs.pop(job.job_id, None)
+            if workbench.active_job_id == job.job_id:
+                workbench.active_job_id = None
+            _persist_job_index(workbench)
+        shutil.rmtree(job.job_dir, ignore_errors=True)
+        self._send_json({"deleted": True, "job_id": job.job_id})
 
     def _handle_app_scan_post(self) -> None:
         workbench = self.server_state.workbench
@@ -389,16 +488,10 @@ class _UiRequestHandler(BaseHTTPRequestHandler):
                 status=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
             )
             return
-        with workbench.lock:
-            active = workbench.active_job_id
-            if active is not None and workbench.jobs.get(active, None) is not None:
-                active_job = workbench.jobs[active]
-                if active_job.status in {"queued", "running"}:
-                    self._send_json(
-                        {"error": "a scan is already running", "active_job_id": active},
-                        status=HTTPStatus.CONFLICT,
-                    )
-                    return
+        active_error = _active_scan_error(workbench)
+        if active_error is not None:
+            self._send_json(active_error, status=HTTPStatus.CONFLICT)
+            return
 
         body = self.rfile.read(length)
         try:
@@ -411,19 +504,97 @@ class _UiRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
             return
 
+        self._enqueue_scan_job(workbench, job)
+
+    def _handle_sample_app_scan_post(self) -> None:
+        workbench = self.server_state.workbench
+        if workbench is None:
+            self._send_json({"error": "workbench is not enabled"}, status=HTTPStatus.NOT_FOUND)
+            return
+        active_error = _active_scan_error(workbench)
+        if active_error is not None:
+            self._send_json(active_error, status=HTTPStatus.CONFLICT)
+            return
+        try:
+            job = _create_scan_job(
+                workbench,
+                ("piranesi-vuln-express.zip", _sample_app_zip()),
+                input_kind="sample",
+            )
+            job.target_name = "Vulnerable Express demo"
+        except UiServerError as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        self._enqueue_scan_job(workbench, job)
+
+    def _handle_url_import_post(self) -> None:
+        workbench = self.server_state.workbench
+        if workbench is None:
+            self._send_json({"error": "workbench is not enabled"}, status=HTTPStatus.NOT_FOUND)
+            return
+        active_error = _active_scan_error(workbench)
+        if active_error is not None:
+            self._send_json(active_error, status=HTTPStatus.CONFLICT)
+            return
+        content_length = self.headers.get("Content-Length")
+        if content_length is None:
+            self._send_json(
+                {"error": "Content-Length is required"}, status=HTTPStatus.LENGTH_REQUIRED
+            )
+            return
+        try:
+            length = int(content_length)
+        except ValueError:
+            self._send_json({"error": "invalid Content-Length"}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if length <= 0 or length > 16 * 1024:
+            self._send_json({"error": "invalid import body size"}, status=HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            raw_url = str(payload.get("url") or "")
+            job = _create_github_import_job(workbench, raw_url)
+        except (ValueError, UnicodeDecodeError, UiServerError) as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        self._enqueue_scan_job(workbench, job)
+
+    def _handle_handoff_send(self, query: dict[str, list[str]]) -> None:
+        confirm = (_first_query(query, "confirm") or "").lower() in {"1", "true", "yes"}
+        if not confirm:
+            self._send_json(
+                {
+                    "error": "externally visible handoff requires confirm=true",
+                    "dry_run_available": True,
+                },
+                status=HTTPStatus.CONFLICT,
+            )
+            return
+        self._send_json(
+            {
+                "error": "external handoff sends are intentionally not available from the local UI",
+                "use_cli": "piranesi export ... --create/--send --yes",
+            },
+            status=HTTPStatus.NOT_IMPLEMENTED,
+        )
+
+    def _enqueue_scan_job(self, workbench: WorkbenchState, job: LocalScanJob) -> None:
         with workbench.lock:
             active = workbench.active_job_id
-            if active is not None and workbench.jobs.get(active, None) is not None:
-                active_job = workbench.jobs[active]
-                if active_job.status in {"queued", "running"}:
-                    shutil.rmtree(job.job_dir, ignore_errors=True)
-                    self._send_json(
-                        {"error": "a scan is already running", "active_job_id": active},
-                        status=HTTPStatus.CONFLICT,
-                    )
-                    return
+            if (
+                active is not None
+                and (active_job := workbench.jobs.get(active)) is not None
+                and active_job.status in {"queued", "running"}
+            ):
+                shutil.rmtree(job.job_dir, ignore_errors=True)
+                self._send_json(
+                    {"error": "a scan is already running", "active_job_id": active},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
             workbench.jobs[job.job_id] = job
             workbench.active_job_id = job.job_id
+            _persist_job_index(workbench)
         thread = threading.Thread(target=_run_scan_job, args=(job, workbench), daemon=True)
         thread.start()
         self._send_json(_job_payload(job), status=HTTPStatus.ACCEPTED)
@@ -451,6 +622,23 @@ class _UiRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(encoded)))
         self.end_headers()
         self.wfile.write(encoded)
+
+    def _send_bytes(
+        self,
+        body: bytes,
+        *,
+        content_type: str,
+        filename: str | None = None,
+        status: HTTPStatus = HTTPStatus.OK,
+    ) -> None:
+        self.send_response(status.value)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        if filename is not None:
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.end_headers()
+        self.wfile.write(body)
 
 
 def _report_summary(state: UiServerState) -> dict[str, Any]:
@@ -481,6 +669,8 @@ def _report_summary(state: UiServerState) -> dict[str, Any]:
                 }
                 for host in fleet.hosts
             ],
+            "artifacts": _artifact_catalog("fleet", "/api/artifacts"),
+            "handoff": _handoff_links("/api/handoff"),
         }
     if state.report_type == "source":
         report = state.report
@@ -503,6 +693,8 @@ def _report_summary(state: UiServerState) -> dict[str, Any]:
         ),
         "top_actions": report.top_actions,
         "suppression_review": _suppression_review(report.findings),
+        "artifacts": _artifact_catalog("host", "/api/artifacts"),
+        "handoff": _handoff_links("/api/handoff"),
     }
 
 
@@ -523,6 +715,394 @@ def _preflight_payload(state: UiServerState) -> dict[str, Any]:
         ),
     }
     return payload
+
+
+def _artifact_catalog(report_type: str, base_path: str) -> dict[str, str | None]:
+    common: dict[str, str | None] = {
+        "report_json": f"{base_path}/report-json",
+        "report_md": f"{base_path}/report-md",
+        "sarif": f"{base_path}/sarif",
+        "csv": f"{base_path}/csv",
+        "pdf": None,
+    }
+    if report_type == "host":
+        common["pdf"] = f"{base_path}/pdf"
+    return common
+
+
+def _handoff_links(base_path: str) -> dict[str, str]:
+    return {
+        "preview": f"{base_path}/preview",
+        "send": f"{base_path}/send",
+    }
+
+
+def _state_artifact(state: UiServerState, kind: str) -> tuple[bytes, str, str]:
+    if state.report_type == "workbench" or state.report is None:
+        raise UiServerError("no report is loaded")
+    if state.report_type == "source":
+        report = state.report
+        assert isinstance(report, PiranesiReport)
+        return _source_artifact(
+            report,
+            report_path=state.report_path,
+            report_dir=state.root,
+            kind=kind,
+        )
+    if state.report_type == "host":
+        report = state.report
+        assert isinstance(report, HostPostureReport)
+        return _host_artifact(
+            report, report_path=state.report_path, report_dir=state.root, kind=kind
+        )
+    report = state.report
+    assert isinstance(report, FleetReport)
+    return _fleet_artifact(report, report_path=state.report_path, report_dir=state.root, kind=kind)
+
+
+def _job_artifact(job: LocalScanJob, kind: str) -> tuple[bytes, str, str]:
+    return _source_artifact(
+        _load_job_report(job),
+        report_path=job.report_path or (job.output_dir / "report.json"),
+        report_dir=job.output_dir,
+        kind=kind,
+    )
+
+
+def _source_artifact(
+    report: PiranesiReport,
+    *,
+    report_path: Path | None,
+    report_dir: Path | None,
+    kind: str,
+) -> tuple[bytes, str, str]:
+    if kind == "report-json":
+        path = report_path or (report_dir / "report.json" if report_dir is not None else None)
+        if path is not None and path.is_file():
+            return path.read_bytes(), "application/json; charset=utf-8", "report.json"
+        return (
+            report.model_dump_json(indent=2).encode("utf-8"),
+            "application/json; charset=utf-8",
+            "report.json",
+        )
+    if kind == "report-md":
+        path = report_dir / "report.md" if report_dir is not None else None
+        if path is None or not path.is_file():
+            raise UiServerError("report.md is not available")
+        return path.read_bytes(), "text/markdown; charset=utf-8", "report.md"
+    if kind == "sarif":
+        from piranesi.report.sarif import generate_sarif as generate_source_sarif
+
+        body = json.dumps(generate_source_sarif(report), indent=2).encode("utf-8")
+        return body, "application/json; charset=utf-8", "report.sarif.json"
+    if kind == "csv":
+        from piranesi.report.csv import generate_csv as generate_source_csv
+
+        return (
+            generate_source_csv(report).encode("utf-8"),
+            "text/csv; charset=utf-8",
+            "findings.csv",
+        )
+    raise UiServerError(f"artifact is not available for source reports: {kind}")
+
+
+def _host_artifact(
+    report: HostPostureReport,
+    *,
+    report_path: Path | None,
+    report_dir: Path | None,
+    kind: str,
+) -> tuple[bytes, str, str]:
+    if kind == "report-json":
+        path = report_path or (report_dir / "host-report.json" if report_dir is not None else None)
+        if path is not None and path.is_file():
+            return path.read_bytes(), "application/json; charset=utf-8", "host-report.json"
+        return (
+            report.model_dump_json(indent=2).encode("utf-8"),
+            "application/json; charset=utf-8",
+            "host-report.json",
+        )
+    if kind == "report-md":
+        from piranesi.host.report import render_host_markdown
+
+        path = report_dir / "host-report.md" if report_dir is not None else None
+        if path is not None and path.is_file():
+            return path.read_bytes(), "text/markdown; charset=utf-8", "host-report.md"
+        return (
+            render_host_markdown(report).encode("utf-8"),
+            "text/markdown; charset=utf-8",
+            "host-report.md",
+        )
+    if kind == "pdf":
+        from piranesi.host.report import render_host_pdf
+
+        path = report_dir / "host-report.pdf" if report_dir is not None else None
+        if path is not None and path.is_file():
+            return path.read_bytes(), "application/pdf", "host-report.pdf"
+        return render_host_pdf(report), "application/pdf", "host-report.pdf"
+    if kind == "sarif":
+        from piranesi.exporters.sarif import generate_sarif as generate_host_sarif
+
+        body = json.dumps(
+            generate_host_sarif(report, report_path=report_path),
+            indent=2,
+        ).encode("utf-8")
+        return body, "application/json; charset=utf-8", "host-report.sarif.json"
+    if kind == "csv":
+        from piranesi.exporters.csv import generate_csv as generate_host_csv
+
+        body = generate_host_csv(report, report_path=report_path).encode("utf-8")
+        return body, "text/csv; charset=utf-8", "host-findings.csv"
+    raise UiServerError(f"artifact is not available for host reports: {kind}")
+
+
+def _fleet_artifact(
+    report: FleetReport,
+    *,
+    report_path: Path | None,
+    report_dir: Path | None,
+    kind: str,
+) -> tuple[bytes, str, str]:
+    if kind == "report-json":
+        path = report_path or (report_dir / "fleet-report.json" if report_dir is not None else None)
+        if path is not None and path.is_file():
+            return path.read_bytes(), "application/json; charset=utf-8", "fleet-report.json"
+        return (
+            report.model_dump_json(indent=2).encode("utf-8"),
+            "application/json; charset=utf-8",
+            "fleet-report.json",
+        )
+    if kind == "report-md":
+        from piranesi.host.report import render_fleet_markdown
+
+        path = report_dir / "fleet-report.md" if report_dir is not None else None
+        if path is not None and path.is_file():
+            return path.read_bytes(), "text/markdown; charset=utf-8", "fleet-report.md"
+        return (
+            render_fleet_markdown(report).encode("utf-8"),
+            "text/markdown; charset=utf-8",
+            "fleet-report.md",
+        )
+    if kind == "sarif":
+        from piranesi.exporters.sarif import generate_sarif as generate_host_sarif
+
+        body = json.dumps(
+            generate_host_sarif(report, report_path=report_path),
+            indent=2,
+        ).encode("utf-8")
+        return body, "application/json; charset=utf-8", "fleet-report.sarif.json"
+    if kind == "csv":
+        from piranesi.exporters.csv import generate_csv as generate_host_csv
+
+        body = generate_host_csv(report, report_path=report_path).encode("utf-8")
+        return body, "text/csv; charset=utf-8", "fleet-findings.csv"
+    raise UiServerError(f"artifact is not available for fleet reports: {kind}")
+
+
+def _handoff_preview_payload(
+    state: UiServerState,
+    query: dict[str, list[str]],
+) -> dict[str, Any]:
+    if state.report_type == "workbench" or state.report is None:
+        raise UiServerError("no report is loaded")
+    integration = _handoff_integration(query)
+    if state.report_type == "source":
+        report = state.report
+        assert isinstance(report, PiranesiReport)
+        return _source_handoff_preview(report, integration=integration)
+    report = state.report
+    assert isinstance(report, HostPostureReport | FleetReport)
+    return _host_handoff_preview(
+        report,
+        report_path=state.report_path,
+        integration=integration,
+        query=query,
+    )
+
+
+def _job_handoff_preview_payload(job: LocalScanJob, query: dict[str, list[str]]) -> dict[str, Any]:
+    return _source_handoff_preview(
+        _load_job_report(job),
+        integration=_handoff_integration(query),
+    )
+
+
+def _handoff_integration(query: dict[str, list[str]]) -> str:
+    integration = (_first_query(query, "integration") or "webhook").lower()
+    if integration not in {"github", "jira", "webhook", "slack"}:
+        raise UiServerError(f"unsupported handoff integration: {integration}")
+    return integration
+
+
+def _host_handoff_preview(
+    report: HostPostureReport | FleetReport,
+    *,
+    report_path: Path | None,
+    integration: str,
+    query: dict[str, list[str]],
+) -> dict[str, Any]:
+    from piranesi.exporters.common import iter_export_findings
+
+    findings = iter_export_findings(report, report_path=report_path)
+    if integration == "github":
+        from piranesi.exporters.github import build_github_issue
+
+        preview: Any = [build_github_issue(finding) for finding in findings[:3]]
+    elif integration == "jira":
+        from piranesi.exporters.jira import build_jira_issue
+
+        project = _first_query(query, "project") or "SEC"
+        preview = [build_jira_issue(finding, project=project) for finding in findings[:3]]
+    else:
+        from piranesi.exporters.webhook import build_webhook_payload
+
+        preview = build_webhook_payload(report, report_path=report_path, redact=True)
+        if integration == "slack":
+            preview = {
+                "text": "Piranesi dry-run finding handoff",
+                "payload": preview,
+            }
+    return _handoff_response(integration=integration, item_count=len(findings), preview=preview)
+
+
+def _source_handoff_preview(report: PiranesiReport, *, integration: str) -> dict[str, Any]:
+    findings = _source_findings(report)
+    compact = [
+        {
+            "finding_id": finding["id"],
+            "title": finding["title"],
+            "severity": finding["severity"],
+            "risk": finding["risk"],
+            "status": finding["evidence_status"],
+            "remediation": finding["remediation"],
+        }
+        for finding in findings[:5]
+    ]
+    if integration == "github":
+        preview: Any = [
+            {
+                "title": f"[Piranesi] {str(item['severity']).upper()}: {item['title']}",
+                "body": (
+                    f"Finding ID: `{item['finding_id']}`\n"
+                    f"Status: `{item['status']}`\n\n"
+                    f"Remediation:\n{item['remediation']}"
+                ),
+                "labels": ["piranesi", f"severity:{item['severity']}"],
+            }
+            for item in compact
+        ]
+    elif integration == "jira":
+        preview = [
+            {
+                "fields": {
+                    "project": {"key": "SEC"},
+                    "summary": f"[Piranesi] {str(item['severity']).upper()}: {item['title']}",
+                    "issuetype": {"name": "Task"},
+                    "labels": ["piranesi", f"severity-{item['severity']}"],
+                }
+            }
+            for item in compact
+        ]
+    else:
+        preview = {
+            "schema_version": 1,
+            "integration": "webhook" if integration == "webhook" else "slack",
+            "target": _source_target_label(report.target),
+            "summary": report.executive_summary.model_dump(mode="json"),
+            "findings": compact,
+        }
+    return _handoff_response(integration=integration, item_count=len(findings), preview=preview)
+
+
+def _handoff_response(*, integration: str, item_count: int, preview: Any) -> dict[str, Any]:
+    return {
+        "integration": integration,
+        "dry_run": True,
+        "confirmation_required": True,
+        "external_send_available": False,
+        "item_count": item_count,
+        "privacy_warning": (
+            "Preview is redacted and local. External sends can expose finding, target, "
+            "and remediation metadata and must be confirmed from the CLI."
+        ),
+        "preview": _json_safe(preview),
+    }
+
+
+def _json_safe(value: Any) -> Any:
+    return json.loads(json.dumps(value, default=str))
+
+
+def _sample_gallery_payload(state: UiServerState) -> dict[str, Any]:
+    workbench_enabled = state.workbench is not None
+    return {
+        "samples": [
+            {
+                "id": "host-demo",
+                "title": "Bundled Debian host posture demo",
+                "kind": "host",
+                "deterministic": True,
+                "requires_optional_tools": [],
+                "available_in_workbench": False,
+                "command": "piranesi demo --output piranesi-demo-output",
+                "expected_artifacts": ["host-report.json", "host-report.md"],
+                "docs": "docs/sample-gallery.md#bundled-host-posture-demo",
+            },
+            {
+                "id": "app-vuln-express",
+                "title": "Vulnerable Express ZIP demo",
+                "kind": "application",
+                "deterministic": True,
+                "requires_optional_tools": ["joern", "java", "node", "npm"],
+                "available_in_workbench": workbench_enabled,
+                "download_url": "/api/samples/app-vuln-express.zip" if workbench_enabled else None,
+                "expected_artifacts": ["report.json", "report.md"],
+                "docs": "docs/sample-gallery.md#vulnerable-express-zip-demo",
+            },
+            {
+                "id": "container-trivy-fixture",
+                "title": "Container Trivy image fixture",
+                "kind": "container",
+                "deterministic": True,
+                "requires_optional_tools": [],
+                "available_in_workbench": False,
+                "fixture_path": "tests/fixtures/container/trivy-image.json",
+                "command": (
+                    "piranesi container assess --image "
+                    "tests/fixtures/container/trivy-image.json --output piranesi-container-output"
+                ),
+                "expected_artifacts": ["container-report.json", "container-report.md"],
+                "docs": "docs/sample-gallery.md#container-and-kubernetes-fixtures",
+            },
+            {
+                "id": "k8s-risky-workload-fixture",
+                "title": "Risky Kubernetes workload fixture",
+                "kind": "kubernetes",
+                "deterministic": True,
+                "requires_optional_tools": [],
+                "available_in_workbench": False,
+                "fixture_path": "tests/fixtures/k8s/risky-workload.yaml",
+                "command": "piranesi k8s assess tests/fixtures/k8s --output piranesi-k8s-output",
+                "expected_artifacts": ["k8s-report.json", "k8s-report.md"],
+                "docs": "docs/sample-gallery.md#container-and-kubernetes-fixtures",
+            },
+        ]
+    }
+
+
+def _sample_app_zip() -> bytes:
+    sample_root = resources.files("piranesi").joinpath("fixtures/app/vuln-express")
+    try:
+        with resources.as_file(sample_root) as root:
+            if not root.is_dir():
+                raise UiServerError("bundled app sample is not available")
+            buffer = io.BytesIO()
+            with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+                for path in sorted(item for item in root.rglob("*") if item.is_file()):
+                    archive.write(path, Path("vuln-express") / path.relative_to(root))
+            return buffer.getvalue()
+    except OSError as exc:
+        raise UiServerError(f"failed to load bundled app sample: {exc}") from exc
 
 
 def _findings_payload(
@@ -581,9 +1161,13 @@ def _source_report_summary(
             limitation.model_dump(mode="json") for limitation in report.known_limitations
         ],
         "artifacts": {
-            "report_json": "/api/report",
+            "report_json": "/api/artifacts/report-json",
             "report_md": "/api/artifacts/report-md" if report_md_available else None,
+            "sarif": "/api/artifacts/sarif",
+            "csv": "/api/artifacts/csv",
+            "pdf": None,
         },
+        "handoff": _handoff_links("/api/handoff"),
     }
 
 
@@ -919,7 +1503,12 @@ def _parse_zip_upload(*, content_type: str, body: bytes) -> tuple[str, bytes]:
     raise UiServerError("multipart upload must include a ZIP file field")
 
 
-def _create_scan_job(workbench: WorkbenchState, upload: tuple[str, bytes]) -> LocalScanJob:
+def _create_scan_job(
+    workbench: WorkbenchState,
+    upload: tuple[str, bytes],
+    *,
+    input_kind: str = "zip",
+) -> LocalScanJob:
     filename, payload = upload
     if not zipfile.is_zipfile(io.BytesIO(payload)):
         raise UiServerError("uploaded file is not a valid ZIP archive")
@@ -951,7 +1540,62 @@ def _create_scan_job(workbench: WorkbenchState, upload: tuple[str, bytes]) -> Lo
         log_path=log_path,
         created_at=now,
         updated_at=now,
+        input_kind=input_kind,
     )
+
+
+def _create_github_import_job(workbench: WorkbenchState, raw_url: str) -> LocalScanJob:
+    clone_url, target_name = _github_clone_url(raw_url)
+    job_id = uuid.uuid4().hex[:12]
+    job_dir = workbench.jobs_dir / job_id
+    source_dir = job_dir / "source"
+    project_dir = source_dir / "repo"
+    output_dir = job_dir / "output"
+    log_path = job_dir / "scan.log"
+    url_path = job_dir / "source-url.txt"
+    job_dir.mkdir(parents=True, exist_ok=False)
+    source_dir.mkdir()
+    output_dir.mkdir()
+    url_path.write_text(clone_url + "\n", encoding="utf-8")
+    now = _now_iso()
+    return LocalScanJob(
+        job_id=job_id,
+        target_name=target_name,
+        job_dir=job_dir,
+        upload_path=url_path,
+        extract_dir=source_dir,
+        project_dir=project_dir,
+        output_dir=output_dir,
+        log_path=log_path,
+        created_at=now,
+        updated_at=now,
+        input_kind="github",
+        current_stage="Clone",
+    )
+
+
+def _github_clone_url(raw_url: str) -> tuple[str, str]:
+    value = raw_url.strip()
+    if not value:
+        raise UiServerError("URL is required")
+    parsed = urlparse(value)
+    if parsed.scheme != "https" or parsed.netloc.lower() != "github.com":
+        raise UiServerError("only public https://github.com/owner/repo URLs are supported")
+    if parsed.username or parsed.password or parsed.params or parsed.query or parsed.fragment:
+        raise UiServerError("GitHub import URL must not include credentials, params, or fragments")
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) != 2:
+        raise UiServerError("GitHub import URL must be https://github.com/owner/repo")
+    owner, repo = parts
+    repo = repo.removesuffix(".git")
+    if not owner or not repo or owner.startswith(".") or repo.startswith("."):
+        raise UiServerError("GitHub import URL must include owner and repository")
+    safe_chars = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+    if any(set(part) - safe_chars for part in (owner, repo)):
+        raise UiServerError(
+            "GitHub owner and repository may only use letters, numbers, dot, dash, or underscore"
+        )
+    return f"https://github.com/{owner}/{repo}.git", f"{owner}/{repo}"
 
 
 def _safe_extract_zip(
@@ -1016,8 +1660,16 @@ def _target_name(filename: str, project_dir: Path) -> str:
 
 
 def _run_scan_job(job: LocalScanJob, workbench: WorkbenchState) -> None:
-    _update_job(job, status="running", current_stage="Scan")
+    _update_job(
+        job,
+        workbench,
+        status="running",
+        current_stage="Clone" if job.input_kind == "github" else "Scan",
+    )
     try:
+        if job.input_kind == "github":
+            _clone_github_job(job, workbench)
+            _update_job(job, workbench, current_stage="Scan")
         workbench.scan_runner(job, workbench)
         report_path = job.output_dir / "report.json"
         markdown_path = job.output_dir / "report.md"
@@ -1025,6 +1677,7 @@ def _run_scan_job(job: LocalScanJob, workbench: WorkbenchState) -> None:
             raise UiServerError("scan completed without report.json")
         _update_job(
             job,
+            workbench,
             status="succeeded",
             current_stage="Report",
             report_path=report_path,
@@ -1033,16 +1686,81 @@ def _run_scan_job(job: LocalScanJob, workbench: WorkbenchState) -> None:
     except subprocess.TimeoutExpired:
         _update_job(
             job,
+            workbench,
             status="failed",
             current_stage="Report",
             error=f"scan exceeded {workbench.scan_timeout_seconds}s timeout",
         )
     except Exception as exc:
-        _update_job(job, status="failed", current_stage="Report", error=str(exc))
+        _update_job(job, workbench, status="failed", current_stage="Report", error=str(exc))
     finally:
         with workbench.lock:
             if workbench.active_job_id == job.job_id:
                 workbench.active_job_id = None
+            _persist_job_index(workbench)
+
+
+def _clone_github_job(job: LocalScanJob, workbench: WorkbenchState) -> None:
+    clone_url = job.upload_path.read_text(encoding="utf-8").strip()
+    if job.project_dir.exists():
+        shutil.rmtree(job.project_dir)
+    command = [
+        "git",
+        "clone",
+        "--depth",
+        "1",
+        "--single-branch",
+        "--no-tags",
+        clone_url,
+        str(job.project_dir),
+    ]
+    result = subprocess.run(
+        command,
+        cwd=job.job_dir,
+        text=True,
+        capture_output=True,
+        timeout=min(120, max(10, workbench.scan_timeout_seconds)),
+        check=False,
+    )
+    job.log_path.write_text(
+        "\n".join(
+            [
+                "$ " + " ".join([*command[:-2], "[redacted-github-url]", str(job.project_dir)]),
+                "",
+                "[stdout]",
+                result.stdout,
+                "",
+                "[stderr]",
+                _redact_text(result.stderr),
+            ]
+        ),
+        encoding="utf-8",
+    )
+    if result.returncode != 0:
+        stderr_tail = "\n".join(_redact_text(result.stderr).strip().splitlines()[-8:])
+        raise UiServerError(stderr_tail or f"git clone exited with code {result.returncode}")
+    shutil.rmtree(job.project_dir / ".git", ignore_errors=True)
+    _validate_imported_tree(job.project_dir, workbench)
+
+
+def _validate_imported_tree(project_dir: Path, workbench: WorkbenchState) -> None:
+    total_size = 0
+    file_count = 0
+    for path in project_dir.rglob("*"):
+        if path.is_dir():
+            continue
+        file_count += 1
+        if file_count > workbench.max_extracted_files:
+            raise UiServerError(
+                f"repository contains more than {workbench.max_extracted_files} files"
+            )
+        try:
+            total_size += path.stat().st_size
+        except OSError as exc:
+            raise UiServerError(f"failed to inspect imported repository: {exc}") from exc
+        if total_size > workbench.max_extracted_bytes:
+            limit_mb = workbench.max_extracted_bytes // (1024 * 1024)
+            raise UiServerError(f"repository is larger than {limit_mb} MB")
 
 
 def _default_scan_runner(job: LocalScanJob, workbench: WorkbenchState) -> None:
@@ -1114,10 +1832,173 @@ def _scan_env() -> dict[str, str]:
     return env
 
 
-def _update_job(job: LocalScanJob, **updates: Any) -> None:
+def _update_job(job: LocalScanJob, workbench: WorkbenchState | None = None, **updates: Any) -> None:
     for key, value in updates.items():
         setattr(job, key, value)
     job.updated_at = _now_iso()
+    if workbench is not None:
+        _persist_job_index(workbench)
+
+
+def _active_scan_error(workbench: WorkbenchState) -> dict[str, Any] | None:
+    with workbench.lock:
+        active = workbench.active_job_id
+        if active is None:
+            return None
+        active_job = workbench.jobs.get(active)
+        if active_job is None or active_job.status not in {"queued", "running"}:
+            return None
+        return {"error": "a scan is already running", "active_job_id": active}
+
+
+def _job_index_path(workbench: WorkbenchState) -> Path:
+    return workbench.jobs_dir / "jobs-index.json"
+
+
+def _persist_job_index(workbench: WorkbenchState) -> None:
+    index_path = _job_index_path(workbench)
+    payload = {
+        "schema_version": 1,
+        "updated_at": _now_iso(),
+        "jobs": [
+            _job_index_record(job, workbench.jobs_dir)
+            for job in sorted(workbench.jobs.values(), key=lambda item: item.created_at)
+        ],
+    }
+    tmp_path = index_path.with_suffix(".json.tmp")
+    tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    tmp_path.replace(index_path)
+
+
+def _load_job_index(workbench: WorkbenchState) -> None:
+    index_path = _job_index_path(workbench)
+    if not index_path.is_file():
+        return
+    try:
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    jobs: dict[str, LocalScanJob] = {}
+    for item in payload.get("jobs", []):
+        if not isinstance(item, dict):
+            continue
+        job = _job_from_index_record(item, workbench.jobs_dir)
+        if job is None:
+            continue
+        if job.status in {"queued", "running"}:
+            job.status = "failed"
+            job.current_stage = "Report"
+            job.error = "workbench restarted before scan completed"
+            job.updated_at = _now_iso()
+        jobs[job.job_id] = job
+    workbench.jobs = jobs
+    workbench.active_job_id = None
+    if jobs:
+        _persist_job_index(workbench)
+
+
+def _job_index_record(job: LocalScanJob, jobs_dir: Path) -> dict[str, Any]:
+    return {
+        "job_id": job.job_id,
+        "target_name": job.target_name,
+        "job_dir": _relative_job_path(job.job_dir, jobs_dir),
+        "upload_path": _relative_job_path(job.upload_path, jobs_dir),
+        "extract_dir": _relative_job_path(job.extract_dir, jobs_dir),
+        "project_dir": _relative_job_path(job.project_dir, jobs_dir),
+        "output_dir": _relative_job_path(job.output_dir, jobs_dir),
+        "log_path": _relative_job_path(job.log_path, jobs_dir),
+        "created_at": job.created_at,
+        "updated_at": job.updated_at,
+        "input_kind": job.input_kind,
+        "status": job.status,
+        "current_stage": job.current_stage,
+        "report_path": _relative_job_path(job.report_path, jobs_dir)
+        if job.report_path is not None
+        else None,
+        "markdown_path": _relative_job_path(job.markdown_path, jobs_dir)
+        if job.markdown_path is not None
+        else None,
+        "error": job.error,
+        "return_code": job.return_code,
+    }
+
+
+def _job_from_index_record(item: dict[str, Any], jobs_dir: Path) -> LocalScanJob | None:
+    job_id = str(item.get("job_id") or "")
+    if not job_id:
+        return None
+    try:
+        job_dir = _resolve_job_index_path(jobs_dir, str(item["job_dir"]))
+        upload_path = _resolve_job_index_path(jobs_dir, str(item["upload_path"]))
+        extract_dir = _resolve_job_index_path(jobs_dir, str(item["extract_dir"]))
+        project_dir = _resolve_job_index_path(jobs_dir, str(item["project_dir"]))
+        output_dir = _resolve_job_index_path(jobs_dir, str(item["output_dir"]))
+        log_path = _resolve_job_index_path(jobs_dir, str(item["log_path"]))
+    except (KeyError, UiServerError):
+        return None
+    if not job_dir.exists():
+        return None
+    report_path = _optional_index_path(jobs_dir, item.get("report_path"))
+    markdown_path = _optional_index_path(jobs_dir, item.get("markdown_path"))
+    return LocalScanJob(
+        job_id=job_id,
+        target_name=str(item.get("target_name") or "local scan"),
+        job_dir=job_dir,
+        upload_path=upload_path,
+        extract_dir=extract_dir,
+        project_dir=project_dir,
+        output_dir=output_dir,
+        log_path=log_path,
+        created_at=str(item.get("created_at") or _now_iso()),
+        updated_at=str(item.get("updated_at") or _now_iso()),
+        input_kind=str(item.get("input_kind") or "zip"),
+        status=str(item.get("status") or "failed"),
+        current_stage=str(item.get("current_stage") or "Report"),
+        report_path=report_path if report_path is not None and report_path.is_file() else None,
+        markdown_path=markdown_path
+        if markdown_path is not None and markdown_path.is_file()
+        else None,
+        error=str(item["error"]) if item.get("error") else None,
+        return_code=int(item["return_code"]) if item.get("return_code") is not None else None,
+    )
+
+
+def _optional_index_path(jobs_dir: Path, value: Any) -> Path | None:
+    if not value:
+        return None
+    try:
+        return _resolve_job_index_path(jobs_dir, str(value))
+    except UiServerError:
+        return None
+
+
+def _relative_job_path(path: Path, jobs_dir: Path) -> str:
+    try:
+        return str(path.relative_to(jobs_dir))
+    except ValueError:
+        return str(path)
+
+
+def _resolve_job_index_path(jobs_dir: Path, value: str) -> Path:
+    if not value:
+        raise UiServerError("empty job index path")
+    relative = Path(value)
+    if relative.is_absolute() or any(part == ".." for part in relative.parts):
+        raise UiServerError(f"unsafe job index path: {value}")
+    resolved = (jobs_dir / relative).resolve(strict=False)
+    try:
+        resolved.relative_to(jobs_dir.resolve(strict=False))
+    except ValueError as exc:
+        raise UiServerError(f"unsafe job index path: {value}") from exc
+    return resolved
+
+
+def _is_job_dir_safe(workbench: WorkbenchState, job_dir: Path) -> bool:
+    try:
+        job_dir.resolve(strict=False).relative_to(workbench.jobs_dir.resolve(strict=False))
+    except ValueError:
+        return False
+    return job_dir != workbench.jobs_dir
 
 
 def _get_job(workbench: WorkbenchState, job_id: str) -> LocalScanJob | None:
@@ -1156,11 +2037,15 @@ def _job_report_payload(job: LocalScanJob) -> dict[str, Any]:
     payload = _source_report_summary(report, report_dir=job.output_dir)
     payload["job"] = _job_payload(job)
     payload["artifacts"] = {
-        "report_json": f"/api/app-scans/{job.job_id}/report",
+        "report_json": f"/api/app-scans/{job.job_id}/artifacts/report-json",
         "report_md": f"/api/app-scans/{job.job_id}/artifacts/report-md"
         if job.markdown_path is not None
         else None,
+        "sarif": f"/api/app-scans/{job.job_id}/artifacts/sarif",
+        "csv": f"/api/app-scans/{job.job_id}/artifacts/csv",
+        "pdf": None,
     }
+    payload["handoff"] = _handoff_links(f"/api/app-scans/{job.job_id}/handoff")
     return payload
 
 
@@ -1215,7 +2100,17 @@ _INDEX_HTML = """<!doctype html>
   <main>
     <section id="workbench" class="workbench" hidden>
       <div class="prompt-card">
-        <h2>Start a local evidence review</h2>
+        <h2>Review a local target</h2>
+        <div class="intake-grid" aria-label="Intake modes">
+          <div class="mode-card active"><strong>App ZIP</strong><span>Ready</span></div>
+          <div class="mode-card"><strong>Existing report</strong><span>Open from CLI</span></div>
+          <div class="mode-card"><strong>Host evidence</strong><span>Use collect or assess</span></div>
+          <div class="mode-card disabled"><strong>Container</strong><span>CLI fixture path</span></div>
+          <div class="mode-card disabled"><strong>Kubernetes</strong><span>CLI fixture path</span></div>
+        </div>
+        <div class="sample-actions">
+          <button id="sampleDemoButton" type="button">Run bundled ZIP demo</button>
+        </div>
         <form id="uploadForm">
           <label id="dropzone" class="dropzone" for="archive">
             <input id="archive" name="archive" type="file" accept=".zip,application/zip">
@@ -1223,10 +2118,12 @@ _INDEX_HTML = """<!doctype html>
             <small>Runs locally. Evidence stays on this machine.</small>
           </label>
           <div class="prompt-row">
-            <input id="urlInput" disabled value="Open host, fleet, and existing reports with piranesi ui <output-dir>">
+            <input id="urlInput" placeholder="https://github.com/owner/repo" autocomplete="off">
+            <button id="importButton" type="button">Import repo</button>
             <button id="runButton" type="submit">Run review</button>
           </div>
         </form>
+        <div id="recentScans" class="recent-scans" aria-label="Recent scans"></div>
         <ol id="steps" class="steps">
           <li data-step="Upload">Upload</li>
           <li data-step="Extract">Extract</li>
@@ -1235,6 +2132,7 @@ _INDEX_HTML = """<!doctype html>
           <li data-step="Report">Report</li>
         </ol>
         <p id="workbenchStatus" class="muted"></p>
+        <div id="sampleGallery" class="sample-gallery" aria-label="Sample gallery"></div>
         <div id="preflightPanel" class="readiness" aria-label="Workbench readiness"></div>
         <div class="privacy-summary" aria-label="Privacy and data handling summary">
           <strong>Privacy defaults</strong>
@@ -1265,6 +2163,7 @@ _INDEX_HTML = """<!doctype html>
           <tbody id="findings"></tbody>
         </table>
         <article id="detail" class="detail"></article>
+        <section id="handoffPanel" class="handoff-panel"></section>
       </section>
       <section class="grid" id="supportGrid">
         <section class="panel"><h2 id="supportAHeading">Top Actions</h2><div id="actions"></div></section>
@@ -1298,12 +2197,19 @@ main { padding:22px 32px 40px; }
 .workbench { min-height:calc(100vh - 150px); display:grid; place-items:center; }
 .prompt-card { width:min(760px,100%); padding:26px; box-shadow:0 12px 30px rgba(15,23,42,.08); }
 .prompt-card h2 { font-size:32px; text-align:center; margin-bottom:22px; }
+.intake-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:8px; margin-bottom:12px; }
+.mode-card { border:1px solid var(--border); border-radius:6px; padding:10px; background:white; min-height:70px; }
+.mode-card strong,.mode-card span { display:block; }
+.mode-card span { color:var(--muted); margin-top:4px; }
+.mode-card.active { border-color:var(--accent); background:#f0fdfa; }
+.mode-card.disabled { background:#f8fafc; color:#64748b; }
+.sample-actions { display:flex; justify-content:center; margin-bottom:12px; }
 .dropzone { display:flex; flex-direction:column; justify-content:center; min-height:130px; border:1px solid var(--border); border-radius:8px; padding:20px; cursor:pointer; background:#fbfcfe; }
 .dropzone input { display:none; }
 .dropzone span { font-size:18px; }
 .dropzone small { color:var(--muted); margin-top:7px; }
 .dropzone.dragover { border-color:var(--accent); background:#f0fdfa; }
-.prompt-row { display:grid; grid-template-columns:1fr auto; gap:10px; margin-top:12px; }
+.prompt-row { display:grid; grid-template-columns:1fr auto auto; gap:10px; margin-top:12px; }
 input,select,button { font:inherit; }
 input,select { padding:8px 10px; border:1px solid var(--border); border-radius:6px; background:white; min-width:0; }
 input:disabled { color:var(--muted); background:#f8fafc; }
@@ -1322,6 +2228,17 @@ button:disabled { opacity:.55; cursor:not-allowed; }
 .check { border:1px solid var(--border); border-radius:6px; padding:8px; background:white; }
 .check strong { display:block; }
 .check.ok { border-color:#bbf7d0; } .check.missing { border-color:#fed7aa; } .check.error { border-color:#fecaca; }
+.sample-gallery { margin-top:14px; border:1px solid var(--border); border-radius:8px; padding:12px; background:white; }
+.sample-gallery h3 { margin-bottom:8px; }
+.sample-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px; }
+.sample { border:1px solid var(--border); border-radius:6px; padding:10px; background:#fbfcfe; }
+.sample strong { display:block; }
+.sample a { color:var(--accent); font-weight:600; }
+.recent-scans { margin-top:14px; border:1px solid var(--border); border-radius:8px; padding:12px; background:#fbfcfe; }
+.recent-scans h3 { margin-bottom:8px; }
+.job-row { display:grid; grid-template-columns:1fr auto auto; gap:8px; align-items:center; padding:8px 0; border-top:1px solid var(--border); }
+.job-row:first-of-type { border-top:0; }
+.job-row button { padding:6px 9px; }
 table { width:100%; border-collapse:collapse; }
 th,td { padding:9px 7px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top; }
 tbody tr { cursor:pointer; }
@@ -1332,6 +2249,9 @@ tbody tr:hover { background:#f1f5f9; }
 .detail-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:10px; }
 .detail-section { margin-top:12px; }
 .handoff { white-space:pre-wrap; background:white; border:1px solid var(--border); border-radius:6px; padding:10px; overflow:auto; }
+.handoff-panel { margin-top:12px; border-top:1px solid var(--border); padding-top:12px; }
+.handoff-actions { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0; }
+.handoff-preview { max-height:260px; white-space:pre-wrap; background:#0f172a; color:#e2e8f0; border-radius:6px; padding:10px; overflow:auto; }
 .artifact-link { display:inline-block; margin-right:10px; }
 ul { margin:0; padding-left:18px; }
 code { background:#eef2f7; border-radius:4px; padding:1px 4px; word-break:break-word; }
@@ -1386,7 +2306,81 @@ function renderWorkbench() {
   $("title").textContent = "Start a local evidence review";
   $("subtitle").textContent = "Upload a web app ZIP or open an existing host, fleet, or source report from the CLI.";
   $("score").textContent = "";
+  loadSamples();
+  loadJobs();
   loadPreflight();
+}
+
+async function loadSamples() {
+  try {
+    const payload = await getJson("/api/samples");
+    renderSamples(payload.samples || []);
+  } catch (error) {
+    $("sampleGallery").innerHTML = `<p class="muted">Samples unavailable: ${text(error.message || error)}</p>`;
+  }
+}
+
+function renderSamples(samples) {
+  const appSample = samples.find((sample) => sample.id === "app-vuln-express");
+  const hostSample = samples.find((sample) => sample.id === "host-demo");
+  const sampleCards = [appSample, hostSample].filter(Boolean);
+  $("sampleGallery").innerHTML = `
+    <h3>Sample gallery</h3>
+    <div class="sample-grid">
+      ${sampleCards.map((sample) => `
+        <div class="sample">
+          <strong>${text(sample.title)}</strong>
+          <p class="muted">${text(sample.kind)} · ${sample.deterministic ? "deterministic" : "tool-dependent"}</p>
+          ${sample.download_url ? `<a href="${text(sample.download_url)}">Download ZIP</a>` : `<code>${text(sample.command)}</code>`}
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+async function loadJobs() {
+  try {
+    const payload = await getJson("/api/app-scans");
+    renderJobs(payload.jobs || []);
+  } catch (error) {
+    $("recentScans").innerHTML = `<p class="muted">Scan history unavailable: ${text(error.message || error)}</p>`;
+  }
+}
+
+function renderJobs(jobs) {
+  if (!jobs.length) {
+    $("recentScans").innerHTML = '<h3>Recent scans</h3><p class="muted">No local scans yet.</p>';
+    return;
+  }
+  $("recentScans").innerHTML = `
+    <h3>Recent scans</h3>
+    ${jobs.map((job) => `
+      <div class="job-row">
+        <div><strong>${text(job.target_name)}</strong><br><span class="muted">${text(job.status)} · ${text(job.input_kind)} · ${text(job.updated_at)}</span></div>
+        <button type="button" data-open-job="${text(job.job_id)}" ${job.artifacts?.report ? "" : "disabled"}>Open</button>
+        <button type="button" data-delete-job="${text(job.job_id)}" ${["queued","running"].includes(job.status) ? "disabled" : ""}>Delete</button>
+      </div>
+    `).join("")}
+  `;
+  document.querySelectorAll("[data-open-job]").forEach((button) => button.addEventListener("click", () => openJob(button.dataset.openJob)));
+  document.querySelectorAll("[data-delete-job]").forEach((button) => button.addEventListener("click", () => deleteJob(button.dataset.deleteJob)));
+}
+
+async function openJob(jobId) {
+  if (!jobId) return;
+  allFindings = [];
+  await renderReport(await getJson(`/api/app-scans/${jobId}/report`), `/api/app-scans/${jobId}/findings`);
+}
+
+async function deleteJob(jobId) {
+  if (!jobId) return;
+  const response = await fetch(`/api/app-scans/${jobId}`, { method: "DELETE" });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    $("workbenchStatus").textContent = payload.error || `delete failed: ${response.status}`;
+    return;
+  }
+  await loadJobs();
 }
 
 async function loadPreflight() {
@@ -1428,6 +2422,7 @@ async function renderReport(nextReport, nextFindingsEndpoint) {
   $("subtitle").textContent = report.type === "source" ? "Evidence-bound application report generated locally." : "";
   $("score").textContent = report.posture_score !== undefined ? `${report.posture_score}/100` : report.highest_risk?.score ? `${Number(report.highest_risk.score).toFixed(1)} risk` : "";
   renderOverview();
+  renderHandoffActions();
   if (report.type === "fleet") renderFleet();
   await loadFindings();
 }
@@ -1489,9 +2484,35 @@ function clearSupport() {
 }
 
 function artifactLinks() {
-  const reportMd = report.artifacts?.report_md;
-  if (!reportMd) return '<p class="muted">JSON report is available through the local API.</p>';
-  return `<a class="artifact-link" href="${text(reportMd)}" target="_blank" rel="noreferrer">Open Markdown report</a>`;
+  const labels = { report_json: "JSON", report_md: "Markdown", sarif: "SARIF", csv: "CSV", pdf: "PDF" };
+  const links = Object.entries(report.artifacts || {})
+    .map(([key, href]) => href ? `<a class="artifact-link" href="${text(href)}" target="_blank" rel="noreferrer">${text(labels[key] || key)}</a>` : `<span class="muted artifact-link">${text(labels[key] || key)} unavailable</span>`);
+  return links.length ? links.join("") : '<p class="muted">No downloadable artifacts recorded.</p>';
+}
+
+function renderHandoffActions() {
+  const previewEndpoint = report.handoff?.preview;
+  if (!previewEndpoint) {
+    $("handoffPanel").innerHTML = "";
+    return;
+  }
+  $("handoffPanel").innerHTML = `
+    <h3>Artifacts and handoff</h3>
+    <div>${artifactLinks()}</div>
+    <div class="handoff-actions">
+      ${["github","jira","slack","webhook"].map((integration) => `<button type="button" data-preview="${integration}">${integration}</button>`).join("")}
+    </div>
+    <p class="muted">Dry-run previews only. External sends require explicit CLI confirmation.</p>
+    <pre id="handoffPreview" class="handoff-preview" hidden></pre>
+  `;
+  document.querySelectorAll("[data-preview]").forEach((button) => button.addEventListener("click", () => loadHandoffPreview(button.dataset.preview)));
+}
+
+async function loadHandoffPreview(integration) {
+  if (!integration || !report.handoff?.preview) return;
+  const payload = await getJson(`${report.handoff.preview}?integration=${encodeURIComponent(integration)}`);
+  $("handoffPreview").hidden = false;
+  $("handoffPreview").textContent = JSON.stringify(payload, null, 2);
 }
 
 function renderFleet() {
@@ -1609,6 +2630,57 @@ function setSteps(stage, status) {
   });
 }
 
+async function startSampleDemo() {
+  $("runButton").disabled = true;
+  $("sampleDemoButton").disabled = true;
+  $("workbenchStatus").textContent = "Starting bundled demo...";
+  setSteps("Upload", "running");
+  try {
+    activeJob = await fetch("/api/app-scans/sample/app-vuln-express", { method: "POST" }).then(async (response) => {
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || `request failed: ${response.status}`);
+      return payload;
+    });
+    pollJob(activeJob.job_id);
+  } catch (error) {
+    $("runButton").disabled = false;
+    $("sampleDemoButton").disabled = false;
+    $("workbenchStatus").textContent = error.message || String(error);
+    setSteps("Upload", "failed");
+  }
+}
+
+async function importUrl() {
+  const url = $("urlInput").value.trim();
+  if (!url) {
+    $("workbenchStatus").textContent = "Enter a public GitHub repository URL.";
+    return;
+  }
+  $("runButton").disabled = true;
+  $("importButton").disabled = true;
+  $("sampleDemoButton").disabled = true;
+  $("workbenchStatus").textContent = "Importing repository...";
+  setSteps("Extract", "running");
+  try {
+    activeJob = await fetch("/api/app-scans/import-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    }).then(async (response) => {
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || `request failed: ${response.status}`);
+      return payload;
+    });
+    pollJob(activeJob.job_id);
+  } catch (error) {
+    $("runButton").disabled = false;
+    $("importButton").disabled = false;
+    $("sampleDemoButton").disabled = false;
+    $("workbenchStatus").textContent = error.message || String(error);
+    setSteps("Upload", "failed");
+  }
+}
+
 async function submitUpload(event) {
   event.preventDefault();
   const file = $("archive").files[0];
@@ -1640,18 +2712,23 @@ async function pollJob(jobId) {
     const job = await getJson(`/api/app-scans/${jobId}`);
     $("workbenchStatus").textContent = job.error || `${job.status}: ${job.current_stage}`;
     setSteps(job.current_stage || "Scan", job.status);
-    if (job.status === "succeeded") {
+  if (job.status === "succeeded") {
       allFindings = [];
       await renderReport(await getJson(`/api/app-scans/${jobId}/report`), `/api/app-scans/${jobId}/findings`);
       return;
     }
-    if (job.status === "failed") {
+  if (job.status === "failed") {
       $("runButton").disabled = false;
+      $("importButton").disabled = false;
+      $("sampleDemoButton").disabled = false;
+      loadJobs();
       return;
     }
     setTimeout(() => pollJob(jobId), 1200);
   } catch (error) {
     $("runButton").disabled = false;
+    $("importButton").disabled = false;
+    $("sampleDemoButton").disabled = false;
     $("workbenchStatus").textContent = error.message || String(error);
   }
 }
@@ -1659,6 +2736,8 @@ async function pollJob(jobId) {
 $("severity").addEventListener("change", () => { findings = []; loadFindings(); });
 $("category").addEventListener("change", () => { findings = []; loadFindings(); });
 $("uploadForm").addEventListener("submit", submitUpload);
+$("sampleDemoButton").addEventListener("click", startSampleDemo);
+$("importButton").addEventListener("click", importUrl);
 $("archive").addEventListener("change", () => {
   const file = $("archive").files[0];
   $("archiveLabel").textContent = file ? file.name : "Upload a web app ZIP";

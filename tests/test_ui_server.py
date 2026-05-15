@@ -34,6 +34,24 @@ def _get_text(url: str) -> str:
     return _request(url)
 
 
+def _get_raw(url: str) -> tuple[int, dict[str, str], bytes]:
+    parsed = urlparse(url)
+    assert parsed.scheme == "http"
+    assert parsed.hostname is not None
+    connection = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=5)
+    try:
+        path = parsed.path or "/"
+        if parsed.query:
+            path = f"{path}?{parsed.query}"
+        connection.request("GET", path)
+        response = connection.getresponse()
+        body = response.read()
+        headers = {key.lower(): value for key, value in response.getheaders()}
+        return response.status, headers, body
+    finally:
+        connection.close()
+
+
 def _request(url: str) -> str:
     parsed = urlparse(url)
     assert parsed.scheme == "http"
@@ -64,7 +82,28 @@ def _post(
     assert parsed.hostname is not None
     connection = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=5)
     try:
-        connection.request("POST", parsed.path, body=body, headers=headers)
+        path = parsed.path
+        if parsed.query:
+            path = f"{path}?{parsed.query}"
+        connection.request("POST", path, body=body, headers=headers)
+        response = connection.getresponse()
+        payload = json.loads(response.read().decode("utf-8"))
+        assert response.status == expected_status, payload
+        return payload
+    finally:
+        connection.close()
+
+
+def _delete(url: str, *, expected_status: int = 200) -> dict[str, object]:
+    parsed = urlparse(url)
+    assert parsed.scheme == "http"
+    assert parsed.hostname is not None
+    connection = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=5)
+    try:
+        path = parsed.path
+        if parsed.query:
+            path = f"{path}?{parsed.query}"
+        connection.request("DELETE", path)
         response = connection.getresponse()
         payload = json.loads(response.read().decode("utf-8"))
         assert response.status == expected_status, payload
@@ -94,6 +133,14 @@ def _multipart_zip(filename: str, payload: bytes) -> tuple[bytes, dict[str, str]
     )
     return body, {
         "Content-Type": f"multipart/form-data; boundary={boundary}",
+        "Content-Length": str(len(body)),
+    }
+
+
+def _json_body(payload: dict[str, object]) -> tuple[bytes, dict[str, str]]:
+    body = json.dumps(payload).encode("utf-8")
+    return body, {
+        "Content-Type": "application/json",
         "Content-Length": str(len(body)),
     }
 
@@ -145,6 +192,40 @@ def test_api_returns_redacted_summary() -> None:
         assert payload["target"] == "[redacted-host]"
         assert "fixture-host" not in encoded
         assert "10.1.2.3" not in encoded
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_ui_artifacts_and_handoff_preview_are_local_dry_run() -> None:
+    server = run_ui_server(
+        UiServerOptions(report_path=REPORT_FIXTURE, port=0),
+        block=False,
+    )
+    try:
+        url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+        summary = _get_json(f"{url}/api/report")
+        csv_status, csv_headers, csv_body = _get_raw(f"{url}/api/artifacts/csv")
+        pdf_status, pdf_headers, pdf_body = _get_raw(f"{url}/api/artifacts/pdf")
+        preview = _get_json(f"{url}/api/handoff/preview?integration=github")
+        blocked = _post(
+            f"{url}/api/handoff/send?integration=github",
+            b"",
+            {},
+            expected_status=409,
+        )
+
+        assert summary["artifacts"]["report_json"] == "/api/artifacts/report-json"
+        assert csv_status == 200
+        assert csv_headers["content-type"] == "text/csv; charset=utf-8"
+        assert b"finding_id" in csv_body
+        assert pdf_status == 200
+        assert pdf_headers["content-type"] == "application/pdf"
+        assert pdf_body.startswith(b"%PDF")
+        assert preview["dry_run"] is True
+        assert preview["confirmation_required"] is True
+        assert preview["preview"]
+        assert "confirm=true" in str(blocked["error"])
     finally:
         server.shutdown()
         server.server_close()
@@ -208,6 +289,10 @@ def test_workbench_loads_without_report_path(tmp_path: Path) -> None:
         text = _get_text(url)
         assert "Upload a web app ZIP" in text
         assert "preflightPanel" in text
+        assert "sampleGallery" in text
+        assert "recentScans" in text
+        assert "Run bundled ZIP demo" in text
+        assert "Container" in text
         assert "Privacy defaults" in text
         summary = _get_json(f"{url}/api/report")
         preflight = _get_json(f"{url}/api/preflight")
@@ -220,6 +305,129 @@ def test_workbench_loads_without_report_path(tmp_path: Path) -> None:
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_workbench_sample_gallery_lists_downloadable_app_zip(tmp_path: Path) -> None:
+    server = run_ui_server(
+        UiServerOptions(workbench=True, jobs_dir=tmp_path / "jobs", port=0),
+        block=False,
+    )
+    try:
+        url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+
+        gallery = _get_json(f"{url}/api/samples")
+        samples = {str(sample["id"]): sample for sample in gallery["samples"]}
+
+        assert samples["host-demo"]["command"] == "piranesi demo --output piranesi-demo-output"
+        assert samples["app-vuln-express"]["download_url"] == ("/api/samples/app-vuln-express.zip")
+
+        status, headers, body = _get_raw(f"{url}/api/samples/app-vuln-express.zip")
+        assert status == 200
+        assert headers["content-type"] == "application/zip"
+        with zipfile.ZipFile(io.BytesIO(body)) as archive:
+            names = set(archive.namelist())
+        assert "vuln-express/package.json" in names
+        assert "vuln-express/app.js" in names
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_workbench_runs_bundled_sample_with_mocked_runner(tmp_path: Path) -> None:
+    def fake_runner(job: Any, _workbench: Any) -> None:
+        assert job.input_kind == "sample"
+        assert (job.project_dir / "app.js").is_file()
+        _write_source_report(job.output_dir, job.project_dir)
+
+    server = create_ui_server(
+        workbench=True,
+        jobs_dir=tmp_path / "jobs",
+        port=0,
+        scan_runner=fake_runner,
+    )
+    thread = None
+    try:
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+
+        created = _post(f"{url}/api/app-scans/sample/app-vuln-express", b"", {})
+        job = _wait_for_job(url, str(created["job_id"]))
+        report = _get_json(f"{url}/api/app-scans/{created['job_id']}/report")
+
+        assert job["status"] == "succeeded"
+        assert job["input_kind"] == "sample"
+        assert report["type"] == "source"
+    finally:
+        server.shutdown()
+        server.server_close()
+        if thread is not None:
+            thread.join(timeout=2)
+
+
+def test_workbench_rejects_unsupported_url_import(tmp_path: Path) -> None:
+    server = run_ui_server(
+        UiServerOptions(workbench=True, jobs_dir=tmp_path / "jobs", port=0),
+        block=False,
+    )
+    try:
+        url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+        body, headers = _json_body({"url": "https://example.com/app.zip"})
+
+        payload = _post(f"{url}/api/app-scans/import-url", body, headers, expected_status=400)
+
+        assert "only public https://github.com/owner/repo" in str(payload["error"])
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_workbench_imports_mocked_github_repo(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_git(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert command[:6] == ["git", "clone", "--depth", "1", "--single-branch", "--no-tags"]
+        destination = Path(command[-1])
+        destination.mkdir(parents=True)
+        (destination / "package.json").write_text("{}", encoding="utf-8")
+        (destination / "index.ts").write_text("export const value = 1;\n", encoding="utf-8")
+        (destination / ".git").mkdir()
+        return subprocess.CompletedProcess(command, 0, stdout="cloned", stderr="")
+
+    def fake_runner(job: Any, _workbench: Any) -> None:
+        assert job.input_kind == "github"
+        assert job.target_name == "octo/demo"
+        assert (job.project_dir / "index.ts").is_file()
+        assert not (job.project_dir / ".git").exists()
+        _write_source_report(job.output_dir, job.project_dir)
+
+    monkeypatch.setattr(ui_server_module.subprocess, "run", fake_git)
+    server = create_ui_server(
+        workbench=True,
+        jobs_dir=tmp_path / "jobs",
+        port=0,
+        scan_runner=fake_runner,
+    )
+    thread = None
+    try:
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+        body, headers = _json_body({"url": "https://github.com/octo/demo"})
+
+        created = _post(f"{url}/api/app-scans/import-url", body, headers)
+        job = _wait_for_job(url, str(created["job_id"]))
+        report = _get_json(f"{url}/api/app-scans/{created['job_id']}/report")
+
+        assert job["status"] == "succeeded"
+        assert job["input_kind"] == "github"
+        assert report["type"] == "source"
+    finally:
+        server.shutdown()
+        server.server_close()
+        if thread is not None:
+            thread.join(timeout=2)
 
 
 def test_source_finding_detail_payload_contains_analyst_context(tmp_path: Path) -> None:
@@ -307,16 +515,84 @@ def test_workbench_runs_mocked_scan_job(tmp_path: Path) -> None:
         report = _get_json(f"{url}/api/app-scans/{job_id}/report")
         findings = _get_json(f"{url}/api/app-scans/{job_id}/findings")
         markdown = _get_text(f"{url}/api/app-scans/{job_id}/artifacts/report-md")
+        sarif = _get_json(f"{url}/api/app-scans/{job_id}/artifacts/sarif")
+        csv_status, _csv_headers, csv_body = _get_raw(f"{url}/api/app-scans/{job_id}/artifacts/csv")
+        preview = _get_json(f"{url}/api/app-scans/{job_id}/handoff/preview?integration=slack")
+        blocked = _post(
+            f"{url}/api/app-scans/{job_id}/handoff/send?integration=slack",
+            b"",
+            {},
+            expected_status=409,
+        )
 
         assert job["status"] == "succeeded"
         assert report["type"] == "source"
         assert findings["findings"][0]["title"] == "SQL Injection"
         assert "Piranesi Security Analysis Report" in markdown
+        assert sarif["version"] == "2.1.0"
+        assert csv_status == 200
+        assert b"cwe_id" in csv_body
+        assert preview["integration"] == "slack"
+        assert preview["dry_run"] is True
+        assert "confirm=true" in str(blocked["error"])
     finally:
         server.shutdown()
         server.server_close()
         if thread is not None:
             thread.join(timeout=2)
+
+
+def test_workbench_persists_reopens_and_deletes_job_records(tmp_path: Path) -> None:
+    jobs_dir = tmp_path / "jobs"
+
+    def fake_runner(job: Any, _workbench: Any) -> None:
+        _write_source_report(job.output_dir, job.project_dir)
+
+    server = create_ui_server(
+        workbench=True,
+        jobs_dir=jobs_dir,
+        port=0,
+        scan_runner=fake_runner,
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+        body, headers = _multipart_zip("app.zip", _zip_bytes({"app/index.ts": "x"}))
+        created = _post(f"{url}/api/app-scans", body, headers)
+        job_id = str(created["job_id"])
+        job = _wait_for_job(url, job_id)
+        assert job["status"] == "succeeded"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    index_payload = json.loads((jobs_dir / "jobs-index.json").read_text(encoding="utf-8"))
+    assert index_payload["jobs"][0]["job_id"] == job_id
+
+    reopened = create_ui_server(
+        workbench=True,
+        jobs_dir=jobs_dir,
+        port=0,
+        scan_runner=fake_runner,
+    )
+    reopened_thread = threading.Thread(target=reopened.serve_forever, daemon=True)
+    reopened_thread.start()
+    try:
+        url = f"http://{reopened.server_address[0]}:{reopened.server_address[1]}"
+        jobs = _get_json(f"{url}/api/app-scans")
+        report = _get_json(f"{url}/api/app-scans/{job_id}/report")
+        deleted = _delete(f"{url}/api/app-scans/{job_id}")
+
+        assert jobs["jobs"][0]["job_id"] == job_id
+        assert report["type"] == "source"
+        assert deleted["deleted"] is True
+        assert not (jobs_dir / job_id).exists()
+    finally:
+        reopened.shutdown()
+        reopened.server_close()
+        reopened_thread.join(timeout=2)
 
 
 def test_workbench_surfaces_failed_scan_job(tmp_path: Path) -> None:
@@ -341,6 +617,8 @@ def test_workbench_surfaces_failed_scan_job(tmp_path: Path) -> None:
 
         assert job["status"] == "failed"
         assert job["error"] == "scanner exploded"
+        index_payload = _wait_for_job_index_error(tmp_path / "jobs", "scanner exploded")
+        assert index_payload["jobs"][0]["error"] == "scanner exploded"
     finally:
         server.shutdown()
         server.server_close()
@@ -469,3 +747,16 @@ def _wait_for_job(url: str, job_id: str) -> dict[str, object]:
             return job
         time.sleep(0.05)
     raise AssertionError("job did not finish")
+
+
+def _wait_for_job_index_error(jobs_dir: Path, expected_error: str) -> dict[str, object]:
+    import time
+
+    index_path = jobs_dir / "jobs-index.json"
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
+        if payload["jobs"][0]["error"] == expected_error:
+            return payload
+        time.sleep(0.05)
+    raise AssertionError("job index did not record failed scan error")

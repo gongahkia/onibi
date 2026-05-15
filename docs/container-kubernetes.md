@@ -13,6 +13,9 @@ Assess a local Trivy image JSON fixture:
 piranesi container assess --image tests/fixtures/container/trivy-image.json --output piranesi-container-output
 ```
 
+Fixture intent and expected finding families are documented in
+`tests/fixtures/container/README.md`.
+
 Assess an image reference with local Trivy:
 
 ```bash
@@ -48,6 +51,9 @@ cover privileged security contexts, host networking, public `LoadBalancer` and
 `NodePort` services, missing resource limits, root execution, and visible
 secret references in environment variables.
 
+Fixture intent and expected finding families are documented in
+`tests/fixtures/k8s/README.md`.
+
 ## Kubernetes API
 
 When `kubectl` is available, Piranesi can collect a read-only snapshot:
@@ -79,4 +85,3 @@ These reports reuse host posture concepts such as evidence inventory, posture
 score, risk scores, top actions, and evidence-bound findings while keeping
 `ContainerImageSnapshot`, `RunningContainerSnapshot`, and `KubernetesSnapshot`
 separate from `HostSnapshot`.
-

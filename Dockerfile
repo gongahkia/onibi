@@ -1,69 +1,37 @@
-FROM python:3.12.8-slim-bookworm
+FROM python:3.12.12-slim-bookworm AS builder
 
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+WORKDIR /src
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
 
-ARG NODE_MAJOR=20
-ARG TYPESCRIPT_VERSION=5.7.3
-ARG JOERN_VERSION=2.0.411
-ARG UV_VERSION=0.6.14
-ARG PIRANESI_UID=10001
-ARG PIRANESI_GID=10001
+RUN python -m pip install --no-cache-dir uv==0.8.13
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    PATH=/opt/joern/joern-cli:${PATH} \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_ROOT_USER_ACTION=ignore \
-    PYTHONDONTWRITEBYTECODE=1 \
+COPY pyproject.toml README.md CHANGELOG.md LICENSE SECURITY.md ./
+COPY src ./src
+COPY rules ./rules
+COPY examples/rule-packs ./examples/rule-packs
+
+RUN uv build --wheel && \
+    python -m venv /opt/piranesi && \
+    /opt/piranesi/bin/pip install --no-cache-dir dist/*.whl
+
+FROM python:3.12.12-slim-bookworm
+
+LABEL org.opencontainers.image.source="https://github.com/gongahkia/piranesi" \
+      org.opencontainers.image.description="Local-first evidence workbench for security review" \
+      org.opencontainers.image.licenses="Apache-2.0"
+
+ENV PATH="/opt/piranesi/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \
-    PIRANESI_OUTPUT_OUTPUT_DIR=/workspace/piranesi-output \
-    PIRANESI_TRACE_FILE_PATH=/workspace/.piranesi-trace.jsonl
+    PYTHONDONTWRITEBYTECODE=1
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        git \
-        gnupg \
-        openjdk-17-jre-headless \
-        unzip \
-    && curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && npm install --global "typescript@${TYPESCRIPT_VERSION}" \
-    && curl -fsSL "https://github.com/joernio/joern/releases/download/v${JOERN_VERSION}/joern-install.sh" \
-        | bash -s -- --install-dir=/opt/joern --without-plugins \
-    && python -m pip install --no-cache-dir "uv==${UV_VERSION}" \
-    && groupadd --gid "${PIRANESI_GID}" piranesi \
-    && useradd --uid "${PIRANESI_UID}" --gid piranesi --create-home --shell /bin/bash piranesi \
-    && mkdir -p /opt/piranesi /workspace \
-    && chown -R piranesi:piranesi /opt/piranesi /workspace /home/piranesi \
-    && rm -rf /var/lib/apt/lists/* /root/.cache /tmp/*
+RUN useradd --create-home --shell /usr/sbin/nologin --uid 10001 piranesi
 
-WORKDIR /opt/piranesi
+COPY --from=builder /opt/piranesi /opt/piranesi
 
-COPY --chown=piranesi:piranesi LICENSE README.md pyproject.toml uv.lock ./
-COPY --chown=piranesi:piranesi src ./src
-COPY --chown=piranesi:piranesi rules ./rules
-
-RUN uv pip install --system --no-cache --locked . \
-    && python - <<'PY'
-from pathlib import Path
-import shutil
-import sys
-
-source = Path('/opt/piranesi/rules')
-target = (
-    Path(sys.base_prefix)
-    / 'lib'
-    / f'python{sys.version_info.major}.{sys.version_info.minor}'
-    / 'rules'
-)
-if target.exists():
-    shutil.rmtree(target)
-shutil.copytree(source, target)
-PY
-
-USER piranesi
 WORKDIR /workspace
+USER piranesi
 
 ENTRYPOINT ["piranesi"]
 CMD ["--help"]
+

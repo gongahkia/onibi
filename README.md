@@ -40,12 +40,15 @@ without cloud upload.
 - [Why Piranesi](#why-piranesi)
 - [Current Scope](#current-scope)
 - [Quick Start](#quick-start)
+- [Comparison And Positioning](#comparison-and-positioning)
+- [Sample Gallery](#sample-gallery)
 - [Host Evidence](#host-evidence)
 - [Reports](#reports)
 - [Privacy And Data Handling](#privacy-and-data-handling)
 - [Control Mapping](#control-mapping)
 - [Evaluation](#evaluation)
 - [LLM Analysis](#llm-analysis)
+- [Release Channels](#release-channels)
 - [Roadmap](#roadmap)
 - [CLI Reference](#cli-reference)
 - [Development](#development)
@@ -123,6 +126,13 @@ Not implemented yet:
 
 See [docs/capabilities.md](docs/capabilities.md) for the detailed capability matrix.
 
+## Comparison And Positioning
+
+Piranesi composes with scanners and security platforms rather than replacing
+them. For a conservative tool-by-tool comparison against Lynis, OpenSCAP, Trivy,
+Wazuh, Semgrep, Snyk, and osquery, see
+[docs/comparison.md](docs/comparison.md).
+
 ## Quick Start
 
 ### Try Piranesi in 10 minutes
@@ -145,6 +155,13 @@ Open the same output in the local review workbench:
 ```bash
 piranesi ui piranesi-demo-output --open
 ```
+
+## Sample Gallery
+
+Reusable local demos are documented in
+[docs/sample-gallery.md](docs/sample-gallery.md). The workbench also exposes a
+downloadable vulnerable Express ZIP demo when started with `piranesi ui
+--workbench --open`.
 
 Containerized evaluation:
 
@@ -179,6 +196,9 @@ Review that output locally:
 ```bash
 uv run piranesi ui piranesi-demo-output --open
 ```
+
+Release, PyPI/pipx, GHCR container, checksum, provenance, and smoke-test details
+are documented in [docs/release-channels.md](docs/release-channels.md).
 
 Collect evidence on a Linux VM or host:
 
@@ -457,6 +477,12 @@ traces contain the redacted prompt only.
 available evidence citations, explicit missing evidence, concise reasoning summaries,
 and safe follow-up probes or analyst questions rather than exploit payloads.
 
+## Release Channels
+
+PyPI/pipx publishing, GHCR container publishing, checksum generation, provenance
+attestation, and recurring release smoke tests are documented in
+[docs/release-channels.md](docs/release-channels.md).
+
 ## Roadmap
 
 The host-depth, adoption, and scale roadmap has landed. The active roadmap is now
@@ -465,9 +491,11 @@ focused on production hardening, distribution, and credibility work.
 Near-term product hardening:
 
 - larger host benchmark corpus and measured analyst study
+  ([protocol](docs/analyst-study.md))
 - signed release artifacts and recurring release smoke tests
 - expanded integration fixtures for GitHub, Jira, Slack/webhooks, Docker, and Kubernetes
 - more remote collection compatibility testing across common Linux distributions
+  ([matrix](docs/ssh-compatibility.md))
 
 Distribution and community:
 

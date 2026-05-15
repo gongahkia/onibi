@@ -9,6 +9,11 @@ Python/Node/Joern on the host.
 docker build -t piranesi:local .
 ```
 
+Release images are published to GitHub Container Registry by
+`.github/workflows/publish-container.yml` for release tags. The image uses a
+version-pinned Python slim base, runs as a non-root `piranesi` user, and keeps
+output paths under the mounted workspace.
+
 ## Try The Bundled Demo
 
 The demo flow writes deterministic host posture reports from packaged fixtures and

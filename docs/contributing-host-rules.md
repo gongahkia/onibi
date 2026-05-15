@@ -8,6 +8,9 @@ The community host rule TOML format is stable-alpha. See
 [Stability Guarantees](stability.md) for the additive-field, schema-version, and
 deprecation policy.
 
+For the full rule, fixture, benchmark, policy, mapping, and review checklist,
+see [Community Contribution Workflow](community-contribution-workflow.md).
+
 ## Create A Rule
 
 ```bash

@@ -14,3 +14,6 @@ piranesi host rule test-all rules/community/host
 
 Keep `index.json` updated with rule ID, maintainer, platform support, fixture
 coverage, and last validation date.
+
+See `docs/community-contribution-workflow.md` for the full contributor and
+maintainer checklist.

@@ -51,11 +51,63 @@ piranesi ui --workbench --open
 This mode accepts ZIP uploads only. It extracts into a local job directory,
 rejects unsafe archive paths and symlinks, runs `piranesi run` with
 `--no-execute --no-fail --format both`, and then shows the resulting
-`report.json`/`report.md` in the same review interface. URL and GitHub import
-are tracked as follow-up work.
+`report.json`/`report.md` in the same review interface.
 
-Uploaded ZIPs, extracted source, generated reports, and `scan.log` remain in the
-job directory until you delete that directory.
+The first-run state includes:
+
+- bundled ZIP demo launch
+- ZIP upload
+- public GitHub repository import
+- recent local scans
+- disabled or CLI-directed modes for existing reports, host evidence, container
+  artifacts, and Kubernetes manifests
+- readiness diagnostics and privacy defaults
+
+Uploaded ZIPs, imported repositories, extracted source, generated reports, and
+`scan.log` remain in the job directory until you delete the local job from the
+workbench or remove the directory.
+
+## URL And GitHub Import
+
+The workbench accepts public GitHub repository URLs:
+
+```text
+https://github.com/owner/repo
+```
+
+Generic URLs are rejected. GitHub imports run locally by cloning with
+`--depth 1 --single-branch --no-tags` into an isolated job directory, removing
+`.git`, enforcing the same file-count and extracted-size limits as ZIP uploads,
+and reusing the same job status, report, findings, artifact, and history APIs.
+
+Private repositories, credentials embedded in URLs, general website crawling,
+and live browser testing are intentionally unsupported in this path.
+
+## Local Report Library
+
+Workbench jobs are indexed in `jobs-index.json` under the configured jobs
+directory. On restart, the UI reloads completed and failed local jobs so users
+can reopen previous reports or delete records and associated local artifacts.
+Jobs that were queued or running during a restart are marked failed with restart
+context because the scan process is not resumed.
+
+No database is introduced; the index is a local JSON file beside the job
+directories.
+
+## Artifacts And Handoff
+
+Loaded reports and workbench jobs expose local artifact downloads from the UI:
+
+- JSON report
+- Markdown report when generated
+- SARIF
+- CSV
+- host PDF where available or renderable
+
+GitHub, Jira, Slack-compatible webhook, and generic webhook actions are previewed
+as dry-runs only. The UI displays redacted payload previews and refuses external
+sends without explicit confirmation. Real externally visible creation or send
+actions remain CLI operations using `piranesi export ... --create/--send --yes`.
 
 ## Views
 
@@ -71,6 +123,9 @@ The current workbench includes:
 - fleet summary for `fleet-report.json`
 - source-code application review for `report.json`
 - ZIP upload workbench with local scan progress
+- local scan history with reopen/delete
+- sample gallery and guided first-run mode cards
+- dry-run handoff previews and artifact downloads
 
 ## Watch Mode
 

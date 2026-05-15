@@ -26,6 +26,9 @@ piranesi export csv fleet-output/fleet-report.json \
 
 Both exporters write an `audit-log.jsonl` event next to the exported artifact.
 
+The local UI also exposes report JSON, Markdown, SARIF, CSV, and host PDF
+downloads when those artifacts are available or can be rendered locally.
+
 ## Webhooks And Slack
 
 Webhook delivery is dry-run by default. The default payload contains a redacted
@@ -99,6 +102,8 @@ piranesi export jira piranesi-output/host-report.json \
 
 - Externally visible integrations run in dry-run mode unless `--create` or
   `--send` is paired with `--yes`.
+- The local UI provides dry-run handoff previews only; real sends remain CLI
+  operations with explicit confirmation.
 - Raw snapshots are excluded from outbound payloads by default.
 - Sensitive host metadata is redacted by default.
 - Suppressed findings are omitted from active work-item exporters.

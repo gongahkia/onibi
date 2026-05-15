@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "expected_findings": [
+    {
+      "id": "rhel-firewall-inactive",
+      "rule_id": "host.firewall.inactive_public_services",
+      "instance_key": "inactive",
+      "severity": "high"
+    },
+    {
+      "id": "rhel-public-redis",
+      "rule_id": "host.listener.high_risk_service",
+      "instance_key": "tcp:redis-server",
+      "severity": "high",
+      "title_contains": "Redis"
+    },
+    {
+      "id": "rhel-ssh-root-login",
+      "rule_id": "host.ssh.permit_root_login",
+      "instance_key": "permitrootlogin",
+      "severity": "high"
+    },
+    {
+      "id": "rhel-ssh-password-auth",
+      "rule_id": "host.ssh.password_authentication",
+      "instance_key": "passwordauthentication",
+      "severity": "medium"
+    },
+    {
+      "id": "rhel-public-ssh",
+      "rule_id": "host.listener.ssh_public",
+      "instance_key": "tcp:sshd",
+      "severity": "medium"
+    },
+    {
+      "id": "rhel-security-updates",
+      "rule_id": "host.updates.security_pending",
+      "instance_key": "security",
+      "severity": "high"
+    },
+    {
+      "id": "rhel-privileged-ops",
+      "rule_id": "host.identity.privileged_user",
+      "instance_key": "ops",
+      "severity": "medium"
+    }
+  ],
+  "expected_absent": [
+    {
+      "id": "absent-empty-ssh-passwords",
+      "rule_id": "host.ssh.permit_empty_passwords"
+    }
+  ],
+  "allowed_extra": [],
+  "notes": "RHEL-family fixture covers public exposure, SSH hardening, firewalld state, dnf security updates, and privileged wheel users."
+}
+
