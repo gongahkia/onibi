@@ -6,7 +6,7 @@ from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 from statistics import mean
-from typing import Literal
+from typing import Literal, overload
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -850,6 +850,20 @@ def _best_matching_finding(
         candidates,
         key=lambda finding: (-_match_score(finding, matcher), finding.id),
     )[0]
+
+
+@overload
+def _first_matching(
+    matchers_or_findings: list[HostGroundTruthMatcher],
+    finding_or_matcher: HostFinding,
+) -> HostGroundTruthMatcher | None: ...
+
+
+@overload
+def _first_matching(
+    matchers_or_findings: list[HostFinding],
+    finding_or_matcher: HostGroundTruthMatcher,
+) -> HostFinding | None: ...
 
 
 def _first_matching(

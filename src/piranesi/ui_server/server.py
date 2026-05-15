@@ -28,6 +28,7 @@ from pydantic import ValidationError
 from piranesi.host.api import load_host_report
 from piranesi.host.fleet import load_fleet_report
 from piranesi.host.models import FleetReport, HostFinding, HostPostureReport
+from piranesi.preflight import build_preflight_report
 from piranesi.report.renderer import PiranesiReport
 
 
@@ -288,6 +289,9 @@ class _UiRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/report":
             self._send_json(_report_summary(self.server_state))
             return
+        if parsed.path == "/api/preflight":
+            self._send_json(_preflight_payload(self.server_state))
+            return
         if parsed.path == "/api/findings":
             self._send_json(_findings_payload(self.server_state, parse_qs(parsed.query)))
             return
@@ -502,6 +506,25 @@ def _report_summary(state: UiServerState) -> dict[str, Any]:
     }
 
 
+def _preflight_payload(state: UiServerState) -> dict[str, Any]:
+    mode = "workbench" if state.report_type == "workbench" else "all"
+    payload = build_preflight_report(mode=mode).model_dump(mode="json")
+    payload["ui"] = {
+        "host": "local",
+        "report_type": state.report_type,
+        "workbench_enabled": state.workbench is not None,
+        "max_upload_mb": (
+            state.workbench.max_upload_bytes // (1024 * 1024)
+            if state.workbench is not None
+            else None
+        ),
+        "scan_timeout_seconds": (
+            state.workbench.scan_timeout_seconds if state.workbench is not None else None
+        ),
+    }
+    return payload
+
+
 def _findings_payload(
     state: UiServerState,
     query: dict[str, list[str]],
@@ -622,6 +645,7 @@ def _source_finding_payload(finding: Any) -> dict[str, Any]:
         _source_evidence(f"path.{index + 1}", getattr(step, "location", None), step)
         for index, step in enumerate(getattr(finding, "taint_path", []) or [])
     )
+    explanation = getattr(finding, "explanation", None)
     return {
         "id": str(getattr(finding, "finding_id", "")),
         "finding_id": str(getattr(finding, "finding_id", "")),
@@ -647,9 +671,70 @@ def _source_finding_payload(finding: Any) -> dict[str, Any]:
         ],
         "remediation": _source_remediation(finding),
         "evidence": [item for item in evidence if item is not None],
+        "risk_rationale": _source_risk_rationale(finding),
+        "confidence_notes": _source_confidence_notes(explanation),
+        "verification": _source_verification_payload(explanation),
+        "controls": [
+            _redact_text(f"{item.framework} {item.section}: {item.obligation_text}")
+            for item in (getattr(finding, "regulatory_obligations", []) or [])
+        ],
         "verification_method": getattr(finding, "verification_method", None),
         "verified": bool(getattr(finding, "verified", False)),
         "package_name": getattr(finding, "package_name", None),
+    }
+
+
+def _source_risk_rationale(finding: Any) -> list[str]:
+    composite = getattr(finding, "composite_risk", None)
+    if composite is None:
+        return []
+    return [
+        f"{name}: {component.rationale}"
+        for name in (
+            "severity",
+            "confidence",
+            "source_exposure",
+            "sink_criticality",
+            "ownership_signal",
+            "verification_signal",
+            "exploitability_signal",
+            "reachable_path_signal",
+            "suppression_signal",
+        )
+        if (component := getattr(composite, name, None)) is not None
+    ]
+
+
+def _source_confidence_notes(explanation: Any | None) -> list[str]:
+    confidence = getattr(explanation, "confidence", None)
+    if confidence is None:
+        return []
+    return [
+        f"{name}: {component.rationale}"
+        for name in (
+            "static_reachability",
+            "source_quality",
+            "sink_quality",
+            "sanitizer_signal",
+            "triage_signal",
+            "verification_signal",
+            "suppression_signal",
+        )
+        if (component := getattr(confidence, name, None)) is not None
+    ]
+
+
+def _source_verification_payload(explanation: Any | None) -> dict[str, Any] | None:
+    state = getattr(explanation, "verification_state", None)
+    if state is None:
+        return None
+    return {
+        "state": state.state,
+        "outcome": state.outcome,
+        "reason": _redact_text(state.reason or ""),
+        "evidence": [_redact_text(item) for item in state.evidence],
+        "missing_preconditions": list(state.missing_preconditions),
+        "next_steps": list(state.actionable_next_steps),
     }
 
 
@@ -1150,6 +1235,7 @@ _INDEX_HTML = """<!doctype html>
           <li data-step="Report">Report</li>
         </ol>
         <p id="workbenchStatus" class="muted"></p>
+        <div id="preflightPanel" class="readiness" aria-label="Workbench readiness"></div>
         <div class="privacy-summary" aria-label="Privacy and data handling summary">
           <strong>Privacy defaults</strong>
           <ul>
@@ -1230,6 +1316,12 @@ button:disabled { opacity:.55; cursor:not-allowed; }
 .privacy-summary { margin-top:16px; padding-top:14px; border-top:1px solid var(--border); color:var(--muted); }
 .privacy-summary strong { display:block; color:var(--text); margin-bottom:6px; }
 .privacy-summary ul { margin:0; padding-left:18px; }
+.readiness { margin-top:14px; border:1px solid var(--border); border-radius:8px; padding:12px; background:#f8fafc; }
+.readiness h3 { margin-bottom:8px; }
+.readiness-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px; }
+.check { border:1px solid var(--border); border-radius:6px; padding:8px; background:white; }
+.check strong { display:block; }
+.check.ok { border-color:#bbf7d0; } .check.missing { border-color:#fed7aa; } .check.error { border-color:#fecaca; }
 table { width:100%; border-collapse:collapse; }
 th,td { padding:9px 7px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top; }
 tbody tr { cursor:pointer; }
@@ -1238,6 +1330,8 @@ tbody tr:hover { background:#f1f5f9; }
 .critical,.high { color:#b91c1c; } .medium { color:#b45309; } .low { color:#1d4ed8; } .informational { color:#475569; }
 .detail { margin-top:12px; border-left:3px solid var(--accent); background:#f8fafc; padding:12px; }
 .detail-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:10px; }
+.detail-section { margin-top:12px; }
+.handoff { white-space:pre-wrap; background:white; border:1px solid var(--border); border-radius:6px; padding:10px; overflow:auto; }
 .artifact-link { display:inline-block; margin-right:10px; }
 ul { margin:0; padding-left:18px; }
 code { background:#eef2f7; border-radius:4px; padding:1px 4px; word-break:break-word; }
@@ -1292,6 +1386,35 @@ function renderWorkbench() {
   $("title").textContent = "Start a local evidence review";
   $("subtitle").textContent = "Upload a web app ZIP or open an existing host, fleet, or source report from the CLI.";
   $("score").textContent = "";
+  loadPreflight();
+}
+
+async function loadPreflight() {
+  try {
+    const preflight = await getJson("/api/preflight");
+    renderPreflight(preflight);
+  } catch (error) {
+    $("preflightPanel").innerHTML = `<p class="muted">Preflight unavailable: ${text(error.message || error)}</p>`;
+  }
+}
+
+function renderPreflight(preflight) {
+  const checks = preflight.checks || [];
+  const requiredMissing = checks.filter((check) => check.required && check.status !== "ok");
+  const optionalMissing = checks.filter((check) => !check.required && check.status === "missing");
+  $("preflightPanel").innerHTML = `
+    <h3>Readiness</h3>
+    <p class="muted">${requiredMissing.length ? `${requiredMissing.length} required check(s) need attention.` : "Required local checks are ready."} ${optionalMissing.length} optional tool(s) are missing.</p>
+    <div class="readiness-grid">
+      ${checks.map((check) => `
+        <div class="check ${text(check.status)}">
+          <strong>${text(check.label)} ${check.required ? "(required)" : "(optional)"}</strong>
+          <span>${text(check.status)}${check.version ? ` · ${text(check.version)}` : ""}</span>
+          ${check.status === "ok" ? "" : `<small class="muted">${text(check.install_hint)}</small>`}
+        </div>
+      `).join("")}
+    </div>
+  `;
 }
 
 async function renderReport(nextReport, nextFindingsEndpoint) {
@@ -1422,12 +1545,21 @@ function detail(index) {
     $("detail").innerHTML = sourceDetail(f);
     return;
   }
+  const riskRationale = [
+    ...(f.risk?.rationale || []),
+    ...(f.rationale ? [f.rationale] : []),
+  ];
   $("detail").innerHTML = `
     <h3>${text(f.title)}</h3>
     <p><strong>Rule:</strong> <code>${text(f.rule_id)}</code> <strong>Component:</strong> ${text(f.affected_component)}</p>
-    <p><strong>Remediation:</strong> ${text(f.remediation)}</p>
-    <h4>Evidence</h4>
+    <p><strong>Status:</strong> ${text(f.suppressed ? "suppressed" : f.evidence_status || "active")} <strong>Confidence:</strong> ${Number(f.confidence || 0).toFixed(2)} <strong>Risk:</strong> ${Number(f.risk?.total || 0).toFixed(1)}</p>
+    <div class="detail-section"><h4>Remediation</h4><p>${text(f.remediation)}</p></div>
+    <div class="detail-section"><h4>Risk Rationale</h4>${renderList(riskRationale)}</div>
+    <div class="detail-section"><h4>Related Controls</h4>${renderList((f.structured_control_refs || f.control_refs || []).map((control) => typeof control === "string" ? control : `${control.framework} ${control.control_id}: ${control.title}`))}</div>
+    <div class="detail-section"><h4>Evidence</h4>
     ${renderList((f.evidence || []).map((e) => `${e.source}.${e.key}: ${e.value}`))}
+    </div>
+    ${handoffBlock(f)}
   `;
 }
 
@@ -1435,14 +1567,32 @@ function sourceDetail(f) {
   return `
     <h3>${text(f.title)}</h3>
     <p><strong>CWE:</strong> <code>${text(f.cwe)}</code> <strong>Status:</strong> ${text(f.evidence_status)} <strong>Confidence:</strong> ${Number(f.confidence || 0).toFixed(2)}</p>
+    <p><strong>Risk:</strong> ${Number(f.risk?.total || 0).toFixed(1)} ${text(f.risk?.band || "")}</p>
     <div class="detail-grid">
       ${locationBlock("Source", f.source_location)}
       ${locationBlock("Sink", f.sink_location)}
     </div>
-    <p><strong>Remediation:</strong> ${text(f.remediation)}</p>
-    <h4>Evidence</h4>
+    <div class="detail-section"><h4>Remediation</h4><p>${text(f.remediation)}</p></div>
+    <div class="detail-section"><h4>Risk Rationale</h4>${renderList(f.risk_rationale || [])}</div>
+    <div class="detail-section"><h4>Confidence Notes</h4>${renderList(f.confidence_notes || [])}</div>
+    <div class="detail-section"><h4>Related Controls</h4>${renderList(f.controls || [])}</div>
+    <div class="detail-section"><h4>Evidence</h4>
     ${renderList((f.evidence || []).map((e) => `${e.key}: ${e.value}`))}
+    </div>
+    <div class="detail-section"><h4>Path</h4>${renderList((f.taint_path || []).map((step) => `${step.operation || "flow"} at ${step.location?.file || "unknown"}:${step.location?.line || 0}`))}</div>
+    ${handoffBlock(f)}
   `;
+}
+
+function handoffBlock(f) {
+  const lines = [
+    `${f.title}`,
+    `status: ${f.evidence_status || (f.suppressed ? "suppressed" : "active")}`,
+    `severity: ${f.severity}`,
+    `risk: ${Number(f.risk?.total || 0).toFixed(1)}`,
+    `remediation: ${f.remediation || "none"}`,
+  ];
+  return `<div class="detail-section"><h4>Analyst Handoff</h4><pre class="handoff">${text(lines.join("\\n"))}</pre></div>`;
 }
 
 function locationBlock(label, location) {

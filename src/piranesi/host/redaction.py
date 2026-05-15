@@ -280,10 +280,11 @@ def _redact_exact_values(
         if not raw:
             continue
         pattern = re.compile(rf"(?<![A-Za-z0-9_.-]){re.escape(raw)}(?![A-Za-z0-9_.-])")
-        rendered = pattern.sub(
-            lambda match, raw_value=raw: context.registry.placeholder(category, raw_value),
-            rendered,
-        )
+
+        def placeholder(_match: re.Match[str], raw_value: str = raw) -> str:
+            return context.registry.placeholder(category, raw_value)
+
+        rendered = pattern.sub(placeholder, rendered)
     return rendered
 
 

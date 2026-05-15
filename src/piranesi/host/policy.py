@@ -156,9 +156,13 @@ def evaluate_host_policy(report: HostPostureReport, policy: HostPolicy) -> HostP
     gate_results: list[HostPolicyGateResult] = []
     gate_results.extend(_global_gate_results(report, policy))
     gate_results.extend(_rule_gate_results(report, policy))
-    failed = [result for result in [*gate_results, *evidence_results] if result.status == "fail"]
-    warnings = [result for result in [*gate_results, *evidence_results] if result.status == "warn"]
-    summary = {
+    all_results: list[HostPolicyGateResult | HostPolicyRequiredEvidenceResult] = [
+        *gate_results,
+        *evidence_results,
+    ]
+    failed = [result for result in all_results if result.status == "fail"]
+    warnings = [result for result in all_results if result.status == "warn"]
+    summary: dict[str, object] = {
         "passed": not failed,
         "failed_gate_count": sum(1 for result in gate_results if result.status == "fail"),
         "warning_count": len(warnings),
@@ -204,8 +208,12 @@ def apply_fleet_policy(
     ]
     gate_results = _fleet_gate_results(report, host_reports, policy, host_failures)
     required_evidence = _fleet_required_evidence_results(host_reports, policy)
-    failed = [result for result in [*gate_results, *required_evidence] if result.status == "fail"]
-    warnings = [result for result in [*gate_results, *required_evidence] if result.status == "warn"]
+    all_results: list[HostPolicyGateResult | HostPolicyRequiredEvidenceResult] = [
+        *gate_results,
+        *required_evidence,
+    ]
+    failed = [result for result in all_results if result.status == "fail"]
+    warnings = [result for result in all_results if result.status == "warn"]
     summary = dict(report.summary)
     summary["policy"] = {
         "passed": not failed,

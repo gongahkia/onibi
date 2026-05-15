@@ -50,7 +50,9 @@ def load_container_image_snapshot(path: str | Path) -> ContainerImageSnapshot:
     payload = _load_json(path)
     try:
         return ContainerImageSnapshot.model_validate(payload)
-    except ValidationError:
+    except ValidationError as exc:
+        if not isinstance(payload, dict):
+            raise ContainerInputError("Trivy image JSON evidence must be a JSON object") from exc
         return parse_trivy_image_json(payload)
 
 
@@ -502,7 +504,13 @@ def _top_actions(findings: list[InfrastructureFinding]) -> list[dict[str, object
                 "risk_total": top.risk.total if top.risk else 0.0,
             }
         )
-    return sorted(actions, key=lambda item: float(item["risk_total"]), reverse=True)[:5]
+    return sorted(
+        actions,
+        key=lambda item: (
+            float(item["risk_total"]) if isinstance(item["risk_total"], (int, float, str)) else 0.0
+        ),
+        reverse=True,
+    )[:5]
 
 
 def _posture_score(findings: list[InfrastructureFinding]) -> int:
@@ -556,14 +564,18 @@ def _load_json(path: str | Path) -> dict[str, Any] | list[Any]:
     except OSError as exc:
         raise ContainerInputError(f"invalid container JSON evidence {candidate}: {exc}") from exc
     try:
-        return json.loads(text)
+        loaded = json.loads(text)
+        if isinstance(loaded, (dict, list)):
+            return loaded
+        raise ContainerInputError(f"container JSON evidence must be object or array: {candidate}")
     except json.JSONDecodeError as exc:
         lines = [line for line in text.splitlines() if line.strip()]
         if not lines:
             message = f"invalid container JSON evidence {candidate}: {exc}"
             raise ContainerInputError(message) from exc
         try:
-            return [json.loads(line) for line in lines]
+            loaded_lines: list[Any] = [json.loads(line) for line in lines]
+            return loaded_lines
         except json.JSONDecodeError as line_exc:
             raise ContainerInputError(
                 f"invalid container JSON evidence {candidate}: {line_exc}"

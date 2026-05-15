@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Literal, cast, overload
+from typing import Any, Literal, overload
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
-from piranesi.host.analyze import AnalysisSelection, analyze_snapshot
+from piranesi.host.analyze import analyze_snapshot
 from piranesi.host.collect import (
     HostCollectionError,
     HostCollectionResult,
@@ -71,7 +71,7 @@ def assess_host_bundle(
         snapshot = load_host_input(input_path)
         report = analyze_snapshot(
             snapshot,
-            analysis=cast(AnalysisSelection, analysis),
+            analysis=analysis,
             treat_private_as_public=treat_private_as_public,
         )
     except HostInputError as exc:
@@ -227,7 +227,19 @@ def _validate_analysis(analysis: str) -> None:
         raise HostAssessmentError("analysis must be 'deterministic', 'llm', or 'both'")
 
 
-def _format_model(model: Any, format_name: ApiFormat) -> Any:
+@overload
+def _format_model[T: BaseModel](model: T, format_name: Literal["model"]) -> T: ...
+
+
+@overload
+def _format_model[T: BaseModel](model: T, format_name: Literal["dict"]) -> dict[str, Any]: ...
+
+
+@overload
+def _format_model[T: BaseModel](model: T, format_name: ApiFormat) -> T | dict[str, Any]: ...
+
+
+def _format_model[T: BaseModel](model: T, format_name: ApiFormat) -> T | dict[str, Any]:
     if format_name == "dict":
         return model.model_dump(mode="json")
     return model

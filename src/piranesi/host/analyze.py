@@ -311,9 +311,12 @@ def collection_health_from_snapshot(snapshot: HostSnapshot) -> CollectionHealth 
     }
     optional: dict[str, CollectionCapabilityHealth] = {}
     platform_config = _platform_config(snapshot)
+    unsupported_checks_raw = (
+        platform_config.get("unsupported_checks") if platform_config is not None else None
+    )
     unsupported_checks = (
-        [str(item) for item in platform_config.get("unsupported_checks", [])]
-        if platform_config
+        [str(item) for item in unsupported_checks_raw]
+        if isinstance(unsupported_checks_raw, list)
         else []
     )
     for name, command_names in _CAPABILITY_COMMANDS.items():
@@ -339,13 +342,18 @@ def collection_health_from_snapshot(snapshot: HostSnapshot) -> CollectionHealth 
             alternatives=name in {"firewall", "sshd_config"},
         )
     for unsupported in unsupported_checks:
+        platform_family = (
+            str(platform_config.get("platform_family", "unknown"))
+            if platform_config is not None
+            else "unknown"
+        )
         optional[f"unsupported_{unsupported}"] = CollectionCapabilityHealth(
             status="warn",
             required=False,
             command_names=[],
             message=(
                 f"{unsupported} is not supported for platform family "
-                f"{platform_config.get('platform_family', 'unknown')}; skipped instead of "
+                f"{platform_family}; skipped instead of "
                 "creating distro-specific findings"
             ),
             remediation="Use the supported evidence source for this platform family.",
@@ -2380,7 +2388,12 @@ def _top_actions(findings: list[HostFinding]) -> list[dict[str, object]]:
                 "finding_titles": [finding.title for finding in matching[:5]],
             }
         )
-    return sorted(actions, key=lambda item: float(item.get("risk_total") or 0.0), reverse=True)
+    return sorted(actions, key=_action_risk_total, reverse=True)
+
+
+def _action_risk_total(item: dict[str, object]) -> float:
+    value = item.get("risk_total")
+    return float(value) if isinstance(value, (int, float, str)) else 0.0
 
 
 def _finding_risk_total(finding: HostFinding) -> float:
@@ -2547,7 +2560,7 @@ def _intel_epss_score(intel: dict[str, object]) -> float | None:
         if isinstance(value, dict):
             value = value.get("score") or value.get("epss")
         try:
-            if value is not None:
+            if isinstance(value, (str, int, float)):
                 return float(value)
         except (TypeError, ValueError):
             continue

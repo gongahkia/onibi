@@ -65,7 +65,7 @@ def launch_cli_tui(
     RichLog = widgets_module.RichLog
     Static = widgets_module.Static
 
-    class DirectoryPickerScreen(ModalScreen[Path | None]):
+    class DirectoryPickerScreen(ModalScreen[Path | None]):  # type: ignore[misc, valid-type]
         BINDINGS: ClassVar[list[Any]] = [
             Binding("up", "move_up", show=False),
             Binding("down", "move_down", show=False),
@@ -211,7 +211,7 @@ def launch_cli_tui(
                 return None
             return self._entries[index]
 
-    class PiranesiLauncherApp(App[LauncherSelection | None]):
+    class PiranesiLauncherApp(App[LauncherSelection | None]):  # type: ignore[misc, valid-type]
         BINDINGS: ClassVar[list[Any]] = [
             Binding("f", "open_path_finder", "Path Finder", show=True),
             Binding("ctrl+o", "open_path_finder", show=False),
@@ -270,7 +270,6 @@ def launch_cli_tui(
             trace_path: Path,
         ) -> None:
             super().__init__()
-            self.target_dir = start_dir
             self.output_dir = output_dir
             self.config_path = config_path
             self.trace_path = trace_path

@@ -655,51 +655,53 @@ def enrich_ground_truth(
         updates: dict[str, Any] = {}
 
         entry_id = _entry_id(payload, path.stem)
-        inferred_language = str(payload.get("language")) if _is_present(payload.get("language")) else None
+        inferred_language: str | None = (
+            str(payload.get("language")) if _is_present(payload.get("language")) else None
+        )
 
         if "language" in fields and not _is_present(payload.get("language")):
-            candidate = infer_language(payload)
-            if candidate is None:
+            language_candidate = infer_language(payload)
+            if language_candidate is None:
                 unresolved["language"].append(entry_id)
             else:
-                updates["language"] = candidate
-                inferred_language = candidate
+                updates["language"] = language_candidate
+                inferred_language = language_candidate
 
         if "framework" in fields and not _is_present(payload.get("framework")):
-            candidate = infer_framework(payload, inferred_language=inferred_language)
-            if candidate is None:
+            framework_candidate = infer_framework(payload, inferred_language=inferred_language)
+            if framework_candidate is None:
                 unresolved["framework"].append(entry_id)
             else:
-                updates["framework"] = candidate
+                updates["framework"] = framework_candidate
 
         if "taint_step_count" in fields and not _is_present(payload.get("taint_step_count")):
-            candidate = infer_taint_step_count(payload)
-            if candidate is None:
+            step_count_candidate = infer_taint_step_count(payload)
+            if step_count_candidate is None:
                 unresolved["taint_step_count"].append(entry_id)
             else:
-                updates["taint_step_count"] = candidate
+                updates["taint_step_count"] = step_count_candidate
 
         if "taint_field_path" in fields and not _is_present(payload.get("taint_field_path")):
-            candidate = infer_taint_field_path(payload)
-            if candidate is None:
+            field_path_candidate = infer_taint_field_path(payload)
+            if field_path_candidate is None:
                 if not taint_field_candidates_only:
                     unresolved["taint_field_path"].append(entry_id)
             else:
-                updates["taint_field_path"] = candidate
+                updates["taint_field_path"] = field_path_candidate
 
         if "field_sensitive_label" in fields and not _is_present(
             payload.get("field_sensitive_label")
         ):
-            candidate = infer_field_sensitive_label(
+            field_sensitive_candidate = infer_field_sensitive_label(
                 payload,
                 inferred_taint_field_path=str(updates.get("taint_field_path"))
                 if _is_present(updates.get("taint_field_path"))
                 else None,
             )
-            if candidate is None:
+            if field_sensitive_candidate is None:
                 unresolved["field_sensitive_label"].append(entry_id)
             else:
-                updates["field_sensitive_label"] = candidate
+                updates["field_sensitive_label"] = field_sensitive_candidate
 
         if not updates:
             continue

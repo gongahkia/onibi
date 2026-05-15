@@ -128,7 +128,7 @@ class OpenSSHTransport:
             command=list(command),
             returncode=completed.returncode,
             stdout=_bounded_stdout(completed.stdout),
-            stderr=_redact_stderr(completed.stderr),
+            stderr=_redact_stderr(completed.stderr) or "",
         )
 
 

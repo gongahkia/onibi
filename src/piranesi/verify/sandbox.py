@@ -530,7 +530,7 @@ def _run_with_target_profile(
                 for _ in payloads
             ]
 
-        ready, startup_error = _wait_for_profile_ready(
+        ready, readiness_error = _wait_for_profile_ready(
             target_profile=target_profile,
             base_url=base_url,
             cwd=cwd,
@@ -547,7 +547,11 @@ def _run_with_target_profile(
             )
             return [
                 SandboxCapture.app_not_ready(
-                    startup_error=startup_error or "TARGET_PROFILE_NOT_READY",
+                    startup_error=(
+                        readiness_error
+                        if readiness_error is not None
+                        else "TARGET_PROFILE_NOT_READY"
+                    ),
                     container_logs=launch_logs,
                     launch_profile=target_profile.name,
                     launch_log_path=launch_log_path,
@@ -706,7 +710,7 @@ def _probe_readiness_url(*, base_url: str, readiness_url: str | None) -> bool:
         raise ValueError(f"invalid base_url for readiness checks: {base_url!r}")
     url = _resolve_readiness_url(0, readiness_url=readiness_url, base_url=base_url)
     response = requests.get(url, timeout=2)
-    return response.status_code < 500
+    return bool(response.status_code < 500)
 
 
 def _read_launch_logs(log_path: Path | None) -> str:

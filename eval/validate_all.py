@@ -27,6 +27,7 @@ from eval.fixture_validation import (
     validation_error_result,
     validation_result_from_findings,
 )
+from eval.scoring import NormalizedFinding
 
 
 @dataclass(frozen=True, slots=True)
@@ -676,7 +677,7 @@ def main(argv: list[str] | None = None) -> int:
     entries = _load_entries(args.gt_dir, args.filter)
     cache: dict[
         tuple[str, str | None, str | None],
-        tuple[list[Any] | None, Path, str | None],
+        tuple[list[NormalizedFinding] | None, Path, str | None],
     ] = {}
     records: list[_ValidationRecord] = []
 
@@ -696,8 +697,8 @@ def main(argv: list[str] | None = None) -> int:
                     cache[cache_key] = (findings, output_dir, None)
                 except DetectionExecutionError as exc:
                     cache[cache_key] = (None, exc.output_dir, str(exc))
-            findings, output_dir, error = cache[cache_key]
-            if error is not None or findings is None:
+            cached_findings, output_dir, error = cache[cache_key]
+            if error is not None or cached_findings is None:
                 result = validation_error_result(
                     entry,
                     error=error or "unknown validation error",
@@ -707,14 +708,14 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 result = validation_result_from_findings(
                     entry,
-                    findings=findings,
+                    findings=cached_findings,
                     fixture_root=fixture_root,
                     output_dir=output_dir,
                 )
             records.append(_ValidationRecord(result=result, entry=entry))
             print(result.message)
 
-        report = {
+        report: dict[str, Any] = {
             "timestamp": datetime.now(UTC).isoformat(),
             "piranesi_version": PIRANESI_VERSION,
             "total_entries": len(entries),

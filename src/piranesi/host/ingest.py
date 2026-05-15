@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from ipaddress import ip_address
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 from pydantic import ValidationError
 
@@ -22,11 +22,14 @@ from piranesi.host.models import (
     LoginSession,
     NetworkInterface,
     OsRelease,
+    PackageManager,
     ServiceState,
+    Severity,
     UserAccount,
 )
 
 _DEFAULT_LISTEN_ADDRESS = "0.0.0.0"  # noqa: S104
+BaselineResult = Literal["pass", "fail", "warn", "not_applicable", "unknown"]
 
 
 class HostInputError(RuntimeError):
@@ -267,13 +270,13 @@ def _rpm_version(row: dict[str, Any]) -> str | None:
     return f"{epoch}:{rendered}" if epoch and epoch != "0" else rendered
 
 
-def _package_manager_from_row(row: dict[str, Any]) -> str:
+def _package_manager_from_row(row: dict[str, Any]) -> PackageManager:
     raw = (_string(row.get("package_manager")) or _string(row.get("manager")) or "").lower()
     if raw in {"deb", "rpm", "apk", "brew", "winget"}:
-        return raw
+        return cast(PackageManager, raw)
     source = (_string(row.get("source")) or "").lower()
     if source in {"deb", "rpm", "apk", "brew", "winget"}:
-        return source
+        return cast(PackageManager, source)
     return "unknown"
 
 
@@ -1029,18 +1032,28 @@ def _parse_openscap_results(openscap_dir: Path) -> list[BaselineCheck]:
         result_el = rr.find(f"{{{_XCCDF_NS}}}result")
         raw_result = (result_el.text or "").strip().lower() if result_el is not None else "unknown"
         result = _openscap_result(raw_result)
-        rule_el = rules_by_id.get(idref)
-        severity_raw = (rule_el.get("severity", "") if rule_el is not None else "").lower()
+        rule_for_result = rules_by_id.get(idref)
+        severity_raw = (
+            rule_for_result.get("severity", "") if rule_for_result is not None else ""
+        ).lower()
         severity = _openscap_severity(severity_raw)
-        title_el = rule_el.find(f"{{{_XCCDF_NS}}}title") if rule_el is not None else None
+        title_el = (
+            rule_for_result.find(f"{{{_XCCDF_NS}}}title") if rule_for_result is not None else None
+        )
         title = (title_el.text or idref).strip() if title_el is not None else idref
-        desc_el = rule_el.find(f"{{{_XCCDF_NS}}}description") if rule_el is not None else None
+        desc_el = (
+            rule_for_result.find(f"{{{_XCCDF_NS}}}description")
+            if rule_for_result is not None
+            else None
+        )
         description = (desc_el.text or "").strip() if desc_el is not None else ""
-        fix_el = rule_el.find(f"{{{_XCCDF_NS}}}fixtext") if rule_el is not None else None
+        fix_el = (
+            rule_for_result.find(f"{{{_XCCDF_NS}}}fixtext") if rule_for_result is not None else None
+        )
         remediation = (fix_el.text or "").strip() if fix_el is not None else None
         control_refs: list[str] = []
-        if rule_el is not None:
-            for ident_el in rule_el.findall(f"{{{_XCCDF_NS}}}ident"):
+        if rule_for_result is not None:
+            for ident_el in rule_for_result.findall(f"{{{_XCCDF_NS}}}ident"):
                 ident_text = (ident_el.text or "").strip()
                 if ident_text:
                     control_refs.append(ident_text)
@@ -1064,8 +1077,8 @@ def _parse_openscap_results(openscap_dir: Path) -> list[BaselineCheck]:
     return checks
 
 
-def _openscap_result(raw: str) -> str:
-    mapping = {
+def _openscap_result(raw: str) -> BaselineResult:
+    mapping: dict[str, BaselineResult] = {
         "pass": "pass",
         "fail": "fail",
         "error": "fail",
@@ -1079,8 +1092,8 @@ def _openscap_result(raw: str) -> str:
     return mapping.get(raw, "unknown")
 
 
-def _openscap_severity(raw: str) -> str | None:
-    mapping = {
+def _openscap_severity(raw: str) -> Severity | None:
+    mapping: dict[str, Severity | None] = {
         "high": "high",
         "medium": "medium",
         "low": "low",

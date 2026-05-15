@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from fnmatch import fnmatch
 from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -165,6 +165,7 @@ _LLM_API_ENV_VARS = (
 )
 
 _logger = logging.getLogger("piranesi.pipeline")
+VerificationStatus = Literal["confirmed", "skipped", "inconclusive", "error"]
 
 
 @dataclass(slots=True)
@@ -2226,7 +2227,7 @@ def _run_triage_stage(
         finding for finding in active_findings if finding.reachability == "reachable"
     ]
     if not _llm_is_configured():
-        findings = [
+        deterministic_findings = [
             TriagedFinding(
                 finding=finding,
                 triage_verdict="true_positive",
@@ -2244,7 +2245,7 @@ def _run_triage_stage(
         return StageResult(
             stage="triage",
             success=True,
-            artifact=TriageArtifact(findings=findings),
+            artifact=TriageArtifact(findings=deterministic_findings),
             elapsed_s=time.monotonic() - started_at,
         )
 
@@ -2353,7 +2354,7 @@ def _run_verify_stage(
             target_profile_base_url=None if active_profile is None else active_profile.base_url,
             no_execute=context.no_execute,
         )
-        attempt_fields = {
+        attempt_fields: dict[str, Any] = {
             "finding_id": triaged.finding.id,
             "proof_mode": proof_mode,
             "target_profile": None if active_profile is None else active_profile.name,
@@ -2364,7 +2365,7 @@ def _run_verify_stage(
 
         def _append_attempt(
             *,
-            status: str,
+            status: VerificationStatus,
             reason: str,
             evidence: list[str] | None = None,
             payload: Any | None = None,
@@ -2376,7 +2377,7 @@ def _run_verify_stage(
             _triaged: TriagedFinding = triaged,
             _template_id: str | None = template.template_id,
             _base_url: str | None = None if active_profile is None else active_profile.base_url,
-            _attempt_fields: dict[str, object] = attempt_fields,
+            _attempt_fields: dict[str, Any] = attempt_fields,
         ) -> None:
             evidence_items = [] if evidence is None else list(evidence)
             baseline_response = (

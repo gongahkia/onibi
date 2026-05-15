@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from fnmatch import fnmatch
 from hashlib import sha256
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypedDict
 
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -65,6 +65,18 @@ _EVIDENCE_STATUS_LABELS: dict[EvidenceStatus, str] = {
     "unreachable_candidate": "Unreachable candidate",
     "suppressed": "Suppressed finding",
 }
+
+
+def _default_status_legend() -> dict[str, str]:
+    return {str(key): value for key, value in _EVIDENCE_STATUS_LABELS.items()}
+
+
+class _ClusterFields(TypedDict, total=False):
+    cluster_id: str
+    cluster_size: int
+    cluster_representative: bool
+
+
 _CONFIDENCE_COMPONENT_WEIGHTS = {
     "static_reachability": 0.20,
     "source_quality": 0.14,
@@ -441,7 +453,7 @@ class PiranesiReport(BaseModel):
     target: str
     generated_at: str
     files_scanned: list[str] = Field(default_factory=list)
-    status_legend: dict[str, str] = Field(default_factory=lambda: dict(_EVIDENCE_STATUS_LABELS))
+    status_legend: dict[str, str] = Field(default_factory=_default_status_legend)
     scan_metadata: ScanMetadata
     advisory_db: AdvisoryDbFreshness | None = None
     known_limitations: list[KnownLimitation] = Field(default_factory=list)
@@ -1136,7 +1148,7 @@ def _verification_state(
         state = "unreachable_candidate"
     else:
         state = "candidate"
-    outcome = None if verification_attempt is None else verification_attempt.status
+    outcome: str | None = None if verification_attempt is None else verification_attempt.status
     proof_mode = None if verification_attempt is None else verification_attempt.proof_mode
     target_profile = None if verification_attempt is None else verification_attempt.target_profile
     launch_log_path = None if verification_attempt is None else verification_attempt.launch_log_path
@@ -1549,7 +1561,7 @@ def _risk_suppression_component(evidence_status: EvidenceStatus) -> tuple[float,
 
 
 def _composite_risk_band(score: float) -> RiskBand:
-    if score >= 75.0:
+    if score >= 90.0:
         return "critical"
     if score >= 55.0:
         return "high"
@@ -1833,7 +1845,7 @@ def _cluster_lookup(clusters: list[FindingCluster]) -> dict[str, FindingCluster]
 def _cluster_fields(
     finding_id: str,
     cluster_by_id: dict[str, FindingCluster],
-) -> dict[str, object]:
+) -> _ClusterFields:
     cluster = cluster_by_id.get(finding_id)
     if cluster is None:
         return {}

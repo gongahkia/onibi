@@ -158,10 +158,18 @@ def _successful_host_summary(
         evidence_path=str(evidence_path),
         report_path=str(report_path),
         posture_score=report.posture_score,
-        findings_total=int(report.summary.get("findings_total") or 0),
+        findings_total=_summary_int(report.summary.get("findings_total")),
         by_severity=by_severity,
         top_risks=_top_risk_strings(report.findings),
     )
+
+
+def _summary_int(value: object) -> int:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return 0
 
 
 def _failed_host_summary(evidence_path: Path, exc: Exception) -> FleetHostSummary:

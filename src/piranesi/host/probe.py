@@ -206,13 +206,14 @@ def generate_probe_plan(
 ) -> ProbePlan:
     probes: list[FollowupProbe] = []
     seen_ids: set[str] = set()
-    has_sshd_config = bool(snapshot.raw_evidence.get("commands", {}).get("sshd_effective_config"))  # type: ignore[union-attr]
+    command_evidence = snapshot.raw_evidence.get("commands")
+    commands = command_evidence if isinstance(command_evidence, dict) else {}
+    osquery_evidence = snapshot.raw_evidence.get("osquery")
+    osquery = osquery_evidence if isinstance(osquery_evidence, dict) else {}
+    has_sshd_config = bool(commands.get("sshd_effective_config"))
     has_firewall = _has_firewall_evidence(snapshot)
-    has_sudoers = bool(snapshot.raw_evidence.get("osquery", {}).get("sudoers"))  # type: ignore[union-attr]
-    has_admin_groups = any(
-        k in (snapshot.raw_evidence.get("commands", {}) or {})  # type: ignore[union-attr]
-        for k in ("group_sudo", "group_admin", "group_wheel")
-    )
+    has_sudoers = bool(osquery.get("sudoers"))
+    has_admin_groups = any(k in commands for k in ("group_sudo", "group_admin", "group_wheel"))
 
     for finding in findings:
         if finding.suppressed:
@@ -338,7 +339,7 @@ def execute_probe_plan(
     *,
     timeout_seconds: int = 30,
     executable_lookup: Callable[[str], str | None] = shutil.which,
-    command_runner: ProbeExecutorRunner = subprocess.run,  # type: ignore[assignment]
+    command_runner: ProbeExecutorRunner = subprocess.run,
 ) -> ProbeExecutionResult:
     out = Path(output_dir).expanduser().resolve(strict=False)
     out.mkdir(parents=True, exist_ok=True)

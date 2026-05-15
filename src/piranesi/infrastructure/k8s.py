@@ -265,7 +265,7 @@ def _parse_service(document: dict[str, Any]) -> KubernetesService:
         namespace=_string(metadata.get("namespace")),
         service_type=str(spec.get("type") or "ClusterIP"),
         ports=[
-            int(port.get("port"))
+            port["port"]
             for port in _list(spec.get("ports"))
             if isinstance(port, dict) and isinstance(port.get("port"), int)
         ],
@@ -479,7 +479,13 @@ def _top_actions(findings: list[InfrastructureFinding]) -> list[dict[str, object
                 "risk_total": top.risk.total if top.risk else 0.0,
             }
         )
-    return sorted(actions, key=lambda item: float(item["risk_total"]), reverse=True)[:5]
+    return sorted(
+        actions,
+        key=lambda item: (
+            float(item["risk_total"]) if isinstance(item["risk_total"], (int, float, str)) else 0.0
+        ),
+        reverse=True,
+    )[:5]
 
 
 def _posture_score(findings: list[InfrastructureFinding]) -> int:

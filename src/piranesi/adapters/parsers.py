@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, TypedDict
 
 from piranesi.adapters.models import (
     AdapterDiagnostic,
@@ -11,6 +11,14 @@ from piranesi.adapters.models import (
     ExternalRawFinding,
     ExternalTool,
 )
+
+ExternalSeverity = Literal["critical", "high", "medium", "low", "informational"]
+
+
+class _Location(TypedDict):
+    path: str | None
+    line: int | None
+    column: int | None
 
 
 def parse_external_tool_file(
@@ -80,22 +88,25 @@ def _parse_sarif(*, payload: dict[str, Any], tool: ExternalTool) -> list[Externa
             driver = tool_payload.get("driver")
             if isinstance(driver, dict):
                 rules = driver.get("rules", [])
-                for rule in rules if isinstance(rules, list) else []:
-                    if isinstance(rule, dict):
-                        rule_id = _as_str(rule.get("id"))
+                for rule_payload in rules if isinstance(rules, list) else []:
+                    if isinstance(rule_payload, dict):
+                        rule_id = _as_str(rule_payload.get("id"))
                         if rule_id is not None:
-                            rule_map[rule_id] = rule
+                            rule_map[rule_id] = rule_payload
 
         for item in run.get("results", []) if isinstance(run.get("results"), list) else []:
             if not isinstance(item, dict):
                 continue
             rule_id = _as_str(item.get("ruleId"))
-            rule = rule_map.get(rule_id or "", {})
+            rule: dict[str, Any] = rule_map.get(rule_id or "", {})
             message = item.get("message")
             text = None
             if isinstance(message, dict):
                 text = _as_str(message.get("text")) or _as_str(message.get("markdown"))
-            title = _as_str(rule.get("name")) or _as_str(item.get("message", {}).get("text"))
+            item_message = item.get("message")
+            title = _as_str(rule.get("name")) or (
+                _as_str(item_message.get("text")) if isinstance(item_message, dict) else None
+            )
             if title is None:
                 title = rule_id or "SARIF finding"
             level = _as_str(item.get("level"))
@@ -141,14 +152,13 @@ def _parse_semgrep(*, payload: dict[str, Any]) -> list[ExternalRawFinding]:
     for row in rows:
         if not isinstance(row, dict):
             continue
-        extra = row.get("extra") if isinstance(row.get("extra"), dict) else {}
-        metadata = (
-            extra.get("metadata")
-            if isinstance(extra, dict) and isinstance(extra.get("metadata"), dict)
-            else {}
-        )
+        extra_raw = row.get("extra")
+        extra: dict[str, Any] = extra_raw if isinstance(extra_raw, dict) else {}
+        metadata_raw = extra.get("metadata")
+        metadata: dict[str, Any] = metadata_raw if isinstance(metadata_raw, dict) else {}
         cwe_ids = _extract_cwes(metadata.get("cwe"))
-        start = row.get("start") if isinstance(row.get("start"), dict) else {}
+        start_raw = row.get("start")
+        start: dict[str, Any] = start_raw if isinstance(start_raw, dict) else {}
         findings.append(
             ExternalRawFinding(
                 tool="semgrep",
@@ -232,7 +242,9 @@ def _parse_zap(*, payload: dict[str, Any]) -> list[ExternalRawFinding]:
             if not isinstance(alert, dict):
                 continue
             instances = alert.get("instances") if isinstance(alert.get("instances"), list) else []
-            first_instance = instances[0] if instances and isinstance(instances[0], dict) else {}
+            first_instance: dict[str, Any] = (
+                instances[0] if instances and isinstance(instances[0], dict) else {}
+            )
             cwe = _as_str(alert.get("cweid"))
             cwe_ids = [] if cwe in {None, "0"} else [f"CWE-{cwe}"]
             findings.append(
@@ -254,8 +266,8 @@ def _parse_zap(*, payload: dict[str, Any]) -> list[ExternalRawFinding]:
     return findings
 
 
-def _first_location(item: dict[str, Any]) -> dict[str, int | str | None]:
-    default = {"path": None, "line": None, "column": None}
+def _first_location(item: dict[str, Any]) -> _Location:
+    default: _Location = {"path": None, "line": None, "column": None}
     locations = item.get("locations")
     if not isinstance(locations, list) or not locations:
         return default
@@ -274,8 +286,8 @@ def _first_location(item: dict[str, Any]) -> dict[str, int | str | None]:
     }
 
 
-def _map_zap_risk(risk_code: str | None) -> str:
-    mapping = {
+def _map_zap_risk(risk_code: str | None) -> ExternalSeverity:
+    mapping: dict[str, ExternalSeverity] = {
         "3": "high",
         "2": "medium",
         "1": "low",
@@ -284,7 +296,7 @@ def _map_zap_risk(risk_code: str | None) -> str:
     return mapping.get((risk_code or "").strip(), "medium")
 
 
-def _map_severity(value: str | None) -> str:
+def _map_severity(value: str | None) -> ExternalSeverity:
     if value is None:
         return "medium"
     lowered = value.strip().lower()

@@ -148,6 +148,7 @@ from piranesi.report.renderer import (
     CandidateReportFinding,
     CombinedFinding,
     CompositeRiskBreakdown,
+    ConfidenceBreakdown,
     FindingExplanation,
     MatchedSpec,
     OwnershipMetadata,
@@ -159,6 +160,7 @@ from piranesi.report.tui import display_report
 from piranesi.scaffold import scaffold_project
 from piranesi.scan.monorepo import detect_monorepo_manifest, select_packages
 from piranesi.schema import SchemaExportError, write_schema
+from piranesi.support import SupportBundleOptions, create_support_bundle
 from piranesi.threat import build_threat_model
 from piranesi.trace import TraceBudgetExceededError, TraceWriter
 from piranesi.ui import console, print_summary_table, stage_header
@@ -969,18 +971,18 @@ def _find_report_finding(
     report: PiranesiReport,
     finding_id: str,
 ) -> tuple[str, ReportFindingMatch] | None:
-    for finding in report.findings:
-        if finding.finding_id == finding_id:
-            return _resolve_finding_status("confirmed", finding), finding
-    for finding in report.active_findings:
-        if finding.finding_id == finding_id:
-            return _resolve_finding_status("static_candidate", finding), finding
-    for finding in report.unreachable_findings:
-        if finding.finding_id == finding_id:
-            return _resolve_finding_status("unreachable_candidate", finding), finding
-    for finding in report.suppressed_findings:
-        if finding.finding_id == finding_id:
-            return _resolve_finding_status("suppressed", finding), finding
+    for confirmed in report.findings:
+        if confirmed.finding_id == finding_id:
+            return _resolve_finding_status("confirmed", confirmed), confirmed
+    for active in report.active_findings:
+        if active.finding_id == finding_id:
+            return _resolve_finding_status("static_candidate", active), active
+    for unreachable in report.unreachable_findings:
+        if unreachable.finding_id == finding_id:
+            return _resolve_finding_status("unreachable_candidate", unreachable), unreachable
+    for suppressed in report.suppressed_findings:
+        if suppressed.finding_id == finding_id:
+            return _resolve_finding_status("suppressed", suppressed), suppressed
     return None
 
 
@@ -1302,7 +1304,7 @@ def _format_matched_spec(kind: str, spec: MatchedSpec) -> str:
 
 
 def _confidence_component_lines(confidence: object) -> list[str]:
-    if not hasattr(confidence, "static_reachability"):
+    if not isinstance(confidence, ConfidenceBreakdown):
         return []
     components = [
         ("static_reachability", confidence.static_reachability),
@@ -2283,8 +2285,8 @@ def _dispatch_launcher_selection(selection: LauncherSelection) -> None:
         _render_latest_summary(selection.output_dir)
         return
     if selection.action is LauncherAction.DOCTOR:
-        report = build_doctor_report(selection.target_dir, config_path=selection.config_path)
-        typer.echo(render_doctor_report(report), nl=False)
+        doctor_report = build_doctor_report(selection.target_dir, config_path=selection.config_path)
+        typer.echo(render_doctor_report(doctor_report), nl=False)
         return
 
 
@@ -2709,6 +2711,69 @@ def doctor(
     typer.echo(render_doctor_report(report), nl=False)
     if not report.ready:
         raise typer.Exit(code=1)
+
+
+@app.command("support-bundle", help="Create a redacted support archive for bug reports.")
+def support_bundle(
+    output: Annotated[
+        Path,
+        typer.Option("--output", "-o", help="ZIP archive path to write."),
+    ] = Path("./piranesi-support-bundle.zip"),
+    project_root: Annotated[
+        Path,
+        typer.Option("--project-root", help="Project root used for config and path redaction."),
+    ] = Path("."),
+    config: Annotated[
+        Path | None,
+        typer.Option("--config", help="Optional piranesi.toml to include in redacted form."),
+    ] = None,
+    report: Annotated[
+        Path | None,
+        typer.Option("--report", help="Optional report file or output directory to summarize."),
+    ] = None,
+    include_report_artifacts: Annotated[
+        bool,
+        typer.Option(
+            "--include-report-artifacts",
+            help="Opt in to including redacted report JSON/Markdown artifacts.",
+        ),
+    ] = False,
+    log: Annotated[
+        list[Path] | None,
+        typer.Option("--log", help="Additional log file to include in redacted form."),
+    ] = None,
+    preflight_mode: Annotated[
+        str,
+        typer.Option(
+            "--preflight-mode",
+            help="Preflight mode for dependency diagnostics.",
+        ),
+    ] = "workbench",
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit bundle manifest as JSON."),
+    ] = False,
+) -> None:
+    if preflight_mode not in {"workbench", "source", "host", "container", "kubernetes", "all"}:
+        typer.echo("error: --preflight-mode must be workbench, source, host, container, kubernetes, or all")
+        raise typer.Exit(code=2)
+    options = SupportBundleOptions(
+        output=output,
+        project_root=project_root,
+        config_path=config,
+        report_path=report,
+        include_report_artifacts=include_report_artifacts,
+        log_paths=[] if log is None else list(log),
+        preflight_mode=cast(Any, preflight_mode),
+    )
+    manifest = create_support_bundle(options)
+    if json_output:
+        typer.echo(manifest.model_dump_json(indent=2))
+        return
+    resolved = output.with_suffix(".zip") if output.suffix.lower() != ".zip" else output
+    typer.echo(f"support bundle written: {resolved.resolve(strict=False)}")
+    typer.echo(f"entries: {len(manifest.entries)}")
+    typer.echo("redaction: best-effort; review before sharing")
 
 
 SchemaOutputOption = Annotated[
@@ -3944,8 +4009,10 @@ def ui(
         try:
             if not _interactive_tty_available() and not open_browser:
                 state = load_report_state(report_path, watch=watch)
+                loaded_report_path = state.report_path or report_path
                 typer.echo(
-                    f"loaded {state.report_type} report: {state.report_path.resolve(strict=False)}"
+                    f"loaded {state.report_type} report: "
+                    f"{Path(loaded_report_path).resolve(strict=False)}"
                 )
                 typer.echo(f"local UI would bind to http://{host}:{port}")
                 return
@@ -4921,7 +4988,7 @@ def suppressions_list(
 ) -> None:
     validation = load_ignore_file_with_diagnostics(project_root)
     today = datetime_cls.now(UTC).date()
-    rows = []
+    rows: list[dict[str, Any]] = []
     for rule in validation.rules:
         expired = rule.expires is not None and rule.expires < today
         rows.append(
@@ -5023,21 +5090,22 @@ def suppressions_validate(
             inline = _collect_inline_suppressions_from_findings(detected_findings)
         evaluate_stale = True
     if host_report is not None:
-        outcome = apply_host_suppressions_with_lifecycle(
+        host_outcome = apply_host_suppressions_with_lifecycle(
             host_report,
             validation.rules,
             invalid_entries=validation.invalid_entries,
             evaluate_stale=evaluate_stale,
         )
+        lifecycle = host_outcome.lifecycle
     else:
-        outcome = apply_suppressions_with_lifecycle(
+        suppression_outcome = apply_suppressions_with_lifecycle(
             detected_findings,
             validation.rules,
             inline,
             invalid_entries=validation.invalid_entries,
             evaluate_stale=evaluate_stale,
         )
-    lifecycle = outcome.lifecycle
+        lifecycle = suppression_outcome.lifecycle
     payload = {
         "path": validation.path,
         "summary": lifecycle.model_dump(mode="json"),
@@ -5376,7 +5444,7 @@ def plugins_list(
 def rules_validate(
     path: RulesPathArg,
 ) -> None:
-    from piranesi.rules.engine import RuleValidationError, compile_rule, load_rules
+    from piranesi.rules.engine import CompiledRule, RuleValidationError, compile_rule, load_rules
 
     try:
         loaded_rules = load_rules(path)
@@ -5388,7 +5456,7 @@ def rules_validate(
         typer.echo(f"error: no custom rules found in {path}")
         raise typer.Exit(code=1)
 
-    compiled_rules = []
+    compiled_rules: list[CompiledRule] = []
     validation_errors: list[str] = []
     for rule in loaded_rules:
         try:
@@ -5403,8 +5471,10 @@ def rules_validate(
         raise typer.Exit(code=1)
 
     typer.echo(f"validated {len(compiled_rules)} rule(s)")
-    for rule in compiled_rules:
-        typer.echo(f"{rule.id} [{rule.kind}] {rule.cwe_id} severity={rule.severity}")
+    for compiled in compiled_rules:
+        typer.echo(
+            f"{compiled.id} [{compiled.kind}] {compiled.cwe_id} severity={compiled.severity}"
+        )
 
 
 @rules_app.command("scaffold")
@@ -5781,16 +5851,18 @@ def advisory_status(
     typer.echo(f"schema_version: {payload['schema_version']}")
     typer.echo(f"advisories: {payload['advisory_count']}")
     typer.echo(f"affected_packages: {payload['affected_package_count']}")
-    typer.echo(f"sources: {', '.join(payload['sources']) if payload['sources'] else 'none'}")
+    sources = cast(list[str], payload["sources"])
+    typer.echo(f"sources: {', '.join(sources) if sources else 'none'}")
     typer.echo(f"last_updated: {payload['last_updated'] or 'unknown'}")
     typer.echo(f"checksum_sha256: {payload['checksum_sha256'] or 'n/a'}")
     typer.echo(f"freshness: {payload['freshness']}")
     typer.echo(f"trust_state: {payload['trust_state']}")
     if payload["age_days"] is not None:
         typer.echo(f"age_days: {payload['age_days']:.2f}")
-    if payload["warnings"]:
+    warnings = cast(list[str], payload["warnings"])
+    if warnings:
         typer.echo("warnings:")
-        for warning in payload["warnings"]:
+        for warning in warnings:
             typer.echo(f"- {warning}")
     if policy_outcome.warnings:
         typer.echo("policy_warnings:")

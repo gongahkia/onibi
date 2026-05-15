@@ -556,9 +556,10 @@ def _regex_sequence_excludes_char(pattern: str, forbidden: str) -> bool:
         excludes, index = _regex_atom_excludes_char(pattern, index, forbidden)
         if not excludes:
             return False
-        index = _skip_regex_quantifier(pattern, index)
-        if index is None:
+        next_index = _skip_regex_quantifier(pattern, index)
+        if next_index is None:
             return False
+        index = next_index
     return True
 
 
