@@ -152,6 +152,7 @@ from piranesi.host.remote import (
 from piranesi.host.report import (
     render_fleet_markdown,
     render_fleet_terminal,
+    render_host_terminal_summary,
     write_fleet_report_outputs,
     write_host_hypothesis_outputs,
     write_host_report_outputs,
@@ -279,6 +280,7 @@ __all__ = [
     "render_fleet_terminal",
     "render_host_benchmark_markdown",
     "render_host_diff_markdown",
+    "render_host_terminal_summary",
     "render_policy_validation",
     "render_remediation_checklist",
     "render_remediation_plan_markdown",

@@ -1,9 +1,11 @@
 # Capability Matrix
 
-Piranesi is an alpha local-first VM and Linux host posture CLI. The current
-stable-alpha surface is Debian/Ubuntu host evidence collection and assessment.
-The older source-code AppSec pipeline remains in the repository for compatibility
-and migration work, but it is no longer the primary public workflow.
+Piranesi is an alpha local-first evidence workbench for security review. It
+normalizes evidence from existing tools into inspectable reports rather than
+trying to replace those tools. The current stable-alpha surface is Debian/Ubuntu
+host evidence collection and assessment. Source-code, container, Kubernetes, and
+fleet reports remain part of the same local report-review model, with maturity
+called out separately below.
 
 Machine-readable known limitations are tracked in [`docs/known-limitations.json`](./known-limitations.json). Generated reports also include active registry entries in `report.json` (`known_limitations`) and `report.md`.
 
@@ -17,6 +19,11 @@ Machine-readable known limitations are tracked in [`docs/known-limitations.json`
 | Pattern-Only | Lightweight syntactic or heuristic checks, not full semantic analysis. |
 
 ## Host Posture Coverage
+
+Host posture is the primary stable-alpha workflow. It uses osquery, optional
+Trivy, Lynis, OpenSCAP, and bounded command evidence as inputs, then produces
+evidence inventory, posture score, risk-ranked findings, top actions, and
+remediation-oriented reports.
 
 | Area | Maturity | Current Scope | Main Limitations |
 | --- | --- | --- | --- |
@@ -33,8 +40,10 @@ Machine-readable known limitations are tracked in [`docs/known-limitations.json`
 
 ## Application Security Coverage
 
-The source-code analysis features below are maintained as compatibility surfaces
-during the host-posture pivot.
+The source-code analysis features below are compatibility surfaces inside the
+same local evidence workbench. They remain useful for ZIP/workbench review and
+CI-style source reports, but their maturity is tracked independently from host
+posture.
 
 | Area | Maturity | Current Scope | Main Limitations |
 | --- | --- | --- | --- |
@@ -58,7 +67,7 @@ during the host-posture pivot.
 | LLM triage | Beta | Requires LiteLLM-compatible credentials; improves false-positive discrimination but should not be treated as authoritative. |
 | Patch generation | Experimental | LLM-backed and skipped in deterministic mode. Generated patches require review. |
 | Docker exploit verification | Experimental | Includes structured, safe-by-default templates for `CWE-89` (SQLi), `CWE-78` (command injection), `CWE-918` (SSRF loopback probes), `CWE-22` (path traversal), `CWE-601` (open redirect), `CWE-79` (reflected XSS), `CWE-502` (insecure deserialization markers), and weak crypto classes (`CWE-327`/`CWE-326`/`CWE-319`). `verify.proof_mode` defaults to `safe`, which excludes destructive templates; `unsafe` is explicit opt-in. Verification can also use reusable `verify.target_profiles` for startup/readiness/base URL reuse across runs. Attempts emit preconditions, proof mode, target profile, startup failures, launch log path, evidence strings, and skip/inconclusive reasons in `verify.json` and report explanations. |
-| SARIF output | Beta | Suitable for CI/code-scanning ingestion in the legacy source-code pipeline. |
+| SARIF output | Beta | Suitable for CI/code-scanning ingestion in the compatibility source-code pipeline. |
 | JUnit/CSV/TUI output | Beta | Useful for integration and review workflows. |
 | Baseline diff (`new`/`changed`/`fixed`/`existing`) | Beta | `piranesi baseline diff` (or compatibility `piranesi diff`) and `piranesi run --baseline ...` produce deterministic baseline comparisons plus PR-friendly `baseline-diff.md` / `baseline-diff.json` artifacts. |
 | Finding clustering | Beta | Reports preserve individual findings while grouping related findings by CWE and sink location. |

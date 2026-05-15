@@ -1,6 +1,9 @@
-# Local Review Workbench
+# Local Evidence Workbench
 
-Piranesi can inspect host, fleet, and source-code reports in a local-only web UI:
+Piranesi can inspect host, fleet, and source-code reports in a local-only web UI.
+The workbench is the review surface for reports produced by `piranesi demo`,
+`piranesi assess`, `piranesi fleet assess`, and the compatibility source-code
+pipeline:
 
 ```bash
 piranesi ui piranesi-output
@@ -21,24 +24,33 @@ The report path must be either a directory containing `host-report.json`,
 directly. The UI serves only embedded static assets and redacted report API
 responses; it does not expose the report directory as a general file server.
 
+The first-run flow matches the CLI quickstart:
+
+```bash
+piranesi demo --output piranesi-demo-output
+piranesi ui piranesi-demo-output --open
+piranesi doctor --host
+```
+
 ## ZIP Workbench
 
-Use the local web workbench to upload a ZIP of a web app, run the deterministic
-source-code scan, and review the generated report:
+Use the local workbench without a report path to upload a ZIP of a web app, run
+the deterministic compatibility source-code scan, and review the generated
+report:
 
 ```bash
 piranesi ui --workbench --open
 ```
 
-The first workbench version accepts ZIP uploads only. It extracts into a local
-job directory, rejects unsafe archive paths and symlinks, runs `piranesi run`
-with `--no-execute --no-fail --format both`, and then shows the resulting
+This mode accepts ZIP uploads only. It extracts into a local job directory,
+rejects unsafe archive paths and symlinks, runs `piranesi run` with
+`--no-execute --no-fail --format both`, and then shows the resulting
 `report.json`/`report.md` in the same review interface. URL and GitHub import
 are tracked as follow-up work.
 
 ## Views
 
-The first version of the workbench includes:
+The current workbench includes:
 
 - host overview
 - findings table with severity, category, and suppression filters

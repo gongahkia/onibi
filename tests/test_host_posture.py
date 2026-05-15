@@ -63,6 +63,8 @@ def test_load_canonical_snapshot_and_write_reports(tmp_path: Path) -> None:
     assert payload["target"] == "debian-clean-01"
     assert payload["findings"] == []
     assert "Piranesi Host Posture Report" in markdown
+    assert "## Decision Summary" in markdown
+    assert "No immediate host posture action" in markdown
     assert not (tmp_path / "host-report.pdf").exists()
     assert not (tmp_path / "host-dashboard").exists()
 

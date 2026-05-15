@@ -80,9 +80,11 @@ def render_host_markdown(report: HostPostureReport) -> str:
         f"- Posture score: **{report.posture_score}/100**",
         f"- Findings: **{report.summary.get('findings_total', 0)}**",
         "",
-        "## Host Metadata",
+        "## Decision Summary",
         "",
     ]
+    lines.extend(_decision_summary_lines(report))
+    lines.extend(["", "## Host Metadata", ""])
     lines.extend(_host_metadata_lines(report))
     lines.extend(["", "## Top Actions", ""])
     if not report.top_actions:
@@ -144,6 +146,165 @@ def render_host_markdown(report: HostPostureReport) -> str:
     for limitation in report.known_limitations:
         lines.append(f"- {limitation}")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def render_host_terminal_summary(report: HostPostureReport) -> str:
+    top_finding = _top_risk_finding(report)
+    top_action = _first_top_action(report)
+    lines = [
+        "Piranesi host posture summary",
+        f"target: {report.target}",
+        f"score: {report.posture_score}/100",
+        f"findings: {_active_finding_count(report)}{_severity_summary_suffix(report)}",
+        f"decision: {_decision_statement(report)}",
+    ]
+    if top_finding is not None:
+        lines.append(f"top risk: {_risk_text(top_finding)} {top_finding.title}".rstrip())
+    if top_action is not None:
+        lines.append(f"first action: {top_action}")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _decision_summary_lines(report: HostPostureReport) -> list[str]:
+    lines = [
+        f"- Decision: {_decision_statement(report)}",
+        (
+            f"- Score: `{report.posture_score}/100` with "
+            f"**{_active_finding_count(report)}** active finding(s)"
+            f"{_severity_summary_suffix(report)}."
+        ),
+    ]
+    top_finding = _top_risk_finding(report)
+    if top_finding is not None:
+        lines.append(f"- Top risk: `{_risk_text(top_finding)}` {top_finding.title}")
+    top_action = _first_top_action(report)
+    if top_action is not None:
+        lines.append(f"- First action: {top_action}")
+    lines.append(f"- Evidence basis: {_evidence_basis(report)}")
+    evidence_gaps = _evidence_gaps(report)
+    if evidence_gaps:
+        lines.append(f"- Evidence gaps to close: {', '.join(evidence_gaps)}")
+    return lines
+
+
+def _decision_statement(report: HostPostureReport) -> str:
+    active_findings = _active_findings(report)
+    if not active_findings:
+        return (
+            "No immediate host posture action is required from supplied evidence; "
+            "keep evidence collection current."
+        )
+    highest = _highest_severity(active_findings)
+    max_risk = _max_risk_total(active_findings)
+    if highest in {"critical", "high"} or max_risk >= 70:
+        return "Prioritize remediation before treating this host as production-ready."
+    if highest == "medium" or max_risk >= 50:
+        return (
+            "Review and schedule remediation; risk is material but bounded by "
+            "supplied evidence."
+        )
+    return (
+        "Track low-risk cleanup and close evidence gaps before relying on this "
+        "as a clean bill of health."
+    )
+
+
+def _active_finding_count(report: HostPostureReport) -> int:
+    return len(_active_findings(report))
+
+
+def _severity_summary_suffix(report: HostPostureReport) -> str:
+    counts: dict[str, int] = {}
+    for finding in _active_findings(report):
+        counts[finding.severity] = counts.get(finding.severity, 0) + 1
+    parts = [
+        f"{severity}={counts[severity]}"
+        for severity in sorted(counts, key=_severity_rank, reverse=True)
+        if counts[severity] > 0
+    ]
+    return "" if not parts else f" ({', '.join(parts)})"
+
+
+def _active_findings(report: HostPostureReport) -> list[HostFinding]:
+    return [finding for finding in report.findings if not finding.suppressed]
+
+
+def _top_risk_finding(report: HostPostureReport) -> HostFinding | None:
+    findings = _active_findings(report)
+    if not findings:
+        return None
+    return sorted(
+        findings,
+        key=lambda finding: (
+            0.0 if finding.risk is None else finding.risk.total,
+            _severity_rank(finding.severity),
+            finding.confidence,
+        ),
+        reverse=True,
+    )[0]
+
+
+def _first_top_action(report: HostPostureReport) -> str | None:
+    if not report.top_actions:
+        return None
+    action = report.top_actions[0].get("action")
+    return action if isinstance(action, str) and action else None
+
+
+def _max_risk_total(findings: list[HostFinding]) -> float:
+    risk_scores = [finding.risk.total for finding in findings if finding.risk is not None]
+    return max(risk_scores, default=0.0)
+
+
+def _highest_severity(findings: list[HostFinding]) -> str | None:
+    if not findings:
+        return None
+    return max((finding.severity for finding in findings), key=_severity_rank)
+
+
+def _severity_rank(severity: str) -> int:
+    order = {
+        "informational": 0,
+        "low": 1,
+        "medium": 2,
+        "high": 3,
+        "critical": 4,
+    }
+    return order.get(severity, -1)
+
+
+def _risk_text(finding: HostFinding) -> str:
+    if finding.risk is None:
+        return "n/a"
+    return f"{finding.risk.total:.1f}/100"
+
+
+def _evidence_basis(report: HostPostureReport) -> str:
+    metadata = report.host_metadata
+    tools = metadata.get("tools")
+    rendered_tools = (
+        ", ".join(str(item) for item in tools)
+        if isinstance(tools, list) and tools
+        else "supplied snapshot"
+    )
+    evidence_present = _evidence_present(report)
+    if not evidence_present:
+        return rendered_tools
+    return f"{rendered_tools}; present evidence: {', '.join(evidence_present)}"
+
+
+def _evidence_present(report: HostPostureReport) -> list[str]:
+    completeness = report.host_metadata.get("evidence_completeness")
+    if not isinstance(completeness, dict):
+        return []
+    return [str(key) for key, value in sorted(completeness.items()) if value]
+
+
+def _evidence_gaps(report: HostPostureReport) -> list[str]:
+    completeness = report.host_metadata.get("evidence_completeness")
+    if not isinstance(completeness, dict):
+        return []
+    return [str(key) for key, value in sorted(completeness.items()) if not value][:6]
 
 
 def render_fleet_markdown(report: FleetReport) -> str:
@@ -371,13 +532,13 @@ def _hypothesis_lines(hypothesis: HostHypothesis) -> list[str]:
     ]
     if not hypothesis.supporting_evidence:
         lines.append("- none")
-    for item in hypothesis.supporting_evidence:
-        lines.append(f"- `{item.source}` `{item.key}`: {item.value}")
+    for evidence_item in hypothesis.supporting_evidence:
+        lines.append(f"- `{evidence_item.source}` `{evidence_item.key}`: {evidence_item.value}")
     lines.extend(["", "**Missing Evidence**"])
     if not hypothesis.missing_evidence:
         lines.append("- none")
-    for item in hypothesis.missing_evidence:
-        lines.append(f"- {item}")
+    for missing_item in hypothesis.missing_evidence:
+        lines.append(f"- {missing_item}")
     lines.extend(["", f"**Reasoning Summary:** {hypothesis.reasoning_summary}", ""])
     lines.append("**Suggested Follow-Up**")
     if not hypothesis.suggested_followup_probes:
@@ -473,14 +634,14 @@ def _finding_lines(finding: HostFinding) -> list[str]:
         reason = finding.suppression_reason or "suppressed"
         lines.append(f"- Suppressed: yes ({reason})")
     lines.extend(["", "**Evidence**"])
-    for item in finding.evidence:
-        lines.append(f"- `{item.source}` `{item.key}`: {item.value}")
+    for evidence_item in finding.evidence:
+        lines.append(f"- `{evidence_item.source}` `{evidence_item.key}`: {evidence_item.value}")
     if finding.rationale:
         lines.extend(["", f"**Rationale:** {finding.rationale}"])
     if finding.risk is not None and finding.risk.rationale:
         lines.extend(["", "**Risk Rationale**"])
-        for item in finding.risk.rationale:
-            lines.append(f"- {item}")
+        for rationale_item in finding.risk.rationale:
+            lines.append(f"- {rationale_item}")
     lines.extend(["", f"**Remediation:** {finding.remediation}", ""])
     return lines
 

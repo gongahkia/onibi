@@ -7,7 +7,7 @@
 <h1 align="center">Piranesi</h1>
 
 <p align="center">
-  <strong>Local-first host posture workbench for Linux VMs, labs, and security review.</strong>
+  <strong>Local-first evidence workbench for host, application, and infrastructure security review.</strong>
 </p>
 
 <p align="center">
@@ -18,19 +18,22 @@
 
 ---
 
-Piranesi turns local host evidence into focused, evidence-bound posture reports.
-It collects and normalizes signals from tools like osquery and Trivy, then explains
-what matters: exposed services, SSH hardening gaps, package CVEs, firewall/update
-posture, privileged accounts, kernel hardening issues, missing evidence, and
+Piranesi turns local security evidence into focused, evidence-bound posture
+reports. It collects and normalizes signals from tools like osquery, Trivy,
+Lynis, OpenSCAP, and the compatibility source-code scanner, then explains what
+matters: exposed services, SSH hardening gaps, package CVEs, firewall/update
+posture, privileged accounts, risky application findings, missing evidence, and
 operator-ready next actions.
 
 The product direction is deliberately not "another black-box scanner." Piranesi is
-a local-first evidence workbench: bring host evidence in, keep it inspectable, rank
-and explain risk, and produce reports that an engineer or analyst can act on.
+a local-first evidence workbench: bring evidence in, keep it inspectable, rank
+and explain risk, and produce reports that an engineer or analyst can act on
+without cloud upload.
 
 > `v0.2.0` is an alpha pivot from the earlier source-code security prototype into
-> VM and Linux host posture assessment. The legacy source-code pipeline remains in
-> the tree for compatibility, but the primary product surface is now host posture.
+> a broader local evidence workbench. Linux host posture is the stable-alpha
+> primary workflow; source-code, container, Kubernetes, and fleet reports remain
+> inspectable in the same local review model.
 
 ## Table Of Contents
 
@@ -66,9 +69,10 @@ Piranesi's positioning:
 - **Developer-friendly:** everything is CLI-native, JSON-first, fixture-testable, and
   suitable for CI or local review.
 
-The long-term wedge is a local posture workbench that composes osquery, Trivy,
-Lynis, OpenSCAP, policy-as-code, adaptive probing, fleet summaries, and benchmarked
-evidence quality into one practical workflow.
+The long-term wedge is one local posture workbench that composes osquery, Trivy,
+Lynis, OpenSCAP, policy-as-code, adaptive probing, source-code review, container
+and Kubernetes evidence, fleet summaries, and benchmarked evidence quality into
+one practical workflow.
 
 ## Current Scope
 
@@ -135,6 +139,12 @@ piranesi doctor --host
 It writes `host-report.json` and `host-report.md` without cloning the repository,
 installing osquery/Trivy, or configuring LLM credentials.
 
+Open the same output in the local review workbench:
+
+```bash
+piranesi ui piranesi-demo-output --open
+```
+
 Containerized evaluation:
 
 ```bash
@@ -161,6 +171,12 @@ This writes:
 piranesi-demo-output/
   host-report.json
   host-report.md
+```
+
+Review that output locally:
+
+```bash
+uv run piranesi ui piranesi-demo-output --open
 ```
 
 Collect evidence on a Linux VM or host:

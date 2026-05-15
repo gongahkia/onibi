@@ -89,6 +89,7 @@ from piranesi.host import (
     render_fleet_markdown,
     render_fleet_terminal,
     render_host_diff_markdown,
+    render_host_terminal_summary,
     render_policy_validation,
     render_remediation_checklist,
     render_remediation_verification_markdown,
@@ -173,7 +174,7 @@ from piranesi.verify import (
 )
 from piranesi.watch import WatchDependencyError, WatchModeError, run_watch_mode
 
-_RUN_HELP = """Run the legacy source-code security pipeline.
+_RUN_HELP = """Run the compatibility source-code security pipeline.
 
 Exit codes:
   0 = no findings (or --no-fail)
@@ -186,7 +187,7 @@ _ADVISORY_PROJECT_ROOT_HELP = "Project root used to resolve the default advisory
 
 app = typer.Typer(
     add_completion=False,
-    help="CLI-native VM and Linux host security posture assessment tool.",
+    help="Local-first evidence workbench for host, app, and infrastructure security review.",
     no_args_is_help=False,
     invoke_without_command=True,
 )
@@ -2319,10 +2320,16 @@ def quickstart() -> None:
     lines = [
         f"Piranesi quickstart v{__version__}",
         "",
+        "What you should see:",
+        "  a posture score, prioritized top actions, evidence gaps, and concrete remediation",
+        "",
         "Try the bundled host posture demo first:",
         "  piranesi demo --output piranesi-demo-output",
         "",
-        "Inspect the generated report:",
+        "Inspect the generated report in the local workbench:",
+        "  piranesi ui piranesi-demo-output --open",
+        "",
+        "Or open the Markdown directly:",
         f"  {report_view_command}",
         "",
         "Check real-host collection readiness:",
@@ -2385,6 +2392,9 @@ def demo(
         return
     resolved_output = output.resolve(strict=False)
     typer.echo("Piranesi demo report written.")
+    typer.echo("")
+    typer.echo(render_host_terminal_summary(report).rstrip())
+    typer.echo("")
     typer.echo(f"output: {resolved_output}")
     typer.echo(f"json: {resolved_output / 'host-report.json'}")
     typer.echo(f"markdown: {resolved_output / 'host-report.md'}")
@@ -3873,7 +3883,7 @@ def ui(
         bool,
         typer.Option(
             "--workbench",
-            help="Launch the local web workbench for ZIP upload and source-code review.",
+            help="Launch the local evidence workbench for ZIP upload and report review.",
         ),
     ] = False,
     jobs_dir: Annotated[

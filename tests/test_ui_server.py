@@ -212,6 +212,7 @@ def test_workbench_loads_without_report_path(tmp_path: Path) -> None:
         summary = _get_json(f"{url}/api/report")
 
         assert summary["type"] == "workbench"
+        assert summary["title"] == "Piranesi Local Evidence Workbench"
     finally:
         server.shutdown()
         server.server_close()

@@ -100,7 +100,10 @@ def test_quickstart_exits_zero_and_prints_next_steps() -> None:
     result = runner.invoke(app, ["quickstart"])
 
     assert result.exit_code == 0
+    assert "posture score" in result.stdout
+    assert "prioritized top actions" in result.stdout
     assert "piranesi demo --output" in result.stdout
+    assert "piranesi ui piranesi-demo-output --open" in result.stdout
     assert "piranesi doctor --host" in result.stdout
     assert "piranesi assess piranesi-evidence" in result.stdout
     assert "LLM" not in result.stdout
@@ -116,7 +119,12 @@ def test_demo_writes_json_and_markdown_from_bundled_fixture(tmp_path: Path) -> N
     markdown = (output_dir / "host-report.md").read_text(encoding="utf-8")
     assert payload["target"] == "debian-vm-01"
     assert payload["summary"]["findings_total"] >= 5
+    assert "Piranesi host posture summary" in result.stdout
+    assert "decision:" in result.stdout
+    assert "first action:" in result.stdout
     assert "Piranesi Host Posture Report" in markdown
+    assert "## Decision Summary" in markdown
+    assert "Prioritize remediation" in markdown
     assert "LLM" not in result.stdout
 
 

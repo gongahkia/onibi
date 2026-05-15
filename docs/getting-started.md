@@ -1,8 +1,9 @@
 # Getting Started
 
-This guide gets a fresh machine to the first reproducible Piranesi host posture
-report. It covers the packaged path, the source-checkout path, and the artifacts
-you should expect from the first run.
+This guide gets a fresh machine to the first reproducible Piranesi report and
+local review workflow. The shortest path is: run the no-credentials demo, inspect
+the output in the local workbench, then collect real host evidence when the target
+machine is ready.
 
 ## Try Piranesi In 10 Minutes
 
@@ -12,6 +13,7 @@ Install the CLI with pipx and run the no-credentials demo:
 pipx install piranesi
 piranesi quickstart
 piranesi demo --output piranesi-demo-output
+piranesi ui piranesi-demo-output --open
 piranesi doctor --host
 ```
 
@@ -24,6 +26,7 @@ piranesi-demo-output/
 ```
 
 No osquery, Trivy, Linux VM, or LLM API key is required for the demo.
+The UI opens the same local report artifacts without uploading them anywhere.
 `piranesi doctor --host` then reports only host-posture collection dependencies
 and next steps for real evidence collection.
 
@@ -131,6 +134,8 @@ Notes:
 
 Piranesi uses progressive disclosure:
 
+- Start with `piranesi quickstart`, `piranesi demo`, and `piranesi ui` for the
+  local evidence workbench path.
 - Start with `piranesi run ...` for the default end-to-end workflow.
 - Use grouped advanced commands only when you need fine-grained control:
   - `piranesi pipeline ...` for stage-level operations (`scan`, `detect`, `triage`, `verify`, `legal`, `patch`, `report`)
@@ -139,6 +144,10 @@ Piranesi uses progressive disclosure:
   - `piranesi dev ...` for editor/watch workflows (`lsp`, `watch`)
 
 Backward-compatible top-level command forms still work.
+
+Product surfaces use the same model: host, fleet, source-code, container, and
+Kubernetes workflows produce local JSON/Markdown reports; the workbench reads
+those reports and keeps raw evidence on the local machine.
 
 ## Optional LLM Configuration
 
