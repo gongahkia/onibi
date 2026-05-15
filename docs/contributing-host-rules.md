@@ -4,6 +4,10 @@ Community host rules let contributors add deterministic checks without changing
 Piranesi core code. The format is constrained TOML data, not Python, shell, or a
 plugin runtime.
 
+The community host rule TOML format is stable-alpha. See
+[Stability Guarantees](stability.md) for the additive-field, schema-version, and
+deprecation policy.
+
 ## Create A Rule
 
 ```bash

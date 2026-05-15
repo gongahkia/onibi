@@ -28,7 +28,7 @@ from pydantic import ValidationError
 from piranesi.host.api import load_host_report
 from piranesi.host.fleet import load_fleet_report
 from piranesi.host.models import FleetReport, HostFinding, HostPostureReport
-from piranesi.preflight import build_preflight_report
+from piranesi.preflight import PreflightMode, build_preflight_report
 from piranesi.report.renderer import PiranesiReport
 
 
@@ -507,7 +507,7 @@ def _report_summary(state: UiServerState) -> dict[str, Any]:
 
 
 def _preflight_payload(state: UiServerState) -> dict[str, Any]:
-    mode = "workbench" if state.report_type == "workbench" else "all"
+    mode: PreflightMode = "workbench" if state.report_type == "workbench" else "all"
     payload = build_preflight_report(mode=mode).model_dump(mode="json")
     payload["ui"] = {
         "host": "local",

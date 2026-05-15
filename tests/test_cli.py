@@ -83,6 +83,7 @@ def test_help_shows_all_commands() -> None:
         "export",
         "remote",
         "validate-evidence",
+        "support-bundle",
         "init",
         "explain",
         "trends",

@@ -100,6 +100,20 @@ Keep the default unless you are deliberately testing in an isolated environment
 or you have placed the UI behind a trusted access-control layer such as an SSH
 tunnel, VPN-only listener, or authenticated reverse proxy.
 
+## Workbench Preflight
+
+The workbench exposes `GET /api/preflight` and renders a readiness panel before
+scan execution. It reports local tool presence, version probes where available,
+required versus optional status for the current mode, and install guidance for
+missing tools. Diagnostics stay local and do not install or download anything.
+
+## Finding Detail Pages
+
+Finding details include status, affected location or host component, evidence
+snippets, risk rationale, confidence notes, remediation, related controls, and a
+copy-friendly analyst handoff block when the report schema provides those
+fields. Missing optional fields render as empty/none rather than failing the UI.
+
 ## Redaction
 
 The `/api/report` summary redacts host identifiers, IP addresses, usernames, MAC

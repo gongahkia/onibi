@@ -2755,7 +2755,9 @@ def support_bundle(
     ] = False,
 ) -> None:
     if preflight_mode not in {"workbench", "source", "host", "container", "kubernetes", "all"}:
-        typer.echo("error: --preflight-mode must be workbench, source, host, container, kubernetes, or all")
+        typer.echo(
+            "error: --preflight-mode must be workbench, source, host, container, kubernetes, or all"
+        )
         raise typer.Exit(code=2)
     options = SupportBundleOptions(
         output=output,

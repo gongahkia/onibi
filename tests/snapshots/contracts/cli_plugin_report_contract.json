@@ -148,6 +148,7 @@
       "run",
       "scan",
       "schema",
+      "support-bundle",
       "suppress",
       "suppressions",
       "trends",
@@ -262,5 +263,21 @@
       "unreachable_findings"
     ]
   },
-  "snapshot_version": 1
+  "snapshot_version": 1,
+  "stability_policy": {
+    "community_rule_formats": [
+      "rules/community/host/*.toml"
+    ],
+    "document": "docs/stability.md",
+    "public_modules": [
+      "piranesi.host.api",
+      "piranesi.host.models",
+      "piranesi.schema"
+    ],
+    "public_schemas": [
+      "host-report",
+      "host-snapshot",
+      "fleet-report"
+    ]
+  }
 }

@@ -66,7 +66,10 @@ _TOOL_SPECS: tuple[_ToolSpec, ...] = (
         label="Joern",
         executable="joern",
         version_command=("joern", "--version"),
-        install_hint="Install Joern for CPG-backed source analysis, or use deterministic workflows that do not require it.",
+        install_hint=(
+            "Install Joern for CPG-backed source analysis, or use deterministic workflows "
+            "that do not require it."
+        ),
         docs_url=f"{_DOCS_BASE}/getting-started.md",
         required_modes=frozenset(),
     ),
@@ -84,7 +87,10 @@ _TOOL_SPECS: tuple[_ToolSpec, ...] = (
         label="Node.js",
         executable="node",
         version_command=("node", "--version"),
-        install_hint="Install Node.js when scanning TypeScript/JavaScript projects that need local package tooling.",
+        install_hint=(
+            "Install Node.js when scanning TypeScript/JavaScript projects that need local "
+            "package tooling."
+        ),
         docs_url=f"{_DOCS_BASE}/getting-started.md",
         required_modes=frozenset(),
     ),
@@ -93,7 +99,9 @@ _TOOL_SPECS: tuple[_ToolSpec, ...] = (
         label="npm",
         executable="npm",
         version_command=("npm", "--version"),
-        install_hint="Install npm with Node.js when project scripts or TypeScript tooling are needed.",
+        install_hint=(
+            "Install npm with Node.js when project scripts or TypeScript tooling are needed."
+        ),
         docs_url=f"{_DOCS_BASE}/getting-started.md",
         required_modes=frozenset(),
     ),
@@ -138,7 +146,9 @@ _TOOL_SPECS: tuple[_ToolSpec, ...] = (
         label="OpenSCAP",
         executable="oscap",
         version_command=("oscap", "--version"),
-        install_hint="Install OpenSCAP to include compliance baseline evidence in host assessments.",
+        install_hint=(
+            "Install OpenSCAP to include compliance baseline evidence in host assessments."
+        ),
         docs_url=f"{_DOCS_BASE}/host-posture.md",
         required_modes=frozenset(),
     ),
@@ -173,9 +183,7 @@ def build_preflight_report(
         ],
     ]
     required = [check for check in checks if check.required]
-    missing_required = [
-        check for check in required if check.status in {"missing", "error"}
-    ]
+    missing_required = [check for check in required if check.status in {"missing", "error"}]
     summary = {
         "total": len(checks),
         "required": len(required),
@@ -263,7 +271,7 @@ def _version_output(
             list(command),
             text=True,
             capture_output=True,
-            timeout=5,
+            timeout=1,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired):

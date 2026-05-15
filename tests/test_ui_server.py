@@ -207,11 +207,39 @@ def test_workbench_loads_without_report_path(tmp_path: Path) -> None:
 
         text = _get_text(url)
         assert "Upload a web app ZIP" in text
+        assert "preflightPanel" in text
         assert "Privacy defaults" in text
         summary = _get_json(f"{url}/api/report")
+        preflight = _get_json(f"{url}/api/preflight")
 
         assert summary["type"] == "workbench"
         assert summary["title"] == "Piranesi Local Evidence Workbench"
+        assert preflight["mode"] == "workbench"
+        assert preflight["ui"]["workbench_enabled"] is True
+        assert any(check["name"] == "python" for check in preflight["checks"])
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_source_finding_detail_payload_contains_analyst_context(tmp_path: Path) -> None:
+    target_dir = tmp_path / "app"
+    target_dir.mkdir()
+    _write_source_report(tmp_path, target_dir)
+
+    server = run_ui_server(
+        UiServerOptions(report_path=tmp_path, port=0),
+        block=False,
+    )
+    try:
+        url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+        findings = _get_json(f"{url}/api/findings")
+        finding = findings["findings"][0]
+
+        assert finding["risk_rationale"]
+        assert finding["confidence_notes"]
+        assert finding["verification"]["state"] == "verified_confirmed"
+        assert "parameterized queries" in finding["remediation"]
     finally:
         server.shutdown()
         server.server_close()

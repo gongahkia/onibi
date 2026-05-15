@@ -74,6 +74,7 @@ CLI commands still translate errors into process exit codes.
 
 ## Compatibility Policy
 
+The canonical compatibility statement is [Stability Guarantees](stability.md).
 The host report, host snapshot, and fleet report schemas are stable-alpha
 contracts. Piranesi follows these rules before a future major-version break:
 

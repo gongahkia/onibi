@@ -119,6 +119,7 @@ def create_support_bundle(options: SupportBundleOptions) -> SupportBundleManifes
             kind="readme",
             sensitive_values=sensitive_values,
         )
+        manifest.entries = list(entries)
         _write_json(
             archive,
             "manifest.json",
@@ -341,11 +342,13 @@ def _sensitive_values(project_root: Path) -> dict[str, str]:
 
 def _redact_text(value: str, *, sensitive_values: dict[str, str]) -> str:
     redacted = value
-    for raw, replacement in sorted(sensitive_values.items(), key=lambda item: len(item[0]), reverse=True):
+    for raw, replacement in sorted(
+        sensitive_values.items(), key=lambda item: len(item[0]), reverse=True
+    ):
         if raw:
             redacted = redacted.replace(raw, replacement)
-    redacted = _ASSIGNMENT_RE.sub(r"\g<prefix>[REDACTED]", redacted)
     redacted = _BEARER_RE.sub("Bearer [REDACTED]", redacted)
+    redacted = _ASSIGNMENT_RE.sub(r"\g<prefix>[REDACTED]", redacted)
     redacted = _LONG_TOKEN_RE.sub("[REDACTED]", redacted)
     redacted = _HOST_LIKE_RE.sub("[REDACTED_IP]", redacted)
     return redacted
