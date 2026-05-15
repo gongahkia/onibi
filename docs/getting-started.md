@@ -30,6 +30,9 @@ The UI opens the same local report artifacts without uploading them anywhere.
 `piranesi doctor --host` then reports only host-posture collection dependencies
 and next steps for real evidence collection.
 
+For the full storage, retention, LLM, and outbound export model, see
+[`docs/privacy-data-handling.md`](privacy-data-handling.md).
+
 ## Prerequisites
 
 - Python 3.12+

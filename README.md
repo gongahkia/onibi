@@ -42,6 +42,7 @@ without cloud upload.
 - [Quick Start](#quick-start)
 - [Host Evidence](#host-evidence)
 - [Reports](#reports)
+- [Privacy And Data Handling](#privacy-and-data-handling)
 - [Control Mapping](#control-mapping)
 - [Evaluation](#evaluation)
 - [LLM Analysis](#llm-analysis)
@@ -363,6 +364,16 @@ uv run piranesi hypothesize piranesi-evidence --output piranesi-output
 
 Hypotheses are not confirmed findings. They do not affect `findings_total`,
 `--fail-severity`, or posture score.
+
+## Privacy And Data Handling
+
+Piranesi's deterministic paths are local by default: evidence is read from local
+files or local collection commands, reports are written to local output
+directories, and the review UI binds to `127.0.0.1`. External calls happen only
+when explicitly configured, such as advisory database updates, LLM-backed
+analysis, or outbound exports. See
+[docs/privacy-data-handling.md](docs/privacy-data-handling.md) for storage paths,
+ZIP workbench retention, LLM redaction, exporter defaults, and redaction limits.
 
 ## Control Mapping
 

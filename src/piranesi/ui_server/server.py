@@ -1149,6 +1149,14 @@ _INDEX_HTML = """<!doctype html>
           <li data-step="Report">Report</li>
         </ol>
         <p id="workbenchStatus" class="muted"></p>
+        <div class="privacy-summary" aria-label="Privacy and data handling summary">
+          <strong>Privacy defaults</strong>
+          <ul>
+            <li>Runs on loopback and keeps reports, uploads, and extracted source local.</li>
+            <li>Stores workbench jobs under <code>~/.piranesi/ui-jobs</code> unless <code>--jobs-dir</code> is set.</li>
+            <li>Strips API-key-like environment variables before workbench ZIP scans.</li>
+          </ul>
+        </div>
       </div>
     </section>
     <section id="reportView">
@@ -1218,6 +1226,9 @@ button:disabled { opacity:.55; cursor:not-allowed; }
 .steps li { border:1px solid var(--border); border-radius:6px; padding:8px; color:var(--muted); text-align:center; }
 .steps li.active { border-color:var(--accent); color:var(--accent); background:#f0fdfa; }
 .steps li.done { color:#14532d; background:#f0fdf4; }
+.privacy-summary { margin-top:16px; padding-top:14px; border-top:1px solid var(--border); color:var(--muted); }
+.privacy-summary strong { display:block; color:var(--text); margin-bottom:6px; }
+.privacy-summary ul { margin:0; padding-left:18px; }
 table { width:100%; border-collapse:collapse; }
 th,td { padding:9px 7px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top; }
 tbody tr { cursor:pointer; }

@@ -208,7 +208,9 @@ def test_workbench_loads_without_report_path(tmp_path: Path) -> None:
     try:
         url = f"http://{server.server_address[0]}:{server.server_address[1]}"
 
-        assert "Upload a web app ZIP" in _get_text(url)
+        text = _get_text(url)
+        assert "Upload a web app ZIP" in text
+        assert "Privacy defaults" in text
         summary = _get_json(f"{url}/api/report")
 
         assert summary["type"] == "workbench"

@@ -3,6 +3,8 @@
 Piranesi can export host and fleet findings into common security workflows without
 requiring LLM credentials. Exporters use deterministic host report fields and skip
 suppressed findings by default so accepted risk does not become new active work.
+See [privacy and data handling](privacy-data-handling.md) for the broader local
+storage, redaction, and outbound-network model.
 
 ## File Exports
 

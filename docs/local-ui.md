@@ -32,6 +32,12 @@ piranesi ui piranesi-demo-output --open
 piranesi doctor --host
 ```
 
+Privacy defaults: report review stays on loopback, ZIP workbench jobs are stored
+under `~/.piranesi/ui-jobs/` unless `--jobs-dir` is supplied, and workbench scans
+strip API-key-like environment variables before launching the local scan process.
+See [privacy and data handling](privacy-data-handling.md) for retention,
+deletion, LLM, and outbound export details.
+
 ## ZIP Workbench
 
 Use the local workbench without a report path to upload a ZIP of a web app, run
@@ -47,6 +53,9 @@ rejects unsafe archive paths and symlinks, runs `piranesi run` with
 `--no-execute --no-fail --format both`, and then shows the resulting
 `report.json`/`report.md` in the same review interface. URL and GitHub import
 are tracked as follow-up work.
+
+Uploaded ZIPs, extracted source, generated reports, and `scan.log` remain in the
+job directory until you delete that directory.
 
 ## Views
 
