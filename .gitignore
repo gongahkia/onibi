@@ -14,6 +14,7 @@ piranesi-output/
 .piranesi-cache/
 .piranesi-out/
 workspace/
+private-validation/
 .DS_Store
 .claude/
 CLAUDE.md
