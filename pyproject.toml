@@ -41,6 +41,7 @@ dependencies = [
     "docker>=7.0.0",
     "requests>=2.32.0",
     "tomli>=2.0.0; python_version < '3.11'",
+    "defusedxml>=0.7.1",
 ]
 
 [project.urls]
@@ -105,6 +106,7 @@ dev = [
     "ruff>=0.3.0",
     "types-docker>=7.0.0",
     "xmlschema>=3.3.2",
+    "types-defusedxml>=0.7.0.20260504",
 ]
 
 [tool.pytest.ini_options]

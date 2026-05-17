@@ -55,6 +55,10 @@
         "fixture",
         "rule"
       ],
+      "ingest": [
+        "init",
+        "nmap"
+      ],
       "intel": [
         "graph",
         "normalize",
@@ -130,6 +134,7 @@
       "hook",
       "host",
       "hypothesize",
+      "ingest",
       "init",
       "intel",
       "k8s",

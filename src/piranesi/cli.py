@@ -22,7 +22,7 @@ import typer
 from pydantic import BaseModel, ValidationError
 
 from piranesi import __version__
-from piranesi.adapters import parse_external_tool_file
+from piranesi.adapters import NmapParseError, parse_external_tool_file, parse_nmap_xml_file
 from piranesi.audit import append_audit_event
 from piranesi.config import ConfigError, PiranesiConfig, load_config
 from piranesi.detect import (
@@ -175,7 +175,21 @@ from piranesi.verify import (
     write_target_profile,
 )
 from piranesi.watch import WatchDependencyError, WatchModeError, run_watch_mode
-from piranesi.workspace import EngagementMetadata, WorkspaceError, create_workspace
+from piranesi.workspace import (
+    FINDINGS_FILE,
+    AuditEvent,
+    EngagementMetadata,
+    WorkspaceError,
+    copy_tool_input,
+    create_workspace,
+    file_sha256,
+    upsert_findings,
+    utc_now,
+    workspace_path,
+)
+from piranesi.workspace import (
+    append_audit_event as append_workspace_audit_event,
+)
 
 _RUN_HELP = """Run the compatibility source-code security pipeline.
 
@@ -2368,6 +2382,93 @@ def ingest_init_command(
         typer.echo(json.dumps(payload, indent=2, sort_keys=True))
     else:
         typer.echo(f"Initialized workspace: {state.root}")
+
+
+@ingest_app.command("nmap", help="Ingest real nmap XML into a pentest workspace.")
+def ingest_nmap_command(
+    input_path: Annotated[
+        Path,
+        typer.Option(
+            "--input",
+            "-i",
+            exists=False,
+            dir_okay=False,
+            file_okay=True,
+            help="Real nmap XML export to ingest.",
+        ),
+    ],
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to create or update.",
+        ),
+    ] = Path("piranesi-workspace"),
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print ingest summary as JSON."),
+    ] = False,
+) -> None:
+    if not input_path.is_file():
+        typer.echo(f"error: input file does not exist: {input_path}", err=True)
+        raise typer.Exit(code=2)
+
+    try:
+        state = create_workspace(workspace)
+        state, record = copy_tool_input(state, tool="nmap", input_path=input_path)
+        raw_input_path = workspace_path(state.root, record.raw_path, allowed_roots=("raw",))
+        parse_result = parse_nmap_xml_file(
+            raw_input_path,
+            input_sha256=record.sha256,
+            raw_path=record.raw_path,
+        )
+        state, record = copy_tool_input(
+            state,
+            tool="nmap",
+            input_path=input_path,
+            metadata=parse_result.metadata,
+        )
+        before_ids = {finding.id for finding in state.findings.findings}
+        incoming_ids = {finding.id for finding in parse_result.findings}
+        state = upsert_findings(state, parse_result.findings)
+        output_digest = file_sha256(state.root / FINDINGS_FILE)
+        summary = {
+            "tool": "nmap",
+            "created": len(incoming_ids - before_ids),
+            "updated": len(incoming_ids & before_ids),
+            "findings": len(parse_result.findings),
+            "warnings": parse_result.warnings,
+            "input_record": record.id,
+        }
+        append_workspace_audit_event(
+            state,
+            AuditEvent(
+                timestamp=utc_now(),
+                command="ingest nmap",
+                input_path=record.raw_path,
+                input_sha256=record.sha256,
+                output_path=FINDINGS_FILE,
+                output_sha256=output_digest,
+                summary=summary,
+            ),
+        )
+    except (WorkspaceError, NmapParseError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+
+    if json_output:
+        typer.echo(json.dumps(summary, indent=2, sort_keys=True))
+    else:
+        warning_count = len(parse_result.warnings)
+        typer.echo(
+            "Ingested nmap XML: "
+            f"{summary['findings']} findings "
+            f"({summary['created']} created, {summary['updated']} updated, "
+            f"{warning_count} warnings)"
+        )
 
 
 @app.command(help="Print the shortest deterministic path to a useful first host report.")

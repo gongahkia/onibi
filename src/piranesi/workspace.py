@@ -14,9 +14,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from piranesi import __version__
 
-WORKSPACE_SCHEMA_VERSION = "piranesi.workspace.v1"
-FINDINGS_SCHEMA_VERSION = "piranesi.findings.v1"
-AUDIT_EVENT_SCHEMA_VERSION = "piranesi.audit-event.v1"
+WORKSPACE_SCHEMA_VERSION: Literal["piranesi.workspace.v1"] = "piranesi.workspace.v1"
+FINDINGS_SCHEMA_VERSION: Literal["piranesi.findings.v1"] = "piranesi.findings.v1"
+AUDIT_EVENT_SCHEMA_VERSION: Literal["piranesi.audit-event.v1"] = "piranesi.audit-event.v1"
 
 WORKSPACE_FILE = "workspace.json"
 FINDINGS_FILE = "normalized/findings.json"
