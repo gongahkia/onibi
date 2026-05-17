@@ -7,14 +7,25 @@ from typing import Any, Literal
 from pydantic import BaseModel
 
 from piranesi import __version__
-from piranesi.host.models import FleetReport, HostPostureReport, HostSnapshot
+from piranesi.report.pentest import PentestReport
+from piranesi.retest import RetestResult
+from piranesi.signing import ChainOfCustodyManifest
+from piranesi.workspace import NormalizedFindingsDocument, WorkspaceDocument
 
-SchemaName = Literal["host-report", "host-snapshot", "fleet-report"]
+SchemaName = Literal[
+    "workspace",
+    "findings",
+    "pentest-report",
+    "chain-of-custody",
+    "retest",
+]
 
 _SCHEMA_MODELS: dict[str, type[BaseModel]] = {
-    "host-report": HostPostureReport,
-    "host-snapshot": HostSnapshot,
-    "fleet-report": FleetReport,
+    "workspace": WorkspaceDocument,
+    "findings": NormalizedFindingsDocument,
+    "pentest-report": PentestReport,
+    "chain-of-custody": ChainOfCustodyManifest,
+    "retest": RetestResult,
 }
 
 
@@ -27,7 +38,7 @@ def available_schemas() -> tuple[str, ...]:
 
 
 def build_schema(name: SchemaName | str) -> dict[str, Any]:
-    """Return a JSON Schema dictionary for a stable public Piranesi payload."""
+    """Return a JSON Schema dictionary for an active Phase 1 payload."""
     model = _SCHEMA_MODELS.get(name)
     if model is None:
         joined = ", ".join(available_schemas())
@@ -36,7 +47,7 @@ def build_schema(name: SchemaName | str) -> dict[str, Any]:
     schema.setdefault("$schema", "https://json-schema.org/draft/2020-12/schema")
     schema.setdefault("x-piranesi-version", __version__)
     schema.setdefault("x-piranesi-schema-name", name)
-    schema.setdefault("x-piranesi-compatibility", "stable-alpha-additive")
+    schema.setdefault("x-piranesi-compatibility", "phase-1-additive")
     return schema
 
 

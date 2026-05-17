@@ -33,14 +33,6 @@ dependencies = [
     "typer>=0.12.0",
     "rich>=13.7.0",
     "pydantic>=2.6.0",
-    "jinja2>=3.1.0",
-    "PyYAML>=6.0.0",
-    "z3-solver>=4.12.0",
-    "litellm>=1.30.0",
-    "tenacity>=9.0.0",
-    "docker>=7.0.0",
-    "requests>=2.32.0",
-    "tomli>=2.0.0; python_version < '3.11'",
     "defusedxml>=0.7.1",
     "reportlab>=4.2.0",
     "weasyprint>=62.0",
@@ -56,14 +48,6 @@ Security = "https://github.com/gongahkia/piranesi/blob/main/SECURITY.md"
 
 [project.scripts]
 piranesi = "piranesi.cli:app"
-
-[project.optional-dependencies]
-watch = ["watchfiles>=0.21.0"]
-lsp = ["pygls>=1.3.0"]
-tui = ["textual>=0.50.0"]
-
-[project.entry-points."piranesi.frameworks"]
-# builtins are registered via _BUILTIN_FRAMEWORK_PLUGINS; add third-party plugins here
 
 [build-system]
 requires = ["hatchling"]
@@ -88,8 +72,6 @@ packages = ["src/piranesi"]
 [tool.hatch.build.targets.sdist]
 include = [
     "src/piranesi/**",
-    "rules/**",
-    "examples/rule-packs/**",
     "README.md",
     "CHANGELOG.md",
     "LICENSE",
@@ -104,9 +86,7 @@ dev = [
     "pytest-cov>=5.0.0",
     "pytest-asyncio>=0.23.0",
     "mypy>=1.9.0",
-    "pygls>=1.3.0",
     "ruff>=0.3.0",
-    "types-docker>=7.0.0",
     "xmlschema>=3.3.2",
     "types-defusedxml>=0.7.0.20260504",
 ]
@@ -140,14 +120,6 @@ namespace_packages = true
 explicit_package_bases = true
 mypy_path = "src"
 exclude = ["tests/fixtures/python/"]
-
-[[tool.mypy.overrides]]
-module = ["yaml"]
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = ["piranesi.lsp.server", "piranesi.report.tui", "piranesi.watch"]
-ignore_errors = true
 
 [tool.coverage.run]
 source = ["piranesi"]

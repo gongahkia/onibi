@@ -6,8 +6,7 @@ import click
 from typer.main import get_command
 
 from piranesi.cli import app
-from piranesi.plugin import plugin_api_manifest
-from piranesi.report.renderer import KnownLimitation, PiranesiReport
+from piranesi.schema import available_schemas
 
 
 def build_contract_snapshot() -> dict[str, Any]:
@@ -19,25 +18,21 @@ def build_contract_snapshot() -> dict[str, Any]:
         if isinstance(command, click.Group):
             groups[name] = sorted(command.commands.keys())
     return {
-        "snapshot_version": 1,
+        "snapshot_version": 2,
         "cli": {
             "root_commands": sorted(root.commands.keys()),
             "groups": groups,
         },
-        "plugin_api_manifest": plugin_api_manifest(),
-        "stability_policy": {
-            "document": "docs/stability.md",
-            "public_modules": [
-                "piranesi.host.api",
-                "piranesi.host.models",
-                "piranesi.schema",
+        "workspace_contract": {
+            "public_schemas": list(available_schemas()),
+            "workspace_layout": [
+                "workspace.json",
+                "normalized/findings.json",
+                "audit-log.jsonl",
+                "raw/",
+                "reports/",
+                "signatures/",
             ],
-            "public_schemas": ["host-report", "host-snapshot", "fleet-report"],
-            "community_rule_formats": ["rules/community/host/*.toml"],
-        },
-        "report_contract": {
-            "piranesi_report_fields": sorted(PiranesiReport.model_fields.keys()),
-            "known_limitation_fields": sorted(KnownLimitation.model_fields.keys()),
         },
     }
 

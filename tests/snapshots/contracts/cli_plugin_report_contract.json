@@ -1,292 +1,37 @@
 {
   "cli": {
     "groups": {
-      "advisory": [
-        "import",
-        "search",
-        "sign-snapshot",
-        "status",
-        "update"
-      ],
-      "baseline": [
-        "diff",
-        "save"
-      ],
-      "compliance": [
-        "bundle",
-        "evidence",
-        "maturity",
-        "summary"
-      ],
-      "container": [
-        "assess"
-      ],
-      "dev": [
-        "launch-plan",
-        "lsp",
-        "watch"
-      ],
-      "eval": [
-        "audit",
-        "compare-reports",
-        "coverage-gaps",
-        "enrich-ground-truth",
-        "validate-all"
-      ],
-      "export": [
-        "csv",
-        "github-issues",
-        "jira",
-        "sarif",
-        "webhook"
-      ],
-      "fleet": [
-        "assess",
-        "summarize"
-      ],
-      "hook": [
-        "install",
-        "status",
-        "uninstall"
-      ],
-      "host": [
-        "benchmark",
-        "diff",
-        "fixture",
-        "rule"
-      ],
       "ingest": [
+        "burp",
         "init",
         "nmap",
         "nuclei"
-      ],
-      "intel": [
-        "graph",
-        "normalize",
-        "summary"
-      ],
-      "k8s": [
-        "assess"
-      ],
-      "pipeline": [
-        "detect",
-        "legal",
-        "patch",
-        "report",
-        "run",
-        "scan",
-        "triage",
-        "verify"
-      ],
-      "plugins": [
-        "list"
-      ],
-      "policy": [
-        "validate"
-      ],
-      "remediate": [
-        "checklist",
-        "plan",
-        "verify"
-      ],
-      "remote": [
-        "collect",
-        "doctor"
-      ],
-      "rules": [
-        "coverage",
-        "install",
-        "list",
-        "remove",
-        "scaffold",
-        "test",
-        "test-all",
-        "update",
-        "validate"
-      ],
-      "schema": [
-        "fleet-report",
-        "host-report",
-        "host-snapshot"
-      ],
-      "suppressions": [
-        "add",
-        "list",
-        "validate"
       ]
     },
     "root_commands": [
-      "advisory",
-      "assess",
-      "baseline",
-      "collect",
-      "collect-followup",
-      "compliance",
-      "container",
-      "demo",
-      "detect",
-      "dev",
-      "diff",
-      "doctor",
-      "eval",
-      "explain",
-      "export",
-      "fleet",
-      "hook",
-      "host",
-      "hypothesize",
       "ingest",
-      "init",
-      "intel",
-      "k8s",
-      "legal",
-      "lsp",
-      "patch",
-      "pipeline",
-      "plugins",
-      "policy",
-      "probe",
-      "quickstart",
-      "remediate",
-      "remote",
       "report",
       "retest",
-      "rules",
-      "run",
-      "scan",
-      "schema",
       "serve",
-      "sign",
-      "support-bundle",
-      "suppress",
-      "suppressions",
-      "trends",
-      "triage",
-      "ui",
-      "validate-evidence",
-      "verify",
-      "version",
-      "watch"
+      "sign"
     ]
   },
-  "plugin_api_manifest": {
-    "experimental": {
-      "framework_plugin_hooks": [
-        "tsconfig_overrides(self) -> dict[str, object]"
-      ]
-    },
-    "internal": {
-      "built_in_plugin_classes": [
-        "ExpressFramework",
-        "NestJSFramework",
-        "NextJSFramework",
-        "FastifyFramework",
-        "FlaskFramework",
-        "DjangoFramework",
-        "FastAPIFramework",
-        "SpringBootFramework",
-        "GinFramework",
-        "EchoFramework",
-        "ChiFramework",
-        "GoStdlibFramework",
-        "PhpFramework",
-        "LaravelFramework",
-        "SymfonyFramework",
-        "WordPressFramework",
-        "RubyFramework",
-        "RailsFramework",
-        "SinatraFramework"
-      ],
-      "registry_constant": "_BUILTIN_FRAMEWORK_PLUGINS"
-    },
-    "stable": {
-      "discovery_helpers": [
-        "discover_framework_plugins",
-        "discover_rule_plugins",
-        "discover_reporter_plugins",
-        "get_framework_plugins_by_name",
-        "collect_source_specs",
-        "collect_sink_specs",
-        "collect_sanitizer_specs",
-        "plugin_api_manifest"
-      ],
-      "entry_point_groups": [
-        "piranesi.frameworks",
-        "piranesi.rules",
-        "piranesi.reporters"
-      ],
-      "framework_plugin_interface": [
-        "name(self) -> str",
-        "detect(self, project_root: Path) -> bool",
-        "source_specs(self) -> list[SourceSpec]",
-        "sink_specs(self) -> list[SinkSpec]",
-        "sanitizer_specs(self) -> list[SanitizerSpec]"
-      ],
-      "reporter_plugin_interface": [
-        "name(self) -> str",
-        "format_id(self) -> str",
-        "render(self, report: object, output_dir: Path) -> Path"
-      ],
-      "rule_plugin_interface": [
-        "name(self) -> str",
-        "rule_files(self) -> list[Path]"
-      ]
-    },
-    "version": "1.0"
-  },
-  "report_contract": {
-    "known_limitation_fields": [
-      "affected_feature",
-      "docs_refs",
-      "id",
-      "impact",
-      "introduced_version",
-      "last_reviewed",
-      "severity",
-      "status",
-      "title",
-      "workaround"
-    ],
-    "piranesi_report_fields": [
-      "active_findings",
-      "advisory_db",
-      "appendix",
-      "cross_package_findings",
-      "dead_code_by_file",
-      "dead_code_functions",
-      "executive_summary",
-      "files_scanned",
-      "finding_clusters",
-      "findings",
-      "generated_at",
-      "known_limitations",
-      "ownership_context",
-      "package_findings",
-      "query_quality",
-      "scan_metadata",
-      "status_legend",
-      "suppressed_findings",
-      "suppressed_findings_by_package",
-      "suppression_lifecycle",
-      "target",
-      "unreachable_findings"
-    ]
-  },
-  "snapshot_version": 1,
-  "stability_policy": {
-    "community_rule_formats": [
-      "rules/community/host/*.toml"
-    ],
-    "document": "docs/stability.md",
-    "public_modules": [
-      "piranesi.host.api",
-      "piranesi.host.models",
-      "piranesi.schema"
-    ],
+  "snapshot_version": 2,
+  "workspace_contract": {
     "public_schemas": [
-      "host-report",
-      "host-snapshot",
-      "fleet-report"
+      "chain-of-custody",
+      "findings",
+      "pentest-report",
+      "retest",
+      "workspace"
+    ],
+    "workspace_layout": [
+      "workspace.json",
+      "normalized/findings.json",
+      "audit-log.jsonl",
+      "raw/",
+      "reports/",
+      "signatures/"
     ]
   }
 }
