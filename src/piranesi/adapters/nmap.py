@@ -70,7 +70,7 @@ def parse_nmap_xml_file(
         )
 
     if not findings:
-        raise NmapParseError("empty nmap scan: no open services or script findings found")
+        warnings.append("nmap scan contains no open services or script findings")
 
     metadata["summary"] = {
         "hosts": len(hosts),

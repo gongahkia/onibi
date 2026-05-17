@@ -149,6 +149,7 @@
       "remediate",
       "remote",
       "report",
+      "retest",
       "rules",
       "run",
       "scan",

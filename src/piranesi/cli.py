@@ -166,6 +166,12 @@ from piranesi.report.renderer import (
 )
 from piranesi.report.trends import build_trend_report, render_terminal_trends, write_trend_report
 from piranesi.report.tui import display_report
+from piranesi.retest import (
+    RetestError,
+    append_retest_audit,
+    compare_workspaces,
+    write_retest_output,
+)
 from piranesi.scaffold import scaffold_project
 from piranesi.scan.monorepo import detect_monorepo_manifest, select_packages
 from piranesi.schema import SchemaExportError, write_schema
@@ -2625,6 +2631,62 @@ def sign_command(
         typer.echo(json.dumps(payload, indent=2, sort_keys=True))
     else:
         typer.echo(f"manifest: {manifest_path}")
+
+
+@app.command("retest", help="Compare two workspaces and classify finding lifecycle status.")
+def retest_command(
+    baseline: Annotated[
+        Path,
+        typer.Option(
+            "--baseline",
+            dir_okay=True,
+            file_okay=False,
+            help="Baseline workspace directory.",
+        ),
+    ],
+    current: Annotated[
+        Path,
+        typer.Option(
+            "--current",
+            dir_okay=True,
+            file_okay=False,
+            help="Current workspace directory.",
+        ),
+    ],
+    output: Annotated[
+        Path,
+        typer.Option(
+            "--output",
+            "-o",
+            dir_okay=False,
+            file_okay=True,
+            help="Retest output path. Use .json or .md.",
+        ),
+    ] = Path("retest.json"),
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print retest summary as JSON."),
+    ] = False,
+) -> None:
+    try:
+        result = compare_workspaces(baseline, current)
+        output_path = write_retest_output(result, output)
+        current_state = load_workspace(current)
+        append_retest_audit(current_state, result, output_path)
+    except (WorkspaceError, RetestError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+
+    payload = {
+        "path": str(output_path),
+        "sha256": file_sha256(output_path),
+        "summary": result.summary,
+        "ambiguous": len(result.ambiguous_matches),
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        typer.echo(f"retest: {output_path}")
 
 
 @app.command(help="Print the shortest deterministic path to a useful first host report.")

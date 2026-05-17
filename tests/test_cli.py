@@ -601,12 +601,22 @@ def test_run_help_lists_reachability_flags() -> None:
 
 
 def test_report_help_lists_reachability_flags() -> None:
-    result = runner.invoke(app, ["report", "--help"])
+    result = runner.invoke(app, ["pipeline", "report", "--help"])
     output = _plain_output(result.stdout)
 
     assert result.exit_code == 0
     assert "--include-unreachable" in output
     assert "--dead-code-report" in output
+
+
+def test_pentest_report_help_lists_workspace_flags() -> None:
+    result = runner.invoke(app, ["report", "--help"])
+    output = _plain_output(result.stdout)
+
+    assert result.exit_code == 0
+    assert "--workspace" in output
+    assert "--pdf-backend" in output
+    assert "Redact evidence" in output
 
 
 def test_run_help_lists_exit_controls_and_exit_codes() -> None:
