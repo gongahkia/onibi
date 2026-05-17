@@ -154,6 +154,7 @@
       "run",
       "scan",
       "schema",
+      "serve",
       "sign",
       "support-bundle",
       "suppress",

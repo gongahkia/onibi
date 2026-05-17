@@ -8,6 +8,7 @@ import re
 import signal
 import sys
 import time
+import webbrowser
 from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -211,6 +212,11 @@ from piranesi.workspace import (
 )
 from piranesi.workspace import (
     append_audit_event as append_workspace_audit_event,
+)
+from piranesi.workspace_server import (
+    WorkspaceServerError,
+    create_workspace_server,
+    is_loopback_host,
 )
 
 _RUN_HELP = """Run the compatibility source-code security pipeline.
@@ -2687,6 +2693,66 @@ def retest_command(
         typer.echo(json.dumps(payload, indent=2, sort_keys=True))
     else:
         typer.echo(f"retest: {output_path}")
+
+
+@app.command("serve", help="Preview a pentest workspace report on a local-only web UI.")
+def serve_command(
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to preview.",
+        ),
+    ] = Path("piranesi-workspace"),
+    host: Annotated[
+        str,
+        typer.Option("--host", help="Bind host. Defaults to loopback for local-only preview."),
+    ] = "127.0.0.1",
+    port: Annotated[
+        int,
+        typer.Option("--port", "-p", min=0, max=65535, help="Bind port."),
+    ] = 8765,
+    unsafe_bind: Annotated[
+        bool,
+        typer.Option(
+            "--unsafe-bind",
+            help="Allow binding to a non-loopback host after printing a security warning.",
+        ),
+    ] = False,
+    open_browser: Annotated[
+        bool,
+        typer.Option("--open/--no-open", help="Open the preview URL in the default browser."),
+    ] = False,
+) -> None:
+    if not is_loopback_host(host):
+        warning = (
+            f"WARNING: {host} is not a loopback bind address. The workspace preview "
+            "may expose pentest evidence to the local network."
+        )
+        if not unsafe_bind:
+            typer.echo(f"error: {warning} Rerun with --unsafe-bind to acknowledge.", err=True)
+            raise typer.Exit(code=2)
+        typer.echo(warning, err=True)
+    try:
+        server = create_workspace_server(workspace, host=host, port=port)
+    except (WorkspaceError, WorkspaceServerError, OSError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    address = server.server_address[0]
+    host_name = address.decode() if isinstance(address, bytes) else str(address)
+    url = f"http://{host_name}:{server.server_address[1]}"
+    typer.echo(f"serve: {url}")
+    if open_browser:
+        webbrowser.open(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
 
 
 @app.command(help="Print the shortest deterministic path to a useful first host report.")
