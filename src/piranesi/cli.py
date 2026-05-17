@@ -175,6 +175,7 @@ from piranesi.verify import (
     write_target_profile,
 )
 from piranesi.watch import WatchDependencyError, WatchModeError, run_watch_mode
+from piranesi.workspace import EngagementMetadata, WorkspaceError, create_workspace
 
 _RUN_HELP = """Run the compatibility source-code security pipeline.
 
@@ -249,6 +250,11 @@ intel_app = typer.Typer(
     help="Ingest and normalize offline external intelligence snapshots.",
     no_args_is_help=True,
 )
+ingest_app = typer.Typer(
+    add_completion=False,
+    help="Ingest pentest tool outputs into an engagement workspace.",
+    no_args_is_help=True,
+)
 fleet_app = typer.Typer(
     add_completion=False,
     help="Assess and summarize multiple host evidence bundles.",
@@ -318,6 +324,7 @@ app.add_typer(compliance_app, name="compliance", hidden=True)
 app.add_typer(hook_app, name="hook", hidden=True)
 app.add_typer(eval_app, name="eval", hidden=True)
 app.add_typer(intel_app, name="intel", hidden=True)
+app.add_typer(ingest_app, name="ingest")
 app.add_typer(fleet_app, name="fleet")
 app.add_typer(container_app, name="container")
 app.add_typer(k8s_app, name="k8s")
@@ -2313,6 +2320,54 @@ def main(
 @app.command("version")
 def version_command() -> None:
     typer.echo(f"piranesi {__version__}")
+
+
+@ingest_app.command("init", help="Initialize or update a pentest engagement workspace.")
+def ingest_init_command(
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to create or update.",
+        ),
+    ] = Path("piranesi-workspace"),
+    client: Annotated[
+        str | None,
+        typer.Option("--client", help="Client name to store in workspace metadata."),
+    ] = None,
+    project: Annotated[
+        str | None,
+        typer.Option("--project", help="Project or engagement name to store in metadata."),
+    ] = None,
+    scope: Annotated[
+        list[str] | None,
+        typer.Option("--scope", help="In-scope target or asset; repeatable."),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print the initialized workspace metadata as JSON."),
+    ] = False,
+) -> None:
+    engagement = EngagementMetadata(client=client, project=project, scope=scope or [])
+    try:
+        state = create_workspace(workspace, engagement=engagement)
+    except WorkspaceError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+
+    payload = {
+        "workspace": str(state.root),
+        "schema_version": state.workspace.schema_version,
+        "findings": len(state.findings.findings),
+        "tool_inputs": len(state.workspace.tool_inputs),
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        typer.echo(f"Initialized workspace: {state.root}")
 
 
 @app.command(help="Print the shortest deterministic path to a useful first host report.")
