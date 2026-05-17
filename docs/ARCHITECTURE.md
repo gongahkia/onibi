@@ -84,6 +84,8 @@ Adapter requirements:
 
 - real fixtures with provenance;
 - explicit severity/confidence mapping;
+- imported scanner assertions should use `tool-observed` confidence until manual review or a
+  verification workflow confirms them;
 - deterministic IDs;
 - raw input digest and locator preservation;
 - warnings for partially invalid input where safe;
@@ -97,7 +99,8 @@ Adapter requirements:
 - JSON for automation;
 - Markdown for consultant review and editing;
 - PDF through WeasyPrint when system dependencies are available;
-- PDF through ReportLab as a deterministic fallback.
+- PDF through ReportLab as a deterministic fallback that does not require WeasyPrint native
+  libraries.
 
 Reports include engagement metadata, executive summary, severity summary, affected
 assets, findings, evidence, retest status, and chain-of-custody status.

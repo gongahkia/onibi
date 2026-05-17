@@ -25,7 +25,7 @@ AUDIT_LOG_FILE = "audit-log.jsonl"
 WORKSPACE_DIRECTORIES = ("raw", "normalized", "reports", "signatures")
 
 Severity = Literal["info", "low", "medium", "high", "critical"]
-Confidence = Literal["info", "low", "medium", "high", "confirmed"]
+Confidence = Literal["info", "tool-observed", "low", "medium", "high", "confirmed"]
 FindingStatus = Literal["new", "open", "closed", "changed", "regressed", "accepted-risk"]
 
 
@@ -388,10 +388,11 @@ def _max_severity(left: Severity, right: Severity) -> Severity:
 def _max_confidence(left: Confidence, right: Confidence) -> Confidence:
     order: dict[Confidence, int] = {
         "info": 0,
-        "low": 1,
-        "medium": 2,
-        "high": 3,
-        "confirmed": 4,
+        "tool-observed": 1,
+        "low": 2,
+        "medium": 3,
+        "high": 4,
+        "confirmed": 5,
     }
     return left if order[left] >= order[right] else right
 

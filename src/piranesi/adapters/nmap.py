@@ -160,14 +160,14 @@ def _service_finding(
     title = f"Open {protocol}/{port} {name} service"
     product_parts = [service.product, service.version]
     product = " ".join(part for part in product_parts if part)
-    evidence = f"nmap reported {name} open on {asset} {protocol}/{port}"
+    evidence = f"nmap observed {name} open on {asset} {protocol}/{port}"
     if product:
         evidence = f"{evidence} ({product})"
     return NormalizedFinding(
         id=deterministic_finding_id("nmap", "service", asset, protocol, port, name),
         title=title,
         severity="info",
-        confidence="confirmed",
+        confidence="tool-observed",
         asset=asset,
         service=service,
         evidence=[EvidenceSnippet(kind="service", value=evidence, locator=source.locator)],
@@ -206,7 +206,7 @@ def _script_finding(
         id=deterministic_finding_id("nmap", "script", asset, protocol, port, script_id),
         title=title,
         severity="info",
-        confidence="confirmed",
+        confidence="tool-observed",
         asset=asset,
         service=service,
         evidence=[EvidenceSnippet(kind=f"nmap-script:{script_id}", value=output)],

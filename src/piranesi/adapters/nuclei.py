@@ -7,7 +7,6 @@ from typing import Any
 
 from piranesi.workspace import (
     AffectedInstance,
-    Confidence,
     EvidenceSnippet,
     NormalizedFinding,
     ServiceContext,
@@ -138,7 +137,7 @@ def _finding_from_record(
         id=deterministic_finding_id("nuclei", template_id, matched_at),
         title=title,
         severity=severity,
-        confidence=_confidence_from_match_status(payload.get("matcher-status")),
+        confidence="tool-observed",
         description=_as_str(info.get("description")),
         remediation=_as_str(info.get("remediation")),
         asset=asset,
@@ -238,14 +237,6 @@ def _map_severity(value: str | None) -> Severity:
     if normalized in {"critical", "high", "medium", "low"}:
         return normalized  # type: ignore[return-value]
     return "info"
-
-
-def _confidence_from_match_status(value: object) -> Confidence:
-    if value is True:
-        return "confirmed"
-    if value is False:
-        return "low"
-    return "high"
 
 
 def _string_list(value: object) -> list[str]:

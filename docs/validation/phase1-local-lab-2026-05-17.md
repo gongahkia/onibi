@@ -52,13 +52,13 @@ Commands exercised:
 - Grouping worked for repeated nuclei `http-missing-security-headers` records: 10 source records became one report finding.
 - Evidence redaction worked in the markdown report: nuclei request, response, and curl evidence rendered as `[redacted]`.
 - The nmap service fingerprint labeled the local Juice Shop port as `nessus`; Piranesi preserved the tool output as reported. This is useful provenance, but a consultant-facing report may need clearer wording that service names are tool-observed and unverified.
-- Two nuclei info detections looked like tool-side false positives for this target: `dameng-detect` and `snmpv3-detect`. Piranesi imported them correctly, but the report currently marks imported tool findings as `confirmed`, which may overstate low-confidence imported data.
-- The default WeasyPrint PDF backend failed on this machine because WeasyPrint system libraries were unavailable. The `reportlab` backend generated a PDF successfully.
+- Two nuclei info detections looked like tool-side false positives for this target: `dameng-detect` and `snmpv3-detect`. Piranesi imported them correctly. This run identified the need to mark imported scanner assertions as tool-observed until reviewer confirmation.
+- The default WeasyPrint PDF backend failed on this machine because WeasyPrint system libraries were unavailable. The `reportlab` backend generated a PDF successfully. This run identified the need for clearer backend setup and fallback guidance.
 
 ## Follow-Ups
 
 - Keep #32 blocked until a real Burp Suite Pro Issues XML export is available.
 - #37 still needs design-partner or qualified reviewer feedback on the generated report.
 - #37 still needs a larger engagement-scale run, ideally approximating the 1,000-host goal when legally and practically available.
-- Consider a follow-up issue for imported-finding confidence semantics so parser-provided findings are not always presented as `confirmed`.
-- Consider documenting PDF backend setup and recommending `reportlab` as the reliable local fallback when WeasyPrint system dependencies are missing.
+- Address the imported-finding confidence semantics follow-up so parser-provided findings are not presented as manual confirmation.
+- Address the PDF backend setup follow-up and recommend `reportlab` as the reliable local fallback when WeasyPrint system dependencies are missing.

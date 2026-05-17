@@ -28,7 +28,7 @@ def test_parse_real_nuclei_fixture_preserves_metadata_and_evidence() -> None:
     finding = result.findings[0]
     assert finding.title == "Piranesi Local Lab Header Disclosure"
     assert finding.severity == "low"
-    assert finding.confidence == "confirmed"
+    assert finding.confidence == "tool-observed"
     assert finding.asset == "127.0.0.1"
     assert finding.service is not None
     assert finding.service.protocol == "http"
@@ -142,6 +142,7 @@ def test_ingest_nuclei_cli_merges_with_existing_workspace_and_reports(tmp_path: 
         finding for finding in report_payload["findings"] if finding["id"] == nuclei_finding.id
     )
     assert report_finding["references"] == ["https://example.com/piranesi/local-lab-fixture"]
+    assert report_finding["confidence"] == "tool-observed"
     assert any(item["kind"] == "nuclei-response" for item in report_finding["evidence"])
 
     audit_events = [

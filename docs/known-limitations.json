@@ -42,7 +42,8 @@
       "introduced_version": "0.2.0",
       "last_reviewed": "2026-05-17",
       "docs_refs": [
-        "docs/pentest-report-schema.md"
+        "docs/pentest-report-schema.md",
+        "docs/getting-started.md"
       ]
     },
     {

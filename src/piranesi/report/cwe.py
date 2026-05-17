@@ -169,7 +169,7 @@ def cwe_reporting_descriptor(cwe: str, *, fallback: str | None = None) -> dict[s
             "text": (
                 metadata.full_description
                 if metadata is not None
-                else f"Piranesi confirmed a {title.lower()} issue."
+                else f"Piranesi imported a {title.lower()} issue from source evidence."
             )
         },
         "helpUri": _cwe_help_uri(normalized),

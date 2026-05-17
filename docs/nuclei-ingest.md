@@ -17,6 +17,8 @@ record counts, finding counts, and parser warnings.
   are preserved in the finding and report model.
 - `info.severity` maps directly for `critical`, `high`, `medium`, and `low`; unknown or
   missing severities map to `info`.
+- all imported nuclei records use `tool-observed` confidence because nuclei has observed a
+  template match, but Piranesi has not independently confirmed the issue.
 - `info.classification.cwe-id` and `cve-id` become `weakness_ids`.
 - `host`, `scheme`, `port`, `url`, and `matched-at` become asset, service, and affected
   instance context.

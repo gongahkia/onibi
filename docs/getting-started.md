@@ -38,6 +38,9 @@ uv run piranesi report --workspace ./workspace --format md
 uv run piranesi report --workspace ./workspace --format pdf --pdf-backend reportlab
 ```
 
+`reportlab` is the reliable local PDF backend. The default WeasyPrint backend can produce
+more polished HTML/CSS PDFs, but it needs native system libraries installed on the machine.
+
 ## Sign And Verify
 
 ```bash

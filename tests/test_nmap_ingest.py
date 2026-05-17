@@ -28,6 +28,8 @@ def test_parse_real_nmap_fixture_preserves_service_and_script_evidence() -> None
     assert result.metadata["nmap_version"] == "7.99"
     assert result.metadata["summary"] == {"hosts": 1, "findings": 2, "warnings": 0}
     service = next(finding for finding in result.findings if "Open tcp" in finding.title)
+    assert service.confidence == "tool-observed"
+    assert service.evidence[0].value.startswith("nmap observed http open")
     assert service.service is not None
     assert service.service.product == "SimpleHTTPServer"
     assert service.service.version == "0.6"
