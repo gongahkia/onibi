@@ -238,7 +238,7 @@ _ADVISORY_PROJECT_ROOT_HELP = "Project root used to resolve the default advisory
 
 app = typer.Typer(
     add_completion=False,
-    help="Local-first evidence workbench for host, app, and infrastructure security review.",
+    help="Local-first pentest and red-team report engine.",
     no_args_is_help=False,
     invoke_without_command=True,
 )

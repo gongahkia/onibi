@@ -1,4 +1,4 @@
-name: piranesi-scan
+name: piranesi-report-engine
 
 on:
   pull_request:
@@ -7,15 +7,10 @@ on:
 
 permissions:
   contents: read
-  actions: read
-  security-events: write
 
 jobs:
   piranesi:
     runs-on: ubuntu-latest
-    env:
-      PIRANESI_OUTPUT_DIR: .piranesi-output
-      PIRANESI_BASELINE_FILE: .piranesi-baseline.json
     steps:
       - uses: actions/checkout@v5
 
@@ -28,44 +23,19 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install piranesi
 
-      - name: Run deterministic scan (optional baseline gate)
-        id: piranesi
-        continue-on-error: true
-        shell: bash
+      - name: Build signed fixture workspace
         run: |
-          set -euo pipefail
-          baseline_args=()
-          if [[ -f "${PIRANESI_BASELINE_FILE}" ]]; then
-            baseline_args=(
-              --baseline "${PIRANESI_BASELINE_FILE}"
-              --fail-on-new
-              --fail-on-new-severity high
-            )
-          fi
-
-          piranesi run . \
-            --authorized \
-            --yes \
-            --no-execute \
-            --format sarif \
-            --fail-severity high \
-            --output "${PIRANESI_OUTPUT_DIR}" \
-            "${baseline_args[@]}"
+          piranesi ingest init --workspace workspace --client CI --project fixture-smoke
+          piranesi ingest nmap --input tests/fixtures/pentest/nmap/localhost-http.xml --workspace workspace
+          piranesi ingest nuclei --input tests/fixtures/pentest/nuclei/localhost-http.jsonl --workspace workspace
+          piranesi report --workspace workspace --format json
+          piranesi report --workspace workspace --format md
+          piranesi sign --workspace workspace
+          piranesi sign --workspace workspace --verify
 
       - name: Upload Piranesi artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: piranesi-output
-          path: ${{ env.PIRANESI_OUTPUT_DIR }}/
-
-      - name: Upload SARIF
-        if: always() && hashFiles('.piranesi-output/report.sarif.json') != ''
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: .piranesi-output/report.sarif.json
-          category: piranesi
-
-      - name: Fail workflow when scan policy fails
-        if: steps.piranesi.outcome == 'failure'
-        run: exit 1
+          name: piranesi-workspace
+          path: workspace/

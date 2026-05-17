@@ -25,9 +25,10 @@ def test_ci_templates_default_to_deterministic_mode() -> None:
     )
 
     for payload in (github_template, gitlab_template):
-        assert "--no-execute" in payload
-        assert "--authorized" in payload
-        assert "--yes" in payload
-        assert "--fail-severity high" in payload
+        assert "piranesi ingest init" in payload
+        assert "piranesi ingest nmap" in payload
+        assert "piranesi ingest nuclei" in payload
+        assert "piranesi report --workspace workspace --format json" in payload
+        assert "piranesi sign --workspace workspace --verify" in payload
         assert "OPENAI_API_KEY" not in payload
         assert "ANTHROPIC_API_KEY" not in payload

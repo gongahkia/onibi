@@ -1,3 +1,5 @@
+> Legacy note: This document describes pre-pivot or roadmap behavior. It is retained for historical context and is not current Phase 1 guidance. Current guidance is in README.md, docs/ARCHITECTURE.md, and the pentest workspace/report/retest/sign/serve docs.
+
 # Remediation Workflow
 
 Piranesi remediation workflows are review-only. They turn host posture reports

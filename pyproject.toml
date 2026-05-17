@@ -1,7 +1,7 @@
 [project]
 name = "piranesi"
 version = "0.2.0"
-description = "CLI-native VM and Linux host security posture assessment tool"
+description = "Local-first pentest and red-team report engine"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.12"
@@ -9,12 +9,12 @@ authors = [{ name = "piranesi contributors" }]
 maintainers = [{ name = "piranesi contributors" }]
 keywords = [
     "security",
-    "vm",
-    "linux",
-    "host-posture",
-    "vulnerability-management",
-    "osquery",
-    "trivy",
+    "pentest",
+    "red-team",
+    "reporting",
+    "chain-of-custody",
+    "nmap",
+    "nuclei",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",

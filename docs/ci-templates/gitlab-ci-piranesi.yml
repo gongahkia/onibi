@@ -1,30 +1,18 @@
 stages:
-  - security
+  - report
 
 piranesi:
-  stage: security
+  stage: report
   image: ghcr.io/gongahkia/piranesi:latest
-  variables:
-    PIRANESI_OUTPUT_DIR: piranesi-output
-    PIRANESI_BASELINE_FILE: .piranesi-baseline.json
   script:
-    - |
-      set -euo pipefail
-      BASELINE_ARGS=""
-      if [ -f "${PIRANESI_BASELINE_FILE}" ]; then
-        BASELINE_ARGS="--baseline ${PIRANESI_BASELINE_FILE} --fail-on-new --fail-on-new-severity high"
-      fi
-      piranesi run . \
-        --authorized \
-        --yes \
-        --no-execute \
-        --format sarif \
-        --fail-severity high \
-        --output "${PIRANESI_OUTPUT_DIR}" \
-        ${BASELINE_ARGS}
+    - piranesi ingest init --workspace workspace --client CI --project fixture-smoke
+    - piranesi ingest nmap --input tests/fixtures/pentest/nmap/localhost-http.xml --workspace workspace
+    - piranesi ingest nuclei --input tests/fixtures/pentest/nuclei/localhost-http.jsonl --workspace workspace
+    - piranesi report --workspace workspace --format json
+    - piranesi report --workspace workspace --format md
+    - piranesi sign --workspace workspace
+    - piranesi sign --workspace workspace --verify
   artifacts:
     when: always
     paths:
-      - piranesi-output/
-    reports:
-      sarif: piranesi-output/report.sarif.json
+      - workspace/

@@ -1,3 +1,5 @@
+> Legacy note: This document describes pre-pivot or roadmap behavior. It is retained for historical context and is not current Phase 1 guidance. Current guidance is in README.md, docs/ARCHITECTURE.md, and the pentest workspace/report/retest/sign/serve docs.
+
 # Host Posture Workflow
 
 Piranesi's current stable-alpha workflow assesses a single Debian/Ubuntu VM or
