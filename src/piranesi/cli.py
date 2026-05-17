@@ -144,6 +144,15 @@ from piranesi.pipeline import (
     run_pipeline,
 )
 from piranesi.report import launch_compliance_tui, print_compliance_report, render_attestation
+from piranesi.report.pentest import (
+    PdfBackend,
+    ReportRenderError,
+    build_pentest_report,
+    render_report_artifact,
+)
+from piranesi.report.pentest import (
+    ReportFormat as PentestReportFormat,
+)
 from piranesi.report.renderer import (
     CandidateReportFinding,
     CombinedFinding,
@@ -183,6 +192,7 @@ from piranesi.workspace import (
     copy_tool_input,
     create_workspace,
     file_sha256,
+    load_workspace,
     upsert_findings,
     utc_now,
     workspace_path,
@@ -2471,6 +2481,77 @@ def ingest_nmap_command(
         )
 
 
+@app.command("report", help="Generate pentest report artifacts from a workspace.")
+def pentest_report_command(
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to render.",
+        ),
+    ] = Path("piranesi-workspace"),
+    output_format: Annotated[
+        PentestReportFormat,
+        typer.Option("--format", "-f", help="Report artifact format."),
+    ] = "md",
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            dir_okay=True,
+            file_okay=False,
+            help="Directory for report artifacts. Defaults to workspace/reports.",
+        ),
+    ] = None,
+    pdf_backend: Annotated[
+        PdfBackend,
+        typer.Option("--pdf-backend", help="PDF backend used when --format pdf."),
+    ] = "weasyprint",
+    redact_sensitive_evidence: Annotated[
+        bool,
+        typer.Option(
+            "--redact-sensitive-evidence/--include-sensitive-evidence",
+            help="Redact evidence snippets marked sensitive in the workspace.",
+        ),
+    ] = True,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print artifact metadata as JSON."),
+    ] = False,
+) -> None:
+    try:
+        state = load_workspace(workspace)
+        output_dir = output or workspace_path(state.root, "reports", allowed_roots=("reports",))
+        report_model = build_pentest_report(
+            state,
+            redact_sensitive_evidence=redact_sensitive_evidence,
+        )
+        artifact_path = render_report_artifact(
+            report_model,
+            output_dir=output_dir,
+            output_format=output_format,
+            pdf_backend=pdf_backend,
+        )
+    except (WorkspaceError, ReportRenderError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+
+    payload = {
+        "format": output_format,
+        "pdf_backend": pdf_backend if output_format == "pdf" else None,
+        "path": str(artifact_path),
+        "sha256": file_sha256(artifact_path),
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        typer.echo(f"report: {artifact_path}")
+
+
 @app.command(help="Print the shortest deterministic path to a useful first host report.")
 def quickstart() -> None:
     system = platform.system() or "unknown"
@@ -4658,8 +4739,7 @@ def patch(
     )
 
 
-@app.command(hidden=True)
-def report(
+def legacy_report(
     findings_file: FindingsFileArg,
     format: FormatOption = None,
     attestation: AttestationOption = False,
@@ -7292,7 +7372,7 @@ def _register_collapsed_command_aliases() -> None:
     pipeline_app.command("verify")(verify)
     pipeline_app.command("legal")(legal)
     pipeline_app.command("patch")(patch)
-    pipeline_app.command("report")(report)
+    pipeline_app.command("report")(legacy_report)
 
     dev_app.command("watch")(watch)
     dev_app.command("lsp")(lsp)
