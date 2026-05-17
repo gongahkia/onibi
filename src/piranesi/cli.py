@@ -169,6 +169,12 @@ from piranesi.report.tui import display_report
 from piranesi.scaffold import scaffold_project
 from piranesi.scan.monorepo import detect_monorepo_manifest, select_packages
 from piranesi.schema import SchemaExportError, write_schema
+from piranesi.signing import (
+    SigningError,
+    sign_workspace,
+    verification_result_payload,
+    verify_workspace,
+)
 from piranesi.support import SupportBundleOptions, create_support_bundle
 from piranesi.threat import build_threat_model
 from piranesi.trace import TraceBudgetExceededError, TraceWriter
@@ -2550,6 +2556,75 @@ def pentest_report_command(
         typer.echo(json.dumps(payload, indent=2, sort_keys=True))
     else:
         typer.echo(f"report: {artifact_path}")
+
+
+@app.command("sign", help="Create or verify a local chain-of-custody manifest.")
+def sign_command(
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to sign or verify.",
+        ),
+    ] = Path("piranesi-workspace"),
+    verify: Annotated[
+        bool,
+        typer.Option("--verify", help="Verify the latest manifest instead of creating one."),
+    ] = False,
+    manifest: Annotated[
+        Path | None,
+        typer.Option(
+            "--manifest",
+            dir_okay=False,
+            file_okay=True,
+            help="Specific manifest to verify. Defaults to latest signatures/manifest-*.json.",
+        ),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print manifest or verification summary as JSON."),
+    ] = False,
+) -> None:
+    try:
+        if verify:
+            result = verify_workspace(workspace, manifest_path=manifest)
+            payload = verification_result_payload(result)
+            if json_output:
+                typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+            else:
+                if result.ok:
+                    typer.echo(f"manifest verified: {result.manifest_path}")
+                else:
+                    typer.echo(f"manifest verification failed: {result.manifest_path}")
+                    for failure in result.failures:
+                        typer.echo(
+                            f"- {failure.path}: {failure.message} "
+                            f"(expected={failure.expected_sha256}, "
+                            f"actual={failure.actual_sha256})"
+                        )
+            if not result.ok:
+                raise typer.Exit(code=1)
+            return
+
+        manifest_model, manifest_path = sign_workspace(workspace)
+    except SigningError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+
+    payload = {
+        "manifest_id": manifest_model.manifest_id,
+        "path": str(manifest_path),
+        "artifacts": len(manifest_model.artifacts),
+        "audit_events": len(manifest_model.audit_chain),
+        "sha256": file_sha256(manifest_path),
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        typer.echo(f"manifest: {manifest_path}")
 
 
 @app.command(help="Print the shortest deterministic path to a useful first host report.")
