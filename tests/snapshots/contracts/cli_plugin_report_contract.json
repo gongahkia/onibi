@@ -57,7 +57,8 @@
       ],
       "ingest": [
         "init",
-        "nmap"
+        "nmap",
+        "nuclei"
       ],
       "intel": [
         "graph",

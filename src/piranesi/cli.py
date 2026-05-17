@@ -23,7 +23,13 @@ import typer
 from pydantic import BaseModel, ValidationError
 
 from piranesi import __version__
-from piranesi.adapters import NmapParseError, parse_external_tool_file, parse_nmap_xml_file
+from piranesi.adapters import (
+    NmapParseError,
+    NucleiParseError,
+    parse_external_tool_file,
+    parse_nmap_xml_file,
+    parse_nuclei_jsonl_file,
+)
 from piranesi.audit import append_audit_event
 from piranesi.config import ConfigError, PiranesiConfig, load_config
 from piranesi.detect import (
@@ -2493,6 +2499,94 @@ def ingest_nmap_command(
         warning_count = len(parse_result.warnings)
         typer.echo(
             "Ingested nmap XML: "
+            f"{summary['findings']} findings "
+            f"({summary['created']} created, {summary['updated']} updated, "
+            f"{warning_count} warnings)"
+        )
+
+
+@ingest_app.command("nuclei", help="Ingest real nuclei JSONL into a pentest workspace.")
+def ingest_nuclei_command(
+    input_path: Annotated[
+        Path,
+        typer.Option(
+            "--input",
+            "-i",
+            exists=False,
+            dir_okay=False,
+            file_okay=True,
+            help="Real nuclei JSONL export to ingest.",
+        ),
+    ],
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to create or update.",
+        ),
+    ] = Path("piranesi-workspace"),
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print ingest summary as JSON."),
+    ] = False,
+) -> None:
+    if not input_path.is_file():
+        typer.echo(f"error: input file does not exist: {input_path}", err=True)
+        raise typer.Exit(code=2)
+
+    try:
+        state = create_workspace(workspace)
+        state, record = copy_tool_input(state, tool="nuclei", input_path=input_path)
+        raw_input_path = workspace_path(state.root, record.raw_path, allowed_roots=("raw",))
+        parse_result = parse_nuclei_jsonl_file(
+            raw_input_path,
+            input_sha256=record.sha256,
+            raw_path=record.raw_path,
+        )
+        state, record = copy_tool_input(
+            state,
+            tool="nuclei",
+            input_path=input_path,
+            metadata=parse_result.metadata,
+        )
+        before_ids = {finding.id for finding in state.findings.findings}
+        incoming_ids = {finding.id for finding in parse_result.findings}
+        state = upsert_findings(state, parse_result.findings)
+        output_digest = file_sha256(state.root / FINDINGS_FILE)
+        summary = {
+            "tool": "nuclei",
+            "created": len(incoming_ids - before_ids),
+            "updated": len(incoming_ids & before_ids),
+            "records": parse_result.metadata["valid_records"],
+            "findings": len(incoming_ids),
+            "warnings": parse_result.warnings,
+            "input_record": record.id,
+        }
+        append_workspace_audit_event(
+            state,
+            AuditEvent(
+                timestamp=utc_now(),
+                command="ingest nuclei",
+                input_path=record.raw_path,
+                input_sha256=record.sha256,
+                output_path=FINDINGS_FILE,
+                output_sha256=output_digest,
+                summary=summary,
+            ),
+        )
+    except (WorkspaceError, NucleiParseError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+
+    if json_output:
+        typer.echo(json.dumps(summary, indent=2, sort_keys=True))
+    else:
+        warning_count = len(parse_result.warnings)
+        typer.echo(
+            "Ingested nuclei JSONL: "
             f"{summary['findings']} findings "
             f"({summary['created']} created, {summary['updated']} updated, "
             f"{warning_count} warnings)"
