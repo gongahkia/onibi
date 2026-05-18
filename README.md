@@ -1,76 +1,61 @@
-# Kelp
+# KelpClaw
 
-Kelp is a local-first planner with a Lazygit-style terminal UI and stable scriptable commands.
+KelpClaw is a TypeScript monorepo for deterministic AI workflow design and execution.
 
-Running `kelp` with no subcommand opens the full-screen TUI. Existing command workflows remain available for shell scripts and agent tooling.
+OpenClaw is the editable workflow planner. NanoClaw is the deterministic runtime that compiles workflow DAGs and executes nodes through a Docker-per-node contract.
 
-## Dependencies
+The previous Zig CLI/TUI task planner is preserved in this repository as legacy reference material during the rewrite. Phase 1 does not delete Zig source, installer scripts, or package-release paths.
 
-- Zig 0.15 or newer for source builds
-- curl or wget for release installs
+## Workspace Layout
 
-## Install
+| Workspace                 | Ownership                                                                                |
+| ------------------------- | ---------------------------------------------------------------------------------------- |
+| `apps/openclaw`           | React + React Flow workflow planning UI                                                  |
+| `apps/api`                | HTTP API for planning, workflow persistence, validation, approval, and execution control |
+| `packages/workflow-spec`  | Shared workflow IR types, Zod schemas, JSON Schema, fixtures, and validation errors      |
+| `packages/skill-registry` | Built-in deterministic skills, metadata, metaprompts, and lookup rules                   |
+| `packages/nanoclaw`       | DAG compiler, topological ordering, Docker command runner, and mock execution runner     |
+| `packages/codegen`        | Generated artifact contracts, checksums, and replay policy helpers                       |
+| `packages/adapters`       | Gmail, Sheets, email, WhatsApp, and Telegram adapter interfaces with fake adapters       |
+| `packages/testing`        | Shared fixtures, fake providers, and deterministic execution harnesses                   |
 
-```console
-$ curl -fsSL https://raw.githubusercontent.com/gongahkia/kelp/main/installer.sh -o installer.sh
-$ chmod +x installer.sh
-$ ./installer.sh --build-from-source
-$ ./installer.sh --with-completions
-```
+## Development
 
-The installer writes `kelp` to `${KELP_INSTALL_DIR:-$HOME/.local/bin}`.
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-## Usage
+KelpClaw uses Node.js, pnpm workspaces, TypeScript, Vitest, ESLint, Prettier, Fastify, Vite, and React Flow.
 
 ```console
-$ kelp
-$ kelp init
-$ kelp project add --name Launch --deadline next-week
-$ kelp task add --title "Draft release notes" --project Launch --priority high --due tomorrow
-$ kelp task ready
-$ kelp review daily
-$ kelp --output json task list
+$ corepack enable
+$ pnpm install
+$ pnpm verify
 ```
 
-## TUI Keys
+Useful workspace commands:
 
-```text
-1-5       Focus panels
-j/k       Move selection
-n         New task
-p         New project
-space     Mark selected task as next action
-s/w/b     Start, wait, or block selected task
-d         Complete selected task
-a/r       Archive or reopen selected task
-x         Delete selected task
-?         Show keybindings
-q         Quit
+```console
+$ pnpm --filter @kelpclaw/api test
+$ pnpm --filter @kelpclaw/openclaw dev
+$ pnpm --filter @kelpclaw/workflow-spec test
 ```
 
-## Storage
+## Phase 1 Guarantees
 
-Kelp keeps the existing local JSON storage contract:
+- Workflow specs are diffable and validated with stable error codes.
+- OpenClaw uses mocked planner data from the shared workflow fixture.
+- NanoClaw execution is covered through a mock runner and Docker command-construction tests.
+- Integration adapters are fake-only and do not require secrets.
+- CI runs TypeScript format, lint, typecheck, tests, builds, and the legacy Zig test suite.
 
-- data: `$XDG_DATA_HOME/kelp/data.json` or `$HOME/.local/share/kelp/data.json`
-- config: `$XDG_CONFIG_HOME/kelp/config.json` or `$HOME/.config/kelp/config.json`
-- `--data-dir` colocates data and config for tests or isolated workspaces
+## Legacy Zig CLI
 
-## Test And Package
+The legacy `kelp` CLI still builds and tests with Zig:
 
 ```console
 $ zig build test
 $ ./scripts/package-release.sh
 ```
 
-## Support
+Legacy storage paths remain unchanged while the KelpClaw replacement entrypoints mature:
 
-| Platform | Status |
-| :---: | :---: |
-| macOS | Supported |
-| Linux | Supported |
-| Windows | Supported through WSL |
+- data: `$XDG_DATA_HOME/kelp/data.json` or `$HOME/.local/share/kelp/data.json`
+- config: `$XDG_CONFIG_HOME/kelp/config.json` or `$HOME/.config/kelp/config.json`
+- `--data-dir` colocates data and config for tests or isolated workspaces
