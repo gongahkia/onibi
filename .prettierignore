@@ -1,0 +1,7 @@
+node_modules
+dist
+coverage
+.zig-cache
+target
+zig-out
+pnpm-lock.yaml
