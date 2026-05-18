@@ -78,6 +78,97 @@ describe("kelpclaw api contracts", () => {
     expect(validatedAgain.json().draftRevision.id).toBe(validated.json().draftRevision.id);
   });
 
+  it("reprompts, approves, runs, and fetches Phase 3 workflows", async () => {
+    app = buildApiApp();
+
+    const planned = await app.inject({
+      method: "POST",
+      url: "/api/workflows/plan",
+      payload: {
+        prompt: "extract transaction details from Gmail receipts into Sheets"
+      }
+    });
+    const workflow = planned.json().workflow;
+
+    const reprompted = await app.inject({
+      method: "POST",
+      url: `/api/workflows/${workflow.id}/reprompt-node`,
+      payload: {
+        nodeId: "normalize-receipts",
+        prompt: "Normalize receipts with merchant category and tax columns.",
+        currentWorkflow: workflow
+      }
+    });
+    expect(reprompted.statusCode).toBe(200);
+    expect(reprompted.json().before.label).toBe("Normalize Receipts");
+    expect(reprompted.json().after.label).toBe("Normalize Receipts With Merchant Category");
+    expect(reprompted.json().draftRevision.revision).toBe(2);
+
+    const invalid = {
+      ...reprompted.json().workflow,
+      edges: [
+        {
+          id: "edge.invalid",
+          source: { nodeId: "missing-node", port: "result" },
+          target: { nodeId: "normalize-receipts", port: "receipts" }
+        }
+      ]
+    };
+    const blockedApproval = await app.inject({
+      method: "POST",
+      url: `/api/workflows/${workflow.id}/approve`,
+      payload: {
+        workflow: invalid,
+        approvedBy: "owner@example.com"
+      }
+    });
+    expect(blockedApproval.statusCode).toBe(422);
+    expect(blockedApproval.json().validation.errors[0].code).toBe(
+      "WORKFLOW_EDGE_SOURCE_NODE_MISSING"
+    );
+
+    const approved = await app.inject({
+      method: "POST",
+      url: `/api/workflows/${workflow.id}/approve`,
+      payload: {
+        workflow: reprompted.json().workflow,
+        approvedBy: "owner@example.com"
+      }
+    });
+    expect(approved.statusCode).toBe(200);
+    expect(approved.json().approvedRevisionId).toBe(`approved.${workflow.id}.r2`);
+    expect(approved.json().diff.summary).toContain("Frozen approval metadata changed.");
+
+    const missingRun = await app.inject({
+      method: "POST",
+      url: `/api/workflows/${workflow.id}/runs`,
+      payload: {
+        approvedRevisionId: "approved.missing.r1"
+      }
+    });
+    expect(missingRun.statusCode).toBe(404);
+
+    const run = await app.inject({
+      method: "POST",
+      url: `/api/workflows/${workflow.id}/runs`,
+      payload: {
+        approvedRevisionId: approved.json().approvedRevisionId
+      }
+    });
+    expect(run.statusCode).toBe(202);
+    expect(run.json().run.status).toBe("succeeded");
+    expect(run.json().run.events.map((event: { message: string }) => event.message)).toContain(
+      "NanoClaw run finished."
+    );
+
+    const fetchedRun = await app.inject({
+      method: "GET",
+      url: `/api/workflows/${workflow.id}/runs/${run.json().run.id}`
+    });
+    expect(fetchedRun.statusCode).toBe(200);
+    expect(fetchedRun.json().run.id).toBe(run.json().run.id);
+  });
+
   it("validates invalid workflows with stable errors", async () => {
     app = buildApiApp();
 

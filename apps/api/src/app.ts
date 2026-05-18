@@ -7,18 +7,30 @@ import {
 } from "@kelpclaw/workflow-spec";
 import type { FastifyInstance } from "fastify";
 import type {
+  WorkflowApproveRequest,
+  WorkflowApproveResponse,
   WorkflowPlanRequest,
   WorkflowPlanResponse,
+  WorkflowRepromptNodeRequest,
+  WorkflowRepromptNodeResponse,
+  WorkflowRunEvent,
   WorkflowSpec,
+  WorkflowStartRunRequest,
+  WorkflowStartRunResponse,
   WorkflowValidateRequest,
   WorkflowValidateResponse
 } from "@kelpclaw/workflow-spec";
-import { planWorkflowDraft } from "./planner.js";
+import { planWorkflowDraft, repromptWorkflow } from "./planner.js";
 import { InMemoryWorkflowStore } from "./store.js";
 import type { RevisionInput } from "./store.js";
 
 interface RouteParamsWithId {
   readonly id: string;
+}
+
+interface RunRouteParams {
+  readonly id: string;
+  readonly runId: string;
 }
 
 interface ApprovalRequestBody {
@@ -169,6 +181,185 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     }
   );
 
+  app.post<{
+    Params: RouteParamsWithId;
+    Body: WorkflowRepromptNodeRequest;
+    Reply: WorkflowRepromptNodeResponse;
+  }>("/api/workflows/:id/reprompt-node", async (request, reply) => {
+    const stored = store.getWorkflow(request.params.id);
+    const sourceWorkflow = request.body.currentWorkflow ?? stored?.workflow;
+    if (!sourceWorkflow) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_NOT_FOUND",
+        message: `Workflow '${request.params.id}' was not found.`
+      } as never);
+    }
+    if (sourceWorkflow.id !== request.params.id) {
+      return reply.code(409).send({
+        ok: false,
+        error: "WORKFLOW_ID_MISMATCH",
+        message: `Workflow id '${sourceWorkflow.id}' does not match route id '${request.params.id}'.`
+      } as never);
+    }
+
+    try {
+      const reprompted = repromptWorkflow(sourceWorkflow, request.body);
+      const validation = validateWorkflowSpec(reprompted.workflow);
+      if (!validation.ok) {
+        return reply.code(422).send({
+          ok: false,
+          error: "WORKFLOW_REPROMPT_INVALID",
+          message: validation.errors.map((error) => error.code).join(", "),
+          validation
+        } as never);
+      }
+
+      const draftRevision = store.saveDraftRevision(validation.workflow, validation, "reprompt");
+      return {
+        ok: true,
+        workflow: draftRevision.workflow,
+        draftRevision,
+        validation: draftRevision.validation,
+        before: reprompted.before,
+        after: reprompted.after,
+        diff: reprompted.diff
+      };
+    } catch (error) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_NODE_NOT_FOUND",
+        message: error instanceof Error ? error.message : "Workflow node was not found."
+      } as never);
+    }
+  });
+
+  app.post<{
+    Params: RouteParamsWithId;
+    Body: WorkflowApproveRequest;
+    Reply: WorkflowApproveResponse;
+  }>("/api/workflows/:id/approve", async (request, reply) => {
+    if (request.body.workflow.id !== request.params.id) {
+      return reply.code(409).send({
+        ok: false,
+        error: "WORKFLOW_ID_MISMATCH",
+        message: `Workflow id '${request.body.workflow.id}' does not match route id '${request.params.id}'.`
+      } as never);
+    }
+
+    const validation = validateWorkflowSpec(request.body.workflow);
+    if (!validation.ok) {
+      return reply.code(422).send({
+        ok: false,
+        error: "WORKFLOW_APPROVAL_INVALID",
+        message: validation.errors.map((error) => error.code).join(", "),
+        validation
+      } as never);
+    }
+
+    try {
+      const approvedRevision = store.approveWorkflow(
+        request.params.id,
+        request.body.approvedBy,
+        validation.workflow
+      );
+      return {
+        ok: true,
+        workflowId: approvedRevision.workflowId,
+        approvedRevisionId: approvedRevision.id,
+        approvedRevision,
+        workflow: approvedRevision.workflow,
+        diff: approvedRevision.diff
+      };
+    } catch (error) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_NOT_FOUND",
+        message: error instanceof Error ? error.message : "Workflow was not found."
+      } as never);
+    }
+  });
+
+  app.post<{
+    Params: RouteParamsWithId;
+    Body: WorkflowStartRunRequest;
+    Reply: WorkflowStartRunResponse;
+  }>("/api/workflows/:id/runs", async (request, reply) => {
+    const approvedRevision = store.getApprovedRevision(request.body.approvedRevisionId);
+    if (!approvedRevision) {
+      return reply.code(404).send({
+        ok: false,
+        error: "APPROVED_REVISION_NOT_FOUND",
+        message: `Approved revision '${request.body.approvedRevisionId}' was not found.`
+      } as never);
+    }
+    if (approvedRevision.workflowId !== request.params.id) {
+      return reply.code(409).send({
+        ok: false,
+        error: "WORKFLOW_RUN_ID_MISMATCH",
+        message: `Approved revision '${approvedRevision.id}' belongs to workflow '${approvedRevision.workflowId}'.`
+      } as never);
+    }
+
+    try {
+      const dag = compileWorkflowDag(approvedRevision.workflow);
+      const result = await executeCompiledDag(dag, new MockNodeRunner());
+      const now = new Date().toISOString();
+      const events = createRunEvents(result.nodeResults, now);
+      const run = store.saveRun({
+        id: `run.${approvedRevision.workflowId}.r${approvedRevision.revision}.${Date.now()}`,
+        workflowId: approvedRevision.workflowId,
+        approvedRevisionId: approvedRevision.id,
+        revision: approvedRevision.revision,
+        status: result.status,
+        createdAt: now,
+        startedAt: result.startedAt,
+        finishedAt: result.finishedAt,
+        events,
+        result
+      });
+
+      return reply.code(202).send({
+        ok: true,
+        run
+      });
+    } catch (error) {
+      if (error instanceof WorkflowValidationError) {
+        return reply.code(409).send({
+          ok: false,
+          error: "WORKFLOW_APPROVAL_REQUIRED",
+          message: error.message,
+          issues: error.issues
+        } as never);
+      }
+
+      throw error;
+    }
+  });
+
+  app.get<{ Params: RunRouteParams }>("/api/workflows/:id/runs/:runId", async (request, reply) => {
+    const run = store.getRun(request.params.runId);
+    if (!run) {
+      return reply.code(404).send({
+        ok: false,
+        error: "RUN_NOT_FOUND",
+        message: `Run '${request.params.runId}' was not found.`
+      });
+    }
+    if (run.workflowId !== request.params.id) {
+      return reply.code(409).send({
+        ok: false,
+        error: "WORKFLOW_RUN_ID_MISMATCH",
+        message: `Run '${run.id}' belongs to workflow '${run.workflowId}'.`
+      });
+    }
+
+    return {
+      ok: true,
+      run
+    };
+  });
+
   app.post<{ Params: RouteParamsWithId; Body: RevisionInput }>(
     "/api/workflows/:id/revisions",
     async (request, reply) => {
@@ -244,4 +435,37 @@ function isValidateRequest(input: unknown): input is WorkflowValidateRequest {
     "workflow" in input &&
     typeof (input as WorkflowValidateRequest).workflow === "object"
   );
+}
+
+function createRunEvents(
+  nodeResults: readonly { readonly nodeId: string; readonly status: string }[],
+  timestamp: string
+): readonly WorkflowRunEvent[] {
+  const events: WorkflowRunEvent[] = [
+    {
+      id: "event.run.started",
+      timestamp,
+      level: "info",
+      message: "NanoClaw run started."
+    }
+  ];
+
+  for (const node of nodeResults) {
+    events.push({
+      id: `event.node.${node.nodeId}.${node.status}`,
+      timestamp,
+      level: node.status === "failed" ? "error" : "info",
+      message: `Node '${node.nodeId}' ${node.status}.`,
+      nodeId: node.nodeId
+    });
+  }
+
+  events.push({
+    id: "event.run.finished",
+    timestamp,
+    level: nodeResults.some((node) => node.status === "failed") ? "error" : "info",
+    message: "NanoClaw run finished."
+  });
+
+  return events;
 }
