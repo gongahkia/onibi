@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { workflowSchemaVersion } from "./types.js";
+import { stableWorkflowStringify } from "./stable-json.js";
 import type {
   JsonRecord,
   JsonSchemaShape,
@@ -8,7 +10,6 @@ import type {
 } from "./types.js";
 
 const createdAt = "2026-05-18T00:00:00.000Z";
-const checksumA = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const checksumB = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
 export const stringSchema: JsonSchemaShape = { type: "string" };
@@ -171,7 +172,7 @@ export const approvedGmailReceiptsToSheetsWorkflowFixture: WorkflowSpec = {
     approvedBy: "owner@example.com",
     approvedAt: "2026-05-18T01:00:00.000Z",
     frozenRevision: 1,
-    frozenDagHash: checksumA,
+    frozenDagHash: hashWorkflowDagFixture(gmailReceiptsToSheetsWorkflowFixture),
     nodeOrder: ["manual-trigger", "read-gmail-receipts", "normalize-receipts", "append-sheet-rows"]
   }
 };
@@ -408,11 +409,17 @@ export function createApprovedWorkflowFixture(
       approvedBy: "owner@example.com",
       approvedAt: "2026-05-18T01:00:00.000Z",
       frozenRevision: workflow.revision,
-      frozenDagHash: checksumA,
+      frozenDagHash: hashWorkflowDagFixture(workflow),
       nodeOrder: workflow.nodes.map((node) => node.id),
       ...override
     }
   };
+}
+
+function hashWorkflowDagFixture(workflow: WorkflowSpec): string {
+  return `sha256:${createHash("sha256")
+    .update(stableWorkflowStringify({ ...workflow, approval: null }), "utf8")
+    .digest("hex")}`;
 }
 
 export function withConfig(

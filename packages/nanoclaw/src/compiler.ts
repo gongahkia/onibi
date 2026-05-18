@@ -1,15 +1,28 @@
-import { WorkflowValidationError, assertApprovedWorkflowSpec } from "@kelpclaw/workflow-spec";
-import type { CompiledDag, CompiledDagNode } from "./types.js";
+import { createHash } from "node:crypto";
+import {
+  WorkflowValidationError,
+  assertApprovedWorkflowSpec,
+  stableWorkflowStringify
+} from "@kelpclaw/workflow-spec";
+import type { CompiledDag, CompiledDagNode, CompiledNodeInputBinding } from "./types.js";
 import type { WorkflowSpec } from "@kelpclaw/workflow-spec";
 
 export function compileWorkflowDag(input: WorkflowSpec): CompiledDag {
   const workflow = assertApprovedWorkflowSpec(input);
   const dependencies = new Map(workflow.nodes.map((node) => [node.id, new Set<string>()]));
   const dependents = new Map(workflow.nodes.map((node) => [node.id, new Set<string>()]));
+  const inputBindings = new Map(
+    workflow.nodes.map((node) => [node.id, [] as CompiledNodeInputBinding[]])
+  );
 
   for (const edge of workflow.edges) {
     dependencies.get(edge.target.nodeId)?.add(edge.source.nodeId);
     dependents.get(edge.source.nodeId)?.add(edge.target.nodeId);
+    inputBindings.get(edge.target.nodeId)?.push({
+      edgeId: edge.id,
+      inputPort: edge.target.port,
+      source: edge.source
+    });
   }
 
   const nodes = new Map<string, CompiledDagNode>();
@@ -18,9 +31,18 @@ export function compileWorkflowDag(input: WorkflowSpec): CompiledDag {
       id: node.id,
       kind: node.kind,
       label: node.label,
+      description: node.description,
+      inputs: node.inputs,
+      outputs: node.outputs,
+      config: node.config,
       runtime: node.runtime,
+      determinism: node.determinism,
+      skillId: node.skillId,
+      adapterId: node.adapterId,
+      codegen: node.codegen,
       dependencies: [...(dependencies.get(node.id) ?? [])].sort(),
-      dependents: [...(dependents.get(node.id) ?? [])].sort()
+      dependents: [...(dependents.get(node.id) ?? [])].sort(),
+      inputBindings: [...(inputBindings.get(node.id) ?? [])].sort(compareInputBindings)
     });
   }
 
@@ -47,11 +69,24 @@ export function compileWorkflowDag(input: WorkflowSpec): CompiledDag {
     ]);
   }
 
+  const dagHash = hashWorkflowDag(workflow);
+  if (approval.frozenDagHash !== dagHash) {
+    throw new WorkflowValidationError([
+      {
+        code: "WORKFLOW_EXECUTION_UNAPPROVED",
+        message: "Approved DAG hash does not match the compiled workflow revision.",
+        path: ["approval", "frozenDagHash"]
+      }
+    ]);
+  }
+
   return {
     workflowId: workflow.id,
     revision: workflow.revision,
     approval,
+    dagHash,
     nodes,
+    edges: [...workflow.edges].sort((left, right) => left.id.localeCompare(right.id)),
     order: approvalOrder,
     source: workflow
   };
@@ -88,4 +123,22 @@ export function topologicalOrder(nodes: ReadonlyMap<string, CompiledDagNode>): r
   }
 
   return order;
+}
+
+export function hashWorkflowDag(workflow: WorkflowSpec): string {
+  return `sha256:${createHash("sha256")
+    .update(stableWorkflowStringify({ ...workflow, approval: null }), "utf8")
+    .digest("hex")}`;
+}
+
+function compareInputBindings(
+  left: CompiledNodeInputBinding,
+  right: CompiledNodeInputBinding
+): number {
+  return (
+    left.inputPort.localeCompare(right.inputPort) ||
+    left.source.nodeId.localeCompare(right.source.nodeId) ||
+    left.source.port.localeCompare(right.source.port) ||
+    left.edgeId.localeCompare(right.edgeId)
+  );
 }
