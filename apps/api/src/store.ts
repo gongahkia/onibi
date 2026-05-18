@@ -1,12 +1,17 @@
 import { createHash } from "node:crypto";
 import type { DagExecutionResult } from "@kelpclaw/nanoclaw";
 import {
+  createWorkflowSpecDiff,
   stableWorkflowStringify,
   validateWorkflowSpec,
   workflowSchemaVersion
 } from "@kelpclaw/workflow-spec";
 import type {
   WorkflowApprovalRecord,
+  WorkflowApprovedRevision,
+  WorkflowDraftRevision,
+  WorkflowDraftRevisionSource,
+  WorkflowRunRecord,
   WorkflowSpec,
   WorkflowValidationResult
 } from "@kelpclaw/workflow-spec";
@@ -15,6 +20,9 @@ export interface StoredWorkflow {
   readonly workflow: WorkflowSpec;
   readonly validation: WorkflowValidationResult;
   readonly createdAt: string;
+  readonly draftRevisions: readonly WorkflowDraftRevision[];
+  readonly approvedRevisions: readonly WorkflowApprovedRevision[];
+  readonly latestApprovedRevisionId: string | null;
 }
 
 export interface StoredExecution {
@@ -31,53 +39,174 @@ export interface RevisionInput {
   readonly workflow?: WorkflowSpec | undefined;
 }
 
+interface WorkflowAggregate {
+  workflow: WorkflowSpec;
+  validation: WorkflowValidationResult;
+  createdAt: string;
+  latestDraftRevisionId: string | null;
+  latestApprovedRevisionId: string | null;
+  draftRevisionIds: string[];
+  approvedRevisionIds: string[];
+}
+
 export class InMemoryWorkflowStore {
-  private readonly workflows = new Map<string, StoredWorkflow>();
+  private readonly workflows = new Map<string, WorkflowAggregate>();
+  private readonly draftRevisions = new Map<string, WorkflowDraftRevision>();
+  private readonly approvedRevisions = new Map<string, WorkflowApprovedRevision>();
   private readonly executions = new Map<string, StoredExecution>();
+  private readonly runs = new Map<string, WorkflowRunRecord>();
 
   public saveWorkflow(
     workflow: WorkflowSpec,
     validation: WorkflowValidationResult
   ): StoredWorkflow {
-    const stored = {
-      workflow,
-      validation,
-      createdAt: new Date().toISOString()
+    const draft = this.saveDraftRevision(workflow, validation, "revision", {
+      force: true,
+      preserveRevision: true
+    });
+
+    return this.requireWorkflow(draft.workflowId);
+  }
+
+  public saveDraftRevision(
+    workflow: WorkflowSpec,
+    validation: WorkflowValidationResult,
+    source: WorkflowDraftRevisionSource,
+    options: { readonly force?: boolean; readonly preserveRevision?: boolean } = {}
+  ): WorkflowDraftRevision {
+    if (!validation.ok) {
+      throw new Error("Cannot save an invalid workflow draft revision.");
+    }
+
+    const existing = this.workflows.get(workflow.id);
+    const latestDraft = existing?.latestDraftRevisionId
+      ? this.draftRevisions.get(existing.latestDraftRevisionId)
+      : undefined;
+    if (
+      !options.force &&
+      latestDraft &&
+      draftFingerprint(latestDraft.workflow) === draftFingerprint(workflow)
+    ) {
+      return latestDraft;
+    }
+
+    const now = new Date().toISOString();
+    const revision =
+      options.preserveRevision || !existing ? workflow.revision : existing.workflow.revision + 1;
+    const draftWorkflow: WorkflowSpec = {
+      ...workflow,
+      id: workflow.id,
+      schemaVersion: workflowSchemaVersion,
+      revision,
+      approval: null,
+      createdAt: existing?.workflow.createdAt ?? workflow.createdAt,
+      updatedAt: now
+    };
+    const draftValidation = validateWorkflowSpec(draftWorkflow);
+    if (!draftValidation.ok) {
+      throw new Error(draftValidation.errors.map((error) => error.code).join(", "));
+    }
+
+    const draftRevision: WorkflowDraftRevision = {
+      id: `draft.${draftWorkflow.id}.r${draftWorkflow.revision}.${existing?.draftRevisionIds.length ?? 0}`,
+      workflowId: draftWorkflow.id,
+      revision: draftWorkflow.revision,
+      workflow: draftWorkflow,
+      validation: draftValidation,
+      source,
+      createdAt: now
     };
 
-    this.workflows.set(workflow.id, stored);
-    return stored;
+    this.draftRevisions.set(draftRevision.id, draftRevision);
+
+    const aggregate: WorkflowAggregate = existing ?? {
+      workflow: draftWorkflow,
+      validation: draftValidation,
+      createdAt: now,
+      latestDraftRevisionId: null,
+      latestApprovedRevisionId: null,
+      draftRevisionIds: [],
+      approvedRevisionIds: []
+    };
+    aggregate.workflow = draftWorkflow;
+    aggregate.validation = draftValidation;
+    aggregate.latestDraftRevisionId = draftRevision.id;
+    aggregate.draftRevisionIds = [...aggregate.draftRevisionIds, draftRevision.id];
+    this.workflows.set(draftWorkflow.id, aggregate);
+
+    return draftRevision;
   }
 
   public getWorkflow(id: string): StoredWorkflow | undefined {
-    return this.workflows.get(id);
+    const aggregate = this.workflows.get(id);
+    if (!aggregate) {
+      return undefined;
+    }
+
+    return this.toStoredWorkflow(aggregate);
   }
 
-  public approveWorkflow(workflowId: string, approvedBy: string): StoredWorkflow {
+  public approveWorkflow(
+    workflowId: string,
+    approvedBy: string,
+    workflowOverride?: WorkflowSpec
+  ): WorkflowApprovedRevision {
     const stored = this.requireWorkflow(workflowId);
-    const workflow = stored.workflow;
+    const workflow = workflowOverride ?? stored.workflow;
+    const validation = validateWorkflowSpec(workflow);
+    if (!validation.ok) {
+      throw new Error(validation.errors.map((error) => error.code).join(", "));
+    }
+
+    const latestDraft = this.saveDraftRevision(
+      validation.workflow,
+      validation,
+      "validate"
+    ).workflow;
     const approval: WorkflowApprovalRecord = {
       status: "approved",
       approvedBy,
       approvedAt: new Date().toISOString(),
-      frozenRevision: workflow.revision,
-      frozenDagHash: hashWorkflowDag(workflow),
-      nodeOrder: calculateNodeOrder(workflow)
+      frozenRevision: latestDraft.revision,
+      frozenDagHash: hashWorkflowDag(latestDraft),
+      nodeOrder: calculateNodeOrder(latestDraft)
     };
-    const approvedWorkflow = {
-      ...workflow,
+    const approvedWorkflow: WorkflowSpec = {
+      ...latestDraft,
       approval,
       updatedAt: approval.approvedAt
     };
-    const validation = validateWorkflowSpec(approvedWorkflow);
-    const updated = {
-      ...stored,
+    const approvedValidation = validateWorkflowSpec(approvedWorkflow);
+    if (!approvedValidation.ok) {
+      throw new Error(approvedValidation.errors.map((error) => error.code).join(", "));
+    }
+
+    const approvedRevision: WorkflowApprovedRevision = {
+      id: `approved.${approvedWorkflow.id}.r${approvedWorkflow.revision}`,
+      workflowId: approvedWorkflow.id,
+      revision: approvedWorkflow.revision,
+      approvedBy,
+      createdAt: approval.approvedAt,
       workflow: approvedWorkflow,
-      validation
+      draftSpecJson: stableWorkflowStringify(latestDraft),
+      frozenSpecJson: stableWorkflowStringify(approvedWorkflow),
+      diff: createWorkflowSpecDiff(latestDraft, approvedWorkflow)
     };
 
-    this.workflows.set(workflowId, updated);
-    return updated;
+    this.approvedRevisions.set(approvedRevision.id, approvedRevision);
+    const aggregate = this.workflows.get(approvedWorkflow.id);
+    if (!aggregate) {
+      throw new Error(`Unknown workflow '${workflowId}'.`);
+    }
+    aggregate.workflow = approvedWorkflow;
+    aggregate.validation = approvedValidation;
+    aggregate.latestApprovedRevisionId = approvedRevision.id;
+    if (!aggregate.approvedRevisionIds.includes(approvedRevision.id)) {
+      aggregate.approvedRevisionIds = [...aggregate.approvedRevisionIds, approvedRevision.id];
+    }
+    this.workflows.set(approvedWorkflow.id, aggregate);
+
+    return approvedRevision;
   }
 
   public createRevision(workflowId: string, input: RevisionInput = {}): StoredWorkflow {
@@ -100,7 +229,33 @@ export class InMemoryWorkflowStore {
       throw new Error(validation.errors.map((error) => error.code).join(", "));
     }
 
-    return this.saveWorkflow(revision, validation);
+    this.saveDraftRevision(revision, validation, "revision", {
+      force: true,
+      preserveRevision: true
+    });
+    return this.requireWorkflow(workflowId);
+  }
+
+  public getDraftRevision(id: string): WorkflowDraftRevision | undefined {
+    return this.draftRevisions.get(id);
+  }
+
+  public getLatestDraftRevision(workflowId: string): WorkflowDraftRevision | undefined {
+    const aggregate = this.workflows.get(workflowId);
+    return aggregate?.latestDraftRevisionId
+      ? this.draftRevisions.get(aggregate.latestDraftRevisionId)
+      : undefined;
+  }
+
+  public getApprovedRevision(id: string): WorkflowApprovedRevision | undefined {
+    return this.approvedRevisions.get(id);
+  }
+
+  public getLatestApprovedRevision(workflowId: string): WorkflowApprovedRevision | undefined {
+    const aggregate = this.workflows.get(workflowId);
+    return aggregate?.latestApprovedRevisionId
+      ? this.approvedRevisions.get(aggregate.latestApprovedRevisionId)
+      : undefined;
   }
 
   public saveExecution(execution: StoredExecution): StoredExecution {
@@ -112,13 +267,37 @@ export class InMemoryWorkflowStore {
     return this.executions.get(id);
   }
 
+  public saveRun(run: WorkflowRunRecord): WorkflowRunRecord {
+    this.runs.set(run.id, run);
+    return run;
+  }
+
+  public getRun(id: string): WorkflowRunRecord | undefined {
+    return this.runs.get(id);
+  }
+
   public requireWorkflow(id: string): StoredWorkflow {
-    const stored = this.workflows.get(id);
-    if (!stored) {
+    const aggregate = this.workflows.get(id);
+    if (!aggregate) {
       throw new Error(`Unknown workflow '${id}'.`);
     }
 
-    return stored;
+    return this.toStoredWorkflow(aggregate);
+  }
+
+  private toStoredWorkflow(aggregate: WorkflowAggregate): StoredWorkflow {
+    return {
+      workflow: aggregate.workflow,
+      validation: aggregate.validation,
+      createdAt: aggregate.createdAt,
+      draftRevisions: aggregate.draftRevisionIds
+        .map((revisionId) => this.draftRevisions.get(revisionId))
+        .filter((revision): revision is WorkflowDraftRevision => revision !== undefined),
+      approvedRevisions: aggregate.approvedRevisionIds
+        .map((revisionId) => this.approvedRevisions.get(revisionId))
+        .filter((revision): revision is WorkflowApprovedRevision => revision !== undefined),
+      latestApprovedRevisionId: aggregate.latestApprovedRevisionId
+    };
   }
 }
 
@@ -165,4 +344,13 @@ export function calculateNodeOrder(workflow: WorkflowSpec): readonly string[] {
   }
 
   return order;
+}
+
+function draftFingerprint(workflow: WorkflowSpec): string {
+  return stableWorkflowStringify({
+    ...workflow,
+    revision: 1,
+    approval: null,
+    updatedAt: workflow.createdAt
+  });
 }

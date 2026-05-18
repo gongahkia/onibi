@@ -6,7 +6,14 @@ import {
   validateWorkflowSpec
 } from "@kelpclaw/workflow-spec";
 import type { FastifyInstance } from "fastify";
-import type { WorkflowSpec } from "@kelpclaw/workflow-spec";
+import type {
+  WorkflowPlanRequest,
+  WorkflowPlanResponse,
+  WorkflowSpec,
+  WorkflowValidateRequest,
+  WorkflowValidateResponse
+} from "@kelpclaw/workflow-spec";
+import { planWorkflowDraft } from "./planner.js";
 import { InMemoryWorkflowStore } from "./store.js";
 import type { RevisionInput } from "./store.js";
 
@@ -38,17 +45,46 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
   }));
 
   app.post<{ Body: MockPlanRequestBody }>("/api/plans/mock", async (request) => {
-    const name = request.body?.name ?? gmailReceiptsToSheetsWorkflowFixture.name;
+    const prompt = request.body?.name ?? gmailReceiptsToSheetsWorkflowFixture.prompt;
+    const workflow = planWorkflowDraft({ prompt });
 
     return {
-      workflow: {
-        ...gmailReceiptsToSheetsWorkflowFixture,
-        name
-      }
+      workflow
     };
   });
 
-  app.post("/api/workflows/validate", async (request) => validateWorkflowSpec(request.body));
+  app.post<{ Body: WorkflowPlanRequest; Reply: WorkflowPlanResponse }>(
+    "/api/workflows/plan",
+    async (request, reply) => {
+      const workflow = planWorkflowDraft(request.body);
+      const validation = validateWorkflowSpec(workflow);
+      if (!validation.ok) {
+        return reply.code(500).send({
+          ok: false,
+          error: "PLANNER_GENERATED_INVALID_WORKFLOW",
+          message: validation.errors.map((error) => error.code).join(", "),
+          validation
+        } as never);
+      }
+
+      const draftRevision = store.saveDraftRevision(validation.workflow, validation, "plan", {
+        force: true,
+        preserveRevision: true
+      });
+
+      return {
+        ok: true,
+        workflow: draftRevision.workflow,
+        draftRevision,
+        validation: draftRevision.validation
+      };
+    }
+  );
+
+  app.post("/api/workflows/validate", async (request) => {
+    const input = isValidateRequest(request.body) ? request.body.workflow : request.body;
+    return validateWorkflowSpec(input);
+  });
 
   app.post("/api/workflows", async (request, reply) => {
     const validation = validateWorkflowSpec(request.body);
@@ -72,16 +108,57 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     return stored;
   });
 
+  app.post<{
+    Params: RouteParamsWithId;
+    Body: WorkflowValidateRequest;
+    Reply: WorkflowValidateResponse;
+  }>("/api/workflows/:id/validate", async (request, reply) => {
+    if (request.body.workflow.id !== request.params.id) {
+      return reply.code(409).send({
+        ok: false,
+        validation: {
+          ok: false,
+          errors: [
+            {
+              code: "WORKFLOW_SCHEMA_INVALID",
+              message: `Workflow id '${request.body.workflow.id}' does not match route id '${request.params.id}'.`,
+              path: ["id"]
+            }
+          ]
+        }
+      });
+    }
+
+    const validation = validateWorkflowSpec(request.body.workflow);
+    if (!validation.ok) {
+      return {
+        ok: false,
+        validation
+      };
+    }
+
+    const draftRevision = store.saveDraftRevision(validation.workflow, validation, "validate");
+    return {
+      ok: true,
+      validation: draftRevision.validation,
+      workflow: draftRevision.workflow,
+      draftRevision
+    };
+  });
+
   app.post<{ Params: RouteParamsWithId; Body: ApprovalRequestBody }>(
     "/api/workflows/:id/approvals",
     async (request, reply) => {
       try {
-        const updated = store.approveWorkflow(request.params.id, request.body.approvedBy);
+        const approvedRevision = store.approveWorkflow(request.params.id, request.body.approvedBy);
+        const workflow = approvedRevision.workflow;
         return {
-          workflowId: updated.workflow.id,
-          revision: updated.workflow.revision,
-          approval: updated.workflow.approval,
-          workflow: updated.workflow
+          workflowId: workflow.id,
+          revision: workflow.revision,
+          approval: workflow.approval,
+          approvedRevisionId: approvedRevision.id,
+          approvedRevision,
+          workflow
         };
       } catch (error) {
         return reply.code(404).send({
@@ -118,14 +195,16 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       if (!stored) {
         return reply.code(404).send({ error: "WORKFLOW_NOT_FOUND" });
       }
+      const approvedRevision = store.getLatestApprovedRevision(request.params.id);
+      const workflow = approvedRevision?.workflow ?? stored.workflow;
 
       try {
-        const dag = compileWorkflowDag(stored.workflow);
+        const dag = compileWorkflowDag(workflow);
         const result = await executeCompiledDag(dag, new MockNodeRunner());
         const execution = store.saveExecution({
           id: result.id,
-          workflowId: stored.workflow.id,
-          revision: stored.workflow.revision,
+          workflowId: workflow.id,
+          revision: workflow.revision,
           createdAt: result.startedAt,
           result
         });
@@ -157,3 +236,12 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
 }
 
 export type { WorkflowSpec };
+
+function isValidateRequest(input: unknown): input is WorkflowValidateRequest {
+  return (
+    typeof input === "object" &&
+    input !== null &&
+    "workflow" in input &&
+    typeof (input as WorkflowValidateRequest).workflow === "object"
+  );
+}

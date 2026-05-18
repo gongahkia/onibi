@@ -30,8 +30,52 @@ describe("kelpclaw api contracts", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().workflow.name).toBe("Launch Review");
+    expect(response.json().workflow.prompt).toBe("Launch Review");
     expect(response.json().workflow.schemaVersion).toBe("1.0.0");
+  });
+
+  it("plans and validates draft workflow revisions through the Phase 3 routes", async () => {
+    app = buildApiApp();
+
+    const planned = await app.inject({
+      method: "POST",
+      url: "/api/workflows/plan",
+      payload: {
+        prompt: "extract transaction details from Gmail receipts into Sheets"
+      }
+    });
+    expect(planned.statusCode).toBe(200);
+    expect(planned.json().ok).toBe(true);
+    expect(planned.json().draftRevision.source).toBe("plan");
+    expect(planned.json().workflow.nodes.map((node: { id: string }) => node.id)).toContain(
+      "read-gmail-receipts"
+    );
+
+    const workflow = {
+      ...planned.json().workflow,
+      nodes: planned
+        .json()
+        .workflow.nodes.map((node: { id: string; label: string }) =>
+          node.id === "normalize-receipts" ? { ...node, label: "Normalize Receipt Rows" } : node
+        )
+    };
+    const validated = await app.inject({
+      method: "POST",
+      url: `/api/workflows/${workflow.id}/validate`,
+      payload: { workflow }
+    });
+    expect(validated.statusCode).toBe(200);
+    expect(validated.json().ok).toBe(true);
+    expect(validated.json().draftRevision.source).toBe("validate");
+    expect(validated.json().draftRevision.revision).toBe(2);
+
+    const validatedAgain = await app.inject({
+      method: "POST",
+      url: `/api/workflows/${workflow.id}/validate`,
+      payload: { workflow: validated.json().workflow }
+    });
+    expect(validatedAgain.statusCode).toBe(200);
+    expect(validatedAgain.json().draftRevision.id).toBe(validated.json().draftRevision.id);
   });
 
   it("validates invalid workflows with stable errors", async () => {
