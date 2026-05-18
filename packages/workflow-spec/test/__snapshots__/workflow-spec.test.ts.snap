@@ -1,0 +1,669 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`workflow spec validation > serializes fixtures as stable canonical JSON snapshots 1`] = `
+"{
+  "approval": null,
+  "createdAt": "2026-05-18T00:00:00.000Z",
+  "edges": [
+    {
+      "id": "edge.manual-trigger.read-gmail-receipts",
+      "source": {
+        "nodeId": "manual-trigger",
+        "port": "request"
+      },
+      "target": {
+        "nodeId": "read-gmail-receipts",
+        "port": "request"
+      }
+    },
+    {
+      "id": "edge.normalize-receipts.append-sheet-rows",
+      "source": {
+        "nodeId": "normalize-receipts",
+        "port": "rows"
+      },
+      "target": {
+        "nodeId": "append-sheet-rows",
+        "port": "rows"
+      }
+    },
+    {
+      "id": "edge.read-gmail-receipts.normalize-receipts",
+      "source": {
+        "nodeId": "read-gmail-receipts",
+        "port": "receipts"
+      },
+      "target": {
+        "nodeId": "normalize-receipts",
+        "port": "receipts"
+      }
+    }
+  ],
+  "id": "workflow.gmail-receipts-to-sheets",
+  "name": "Gmail Receipts To Sheets",
+  "nodes": [
+    {
+      "adapterId": "adapter.sheets.fake",
+      "config": {
+        "range": "Receipts!A:D",
+        "spreadsheetId": "sheet.receipts"
+      },
+      "description": "Writes normalized receipt rows to a fake Google Sheets adapter.",
+      "determinism": {
+        "externalCalls": [
+          "adapter.sheets.fake"
+        ],
+        "replayBehavior": "record",
+        "seededRandomness": {
+          "enabled": false
+        }
+      },
+      "id": "append-sheet-rows",
+      "inputs": {
+        "rows": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "kind": "delivery",
+      "label": "Append Sheet Rows",
+      "outputs": {
+        "delivery": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "runtime": {
+        "command": [
+          "node",
+          "/workspace/run-node.js"
+        ],
+        "environment": {},
+        "image": "node:20-alpine",
+        "resources": {
+          "cpu": "1",
+          "memoryMb": 512
+        },
+        "retry": {
+          "backoffSeconds": 0,
+          "maxAttempts": 1
+        },
+        "timeoutSeconds": 300
+      }
+    },
+    {
+      "config": {
+        "query": "from:(receipts OR orders) newer_than:30d"
+      },
+      "description": "Reads matching Gmail messages through the fake Gmail adapter.",
+      "determinism": {
+        "externalCalls": [
+          "adapter.gmail.fake"
+        ],
+        "replayBehavior": "record",
+        "seededRandomness": {
+          "enabled": false
+        }
+      },
+      "id": "read-gmail-receipts",
+      "inputs": {
+        "request": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "kind": "skill",
+      "label": "Read Gmail Receipts",
+      "outputs": {
+        "receipts": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "runtime": {
+        "command": [
+          "node",
+          "/workspace/run-node.js"
+        ],
+        "environment": {},
+        "image": "node:20-alpine",
+        "resources": {
+          "cpu": "1",
+          "memoryMb": 512
+        },
+        "retry": {
+          "backoffSeconds": 0,
+          "maxAttempts": 1
+        },
+        "timeoutSeconds": 300
+      },
+      "skillId": "skill.gmail.receipts.read"
+    },
+    {
+      "config": {
+        "columns": [
+          "date",
+          "merchant",
+          "total",
+          "currency"
+        ]
+      },
+      "description": "Reshapes receipt messages into deterministic sheet rows.",
+      "determinism": {
+        "externalCalls": [],
+        "replayBehavior": "none",
+        "seededRandomness": {
+          "enabled": false
+        }
+      },
+      "id": "normalize-receipts",
+      "inputs": {
+        "receipts": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "kind": "transform",
+      "label": "Normalize Receipts",
+      "outputs": {
+        "rows": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "runtime": {
+        "command": [
+          "node",
+          "/workspace/run-node.js"
+        ],
+        "environment": {},
+        "image": "node:20-alpine",
+        "resources": {
+          "cpu": "1",
+          "memoryMb": 512
+        },
+        "retry": {
+          "backoffSeconds": 0,
+          "maxAttempts": 1
+        },
+        "timeoutSeconds": 300
+      }
+    },
+    {
+      "config": {
+        "trigger": "manual"
+      },
+      "description": "Starts the receipt sync when an operator runs the workflow.",
+      "determinism": {
+        "externalCalls": [],
+        "replayBehavior": "none",
+        "seededRandomness": {
+          "enabled": false
+        }
+      },
+      "id": "manual-trigger",
+      "inputs": {},
+      "kind": "trigger",
+      "label": "Manual Run",
+      "outputs": {
+        "request": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "runtime": {
+        "command": [
+          "node",
+          "/workspace/run-node.js"
+        ],
+        "environment": {},
+        "image": "node:20-alpine",
+        "resources": {
+          "cpu": "1",
+          "memoryMb": 512
+        },
+        "retry": {
+          "backoffSeconds": 0,
+          "maxAttempts": 1
+        },
+        "timeoutSeconds": 300
+      }
+    }
+  ],
+  "prompt": "Find receipt emails in Gmail and append normalized totals to a Google Sheet.",
+  "revision": 1,
+  "schemaVersion": "1.0.0",
+  "updatedAt": "2026-05-18T00:00:00.000Z"
+}"
+`;
+
+exports[`workflow spec validation > serializes fixtures as stable canonical JSON snapshots 2`] = `
+"{
+  "approval": null,
+  "createdAt": "2026-05-18T00:00:00.000Z",
+  "edges": [
+    {
+      "id": "edge.daily-schedule.scrape-status-page",
+      "source": {
+        "nodeId": "daily-schedule",
+        "port": "tick"
+      },
+      "target": {
+        "nodeId": "scrape-status-page",
+        "port": "tick"
+      }
+    },
+    {
+      "id": "edge.scrape-status-page.summarize-incidents",
+      "source": {
+        "nodeId": "scrape-status-page",
+        "port": "page"
+      },
+      "target": {
+        "nodeId": "summarize-incidents",
+        "port": "page"
+      }
+    }
+  ],
+  "id": "workflow.scheduled-scraping",
+  "name": "Scheduled Scraping",
+  "nodes": [
+    {
+      "codegen": {
+        "provenance": {
+          "artifactChecksum": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "artifactPath": "generated/scrape-status-page.ts",
+          "generatedAt": "2026-05-18T00:30:00.000Z",
+          "generator": "kelpclaw.codegen.typescript",
+          "sourcePrompt": "Scrape a public status page and extract incidents."
+        },
+        "replay": {
+          "mode": "reuse-if-unchanged",
+          "seed": "scheduled-scraping-v1"
+        }
+      },
+      "config": {
+        "url": "https://status.example.com"
+      },
+      "description": "Runs generated scraper code for a site without a registry skill.",
+      "determinism": {
+        "externalCalls": [
+          "https://status.example.com"
+        ],
+        "replayBehavior": "record",
+        "seededRandomness": {
+          "enabled": false
+        }
+      },
+      "id": "scrape-status-page",
+      "inputs": {
+        "tick": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "kind": "codegen",
+      "label": "Scrape Status Page",
+      "outputs": {
+        "page": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "runtime": {
+        "command": [
+          "node",
+          "/workspace/run-node.js"
+        ],
+        "environment": {},
+        "image": "node:20-alpine",
+        "resources": {
+          "cpu": "1",
+          "memoryMb": 512
+        },
+        "retry": {
+          "backoffSeconds": 0,
+          "maxAttempts": 1
+        },
+        "timeoutSeconds": 300
+      }
+    },
+    {
+      "config": {
+        "maxItems": 5
+      },
+      "description": "Converts scraped page data into a deterministic incident summary.",
+      "determinism": {
+        "externalCalls": [],
+        "replayBehavior": "none",
+        "seededRandomness": {
+          "enabled": false
+        }
+      },
+      "id": "summarize-incidents",
+      "inputs": {
+        "page": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "kind": "transform",
+      "label": "Summarize Incidents",
+      "outputs": {
+        "summary": {
+          "type": "string"
+        }
+      },
+      "runtime": {
+        "command": [
+          "node",
+          "/workspace/run-node.js"
+        ],
+        "environment": {},
+        "image": "node:20-alpine",
+        "resources": {
+          "cpu": "1",
+          "memoryMb": 512
+        },
+        "retry": {
+          "backoffSeconds": 0,
+          "maxAttempts": 1
+        },
+        "timeoutSeconds": 300
+      }
+    },
+    {
+      "config": {
+        "schedule": "0 8 * * *",
+        "timezone": "UTC"
+      },
+      "description": "Starts the workflow at a fixed daily wall-clock time.",
+      "determinism": {
+        "externalCalls": [],
+        "replayBehavior": "none",
+        "seededRandomness": {
+          "enabled": false
+        }
+      },
+      "id": "daily-schedule",
+      "inputs": {},
+      "kind": "trigger",
+      "label": "Daily Schedule",
+      "outputs": {
+        "tick": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "runtime": {
+        "command": [
+          "node",
+          "/workspace/run-node.js"
+        ],
+        "environment": {},
+        "image": "node:20-alpine",
+        "resources": {
+          "cpu": "1",
+          "memoryMb": 512
+        },
+        "retry": {
+          "backoffSeconds": 0,
+          "maxAttempts": 1
+        },
+        "timeoutSeconds": 300
+      }
+    }
+  ],
+  "prompt": "Every morning, scrape a public status page and summarize the new incidents.",
+  "revision": 1,
+  "schemaVersion": "1.0.0",
+  "updatedAt": "2026-05-18T00:00:00.000Z"
+}"
+`;
+
+exports[`workflow spec validation > serializes fixtures as stable canonical JSON snapshots 3`] = `
+"{
+  "approval": null,
+  "createdAt": "2026-05-18T00:00:00.000Z",
+  "edges": [
+    {
+      "id": "edge.approve-alert.send-alert",
+      "source": {
+        "nodeId": "approve-alert",
+        "port": "approvedAlert"
+      },
+      "target": {
+        "nodeId": "send-alert",
+        "port": "approvedAlert"
+      }
+    },
+    {
+      "id": "edge.classify-urgency.approve-alert",
+      "source": {
+        "nodeId": "classify-urgency",
+        "port": "alert"
+      },
+      "target": {
+        "nodeId": "approve-alert",
+        "port": "alert"
+      }
+    },
+    {
+      "id": "edge.email-trigger.classify-urgency",
+      "source": {
+        "nodeId": "email-trigger",
+        "port": "message"
+      },
+      "target": {
+        "nodeId": "classify-urgency",
+        "port": "message"
+      }
+    }
+  ],
+  "id": "workflow.time-sensitive-alert-delivery",
+  "name": "Time-Sensitive Alert Delivery",
+  "nodes": [
+    {
+      "config": {
+        "requiredRole": "operator"
+      },
+      "description": "Pauses delivery until an operator approves the alert content.",
+      "determinism": {
+        "externalCalls": [],
+        "replayBehavior": "none",
+        "seededRandomness": {
+          "enabled": false
+        }
+      },
+      "id": "approve-alert",
+      "inputs": {
+        "alert": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "kind": "approval",
+      "label": "Approve Alert",
+      "outputs": {
+        "approvedAlert": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "runtime": {
+        "command": [
+          "node",
+          "/workspace/run-node.js"
+        ],
+        "environment": {},
+        "image": "node:20-alpine",
+        "resources": {
+          "cpu": "1",
+          "memoryMb": 512
+        },
+        "retry": {
+          "backoffSeconds": 0,
+          "maxAttempts": 1
+        },
+        "timeoutSeconds": 300
+      }
+    },
+    {
+      "adapterId": "adapter.telegram.fake",
+      "config": {
+        "channels": [
+          "whatsapp",
+          "telegram"
+        ]
+      },
+      "description": "Sends approved alert content to fake WhatsApp and Telegram adapters.",
+      "determinism": {
+        "externalCalls": [
+          "adapter.whatsapp.fake",
+          "adapter.telegram.fake"
+        ],
+        "replayBehavior": "record",
+        "seededRandomness": {
+          "enabled": false
+        }
+      },
+      "id": "send-alert",
+      "inputs": {
+        "approvedAlert": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "kind": "delivery",
+      "label": "Send Alert",
+      "outputs": {
+        "delivery": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "runtime": {
+        "command": [
+          "node",
+          "/workspace/run-node.js"
+        ],
+        "environment": {},
+        "image": "node:20-alpine",
+        "resources": {
+          "cpu": "1",
+          "memoryMb": 512
+        },
+        "retry": {
+          "backoffSeconds": 0,
+          "maxAttempts": 1
+        },
+        "timeoutSeconds": 300
+      }
+    },
+    {
+      "config": {
+        "threshold": "high"
+      },
+      "description": "Classifies whether an incoming support message requires alert delivery.",
+      "determinism": {
+        "externalCalls": [],
+        "replayBehavior": "none",
+        "seededRandomness": {
+          "enabled": false
+        }
+      },
+      "id": "classify-urgency",
+      "inputs": {
+        "message": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "kind": "skill",
+      "label": "Classify Urgency",
+      "outputs": {
+        "alert": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "runtime": {
+        "command": [
+          "node",
+          "/workspace/run-node.js"
+        ],
+        "environment": {},
+        "image": "node:20-alpine",
+        "resources": {
+          "cpu": "1",
+          "memoryMb": 512
+        },
+        "retry": {
+          "backoffSeconds": 0,
+          "maxAttempts": 1
+        },
+        "timeoutSeconds": 300
+      },
+      "skillId": "skill.alert.urgency.classify"
+    },
+    {
+      "config": {
+        "source": "support@example.com"
+      },
+      "description": "Starts the workflow when urgent support email arrives.",
+      "determinism": {
+        "externalCalls": [
+          "adapter.email.fake"
+        ],
+        "replayBehavior": "record",
+        "seededRandomness": {
+          "enabled": false
+        }
+      },
+      "id": "email-trigger",
+      "inputs": {},
+      "kind": "trigger",
+      "label": "Email Trigger",
+      "outputs": {
+        "message": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "runtime": {
+        "command": [
+          "node",
+          "/workspace/run-node.js"
+        ],
+        "environment": {},
+        "image": "node:20-alpine",
+        "resources": {
+          "cpu": "1",
+          "memoryMb": 512
+        },
+        "retry": {
+          "backoffSeconds": 0,
+          "maxAttempts": 1
+        },
+        "timeoutSeconds": 300
+      }
+    }
+  ],
+  "prompt": "Monitor urgent support messages and deliver approved alerts to WhatsApp and Telegram.",
+  "revision": 1,
+  "schemaVersion": "1.0.0",
+  "updatedAt": "2026-05-18T00:00:00.000Z"
+}"
+`;

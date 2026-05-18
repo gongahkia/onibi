@@ -1,15 +1,20 @@
-import type { JsonValue, WorkflowSpec } from "./types.js";
+import type { JsonValue, WorkflowEdge, WorkflowNode, WorkflowSpec } from "./types.js";
 
 export function normalizeWorkflowSpec(workflow: WorkflowSpec): WorkflowSpec {
   return {
     ...workflow,
-    nodes: [...workflow.nodes].sort((left, right) => left.id.localeCompare(right.id)),
+    nodes: [...workflow.nodes].sort((left, right) =>
+      nodeSortKey(left).localeCompare(nodeSortKey(right))
+    ),
     edges: [...workflow.edges].sort((left, right) =>
       edgeSortKey(left).localeCompare(edgeSortKey(right))
     ),
-    approvals: workflow.approvals
-      ? [...workflow.approvals].sort((left, right) => left.id.localeCompare(right.id))
-      : undefined
+    approval: workflow.approval
+      ? {
+          ...workflow.approval,
+          nodeOrder: [...workflow.approval.nodeOrder]
+        }
+      : null
   };
 }
 
@@ -38,6 +43,10 @@ function sortJsonValue(value: JsonValue): JsonValue {
   return value;
 }
 
-function edgeSortKey(edge: WorkflowSpec["edges"][number]): string {
-  return `${edge.source}->${edge.target}:${edge.id ?? ""}`;
+function nodeSortKey(node: WorkflowNode): string {
+  return `${node.kind}:${node.id}`;
+}
+
+function edgeSortKey(edge: WorkflowEdge): string {
+  return `${edge.source.nodeId}:${edge.source.port}->${edge.target.nodeId}:${edge.target.port}:${edge.id}`;
 }

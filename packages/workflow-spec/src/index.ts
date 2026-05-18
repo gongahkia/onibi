@@ -1,14 +1,33 @@
 export {
-  staticContentWorkflowFixture,
+  arraySchema,
+  approvedGmailReceiptsToSheetsWorkflowFixture,
+  createApprovedWorkflowFixture,
   cyclicWorkflowFixture,
-  missingEdgeTargetWorkflowFixture
+  gmailReceiptsToSheetsWorkflowFixture,
+  invalidEdgePortWorkflowFixture,
+  missingCodegenMetadataWorkflowFixture,
+  missingEdgeTargetWorkflowFixture,
+  objectSchema,
+  scheduledScrapingWorkflowFixture,
+  stringSchema,
+  timeSensitiveAlertDeliveryWorkflowFixture,
+  withConfig
 } from "./fixtures.js";
 export { workflowJsonSchema } from "./json-schema.js";
+export { WorkflowMigrationError, migrateWorkflowToLatest } from "./migrations.js";
 export {
-  workflowApprovalGateSchema,
+  jsonRecordSchema,
+  jsonSchemaShapeSchema,
+  jsonValueSchema,
+  workflowApprovalRecordSchema,
+  workflowCodegenMetadataSchema,
+  workflowDeterminismSchema,
   workflowEdgeSchema,
-  workflowMetadataSchema,
   workflowNodeSchema,
+  workflowPortRefSchema,
+  workflowRuntimeResourcesSchema,
+  workflowRuntimeRetrySchema,
+  workflowRuntimeSchema,
   workflowSpecSchema
 } from "./schema.js";
 export {
@@ -18,22 +37,36 @@ export {
 } from "./stable-json.js";
 export {
   WorkflowValidationError,
+  assertApprovedWorkflowSpec,
   assertValidWorkflowSpec,
+  validateWorkflowForExecution,
   validateWorkflowSpec
 } from "./validate.js";
 export type {
   JsonPrimitive,
   JsonRecord,
+  JsonSchemaShape,
   JsonValue,
-  WorkflowApprovalGate,
-  WorkflowDockerSpec,
+  WorkflowApprovalRecord,
+  WorkflowCodegenMetadata,
+  WorkflowCodegenProvenance,
+  WorkflowCodegenReplay,
+  WorkflowDeterminism,
   WorkflowEdge,
-  WorkflowMetadata,
+  WorkflowExecutionResult,
   WorkflowNode,
-  WorkflowNodeType,
+  WorkflowNodeExecutionResult,
+  WorkflowNodeKind,
+  WorkflowPortRef,
+  WorkflowReplayBehavior,
+  WorkflowRuntime,
+  WorkflowRuntimeResources,
+  WorkflowRuntimeRetry,
+  WorkflowSchemaVersion,
+  WorkflowSeededRandomness,
   WorkflowSpec,
   WorkflowValidationErrorCode,
   WorkflowValidationIssue,
   WorkflowValidationResult
 } from "./types.js";
-export { workflowValidationErrorCodes } from "./types.js";
+export { workflowSchemaVersion, workflowValidationErrorCodes } from "./types.js";

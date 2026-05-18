@@ -1,20 +1,34 @@
 import { describe, expect, it } from "vitest";
 import {
+  approvedGmailReceiptsToSheetsWorkflowFixture,
   cyclicWorkflowFixture,
+  gmailReceiptsToSheetsWorkflowFixture,
+  invalidEdgePortWorkflowFixture,
+  migrateWorkflowToLatest,
+  missingCodegenMetadataWorkflowFixture,
   missingEdgeTargetWorkflowFixture,
+  scheduledScrapingWorkflowFixture,
   stableWorkflowStringify,
-  staticContentWorkflowFixture,
+  timeSensitiveAlertDeliveryWorkflowFixture,
+  validateWorkflowForExecution,
   validateWorkflowSpec,
-  workflowJsonSchema
+  workflowJsonSchema,
+  workflowSchemaVersion
 } from "../src/index.js";
 
 describe("workflow spec validation", () => {
-  it("accepts a valid deterministic workflow fixture", () => {
-    const result = validateWorkflowSpec(staticContentWorkflowFixture);
+  it("accepts Phase 2 canonical workflow fixtures", () => {
+    for (const workflow of [
+      gmailReceiptsToSheetsWorkflowFixture,
+      scheduledScrapingWorkflowFixture,
+      timeSensitiveAlertDeliveryWorkflowFixture
+    ]) {
+      const result = validateWorkflowSpec(workflow);
 
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.workflow.metadata.id).toBe("workflow.static-content");
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.workflow.schemaVersion).toBe(workflowSchemaVersion);
+      }
     }
   });
 
@@ -23,7 +37,20 @@ describe("workflow spec validation", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.errors.map((error) => error.code)).toEqual(["WORKFLOW_EDGE_TARGET_MISSING"]);
+      expect(result.errors.map((error) => error.code)).toEqual([
+        "WORKFLOW_EDGE_TARGET_NODE_MISSING"
+      ]);
+    }
+  });
+
+  it("rejects invalid edge ports with stable error codes", () => {
+    const result = validateWorkflowSpec(invalidEdgePortWorkflowFixture);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.map((error) => error.code)).toEqual([
+        "WORKFLOW_EDGE_SOURCE_PORT_INVALID"
+      ]);
     }
   });
 
@@ -38,10 +65,10 @@ describe("workflow spec validation", () => {
 
   it("rejects duplicate node ids with a stable error code", () => {
     const result = validateWorkflowSpec({
-      ...staticContentWorkflowFixture,
+      ...gmailReceiptsToSheetsWorkflowFixture,
       nodes: [
-        staticContentWorkflowFixture.nodes[0],
-        { ...staticContentWorkflowFixture.nodes[0], label: "Duplicate" }
+        gmailReceiptsToSheetsWorkflowFixture.nodes[0],
+        { ...gmailReceiptsToSheetsWorkflowFixture.nodes[0], label: "Duplicate" }
       ],
       edges: []
     });
@@ -52,20 +79,66 @@ describe("workflow spec validation", () => {
     }
   });
 
-  it("stringifies workflow specs with stable key and collection ordering", () => {
-    const shuffled = {
-      ...staticContentWorkflowFixture,
-      nodes: [...staticContentWorkflowFixture.nodes].reverse(),
-      edges: [...staticContentWorkflowFixture.edges].reverse()
-    };
+  it("rejects codegen nodes without provenance and replay metadata", () => {
+    const result = validateWorkflowSpec(missingCodegenMetadataWorkflowFixture);
 
-    expect(stableWorkflowStringify(shuffled)).toBe(
-      stableWorkflowStringify(staticContentWorkflowFixture)
-    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.map((error) => error.code)).toEqual([
+        "WORKFLOW_CODEGEN_METADATA_MISSING"
+      ]);
+    }
+  });
+
+  it("blocks execution until the current revision is approved", () => {
+    const draft = validateWorkflowForExecution(gmailReceiptsToSheetsWorkflowFixture);
+    expect(draft.ok).toBe(false);
+    if (!draft.ok) {
+      expect(draft.errors.map((error) => error.code)).toEqual(["WORKFLOW_EXECUTION_UNAPPROVED"]);
+    }
+
+    const approved = validateWorkflowForExecution(approvedGmailReceiptsToSheetsWorkflowFixture);
+    expect(approved.ok).toBe(true);
+  });
+
+  it("serializes fixtures as stable canonical JSON snapshots", () => {
+    expect(stableWorkflowStringify(gmailReceiptsToSheetsWorkflowFixture)).toMatchSnapshot();
+    expect(stableWorkflowStringify(scheduledScrapingWorkflowFixture)).toMatchSnapshot();
+    expect(stableWorkflowStringify(timeSensitiveAlertDeliveryWorkflowFixture)).toMatchSnapshot();
   });
 
   it("exports a JSON Schema document for generated workflow specs", () => {
-    expect(workflowJsonSchema.$id).toBe("https://kelpclaw.dev/schemas/workflow-spec.schema.json");
-    expect(workflowJsonSchema.required).toEqual(["metadata", "nodes", "edges"]);
+    expect(workflowJsonSchema.$id).toBe(
+      "https://kelpclaw.dev/schemas/workflow-spec.v1.schema.json"
+    );
+    expect(workflowJsonSchema.required).toEqual([
+      "id",
+      "schemaVersion",
+      "name",
+      "prompt",
+      "revision",
+      "nodes",
+      "edges",
+      "approval",
+      "createdAt",
+      "updatedAt"
+    ]);
+  });
+});
+
+describe("workflow migrations", () => {
+  it("passes v1 workflows through the migration harness", () => {
+    expect(migrateWorkflowToLatest(gmailReceiptsToSheetsWorkflowFixture).id).toBe(
+      "workflow.gmail-receipts-to-sheets"
+    );
+  });
+
+  it("rejects unsupported schema versions", () => {
+    expect(() =>
+      migrateWorkflowToLatest({
+        ...gmailReceiptsToSheetsWorkflowFixture,
+        schemaVersion: "0.9.0"
+      })
+    ).toThrow("Unsupported workflow schema version");
   });
 });
