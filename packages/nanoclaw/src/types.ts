@@ -51,6 +51,32 @@ export interface CompiledDag {
 export type NodeExecutionResult = WorkflowNodeExecutionResult;
 export type DagExecutionResult = WorkflowExecutionResult;
 
+export interface NodeInputPayload {
+  readonly workflowId: string;
+  readonly revision: number;
+  readonly nodeId: string;
+  readonly attempt: number;
+  readonly inputs: JsonRecord;
+  readonly config: JsonRecord;
+  readonly metadata: JsonRecord;
+}
+
+export interface NodeRunContext {
+  readonly dag: CompiledDag;
+  readonly input: JsonRecord;
+  readonly inputPayload: NodeInputPayload;
+  readonly attempt: number;
+  readonly signal?: AbortSignal | undefined;
+}
+
+export interface NodeRunnerResult {
+  readonly status: "succeeded" | "failed";
+  readonly output: JsonRecord;
+  readonly exitCode?: number | undefined;
+  readonly error?: string | undefined;
+  readonly metadata?: JsonRecord | undefined;
+}
+
 export interface NodeRunner {
-  run(node: CompiledDagNode): Promise<NodeExecutionResult>;
+  run(node: CompiledDagNode, context: NodeRunContext): Promise<NodeRunnerResult>;
 }

@@ -122,7 +122,10 @@ export interface WorkflowNodeExecutionResult {
   readonly status: "succeeded" | "failed" | "skipped";
   readonly startedAt: string;
   readonly finishedAt: string;
+  readonly input?: JsonRecord | undefined;
   readonly output: JsonRecord;
+  readonly error?: string | undefined;
+  readonly metadata?: JsonRecord | undefined;
 }
 
 export interface WorkflowExecutionResult {

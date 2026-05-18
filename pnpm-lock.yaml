@@ -108,6 +108,9 @@ importers:
       '@kelpclaw/workflow-spec':
         specifier: workspace:*
         version: link:../workflow-spec
+      ajv:
+        specifier: ^8.20.0
+        version: 8.20.0
 
   packages/skill-registry:
     dependencies:

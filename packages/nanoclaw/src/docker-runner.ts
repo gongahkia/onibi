@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import type { CompiledDagNode, NodeExecutionResult, NodeRunner } from "./types.js";
+import type { CompiledDagNode, NodeRunContext, NodeRunner, NodeRunnerResult } from "./types.js";
 
 export interface DockerNodeRunnerOptions {
   readonly dockerBin?: string | undefined;
@@ -40,8 +40,7 @@ export class DockerNodeRunner implements NodeRunner {
     ];
   }
 
-  public async run(node: CompiledDagNode): Promise<NodeExecutionResult> {
-    const startedAt = new Date().toISOString();
+  public async run(node: CompiledDagNode, _context: NodeRunContext): Promise<NodeRunnerResult> {
     const [command, ...args] = this.buildCommand(node);
     if (!command) {
       throw new Error("Docker command construction returned an empty command.");
@@ -57,11 +56,10 @@ export class DockerNodeRunner implements NodeRunner {
     });
 
     return {
-      nodeId: node.id,
       status: exitCode === 0 ? "succeeded" : "failed",
-      startedAt,
-      finishedAt: new Date().toISOString(),
-      output: {
+      output: {},
+      exitCode,
+      metadata: {
         exitCode
       }
     };
