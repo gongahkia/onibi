@@ -1,20 +1,34 @@
+import { createHash } from "node:crypto";
 import type { DagExecutionResult } from "@kelpclaw/nanoclaw";
-import type { WorkflowSpec, WorkflowValidationResult } from "@kelpclaw/workflow-spec";
-
-export type ApprovalDecision = "pending" | "approved" | "rejected";
+import {
+  stableWorkflowStringify,
+  validateWorkflowSpec,
+  workflowSchemaVersion
+} from "@kelpclaw/workflow-spec";
+import type {
+  WorkflowApprovalRecord,
+  WorkflowSpec,
+  WorkflowValidationResult
+} from "@kelpclaw/workflow-spec";
 
 export interface StoredWorkflow {
   readonly workflow: WorkflowSpec;
   readonly validation: WorkflowValidationResult;
-  readonly approvals: Readonly<Record<string, ApprovalDecision>>;
   readonly createdAt: string;
 }
 
 export interface StoredExecution {
   readonly id: string;
   readonly workflowId: string;
+  readonly revision: number;
   readonly createdAt: string;
   readonly result: DagExecutionResult;
+}
+
+export interface RevisionInput {
+  readonly name?: string | undefined;
+  readonly prompt?: string | undefined;
+  readonly workflow?: WorkflowSpec | undefined;
 }
 
 export class InMemoryWorkflowStore {
@@ -25,17 +39,13 @@ export class InMemoryWorkflowStore {
     workflow: WorkflowSpec,
     validation: WorkflowValidationResult
   ): StoredWorkflow {
-    const approvals = Object.fromEntries(
-      (workflow.approvals ?? []).map((approval) => [approval.id, "pending" as const])
-    );
     const stored = {
       workflow,
       validation,
-      approvals,
       createdAt: new Date().toISOString()
     };
 
-    this.workflows.set(workflow.metadata.id, stored);
+    this.workflows.set(workflow.id, stored);
     return stored;
   }
 
@@ -43,31 +53,54 @@ export class InMemoryWorkflowStore {
     return this.workflows.get(id);
   }
 
-  public setApproval(
-    workflowId: string,
-    approvalId: string,
-    decision: Exclude<ApprovalDecision, "pending">
-  ): StoredWorkflow {
+  public approveWorkflow(workflowId: string, approvedBy: string): StoredWorkflow {
     const stored = this.requireWorkflow(workflowId);
-    if (!(approvalId in stored.approvals)) {
-      throw new Error(`Unknown approval gate '${approvalId}'.`);
-    }
-
+    const workflow = stored.workflow;
+    const approval: WorkflowApprovalRecord = {
+      status: "approved",
+      approvedBy,
+      approvedAt: new Date().toISOString(),
+      frozenRevision: workflow.revision,
+      frozenDagHash: hashWorkflowDag(workflow),
+      nodeOrder: calculateNodeOrder(workflow)
+    };
+    const approvedWorkflow = {
+      ...workflow,
+      approval,
+      updatedAt: approval.approvedAt
+    };
+    const validation = validateWorkflowSpec(approvedWorkflow);
     const updated = {
       ...stored,
-      approvals: {
-        ...stored.approvals,
-        [approvalId]: decision
-      }
+      workflow: approvedWorkflow,
+      validation
     };
-    this.workflows.set(workflowId, updated);
 
+    this.workflows.set(workflowId, updated);
     return updated;
   }
 
-  public approvalsSatisfied(workflowId: string): boolean {
+  public createRevision(workflowId: string, input: RevisionInput = {}): StoredWorkflow {
     const stored = this.requireWorkflow(workflowId);
-    return Object.values(stored.approvals).every((decision) => decision === "approved");
+    const source = input.workflow ?? stored.workflow;
+    const now = new Date().toISOString();
+    const revision: WorkflowSpec = {
+      ...source,
+      id: workflowId,
+      schemaVersion: workflowSchemaVersion,
+      name: input.name ?? source.name,
+      prompt: input.prompt ?? source.prompt,
+      revision: stored.workflow.revision + 1,
+      approval: null,
+      createdAt: stored.workflow.createdAt,
+      updatedAt: now
+    };
+    const validation = validateWorkflowSpec(revision);
+    if (!validation.ok) {
+      throw new Error(validation.errors.map((error) => error.code).join(", "));
+    }
+
+    return this.saveWorkflow(revision, validation);
   }
 
   public saveExecution(execution: StoredExecution): StoredExecution {
@@ -87,4 +120,49 @@ export class InMemoryWorkflowStore {
 
     return stored;
   }
+}
+
+export function hashWorkflowDag(workflow: WorkflowSpec): string {
+  return `sha256:${createHash("sha256")
+    .update(stableWorkflowStringify({ ...workflow, approval: null }), "utf8")
+    .digest("hex")}`;
+}
+
+export function calculateNodeOrder(workflow: WorkflowSpec): readonly string[] {
+  const validation = validateWorkflowSpec(workflow);
+  if (!validation.ok) {
+    throw new Error(validation.errors.map((error) => error.code).join(", "));
+  }
+
+  const indegrees = new Map(workflow.nodes.map((node) => [node.id, 0]));
+  const outgoing = new Map(workflow.nodes.map((node) => [node.id, [] as string[]]));
+  for (const edge of workflow.edges) {
+    outgoing.get(edge.source.nodeId)?.push(edge.target.nodeId);
+    indegrees.set(edge.target.nodeId, (indegrees.get(edge.target.nodeId) ?? 0) + 1);
+  }
+
+  const ready = [...indegrees.entries()]
+    .filter(([, indegree]) => indegree === 0)
+    .map(([nodeId]) => nodeId)
+    .sort();
+  const order: string[] = [];
+
+  while (ready.length > 0) {
+    const nodeId = ready.shift();
+    if (nodeId === undefined) {
+      break;
+    }
+
+    order.push(nodeId);
+    for (const target of outgoing.get(nodeId) ?? []) {
+      const nextIndegree = (indegrees.get(target) ?? 0) - 1;
+      indegrees.set(target, nextIndegree);
+      if (nextIndegree === 0) {
+        ready.push(target);
+        ready.sort();
+      }
+    }
+  }
+
+  return order;
 }

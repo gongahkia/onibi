@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { staticContentWorkflowFixture } from "@kelpclaw/workflow-spec";
+import { gmailReceiptsToSheetsWorkflowFixture } from "@kelpclaw/workflow-spec";
 import { buildApiApp } from "../src/index.js";
 
 let app: FastifyInstance | undefined;
@@ -30,7 +30,8 @@ describe("kelpclaw api contracts", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().workflow.metadata.name).toBe("Launch Review");
+    expect(response.json().workflow.name).toBe("Launch Review");
+    expect(response.json().workflow.schemaVersion).toBe("1.0.0");
   });
 
   it("validates invalid workflows with stable errors", async () => {
@@ -39,7 +40,7 @@ describe("kelpclaw api contracts", () => {
     const response = await app.inject({
       method: "POST",
       url: "/api/workflows/validate",
-      payload: { metadata: { id: "bad" }, nodes: [], edges: [] }
+      payload: { id: "bad", schemaVersion: "1.0.0", nodes: [], edges: [] }
     });
 
     expect(response.statusCode).toBe(200);
@@ -53,40 +54,75 @@ describe("kelpclaw api contracts", () => {
     const created = await app.inject({
       method: "POST",
       url: "/api/workflows",
-      payload: staticContentWorkflowFixture
+      payload: gmailReceiptsToSheetsWorkflowFixture
     });
     expect(created.statusCode).toBe(201);
+    expect(created.json().workflow.approval).toBeNull();
 
     const blocked = await app.inject({
       method: "POST",
-      url: "/api/workflows/workflow.static-content/executions"
+      url: "/api/workflows/workflow.gmail-receipts-to-sheets/executions"
     });
     expect(blocked.statusCode).toBe(409);
 
     const approval = await app.inject({
       method: "POST",
-      url: "/api/workflows/workflow.static-content/approvals",
+      url: "/api/workflows/workflow.gmail-receipts-to-sheets/approvals",
       payload: {
-        approvalId: "approval.owner-approval",
-        decision: "approved",
-        actorRole: "owner"
+        approvedBy: "owner@example.com"
       }
     });
     expect(approval.statusCode).toBe(200);
-    expect(approval.json().approvals["approval.owner-approval"]).toBe("approved");
+    expect(approval.json().approval.status).toBe("approved");
+    expect(approval.json().approval.nodeOrder).toEqual([
+      "manual-trigger",
+      "read-gmail-receipts",
+      "normalize-receipts",
+      "append-sheet-rows"
+    ]);
 
     const execution = await app.inject({
       method: "POST",
-      url: "/api/workflows/workflow.static-content/executions"
+      url: "/api/workflows/workflow.gmail-receipts-to-sheets/executions"
     });
     expect(execution.statusCode).toBe(202);
     expect(execution.json().result.status).toBe("succeeded");
+    expect(execution.json().result.revision).toBe(1);
 
     const fetched = await app.inject({
       method: "GET",
       url: `/api/executions/${execution.json().id}`
     });
     expect(fetched.statusCode).toBe(200);
-    expect(fetched.json().workflowId).toBe("workflow.static-content");
+    expect(fetched.json().workflowId).toBe("workflow.gmail-receipts-to-sheets");
+  });
+
+  it("creates a new draft revision after approval", async () => {
+    app = buildApiApp();
+
+    await app.inject({
+      method: "POST",
+      url: "/api/workflows",
+      payload: gmailReceiptsToSheetsWorkflowFixture
+    });
+    await app.inject({
+      method: "POST",
+      url: "/api/workflows/workflow.gmail-receipts-to-sheets/approvals",
+      payload: { approvedBy: "owner@example.com" }
+    });
+
+    const revision = await app.inject({
+      method: "POST",
+      url: "/api/workflows/workflow.gmail-receipts-to-sheets/revisions",
+      payload: {
+        name: "Updated Receipt Sync",
+        prompt: "Track receipts and include tax totals."
+      }
+    });
+
+    expect(revision.statusCode).toBe(201);
+    expect(revision.json().workflow.revision).toBe(2);
+    expect(revision.json().workflow.approval).toBeNull();
+    expect(revision.json().workflow.name).toBe("Updated Receipt Sync");
   });
 });

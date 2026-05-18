@@ -1,18 +1,21 @@
 import Fastify from "fastify";
-import { compileWorkflowDag, executeCompiledDag, MockNodeRunner } from "@kelpclaw/nanoclaw";
-import { staticContentWorkflowFixture, validateWorkflowSpec } from "@kelpclaw/workflow-spec";
+import { MockNodeRunner, compileWorkflowDag, executeCompiledDag } from "@kelpclaw/nanoclaw";
+import {
+  WorkflowValidationError,
+  gmailReceiptsToSheetsWorkflowFixture,
+  validateWorkflowSpec
+} from "@kelpclaw/workflow-spec";
 import type { FastifyInstance } from "fastify";
 import type { WorkflowSpec } from "@kelpclaw/workflow-spec";
 import { InMemoryWorkflowStore } from "./store.js";
+import type { RevisionInput } from "./store.js";
 
 interface RouteParamsWithId {
   readonly id: string;
 }
 
 interface ApprovalRequestBody {
-  readonly approvalId: string;
-  readonly decision: "approved" | "rejected";
-  readonly actorRole: "operator" | "owner";
+  readonly approvedBy: string;
 }
 
 interface MockPlanRequestBody {
@@ -35,15 +38,12 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
   }));
 
   app.post<{ Body: MockPlanRequestBody }>("/api/plans/mock", async (request) => {
-    const name = request.body?.name ?? staticContentWorkflowFixture.metadata.name;
+    const name = request.body?.name ?? gmailReceiptsToSheetsWorkflowFixture.name;
 
     return {
       workflow: {
-        ...staticContentWorkflowFixture,
-        metadata: {
-          ...staticContentWorkflowFixture.metadata,
-          name
-        }
+        ...gmailReceiptsToSheetsWorkflowFixture,
+        name
       }
     };
   });
@@ -59,8 +59,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     const stored = store.saveWorkflow(validation.workflow, validation);
     return reply.code(201).send({
       ok: true,
-      workflow: stored.workflow,
-      approvals: stored.approvals
+      workflow: stored.workflow
     });
   });
 
@@ -77,19 +76,36 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     "/api/workflows/:id/approvals",
     async (request, reply) => {
       try {
-        const updated = store.setApproval(
-          request.params.id,
-          request.body.approvalId,
-          request.body.decision
-        );
+        const updated = store.approveWorkflow(request.params.id, request.body.approvedBy);
         return {
-          workflowId: updated.workflow.metadata.id,
-          approvals: updated.approvals
+          workflowId: updated.workflow.id,
+          revision: updated.workflow.revision,
+          approval: updated.workflow.approval,
+          workflow: updated.workflow
         };
       } catch (error) {
         return reply.code(404).send({
-          error: "APPROVAL_NOT_FOUND",
-          message: error instanceof Error ? error.message : "Approval gate was not found."
+          error: "WORKFLOW_NOT_FOUND",
+          message: error instanceof Error ? error.message : "Workflow was not found."
+        });
+      }
+    }
+  );
+
+  app.post<{ Params: RouteParamsWithId; Body: RevisionInput }>(
+    "/api/workflows/:id/revisions",
+    async (request, reply) => {
+      try {
+        const updated = store.createRevision(request.params.id, request.body);
+        return reply.code(201).send({
+          workflowId: updated.workflow.id,
+          revision: updated.workflow.revision,
+          workflow: updated.workflow
+        });
+      } catch (error) {
+        return reply.code(422).send({
+          error: "WORKFLOW_REVISION_INVALID",
+          message: error instanceof Error ? error.message : "Workflow revision was invalid."
         });
       }
     }
@@ -103,20 +119,28 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         return reply.code(404).send({ error: "WORKFLOW_NOT_FOUND" });
       }
 
-      if (!store.approvalsSatisfied(request.params.id)) {
-        return reply.code(409).send({ error: "WORKFLOW_APPROVAL_REQUIRED" });
+      try {
+        const dag = compileWorkflowDag(stored.workflow);
+        const result = await executeCompiledDag(dag, new MockNodeRunner());
+        const execution = store.saveExecution({
+          id: result.id,
+          workflowId: stored.workflow.id,
+          revision: stored.workflow.revision,
+          createdAt: result.startedAt,
+          result
+        });
+
+        return reply.code(202).send(execution);
+      } catch (error) {
+        if (error instanceof WorkflowValidationError) {
+          return reply.code(409).send({
+            error: "WORKFLOW_APPROVAL_REQUIRED",
+            issues: error.issues
+          });
+        }
+
+        throw error;
       }
-
-      const dag = compileWorkflowDag(stored.workflow);
-      const result = await executeCompiledDag(dag, new MockNodeRunner());
-      const execution = store.saveExecution({
-        id: `execution.${stored.workflow.metadata.id}.${Date.now()}`,
-        workflowId: stored.workflow.metadata.id,
-        createdAt: new Date().toISOString(),
-        result
-      });
-
-      return reply.code(202).send(execution);
     }
   );
 
