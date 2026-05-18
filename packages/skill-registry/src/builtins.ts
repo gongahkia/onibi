@@ -1,112 +1,195 @@
 import type { SkillMetadata } from "./types.js";
+import type { JsonSchemaShape, WorkflowRuntime } from "@kelpclaw/workflow-spec";
+
+const objectSchema: JsonSchemaShape = { type: "object", additionalProperties: true };
+const arraySchema: JsonSchemaShape = { type: "array", items: objectSchema };
+
+const runtimeTemplate: WorkflowRuntime = {
+  image: "node:20-alpine",
+  command: ["node", "/workspace/skills/run.js"],
+  timeoutSeconds: 300,
+  retry: {
+    maxAttempts: 1,
+    backoffSeconds: 0
+  },
+  environment: {},
+  resources: {
+    cpu: "1",
+    memoryMb: 512
+  }
+};
 
 export const builtinSkills: readonly SkillMetadata[] = [
   {
-    id: "skill.read-brief",
-    name: "Read Brief",
+    id: "skill.gmail.receipts.read",
+    name: "Read Gmail Receipts",
     version: "1.0.0",
-    summary: "Normalizes an operator brief into structured workflow inputs.",
+    description: "Reads receipt-like messages from Gmail and emits normalized message records.",
     deterministic: true,
-    nodeTypes: ["skill"],
-    capabilities: ["brief-ingestion"],
-    inputContract: {
-      briefText: "string"
+    nodeKinds: ["skill"],
+    capabilities: ["gmail-receipts-read"],
+    inputSchema: {
+      request: objectSchema
     },
-    outputContract: {
-      "brief.json": "normalized brief payload"
+    outputSchema: {
+      receipts: arraySchema
     },
+    requiredSecrets: ["gmail.oauth"],
+    adapterDependencies: ["adapter.gmail.fake"],
+    runtimeTemplate,
     metaprompt:
-      "Extract only explicit requirements from the operator brief. Preserve source wording for ambiguous constraints.",
-    docker: {
-      image: "node:20-alpine",
-      command: ["node", "/workspace/skills/read-brief.js"]
-    }
+      "Select this skill when the workflow needs Gmail receipt, order, invoice, or payment messages.",
+    validationRules: ["query must be explicit", "output port must be receipts"],
+    examples: [
+      {
+        id: "example.gmail.receipts",
+        description: "Find recent receipt emails.",
+        input: { request: { query: "newer_than:30d receipt" } },
+        output: { receipts: [] }
+      }
+    ]
+  },
+  {
+    id: "skill.sheets.rows.append",
+    name: "Append Google Sheets Rows",
+    version: "1.0.0",
+    description: "Appends deterministic row objects to a Google Sheets range.",
+    deterministic: true,
+    nodeKinds: ["delivery"],
+    capabilities: ["sheets-rows-append"],
+    inputSchema: {
+      rows: arraySchema
+    },
+    outputSchema: {
+      delivery: objectSchema
+    },
+    requiredSecrets: ["sheets.oauth"],
+    adapterDependencies: ["adapter.sheets.fake"],
+    runtimeTemplate,
+    metaprompt:
+      "Select this skill when structured rows should be appended to a spreadsheet or sheet range.",
+    validationRules: ["range must be configured", "input port must be rows"],
+    examples: [
+      {
+        id: "example.sheets.append",
+        description: "Append receipt rows.",
+        input: { rows: [{ total: 10 }] },
+        output: { delivery: { status: "recorded" } }
+      }
+    ]
+  },
+  {
+    id: "skill.alert.urgency.classify",
+    name: "Classify Alert Urgency",
+    version: "1.0.0",
+    description: "Classifies support messages for urgent alert delivery.",
+    deterministic: true,
+    nodeKinds: ["skill"],
+    capabilities: ["alert-urgency-classification"],
+    inputSchema: {
+      message: objectSchema
+    },
+    outputSchema: {
+      alert: objectSchema
+    },
+    requiredSecrets: [],
+    adapterDependencies: [],
+    runtimeTemplate,
+    metaprompt:
+      "Select this skill when a support, incident, or escalation message needs urgency classification.",
+    validationRules: ["threshold must be configured", "output port must be alert"],
+    examples: [
+      {
+        id: "example.alert.urgency",
+        description: "Classify a support escalation.",
+        input: { message: { subject: "urgent outage" } },
+        output: { alert: { severity: "high" } }
+      }
+    ]
   },
   {
     id: "skill.validate-workflow",
     name: "Validate Workflow",
     version: "1.0.0",
-    summary: "Checks a workflow spec for schema validity, stable ids, and DAG safety.",
+    description: "Checks a workflow spec for schema validity, stable ids, and DAG safety.",
     deterministic: true,
-    nodeTypes: ["skill"],
+    nodeKinds: ["skill"],
     capabilities: ["workflow-validation"],
-    inputContract: {
-      workflow: "WorkflowSpec"
+    inputSchema: {
+      workflow: objectSchema
     },
-    outputContract: {
-      "validation.json": "stable validation result"
+    outputSchema: {
+      validation: objectSchema
     },
-    metaprompt:
-      "Validate workflow structure deterministically. Return stable error codes without proposing fixes.",
-    docker: {
-      image: "node:20-alpine",
-      command: ["node", "/workspace/skills/validate-workflow.js"]
-    }
-  },
-  {
-    id: "skill.codegen.typescript",
-    name: "TypeScript Codegen",
-    version: "1.0.0",
-    summary: "Generates diffable TypeScript artifacts from approved workflow inputs.",
-    deterministic: true,
-    nodeTypes: ["codegen"],
-    capabilities: ["typescript-codegen"],
-    inputContract: {
-      spec: "WorkflowSpec",
-      replayPolicy: "ReplayPolicy"
-    },
-    outputContract: {
-      artifacts: "GeneratedArtifact[]"
-    },
-    metaprompt:
-      "Generate minimal TypeScript artifacts from the approved workflow spec. Keep output ordering stable.",
-    docker: {
-      image: "node:20-alpine",
-      command: ["node", "/workspace/skills/codegen-typescript.js"]
-    }
+    requiredSecrets: [],
+    adapterDependencies: [],
+    runtimeTemplate,
+    metaprompt: "Select this skill when the workflow itself needs deterministic validation.",
+    validationRules: ["must return stable validation codes"],
+    examples: [
+      {
+        id: "example.workflow.validation",
+        description: "Validate a workflow.",
+        input: { workflow: { id: "workflow.example" } },
+        output: { validation: { ok: true } }
+      }
+    ]
   },
   {
     id: "skill.approval.owner",
     name: "Owner Approval Gate",
     version: "1.0.0",
-    summary: "Blocks downstream execution until an owner approves the workflow gate.",
+    description: "Blocks downstream execution until an owner approves the workflow gate.",
     deterministic: true,
-    nodeTypes: ["approval"],
+    nodeKinds: ["approval"],
     capabilities: ["approval-routing"],
-    inputContract: {
-      approvalId: "string",
-      requiredRole: "owner"
+    inputSchema: {
+      alert: objectSchema
     },
-    outputContract: {
-      decision: "approved | rejected | pending"
+    outputSchema: {
+      approvedAlert: objectSchema
     },
-    metaprompt:
-      "Represent the current approval state exactly. Do not infer approval from generated content.",
-    docker: {
-      image: "node:20-alpine",
-      command: ["node", "/workspace/skills/approval-owner.js"]
-    }
+    requiredSecrets: [],
+    adapterDependencies: [],
+    runtimeTemplate,
+    metaprompt: "Select this skill when execution must pause for explicit human approval.",
+    validationRules: ["requiredRole must be operator or owner"],
+    examples: [
+      {
+        id: "example.approval.owner",
+        description: "Approve generated copy.",
+        input: { alert: { text: "review" } },
+        output: { approvedAlert: { text: "review" } }
+      }
+    ]
   },
   {
     id: "skill.adapter.dispatch",
     name: "Adapter Dispatch",
     version: "1.0.0",
-    summary: "Routes a prepared payload to a configured fake adapter in local test mode.",
+    description: "Routes a prepared payload to configured fake adapters in local test mode.",
     deterministic: true,
-    nodeTypes: ["adapter"],
+    nodeKinds: ["delivery"],
     capabilities: ["adapter-dispatch"],
-    inputContract: {
-      adapterId: "string",
-      payload: "JsonRecord"
+    inputSchema: {
+      payload: objectSchema
     },
-    outputContract: {
-      delivery: "fake adapter delivery record"
+    outputSchema: {
+      delivery: objectSchema
     },
+    requiredSecrets: [],
+    adapterDependencies: ["adapter.email.fake", "adapter.whatsapp.fake", "adapter.telegram.fake"],
+    runtimeTemplate,
     metaprompt:
-      "Dispatch only to configured fake adapters. Never request or use live external credentials.",
-    docker: {
-      image: "node:20-alpine",
-      command: ["node", "/workspace/skills/adapter-dispatch.js"]
-    }
+      "Select this skill when a workflow needs fake email, WhatsApp, or Telegram dispatch.",
+    validationRules: ["only fake adapters are allowed in Phase 2"],
+    examples: [
+      {
+        id: "example.adapter.dispatch",
+        description: "Send a fake Telegram message.",
+        input: { payload: { text: "ready" } },
+        output: { delivery: { status: "recorded" } }
+      }
+    ]
   }
 ];

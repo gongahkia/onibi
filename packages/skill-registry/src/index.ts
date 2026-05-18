@@ -1,10 +1,20 @@
 export { builtinSkills } from "./builtins.js";
 export {
   SkillNotFoundError,
+  chooseSkillOrCodegen,
   findDefaultSkill,
   getSkill,
   listSkills,
+  matchSkills,
   lookupSkills,
-  requireSkill
+  requireSkill,
+  skillReuseThreshold
 } from "./lookup.js";
-export type { SkillCapability, SkillLookupQuery, SkillMetadata } from "./types.js";
+export type {
+  SkillCapability,
+  SkillExampleFixture,
+  SkillLookupQuery,
+  SkillMatch,
+  SkillMetadata,
+  SkillSelection
+} from "./types.js";
