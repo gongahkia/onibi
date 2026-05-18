@@ -9,6 +9,8 @@ export {
   assertValidNodeOutput
 } from "./payload-validation.js";
 export type { NodePayloadValidationIssue } from "./payload-validation.js";
+export { persistRunManifest, replayCompletedRun } from "./replay.js";
+export type { NanoClawRunManifest } from "./replay.js";
 export { createExecutionWorkspace, prepareNodeWorkspace } from "./workspace.js";
 export type { ExecutionWorkspaceOptions } from "./workspace.js";
 export type {

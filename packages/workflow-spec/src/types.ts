@@ -151,6 +151,7 @@ export interface WorkflowExecutionResult {
   readonly startedAt: string;
   readonly finishedAt: string;
   readonly nodeResults: readonly WorkflowNodeExecutionResult[];
+  readonly events?: readonly WorkflowRunEvent[] | undefined;
   readonly deterministic: true;
   readonly metadata?: JsonRecord | undefined;
 }

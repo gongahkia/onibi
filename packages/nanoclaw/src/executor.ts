@@ -3,6 +3,7 @@ import {
   assertValidNodeInput,
   assertValidNodeOutput
 } from "./payload-validation.js";
+import { persistRunManifest } from "./replay.js";
 import { createExecutionWorkspace, prepareNodeWorkspace } from "./workspace.js";
 import type {
   CompiledDag,
@@ -13,11 +14,17 @@ import type {
   NodeInputPayload,
   NodeRunner
 } from "./types.js";
-import type { JsonRecord, JsonValue, WorkflowNodeExecutionAttempt } from "@kelpclaw/workflow-spec";
+import type {
+  JsonRecord,
+  JsonValue,
+  WorkflowNodeExecutionAttempt,
+  WorkflowRunEvent
+} from "@kelpclaw/workflow-spec";
 
 export interface ExecuteCompiledDagOptions {
   readonly runId?: string | undefined;
   readonly workspaceRoot?: string | undefined;
+  readonly onEvent?: ((event: WorkflowRunEvent) => void) | undefined;
   readonly signal?: AbortSignal | undefined;
 }
 
@@ -29,6 +36,8 @@ export async function executeCompiledDag(
   const nodeResults: NodeExecutionResult[] = [];
   const nodeOutputs = new Map<string, JsonRecord>();
   const runWorkspace = await createExecutionWorkspace(dag, options);
+  const eventStream = createRunEventStream(options.onEvent);
+  eventStream.emit("info", "NanoClaw run started.");
 
   for (const nodeId of dag.order) {
     const node = dag.nodes.get(nodeId);
@@ -40,11 +49,14 @@ export async function executeCompiledDag(
     const inputValidation = validateNodeInput(node, input, new Date().toISOString());
     if (inputValidation) {
       nodeResults.push(inputValidation);
-      return createExecutionResult(
-        dag,
+      eventStream.emit("error", `Node '${inputValidation.nodeId}' failed.`, inputValidation.nodeId);
+      const results = emitSkippedResults(
         withSkippedResults(dag, nodeResults, node.id),
-        "failed",
-        runWorkspace.runDir
+        eventStream
+      );
+      return finishExecution(
+        createExecutionResult(dag, results, "failed", runWorkspace.runDir, eventStream),
+        eventStream
       );
     }
 
@@ -57,20 +69,30 @@ export async function executeCompiledDag(
       options
     );
     nodeResults.push(finalResult);
+    eventStream.emit(
+      finalResult.status === "failed" ? "error" : "info",
+      `Node '${finalResult.nodeId}' ${finalResult.status}.`,
+      finalResult.nodeId
+    );
     if (finalResult.status === "succeeded") {
       nodeOutputs.set(node.id, finalResult.output);
     }
     if (finalResult.status === "failed") {
-      return createExecutionResult(
-        dag,
+      const results = emitSkippedResults(
         withSkippedResults(dag, nodeResults, node.id),
-        "failed",
-        runWorkspace.runDir
+        eventStream
+      );
+      return finishExecution(
+        createExecutionResult(dag, results, "failed", runWorkspace.runDir, eventStream),
+        eventStream
       );
     }
   }
 
-  return createExecutionResult(dag, nodeResults, "succeeded", runWorkspace.runDir);
+  return finishExecution(
+    createExecutionResult(dag, nodeResults, "succeeded", runWorkspace.runDir, eventStream),
+    eventStream
+  );
 }
 
 async function executeNodeWithAttempts(
@@ -362,6 +384,43 @@ function withSkippedResults(
   return [...nodeResults, ...skipped];
 }
 
+function emitSkippedResults(
+  nodeResults: readonly NodeExecutionResult[],
+  eventStream: RunEventStream
+): readonly NodeExecutionResult[] {
+  for (const result of nodeResults) {
+    if (result.status === "skipped") {
+      eventStream.emit("info", `Node '${result.nodeId}' skipped.`, result.nodeId);
+    }
+  }
+
+  return nodeResults;
+}
+
+interface RunEventStream {
+  readonly events: readonly WorkflowRunEvent[];
+  emit(level: WorkflowRunEvent["level"], message: string, nodeId?: string): void;
+}
+
+function createRunEventStream(onEvent: ExecuteCompiledDagOptions["onEvent"]): RunEventStream {
+  const events: WorkflowRunEvent[] = [];
+
+  return {
+    events,
+    emit(level, message, nodeId) {
+      const event: WorkflowRunEvent = {
+        id: `event.${events.length + 1}`,
+        timestamp: new Date().toISOString(),
+        level,
+        message,
+        ...(nodeId ? { nodeId } : {})
+      };
+      events.push(event);
+      onEvent?.(event);
+    }
+  };
+}
+
 function createAttemptSignal(
   parentSignal: AbortSignal | undefined,
   timeoutSeconds: number
@@ -420,11 +479,32 @@ async function waitForBackoff(
   });
 }
 
+async function finishExecution(
+  result: DagExecutionResult,
+  eventStream: RunEventStream
+): Promise<DagExecutionResult> {
+  eventStream.emit(result.status === "failed" ? "error" : "info", "NanoClaw run finished.");
+  const resultWithEvents: DagExecutionResult = {
+    ...result,
+    events: eventStream.events
+  };
+  const manifestPath = await persistRunManifest(resultWithEvents);
+
+  return {
+    ...resultWithEvents,
+    metadata: {
+      ...(resultWithEvents.metadata ?? {}),
+      manifestPath
+    }
+  };
+}
+
 function createExecutionResult(
   dag: CompiledDag,
   nodeResults: readonly NodeExecutionResult[],
   status: DagExecutionResult["status"],
-  workspacePath: string
+  workspacePath: string,
+  eventStream: RunEventStream
 ): DagExecutionResult {
   const startedAt = nodeResults[0]?.startedAt ?? dag.approval.approvedAt;
   const finishedAt = nodeResults.at(-1)?.finishedAt ?? startedAt;
@@ -437,6 +517,7 @@ function createExecutionResult(
     startedAt,
     finishedAt,
     nodeResults,
+    events: eventStream.events,
     deterministic: true,
     metadata: {
       dagHash: dag.dagHash,
