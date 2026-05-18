@@ -3,126 +3,37 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
-  schedule:
-    - cron: "17 3 * * 1"
+    branches:
+      - main
 
 permissions:
   contents: read
 
 jobs:
   verify:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    name: Verify
+    runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@1.93.0
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
         with:
-          components: clippy,rustfmt
-      - run: cargo metadata --locked --format-version 1
-      - run: cargo fmt --check
-      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-      - run: cargo test --workspace --no-default-features --locked
-      - run: cargo test --workspace --all-features --locked
+          node-version: "20.19.5"
+          cache: pnpm
 
-  tor-maildrop:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@1.93.0
-      - run: cargo test -p arachne-daemon --test tor_maildrop_topology --locked
+      - name: Enable pnpm
+        run: corepack enable
 
-  end-to-end:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@1.93.0
-      - run: cargo test -p arachne-daemon --test direct_two_node --test lan_direct_transport --test local_mesh_two_node --test wifi_direct_transport --test wifi_hotspot_transport --locked
-
-  windows-msix:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@1.93.0
-      - id: certificate
-        shell: pwsh
-        env:
-          WINDOWS_MSIX_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_MSIX_CERTIFICATE_BASE64 }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_MSIX_CERTIFICATE_BASE64)) {
-            'signed=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-            exit 0
-          }
-          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\arachne-msix.pfx", [Convert]::FromBase64String($env:WINDOWS_MSIX_CERTIFICATE_BASE64))
-          'signed=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-      - if: steps.certificate.outputs.signed == 'true'
-        shell: pwsh
-        env:
-          WINDOWS_MSIX_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_MSIX_CERTIFICATE_PASSWORD }}
-        run: pwsh -File deploy/client/windows/package.ps1 -Output "$env:RUNNER_TEMP\arachne.msix" -CertificatePath "$env:RUNNER_TEMP\arachne-msix.pfx" -CertificatePassword $env:WINDOWS_MSIX_CERTIFICATE_PASSWORD
-      - if: steps.certificate.outputs.signed != 'true'
-        shell: pwsh
-        run: pwsh -File deploy/client/windows/package.ps1 -Output "$env:RUNNER_TEMP\arachne.msix" -SkipSigning
-      - uses: actions/upload-artifact@v4
+      - name: Set up Zig
+        uses: mlugg/setup-zig@v2.2.1
         with:
-          name: arachne-windows-msix
-          path: ${{ runner.temp }}\arachne.msix
-          if-no-files-found: error
-          retention-days: 7
+          version: 0.15.2
 
-  reproducible-release:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@1.93.0
-      - run: |
-          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
-          CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/repro-a cargo build --release -p arachne-cli --locked
-          CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/repro-b cargo build --release -p arachne-cli --locked
-          cmp target/repro-a/release/arachne target/repro-b/release/arachne
-          target/repro-a/release/arachne release-metadata --source-revision "$GITHUB_SHA" --source-date-epoch "$SOURCE_DATE_EPOCH" --output target/repro-a/release-metadata.json
-          target/repro-b/release/arachne release-metadata --source-revision "$GITHUB_SHA" --source-date-epoch "$SOURCE_DATE_EPOCH" --output target/repro-b/release-metadata.json
-          cmp target/repro-a/release-metadata.json target/repro-b/release-metadata.json
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
-  audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@1.93.0
-      - run: cargo install cargo-audit --version 0.22.2 --locked
-      - run: cargo audit --deny warnings --ignore RUSTSEC-2024-0436
-
-  miri:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: miri
-      - run: cargo +nightly miri setup
-      - run: cargo +nightly miri test -p arachne-core --lib
-      - run: "cargo +nightly miri test -p arachne-core --features test-fixtures --lib test_fixture::tests::"
-
-  dependency-policy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25
-        with:
-          command-arguments: advisories sources
-
-  licenses:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25
-        with:
-          command-arguments: licenses
-          rust-version: "1.93.0"
+      - name: Verify workspace
+        run: pnpm verify
