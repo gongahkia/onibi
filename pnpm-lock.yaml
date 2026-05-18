@@ -112,6 +112,18 @@ importers:
         specifier: workspace:*
         version: link:../workflow-spec
 
+  packages/testing:
+    dependencies:
+      '@kelpclaw/adapters':
+        specifier: workspace:*
+        version: link:../adapters
+      '@kelpclaw/nanoclaw':
+        specifier: workspace:*
+        version: link:../nanoclaw
+      '@kelpclaw/workflow-spec':
+        specifier: workspace:*
+        version: link:../workflow-spec
+
   packages/workflow-spec:
     dependencies:
       zod:
