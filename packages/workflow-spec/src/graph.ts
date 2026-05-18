@@ -82,9 +82,7 @@ export interface WorkflowSpecFactoryInput {
   readonly updatedAt?: string | undefined;
 }
 
-export function createWorkflowRuntime(
-  overrides: PartialWorkflowRuntime = {}
-): WorkflowRuntime {
+export function createWorkflowRuntime(overrides: PartialWorkflowRuntime = {}): WorkflowRuntime {
   return {
     ...defaultWorkflowRuntime,
     ...overrides,
@@ -129,7 +127,7 @@ export function createWorkflowNode(input: WorkflowNodeFactoryInput): WorkflowNod
     determinism: createWorkflowDeterminism(input.determinism),
     ...(input.skillId ? { skillId: input.skillId } : {}),
     ...(input.adapterId ? { adapterId: input.adapterId } : {}),
-    ...(input.codegen ?? defaults.codegen ? { codegen: input.codegen ?? defaults.codegen } : {})
+    ...((input.codegen ?? defaults.codegen) ? { codegen: input.codegen ?? defaults.codegen } : {})
   };
 
   return node;

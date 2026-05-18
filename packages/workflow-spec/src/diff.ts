@@ -1,7 +1,10 @@
 import { stableWorkflowStringify } from "./stable-json.js";
 import type { WorkflowDiffLine, WorkflowNode, WorkflowSpec, WorkflowSpecDiff } from "./types.js";
 
-export function createWorkflowSpecDiff(before: WorkflowSpec, after: WorkflowSpec): WorkflowSpecDiff {
+export function createWorkflowSpecDiff(
+  before: WorkflowSpec,
+  after: WorkflowSpec
+): WorkflowSpecDiff {
   const beforeJson = stableWorkflowStringify(before);
   const afterJson = stableWorkflowStringify(after);
   const lines = diffTextLines(beforeJson.split("\n"), afterJson.split("\n"));
@@ -91,7 +94,9 @@ export function summarizeWorkflowChanges(
     summary.push(`Revision ${before.revision} -> ${after.revision}.`);
   }
   if (before.approval?.frozenDagHash !== after.approval?.frozenDagHash) {
-    summary.push(after.approval ? "Frozen approval metadata changed." : "Approval metadata removed.");
+    summary.push(
+      after.approval ? "Frozen approval metadata changed." : "Approval metadata removed."
+    );
   }
 
   return summary.length > 0 ? summary : ["No workflow changes."];

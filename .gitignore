@@ -4,6 +4,8 @@
 /zig-out
 node_modules
 coverage
+test-results
+apps/*/test-results
 apps/*/dist
 packages/*/dist
 *.tsbuildinfo
