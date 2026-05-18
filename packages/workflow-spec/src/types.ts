@@ -104,6 +104,16 @@ export interface WorkflowApprovalRecord {
   readonly nodeOrder: readonly string[];
 }
 
+export interface WorkflowNodeExecutionAttempt {
+  readonly attempt: number;
+  readonly status: "succeeded" | "failed" | "timed_out" | "cancelled";
+  readonly startedAt: string;
+  readonly finishedAt: string;
+  readonly exitCode?: number | undefined;
+  readonly error?: string | undefined;
+  readonly workspacePath?: string | undefined;
+}
+
 export interface WorkflowSpec {
   readonly id: string;
   readonly schemaVersion: WorkflowSchemaVersion;
@@ -129,6 +139,7 @@ export interface WorkflowNodeExecutionResult {
   readonly stdoutPath?: string | undefined;
   readonly stderrPath?: string | undefined;
   readonly artifacts?: readonly string[] | undefined;
+  readonly attempts?: readonly WorkflowNodeExecutionAttempt[] | undefined;
   readonly metadata?: JsonRecord | undefined;
 }
 

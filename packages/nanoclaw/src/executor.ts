@@ -8,11 +8,12 @@ import type {
   CompiledDag,
   CompiledDagNode,
   DagExecutionResult,
+  ExecutionWorkspace,
   NodeExecutionResult,
   NodeInputPayload,
   NodeRunner
 } from "./types.js";
-import type { JsonRecord, JsonValue } from "@kelpclaw/workflow-spec";
+import type { JsonRecord, JsonValue, WorkflowNodeExecutionAttempt } from "@kelpclaw/workflow-spec";
 
 export interface ExecuteCompiledDagOptions {
   readonly runId?: string | undefined;
@@ -35,60 +36,128 @@ export async function executeCompiledDag(
       throw new Error(`Compiled DAG order referenced unknown node '${nodeId}'.`);
     }
 
-    const startedAt = new Date().toISOString();
     const input = resolveNodeInputs(node, nodeOutputs);
-    const inputPayload = createNodeInputPayload(dag, node, input, 1);
-    const nodeWorkspace = await prepareNodeWorkspace({
-      runWorkspace,
-      node,
-      attempt: 1,
-      inputPayload
-    });
-    const inputValidation = validateNodeInput(node, input, startedAt);
+    const inputValidation = validateNodeInput(node, input, new Date().toISOString());
     if (inputValidation) {
       nodeResults.push(inputValidation);
-      return createExecutionResult(dag, nodeResults, "failed", runWorkspace.runDir);
+      return createExecutionResult(
+        dag,
+        withSkippedResults(dag, nodeResults, node.id),
+        "failed",
+        runWorkspace.runDir
+      );
     }
 
-    const runnerResult = await runner.run(node, {
+    const finalResult = await executeNodeWithAttempts(
       dag,
+      node,
       input,
-      inputPayload,
-      attempt: 1,
-      workspace: nodeWorkspace,
-      signal: options.signal
-    });
-    const result: NodeExecutionResult = {
-      nodeId: node.id,
-      status: runnerResult.status,
-      startedAt,
-      finishedAt: new Date().toISOString(),
-      input,
-      output: runnerResult.output,
-      error: runnerResult.error,
-      workspacePath: nodeWorkspace.attemptDir,
-      stdoutPath: runnerResult.stdoutPath,
-      stderrPath: runnerResult.stderrPath,
-      artifacts: runnerResult.artifacts,
-      metadata: {
-        ...(runnerResult.exitCode === undefined ? {} : { exitCode: runnerResult.exitCode }),
-        ...(runnerResult.metadata ?? {})
-      }
-    };
-
-    const outputValidation =
-      result.status === "succeeded" ? validateNodeOutput(node, result, startedAt) : null;
-    const finalResult = outputValidation ?? result;
+      runWorkspace,
+      runner,
+      options
+    );
     nodeResults.push(finalResult);
     if (finalResult.status === "succeeded") {
       nodeOutputs.set(node.id, finalResult.output);
     }
     if (finalResult.status === "failed") {
-      return createExecutionResult(dag, nodeResults, "failed", runWorkspace.runDir);
+      return createExecutionResult(
+        dag,
+        withSkippedResults(dag, nodeResults, node.id),
+        "failed",
+        runWorkspace.runDir
+      );
     }
   }
 
   return createExecutionResult(dag, nodeResults, "succeeded", runWorkspace.runDir);
+}
+
+async function executeNodeWithAttempts(
+  dag: CompiledDag,
+  node: CompiledDagNode,
+  input: JsonRecord,
+  runWorkspace: ExecutionWorkspace,
+  runner: NodeRunner,
+  options: ExecuteCompiledDagOptions
+): Promise<NodeExecutionResult> {
+  const maxAttempts = Math.max(1, node.runtime.retry.maxAttempts);
+  const attempts: WorkflowNodeExecutionAttempt[] = [];
+  let lastResult: NodeExecutionResult | null = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const startedAt = new Date().toISOString();
+    const inputPayload = createNodeInputPayload(dag, node, input, attempt);
+    const nodeWorkspace = await prepareNodeWorkspace({
+      runWorkspace,
+      node,
+      attempt,
+      inputPayload
+    });
+    const attemptSignal = createAttemptSignal(options.signal, node.runtime.timeoutSeconds);
+
+    try {
+      const runnerResult = await runner.run(node, {
+        dag,
+        input,
+        inputPayload,
+        attempt,
+        workspace: nodeWorkspace,
+        signal: attemptSignal.signal
+      });
+      const result: NodeExecutionResult = {
+        nodeId: node.id,
+        status: runnerResult.status,
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        input,
+        output: runnerResult.output,
+        error: runnerResult.error,
+        workspacePath: nodeWorkspace.attemptDir,
+        stdoutPath: runnerResult.stdoutPath,
+        stderrPath: runnerResult.stderrPath,
+        artifacts: runnerResult.artifacts,
+        metadata: {
+          ...(runnerResult.exitCode === undefined ? {} : { exitCode: runnerResult.exitCode }),
+          ...(runnerResult.metadata ?? {})
+        }
+      };
+      const outputValidation =
+        result.status === "succeeded" ? validateNodeOutput(node, result, startedAt) : null;
+      lastResult = outputValidation ?? result;
+      attempts.push(
+        createAttemptRecord(attempt, lastResult, nodeWorkspace.attemptDir, attemptSignal.timedOut)
+      );
+
+      if (lastResult.status === "succeeded" || outputValidation) {
+        return withAttemptMetadata(lastResult, attempts);
+      }
+      if (attempt < maxAttempts) {
+        await waitForBackoff(node.runtime.retry.backoffSeconds, options.signal);
+      }
+    } catch (error) {
+      lastResult = createFailedAttemptResult(node, input, startedAt, nodeWorkspace.attemptDir, {
+        error,
+        timedOut: attemptSignal.timedOut,
+        cancelled: options.signal?.aborted ?? false
+      });
+      attempts.push(
+        createAttemptRecord(attempt, lastResult, nodeWorkspace.attemptDir, attemptSignal.timedOut)
+      );
+      if (options.signal?.aborted || attempt === maxAttempts) {
+        return withAttemptMetadata(lastResult, attempts);
+      }
+      await waitForBackoff(node.runtime.retry.backoffSeconds, options.signal);
+    } finally {
+      attemptSignal.dispose();
+    }
+  }
+
+  if (!lastResult) {
+    throw new Error(`Node '${node.id}' did not produce an execution result.`);
+  }
+
+  return withAttemptMetadata(lastResult, attempts);
 }
 
 function resolveNodeInputs(
@@ -194,6 +263,161 @@ function validateNodeOutput(
       }
     };
   }
+}
+
+function createFailedAttemptResult(
+  node: CompiledDagNode,
+  input: JsonRecord,
+  startedAt: string,
+  workspacePath: string,
+  failure: {
+    readonly error: unknown;
+    readonly timedOut: boolean;
+    readonly cancelled: boolean;
+  }
+): NodeExecutionResult {
+  const message = failure.timedOut
+    ? `Node '${node.id}' timed out after ${node.runtime.timeoutSeconds} seconds.`
+    : failure.cancelled
+      ? `Node '${node.id}' was cancelled.`
+      : failure.error instanceof Error
+        ? failure.error.message
+        : `Node '${node.id}' failed.`;
+
+  return {
+    nodeId: node.id,
+    status: "failed",
+    startedAt,
+    finishedAt: new Date().toISOString(),
+    input,
+    output: {},
+    error: message,
+    workspacePath,
+    metadata: {
+      timedOut: failure.timedOut,
+      cancelled: failure.cancelled
+    }
+  };
+}
+
+function createAttemptRecord(
+  attempt: number,
+  result: NodeExecutionResult,
+  workspacePath: string,
+  timedOut: boolean
+): WorkflowNodeExecutionAttempt {
+  return {
+    attempt,
+    status: timedOut
+      ? "timed_out"
+      : result.metadata?.cancelled === true
+        ? "cancelled"
+        : result.status === "succeeded"
+          ? "succeeded"
+          : "failed",
+    startedAt: result.startedAt,
+    finishedAt: result.finishedAt,
+    exitCode: typeof result.metadata?.exitCode === "number" ? result.metadata.exitCode : undefined,
+    error: result.error,
+    workspacePath
+  };
+}
+
+function withAttemptMetadata(
+  result: NodeExecutionResult,
+  attempts: readonly WorkflowNodeExecutionAttempt[]
+): NodeExecutionResult {
+  return {
+    ...result,
+    attempts,
+    metadata: {
+      ...(result.metadata ?? {}),
+      attempts: attempts.length,
+      retryCount: Math.max(0, attempts.length - 1),
+      nonDeterministicRetry: attempts.length > 1
+    }
+  };
+}
+
+function withSkippedResults(
+  dag: CompiledDag,
+  nodeResults: readonly NodeExecutionResult[],
+  failedNodeId: string
+): readonly NodeExecutionResult[] {
+  const completed = new Set(nodeResults.map((result) => result.nodeId));
+  const skippedAt = new Date().toISOString();
+  const skipped = dag.order
+    .filter((nodeId) => !completed.has(nodeId))
+    .map((nodeId) => ({
+      nodeId,
+      status: "skipped" as const,
+      startedAt: skippedAt,
+      finishedAt: skippedAt,
+      output: {},
+      metadata: {
+        skippedBecause: failedNodeId
+      }
+    }));
+
+  return [...nodeResults, ...skipped];
+}
+
+function createAttemptSignal(
+  parentSignal: AbortSignal | undefined,
+  timeoutSeconds: number
+): {
+  readonly signal: AbortSignal;
+  readonly timedOut: boolean;
+  dispose(): void;
+} {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort(new Error(`Timed out after ${timeoutSeconds} seconds.`));
+  }, timeoutSeconds * 1000);
+  const abortFromParent = () => controller.abort(parentSignal?.reason);
+
+  if (parentSignal?.aborted) {
+    abortFromParent();
+  } else {
+    parentSignal?.addEventListener("abort", abortFromParent, { once: true });
+  }
+
+  return {
+    signal: controller.signal,
+    get timedOut() {
+      return timedOut;
+    },
+    dispose() {
+      clearTimeout(timeout);
+      parentSignal?.removeEventListener("abort", abortFromParent);
+    }
+  };
+}
+
+async function waitForBackoff(
+  backoffSeconds: number,
+  signal: AbortSignal | undefined
+): Promise<void> {
+  if (backoffSeconds <= 0) {
+    return;
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(resolve, backoffSeconds * 1000);
+    const abort = () => {
+      clearTimeout(timeout);
+      reject(signal?.reason ?? new Error("Execution cancelled during retry backoff."));
+    };
+
+    if (signal?.aborted) {
+      abort();
+      return;
+    }
+
+    signal?.addEventListener("abort", abort, { once: true });
+  });
 }
 
 function createExecutionResult(

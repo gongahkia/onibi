@@ -76,6 +76,7 @@ export type {
   WorkflowExecutionResult,
   WorkflowFetchRunResponse,
   WorkflowNode,
+  WorkflowNodeExecutionAttempt,
   WorkflowNodeExecutionResult,
   WorkflowNodeKind,
   WorkflowPlanRequest,

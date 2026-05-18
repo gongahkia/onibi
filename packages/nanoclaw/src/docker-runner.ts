@@ -91,7 +91,8 @@ export class DockerNodeRunner implements NodeRunner {
     }>((resolve, reject) => {
       const child = spawn(command, args, {
         cwd: context.workspace.attemptDir,
-        stdio: ["ignore", "pipe", "pipe"]
+        stdio: ["ignore", "pipe", "pipe"],
+        signal: context.signal
       });
       const stdoutChunks: Buffer[] = [];
       const stderrChunks: Buffer[] = [];
