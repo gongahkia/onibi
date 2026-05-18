@@ -1,5 +1,11 @@
 import { createHash } from "node:crypto";
-import type { ArtifactContentType, ArtifactManifest, GeneratedArtifact } from "./types.js";
+import type {
+  ArtifactContentType,
+  ArtifactManifest,
+  CodegenMetadataInput,
+  GeneratedArtifact,
+  WorkflowCodegenMetadata
+} from "./types.js";
 
 export function createGeneratedArtifact(input: {
   readonly path: string;
@@ -32,6 +38,21 @@ export function createArtifactManifest(input: {
 
 export function checksumArtifactContent(content: string): string {
   return `sha256:${createHash("sha256").update(content, "utf8").digest("hex")}`;
+}
+
+export function createCodegenMetadata(input: CodegenMetadataInput): WorkflowCodegenMetadata {
+  assertSafeArtifactPath(input.artifact.path);
+
+  return {
+    provenance: {
+      generator: input.generator,
+      generatedAt: input.generatedAt,
+      sourcePrompt: input.sourcePrompt,
+      artifactPath: input.artifact.path,
+      artifactChecksum: input.artifact.checksum
+    },
+    replay: input.replay
+  };
 }
 
 export function assertSafeArtifactPath(path: string): void {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertSafeArtifactPath,
   createArtifactManifest,
+  createCodegenMetadata,
   createGeneratedArtifact,
   decideReplay
 } from "../src/index.js";
@@ -73,5 +74,38 @@ describe("codegen artifact contracts", () => {
     expect(decideReplay(previous, next, { mode: "fail-on-drift", seed: "test" }).action).toBe(
       "fail"
     );
+  });
+
+  it("creates workflow-compatible codegen metadata", () => {
+    const artifact = createGeneratedArtifact({
+      path: "generated/scrape-status-page.ts",
+      content: "export const scrape = true;\n",
+      contentType: "text/typescript"
+    });
+
+    expect(
+      createCodegenMetadata({
+        generator: "kelpclaw.codegen.typescript",
+        generatedAt: "2026-05-18T00:00:00.000Z",
+        sourcePrompt: "Scrape the page.",
+        artifact,
+        replay: {
+          mode: "reuse-if-unchanged",
+          seed: "fixture"
+        }
+      })
+    ).toEqual({
+      provenance: {
+        generator: "kelpclaw.codegen.typescript",
+        generatedAt: "2026-05-18T00:00:00.000Z",
+        sourcePrompt: "Scrape the page.",
+        artifactPath: "generated/scrape-status-page.ts",
+        artifactChecksum: artifact.checksum
+      },
+      replay: {
+        mode: "reuse-if-unchanged",
+        seed: "fixture"
+      }
+    });
   });
 });

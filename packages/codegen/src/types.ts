@@ -1,4 +1,8 @@
-import type { JsonRecord } from "@kelpclaw/workflow-spec";
+import type {
+  JsonRecord,
+  WorkflowCodegenMetadata,
+  WorkflowCodegenReplay
+} from "@kelpclaw/workflow-spec";
 
 export type ArtifactContentType =
   | "application/json"
@@ -31,3 +35,13 @@ export interface ReplayDecision {
   readonly action: "reuse" | "regenerate" | "fail";
   readonly reason: string;
 }
+
+export interface CodegenMetadataInput {
+  readonly generator: string;
+  readonly generatedAt: string;
+  readonly sourcePrompt: string;
+  readonly artifact: Pick<GeneratedArtifact, "path" | "checksum">;
+  readonly replay: WorkflowCodegenReplay;
+}
+
+export type { WorkflowCodegenMetadata };
