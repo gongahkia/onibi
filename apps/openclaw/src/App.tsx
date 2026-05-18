@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Background,
   Controls,
@@ -61,6 +61,10 @@ const nodeKinds: readonly WorkflowNodeKind[] = [
 ];
 
 const defaultPrompt = "extract transaction details from Gmail receipts into Sheets";
+const initialSelectedNode =
+  gmailReceiptsToSheetsWorkflowFixture.nodes.find((node) => node.id === "read-gmail-receipts") ??
+  gmailReceiptsToSheetsWorkflowFixture.nodes[0] ??
+  null;
 
 export function App() {
   const [workflow, setWorkflow] = useState<WorkflowSpec>(gmailReceiptsToSheetsWorkflowFixture);
@@ -74,7 +78,7 @@ export function App() {
   const [dirtyNodeIds, setDirtyNodeIds] = useState<ReadonlySet<string>>(new Set());
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>("read-gmail-receipts");
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
-  const [nodePrompt, setNodePrompt] = useState("");
+  const [nodePrompt, setNodePrompt] = useState(initialSelectedNode?.description ?? "");
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
@@ -97,11 +101,6 @@ export function App() {
   );
   const canApprove = validation.ok;
   const canRun = approvedRevision !== null;
-
-  useEffect(() => {
-    setNodePrompt(selectedNode?.description ?? "");
-    setJsonError(null);
-  }, [selectedNode?.description, selectedNodeId]);
 
   const loadWorkflow = useCallback(
     (
@@ -220,6 +219,8 @@ export function App() {
     });
     setSelectedNodeId(id);
     setSelectedEdgeId(null);
+    setNodePrompt(node.description);
+    setJsonError(null);
     markDirty(id);
   }
 
@@ -301,14 +302,17 @@ export function App() {
         preserveNodeIds: [...dirtyNodeIds]
       });
       loadWorkflow(response.workflow, response.validation);
-      setSelectedNodeId(
-        response.workflow.nodes.find((node) => node.kind !== "trigger")?.id ?? null
-      );
+      const nextSelectedNode =
+        response.workflow.nodes.find((node) => node.kind !== "trigger") ??
+        response.workflow.nodes[0] ??
+        null;
+      setSelectedNodeId(nextSelectedNode?.id ?? null);
       setSelectedEdgeId(null);
       setDirtyNodeIds(new Set());
       setApprovedRevision(null);
       setApprovalDiff(null);
       setRun(null);
+      setNodePrompt(nextSelectedNode?.description ?? "");
     });
   }
 
@@ -370,6 +374,8 @@ export function App() {
     setDirtyNodeIds(new Set());
     setSelectedNodeId("read-gmail-receipts");
     setSelectedEdgeId(null);
+    setNodePrompt(initialSelectedNode?.description ?? "");
+    setJsonError(null);
     setApprovedRevision(null);
     setApprovalDiff(null);
     setRun(null);
@@ -525,9 +531,15 @@ export function App() {
               if (selectedNodes[0]) {
                 setSelectedNodeId(selectedNodes[0].id);
                 setSelectedEdgeId(null);
+                setNodePrompt(
+                  workflow.nodes.find((node) => node.id === selectedNodes[0]?.id)?.description ?? ""
+                );
+                setJsonError(null);
               } else if (selectedEdges[0]) {
                 setSelectedNodeId(null);
                 setSelectedEdgeId(selectedEdges[0].id);
+                setNodePrompt("");
+                setJsonError(null);
               }
             }}
             fitView
