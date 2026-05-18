@@ -2,9 +2,9 @@
 
 KelpClaw is a TypeScript monorepo for deterministic AI workflow design and execution.
 
-OpenClaw is the editable workflow planner. NanoClaw is the deterministic runtime that compiles workflow DAGs and executes nodes through a Docker-per-node contract.
+OpenClaw is the editable workflow planner. NanoClaw is the deterministic runtime that compiles approved workflow revisions and executes nodes through a Docker-per-node contract.
 
-The previous Zig CLI/TUI task planner is preserved in this repository as legacy reference material during the rewrite. Phase 1 does not delete Zig source, installer scripts, or package-release paths.
+The previous Zig CLI/TUI task planner is preserved in this repository as legacy reference material during the rewrite. The TypeScript rewrite does not delete Zig source, installer scripts, or package-release paths.
 
 ## Workspace Layout
 
@@ -37,11 +37,31 @@ $ pnpm --filter @kelpclaw/openclaw dev
 $ pnpm --filter @kelpclaw/workflow-spec test
 ```
 
-## Phase 1 Guarantees
+## Workflow V1 Model
+
+KelpClaw uses the canonical workflow JSON IR with `schemaVersion: "1.0.0"`. The top-level workflow fields are `id`, `schemaVersion`, `name`, `prompt`, `revision`, `nodes`, `edges`, `approval`, `createdAt`, and `updatedAt`.
+
+Workflow nodes use `kind` instead of the earlier planner `type` shape. Supported node kinds are `trigger`, `skill`, `codegen`, `transform`, `approval`, and `delivery`. Each node declares a human description, JSON-Schema-compatible input and output ports, config, runtime settings, and determinism metadata.
+
+Edges are port-aware: each edge connects `source.nodeId/source.port` to `target.nodeId/target.port`. Validation reports stable error codes for duplicate nodes, missing node references, invalid ports, DAG cycles, unapproved execution, unsupported schema versions, and missing codegen provenance or replay metadata.
+
+Canonical serialization keeps object keys and collections stable for snapshots, review diffs, and DAG hashing. The migration harness currently passes through v1 workflows and rejects unsupported schema versions so future IR upgrades can be added without changing callers.
+
+## Approval And Execution
+
+Approving a workflow freezes the current revision into `workflow.approval`, including the approver, approval timestamp, frozen DAG hash, and compiled node order. NanoClaw compiles only approved workflow revisions and emits a v1 `execution_result` envelope for both mock and Docker-backed runners.
+
+Editing an approved workflow creates a new draft revision. Execution remains blocked until that current revision is approved.
+
+## Skill Registry
+
+The built-in skill registry records input and output schemas, required secrets, fake adapter dependencies, runtime templates, metaprompts, validation rules, and example fixtures. Deterministic matching returns scored `SkillMatch` results with explainable reasons. Registry skills are preferred over codegen when the top match reaches the fixed reuse threshold.
+
+## Validation Guarantees
 
 - Workflow specs are diffable and validated with stable error codes.
-- OpenClaw uses mocked planner data from the shared workflow fixture.
-- NanoClaw execution is covered through a mock runner and Docker command-construction tests.
+- OpenClaw renders the shared v1 fixtures with schema version, revision, prompt, node kind, port-aware edges, and approval state.
+- NanoClaw execution is covered through an approved-workflow mock runner and Docker command-construction tests.
 - Integration adapters are fake-only and do not require secrets.
 - CI runs TypeScript format, lint, typecheck, tests, builds, and the legacy Zig test suite.
 
