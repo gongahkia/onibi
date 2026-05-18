@@ -7,3 +7,4 @@ coverage
 apps/*/dist
 packages/*/dist
 *.tsbuildinfo
+.playwright-cli
