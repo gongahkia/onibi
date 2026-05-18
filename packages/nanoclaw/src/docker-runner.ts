@@ -19,11 +19,7 @@ export class DockerNodeRunner implements NodeRunner {
   }
 
   public buildCommand(node: CompiledDagNode): readonly string[] {
-    if (!node.docker) {
-      throw new Error(`Node '${node.id}' does not declare a Docker runtime.`);
-    }
-
-    const envArgs = Object.entries(node.docker.env ?? {}).flatMap(([key, value]) => [
+    const envArgs = Object.entries(node.runtime.environment).flatMap(([key, value]) => [
       "--env",
       `${key}=${value}`
     ]);
@@ -39,8 +35,8 @@ export class DockerNodeRunner implements NodeRunner {
       "--workdir",
       this.containerWorkspace,
       ...envArgs,
-      node.docker.image,
-      ...node.docker.command
+      node.runtime.image,
+      ...node.runtime.command
     ];
   }
 

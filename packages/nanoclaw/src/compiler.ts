@@ -1,37 +1,58 @@
-import { WorkflowValidationError, validateWorkflowSpec } from "@kelpclaw/workflow-spec";
+import { WorkflowValidationError, assertApprovedWorkflowSpec } from "@kelpclaw/workflow-spec";
 import type { CompiledDag, CompiledDagNode } from "./types.js";
 import type { WorkflowSpec } from "@kelpclaw/workflow-spec";
 
 export function compileWorkflowDag(input: WorkflowSpec): CompiledDag {
-  const validation = validateWorkflowSpec(input);
-  if (!validation.ok) {
-    throw new WorkflowValidationError(validation.errors);
-  }
-
-  const workflow = validation.workflow;
+  const workflow = assertApprovedWorkflowSpec(input);
   const dependencies = new Map(workflow.nodes.map((node) => [node.id, new Set<string>()]));
   const dependents = new Map(workflow.nodes.map((node) => [node.id, new Set<string>()]));
 
   for (const edge of workflow.edges) {
-    dependencies.get(edge.target)?.add(edge.source);
-    dependents.get(edge.source)?.add(edge.target);
+    dependencies.get(edge.target.nodeId)?.add(edge.source.nodeId);
+    dependents.get(edge.source.nodeId)?.add(edge.target.nodeId);
   }
 
   const nodes = new Map<string, CompiledDagNode>();
   for (const node of workflow.nodes) {
     nodes.set(node.id, {
       id: node.id,
+      kind: node.kind,
       label: node.label,
-      docker: node.docker,
+      runtime: node.runtime,
       dependencies: [...(dependencies.get(node.id) ?? [])].sort(),
       dependents: [...(dependents.get(node.id) ?? [])].sort()
     });
   }
 
+  const calculatedOrder = topologicalOrder(nodes);
+  const approval = workflow.approval;
+  if (!approval) {
+    throw new WorkflowValidationError([
+      {
+        code: "WORKFLOW_EXECUTION_UNAPPROVED",
+        message: "Workflow approval is required for NanoClaw compilation.",
+        path: ["approval"]
+      }
+    ]);
+  }
+
+  const approvalOrder = approval.nodeOrder;
+  if (approvalOrder.join("\n") !== calculatedOrder.join("\n")) {
+    throw new WorkflowValidationError([
+      {
+        code: "WORKFLOW_EXECUTION_UNAPPROVED",
+        message: "Approved node order does not match the compiled DAG.",
+        path: ["approval", "nodeOrder"]
+      }
+    ]);
+  }
+
   return {
-    workflowId: workflow.metadata.id,
+    workflowId: workflow.id,
+    revision: workflow.revision,
+    approval,
     nodes,
-    order: topologicalOrder(nodes),
+    order: approvalOrder,
     source: workflow
   };
 }

@@ -15,17 +15,29 @@ export async function executeCompiledDag(
     const result = await runner.run(node);
     nodeResults.push(result);
     if (result.status === "failed") {
-      return {
-        workflowId: dag.workflowId,
-        status: "failed",
-        nodeResults
-      };
+      return createExecutionResult(dag, nodeResults, "failed");
     }
   }
 
+  return createExecutionResult(dag, nodeResults, "succeeded");
+}
+
+function createExecutionResult(
+  dag: CompiledDag,
+  nodeResults: readonly NodeExecutionResult[],
+  status: DagExecutionResult["status"]
+): DagExecutionResult {
+  const startedAt = nodeResults[0]?.startedAt ?? dag.approval.approvedAt;
+  const finishedAt = nodeResults.at(-1)?.finishedAt ?? startedAt;
+
   return {
+    id: `execution.${dag.workflowId}.r${dag.revision}`,
     workflowId: dag.workflowId,
-    status: "succeeded",
-    nodeResults
+    revision: dag.revision,
+    status,
+    startedAt,
+    finishedAt,
+    nodeResults,
+    deterministic: true
   };
 }
