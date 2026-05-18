@@ -227,19 +227,27 @@ dd {
   padding: 0.2rem;
 }
 
-.workflow-node-skill {
+.workflow-node-trigger {
   background: #e9f7fb;
+}
+
+.workflow-node-skill {
+  background: #edf8fb;
 }
 
 .workflow-node-codegen {
   background: #f5f0ff;
 }
 
+.workflow-node-transform {
+  background: #eff6ff;
+}
+
 .workflow-node-approval {
   background: #fff6df;
 }
 
-.workflow-node-adapter {
+.workflow-node-delivery {
   background: #e9f8ef;
 }
 

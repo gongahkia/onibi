@@ -2,7 +2,10 @@ import { useMemo, useState } from "react";
 import { Background, Controls, MiniMap, ReactFlow } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { CheckCircle2, GitBranch, Play, RefreshCw, ShieldCheck } from "lucide-react";
-import { staticContentWorkflowFixture, validateWorkflowSpec } from "@kelpclaw/workflow-spec";
+import {
+  gmailReceiptsToSheetsWorkflowFixture,
+  validateWorkflowSpec
+} from "@kelpclaw/workflow-spec";
 import { workflowToEdges, workflowToNodes } from "./workflow-elements.js";
 import "./styles.css";
 
@@ -11,7 +14,7 @@ type ApprovalState = "pending" | "approved";
 type ExecutionState = "idle" | "blocked" | "succeeded";
 
 export function App() {
-  const workflow = staticContentWorkflowFixture;
+  const workflow = gmailReceiptsToSheetsWorkflowFixture;
   const nodes = useMemo(() => workflowToNodes(workflow), [workflow]);
   const edges = useMemo(() => workflowToEdges(workflow), [workflow]);
   const [validationState, setValidationState] = useState<ValidationState>("pending");
@@ -19,7 +22,7 @@ export function App() {
   const [executionState, setExecutionState] = useState<ExecutionState>("idle");
 
   const validation = validateWorkflowSpec(workflow);
-  const selectedApproval = workflow.approvals?.[0];
+  const approvalNodeCount = workflow.nodes.filter((node) => node.kind === "approval").length;
 
   function validateWorkflow() {
     setValidationState(validation.ok ? "valid" : "pending");
@@ -71,7 +74,7 @@ export function App() {
         <aside className="panel planner-panel" aria-label="Workflow summary">
           <div className="panel-heading">
             <GitBranch size={18} />
-            <h2>{workflow.metadata.name}</h2>
+            <h2>{workflow.name}</h2>
           </div>
           <dl className="metric-grid">
             <div>
@@ -84,7 +87,7 @@ export function App() {
             </div>
             <div>
               <dt>Approvals</dt>
-              <dd>{workflow.approvals?.length ?? 0}</dd>
+              <dd>{approvalNodeCount}</dd>
             </div>
           </dl>
           <div className="status-stack">
@@ -113,19 +116,23 @@ export function App() {
           <dl className="detail-list">
             <div>
               <dt>Workflow ID</dt>
-              <dd>{workflow.metadata.id}</dd>
+              <dd>{workflow.id}</dd>
             </div>
             <div>
-              <dt>Version</dt>
-              <dd>{workflow.metadata.version}</dd>
+              <dt>Schema</dt>
+              <dd>{workflow.schemaVersion}</dd>
             </div>
             <div>
-              <dt>Gate</dt>
-              <dd>{selectedApproval?.label ?? "None"}</dd>
+              <dt>Revision</dt>
+              <dd>{workflow.revision}</dd>
             </div>
             <div>
-              <dt>Role</dt>
-              <dd>{selectedApproval?.requiredRole ?? "none"}</dd>
+              <dt>Prompt</dt>
+              <dd>{workflow.prompt}</dd>
+            </div>
+            <div>
+              <dt>Frozen Approval</dt>
+              <dd>{workflow.approval?.status ?? "draft"}</dd>
             </div>
           </dl>
         </aside>

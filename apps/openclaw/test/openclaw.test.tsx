@@ -11,8 +11,9 @@ describe("OpenClaw planner shell", () => {
     render(<App />);
 
     expect(screen.getByRole("heading", { name: "OpenClaw" })).toBeInTheDocument();
-    expect(screen.getByText("Static Content Review")).toBeInTheDocument();
-    expect(screen.getByText("Collect Brief · skill")).toBeInTheDocument();
+    expect(screen.getByText("Gmail Receipts To Sheets")).toBeInTheDocument();
+    expect(screen.getByText("Read Gmail Receipts · skill")).toBeInTheDocument();
+    expect(screen.getByText("1.0.0")).toBeInTheDocument();
   });
 
   it("updates validation, approval, and execution states", () => {
