@@ -1,5 +1,1004 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`workflow graph helpers > creates stable workflow diffs for approval review 1`] = `
+{
+  "changed": true,
+  "lines": [
+    {
+      "kind": "same",
+      "text": "{",
+    },
+    {
+      "kind": "same",
+      "text": "  "approval": null,",
+    },
+    {
+      "kind": "same",
+      "text": "  "createdAt": "2026-05-18T00:00:00.000Z",",
+    },
+    {
+      "kind": "same",
+      "text": "  "edges": [",
+    },
+    {
+      "kind": "same",
+      "text": "    {",
+    },
+    {
+      "kind": "same",
+      "text": "      "id": "edge.manual-trigger.read-gmail-receipts",",
+    },
+    {
+      "kind": "same",
+      "text": "      "source": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "nodeId": "manual-trigger",",
+    },
+    {
+      "kind": "same",
+      "text": "        "port": "request"",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "target": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "nodeId": "read-gmail-receipts",",
+    },
+    {
+      "kind": "same",
+      "text": "        "port": "request"",
+    },
+    {
+      "kind": "same",
+      "text": "      }",
+    },
+    {
+      "kind": "same",
+      "text": "    },",
+    },
+    {
+      "kind": "same",
+      "text": "    {",
+    },
+    {
+      "kind": "same",
+      "text": "      "id": "edge.normalize-receipts.append-sheet-rows",",
+    },
+    {
+      "kind": "same",
+      "text": "      "source": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "nodeId": "normalize-receipts",",
+    },
+    {
+      "kind": "same",
+      "text": "        "port": "rows"",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "target": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "nodeId": "append-sheet-rows",",
+    },
+    {
+      "kind": "same",
+      "text": "        "port": "rows"",
+    },
+    {
+      "kind": "same",
+      "text": "      }",
+    },
+    {
+      "kind": "same",
+      "text": "    },",
+    },
+    {
+      "kind": "same",
+      "text": "    {",
+    },
+    {
+      "kind": "same",
+      "text": "      "id": "edge.read-gmail-receipts.normalize-receipts",",
+    },
+    {
+      "kind": "same",
+      "text": "      "source": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "nodeId": "read-gmail-receipts",",
+    },
+    {
+      "kind": "same",
+      "text": "        "port": "receipts"",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "target": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "nodeId": "normalize-receipts",",
+    },
+    {
+      "kind": "same",
+      "text": "        "port": "receipts"",
+    },
+    {
+      "kind": "same",
+      "text": "      }",
+    },
+    {
+      "kind": "same",
+      "text": "    }",
+    },
+    {
+      "kind": "same",
+      "text": "  ],",
+    },
+    {
+      "kind": "same",
+      "text": "  "id": "workflow.gmail-receipts-to-sheets",",
+    },
+    {
+      "kind": "same",
+      "text": "  "name": "Gmail Receipts To Sheets",",
+    },
+    {
+      "kind": "same",
+      "text": "  "nodes": [",
+    },
+    {
+      "kind": "same",
+      "text": "    {",
+    },
+    {
+      "kind": "same",
+      "text": "      "adapterId": "adapter.sheets.fake",",
+    },
+    {
+      "kind": "same",
+      "text": "      "config": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "range": "Receipts!A:D",",
+    },
+    {
+      "kind": "same",
+      "text": "        "spreadsheetId": "sheet.receipts"",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "description": "Writes normalized receipt rows to a fake Google Sheets adapter.",",
+    },
+    {
+      "kind": "same",
+      "text": "      "determinism": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "externalCalls": [",
+    },
+    {
+      "kind": "same",
+      "text": "          "adapter.sheets.fake"",
+    },
+    {
+      "kind": "same",
+      "text": "        ],",
+    },
+    {
+      "kind": "same",
+      "text": "        "replayBehavior": "record",",
+    },
+    {
+      "kind": "same",
+      "text": "        "seededRandomness": {",
+    },
+    {
+      "kind": "same",
+      "text": "          "enabled": false",
+    },
+    {
+      "kind": "same",
+      "text": "        }",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "id": "append-sheet-rows",",
+    },
+    {
+      "kind": "same",
+      "text": "      "inputs": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "rows": {",
+    },
+    {
+      "kind": "same",
+      "text": "          "items": {",
+    },
+    {
+      "kind": "same",
+      "text": "            "additionalProperties": true,",
+    },
+    {
+      "kind": "same",
+      "text": "            "type": "object"",
+    },
+    {
+      "kind": "same",
+      "text": "          },",
+    },
+    {
+      "kind": "same",
+      "text": "          "type": "array"",
+    },
+    {
+      "kind": "same",
+      "text": "        }",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "kind": "delivery",",
+    },
+    {
+      "kind": "same",
+      "text": "      "label": "Append Sheet Rows",",
+    },
+    {
+      "kind": "same",
+      "text": "      "outputs": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "delivery": {",
+    },
+    {
+      "kind": "same",
+      "text": "          "additionalProperties": true,",
+    },
+    {
+      "kind": "same",
+      "text": "          "type": "object"",
+    },
+    {
+      "kind": "same",
+      "text": "        }",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "runtime": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "command": [",
+    },
+    {
+      "kind": "same",
+      "text": "          "node",",
+    },
+    {
+      "kind": "same",
+      "text": "          "/workspace/run-node.js"",
+    },
+    {
+      "kind": "same",
+      "text": "        ],",
+    },
+    {
+      "kind": "same",
+      "text": "        "environment": {},",
+    },
+    {
+      "kind": "same",
+      "text": "        "image": "node:20-alpine",",
+    },
+    {
+      "kind": "same",
+      "text": "        "resources": {",
+    },
+    {
+      "kind": "same",
+      "text": "          "cpu": "1",",
+    },
+    {
+      "kind": "same",
+      "text": "          "memoryMb": 512",
+    },
+    {
+      "kind": "same",
+      "text": "        },",
+    },
+    {
+      "kind": "same",
+      "text": "        "retry": {",
+    },
+    {
+      "kind": "same",
+      "text": "          "backoffSeconds": 0,",
+    },
+    {
+      "kind": "same",
+      "text": "          "maxAttempts": 1",
+    },
+    {
+      "kind": "same",
+      "text": "        },",
+    },
+    {
+      "kind": "same",
+      "text": "        "timeoutSeconds": 300",
+    },
+    {
+      "kind": "same",
+      "text": "      }",
+    },
+    {
+      "kind": "same",
+      "text": "    },",
+    },
+    {
+      "kind": "same",
+      "text": "    {",
+    },
+    {
+      "kind": "same",
+      "text": "      "config": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "query": "from:(receipts OR orders) newer_than:30d"",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "description": "Reads matching Gmail messages through the fake Gmail adapter.",",
+    },
+    {
+      "kind": "same",
+      "text": "      "determinism": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "externalCalls": [",
+    },
+    {
+      "kind": "same",
+      "text": "          "adapter.gmail.fake"",
+    },
+    {
+      "kind": "same",
+      "text": "        ],",
+    },
+    {
+      "kind": "same",
+      "text": "        "replayBehavior": "record",",
+    },
+    {
+      "kind": "same",
+      "text": "        "seededRandomness": {",
+    },
+    {
+      "kind": "same",
+      "text": "          "enabled": false",
+    },
+    {
+      "kind": "same",
+      "text": "        }",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "id": "read-gmail-receipts",",
+    },
+    {
+      "kind": "same",
+      "text": "      "inputs": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "request": {",
+    },
+    {
+      "kind": "same",
+      "text": "          "additionalProperties": true,",
+    },
+    {
+      "kind": "same",
+      "text": "          "type": "object"",
+    },
+    {
+      "kind": "same",
+      "text": "        }",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "kind": "skill",",
+    },
+    {
+      "kind": "same",
+      "text": "      "label": "Read Gmail Receipts",",
+    },
+    {
+      "kind": "same",
+      "text": "      "outputs": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "receipts": {",
+    },
+    {
+      "kind": "same",
+      "text": "          "items": {",
+    },
+    {
+      "kind": "same",
+      "text": "            "additionalProperties": true,",
+    },
+    {
+      "kind": "same",
+      "text": "            "type": "object"",
+    },
+    {
+      "kind": "same",
+      "text": "          },",
+    },
+    {
+      "kind": "same",
+      "text": "          "type": "array"",
+    },
+    {
+      "kind": "same",
+      "text": "        }",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "runtime": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "command": [",
+    },
+    {
+      "kind": "same",
+      "text": "          "node",",
+    },
+    {
+      "kind": "same",
+      "text": "          "/workspace/run-node.js"",
+    },
+    {
+      "kind": "same",
+      "text": "        ],",
+    },
+    {
+      "kind": "same",
+      "text": "        "environment": {},",
+    },
+    {
+      "kind": "same",
+      "text": "        "image": "node:20-alpine",",
+    },
+    {
+      "kind": "same",
+      "text": "        "resources": {",
+    },
+    {
+      "kind": "same",
+      "text": "          "cpu": "1",",
+    },
+    {
+      "kind": "same",
+      "text": "          "memoryMb": 512",
+    },
+    {
+      "kind": "same",
+      "text": "        },",
+    },
+    {
+      "kind": "same",
+      "text": "        "retry": {",
+    },
+    {
+      "kind": "same",
+      "text": "          "backoffSeconds": 0,",
+    },
+    {
+      "kind": "same",
+      "text": "          "maxAttempts": 1",
+    },
+    {
+      "kind": "same",
+      "text": "        },",
+    },
+    {
+      "kind": "same",
+      "text": "        "timeoutSeconds": 300",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "skillId": "skill.gmail.receipts.read"",
+    },
+    {
+      "kind": "same",
+      "text": "    },",
+    },
+    {
+      "kind": "same",
+      "text": "    {",
+    },
+    {
+      "kind": "same",
+      "text": "      "config": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "columns": [",
+    },
+    {
+      "kind": "same",
+      "text": "          "date",",
+    },
+    {
+      "kind": "same",
+      "text": "          "merchant",",
+    },
+    {
+      "kind": "same",
+      "text": "          "total",",
+    },
+    {
+      "kind": "same",
+      "text": "          "currency"",
+    },
+    {
+      "kind": "same",
+      "text": "        ]",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "description": "Reshapes receipt messages into deterministic sheet rows.",",
+    },
+    {
+      "kind": "same",
+      "text": "      "determinism": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "externalCalls": [],",
+    },
+    {
+      "kind": "same",
+      "text": "        "replayBehavior": "none",",
+    },
+    {
+      "kind": "same",
+      "text": "        "seededRandomness": {",
+    },
+    {
+      "kind": "same",
+      "text": "          "enabled": false",
+    },
+    {
+      "kind": "same",
+      "text": "        }",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "id": "normalize-receipts",",
+    },
+    {
+      "kind": "same",
+      "text": "      "inputs": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "receipts": {",
+    },
+    {
+      "kind": "same",
+      "text": "          "items": {",
+    },
+    {
+      "kind": "same",
+      "text": "            "additionalProperties": true,",
+    },
+    {
+      "kind": "same",
+      "text": "            "type": "object"",
+    },
+    {
+      "kind": "same",
+      "text": "          },",
+    },
+    {
+      "kind": "same",
+      "text": "          "type": "array"",
+    },
+    {
+      "kind": "same",
+      "text": "        }",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "kind": "transform",",
+    },
+    {
+      "kind": "removed",
+      "text": "      "label": "Normalize Receipts",",
+    },
+    {
+      "kind": "added",
+      "text": "      "label": "Normalize Receipt Rows",",
+    },
+    {
+      "kind": "same",
+      "text": "      "outputs": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "rows": {",
+    },
+    {
+      "kind": "same",
+      "text": "          "items": {",
+    },
+    {
+      "kind": "same",
+      "text": "            "additionalProperties": true,",
+    },
+    {
+      "kind": "same",
+      "text": "            "type": "object"",
+    },
+    {
+      "kind": "same",
+      "text": "          },",
+    },
+    {
+      "kind": "same",
+      "text": "          "type": "array"",
+    },
+    {
+      "kind": "same",
+      "text": "        }",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "runtime": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "command": [",
+    },
+    {
+      "kind": "same",
+      "text": "          "node",",
+    },
+    {
+      "kind": "same",
+      "text": "          "/workspace/run-node.js"",
+    },
+    {
+      "kind": "same",
+      "text": "        ],",
+    },
+    {
+      "kind": "same",
+      "text": "        "environment": {},",
+    },
+    {
+      "kind": "same",
+      "text": "        "image": "node:20-alpine",",
+    },
+    {
+      "kind": "same",
+      "text": "        "resources": {",
+    },
+    {
+      "kind": "same",
+      "text": "          "cpu": "1",",
+    },
+    {
+      "kind": "same",
+      "text": "          "memoryMb": 512",
+    },
+    {
+      "kind": "same",
+      "text": "        },",
+    },
+    {
+      "kind": "same",
+      "text": "        "retry": {",
+    },
+    {
+      "kind": "same",
+      "text": "          "backoffSeconds": 0,",
+    },
+    {
+      "kind": "same",
+      "text": "          "maxAttempts": 1",
+    },
+    {
+      "kind": "same",
+      "text": "        },",
+    },
+    {
+      "kind": "same",
+      "text": "        "timeoutSeconds": 300",
+    },
+    {
+      "kind": "same",
+      "text": "      }",
+    },
+    {
+      "kind": "same",
+      "text": "    },",
+    },
+    {
+      "kind": "same",
+      "text": "    {",
+    },
+    {
+      "kind": "same",
+      "text": "      "config": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "trigger": "manual"",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "description": "Starts the receipt sync when an operator runs the workflow.",",
+    },
+    {
+      "kind": "same",
+      "text": "      "determinism": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "externalCalls": [],",
+    },
+    {
+      "kind": "same",
+      "text": "        "replayBehavior": "none",",
+    },
+    {
+      "kind": "same",
+      "text": "        "seededRandomness": {",
+    },
+    {
+      "kind": "same",
+      "text": "          "enabled": false",
+    },
+    {
+      "kind": "same",
+      "text": "        }",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "id": "manual-trigger",",
+    },
+    {
+      "kind": "same",
+      "text": "      "inputs": {},",
+    },
+    {
+      "kind": "same",
+      "text": "      "kind": "trigger",",
+    },
+    {
+      "kind": "same",
+      "text": "      "label": "Manual Run",",
+    },
+    {
+      "kind": "same",
+      "text": "      "outputs": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "request": {",
+    },
+    {
+      "kind": "same",
+      "text": "          "additionalProperties": true,",
+    },
+    {
+      "kind": "same",
+      "text": "          "type": "object"",
+    },
+    {
+      "kind": "same",
+      "text": "        }",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "runtime": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "command": [",
+    },
+    {
+      "kind": "same",
+      "text": "          "node",",
+    },
+    {
+      "kind": "same",
+      "text": "          "/workspace/run-node.js"",
+    },
+    {
+      "kind": "same",
+      "text": "        ],",
+    },
+    {
+      "kind": "same",
+      "text": "        "environment": {},",
+    },
+    {
+      "kind": "same",
+      "text": "        "image": "node:20-alpine",",
+    },
+    {
+      "kind": "same",
+      "text": "        "resources": {",
+    },
+    {
+      "kind": "same",
+      "text": "          "cpu": "1",",
+    },
+    {
+      "kind": "same",
+      "text": "          "memoryMb": 512",
+    },
+    {
+      "kind": "same",
+      "text": "        },",
+    },
+    {
+      "kind": "same",
+      "text": "        "retry": {",
+    },
+    {
+      "kind": "same",
+      "text": "          "backoffSeconds": 0,",
+    },
+    {
+      "kind": "same",
+      "text": "          "maxAttempts": 1",
+    },
+    {
+      "kind": "same",
+      "text": "        },",
+    },
+    {
+      "kind": "same",
+      "text": "        "timeoutSeconds": 300",
+    },
+    {
+      "kind": "same",
+      "text": "      }",
+    },
+    {
+      "kind": "same",
+      "text": "    }",
+    },
+    {
+      "kind": "same",
+      "text": "  ],",
+    },
+    {
+      "kind": "same",
+      "text": "  "prompt": "Find receipt emails in Gmail and append normalized totals to a Google Sheet.",",
+    },
+    {
+      "kind": "same",
+      "text": "  "revision": 1,",
+    },
+    {
+      "kind": "same",
+      "text": "  "schemaVersion": "1.0.0",",
+    },
+    {
+      "kind": "same",
+      "text": "  "updatedAt": "2026-05-18T00:00:00.000Z"",
+    },
+    {
+      "kind": "same",
+      "text": "}",
+    },
+  ],
+  "summary": [
+    "Changed 1 node.",
+  ],
+}
+`;
+
 exports[`workflow spec validation > serializes fixtures as stable canonical JSON snapshots 1`] = `
 "{
   "approval": null,

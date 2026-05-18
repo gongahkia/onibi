@@ -160,3 +160,138 @@ export interface WorkflowValidationIssue {
 export type WorkflowValidationResult =
   | { readonly ok: true; readonly workflow: WorkflowSpec }
   | { readonly ok: false; readonly errors: readonly WorkflowValidationIssue[] };
+
+export type WorkflowDraftRevisionSource = "plan" | "validate" | "reprompt" | "revision";
+
+export interface WorkflowDraftRevision {
+  readonly id: string;
+  readonly workflowId: string;
+  readonly revision: number;
+  readonly workflow: WorkflowSpec;
+  readonly validation: WorkflowValidationResult;
+  readonly source: WorkflowDraftRevisionSource;
+  readonly createdAt: string;
+}
+
+export interface WorkflowDiffLine {
+  readonly kind: "same" | "added" | "removed";
+  readonly text: string;
+}
+
+export interface WorkflowSpecDiff {
+  readonly changed: boolean;
+  readonly summary: readonly string[];
+  readonly lines: readonly WorkflowDiffLine[];
+}
+
+export interface WorkflowApprovedRevision {
+  readonly id: string;
+  readonly workflowId: string;
+  readonly revision: number;
+  readonly approvedBy: string;
+  readonly createdAt: string;
+  readonly workflow: WorkflowSpec;
+  readonly draftSpecJson: string;
+  readonly frozenSpecJson: string;
+  readonly diff: WorkflowSpecDiff;
+}
+
+export type WorkflowRunStatus = "queued" | "running" | "succeeded" | "failed";
+export type WorkflowRunEventLevel = "info" | "error";
+
+export interface WorkflowRunEvent {
+  readonly id: string;
+  readonly timestamp: string;
+  readonly level: WorkflowRunEventLevel;
+  readonly message: string;
+  readonly nodeId?: string | undefined;
+}
+
+export interface WorkflowRunRecord {
+  readonly id: string;
+  readonly workflowId: string;
+  readonly approvedRevisionId: string;
+  readonly revision: number;
+  readonly status: WorkflowRunStatus;
+  readonly createdAt: string;
+  readonly startedAt: string;
+  readonly finishedAt: string;
+  readonly events: readonly WorkflowRunEvent[];
+  readonly result: WorkflowExecutionResult | null;
+}
+
+export interface WorkflowPlanRequest {
+  readonly prompt: string;
+  readonly currentWorkflow?: WorkflowSpec | undefined;
+  readonly preserveNodeIds?: readonly string[] | undefined;
+}
+
+export interface WorkflowPlanResponse {
+  readonly ok: true;
+  readonly workflow: WorkflowSpec;
+  readonly draftRevision: WorkflowDraftRevision;
+  readonly validation: WorkflowValidationResult;
+}
+
+export interface WorkflowRepromptNodeRequest {
+  readonly nodeId: string;
+  readonly prompt: string;
+  readonly currentWorkflow?: WorkflowSpec | undefined;
+}
+
+export interface WorkflowRepromptNodeResponse {
+  readonly ok: true;
+  readonly workflow: WorkflowSpec;
+  readonly draftRevision: WorkflowDraftRevision;
+  readonly validation: WorkflowValidationResult;
+  readonly before: WorkflowNode;
+  readonly after: WorkflowNode;
+  readonly diff: WorkflowSpecDiff;
+}
+
+export interface WorkflowValidateRequest {
+  readonly workflow: WorkflowSpec;
+}
+
+export interface WorkflowValidateResponse {
+  readonly ok: boolean;
+  readonly validation: WorkflowValidationResult;
+  readonly workflow?: WorkflowSpec | undefined;
+  readonly draftRevision?: WorkflowDraftRevision | undefined;
+}
+
+export interface WorkflowApproveRequest {
+  readonly workflow: WorkflowSpec;
+  readonly approvedBy: string;
+}
+
+export interface WorkflowApproveResponse {
+  readonly ok: true;
+  readonly workflowId: string;
+  readonly approvedRevisionId: string;
+  readonly approvedRevision: WorkflowApprovedRevision;
+  readonly workflow: WorkflowSpec;
+  readonly diff: WorkflowSpecDiff;
+}
+
+export interface WorkflowStartRunRequest {
+  readonly approvedRevisionId: string;
+}
+
+export interface WorkflowStartRunResponse {
+  readonly ok: true;
+  readonly run: WorkflowRunRecord;
+}
+
+export interface WorkflowFetchRunResponse {
+  readonly ok: true;
+  readonly run: WorkflowRunRecord;
+}
+
+export interface WorkflowApiError {
+  readonly ok: false;
+  readonly error: string;
+  readonly message: string;
+  readonly validation?: WorkflowValidationResult | undefined;
+  readonly issues?: readonly WorkflowValidationIssue[] | undefined;
+}

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   approvedGmailReceiptsToSheetsWorkflowFixture,
+  createWorkflowEdge,
+  createWorkflowNode,
+  createWorkflowSpec,
+  createWorkflowSpecDiff,
   cyclicWorkflowFixture,
   gmailReceiptsToSheetsWorkflowFixture,
   invalidEdgePortWorkflowFixture,
@@ -12,6 +16,7 @@ import {
   timeSensitiveAlertDeliveryWorkflowFixture,
   validateWorkflowForExecution,
   validateWorkflowSpec,
+  workflowIdFromPrompt,
   workflowJsonSchema,
   workflowSchemaVersion
 } from "../src/index.js";
@@ -140,5 +145,50 @@ describe("workflow migrations", () => {
         schemaVersion: "0.9.0"
       })
     ).toThrow("Unsupported workflow schema version");
+  });
+});
+
+describe("workflow graph helpers", () => {
+  it("creates valid default nodes and edges for OpenClaw editing", () => {
+    const trigger = createWorkflowNode({
+      id: "manual-trigger",
+      kind: "trigger"
+    });
+    const delivery = createWorkflowNode({
+      id: "send-result",
+      kind: "delivery",
+      inputs: {
+        request: { type: "object", additionalProperties: true }
+      }
+    });
+    const workflow = createWorkflowSpec({
+      id: workflowIdFromPrompt("Send the result"),
+      name: "Send Result",
+      prompt: "Send the result",
+      createdAt: "2026-05-18T00:00:00.000Z",
+      nodes: [trigger, delivery],
+      edges: [
+        createWorkflowEdge({
+          sourceNodeId: trigger.id,
+          sourcePort: "request",
+          targetNodeId: delivery.id,
+          targetPort: "request"
+        })
+      ]
+    });
+
+    expect(validateWorkflowSpec(workflow).ok).toBe(true);
+    expect(workflow.id).toBe("workflow.send-the-result");
+  });
+
+  it("creates stable workflow diffs for approval review", () => {
+    const changed = {
+      ...gmailReceiptsToSheetsWorkflowFixture,
+      nodes: gmailReceiptsToSheetsWorkflowFixture.nodes.map((node) =>
+        node.id === "normalize-receipts" ? { ...node, label: "Normalize Receipt Rows" } : node
+      )
+    };
+
+    expect(createWorkflowSpecDiff(gmailReceiptsToSheetsWorkflowFixture, changed)).toMatchSnapshot();
   });
 });
