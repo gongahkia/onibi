@@ -1,15 +1,32 @@
+import { execFileSync } from "node:child_process";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   WorkflowValidationError,
   approvedGmailReceiptsToSheetsWorkflowFixture,
+  createApprovedWorkflowFixture,
+  createWorkflowEdge,
+  createWorkflowNode,
+  createWorkflowRuntime,
+  createWorkflowSpec,
   cyclicWorkflowFixture,
-  gmailReceiptsToSheetsWorkflowFixture
+  gmailReceiptsToSheetsWorkflowFixture,
+  objectSchema
 } from "@kelpclaw/workflow-spec";
 import {
   DockerNodeRunner,
   MockNodeRunner,
   compileWorkflowDag,
-  executeCompiledDag
+  executeCompiledDag,
+  replayCompletedRun
+} from "../src/index.js";
+import type {
+  CompiledDagNode,
+  NodeRunContext,
+  NodeRunner,
+  NodeRunnerResult
 } from "../src/index.js";
 
 describe("nanoclaw dag runtime", () => {
@@ -55,6 +72,198 @@ describe("nanoclaw dag runtime", () => {
 
     expect(result.status).toBe("failed");
     expect(runner.visitedNodeIds).toEqual(["manual-trigger", "read-gmail-receipts"]);
+    expect(result.nodeResults.map((nodeResult) => nodeResult.status)).toEqual([
+      "succeeded",
+      "failed",
+      "skipped",
+      "skipped"
+    ]);
+  });
+
+  it("uses stable node id tie-breaking independent of node insertion order", () => {
+    const sourceA = createWorkflowNode({
+      id: "a-source",
+      kind: "trigger",
+      outputs: { out: objectSchema }
+    });
+    const sourceB = createWorkflowNode({
+      id: "b-source",
+      kind: "trigger",
+      outputs: { out: objectSchema }
+    });
+    const joinNode = createWorkflowNode({
+      id: "join",
+      kind: "transform",
+      inputs: { a: objectSchema, b: objectSchema },
+      outputs: { done: objectSchema }
+    });
+    const workflow = createWorkflowSpec({
+      id: "workflow.stable-order",
+      name: "Stable Order",
+      prompt: "Join two independent sources.",
+      createdAt: "2026-05-18T00:00:00.000Z",
+      nodes: [joinNode, sourceB, sourceA],
+      edges: [
+        createWorkflowEdge({
+          sourceNodeId: sourceB.id,
+          sourcePort: "out",
+          targetNodeId: joinNode.id,
+          targetPort: "b"
+        }),
+        createWorkflowEdge({
+          sourceNodeId: sourceA.id,
+          sourcePort: "out",
+          targetNodeId: joinNode.id,
+          targetPort: "a"
+        })
+      ]
+    });
+    const approved = createApprovedWorkflowFixture(workflow, {
+      nodeOrder: ["a-source", "b-source", "join"]
+    });
+
+    expect(compileWorkflowDag(approved).order).toEqual(["a-source", "b-source", "join"]);
+  });
+
+  it("rejects approved workflows when the frozen DAG hash drifts", () => {
+    const workflow = {
+      ...approvedGmailReceiptsToSheetsWorkflowFixture,
+      approval: {
+        ...approvedGmailReceiptsToSheetsWorkflowFixture.approval!,
+        frozenDagHash: `sha256:${"f".repeat(64)}`
+      }
+    };
+
+    expect(() => compileWorkflowDag(workflow)).toThrow(WorkflowValidationError);
+  });
+
+  it("fails successful runner output that does not match declared schemas", async () => {
+    const workflow = createApprovedWorkflowFixture(
+      createWorkflowSpec({
+        id: "workflow.invalid-output",
+        name: "Invalid Output",
+        prompt: "Return an invalid output shape.",
+        createdAt: "2026-05-18T00:00:00.000Z",
+        nodes: [
+          createWorkflowNode({
+            id: "manual-trigger",
+            kind: "trigger",
+            outputs: { request: objectSchema }
+          })
+        ],
+        edges: []
+      })
+    );
+    const dag = compileWorkflowDag(workflow);
+    const runner = nodeRunner(() => ({
+      status: "succeeded",
+      output: { request: "not-an-object" }
+    }));
+
+    const result = await executeCompiledDag(dag, runner);
+
+    expect(result.status).toBe("failed");
+    expect(result.nodeResults[0]?.metadata?.validationDirection).toBe("output");
+  });
+
+  it("retries failed node attempts and records retry metadata", async () => {
+    let calls = 0;
+    const workflow = createApprovedWorkflowFixture(
+      createWorkflowSpec({
+        id: "workflow.retry",
+        name: "Retry",
+        prompt: "Retry once.",
+        createdAt: "2026-05-18T00:00:00.000Z",
+        nodes: [
+          createWorkflowNode({
+            id: "manual-trigger",
+            kind: "trigger",
+            outputs: { request: objectSchema },
+            runtime: {
+              retry: {
+                maxAttempts: 2,
+                backoffSeconds: 0
+              }
+            }
+          })
+        ],
+        edges: []
+      })
+    );
+
+    const result = await executeCompiledDag(
+      compileWorkflowDag(workflow),
+      nodeRunner(() => {
+        calls += 1;
+        return calls === 1
+          ? { status: "failed", output: {}, error: "transient" }
+          : { status: "succeeded", output: { request: { ok: true } } };
+      })
+    );
+
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults[0]?.attempts?.map((attempt) => attempt.status)).toEqual([
+      "failed",
+      "succeeded"
+    ]);
+    expect(result.nodeResults[0]?.metadata?.nonDeterministicRetry).toBe(true);
+  });
+
+  it("marks timed out node attempts without running downstream nodes", async () => {
+    const workflow = createApprovedWorkflowFixture(
+      createWorkflowSpec({
+        id: "workflow.timeout",
+        name: "Timeout",
+        prompt: "Timeout a node.",
+        createdAt: "2026-05-18T00:00:00.000Z",
+        nodes: [
+          createWorkflowNode({
+            id: "manual-trigger",
+            kind: "trigger",
+            outputs: { request: objectSchema },
+            runtime: {
+              timeoutSeconds: 1,
+              retry: {
+                maxAttempts: 1,
+                backoffSeconds: 0
+              }
+            }
+          })
+        ],
+        edges: []
+      })
+    );
+
+    const result = await executeCompiledDag(
+      compileWorkflowDag(workflow),
+      nodeRunner(
+        (_node, context) =>
+          new Promise<NodeRunnerResult>((_resolve, reject) => {
+            context.signal?.addEventListener("abort", () => reject(context.signal?.reason), {
+              once: true
+            });
+          })
+      )
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.nodeResults[0]?.attempts?.[0]?.status).toBe("timed_out");
+  });
+
+  it("marks cancelled node attempts", async () => {
+    const controller = new AbortController();
+    controller.abort(new Error("cancelled"));
+
+    const result = await executeCompiledDag(
+      compileWorkflowDag(approvedGmailReceiptsToSheetsWorkflowFixture),
+      nodeRunner((_node, context) =>
+        Promise.reject(context.signal?.reason ?? new Error("cancelled"))
+      ),
+      { signal: controller.signal }
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.nodeResults[0]?.attempts?.[0]?.status).toBe("cancelled");
   });
 
   it("constructs Docker-per-node commands without executing them", () => {
@@ -78,3 +287,111 @@ describe("nanoclaw dag runtime", () => {
     ]);
   });
 });
+
+const dockerIt = dockerDaemonAvailable() ? it : it.skip;
+
+describe("nanoclaw docker integration", () => {
+  dockerIt(
+    "runs two Dockerized nodes with isolated workspaces and replayable artifacts",
+    async () => {
+      const workflow = createApprovedWorkflowFixture(createDockerWorkflowFixture());
+      const workspaceRoot = await mkdtemp(join(tmpdir(), "nanoclaw-docker-test-"));
+      const result = await executeCompiledDag(
+        compileWorkflowDag(workflow),
+        new DockerNodeRunner({ hostWorkspace: workspaceRoot }),
+        { workspaceRoot }
+      );
+
+      expect(result.status).toBe("succeeded");
+      expect(result.nodeResults.map((nodeResult) => nodeResult.nodeId)).toEqual([
+        "emit-request",
+        "consume-request"
+      ]);
+      expect(result.nodeResults[0]?.workspacePath).not.toBe(result.nodeResults[1]?.workspacePath);
+      expect(result.nodeResults[1]?.artifacts).toEqual(["result.txt"]);
+
+      const secondInputPath = join(result.nodeResults[1]!.workspacePath!, "input.json");
+      const secondInput = JSON.parse(await readFile(secondInputPath, "utf8"));
+      expect(secondInput.inputs.request).toEqual({ value: 1 });
+
+      const replayed = await replayCompletedRun(String(result.metadata?.manifestPath));
+      expect(replayed.status).toBe("succeeded");
+      expect(replayed.metadata?.replayed).toBe(true);
+    },
+    60_000
+  );
+});
+
+function nodeRunner(
+  run: (
+    node: CompiledDagNode,
+    context: NodeRunContext
+  ) => NodeRunnerResult | Promise<NodeRunnerResult>
+): NodeRunner {
+  return {
+    async run(node, context) {
+      return run(node, context);
+    }
+  };
+}
+
+function createDockerWorkflowFixture() {
+  const emitCommand = [
+    "node",
+    "-e",
+    [
+      'const fs = require("fs");',
+      'console.log("emit-request");',
+      "fs.writeFileSync(process.env.NANOCLAW_NODE_OUTPUT, JSON.stringify({ request: { value: 1 } }));"
+    ].join(" ")
+  ];
+  const consumeCommand = [
+    "node",
+    "-e",
+    [
+      'const fs = require("fs");',
+      'const input = JSON.parse(fs.readFileSync(process.env.NANOCLAW_NODE_INPUT, "utf8"));',
+      'fs.writeFileSync(`${process.env.NANOCLAW_ARTIFACTS_DIR}/result.txt`, "artifact");',
+      'console.log("consume-request");',
+      "fs.writeFileSync(process.env.NANOCLAW_NODE_OUTPUT, JSON.stringify({ result: input.inputs.request }));"
+    ].join(" ")
+  ];
+  const emitRequest = createWorkflowNode({
+    id: "emit-request",
+    kind: "trigger",
+    outputs: { request: objectSchema },
+    runtime: createWorkflowRuntime({ command: emitCommand })
+  });
+  const consumeRequest = createWorkflowNode({
+    id: "consume-request",
+    kind: "transform",
+    inputs: { request: objectSchema },
+    outputs: { result: objectSchema },
+    runtime: createWorkflowRuntime({ command: consumeCommand })
+  });
+
+  return createWorkflowSpec({
+    id: "workflow.docker-integration",
+    name: "Docker Integration",
+    prompt: "Run two Dockerized nodes.",
+    createdAt: "2026-05-18T00:00:00.000Z",
+    nodes: [emitRequest, consumeRequest],
+    edges: [
+      createWorkflowEdge({
+        sourceNodeId: emitRequest.id,
+        sourcePort: "request",
+        targetNodeId: consumeRequest.id,
+        targetPort: "request"
+      })
+    ]
+  });
+}
+
+function dockerDaemonAvailable(): boolean {
+  try {
+    execFileSync("docker", ["info", "--format", "{{.ServerVersion}}"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
