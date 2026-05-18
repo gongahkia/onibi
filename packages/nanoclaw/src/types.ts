@@ -61,11 +61,32 @@ export interface NodeInputPayload {
   readonly metadata: JsonRecord;
 }
 
+export interface ExecutionWorkspace {
+  readonly runId: string;
+  readonly runDir: string;
+  readonly workflowSpecPath: string;
+}
+
+export interface NodeWorkspace {
+  readonly runId: string;
+  readonly nodeId: string;
+  readonly attempt: number;
+  readonly nodeDir: string;
+  readonly attemptDir: string;
+  readonly inputPath: string;
+  readonly outputPath: string;
+  readonly stdoutPath: string;
+  readonly stderrPath: string;
+  readonly artifactsDir: string;
+  readonly workflowSpecPath: string;
+}
+
 export interface NodeRunContext {
   readonly dag: CompiledDag;
   readonly input: JsonRecord;
   readonly inputPayload: NodeInputPayload;
   readonly attempt: number;
+  readonly workspace: NodeWorkspace;
   readonly signal?: AbortSignal | undefined;
 }
 
@@ -74,6 +95,9 @@ export interface NodeRunnerResult {
   readonly output: JsonRecord;
   readonly exitCode?: number | undefined;
   readonly error?: string | undefined;
+  readonly stdoutPath?: string | undefined;
+  readonly stderrPath?: string | undefined;
+  readonly artifacts?: readonly string[] | undefined;
   readonly metadata?: JsonRecord | undefined;
 }
 

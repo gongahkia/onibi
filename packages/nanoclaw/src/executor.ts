@@ -3,6 +3,7 @@ import {
   assertValidNodeInput,
   assertValidNodeOutput
 } from "./payload-validation.js";
+import { createExecutionWorkspace, prepareNodeWorkspace } from "./workspace.js";
 import type {
   CompiledDag,
   CompiledDagNode,
@@ -14,6 +15,8 @@ import type {
 import type { JsonRecord, JsonValue } from "@kelpclaw/workflow-spec";
 
 export interface ExecuteCompiledDagOptions {
+  readonly runId?: string | undefined;
+  readonly workspaceRoot?: string | undefined;
   readonly signal?: AbortSignal | undefined;
 }
 
@@ -24,6 +27,7 @@ export async function executeCompiledDag(
 ): Promise<DagExecutionResult> {
   const nodeResults: NodeExecutionResult[] = [];
   const nodeOutputs = new Map<string, JsonRecord>();
+  const runWorkspace = await createExecutionWorkspace(dag, options);
 
   for (const nodeId of dag.order) {
     const node = dag.nodes.get(nodeId);
@@ -34,10 +38,16 @@ export async function executeCompiledDag(
     const startedAt = new Date().toISOString();
     const input = resolveNodeInputs(node, nodeOutputs);
     const inputPayload = createNodeInputPayload(dag, node, input, 1);
+    const nodeWorkspace = await prepareNodeWorkspace({
+      runWorkspace,
+      node,
+      attempt: 1,
+      inputPayload
+    });
     const inputValidation = validateNodeInput(node, input, startedAt);
     if (inputValidation) {
       nodeResults.push(inputValidation);
-      return createExecutionResult(dag, nodeResults, "failed");
+      return createExecutionResult(dag, nodeResults, "failed", runWorkspace.runDir);
     }
 
     const runnerResult = await runner.run(node, {
@@ -45,6 +55,7 @@ export async function executeCompiledDag(
       input,
       inputPayload,
       attempt: 1,
+      workspace: nodeWorkspace,
       signal: options.signal
     });
     const result: NodeExecutionResult = {
@@ -55,6 +66,10 @@ export async function executeCompiledDag(
       input,
       output: runnerResult.output,
       error: runnerResult.error,
+      workspacePath: nodeWorkspace.attemptDir,
+      stdoutPath: runnerResult.stdoutPath,
+      stderrPath: runnerResult.stderrPath,
+      artifacts: runnerResult.artifacts,
       metadata: {
         ...(runnerResult.exitCode === undefined ? {} : { exitCode: runnerResult.exitCode }),
         ...(runnerResult.metadata ?? {})
@@ -69,11 +84,11 @@ export async function executeCompiledDag(
       nodeOutputs.set(node.id, finalResult.output);
     }
     if (finalResult.status === "failed") {
-      return createExecutionResult(dag, nodeResults, "failed");
+      return createExecutionResult(dag, nodeResults, "failed", runWorkspace.runDir);
     }
   }
 
-  return createExecutionResult(dag, nodeResults, "succeeded");
+  return createExecutionResult(dag, nodeResults, "succeeded", runWorkspace.runDir);
 }
 
 function resolveNodeInputs(
@@ -184,7 +199,8 @@ function validateNodeOutput(
 function createExecutionResult(
   dag: CompiledDag,
   nodeResults: readonly NodeExecutionResult[],
-  status: DagExecutionResult["status"]
+  status: DagExecutionResult["status"],
+  workspacePath: string
 ): DagExecutionResult {
   const startedAt = nodeResults[0]?.startedAt ?? dag.approval.approvedAt;
   const finishedAt = nodeResults.at(-1)?.finishedAt ?? startedAt;
@@ -197,6 +213,10 @@ function createExecutionResult(
     startedAt,
     finishedAt,
     nodeResults,
-    deterministic: true
+    deterministic: true,
+    metadata: {
+      dagHash: dag.dagHash,
+      workspacePath
+    }
   };
 }

@@ -125,6 +125,10 @@ export interface WorkflowNodeExecutionResult {
   readonly input?: JsonRecord | undefined;
   readonly output: JsonRecord;
   readonly error?: string | undefined;
+  readonly workspacePath?: string | undefined;
+  readonly stdoutPath?: string | undefined;
+  readonly stderrPath?: string | undefined;
+  readonly artifacts?: readonly string[] | undefined;
   readonly metadata?: JsonRecord | undefined;
 }
 
@@ -137,6 +141,7 @@ export interface WorkflowExecutionResult {
   readonly finishedAt: string;
   readonly nodeResults: readonly WorkflowNodeExecutionResult[];
   readonly deterministic: true;
+  readonly metadata?: JsonRecord | undefined;
 }
 
 export const workflowValidationErrorCodes = [

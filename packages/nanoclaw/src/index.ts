@@ -9,14 +9,18 @@ export {
   assertValidNodeOutput
 } from "./payload-validation.js";
 export type { NodePayloadValidationIssue } from "./payload-validation.js";
+export { createExecutionWorkspace, prepareNodeWorkspace } from "./workspace.js";
+export type { ExecutionWorkspaceOptions } from "./workspace.js";
 export type {
   CompiledDag,
   CompiledDagNode,
   CompiledNodeInputBinding,
   DagExecutionResult,
-  NodeInputPayload,
+  ExecutionWorkspace,
   NodeExecutionResult,
+  NodeInputPayload,
   NodeRunContext,
+  NodeWorkspace,
   NodeRunner,
   NodeRunnerResult
 } from "./types.js";
