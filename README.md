@@ -53,6 +53,23 @@ Approving a workflow freezes the current revision into `workflow.approval`, incl
 
 Editing an approved workflow creates a new draft revision. Execution remains blocked until that current revision is approved.
 
+## NanoClaw Runtime Controls
+
+API runs use `MockNodeRunner` by default so local OpenClaw development and CI do not require a Docker daemon. Set `NANOCLAW_RUNNER=docker` to execute approved workflow nodes through Docker. Optional controls are `NANOCLAW_DOCKER_BIN` for a non-default Docker binary and `NANOCLAW_HOST_WORKSPACE` for command-construction compatibility.
+
+NanoClaw writes each run under a preserved workspace in the OS temp directory unless callers pass `workspaceRoot`. The workspace contains `workflow.json`, per-node `input.json` and `output.json`, `stdout.log`, `stderr.log`, an `artifacts/` directory, and `run-manifest.json` for replay.
+
+Docker nodes receive only declared runtime environment variables plus NanoClaw paths:
+
+- `NANOCLAW_WORKFLOW_SPEC`
+- `NANOCLAW_NODE_INPUT`
+- `NANOCLAW_NODE_OUTPUT`
+- `NANOCLAW_ARTIFACTS_DIR`
+- `NANOCLAW_NODE_ID`
+- `NANOCLAW_ATTEMPT`
+
+Containers mount the frozen workflow spec read-only and the node attempt workspace read-write. Network mode is `none` unless the node declares adapter or external API access. CPU, memory, timeout, retry count, backoff, logs, artifacts, attempts, skipped downstream nodes, and replay metadata are captured in the execution result.
+
 ## Skill Registry
 
 The built-in skill registry records input and output schemas, required secrets, fake adapter dependencies, runtime templates, metaprompts, validation rules, and example fixtures. Deterministic matching returns scored `SkillMatch` results with explainable reasons. Registry skills are preferred over codegen when the top match reaches the fixed reuse threshold.
