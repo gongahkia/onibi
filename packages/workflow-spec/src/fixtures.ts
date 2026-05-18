@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
+import { stableJsonStringify } from "./stable-json.js";
 import { workflowSchemaVersion } from "./types.js";
-import { stableWorkflowStringify } from "./stable-json.js";
 import type {
   JsonRecord,
   JsonSchemaShape,
@@ -418,7 +418,16 @@ export function createApprovedWorkflowFixture(
 
 function hashWorkflowDagFixture(workflow: WorkflowSpec): string {
   return `sha256:${createHash("sha256")
-    .update(stableWorkflowStringify({ ...workflow, approval: null }), "utf8")
+    .update(
+      stableJsonStringify({
+        id: workflow.id,
+        schemaVersion: workflow.schemaVersion,
+        revision: workflow.revision,
+        nodes: [...workflow.nodes].sort((left, right) => left.id.localeCompare(right.id)),
+        edges: [...workflow.edges].sort((left, right) => left.id.localeCompare(right.id))
+      } as unknown as JsonRecord),
+      "utf8"
+    )
     .digest("hex")}`;
 }
 

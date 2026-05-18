@@ -1,5 +1,10 @@
 import Fastify from "fastify";
-import { MockNodeRunner, compileWorkflowDag, executeCompiledDag } from "@kelpclaw/nanoclaw";
+import {
+  DockerNodeRunner,
+  MockNodeRunner,
+  compileWorkflowDag,
+  executeCompiledDag
+} from "@kelpclaw/nanoclaw";
 import {
   WorkflowValidationError,
   gmailReceiptsToSheetsWorkflowFixture,
@@ -303,9 +308,9 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
 
     try {
       const dag = compileWorkflowDag(approvedRevision.workflow);
-      const result = await executeCompiledDag(dag, new MockNodeRunner());
+      const result = await executeCompiledDag(dag, createNanoClawRunner());
       const now = new Date().toISOString();
-      const events = createRunEvents(result.nodeResults, now);
+      const events = result.events ?? createRunEvents(result.nodeResults, now);
       const run = store.saveRun({
         id: `run.${approvedRevision.workflowId}.r${approvedRevision.revision}.${Date.now()}`,
         workflowId: approvedRevision.workflowId,
@@ -391,7 +396,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
 
       try {
         const dag = compileWorkflowDag(workflow);
-        const result = await executeCompiledDag(dag, new MockNodeRunner());
+        const result = await executeCompiledDag(dag, createNanoClawRunner());
         const execution = store.saveExecution({
           id: result.id,
           workflowId: workflow.id,
@@ -435,6 +440,17 @@ function isValidateRequest(input: unknown): input is WorkflowValidateRequest {
     "workflow" in input &&
     typeof (input as WorkflowValidateRequest).workflow === "object"
   );
+}
+
+function createNanoClawRunner(): MockNodeRunner | DockerNodeRunner {
+  if (process.env.NANOCLAW_RUNNER === "docker") {
+    return new DockerNodeRunner({
+      dockerBin: process.env.NANOCLAW_DOCKER_BIN,
+      hostWorkspace: process.env.NANOCLAW_HOST_WORKSPACE ?? process.cwd()
+    });
+  }
+
+  return new MockNodeRunner();
 }
 
 function createRunEvents(

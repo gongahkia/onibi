@@ -2,10 +2,10 @@ import { createHash } from "node:crypto";
 import {
   WorkflowValidationError,
   assertApprovedWorkflowSpec,
-  stableWorkflowStringify
+  stableJsonStringify
 } from "@kelpclaw/workflow-spec";
 import type { CompiledDag, CompiledDagNode, CompiledNodeInputBinding } from "./types.js";
-import type { WorkflowSpec } from "@kelpclaw/workflow-spec";
+import type { JsonRecord, WorkflowSpec } from "@kelpclaw/workflow-spec";
 
 export function compileWorkflowDag(input: WorkflowSpec): CompiledDag {
   const workflow = assertApprovedWorkflowSpec(input);
@@ -127,8 +127,18 @@ export function topologicalOrder(nodes: ReadonlyMap<string, CompiledDagNode>): r
 
 export function hashWorkflowDag(workflow: WorkflowSpec): string {
   return `sha256:${createHash("sha256")
-    .update(stableWorkflowStringify({ ...workflow, approval: null }), "utf8")
+    .update(stableJsonStringify(toHashableDag(workflow)), "utf8")
     .digest("hex")}`;
+}
+
+function toHashableDag(workflow: WorkflowSpec): JsonRecord {
+  return {
+    id: workflow.id,
+    schemaVersion: workflow.schemaVersion,
+    revision: workflow.revision,
+    nodes: [...workflow.nodes].sort((left, right) => left.id.localeCompare(right.id)),
+    edges: [...workflow.edges].sort((left, right) => left.id.localeCompare(right.id))
+  } as unknown as JsonRecord;
 }
 
 function compareInputBindings(

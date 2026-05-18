@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { hashWorkflowDag as hashNanoClawWorkflowDag } from "@kelpclaw/nanoclaw";
 import type { DagExecutionResult } from "@kelpclaw/nanoclaw";
 import {
   createWorkflowSpecDiff,
@@ -302,9 +302,7 @@ export class InMemoryWorkflowStore {
 }
 
 export function hashWorkflowDag(workflow: WorkflowSpec): string {
-  return `sha256:${createHash("sha256")
-    .update(stableWorkflowStringify({ ...workflow, approval: null }), "utf8")
-    .digest("hex")}`;
+  return hashNanoClawWorkflowDag(workflow);
 }
 
 export function calculateNodeOrder(workflow: WorkflowSpec): readonly string[] {
