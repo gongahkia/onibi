@@ -1,77 +1,76 @@
-[![](https://img.shields.io/badge/kelp_1.0.0-passing-light_green)](https://github.com/gongahkia/kelp/releases/tag/1.0.0)
-[![](https://img.shields.io/badge/kelp_2.0.0-passing-green)](https://github.com/gongahkia/kelp/releases/tag/2.0.0)
+# Kelp
 
-# `Kelp` 🌿🌊
+Kelp is a local-first planner with a Lazygit-style terminal UI and stable scriptable commands.
 
-The *K*ommand line h*elp*er.
+Running `kelp` with no subcommand opens the full-screen TUI. Existing command workflows remain available for shell scripts and agent tooling.
 
 ## Dependencies
 
-`Kelp` relies on [curl](https://curl.se/), [wget](https://www.gnu.org/software/wget/) and [git](https://git-scm.com/).
+- Zig 0.15 or newer for source builds
+- curl or wget for release installs
 
-## Install Kelp
+## Install
 
 ```console
 $ curl -fsSL https://raw.githubusercontent.com/gongahkia/kelp/main/installer.sh -o installer.sh
 $ chmod +x installer.sh
 $ ./installer.sh --build-from-source
-$ ./installer.sh --release-version 1.0.0
 $ ./installer.sh --with-completions
 ```
 
-After running the Rust installer, we have to add a line of code to the **bottom** of our `.bashrc` file to indicate the file path. Remember to **source** your `.bashrc` file. (Neovim is used below, but any other code editor can be used).
-
-```console
-$ nvim ~/.bashrc
-$ source ~/.bashrc
-```
-
-*Line to be added:*
+The installer writes `kelp` to `${KELP_INSTALL_DIR:-$HOME/.local/bin}`.
 
 ```bash
-export PATH=~/.config/Kelp-build:$PATH
-```
-
-Finally, `cd` back into the directory that we previously ran the `installation.sh` binary in, and remove the installation files.
-
-```console
-$ rm -r installer.sh Kelp
-```
-
-## Uninstall Kelp
-
-```console
-$ cd ~/.config
-$ rm -r Kelp-build
-```
-
-Additionally, remember to remove the line added to your `.bashrc` file.
-
-```console
-$ nvim ~/.bashrc
--- removes final line from file
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 ## Usage
 
 ```console
+$ kelp
 $ kelp init
 $ kelp project add --name Launch --deadline next-week
 $ kelp task add --title "Draft release notes" --project Launch --priority high --due tomorrow
 $ kelp task ready
 $ kelp review daily
-$ kelp review weekly
+$ kelp --output json task list
+```
+
+## TUI Keys
+
+```text
+1-5       Focus panels
+j/k       Move selection
+n         New task
+p         New project
+space     Mark selected task as next action
+s/w/b     Start, wait, or block selected task
+d         Complete selected task
+a/r       Archive or reopen selected task
+x         Delete selected task
+?         Show keybindings
+q         Quit
+```
+
+## Storage
+
+Kelp keeps the existing local JSON storage contract:
+
+- data: `$XDG_DATA_HOME/kelp/data.json` or `$HOME/.local/share/kelp/data.json`
+- config: `$XDG_CONFIG_HOME/kelp/config.json` or `$HOME/.config/kelp/config.json`
+- `--data-dir` colocates data and config for tests or isolated workspaces
+
+## Test And Package
+
+```console
+$ zig build test
+$ ./scripts/package-release.sh
 ```
 
 ## Support
 
-| Platform | Status | Download |
-| :---: | :---: | :---: |
-| Windows | Up | On WSL, below instructions |
-| MacOS | Up | Below instructions |
-| Linux | Up | Below instructions |
-
-## 2 puns
-
-1. `Kelp` was written in Rust because [we love crabs](https://www.reddit.com/r/rust/comments/uboyeq/why_is_rust_the_most_loved_programming_language/?rdt=50321).
-2. Installation for `Kelp` was handled in Bash, because making `Kelp` felt like [bashing my head in](https://www.reddit.com/r/rust/comments/cgs9lj/why_do_people_hate_rust/).
+| Platform | Status |
+| :---: | :---: |
+| macOS | Supported |
+| Linux | Supported |
+| Windows | Supported through WSL |

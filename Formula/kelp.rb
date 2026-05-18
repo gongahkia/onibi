@@ -1,14 +1,14 @@
 class Kelp < Formula
-  desc "Strict, local-first planner CLI for tasks, projects, and reviews"
+  desc "Strict, local-first planner CLI and Lazygit-style TUI"
   homepage "https://github.com/gongahkia/kelp"
   url "https://github.com/gongahkia/kelp/releases/download/v1.0.0/kelp-v1.0.0-source.tar.gz"
-  sha256 "97c99d06e920e5ce08a9e0dcb91ad6b03552996bb0ccbf2b49bdbc8113ee76da"
+  sha256 "646fef1ab7b6a569a83eeb8a66473ba89f8a16b23648fc62ef1a73d9928a04ce"
   license "MIT"
 
-  depends_on "rust" => :build
+  depends_on "zig" => :build
 
   def install
-    system "cargo", "install", *std_cargo_args(path: ".")
+    system "zig", "build", "-Doptimize=ReleaseSafe", "--prefix", prefix
     generate_completions_from_executable(bin/"kelp", "completions")
   end
 
