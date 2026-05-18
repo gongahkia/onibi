@@ -1,6 +1,6 @@
 import { createDefaultFakeAdapters } from "@kelpclaw/adapters";
 import { MockNodeRunner, compileWorkflowDag, executeCompiledDag } from "@kelpclaw/nanoclaw";
-import { staticContentWorkflowFixture } from "@kelpclaw/workflow-spec";
+import { approvedGmailReceiptsToSheetsWorkflowFixture } from "@kelpclaw/workflow-spec";
 import type { FakeAdapter } from "@kelpclaw/adapters";
 import type { DagExecutionResult } from "@kelpclaw/nanoclaw";
 import type { WorkflowSpec } from "@kelpclaw/workflow-spec";
@@ -12,7 +12,7 @@ export interface DeterministicHarness {
 }
 
 export function createDeterministicHarness(
-  workflow: WorkflowSpec = staticContentWorkflowFixture
+  workflow: WorkflowSpec = approvedGmailReceiptsToSheetsWorkflowFixture
 ): DeterministicHarness {
   const adapters = createDefaultFakeAdapters();
 
@@ -27,5 +27,5 @@ export function createDeterministicHarness(
 }
 
 export async function runStaticFixture(): Promise<DagExecutionResult> {
-  return createDeterministicHarness(staticContentWorkflowFixture).runWorkflow();
+  return createDeterministicHarness(approvedGmailReceiptsToSheetsWorkflowFixture).runWorkflow();
 }

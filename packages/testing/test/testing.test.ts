@@ -7,10 +7,10 @@ describe("deterministic testing harness", () => {
 
     expect(result.status).toBe("succeeded");
     expect(result.nodeResults.map((node) => node.nodeId)).toEqual([
-      "collect-brief",
-      "draft-copy",
-      "owner-approval",
-      "send-email"
+      "manual-trigger",
+      "read-gmail-receipts",
+      "normalize-receipts",
+      "append-sheet-rows"
     ]);
   });
 
