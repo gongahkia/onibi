@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-import { stableJsonStringify } from "./stable-json.js";
 import { workflowSchemaVersion } from "./types.js";
 import type {
   JsonRecord,
@@ -10,6 +8,7 @@ import type {
 } from "./types.js";
 
 const createdAt = "2026-05-18T00:00:00.000Z";
+const checksumA = "sha256:fe7089c55f65f4fe08e04af27951ea6b70c2262332c3079591326fd471ee1279";
 const checksumB = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
 export const stringSchema: JsonSchemaShape = { type: "string" };
@@ -172,7 +171,7 @@ export const approvedGmailReceiptsToSheetsWorkflowFixture: WorkflowSpec = {
     approvedBy: "owner@example.com",
     approvedAt: "2026-05-18T01:00:00.000Z",
     frozenRevision: 1,
-    frozenDagHash: hashWorkflowDagFixture(gmailReceiptsToSheetsWorkflowFixture),
+    frozenDagHash: checksumA,
     nodeOrder: ["manual-trigger", "read-gmail-receipts", "normalize-receipts", "append-sheet-rows"]
   }
 };
@@ -409,26 +408,11 @@ export function createApprovedWorkflowFixture(
       approvedBy: "owner@example.com",
       approvedAt: "2026-05-18T01:00:00.000Z",
       frozenRevision: workflow.revision,
-      frozenDagHash: hashWorkflowDagFixture(workflow),
+      frozenDagHash: checksumA,
       nodeOrder: workflow.nodes.map((node) => node.id),
       ...override
     }
   };
-}
-
-function hashWorkflowDagFixture(workflow: WorkflowSpec): string {
-  return `sha256:${createHash("sha256")
-    .update(
-      stableJsonStringify({
-        id: workflow.id,
-        schemaVersion: workflow.schemaVersion,
-        revision: workflow.revision,
-        nodes: [...workflow.nodes].sort((left, right) => left.id.localeCompare(right.id)),
-        edges: [...workflow.edges].sort((left, right) => left.id.localeCompare(right.id))
-      } as unknown as JsonRecord),
-      "utf8"
-    )
-    .digest("hex")}`;
 }
 
 export function withConfig(

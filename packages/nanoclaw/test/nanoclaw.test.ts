@@ -20,6 +20,7 @@ import {
   MockNodeRunner,
   compileWorkflowDag,
   executeCompiledDag,
+  hashWorkflowDag,
   replayCompletedRun
 } from "../src/index.js";
 import type {
@@ -118,7 +119,7 @@ describe("nanoclaw dag runtime", () => {
         })
       ]
     });
-    const approved = createApprovedWorkflowFixture(workflow, {
+    const approved = approveForNanoClaw(workflow, {
       nodeOrder: ["a-source", "b-source", "join"]
     });
 
@@ -138,7 +139,7 @@ describe("nanoclaw dag runtime", () => {
   });
 
   it("fails successful runner output that does not match declared schemas", async () => {
-    const workflow = createApprovedWorkflowFixture(
+    const workflow = approveForNanoClaw(
       createWorkflowSpec({
         id: "workflow.invalid-output",
         name: "Invalid Output",
@@ -168,7 +169,7 @@ describe("nanoclaw dag runtime", () => {
 
   it("retries failed node attempts and records retry metadata", async () => {
     let calls = 0;
-    const workflow = createApprovedWorkflowFixture(
+    const workflow = approveForNanoClaw(
       createWorkflowSpec({
         id: "workflow.retry",
         name: "Retry",
@@ -210,7 +211,7 @@ describe("nanoclaw dag runtime", () => {
   });
 
   it("marks timed out node attempts without running downstream nodes", async () => {
-    const workflow = createApprovedWorkflowFixture(
+    const workflow = approveForNanoClaw(
       createWorkflowSpec({
         id: "workflow.timeout",
         name: "Timeout",
@@ -294,7 +295,7 @@ describe("nanoclaw docker integration", () => {
   dockerIt(
     "runs two Dockerized nodes with isolated workspaces and replayable artifacts",
     async () => {
-      const workflow = createApprovedWorkflowFixture(createDockerWorkflowFixture());
+      const workflow = approveForNanoClaw(createDockerWorkflowFixture());
       const workspaceRoot = await mkdtemp(join(tmpdir(), "nanoclaw-docker-test-"));
       const result = await executeCompiledDag(
         compileWorkflowDag(workflow),
@@ -333,6 +334,16 @@ function nodeRunner(
       return run(node, context);
     }
   };
+}
+
+function approveForNanoClaw(
+  workflow: ReturnType<typeof createWorkflowSpec>,
+  override: Partial<NonNullable<ReturnType<typeof createWorkflowSpec>["approval"]>> = {}
+) {
+  return createApprovedWorkflowFixture(workflow, {
+    frozenDagHash: hashWorkflowDag(workflow),
+    ...override
+  });
 }
 
 function createDockerWorkflowFixture() {
