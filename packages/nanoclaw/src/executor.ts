@@ -7,6 +7,7 @@ import {
   assertValidNodeOutput
 } from "./payload-validation.js";
 import { persistRunManifest } from "./replay.js";
+import { EnvironmentSecretResolver, secretEnvironmentName } from "./secrets.js";
 import { createExecutionWorkspace, prepareNodeWorkspace } from "./workspace.js";
 import type {
   CompiledDag,
@@ -19,6 +20,7 @@ import type {
   NodeRunner
 } from "./types.js";
 import type { CodegenArtifactStore } from "@kelpclaw/codegen";
+import type { SecretResolver } from "./secrets.js";
 import type {
   JsonRecord,
   JsonValue,
@@ -30,6 +32,7 @@ export interface ExecuteCompiledDagOptions {
   readonly runId?: string | undefined;
   readonly workspaceRoot?: string | undefined;
   readonly codegenArtifactStore?: CodegenArtifactStore | undefined;
+  readonly secretResolver?: SecretResolver | undefined;
   readonly onEvent?: ((event: WorkflowRunEvent) => void) | undefined;
   readonly signal?: AbortSignal | undefined;
 }
@@ -132,6 +135,7 @@ async function executeNodeWithAttempts(
         inputPayload,
         attempt,
         workspace: nodeWorkspace,
+        resolvedSecrets: await resolveNodeSecrets(dag, node, nodeWorkspace.runId, options),
         signal: attemptSignal.signal
       });
       const result: NodeExecutionResult = {
@@ -218,6 +222,30 @@ async function prepareCodegenWorkspace(
     encoding: "utf8",
     mode: 0o755
   });
+}
+
+async function resolveNodeSecrets(
+  dag: CompiledDag,
+  node: CompiledDagNode,
+  runId: string,
+  options: ExecuteCompiledDagOptions
+): Promise<Readonly<Record<string, string>>> {
+  const secretRefs = node.secretRefs ?? {};
+  const resolver = options.secretResolver ?? new EnvironmentSecretResolver();
+  const resolvedEntries = await Promise.all(
+    Object.entries(secretRefs).map(async ([secretName, secretRef]) => [
+      secretEnvironmentName(secretName),
+      await resolver.resolve(secretRef, {
+        workflowId: dag.workflowId,
+        revision: dag.revision,
+        nodeId: node.id,
+        runId,
+        secretName
+      })
+    ])
+  );
+
+  return Object.fromEntries(resolvedEntries);
 }
 
 function resolveNodeInputs(

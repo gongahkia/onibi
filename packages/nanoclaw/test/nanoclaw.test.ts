@@ -449,6 +449,47 @@ describe("nanoclaw dag runtime", () => {
     expect(result.nodeResults[0]?.attempts?.[0]?.status).toBe("cancelled");
   });
 
+  it("resolves declared secret refs at runtime without storing raw values in node payloads", async () => {
+    const previous = process.env.KELP_TEST_SECRET;
+    process.env.KELP_TEST_SECRET = "runtime-secret-value";
+    const workflow = approveForNanoClaw({
+      ...gmailReceiptsToSheetsWorkflowFixture,
+      nodes: gmailReceiptsToSheetsWorkflowFixture.nodes.map((node) =>
+        node.id === "manual-trigger"
+          ? {
+              ...node,
+              secretRefs: {
+                apiToken: "env:KELP_TEST_SECRET"
+              }
+            }
+          : node
+      )
+    });
+
+    try {
+      const fallback = new MockNodeRunner();
+      const result = await executeCompiledDag(
+        compileWorkflowDag(workflow),
+        nodeRunner((_node, context) => {
+          if (context.inputPayload.nodeId === "manual-trigger") {
+            expect(context.inputPayload.metadata).not.toHaveProperty("runtime-secret-value");
+            expect(context.resolvedSecrets.KELPCLAW_SECRET_APITOKEN).toBe("runtime-secret-value");
+          }
+
+          return fallback.run(_node, context);
+        })
+      );
+
+      expect(result.status).toBe("succeeded");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.KELP_TEST_SECRET;
+      } else {
+        process.env.KELP_TEST_SECRET = previous;
+      }
+    }
+  });
+
   it("constructs Docker-per-node commands without executing them", () => {
     const dag = compileWorkflowDag(approvedGmailReceiptsToSheetsWorkflowFixture);
     const runner = new DockerNodeRunner({ hostWorkspace: "/tmp/kelpclaw" });

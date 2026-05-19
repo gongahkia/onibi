@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { stableJsonStringify } from "@kelpclaw/workflow-spec";
+import { redactJsonRecord, redactedValue, stableJsonStringify } from "@kelpclaw/workflow-spec";
 import {
   emailResultDeliveryFixture,
   gmailReceiptPayloadFixture,
@@ -44,6 +44,10 @@ export class MockAdapter implements Adapter {
 
     const recorded: RecordedAdapterInvocation = {
       ...invocation,
+      payload: redactJsonRecord(invocation.payload, {
+        secretRefs: Object.values(invocation.secretRefs)
+      }),
+      secretRefs: redactSecretRefs(invocation.secretRefs),
       sequence: this.invocations.length + 1
     };
     this.invocations.push(recorded);
@@ -76,6 +80,12 @@ export class MockAdapter implements Adapter {
       ]
     };
   }
+}
+
+function redactSecretRefs(
+  secretRefs: Readonly<Record<string, string>>
+): Readonly<Record<string, string>> {
+  return Object.fromEntries(Object.keys(secretRefs).map((key) => [key, redactedValue]));
 }
 
 export function createMockAdapter(metadata: AdapterMetadata): MockAdapter {

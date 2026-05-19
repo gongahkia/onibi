@@ -111,6 +111,29 @@ describe("mock adapter execution", () => {
     expect(requireMockAdapter("adapter.telegram.fake", second).invocations).toHaveLength(0);
   });
 
+  it("redacts stored adapter payload echoes and secret references", async () => {
+    const adapter = requireMockAdapter("adapter.email.fake");
+
+    await adapter.invoke(
+      invocationFor({
+        adapterId: "adapter.email.fake",
+        operation: "email.results.send",
+        payload: {
+          to: "owner@example.com",
+          subject: "Review",
+          body: "Done",
+          authorization: "Bearer provider-token"
+        },
+        secretRefs: {
+          "email.delivery": "mock:email.delivery"
+        }
+      })
+    );
+
+    expect(adapter.invocations[0]?.payload.authorization).toBe("[REDACTED]");
+    expect(adapter.invocations[0]?.secretRefs["email.delivery"]).toBe("[REDACTED]");
+  });
+
   it("fails clearly when required credential references are missing", async () => {
     const adapter = requireMockAdapter("adapter.whatsapp.fake");
 

@@ -91,6 +91,7 @@ export interface NodeRunContext {
   readonly inputPayload: NodeInputPayload;
   readonly attempt: number;
   readonly workspace: NodeWorkspace;
+  readonly resolvedSecrets: Readonly<Record<string, string>>;
   readonly signal?: AbortSignal | undefined;
 }
 

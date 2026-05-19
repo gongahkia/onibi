@@ -21,6 +21,8 @@ export {
 export type { NodePayloadValidationIssue } from "./payload-validation.js";
 export { persistRunManifest, replayCompletedRun } from "./replay.js";
 export type { NanoClawRunManifest } from "./replay.js";
+export { EnvironmentSecretResolver, secretEnvironmentName } from "./secrets.js";
+export type { SecretResolutionContext, SecretResolver } from "./secrets.js";
 export { createExecutionWorkspace, prepareNodeWorkspace } from "./workspace.js";
 export type { ExecutionWorkspaceOptions } from "./workspace.js";
 export type {

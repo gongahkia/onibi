@@ -15,6 +15,8 @@ import {
   scheduledScrapingWorkflowFixture,
   stableWorkflowStringify,
   timeSensitiveAlertDeliveryWorkflowFixture,
+  redactJsonRecord,
+  redactedValue,
   validateWorkflowForExecution,
   validateWorkflowSpec,
   withConfig,
@@ -273,6 +275,31 @@ describe("enterprise observability contracts", () => {
     ).toMatchObject({
       action: "workflow.approved",
       actor: "owner@example.com"
+    });
+  });
+
+  it("redacts provider tokens, raw secrets, authorization headers, and declared secret refs", () => {
+    expect(
+      redactJsonRecord(
+        {
+          authorization: "Bearer provider-token",
+          nested: {
+            apiKey: "sk-test",
+            safe: "visible",
+            ref: "mock:gmail.oauth",
+            raw: "raw:secret"
+          }
+        },
+        { secretRefs: ["mock:gmail.oauth"] }
+      )
+    ).toEqual({
+      authorization: redactedValue,
+      nested: {
+        apiKey: redactedValue,
+        safe: "visible",
+        ref: redactedValue,
+        raw: redactedValue
+      }
     });
   });
 });

@@ -29,6 +29,13 @@ export {
 export { workflowJsonSchema } from "./json-schema.js";
 export { WorkflowMigrationError, migrateWorkflowToLatest } from "./migrations.js";
 export {
+  redactJsonRecord,
+  redactJsonValue,
+  redactSecretString,
+  redactedValue
+} from "./redaction.js";
+export type { RedactionOptions } from "./redaction.js";
+export {
   jsonRecordSchema,
   jsonSchemaShapeSchema,
   jsonValueSchema,
