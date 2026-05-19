@@ -812,7 +812,8 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     "/api/workflows/:id/approvals",
     async (request, reply) => {
       try {
-        const issues = await validateCodegenApprovalReadiness(
+        const issues = await validateApprovalReadiness(
+          store,
           store.requireWorkflow(request.params.id).workflow,
           artifactStore
         );
@@ -946,7 +947,8 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     }
 
     try {
-      const codegenIssues = await validateCodegenApprovalReadiness(
+      const codegenIssues = await validateApprovalReadiness(
+        store,
         validation.workflow,
         artifactStore
       );
@@ -1750,11 +1752,20 @@ function googleTokenForRevocation(secret: string): string | null {
   }
 }
 
-async function validateCodegenApprovalReadiness(
+async function validateApprovalReadiness(
+  store: WorkflowStore,
   workflow: WorkflowSpec,
   artifactStore: CodegenArtifactStore
 ): Promise<readonly WorkflowValidationIssue[]> {
   const issues: WorkflowValidationIssue[] = [];
+  const latestEvaluation = store.getLatestDraftEvaluation(workflow.id);
+  if (!latestEvaluation || latestEvaluation.status !== "passed") {
+    issues.push({
+      code: "WORKFLOW_DRAFT_EVALUATION_REQUIRED",
+      message: `Workflow '${workflow.id}' must pass draft evaluation before approval.`,
+      path: ["draftEvaluation"]
+    });
+  }
 
   for (const [index, node] of workflow.nodes.entries()) {
     if (node.kind !== "codegen" || !node.codegen) {
@@ -1777,6 +1788,29 @@ async function validateCodegenApprovalReadiness(
           path: ["nodes", index, "codegen", "artifacts"]
         });
       }
+    }
+
+    const latestEval = store
+      .listGeneratedNodeEvalReports(workflow.id, node.id)
+      .filter((report) => report.status === "passed")
+      .at(-1);
+    if (!latestEval) {
+      issues.push({
+        code: "WORKFLOW_CODEGEN_EVAL_REQUIRED",
+        message: `Codegen node '${node.id}' must pass generated-node eval before workflow approval.`,
+        path: ["nodes", index, "codegen"]
+      });
+    } else if (
+      !latestEval.schemaValid ||
+      !latestEval.securityValid ||
+      !latestEval.replayValid ||
+      !latestEval.dependencyPolicyValid
+    ) {
+      issues.push({
+        code: "WORKFLOW_CODEGEN_EVAL_REQUIRED",
+        message: `Codegen node '${node.id}' generated-node eval did not satisfy approval gates.`,
+        path: ["nodes", index, "codegen"]
+      });
     }
   }
 
