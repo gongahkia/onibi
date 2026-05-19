@@ -24,6 +24,6 @@ test("plans, edits, validates, approves, runs, and inspects a workflow", async (
 
   await page.getByRole("button", { name: "Run" }).click();
   await expect(page.locator(".status-succeeded", { hasText: "succeeded" })).toBeVisible();
-  await expect(page.getByText("NanoClaw run finished.")).toBeVisible();
+  await expect(page.locator(".event-list").getByText("NanoClaw run finished.")).toBeVisible();
   await expect(page.locator(".result-view")).toContainText("execution.workflow");
 });
