@@ -1,5 +1,6 @@
 import type {
   JsonRecord,
+  WorkflowAdapterOperationRef,
   WorkflowApprovalRecord,
   WorkflowCodegenMetadata,
   WorkflowDeterminism,
@@ -31,6 +32,9 @@ export interface CompiledDagNode {
   readonly determinism: WorkflowDeterminism;
   readonly skillId?: string | undefined;
   readonly adapterId?: string | undefined;
+  readonly adapterIds?: readonly string[] | undefined;
+  readonly adapterOperations?: readonly WorkflowAdapterOperationRef[] | undefined;
+  readonly secretRefs?: Readonly<Record<string, string>> | undefined;
   readonly codegen?: WorkflowCodegenMetadata | undefined;
   readonly dependencies: readonly string[];
   readonly dependents: readonly string[];

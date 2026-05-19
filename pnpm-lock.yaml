@@ -114,6 +114,9 @@ importers:
 
   packages/nanoclaw:
     dependencies:
+      '@kelpclaw/adapters':
+        specifier: workspace:*
+        version: link:../adapters
       '@kelpclaw/codegen':
         specifier: workspace:*
         version: link:../codegen

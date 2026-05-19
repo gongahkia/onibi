@@ -3,6 +3,7 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { createDefaultMockAdapters, createMockAdapter } from "@kelpclaw/adapters";
 import {
   LocalCodegenArtifactStore,
   createArtifactManifest,
@@ -20,9 +21,11 @@ import {
   createWorkflowSpec,
   cyclicWorkflowFixture,
   gmailReceiptsToSheetsWorkflowFixture,
-  objectSchema
+  objectSchema,
+  timeSensitiveAlertDeliveryWorkflowFixture
 } from "@kelpclaw/workflow-spec";
 import {
+  AdapterBackedNodeRunner,
   DockerNodeRunner,
   MockNodeRunner,
   compileWorkflowDag,
@@ -30,6 +33,7 @@ import {
   hashWorkflowDag,
   replayCompletedRun
 } from "../src/index.js";
+import type { AdapterMetadata } from "@kelpclaw/adapters";
 import type {
   CompiledDagNode,
   NodeRunContext,
@@ -49,7 +53,8 @@ describe("nanoclaw dag runtime", () => {
       "manual-trigger",
       "read-gmail-receipts",
       "normalize-receipts",
-      "append-sheet-rows"
+      "append-sheet-rows",
+      "deliver-results-email"
     ]);
     expect(dag.nodes.get("normalize-receipts")?.dependencies).toEqual(["read-gmail-receipts"]);
   });
@@ -84,8 +89,178 @@ describe("nanoclaw dag runtime", () => {
       "succeeded",
       "failed",
       "skipped",
+      "skipped",
       "skipped"
     ]);
+  });
+
+  it("executes adapter-backed Gmail to Sheets to email delivery with deterministic mocks", async () => {
+    const adapters = createDefaultMockAdapters();
+    const result = await executeCompiledDag(
+      compileWorkflowDag(approvedGmailReceiptsToSheetsWorkflowFixture),
+      new AdapterBackedNodeRunner({ adapters })
+    );
+
+    expect(result.status).toBe("succeeded");
+    expect(adapters.get("adapter.gmail.fake")?.invocations).toHaveLength(1);
+    expect(adapters.get("adapter.sheets.fake")?.invocations).toHaveLength(1);
+    expect(adapters.get("adapter.email.fake")?.invocations).toHaveLength(1);
+    expect(result.nodeResults.at(-1)?.output.delivery).toMatchObject({
+      status: "succeeded",
+      channels: ["email"]
+    });
+  });
+
+  it("defaults delivery nodes to email when no secondary channel is declared", async () => {
+    const workflow = approveForNanoClaw(
+      createWorkflowSpec({
+        id: "workflow.default-email-delivery",
+        name: "Default Email Delivery",
+        prompt: "Send final results.",
+        createdAt: "2026-05-18T00:00:00.000Z",
+        nodes: [
+          createWorkflowNode({
+            id: "emit-result",
+            kind: "trigger",
+            outputs: { request: objectSchema }
+          }),
+          createWorkflowNode({
+            id: "deliver-result",
+            kind: "delivery",
+            inputs: { request: objectSchema },
+            outputs: { delivery: objectSchema },
+            secretRefs: {
+              "email.delivery": "mock:email.delivery"
+            }
+          })
+        ],
+        edges: [
+          createWorkflowEdge({
+            sourceNodeId: "emit-result",
+            sourcePort: "request",
+            targetNodeId: "deliver-result",
+            targetPort: "request"
+          })
+        ]
+      })
+    );
+    const adapters = createDefaultMockAdapters();
+    const result = await executeCompiledDag(
+      compileWorkflowDag(workflow),
+      new AdapterBackedNodeRunner({ adapters })
+    );
+
+    expect(result.status).toBe("succeeded");
+    expect(adapters.get("adapter.email.fake")?.invocations).toHaveLength(1);
+    expect(adapters.get("adapter.whatsapp.fake")?.invocations).toHaveLength(0);
+    expect(adapters.get("adapter.telegram.fake")?.invocations).toHaveLength(0);
+  });
+
+  it("runs WhatsApp and Telegram only when the workflow opts into push channels", async () => {
+    const adapters = createDefaultMockAdapters();
+    const result = await executeCompiledDag(
+      compileWorkflowDag(approveForNanoClaw(timeSensitiveAlertDeliveryWorkflowFixture)),
+      new AdapterBackedNodeRunner({ adapters })
+    );
+
+    expect(result.status).toBe("succeeded");
+    expect(adapters.get("adapter.whatsapp.fake")?.invocations).toHaveLength(1);
+    expect(adapters.get("adapter.telegram.fake")?.invocations).toHaveLength(1);
+    expect(result.nodeResults.at(-1)?.output.delivery).toMatchObject({
+      channels: ["whatsapp", "telegram"]
+    });
+  });
+
+  it("fails adapter-backed nodes with stable missing-secret validation errors", async () => {
+    const workflow = approveForNanoClaw({
+      ...gmailReceiptsToSheetsWorkflowFixture,
+      nodes: gmailReceiptsToSheetsWorkflowFixture.nodes.map((node) =>
+        node.id === "deliver-results-email"
+          ? {
+              ...node,
+              secretRefs: {}
+            }
+          : node
+      )
+    });
+    const result = await executeCompiledDag(
+      compileWorkflowDag(workflow),
+      new AdapterBackedNodeRunner()
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.nodeResults.at(-2)?.status).toBe("succeeded");
+    expect(result.nodeResults.at(-1)?.error).toContain("WORKFLOW_ADAPTER_SECRET_MISSING");
+  });
+
+  it("enforces declared network policy before invoking adapters", async () => {
+    const metadata: AdapterMetadata = {
+      id: "adapter.email.networked",
+      kind: "email",
+      displayName: "Networked Email",
+      version: "1.0.0",
+      capabilities: ["email.results.send"],
+      operations: [
+        {
+          name: "email.results.send",
+          version: "1.0.0",
+          description: "Send an email through a live network provider.",
+          inputSchema: objectSchema,
+          outputSchema: objectSchema
+        }
+      ],
+      requiredSecrets: [],
+      networkPolicy: {
+        mode: "declared",
+        allowedHosts: ["api.email.example.com"]
+      },
+      rateLimit: {
+        maxRequests: 60,
+        perSeconds: 60
+      },
+      retry: {
+        maxAttempts: 1,
+        backoffSeconds: 0,
+        retryableErrorCodes: []
+      },
+      fixtures: [],
+      live: false
+    };
+    const workflow = approveForNanoClaw(
+      createWorkflowSpec({
+        id: "workflow.network-policy",
+        name: "Network Policy",
+        prompt: "Send through a networked provider.",
+        createdAt: "2026-05-18T00:00:00.000Z",
+        nodes: [
+          createWorkflowNode({
+            id: "send-email",
+            kind: "delivery",
+            inputs: {},
+            outputs: { delivery: objectSchema },
+            adapterId: metadata.id,
+            adapterIds: [metadata.id],
+            adapterOperations: [
+              {
+                adapterId: metadata.id,
+                operation: "email.results.send",
+                operationVersion: "1.0.0"
+              }
+            ]
+          })
+        ],
+        edges: []
+      })
+    );
+    const result = await executeCompiledDag(
+      compileWorkflowDag(workflow),
+      new AdapterBackedNodeRunner({
+        adapters: new Map([[metadata.id, createMockAdapter(metadata)]])
+      })
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.nodeResults[0]?.error).toContain("WORKFLOW_ADAPTER_NETWORK_POLICY_INVALID");
   });
 
   it("uses stable node id tie-breaking independent of node insertion order", () => {

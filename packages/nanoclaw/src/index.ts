@@ -1,3 +1,15 @@
+export {
+  AdapterBackedNodeRunner,
+  type AdapterBackedNodeRunnerOptions
+} from "./adapter-runner.js";
+export {
+  assertNodeAdapterPolicy,
+  createAdapterMetadataRegistry,
+  declaredAdapterOperations,
+  defaultAdapterRegistry,
+  validateNodeAdapterPolicy,
+  type AdapterRegistry
+} from "./adapter-policy.js";
 export { compileWorkflowDag, hashWorkflowDag, topologicalOrder } from "./compiler.js";
 export { DockerNodeRunner } from "./docker-runner.js";
 export type { DockerNodeRunnerOptions } from "./docker-runner.js";
