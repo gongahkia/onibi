@@ -17,6 +17,7 @@ import {
 import {
   WorkflowValidationError,
   gmailReceiptsToSheetsWorkflowFixture,
+  redactSecretString,
   stableJsonStringify,
   validateWorkflowSpec
 } from "@kelpclaw/workflow-spec";
@@ -48,7 +49,7 @@ import type {
   WorkflowValidateResponse
 } from "@kelpclaw/workflow-spec";
 import {
-  createLivePlannerBackend,
+  createPlannerBackendFromEnv,
   planMockWorkflowDraft,
   planWorkflowDraft,
   repromptWorkflow
@@ -107,7 +108,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
   });
   const store = options.store ?? new InMemoryWorkflowStore();
   const artifactStore = options.artifactStore ?? new LocalCodegenArtifactStore();
-  const planner = options.planner ?? createLivePlannerBackend({ artifactStore });
+  const planner = options.planner ?? createPlannerBackendFromEnv({ artifactStore });
 
   app.get("/health", async () => ({
     status: "ok",
@@ -133,7 +134,10 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         return reply.code(503).send({
           ok: false,
           error: "PLANNER_BACKEND_UNAVAILABLE",
-          message: error instanceof Error ? error.message : "Planner backend is unavailable."
+          message:
+            error instanceof Error
+              ? redactSecretString(error.message)
+              : "Planner backend is unavailable."
         } as never);
       }
       const validation = validateWorkflowSpec(workflow);

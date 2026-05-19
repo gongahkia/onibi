@@ -36,11 +36,24 @@ export interface RegistryPlannerBackendOptions {
   readonly artifactStore: CodegenArtifactStore;
 }
 
+export type PlannerBackendMode = "deterministic" | "live";
+export type PlannerBackendProvider = "anthropic";
+
+export interface LivePlannerBackendOptions extends Partial<RegistryPlannerBackendOptions> {
+  readonly apiKey?: string | undefined;
+  readonly model?: string | undefined;
+}
+
 export function createLivePlannerBackend(
-  options: Partial<RegistryPlannerBackendOptions> = {}
+  options: LivePlannerBackendOptions = {}
 ): WorkflowPlannerBackend {
   return new RegistryPlannerBackend({
-    codeGenerator: options.codeGenerator ?? new AgentSdkCodeGenerator(),
+    codeGenerator:
+      options.codeGenerator ??
+      new AgentSdkCodeGenerator({
+        apiKey: options.apiKey,
+        model: options.model
+      }),
     artifactStore: options.artifactStore ?? new LocalCodegenArtifactStore()
   });
 }
@@ -54,11 +67,49 @@ export function createDeterministicPlannerBackend(
   });
 }
 
+export function createPlannerBackendFromEnv(
+  options: Partial<RegistryPlannerBackendOptions> = {}
+): WorkflowPlannerBackend {
+  const mode = plannerModeFromEnv();
+  if (mode === "deterministic") {
+    return createDeterministicPlannerBackend(options);
+  }
+
+  const provider = plannerProviderFromEnv();
+  if (provider !== "anthropic") {
+    throw new Error(`Unsupported planner provider '${provider}'.`);
+  }
+
+  return createLivePlannerBackend({
+    ...options,
+    apiKey: process.env.ANTHROPIC_API_KEY,
+    model: process.env.KELPCLAW_PLANNER_MODEL
+  });
+}
+
 export async function planWorkflowDraft(
   request: WorkflowPlanRequest,
   planner: WorkflowPlannerBackend = createLivePlannerBackend()
 ): Promise<WorkflowSpec> {
   return planner.plan(request);
+}
+
+function plannerModeFromEnv(): PlannerBackendMode {
+  const mode = process.env.KELPCLAW_PLANNER_MODE ?? "live";
+  if (mode === "deterministic" || mode === "live") {
+    return mode;
+  }
+
+  throw new Error("KELPCLAW_PLANNER_MODE must be 'deterministic' or 'live'.");
+}
+
+function plannerProviderFromEnv(): PlannerBackendProvider {
+  const provider = process.env.KELPCLAW_PLANNER_PROVIDER ?? "anthropic";
+  if (provider === "anthropic") {
+    return provider;
+  }
+
+  throw new Error("KELPCLAW_PLANNER_PROVIDER must be 'anthropic'.");
 }
 
 export function planMockWorkflowDraft(request: WorkflowPlanRequest): WorkflowSpec {

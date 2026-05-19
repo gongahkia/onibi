@@ -1,6 +1,15 @@
 export { buildApiApp, createConfiguredWorkflowStore } from "./app.js";
-export { createDeterministicPlannerBackend, createLivePlannerBackend } from "./planner.js";
-export type { WorkflowPlannerBackend } from "./planner.js";
+export {
+  createDeterministicPlannerBackend,
+  createLivePlannerBackend,
+  createPlannerBackendFromEnv
+} from "./planner.js";
+export type {
+  LivePlannerBackendOptions,
+  PlannerBackendMode,
+  PlannerBackendProvider,
+  WorkflowPlannerBackend
+} from "./planner.js";
 export {
   InMemoryWorkflowStore,
   SqliteWorkflowStore,

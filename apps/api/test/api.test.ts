@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { clearPromotedSkillsForTests } from "@kelpclaw/skill-registry";
 import { gmailReceiptsToSheetsWorkflowFixture } from "@kelpclaw/workflow-spec";
-import { buildApiApp, createDeterministicPlannerBackend } from "../src/index.js";
+import {
+  buildApiApp,
+  createDeterministicPlannerBackend,
+  createPlannerBackendFromEnv
+} from "../src/index.js";
 
 let app: FastifyInstance | undefined;
 
@@ -40,6 +44,55 @@ describe("kelpclaw api contracts", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json().workflow.prompt).toBe("Launch Review");
     expect(response.json().workflow.schemaVersion).toBe("1.0.0");
+  });
+
+  it("configures deterministic planner mode from environment", async () => {
+    const previousMode = process.env.KELPCLAW_PLANNER_MODE;
+    process.env.KELPCLAW_PLANNER_MODE = "deterministic";
+    app = buildApiApp();
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/workflows/plan",
+        payload: {
+          prompt: "scrape a custom public status page and summarize incidents"
+        }
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(
+        response.json().workflow.nodes.some((node: { kind: string }) => node.kind === "codegen")
+      ).toBe(true);
+    } finally {
+      if (previousMode === undefined) {
+        delete process.env.KELPCLAW_PLANNER_MODE;
+      } else {
+        process.env.KELPCLAW_PLANNER_MODE = previousMode;
+      }
+    }
+  });
+
+  it("rejects unsupported planner provider configuration", () => {
+    const previousMode = process.env.KELPCLAW_PLANNER_MODE;
+    const previousProvider = process.env.KELPCLAW_PLANNER_PROVIDER;
+    process.env.KELPCLAW_PLANNER_MODE = "live";
+    process.env.KELPCLAW_PLANNER_PROVIDER = "unsupported";
+
+    try {
+      expect(() => createPlannerBackendFromEnv()).toThrow("KELPCLAW_PLANNER_PROVIDER");
+    } finally {
+      if (previousMode === undefined) {
+        delete process.env.KELPCLAW_PLANNER_MODE;
+      } else {
+        process.env.KELPCLAW_PLANNER_MODE = previousMode;
+      }
+      if (previousProvider === undefined) {
+        delete process.env.KELPCLAW_PLANNER_PROVIDER;
+      } else {
+        process.env.KELPCLAW_PLANNER_PROVIDER = previousProvider;
+      }
+    }
   });
 
   it("plans and validates draft workflow revisions through the Phase 3 routes", async () => {
