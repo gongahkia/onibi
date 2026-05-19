@@ -138,9 +138,18 @@ importers:
       '@kelpclaw/adapters':
         specifier: workspace:*
         version: link:../adapters
+      '@kelpclaw/api':
+        specifier: workspace:*
+        version: link:../../apps/api
+      '@kelpclaw/codegen':
+        specifier: workspace:*
+        version: link:../codegen
       '@kelpclaw/nanoclaw':
         specifier: workspace:*
         version: link:../nanoclaw
+      '@kelpclaw/skill-registry':
+        specifier: workspace:*
+        version: link:../skill-registry
       '@kelpclaw/workflow-spec':
         specifier: workspace:*
         version: link:../workflow-spec

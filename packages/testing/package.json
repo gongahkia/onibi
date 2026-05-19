@@ -18,7 +18,10 @@
   },
   "dependencies": {
     "@kelpclaw/adapters": "workspace:*",
+    "@kelpclaw/api": "workspace:*",
+    "@kelpclaw/codegen": "workspace:*",
     "@kelpclaw/nanoclaw": "workspace:*",
+    "@kelpclaw/skill-registry": "workspace:*",
     "@kelpclaw/workflow-spec": "workspace:*"
   }
 }
