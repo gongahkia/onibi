@@ -178,9 +178,23 @@ export const workflowJsonSchema = {
     },
     codegen: {
       type: "object",
-      required: ["provenance", "replay"],
+      required: [
+        "originalPrompt",
+        "latestPrompt",
+        "plannerRationale",
+        "provenance",
+        "artifacts",
+        "dependencyManifest",
+        "sandbox",
+        "review",
+        "replay",
+        "llmBacked"
+      ],
       additionalProperties: false,
       properties: {
+        originalPrompt: { type: "string", minLength: 1 },
+        latestPrompt: { type: "string", minLength: 1 },
+        plannerRationale: { type: "string", minLength: 1 },
         provenance: {
           type: "object",
           required: [
@@ -199,6 +213,24 @@ export const workflowJsonSchema = {
             artifactChecksum: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" }
           }
         },
+        artifacts: {
+          type: "array",
+          minItems: 1,
+          items: { $ref: "#/$defs/codegenArtifactRef" }
+        },
+        dependencyManifest: { $ref: "#/$defs/codegenDependencyManifest" },
+        sandbox: { $ref: "#/$defs/codegenSandbox" },
+        review: {
+          type: "object",
+          required: ["status"],
+          additionalProperties: false,
+          properties: {
+            status: { enum: ["draft", "approved", "rejected"] },
+            reviewedBy: { type: "string", minLength: 1 },
+            reviewedAt: { type: "string", format: "date-time" },
+            notes: { type: "string" }
+          }
+        },
         replay: {
           type: "object",
           required: ["mode", "seed"],
@@ -207,7 +239,75 @@ export const workflowJsonSchema = {
             mode: { enum: ["reuse-if-unchanged", "always-regenerate", "fail-on-drift"] },
             seed: { type: "string", minLength: 1 }
           }
+        },
+        llmBacked: { type: "boolean" }
+      }
+    },
+    codegenArtifactRef: {
+      type: "object",
+      required: ["path", "checksum", "contentType"],
+      additionalProperties: false,
+      properties: {
+        path: { type: "string", minLength: 1 },
+        checksum: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
+        contentType: {
+          enum: ["application/json", "text/markdown", "text/plain", "text/typescript"]
         }
+      }
+    },
+    codegenDependencyManifest: {
+      type: "object",
+      required: [
+        "path",
+        "checksum",
+        "packageManager",
+        "dependencies",
+        "devDependencies",
+        "installCommand"
+      ],
+      additionalProperties: false,
+      properties: {
+        path: { type: "string", minLength: 1 },
+        checksum: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
+        packageManager: { enum: ["none", "npm", "pnpm"] },
+        dependencies: {
+          type: "array",
+          items: { type: "string", minLength: 1 }
+        },
+        devDependencies: {
+          type: "array",
+          items: { type: "string", minLength: 1 }
+        },
+        installCommand: {
+          type: "array",
+          items: { type: "string", minLength: 1 }
+        }
+      }
+    },
+    codegenSandbox: {
+      type: "object",
+      required: ["network", "allowedHosts", "mounts", "resources"],
+      additionalProperties: false,
+      properties: {
+        network: { enum: ["none", "declared"] },
+        allowedHosts: {
+          type: "array",
+          items: { type: "string", minLength: 1 }
+        },
+        mounts: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["source", "target", "mode"],
+            additionalProperties: false,
+            properties: {
+              source: { type: "string", minLength: 1 },
+              target: { type: "string", minLength: 1 },
+              mode: { enum: ["ro", "rw"] }
+            }
+          }
+        },
+        resources: { $ref: "#/$defs/runtime/properties/resources" }
       }
     },
     approval: {

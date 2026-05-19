@@ -59,14 +59,63 @@ export interface WorkflowCodegenProvenance {
   readonly artifactChecksum: string;
 }
 
+export type WorkflowCodegenArtifactContentType =
+  | "application/json"
+  | "text/markdown"
+  | "text/plain"
+  | "text/typescript";
+
+export interface WorkflowCodegenArtifactRef {
+  readonly path: string;
+  readonly checksum: string;
+  readonly contentType: WorkflowCodegenArtifactContentType;
+}
+
+export interface WorkflowCodegenDependencyManifest {
+  readonly path: string;
+  readonly checksum: string;
+  readonly packageManager: "none" | "npm" | "pnpm";
+  readonly dependencies: readonly string[];
+  readonly devDependencies: readonly string[];
+  readonly installCommand: readonly string[];
+}
+
+export interface WorkflowCodegenSandboxMount {
+  readonly source: string;
+  readonly target: string;
+  readonly mode: "ro" | "rw";
+}
+
+export interface WorkflowCodegenSandboxPolicy {
+  readonly network: "none" | "declared";
+  readonly allowedHosts: readonly string[];
+  readonly mounts: readonly WorkflowCodegenSandboxMount[];
+  readonly resources: WorkflowRuntimeResources;
+}
+
+export interface WorkflowCodegenReview {
+  readonly status: "draft" | "approved" | "rejected";
+  readonly reviewedBy?: string | undefined;
+  readonly reviewedAt?: string | undefined;
+  readonly notes?: string | undefined;
+}
+
 export interface WorkflowCodegenReplay {
   readonly mode: "reuse-if-unchanged" | "always-regenerate" | "fail-on-drift";
   readonly seed: string;
 }
 
 export interface WorkflowCodegenMetadata {
+  readonly originalPrompt: string;
+  readonly latestPrompt: string;
+  readonly plannerRationale: string;
   readonly provenance: WorkflowCodegenProvenance;
+  readonly artifacts: readonly WorkflowCodegenArtifactRef[];
+  readonly dependencyManifest: WorkflowCodegenDependencyManifest;
+  readonly sandbox: WorkflowCodegenSandboxPolicy;
+  readonly review: WorkflowCodegenReview;
   readonly replay: WorkflowCodegenReplay;
+  readonly llmBacked: boolean;
 }
 
 export interface WorkflowNode {
@@ -166,7 +215,11 @@ export const workflowValidationErrorCodes = [
   "WORKFLOW_EDGE_TARGET_PORT_INVALID",
   "WORKFLOW_DAG_CYCLE",
   "WORKFLOW_EXECUTION_UNAPPROVED",
-  "WORKFLOW_CODEGEN_METADATA_MISSING"
+  "WORKFLOW_CODEGEN_METADATA_MISSING",
+  "WORKFLOW_CODEGEN_REVIEW_REQUIRED",
+  "WORKFLOW_CODEGEN_DEPENDENCY_POLICY_INVALID",
+  "WORKFLOW_CODEGEN_SANDBOX_INVALID",
+  "WORKFLOW_CODEGEN_ARTIFACT_DRIFT"
 ] as const;
 
 export type WorkflowValidationErrorCode = (typeof workflowValidationErrorCodes)[number];

@@ -85,9 +85,12 @@ function validateWorkflowSemantics(workflow: WorkflowSpec): WorkflowValidationIs
     if (node.kind === "codegen" && !node.codegen) {
       errors.push({
         code: "WORKFLOW_CODEGEN_METADATA_MISSING",
-        message: `Codegen node '${node.id}' must include provenance and replay metadata.`,
+        message: `Codegen node '${node.id}' must include provenance, artifacts, sandbox, review, and replay metadata.`,
         path: ["nodes", index, "codegen"]
       });
+    }
+    if (node.kind === "codegen" && node.codegen) {
+      errors.push(...validateCodegenMetadata(workflow, index));
     }
   });
 
@@ -161,7 +164,109 @@ function validateApprovalForExecution(workflow: WorkflowSpec): WorkflowValidatio
     ];
   }
 
+  const unreviewedCodegenIndex = workflow.nodes.findIndex(
+    (node) => node.kind === "codegen" && node.codegen?.review.status !== "approved"
+  );
+  if (unreviewedCodegenIndex >= 0) {
+    const node = workflow.nodes[unreviewedCodegenIndex];
+    return [
+      {
+        code: "WORKFLOW_CODEGEN_REVIEW_REQUIRED",
+        message: `Codegen node '${node?.id ?? unreviewedCodegenIndex}' must be approved before execution.`,
+        path: ["nodes", unreviewedCodegenIndex, "codegen", "review", "status"]
+      }
+    ];
+  }
+
   return [];
+}
+
+function validateCodegenMetadata(
+  workflow: WorkflowSpec,
+  nodeIndex: number
+): WorkflowValidationIssue[] {
+  const node = workflow.nodes[nodeIndex];
+  const codegen = node?.codegen;
+  if (!node || !codegen) {
+    return [];
+  }
+
+  const errors: WorkflowValidationIssue[] = [];
+  const sourceArtifact = codegen.artifacts.find(
+    (artifact) => artifact.path === codegen.provenance.artifactPath
+  );
+  if (!sourceArtifact || sourceArtifact.checksum !== codegen.provenance.artifactChecksum) {
+    errors.push({
+      code: "WORKFLOW_CODEGEN_ARTIFACT_DRIFT",
+      message: `Codegen node '${node.id}' source artifact reference does not match provenance checksum.`,
+      path: ["nodes", nodeIndex, "codegen", "artifacts"]
+    });
+  }
+
+  const manifestArtifact = codegen.artifacts.find(
+    (artifact) => artifact.path === codegen.dependencyManifest.path
+  );
+  if (!manifestArtifact || manifestArtifact.checksum !== codegen.dependencyManifest.checksum) {
+    errors.push({
+      code: "WORKFLOW_CODEGEN_ARTIFACT_DRIFT",
+      message: `Codegen node '${node.id}' dependency manifest reference is missing or has drifted.`,
+      path: ["nodes", nodeIndex, "codegen", "dependencyManifest"]
+    });
+  }
+
+  if (!dependencyPolicyIsValid(codegen.dependencyManifest)) {
+    errors.push({
+      code: "WORKFLOW_CODEGEN_DEPENDENCY_POLICY_INVALID",
+      message: `Codegen node '${node.id}' dependency manifest must use pinned dependencies and an explicit install policy.`,
+      path: ["nodes", nodeIndex, "codegen", "dependencyManifest"]
+    });
+  }
+
+  if (!sandboxPolicyIsValid(node.runtime.resources, codegen.sandbox)) {
+    errors.push({
+      code: "WORKFLOW_CODEGEN_SANDBOX_INVALID",
+      message: `Codegen node '${node.id}' sandbox policy must match runtime resources and declared network access.`,
+      path: ["nodes", nodeIndex, "codegen", "sandbox"]
+    });
+  }
+
+  return errors;
+}
+
+function dependencyPolicyIsValid(
+  manifest: NonNullable<WorkflowSpec["nodes"][number]["codegen"]>["dependencyManifest"]
+): boolean {
+  const allDependencies = [...manifest.dependencies, ...manifest.devDependencies];
+  if (manifest.packageManager === "none") {
+    return (
+      allDependencies.length === 0 &&
+      manifest.installCommand.length === 0 &&
+      manifest.path.length > 0
+    );
+  }
+
+  return manifest.installCommand.length > 0 && allDependencies.every(isPinnedDependency);
+}
+
+function isPinnedDependency(dependency: string): boolean {
+  const separator = dependency.lastIndexOf("@");
+  return separator > 0 && separator < dependency.length - 1 && !dependency.endsWith("@latest");
+}
+
+function sandboxPolicyIsValid(
+  resources: WorkflowSpec["nodes"][number]["runtime"]["resources"],
+  sandbox: NonNullable<WorkflowSpec["nodes"][number]["codegen"]>["sandbox"]
+): boolean {
+  if (sandbox.network === "none" && sandbox.allowedHosts.length > 0) {
+    return false;
+  }
+  if (sandbox.network === "declared" && sandbox.allowedHosts.length === 0) {
+    return false;
+  }
+
+  return (
+    sandbox.resources.cpu === resources.cpu && sandbox.resources.memoryMb === resources.memoryMb
+  );
 }
 
 function hasCycle(workflow: WorkflowSpec): boolean {

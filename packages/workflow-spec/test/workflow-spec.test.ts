@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   approvedGmailReceiptsToSheetsWorkflowFixture,
+  createApprovedWorkflowFixture,
   createWorkflowEdge,
   createWorkflowNode,
   createWorkflowSpec,
@@ -95,6 +96,57 @@ describe("workflow spec validation", () => {
     }
   });
 
+  it("rejects codegen artifact drift, unsafe dependencies, and sandbox mismatches", () => {
+    const sourceNode = scheduledScrapingWorkflowFixture.nodes.find(
+      (node) => node.id === "scrape-status-page"
+    );
+    if (!sourceNode?.codegen) {
+      throw new Error("Scheduled scraping fixture is missing its codegen node.");
+    }
+    const sourceCodegen = sourceNode.codegen;
+
+    const result = validateWorkflowSpec({
+      ...scheduledScrapingWorkflowFixture,
+      nodes: scheduledScrapingWorkflowFixture.nodes.map((node) =>
+        node.id === sourceNode.id
+          ? {
+              ...node,
+              codegen: {
+                ...sourceCodegen,
+                artifacts: sourceCodegen.artifacts.map((artifact) =>
+                  artifact.path === sourceCodegen.provenance.artifactPath
+                    ? {
+                        ...artifact,
+                        checksum: `sha256:${"d".repeat(64)}`
+                      }
+                    : artifact
+                ),
+                dependencyManifest: {
+                  ...sourceCodegen.dependencyManifest,
+                  packageManager: "npm",
+                  dependencies: ["left-pad"],
+                  installCommand: ["npm", "install"]
+                },
+                sandbox: {
+                  ...sourceCodegen.sandbox,
+                  network: "none"
+                }
+              }
+            }
+          : node
+      )
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.map((error) => error.code)).toEqual([
+        "WORKFLOW_CODEGEN_ARTIFACT_DRIFT",
+        "WORKFLOW_CODEGEN_DEPENDENCY_POLICY_INVALID",
+        "WORKFLOW_CODEGEN_SANDBOX_INVALID"
+      ]);
+    }
+  });
+
   it("blocks execution until the current revision is approved", () => {
     const draft = validateWorkflowForExecution(gmailReceiptsToSheetsWorkflowFixture);
     expect(draft.ok).toBe(false);
@@ -104,6 +156,21 @@ describe("workflow spec validation", () => {
 
     const approved = validateWorkflowForExecution(approvedGmailReceiptsToSheetsWorkflowFixture);
     expect(approved.ok).toBe(true);
+  });
+
+  it("blocks execution of unreviewed codegen nodes", () => {
+    const approved = createApprovedWorkflowFixture(scheduledScrapingWorkflowFixture, {
+      frozenDagHash: `sha256:${"a".repeat(64)}`,
+      nodeOrder: scheduledScrapingWorkflowFixture.nodes.map((node) => node.id)
+    });
+    const result = validateWorkflowForExecution(approved);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.map((error) => error.code)).toEqual([
+        "WORKFLOW_CODEGEN_REVIEW_REQUIRED"
+      ]);
+    }
   });
 
   it("serializes fixtures as stable canonical JSON snapshots", () => {

@@ -46,6 +46,9 @@ export const workflowDeterminismSchema = z.object({
 });
 
 export const workflowCodegenMetadataSchema = z.object({
+  originalPrompt: z.string().min(1),
+  latestPrompt: z.string().min(1),
+  plannerRationale: z.string().min(1),
   provenance: z.object({
     generator: z.string().min(1),
     generatedAt: z.string().datetime(),
@@ -53,10 +56,46 @@ export const workflowCodegenMetadataSchema = z.object({
     artifactPath: z.string().min(1),
     artifactChecksum: z.string().regex(/^sha256:[a-f0-9]{64}$/)
   }),
+  artifacts: z
+    .array(
+      z.object({
+        path: z.string().min(1),
+        checksum: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+        contentType: z.enum(["application/json", "text/markdown", "text/plain", "text/typescript"])
+      })
+    )
+    .min(1),
+  dependencyManifest: z.object({
+    path: z.string().min(1),
+    checksum: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+    packageManager: z.enum(["none", "npm", "pnpm"]),
+    dependencies: z.array(z.string().min(1)),
+    devDependencies: z.array(z.string().min(1)),
+    installCommand: z.array(z.string().min(1))
+  }),
+  sandbox: z.object({
+    network: z.enum(["none", "declared"]),
+    allowedHosts: z.array(z.string().min(1)),
+    mounts: z.array(
+      z.object({
+        source: z.string().min(1),
+        target: z.string().min(1),
+        mode: z.enum(["ro", "rw"])
+      })
+    ),
+    resources: workflowRuntimeResourcesSchema
+  }),
+  review: z.object({
+    status: z.enum(["draft", "approved", "rejected"]),
+    reviewedBy: z.string().min(1).optional(),
+    reviewedAt: z.string().datetime().optional(),
+    notes: z.string().optional()
+  }),
   replay: z.object({
     mode: z.enum(["reuse-if-unchanged", "always-regenerate", "fail-on-drift"]),
     seed: z.string().min(1)
-  })
+  }),
+  llmBacked: z.boolean()
 });
 
 export const workflowNodeSchema = z.object({

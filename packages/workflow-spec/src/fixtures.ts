@@ -10,6 +10,7 @@ import type {
 const createdAt = "2026-05-18T00:00:00.000Z";
 const checksumA = "sha256:fe7089c55f65f4fe08e04af27951ea6b70c2262332c3079591326fd471ee1279";
 const checksumB = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+const checksumC = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 
 export const stringSchema: JsonSchemaShape = { type: "string" };
 export const objectSchema: JsonSchemaShape = { type: "object", additionalProperties: true };
@@ -214,6 +215,10 @@ export const scheduledScrapingWorkflowFixture = workflowBase({
       runtime: deterministicRuntime,
       determinism: externalDeterminism(["https://status.example.com"]),
       codegen: {
+        originalPrompt: "Scrape a public status page and extract incidents.",
+        latestPrompt: "Scrape a public status page and extract incidents.",
+        plannerRationale:
+          "No deterministic registry skill covers this custom public status page scraper.",
         provenance: {
           generator: "kelpclaw.codegen.typescript",
           generatedAt: "2026-05-18T00:30:00.000Z",
@@ -221,10 +226,40 @@ export const scheduledScrapingWorkflowFixture = workflowBase({
           artifactPath: "generated/scrape-status-page.ts",
           artifactChecksum: checksumB
         },
+        artifacts: [
+          {
+            path: "generated/scrape-status-page.ts",
+            checksum: checksumB,
+            contentType: "text/typescript"
+          },
+          {
+            path: "generated/package-manifest.json",
+            checksum: checksumC,
+            contentType: "application/json"
+          }
+        ],
+        dependencyManifest: {
+          path: "generated/package-manifest.json",
+          checksum: checksumC,
+          packageManager: "none",
+          dependencies: [],
+          devDependencies: [],
+          installCommand: []
+        },
+        sandbox: {
+          network: "declared",
+          allowedHosts: ["status.example.com"],
+          mounts: [],
+          resources: deterministicRuntime.resources
+        },
+        review: {
+          status: "draft"
+        },
         replay: {
           mode: "reuse-if-unchanged",
           seed: "scheduled-scraping-v1"
-        }
+        },
+        llmBacked: false
       }
     },
     {

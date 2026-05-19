@@ -1281,6 +1281,30 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
   "nodes": [
     {
       "codegen": {
+        "artifacts": [
+          {
+            "checksum": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "contentType": "text/typescript",
+            "path": "generated/scrape-status-page.ts"
+          },
+          {
+            "checksum": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "contentType": "application/json",
+            "path": "generated/package-manifest.json"
+          }
+        ],
+        "dependencyManifest": {
+          "checksum": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "dependencies": [],
+          "devDependencies": [],
+          "installCommand": [],
+          "packageManager": "none",
+          "path": "generated/package-manifest.json"
+        },
+        "latestPrompt": "Scrape a public status page and extract incidents.",
+        "llmBacked": false,
+        "originalPrompt": "Scrape a public status page and extract incidents.",
+        "plannerRationale": "No deterministic registry skill covers this custom public status page scraper.",
         "provenance": {
           "artifactChecksum": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
           "artifactPath": "generated/scrape-status-page.ts",
@@ -1291,6 +1315,20 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
         "replay": {
           "mode": "reuse-if-unchanged",
           "seed": "scheduled-scraping-v1"
+        },
+        "review": {
+          "status": "draft"
+        },
+        "sandbox": {
+          "allowedHosts": [
+            "status.example.com"
+          ],
+          "mounts": [],
+          "network": "declared",
+          "resources": {
+            "cpu": "1",
+            "memoryMb": 512
+          }
         }
       },
       "config": {

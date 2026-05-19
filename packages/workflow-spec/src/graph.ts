@@ -225,8 +225,11 @@ function nodeKindDefaults(kind: WorkflowNodeKind): {
         description: "Runs generated code with frozen provenance and replay policy.",
         inputs: { request: objectSchema },
         outputs: { artifact: objectSchema },
-        config: { sandboxPolicy: "network-none", artifactStatus: "generated" },
+        config: { sandboxPolicy: "network-none", artifactStatus: "draft" },
         codegen: {
+          originalPrompt: "Generate deterministic workflow code.",
+          latestPrompt: "Generate deterministic workflow code.",
+          plannerRationale: "No deterministic registry skill matched the requested operation.",
           provenance: {
             generator: "kelpclaw.codegen.typescript",
             generatedAt: "2026-05-18T00:00:00.000Z",
@@ -234,10 +237,40 @@ function nodeKindDefaults(kind: WorkflowNodeKind): {
             artifactPath: "generated/openclaw-node.ts",
             artifactChecksum: placeholderChecksum
           },
+          artifacts: [
+            {
+              path: "generated/openclaw-node.ts",
+              checksum: placeholderChecksum,
+              contentType: "text/typescript"
+            },
+            {
+              path: "generated/package-manifest.json",
+              checksum: placeholderChecksum,
+              contentType: "application/json"
+            }
+          ],
+          dependencyManifest: {
+            path: "generated/package-manifest.json",
+            checksum: placeholderChecksum,
+            packageManager: "none",
+            dependencies: [],
+            devDependencies: [],
+            installCommand: []
+          },
+          sandbox: {
+            network: "none",
+            allowedHosts: [],
+            mounts: [],
+            resources: defaultWorkflowRuntime.resources
+          },
+          review: {
+            status: "draft"
+          },
           replay: {
             mode: "reuse-if-unchanged",
             seed: "openclaw-default"
-          }
+          },
+          llmBacked: false
         }
       };
     case "transform":
