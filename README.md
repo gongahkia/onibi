@@ -74,6 +74,23 @@ Containers mount the frozen workflow spec read-only and the node attempt workspa
 
 The built-in skill registry records input and output schemas, required secrets, fake adapter dependencies, runtime templates, metaprompts, validation rules, and example fixtures. Deterministic matching returns scored `SkillMatch` results with explainable reasons. Registry skills are preferred over codegen when the top match reaches the fixed reuse threshold.
 
+## Phase 5 Codegen
+
+`POST /api/workflows/plan` now uses the registry-backed draft planner instead of the legacy fixture mock. The planner checks built-in and promoted skill metadata first. When no deterministic skill reaches the reuse threshold, it creates an explicit codegen node with planner rationale, generated source and dependency artifact references, sandbox policy, review state, and replay metadata.
+
+Live code generation uses the Anthropic Agent SDK through `@anthropic-ai/claude-agent-sdk`. Set `ANTHROPIC_API_KEY` for live codegen. Tests and local deterministic harnesses inject a fake generator, so CI does not need Anthropic credentials.
+
+Generated artifacts are written to a content-addressed local store. Set `KELPCLAW_ARTIFACT_STORE` to override the default `.kelpclaw/artifacts` path. Runtime-generated artifacts are ignored by git.
+
+Codegen nodes must be reviewed before approval:
+
+```console
+$ curl -X POST /api/workflows/:id/codegen/:nodeId/review
+$ curl -X POST /api/workflows/:id/codegen/:nodeId/promote
+```
+
+NanoClaw verifies stored artifact hashes before execution, materializes reviewed generated source into the isolated node workspace, and never regenerates code during approved runs. Promotion writes a reusable skill record to the artifact store and registers it so future matching can reuse the promoted skill instead of creating another codegen node.
+
 ## Validation Guarantees
 
 - Workflow specs are diffable and validated with stable error codes.
