@@ -6,6 +6,8 @@ export {
   createGeneratedArtifact
 } from "./artifacts.js";
 export { decideReplay, defaultReplayPolicy, manifestFingerprint } from "./replay.js";
+export { LocalCodegenArtifactStore, defaultCodegenArtifactStoreRoot } from "./storage.js";
+export type { CodegenArtifactStore } from "./storage.js";
 export type {
   ArtifactContentType,
   ArtifactManifest,
@@ -14,5 +16,9 @@ export type {
   ReplayDecision,
   ReplayMode,
   ReplayPolicy,
+  StoredArtifactManifest,
+  StoredGeneratedArtifact,
+  WorkflowCodegenArtifactRef,
+  WorkflowCodegenDependencyManifest,
   WorkflowCodegenMetadata
 } from "./types.js";

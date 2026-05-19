@@ -42,8 +42,12 @@ export function checksumArtifactContent(content: string): string {
 
 export function createCodegenMetadata(input: CodegenMetadataInput): WorkflowCodegenMetadata {
   assertSafeArtifactPath(input.artifact.path);
+  assertSafeArtifactPath(input.dependencyManifest.path);
 
   return {
+    originalPrompt: input.originalPrompt ?? input.sourcePrompt,
+    latestPrompt: input.latestPrompt ?? input.sourcePrompt,
+    plannerRationale: input.plannerRationale,
     provenance: {
       generator: input.generator,
       generatedAt: input.generatedAt,
@@ -51,7 +55,31 @@ export function createCodegenMetadata(input: CodegenMetadataInput): WorkflowCode
       artifactPath: input.artifact.path,
       artifactChecksum: input.artifact.checksum
     },
-    replay: input.replay
+    artifacts: [
+      ...(input.artifacts ?? [input.artifact]),
+      {
+        path: input.dependencyManifest.path,
+        checksum: input.dependencyManifest.checksum,
+        contentType: "application/json" as const
+      }
+    ]
+      .filter(
+        (artifact, index, artifacts) =>
+          artifacts.findIndex((candidate) => candidate.path === artifact.path) === index
+      )
+      .map((artifact) => ({
+        path: artifact.path,
+        checksum: artifact.checksum,
+        contentType: artifact.contentType
+      }))
+      .sort((left, right) => left.path.localeCompare(right.path)),
+    dependencyManifest: input.dependencyManifest,
+    sandbox: input.sandbox,
+    review: input.review ?? {
+      status: "draft"
+    },
+    replay: input.replay,
+    llmBacked: input.llmBacked ?? false
   };
 }
 
