@@ -13,12 +13,7 @@ import type {
   WorkflowSpec,
   WorkflowValidationIssue
 } from "@kelpclaw/workflow-spec";
-import type {
-  CompiledDagNode,
-  NodeRunContext,
-  NodeRunner,
-  NodeRunnerResult
-} from "./types.js";
+import type { CompiledDagNode, NodeRunContext, NodeRunner, NodeRunnerResult } from "./types.js";
 import type { SecretResolver, SecretResolutionContext } from "./secrets.js";
 
 export interface DraftWorkflowEvaluationOptions {
@@ -143,10 +138,7 @@ class DraftFallbackRunner implements NodeRunner {
 }
 
 class DraftSecretResolver implements SecretResolver {
-  public async resolve(
-    secretRef: string,
-    context: SecretResolutionContext
-  ): Promise<string> {
+  public async resolve(secretRef: string, context: SecretResolutionContext): Promise<string> {
     if (!secretRef.startsWith("secret:")) {
       throw new Error(`Draft evaluation refused raw secret for '${context.secretName}'.`);
     }

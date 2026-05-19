@@ -282,9 +282,7 @@ export const openClawApi = {
       const chunks = buffer.split("\n\n");
       buffer = chunks.pop() ?? "";
       for (const chunk of chunks) {
-        const line = chunk
-          .split("\n")
-          .find((candidate) => candidate.startsWith("data: "));
+        const line = chunk.split("\n").find((candidate) => candidate.startsWith("data: "));
         if (line) {
           onEvent(JSON.parse(line.slice("data: ".length)) as WorkflowJobEvent | WorkflowJob);
         }

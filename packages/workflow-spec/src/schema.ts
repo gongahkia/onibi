@@ -363,7 +363,9 @@ export const workflowTaskRouteSchema = z.object({
   route: z.enum(["deterministic", "adapter", "codegen", "agentic", "deployment"]),
   rationale: z.string().min(1),
   requiredModel: workflowModelRequirementSchema,
-  expectedNodeKinds: z.array(z.enum(["trigger", "skill", "codegen", "transform", "approval", "delivery"])),
+  expectedNodeKinds: z.array(
+    z.enum(["trigger", "skill", "codegen", "transform", "approval", "delivery"])
+  ),
   dockerSandboxRequired: z.boolean(),
   draftTestsRequired: z.boolean(),
   productionDeterministic: z.boolean(),

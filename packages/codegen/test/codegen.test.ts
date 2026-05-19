@@ -14,7 +14,11 @@ import {
   decideReplay,
   assertDependencyManifestPolicy
 } from "../src/index.js";
-import type { AgentQueryRunner, CodegenGenerationRequest, GeneratedNodeBuildLoopRequest } from "../src/index.js";
+import type {
+  AgentQueryRunner,
+  CodegenGenerationRequest,
+  GeneratedNodeBuildLoopRequest
+} from "../src/index.js";
 
 describe("codegen artifact contracts", () => {
   it("creates artifacts with stable checksums", () => {

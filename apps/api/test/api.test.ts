@@ -299,9 +299,9 @@ describe("kelpclaw api contracts", () => {
     });
 
     expect(feedback.statusCode).toBe(200);
-    expect(feedback.json().graphDiff.changes.map((change: { kind: string }) => change.kind)).toContain(
-      "node.edited"
-    );
+    expect(
+      feedback.json().graphDiff.changes.map((change: { kind: string }) => change.kind)
+    ).toContain("node.edited");
     expect(feedback.json().feedback.status).toBe("ready");
   });
 

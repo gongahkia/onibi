@@ -10,11 +10,7 @@ import type {
   WorkflowCodegenSandboxPolicy,
   WorkflowRuntime
 } from "@kelpclaw/workflow-spec";
-import type {
-  WorkflowAgentRole,
-  WorkflowJob,
-  WorkflowWorkspace
-} from "@kelpclaw/workflow-spec";
+import type { WorkflowAgentRole, WorkflowJob, WorkflowWorkspace } from "@kelpclaw/workflow-spec";
 
 export type ArtifactContentType = WorkflowCodegenArtifactContentType;
 

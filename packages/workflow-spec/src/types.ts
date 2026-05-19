@@ -522,11 +522,7 @@ export interface WorkflowGraphDiff {
 }
 
 export type WorkflowPlannerSuggestionStatus = "suggested" | "accepted" | "rejected";
-export type WorkflowPlannerConflictKind =
-  | "safe"
-  | "invalid"
-  | "under-specified"
-  | "needs-repair";
+export type WorkflowPlannerConflictKind = "safe" | "invalid" | "under-specified" | "needs-repair";
 
 export interface WorkflowPlannerSuggestion {
   readonly id: string;
@@ -586,12 +582,7 @@ export type WorkflowJobType =
   | "deploy.workflow"
   | "smoke.integration";
 
-export type WorkflowJobStatus =
-  | "queued"
-  | "running"
-  | "succeeded"
-  | "failed"
-  | "cancelled";
+export type WorkflowJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 
 export interface WorkflowJobRetryMetadata {
   readonly attempt: number;

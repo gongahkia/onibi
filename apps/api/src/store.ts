@@ -595,9 +595,7 @@ export class InMemoryWorkflowStore implements WorkflowStore {
       );
   }
 
-  public saveGeneratedNodeTestReport(
-    record: GeneratedNodeTestReport
-  ): GeneratedNodeTestReport {
+  public saveGeneratedNodeTestReport(record: GeneratedNodeTestReport): GeneratedNodeTestReport {
     this.generatedNodeTestReports.set(record.id, record);
     return record;
   }
@@ -617,9 +615,7 @@ export class InMemoryWorkflowStore implements WorkflowStore {
       );
   }
 
-  public saveGeneratedNodeEvalReport(
-    record: GeneratedNodeEvalReport
-  ): GeneratedNodeEvalReport {
+  public saveGeneratedNodeEvalReport(record: GeneratedNodeEvalReport): GeneratedNodeEvalReport {
     this.generatedNodeEvalReports.set(record.id, record);
     return record;
   }
@@ -824,9 +820,7 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
     return saved;
   }
 
-  public override saveDraftEvaluation(
-    record: WorkflowDraftEvaluation
-  ): WorkflowDraftEvaluation {
+  public override saveDraftEvaluation(record: WorkflowDraftEvaluation): WorkflowDraftEvaluation {
     const saved = super.saveDraftEvaluation(record);
     this.runSql(
       [

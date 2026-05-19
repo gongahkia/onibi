@@ -33,7 +33,9 @@ export class GeneratedNodeBuildLoop {
     this.now = options.now ?? (() => new Date().toISOString());
   }
 
-  public async build(request: GeneratedNodeBuildLoopRequest): Promise<GeneratedNodeBuildLoopResult> {
+  public async build(
+    request: GeneratedNodeBuildLoopRequest
+  ): Promise<GeneratedNodeBuildLoopResult> {
     const startedAt = this.now();
     const designSpec = createDesignSpec(request);
     const designSpecArtifact = createGeneratedNodeDesignSpecArtifact(designSpec);
@@ -91,7 +93,9 @@ export class GeneratedNodeBuildLoop {
       status: "succeeded",
       startedAt,
       finishedAt: this.now(),
-      inputSummary: request.runTestsInDocker ? "Docker contract test run." : "Static contract test run.",
+      inputSummary: request.runTestsInDocker
+        ? "Docker contract test run."
+        : "Static contract test run.",
       outputArtifactRefs: []
     });
     const evaluatorRun = createCodegenAgentRunRecord({

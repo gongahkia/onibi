@@ -54,7 +54,10 @@ export function compileWorkflowDag(input: WorkflowSpec): CompiledDag {
   };
 }
 
-export function compileDraftWorkflowDag(input: WorkflowSpec, approvedAt = new Date().toISOString()): CompiledDag {
+export function compileDraftWorkflowDag(
+  input: WorkflowSpec,
+  approvedAt = new Date().toISOString()
+): CompiledDag {
   const validation = validateWorkflowSpec(input);
   if (!validation.ok) {
     throw new WorkflowValidationError(validation.errors);

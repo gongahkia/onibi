@@ -2249,7 +2249,10 @@ function updateRequestJob(
     ...(isTerminalJobStatus(status) ? { finishedAt: now } : {})
   });
 
-  return store.appendJobEvent(updated.id, createJobEvent(updated, status === "failed" ? "error" : "info", message, metadata));
+  return store.appendJobEvent(
+    updated.id,
+    createJobEvent(updated, status === "failed" ? "error" : "info", message, metadata)
+  );
 }
 
 function requestJobId(request: FastifyRequest): string | undefined {

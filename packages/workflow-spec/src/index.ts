@@ -14,14 +14,8 @@ export {
   withConfig
 } from "./fixtures.js";
 export { createWorkflowSpecDiff, diffTextLines, summarizeWorkflowChanges } from "./diff.js";
-export {
-  createWorkflowGraphDiff,
-  createWorkflowPlannerFeedback
-} from "./feedback.js";
-export type {
-  WorkflowGraphDiffInput,
-  WorkflowPlannerFeedbackInput
-} from "./feedback.js";
+export { createWorkflowGraphDiff, createWorkflowPlannerFeedback } from "./feedback.js";
+export type { WorkflowGraphDiffInput, WorkflowPlannerFeedbackInput } from "./feedback.js";
 export {
   createWorkflowDeterminism,
   createWorkflowEdge,

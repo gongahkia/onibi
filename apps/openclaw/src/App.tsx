@@ -323,6 +323,27 @@ export function App() {
     [setEdges, setNodes]
   );
 
+  const requestPlannerFeedback = useCallback(
+    async (baseWorkflow: WorkflowSpec, editedWorkflow: WorkflowSpec) => {
+      if (baseWorkflow.id !== editedWorkflow.id) {
+        return;
+      }
+
+      try {
+        const response = await openClawApi.feedback(editedWorkflow.id, {
+          baseWorkflow,
+          editedWorkflow,
+          prompt
+        });
+        setPlannerFeedback(response.feedback);
+        setTaskRoute(response.feedback.route);
+      } catch {
+        // Local edits can occur before the draft has been persisted through the API.
+      }
+    },
+    [prompt]
+  );
+
   const updateLocalWorkflow = useCallback(
     (nextWorkflow: WorkflowSpec) => {
       const previousWorkflow = workflow;
@@ -335,7 +356,7 @@ export function App() {
       loadWorkflow(nextWorkflow);
       void requestPlannerFeedback(previousWorkflow, nextWorkflow);
     },
-    [loadWorkflow, workflow]
+    [loadWorkflow, requestPlannerFeedback, workflow]
   );
 
   async function executeApiAction(action: string, work: () => Promise<void>) {
@@ -347,24 +368,6 @@ export function App() {
       setApiError(error instanceof Error ? error.message : "OpenClaw request failed.");
     } finally {
       setBusyAction(null);
-    }
-  }
-
-  async function requestPlannerFeedback(baseWorkflow: WorkflowSpec, editedWorkflow: WorkflowSpec) {
-    if (baseWorkflow.id !== editedWorkflow.id) {
-      return;
-    }
-
-    try {
-      const response = await openClawApi.feedback(editedWorkflow.id, {
-        baseWorkflow,
-        editedWorkflow,
-        prompt
-      });
-      setPlannerFeedback(response.feedback);
-      setTaskRoute(response.feedback.route);
-    } catch {
-      // Local edits can occur before the draft has been persisted through the API.
     }
   }
 
@@ -984,7 +987,9 @@ export function App() {
               <button
                 title="Deploy workflow"
                 onClick={deployWorkflow}
-                disabled={!approvedRevision || !draftEvaluation?.readyForApproval || busyAction !== null}
+                disabled={
+                  !approvedRevision || !draftEvaluation?.readyForApproval || busyAction !== null
+                }
               >
                 <Send size={18} />
                 Deploy
@@ -1401,9 +1406,7 @@ function RoutePanel(props: { readonly route: WorkflowTaskRoute | null }) {
   );
 }
 
-function DraftEvaluationPanel(props: {
-  readonly evaluation: WorkflowDraftEvaluation | null;
-}) {
+function DraftEvaluationPanel(props: { readonly evaluation: WorkflowDraftEvaluation | null }) {
   return (
     <section aria-label="Draft evaluation" className="validation-panel">
       <div className="panel-heading">
