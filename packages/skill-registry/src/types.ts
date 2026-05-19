@@ -1,12 +1,14 @@
 import type { JsonSchemaShape, WorkflowNodeKind, WorkflowRuntime } from "@kelpclaw/workflow-spec";
 
-export type SkillCapability =
+export type BuiltinSkillCapability =
   | "gmail-receipts-read"
   | "sheets-rows-append"
   | "alert-urgency-classification"
   | "workflow-validation"
   | "approval-routing"
   | "adapter-dispatch";
+
+export type SkillCapability = BuiltinSkillCapability | (string & {});
 
 export interface SkillExampleFixture {
   readonly id: string;
@@ -31,6 +33,8 @@ export interface SkillMetadata {
   readonly metaprompt: string;
   readonly validationRules: readonly string[];
   readonly examples: readonly SkillExampleFixture[];
+  readonly source?: "builtin" | "promoted" | undefined;
+  readonly promotedFromNodeId?: string | undefined;
 }
 
 export interface SkillLookupQuery {

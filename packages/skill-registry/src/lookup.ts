@@ -2,6 +2,7 @@ import { builtinSkills } from "./builtins.js";
 import type { SkillLookupQuery, SkillMatch, SkillMetadata, SkillSelection } from "./types.js";
 
 export const skillReuseThreshold = 70;
+const promotedSkills = new Map<string, SkillMetadata>();
 
 export class SkillNotFoundError extends Error {
   public constructor(query: SkillLookupQuery) {
@@ -11,11 +12,13 @@ export class SkillNotFoundError extends Error {
 }
 
 export function listSkills(): readonly SkillMetadata[] {
-  return builtinSkills;
+  return [...builtinSkills, ...promotedSkills.values()].sort((left, right) =>
+    left.id.localeCompare(right.id)
+  );
 }
 
 export function getSkill(skillId: string): SkillMetadata | undefined {
-  return builtinSkills.find((skill) => skill.id === skillId);
+  return listSkills().find((skill) => skill.id === skillId);
 }
 
 export function requireSkill(skillId: string): SkillMetadata {
@@ -32,10 +35,29 @@ export function lookupSkills(query: SkillLookupQuery): readonly SkillMetadata[] 
 }
 
 export function matchSkills(query: SkillLookupQuery): readonly SkillMatch[] {
-  return builtinSkills
+  return listSkills()
     .map((skill) => scoreSkill(skill, query))
     .filter((match) => match.score > 0)
     .sort((left, right) => right.score - left.score || left.skill.id.localeCompare(right.skill.id));
+}
+
+export function registerPromotedSkill(skill: SkillMetadata): SkillMetadata {
+  validatePromotedSkill(skill);
+  const promotedSkill: SkillMetadata = {
+    ...skill,
+    source: "promoted"
+  };
+  promotedSkills.set(skill.id, promotedSkill);
+
+  return promotedSkill;
+}
+
+export function loadPromotedSkills(skills: readonly SkillMetadata[]): readonly SkillMetadata[] {
+  return skills.map((skill) => registerPromotedSkill(skill));
+}
+
+export function clearPromotedSkillsForTests(): void {
+  promotedSkills.clear();
 }
 
 export function chooseSkillOrCodegen(query: SkillLookupQuery): SkillSelection {
@@ -146,4 +168,19 @@ function tokenize(value: string): readonly string[] {
     .toLowerCase()
     .split(/[^a-z0-9]+/u)
     .filter((token) => token.length > 2);
+}
+
+function validatePromotedSkill(skill: SkillMetadata): void {
+  if (!skill.id.startsWith("skill.promoted.")) {
+    throw new Error("Promoted skill ids must use the 'skill.promoted.' prefix.");
+  }
+  if (!skill.deterministic) {
+    throw new Error("Promoted skills must be deterministic.");
+  }
+  if (skill.examples.length === 0) {
+    throw new Error("Promoted skills must include fixture examples.");
+  }
+  if (skill.validationRules.length === 0) {
+    throw new Error("Promoted skills must include validation rules.");
+  }
 }
