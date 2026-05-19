@@ -51,11 +51,13 @@ import type {
   WorkflowValidateResponse
 } from "@kelpclaw/workflow-spec";
 import {
+  createDeterministicPlannerBackend,
   createPlannerBackendFromEnv,
   planMockWorkflowDraft,
   planWorkflowDraft,
   repromptWorkflow
 } from "./planner.js";
+import { routeWorkflowTask } from "./router.js";
 import {
   InMemorySecretStore,
   SqliteSecretStore,
@@ -291,9 +293,19 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
   app.post<{ Body: WorkflowPlanRequest; Reply: WorkflowPlanResponse }>(
     "/api/workflows/plan",
     async (request, reply) => {
+      const correlationId = correlationIdForRequest(request);
+      const route = routeWorkflowTask(request.body, {
+        correlationId,
+        provider: process.env.KELPCLAW_PLANNER_PROVIDER ?? "anthropic",
+        model: process.env.KELPCLAW_PLANNER_MODEL
+      });
       let workflow: WorkflowSpec;
       try {
-        workflow = await planWorkflowDraft(request.body, planner);
+        const routedPlanner =
+          route.requiredModel.mode === "none"
+            ? createDeterministicPlannerBackend({ artifactStore })
+            : planner;
+        workflow = await planWorkflowDraft(request.body, routedPlanner);
       } catch (error) {
         return reply.code(503).send({
           ok: false,
@@ -329,7 +341,19 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         actor: "planner",
         workflowId: draftRevision.workflowId,
         revisionId: draftRevision.id,
-        correlationId: correlationIdForRequest(request),
+        correlationId,
+        summary: `Routed workflow planning as ${route.route}.`,
+        metadata: {
+          route: route.route,
+          modelMode: route.requiredModel.mode
+        }
+      });
+      recordAudit(store, {
+        action: "workflow.created",
+        actor: "planner",
+        workflowId: draftRevision.workflowId,
+        revisionId: draftRevision.id,
+        correlationId,
         summary: "Planned workflow draft revision.",
         secretRefs: collectSecretRefs(draftRevision.workflow)
       });
@@ -338,7 +362,8 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         ok: true,
         workflow: draftRevision.workflow,
         draftRevision,
-        validation: draftRevision.validation
+        validation: draftRevision.validation,
+        route
       };
     }
   );

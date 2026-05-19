@@ -4,6 +4,8 @@ export {
   createLivePlannerBackend,
   createPlannerBackendFromEnv
 } from "./planner.js";
+export { routeWorkflowTask } from "./router.js";
+export type { RouteWorkflowTaskOptions } from "./router.js";
 export type {
   LivePlannerBackendOptions,
   PlannerBackendMode,
