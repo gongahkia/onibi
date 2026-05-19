@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { Socket, connect as connectTcp } from "node:net";
-import { TLSSocket, connect as connectTls } from "node:tls";
+import { connect as connectTcp } from "node:net";
+import { connect as connectTls } from "node:tls";
 import { assertAdapterCredentialRefs } from "./credentials.js";
 import { builtinAdapterMetadata } from "./builtins.js";
+import type { Socket } from "node:net";
+import type { TLSSocket } from "node:tls";
 import type {
   Adapter,
   AdapterAuditEvent,

@@ -290,7 +290,10 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    void refreshIntegrations();
+    const timeout = window.setTimeout(() => {
+      void refreshIntegrations();
+    }, 0);
+    return () => window.clearTimeout(timeout);
   }, [adminToken, refreshIntegrations]);
 
   const loadWorkflow = useCallback(

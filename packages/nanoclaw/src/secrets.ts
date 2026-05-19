@@ -19,9 +19,9 @@ export interface SecretValueStore {
 export class SecretStoreResolver implements SecretResolver {
   public constructor(private readonly store: SecretValueStore) {}
 
-  public async resolve(secretRef: string, context: SecretResolutionContext): Promise<string> {
+  public async resolve(secretRef: string): Promise<string> {
     if (!secretRef.startsWith("secret:")) {
-      return new EnvironmentSecretResolver().resolve(secretRef, context);
+      return new EnvironmentSecretResolver().resolve(secretRef);
     }
 
     const name = secretRef.slice("secret:".length);
@@ -30,12 +30,12 @@ export class SecretStoreResolver implements SecretResolver {
       return value;
     }
 
-    return new EnvironmentSecretResolver().resolve(secretRef, context);
+    return new EnvironmentSecretResolver().resolve(secretRef);
   }
 }
 
 export class EnvironmentSecretResolver implements SecretResolver {
-  public async resolve(secretRef: string, _context?: SecretResolutionContext): Promise<string> {
+  public async resolve(secretRef: string): Promise<string> {
     if (secretRef.startsWith("mock:")) {
       return secretRef;
     }
