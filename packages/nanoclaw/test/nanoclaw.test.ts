@@ -511,6 +511,31 @@ describe("nanoclaw dag runtime", () => {
     ]);
   });
 
+  it("keeps codegen Docker networking disabled unless the sandbox declares it", () => {
+    const { workflow } = createCodegenWorkflowFixture();
+    const dag = compileWorkflowDag(approveForNanoClaw(workflow));
+    const runner = new DockerNodeRunner({ hostWorkspace: "/tmp/kelpclaw" });
+    const command = runner.buildCommand(dag.nodes.get("generated-node")!, {
+      attempt: 1,
+      resolvedSecrets: {},
+      workspace: {
+        runId: "run.codegen-network",
+        nodeId: "generated-node",
+        attempt: 1,
+        nodeDir: "/tmp/kelpclaw/nodes/generated-node",
+        attemptDir: "/tmp/kelpclaw/nodes/generated-node/attempt-1",
+        inputPath: "/tmp/kelpclaw/nodes/generated-node/attempt-1/input.json",
+        outputPath: "/tmp/kelpclaw/nodes/generated-node/attempt-1/output.json",
+        stdoutPath: "/tmp/kelpclaw/nodes/generated-node/attempt-1/stdout.log",
+        stderrPath: "/tmp/kelpclaw/nodes/generated-node/attempt-1/stderr.log",
+        artifactsDir: "/tmp/kelpclaw/nodes/generated-node/attempt-1/artifacts",
+        workflowSpecPath: "/tmp/kelpclaw/workflow.json"
+      }
+    });
+
+    expect(command.slice(0, 5)).toEqual(["docker", "run", "--rm", "--network", "none"]);
+  });
+
   it("materializes reviewed codegen artifacts before node execution", async () => {
     const store = new LocalCodegenArtifactStore(
       await mkdtemp(join(tmpdir(), "nanoclaw-codegen-store-"))

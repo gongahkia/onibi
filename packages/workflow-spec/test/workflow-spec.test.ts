@@ -106,6 +106,30 @@ describe("workflow spec validation", () => {
     }
   });
 
+  it("rejects unpinned runtime images", () => {
+    const result = validateWorkflowSpec({
+      ...gmailReceiptsToSheetsWorkflowFixture,
+      nodes: gmailReceiptsToSheetsWorkflowFixture.nodes.map((node) =>
+        node.id === "manual-trigger"
+          ? {
+              ...node,
+              runtime: {
+                ...node.runtime,
+                image: "node:latest"
+              }
+            }
+          : node
+      )
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.map((error) => error.code)).toEqual([
+        "WORKFLOW_RUNTIME_IMAGE_POLICY_INVALID"
+      ]);
+    }
+  });
+
   it("rejects codegen nodes without provenance and replay metadata", () => {
     const result = validateWorkflowSpec(missingCodegenMetadataWorkflowFixture);
 

@@ -186,5 +186,9 @@ async function listArtifactsInDirectory(
 }
 
 function dockerNetworkForNode(node: CompiledDagNode): "bridge" | "none" {
+  if (node.codegen) {
+    return node.codegen.sandbox.network === "declared" ? "bridge" : "none";
+  }
+
   return node.determinism.externalCalls.length > 0 || node.adapterId ? "bridge" : "none";
 }
