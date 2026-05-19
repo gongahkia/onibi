@@ -1,6 +1,10 @@
 {
   "cli": {
     "groups": {
+      "evidence": [
+        "add",
+        "list"
+      ],
       "ingest": [
         "burp",
         "init",
@@ -9,6 +13,7 @@
       ]
     },
     "root_commands": [
+      "evidence",
       "ingest",
       "report",
       "retest",
@@ -20,6 +25,7 @@
   "workspace_contract": {
     "public_schemas": [
       "chain-of-custody",
+      "evidence",
       "findings",
       "pentest-report",
       "retest",
@@ -28,8 +34,13 @@
     "workspace_layout": [
       "workspace.json",
       "normalized/findings.json",
+      "evidence/index.json",
       "audit-log.jsonl",
       "raw/",
+      "timeline/",
+      "objectives/",
+      "procedures/",
+      "detections/",
       "reports/",
       "signatures/"
     ]

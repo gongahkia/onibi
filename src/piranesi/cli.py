@@ -15,6 +15,13 @@ from piranesi.adapters import (
     parse_nmap_xml_file,
     parse_nuclei_jsonl_file,
 )
+from piranesi.evidence import (
+    EvidenceError,
+    EvidenceKind,
+    EvidenceSensitivity,
+    add_evidence_file,
+    load_evidence_index,
+)
 from piranesi.report.pentest import (
     PdfBackend,
     ReportFormat,
@@ -35,6 +42,7 @@ from piranesi.signing import (
     verify_workspace,
 )
 from piranesi.workspace import (
+    EVIDENCE_FILE,
     FINDINGS_FILE,
     AuditEvent,
     EngagementMetadata,
@@ -65,15 +73,21 @@ DEFAULT_WORKSPACE = Path("piranesi-workspace")
 
 app = typer.Typer(
     add_completion=False,
-    help="Local-first pentest and red-team report engine.",
+    help="Local-first red-team engagement workspace.",
     no_args_is_help=True,
 )
 ingest_app = typer.Typer(
     add_completion=False,
-    help="Create or update a local pentest workspace from tool exports.",
+    help="Create or update local findings from scanner exports.",
+    no_args_is_help=True,
+)
+evidence_app = typer.Typer(
+    add_completion=False,
+    help="Add and inspect red-team operator evidence.",
     no_args_is_help=True,
 )
 app.add_typer(ingest_app, name="ingest")
+app.add_typer(evidence_app, name="evidence")
 
 
 def _load_local_llm_env(env_path: Path | None = None) -> None:
@@ -378,6 +392,154 @@ def ingest_burp_command(
         code=EXIT_NOT_IMPLEMENTED,
         json_errors=json_errors,
     )
+
+
+@evidence_app.command("add", help="Add an operator artifact to the local evidence vault.")
+def evidence_add_command(
+    file_path: Annotated[
+        Path,
+        typer.Option(
+            "--file",
+            "-f",
+            exists=False,
+            dir_okay=False,
+            file_okay=True,
+            help="Evidence file to preserve under raw/<kind>/.",
+        ),
+    ],
+    kind: Annotated[
+        EvidenceKind,
+        typer.Option("--kind", help="Evidence kind."),
+    ] = "other",
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to create or update.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    title: Annotated[
+        str | None,
+        typer.Option("--title", help="Human-readable evidence title."),
+    ] = None,
+    observed_at: Annotated[
+        str | None,
+        typer.Option("--observed-at", help="When the operator observed this evidence."),
+    ] = None,
+    source: Annotated[
+        str | None,
+        typer.Option("--source", help="Operator, host, tool, or system that produced it."),
+    ] = None,
+    sensitivity: Annotated[
+        EvidenceSensitivity,
+        typer.Option("--sensitivity", help="Evidence sensitivity marker."),
+    ] = "sensitive",
+    tags: Annotated[
+        list[str] | None,
+        typer.Option("--tag", help="Evidence tag; repeatable."),
+    ] = None,
+    notes: Annotated[
+        str | None,
+        typer.Option("--notes", help="Short operator note for this evidence."),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print the evidence record as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    if not file_path.is_file():
+        _fail(f"evidence file does not exist: {file_path}", json_errors=json_errors)
+
+    try:
+        state = create_workspace(workspace)
+        _index, record = add_evidence_file(
+            state.root,
+            file_path=file_path,
+            kind=kind,
+            title=title,
+            observed_at=observed_at,
+            source=source,
+            sensitivity=sensitivity,
+            tags=tags,
+            notes=notes,
+        )
+        output_digest = file_sha256(state.root / EVIDENCE_FILE)
+        summary = {
+            "evidence_id": record.id,
+            "kind": record.kind,
+            "raw_path": record.raw_path,
+            "title": record.title,
+        }
+        append_workspace_audit_event(
+            state,
+            AuditEvent(
+                timestamp=utc_now(),
+                command="evidence add",
+                input_path=record.raw_path,
+                input_sha256=record.sha256,
+                output_path=EVIDENCE_FILE,
+                output_sha256=output_digest,
+                summary=summary,
+            ),
+        )
+    except (WorkspaceError, EvidenceError, OSError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    payload = record.model_dump(mode="json")
+    _emit(
+        payload,
+        json_output=json_output,
+        text=f"evidence: {record.id} ({record.kind}) -> {record.raw_path}",
+    )
+
+
+@evidence_app.command("list", help="List evidence records in a workspace.")
+def evidence_list_command(
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to inspect.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print evidence records as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    try:
+        state = load_workspace(workspace)
+        index = load_evidence_index(state.root)
+    except (WorkspaceError, EvidenceError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    payload = {
+        "workspace": str(state.root),
+        "count": len(index.evidence),
+        "evidence": [record.model_dump(mode="json") for record in index.evidence],
+    }
+    if json_output:
+        _emit(payload, json_output=True, text="")
+        return
+    if not index.evidence:
+        typer.echo("No evidence records.")
+        return
+    for record in index.evidence:
+        typer.echo(f"{record.id}\t{record.kind}\t{record.title}\t{record.raw_path}")
 
 
 @app.command("report", help="Generate pentest report artifacts from a workspace.")

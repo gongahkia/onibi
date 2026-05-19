@@ -15,12 +15,12 @@ def _plain_output(output: str) -> str:
     return _ANSI_RE.sub("", output)
 
 
-def test_root_help_exposes_exactly_phase_1_verbs() -> None:
+def test_root_help_exposes_current_workspace_verbs() -> None:
     result = runner.invoke(app, ["--help"])
     output = _plain_output(result.stdout)
 
     assert result.exit_code == 0
-    for command in ["ingest", "report", "retest", "sign", "serve"]:
+    for command in ["evidence", "ingest", "report", "retest", "sign", "serve"]:
         assert command in output
     for old_command in [
         "quickstart",
