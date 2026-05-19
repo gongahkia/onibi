@@ -118,6 +118,38 @@ export interface WorkflowCodegenMetadata {
   readonly llmBacked: boolean;
 }
 
+export type WorkflowAgentRole =
+  | "classifier"
+  | "planner"
+  | "workflow-architect"
+  | "agentic-node-designer"
+  | "coder"
+  | "tester"
+  | "runner"
+  | "fixer"
+  | "evaluator"
+  | "summarizer";
+
+export interface WorkflowAgentBudget {
+  readonly maxIterations: number;
+  readonly maxWallClockSeconds: number;
+  readonly maxModelCostUsd: number;
+  readonly maxDockerRuntimeSeconds: number;
+  readonly maxRetries: number;
+}
+
+export interface WorkflowAgenticNodePolicy {
+  readonly tools: readonly string[];
+  readonly memoryScope: "none" | "node" | "workflow" | "workspace";
+  readonly stopConditions: readonly string[];
+  readonly humanApprovalBoundaries: readonly string[];
+  readonly networkPolicy: WorkflowCodegenSandboxPolicy["network"];
+  readonly allowedHosts: readonly string[];
+  readonly secretRefs: readonly string[];
+  readonly evalContract: JsonRecord;
+  readonly budget: WorkflowAgentBudget;
+}
+
 export interface WorkflowAdapterOperationRef {
   readonly adapterId: string;
   readonly operation: string;
@@ -140,6 +172,7 @@ export interface WorkflowNode {
   readonly adapterOperations?: readonly WorkflowAdapterOperationRef[] | undefined;
   readonly secretRefs?: Readonly<Record<string, string>> | undefined;
   readonly codegen?: WorkflowCodegenMetadata | undefined;
+  readonly agentic?: WorkflowAgenticNodePolicy | undefined;
 }
 
 export interface WorkflowPortRef {
@@ -287,17 +320,24 @@ export type WorkflowRunStatus = "queued" | "running" | "succeeded" | "failed";
 export type WorkflowRunEventLevel = "info" | "error";
 export type WorkflowEventSeverity = "debug" | "info" | "warn" | "error" | "critical";
 export type WorkflowObservabilityEventKind =
+  | "task.routing"
   | "prompt.planning"
   | "skill.matching"
   | "draft.edit"
+  | "planner.feedback"
+  | "draft.evaluation"
   | "node.reprompt"
   | "workflow.approval"
+  | "job.lifecycle"
+  | "agent.activity"
+  | "workspace.artifact"
   | "dag.compilation"
   | "node.container"
   | "adapter.call"
   | "codegen.artifact"
   | "delivery.event"
-  | "run.lifecycle";
+  | "run.lifecycle"
+  | "deployment.lifecycle";
 
 export interface WorkflowObservabilityContext {
   readonly workflowId: string;
@@ -349,6 +389,13 @@ export type WorkflowAuditAction =
   | "workflow.edited"
   | "workflow.approved"
   | "codegen.reviewed"
+  | "task.routed"
+  | "planner.feedback.created"
+  | "draft.evaluated"
+  | "job.created"
+  | "agent.ran"
+  | "workspace.created"
+  | "deployment.created"
   | "secret.referenced"
   | "container.ran"
   | "adapter.called"
@@ -398,10 +445,297 @@ export interface WorkflowArtifactManifestRecord {
   readonly manifestChecksum: string;
 }
 
+export type WorkflowTaskRouteKind =
+  | "deterministic"
+  | "adapter"
+  | "codegen"
+  | "agentic"
+  | "deployment";
+
+export interface WorkflowRetryBudget {
+  readonly maxAttempts: number;
+  readonly maxCostUsd: number;
+}
+
+export interface WorkflowModelRequirement {
+  readonly mode: "none" | "deterministic" | "live";
+  readonly role: WorkflowAgentRole;
+  readonly provider?: string | undefined;
+  readonly model?: string | undefined;
+  readonly retryBudget: WorkflowRetryBudget;
+}
+
+export interface WorkflowModelInvocationRecord {
+  readonly id: string;
+  readonly role: WorkflowAgentRole;
+  readonly inputSummary: string;
+  readonly outputArtifact: string;
+  readonly provider: string;
+  readonly model: string;
+  readonly determinismExpectation: "deterministic" | "bounded" | "non-deterministic";
+  readonly retryBudget: WorkflowRetryBudget;
+  readonly correlationId: string;
+  readonly createdAt: string;
+}
+
+export interface WorkflowTaskRoute {
+  readonly route: WorkflowTaskRouteKind;
+  readonly rationale: string;
+  readonly requiredModel: WorkflowModelRequirement;
+  readonly expectedNodeKinds: readonly WorkflowNodeKind[];
+  readonly dockerSandboxRequired: boolean;
+  readonly draftTestsRequired: boolean;
+  readonly productionDeterministic: boolean;
+  readonly modelInvocations: readonly WorkflowModelInvocationRecord[];
+}
+
+export type WorkflowGraphChangeKind =
+  | "node.added"
+  | "node.removed"
+  | "node.moved"
+  | "node.edited"
+  | "edge.added"
+  | "edge.removed"
+  | "edge.reconnected";
+
+export interface WorkflowGraphChange {
+  readonly id: string;
+  readonly kind: WorkflowGraphChangeKind;
+  readonly elementId: string;
+  readonly path: readonly (string | number)[];
+  readonly before?: JsonValue | undefined;
+  readonly after?: JsonValue | undefined;
+}
+
+export interface WorkflowGraphDiff {
+  readonly id: string;
+  readonly workflowId: string;
+  readonly baseRevision: number;
+  readonly editedRevision: number;
+  readonly createdAt: string;
+  readonly summary: readonly string[];
+  readonly changes: readonly WorkflowGraphChange[];
+  readonly validation: WorkflowValidationResult;
+}
+
+export type WorkflowPlannerSuggestionStatus = "suggested" | "accepted" | "rejected";
+export type WorkflowPlannerConflictKind =
+  | "safe"
+  | "invalid"
+  | "under-specified"
+  | "needs-repair";
+
+export interface WorkflowPlannerSuggestion {
+  readonly id: string;
+  readonly status: WorkflowPlannerSuggestionStatus;
+  readonly conflict: WorkflowPlannerConflictKind;
+  readonly target: {
+    readonly kind: "workflow" | "node" | "edge";
+    readonly id?: string | undefined;
+  };
+  readonly title: string;
+  readonly message: string;
+  readonly patch?: JsonRecord | undefined;
+  readonly issues: readonly WorkflowValidationIssue[];
+}
+
+export interface WorkflowPlannerFeedback {
+  readonly id: string;
+  readonly workflowId: string;
+  readonly graphDiffId: string;
+  readonly route: WorkflowTaskRoute;
+  readonly createdAt: string;
+  readonly status: "ready" | "warnings" | "blocked";
+  readonly suggestions: readonly WorkflowPlannerSuggestion[];
+  readonly issues: readonly WorkflowValidationIssue[];
+}
+
+export interface WorkflowFeedbackRequest {
+  readonly baseWorkflow: WorkflowSpec;
+  readonly editedWorkflow: WorkflowSpec;
+  readonly prompt?: string | undefined;
+}
+
+export interface WorkflowFeedbackResponse {
+  readonly ok: true;
+  readonly graphDiff: WorkflowGraphDiff;
+  readonly feedback: WorkflowPlannerFeedback;
+}
+
+export interface WorkflowPlannerSuggestionDecisionRequest {
+  readonly suggestionId: string;
+  readonly decision: "accepted" | "rejected";
+}
+
+export interface WorkflowPlannerSuggestionDecisionResponse {
+  readonly ok: true;
+  readonly feedback: WorkflowPlannerFeedback;
+}
+
+export type WorkflowJobType =
+  | "plan.workflow"
+  | "feedback.graph"
+  | "evaluate.draft"
+  | "build.codegen-node"
+  | "test.codegen-node"
+  | "approve.workflow"
+  | "run.workflow"
+  | "deploy.workflow"
+  | "smoke.integration";
+
+export type WorkflowJobStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+
+export interface WorkflowJobRetryMetadata {
+  readonly attempt: number;
+  readonly maxAttempts: number;
+  readonly retryable: boolean;
+}
+
+export interface WorkflowJobEvent {
+  readonly id: string;
+  readonly jobId: string;
+  readonly timestamp: string;
+  readonly level: WorkflowRunEventLevel;
+  readonly message: string;
+  readonly kind: WorkflowObservabilityEventKind;
+  readonly metadata?: JsonRecord | undefined;
+}
+
+export interface WorkflowJob {
+  readonly id: string;
+  readonly type: WorkflowJobType;
+  readonly status: WorkflowJobStatus;
+  readonly workflowId?: string | undefined;
+  readonly revisionId?: string | undefined;
+  readonly nodeId?: string | undefined;
+  readonly workspaceId?: string | undefined;
+  readonly correlationId: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly startedAt?: string | undefined;
+  readonly finishedAt?: string | undefined;
+  readonly retry: WorkflowJobRetryMetadata;
+  readonly cancelledAt?: string | undefined;
+  readonly cancellationReason?: string | undefined;
+  readonly events: readonly WorkflowJobEvent[];
+  readonly result?: JsonRecord | undefined;
+  readonly error?: string | undefined;
+}
+
+export type WorkflowWorkspaceMountRole = "planner" | "coder" | "tester" | "runner" | "fixer";
+
+export interface WorkflowWorkspace {
+  readonly id: string;
+  readonly jobId: string;
+  readonly workflowId: string;
+  readonly revisionId?: string | undefined;
+  readonly draftId?: string | undefined;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly mountedAgents: readonly WorkflowWorkspaceMountRole[];
+  readonly filesCreated: readonly string[];
+  readonly artifactsProduced: readonly WorkflowCodegenArtifactRef[];
+  readonly logs: readonly string[];
+  readonly testReports: readonly string[];
+  readonly retentionPolicy: "ephemeral" | "retain-on-failure" | "retain";
+}
+
+export type WorkflowDraftEvaluationFindingSeverity = "info" | "warn" | "error";
+
+export interface WorkflowDraftEvaluationFinding {
+  readonly id: string;
+  readonly severity: WorkflowDraftEvaluationFindingSeverity;
+  readonly target: {
+    readonly kind: "workflow" | "node" | "edge" | "artifact";
+    readonly id?: string | undefined;
+  };
+  readonly message: string;
+  readonly issues: readonly WorkflowValidationIssue[];
+}
+
+export interface WorkflowDraftEvaluation {
+  readonly id: string;
+  readonly workflowId: string;
+  readonly draftRevisionId: string;
+  readonly jobId?: string | undefined;
+  readonly status: "passed" | "failed";
+  readonly readyForApproval: boolean;
+  readonly createdAt: string;
+  readonly finishedAt: string;
+  readonly mode: "draft";
+  readonly mockOnly: true;
+  readonly liveProviderCalls: 0;
+  readonly findings: readonly WorkflowDraftEvaluationFinding[];
+  readonly events: readonly WorkflowRunEvent[];
+  readonly suggestions: readonly WorkflowPlannerSuggestion[];
+}
+
+export interface GeneratedNodeTestReport {
+  readonly id: string;
+  readonly workflowId: string;
+  readonly nodeId: string;
+  readonly jobId: string;
+  readonly status: "passed" | "failed";
+  readonly createdAt: string;
+  readonly finishedAt: string;
+  readonly testFiles: readonly WorkflowCodegenArtifactRef[];
+  readonly resultArtifacts: readonly WorkflowCodegenArtifactRef[];
+  readonly logs: readonly string[];
+  readonly failureMessage?: string | undefined;
+}
+
+export interface GeneratedNodeEvalReport {
+  readonly id: string;
+  readonly workflowId: string;
+  readonly nodeId: string;
+  readonly jobId: string;
+  readonly status: "passed" | "failed";
+  readonly createdAt: string;
+  readonly finishedAt: string;
+  readonly designSpec: WorkflowCodegenArtifactRef;
+  readonly testReportId: string;
+  readonly schemaValid: boolean;
+  readonly securityValid: boolean;
+  readonly replayValid: boolean;
+  readonly dependencyPolicyValid: boolean;
+  readonly fixHistory: readonly string[];
+  readonly findings: readonly WorkflowDraftEvaluationFinding[];
+}
+
+export type WorkflowDeploymentKind =
+  | "schedule.activation"
+  | "skill.publication"
+  | "integration.configuration"
+  | "runner.configuration"
+  | "workflow.bundle"
+  | "generated.service";
+
+export interface WorkflowDeploymentRecord {
+  readonly id: string;
+  readonly workflowId: string;
+  readonly approvedRevisionId: string;
+  readonly draftEvaluationId: string;
+  readonly kind: WorkflowDeploymentKind;
+  readonly status: "ready" | "blocked" | "deployed" | "rolled-back";
+  readonly createdAt: string;
+  readonly createdBy: string;
+  readonly requiredIntegrations: readonly string[];
+  readonly secretRefs: readonly string[];
+  readonly rollbackPlan: string;
+  readonly auditRecordId: string;
+  readonly metadata: JsonRecord;
+}
+
 export interface WorkflowPlanRequest {
   readonly prompt: string;
   readonly currentWorkflow?: WorkflowSpec | undefined;
   readonly preserveNodeIds?: readonly string[] | undefined;
+  readonly forceDeterministic?: boolean | undefined;
 }
 
 export interface WorkflowPlanResponse {
@@ -409,6 +743,7 @@ export interface WorkflowPlanResponse {
   readonly workflow: WorkflowSpec;
   readonly draftRevision: WorkflowDraftRevision;
   readonly validation: WorkflowValidationResult;
+  readonly route: WorkflowTaskRoute;
 }
 
 export interface WorkflowRepromptNodeRequest {

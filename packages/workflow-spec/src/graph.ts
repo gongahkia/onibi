@@ -4,6 +4,7 @@ import type {
   JsonSchemaShape,
   WorkflowCodegenMetadata,
   WorkflowAdapterOperationRef,
+  WorkflowAgenticNodePolicy,
   WorkflowDeterminism,
   WorkflowEdge,
   WorkflowNode,
@@ -56,6 +57,7 @@ export interface WorkflowNodeFactoryInput {
   readonly adapterOperations?: readonly WorkflowAdapterOperationRef[] | undefined;
   readonly secretRefs?: Readonly<Record<string, string>> | undefined;
   readonly codegen?: WorkflowCodegenMetadata | undefined;
+  readonly agentic?: WorkflowAgenticNodePolicy | undefined;
 }
 
 export type PartialWorkflowRuntime = Partial<
@@ -134,7 +136,8 @@ export function createWorkflowNode(input: WorkflowNodeFactoryInput): WorkflowNod
     ...(input.adapterIds ? { adapterIds: input.adapterIds } : {}),
     ...(input.adapterOperations ? { adapterOperations: input.adapterOperations } : {}),
     ...(input.secretRefs ? { secretRefs: input.secretRefs } : {}),
-    ...((input.codegen ?? defaults.codegen) ? { codegen: input.codegen ?? defaults.codegen } : {})
+    ...((input.codegen ?? defaults.codegen) ? { codegen: input.codegen ?? defaults.codegen } : {}),
+    ...(input.agentic ? { agentic: input.agentic } : {})
   };
 
   return node;
