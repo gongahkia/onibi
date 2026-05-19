@@ -15,6 +15,7 @@ import type {
   WorkflowApprovalRecord,
   WorkflowApprovedRevision,
   WorkflowAuditRecord,
+  WorkflowDraftEvaluation,
   WorkflowDraftRevision,
   WorkflowDraftRevisionSource,
   WorkflowGraphDiff,
@@ -104,6 +105,10 @@ export interface WorkflowStore {
   getJob(id: string): WorkflowJob | undefined;
   listJobs(workflowId?: string | undefined): readonly WorkflowJob[];
   appendJobEvent(jobId: string, event: WorkflowJobEvent): WorkflowJob;
+  saveDraftEvaluation(record: WorkflowDraftEvaluation): WorkflowDraftEvaluation;
+  getDraftEvaluation(id: string): WorkflowDraftEvaluation | undefined;
+  getLatestDraftEvaluation(workflowId: string): WorkflowDraftEvaluation | undefined;
+  listDraftEvaluations(workflowId: string): readonly WorkflowDraftEvaluation[];
   requireWorkflow(id: string): StoredWorkflow;
 }
 
@@ -118,6 +123,7 @@ export class InMemoryWorkflowStore implements WorkflowStore {
   protected readonly graphDiffs = new Map<string, WorkflowGraphDiff>();
   protected readonly plannerFeedback = new Map<string, WorkflowPlannerFeedback>();
   protected readonly jobs = new Map<string, WorkflowJob>();
+  protected readonly draftEvaluations = new Map<string, WorkflowDraftEvaluation>();
 
   public saveWorkflow(
     workflow: WorkflowSpec,
@@ -476,6 +482,28 @@ export class InMemoryWorkflowStore implements WorkflowStore {
     return updated;
   }
 
+  public saveDraftEvaluation(record: WorkflowDraftEvaluation): WorkflowDraftEvaluation {
+    this.draftEvaluations.set(record.id, record);
+    return record;
+  }
+
+  public getDraftEvaluation(id: string): WorkflowDraftEvaluation | undefined {
+    return this.draftEvaluations.get(id);
+  }
+
+  public getLatestDraftEvaluation(workflowId: string): WorkflowDraftEvaluation | undefined {
+    return this.listDraftEvaluations(workflowId).at(-1);
+  }
+
+  public listDraftEvaluations(workflowId: string): readonly WorkflowDraftEvaluation[] {
+    return [...this.draftEvaluations.values()]
+      .filter((record) => record.workflowId === workflowId)
+      .sort(
+        (left, right) =>
+          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
+      );
+  }
+
   public requireWorkflow(id: string): StoredWorkflow {
     const aggregate = this.workflows.get(id);
     if (!aggregate) {
@@ -647,6 +675,19 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
     return saved;
   }
 
+  public override saveDraftEvaluation(
+    record: WorkflowDraftEvaluation
+  ): WorkflowDraftEvaluation {
+    const saved = super.saveDraftEvaluation(record);
+    this.runSql(
+      [
+        "INSERT OR REPLACE INTO draft_evaluations (id, workflow_id, draft_revision_id, status, created_at, finished_at, record_json)",
+        `VALUES (${sqlValue(saved.id)}, ${sqlValue(saved.workflowId)}, ${sqlValue(saved.draftRevisionId)}, ${sqlValue(saved.status)}, ${sqlValue(saved.createdAt)}, ${sqlValue(saved.finishedAt)}, ${sqlValue(stableStringify(saved))});`
+      ].join(" ")
+    );
+    return saved;
+  }
+
   private persistAllWorkflowState(workflowId: string): void {
     const stored = this.requireWorkflow(workflowId);
     for (const draft of stored.draftRevisions) {
@@ -788,6 +829,12 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
 
     for (const row of this.queryRows<JobRow>("SELECT * FROM jobs ORDER BY created_at, id;")) {
       this.jobs.set(row.id, parseJson(row.record_json));
+    }
+
+    for (const row of this.queryRows<DraftEvaluationRow>(
+      "SELECT * FROM draft_evaluations ORDER BY created_at, id;"
+    )) {
+      this.draftEvaluations.set(row.id, parseJson(row.record_json));
     }
   }
 
@@ -1009,6 +1056,15 @@ const sqliteMigrations = [
     timestamp TEXT NOT NULL,
     event_json TEXT NOT NULL
   );`,
+  `CREATE TABLE IF NOT EXISTS draft_evaluations (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    draft_revision_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    finished_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+  );`,
   "INSERT OR IGNORE INTO schema_migrations (id) VALUES ('0001_phase7_enterprise_store');"
 ] as const;
 
@@ -1087,6 +1143,11 @@ interface PlannerFeedbackRow {
 }
 
 interface JobRow {
+  readonly id: string;
+  readonly record_json: string;
+}
+
+interface DraftEvaluationRow {
   readonly id: string;
   readonly record_json: string;
 }

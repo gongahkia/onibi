@@ -15,6 +15,7 @@ import {
   ProductionNodeRunner,
   SecretStoreResolver,
   compileWorkflowDag,
+  evaluateDraftWorkflow,
   executeCompiledDag
 } from "@kelpclaw/nanoclaw";
 import {
@@ -106,6 +107,11 @@ interface CreateJobRequestBody {
   readonly revisionId?: string | undefined;
   readonly nodeId?: string | undefined;
   readonly maxAttempts?: number | undefined;
+}
+
+interface EvaluateDraftRequestBody {
+  readonly workflow?: WorkflowSpec | undefined;
+  readonly mockOnly?: boolean | undefined;
 }
 
 interface CodegenReviewRequestBody {
@@ -717,6 +723,76 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       feedback
     };
   });
+
+  app.post<{ Params: RouteParamsWithId; Body: EvaluateDraftRequestBody }>(
+    "/api/workflows/:id/evaluate-draft",
+    async (request, reply) => {
+      const stored = store.getWorkflow(request.params.id);
+      if (!stored) {
+        return reply.code(404).send({
+          ok: false,
+          error: "WORKFLOW_NOT_FOUND",
+          message: `Workflow '${request.params.id}' was not found.`
+        });
+      }
+
+      const workflow = request.body.workflow ?? stored.workflow;
+      if (workflow.id !== request.params.id) {
+        return reply.code(409).send({
+          ok: false,
+          error: "WORKFLOW_ID_MISMATCH",
+          message: `Workflow id '${workflow.id}' does not match route id '${request.params.id}'.`
+        });
+      }
+
+      const correlationId = correlationIdForRequest(request);
+      updateRequestJob(store, request, "running", "Draft evaluation started.", {
+        workflowId: workflow.id
+      });
+      const validation = validateWorkflowSpec(workflow);
+      const draftRevision = validation.ok
+        ? store.saveDraftRevision(validation.workflow, validation, "validate")
+        : store.getLatestDraftRevision(workflow.id);
+      const evaluation = store.saveDraftEvaluation(
+        await evaluateDraftWorkflow(workflow, {
+          draftRevisionId: draftRevision?.id,
+          jobId: requestJobId(request),
+          codegenArtifactStore: artifactStore,
+          runGeneratedNodesInDocker: process.env.NANOCLAW_DRAFT_DOCKER === "1",
+          dockerBin: process.env.NANOCLAW_DOCKER_BIN,
+          hostWorkspace: process.env.NANOCLAW_HOST_WORKSPACE ?? process.cwd()
+        })
+      );
+      recordAudit(store, {
+        action: "draft.evaluated",
+        actor: "draft-evaluator",
+        workflowId: workflow.id,
+        revisionId: draftRevision?.id ?? `draft.${workflow.id}.r${workflow.revision}`,
+        correlationId,
+        summary: `Draft evaluation ${evaluation.status}.`,
+        metadata: {
+          evaluationId: evaluation.id,
+          readyForApproval: evaluation.readyForApproval,
+          mockOnly: evaluation.mockOnly
+        }
+      });
+      updateRequestJob(
+        store,
+        request,
+        evaluation.status === "passed" ? "succeeded" : "failed",
+        "Draft evaluation completed.",
+        {
+          evaluationId: evaluation.id,
+          readyForApproval: evaluation.readyForApproval
+        }
+      );
+
+      return {
+        ok: true,
+        evaluation
+      };
+    }
+  );
 
   app.post<{ Params: RouteParamsWithId; Body: ApprovalRequestBody }>(
     "/api/workflows/:id/approvals",
@@ -1610,6 +1686,11 @@ function updateRequestJob(
   });
 
   return store.appendJobEvent(updated.id, createJobEvent(updated, status === "failed" ? "error" : "info", message, metadata));
+}
+
+function requestJobId(request: FastifyRequest): string | undefined {
+  const jobIdHeader = request.headers["x-kelpclaw-job-id"];
+  return Array.isArray(jobIdHeader) ? jobIdHeader[0] : jobIdHeader;
 }
 
 function isTerminalJobStatus(status: WorkflowJob["status"]): boolean {
