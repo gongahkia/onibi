@@ -1,0 +1,29 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    env_file:
+      - .env.example
+    environment:
+      KELPCLAW_WORKFLOW_DB: /data/workflow.sqlite
+      KELPCLAW_ARTIFACT_STORE: /data/artifacts
+      KELPCLAW_PLANNER_MODE: ${KELPCLAW_PLANNER_MODE:-deterministic}
+    ports:
+      - "8787:8787"
+    volumes:
+      - kelpclaw-data:/data
+
+  openclaw:
+    build:
+      context: .
+      dockerfile: Dockerfile.openclaw
+    environment:
+      OPENCLAW_API_TARGET: http://api:8787
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+
+volumes:
+  kelpclaw-data:

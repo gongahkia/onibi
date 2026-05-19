@@ -1,0 +1,25 @@
+FROM node:20.19.5-bookworm-slim
+
+WORKDIR /workspace
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends sqlite3 \
+  && rm -rf /var/lib/apt/lists/* \
+  && corepack enable
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY apps ./apps
+COPY packages ./packages
+
+RUN pnpm install --frozen-lockfile \
+  && pnpm --filter @kelpclaw/api... build
+
+ENV PORT=8787
+ENV KELPCLAW_WORKFLOW_STORE=sqlite
+ENV KELPCLAW_WORKFLOW_DB=/data/workflow.sqlite
+ENV KELPCLAW_ARTIFACT_STORE=/data/artifacts
+ENV KELPCLAW_PLANNER_MODE=deterministic
+
+EXPOSE 8787
+
+CMD ["pnpm", "--filter", "@kelpclaw/api", "start"]

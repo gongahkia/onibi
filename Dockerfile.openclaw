@@ -1,0 +1,18 @@
+FROM node:20.19.5-bookworm-slim
+
+WORKDIR /workspace
+
+RUN corepack enable
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY apps ./apps
+COPY packages ./packages
+
+RUN pnpm install --frozen-lockfile \
+  && pnpm --filter @kelpclaw/openclaw... build
+
+ENV OPENCLAW_API_TARGET=http://api:8787
+
+EXPOSE 5173
+
+CMD ["pnpm", "--filter", "@kelpclaw/openclaw", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]

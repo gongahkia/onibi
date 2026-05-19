@@ -26,7 +26,6 @@ import type { CodegenArtifactStore } from "@kelpclaw/codegen";
 import type { SkillMetadata } from "@kelpclaw/skill-registry";
 import type {
   WorkflowArtifactManifestRecord,
-  WorkflowAuditAction,
   WorkflowAuditAdapterCallRecord,
   WorkflowAuditContainerRecord,
   WorkflowAuditDeliveryRecord,

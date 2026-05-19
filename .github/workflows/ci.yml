@@ -37,3 +37,27 @@ jobs:
 
       - name: Verify workspace
         run: pnpm verify
+
+      - name: Validate workflow fixtures
+        run: pnpm validate:fixtures
+
+      - name: Check codegen dependency policy
+        run: pnpm check:codegen-policy
+
+      - name: Install Playwright Chromium
+        run: pnpm --filter @kelpclaw/openclaw exec playwright install --with-deps chromium
+
+      - name: Run OpenClaw E2E
+        env:
+          KELPCLAW_PLANNER_MODE: deterministic
+          KELPCLAW_WORKFLOW_STORE: memory
+        run: pnpm --filter @kelpclaw/openclaw test:e2e
+
+      - name: Docker integration smoke
+        if: ${{ runner.os == 'Linux' }}
+        run: |
+          docker info
+          pnpm --filter @kelpclaw/nanoclaw test
+
+      - name: Compose config smoke
+        run: docker compose config --quiet

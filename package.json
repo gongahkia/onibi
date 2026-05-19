@@ -16,6 +16,8 @@
     "pretest": "pnpm -r --if-present build",
     "test": "pnpm -r --if-present test",
     "typecheck": "pnpm -r --if-present typecheck",
+    "validate:fixtures": "pnpm --filter @kelpclaw/workflow-spec build && node scripts/validate-workflow-fixtures.mjs",
+    "check:codegen-policy": "pnpm --filter @kelpclaw/workflow-spec build && node scripts/check-codegen-policy.mjs",
     "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build && zig build test"
   },
   "devDependencies": {

@@ -35,7 +35,13 @@ Useful workspace commands:
 $ pnpm --filter @kelpclaw/api test
 $ pnpm --filter @kelpclaw/openclaw dev
 $ pnpm --filter @kelpclaw/workflow-spec test
+$ pnpm validate:fixtures
+$ pnpm check:codegen-policy
 ```
+
+Deployment notes for durable SQLite mode, Docker Compose, and production readiness live in
+[`docs/deployment.md`](docs/deployment.md) and
+[`docs/production-readiness.md`](docs/production-readiness.md).
 
 ## Workflow V1 Model
 
