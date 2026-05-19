@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { ServerResponse } from "node:http";
 import { join } from "node:path";
 import Fastify from "fastify";
 import {
@@ -243,6 +244,59 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     };
   });
 
+  app.get<{ Params: JobRouteParams }>("/api/jobs/:jobId/events", async (request, reply) => {
+    const job = store.getJob(request.params.jobId);
+    if (!job) {
+      return reply.code(404).send({
+        ok: false,
+        error: "JOB_NOT_FOUND",
+        message: `Job '${request.params.jobId}' was not found.`
+      });
+    }
+
+    reply.raw.writeHead(200, {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive"
+    });
+    let sent = 0;
+    const writeAvailableEvents = () => {
+      const current = store.getJob(request.params.jobId);
+      if (!current) {
+        writeSseEvent(reply.raw, "error", {
+          message: `Job '${request.params.jobId}' was not found.`
+        });
+        reply.raw.end();
+        return true;
+      }
+
+      for (const event of current.events.slice(sent)) {
+        writeSseEvent(reply.raw, "job-event", event);
+        sent += 1;
+      }
+      if (isTerminalJobStatus(current.status)) {
+        writeSseEvent(reply.raw, "job-complete", current);
+        reply.raw.end();
+        return true;
+      }
+
+      return false;
+    };
+
+    if (writeAvailableEvents()) {
+      return reply;
+    }
+
+    const interval = setInterval(() => {
+      if (writeAvailableEvents()) {
+        clearInterval(interval);
+      }
+    }, 250);
+    request.raw.on("close", () => clearInterval(interval));
+
+    return reply;
+  });
+
   app.post<{ Params: JobRouteParams; Body: { readonly reason?: string | undefined } }>(
     "/api/jobs/:jobId/cancel",
     async (request, reply) => {
@@ -409,6 +463,9 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         provider: process.env.KELPCLAW_PLANNER_PROVIDER ?? "anthropic",
         model: process.env.KELPCLAW_PLANNER_MODEL
       });
+      updateRequestJob(store, request, "running", "Planning workflow.", {
+        route: route.route
+      });
       let workflow: WorkflowSpec;
       try {
         const routedPlanner =
@@ -417,6 +474,9 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
             : planner;
         workflow = await planWorkflowDraft(request.body, routedPlanner);
       } catch (error) {
+        updateRequestJob(store, request, "failed", "Workflow planning failed.", {
+          route: route.route
+        });
         return reply.code(503).send({
           ok: false,
           error: "PLANNER_BACKEND_UNAVAILABLE",
@@ -466,6 +526,10 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         correlationId,
         summary: "Planned workflow draft revision.",
         secretRefs: collectSecretRefs(draftRevision.workflow)
+      });
+      updateRequestJob(store, request, "succeeded", "Workflow planning completed.", {
+        workflowId: draftRevision.workflowId,
+        draftRevisionId: draftRevision.id
       });
 
       return {
@@ -595,6 +659,9 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
 
     const correlationId = correlationIdForRequest(request);
     const now = new Date().toISOString();
+    updateRequestJob(store, request, "running", "Generating planner feedback.", {
+      workflowId: request.params.id
+    });
     const graphDiff = store.saveGraphDiff(
       createWorkflowGraphDiff({
         id: `graphdiff.${request.params.id}.${Date.now()}.${randomUUID()}`,
@@ -637,6 +704,11 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         feedbackId: feedback.id,
         status: feedback.status
       }
+    });
+    updateRequestJob(store, request, "succeeded", "Planner feedback completed.", {
+      graphDiffId: graphDiff.id,
+      feedbackId: feedback.id,
+      status: feedback.status
     });
 
     return {
@@ -1509,6 +1581,44 @@ function createJobEvent(
     kind: "job.lifecycle",
     ...(metadata ? { metadata } : {})
   };
+}
+
+function updateRequestJob(
+  store: WorkflowStore,
+  request: FastifyRequest,
+  status: WorkflowJob["status"],
+  message: string,
+  metadata?: JsonRecord | undefined
+): WorkflowJob | undefined {
+  const jobIdHeader = request.headers["x-kelpclaw-job-id"];
+  const jobId = Array.isArray(jobIdHeader) ? jobIdHeader[0] : jobIdHeader;
+  if (!jobId) {
+    return undefined;
+  }
+  const job = store.getJob(jobId);
+  if (!job || isTerminalJobStatus(job.status)) {
+    return job;
+  }
+
+  const now = new Date().toISOString();
+  const updated = store.saveJob({
+    ...job,
+    status,
+    updatedAt: now,
+    ...(status === "running" && !job.startedAt ? { startedAt: now } : {}),
+    ...(isTerminalJobStatus(status) ? { finishedAt: now } : {})
+  });
+
+  return store.appendJobEvent(updated.id, createJobEvent(updated, status === "failed" ? "error" : "info", message, metadata));
+}
+
+function isTerminalJobStatus(status: WorkflowJob["status"]): boolean {
+  return status === "succeeded" || status === "failed" || status === "cancelled";
+}
+
+function writeSseEvent(response: ServerResponse, event: string, data: unknown): void {
+  response.write(`event: ${event}\n`);
+  response.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 
 function recordAudit(
