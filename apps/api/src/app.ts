@@ -35,6 +35,9 @@ import type { CodegenArtifactStore } from "@kelpclaw/codegen";
 import type { NodeRunner } from "@kelpclaw/nanoclaw";
 import type { SkillMetadata } from "@kelpclaw/skill-registry";
 import type {
+  GeneratedNodeEvalReport,
+  GeneratedNodeTestReport,
+  JsonRecord,
   WorkflowArtifactManifestRecord,
   WorkflowAuditAdapterCallRecord,
   WorkflowAuditContainerRecord,
@@ -48,7 +51,9 @@ import type {
   WorkflowJob,
   WorkflowJobEvent,
   WorkflowJobType,
-  JsonRecord,
+  WorkflowCodegenArtifactRef,
+  WorkflowDeploymentKind,
+  WorkflowDeploymentRecord,
   WorkflowNode,
   WorkflowObservabilityEventKind,
   WorkflowPlanRequest,
@@ -62,10 +67,7 @@ import type {
   WorkflowValidationIssue,
   WorkflowValidateRequest,
   WorkflowValidateResponse,
-  WorkflowWorkspace,
-  GeneratedNodeTestReport,
-  GeneratedNodeEvalReport,
-  WorkflowCodegenArtifactRef
+  WorkflowWorkspace
 } from "@kelpclaw/workflow-spec";
 import {
   createDeterministicPlannerBackend,
@@ -126,6 +128,14 @@ interface CodegenBuildRequestBody {
   readonly maxWallClockSeconds?: number | undefined;
   readonly maxModelCostUsd?: number | undefined;
   readonly runTestsInDocker?: boolean | undefined;
+}
+
+interface DeploymentRequestBody {
+  readonly approvedRevisionId: string;
+  readonly kind: WorkflowDeploymentKind;
+  readonly createdBy: string;
+  readonly rollbackPlan: string;
+  readonly metadata?: JsonRecord | undefined;
 }
 
 interface CodegenReviewRequestBody {
@@ -1597,6 +1607,92 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     }
   );
 
+  app.post<{ Params: RouteParamsWithId; Body: DeploymentRequestBody }>(
+    "/api/workflows/:id/deployments",
+    async (request, reply) => {
+      const approvedRevision = store.getApprovedRevision(request.body.approvedRevisionId);
+      if (!approvedRevision || approvedRevision.workflowId !== request.params.id) {
+        return reply.code(404).send({
+          ok: false,
+          error: "APPROVED_REVISION_NOT_FOUND",
+          message: `Approved revision '${request.body.approvedRevisionId}' was not found for workflow '${request.params.id}'.`
+        });
+      }
+
+      const latestEvaluation = store.getLatestDraftEvaluation(request.params.id);
+      if (!latestEvaluation || latestEvaluation.status !== "passed") {
+        return reply.code(409).send({
+          ok: false,
+          error: "WORKFLOW_DRAFT_EVALUATION_REQUIRED",
+          message: "Deployment requires a passing draft evaluation."
+        });
+      }
+      if (!request.body.rollbackPlan.trim()) {
+        return reply.code(422).send({
+          ok: false,
+          error: "WORKFLOW_DEPLOYMENT_BLOCKED",
+          message: "Deployment requires a rollback plan."
+        });
+      }
+
+      const missingSecrets = collectSecretRefs(approvedRevision.workflow)
+        .map((secretRef) => secretRef.replace(/^secret:/u, ""))
+        .filter(
+          (secretName) => !secretStore.listSecrets().some((secret) => secret.name === secretName)
+        );
+      if (missingSecrets.length > 0) {
+        return reply.code(409).send({
+          ok: false,
+          error: "WORKFLOW_DEPLOYMENT_BLOCKED",
+          message: `Deployment is missing secret metadata: ${missingSecrets.join(", ")}.`
+        });
+      }
+
+      const requiredIntegrations = requiredIntegrationsForWorkflow(approvedRevision.workflow);
+      const readiness = secretReadiness(secretStore);
+      const blockedIntegrations = requiredIntegrations.filter(
+        (integration) => readiness.find((item) => item.id === integration)?.ready !== true
+      );
+      if (blockedIntegrations.length > 0) {
+        return reply.code(409).send({
+          ok: false,
+          error: "WORKFLOW_DEPLOYMENT_BLOCKED",
+          message: `Deployment is blocked by integration readiness: ${blockedIntegrations.join(", ")}.`
+        });
+      }
+
+      const correlationId = correlationIdForRequest(request);
+      const audit = recordAudit(store, {
+        action: "deployment.created",
+        actor: request.body.createdBy,
+        workflowId: request.params.id,
+        revisionId: approvedRevision.id,
+        correlationId,
+        summary: `Created ${request.body.kind} deployment record.`,
+        secretRefs: collectSecretRefs(approvedRevision.workflow)
+      });
+      const deployment = store.saveDeployment(
+        createDeploymentRecord({
+          workflowId: request.params.id,
+          approvedRevisionId: approvedRevision.id,
+          draftEvaluationId: latestEvaluation.id,
+          kind: request.body.kind,
+          createdBy: request.body.createdBy,
+          requiredIntegrations,
+          secretRefs: collectSecretRefs(approvedRevision.workflow),
+          rollbackPlan: request.body.rollbackPlan,
+          auditRecordId: audit.id,
+          metadata: request.body.metadata ?? {}
+        })
+      );
+
+      return reply.code(201).send({
+        ok: true,
+        deployment
+      });
+    }
+  );
+
   app.post<{ Params: RouteParamsWithId }>(
     "/api/workflows/:id/executions",
     async (request, reply) => {
@@ -2021,6 +2117,35 @@ function createGeneratedNodeEvalReport(input: {
   };
 }
 
+function createDeploymentRecord(input: {
+  readonly workflowId: string;
+  readonly approvedRevisionId: string;
+  readonly draftEvaluationId: string;
+  readonly kind: WorkflowDeploymentKind;
+  readonly createdBy: string;
+  readonly requiredIntegrations: readonly string[];
+  readonly secretRefs: readonly string[];
+  readonly rollbackPlan: string;
+  readonly auditRecordId: string;
+  readonly metadata: JsonRecord;
+}): WorkflowDeploymentRecord {
+  return {
+    id: `deployment.${input.workflowId}.${Date.now()}.${randomUUID()}`,
+    workflowId: input.workflowId,
+    approvedRevisionId: input.approvedRevisionId,
+    draftEvaluationId: input.draftEvaluationId,
+    kind: input.kind,
+    status: "ready",
+    createdAt: new Date().toISOString(),
+    createdBy: input.createdBy,
+    requiredIntegrations: input.requiredIntegrations,
+    secretRefs: input.secretRefs,
+    rollbackPlan: input.rollbackPlan,
+    auditRecordId: input.auditRecordId,
+    metadata: input.metadata
+  };
+}
+
 function toArtifactRef(artifact: {
   readonly path: string;
   readonly checksum: string;
@@ -2031,6 +2156,31 @@ function toArtifactRef(artifact: {
     checksum: artifact.checksum,
     contentType: artifact.contentType
   };
+}
+
+function requiredIntegrationsForWorkflow(workflow: WorkflowSpec): readonly string[] {
+  const integrations = new Set<string>();
+  for (const node of workflow.nodes) {
+    for (const adapterId of node.adapterIds ?? (node.adapterId ? [node.adapterId] : [])) {
+      switch (adapterId) {
+        case "adapter.gmail":
+        case "adapter.sheets":
+          integrations.add("google");
+          break;
+        case "adapter.email":
+          integrations.add("smtp");
+          break;
+        case "adapter.whatsapp":
+          integrations.add("whatsapp");
+          break;
+        case "adapter.telegram":
+          integrations.add("telegram");
+          break;
+      }
+    }
+  }
+
+  return [...integrations].sort();
 }
 
 function createJobEvent(

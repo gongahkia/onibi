@@ -14,6 +14,7 @@ import {
 import type {
   GeneratedNodeEvalReport,
   GeneratedNodeTestReport,
+  WorkflowDeploymentRecord,
   WorkflowArtifactManifestRecord,
   WorkflowApprovalRecord,
   WorkflowApprovedRevision,
@@ -133,6 +134,8 @@ export interface WorkflowStore {
     workflowId: string,
     nodeId?: string | undefined
   ): readonly GeneratedNodeEvalReport[];
+  saveDeployment(record: WorkflowDeploymentRecord): WorkflowDeploymentRecord;
+  listDeployments(workflowId: string): readonly WorkflowDeploymentRecord[];
   requireWorkflow(id: string): StoredWorkflow;
 }
 
@@ -153,6 +156,7 @@ export class InMemoryWorkflowStore implements WorkflowStore {
   protected readonly agentArtifacts = new Map<string, CodegenAgentArtifactRecord>();
   protected readonly generatedNodeTestReports = new Map<string, GeneratedNodeTestReport>();
   protected readonly generatedNodeEvalReports = new Map<string, GeneratedNodeEvalReport>();
+  protected readonly deployments = new Map<string, WorkflowDeploymentRecord>();
 
   public saveWorkflow(
     workflow: WorkflowSpec,
@@ -635,6 +639,20 @@ export class InMemoryWorkflowStore implements WorkflowStore {
       );
   }
 
+  public saveDeployment(record: WorkflowDeploymentRecord): WorkflowDeploymentRecord {
+    this.deployments.set(record.id, record);
+    return record;
+  }
+
+  public listDeployments(workflowId: string): readonly WorkflowDeploymentRecord[] {
+    return [...this.deployments.values()]
+      .filter((record) => record.workflowId === workflowId)
+      .sort(
+        (left, right) =>
+          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
+      );
+  }
+
   public requireWorkflow(id: string): StoredWorkflow {
     const aggregate = this.workflows.get(id);
     if (!aggregate) {
@@ -880,6 +898,17 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
     return saved;
   }
 
+  public override saveDeployment(record: WorkflowDeploymentRecord): WorkflowDeploymentRecord {
+    const saved = super.saveDeployment(record);
+    this.runSql(
+      [
+        "INSERT OR REPLACE INTO deployments (id, workflow_id, approved_revision_id, kind, status, created_at, record_json)",
+        `VALUES (${sqlValue(saved.id)}, ${sqlValue(saved.workflowId)}, ${sqlValue(saved.approvedRevisionId)}, ${sqlValue(saved.kind)}, ${sqlValue(saved.status)}, ${sqlValue(saved.createdAt)}, ${sqlValue(stableStringify(saved))});`
+      ].join(" ")
+    );
+    return saved;
+  }
+
   private persistAllWorkflowState(workflowId: string): void {
     const stored = this.requireWorkflow(workflowId);
     for (const draft of stored.draftRevisions) {
@@ -1057,6 +1086,12 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
       "SELECT * FROM generated_node_eval_reports ORDER BY created_at, id;"
     )) {
       this.generatedNodeEvalReports.set(row.id, parseJson(row.record_json));
+    }
+
+    for (const row of this.queryRows<DeploymentRow>(
+      "SELECT * FROM deployments ORDER BY created_at, id;"
+    )) {
+      this.deployments.set(row.id, parseJson(row.record_json));
     }
   }
 
@@ -1335,6 +1370,15 @@ const sqliteMigrations = [
     finished_at TEXT NOT NULL,
     record_json TEXT NOT NULL
   );`,
+  `CREATE TABLE IF NOT EXISTS deployments (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    approved_revision_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+  );`,
   "INSERT OR IGNORE INTO schema_migrations (id) VALUES ('0001_phase7_enterprise_store');"
 ] as const;
 
@@ -1443,6 +1487,11 @@ interface GeneratedNodeTestReportRow {
 }
 
 interface GeneratedNodeEvalReportRow {
+  readonly id: string;
+  readonly record_json: string;
+}
+
+interface DeploymentRow {
   readonly id: string;
   readonly record_json: string;
 }
