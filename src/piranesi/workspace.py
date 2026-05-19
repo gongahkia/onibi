@@ -24,6 +24,8 @@ FINDINGS_FILE = "normalized/findings.json"
 AUDIT_LOG_FILE = "audit-log.jsonl"
 EVIDENCE_FILE = "evidence/index.json"
 TIMELINE_FILE = "timeline/events.jsonl"
+OBJECTIVES_FILE = "objectives/objectives.json"
+PROCEDURES_FILE = "procedures/procedures.json"
 
 WORKSPACE_DIRECTORIES = (
     "raw",
@@ -428,6 +430,12 @@ def _ensure_red_team_documents(root: Path) -> None:
             },
         )
     (root / TIMELINE_FILE).touch(exist_ok=True)
+    for path, schema_version, key in (
+        (root / OBJECTIVES_FILE, "piranesi.objectives.v1", "objectives"),
+        (root / PROCEDURES_FILE, "piranesi.procedures.v1", "procedures"),
+    ):
+        if not path.exists():
+            _write_json(path, {"schema_version": schema_version, key: []})
 
 
 def _resolve_workspace_root(root: Path | str) -> Path:
@@ -462,6 +470,8 @@ __all__ = [
     "EVIDENCE_SCHEMA_VERSION",
     "FINDINGS_FILE",
     "FINDINGS_SCHEMA_VERSION",
+    "OBJECTIVES_FILE",
+    "PROCEDURES_FILE",
     "TIMELINE_FILE",
     "WORKSPACE_FILE",
     "WORKSPACE_SCHEMA_VERSION",

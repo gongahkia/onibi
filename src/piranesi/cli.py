@@ -22,6 +22,14 @@ from piranesi.evidence import (
     add_evidence_file,
     load_evidence_index,
 )
+from piranesi.objectives import (
+    ObjectiveError,
+    ObjectiveStatus,
+    add_objective,
+    add_procedure,
+    load_objectives,
+    load_procedures,
+)
 from piranesi.report.pentest import (
     PdfBackend,
     ReportFormat,
@@ -50,6 +58,8 @@ from piranesi.timeline import (
 from piranesi.workspace import (
     EVIDENCE_FILE,
     FINDINGS_FILE,
+    OBJECTIVES_FILE,
+    PROCEDURES_FILE,
     TIMELINE_FILE,
     AuditEvent,
     EngagementMetadata,
@@ -98,9 +108,21 @@ timeline_app = typer.Typer(
     help="Record and inspect red-team engagement timeline events.",
     no_args_is_help=True,
 )
+objectives_app = typer.Typer(
+    add_completion=False,
+    help="Track red-team objectives.",
+    no_args_is_help=True,
+)
+procedures_app = typer.Typer(
+    add_completion=False,
+    help="Track red-team procedures and ATT&CK mapping.",
+    no_args_is_help=True,
+)
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(evidence_app, name="evidence")
 app.add_typer(timeline_app, name="timeline")
+app.add_typer(objectives_app, name="objectives")
+app.add_typer(procedures_app, name="procedures")
 
 
 def _load_local_llm_env(env_path: Path | None = None) -> None:
@@ -700,6 +722,287 @@ def timeline_list_command(
     for event in events:
         phase = event.phase or "-"
         typer.echo(f"{event.timestamp}\t{phase}\t{event.id}\t{event.summary}")
+
+
+@objectives_app.command("add", help="Add or update a red-team objective.")
+def objective_add_command(
+    title: Annotated[
+        str,
+        typer.Option("--title", "-t", help="Objective title."),
+    ],
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to create or update.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    status: Annotated[
+        ObjectiveStatus,
+        typer.Option("--status", help="Objective status."),
+    ] = "planned",
+    owner: Annotated[
+        str | None,
+        typer.Option("--owner", help="Objective owner."),
+    ] = None,
+    target_assets: Annotated[
+        list[str] | None,
+        typer.Option("--target-asset", help="Target asset; repeatable."),
+    ] = None,
+    success_criteria: Annotated[
+        list[str] | None,
+        typer.Option("--success-criterion", help="Success criterion; repeatable."),
+    ] = None,
+    evidence_ids: Annotated[
+        list[str] | None,
+        typer.Option("--evidence-id", help="Evidence record ID to link; repeatable."),
+    ] = None,
+    timeline_event_ids: Annotated[
+        list[str] | None,
+        typer.Option("--event-id", help="Timeline event ID to link; repeatable."),
+    ] = None,
+    tags: Annotated[
+        list[str] | None,
+        typer.Option("--tag", help="Objective tag; repeatable."),
+    ] = None,
+    notes: Annotated[
+        str | None,
+        typer.Option("--notes", help="Objective note."),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print the objective as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    try:
+        state = create_workspace(workspace)
+        _document, objective = add_objective(
+            state,
+            title=title,
+            status=status,
+            owner=owner,
+            target_assets=target_assets,
+            success_criteria=success_criteria,
+            evidence_ids=evidence_ids,
+            timeline_event_ids=timeline_event_ids,
+            tags=tags,
+            notes=notes,
+        )
+        output_digest = file_sha256(state.root / OBJECTIVES_FILE)
+        append_workspace_audit_event(
+            state,
+            AuditEvent(
+                timestamp=utc_now(),
+                command="objectives add",
+                output_path=OBJECTIVES_FILE,
+                output_sha256=output_digest,
+                summary={"objective_id": objective.id, "title": objective.title},
+            ),
+        )
+    except (WorkspaceError, ObjectiveError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    payload = objective.model_dump(mode="json")
+    _emit(
+        payload,
+        json_output=json_output,
+        text=f"objective: {objective.id} {objective.status} {objective.title}",
+    )
+
+
+@objectives_app.command("list", help="List red-team objectives.")
+def objective_list_command(
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to inspect.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print objectives as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    try:
+        state = load_workspace(workspace)
+        document = load_objectives(state.root)
+    except (WorkspaceError, ObjectiveError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    payload = {
+        "workspace": str(state.root),
+        "count": len(document.objectives),
+        "objectives": [objective.model_dump(mode="json") for objective in document.objectives],
+    }
+    if json_output:
+        _emit(payload, json_output=True, text="")
+        return
+    if not document.objectives:
+        typer.echo("No objectives.")
+        return
+    for objective in document.objectives:
+        typer.echo(f"{objective.id}\t{objective.status}\t{objective.title}")
+
+
+@procedures_app.command("add", help="Add or update a red-team procedure.")
+def procedure_add_command(
+    summary: Annotated[
+        str,
+        typer.Option("--summary", "-s", help="Procedure summary."),
+    ],
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to create or update.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    tactic: Annotated[
+        str | None,
+        typer.Option("--tactic", help="ATT&CK tactic or procedure category."),
+    ] = None,
+    technique_id: Annotated[
+        str | None,
+        typer.Option("--technique-id", help="ATT&CK technique ID."),
+    ] = None,
+    technique_name: Annotated[
+        str | None,
+        typer.Option("--technique-name", help="ATT&CK technique name."),
+    ] = None,
+    command: Annotated[
+        str | None,
+        typer.Option("--command", help="Command or action summary."),
+    ] = None,
+    evidence_ids: Annotated[
+        list[str] | None,
+        typer.Option("--evidence-id", help="Evidence record ID to link; repeatable."),
+    ] = None,
+    timeline_event_ids: Annotated[
+        list[str] | None,
+        typer.Option("--event-id", help="Timeline event ID to link; repeatable."),
+    ] = None,
+    finding_ids: Annotated[
+        list[str] | None,
+        typer.Option("--finding-id", help="Finding ID to link; repeatable."),
+    ] = None,
+    objective_ids: Annotated[
+        list[str] | None,
+        typer.Option("--objective-id", help="Objective ID to link; repeatable."),
+    ] = None,
+    tags: Annotated[
+        list[str] | None,
+        typer.Option("--tag", help="Procedure tag; repeatable."),
+    ] = None,
+    notes: Annotated[
+        str | None,
+        typer.Option("--notes", help="Procedure note."),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print the procedure as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    try:
+        state = create_workspace(workspace)
+        _document, procedure = add_procedure(
+            state,
+            summary=summary,
+            tactic=tactic,
+            technique_id=technique_id,
+            technique_name=technique_name,
+            command=command,
+            evidence_ids=evidence_ids,
+            timeline_event_ids=timeline_event_ids,
+            finding_ids=finding_ids,
+            objective_ids=objective_ids,
+            tags=tags,
+            notes=notes,
+        )
+        output_digest = file_sha256(state.root / PROCEDURES_FILE)
+        append_workspace_audit_event(
+            state,
+            AuditEvent(
+                timestamp=utc_now(),
+                command="procedures add",
+                output_path=PROCEDURES_FILE,
+                output_sha256=output_digest,
+                summary={"procedure_id": procedure.id, "summary": procedure.summary},
+            ),
+        )
+    except (WorkspaceError, ObjectiveError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    payload = procedure.model_dump(mode="json")
+    _emit(
+        payload,
+        json_output=json_output,
+        text=f"procedure: {procedure.id} {procedure.summary}",
+    )
+
+
+@procedures_app.command("list", help="List red-team procedures.")
+def procedure_list_command(
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to inspect.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print procedures as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    try:
+        state = load_workspace(workspace)
+        document = load_procedures(state.root)
+    except (WorkspaceError, ObjectiveError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    payload = {
+        "workspace": str(state.root),
+        "count": len(document.procedures),
+        "procedures": [procedure.model_dump(mode="json") for procedure in document.procedures],
+    }
+    if json_output:
+        _emit(payload, json_output=True, text="")
+        return
+    if not document.procedures:
+        typer.echo("No procedures.")
+        return
+    for procedure in document.procedures:
+        technique = procedure.technique_id or "-"
+        typer.echo(f"{procedure.id}\t{technique}\t{procedure.summary}")
 
 
 @app.command("report", help="Generate pentest report artifacts from a workspace.")

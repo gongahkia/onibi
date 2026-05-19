@@ -11,6 +11,14 @@
         "nmap",
         "nuclei"
       ],
+      "objectives": [
+        "add",
+        "list"
+      ],
+      "procedures": [
+        "add",
+        "list"
+      ],
       "timeline": [
         "add",
         "list"
@@ -19,6 +27,8 @@
     "root_commands": [
       "evidence",
       "ingest",
+      "objectives",
+      "procedures",
       "report",
       "retest",
       "serve",
@@ -32,7 +42,9 @@
       "chain-of-custody",
       "evidence",
       "findings",
+      "objectives",
       "pentest-report",
+      "procedures",
       "retest",
       "workspace"
     ],
@@ -41,6 +53,8 @@
       "normalized/findings.json",
       "evidence/index.json",
       "timeline/events.jsonl",
+      "objectives/objectives.json",
+      "procedures/procedures.json",
       "audit-log.jsonl",
       "raw/",
       "timeline/",
