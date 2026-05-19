@@ -11,13 +11,24 @@ import type { Connection, Edge, EdgeChange, NodeChange } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
   CheckCircle2,
+  ChevronRight,
+  Clock3,
+  Database,
+  FileStack,
   GitBranch,
+  Grid2X2,
+  History,
+  Layers3,
   ListChecks,
+  Paperclip,
   Play,
   Plus,
   RefreshCw,
+  Search,
   ShieldCheck,
+  SlidersHorizontal,
   Trash2,
+  Unplug,
   WandSparkles
 } from "lucide-react";
 import {
@@ -147,6 +158,23 @@ const adapterSkillPresets: readonly AdapterSkillPreset[] = [
     config: { channel: "email", channels: ["whatsapp", "telegram"], timeSensitive: true }
   }
 ];
+
+const componentCategories = [
+  { label: "Input & Output", icon: Unplug },
+  { label: "Data Sources", icon: Database },
+  { label: "Models & Agents", icon: Layers3 },
+  { label: "LLM Operations", icon: WandSparkles },
+  { label: "Files & Knowledge", icon: FileStack },
+  { label: "Processing", icon: SlidersHorizontal },
+  { label: "Flow Control", icon: GitBranch }
+] as const;
+
+const railItems = [
+  { label: "Search", icon: Search },
+  { label: "Components", icon: Grid2X2 },
+  { label: "Attachments", icon: Paperclip },
+  { label: "History", icon: History }
+] as const;
 
 export function App() {
   const [workflow, setWorkflow] = useState<WorkflowSpec>(gmailReceiptsToSheetsWorkflowFixture);
@@ -503,40 +531,57 @@ export function App() {
 
   return (
     <main className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">KelpClaw</p>
-          <h1>OpenClaw</h1>
-        </div>
-        <div className="topbar-actions" aria-label="Workflow actions">
-          <button title="Validate workflow" onClick={validateDraft} disabled={busyAction !== null}>
-            <ShieldCheck size={18} />
-            Validate
-          </button>
-          <button
-            title="Approve workflow"
-            onClick={approveWorkflow}
-            disabled={!canApprove || busyAction !== null}
-          >
-            <CheckCircle2 size={18} />
-            Approve
-          </button>
-          <button
-            title="Run workflow"
-            onClick={runWorkflow}
-            disabled={!canRun || busyAction !== null}
-          >
-            <Play size={18} />
-            Run
-          </button>
-          <button className="icon-button" title="Reset workflow" onClick={resetWorkflow}>
-            <RefreshCw size={18} />
-          </button>
-        </div>
-      </header>
-
       <section className="workspace">
+        <aside className="nav-rail" aria-label="Workspace navigation">
+          {railItems.map((item, index) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.label}
+                className={index === 1 ? "rail-button rail-button-active" : "rail-button"}
+                type="button"
+                title={item.label}
+              >
+                <Icon size={19} />
+              </button>
+            );
+          })}
+        </aside>
+
         <aside className="panel planner-panel" aria-label="Workflow planner">
+          <div className="sidebar-search">
+            <Search size={18} />
+            <input aria-label="Search components" placeholder="Search" />
+            <kbd>/</kbd>
+          </div>
+
+          <section className="component-browser" aria-label="Component categories">
+            <div className="component-heading">
+              <h2>Components</h2>
+              <SlidersHorizontal size={16} />
+            </div>
+            <div className="component-list">
+              {componentCategories.map((category, index) => {
+                const Icon = category.icon;
+                return (
+                  <button
+                    key={category.label}
+                    className={index === 0 ? "component-row component-row-active" : "component-row"}
+                    type="button"
+                  >
+                    <Icon size={18} />
+                    <span>{category.label}</span>
+                    <ChevronRight size={16} />
+                  </button>
+                );
+              })}
+            </div>
+            <button className="discover-button" type="button">
+              <Grid2X2 size={18} />
+              Discover more components
+            </button>
+          </section>
+
           <form
             className="prompt-form"
             onSubmit={(event) => {
@@ -609,6 +654,41 @@ export function App() {
         </aside>
 
         <section className="canvas-panel" aria-label="Workflow graph">
+          <header className="topbar">
+            <div>
+              <p className="eyebrow">KelpClaw</p>
+              <h1>OpenClaw</h1>
+            </div>
+            <div className="topbar-actions" aria-label="Workflow actions">
+              <button
+                title="Validate workflow"
+                onClick={validateDraft}
+                disabled={busyAction !== null}
+              >
+                <ShieldCheck size={18} />
+                Validate
+              </button>
+              <button
+                title="Approve workflow"
+                onClick={approveWorkflow}
+                disabled={!canApprove || busyAction !== null}
+              >
+                <CheckCircle2 size={18} />
+                Approve
+              </button>
+              <button
+                title="Run workflow"
+                onClick={runWorkflow}
+                disabled={!canRun || busyAction !== null}
+              >
+                <Play size={18} />
+                Run
+              </button>
+              <button className="icon-button" title="Reset workflow" onClick={resetWorkflow}>
+                <RefreshCw size={18} />
+              </button>
+            </div>
+          </header>
           <div className="canvas-toolbar" aria-label="Canvas controls">
             <div className="node-kind-actions">
               {nodeKinds.map((kind) => (
@@ -662,10 +742,16 @@ export function App() {
             minZoom={0.5}
             maxZoom={1.35}
           >
-            <Background color="#cbd5e1" gap={18} />
+            <Background color="#272a32" gap={18} size={1.15} />
             <MiniMap pannable zoomable />
             <Controls showInteractive={false} />
           </ReactFlow>
+          <div className="canvas-footer" aria-label="Canvas status">
+            <span className="canvas-wave">~</span>
+            <span>63%</span>
+            <Clock3 size={18} />
+            <span>{workflow.nodes.length} nodes</span>
+          </div>
         </section>
 
         <aside className="panel inspector-panel" aria-label="Workflow inspector">

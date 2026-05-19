@@ -64,7 +64,8 @@ export function workflowToEdges(
     sourceHandle: edge.source.port,
     targetHandle: edge.target.port,
     label: `${edge.source.port} -> ${edge.target.port}`,
-    animated: true,
+    type: "smoothstep",
+    animated: false,
     className:
       countEdgeIssues(index, issues) > 0 ? "workflow-edge workflow-edge-invalid" : "workflow-edge",
     data: {
@@ -133,29 +134,80 @@ function WorkflowNodeCard(props: NodeProps<WorkflowFlowNode>) {
           id={port}
           type="target"
           position={Position.Left}
+          className="workflow-handle workflow-handle-input"
           style={{ top: `${portOffset(index, inputPorts.length)}%` }}
         />
       ))}
       <div className="workflow-card-header">
+        <div className="node-title">
+          <span className="node-glyph">{nodeGlyph(node.kind)}</span>
+          <strong>{node.label}</strong>
+        </div>
+        <span className="node-runtime">{runtimeBadge(node)}</span>
+      </div>
+      <p>{node.description}</p>
+      <div className="node-config-preview">
+        {inputPorts.length > 0 ? (
+          <div className="port-row">
+            <span>{inputPorts[0]}</span>
+            <span>Receiving input</span>
+          </div>
+        ) : (
+          <div className="port-row">
+            <span>Trigger</span>
+            <span>Manual input</span>
+          </div>
+        )}
+      </div>
+      <div className="workflow-card-footer">
         <span className="node-kind">{node.kind}</span>
+        <NodeMeta node={node} />
         {props.data.issueCount > 0 ? (
           <span className="node-issues">{props.data.issueCount}</span>
         ) : null}
       </div>
-      <strong>{node.label}</strong>
-      <p>{node.description}</p>
-      <NodeMeta node={node} />
       {outputPorts.map((port, index) => (
         <Handle
           key={port}
           id={port}
           type="source"
           position={Position.Right}
+          className="workflow-handle workflow-handle-output"
           style={{ top: `${portOffset(index, outputPorts.length)}%` }}
         />
       ))}
     </div>
   );
+}
+
+function nodeGlyph(kind: WorkflowNodeKind): string {
+  switch (kind) {
+    case "trigger":
+      return ">";
+    case "skill":
+      return "#";
+    case "codegen":
+      return "{}";
+    case "transform":
+      return "<>";
+    case "approval":
+      return "ok";
+    case "delivery":
+      return "->";
+  }
+}
+
+function runtimeBadge(node: WorkflowNode): string {
+  if (node.kind === "codegen") {
+    return node.codegen?.review.status === "approved"
+      ? "reviewed"
+      : (node.codegen?.review.status ?? "draft");
+  }
+  if (node.adapterOperations && node.adapterOperations.length > 0) {
+    return "24ms";
+  }
+
+  return "11ms";
 }
 
 function NodeMeta(props: { readonly node: WorkflowNode }) {
