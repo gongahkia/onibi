@@ -10,6 +10,11 @@ import type {
   WorkflowCodegenSandboxPolicy,
   WorkflowRuntime
 } from "@kelpclaw/workflow-spec";
+import type {
+  WorkflowAgentRole,
+  WorkflowJob,
+  WorkflowWorkspace
+} from "@kelpclaw/workflow-spec";
 
 export type ArtifactContentType = WorkflowCodegenArtifactContentType;
 
@@ -86,6 +91,62 @@ export interface CodegenGenerationResult {
 
 export interface CodeGenerator {
   generate(request: CodegenGenerationRequest): Promise<CodegenGenerationResult>;
+}
+
+export interface GeneratedNodeDesignSpec {
+  readonly workflowId: string;
+  readonly nodeId: string;
+  readonly prompt: string;
+  readonly plannerRationale: string;
+  readonly inputSchema: Readonly<Record<string, JsonSchemaShape>>;
+  readonly outputSchema: Readonly<Record<string, JsonSchemaShape>>;
+  readonly runtime: WorkflowRuntime;
+  readonly sandbox: WorkflowCodegenSandboxPolicy;
+  readonly acceptanceCriteria: readonly string[];
+}
+
+export interface CodegenAgentRunRecord {
+  readonly id: string;
+  readonly workflowId: string;
+  readonly nodeId: string;
+  readonly jobId: string;
+  readonly role: WorkflowAgentRole;
+  readonly status: "succeeded" | "failed";
+  readonly startedAt: string;
+  readonly finishedAt: string;
+  readonly inputSummary: string;
+  readonly outputArtifactRefs: readonly WorkflowCodegenArtifactRef[];
+  readonly modelProvider: string;
+  readonly model: string;
+  readonly error?: string | undefined;
+}
+
+export interface CodegenAgentArtifactRecord {
+  readonly id: string;
+  readonly workflowId: string;
+  readonly nodeId: string;
+  readonly jobId: string;
+  readonly agentRunId: string;
+  readonly createdAt: string;
+  readonly artifact: WorkflowCodegenArtifactRef;
+}
+
+export interface GeneratedNodeBuildLoopRequest extends CodegenGenerationRequest {
+  readonly job: WorkflowJob;
+  readonly workspace?: WorkflowWorkspace | undefined;
+  readonly maxIterations: number;
+  readonly maxWallClockSeconds: number;
+  readonly maxModelCostUsd: number;
+  readonly runTestsInDocker: boolean;
+}
+
+export interface GeneratedNodeBuildLoopResult {
+  readonly generation: CodegenGenerationResult;
+  readonly designSpecArtifact: GeneratedArtifact;
+  readonly testArtifacts: readonly GeneratedArtifact[];
+  readonly agentRuns: readonly CodegenAgentRunRecord[];
+  readonly agentArtifacts: readonly CodegenAgentArtifactRecord[];
+  readonly fixHistory: readonly string[];
 }
 
 export type {

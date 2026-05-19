@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { hashWorkflowDag as hashNanoClawWorkflowDag } from "@kelpclaw/nanoclaw";
 import type { DagExecutionResult } from "@kelpclaw/nanoclaw";
+import type { CodegenAgentArtifactRecord, CodegenAgentRunRecord } from "@kelpclaw/codegen";
 import {
   createWorkflowSpecDiff,
   stableJsonStringify,
@@ -25,7 +26,8 @@ import type {
   WorkflowRunRecord,
   WorkflowRunEvent,
   WorkflowSpec,
-  WorkflowValidationResult
+  WorkflowValidationResult,
+  WorkflowWorkspace
 } from "@kelpclaw/workflow-spec";
 
 export interface StoredWorkflow {
@@ -109,6 +111,16 @@ export interface WorkflowStore {
   getDraftEvaluation(id: string): WorkflowDraftEvaluation | undefined;
   getLatestDraftEvaluation(workflowId: string): WorkflowDraftEvaluation | undefined;
   listDraftEvaluations(workflowId: string): readonly WorkflowDraftEvaluation[];
+  saveWorkspace(record: WorkflowWorkspace): WorkflowWorkspace;
+  getWorkspace(id: string): WorkflowWorkspace | undefined;
+  listWorkspaces(workflowId: string): readonly WorkflowWorkspace[];
+  saveAgentRun(record: CodegenAgentRunRecord): CodegenAgentRunRecord;
+  listAgentRuns(workflowId: string, nodeId?: string | undefined): readonly CodegenAgentRunRecord[];
+  saveAgentArtifact(record: CodegenAgentArtifactRecord): CodegenAgentArtifactRecord;
+  listAgentArtifacts(
+    workflowId: string,
+    nodeId?: string | undefined
+  ): readonly CodegenAgentArtifactRecord[];
   requireWorkflow(id: string): StoredWorkflow;
 }
 
@@ -124,6 +136,9 @@ export class InMemoryWorkflowStore implements WorkflowStore {
   protected readonly plannerFeedback = new Map<string, WorkflowPlannerFeedback>();
   protected readonly jobs = new Map<string, WorkflowJob>();
   protected readonly draftEvaluations = new Map<string, WorkflowDraftEvaluation>();
+  protected readonly workspaces = new Map<string, WorkflowWorkspace>();
+  protected readonly agentRuns = new Map<string, CodegenAgentRunRecord>();
+  protected readonly agentArtifacts = new Map<string, CodegenAgentArtifactRecord>();
 
   public saveWorkflow(
     workflow: WorkflowSpec,
@@ -504,6 +519,64 @@ export class InMemoryWorkflowStore implements WorkflowStore {
       );
   }
 
+  public saveWorkspace(record: WorkflowWorkspace): WorkflowWorkspace {
+    this.workspaces.set(record.id, record);
+    return record;
+  }
+
+  public getWorkspace(id: string): WorkflowWorkspace | undefined {
+    return this.workspaces.get(id);
+  }
+
+  public listWorkspaces(workflowId: string): readonly WorkflowWorkspace[] {
+    return [...this.workspaces.values()]
+      .filter((record) => record.workflowId === workflowId)
+      .sort(
+        (left, right) =>
+          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
+      );
+  }
+
+  public saveAgentRun(record: CodegenAgentRunRecord): CodegenAgentRunRecord {
+    this.agentRuns.set(record.id, record);
+    return record;
+  }
+
+  public listAgentRuns(
+    workflowId: string,
+    nodeId?: string | undefined
+  ): readonly CodegenAgentRunRecord[] {
+    return [...this.agentRuns.values()]
+      .filter(
+        (record) =>
+          record.workflowId === workflowId && (nodeId === undefined || record.nodeId === nodeId)
+      )
+      .sort(
+        (left, right) =>
+          left.startedAt.localeCompare(right.startedAt) || left.id.localeCompare(right.id)
+      );
+  }
+
+  public saveAgentArtifact(record: CodegenAgentArtifactRecord): CodegenAgentArtifactRecord {
+    this.agentArtifacts.set(record.id, record);
+    return record;
+  }
+
+  public listAgentArtifacts(
+    workflowId: string,
+    nodeId?: string | undefined
+  ): readonly CodegenAgentArtifactRecord[] {
+    return [...this.agentArtifacts.values()]
+      .filter(
+        (record) =>
+          record.workflowId === workflowId && (nodeId === undefined || record.nodeId === nodeId)
+      )
+      .sort(
+        (left, right) =>
+          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
+      );
+  }
+
   public requireWorkflow(id: string): StoredWorkflow {
     const aggregate = this.workflows.get(id);
     if (!aggregate) {
@@ -688,6 +761,41 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
     return saved;
   }
 
+  public override saveWorkspace(record: WorkflowWorkspace): WorkflowWorkspace {
+    const saved = super.saveWorkspace(record);
+    this.runSql(
+      [
+        "INSERT OR REPLACE INTO workspaces (id, job_id, workflow_id, created_at, updated_at, record_json)",
+        `VALUES (${sqlValue(saved.id)}, ${sqlValue(saved.jobId)}, ${sqlValue(saved.workflowId)}, ${sqlValue(saved.createdAt)}, ${sqlValue(saved.updatedAt)}, ${sqlValue(stableStringify(saved))});`
+      ].join(" ")
+    );
+    return saved;
+  }
+
+  public override saveAgentRun(record: CodegenAgentRunRecord): CodegenAgentRunRecord {
+    const saved = super.saveAgentRun(record);
+    this.runSql(
+      [
+        "INSERT OR REPLACE INTO agent_runs (id, job_id, workflow_id, node_id, role, status, started_at, finished_at, record_json)",
+        `VALUES (${sqlValue(saved.id)}, ${sqlValue(saved.jobId)}, ${sqlValue(saved.workflowId)}, ${sqlValue(saved.nodeId)}, ${sqlValue(saved.role)}, ${sqlValue(saved.status)}, ${sqlValue(saved.startedAt)}, ${sqlValue(saved.finishedAt)}, ${sqlValue(stableStringify(saved))});`
+      ].join(" ")
+    );
+    return saved;
+  }
+
+  public override saveAgentArtifact(
+    record: CodegenAgentArtifactRecord
+  ): CodegenAgentArtifactRecord {
+    const saved = super.saveAgentArtifact(record);
+    this.runSql(
+      [
+        "INSERT OR REPLACE INTO agent_artifacts (id, job_id, workflow_id, node_id, agent_run_id, created_at, record_json)",
+        `VALUES (${sqlValue(saved.id)}, ${sqlValue(saved.jobId)}, ${sqlValue(saved.workflowId)}, ${sqlValue(saved.nodeId)}, ${sqlValue(saved.agentRunId)}, ${sqlValue(saved.createdAt)}, ${sqlValue(stableStringify(saved))});`
+      ].join(" ")
+    );
+    return saved;
+  }
+
   private persistAllWorkflowState(workflowId: string): void {
     const stored = this.requireWorkflow(workflowId);
     for (const draft of stored.draftRevisions) {
@@ -835,6 +943,24 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
       "SELECT * FROM draft_evaluations ORDER BY created_at, id;"
     )) {
       this.draftEvaluations.set(row.id, parseJson(row.record_json));
+    }
+
+    for (const row of this.queryRows<WorkspaceRow>(
+      "SELECT * FROM workspaces ORDER BY created_at, id;"
+    )) {
+      this.workspaces.set(row.id, parseJson(row.record_json));
+    }
+
+    for (const row of this.queryRows<AgentRunRow>(
+      "SELECT * FROM agent_runs ORDER BY started_at, id;"
+    )) {
+      this.agentRuns.set(row.id, parseJson(row.record_json));
+    }
+
+    for (const row of this.queryRows<AgentArtifactRow>(
+      "SELECT * FROM agent_artifacts ORDER BY created_at, id;"
+    )) {
+      this.agentArtifacts.set(row.id, parseJson(row.record_json));
     }
   }
 
@@ -1065,6 +1191,34 @@ const sqliteMigrations = [
     finished_at TEXT NOT NULL,
     record_json TEXT NOT NULL
   );`,
+  `CREATE TABLE IF NOT EXISTS workspaces (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    workflow_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+  );`,
+  `CREATE TABLE IF NOT EXISTS agent_runs (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    workflow_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    status TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+  );`,
+  `CREATE TABLE IF NOT EXISTS agent_artifacts (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    workflow_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    agent_run_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+  );`,
   "INSERT OR IGNORE INTO schema_migrations (id) VALUES ('0001_phase7_enterprise_store');"
 ] as const;
 
@@ -1148,6 +1302,21 @@ interface JobRow {
 }
 
 interface DraftEvaluationRow {
+  readonly id: string;
+  readonly record_json: string;
+}
+
+interface WorkspaceRow {
+  readonly id: string;
+  readonly record_json: string;
+}
+
+interface AgentRunRow {
+  readonly id: string;
+  readonly record_json: string;
+}
+
+interface AgentArtifactRow {
   readonly id: string;
   readonly record_json: string;
 }

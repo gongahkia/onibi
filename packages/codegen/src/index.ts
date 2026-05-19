@@ -8,6 +8,12 @@ export {
   createGeneratedArtifact
 } from "./artifacts.js";
 export {
+  createCodegenAgentArtifactRecords,
+  createCodegenAgentRunRecord,
+  createGeneratedNodeContractTestArtifact,
+  createGeneratedNodeDesignSpecArtifact
+} from "./build-artifacts.js";
+export {
   assertDependencyManifestPolicy,
   createDependencyManifestArtifact,
   dependencyManifestFromArtifact
@@ -23,7 +29,12 @@ export type {
   CodegenGenerationRequest,
   CodegenGenerationResult,
   CodegenMetadataInput,
+  CodegenAgentArtifactRecord,
+  CodegenAgentRunRecord,
   GeneratedArtifact,
+  GeneratedNodeBuildLoopRequest,
+  GeneratedNodeBuildLoopResult,
+  GeneratedNodeDesignSpec,
   ReplayDecision,
   ReplayMode,
   ReplayPolicy,
