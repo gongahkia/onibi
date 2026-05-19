@@ -3,13 +3,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  AgentSdkCodeGenerator,
   LocalCodegenArtifactStore,
   assertSafeArtifactPath,
+  createDependencyManifestArtifact,
   createArtifactManifest,
   createCodegenMetadata,
   createGeneratedArtifact,
-  decideReplay
+  decideReplay,
+  assertDependencyManifestPolicy
 } from "../src/index.js";
+import type { AgentQueryRunner, CodegenGenerationRequest } from "../src/index.js";
 
 describe("codegen artifact contracts", () => {
   it("creates artifacts with stable checksums", () => {
@@ -197,4 +201,110 @@ describe("codegen artifact contracts", () => {
     expect(materialized).toEqual([join(targetRoot, "generated/workflow.ts")]);
     await expect(readFile(materialized[0]!, "utf8")).resolves.toBe(artifact.content);
   });
+
+  it("enforces pinned generated dependency manifests", () => {
+    expect(() =>
+      assertDependencyManifestPolicy({
+        packageManager: "npm",
+        dependencies: ["left-pad"],
+        devDependencies: [],
+        installCommand: ["npm", "install"]
+      })
+    ).toThrow("must be pinned");
+
+    const manifest = createDependencyManifestArtifact({
+      packageManager: "npm",
+      dependencies: ["left-pad@1.3.0"],
+      installCommand: ["npm", "install", "--offline"]
+    });
+    expect(manifest.content).toContain("left-pad@1.3.0");
+  });
+
+  it("uses the Agent SDK runner and bounded repair for generated code", async () => {
+    let calls = 0;
+    const runner: AgentQueryRunner = async function* () {
+      calls += 1;
+      yield {
+        type: "result",
+        structured_output:
+          calls === 1
+            ? {
+                sourceCode: "export {};",
+                packageManager: "npm",
+                dependencies: ["left-pad"],
+                devDependencies: [],
+                installCommand: ["npm", "install"]
+              }
+            : {
+                sourceCode:
+                  'import { writeFileSync } from "node:fs";\nwriteFileSync(process.env.NANOCLAW_NODE_OUTPUT!, JSON.stringify({ artifact: { ok: true } }));',
+                packageManager: "none",
+                dependencies: [],
+                devDependencies: [],
+                installCommand: []
+              }
+      };
+    };
+    const generator = new AgentSdkCodeGenerator({
+      apiKey: "test-key",
+      queryRunner: runner,
+      maxRepairAttempts: 1
+    });
+
+    const result = await generator.generate(codegenRequestFixture());
+
+    expect(calls).toBe(2);
+    expect(result.sourceArtifact.path).toBe("generated/scrape-status-page.ts");
+    expect(result.dependencyManifest.packageManager).toBe("none");
+    expect(result.metadata.provenance.generator).toBe("anthropic.claude-agent-sdk");
+  });
+
+  it("fails clearly when live Agent SDK credentials are missing", async () => {
+    const generator = new AgentSdkCodeGenerator({
+      apiKey: ""
+    });
+
+    await expect(generator.generate(codegenRequestFixture())).rejects.toThrow(
+      "ANTHROPIC_API_KEY is required"
+    );
+  });
 });
+
+function codegenRequestFixture(): CodegenGenerationRequest {
+  return {
+    workflowId: "workflow.scheduled-scraping",
+    nodeId: "scrape-status-page",
+    prompt: "Scrape a public status page.",
+    plannerRationale: "No deterministic registry skill matched the requested scraper.",
+    inputSchema: {
+      tick: { type: "object", additionalProperties: true }
+    },
+    outputSchema: {
+      artifact: { type: "object", additionalProperties: true }
+    },
+    runtime: {
+      image: "node:20-alpine",
+      command: ["node", "/workspace/generated/scrape-status-page.js"],
+      timeoutSeconds: 300,
+      retry: {
+        maxAttempts: 1,
+        backoffSeconds: 0
+      },
+      environment: {},
+      resources: {
+        cpu: "1",
+        memoryMb: 512
+      }
+    },
+    sandbox: {
+      network: "none",
+      allowedHosts: [],
+      mounts: [],
+      resources: {
+        cpu: "1",
+        memoryMb: 512
+      }
+    },
+    generatedAt: "2026-05-18T00:00:00.000Z"
+  };
+}

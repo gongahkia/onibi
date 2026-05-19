@@ -1,12 +1,14 @@
 import type {
   JsonRecord,
+  JsonSchemaShape,
   WorkflowCodegenArtifactContentType,
   WorkflowCodegenArtifactRef,
   WorkflowCodegenDependencyManifest,
   WorkflowCodegenMetadata,
   WorkflowCodegenReplay,
   WorkflowCodegenReview,
-  WorkflowCodegenSandboxPolicy
+  WorkflowCodegenSandboxPolicy,
+  WorkflowRuntime
 } from "@kelpclaw/workflow-spec";
 
 export type ArtifactContentType = WorkflowCodegenArtifactContentType;
@@ -61,6 +63,29 @@ export interface CodegenMetadataInput {
   readonly review?: WorkflowCodegenReview | undefined;
   readonly replay: WorkflowCodegenReplay;
   readonly llmBacked?: boolean | undefined;
+}
+
+export interface CodegenGenerationRequest {
+  readonly workflowId: string;
+  readonly nodeId: string;
+  readonly prompt: string;
+  readonly plannerRationale: string;
+  readonly inputSchema: Readonly<Record<string, JsonSchemaShape>>;
+  readonly outputSchema: Readonly<Record<string, JsonSchemaShape>>;
+  readonly runtime: WorkflowRuntime;
+  readonly sandbox: WorkflowCodegenSandboxPolicy;
+  readonly generatedAt?: string | undefined;
+}
+
+export interface CodegenGenerationResult {
+  readonly sourceArtifact: GeneratedArtifact;
+  readonly dependencyManifestArtifact: GeneratedArtifact;
+  readonly dependencyManifest: WorkflowCodegenDependencyManifest;
+  readonly metadata: WorkflowCodegenMetadata;
+}
+
+export interface CodeGenerator {
+  generate(request: CodegenGenerationRequest): Promise<CodegenGenerationResult>;
 }
 
 export type {
