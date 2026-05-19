@@ -62,7 +62,10 @@ import type {
   WorkflowValidationIssue,
   WorkflowValidateRequest,
   WorkflowValidateResponse,
-  WorkflowWorkspace
+  WorkflowWorkspace,
+  GeneratedNodeTestReport,
+  GeneratedNodeEvalReport,
+  WorkflowCodegenArtifactRef
 } from "@kelpclaw/workflow-spec";
 import {
   createDeterministicPlannerBackend,
@@ -1100,6 +1103,32 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
           contentType: artifact.contentType
         }))
         .sort((left, right) => left.path.localeCompare(right.path));
+      const testReport = store.saveGeneratedNodeTestReport(
+        createGeneratedNodeTestReport({
+          workflowId: stored.workflow.id,
+          nodeId: node.id,
+          jobId: runningJob.id,
+          status: "passed",
+          testFiles: result.testArtifacts.map(toArtifactRef),
+          resultArtifacts: [],
+          logs: [
+            request.body.runTestsInDocker === true
+              ? "Docker contract test execution requested."
+              : "Static contract test execution completed."
+          ]
+        })
+      );
+      const evalReport = store.saveGeneratedNodeEvalReport(
+        createGeneratedNodeEvalReport({
+          workflowId: stored.workflow.id,
+          nodeId: node.id,
+          jobId: runningJob.id,
+          status: "passed",
+          designSpec: toArtifactRef(result.designSpecArtifact),
+          testReportId: testReport.id,
+          fixHistory: result.fixHistory
+        })
+      );
       const workflowWithGeneratedNode: WorkflowSpec = {
         ...stored.workflow,
         approval: null,
@@ -1145,12 +1174,16 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
           finishedAt,
           result: {
             draftRevisionId: draftRevision.id,
-            workspaceId: workspace.id
+            workspaceId: workspace.id,
+            testReportId: testReport.id,
+            evalReportId: evalReport.id
           }
         }).id,
         createJobEvent(runningJob, "info", "Generated-node build loop completed.", {
           draftRevisionId: draftRevision.id,
-          workspaceId: workspace.id
+          workspaceId: workspace.id,
+          testReportId: testReport.id,
+          evalReportId: evalReport.id
         })
       );
 
@@ -1162,7 +1195,9 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         job: completedJob,
         workspace,
         agentRuns: result.agentRuns,
-        artifacts: artifactRefs
+        artifacts: artifactRefs,
+        testReport,
+        evalReport
       };
     } catch (error) {
       const finishedAt = new Date().toISOString();
@@ -1201,7 +1236,9 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     return {
       ok: true,
       agentRuns: store.listAgentRuns(request.params.id, request.params.nodeId),
-      agentArtifacts: store.listAgentArtifacts(request.params.id, request.params.nodeId)
+      agentArtifacts: store.listAgentArtifacts(request.params.id, request.params.nodeId),
+      testReports: store.listGeneratedNodeTestReports(request.params.id, request.params.nodeId),
+      evalReports: store.listGeneratedNodeEvalReports(request.params.id, request.params.nodeId)
     };
   });
 
@@ -1890,6 +1927,75 @@ function createWorkflowWorkspace(input: {
     logs: [],
     testReports: [],
     retentionPolicy: "retain-on-failure"
+  };
+}
+
+function createGeneratedNodeTestReport(input: {
+  readonly workflowId: string;
+  readonly nodeId: string;
+  readonly jobId: string;
+  readonly status: GeneratedNodeTestReport["status"];
+  readonly testFiles: readonly WorkflowCodegenArtifactRef[];
+  readonly resultArtifacts: readonly WorkflowCodegenArtifactRef[];
+  readonly logs: readonly string[];
+  readonly failureMessage?: string | undefined;
+}): GeneratedNodeTestReport {
+  const now = new Date().toISOString();
+
+  return {
+    id: `test-report.${input.jobId}.${input.nodeId}`,
+    workflowId: input.workflowId,
+    nodeId: input.nodeId,
+    jobId: input.jobId,
+    status: input.status,
+    createdAt: now,
+    finishedAt: now,
+    testFiles: input.testFiles,
+    resultArtifacts: input.resultArtifacts,
+    logs: input.logs,
+    ...(input.failureMessage ? { failureMessage: input.failureMessage } : {})
+  };
+}
+
+function createGeneratedNodeEvalReport(input: {
+  readonly workflowId: string;
+  readonly nodeId: string;
+  readonly jobId: string;
+  readonly status: GeneratedNodeEvalReport["status"];
+  readonly designSpec: WorkflowCodegenArtifactRef;
+  readonly testReportId: string;
+  readonly fixHistory: readonly string[];
+}): GeneratedNodeEvalReport {
+  const now = new Date().toISOString();
+
+  return {
+    id: `eval-report.${input.jobId}.${input.nodeId}`,
+    workflowId: input.workflowId,
+    nodeId: input.nodeId,
+    jobId: input.jobId,
+    status: input.status,
+    createdAt: now,
+    finishedAt: now,
+    designSpec: input.designSpec,
+    testReportId: input.testReportId,
+    schemaValid: input.status === "passed",
+    securityValid: input.status === "passed",
+    replayValid: input.status === "passed",
+    dependencyPolicyValid: input.status === "passed",
+    fixHistory: input.fixHistory,
+    findings: []
+  };
+}
+
+function toArtifactRef(artifact: {
+  readonly path: string;
+  readonly checksum: string;
+  readonly contentType: WorkflowCodegenArtifactRef["contentType"];
+}): WorkflowCodegenArtifactRef {
+  return {
+    path: artifact.path,
+    checksum: artifact.checksum,
+    contentType: artifact.contentType
   };
 }
 

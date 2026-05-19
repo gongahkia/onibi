@@ -12,6 +12,8 @@ import {
   workflowSchemaVersion
 } from "@kelpclaw/workflow-spec";
 import type {
+  GeneratedNodeEvalReport,
+  GeneratedNodeTestReport,
   WorkflowArtifactManifestRecord,
   WorkflowApprovalRecord,
   WorkflowApprovedRevision,
@@ -121,6 +123,16 @@ export interface WorkflowStore {
     workflowId: string,
     nodeId?: string | undefined
   ): readonly CodegenAgentArtifactRecord[];
+  saveGeneratedNodeTestReport(record: GeneratedNodeTestReport): GeneratedNodeTestReport;
+  listGeneratedNodeTestReports(
+    workflowId: string,
+    nodeId?: string | undefined
+  ): readonly GeneratedNodeTestReport[];
+  saveGeneratedNodeEvalReport(record: GeneratedNodeEvalReport): GeneratedNodeEvalReport;
+  listGeneratedNodeEvalReports(
+    workflowId: string,
+    nodeId?: string | undefined
+  ): readonly GeneratedNodeEvalReport[];
   requireWorkflow(id: string): StoredWorkflow;
 }
 
@@ -139,6 +151,8 @@ export class InMemoryWorkflowStore implements WorkflowStore {
   protected readonly workspaces = new Map<string, WorkflowWorkspace>();
   protected readonly agentRuns = new Map<string, CodegenAgentRunRecord>();
   protected readonly agentArtifacts = new Map<string, CodegenAgentArtifactRecord>();
+  protected readonly generatedNodeTestReports = new Map<string, GeneratedNodeTestReport>();
+  protected readonly generatedNodeEvalReports = new Map<string, GeneratedNodeEvalReport>();
 
   public saveWorkflow(
     workflow: WorkflowSpec,
@@ -577,6 +591,50 @@ export class InMemoryWorkflowStore implements WorkflowStore {
       );
   }
 
+  public saveGeneratedNodeTestReport(
+    record: GeneratedNodeTestReport
+  ): GeneratedNodeTestReport {
+    this.generatedNodeTestReports.set(record.id, record);
+    return record;
+  }
+
+  public listGeneratedNodeTestReports(
+    workflowId: string,
+    nodeId?: string | undefined
+  ): readonly GeneratedNodeTestReport[] {
+    return [...this.generatedNodeTestReports.values()]
+      .filter(
+        (record) =>
+          record.workflowId === workflowId && (nodeId === undefined || record.nodeId === nodeId)
+      )
+      .sort(
+        (left, right) =>
+          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
+      );
+  }
+
+  public saveGeneratedNodeEvalReport(
+    record: GeneratedNodeEvalReport
+  ): GeneratedNodeEvalReport {
+    this.generatedNodeEvalReports.set(record.id, record);
+    return record;
+  }
+
+  public listGeneratedNodeEvalReports(
+    workflowId: string,
+    nodeId?: string | undefined
+  ): readonly GeneratedNodeEvalReport[] {
+    return [...this.generatedNodeEvalReports.values()]
+      .filter(
+        (record) =>
+          record.workflowId === workflowId && (nodeId === undefined || record.nodeId === nodeId)
+      )
+      .sort(
+        (left, right) =>
+          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
+      );
+  }
+
   public requireWorkflow(id: string): StoredWorkflow {
     const aggregate = this.workflows.get(id);
     if (!aggregate) {
@@ -796,6 +854,32 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
     return saved;
   }
 
+  public override saveGeneratedNodeTestReport(
+    record: GeneratedNodeTestReport
+  ): GeneratedNodeTestReport {
+    const saved = super.saveGeneratedNodeTestReport(record);
+    this.runSql(
+      [
+        "INSERT OR REPLACE INTO generated_node_tests (id, job_id, workflow_id, node_id, status, created_at, finished_at, record_json)",
+        `VALUES (${sqlValue(saved.id)}, ${sqlValue(saved.jobId)}, ${sqlValue(saved.workflowId)}, ${sqlValue(saved.nodeId)}, ${sqlValue(saved.status)}, ${sqlValue(saved.createdAt)}, ${sqlValue(saved.finishedAt)}, ${sqlValue(stableStringify(saved))});`
+      ].join(" ")
+    );
+    return saved;
+  }
+
+  public override saveGeneratedNodeEvalReport(
+    record: GeneratedNodeEvalReport
+  ): GeneratedNodeEvalReport {
+    const saved = super.saveGeneratedNodeEvalReport(record);
+    this.runSql(
+      [
+        "INSERT OR REPLACE INTO generated_node_eval_reports (id, job_id, workflow_id, node_id, status, created_at, finished_at, record_json)",
+        `VALUES (${sqlValue(saved.id)}, ${sqlValue(saved.jobId)}, ${sqlValue(saved.workflowId)}, ${sqlValue(saved.nodeId)}, ${sqlValue(saved.status)}, ${sqlValue(saved.createdAt)}, ${sqlValue(saved.finishedAt)}, ${sqlValue(stableStringify(saved))});`
+      ].join(" ")
+    );
+    return saved;
+  }
+
   private persistAllWorkflowState(workflowId: string): void {
     const stored = this.requireWorkflow(workflowId);
     for (const draft of stored.draftRevisions) {
@@ -961,6 +1045,18 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
       "SELECT * FROM agent_artifacts ORDER BY created_at, id;"
     )) {
       this.agentArtifacts.set(row.id, parseJson(row.record_json));
+    }
+
+    for (const row of this.queryRows<GeneratedNodeTestReportRow>(
+      "SELECT * FROM generated_node_tests ORDER BY created_at, id;"
+    )) {
+      this.generatedNodeTestReports.set(row.id, parseJson(row.record_json));
+    }
+
+    for (const row of this.queryRows<GeneratedNodeEvalReportRow>(
+      "SELECT * FROM generated_node_eval_reports ORDER BY created_at, id;"
+    )) {
+      this.generatedNodeEvalReports.set(row.id, parseJson(row.record_json));
     }
   }
 
@@ -1219,6 +1315,26 @@ const sqliteMigrations = [
     created_at TEXT NOT NULL,
     record_json TEXT NOT NULL
   );`,
+  `CREATE TABLE IF NOT EXISTS generated_node_tests (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    workflow_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    finished_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+  );`,
+  `CREATE TABLE IF NOT EXISTS generated_node_eval_reports (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    workflow_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    finished_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+  );`,
   "INSERT OR IGNORE INTO schema_migrations (id) VALUES ('0001_phase7_enterprise_store');"
 ] as const;
 
@@ -1317,6 +1433,16 @@ interface AgentRunRow {
 }
 
 interface AgentArtifactRow {
+  readonly id: string;
+  readonly record_json: string;
+}
+
+interface GeneratedNodeTestReportRow {
+  readonly id: string;
+  readonly record_json: string;
+}
+
+interface GeneratedNodeEvalReportRow {
   readonly id: string;
   readonly record_json: string;
 }
