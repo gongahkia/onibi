@@ -7,6 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel
 
 from piranesi import __version__
+from piranesi.evidence import EvidenceIndexDocument
 from piranesi.report.pentest import PentestReport
 from piranesi.retest import RetestResult
 from piranesi.signing import ChainOfCustodyManifest
@@ -14,6 +15,7 @@ from piranesi.workspace import NormalizedFindingsDocument, WorkspaceDocument
 
 SchemaName = Literal[
     "workspace",
+    "evidence",
     "findings",
     "pentest-report",
     "chain-of-custody",
@@ -22,6 +24,7 @@ SchemaName = Literal[
 
 _SCHEMA_MODELS: dict[str, type[BaseModel]] = {
     "workspace": WorkspaceDocument,
+    "evidence": EvidenceIndexDocument,
     "findings": NormalizedFindingsDocument,
     "pentest-report": PentestReport,
     "chain-of-custody": ChainOfCustodyManifest,

@@ -17,12 +17,24 @@ from piranesi import __version__
 WORKSPACE_SCHEMA_VERSION: Literal["piranesi.workspace.v1"] = "piranesi.workspace.v1"
 FINDINGS_SCHEMA_VERSION: Literal["piranesi.findings.v1"] = "piranesi.findings.v1"
 AUDIT_EVENT_SCHEMA_VERSION: Literal["piranesi.audit-event.v1"] = "piranesi.audit-event.v1"
+EVIDENCE_SCHEMA_VERSION: Literal["piranesi.evidence.v1"] = "piranesi.evidence.v1"
 
 WORKSPACE_FILE = "workspace.json"
 FINDINGS_FILE = "normalized/findings.json"
 AUDIT_LOG_FILE = "audit-log.jsonl"
+EVIDENCE_FILE = "evidence/index.json"
 
-WORKSPACE_DIRECTORIES = ("raw", "normalized", "reports", "signatures")
+WORKSPACE_DIRECTORIES = (
+    "raw",
+    "normalized",
+    "reports",
+    "signatures",
+    "evidence",
+    "timeline",
+    "objectives",
+    "procedures",
+    "detections",
+)
 
 Severity = Literal["info", "low", "medium", "high", "critical"]
 Confidence = Literal["info", "tool-observed", "low", "medium", "high", "confirmed"]
@@ -171,6 +183,7 @@ def create_workspace(
 ) -> WorkspaceState:
     workspace_root = _resolve_workspace_root(root)
     _ensure_workspace_directories(workspace_root)
+    _ensure_red_team_documents(workspace_root)
     workspace_path = workspace_root / WORKSPACE_FILE
     findings_path = workspace_root / FINDINGS_FILE
 
@@ -403,6 +416,18 @@ def _ensure_workspace_directories(root: Path) -> None:
         (root / directory).mkdir(parents=True, exist_ok=True)
 
 
+def _ensure_red_team_documents(root: Path) -> None:
+    evidence_path = root / EVIDENCE_FILE
+    if not evidence_path.exists():
+        _write_json(
+            evidence_path,
+            {
+                "schema_version": EVIDENCE_SCHEMA_VERSION,
+                "evidence": [],
+            },
+        )
+
+
 def _resolve_workspace_root(root: Path | str) -> Path:
     return Path(root).expanduser().resolve(strict=False)
 
@@ -431,6 +456,8 @@ def _safe_filename(name: str) -> str:
 __all__ = [
     "AUDIT_EVENT_SCHEMA_VERSION",
     "AUDIT_LOG_FILE",
+    "EVIDENCE_FILE",
+    "EVIDENCE_SCHEMA_VERSION",
     "FINDINGS_FILE",
     "FINDINGS_SCHEMA_VERSION",
     "WORKSPACE_FILE",
