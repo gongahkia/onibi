@@ -1,5 +1,6 @@
 import Fastify from "fastify";
-import { LocalCodegenArtifactStore } from "@kelpclaw/codegen";
+import { LocalCodegenArtifactStore, createGeneratedArtifact } from "@kelpclaw/codegen";
+import { registerPromotedSkill } from "@kelpclaw/skill-registry";
 import {
   DockerNodeRunner,
   MockNodeRunner,
@@ -13,9 +14,11 @@ import {
 } from "@kelpclaw/workflow-spec";
 import type { FastifyInstance } from "fastify";
 import type { CodegenArtifactStore } from "@kelpclaw/codegen";
+import type { SkillMetadata } from "@kelpclaw/skill-registry";
 import type {
   WorkflowApproveRequest,
   WorkflowApproveResponse,
+  WorkflowNode,
   WorkflowPlanRequest,
   WorkflowPlanResponse,
   WorkflowRepromptNodeRequest,
@@ -42,6 +45,10 @@ interface RouteParamsWithId {
   readonly id: string;
 }
 
+interface CodegenRouteParams extends RouteParamsWithId {
+  readonly nodeId: string;
+}
+
 interface RunRouteParams {
   readonly id: string;
   readonly runId: string;
@@ -49,6 +56,12 @@ interface RunRouteParams {
 
 interface ApprovalRequestBody {
   readonly approvedBy: string;
+}
+
+interface CodegenReviewRequestBody {
+  readonly status: "approved" | "rejected";
+  readonly reviewedBy: string;
+  readonly notes?: string | undefined;
 }
 
 interface MockPlanRequestBody {
@@ -330,6 +343,126 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
   });
 
   app.post<{
+    Params: CodegenRouteParams;
+    Body: CodegenReviewRequestBody;
+  }>("/api/workflows/:id/codegen/:nodeId/review", async (request, reply) => {
+    const stored = store.getWorkflow(request.params.id);
+    if (!stored) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_NOT_FOUND",
+        message: `Workflow '${request.params.id}' was not found.`
+      });
+    }
+
+    const node = stored.workflow.nodes.find((candidate) => candidate.id === request.params.nodeId);
+    if (node?.kind !== "codegen" || !node.codegen) {
+      return reply.code(404).send({
+        ok: false,
+        error: "CODEGEN_NODE_NOT_FOUND",
+        message: `Codegen node '${request.params.nodeId}' was not found.`
+      });
+    }
+
+    const now = new Date().toISOString();
+    const review = {
+      status: request.body.status,
+      reviewedBy: request.body.reviewedBy,
+      reviewedAt: now,
+      ...(request.body.notes === undefined ? {} : { notes: request.body.notes })
+    };
+    const reviewedCodegen = {
+      ...node.codegen,
+      review
+    };
+    const reviewedWorkflow: WorkflowSpec = {
+      ...stored.workflow,
+      approval: null,
+      updatedAt: now,
+      nodes: stored.workflow.nodes.map((candidate) =>
+        candidate.id === node.id
+          ? {
+              ...candidate,
+              config: {
+                ...candidate.config,
+                artifactStatus: request.body.status,
+                reviewedAt: now
+              },
+              codegen: reviewedCodegen
+            }
+          : candidate
+      )
+    };
+    const validation = validateWorkflowSpec(reviewedWorkflow);
+    if (!validation.ok) {
+      return reply.code(422).send({
+        ok: false,
+        error: "CODEGEN_REVIEW_INVALID",
+        message: validation.errors.map((error) => error.code).join(", "),
+        validation
+      });
+    }
+
+    const draftRevision = store.saveDraftRevision(validation.workflow, validation, "validate", {
+      force: true
+    });
+    return {
+      ok: true,
+      workflow: draftRevision.workflow,
+      draftRevision,
+      validation: draftRevision.validation,
+      node: draftRevision.workflow.nodes.find((candidate) => candidate.id === node.id)
+    };
+  });
+
+  app.post<{
+    Params: CodegenRouteParams;
+  }>("/api/workflows/:id/codegen/:nodeId/promote", async (request, reply) => {
+    const stored = store.getWorkflow(request.params.id);
+    if (!stored) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_NOT_FOUND",
+        message: `Workflow '${request.params.id}' was not found.`
+      });
+    }
+
+    const node = stored.workflow.nodes.find((candidate) => candidate.id === request.params.nodeId);
+    if (node?.kind !== "codegen" || !node.codegen) {
+      return reply.code(404).send({
+        ok: false,
+        error: "CODEGEN_NODE_NOT_FOUND",
+        message: `Codegen node '${request.params.nodeId}' was not found.`
+      });
+    }
+    if (node.codegen.review.status !== "approved") {
+      return reply.code(409).send({
+        ok: false,
+        error: "WORKFLOW_CODEGEN_REVIEW_REQUIRED",
+        message: `Codegen node '${node.id}' must be approved before promotion.`
+      });
+    }
+
+    const skill = createPromotedSkill(stored.workflow, node);
+    const artifact = createGeneratedArtifact({
+      path: `promoted-skills/${skill.id}.json`,
+      content: JSON.stringify(skill, null, 2),
+      contentType: "application/json"
+    });
+    const storedArtifact = await artifactStore.putArtifact(artifact);
+    const loadedSkill = JSON.parse(
+      await artifactStore.readArtifact(storedArtifact.ref)
+    ) as SkillMetadata;
+    const promotedSkill = registerPromotedSkill(loadedSkill);
+
+    return {
+      ok: true,
+      skill: promotedSkill,
+      artifact: storedArtifact.ref
+    };
+  });
+
+  app.post<{
     Params: RouteParamsWithId;
     Body: WorkflowStartRunRequest;
     Reply: WorkflowStartRunResponse;
@@ -521,6 +654,72 @@ async function validateCodegenApprovalReadiness(
   }
 
   return issues;
+}
+
+function createPromotedSkill(workflow: WorkflowSpec, node: WorkflowNode): SkillMetadata {
+  const capability = promotionCapability(node);
+
+  return {
+    id: `skill.promoted.${slugify(`${workflow.id}-${node.id}`)}`,
+    name: node.label,
+    version: "1.0.0",
+    description: node.description,
+    deterministic: true,
+    nodeKinds: ["skill"],
+    capabilities: [capability],
+    inputSchema: node.inputs,
+    outputSchema: node.outputs,
+    requiredSecrets: [],
+    adapterDependencies: [],
+    runtimeTemplate: node.runtime,
+    metaprompt: `Select this promoted skill when a workflow asks to ${node.codegen?.latestPrompt ?? node.description}.`,
+    validationRules: [
+      "promoted from an approved codegen node",
+      "fixture output must satisfy the promoted output schema"
+    ],
+    examples: [
+      {
+        id: `example.${slugify(node.id)}`,
+        description: `Fixture for ${node.label}.`,
+        input: defaultFixturePayload(node.inputs),
+        output: defaultFixturePayload(node.outputs)
+      }
+    ],
+    source: "promoted",
+    promotedFromNodeId: node.id
+  };
+}
+
+function promotionCapability(node: WorkflowNode): string {
+  const text =
+    `${node.label} ${node.description} ${node.codegen?.latestPrompt ?? ""}`.toLowerCase();
+  if (text.includes("scrape") || text.includes("status page")) {
+    return "public-status-scrape";
+  }
+  if (text.includes("regex")) {
+    return "regex-parser";
+  }
+  if (text.includes("api")) {
+    return "ad-hoc-api-call";
+  }
+
+  return `promoted-${slugify(node.id)}`;
+}
+
+function defaultFixturePayload(
+  schemas: Readonly<Record<string, unknown>>
+): Readonly<Record<string, unknown>> {
+  return Object.fromEntries(Object.keys(schemas).map((port) => [port, { fixture: true }]));
+}
+
+function slugify(value: string): string {
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/gu, "-")
+      .replace(/^-+|-+$/gu, "")
+      .slice(0, 72) || "generated-skill"
+  );
 }
 
 function createNanoClawRunner(): MockNodeRunner | DockerNodeRunner {
