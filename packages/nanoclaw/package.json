@@ -17,6 +17,7 @@
     "typecheck": "tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
+    "@kelpclaw/codegen": "workspace:*",
     "@kelpclaw/workflow-spec": "workspace:*",
     "ajv": "^8.20.0"
   }

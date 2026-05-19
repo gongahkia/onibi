@@ -4,6 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  LocalCodegenArtifactStore,
+  createArtifactManifest,
+  createCodegenMetadata,
+  createDependencyManifestArtifact,
+  createGeneratedArtifact
+} from "@kelpclaw/codegen";
+import {
   WorkflowValidationError,
   approvedGmailReceiptsToSheetsWorkflowFixture,
   createApprovedWorkflowFixture,
@@ -287,6 +294,60 @@ describe("nanoclaw dag runtime", () => {
       "/workspace/run-node.js"
     ]);
   });
+
+  it("materializes reviewed codegen artifacts before node execution", async () => {
+    const store = new LocalCodegenArtifactStore(
+      await mkdtemp(join(tmpdir(), "nanoclaw-codegen-store-"))
+    );
+    const { workflow, sourceArtifact, dependencyManifestArtifact } = createCodegenWorkflowFixture();
+    await store.putManifest(
+      createArtifactManifest({
+        workflowId: workflow.id,
+        generatedAt: workflow.nodes[0]!.codegen!.provenance.generatedAt,
+        artifacts: [sourceArtifact, dependencyManifestArtifact]
+      })
+    );
+
+    const result = await executeCompiledDag(
+      compileWorkflowDag(approveForNanoClaw(workflow)),
+      nodeRunner(async (_node, context) => {
+        await expect(
+          readFile(join(context.workspace.attemptDir, "run-node.js"), "utf8")
+        ).resolves.toContain("persisted codegen source");
+
+        return {
+          status: "succeeded",
+          output: { artifact: { ok: true } }
+        };
+      }),
+      { codegenArtifactStore: store }
+    );
+
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults[0]?.metadata?.attempts).toBe(1);
+  });
+
+  it("fails codegen execution when persisted artifact hashes drift", async () => {
+    const store = new LocalCodegenArtifactStore(
+      await mkdtemp(join(tmpdir(), "nanoclaw-codegen-store-"))
+    );
+    const { workflow, dependencyManifestArtifact } = createCodegenWorkflowFixture({
+      driftSourceChecksum: true
+    });
+    await store.putArtifact(dependencyManifestArtifact);
+
+    const result = await executeCompiledDag(
+      compileWorkflowDag(approveForNanoClaw(workflow)),
+      nodeRunner(() => ({
+        status: "succeeded",
+        output: { artifact: { ok: true } }
+      })),
+      { codegenArtifactStore: store }
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.nodeResults[0]?.error).toContain("hash drift");
+  });
 });
 
 const dockerIt = dockerDaemonAvailable() ? it : it.skip;
@@ -344,6 +405,88 @@ function approveForNanoClaw(
     frozenDagHash: hashWorkflowDag(workflow),
     ...override
   });
+}
+
+function createCodegenWorkflowFixture(options: { readonly driftSourceChecksum?: boolean } = {}) {
+  const runtime = createWorkflowRuntime();
+  const sourceArtifact = createGeneratedArtifact({
+    path: "generated/generated-node.ts",
+    content: [
+      'import { writeFileSync } from "node:fs";',
+      "// persisted codegen source",
+      "writeFileSync(process.env.NANOCLAW_NODE_OUTPUT, JSON.stringify({ artifact: { ok: true } }));",
+      ""
+    ].join("\n"),
+    contentType: "text/typescript"
+  });
+  const dependencyManifestArtifact = createDependencyManifestArtifact({
+    packageManager: "none"
+  });
+  const dependencyManifest = {
+    path: dependencyManifestArtifact.path,
+    checksum: dependencyManifestArtifact.checksum,
+    packageManager: "none" as const,
+    dependencies: [],
+    devDependencies: [],
+    installCommand: []
+  };
+  const driftChecksum = `sha256:${"e".repeat(64)}`;
+  const metadata = createCodegenMetadata({
+    generator: "kelpclaw.codegen.test",
+    generatedAt: "2026-05-18T00:00:00.000Z",
+    sourcePrompt: "Generate a deterministic node.",
+    plannerRationale: "No registry skill matched.",
+    artifact: sourceArtifact,
+    dependencyManifest,
+    sandbox: {
+      network: "none",
+      allowedHosts: [],
+      mounts: [],
+      resources: runtime.resources
+    },
+    replay: {
+      mode: "reuse-if-unchanged",
+      seed: "codegen-test"
+    }
+  });
+  const sourceChecksum = options.driftSourceChecksum ? driftChecksum : sourceArtifact.checksum;
+  const codegen = {
+    ...metadata,
+    provenance: {
+      ...metadata.provenance,
+      artifactChecksum: sourceChecksum
+    },
+    artifacts: metadata.artifacts.map((artifact) =>
+      artifact.path === sourceArtifact.path ? { ...artifact, checksum: sourceChecksum } : artifact
+    ),
+    review: {
+      status: "approved" as const,
+      reviewedBy: "owner@example.com",
+      reviewedAt: "2026-05-18T01:00:00.000Z"
+    }
+  };
+  const generatedNode = createWorkflowNode({
+    id: "generated-node",
+    kind: "codegen",
+    inputs: {},
+    outputs: { artifact: objectSchema },
+    runtime,
+    codegen
+  });
+  const workflow = createWorkflowSpec({
+    id: "workflow.codegen-runtime",
+    name: "Codegen Runtime",
+    prompt: "Execute reviewed generated code.",
+    createdAt: "2026-05-18T00:00:00.000Z",
+    nodes: [generatedNode],
+    edges: []
+  });
+
+  return {
+    workflow,
+    sourceArtifact,
+    dependencyManifestArtifact
+  };
 }
 
 function createDockerWorkflowFixture() {

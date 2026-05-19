@@ -114,6 +114,9 @@ importers:
 
   packages/nanoclaw:
     dependencies:
+      '@kelpclaw/codegen':
+        specifier: workspace:*
+        version: link:../codegen
       '@kelpclaw/workflow-spec':
         specifier: workspace:*
         version: link:../workflow-spec

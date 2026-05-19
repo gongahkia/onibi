@@ -1,3 +1,6 @@
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { LocalCodegenArtifactStore } from "@kelpclaw/codegen";
 import {
   NodePayloadValidationError,
   assertValidNodeInput,
@@ -12,8 +15,10 @@ import type {
   ExecutionWorkspace,
   NodeExecutionResult,
   NodeInputPayload,
+  NodeWorkspace,
   NodeRunner
 } from "./types.js";
+import type { CodegenArtifactStore } from "@kelpclaw/codegen";
 import type {
   JsonRecord,
   JsonValue,
@@ -24,6 +29,7 @@ import type {
 export interface ExecuteCompiledDagOptions {
   readonly runId?: string | undefined;
   readonly workspaceRoot?: string | undefined;
+  readonly codegenArtifactStore?: CodegenArtifactStore | undefined;
   readonly onEvent?: ((event: WorkflowRunEvent) => void) | undefined;
   readonly signal?: AbortSignal | undefined;
 }
@@ -119,6 +125,7 @@ async function executeNodeWithAttempts(
     const attemptSignal = createAttemptSignal(options.signal, node.runtime.timeoutSeconds);
 
     try {
+      await prepareCodegenWorkspace(node, nodeWorkspace, options.codegenArtifactStore);
       const runnerResult = await runner.run(node, {
         dag,
         input,
@@ -180,6 +187,37 @@ async function executeNodeWithAttempts(
   }
 
   return withAttemptMetadata(lastResult, attempts);
+}
+
+async function prepareCodegenWorkspace(
+  node: CompiledDagNode,
+  workspace: NodeWorkspace,
+  artifactStore: CodegenArtifactStore | undefined
+): Promise<void> {
+  if (node.kind !== "codegen" || !node.codegen) {
+    return;
+  }
+
+  const store = artifactStore ?? new LocalCodegenArtifactStore();
+  const sourceRef = node.codegen.artifacts.find(
+    (artifact) => artifact.path === node.codegen?.provenance.artifactPath
+  );
+  if (!sourceRef) {
+    throw new Error(`Codegen node '${node.id}' is missing its generated source artifact.`);
+  }
+
+  for (const artifact of node.codegen.artifacts) {
+    if (!(await store.verifyArtifact(artifact))) {
+      throw new Error(`Generated artifact '${artifact.path}' is missing or has hash drift.`);
+    }
+  }
+
+  await store.materializeArtifacts(node.codegen.artifacts, workspace.attemptDir);
+  const source = await store.readArtifact(sourceRef);
+  await writeFile(join(workspace.attemptDir, "run-node.js"), source, {
+    encoding: "utf8",
+    mode: 0o755
+  });
 }
 
 function resolveNodeInputs(
