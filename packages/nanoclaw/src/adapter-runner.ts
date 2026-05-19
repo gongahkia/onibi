@@ -168,10 +168,7 @@ function channelForResult(result: AdapterResult): string {
     : result.providerMetadata.provider;
 }
 
-function outputMatchingDeclaredPorts(
-  node: CompiledDagNode,
-  output: JsonRecord
-): JsonRecord | null {
+function outputMatchingDeclaredPorts(node: CompiledDagNode, output: JsonRecord): JsonRecord | null {
   const outputPorts = Object.keys(node.outputs);
   if (outputPorts.length === 0) {
     return output;

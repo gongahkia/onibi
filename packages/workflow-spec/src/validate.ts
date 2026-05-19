@@ -146,7 +146,10 @@ function validateDeliveryChannelPolicy(
   nodeIndex: number
 ): WorkflowValidationIssue[] {
   const channels = declaredDeliveryChannels(node);
-  const adapterIds = new Set([...(node.adapterId ? [node.adapterId] : []), ...(node.adapterIds ?? [])]);
+  const adapterIds = new Set([
+    ...(node.adapterId ? [node.adapterId] : []),
+    ...(node.adapterIds ?? [])
+  ]);
   const errors: WorkflowValidationIssue[] = [];
 
   for (const channel of ["whatsapp", "telegram"] as const) {

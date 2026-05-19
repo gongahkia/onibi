@@ -10,7 +10,8 @@ describe("deterministic testing harness", () => {
       "manual-trigger",
       "read-gmail-receipts",
       "normalize-receipts",
-      "append-sheet-rows"
+      "append-sheet-rows",
+      "deliver-results-email"
     ]);
   });
 
@@ -20,8 +21,18 @@ describe("deterministic testing harness", () => {
 
     await first.adapters.get("adapter.email.fake")?.invoke({
       adapterId: "adapter.email.fake",
-      operation: "email.send",
-      payload: { to: "owner@example.com" }
+      operation: "email.results.send",
+      operationVersion: "1.0.0",
+      payload: { to: "owner@example.com", subject: "Done", body: "Done", summary: {} },
+      secretRefs: {
+        "email.delivery": "mock:email.delivery"
+      },
+      context: {
+        workflowId: "workflow.test",
+        nodeId: "email",
+        runId: "run.test",
+        attempt: 1
+      }
     });
 
     expect(first.adapters.get("adapter.email.fake")?.invocations).toHaveLength(1);

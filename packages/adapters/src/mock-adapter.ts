@@ -32,8 +32,7 @@ export class MockAdapter implements Adapter {
 
     const operation = this.metadata.operations.find(
       (candidate) =>
-        candidate.name === invocation.operation &&
-        candidate.version === invocation.operationVersion
+        candidate.name === invocation.operation && candidate.version === invocation.operationVersion
     );
     if (!operation) {
       throw new Error(
@@ -160,7 +159,10 @@ function createMockOperationOutput(
         messageId: providerResponseId,
         channel: "email",
         delivered: true,
-        to: stringOrDefault(invocation.payload.to, stringOrDefault(emailResultDeliveryFixture.to, "")),
+        to: stringOrDefault(
+          invocation.payload.to,
+          stringOrDefault(emailResultDeliveryFixture.to, "")
+        ),
         providerResponseId
       };
     case "whatsapp.alert.send":
@@ -189,7 +191,10 @@ function stringOrDefault(value: JsonValue | undefined, fallback: string): string
   return typeof value === "string" ? value : fallback;
 }
 
-function arrayOrDefault(value: JsonValue | undefined, fallback: JsonValue | undefined): JsonValue[] {
+function arrayOrDefault(
+  value: JsonValue | undefined,
+  fallback: JsonValue | undefined
+): JsonValue[] {
   if (Array.isArray(value)) {
     return value;
   }

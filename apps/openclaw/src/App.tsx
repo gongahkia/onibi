@@ -860,11 +860,7 @@ function Inspector(props: {
                     checked={deliveryChannels(node).has("whatsapp")}
                     onChange={(event) =>
                       props.onUpdateNode(node.id, (current) =>
-                        toggleSecondaryDeliveryChannel(
-                          current,
-                          "whatsapp",
-                          event.target.checked
-                        )
+                        toggleSecondaryDeliveryChannel(current, "whatsapp", event.target.checked)
                       )
                     }
                   />
@@ -876,11 +872,7 @@ function Inspector(props: {
                     checked={deliveryChannels(node).has("telegram")}
                     onChange={(event) =>
                       props.onUpdateNode(node.id, (current) =>
-                        toggleSecondaryDeliveryChannel(
-                          current,
-                          "telegram",
-                          event.target.checked
-                        )
+                        toggleSecondaryDeliveryChannel(current, "telegram", event.target.checked)
                       )
                     }
                   />
@@ -1068,15 +1060,7 @@ function parseJsonRecord(
 function applyAdapterSkillPreset(node: WorkflowNode, skillId: string): WorkflowNode {
   const preset = adapterSkillPresets.find((candidate) => candidate.id === skillId);
   if (!preset) {
-    const {
-      adapterId: _adapterId,
-      adapterIds: _adapterIds,
-      adapterOperations: _adapterOperations,
-      secretRefs: _secretRefs,
-      skillId: _skillId,
-      ...rest
-    } = node;
-    return rest;
+    return withoutAdapterSkill(node);
   }
 
   return {
@@ -1093,9 +1077,26 @@ function applyAdapterSkillPreset(node: WorkflowNode, skillId: string): WorkflowN
   };
 }
 
+function withoutAdapterSkill(node: WorkflowNode): WorkflowNode {
+  return {
+    id: node.id,
+    kind: node.kind,
+    label: node.label,
+    description: node.description,
+    inputs: node.inputs,
+    outputs: node.outputs,
+    config: node.config,
+    runtime: node.runtime,
+    determinism: node.determinism,
+    ...(node.codegen ? { codegen: node.codegen } : {})
+  };
+}
+
 function updatePrimaryDeliveryChannel(node: WorkflowNode, channel: string): WorkflowNode {
   const channels = deliveryChannels(node);
-  const nextChannels = new Set([...channels].filter((candidate) => candidate !== "email" && candidate !== "sheets"));
+  const nextChannels = new Set(
+    [...channels].filter((candidate) => candidate !== "email" && candidate !== "sheets")
+  );
   nextChannels.add(channel);
 
   return withDeliveryAdapters({

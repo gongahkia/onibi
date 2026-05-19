@@ -48,9 +48,7 @@ describe("skill registry", () => {
         operationVersion: "1.0.0"
       }
     ]);
-    expect(requireSkill("skill.email.results.deliver").requiredSecrets).toEqual([
-      "email.delivery"
-    ]);
+    expect(requireSkill("skill.email.results.deliver").requiredSecrets).toEqual(["email.delivery"]);
     expect(requireSkill("skill.alert.push.dispatch").adapterDependencies).toEqual([
       "adapter.whatsapp.fake",
       "adapter.telegram.fake"

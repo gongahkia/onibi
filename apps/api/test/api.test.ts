@@ -353,9 +353,7 @@ describe("kelpclaw api contracts", () => {
     expect(execution.statusCode).toBe(202);
     expect(execution.json().result.status).toBe("succeeded");
     expect(execution.json().result.revision).toBe(1);
-    expect(execution.json().result.nodeResults.at(-1).output.delivery.channels).toEqual([
-      "email"
-    ]);
+    expect(execution.json().result.nodeResults.at(-1).output.delivery.channels).toEqual(["email"]);
 
     const fetched = await app.inject({
       method: "GET",

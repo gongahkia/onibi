@@ -58,8 +58,7 @@ export function validateNodeAdapterPolicy(
     if (
       !metadata.operations.some(
         (candidate) =>
-          candidate.name === operation.operation &&
-          candidate.version === operation.operationVersion
+          candidate.name === operation.operation && candidate.version === operation.operationVersion
       )
     ) {
       issues.push({

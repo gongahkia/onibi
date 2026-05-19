@@ -1,7 +1,4 @@
-export {
-  AdapterBackedNodeRunner,
-  type AdapterBackedNodeRunnerOptions
-} from "./adapter-runner.js";
+export { AdapterBackedNodeRunner, type AdapterBackedNodeRunnerOptions } from "./adapter-runner.js";
 export {
   assertNodeAdapterPolicy,
   createAdapterMetadataRegistry,
