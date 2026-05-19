@@ -2,13 +2,81 @@ import { createHash } from "node:crypto";
 import {
   WorkflowValidationError,
   assertApprovedWorkflowSpec,
-  stableJsonStringify
+  stableJsonStringify,
+  validateWorkflowSpec
 } from "@kelpclaw/workflow-spec";
+import type { WorkflowApprovalRecord } from "@kelpclaw/workflow-spec";
 import type { CompiledDag, CompiledDagNode, CompiledNodeInputBinding } from "./types.js";
 import type { JsonRecord, WorkflowSpec } from "@kelpclaw/workflow-spec";
 
 export function compileWorkflowDag(input: WorkflowSpec): CompiledDag {
   const workflow = assertApprovedWorkflowSpec(input);
+  const compiled = compileDagShape(workflow);
+  const calculatedOrder = compiled.order;
+  const approval = workflow.approval;
+  if (!approval) {
+    throw new WorkflowValidationError([
+      {
+        code: "WORKFLOW_EXECUTION_UNAPPROVED",
+        message: "Workflow approval is required for NanoClaw compilation.",
+        path: ["approval"]
+      }
+    ]);
+  }
+
+  const approvalOrder = approval.nodeOrder;
+  if (approvalOrder.join("\n") !== calculatedOrder.join("\n")) {
+    throw new WorkflowValidationError([
+      {
+        code: "WORKFLOW_EXECUTION_UNAPPROVED",
+        message: "Approved node order does not match the compiled DAG.",
+        path: ["approval", "nodeOrder"]
+      }
+    ]);
+  }
+
+  const dagHash = hashWorkflowDag(workflow);
+  if (approval.frozenDagHash !== dagHash) {
+    throw new WorkflowValidationError([
+      {
+        code: "WORKFLOW_EXECUTION_UNAPPROVED",
+        message: "Approved DAG hash does not match the compiled workflow revision.",
+        path: ["approval", "frozenDagHash"]
+      }
+    ]);
+  }
+
+  return {
+    ...compiled,
+    approval,
+    dagHash,
+    order: approvalOrder
+  };
+}
+
+export function compileDraftWorkflowDag(input: WorkflowSpec, approvedAt = new Date().toISOString()): CompiledDag {
+  const validation = validateWorkflowSpec(input);
+  if (!validation.ok) {
+    throw new WorkflowValidationError(validation.errors);
+  }
+
+  const compiled = compileDagShape(validation.workflow);
+  const approval: WorkflowApprovalRecord = {
+    status: "approved",
+    approvedBy: "draft-evaluator",
+    approvedAt,
+    frozenRevision: validation.workflow.revision,
+    frozenDagHash: compiled.dagHash,
+    nodeOrder: compiled.order
+  };
+
+  return {
+    ...compiled,
+    approval
+  };
+}
+
+function compileDagShape(workflow: WorkflowSpec): Omit<CompiledDag, "approval"> {
   const dependencies = new Map(workflow.nodes.map((node) => [node.id, new Set<string>()]));
   const dependents = new Map(workflow.nodes.map((node) => [node.id, new Set<string>()]));
   const inputBindings = new Map(
@@ -50,47 +118,15 @@ export function compileWorkflowDag(input: WorkflowSpec): CompiledDag {
   }
 
   const calculatedOrder = topologicalOrder(nodes);
-  const approval = workflow.approval;
-  if (!approval) {
-    throw new WorkflowValidationError([
-      {
-        code: "WORKFLOW_EXECUTION_UNAPPROVED",
-        message: "Workflow approval is required for NanoClaw compilation.",
-        path: ["approval"]
-      }
-    ]);
-  }
-
-  const approvalOrder = approval.nodeOrder;
-  if (approvalOrder.join("\n") !== calculatedOrder.join("\n")) {
-    throw new WorkflowValidationError([
-      {
-        code: "WORKFLOW_EXECUTION_UNAPPROVED",
-        message: "Approved node order does not match the compiled DAG.",
-        path: ["approval", "nodeOrder"]
-      }
-    ]);
-  }
-
   const dagHash = hashWorkflowDag(workflow);
-  if (approval.frozenDagHash !== dagHash) {
-    throw new WorkflowValidationError([
-      {
-        code: "WORKFLOW_EXECUTION_UNAPPROVED",
-        message: "Approved DAG hash does not match the compiled workflow revision.",
-        path: ["approval", "frozenDagHash"]
-      }
-    ]);
-  }
 
   return {
     workflowId: workflow.id,
     revision: workflow.revision,
-    approval,
     dagHash,
     nodes,
     edges: [...workflow.edges].sort((left, right) => left.id.localeCompare(right.id)),
-    order: approvalOrder,
+    order: calculatedOrder,
     source: workflow
   };
 }
