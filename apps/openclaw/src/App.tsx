@@ -29,6 +29,7 @@ import {
 } from "@kelpclaw/workflow-spec";
 import type {
   JsonRecord,
+  WorkflowAdapterOperationRef,
   WorkflowApprovedRevision,
   WorkflowNode,
   WorkflowNodeKind,
@@ -65,6 +66,87 @@ const initialSelectedNode =
   gmailReceiptsToSheetsWorkflowFixture.nodes.find((node) => node.id === "read-gmail-receipts") ??
   gmailReceiptsToSheetsWorkflowFixture.nodes[0] ??
   null;
+
+interface AdapterSkillPreset {
+  readonly id: string;
+  readonly label: string;
+  readonly nodeKinds: readonly WorkflowNodeKind[];
+  readonly adapterIds: readonly string[];
+  readonly adapterOperations: readonly WorkflowAdapterOperationRef[];
+  readonly secretRefs: Readonly<Record<string, string>>;
+  readonly config: JsonRecord;
+}
+
+const adapterSkillPresets: readonly AdapterSkillPreset[] = [
+  {
+    id: "skill.gmail.receipts.read",
+    label: "Gmail receipts",
+    nodeKinds: ["skill"],
+    adapterIds: ["adapter.gmail.fake"],
+    adapterOperations: [
+      {
+        adapterId: "adapter.gmail.fake",
+        operation: "gmail.receipts.search",
+        operationVersion: "1.0.0"
+      }
+    ],
+    secretRefs: { "gmail.oauth": "mock:gmail.oauth" },
+    config: { query: "from:(receipts OR orders) newer_than:30d" }
+  },
+  {
+    id: "skill.sheets.rows.append",
+    label: "Sheets append",
+    nodeKinds: ["delivery"],
+    adapterIds: ["adapter.sheets.fake"],
+    adapterOperations: [
+      {
+        adapterId: "adapter.sheets.fake",
+        operation: "sheets.rows.append",
+        operationVersion: "1.0.0"
+      }
+    ],
+    secretRefs: { "sheets.oauth": "mock:sheets.oauth" },
+    config: { channel: "sheets", channels: ["sheets"], range: "Receipts!A:D" }
+  },
+  {
+    id: "skill.email.results.deliver",
+    label: "Email results",
+    nodeKinds: ["delivery"],
+    adapterIds: ["adapter.email.fake"],
+    adapterOperations: [
+      {
+        adapterId: "adapter.email.fake",
+        operation: "email.results.send",
+        operationVersion: "1.0.0"
+      }
+    ],
+    secretRefs: { "email.delivery": "mock:email.delivery" },
+    config: { channel: "email", channels: ["email"], to: "owner@example.com" }
+  },
+  {
+    id: "skill.alert.push.dispatch",
+    label: "Push alerts",
+    nodeKinds: ["delivery"],
+    adapterIds: ["adapter.whatsapp.fake", "adapter.telegram.fake"],
+    adapterOperations: [
+      {
+        adapterId: "adapter.whatsapp.fake",
+        operation: "whatsapp.alert.send",
+        operationVersion: "1.0.0"
+      },
+      {
+        adapterId: "adapter.telegram.fake",
+        operation: "telegram.alert.send",
+        operationVersion: "1.0.0"
+      }
+    ],
+    secretRefs: {
+      "whatsapp.apiKey": "mock:whatsapp.apiKey",
+      "telegram.botToken": "mock:telegram.botToken"
+    },
+    config: { channel: "email", channels: ["whatsapp", "telegram"], timeSensitive: true }
+  }
+];
 
 export function App() {
   const [workflow, setWorkflow] = useState<WorkflowSpec>(gmailReceiptsToSheetsWorkflowFixture);
@@ -665,6 +747,28 @@ function Inspector(props: {
               }
             />
           </label>
+          {node.kind === "skill" || node.kind === "delivery" ? (
+            <label>
+              Adapter-backed skill
+              <select
+                value={node.skillId ?? ""}
+                onChange={(event) =>
+                  props.onUpdateNode(node.id, (current) =>
+                    applyAdapterSkillPreset(current, event.target.value)
+                  )
+                }
+              >
+                <option value="">Unassigned</option>
+                {adapterSkillPresets
+                  .filter((preset) => preset.nodeKinds.includes(node.kind))
+                  .map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.label}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          ) : null}
           <label>
             Config
             <textarea
@@ -734,36 +838,63 @@ function Inspector(props: {
             </label>
           </div>
           {node.kind === "delivery" ? (
-            <div className="inline-grid">
+            <div className="delivery-controls">
               <label>
-                Channel
+                Primary channel
                 <select
                   value={String(node.config.channel ?? "sheets")}
                   onChange={(event) =>
-                    props.onUpdateNode(node.id, (current) => ({
-                      ...current,
-                      config: {
-                        ...current.config,
-                        channel: event.target.value
-                      }
-                    }))
+                    props.onUpdateNode(node.id, (current) =>
+                      updatePrimaryDeliveryChannel(current, event.target.value)
+                    )
                   }
                 >
                   <option value="sheets">Sheets</option>
                   <option value="email">Email</option>
-                  <option value="telegram">Telegram</option>
-                  <option value="whatsapp">WhatsApp</option>
                 </select>
               </label>
+              <div className="channel-checkboxes" aria-label="Secondary push channels">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={deliveryChannels(node).has("whatsapp")}
+                    onChange={(event) =>
+                      props.onUpdateNode(node.id, (current) =>
+                        toggleSecondaryDeliveryChannel(
+                          current,
+                          "whatsapp",
+                          event.target.checked
+                        )
+                      )
+                    }
+                  />
+                  WhatsApp
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={deliveryChannels(node).has("telegram")}
+                    onChange={(event) =>
+                      props.onUpdateNode(node.id, (current) =>
+                        toggleSecondaryDeliveryChannel(
+                          current,
+                          "telegram",
+                          event.target.checked
+                        )
+                      )
+                    }
+                  />
+                  Telegram
+                </label>
+              </div>
               <label>
                 Adapter
                 <input
-                  value={node.adapterId ?? ""}
+                  value={(node.adapterIds ?? (node.adapterId ? [node.adapterId] : [])).join(", ")}
                   onChange={(event) =>
-                    props.onUpdateNode(node.id, (current) => ({
-                      ...current,
-                      adapterId: event.target.value || undefined
-                    }))
+                    props.onUpdateNode(node.id, (current) =>
+                      updateAdapterIds(current, event.target.value)
+                    )
                   }
                 />
               </label>
@@ -932,6 +1063,200 @@ function parseJsonRecord(
       error: error instanceof Error ? error.message : "Invalid JSON."
     };
   }
+}
+
+function applyAdapterSkillPreset(node: WorkflowNode, skillId: string): WorkflowNode {
+  const preset = adapterSkillPresets.find((candidate) => candidate.id === skillId);
+  if (!preset) {
+    const {
+      adapterId: _adapterId,
+      adapterIds: _adapterIds,
+      adapterOperations: _adapterOperations,
+      secretRefs: _secretRefs,
+      skillId: _skillId,
+      ...rest
+    } = node;
+    return rest;
+  }
+
+  return {
+    ...node,
+    skillId: preset.id,
+    adapterId: preset.adapterIds[0],
+    adapterIds: preset.adapterIds,
+    adapterOperations: preset.adapterOperations,
+    secretRefs: preset.secretRefs,
+    config: {
+      ...node.config,
+      ...preset.config
+    }
+  };
+}
+
+function updatePrimaryDeliveryChannel(node: WorkflowNode, channel: string): WorkflowNode {
+  const channels = deliveryChannels(node);
+  const nextChannels = new Set([...channels].filter((candidate) => candidate !== "email" && candidate !== "sheets"));
+  nextChannels.add(channel);
+
+  return withDeliveryAdapters({
+    ...node,
+    config: {
+      ...node.config,
+      channel,
+      channels: [...nextChannels].sort()
+    }
+  });
+}
+
+function toggleSecondaryDeliveryChannel(
+  node: WorkflowNode,
+  channel: "whatsapp" | "telegram",
+  enabled: boolean
+): WorkflowNode {
+  const channels = new Set(deliveryChannels(node));
+  if (enabled) {
+    channels.add(channel);
+  } else {
+    channels.delete(channel);
+  }
+
+  return withDeliveryAdapters({
+    ...node,
+    config: {
+      ...node.config,
+      channels: [...channels].sort()
+    }
+  });
+}
+
+function updateAdapterIds(node: WorkflowNode, value: string): WorkflowNode {
+  const adapterIds = value
+    .split(",")
+    .map((adapterId) => adapterId.trim())
+    .filter(Boolean);
+
+  return {
+    ...node,
+    ...(adapterIds[0] ? { adapterId: adapterIds[0] } : {}),
+    adapterIds,
+    adapterOperations: node.adapterOperations?.filter((operation) =>
+      adapterIds.includes(operation.adapterId)
+    )
+  };
+}
+
+function withDeliveryAdapters(node: WorkflowNode): WorkflowNode {
+  const declarations = adapterDeclarationsForChannels(deliveryChannels(node));
+
+  return {
+    ...node,
+    adapterId: declarations.adapterIds[0],
+    adapterIds: declarations.adapterIds,
+    adapterOperations: declarations.adapterOperations,
+    secretRefs: {
+      ...(node.secretRefs ?? {}),
+      ...declarations.secretRefs
+    }
+  };
+}
+
+function adapterDeclarationsForChannels(channels: ReadonlySet<string>): {
+  readonly adapterIds: readonly string[];
+  readonly adapterOperations: readonly WorkflowAdapterOperationRef[];
+  readonly secretRefs: Readonly<Record<string, string>>;
+} {
+  const adapterIds: string[] = [];
+  const adapterOperations: WorkflowAdapterOperationRef[] = [];
+  const secretRefs: Record<string, string> = {};
+
+  for (const channel of [...channels].sort()) {
+    const declaration = adapterDeclarationForChannel(channel);
+    if (!declaration) {
+      continue;
+    }
+    adapterIds.push(declaration.adapterId);
+    adapterOperations.push(declaration.operation);
+    Object.assign(secretRefs, declaration.secretRefs);
+  }
+
+  return {
+    adapterIds,
+    adapterOperations,
+    secretRefs
+  };
+}
+
+function adapterDeclarationForChannel(channel: string):
+  | {
+      readonly adapterId: string;
+      readonly operation: WorkflowAdapterOperationRef;
+      readonly secretRefs: Readonly<Record<string, string>>;
+    }
+  | undefined {
+  switch (channel) {
+    case "email":
+      return {
+        adapterId: "adapter.email.fake",
+        operation: {
+          adapterId: "adapter.email.fake",
+          operation: "email.results.send",
+          operationVersion: "1.0.0"
+        },
+        secretRefs: { "email.delivery": "mock:email.delivery" }
+      };
+    case "sheets":
+      return {
+        adapterId: "adapter.sheets.fake",
+        operation: {
+          adapterId: "adapter.sheets.fake",
+          operation: "sheets.rows.append",
+          operationVersion: "1.0.0"
+        },
+        secretRefs: { "sheets.oauth": "mock:sheets.oauth" }
+      };
+    case "whatsapp":
+      return {
+        adapterId: "adapter.whatsapp.fake",
+        operation: {
+          adapterId: "adapter.whatsapp.fake",
+          operation: "whatsapp.alert.send",
+          operationVersion: "1.0.0"
+        },
+        secretRefs: { "whatsapp.apiKey": "mock:whatsapp.apiKey" }
+      };
+    case "telegram":
+      return {
+        adapterId: "adapter.telegram.fake",
+        operation: {
+          adapterId: "adapter.telegram.fake",
+          operation: "telegram.alert.send",
+          operationVersion: "1.0.0"
+        },
+        secretRefs: { "telegram.botToken": "mock:telegram.botToken" }
+      };
+    default:
+      return undefined;
+  }
+}
+
+function deliveryChannels(node: WorkflowNode): ReadonlySet<string> {
+  const channels = new Set<string>();
+  const configuredChannels = node.config.channels;
+  if (Array.isArray(configuredChannels)) {
+    for (const channel of configuredChannels) {
+      if (typeof channel === "string") {
+        channels.add(channel);
+      }
+    }
+  }
+  if (typeof node.config.channel === "string") {
+    channels.add(node.config.channel);
+  }
+  if (channels.size === 0 && node.kind === "delivery") {
+    channels.add("email");
+  }
+
+  return channels;
 }
 
 function uniqueNodeId(kind: WorkflowNodeKind, nodes: readonly WorkflowNode[]): string {

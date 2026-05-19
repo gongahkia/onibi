@@ -61,6 +61,21 @@ describe("OpenClaw planner shell", () => {
     });
   });
 
+  it("configures adapter-backed delivery skills and opt-in push channels", async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Delivery/i }));
+    fireEvent.change(screen.getByLabelText("Adapter-backed skill"), {
+      target: { value: "skill.email.results.deliver" }
+    });
+    expect(screen.getByLabelText("Adapter")).toHaveValue("adapter.email.fake");
+
+    fireEvent.click(screen.getByLabelText("WhatsApp"));
+    expect((screen.getByLabelText("Adapter") as HTMLInputElement).value).toContain(
+      "adapter.whatsapp.fake"
+    );
+  });
+
   it("approves a frozen diff and renders NanoClaw run state", async () => {
     render(<App />);
 
