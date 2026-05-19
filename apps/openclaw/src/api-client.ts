@@ -136,7 +136,10 @@ export const openClawApi = {
     return getJson("/api/secrets");
   },
 
-  upsertSecret(name: string, value: string): Promise<{ readonly ok: true; readonly secret: SecretMetadata }> {
+  upsertSecret(
+    name: string,
+    value: string
+  ): Promise<{ readonly ok: true; readonly secret: SecretMetadata }> {
     return putJson("/api/secrets", { name, value });
   },
 

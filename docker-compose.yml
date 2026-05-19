@@ -4,22 +4,28 @@ services:
       context: .
       dockerfile: Dockerfile.api
     env_file:
-      - .env.example
+      - .env
     environment:
       KELPCLAW_WORKFLOW_DB: /data/workflow.sqlite
+      KELPCLAW_SECRET_DB: /data/workflow.sqlite
       KELPCLAW_ARTIFACT_STORE: /data/artifacts
-      KELPCLAW_PLANNER_MODE: ${KELPCLAW_PLANNER_MODE:-deterministic}
+      NANOCLAW_HOST_WORKSPACE: /workspace
     ports:
       - "8787:8787"
     volumes:
       - kelpclaw-data:/data
+      - kelpclaw-workspaces:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
 
   openclaw:
     build:
       context: .
       dockerfile: Dockerfile.openclaw
+    env_file:
+      - .env
     environment:
       OPENCLAW_API_TARGET: http://api:8787
+      VITE_OPENCLAW_ADMIN_TOKEN: ${KELPCLAW_ADMIN_TOKEN}
     ports:
       - "5173:5173"
     depends_on:
@@ -27,3 +33,4 @@ services:
 
 volumes:
   kelpclaw-data:
+  kelpclaw-workspaces:

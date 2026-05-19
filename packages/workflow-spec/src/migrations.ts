@@ -42,7 +42,10 @@ export function migrateWorkflowAdapterIdsToLive(workflow: WorkflowSpec): Workflo
     ...workflow,
     nodes: workflow.nodes.map((node) => ({
       ...node,
-      config: withAdapterHosts(node.config, adapterHostsForOperations(node.adapterOperations ?? [])),
+      config: withAdapterHosts(
+        node.config,
+        adapterHostsForOperations(node.adapterOperations ?? [])
+      ),
       determinism: {
         ...node.determinism,
         externalCalls: node.determinism.externalCalls.map(rewriteAdapterId)

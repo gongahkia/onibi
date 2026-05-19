@@ -1096,13 +1096,16 @@ async function revokeGoogleOAuthSecret(secret: string): Promise<void> {
     return;
   }
 
-  const response = await fetch(process.env.GOOGLE_REVOKE_URL ?? "https://oauth2.googleapis.com/revoke", {
-    method: "POST",
-    headers: {
-      "content-type": "application/x-www-form-urlencoded"
-    },
-    body: new URLSearchParams({ token })
-  });
+  const response = await fetch(
+    process.env.GOOGLE_REVOKE_URL ?? "https://oauth2.googleapis.com/revoke",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded"
+      },
+      body: new URLSearchParams({ token })
+    }
+  );
   if (!response.ok) {
     const text = await response.text();
     throw new Error(text || `Google OAuth revoke failed with ${response.status}.`);

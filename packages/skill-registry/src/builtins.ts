@@ -264,8 +264,7 @@ export const builtinSkills: readonly SkillMetadata[] = [
       adapterOperation("adapter.telegram", "telegram.alert.send")
     ],
     runtimeTemplate,
-    metaprompt:
-      "Select this skill when a workflow needs email, WhatsApp, or Telegram dispatch.",
+    metaprompt: "Select this skill when a workflow needs email, WhatsApp, or Telegram dispatch.",
     validationRules: ["delivery adapter ids must use canonical live ids"],
     examples: [
       {

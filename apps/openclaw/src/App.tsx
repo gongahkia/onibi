@@ -249,9 +249,9 @@ export function App() {
   const [apiError, setApiError] = useState<string | null>(null);
   const [promotionNotice, setPromotionNotice] = useState<string | null>(null);
   const [adminToken, setAdminToken] = useState(readOpenClawAdminToken);
-  const [integrationReadiness, setIntegrationReadiness] = useState<
-    readonly IntegrationReadiness[]
-  >([]);
+  const [integrationReadiness, setIntegrationReadiness] = useState<readonly IntegrationReadiness[]>(
+    []
+  );
   const [secretMetadata, setSecretMetadata] = useState<readonly SecretMetadata[]>([]);
   const [googleConnected, setGoogleConnected] = useState<boolean | null>(null);
   const [secretDrafts, setSecretDrafts] = useState<Readonly<Record<string, string>>>({});
@@ -1260,7 +1260,9 @@ function IntegrationPanel(props: {
                 value={draft}
                 placeholder={setup.placeholder}
                 rows={2}
-                onChange={(event) => props.onSecretDraftChange(setup.secretName, event.target.value)}
+                onChange={(event) =>
+                  props.onSecretDraftChange(setup.secretName, event.target.value)
+                }
               />
               <div className="integration-actions">
                 {setup.id === "google" ? (

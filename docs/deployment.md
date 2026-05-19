@@ -1,60 +1,114 @@
-# KelpClaw Deployment
+# KelpClaw Self-Host Deployment
 
-## Local Developer Mode
+## Local Production Mode
 
-Install dependencies and run the full local verification suite:
+KelpClaw Phase 8 is aimed at a single-host deployment: Fastify API, SQLite workflow/audit/secrets storage, local artifact storage, OpenClaw, live adapters, and Docker-backed custom/codegen execution.
 
 ```console
 $ corepack enable
 $ pnpm install
-$ pnpm verify
+$ cp .env.example .env
 ```
 
-Run the API with durable SQLite persistence:
+Edit `.env` before starting the API:
+
+- `KELPCLAW_ADMIN_TOKEN`: required Bearer token for OpenClaw and API calls.
+- `KELPCLAW_SECRET_MASTER_KEY`: required AES-256-GCM master key for encrypted local secrets.
+- `KELPCLAW_PUBLIC_BASE_URL`: externally reachable API base URL for OAuth callbacks.
+- `ANTHROPIC_API_KEY`: required when `KELPCLAW_PLANNER_MODE=live`.
+- `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`: OAuth web client credentials.
+- SMTP, WhatsApp, and Telegram defaults as needed for your providers.
+
+Start the API:
+
+```console
+$ pnpm --filter @kelpclaw/api build
+$ pnpm --filter @kelpclaw/api start
+```
+
+Start OpenClaw in another shell:
+
+```console
+$ OPENCLAW_API_TARGET=http://127.0.0.1:8787 \
+  VITE_OPENCLAW_ADMIN_TOKEN="$KELPCLAW_ADMIN_TOKEN" \
+  pnpm --filter @kelpclaw/openclaw dev
+```
+
+OpenClaw stores the admin token in local browser storage and sends `Authorization: Bearer <token>` on API calls.
+
+## Secrets
+
+Production workflows use `secret:<name>` refs. Raw provider tokens must be inserted through the API or OpenClaw integration panel; list responses return metadata only.
+
+```console
+$ curl -H "Authorization: Bearer $KELPCLAW_ADMIN_TOKEN" \
+  http://127.0.0.1:8787/api/secrets
+```
+
+Examples:
+
+```console
+$ curl -X PUT http://127.0.0.1:8787/api/secrets \
+  -H "Authorization: Bearer $KELPCLAW_ADMIN_TOKEN" \
+  -H "content-type: application/json" \
+  -d '{"name":"email.smtp.default","value":"{\"host\":\"smtp.example.com\",\"port\":587,\"username\":\"user\",\"password\":\"pass\",\"from\":\"kelp@example.com\"}"}'
+```
+
+Google is normally connected through OAuth:
+
+```console
+$ curl -H "Authorization: Bearer $KELPCLAW_ADMIN_TOKEN" \
+  http://127.0.0.1:8787/api/integrations/google/connect
+```
+
+The callback stores the refresh token as encrypted `secret:google.oauth.default`.
+
+## Docker Compose
+
+Compose expects a local `.env` file and mounts the host Docker socket so the API container can launch NanoClaw Docker nodes.
 
 ```console
 $ cp .env.example .env
-$ KELPCLAW_WORKFLOW_STORE=sqlite \
-  KELPCLAW_WORKFLOW_DB=.kelpclaw/workflow.sqlite \
-  KELPCLAW_PLANNER_MODE=deterministic \
-  pnpm --filter @kelpclaw/api start
-```
-
-Run OpenClaw separately:
-
-```console
-$ OPENCLAW_API_TARGET=http://127.0.0.1:8787 pnpm --filter @kelpclaw/openclaw dev
-```
-
-Deterministic planner mode is intended for tests, demos, and offline development. Live planning uses the Anthropic-compatible path:
-
-```console
-$ KELPCLAW_PLANNER_MODE=live \
-  KELPCLAW_PLANNER_PROVIDER=anthropic \
-  KELPCLAW_PLANNER_MODEL=<model> \
-  ANTHROPIC_API_KEY=<key> \
-  pnpm --filter @kelpclaw/api start
-```
-
-## Single-Host Demo
-
-The compose stack runs OpenClaw, the API, a SQLite database file, and the content-addressed artifact store on a shared named volume:
-
-```console
 $ docker compose up --build
 ```
 
-OpenClaw is exposed at `http://127.0.0.1:5173`; the API health endpoint is `http://127.0.0.1:8787/health`.
+OpenClaw: `http://127.0.0.1:5173`
 
-The demo defaults to deterministic planning. To use live planning, set `KELPCLAW_PLANNER_MODE=live`, `KELPCLAW_PLANNER_PROVIDER=anthropic`, and `ANTHROPIC_API_KEY` in a local `.env` file before starting Compose.
+API health: `http://127.0.0.1:8787/health`
 
-## Future Production Topology
+The named `kelpclaw-data` volume stores SQLite data and artifacts. The `kelpclaw-workspaces` volume is mounted at `/workspace` for Docker-backed node execution.
 
-Production should split the current single-host pieces into independently deployable services:
+## Dev And Test Mode
 
-- OpenClaw UI behind a static web tier.
-- KelpClaw API with SQLite replaced by a managed SQL database when multi-host writes are required.
-- NanoClaw workers with isolated per-run workspaces and Docker or container-orchestrator sandboxing.
-- Content-addressed object storage for generated artifacts and manifests.
-- Secret manager-backed `SecretResolver` for `env:` or provider-native secret references.
-- Centralized log/event ingestion for audit and observability records.
+Use deterministic mode only for tests, demos, and offline work:
+
+```console
+$ KELPCLAW_PLANNER_MODE=deterministic \
+  NANOCLAW_RUNNER=mock \
+  KELPCLAW_SECRET_STORE=memory \
+  KELPCLAW_ADMIN_TOKEN=dev-token \
+  pnpm --filter @kelpclaw/api start
+```
+
+Mock adapters remain available through `createDefaultMockAdapters()` and `.fake` aliases in tests.
+
+## Live Smoke
+
+`pnpm smoke:live` is opt-in and exits without provider calls unless `KELPCLAW_LIVE_SMOKE=1` is set.
+
+Required inputs:
+
+- `KELPCLAW_API_BASE_URL`
+- `KELPCLAW_ADMIN_TOKEN`
+- `KELPCLAW_SMOKE_SHEET_ID`
+- `KELPCLAW_SMOKE_EMAIL_TO`
+- `KELPCLAW_SMOKE_WHATSAPP_TO`
+- `KELPCLAW_SMOKE_TELEGRAM_CHAT_ID`
+
+Run it only against test inboxes, sheets, recipients, and bot chats:
+
+```console
+$ KELPCLAW_LIVE_SMOKE=1 pnpm smoke:live
+```
+
+Normal CI must not run this command.

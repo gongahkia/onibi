@@ -3,7 +3,7 @@ FROM node:20.19.5-bookworm-slim
 WORKDIR /workspace
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends sqlite3 \
+  && apt-get install -y --no-install-recommends docker.io sqlite3 \
   && rm -rf /var/lib/apt/lists/* \
   && corepack enable
 
@@ -17,8 +17,11 @@ RUN pnpm install --frozen-lockfile \
 ENV PORT=8787
 ENV KELPCLAW_WORKFLOW_STORE=sqlite
 ENV KELPCLAW_WORKFLOW_DB=/data/workflow.sqlite
+ENV KELPCLAW_SECRET_DB=/data/workflow.sqlite
 ENV KELPCLAW_ARTIFACT_STORE=/data/artifacts
-ENV KELPCLAW_PLANNER_MODE=deterministic
+ENV KELPCLAW_PLANNER_MODE=live
+ENV NANOCLAW_RUNNER=production
+ENV NANOCLAW_HOST_WORKSPACE=/workspace
 
 EXPOSE 8787
 

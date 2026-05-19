@@ -14,10 +14,10 @@ The previous Zig CLI/TUI task planner is preserved in this repository as legacy 
 | `apps/api`                | HTTP API for planning, workflow persistence, validation, approval, and execution control |
 | `packages/workflow-spec`  | Shared workflow IR types, Zod schemas, JSON Schema, fixtures, and validation errors      |
 | `packages/skill-registry` | Built-in deterministic skills, metadata, metaprompts, and lookup rules                   |
-| `packages/nanoclaw`       | DAG compiler, topological ordering, Docker command runner, and mock execution runner     |
+| `packages/nanoclaw`       | DAG compiler, production runner, Docker command runner, and deterministic test runner    |
 | `packages/codegen`        | Generated artifact contracts, checksums, and replay policy helpers                       |
-| `packages/adapters`       | Gmail, Sheets, email, WhatsApp, and Telegram adapter interfaces with fake adapters       |
-| `packages/testing`        | Shared fixtures, fake providers, and deterministic execution harnesses                   |
+| `packages/adapters`       | Live Gmail, Sheets, SMTP email, WhatsApp, and Telegram adapters plus test mocks          |
+| `packages/testing`        | Shared fixtures, mock providers, and deterministic execution harnesses                   |
 
 ## Development
 
@@ -61,7 +61,7 @@ Editing an approved workflow creates a new draft revision. Execution remains blo
 
 ## NanoClaw Runtime Controls
 
-API runs use `MockNodeRunner` by default so local OpenClaw development and CI do not require a Docker daemon. Set `NANOCLAW_RUNNER=docker` to execute approved workflow nodes through Docker. Optional controls are `NANOCLAW_DOCKER_BIN` for a non-default Docker binary and `NANOCLAW_HOST_WORKSPACE` for command-construction compatibility.
+API runs use the production runner by default. Adapter nodes invoke canonical live adapters (`adapter.gmail`, `adapter.sheets`, `adapter.email`, `adapter.whatsapp`, `adapter.telegram`), deterministic built-in nodes run in-process, and custom/codegen nodes fall back to Docker. Set `NANOCLAW_RUNNER=mock` only for tests and offline demos. Optional controls are `NANOCLAW_DOCKER_BIN` for a non-default Docker binary and `NANOCLAW_HOST_WORKSPACE` for command-construction compatibility.
 
 NanoClaw writes each run under a preserved workspace in the OS temp directory unless callers pass `workspaceRoot`. The workspace contains `workflow.json`, per-node `input.json` and `output.json`, `stdout.log`, `stderr.log`, an `artifacts/` directory, and `run-manifest.json` for replay.
 
@@ -78,7 +78,15 @@ Containers mount the frozen workflow spec read-only and the node attempt workspa
 
 ## Skill Registry
 
-The built-in skill registry records input and output schemas, required secrets, fake adapter dependencies, runtime templates, metaprompts, validation rules, and example fixtures. Deterministic matching returns scored `SkillMatch` results with explainable reasons. Registry skills are preferred over codegen when the top match reaches the fixed reuse threshold.
+The built-in skill registry records input and output schemas, required secrets, live adapter dependencies, runtime templates, metaprompts, validation rules, and example fixtures. Deterministic matching returns scored `SkillMatch` results with explainable reasons. Registry skills are preferred over codegen when the top match reaches the fixed reuse threshold.
+
+## Auth, Secrets, And Integrations
+
+The API server requires `KELPCLAW_ADMIN_TOKEN` outside test construction. OpenClaw sends it as a Bearer token from its integration panel or `VITE_OPENCLAW_ADMIN_TOKEN`.
+
+Production secrets use encrypted local SQLite storage with `KELPCLAW_SECRET_MASTER_KEY`. Workflow specs store only `secret:<name>` refs; raw values are written through `/api/secrets` or the OpenClaw setup panel and are never returned by list APIs.
+
+Google uses OAuth web flow endpoints under `/api/integrations/google/*`. SMTP email, WhatsApp Cloud API, and Telegram Bot API use encrypted provider secrets. Mock adapters and `.fake` ids remain test helpers only.
 
 ## Phase 5 Codegen
 
@@ -102,7 +110,7 @@ NanoClaw verifies stored artifact hashes before execution, materializes reviewed
 - Workflow specs are diffable and validated with stable error codes.
 - OpenClaw renders the shared v1 fixtures with schema version, revision, prompt, node kind, port-aware edges, and approval state.
 - NanoClaw execution is covered through an approved-workflow mock runner and Docker command-construction tests.
-- Integration adapters are fake-only and do not require secrets.
+- Integration adapters are production-capable; missing live secrets fail as structured run output.
 - CI runs TypeScript format, lint, typecheck, tests, builds, and the legacy Zig test suite.
 
 ## Legacy Zig CLI
