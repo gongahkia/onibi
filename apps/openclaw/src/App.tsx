@@ -45,13 +45,17 @@ import {
 } from "@kelpclaw/workflow-spec";
 import type {
   JsonRecord,
+  WorkflowDraftEvaluation,
   WorkflowAdapterOperationRef,
   WorkflowApprovedRevision,
   WorkflowNode,
   WorkflowNodeKind,
+  WorkflowPlannerFeedback,
+  WorkflowPlannerSuggestion,
   WorkflowRunRecord,
   WorkflowSpec,
   WorkflowSpecDiff,
+  WorkflowTaskRoute,
   WorkflowValidationIssue,
   WorkflowValidationResult
 } from "@kelpclaw/workflow-spec";
@@ -240,6 +244,9 @@ export function App() {
   const [approvedRevision, setApprovedRevision] = useState<WorkflowApprovedRevision | null>(null);
   const [approvalDiff, setApprovalDiff] = useState<WorkflowSpecDiff | null>(null);
   const [run, setRun] = useState<WorkflowRunRecord | null>(null);
+  const [taskRoute, setTaskRoute] = useState<WorkflowTaskRoute | null>(null);
+  const [plannerFeedback, setPlannerFeedback] = useState<WorkflowPlannerFeedback | null>(null);
+  const [draftEvaluation, setDraftEvaluation] = useState<WorkflowDraftEvaluation | null>(null);
   const [dirtyNodeIds, setDirtyNodeIds] = useState<ReadonlySet<string>>(new Set());
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>("read-gmail-receipts");
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
@@ -272,7 +279,7 @@ export function App() {
     () => workflow.edges.find((edge) => edge.id === selectedEdgeId) ?? null,
     [selectedEdgeId, workflow.edges]
   );
-  const canApprove = validation.ok;
+  const canApprove = validation.ok && draftEvaluation?.readyForApproval === true;
   const canRun = approvedRevision !== null;
 
   const refreshIntegrations = useCallback(async () => {
@@ -312,13 +319,16 @@ export function App() {
 
   const updateLocalWorkflow = useCallback(
     (nextWorkflow: WorkflowSpec) => {
+      const previousWorkflow = workflow;
       setApprovedRevision(null);
       setApprovalDiff(null);
       setRun(null);
       setPromotionNotice(null);
+      setDraftEvaluation(null);
       loadWorkflow(nextWorkflow);
+      void requestPlannerFeedback(previousWorkflow, nextWorkflow);
     },
-    [loadWorkflow]
+    [loadWorkflow, workflow]
   );
 
   async function executeApiAction(action: string, work: () => Promise<void>) {
@@ -330,6 +340,24 @@ export function App() {
       setApiError(error instanceof Error ? error.message : "OpenClaw request failed.");
     } finally {
       setBusyAction(null);
+    }
+  }
+
+  async function requestPlannerFeedback(baseWorkflow: WorkflowSpec, editedWorkflow: WorkflowSpec) {
+    if (baseWorkflow.id !== editedWorkflow.id) {
+      return;
+    }
+
+    try {
+      const response = await openClawApi.feedback(editedWorkflow.id, {
+        baseWorkflow,
+        editedWorkflow,
+        prompt
+      });
+      setPlannerFeedback(response.feedback);
+      setTaskRoute(response.feedback.route);
+    } catch {
+      // Local edits can occur before the draft has been persisted through the API.
     }
   }
 
@@ -547,6 +575,9 @@ export function App() {
         preserveNodeIds: [...dirtyNodeIds]
       });
       loadWorkflow(response.workflow, response.validation);
+      setTaskRoute(response.route);
+      setPlannerFeedback(null);
+      setDraftEvaluation(null);
       const nextSelectedNode =
         response.workflow.nodes.find((node) => node.kind !== "trigger") ??
         response.workflow.nodes[0] ??
@@ -570,6 +601,37 @@ export function App() {
         loadWorkflow(response.workflow, response.validation);
       }
     });
+  }
+
+  function evaluateDraft() {
+    void executeApiAction("evaluate-draft", async () => {
+      const response = await openClawApi.evaluateDraft(workflow.id, {
+        workflow,
+        mockOnly: true
+      });
+      setDraftEvaluation(response.evaluation);
+      setPlannerFeedback((previous) =>
+        previous
+          ? {
+              ...previous,
+              suggestions: [...previous.suggestions, ...response.evaluation.suggestions]
+            }
+          : previous
+      );
+    });
+  }
+
+  function updateSuggestionDecision(suggestionId: string, status: "accepted" | "rejected") {
+    setPlannerFeedback((previous) =>
+      previous
+        ? {
+            ...previous,
+            suggestions: previous.suggestions.map((suggestion) =>
+              suggestion.id === suggestionId ? { ...suggestion, status } : suggestion
+            )
+          }
+        : previous
+    );
   }
 
   function repromptNode() {
@@ -655,6 +717,9 @@ export function App() {
     setApprovedRevision(null);
     setApprovalDiff(null);
     setRun(null);
+    setTaskRoute(null);
+    setPlannerFeedback(null);
+    setDraftEvaluation(null);
     setPromotionNotice(null);
     loadWorkflow(
       gmailReceiptsToSheetsWorkflowFixture,
@@ -756,6 +821,10 @@ export function App() {
             </dl>
           </section>
 
+          <RoutePanel route={taskRoute} />
+          <DraftEvaluationPanel evaluation={draftEvaluation} />
+          <FeedbackPanel feedback={plannerFeedback} onDecision={updateSuggestionDecision} />
+
           <section aria-label="Validation panel" className="validation-panel">
             <div className="panel-heading">
               <ListChecks size={18} />
@@ -816,6 +885,14 @@ export function App() {
               >
                 <ShieldCheck size={18} />
                 Validate
+              </button>
+              <button
+                title="Evaluate draft"
+                onClick={evaluateDraft}
+                disabled={!validation.ok || busyAction !== null}
+              >
+                <ListChecks size={18} />
+                Evaluate
               </button>
               <button
                 title="Approve workflow"
@@ -1194,6 +1271,122 @@ function Inspector(props: {
       <ApprovalPanel diff={props.approvalDiff} approvedRevision={props.approvedRevision} />
       <RunPanel run={props.run} />
     </>
+  );
+}
+
+function RoutePanel(props: { readonly route: WorkflowTaskRoute | null }) {
+  return (
+    <section aria-label="Task route" className="validation-panel">
+      <div className="panel-heading">
+        <GitBranch size={18} />
+        <h2>Route</h2>
+      </div>
+      <StatusRow
+        label="Mode"
+        value={props.route?.route ?? "unrouted"}
+        tone={props.route ? "valid" : "pending"}
+      />
+      <StatusRow
+        label="Model"
+        value={props.route?.requiredModel.mode ?? "none"}
+        tone={props.route?.requiredModel.mode === "live" ? "pending" : "valid"}
+      />
+      <StatusRow
+        label="Production"
+        value={props.route?.productionDeterministic === false ? "agentic" : "deterministic"}
+        tone={props.route?.productionDeterministic === false ? "pending" : "valid"}
+      />
+      {props.route ? <p className="muted-text">{props.route.rationale}</p> : null}
+    </section>
+  );
+}
+
+function DraftEvaluationPanel(props: {
+  readonly evaluation: WorkflowDraftEvaluation | null;
+}) {
+  return (
+    <section aria-label="Draft evaluation" className="validation-panel">
+      <div className="panel-heading">
+        <ListChecks size={18} />
+        <h2>Draft Eval</h2>
+      </div>
+      <StatusRow
+        label="Status"
+        value={props.evaluation?.status ?? "not run"}
+        tone={props.evaluation?.readyForApproval ? "valid" : "pending"}
+      />
+      <StatusRow
+        label="Approval"
+        value={props.evaluation?.readyForApproval ? "ready" : "blocked"}
+        tone={props.evaluation?.readyForApproval ? "approved" : "blocked"}
+      />
+      {props.evaluation?.findings.length ? (
+        <div className="issue-list">
+          {props.evaluation.findings.map((finding) => (
+            <div className="issue-button" key={finding.id}>
+              <strong>{finding.severity}</strong>
+              <span>{finding.message}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function FeedbackPanel(props: {
+  readonly feedback: WorkflowPlannerFeedback | null;
+  readonly onDecision: (suggestionId: string, status: "accepted" | "rejected") => void;
+}) {
+  if (!props.feedback) {
+    return null;
+  }
+
+  return (
+    <section aria-label="Planner feedback" className="validation-panel">
+      <div className="panel-heading">
+        <WandSparkles size={18} />
+        <h2>Suggestions</h2>
+      </div>
+      <StatusRow label="Status" value={props.feedback.status} tone={props.feedback.status} />
+      <div className="issue-list">
+        {props.feedback.suggestions.map((suggestion) => (
+          <SuggestionItem
+            key={suggestion.id}
+            suggestion={suggestion}
+            onDecision={props.onDecision}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function SuggestionItem(props: {
+  readonly suggestion: WorkflowPlannerSuggestion;
+  readonly onDecision: (suggestionId: string, status: "accepted" | "rejected") => void;
+}) {
+  return (
+    <div className="issue-button">
+      <strong>{props.suggestion.title}</strong>
+      <span>{props.suggestion.message}</span>
+      <div className="integration-actions">
+        <button
+          type="button"
+          onClick={() => props.onDecision(props.suggestion.id, "accepted")}
+          disabled={props.suggestion.status !== "suggested"}
+        >
+          Accept
+        </button>
+        <button
+          type="button"
+          onClick={() => props.onDecision(props.suggestion.id, "rejected")}
+          disabled={props.suggestion.status !== "suggested"}
+        >
+          Reject
+        </button>
+      </div>
+    </div>
   );
 }
 

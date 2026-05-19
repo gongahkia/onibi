@@ -1,6 +1,9 @@
 import type {
   WorkflowApproveRequest,
   WorkflowApproveResponse,
+  WorkflowDraftEvaluation,
+  WorkflowFeedbackRequest,
+  WorkflowFeedbackResponse,
   WorkflowFetchRunResponse,
   WorkflowPlanRequest,
   WorkflowPlanResponse,
@@ -95,6 +98,20 @@ export const openClawApi = {
     request: WorkflowRepromptNodeRequest
   ): Promise<WorkflowRepromptNodeResponse> {
     return postJson(`/api/workflows/${encodeURIComponent(workflowId)}/reprompt-node`, request);
+  },
+
+  feedback(
+    workflowId: string,
+    request: WorkflowFeedbackRequest
+  ): Promise<WorkflowFeedbackResponse> {
+    return postJson(`/api/workflows/${encodeURIComponent(workflowId)}/feedback`, request);
+  },
+
+  evaluateDraft(
+    workflowId: string,
+    request: { readonly workflow: WorkflowPlanResponse["workflow"]; readonly mockOnly: true }
+  ): Promise<{ readonly ok: true; readonly evaluation: WorkflowDraftEvaluation }> {
+    return postJson(`/api/workflows/${encodeURIComponent(workflowId)}/evaluate-draft`, request);
   },
 
   approve(workflowId: string, request: WorkflowApproveRequest): Promise<WorkflowApproveResponse> {
