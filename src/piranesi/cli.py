@@ -4,7 +4,7 @@ import json
 import os
 import webbrowser
 from pathlib import Path
-from typing import Annotated, Any, NoReturn
+from typing import Annotated, Any, Literal, NoReturn
 
 import typer
 
@@ -45,6 +45,11 @@ from piranesi.report.pentest import (
     ReportRenderError,
     build_pentest_report,
     render_report_artifact,
+)
+from piranesi.report.redteam import (
+    RedTeamReportError,
+    build_red_team_report,
+    render_red_team_report_artifact,
 )
 from piranesi.retest import (
     RetestError,
@@ -97,6 +102,7 @@ EXIT_USAGE_ERROR = 2
 EXIT_NOT_IMPLEMENTED = 64
 
 DEFAULT_WORKSPACE = Path("piranesi-workspace")
+ReportType = Literal["pentest", "red-team"]
 
 app = typer.Typer(
     add_completion=False,
@@ -1266,6 +1272,10 @@ def report_command(
         ReportFormat,
         typer.Option("--format", "-f", help="Report artifact format."),
     ] = "md",
+    report_type: Annotated[
+        ReportType,
+        typer.Option("--type", help="Report type."),
+    ] = "pentest",
     output: Annotated[
         Path | None,
         typer.Option(
@@ -1299,21 +1309,37 @@ def report_command(
     try:
         state = load_workspace(workspace)
         output_dir = output or workspace_path(state.root, "reports", allowed_roots=("reports",))
-        report_model = build_pentest_report(
-            state,
-            redact_sensitive_evidence=redact_sensitive_evidence,
-        )
-        artifact_path = render_report_artifact(
-            report_model,
-            output_dir=output_dir,
-            output_format=output_format,
-            pdf_backend=pdf_backend,
-        )
-    except (WorkspaceError, ReportRenderError) as exc:
+        if report_type == "red-team":
+            if output_format == "pdf":
+                raise RedTeamReportError(
+                    "red-team report PDF output is not implemented yet; use --format md or json"
+                )
+            red_team_report = build_red_team_report(
+                state,
+                redact_sensitive_evidence=redact_sensitive_evidence,
+            )
+            artifact_path = render_red_team_report_artifact(
+                red_team_report,
+                output_dir=output_dir,
+                output_format=output_format,
+            )
+        else:
+            report_model = build_pentest_report(
+                state,
+                redact_sensitive_evidence=redact_sensitive_evidence,
+            )
+            artifact_path = render_report_artifact(
+                report_model,
+                output_dir=output_dir,
+                output_format=output_format,
+                pdf_backend=pdf_backend,
+            )
+    except (WorkspaceError, ReportRenderError, RedTeamReportError) as exc:
         _fail(str(exc), json_errors=json_errors)
 
     payload = {
         "format": output_format,
+        "type": report_type,
         "pdf_backend": pdf_backend if output_format == "pdf" else None,
         "path": str(artifact_path),
         "sha256": file_sha256(artifact_path),

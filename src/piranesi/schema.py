@@ -11,6 +11,7 @@ from piranesi.detections import DetectionsDocument
 from piranesi.evidence import EvidenceIndexDocument
 from piranesi.objectives import ObjectivesDocument, ProceduresDocument
 from piranesi.report.pentest import PentestReport
+from piranesi.report.redteam import RedTeamReport
 from piranesi.retest import RetestResult
 from piranesi.signing import ChainOfCustodyManifest
 from piranesi.workspace import NormalizedFindingsDocument, WorkspaceDocument
@@ -23,6 +24,7 @@ SchemaName = Literal[
     "objectives",
     "pentest-report",
     "procedures",
+    "red-team-report",
     "chain-of-custody",
     "retest",
 ]
@@ -35,6 +37,7 @@ _SCHEMA_MODELS: dict[str, type[BaseModel]] = {
     "objectives": ObjectivesDocument,
     "pentest-report": PentestReport,
     "procedures": ProceduresDocument,
+    "red-team-report": RedTeamReport,
     "chain-of-custody": ChainOfCustodyManifest,
     "retest": RetestResult,
 }
