@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import { LocalCodegenArtifactStore, createGeneratedArtifact } from "@kelpclaw/codegen";
 import { registerPromotedSkill } from "@kelpclaw/skill-registry";
 import {
+  AdapterBackedNodeRunner,
   DockerNodeRunner,
   MockNodeRunner,
   compileWorkflowDag,
@@ -671,6 +672,7 @@ function createPromotedSkill(workflow: WorkflowSpec, node: WorkflowNode): SkillM
     outputSchema: node.outputs,
     requiredSecrets: [],
     adapterDependencies: [],
+    adapterOperations: [],
     runtimeTemplate: node.runtime,
     metaprompt: `Select this promoted skill when a workflow asks to ${node.codegen?.latestPrompt ?? node.description}.`,
     validationRules: [
@@ -722,7 +724,7 @@ function slugify(value: string): string {
   );
 }
 
-function createNanoClawRunner(): MockNodeRunner | DockerNodeRunner {
+function createNanoClawRunner(): AdapterBackedNodeRunner | DockerNodeRunner {
   if (process.env.NANOCLAW_RUNNER === "docker") {
     return new DockerNodeRunner({
       dockerBin: process.env.NANOCLAW_DOCKER_BIN,
@@ -730,7 +732,9 @@ function createNanoClawRunner(): MockNodeRunner | DockerNodeRunner {
     });
   }
 
-  return new MockNodeRunner();
+  return new AdapterBackedNodeRunner({
+    fallbackRunner: new MockNodeRunner()
+  });
 }
 
 function createRunEvents(

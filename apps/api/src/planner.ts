@@ -126,6 +126,9 @@ class RegistryPlannerBackend implements WorkflowPlannerBackend {
                   outputs: selection.match.skill.outputSchema,
                   runtime: selection.match.skill.runtimeTemplate,
                   skillId: selection.match.skill.id,
+                  adapterId: selection.match.skill.adapterDependencies[0],
+                  adapterIds: selection.match.skill.adapterDependencies,
+                  adapterOperations: selection.match.skill.adapterOperations,
                   codegen: undefined,
                   config: {
                     ...node.config,
@@ -385,7 +388,7 @@ function annotateSkillPlanning(node: WorkflowNode, prompt: string): WorkflowNode
   const selection = chooseSkillOrCodegen({
     skillId: node.skillId,
     nodeKind: node.kind,
-    adapterDependencies: node.adapterId ? [node.adapterId] : [],
+    adapterDependencies: node.adapterIds ?? (node.adapterId ? [node.adapterId] : []),
     prompt
   });
 
