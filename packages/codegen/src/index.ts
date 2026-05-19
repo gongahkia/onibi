@@ -13,6 +13,8 @@ export {
   createGeneratedNodeContractTestArtifact,
   createGeneratedNodeDesignSpecArtifact
 } from "./build-artifacts.js";
+export { GeneratedNodeBuildLoop } from "./build-loop.js";
+export type { GeneratedNodeBuildLoopOptions } from "./build-loop.js";
 export {
   assertDependencyManifestPolicy,
   createDependencyManifestArtifact,

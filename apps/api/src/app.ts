@@ -3,8 +3,11 @@ import type { ServerResponse } from "node:http";
 import { join } from "node:path";
 import Fastify from "fastify";
 import {
+  AgentSdkCodeGenerator,
+  GeneratedNodeBuildLoop,
   LocalCodegenArtifactStore,
   checksumArtifactContent,
+  createArtifactManifest,
   createGeneratedArtifact
 } from "@kelpclaw/codegen";
 import { registerPromotedSkill } from "@kelpclaw/skill-registry";
@@ -58,7 +61,8 @@ import type {
   WorkflowStartRunResponse,
   WorkflowValidationIssue,
   WorkflowValidateRequest,
-  WorkflowValidateResponse
+  WorkflowValidateResponse,
+  WorkflowWorkspace
 } from "@kelpclaw/workflow-spec";
 import {
   createDeterministicPlannerBackend,
@@ -112,6 +116,13 @@ interface CreateJobRequestBody {
 interface EvaluateDraftRequestBody {
   readonly workflow?: WorkflowSpec | undefined;
   readonly mockOnly?: boolean | undefined;
+}
+
+interface CodegenBuildRequestBody {
+  readonly maxIterations?: number | undefined;
+  readonly maxWallClockSeconds?: number | undefined;
+  readonly maxModelCostUsd?: number | undefined;
+  readonly runTestsInDocker?: boolean | undefined;
 }
 
 interface CodegenReviewRequestBody {
@@ -979,6 +990,223 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
 
   app.post<{
     Params: CodegenRouteParams;
+    Body: CodegenBuildRequestBody;
+  }>("/api/workflows/:id/codegen/:nodeId/build", async (request, reply) => {
+    const stored = store.getWorkflow(request.params.id);
+    if (!stored) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_NOT_FOUND",
+        message: `Workflow '${request.params.id}' was not found.`
+      });
+    }
+
+    const node = stored.workflow.nodes.find((candidate) => candidate.id === request.params.nodeId);
+    if (node?.kind !== "codegen" || !node.codegen) {
+      return reply.code(404).send({
+        ok: false,
+        error: "CODEGEN_NODE_NOT_FOUND",
+        message: `Codegen node '${request.params.nodeId}' was not found.`
+      });
+    }
+
+    const correlationId = correlationIdForRequest(request);
+    const job =
+      requestJobId(request) && store.getJob(requestJobId(request) ?? "")
+        ? store.getJob(requestJobId(request) ?? "")!
+        : store.saveJob(
+            createJob({
+              type: "build.codegen-node",
+              workflowId: stored.workflow.id,
+              revisionId:
+                store.getLatestDraftRevision(stored.workflow.id)?.id ??
+                `draft.${stored.workflow.id}.r${stored.workflow.revision}`,
+              nodeId: node.id,
+              correlationId,
+              maxAttempts: 1
+            })
+          );
+    const startedAt = new Date().toISOString();
+    const runningJob = store.appendJobEvent(
+      store.saveJob({
+        ...job,
+        status: "running",
+        startedAt: job.startedAt ?? startedAt,
+        updatedAt: startedAt
+      }).id,
+      createJobEvent(job, "info", "Generated-node build loop started.", {
+        nodeId: node.id
+      })
+    );
+    const workspace = store.saveWorkspace(
+      createWorkflowWorkspace({
+        jobId: runningJob.id,
+        workflowId: stored.workflow.id,
+        revisionId:
+          store.getLatestDraftRevision(stored.workflow.id)?.id ??
+          `draft.${stored.workflow.id}.r${stored.workflow.revision}`
+      })
+    );
+    const buildLoop = new GeneratedNodeBuildLoop({
+      codeGenerator: process.env.ANTHROPIC_API_KEY
+        ? new AgentSdkCodeGenerator({
+            apiKey: process.env.ANTHROPIC_API_KEY,
+            model: process.env.KELPCLAW_CODEGEN_MODEL ?? process.env.KELPCLAW_PLANNER_MODEL
+          })
+        : undefined
+    });
+    try {
+      const result = await buildLoop.build({
+        workflowId: stored.workflow.id,
+        nodeId: node.id,
+        prompt: node.codegen.latestPrompt,
+        plannerRationale: node.codegen.plannerRationale,
+        inputSchema: node.inputs,
+        outputSchema: node.outputs,
+        runtime: node.runtime,
+        sandbox: node.codegen.sandbox,
+        generatedAt: new Date().toISOString(),
+        job: runningJob,
+        workspace,
+        maxIterations: request.body.maxIterations ?? 3,
+        maxWallClockSeconds: request.body.maxWallClockSeconds ?? 600,
+        maxModelCostUsd: request.body.maxModelCostUsd ?? 2,
+        runTestsInDocker: request.body.runTestsInDocker ?? false
+      });
+      const buildArtifacts = [
+        result.designSpecArtifact,
+        result.generation.sourceArtifact,
+        result.generation.dependencyManifestArtifact,
+        ...result.testArtifacts
+      ];
+      await artifactStore.putManifest(
+        createArtifactManifest({
+          workflowId: stored.workflow.id,
+          generatedAt: result.generation.metadata.provenance.generatedAt,
+          artifacts: buildArtifacts
+        })
+      );
+      for (const run of result.agentRuns) {
+        store.saveAgentRun(run);
+      }
+      for (const artifact of result.agentArtifacts) {
+        store.saveAgentArtifact(artifact);
+      }
+
+      const artifactRefs = buildArtifacts
+        .map((artifact) => ({
+          path: artifact.path,
+          checksum: artifact.checksum,
+          contentType: artifact.contentType
+        }))
+        .sort((left, right) => left.path.localeCompare(right.path));
+      const workflowWithGeneratedNode: WorkflowSpec = {
+        ...stored.workflow,
+        approval: null,
+        updatedAt: new Date().toISOString(),
+        nodes: stored.workflow.nodes.map((candidate) =>
+          candidate.id === node.id
+            ? {
+                ...candidate,
+                config: {
+                  ...candidate.config,
+                  artifactStatus: "draft",
+                  buildJobId: runningJob.id,
+                  workspaceId: workspace.id
+                },
+                codegen: {
+                  ...result.generation.metadata,
+                  artifacts: artifactRefs
+                }
+              }
+            : candidate
+        )
+      };
+      const validation = validateWorkflowSpec(workflowWithGeneratedNode);
+      if (!validation.ok) {
+        throw new Error(validation.errors.map((issue) => issue.code).join(", "));
+      }
+      const draftRevision = store.saveDraftRevision(validation.workflow, validation, "validate", {
+        force: true
+      });
+      persistCodegenArtifactManifests(
+        store,
+        draftRevision.workflow,
+        draftRevision.id,
+        draftRevision.createdAt
+      );
+      const finishedAt = new Date().toISOString();
+      const completedJob = store.appendJobEvent(
+        store.saveJob({
+          ...runningJob,
+          status: "succeeded",
+          workspaceId: workspace.id,
+          updatedAt: finishedAt,
+          finishedAt,
+          result: {
+            draftRevisionId: draftRevision.id,
+            workspaceId: workspace.id
+          }
+        }).id,
+        createJobEvent(runningJob, "info", "Generated-node build loop completed.", {
+          draftRevisionId: draftRevision.id,
+          workspaceId: workspace.id
+        })
+      );
+
+      return {
+        ok: true,
+        workflow: draftRevision.workflow,
+        draftRevision,
+        validation: draftRevision.validation,
+        job: completedJob,
+        workspace,
+        agentRuns: result.agentRuns,
+        artifacts: artifactRefs
+      };
+    } catch (error) {
+      const finishedAt = new Date().toISOString();
+      const failedJob = store.appendJobEvent(
+        store.saveJob({
+          ...runningJob,
+          status: "failed",
+          updatedAt: finishedAt,
+          finishedAt,
+          error:
+            error instanceof Error ? redactSecretString(error.message) : "Codegen build failed."
+        }).id,
+        createJobEvent(runningJob, "error", "Generated-node build loop failed.")
+      );
+
+      return reply.code(500).send({
+        ok: false,
+        error: "CODEGEN_BUILD_FAILED",
+        message: failedJob.error ?? "Codegen build failed."
+      });
+    }
+  });
+
+  app.get<{
+    Params: CodegenRouteParams;
+  }>("/api/workflows/:id/codegen/:nodeId/evals", async (request, reply) => {
+    const stored = store.getWorkflow(request.params.id);
+    if (!stored) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_NOT_FOUND",
+        message: `Workflow '${request.params.id}' was not found.`
+      });
+    }
+
+    return {
+      ok: true,
+      agentRuns: store.listAgentRuns(request.params.id, request.params.nodeId),
+      agentArtifacts: store.listAgentArtifacts(request.params.id, request.params.nodeId)
+    };
+  });
+
+  app.post<{
+    Params: CodegenRouteParams;
     Body: CodegenReviewRequestBody;
   }>("/api/workflows/:id/codegen/:nodeId/review", async (request, reply) => {
     const stored = store.getWorkflow(request.params.id);
@@ -1639,6 +1867,29 @@ function createJob(input: {
   return {
     ...job,
     events: [createJobEvent(job, "info", `Queued ${input.type} job.`)]
+  };
+}
+
+function createWorkflowWorkspace(input: {
+  readonly jobId: string;
+  readonly workflowId: string;
+  readonly revisionId?: string | undefined;
+}): WorkflowWorkspace {
+  const now = new Date().toISOString();
+
+  return {
+    id: `workspace.${input.jobId}`,
+    jobId: input.jobId,
+    workflowId: input.workflowId,
+    revisionId: input.revisionId,
+    createdAt: now,
+    updatedAt: now,
+    mountedAgents: ["planner", "coder", "tester", "runner", "fixer"],
+    filesCreated: [],
+    artifactsProduced: [],
+    logs: [],
+    testReports: [],
+    retentionPolicy: "retain-on-failure"
   };
 }
 
