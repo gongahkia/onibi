@@ -7,7 +7,7 @@
 <h1 align="center">Piranesi</h1>
 
 <p align="center">
-  <strong>Local-first pentest and red-team report engine.</strong>
+  <strong>Local-first red-team engagement workspace.</strong>
 </p>
 
 <p align="center">
@@ -18,16 +18,18 @@
 
 ---
 
-Piranesi turns exported pentest tool evidence into local, reviewable deliverables:
-normalized findings, report artifacts, retest diffs, and signed chain-of-custody
-manifests. It is not a scanner, SaaS portal, fleet manager, or automated
-compliance engine. You bring authorized tool output; Piranesi keeps the evidence
-local and produces artifacts a consultant can inspect, sign, preview, and hand off.
+Piranesi turns authorized red-team engagement artifacts into local, reviewable
+deliverables: preserved evidence, normalized findings, report artifacts, retest diffs,
+and signed chain-of-custody manifests. It is not a scanner, C2 platform, SaaS portal,
+fleet manager, or automated compliance engine. You bring operator artifacts and tool
+output; Piranesi keeps the evidence local and produces artifacts a team can inspect,
+sign, preview, and hand off.
 
 `v0.2.0` is the pivot release. The documented Phase 1 workflow is intentionally
-small:
+small, with scanner imports retained as one evidence source:
 
 ```text
+piranesi evidence
 piranesi ingest
 piranesi report
 piranesi retest
@@ -49,6 +51,8 @@ without leaking client data.
 Piranesi focuses on that artifact layer:
 
 - **Import-only:** Phase 1 does not run active scans or payloads.
+- **Operator-evidence aware:** screenshots, transcripts, logs, and other artifacts can
+  be preserved in the local evidence vault.
 - **Evidence-bound:** findings cite raw tool exports, source digests, and locators.
 - **Local-first:** workspaces, reports, signatures, and previews stay on disk.
 - **Deterministic:** normalized IDs and contract snapshots make reports reproducible.
@@ -64,6 +68,12 @@ uv run piranesi ingest init --workspace ./workspace \
   --client "Example Client" \
   --project "Loopback Lab" \
   --scope 127.0.0.1
+printf "Initial operator note\n" > operator-note.txt
+uv run piranesi evidence add \
+  --file operator-note.txt \
+  --kind note \
+  --workspace ./workspace \
+  --title "Initial operator note"
 uv run piranesi ingest nmap \
   --input tests/fixtures/pentest/nmap/localhost-http.xml \
   --workspace ./workspace
@@ -105,6 +115,8 @@ Implemented Phase 1 pieces:
 
 - Pentest workspace contract with raw evidence, normalized findings, reports,
   signatures, and append-only audit log.
+- Red-team evidence inventory for operator artifacts such as screenshots, notes,
+  transcripts, payload metadata, detection artifacts, and C2 logs.
 - Real fixture policy and provenance validation for parser fixtures.
 - nmap XML ingestion.
 - nuclei JSONL ingestion.
@@ -123,17 +135,28 @@ See [docs/capabilities.md](docs/capabilities.md) for the detailed Phase 1 matrix
 workspace/
   workspace.json
   audit-log.jsonl
+  evidence/
+    index.json
   raw/
     nmap/
     nuclei/
+    screenshot/
+    transcript/
+    c2-log/
   normalized/
     findings.json
+  timeline/
+  objectives/
+  procedures/
+  detections/
   reports/
   signatures/
 ```
 
 Piranesi copies imported files under `raw/<tool>/`, records the original digest, and
-normalizes report-ready findings under `normalized/findings.json`.
+normalizes report-ready findings under `normalized/findings.json`. Operator artifacts
+added with `piranesi evidence add` are also copied under `raw/<kind>/` and indexed in
+`evidence/index.json`.
 
 ## Documentation
 
@@ -151,6 +174,7 @@ normalizes report-ready findings under `normalized/findings.json`.
 
 - No hosted SaaS, auth, teams, or client portal.
 - No new scanner engine or active target interaction.
+- No C2 operation, implant management, or payload execution.
 - No autonomous exploitation, payload generation, or AI writeups.
 - No fleet management or live SSH probing.
 - No compliance certification claims.

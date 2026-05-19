@@ -1,9 +1,10 @@
 # Piranesi Architecture
 
-Piranesi is a local-first pentest report engine. The active Phase 1 architecture is
-artifact-first: import authorized tool exports, normalize them into a workspace,
-render report artifacts, compare retest workspaces, sign the artifact chain, and
-preview the result on loopback.
+Piranesi is a local-first red-team engagement workspace. The active architecture is
+artifact-first: preserve authorized operator evidence, import tool exports, normalize
+findings, build an engagement timeline over time, render report and handoff artifacts,
+compare retest workspaces, sign the artifact chain, and preview the result on
+loopback.
 
 Historical host-posture and source-code scanning modules still exist in the
 repository while the pivot is completed. They are compatibility/legacy code, not the
@@ -14,6 +15,7 @@ current product surface.
 The documented Phase 1 workflow uses:
 
 ```text
+evidence
 ingest
 report
 retest
@@ -25,6 +27,7 @@ Command responsibilities:
 
 | Verb | Responsibility |
 | --- | --- |
+| `evidence` | Preserve operator artifacts such as screenshots, notes, logs, transcripts, and payload metadata. |
 | `ingest` | Create/update a workspace and import real tool exports. |
 | `report` | Render JSON, Markdown, or PDF from normalized workspace findings. |
 | `retest` | Compare two workspaces and classify finding lifecycle status. |
@@ -37,10 +40,17 @@ Command responsibilities:
 workspace/
   workspace.json
   audit-log.jsonl
+  evidence/
+    index.json
   raw/
     <tool>/
+    <evidence-kind>/
   normalized/
     findings.json
+  timeline/
+  objectives/
+  procedures/
+  detections/
   reports/
   signatures/
 ```
@@ -48,9 +58,14 @@ workspace/
 Core files:
 
 - `workspace.json`: engagement metadata, report settings, and imported tool records.
+- `evidence/index.json`: metadata for preserved operator artifacts.
 - `normalized/findings.json`: deterministic normalized findings.
 - `audit-log.jsonl`: append-only command events with source/output digests.
 - `raw/<tool>/`: copied tool exports, never rewritten by parsers.
+- `raw/<evidence-kind>/`: copied operator evidence, never rewritten by Piranesi.
+- `timeline/`, `objectives/`, `procedures/`, `detections/`: red-team workspace areas
+  reserved for the engagement timeline, objective tracking, procedure mapping, and
+  blue-team handoff data.
 - `reports/`: generated report artifacts.
 - `signatures/`: chain-of-custody manifests.
 
@@ -58,17 +73,57 @@ Core files:
 
 ```mermaid
 flowchart LR
-    A["Tool exports"] --> B["piranesi ingest"]
-    B --> C["Workspace raw inputs"]
-    B --> D["Normalized findings"]
-    D --> E["piranesi report"]
-    D --> F["piranesi retest"]
-    C --> G["piranesi sign"]
-    D --> G
-    E --> G
-    D --> H["piranesi serve"]
-    E --> H
+    A["Operator artifacts"] --> B["piranesi evidence"]
+    C["Tool exports"] --> D["piranesi ingest"]
+    B --> E["Workspace raw evidence"]
+    B --> F["Evidence inventory"]
+    D --> E
+    D --> G["Normalized findings"]
+    G --> H
+    G --> I["piranesi retest"]
+    E --> J["piranesi sign"]
+    F --> J
+    G --> J
+    H --> J
+    F -. future red-team sections .-> H["piranesi report"]
+    F -. future preview surfaces .-> K["piranesi serve"]
+    G --> K
 ```
+
+Dashed edges show the next reporting/preview work. The first pivot slice stores and
+signs the evidence inventory; red-team report sections will consume it in a follow-up.
+
+## Evidence Vault
+
+`piranesi evidence add` preserves operator artifacts without interpreting or rewriting
+their contents. Each evidence record stores a kind, title, raw path, SHA-256 digest,
+timestamp metadata, source, sensitivity marker, tags, and optional notes.
+
+Initial evidence kinds are:
+
+- screenshot
+- c2-log
+- transcript
+- payload
+- detection
+- scanner
+- note
+- other
+
+## Pivot Roadmap
+
+The red-team workspace pivot is tracked as a focused issue chain:
+
+- #105: evidence inventory and raw evidence vault
+- #106: evidence add/list CLI
+- #107: timeline model and CLI
+- #108: objectives and procedure/ATT&CK mapping
+- #109: C2 log import boundary
+- #110: IOC and detection handoff model
+- #111: red-team report and handoff sections
+- #112: provenance coverage for red-team artifacts
+- #114: authorized lab validation
+- #115: first-class local web app
 
 ## Adapter Boundary
 
@@ -128,5 +183,5 @@ serve arbitrary paths from the workspace.
 ## Non-Goals
 
 Phase 1 does not include hosted SaaS, authentication, teams, a new scanner engine,
-active testing orchestration, AI-authored report text, live SSH probing, or compliance
-certification claims.
+active testing orchestration, C2 operation, implant management, payload execution,
+AI-authored report text, live SSH probing, or compliance certification claims.

@@ -1,7 +1,7 @@
 [project]
 name = "piranesi"
 version = "0.2.0"
-description = "Local-first pentest and red-team report engine"
+description = "Local-first red-team engagement workspace"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.12"
