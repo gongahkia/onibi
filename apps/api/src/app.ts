@@ -18,6 +18,8 @@ import {
 } from "@kelpclaw/nanoclaw";
 import {
   WorkflowValidationError,
+  createWorkflowGraphDiff,
+  createWorkflowPlannerFeedback,
   gmailReceiptsToSheetsWorkflowFixture,
   redactSecretString,
   stableJsonStringify,
@@ -36,6 +38,8 @@ import type {
   WorkflowApproveRequest,
   WorkflowApproveResponse,
   WorkflowEventSeverity,
+  WorkflowFeedbackRequest,
+  WorkflowFeedbackResponse,
   WorkflowNode,
   WorkflowObservabilityEventKind,
   WorkflowPlanRequest,
@@ -455,6 +459,84 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       validation: draftRevision.validation,
       workflow: draftRevision.workflow,
       draftRevision
+    };
+  });
+
+  app.post<{
+    Params: RouteParamsWithId;
+    Body: WorkflowFeedbackRequest;
+    Reply: WorkflowFeedbackResponse;
+  }>("/api/workflows/:id/feedback", async (request, reply) => {
+    if (
+      request.body.baseWorkflow.id !== request.params.id ||
+      request.body.editedWorkflow.id !== request.params.id
+    ) {
+      return reply.code(409).send({
+        ok: false,
+        error: "WORKFLOW_ID_MISMATCH",
+        message: "Feedback base and edited workflows must match the route workflow id."
+      } as never);
+    }
+
+    const stored = store.getWorkflow(request.params.id);
+    if (!stored) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_NOT_FOUND",
+        message: `Workflow '${request.params.id}' was not found.`
+      } as never);
+    }
+
+    const correlationId = correlationIdForRequest(request);
+    const now = new Date().toISOString();
+    const graphDiff = store.saveGraphDiff(
+      createWorkflowGraphDiff({
+        id: `graphdiff.${request.params.id}.${Date.now()}.${randomUUID()}`,
+        baseWorkflow: request.body.baseWorkflow,
+        editedWorkflow: request.body.editedWorkflow,
+        createdAt: now
+      })
+    );
+    const route = routeWorkflowTask(
+      {
+        prompt: request.body.prompt ?? request.body.editedWorkflow.prompt,
+        currentWorkflow: request.body.editedWorkflow
+      },
+      {
+        correlationId,
+        provider: process.env.KELPCLAW_PLANNER_PROVIDER ?? "anthropic",
+        model: process.env.KELPCLAW_PLANNER_MODEL,
+        now
+      }
+    );
+    const feedback = store.savePlannerFeedback(
+      createWorkflowPlannerFeedback({
+        id: `feedback.${request.params.id}.${Date.now()}.${randomUUID()}`,
+        graphDiff,
+        route,
+        createdAt: now
+      })
+    );
+    recordAudit(store, {
+      action: "planner.feedback.created",
+      actor: "planner",
+      workflowId: request.params.id,
+      revisionId:
+        store.getLatestDraftRevision(request.params.id)?.id ??
+        `draft.${request.params.id}.r${request.body.editedWorkflow.revision}`,
+      correlationId,
+      summary: `Created planner feedback with ${feedback.suggestions.length} suggestion(s).`,
+      metadata: {
+        graphDiffId: graphDiff.id,
+        feedbackId: feedback.id,
+        status: feedback.status
+      }
+    });
+
+    return {
+      ok: true,
+      graphDiff,
+      feedback
     };
   });
 

@@ -17,6 +17,8 @@ import type {
   WorkflowAuditRecord,
   WorkflowDraftRevision,
   WorkflowDraftRevisionSource,
+  WorkflowGraphDiff,
+  WorkflowPlannerFeedback,
   WorkflowRunRecord,
   WorkflowRunEvent,
   WorkflowSpec,
@@ -90,6 +92,12 @@ export interface WorkflowStore {
   listAuditRecords(workflowId: string): readonly WorkflowAuditRecord[];
   saveArtifactManifest(record: WorkflowArtifactManifestRecord): WorkflowArtifactManifestRecord;
   getArtifactManifest(id: string): WorkflowArtifactManifestRecord | undefined;
+  saveGraphDiff(record: WorkflowGraphDiff): WorkflowGraphDiff;
+  getGraphDiff(id: string): WorkflowGraphDiff | undefined;
+  listGraphDiffs(workflowId: string): readonly WorkflowGraphDiff[];
+  savePlannerFeedback(record: WorkflowPlannerFeedback): WorkflowPlannerFeedback;
+  getPlannerFeedback(id: string): WorkflowPlannerFeedback | undefined;
+  listPlannerFeedback(workflowId: string): readonly WorkflowPlannerFeedback[];
   requireWorkflow(id: string): StoredWorkflow;
 }
 
@@ -101,6 +109,8 @@ export class InMemoryWorkflowStore implements WorkflowStore {
   protected readonly runs = new Map<string, WorkflowRunRecord>();
   protected readonly audits = new Map<string, WorkflowAuditRecord>();
   protected readonly artifactManifests = new Map<string, WorkflowArtifactManifestRecord>();
+  protected readonly graphDiffs = new Map<string, WorkflowGraphDiff>();
+  protected readonly plannerFeedback = new Map<string, WorkflowPlannerFeedback>();
 
   public saveWorkflow(
     workflow: WorkflowSpec,
@@ -384,6 +394,48 @@ export class InMemoryWorkflowStore implements WorkflowStore {
     return this.artifactManifests.get(id);
   }
 
+  public saveGraphDiff(record: WorkflowGraphDiff): WorkflowGraphDiff {
+    const existing = this.graphDiffs.get(record.id);
+    if (existing) {
+      assertImmutableRecordUnchanged("graph diff", record.id, existing, record);
+      return existing;
+    }
+
+    this.graphDiffs.set(record.id, record);
+    return record;
+  }
+
+  public getGraphDiff(id: string): WorkflowGraphDiff | undefined {
+    return this.graphDiffs.get(id);
+  }
+
+  public listGraphDiffs(workflowId: string): readonly WorkflowGraphDiff[] {
+    return [...this.graphDiffs.values()]
+      .filter((record) => record.workflowId === workflowId)
+      .sort(
+        (left, right) =>
+          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
+      );
+  }
+
+  public savePlannerFeedback(record: WorkflowPlannerFeedback): WorkflowPlannerFeedback {
+    this.plannerFeedback.set(record.id, record);
+    return record;
+  }
+
+  public getPlannerFeedback(id: string): WorkflowPlannerFeedback | undefined {
+    return this.plannerFeedback.get(id);
+  }
+
+  public listPlannerFeedback(workflowId: string): readonly WorkflowPlannerFeedback[] {
+    return [...this.plannerFeedback.values()]
+      .filter((record) => record.workflowId === workflowId)
+      .sort(
+        (left, right) =>
+          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
+      );
+  }
+
   public requireWorkflow(id: string): StoredWorkflow {
     const aggregate = this.workflows.get(id);
     if (!aggregate) {
@@ -515,6 +567,28 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
     return saved;
   }
 
+  public override saveGraphDiff(record: WorkflowGraphDiff): WorkflowGraphDiff {
+    const saved = super.saveGraphDiff(record);
+    this.runSql(
+      [
+        "INSERT OR IGNORE INTO graph_diffs (id, workflow_id, created_at, record_json)",
+        `VALUES (${sqlValue(saved.id)}, ${sqlValue(saved.workflowId)}, ${sqlValue(saved.createdAt)}, ${sqlValue(stableStringify(saved))});`
+      ].join(" ")
+    );
+    return saved;
+  }
+
+  public override savePlannerFeedback(record: WorkflowPlannerFeedback): WorkflowPlannerFeedback {
+    const saved = super.savePlannerFeedback(record);
+    this.runSql(
+      [
+        "INSERT OR REPLACE INTO planner_feedback (id, workflow_id, graph_diff_id, created_at, record_json)",
+        `VALUES (${sqlValue(saved.id)}, ${sqlValue(saved.workflowId)}, ${sqlValue(saved.graphDiffId)}, ${sqlValue(saved.createdAt)}, ${sqlValue(stableStringify(saved))});`
+      ].join(" ")
+    );
+    return saved;
+  }
+
   private persistAllWorkflowState(workflowId: string): void {
     const stored = this.requireWorkflow(workflowId);
     for (const draft of stored.draftRevisions) {
@@ -640,6 +714,18 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
       "SELECT * FROM artifact_manifests ORDER BY created_at, id;"
     )) {
       this.artifactManifests.set(row.id, parseJson(row.record_json));
+    }
+
+    for (const row of this.queryRows<GraphDiffRow>(
+      "SELECT * FROM graph_diffs ORDER BY created_at, id;"
+    )) {
+      this.graphDiffs.set(row.id, parseJson(row.record_json));
+    }
+
+    for (const row of this.queryRows<PlannerFeedbackRow>(
+      "SELECT * FROM planner_feedback ORDER BY created_at, id;"
+    )) {
+      this.plannerFeedback.set(row.id, parseJson(row.record_json));
     }
   }
 
@@ -819,6 +905,19 @@ const sqliteMigrations = [
     manifest_checksum TEXT NOT NULL,
     record_json TEXT NOT NULL
   );`,
+  `CREATE TABLE IF NOT EXISTS graph_diffs (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+  );`,
+  `CREATE TABLE IF NOT EXISTS planner_feedback (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    graph_diff_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+  );`,
   "INSERT OR IGNORE INTO schema_migrations (id) VALUES ('0001_phase7_enterprise_store');"
 ] as const;
 
@@ -882,6 +981,16 @@ interface AuditRow {
 }
 
 interface ArtifactManifestRow {
+  readonly id: string;
+  readonly record_json: string;
+}
+
+interface GraphDiffRow {
+  readonly id: string;
+  readonly record_json: string;
+}
+
+interface PlannerFeedbackRow {
   readonly id: string;
   readonly record_json: string;
 }
