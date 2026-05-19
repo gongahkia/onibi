@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   AgentSdkCodeGenerator,
+  GeneratedNodeBuildLoop,
   LocalCodegenArtifactStore,
   assertSafeArtifactPath,
   createDependencyManifestArtifact,
@@ -13,7 +14,7 @@ import {
   decideReplay,
   assertDependencyManifestPolicy
 } from "../src/index.js";
-import type { AgentQueryRunner, CodegenGenerationRequest } from "../src/index.js";
+import type { AgentQueryRunner, CodegenGenerationRequest, GeneratedNodeBuildLoopRequest } from "../src/index.js";
 
 describe("codegen artifact contracts", () => {
   it("creates artifacts with stable checksums", () => {
@@ -268,7 +269,52 @@ describe("codegen artifact contracts", () => {
       "ANTHROPIC_API_KEY is required"
     );
   });
+
+  it("creates design, source, test, and eval agent artifacts through the build loop", async () => {
+    const loop = new GeneratedNodeBuildLoop();
+    const result = await loop.build(buildLoopRequestFixture());
+
+    expect(result.designSpecArtifact.path).toBe("generated/scrape-status-page.design.json");
+    expect(result.testArtifacts[0]?.path).toBe("generated/scrape-status-page.contract.test.ts");
+    expect(result.generation.metadata.provenance.generator).toBe(
+      "kelpclaw.codegen.deterministic-build-loop"
+    );
+    expect(result.agentRuns.map((run) => run.role)).toEqual([
+      "workflow-architect",
+      "coder",
+      "tester",
+      "runner",
+      "evaluator"
+    ]);
+  });
 });
+
+function buildLoopRequestFixture(): GeneratedNodeBuildLoopRequest {
+  return {
+    ...codegenRequestFixture(),
+    job: {
+      id: "job.build.codegen-node.test",
+      type: "build.codegen-node",
+      status: "running",
+      workflowId: "workflow.scheduled-scraping",
+      nodeId: "scrape-status-page",
+      correlationId: "corr.codegen-test",
+      createdAt: "2026-05-18T00:00:00.000Z",
+      updatedAt: "2026-05-18T00:00:00.000Z",
+      startedAt: "2026-05-18T00:00:00.000Z",
+      retry: {
+        attempt: 1,
+        maxAttempts: 1,
+        retryable: false
+      },
+      events: []
+    },
+    maxIterations: 3,
+    maxWallClockSeconds: 600,
+    maxModelCostUsd: 2,
+    runTestsInDocker: false
+  };
+}
 
 function codegenRequestFixture(): CodegenGenerationRequest {
   return {

@@ -106,6 +106,8 @@ describe("OpenClaw planner shell", () => {
   it("approves a frozen diff and renders NanoClaw run state", async () => {
     render(<App />);
 
+    fireEvent.click(screen.getByRole("button", { name: /evaluate/i }));
+    expect((await screen.findAllByText("ready")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: /approve/i }));
     expect(await screen.findByText("Frozen approval metadata changed.")).toBeInTheDocument();
 
@@ -192,7 +194,57 @@ async function mockFetch(input: string | URL | Request, init?: RequestInit): Pro
       ok: true,
       workflow,
       draftRevision: draftRevision(workflow, "plan"),
-      validation: { ok: true, workflow }
+      validation: { ok: true, workflow },
+      route: taskRouteForWorkflow(workflow)
+    });
+  }
+
+  if (url.endsWith("/evaluate-draft")) {
+    const workflow = body.workflow as WorkflowSpec;
+    return jsonResponse({
+      ok: true,
+      evaluation: {
+        id: `eval.${workflow.id}.r${workflow.revision}`,
+        workflowId: workflow.id,
+        draftRevisionId: `draft.${workflow.id}.r${workflow.revision}`,
+        status: "passed",
+        readyForApproval: true,
+        createdAt: "2026-05-18T01:00:00.000Z",
+        finishedAt: "2026-05-18T01:00:00.000Z",
+        mode: "draft",
+        mockOnly: true,
+        liveProviderCalls: 0,
+        findings: [],
+        events: [],
+        suggestions: []
+      }
+    });
+  }
+
+  if (url.endsWith("/feedback")) {
+    const workflow = body.editedWorkflow as WorkflowSpec;
+    return jsonResponse({
+      ok: true,
+      graphDiff: {
+        id: `graphdiff.${workflow.id}`,
+        workflowId: workflow.id,
+        baseRevision: workflow.revision,
+        editedRevision: workflow.revision,
+        createdAt: "2026-05-18T01:00:00.000Z",
+        summary: ["node.edited: 1"],
+        changes: [],
+        validation: { ok: true, workflow }
+      },
+      feedback: {
+        id: `feedback.${workflow.id}`,
+        workflowId: workflow.id,
+        graphDiffId: `graphdiff.${workflow.id}`,
+        route: taskRouteForWorkflow(workflow),
+        createdAt: "2026-05-18T01:00:00.000Z",
+        status: "ready",
+        suggestions: [],
+        issues: []
+      }
     });
   }
 
@@ -372,6 +424,34 @@ function draftRevision(workflow: WorkflowSpec, source: string) {
     validation: { ok: true, workflow },
     source,
     createdAt: "2026-05-18T00:00:00.000Z"
+  };
+}
+
+function taskRouteForWorkflow(workflow: WorkflowSpec) {
+  const codegen = workflow.nodes.some((node) => node.kind === "codegen");
+
+  return {
+    route: codegen ? "codegen" : "adapter",
+    rationale: codegen
+      ? "Prompt requires generated node artifacts."
+      : "Prompt uses existing adapter workflow templates.",
+    requiredModel: {
+      mode: codegen ? "live" : "none",
+      role: codegen ? "workflow-architect" : "classifier",
+      provider: codegen ? "anthropic" : undefined,
+      model: codegen ? "test-model" : undefined,
+      retryBudget: {
+        maxAttempts: 1,
+        maxCostUsd: codegen ? 1 : 0
+      }
+    },
+    expectedNodeKinds: codegen
+      ? ["trigger", "codegen", "transform", "delivery"]
+      : ["trigger", "skill", "transform", "delivery"],
+    dockerSandboxRequired: codegen,
+    draftTestsRequired: codegen,
+    productionDeterministic: true,
+    modelInvocations: []
   };
 }
 

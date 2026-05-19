@@ -30,6 +30,7 @@ import {
   MockNodeRunner,
   ProductionNodeRunner,
   compileWorkflowDag,
+  evaluateDraftWorkflow,
   executeCompiledDag,
   hashWorkflowDag,
   replayCompletedRun
@@ -111,6 +112,36 @@ describe("nanoclaw dag runtime", () => {
       status: "succeeded",
       channels: ["email"]
     });
+  });
+
+  it("evaluates draft workflows with mock adapters and no live secret values", async () => {
+    const evaluation = await evaluateDraftWorkflow(gmailReceiptsToSheetsWorkflowFixture);
+
+    expect(evaluation.status).toBe("passed");
+    expect(evaluation.mockOnly).toBe(true);
+    expect(evaluation.liveProviderCalls).toBe(0);
+    expect(evaluation.events.map((event) => event.message)).toContain("Draft evaluation finished.");
+  });
+
+  it("refuses raw secrets during draft evaluation", async () => {
+    const workflow = {
+      ...gmailReceiptsToSheetsWorkflowFixture,
+      nodes: gmailReceiptsToSheetsWorkflowFixture.nodes.map((node) =>
+        node.id === "read-gmail-receipts"
+          ? {
+              ...node,
+              secretRefs: {
+                "gmail.oauth": "raw-token"
+              }
+            }
+          : node
+      )
+    };
+
+    const evaluation = await evaluateDraftWorkflow(workflow);
+
+    expect(evaluation.status).toBe("failed");
+    expect(evaluation.findings[0]?.message).toContain("refuses raw secret");
   });
 
   it("defaults delivery nodes to email when no secondary channel is declared", async () => {
