@@ -40,6 +40,118 @@ def _get_json(url: str) -> dict[str, object]:
     return json.loads(body.decode("utf-8"))
 
 
+def _post_json(url: str, payload: dict[str, object]) -> tuple[int, dict[str, object]]:
+    parsed = urlparse(url)
+    assert parsed.scheme == "http"
+    assert parsed.hostname is not None
+    connection = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=5)
+    try:
+        path = parsed.path or "/"
+        body = json.dumps(payload).encode("utf-8")
+        connection.request(
+            "POST",
+            path,
+            body=body,
+            headers={"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        raw_body = response.read()
+        return response.status, json.loads(raw_body.decode("utf-8"))
+    finally:
+        connection.close()
+
+
+def test_workspace_server_opens_empty_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "empty-workspace"
+    server = run_workspace_server(WorkspaceServeOptions(workspace=workspace, port=0), block=False)
+    try:
+        url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+        payload = _get_json(f"{url}/api/workspace")
+
+        assert payload["initialized"] is True
+        assert payload["workspace"] == str(workspace.resolve(strict=False))
+        assert payload["empty_states"] == {
+            "detections": True,
+            "evidence": True,
+            "findings": True,
+            "objectives": True,
+            "procedures": True,
+            "reports": True,
+            "signed": True,
+            "signing": True,
+            "timeline": True,
+        }
+        assert payload["evidence"] == []
+        assert payload["timeline"] == []
+        assert payload["objectives"] == []
+        assert payload["procedures"] == []
+        assert payload["findings"] == []
+        assert (workspace / "workspace.json").is_file()
+        assert (workspace / "evidence" / "index.json").is_file()
+        assert (workspace / "timeline" / "events.jsonl").is_file()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_workspace_server_initializes_engagement_from_browser_flow(tmp_path: Path) -> None:
+    workspace = tmp_path / "browser-workspace"
+    server = run_workspace_server(WorkspaceServeOptions(workspace=workspace, port=0), block=False)
+    try:
+        url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+        status, payload = _post_json(
+            f"{url}/api/workspace/init",
+            {
+                "client": "Acme",
+                "project": "Q2 purple team",
+                "scope": "app.acme.test, 10.0.0.0/24",
+                "assessment_type": "red-team",
+                "owner": "operator-1",
+            },
+        )
+
+        assert status == 200
+        assert payload["engagement"]["client"] == "Acme"  # type: ignore[index]
+        assert payload["engagement"]["project"] == "Q2 purple team"  # type: ignore[index]
+        assert payload["engagement"]["scope"] == [  # type: ignore[index]
+            "app.acme.test",
+            "10.0.0.0/24",
+        ]
+        assert payload["engagement"]["assessment_type"] == "red-team"  # type: ignore[index]
+        assert payload["engagement"]["owner"] == "operator-1"  # type: ignore[index]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_workspace_server_adds_note_evidence_from_ui_flow(tmp_path: Path) -> None:
+    workspace = tmp_path / "browser-workspace"
+    server = run_workspace_server(WorkspaceServeOptions(workspace=workspace, port=0), block=False)
+    try:
+        url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+        status, payload = _post_json(
+            f"{url}/api/evidence/note",
+            {
+                "title": "Initial access note",
+                "tags": "initial-access, ui",
+                "content": "Operator captured authorized lab login behavior.",
+            },
+        )
+
+        assert status == 200
+        assert payload["empty_states"]["evidence"] is False  # type: ignore[index]
+        assert payload["evidence"][0]["title"] == "Initial access note"  # type: ignore[index]
+        assert payload["evidence"][0]["kind"] == "note"  # type: ignore[index]
+        assert payload["evidence"][0]["tags"] == ["initial-access", "ui"]  # type: ignore[index]
+        raw_path = workspace / payload["evidence"][0]["raw_path"]  # type: ignore[index]
+        assert raw_path.read_text(encoding="utf-8") == (
+            "Operator captured authorized lab login behavior.\n"
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_workspace_server_renders_real_workspace_data(tmp_path: Path) -> None:
     workspace = _ingest_nmap(tmp_path / "workspace")
     server = run_workspace_server(WorkspaceServeOptions(workspace=workspace, port=0), block=False)
@@ -51,6 +163,8 @@ def test_workspace_server_renders_real_workspace_data(tmp_path: Path) -> None:
         assert html_status == 200
         html = html_body.decode("utf-8")
         assert "Piranesi Workspace Review" in html
+        assert "Add Note Evidence" in html
+        assert "Engagement Flow" in html
         assert "workbench" not in html.lower()
         assert payload["type"] == "workspace"
         assert payload["executive_summary"]["finding_count"] == 2  # type: ignore[index]

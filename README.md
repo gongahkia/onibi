@@ -124,7 +124,8 @@ Implemented Phase 1 pieces:
 - Chain-of-custody manifest creation and verification.
 - Retest lifecycle diff with `new`, `open`, `closed`, `changed`, `regressed`, and
   `ambiguous` statuses.
-- Local loopback report preview via `piranesi serve`.
+- Local loopback web app via `piranesi serve`, including empty-workspace setup and
+  typed operator-note evidence capture.
 
 See [docs/capabilities.md](docs/capabilities.md) for the detailed Phase 1 matrix and
 [docs/known-limitations.json](docs/known-limitations.json) for tracked limitations.
@@ -167,6 +168,7 @@ added with `piranesi evidence add` are also copied under `raw/<kind>/` and index
 - [Retest workflow](docs/retest-workflow.md)
 - [Chain of custody](docs/chain-of-custody.md)
 - [Local preview UI](docs/local-ui.md)
+- [Product interface decision](docs/product-interface-decision.md)
 - [Privacy and data handling](docs/privacy-data-handling.md)
 - [CI examples](docs/ci-integration.md)
 
