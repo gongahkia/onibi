@@ -19,7 +19,19 @@ from piranesi.workspace import (
 )
 
 MANIFEST_SCHEMA_VERSION: Literal["piranesi.chain-of-custody.v1"] = "piranesi.chain-of-custody.v1"
-ArtifactRole = Literal["workspace", "findings", "audit-log", "raw-input", "report", "signature"]
+ArtifactRole = Literal[
+    "workspace",
+    "findings",
+    "audit-log",
+    "raw-input",
+    "report",
+    "evidence",
+    "timeline",
+    "objective",
+    "procedure",
+    "detection",
+    "signature",
+]
 
 
 class SigningError(ValueError):
@@ -198,7 +210,15 @@ def collect_manifest_artifacts(workspace_root: Path) -> list[ManifestArtifact]:
                 )
             )
 
-    for root_name, role in (("raw", "raw-input"), ("reports", "report")):
+    for root_name, role in (
+        ("raw", "raw-input"),
+        ("reports", "report"),
+        ("evidence", "evidence"),
+        ("timeline", "timeline"),
+        ("objectives", "objective"),
+        ("procedures", "procedure"),
+        ("detections", "detection"),
+    ):
         root = workspace_root / root_name
         if not root.is_dir():
             continue

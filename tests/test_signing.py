@@ -65,6 +65,44 @@ def test_sign_verify_reports_precise_tamper_failure(tmp_path: Path) -> None:
     assert failure["expected_sha256"] != failure["actual_sha256"]
 
 
+def test_sign_verify_covers_evidence_inventory(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    evidence = tmp_path / "operator-note.txt"
+    evidence.write_text("operator note\n", encoding="utf-8")
+
+    add = runner.invoke(
+        app,
+        [
+            "evidence",
+            "add",
+            "--file",
+            str(evidence),
+            "--kind",
+            "note",
+            "--workspace",
+            str(workspace),
+        ],
+    )
+    assert add.exit_code == 0, add.output
+    sign = runner.invoke(app, ["sign", "--workspace", str(workspace), "--json"])
+    assert sign.exit_code == 0, sign.output
+    manifest_path = Path(json.loads(sign.stdout)["path"])
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    roles = {artifact["role"] for artifact in manifest["artifacts"]}
+    assert "evidence" in roles
+    assert "raw-input" in roles
+
+    evidence_index = workspace / "evidence" / "index.json"
+    payload = json.loads(evidence_index.read_text(encoding="utf-8"))
+    payload["evidence"][0]["title"] = "tampered evidence title"
+    evidence_index.write_text(json.dumps(payload), encoding="utf-8")
+
+    verify = runner.invoke(app, ["sign", "--workspace", str(workspace), "--verify", "--json"])
+    assert verify.exit_code == 1, verify.output
+    failures = json.loads(verify.stdout)["failures"]
+    assert any(failure["path"] == "evidence/index.json" for failure in failures)
+
+
 def test_audit_chain_detects_removed_reordered_or_edited_events(tmp_path: Path) -> None:
     workspace = _workspace_with_report(tmp_path)
     sign = runner.invoke(app, ["sign", "--workspace", str(workspace), "--json"])
