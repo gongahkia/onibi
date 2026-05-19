@@ -32,6 +32,7 @@ def build_contract_snapshot() -> dict[str, Any]:
                 "timeline/events.jsonl",
                 "objectives/objectives.json",
                 "procedures/procedures.json",
+                "detections/detections.json",
                 "audit-log.jsonl",
                 "raw/",
                 "timeline/",

@@ -9,6 +9,7 @@ from typer.testing import CliRunner
 from piranesi.cli import app
 from piranesi.workspace import (
     AUDIT_LOG_FILE,
+    DETECTIONS_FILE,
     EVIDENCE_FILE,
     FINDINGS_FILE,
     OBJECTIVES_FILE,
@@ -51,6 +52,7 @@ def test_create_workspace_writes_versioned_layout(tmp_path: Path) -> None:
     assert (state.root / TIMELINE_FILE).is_file()
     assert (state.root / OBJECTIVES_FILE).is_file()
     assert (state.root / PROCEDURES_FILE).is_file()
+    assert (state.root / DETECTIONS_FILE).is_file()
     assert (state.root / "raw").is_dir()
     assert (state.root / "evidence").is_dir()
     assert (state.root / "timeline").is_dir()

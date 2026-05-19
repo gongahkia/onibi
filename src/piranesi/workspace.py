@@ -26,6 +26,7 @@ EVIDENCE_FILE = "evidence/index.json"
 TIMELINE_FILE = "timeline/events.jsonl"
 OBJECTIVES_FILE = "objectives/objectives.json"
 PROCEDURES_FILE = "procedures/procedures.json"
+DETECTIONS_FILE = "detections/detections.json"
 
 WORKSPACE_DIRECTORIES = (
     "raw",
@@ -436,6 +437,16 @@ def _ensure_red_team_documents(root: Path) -> None:
     ):
         if not path.exists():
             _write_json(path, {"schema_version": schema_version, key: []})
+    detections_path = root / DETECTIONS_FILE
+    if not detections_path.exists():
+        _write_json(
+            detections_path,
+            {
+                "schema_version": "piranesi.detections.v1",
+                "iocs": [],
+                "notes": [],
+            },
+        )
 
 
 def _resolve_workspace_root(root: Path | str) -> Path:
@@ -466,6 +477,7 @@ def _safe_filename(name: str) -> str:
 __all__ = [
     "AUDIT_EVENT_SCHEMA_VERSION",
     "AUDIT_LOG_FILE",
+    "DETECTIONS_FILE",
     "EVIDENCE_FILE",
     "EVIDENCE_SCHEMA_VERSION",
     "FINDINGS_FILE",

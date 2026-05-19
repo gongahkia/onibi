@@ -15,6 +15,15 @@ from piranesi.adapters import (
     parse_nmap_xml_file,
     parse_nuclei_jsonl_file,
 )
+from piranesi.detections import (
+    DetectionConfidence,
+    DetectionError,
+    DetectionSensitivity,
+    IOCType,
+    add_detection_note,
+    add_ioc,
+    load_detections,
+)
 from piranesi.evidence import (
     EvidenceError,
     EvidenceKind,
@@ -56,6 +65,7 @@ from piranesi.timeline import (
     load_timeline_events,
 )
 from piranesi.workspace import (
+    DETECTIONS_FILE,
     EVIDENCE_FILE,
     FINDINGS_FILE,
     OBJECTIVES_FILE,
@@ -118,11 +128,17 @@ procedures_app = typer.Typer(
     help="Track red-team procedures and ATT&CK mapping.",
     no_args_is_help=True,
 )
+detections_app = typer.Typer(
+    add_completion=False,
+    help="Track IOCs and blue-team detection handoff notes.",
+    no_args_is_help=True,
+)
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(evidence_app, name="evidence")
 app.add_typer(timeline_app, name="timeline")
 app.add_typer(objectives_app, name="objectives")
 app.add_typer(procedures_app, name="procedures")
+app.add_typer(detections_app, name="detections")
 
 
 def _load_local_llm_env(env_path: Path | None = None) -> None:
@@ -1003,6 +1019,235 @@ def procedure_list_command(
     for procedure in document.procedures:
         technique = procedure.technique_id or "-"
         typer.echo(f"{procedure.id}\t{technique}\t{procedure.summary}")
+
+
+@detections_app.command("add-ioc", help="Add or update an IOC for blue-team handoff.")
+def detection_ioc_add_command(
+    ioc_type: Annotated[
+        IOCType,
+        typer.Option("--type", help="IOC type."),
+    ],
+    value: Annotated[
+        str,
+        typer.Option("--value", help="IOC value."),
+    ],
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to create or update.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    first_observed: Annotated[
+        str | None,
+        typer.Option("--first-observed", help="First observed timestamp."),
+    ] = None,
+    last_observed: Annotated[
+        str | None,
+        typer.Option("--last-observed", help="Last observed timestamp."),
+    ] = None,
+    evidence_ids: Annotated[
+        list[str] | None,
+        typer.Option("--evidence-id", help="Evidence record ID to link; repeatable."),
+    ] = None,
+    timeline_event_ids: Annotated[
+        list[str] | None,
+        typer.Option("--event-id", help="Timeline event ID to link; repeatable."),
+    ] = None,
+    procedure_ids: Annotated[
+        list[str] | None,
+        typer.Option("--procedure-id", help="Procedure ID to link; repeatable."),
+    ] = None,
+    sensitivity: Annotated[
+        DetectionSensitivity,
+        typer.Option("--sensitivity", help="IOC sensitivity marker."),
+    ] = "sensitive",
+    confidence: Annotated[
+        DetectionConfidence,
+        typer.Option("--confidence", help="IOC confidence."),
+    ] = "medium",
+    tags: Annotated[
+        list[str] | None,
+        typer.Option("--tag", help="IOC tag; repeatable."),
+    ] = None,
+    notes: Annotated[
+        str | None,
+        typer.Option("--notes", help="IOC note."),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print the IOC as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    try:
+        state = create_workspace(workspace)
+        _document, ioc = add_ioc(
+            state,
+            ioc_type=ioc_type,
+            value=value,
+            first_observed=first_observed,
+            last_observed=last_observed,
+            evidence_ids=evidence_ids,
+            timeline_event_ids=timeline_event_ids,
+            procedure_ids=procedure_ids,
+            sensitivity=sensitivity,
+            confidence=confidence,
+            tags=tags,
+            notes=notes,
+        )
+        output_digest = file_sha256(state.root / DETECTIONS_FILE)
+        append_workspace_audit_event(
+            state,
+            AuditEvent(
+                timestamp=utc_now(),
+                command="detections add-ioc",
+                output_path=DETECTIONS_FILE,
+                output_sha256=output_digest,
+                summary={"ioc_id": ioc.id, "type": ioc.type, "value": ioc.value},
+            ),
+        )
+    except (WorkspaceError, DetectionError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    payload = ioc.model_dump(mode="json")
+    _emit(payload, json_output=json_output, text=f"ioc: {ioc.id} {ioc.type} {ioc.value}")
+
+
+@detections_app.command("add-note", help="Add a blue-team detection handoff note.")
+def detection_note_add_command(
+    title: Annotated[
+        str,
+        typer.Option("--title", "-t", help="Detection note title."),
+    ],
+    body: Annotated[
+        str,
+        typer.Option("--body", "-b", help="Detection note body."),
+    ],
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to create or update.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    evidence_ids: Annotated[
+        list[str] | None,
+        typer.Option("--evidence-id", help="Evidence record ID to link; repeatable."),
+    ] = None,
+    timeline_event_ids: Annotated[
+        list[str] | None,
+        typer.Option("--event-id", help="Timeline event ID to link; repeatable."),
+    ] = None,
+    procedure_ids: Annotated[
+        list[str] | None,
+        typer.Option("--procedure-id", help="Procedure ID to link; repeatable."),
+    ] = None,
+    finding_ids: Annotated[
+        list[str] | None,
+        typer.Option("--finding-id", help="Finding ID to link; repeatable."),
+    ] = None,
+    sensitivity: Annotated[
+        DetectionSensitivity,
+        typer.Option("--sensitivity", help="Detection note sensitivity marker."),
+    ] = "sensitive",
+    tags: Annotated[
+        list[str] | None,
+        typer.Option("--tag", help="Detection note tag; repeatable."),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print the detection note as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    try:
+        state = create_workspace(workspace)
+        _document, note = add_detection_note(
+            state,
+            title=title,
+            body=body,
+            evidence_ids=evidence_ids,
+            timeline_event_ids=timeline_event_ids,
+            procedure_ids=procedure_ids,
+            finding_ids=finding_ids,
+            sensitivity=sensitivity,
+            tags=tags,
+        )
+        output_digest = file_sha256(state.root / DETECTIONS_FILE)
+        append_workspace_audit_event(
+            state,
+            AuditEvent(
+                timestamp=utc_now(),
+                command="detections add-note",
+                output_path=DETECTIONS_FILE,
+                output_sha256=output_digest,
+                summary={"note_id": note.id, "title": note.title},
+            ),
+        )
+    except (WorkspaceError, DetectionError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    payload = note.model_dump(mode="json")
+    _emit(payload, json_output=json_output, text=f"detection-note: {note.id} {note.title}")
+
+
+@detections_app.command("list", help="List IOCs and detection notes.")
+def detection_list_command(
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to inspect.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print detection data as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    try:
+        state = load_workspace(workspace)
+        document = load_detections(state.root)
+    except (WorkspaceError, DetectionError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    payload = {
+        "workspace": str(state.root),
+        "ioc_count": len(document.iocs),
+        "note_count": len(document.notes),
+        "iocs": [ioc.model_dump(mode="json") for ioc in document.iocs],
+        "notes": [note.model_dump(mode="json") for note in document.notes],
+    }
+    if json_output:
+        _emit(payload, json_output=True, text="")
+        return
+    if not document.iocs and not document.notes:
+        typer.echo("No detection handoff records.")
+        return
+    for ioc in document.iocs:
+        typer.echo(f"ioc\t{ioc.id}\t{ioc.type}\t{ioc.value}")
+    for note in document.notes:
+        typer.echo(f"note\t{note.id}\t{note.title}")
 
 
 @app.command("report", help="Generate pentest report artifacts from a workspace.")
