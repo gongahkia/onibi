@@ -158,6 +158,7 @@ textarea {
 .inspector-stack,
 .validation-panel,
 .approval-panel,
+.codegen-panel,
 .run-panel {
   display: grid;
   gap: 0.8rem;
@@ -436,6 +437,15 @@ dd {
   border: 1px solid #fecaca;
   border-radius: 6px;
   color: #991b1b;
+  margin: 0;
+  padding: 0.65rem;
+}
+
+.success-text {
+  background: #dcfce7;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  color: #166534;
   margin: 0;
   padding: 0.65rem;
 }

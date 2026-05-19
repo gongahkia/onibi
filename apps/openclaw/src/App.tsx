@@ -82,6 +82,7 @@ export function App() {
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [promotionNotice, setPromotionNotice] = useState<string | null>(null);
 
   const validationIssues = validation.ok ? [] : validation.errors;
   const [nodes, setNodes, onNodesChangeBase] = useNodesState<WorkflowFlowNode>(
@@ -121,6 +122,7 @@ export function App() {
       setApprovedRevision(null);
       setApprovalDiff(null);
       setRun(null);
+      setPromotionNotice(null);
       loadWorkflow(nextWorkflow);
     },
     [loadWorkflow]
@@ -312,6 +314,7 @@ export function App() {
       setApprovedRevision(null);
       setApprovalDiff(null);
       setRun(null);
+      setPromotionNotice(null);
       setNodePrompt(nextSelectedNode?.description ?? "");
     });
   }
@@ -340,6 +343,36 @@ export function App() {
       loadWorkflow(response.workflow, response.validation);
       setApprovalDiff(response.diff);
       markDirty(selectedNode.id);
+      setPromotionNotice(null);
+    });
+  }
+
+  function reviewCodegenNode() {
+    if (!selectedNode || selectedNode.kind !== "codegen") {
+      return;
+    }
+
+    void executeApiAction("review-codegen", async () => {
+      const response = await openClawApi.reviewCodegen(workflow.id, selectedNode.id, {
+        status: "approved",
+        reviewedBy: "owner@example.com"
+      });
+      loadWorkflow(response.workflow, response.validation);
+      setApprovedRevision(null);
+      setApprovalDiff(null);
+      setRun(null);
+      setPromotionNotice(null);
+    });
+  }
+
+  function promoteCodegenNode() {
+    if (!selectedNode || selectedNode.kind !== "codegen") {
+      return;
+    }
+
+    void executeApiAction("promote-codegen", async () => {
+      const response = await openClawApi.promoteCodegen(workflow.id, selectedNode.id);
+      setPromotionNotice(`Promoted ${response.skill.name}`);
     });
   }
 
@@ -379,6 +412,7 @@ export function App() {
     setApprovedRevision(null);
     setApprovalDiff(null);
     setRun(null);
+    setPromotionNotice(null);
     loadWorkflow(
       gmailReceiptsToSheetsWorkflowFixture,
       validateWorkflowSpec(gmailReceiptsToSheetsWorkflowFixture)
@@ -565,8 +599,11 @@ export function App() {
             busyAction={busyAction}
             onNodePromptChange={setNodePrompt}
             onReprompt={repromptNode}
+            onReviewCodegen={reviewCodegenNode}
+            onPromoteCodegen={promoteCodegenNode}
             onUpdateNode={updateNode}
             onUpdateJsonField={updateJsonField}
+            promotionNotice={promotionNotice}
           />
         </aside>
       </section>
@@ -584,8 +621,11 @@ function Inspector(props: {
   readonly approvedRevision: WorkflowApprovedRevision | null;
   readonly run: WorkflowRunRecord | null;
   readonly busyAction: string | null;
+  readonly promotionNotice: string | null;
   readonly onNodePromptChange: (value: string) => void;
   readonly onReprompt: () => void;
+  readonly onReviewCodegen: () => void;
+  readonly onPromoteCodegen: () => void;
   readonly onUpdateNode: (nodeId: string, updater: (node: WorkflowNode) => WorkflowNode) => void;
   readonly onUpdateJsonField: (
     nodeId: string,
@@ -741,6 +781,39 @@ function Inspector(props: {
             <WandSparkles size={18} />
             Reprompt Node
           </button>
+          {node.kind === "codegen" ? (
+            <section className="codegen-panel" aria-label="Generated code controls">
+              <StatusRow
+                label="Review"
+                value={node.codegen?.review.status ?? "missing"}
+                tone={node.codegen?.review.status ?? "blocked"}
+              />
+              <StatusRow
+                label="Replay"
+                value={node.codegen?.replay.mode ?? "missing"}
+                tone="pending"
+              />
+              <button
+                type="button"
+                onClick={props.onReviewCodegen}
+                disabled={props.busyAction !== null || node.codegen?.review.status === "approved"}
+              >
+                <CheckCircle2 size={18} />
+                Review Generated Code
+              </button>
+              <button
+                type="button"
+                onClick={props.onPromoteCodegen}
+                disabled={props.busyAction !== null || node.codegen?.review.status !== "approved"}
+              >
+                <WandSparkles size={18} />
+                Promote Skill
+              </button>
+              {props.promotionNotice ? (
+                <p className="success-text">{props.promotionNotice}</p>
+              ) : null}
+            </section>
+          ) : null}
           {props.jsonError ? <p className="error-text">{props.jsonError}</p> : null}
         </div>
       ) : (

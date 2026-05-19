@@ -3,12 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createApprovedWorkflowFixture,
   createWorkflowSpecDiff,
-  gmailReceiptsToSheetsWorkflowFixture
+  gmailReceiptsToSheetsWorkflowFixture,
+  scheduledScrapingWorkflowFixture
 } from "@kelpclaw/workflow-spec";
 import type { WorkflowRunRecord, WorkflowSpec } from "@kelpclaw/workflow-spec";
 import { App } from "../src/App.js";
 
+let mockCurrentWorkflow: WorkflowSpec | null = null;
+
 beforeEach(() => {
+  mockCurrentWorkflow = null;
   vi.stubGlobal("fetch", vi.fn(mockFetch));
 });
 
@@ -87,6 +91,22 @@ describe("OpenClaw planner shell", () => {
     expect(await screen.findByText("Classify Incidents With Severity And")).toBeInTheDocument();
     expect(screen.getByTestId("approval-diff")).toHaveTextContent("Classify Incidents");
   });
+
+  it("reviews and promotes generated code nodes", async () => {
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText("Workflow Prompt"), {
+      target: { value: "scrape a custom public status page and summarize incidents" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Plan$/i }));
+
+    expect(await screen.findByText("Scrape Status Page")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Review Generated Code/i }));
+    expect(await screen.findByText("approved")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Promote Skill/i }));
+    expect(await screen.findByText("Promoted Scrape Status Page")).toBeInTheDocument();
+  });
 });
 
 async function mockFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
@@ -98,7 +118,10 @@ async function mockFetch(input: string | URL | Request, init?: RequestInit): Pro
     const workflow: WorkflowSpec =
       prompt.includes("urgent") || prompt.includes("Telegram")
         ? createAlertWorkflow(prompt)
-        : gmailReceiptsToSheetsWorkflowFixture;
+        : prompt.includes("scrape")
+          ? createCodegenWorkflow(prompt)
+          : gmailReceiptsToSheetsWorkflowFixture;
+    mockCurrentWorkflow = workflow;
 
     return jsonResponse({
       ok: true,
@@ -140,6 +163,34 @@ async function mockFetch(input: string | URL | Request, init?: RequestInit): Pro
       before,
       after,
       diff
+    });
+  }
+
+  if (url.includes("/codegen/") && url.endsWith("/review")) {
+    const workflow = reviewCodegenWorkflow(mockCurrentWorkflow ?? scheduledScrapingWorkflowFixture);
+    mockCurrentWorkflow = workflow;
+    const node = workflow.nodes.find((candidate) => candidate.id === "scrape-status-page");
+    return jsonResponse({
+      ok: true,
+      workflow,
+      draftRevision: draftRevision(workflow, "validate"),
+      validation: { ok: true, workflow },
+      node
+    });
+  }
+
+  if (url.includes("/codegen/") && url.endsWith("/promote")) {
+    return jsonResponse({
+      ok: true,
+      skill: {
+        id: "skill.promoted.scrape-status-page",
+        name: "Scrape Status Page"
+      },
+      artifact: {
+        path: "promoted-skills/skill.promoted.scrape-status-page.json",
+        checksum: `sha256:${"a".repeat(64)}`,
+        contentType: "application/json"
+      }
     });
   }
 
@@ -214,6 +265,36 @@ function createAlertWorkflow(prompt: string): WorkflowSpec {
         label: "Send Alert"
       }
     ]
+  };
+}
+
+function createCodegenWorkflow(prompt: string): WorkflowSpec {
+  return {
+    ...scheduledScrapingWorkflowFixture,
+    id: "workflow.scrape-a-custom-public-status-page-and-summarize-incidents",
+    name: "Scrape A Custom Public Status",
+    prompt
+  };
+}
+
+function reviewCodegenWorkflow(workflow: WorkflowSpec): WorkflowSpec {
+  return {
+    ...workflow,
+    nodes: workflow.nodes.map((node) =>
+      node.id === "scrape-status-page" && node.codegen
+        ? {
+            ...node,
+            codegen: {
+              ...node.codegen,
+              review: {
+                status: "approved",
+                reviewedBy: "owner@example.com",
+                reviewedAt: "2026-05-18T01:00:00.000Z"
+              }
+            }
+          }
+        : node
+    )
   };
 }
 

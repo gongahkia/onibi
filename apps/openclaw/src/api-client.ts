@@ -12,6 +12,33 @@ import type {
   WorkflowValidateResponse
 } from "@kelpclaw/workflow-spec";
 
+export interface CodegenReviewRequest {
+  readonly status: "approved" | "rejected";
+  readonly reviewedBy: string;
+  readonly notes?: string | undefined;
+}
+
+export interface CodegenReviewResponse {
+  readonly ok: true;
+  readonly workflow: WorkflowPlanResponse["workflow"];
+  readonly draftRevision: WorkflowPlanResponse["draftRevision"];
+  readonly validation: WorkflowValidateResponse["validation"];
+  readonly node: unknown;
+}
+
+export interface CodegenPromotionResponse {
+  readonly ok: true;
+  readonly skill: {
+    readonly id: string;
+    readonly name: string;
+  };
+  readonly artifact: {
+    readonly path: string;
+    readonly checksum: string;
+    readonly contentType: string;
+  };
+}
+
 export class OpenClawApiError extends Error {
   public readonly status: number;
 
@@ -43,6 +70,24 @@ export const openClawApi = {
 
   approve(workflowId: string, request: WorkflowApproveRequest): Promise<WorkflowApproveResponse> {
     return postJson(`/api/workflows/${encodeURIComponent(workflowId)}/approve`, request);
+  },
+
+  reviewCodegen(
+    workflowId: string,
+    nodeId: string,
+    request: CodegenReviewRequest
+  ): Promise<CodegenReviewResponse> {
+    return postJson(
+      `/api/workflows/${encodeURIComponent(workflowId)}/codegen/${encodeURIComponent(nodeId)}/review`,
+      request
+    );
+  },
+
+  promoteCodegen(workflowId: string, nodeId: string): Promise<CodegenPromotionResponse> {
+    return postJson(
+      `/api/workflows/${encodeURIComponent(workflowId)}/codegen/${encodeURIComponent(nodeId)}/promote`,
+      {}
+    );
   },
 
   startRun(
