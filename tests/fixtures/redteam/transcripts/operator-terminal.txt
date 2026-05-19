@@ -1,0 +1,10 @@
+$ whoami
+lab-operator
+
+$ curl -I http://127.0.0.1:8080/
+HTTP/1.1 200 OK
+Server: local-lab
+X-Lab-Exercise: piranesi-red-team-validation
+
+$ date -u
+2026-05-20T00:00:00Z
