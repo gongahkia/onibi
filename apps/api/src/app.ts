@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import { LocalCodegenArtifactStore } from "@kelpclaw/codegen";
 import {
   DockerNodeRunner,
   MockNodeRunner,
@@ -11,6 +12,7 @@ import {
   validateWorkflowSpec
 } from "@kelpclaw/workflow-spec";
 import type { FastifyInstance } from "fastify";
+import type { CodegenArtifactStore } from "@kelpclaw/codegen";
 import type {
   WorkflowApproveRequest,
   WorkflowApproveResponse,
@@ -22,6 +24,7 @@ import type {
   WorkflowSpec,
   WorkflowStartRunRequest,
   WorkflowStartRunResponse,
+  WorkflowValidationIssue,
   WorkflowValidateRequest,
   WorkflowValidateResponse
 } from "@kelpclaw/workflow-spec";
@@ -55,6 +58,7 @@ interface MockPlanRequestBody {
 export interface ApiAppOptions {
   readonly store?: InMemoryWorkflowStore | undefined;
   readonly planner?: WorkflowPlannerBackend | undefined;
+  readonly artifactStore?: CodegenArtifactStore | undefined;
 }
 
 export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
@@ -62,7 +66,8 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     logger: false
   });
   const store = options.store ?? new InMemoryWorkflowStore();
-  const planner = options.planner ?? createLivePlannerBackend();
+  const artifactStore = options.artifactStore ?? new LocalCodegenArtifactStore();
+  const planner = options.planner ?? createLivePlannerBackend({ artifactStore });
 
   app.get("/health", async () => ({
     status: "ok",
@@ -184,6 +189,16 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     "/api/workflows/:id/approvals",
     async (request, reply) => {
       try {
+        const issues = await validateCodegenApprovalReadiness(
+          store.requireWorkflow(request.params.id).workflow,
+          artifactStore
+        );
+        if (issues.length > 0) {
+          return reply.code(409).send({
+            error: issues[0]?.code ?? "WORKFLOW_CODEGEN_REVIEW_REQUIRED",
+            issues
+          });
+        }
         const approvedRevision = store.approveWorkflow(request.params.id, request.body.approvedBy);
         const workflow = approvedRevision.workflow;
         return {
@@ -280,6 +295,18 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     }
 
     try {
+      const codegenIssues = await validateCodegenApprovalReadiness(
+        validation.workflow,
+        artifactStore
+      );
+      if (codegenIssues.length > 0) {
+        return reply.code(409).send({
+          ok: false,
+          error: codegenIssues[0]?.code ?? "WORKFLOW_CODEGEN_REVIEW_REQUIRED",
+          message: codegenIssues.map((issue) => issue.message).join(", "),
+          issues: codegenIssues
+        } as never);
+      }
       const approvedRevision = store.approveWorkflow(
         request.params.id,
         request.body.approvedBy,
@@ -325,7 +352,9 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
 
     try {
       const dag = compileWorkflowDag(approvedRevision.workflow);
-      const result = await executeCompiledDag(dag, createNanoClawRunner());
+      const result = await executeCompiledDag(dag, createNanoClawRunner(), {
+        codegenArtifactStore: artifactStore
+      });
       const now = new Date().toISOString();
       const events = result.events ?? createRunEvents(result.nodeResults, now);
       const run = store.saveRun({
@@ -413,7 +442,9 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
 
       try {
         const dag = compileWorkflowDag(workflow);
-        const result = await executeCompiledDag(dag, createNanoClawRunner());
+        const result = await executeCompiledDag(dag, createNanoClawRunner(), {
+          codegenArtifactStore: artifactStore
+        });
         const execution = store.saveExecution({
           id: result.id,
           workflowId: workflow.id,
@@ -457,6 +488,39 @@ function isValidateRequest(input: unknown): input is WorkflowValidateRequest {
     "workflow" in input &&
     typeof (input as WorkflowValidateRequest).workflow === "object"
   );
+}
+
+async function validateCodegenApprovalReadiness(
+  workflow: WorkflowSpec,
+  artifactStore: CodegenArtifactStore
+): Promise<readonly WorkflowValidationIssue[]> {
+  const issues: WorkflowValidationIssue[] = [];
+
+  for (const [index, node] of workflow.nodes.entries()) {
+    if (node.kind !== "codegen" || !node.codegen) {
+      continue;
+    }
+
+    if (node.codegen.review.status !== "approved") {
+      issues.push({
+        code: "WORKFLOW_CODEGEN_REVIEW_REQUIRED",
+        message: `Codegen node '${node.id}' must be reviewed before workflow approval.`,
+        path: ["nodes", index, "codegen", "review", "status"]
+      });
+    }
+
+    for (const artifact of node.codegen.artifacts) {
+      if (!(await artifactStore.verifyArtifact(artifact))) {
+        issues.push({
+          code: "WORKFLOW_CODEGEN_ARTIFACT_DRIFT",
+          message: `Codegen artifact '${artifact.path}' is missing or has hash drift.`,
+          path: ["nodes", index, "codegen", "artifacts"]
+        });
+      }
+    }
+  }
+
+  return issues;
 }
 
 function createNanoClawRunner(): MockNodeRunner | DockerNodeRunner {

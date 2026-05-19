@@ -106,6 +106,30 @@ describe("kelpclaw api contracts", () => {
     ).toEqual(["generated/package-manifest.json", "generated/scrape-status-page.ts"]);
   });
 
+  it("blocks approval until generated code is reviewed", async () => {
+    app = buildTestApiApp();
+
+    const planned = await app.inject({
+      method: "POST",
+      url: "/api/workflows/plan",
+      payload: {
+        prompt: "scrape a custom public status page and summarize incidents"
+      }
+    });
+    const workflow = planned.json().workflow;
+    const blockedApproval = await app.inject({
+      method: "POST",
+      url: `/api/workflows/${workflow.id}/approve`,
+      payload: {
+        workflow,
+        approvedBy: "owner@example.com"
+      }
+    });
+
+    expect(blockedApproval.statusCode).toBe(409);
+    expect(blockedApproval.json().issues[0].code).toBe("WORKFLOW_CODEGEN_REVIEW_REQUIRED");
+  });
+
   it("reprompts, approves, runs, and fetches Phase 3 workflows", async () => {
     app = buildTestApiApp();
 
