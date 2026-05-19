@@ -41,9 +41,16 @@ from piranesi.signing import (
     verification_result_payload,
     verify_workspace,
 )
+from piranesi.timeline import (
+    TimelineConfidence,
+    TimelineError,
+    append_timeline_event,
+    load_timeline_events,
+)
 from piranesi.workspace import (
     EVIDENCE_FILE,
     FINDINGS_FILE,
+    TIMELINE_FILE,
     AuditEvent,
     EngagementMetadata,
     WorkspaceError,
@@ -86,8 +93,14 @@ evidence_app = typer.Typer(
     help="Add and inspect red-team operator evidence.",
     no_args_is_help=True,
 )
+timeline_app = typer.Typer(
+    add_completion=False,
+    help="Record and inspect red-team engagement timeline events.",
+    no_args_is_help=True,
+)
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(evidence_app, name="evidence")
+app.add_typer(timeline_app, name="timeline")
 
 
 def _load_local_llm_env(env_path: Path | None = None) -> None:
@@ -540,6 +553,153 @@ def evidence_list_command(
         return
     for record in index.evidence:
         typer.echo(f"{record.id}\t{record.kind}\t{record.title}\t{record.raw_path}")
+
+
+@timeline_app.command("add", help="Append an operator event to the engagement timeline.")
+def timeline_add_command(
+    summary: Annotated[
+        str,
+        typer.Option("--summary", "-s", help="Short timeline event summary."),
+    ],
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to create or update.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    timestamp: Annotated[
+        str | None,
+        typer.Option("--timestamp", help="Event timestamp. Defaults to now."),
+    ] = None,
+    phase: Annotated[
+        str | None,
+        typer.Option("--phase", help="Engagement phase, such as initial-access."),
+    ] = None,
+    actor: Annotated[
+        str | None,
+        typer.Option("--actor", help="Operator, system, or source actor."),
+    ] = None,
+    details: Annotated[
+        str | None,
+        typer.Option("--details", help="Longer operator event detail."),
+    ] = None,
+    evidence_ids: Annotated[
+        list[str] | None,
+        typer.Option("--evidence-id", help="Evidence record ID to link; repeatable."),
+    ] = None,
+    finding_ids: Annotated[
+        list[str] | None,
+        typer.Option("--finding-id", help="Finding ID to link; repeatable."),
+    ] = None,
+    objective_ids: Annotated[
+        list[str] | None,
+        typer.Option("--objective-id", help="Objective ID to link; repeatable."),
+    ] = None,
+    tags: Annotated[
+        list[str] | None,
+        typer.Option("--tag", help="Timeline tag; repeatable."),
+    ] = None,
+    confidence: Annotated[
+        TimelineConfidence,
+        typer.Option("--confidence", help="Confidence in the event details."),
+    ] = "medium",
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print the timeline event as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    try:
+        state = create_workspace(workspace)
+        event = append_timeline_event(
+            state,
+            summary=summary,
+            timestamp=timestamp,
+            phase=phase,
+            actor=actor,
+            details=details,
+            evidence_ids=evidence_ids,
+            finding_ids=finding_ids,
+            objective_ids=objective_ids,
+            tags=tags,
+            confidence=confidence,
+        )
+        output_digest = file_sha256(state.root / TIMELINE_FILE)
+        append_workspace_audit_event(
+            state,
+            AuditEvent(
+                timestamp=utc_now(),
+                command="timeline add",
+                output_path=TIMELINE_FILE,
+                output_sha256=output_digest,
+                summary={
+                    "event_id": event.id,
+                    "summary": event.summary,
+                    "evidence_ids": event.evidence_ids,
+                    "finding_ids": event.finding_ids,
+                    "objective_ids": event.objective_ids,
+                },
+            ),
+        )
+    except (WorkspaceError, TimelineError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    payload = event.model_dump(mode="json")
+    _emit(
+        payload,
+        json_output=json_output,
+        text=f"timeline: {event.id} {event.timestamp} {event.summary}",
+    )
+
+
+@timeline_app.command("list", help="List timeline events in a workspace.")
+def timeline_list_command(
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to inspect.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print timeline events as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    try:
+        state = load_workspace(workspace)
+        events = load_timeline_events(state.root)
+    except (WorkspaceError, TimelineError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    payload = {
+        "workspace": str(state.root),
+        "count": len(events),
+        "events": [event.model_dump(mode="json") for event in events],
+    }
+    if json_output:
+        _emit(payload, json_output=True, text="")
+        return
+    if not events:
+        typer.echo("No timeline events.")
+        return
+    for event in events:
+        phase = event.phase or "-"
+        typer.echo(f"{event.timestamp}\t{phase}\t{event.id}\t{event.summary}")
 
 
 @app.command("report", help="Generate pentest report artifacts from a workspace.")

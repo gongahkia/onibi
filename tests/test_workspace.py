@@ -11,6 +11,7 @@ from piranesi.workspace import (
     AUDIT_LOG_FILE,
     EVIDENCE_FILE,
     FINDINGS_FILE,
+    TIMELINE_FILE,
     WORKSPACE_FILE,
     AuditEvent,
     EngagementMetadata,
@@ -45,6 +46,7 @@ def test_create_workspace_writes_versioned_layout(tmp_path: Path) -> None:
     assert (state.root / FINDINGS_FILE).is_file()
     assert (state.root / AUDIT_LOG_FILE).is_file()
     assert (state.root / EVIDENCE_FILE).is_file()
+    assert (state.root / TIMELINE_FILE).is_file()
     assert (state.root / "raw").is_dir()
     assert (state.root / "evidence").is_dir()
     assert (state.root / "timeline").is_dir()

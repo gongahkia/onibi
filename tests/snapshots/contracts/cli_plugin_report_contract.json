@@ -10,6 +10,10 @@
         "init",
         "nmap",
         "nuclei"
+      ],
+      "timeline": [
+        "add",
+        "list"
       ]
     },
     "root_commands": [
@@ -18,7 +22,8 @@
       "report",
       "retest",
       "serve",
-      "sign"
+      "sign",
+      "timeline"
     ]
   },
   "snapshot_version": 2,
@@ -35,6 +40,7 @@
       "workspace.json",
       "normalized/findings.json",
       "evidence/index.json",
+      "timeline/events.jsonl",
       "audit-log.jsonl",
       "raw/",
       "timeline/",

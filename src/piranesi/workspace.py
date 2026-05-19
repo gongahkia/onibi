@@ -23,6 +23,7 @@ WORKSPACE_FILE = "workspace.json"
 FINDINGS_FILE = "normalized/findings.json"
 AUDIT_LOG_FILE = "audit-log.jsonl"
 EVIDENCE_FILE = "evidence/index.json"
+TIMELINE_FILE = "timeline/events.jsonl"
 
 WORKSPACE_DIRECTORIES = (
     "raw",
@@ -426,6 +427,7 @@ def _ensure_red_team_documents(root: Path) -> None:
                 "evidence": [],
             },
         )
+    (root / TIMELINE_FILE).touch(exist_ok=True)
 
 
 def _resolve_workspace_root(root: Path | str) -> Path:
@@ -460,6 +462,7 @@ __all__ = [
     "EVIDENCE_SCHEMA_VERSION",
     "FINDINGS_FILE",
     "FINDINGS_SCHEMA_VERSION",
+    "TIMELINE_FILE",
     "WORKSPACE_FILE",
     "WORKSPACE_SCHEMA_VERSION",
     "AffectedInstance",
