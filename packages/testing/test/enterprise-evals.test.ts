@@ -34,7 +34,7 @@ describe("enterprise deterministic evals", () => {
       chooseSkillOrCodegen({
         nodeKind: "delivery",
         capability: "sheets-rows-append",
-        adapterDependencies: ["adapter.sheets.fake"],
+        adapterDependencies: ["adapter.sheets"],
         prompt: "append receipt rows to Google Sheets"
       }).kind
     ).toBe("skill");
@@ -88,9 +88,9 @@ describe("enterprise deterministic evals", () => {
 
   it("keeps adapter mock payloads deterministic for idempotency keys", async () => {
     const adapters = createDefaultMockAdapters();
-    const email = requireMockAdapter("adapter.email.fake", adapters);
+    const email = requireMockAdapter("adapter.email", adapters);
     const invocation = {
-      adapterId: "adapter.email.fake",
+      adapterId: "adapter.email",
       operation: "email.results.send",
       operationVersion: "1.0.0",
       payload: {
@@ -99,7 +99,7 @@ describe("enterprise deterministic evals", () => {
         body: "Done"
       },
       secretRefs: {
-        "email.delivery": "mock:email.delivery"
+        "email.delivery": "secret:email.smtp.default"
       },
       context: {
         workflowId: "workflow.enterprise-eval",

@@ -171,7 +171,7 @@ function validateDeliveryChannelPolicy(
   const errors: WorkflowValidationIssue[] = [];
 
   for (const channel of ["whatsapp", "telegram"] as const) {
-    const adapterId = `adapter.${channel}.fake`;
+    const adapterId = `adapter.${channel}`;
     if (adapterIds.has(adapterId) && !channels.has(channel)) {
       errors.push({
         code: "WORKFLOW_DELIVERY_CHANNEL_POLICY_INVALID",

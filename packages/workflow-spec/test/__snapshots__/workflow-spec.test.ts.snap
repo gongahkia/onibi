@@ -218,7 +218,7 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     },
     {
       "kind": "same",
-      "text": "      "adapterId": "adapter.sheets.fake",",
+      "text": "      "adapterId": "adapter.sheets",",
     },
     {
       "kind": "same",
@@ -226,7 +226,7 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     },
     {
       "kind": "same",
-      "text": "        "adapter.sheets.fake"",
+      "text": "        "adapter.sheets"",
     },
     {
       "kind": "same",
@@ -242,7 +242,7 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     },
     {
       "kind": "same",
-      "text": "          "adapterId": "adapter.sheets.fake",",
+      "text": "          "adapterId": "adapter.sheets",",
     },
     {
       "kind": "same",
@@ -290,7 +290,7 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     },
     {
       "kind": "same",
-      "text": "          "adapter.sheets.fake"",
+      "text": "          "adapter.sheets"",
     },
     {
       "kind": "same",
@@ -462,7 +462,7 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     },
     {
       "kind": "same",
-      "text": "        "sheets.oauth": "mock:sheets.oauth"",
+      "text": "        "sheets.oauth": "secret:google.oauth.default"",
     },
     {
       "kind": "same",
@@ -482,7 +482,7 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     },
     {
       "kind": "same",
-      "text": "      "adapterId": "adapter.email.fake",",
+      "text": "      "adapterId": "adapter.email",",
     },
     {
       "kind": "same",
@@ -490,7 +490,7 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     },
     {
       "kind": "same",
-      "text": "        "adapter.email.fake"",
+      "text": "        "adapter.email"",
     },
     {
       "kind": "same",
@@ -506,7 +506,7 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     },
     {
       "kind": "same",
-      "text": "          "adapterId": "adapter.email.fake",",
+      "text": "          "adapterId": "adapter.email",",
     },
     {
       "kind": "same",
@@ -570,7 +570,7 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     },
     {
       "kind": "same",
-      "text": "          "adapter.email.fake"",
+      "text": "          "adapter.email"",
     },
     {
       "kind": "same",
@@ -730,7 +730,7 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     },
     {
       "kind": "same",
-      "text": "        "email.delivery": "mock:email.delivery"",
+      "text": "        "email.delivery": "secret:email.smtp.default"",
     },
     {
       "kind": "same",
@@ -750,7 +750,7 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     },
     {
       "kind": "same",
-      "text": "      "adapterId": "adapter.gmail.fake",",
+      "text": "      "adapterId": "adapter.gmail",",
     },
     {
       "kind": "same",
@@ -758,7 +758,7 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     },
     {
       "kind": "same",
-      "text": "        "adapter.gmail.fake"",
+      "text": "        "adapter.gmail"",
     },
     {
       "kind": "same",
@@ -774,7 +774,7 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     },
     {
       "kind": "same",
-      "text": "          "adapterId": "adapter.gmail.fake",",
+      "text": "          "adapterId": "adapter.gmail",",
     },
     {
       "kind": "same",
@@ -818,7 +818,7 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     },
     {
       "kind": "same",
-      "text": "          "adapter.gmail.fake"",
+      "text": "          "adapter.gmail"",
     },
     {
       "kind": "same",
@@ -990,7 +990,7 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     },
     {
       "kind": "same",
-      "text": "        "gmail.oauth": "mock:gmail.oauth"",
+      "text": "        "gmail.oauth": "secret:google.oauth.default"",
     },
     {
       "kind": "same",
@@ -1477,13 +1477,13 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
   "name": "Gmail Receipts To Sheets",
   "nodes": [
     {
-      "adapterId": "adapter.sheets.fake",
+      "adapterId": "adapter.sheets",
       "adapterIds": [
-        "adapter.sheets.fake"
+        "adapter.sheets"
       ],
       "adapterOperations": [
         {
-          "adapterId": "adapter.sheets.fake",
+          "adapterId": "adapter.sheets",
           "operation": "sheets.rows.append",
           "operationVersion": "1.0.0"
         }
@@ -1495,7 +1495,7 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
       "description": "Writes normalized receipt rows to a fake Google Sheets adapter.",
       "determinism": {
         "externalCalls": [
-          "adapter.sheets.fake"
+          "adapter.sheets"
         ],
         "replayBehavior": "record",
         "seededRandomness": {
@@ -1538,18 +1538,18 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
         "timeoutSeconds": 300
       },
       "secretRefs": {
-        "sheets.oauth": "mock:sheets.oauth"
+        "sheets.oauth": "secret:google.oauth.default"
       },
       "skillId": "skill.sheets.rows.append"
     },
     {
-      "adapterId": "adapter.email.fake",
+      "adapterId": "adapter.email",
       "adapterIds": [
-        "adapter.email.fake"
+        "adapter.email"
       ],
       "adapterOperations": [
         {
-          "adapterId": "adapter.email.fake",
+          "adapterId": "adapter.email",
           "operation": "email.results.send",
           "operationVersion": "1.0.0"
         }
@@ -1565,7 +1565,7 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
       "description": "Emails the final receipt sync result through the fake email adapter.",
       "determinism": {
         "externalCalls": [
-          "adapter.email.fake"
+          "adapter.email"
         ],
         "replayBehavior": "record",
         "seededRandomness": {
@@ -1605,18 +1605,18 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
         "timeoutSeconds": 300
       },
       "secretRefs": {
-        "email.delivery": "mock:email.delivery"
+        "email.delivery": "secret:email.smtp.default"
       },
       "skillId": "skill.email.results.deliver"
     },
     {
-      "adapterId": "adapter.gmail.fake",
+      "adapterId": "adapter.gmail",
       "adapterIds": [
-        "adapter.gmail.fake"
+        "adapter.gmail"
       ],
       "adapterOperations": [
         {
-          "adapterId": "adapter.gmail.fake",
+          "adapterId": "adapter.gmail",
           "operation": "gmail.receipts.search",
           "operationVersion": "1.0.0"
         }
@@ -1627,7 +1627,7 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
       "description": "Reads matching Gmail messages through the fake Gmail adapter.",
       "determinism": {
         "externalCalls": [
-          "adapter.gmail.fake"
+          "adapter.gmail"
         ],
         "replayBehavior": "record",
         "seededRandomness": {
@@ -1670,7 +1670,7 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
         "timeoutSeconds": 300
       },
       "secretRefs": {
-        "gmail.oauth": "mock:gmail.oauth"
+        "gmail.oauth": "secret:google.oauth.default"
       },
       "skillId": "skill.gmail.receipts.read"
     },
@@ -2088,19 +2088,19 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
       }
     },
     {
-      "adapterId": "adapter.telegram.fake",
+      "adapterId": "adapter.telegram",
       "adapterIds": [
-        "adapter.whatsapp.fake",
-        "adapter.telegram.fake"
+        "adapter.whatsapp",
+        "adapter.telegram"
       ],
       "adapterOperations": [
         {
-          "adapterId": "adapter.whatsapp.fake",
+          "adapterId": "adapter.whatsapp",
           "operation": "whatsapp.alert.send",
           "operationVersion": "1.0.0"
         },
         {
-          "adapterId": "adapter.telegram.fake",
+          "adapterId": "adapter.telegram",
           "operation": "telegram.alert.send",
           "operationVersion": "1.0.0"
         }
@@ -2116,8 +2116,8 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
       "description": "Sends approved alert content to fake WhatsApp and Telegram adapters.",
       "determinism": {
         "externalCalls": [
-          "adapter.whatsapp.fake",
-          "adapter.telegram.fake"
+          "adapter.whatsapp",
+          "adapter.telegram"
         ],
         "replayBehavior": "record",
         "seededRandomness": {
@@ -2157,8 +2157,8 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
         "timeoutSeconds": 300
       },
       "secretRefs": {
-        "telegram.botToken": "mock:telegram.botToken",
-        "whatsapp.apiKey": "mock:whatsapp.apiKey"
+        "telegram.botToken": "secret:telegram.bot.default",
+        "whatsapp.apiKey": "secret:whatsapp.cloud.default"
       },
       "skillId": "skill.alert.push.dispatch"
     },
@@ -2209,13 +2209,13 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
       "skillId": "skill.alert.urgency.classify"
     },
     {
-      "adapterId": "adapter.email.fake",
+      "adapterId": "adapter.email",
       "adapterIds": [
-        "adapter.email.fake"
+        "adapter.email"
       ],
       "adapterOperations": [
         {
-          "adapterId": "adapter.email.fake",
+          "adapterId": "adapter.email",
           "operation": "email.approval.request",
           "operationVersion": "1.0.0"
         }
@@ -2226,7 +2226,7 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
       "description": "Starts the workflow when urgent support email arrives.",
       "determinism": {
         "externalCalls": [
-          "adapter.email.fake"
+          "adapter.email"
         ],
         "replayBehavior": "record",
         "seededRandomness": {
@@ -2261,7 +2261,7 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
         "timeoutSeconds": 300
       },
       "secretRefs": {
-        "email.delivery": "mock:email.delivery"
+        "email.delivery": "secret:email.smtp.default"
       }
     }
   ],

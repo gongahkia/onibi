@@ -3,6 +3,7 @@ export {
   createDefaultFakeAdapters,
   createDefaultMockAdapters,
   fakeAdapterMetadata,
+  mockAdapterMetadata,
   requireFakeAdapter,
   requireMockAdapter
 } from "./builtins.js";
@@ -18,11 +19,17 @@ export {
   receiptExtractionToSheetsFixture,
   sheetsReceiptRowsFixture
 } from "./fixtures.js";
+export { createDefaultLiveAdapters } from "./live-adapters.js";
 export { FakeAdapter, MockAdapter, createFakeAdapter, createMockAdapter } from "./mock-adapter.js";
 export type {
   AdapterCredentialValidationCode,
   AdapterCredentialValidationIssue
 } from "./credentials.js";
+export type {
+  LiveAdapterHttpOptions,
+  LiveAdapterOptions,
+  SmtpTransportOptions
+} from "./live-adapters.js";
 export type {
   Adapter,
   AdapterAuditEvent,

@@ -93,67 +93,67 @@ const adapterSkillPresets: readonly AdapterSkillPreset[] = [
     id: "skill.gmail.receipts.read",
     label: "Gmail receipts",
     nodeKinds: ["skill"],
-    adapterIds: ["adapter.gmail.fake"],
+    adapterIds: ["adapter.gmail"],
     adapterOperations: [
       {
-        adapterId: "adapter.gmail.fake",
+        adapterId: "adapter.gmail",
         operation: "gmail.receipts.search",
         operationVersion: "1.0.0"
       }
     ],
-    secretRefs: { "gmail.oauth": "mock:gmail.oauth" },
+    secretRefs: { "gmail.oauth": "secret:google.oauth.default" },
     config: { query: "from:(receipts OR orders) newer_than:30d" }
   },
   {
     id: "skill.sheets.rows.append",
     label: "Sheets append",
     nodeKinds: ["delivery"],
-    adapterIds: ["adapter.sheets.fake"],
+    adapterIds: ["adapter.sheets"],
     adapterOperations: [
       {
-        adapterId: "adapter.sheets.fake",
+        adapterId: "adapter.sheets",
         operation: "sheets.rows.append",
         operationVersion: "1.0.0"
       }
     ],
-    secretRefs: { "sheets.oauth": "mock:sheets.oauth" },
+    secretRefs: { "sheets.oauth": "secret:google.oauth.default" },
     config: { channel: "sheets", channels: ["sheets"], range: "Receipts!A:D" }
   },
   {
     id: "skill.email.results.deliver",
     label: "Email results",
     nodeKinds: ["delivery"],
-    adapterIds: ["adapter.email.fake"],
+    adapterIds: ["adapter.email"],
     adapterOperations: [
       {
-        adapterId: "adapter.email.fake",
+        adapterId: "adapter.email",
         operation: "email.results.send",
         operationVersion: "1.0.0"
       }
     ],
-    secretRefs: { "email.delivery": "mock:email.delivery" },
+    secretRefs: { "email.delivery": "secret:email.smtp.default" },
     config: { channel: "email", channels: ["email"], to: "owner@example.com" }
   },
   {
     id: "skill.alert.push.dispatch",
     label: "Push alerts",
     nodeKinds: ["delivery"],
-    adapterIds: ["adapter.whatsapp.fake", "adapter.telegram.fake"],
+    adapterIds: ["adapter.whatsapp", "adapter.telegram"],
     adapterOperations: [
       {
-        adapterId: "adapter.whatsapp.fake",
+        adapterId: "adapter.whatsapp",
         operation: "whatsapp.alert.send",
         operationVersion: "1.0.0"
       },
       {
-        adapterId: "adapter.telegram.fake",
+        adapterId: "adapter.telegram",
         operation: "telegram.alert.send",
         operationVersion: "1.0.0"
       }
     ],
     secretRefs: {
-      "whatsapp.apiKey": "mock:whatsapp.apiKey",
-      "telegram.botToken": "mock:telegram.botToken"
+      "whatsapp.apiKey": "secret:whatsapp.cloud.default",
+      "telegram.botToken": "secret:telegram.bot.default"
     },
     config: { channel: "email", channels: ["whatsapp", "telegram"], timeSensitive: true }
   }
@@ -1283,43 +1283,43 @@ function adapterDeclarationForChannel(channel: string):
   switch (channel) {
     case "email":
       return {
-        adapterId: "adapter.email.fake",
+        adapterId: "adapter.email",
         operation: {
-          adapterId: "adapter.email.fake",
+          adapterId: "adapter.email",
           operation: "email.results.send",
           operationVersion: "1.0.0"
         },
-        secretRefs: { "email.delivery": "mock:email.delivery" }
+        secretRefs: { "email.delivery": "secret:email.smtp.default" }
       };
     case "sheets":
       return {
-        adapterId: "adapter.sheets.fake",
+        adapterId: "adapter.sheets",
         operation: {
-          adapterId: "adapter.sheets.fake",
+          adapterId: "adapter.sheets",
           operation: "sheets.rows.append",
           operationVersion: "1.0.0"
         },
-        secretRefs: { "sheets.oauth": "mock:sheets.oauth" }
+        secretRefs: { "sheets.oauth": "secret:google.oauth.default" }
       };
     case "whatsapp":
       return {
-        adapterId: "adapter.whatsapp.fake",
+        adapterId: "adapter.whatsapp",
         operation: {
-          adapterId: "adapter.whatsapp.fake",
+          adapterId: "adapter.whatsapp",
           operation: "whatsapp.alert.send",
           operationVersion: "1.0.0"
         },
-        secretRefs: { "whatsapp.apiKey": "mock:whatsapp.apiKey" }
+        secretRefs: { "whatsapp.apiKey": "secret:whatsapp.cloud.default" }
       };
     case "telegram":
       return {
-        adapterId: "adapter.telegram.fake",
+        adapterId: "adapter.telegram",
         operation: {
-          adapterId: "adapter.telegram.fake",
+          adapterId: "adapter.telegram",
           operation: "telegram.alert.send",
           operationVersion: "1.0.0"
         },
-        secretRefs: { "telegram.botToken": "mock:telegram.botToken" }
+        secretRefs: { "telegram.botToken": "secret:telegram.bot.default" }
       };
     default:
       return undefined;

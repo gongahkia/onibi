@@ -71,6 +71,7 @@ export interface AdapterInvocation {
   readonly operationVersion: string;
   readonly payload: JsonRecord;
   readonly secretRefs: Readonly<Record<string, string>>;
+  readonly secrets?: Readonly<Record<string, string>> | undefined;
   readonly context: AdapterRuntimeContext;
   readonly idempotencyKey?: string | undefined;
 }

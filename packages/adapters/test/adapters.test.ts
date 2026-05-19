@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   AdapterCredentialError,
   builtinAdapterMetadata,
+  createDefaultLiveAdapters,
   createDefaultMockAdapters,
   receiptExtractionToSheetsFixture,
   requireMockAdapter,
@@ -25,15 +26,22 @@ describe("adapter metadata", () => {
       "whatsapp",
       "telegram"
     ]);
-    expect(builtinAdapterMetadata.every((adapter) => adapter.live === false)).toBe(true);
+    expect(builtinAdapterMetadata.map((adapter) => adapter.id)).toEqual([
+      "adapter.gmail",
+      "adapter.sheets",
+      "adapter.email",
+      "adapter.whatsapp",
+      "adapter.telegram"
+    ]);
+    expect(builtinAdapterMetadata.every((adapter) => adapter.live)).toBe(true);
     expect(builtinAdapterMetadata.every((adapter) => adapter.version === "1.0.0")).toBe(true);
     expect(builtinAdapterMetadata.every((adapter) => adapter.operations.length > 0)).toBe(true);
     expect(builtinAdapterMetadata.every((adapter) => adapter.requiredSecrets.length > 0)).toBe(
       true
     );
-    expect(builtinAdapterMetadata.every((adapter) => adapter.networkPolicy.mode === "none")).toBe(
-      true
-    );
+    expect(
+      builtinAdapterMetadata.every((adapter) => adapter.networkPolicy.mode === "declared")
+    ).toBe(true);
     expect(builtinAdapterMetadata.every((adapter) => adapter.fixtures.length > 0)).toBe(true);
   });
 
@@ -150,9 +158,139 @@ describe("mock adapter execution", () => {
   });
 });
 
-describe("credential validation stubs", () => {
+describe("live adapter execution", () => {
+  it("calls Gmail and Sheets HTTP APIs with resolved Google OAuth secrets", async () => {
+    const calls: string[] = [];
+    const adapters = createDefaultLiveAdapters({
+      googleApiBaseUrl: "https://google.test",
+      googleTokenUrl: "https://oauth.test/token",
+      fetch: async (input) => {
+        const url = String(input);
+        calls.push(url);
+        if (url === "https://oauth.test/token") {
+          return jsonResponse({ access_token: "google-access-token" });
+        }
+        if (url.startsWith("https://google.test/gmail/v1/users/me/messages?")) {
+          return jsonResponse({
+            messages: [{ id: "msg-1", threadId: "thread-1" }],
+            resultSizeEstimate: 1
+          });
+        }
+        if (url.includes("/gmail/v1/users/me/messages/msg-1")) {
+          return jsonResponse({
+            id: "msg-1",
+            threadId: "thread-1",
+            internalDate: "1770000000000",
+            snippet: "Total USD 12.34",
+            payload: {
+              headers: [{ name: "Subject", value: "Receipt from Tidepool Market" }]
+            }
+          });
+        }
+        if (url.includes("/v4/spreadsheets/sheet.receipts/values/Receipts")) {
+          return jsonResponse({
+            updates: {
+              updatedRange: "Receipts!A1:D1",
+              updatedRows: 1
+            }
+          });
+        }
+
+        return jsonResponse({ error: "unexpected" }, 500);
+      }
+    });
+
+    const gmail = await adapters.get("adapter.gmail")?.invoke(
+      invocationFor({
+        adapterId: "adapter.gmail",
+        operation: "gmail.receipts.search",
+        payload: { query: "receipt", maxResults: 1 },
+        secretRefs: { "gmail.oauth": "secret:google.oauth.default" },
+        secrets: {
+          "gmail.oauth": JSON.stringify({
+            refreshToken: "refresh",
+            clientId: "client",
+            clientSecret: "secret"
+          })
+        }
+      })
+    );
+    const sheets = await adapters.get("adapter.sheets")?.invoke(
+      invocationFor({
+        adapterId: "adapter.sheets",
+        operation: "sheets.rows.append",
+        payload: {
+          spreadsheetId: "sheet.receipts",
+          range: "Receipts!A:D",
+          rows: [{ date: "2026-05-18", total: 12.34 }],
+          columns: ["date", "total"]
+        },
+        secretRefs: { "sheets.oauth": "secret:google.oauth.default" },
+        secrets: {
+          "sheets.oauth": JSON.stringify({
+            accessToken: "google-access-token"
+          })
+        }
+      })
+    );
+
+    expect(gmail?.providerMetadata.mock).toBe(false);
+    expect(gmail?.output.receipts).toEqual([
+      expect.objectContaining({ messageId: "msg-1", total: 12.34, currency: "USD" })
+    ]);
+    expect(sheets?.output.appendedRows).toBe(1);
+    expect(calls.some((call) => call.includes("oauth.test/token"))).toBe(true);
+  });
+
+  it("calls WhatsApp and Telegram live HTTP APIs with resolved secrets", async () => {
+    const calls: string[] = [];
+    const adapters = createDefaultLiveAdapters({
+      whatsappApiBaseUrl: "https://graph.test",
+      telegramApiBaseUrl: "https://telegram.test",
+      fetch: async (input) => {
+        const url = String(input);
+        calls.push(url);
+        if (url.includes("/messages")) {
+          return jsonResponse({ messages: [{ id: "wamid.1" }] });
+        }
+        if (url.includes("/sendMessage")) {
+          return jsonResponse({ ok: true, result: { message_id: 42 } });
+        }
+        return jsonResponse({ error: "unexpected" }, 500);
+      }
+    });
+
+    const whatsapp = await adapters.get("adapter.whatsapp")?.invoke(
+      invocationFor({
+        adapterId: "adapter.whatsapp",
+        operation: "whatsapp.alert.send",
+        payload: { to: "15551234567", text: "urgent", phoneNumberId: "phone-1" },
+        secretRefs: { "whatsapp.apiKey": "secret:whatsapp.cloud.default" },
+        secrets: { "whatsapp.apiKey": "whatsapp-token" }
+      })
+    );
+    const telegram = await adapters.get("adapter.telegram")?.invoke(
+      invocationFor({
+        adapterId: "adapter.telegram",
+        operation: "telegram.alert.send",
+        payload: { chatId: "ops", text: "urgent" },
+        secretRefs: { "telegram.botToken": "secret:telegram.bot.default" },
+        secrets: { "telegram.botToken": "telegram-token" }
+      })
+    );
+
+    expect(whatsapp?.output.messageId).toBe("wamid.1");
+    expect(telegram?.output.messageId).toBe("42");
+    expect(calls).toEqual([
+      "https://graph.test/v20.0/phone-1/messages",
+      "https://telegram.test/bottelegram-token/sendMessage"
+    ]);
+  });
+});
+
+describe("credential validation", () => {
   it("rejects raw secret values and mock refs for real provider mode", () => {
-    const email = builtinAdapterMetadata.find((adapter) => adapter.id === "adapter.email.fake");
+    const email = builtinAdapterMetadata.find((adapter) => adapter.id === "adapter.email");
     if (!email) {
       throw new Error("Email adapter metadata is missing.");
     }
@@ -164,13 +302,9 @@ describe("credential validation stubs", () => {
     ).toEqual(["ADAPTER_SECRET_RAW_VALUE"]);
 
     expect(
-      validateAdapterCredentialRefs(
-        email,
-        {
-          "email.delivery": "mock:email.delivery"
-        },
-        { requireLiveCredentials: true }
-      ).map((issue) => issue.code)
+      validateAdapterCredentialRefs(email, {
+        "email.delivery": "mock:email.delivery"
+      }).map((issue) => issue.code)
     ).toEqual(["ADAPTER_REAL_CREDENTIALS_REQUIRED"]);
   });
 });
@@ -184,4 +318,13 @@ function invocationFor(
     context,
     ...input
   };
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "content-type": "application/json"
+    }
+  });
 }

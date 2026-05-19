@@ -43,8 +43,8 @@ export const builtinSkills: readonly SkillMetadata[] = [
       receipts: arraySchema
     },
     requiredSecrets: ["gmail.oauth"],
-    adapterDependencies: ["adapter.gmail.fake"],
-    adapterOperations: [adapterOperation("adapter.gmail.fake", "gmail.receipts.search")],
+    adapterDependencies: ["adapter.gmail"],
+    adapterOperations: [adapterOperation("adapter.gmail", "gmail.receipts.search")],
     runtimeTemplate,
     metaprompt:
       "Select this skill when the workflow needs Gmail receipt, order, invoice, or payment messages.",
@@ -73,8 +73,8 @@ export const builtinSkills: readonly SkillMetadata[] = [
       delivery: objectSchema
     },
     requiredSecrets: ["sheets.oauth"],
-    adapterDependencies: ["adapter.sheets.fake"],
-    adapterOperations: [adapterOperation("adapter.sheets.fake", "sheets.rows.append")],
+    adapterDependencies: ["adapter.sheets"],
+    adapterOperations: [adapterOperation("adapter.sheets", "sheets.rows.append")],
     runtimeTemplate,
     metaprompt:
       "Select this skill when structured rows should be appended to a spreadsheet or sheet range.",
@@ -103,8 +103,8 @@ export const builtinSkills: readonly SkillMetadata[] = [
       delivery: objectSchema
     },
     requiredSecrets: ["email.delivery"],
-    adapterDependencies: ["adapter.email.fake"],
-    adapterOperations: [adapterOperation("adapter.email.fake", "email.results.send")],
+    adapterDependencies: ["adapter.email"],
+    adapterOperations: [adapterOperation("adapter.email", "email.results.send")],
     runtimeTemplate,
     metaprompt:
       "Select this skill when a workflow needs primary result delivery, summaries, or completion notices by email.",
@@ -163,10 +163,10 @@ export const builtinSkills: readonly SkillMetadata[] = [
       delivery: objectSchema
     },
     requiredSecrets: ["whatsapp.apiKey", "telegram.botToken"],
-    adapterDependencies: ["adapter.whatsapp.fake", "adapter.telegram.fake"],
+    adapterDependencies: ["adapter.whatsapp", "adapter.telegram"],
     adapterOperations: [
-      adapterOperation("adapter.whatsapp.fake", "whatsapp.alert.send"),
-      adapterOperation("adapter.telegram.fake", "telegram.alert.send")
+      adapterOperation("adapter.whatsapp", "whatsapp.alert.send"),
+      adapterOperation("adapter.telegram", "telegram.alert.send")
     ],
     runtimeTemplate,
     metaprompt:
@@ -257,11 +257,11 @@ export const builtinSkills: readonly SkillMetadata[] = [
       delivery: objectSchema
     },
     requiredSecrets: [],
-    adapterDependencies: ["adapter.email.fake", "adapter.whatsapp.fake", "adapter.telegram.fake"],
+    adapterDependencies: ["adapter.email", "adapter.whatsapp", "adapter.telegram"],
     adapterOperations: [
-      adapterOperation("adapter.email.fake", "email.results.send"),
-      adapterOperation("adapter.whatsapp.fake", "whatsapp.alert.send"),
-      adapterOperation("adapter.telegram.fake", "telegram.alert.send")
+      adapterOperation("adapter.email", "email.results.send"),
+      adapterOperation("adapter.whatsapp", "whatsapp.alert.send"),
+      adapterOperation("adapter.telegram", "telegram.alert.send")
     ],
     runtimeTemplate,
     metaprompt:

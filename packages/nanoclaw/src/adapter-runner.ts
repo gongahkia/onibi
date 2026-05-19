@@ -1,10 +1,11 @@
-import { createDefaultMockAdapters } from "@kelpclaw/adapters";
+import { createDefaultLiveAdapters } from "@kelpclaw/adapters";
 import {
   assertNodeAdapterPolicy,
   createAdapterMetadataRegistry,
   declaredAdapterOperations
 } from "./adapter-policy.js";
 import { MockNodeRunner } from "./mock-runner.js";
+import { secretEnvironmentName } from "./secrets.js";
 import type { Adapter, AdapterInvocation, AdapterResult } from "@kelpclaw/adapters";
 import type { CompiledDagNode, NodeRunContext, NodeRunner, NodeRunnerResult } from "./types.js";
 import type { JsonRecord, JsonValue } from "@kelpclaw/workflow-spec";
@@ -19,7 +20,7 @@ export class AdapterBackedNodeRunner implements NodeRunner {
   private readonly fallbackRunner: NodeRunner;
 
   public constructor(options: AdapterBackedNodeRunnerOptions = {}) {
-    this.adapters = options.adapters ?? createDefaultMockAdapters();
+    this.adapters = options.adapters ?? createDefaultLiveAdapters();
     this.fallbackRunner = options.fallbackRunner ?? new MockNodeRunner();
   }
 
@@ -88,6 +89,7 @@ function createAdapterInvocation(input: {
     operationVersion: input.operationVersion,
     payload: createAdapterPayload(input.node, input.context.input),
     secretRefs: input.node.secretRefs ?? {},
+    secrets: resolveAdapterSecrets(input.node.secretRefs ?? {}, input.context.resolvedSecrets),
     context: {
       workflowId: input.context.dag.workflowId,
       nodeId: input.node.id,
@@ -96,6 +98,18 @@ function createAdapterInvocation(input: {
     },
     idempotencyKey: `${input.context.workspace.runId}.${input.node.id}.${input.operation}.${input.context.attempt}`
   };
+}
+
+function resolveAdapterSecrets(
+  secretRefs: Readonly<Record<string, string>>,
+  resolvedSecrets: Readonly<Record<string, string>>
+): Readonly<Record<string, string>> {
+  return Object.fromEntries(
+    Object.keys(secretRefs).map((secretName) => [
+      secretName,
+      resolvedSecrets[secretEnvironmentName(secretName)] ?? ""
+    ])
+  );
 }
 
 function createAdapterPayload(node: CompiledDagNode, input: JsonRecord): JsonRecord {

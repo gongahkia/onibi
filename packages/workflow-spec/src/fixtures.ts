@@ -119,13 +119,13 @@ export const gmailReceiptsToSheetsWorkflowFixture = workflowBase({
         query: "from:(receipts OR orders) newer_than:30d"
       },
       runtime: deterministicRuntime,
-      determinism: externalDeterminism(["adapter.gmail.fake"]),
+      determinism: externalDeterminism(["adapter.gmail"]),
       skillId: "skill.gmail.receipts.read",
-      adapterId: "adapter.gmail.fake",
-      adapterIds: ["adapter.gmail.fake"],
-      adapterOperations: [adapterOperation("adapter.gmail.fake", "gmail.receipts.search")],
+      adapterId: "adapter.gmail",
+      adapterIds: ["adapter.gmail"],
+      adapterOperations: [adapterOperation("adapter.gmail", "gmail.receipts.search")],
       secretRefs: {
-        "gmail.oauth": "mock:gmail.oauth"
+        "gmail.oauth": "secret:google.oauth.default"
       }
     },
     {
@@ -161,13 +161,13 @@ export const gmailReceiptsToSheetsWorkflowFixture = workflowBase({
         range: "Receipts!A:D"
       },
       runtime: deterministicRuntime,
-      determinism: externalDeterminism(["adapter.sheets.fake"]),
+      determinism: externalDeterminism(["adapter.sheets"]),
       skillId: "skill.sheets.rows.append",
-      adapterId: "adapter.sheets.fake",
-      adapterIds: ["adapter.sheets.fake"],
-      adapterOperations: [adapterOperation("adapter.sheets.fake", "sheets.rows.append")],
+      adapterId: "adapter.sheets",
+      adapterIds: ["adapter.sheets"],
+      adapterOperations: [adapterOperation("adapter.sheets", "sheets.rows.append")],
       secretRefs: {
-        "sheets.oauth": "mock:sheets.oauth"
+        "sheets.oauth": "secret:google.oauth.default"
       }
     },
     {
@@ -188,13 +188,13 @@ export const gmailReceiptsToSheetsWorkflowFixture = workflowBase({
         subject: "Receipt sync completed"
       },
       runtime: deterministicRuntime,
-      determinism: externalDeterminism(["adapter.email.fake"]),
+      determinism: externalDeterminism(["adapter.email"]),
       skillId: "skill.email.results.deliver",
-      adapterId: "adapter.email.fake",
-      adapterIds: ["adapter.email.fake"],
-      adapterOperations: [adapterOperation("adapter.email.fake", "email.results.send")],
+      adapterId: "adapter.email",
+      adapterIds: ["adapter.email"],
+      adapterOperations: [adapterOperation("adapter.email", "email.results.send")],
       secretRefs: {
-        "email.delivery": "mock:email.delivery"
+        "email.delivery": "secret:email.smtp.default"
       }
     }
   ],
@@ -375,12 +375,12 @@ export const timeSensitiveAlertDeliveryWorkflowFixture = workflowBase({
         source: "support@example.com"
       },
       runtime: deterministicRuntime,
-      determinism: externalDeterminism(["adapter.email.fake"]),
-      adapterId: "adapter.email.fake",
-      adapterIds: ["adapter.email.fake"],
-      adapterOperations: [adapterOperation("adapter.email.fake", "email.approval.request")],
+      determinism: externalDeterminism(["adapter.email"]),
+      adapterId: "adapter.email",
+      adapterIds: ["adapter.email"],
+      adapterOperations: [adapterOperation("adapter.email", "email.approval.request")],
       secretRefs: {
-        "email.delivery": "mock:email.delivery"
+        "email.delivery": "secret:email.smtp.default"
       }
     },
     {
@@ -435,17 +435,17 @@ export const timeSensitiveAlertDeliveryWorkflowFixture = workflowBase({
         timeSensitive: true
       },
       runtime: deterministicRuntime,
-      determinism: externalDeterminism(["adapter.whatsapp.fake", "adapter.telegram.fake"]),
+      determinism: externalDeterminism(["adapter.whatsapp", "adapter.telegram"]),
       skillId: "skill.alert.push.dispatch",
-      adapterId: "adapter.telegram.fake",
-      adapterIds: ["adapter.whatsapp.fake", "adapter.telegram.fake"],
+      adapterId: "adapter.telegram",
+      adapterIds: ["adapter.whatsapp", "adapter.telegram"],
       adapterOperations: [
-        adapterOperation("adapter.whatsapp.fake", "whatsapp.alert.send"),
-        adapterOperation("adapter.telegram.fake", "telegram.alert.send")
+        adapterOperation("adapter.whatsapp", "whatsapp.alert.send"),
+        adapterOperation("adapter.telegram", "telegram.alert.send")
       ],
       secretRefs: {
-        "whatsapp.apiKey": "mock:whatsapp.apiKey",
-        "telegram.botToken": "mock:telegram.botToken"
+        "whatsapp.apiKey": "secret:whatsapp.cloud.default",
+        "telegram.botToken": "secret:telegram.bot.default"
       }
     }
   ],

@@ -27,7 +27,11 @@ export {
   workflowIdFromPrompt
 } from "./graph.js";
 export { workflowJsonSchema } from "./json-schema.js";
-export { WorkflowMigrationError, migrateWorkflowToLatest } from "./migrations.js";
+export {
+  WorkflowMigrationError,
+  migrateWorkflowAdapterIdsToLive,
+  migrateWorkflowToLatest
+} from "./migrations.js";
 export {
   redactJsonRecord,
   redactJsonValue,

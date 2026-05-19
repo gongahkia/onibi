@@ -142,26 +142,26 @@ function defaultDeliveryOperation(channel: string) {
   switch (channel) {
     case "whatsapp":
       return {
-        adapterId: "adapter.whatsapp.fake",
+        adapterId: "adapter.whatsapp",
         operation: "whatsapp.alert.send",
         operationVersion: "1.0.0"
       };
     case "telegram":
       return {
-        adapterId: "adapter.telegram.fake",
+        adapterId: "adapter.telegram",
         operation: "telegram.alert.send",
         operationVersion: "1.0.0"
       };
     case "sheets":
       return {
-        adapterId: "adapter.sheets.fake",
+        adapterId: "adapter.sheets",
         operation: "sheets.rows.append",
         operationVersion: "1.0.0"
       };
     case "email":
     default:
       return {
-        adapterId: "adapter.email.fake",
+        adapterId: "adapter.email",
         operation: "email.results.send",
         operationVersion: "1.0.0"
       };

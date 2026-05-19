@@ -35,7 +35,7 @@ describe("skill registry", () => {
       findDefaultSkill({
         nodeKind: "delivery",
         capability: "sheets-rows-append",
-        adapterDependencies: ["adapter.sheets.fake"]
+        adapterDependencies: ["adapter.sheets"]
       }).id
     ).toBe("skill.sheets.rows.append");
   });
@@ -43,15 +43,15 @@ describe("skill registry", () => {
   it("declares operation-level adapter dependencies for integration skills", () => {
     expect(requireSkill("skill.gmail.receipts.read").adapterOperations).toEqual([
       {
-        adapterId: "adapter.gmail.fake",
+        adapterId: "adapter.gmail",
         operation: "gmail.receipts.search",
         operationVersion: "1.0.0"
       }
     ]);
     expect(requireSkill("skill.email.results.deliver").requiredSecrets).toEqual(["email.delivery"]);
     expect(requireSkill("skill.alert.push.dispatch").adapterDependencies).toEqual([
-      "adapter.whatsapp.fake",
-      "adapter.telegram.fake"
+      "adapter.whatsapp",
+      "adapter.telegram"
     ]);
   });
 
@@ -65,7 +65,7 @@ describe("skill registry", () => {
     const [match] = matchSkills({
       nodeKind: "skill",
       capability: "gmail-receipts-read",
-      adapterDependencies: ["adapter.gmail.fake"],
+      adapterDependencies: ["adapter.gmail"],
       prompt: "Read Gmail receipt emails"
     });
 
@@ -78,7 +78,7 @@ describe("skill registry", () => {
     const selection = chooseSkillOrCodegen({
       nodeKind: "delivery",
       capability: "sheets-rows-append",
-      adapterDependencies: ["adapter.sheets.fake"],
+      adapterDependencies: ["adapter.sheets"],
       prompt: "append rows to a Google Sheet"
     });
 

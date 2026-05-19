@@ -12,14 +12,46 @@ export interface SecretResolver {
   resolve(secretRef: string, context: SecretResolutionContext): Promise<string>;
 }
 
+export interface SecretValueStore {
+  getSecretValue(name: string): Promise<string | null>;
+}
+
+export class SecretStoreResolver implements SecretResolver {
+  public constructor(private readonly store: SecretValueStore) {}
+
+  public async resolve(secretRef: string, context: SecretResolutionContext): Promise<string> {
+    if (!secretRef.startsWith("secret:")) {
+      return new EnvironmentSecretResolver().resolve(secretRef, context);
+    }
+
+    const name = secretRef.slice("secret:".length);
+    const value = await this.store.getSecretValue(name);
+    if (!value) {
+      throw new Error(`Secret reference '${redactSecretString(secretRef)}' is not available.`);
+    }
+
+    return value;
+  }
+}
+
 export class EnvironmentSecretResolver implements SecretResolver {
-  public async resolve(secretRef: string): Promise<string> {
+  public async resolve(secretRef: string, _context?: SecretResolutionContext): Promise<string> {
     if (secretRef.startsWith("mock:")) {
       return secretRef;
     }
 
     if (secretRef.startsWith("env:")) {
       const envName = secretRef.slice("env:".length);
+      const value = process.env[envName];
+      if (!value) {
+        throw new Error(`Secret reference '${redactSecretString(secretRef)}' is not available.`);
+      }
+
+      return value;
+    }
+
+    if (secretRef.startsWith("secret:")) {
+      const envName = secretEnvironmentName(secretRef.slice("secret:".length));
       const value = process.env[envName];
       if (!value) {
         throw new Error(`Secret reference '${redactSecretString(secretRef)}' is not available.`);
