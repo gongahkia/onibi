@@ -33,9 +33,14 @@ const noneNetworkPolicy = {
   allowedHosts: []
 } as const;
 
-const googleNetworkPolicy = {
+const gmailNetworkPolicy = {
   mode: "declared",
-  allowedHosts: ["oauth2.googleapis.com", "gmail.googleapis.com", "sheets.googleapis.com"]
+  allowedHosts: ["oauth2.googleapis.com", "gmail.googleapis.com"]
+} as const;
+
+const sheetsNetworkPolicy = {
+  mode: "declared",
+  allowedHosts: ["oauth2.googleapis.com", "sheets.googleapis.com"]
 } as const;
 
 const smtpNetworkPolicy = {
@@ -64,7 +69,7 @@ export const builtinAdapterMetadata = [
     id: "adapter.gmail",
     kind: "gmail",
     displayName: "Gmail",
-    networkPolicy: googleNetworkPolicy,
+    networkPolicy: gmailNetworkPolicy,
     capabilities: ["gmail.trigger", "gmail.receipts.search"],
     requiredSecrets: [gmailSecret],
     operations: [
@@ -95,7 +100,7 @@ export const builtinAdapterMetadata = [
     id: "adapter.sheets",
     kind: "sheets",
     displayName: "Google Sheets",
-    networkPolicy: googleNetworkPolicy,
+    networkPolicy: sheetsNetworkPolicy,
     capabilities: ["sheets.rows.append", "sheets.rows.update", "sheets.rows.lookup"],
     requiredSecrets: [sheetsSecret],
     operations: [
@@ -229,7 +234,10 @@ export const fakeAdapterMetadata = mockAdapterMetadata;
 
 export function createDefaultMockAdapters(): Map<string, MockAdapter> {
   return new Map<string, MockAdapter>(
-    mockAdapterMetadata.map((metadata) => [metadata.id, createMockAdapter(metadata)])
+    [...builtinAdapterMetadata, ...mockAdapterMetadata].map((metadata) => [
+      metadata.id,
+      createMockAdapter(metadata)
+    ])
   );
 }
 

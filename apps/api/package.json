@@ -18,6 +18,7 @@
     "typecheck": "tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
+    "@kelpclaw/adapters": "workspace:*",
     "@kelpclaw/codegen": "workspace:*",
     "@kelpclaw/nanoclaw": "workspace:*",
     "@kelpclaw/skill-registry": "workspace:*",

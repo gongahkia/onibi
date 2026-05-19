@@ -26,11 +26,11 @@ export class SecretStoreResolver implements SecretResolver {
 
     const name = secretRef.slice("secret:".length);
     const value = await this.store.getSecretValue(name);
-    if (!value) {
-      throw new Error(`Secret reference '${redactSecretString(secretRef)}' is not available.`);
+    if (value) {
+      return value;
     }
 
-    return value;
+    return new EnvironmentSecretResolver().resolve(secretRef, context);
   }
 }
 

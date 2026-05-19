@@ -28,6 +28,7 @@ import {
   AdapterBackedNodeRunner,
   DockerNodeRunner,
   MockNodeRunner,
+  ProductionNodeRunner,
   compileWorkflowDag,
   executeCompiledDag,
   hashWorkflowDag,
@@ -66,7 +67,7 @@ describe("nanoclaw dag runtime", () => {
   it("executes compiled dags through a mock runner in approved order", async () => {
     const dag = compileWorkflowDag(approvedGmailReceiptsToSheetsWorkflowFixture);
     const runner = new MockNodeRunner();
-    const result = await executeCompiledDag(dag, runner);
+    const result = await executeCompiledDag(dag, runner, { secretResolver: mockSecretResolver });
 
     expect(result).toMatchObject({
       id: "execution.workflow.gmail-receipts-to-sheets.r1",
@@ -81,7 +82,7 @@ describe("nanoclaw dag runtime", () => {
   it("stops execution when a node fails", async () => {
     const dag = compileWorkflowDag(approvedGmailReceiptsToSheetsWorkflowFixture);
     const runner = new MockNodeRunner({ failingNodeIds: ["read-gmail-receipts"] });
-    const result = await executeCompiledDag(dag, runner);
+    const result = await executeCompiledDag(dag, runner, { secretResolver: mockSecretResolver });
 
     expect(result.status).toBe("failed");
     expect(runner.visitedNodeIds).toEqual(["manual-trigger", "read-gmail-receipts"]);
@@ -98,13 +99,14 @@ describe("nanoclaw dag runtime", () => {
     const adapters = createDefaultMockAdapters();
     const result = await executeCompiledDag(
       compileWorkflowDag(approvedGmailReceiptsToSheetsWorkflowFixture),
-      new AdapterBackedNodeRunner({ adapters })
+      new AdapterBackedNodeRunner({ adapters }),
+      { secretResolver: mockSecretResolver }
     );
 
     expect(result.status).toBe("succeeded");
-    expect(adapters.get("adapter.gmail.fake")?.invocations).toHaveLength(1);
-    expect(adapters.get("adapter.sheets.fake")?.invocations).toHaveLength(1);
-    expect(adapters.get("adapter.email.fake")?.invocations).toHaveLength(1);
+    expect(adapters.get("adapter.gmail")?.invocations).toHaveLength(1);
+    expect(adapters.get("adapter.sheets")?.invocations).toHaveLength(1);
+    expect(adapters.get("adapter.email")?.invocations).toHaveLength(1);
     expect(result.nodeResults.at(-1)?.output.delivery).toMatchObject({
       status: "succeeded",
       channels: ["email"]
@@ -130,7 +132,11 @@ describe("nanoclaw dag runtime", () => {
             inputs: { request: objectSchema },
             outputs: { delivery: objectSchema },
             secretRefs: {
-              "email.delivery": "mock:email.delivery"
+              "email.delivery": "secret:email.smtp.default"
+            },
+            config: {
+              channel: "email",
+              allowedHosts: ["smtp"]
             }
           })
         ],
@@ -147,25 +153,27 @@ describe("nanoclaw dag runtime", () => {
     const adapters = createDefaultMockAdapters();
     const result = await executeCompiledDag(
       compileWorkflowDag(workflow),
-      new AdapterBackedNodeRunner({ adapters })
+      new AdapterBackedNodeRunner({ adapters }),
+      { secretResolver: mockSecretResolver }
     );
 
     expect(result.status).toBe("succeeded");
-    expect(adapters.get("adapter.email.fake")?.invocations).toHaveLength(1);
-    expect(adapters.get("adapter.whatsapp.fake")?.invocations).toHaveLength(0);
-    expect(adapters.get("adapter.telegram.fake")?.invocations).toHaveLength(0);
+    expect(adapters.get("adapter.email")?.invocations).toHaveLength(1);
+    expect(adapters.get("adapter.whatsapp")?.invocations).toHaveLength(0);
+    expect(adapters.get("adapter.telegram")?.invocations).toHaveLength(0);
   });
 
   it("runs WhatsApp and Telegram only when the workflow opts into push channels", async () => {
     const adapters = createDefaultMockAdapters();
     const result = await executeCompiledDag(
       compileWorkflowDag(approveForNanoClaw(timeSensitiveAlertDeliveryWorkflowFixture)),
-      new AdapterBackedNodeRunner({ adapters })
+      new AdapterBackedNodeRunner({ adapters }),
+      { secretResolver: mockSecretResolver }
     );
 
     expect(result.status).toBe("succeeded");
-    expect(adapters.get("adapter.whatsapp.fake")?.invocations).toHaveLength(1);
-    expect(adapters.get("adapter.telegram.fake")?.invocations).toHaveLength(1);
+    expect(adapters.get("adapter.whatsapp")?.invocations).toHaveLength(1);
+    expect(adapters.get("adapter.telegram")?.invocations).toHaveLength(1);
     expect(result.nodeResults.at(-1)?.output.delivery).toMatchObject({
       channels: ["whatsapp", "telegram"]
     });
@@ -185,7 +193,8 @@ describe("nanoclaw dag runtime", () => {
     });
     const result = await executeCompiledDag(
       compileWorkflowDag(workflow),
-      new AdapterBackedNodeRunner()
+      new AdapterBackedNodeRunner({ adapters: createDefaultMockAdapters() }),
+      { secretResolver: mockSecretResolver }
     );
 
     expect(result.status).toBe("failed");
@@ -256,7 +265,8 @@ describe("nanoclaw dag runtime", () => {
       compileWorkflowDag(workflow),
       new AdapterBackedNodeRunner({
         adapters: new Map([[metadata.id, createMockAdapter(metadata)]])
-      })
+      }),
+      { secretResolver: mockSecretResolver }
     );
 
     expect(result.status).toBe("failed");
@@ -306,6 +316,25 @@ describe("nanoclaw dag runtime", () => {
     });
 
     expect(compileWorkflowDag(approved).order).toEqual(["a-source", "b-source", "join"]);
+  });
+
+  it("uses production runner for live adapters and deterministic built-ins without MockNodeRunner", async () => {
+    const adapters = createDefaultMockAdapters();
+    const workflow = approveForNanoClaw(approvedGmailReceiptsToSheetsWorkflowFixture);
+    const result = await executeCompiledDag(
+      compileWorkflowDag(workflow),
+      new ProductionNodeRunner({
+        adapters,
+        hostWorkspace: "/tmp/kelpclaw"
+      }),
+      { secretResolver: mockSecretResolver }
+    );
+
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults.find((node) => node.nodeId === "manual-trigger")?.metadata).toEqual(
+      expect.objectContaining({ deterministic: true })
+    );
+    expect(adapters.get("adapter.gmail")?.invocations).toHaveLength(1);
   });
 
   it("rejects approved workflows when the frozen DAG hash drifts", () => {
@@ -442,7 +471,7 @@ describe("nanoclaw dag runtime", () => {
       nodeRunner((_node, context) =>
         Promise.reject(context.signal?.reason ?? new Error("cancelled"))
       ),
-      { signal: controller.signal }
+      { signal: controller.signal, secretResolver: mockSecretResolver }
     );
 
     expect(result.status).toBe("failed");
@@ -477,7 +506,8 @@ describe("nanoclaw dag runtime", () => {
           }
 
           return fallback.run(_node, context);
-        })
+        }),
+        { secretResolver: mockSecretResolver }
       );
 
       expect(result.status).toBe("succeeded");
@@ -790,3 +820,25 @@ function dockerDaemonAvailable(): boolean {
     return false;
   }
 }
+
+const mockSecretResolver = {
+  async resolve(secretRef: string): Promise<string> {
+    if (secretRef.startsWith("env:")) {
+      return process.env[secretRef.slice("env:".length)] ?? secretRef;
+    }
+    if (secretRef === "secret:google.oauth.default") {
+      return JSON.stringify({ accessToken: "test-google-access-token" });
+    }
+    if (secretRef === "secret:email.smtp.default") {
+      return JSON.stringify({ host: "smtp.test", from: "owner@example.com" });
+    }
+    if (secretRef === "secret:whatsapp.cloud.default") {
+      return JSON.stringify({ accessToken: "whatsapp-token", phoneNumberId: "phone-1" });
+    }
+    if (secretRef === "secret:telegram.bot.default") {
+      return JSON.stringify({ botToken: "telegram-token", chatId: "ops" });
+    }
+
+    return secretRef;
+  }
+};

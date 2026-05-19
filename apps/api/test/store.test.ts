@@ -6,7 +6,7 @@ import {
   gmailReceiptsToSheetsWorkflowFixture,
   validateWorkflowSpec
 } from "@kelpclaw/workflow-spec";
-import { SqliteWorkflowStore } from "../src/index.js";
+import { SqliteSecretStore, SqliteWorkflowStore } from "../src/index.js";
 import type {
   WorkflowArtifactManifestRecord,
   WorkflowAuditRecord,
@@ -39,6 +39,34 @@ describe("sqlite workflow store", () => {
     expect(() =>
       rehydrated.saveArtifactManifest({ ...manifest, manifestChecksum: driftHash })
     ).toThrow(/Immutable|immutable/);
+  });
+});
+
+describe("sqlite secret store", () => {
+  it("persists encrypted secrets without exposing values in metadata", async () => {
+    const databasePath = join(await mkdtemp(join(tmpdir(), "kelpclaw-secrets-")), "secrets.db");
+    const store = new SqliteSecretStore({
+      databasePath,
+      masterKey: "phase-8-test-master-key"
+    });
+
+    const metadata = store.putSecret("email.smtp.default", "smtp-password");
+    const rehydrated = new SqliteSecretStore({
+      databasePath,
+      masterKey: "phase-8-test-master-key"
+    });
+    const wrongKey = new SqliteSecretStore({
+      databasePath,
+      masterKey: "wrong-master-key"
+    });
+
+    expect(metadata).toMatchObject({ name: "email.smtp.default" });
+    expect(rehydrated.listSecrets()).toEqual([
+      expect.objectContaining({ name: "email.smtp.default" })
+    ]);
+    await expect(rehydrated.getSecretValue("email.smtp.default")).resolves.toBe("smtp-password");
+    await expect(wrongKey.getSecretValue("email.smtp.default")).rejects.toThrow();
+    expect(JSON.stringify(rehydrated.listSecrets())).not.toContain("smtp-password");
   });
 });
 

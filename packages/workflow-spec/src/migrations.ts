@@ -42,6 +42,7 @@ export function migrateWorkflowAdapterIdsToLive(workflow: WorkflowSpec): Workflo
     ...workflow,
     nodes: workflow.nodes.map((node) => ({
       ...node,
+      config: withAdapterHosts(node.config, adapterHostsForOperations(node.adapterOperations ?? [])),
       determinism: {
         ...node.determinism,
         externalCalls: node.determinism.externalCalls.map(rewriteAdapterId)
@@ -65,6 +66,66 @@ export function migrateWorkflowAdapterIdsToLive(workflow: WorkflowSpec): Workflo
         : {})
     }))
   };
+}
+
+function adapterHostsForOperations(
+  operations: WorkflowSpec["nodes"][number]["adapterOperations"]
+): readonly string[] {
+  const hosts = new Set<string>();
+  for (const operation of operations ?? []) {
+    for (const host of hostsForAdapter(rewriteAdapterId(operation.adapterId))) {
+      hosts.add(host);
+    }
+  }
+
+  return [...hosts].sort();
+}
+
+function hostsForAdapter(adapterId: string): readonly string[] {
+  switch (adapterId) {
+    case "adapter.gmail":
+      return ["oauth2.googleapis.com", "gmail.googleapis.com"];
+    case "adapter.sheets":
+      return ["oauth2.googleapis.com", "sheets.googleapis.com"];
+    case "adapter.email":
+      return ["smtp"];
+    case "adapter.whatsapp":
+      return ["graph.facebook.com"];
+    case "adapter.telegram":
+      return ["api.telegram.org"];
+    default:
+      return [];
+  }
+}
+
+function mergeAllowedHosts(existing: unknown, additional: readonly string[]): readonly string[] {
+  const hosts = new Set<string>();
+  if (Array.isArray(existing)) {
+    for (const host of existing) {
+      if (typeof host === "string") {
+        hosts.add(host);
+      }
+    }
+  }
+  for (const host of additional) {
+    hosts.add(host);
+  }
+
+  return [...hosts].sort();
+}
+
+function withAdapterHosts<TConfig extends WorkflowSpec["nodes"][number]["config"]>(
+  config: TConfig,
+  hosts: readonly string[]
+): TConfig {
+  if (hosts.length === 0 && !Array.isArray(config.allowedHosts)) {
+    return config;
+  }
+
+  return {
+    ...config,
+    allowedHosts: mergeAllowedHosts(config.allowedHosts, hosts)
+  } as TConfig;
 }
 
 function readSchemaVersion(input: unknown): string | undefined {

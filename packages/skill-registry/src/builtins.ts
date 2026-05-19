@@ -246,7 +246,7 @@ export const builtinSkills: readonly SkillMetadata[] = [
     id: "skill.adapter.dispatch",
     name: "Adapter Dispatch",
     version: "1.0.0",
-    description: "Routes a prepared payload to configured fake adapters in local test mode.",
+    description: "Routes a prepared payload to configured live delivery adapters.",
     deterministic: true,
     nodeKinds: ["delivery"],
     capabilities: ["adapter-dispatch"],
@@ -265,12 +265,12 @@ export const builtinSkills: readonly SkillMetadata[] = [
     ],
     runtimeTemplate,
     metaprompt:
-      "Select this skill when a workflow needs fake email, WhatsApp, or Telegram dispatch.",
-    validationRules: ["only fake adapters are allowed in Phase 2"],
+      "Select this skill when a workflow needs email, WhatsApp, or Telegram dispatch.",
+    validationRules: ["delivery adapter ids must use canonical live ids"],
     examples: [
       {
         id: "example.adapter.dispatch",
-        description: "Send a fake Telegram message.",
+        description: "Send a Telegram message.",
         input: { payload: { text: "ready" } },
         output: { delivery: { status: "recorded" } }
       }

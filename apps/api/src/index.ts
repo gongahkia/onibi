@@ -1,4 +1,4 @@
-export { buildApiApp, createConfiguredWorkflowStore } from "./app.js";
+export { buildApiApp, createConfiguredSecretStore, createConfiguredWorkflowStore } from "./app.js";
 export {
   createDeterministicPlannerBackend,
   createLivePlannerBackend,
@@ -18,3 +18,5 @@ export {
 } from "./store.js";
 export type { RevisionInput, StoredExecution, StoredWorkflow } from "./store.js";
 export type { WorkflowRevisionLookup, WorkflowStore } from "./store.js";
+export { InMemorySecretStore, SqliteSecretStore } from "./secrets.js";
+export type { SecretMetadata, SecretStore } from "./secrets.js";

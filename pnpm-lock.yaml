@@ -38,6 +38,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@kelpclaw/adapters':
+        specifier: workspace:*
+        version: link:../../packages/adapters
       '@kelpclaw/codegen':
         specifier: workspace:*
         version: link:../../packages/codegen

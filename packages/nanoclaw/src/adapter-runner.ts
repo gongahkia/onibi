@@ -39,29 +39,71 @@ export class AdapterBackedNodeRunner implements NodeRunner {
         throw new Error(`Adapter '${operation.adapterId}' was not registered.`);
       }
 
-      results.push(
-        await adapter.invoke(
-          createAdapterInvocation({
-            node,
-            context,
-            adapterId: operation.adapterId,
-            operation: operation.operation,
-            operationVersion: operation.operationVersion
-          })
-        )
-      );
+      const invocation = createAdapterInvocation({
+        node,
+        context,
+        adapterId: operation.adapterId,
+        operation: operation.operation,
+        operationVersion: operation.operationVersion
+      });
+      try {
+        results.push(await adapter.invoke(invocation));
+      } catch (error) {
+        results.push({
+          adapterId: invocation.adapterId,
+          operation: invocation.operation,
+          operationVersion: invocation.operationVersion,
+          status: "failed",
+          output: {
+            channel: adapter.metadata.kind,
+            delivered: false
+          },
+          providerMetadata: {
+            adapterId: invocation.adapterId,
+            provider: adapter.metadata.kind,
+            providerResponseId: `adapter-error.${context.workspace.runId}.${node.id}.${context.attempt}`,
+            mock: adapter.metadata.live === false,
+            sequence: results.length + 1,
+            operation: invocation.operation
+          },
+          error: {
+            code: "ADAPTER_PROVIDER_ERROR",
+            message: error instanceof Error ? error.message : "Adapter invocation failed.",
+            retryable: false
+          },
+          auditEvents: [
+            {
+              id: `audit.adapter-error.${context.workspace.runId}.${node.id}.${context.attempt}`,
+              timestamp: new Date().toISOString(),
+              level: "error",
+              message: `Adapter '${invocation.adapterId}' failed '${invocation.operation}'.`
+            }
+          ]
+        });
+      }
     }
 
     return {
       status: results.every((result) => result.status === "succeeded") ? "succeeded" : "failed",
       output: createNodeOutput(node, results),
       metadata: {
-        mocked: true,
+        adapterBacked: true,
+        mocked: results.every((result) => result.providerMetadata.mock),
         adapterResults: results.map((result) => ({
           adapterId: result.adapterId,
           operation: result.operation,
           providerResponseId: result.providerMetadata.providerResponseId,
-          channel: channelForResult(result)
+          channel: channelForResult(result),
+          status: result.status,
+          ...(result.error
+            ? {
+                error: {
+                  code: result.error.code,
+                  message: result.error.message,
+                  retryable: result.error.retryable
+                }
+              }
+            : {})
         })),
         auditEvents: results.flatMap((result) =>
           result.auditEvents.map((event) => ({

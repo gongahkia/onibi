@@ -25,7 +25,9 @@ export function createDeterministicHarness(
     adapters,
     async runWorkflow(workflowOverride = workflow) {
       const dag = compileWorkflowDag(workflowOverride);
-      return executeCompiledDag(dag, new AdapterBackedNodeRunner({ adapters }));
+      return executeCompiledDag(dag, new AdapterBackedNodeRunner({ adapters }), {
+        secretResolver: deterministicSecretResolver
+      });
     }
   };
 }
@@ -33,3 +35,16 @@ export function createDeterministicHarness(
 export async function runStaticFixture(): Promise<DagExecutionResult> {
   return createDeterministicHarness(approvedGmailReceiptsToSheetsWorkflowFixture).runWorkflow();
 }
+
+const deterministicSecretResolver = {
+  async resolve(secretRef: string): Promise<string> {
+    if (secretRef === "secret:google.oauth.default") {
+      return JSON.stringify({ accessToken: "test-google-access-token" });
+    }
+    if (secretRef === "secret:email.smtp.default") {
+      return JSON.stringify({ host: "smtp.test", from: "owner@example.com" });
+    }
+
+    return secretRef;
+  }
+};

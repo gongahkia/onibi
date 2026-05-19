@@ -7,10 +7,12 @@ import {
   createGeneratedArtifact
 } from "@kelpclaw/codegen";
 import { registerPromotedSkill } from "@kelpclaw/skill-registry";
+import { createDefaultMockAdapters } from "@kelpclaw/adapters";
 import {
   AdapterBackedNodeRunner,
-  DockerNodeRunner,
   MockNodeRunner,
+  ProductionNodeRunner,
+  SecretStoreResolver,
   compileWorkflowDag,
   executeCompiledDag
 } from "@kelpclaw/nanoclaw";
@@ -23,6 +25,7 @@ import {
 } from "@kelpclaw/workflow-spec";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { CodegenArtifactStore } from "@kelpclaw/codegen";
+import type { NodeRunner } from "@kelpclaw/nanoclaw";
 import type { SkillMetadata } from "@kelpclaw/skill-registry";
 import type {
   WorkflowArtifactManifestRecord,
@@ -53,7 +56,15 @@ import {
   planWorkflowDraft,
   repromptWorkflow
 } from "./planner.js";
+import {
+  InMemorySecretStore,
+  SqliteSecretStore,
+  consumeOAuthState,
+  createOAuthState,
+  secretReadiness
+} from "./secrets.js";
 import { InMemoryWorkflowStore, SqliteWorkflowStore } from "./store.js";
+import type { SecretStore } from "./secrets.js";
 import type { RevisionInput, WorkflowStore } from "./store.js";
 import type { WorkflowPlannerBackend } from "./planner.js";
 
@@ -88,6 +99,9 @@ export interface ApiAppOptions {
   readonly store?: WorkflowStore | undefined;
   readonly planner?: WorkflowPlannerBackend | undefined;
   readonly artifactStore?: CodegenArtifactStore | undefined;
+  readonly secretStore?: SecretStore | undefined;
+  readonly adminToken?: string | null | undefined;
+  readonly runner?: NodeRunner | undefined;
 }
 
 export function createConfiguredWorkflowStore(): WorkflowStore {
@@ -101,18 +115,169 @@ export function createConfiguredWorkflowStore(): WorkflowStore {
   });
 }
 
+export function createConfiguredSecretStore(): SecretStore {
+  if (process.env.KELPCLAW_SECRET_STORE === "memory") {
+    return new InMemorySecretStore();
+  }
+
+  return new SqliteSecretStore({
+    databasePath:
+      process.env.KELPCLAW_SECRET_DB ??
+      process.env.KELPCLAW_WORKFLOW_DB ??
+      join(process.cwd(), ".kelpclaw", "workflow.sqlite"),
+    masterKey: process.env.KELPCLAW_SECRET_MASTER_KEY ?? ""
+  });
+}
+
 export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
   const app = Fastify({
     logger: false
   });
   const store = options.store ?? new InMemoryWorkflowStore();
+  const secretStore = options.secretStore ?? new InMemorySecretStore();
   const artifactStore = options.artifactStore ?? new LocalCodegenArtifactStore();
   const planner = options.planner ?? createPlannerBackendFromEnv({ artifactStore });
+  const runner = options.runner;
+  const adminToken =
+    options.adminToken === undefined ? process.env.KELPCLAW_ADMIN_TOKEN : options.adminToken;
+
+  app.addHook("preHandler", async (request, reply) => {
+    if (!adminToken || isPublicRoute(request.method, request.url)) {
+      return;
+    }
+    const header = request.headers.authorization;
+    const expected = `Bearer ${adminToken}`;
+    if (header !== expected) {
+      return reply.code(401).send({
+        ok: false,
+        error: "UNAUTHORIZED",
+        message: "A valid KelpClaw admin bearer token is required."
+      });
+    }
+  });
 
   app.get("/health", async () => ({
     status: "ok",
     service: "kelpclaw-api"
   }));
+
+  app.get("/api/secrets", async () => ({
+    ok: true,
+    secrets: publicSecretMetadata(secretStore),
+    integrations: secretReadiness(secretStore)
+  }));
+
+  app.get("/api/integrations/status", async () => ({
+    ok: true,
+    integrations: secretReadiness(secretStore)
+  }));
+
+  app.put<{ Body: { readonly name: string; readonly value: string } }>(
+    "/api/secrets",
+    async (request, reply) => {
+      if (!request.body.name || typeof request.body.value !== "string") {
+        return reply.code(422).send({
+          ok: false,
+          error: "SECRET_INVALID",
+          message: "Secret name and value are required."
+        });
+      }
+
+      return {
+        ok: true,
+        secret: secretStore.putSecret(request.body.name, request.body.value)
+      };
+    }
+  );
+
+  app.delete<{ Params: { readonly name: string } }>("/api/secrets/:name", async (request) => ({
+    ok: true,
+    deleted: secretStore.deleteSecret(request.params.name)
+  }));
+
+  app.get("/api/integrations/google/status", async () => ({
+    ok: true,
+    connected: (await secretStore.getSecretValue("google.oauth.default")) !== null
+  }));
+
+  app.get("/api/integrations/google/connect", async (_request, reply) => {
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const redirectUri = googleRedirectUri();
+    if (!clientId || !redirectUri) {
+      return reply.code(503).send({
+        ok: false,
+        error: "GOOGLE_OAUTH_NOT_CONFIGURED",
+        message: "GOOGLE_CLIENT_ID and KELPCLAW_PUBLIC_BASE_URL are required."
+      });
+    }
+    const state = createOAuthState(secretStore);
+    const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+    url.searchParams.set("client_id", clientId);
+    url.searchParams.set("redirect_uri", redirectUri);
+    url.searchParams.set("response_type", "code");
+    url.searchParams.set("access_type", "offline");
+    url.searchParams.set("prompt", "consent");
+    url.searchParams.set(
+      "scope",
+      [
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/spreadsheets"
+      ].join(" ")
+    );
+    url.searchParams.set("state", state);
+
+    return {
+      ok: true,
+      url: url.toString(),
+      state
+    };
+  });
+
+  app.get<{ Querystring: { readonly code?: string; readonly state?: string } }>(
+    "/api/integrations/google/callback",
+    async (request, reply) => {
+      if (!request.query.code || !request.query.state) {
+        return reply.code(422).send({
+          ok: false,
+          error: "GOOGLE_OAUTH_CALLBACK_INVALID",
+          message: "Google OAuth code and state are required."
+        });
+      }
+      if (!(await consumeOAuthState(secretStore, request.query.state))) {
+        return reply.code(409).send({
+          ok: false,
+          error: "GOOGLE_OAUTH_STATE_INVALID",
+          message: "Google OAuth state was not recognized or was already used."
+        });
+      }
+      const token = await exchangeGoogleOAuthCode(request.query.code);
+      secretStore.putSecret(
+        "google.oauth.default",
+        JSON.stringify({
+          refreshToken: token.refresh_token,
+          clientId: process.env.GOOGLE_CLIENT_ID,
+          clientSecret: process.env.GOOGLE_CLIENT_SECRET
+        })
+      );
+
+      return {
+        ok: true,
+        connected: true
+      };
+    }
+  );
+
+  app.post("/api/integrations/google/revoke", async () => {
+    const secret = await secretStore.getSecretValue("google.oauth.default");
+    if (secret) {
+      await revokeGoogleOAuthSecret(secret);
+    }
+
+    return {
+      ok: true,
+      deleted: secretStore.deleteSecret("google.oauth.default")
+    };
+  });
 
   app.post<{ Body: MockPlanRequestBody }>("/api/plans/mock", async (request) => {
     const prompt = request.body?.name ?? gmailReceiptsToSheetsWorkflowFixture.prompt;
@@ -613,9 +778,10 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       const runId = `run.${approvedRevision.workflowId}.r${approvedRevision.revision}.${Date.now()}`;
       const dag = compileWorkflowDag(approvedRevision.workflow);
       const compiledAt = new Date().toISOString();
-      const result = await executeCompiledDag(dag, createNanoClawRunner(), {
+      const result = await executeCompiledDag(dag, runner ?? createNanoClawRunner(), {
         codegenArtifactStore: artifactStore,
-        runId
+        runId,
+        secretResolver: new SecretStoreResolver(secretStore)
       });
       const now = new Date().toISOString();
       const events = enrichRunEvents(
@@ -815,8 +981,9 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
 
       try {
         const dag = compileWorkflowDag(workflow);
-        const result = await executeCompiledDag(dag, createNanoClawRunner(), {
-          codegenArtifactStore: artifactStore
+        const result = await executeCompiledDag(dag, runner ?? createNanoClawRunner(), {
+          codegenArtifactStore: artifactStore,
+          secretResolver: new SecretStoreResolver(secretStore)
         });
         const execution = store.saveExecution({
           id: result.id,
@@ -861,6 +1028,97 @@ function isValidateRequest(input: unknown): input is WorkflowValidateRequest {
     "workflow" in input &&
     typeof (input as WorkflowValidateRequest).workflow === "object"
   );
+}
+
+function isPublicRoute(method: string, url: string): boolean {
+  const pathname = url.split("?")[0] ?? url;
+  return (
+    pathname === "/health" || (method === "GET" && pathname === "/api/integrations/google/callback")
+  );
+}
+
+function googleRedirectUri(): string | null {
+  const baseUrl = process.env.KELPCLAW_PUBLIC_BASE_URL;
+  if (!baseUrl) {
+    return null;
+  }
+
+  return new URL("/api/integrations/google/callback", baseUrl).toString();
+}
+
+function publicSecretMetadata(secretStore: SecretStore) {
+  return secretStore
+    .listSecrets()
+    .filter((secret) => !secret.name.startsWith("oauth.state."))
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+async function exchangeGoogleOAuthCode(code: string): Promise<{ readonly refresh_token: string }> {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const redirectUri = googleRedirectUri();
+  if (!clientId || !clientSecret || !redirectUri) {
+    throw new Error("Google OAuth client configuration is incomplete.");
+  }
+
+  const response = await fetch(
+    process.env.GOOGLE_TOKEN_URL ?? "https://oauth2.googleapis.com/token",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded"
+      },
+      body: new URLSearchParams({
+        code,
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
+        grant_type: "authorization_code"
+      })
+    }
+  );
+  const payload = (await response.json()) as {
+    readonly refresh_token?: string;
+    readonly error?: string;
+  };
+  if (!response.ok || !payload.refresh_token) {
+    throw new Error(payload.error ?? "Google OAuth token exchange did not return a refresh token.");
+  }
+
+  return {
+    refresh_token: payload.refresh_token
+  };
+}
+
+async function revokeGoogleOAuthSecret(secret: string): Promise<void> {
+  const token = googleTokenForRevocation(secret);
+  if (!token) {
+    return;
+  }
+
+  const response = await fetch(process.env.GOOGLE_REVOKE_URL ?? "https://oauth2.googleapis.com/revoke", {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded"
+    },
+    body: new URLSearchParams({ token })
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Google OAuth revoke failed with ${response.status}.`);
+  }
+}
+
+function googleTokenForRevocation(secret: string): string | null {
+  try {
+    const parsed = JSON.parse(secret) as {
+      readonly refreshToken?: string;
+      readonly accessToken?: string;
+    };
+    return parsed.refreshToken ?? parsed.accessToken ?? null;
+  } catch {
+    return secret.length > 0 ? secret : null;
+  }
 }
 
 async function validateCodegenApprovalReadiness(
@@ -963,16 +1221,17 @@ function slugify(value: string): string {
   );
 }
 
-function createNanoClawRunner(): AdapterBackedNodeRunner | DockerNodeRunner {
-  if (process.env.NANOCLAW_RUNNER === "docker") {
-    return new DockerNodeRunner({
-      dockerBin: process.env.NANOCLAW_DOCKER_BIN,
-      hostWorkspace: process.env.NANOCLAW_HOST_WORKSPACE ?? process.cwd()
+function createNanoClawRunner(): NodeRunner {
+  if (process.env.NANOCLAW_RUNNER === "mock") {
+    return new AdapterBackedNodeRunner({
+      adapters: createDefaultMockAdapters(),
+      fallbackRunner: new MockNodeRunner()
     });
   }
 
-  return new AdapterBackedNodeRunner({
-    fallbackRunner: new MockNodeRunner()
+  return new ProductionNodeRunner({
+    dockerBin: process.env.NANOCLAW_DOCKER_BIN,
+    hostWorkspace: process.env.NANOCLAW_HOST_WORKSPACE ?? process.cwd()
   });
 }
 

@@ -9,7 +9,7 @@ import type {
 } from "./types.js";
 
 const createdAt = "2026-05-18T00:00:00.000Z";
-const checksumA = "sha256:c08362c97cdcadc45e6a92220548890bf2c158af4d99864e8bdcce61e4880c8f";
+const checksumA = "sha256:046ae0fb04e819032bbdc12e0354279b87f1e6c2bcb40ddfd659c9fd778d5e59";
 const checksumB = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const checksumC = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 
@@ -108,7 +108,7 @@ export const gmailReceiptsToSheetsWorkflowFixture = workflowBase({
       id: "read-gmail-receipts",
       kind: "skill",
       label: "Read Gmail Receipts",
-      description: "Reads matching Gmail messages through the fake Gmail adapter.",
+      description: "Reads matching Gmail messages through the Gmail adapter.",
       inputs: {
         request: objectSchema
       },
@@ -116,7 +116,8 @@ export const gmailReceiptsToSheetsWorkflowFixture = workflowBase({
         receipts: arraySchema
       },
       config: {
-        query: "from:(receipts OR orders) newer_than:30d"
+        query: "from:(receipts OR orders) newer_than:30d",
+        allowedHosts: ["oauth2.googleapis.com", "gmail.googleapis.com"]
       },
       runtime: deterministicRuntime,
       determinism: externalDeterminism(["adapter.gmail"]),
@@ -149,7 +150,7 @@ export const gmailReceiptsToSheetsWorkflowFixture = workflowBase({
       id: "append-sheet-rows",
       kind: "delivery",
       label: "Append Sheet Rows",
-      description: "Writes normalized receipt rows to a fake Google Sheets adapter.",
+      description: "Writes normalized receipt rows to the Google Sheets adapter.",
       inputs: {
         rows: arraySchema
       },
@@ -158,7 +159,8 @@ export const gmailReceiptsToSheetsWorkflowFixture = workflowBase({
       },
       config: {
         spreadsheetId: "sheet.receipts",
-        range: "Receipts!A:D"
+        range: "Receipts!A:D",
+        allowedHosts: ["oauth2.googleapis.com", "sheets.googleapis.com"]
       },
       runtime: deterministicRuntime,
       determinism: externalDeterminism(["adapter.sheets"]),
@@ -174,7 +176,7 @@ export const gmailReceiptsToSheetsWorkflowFixture = workflowBase({
       id: "deliver-results-email",
       kind: "delivery",
       label: "Deliver Email Results",
-      description: "Emails the final receipt sync result through the fake email adapter.",
+      description: "Emails the final receipt sync result through the SMTP email adapter.",
       inputs: {
         delivery: objectSchema
       },
@@ -185,7 +187,8 @@ export const gmailReceiptsToSheetsWorkflowFixture = workflowBase({
         channel: "email",
         channels: ["email"],
         to: "owner@example.com",
-        subject: "Receipt sync completed"
+        subject: "Receipt sync completed",
+        allowedHosts: ["smtp"]
       },
       runtime: deterministicRuntime,
       determinism: externalDeterminism(["adapter.email"]),
@@ -372,7 +375,8 @@ export const timeSensitiveAlertDeliveryWorkflowFixture = workflowBase({
         message: objectSchema
       },
       config: {
-        source: "support@example.com"
+        source: "support@example.com",
+        allowedHosts: ["smtp"]
       },
       runtime: deterministicRuntime,
       determinism: externalDeterminism(["adapter.email"]),
@@ -422,7 +426,7 @@ export const timeSensitiveAlertDeliveryWorkflowFixture = workflowBase({
       id: "send-alert",
       kind: "delivery",
       label: "Send Alert",
-      description: "Sends approved alert content to fake WhatsApp and Telegram adapters.",
+      description: "Sends approved alert content to WhatsApp and Telegram adapters.",
       inputs: {
         approvedAlert: objectSchema
       },
@@ -432,7 +436,8 @@ export const timeSensitiveAlertDeliveryWorkflowFixture = workflowBase({
       config: {
         channel: "email",
         channels: ["whatsapp", "telegram"],
-        timeSensitive: true
+        timeSensitive: true,
+        allowedHosts: ["graph.facebook.com", "api.telegram.org"]
       },
       runtime: deterministicRuntime,
       determinism: externalDeterminism(["adapter.whatsapp", "adapter.telegram"]),

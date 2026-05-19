@@ -266,6 +266,22 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     },
     {
       "kind": "same",
+      "text": "        "allowedHosts": [",
+    },
+    {
+      "kind": "same",
+      "text": "          "oauth2.googleapis.com",",
+    },
+    {
+      "kind": "same",
+      "text": "          "sheets.googleapis.com"",
+    },
+    {
+      "kind": "same",
+      "text": "        ],",
+    },
+    {
+      "kind": "same",
       "text": "        "range": "Receipts!A:D",",
     },
     {
@@ -278,7 +294,7 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     },
     {
       "kind": "same",
-      "text": "      "description": "Writes normalized receipt rows to a fake Google Sheets adapter.",",
+      "text": "      "description": "Writes normalized receipt rows to the Google Sheets adapter.",",
     },
     {
       "kind": "same",
@@ -530,6 +546,18 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     },
     {
       "kind": "same",
+      "text": "        "allowedHosts": [",
+    },
+    {
+      "kind": "same",
+      "text": "          "smtp"",
+    },
+    {
+      "kind": "same",
+      "text": "        ],",
+    },
+    {
+      "kind": "same",
       "text": "        "channel": "email",",
     },
     {
@@ -558,7 +586,7 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     },
     {
       "kind": "same",
-      "text": "      "description": "Emails the final receipt sync result through the fake email adapter.",",
+      "text": "      "description": "Emails the final receipt sync result through the SMTP email adapter.",",
     },
     {
       "kind": "same",
@@ -798,6 +826,22 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     },
     {
       "kind": "same",
+      "text": "        "allowedHosts": [",
+    },
+    {
+      "kind": "same",
+      "text": "          "oauth2.googleapis.com",",
+    },
+    {
+      "kind": "same",
+      "text": "          "gmail.googleapis.com"",
+    },
+    {
+      "kind": "same",
+      "text": "        ],",
+    },
+    {
+      "kind": "same",
       "text": "        "query": "from:(receipts OR orders) newer_than:30d"",
     },
     {
@@ -806,7 +850,7 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     },
     {
       "kind": "same",
-      "text": "      "description": "Reads matching Gmail messages through the fake Gmail adapter.",",
+      "text": "      "description": "Reads matching Gmail messages through the Gmail adapter.",",
     },
     {
       "kind": "same",
@@ -1489,10 +1533,14 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
         }
       ],
       "config": {
+        "allowedHosts": [
+          "oauth2.googleapis.com",
+          "sheets.googleapis.com"
+        ],
         "range": "Receipts!A:D",
         "spreadsheetId": "sheet.receipts"
       },
-      "description": "Writes normalized receipt rows to a fake Google Sheets adapter.",
+      "description": "Writes normalized receipt rows to the Google Sheets adapter.",
       "determinism": {
         "externalCalls": [
           "adapter.sheets"
@@ -1555,6 +1603,9 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
         }
       ],
       "config": {
+        "allowedHosts": [
+          "smtp"
+        ],
         "channel": "email",
         "channels": [
           "email"
@@ -1562,7 +1613,7 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
         "subject": "Receipt sync completed",
         "to": "owner@example.com"
       },
-      "description": "Emails the final receipt sync result through the fake email adapter.",
+      "description": "Emails the final receipt sync result through the SMTP email adapter.",
       "determinism": {
         "externalCalls": [
           "adapter.email"
@@ -1622,9 +1673,13 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
         }
       ],
       "config": {
+        "allowedHosts": [
+          "oauth2.googleapis.com",
+          "gmail.googleapis.com"
+        ],
         "query": "from:(receipts OR orders) newer_than:30d"
       },
-      "description": "Reads matching Gmail messages through the fake Gmail adapter.",
+      "description": "Reads matching Gmail messages through the Gmail adapter.",
       "determinism": {
         "externalCalls": [
           "adapter.gmail"
@@ -2106,6 +2161,10 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
         }
       ],
       "config": {
+        "allowedHosts": [
+          "graph.facebook.com",
+          "api.telegram.org"
+        ],
         "channel": "email",
         "channels": [
           "whatsapp",
@@ -2113,7 +2172,7 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
         ],
         "timeSensitive": true
       },
-      "description": "Sends approved alert content to fake WhatsApp and Telegram adapters.",
+      "description": "Sends approved alert content to WhatsApp and Telegram adapters.",
       "determinism": {
         "externalCalls": [
           "adapter.whatsapp",
@@ -2221,6 +2280,9 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
         }
       ],
       "config": {
+        "allowedHosts": [
+          "smtp"
+        ],
         "source": "support@example.com"
       },
       "description": "Starts the workflow when urgent support email arrives.",
