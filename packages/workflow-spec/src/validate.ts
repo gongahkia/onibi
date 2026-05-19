@@ -92,6 +92,9 @@ function validateWorkflowSemantics(workflow: WorkflowSpec): WorkflowValidationIs
     if (node.kind === "codegen" && node.codegen) {
       errors.push(...validateCodegenMetadata(workflow, index));
     }
+    if (node.kind === "delivery") {
+      errors.push(...validateDeliveryChannelPolicy(node, index));
+    }
   });
 
   workflow.edges.forEach((edge, index) => {
@@ -136,6 +139,48 @@ function validateWorkflowSemantics(workflow: WorkflowSpec): WorkflowValidationIs
   }
 
   return errors;
+}
+
+function validateDeliveryChannelPolicy(
+  node: WorkflowSpec["nodes"][number],
+  nodeIndex: number
+): WorkflowValidationIssue[] {
+  const channels = declaredDeliveryChannels(node);
+  const adapterIds = new Set([...(node.adapterId ? [node.adapterId] : []), ...(node.adapterIds ?? [])]);
+  const errors: WorkflowValidationIssue[] = [];
+
+  for (const channel of ["whatsapp", "telegram"] as const) {
+    const adapterId = `adapter.${channel}.fake`;
+    if (adapterIds.has(adapterId) && !channels.has(channel)) {
+      errors.push({
+        code: "WORKFLOW_DELIVERY_CHANNEL_POLICY_INVALID",
+        message: `Delivery node '${node.id}' uses ${channel} adapter '${adapterId}' but does not declare '${channel}' in config.channels.`,
+        path: ["nodes", nodeIndex, "config", "channels"]
+      });
+    }
+  }
+
+  return errors;
+}
+
+function declaredDeliveryChannels(node: WorkflowSpec["nodes"][number]): ReadonlySet<string> {
+  const channels = new Set<string>();
+  const configuredChannels = node.config.channels;
+  if (Array.isArray(configuredChannels)) {
+    for (const channel of configuredChannels) {
+      if (typeof channel === "string") {
+        channels.add(channel);
+      }
+    }
+  }
+  if (typeof node.config.channel === "string") {
+    channels.add(node.config.channel);
+  }
+  if (channels.size === 0) {
+    channels.add("email");
+  }
+
+  return channels;
 }
 
 function validateApprovalForExecution(workflow: WorkflowSpec): WorkflowValidationIssue[] {

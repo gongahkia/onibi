@@ -17,6 +17,7 @@ import {
   timeSensitiveAlertDeliveryWorkflowFixture,
   validateWorkflowForExecution,
   validateWorkflowSpec,
+  withConfig,
   workflowIdFromPrompt,
   workflowJsonSchema,
   workflowSchemaVersion
@@ -66,6 +67,22 @@ describe("workflow spec validation", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.errors.map((error) => error.code)).toEqual(["WORKFLOW_DAG_CYCLE"]);
+    }
+  });
+
+  it("rejects undeclared secondary push delivery channels", () => {
+    const result = validateWorkflowSpec(
+      withConfig(timeSensitiveAlertDeliveryWorkflowFixture, "send-alert", {
+        channel: "email"
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.map((error) => error.code)).toEqual([
+        "WORKFLOW_DELIVERY_CHANNEL_POLICY_INVALID",
+        "WORKFLOW_DELIVERY_CHANNEL_POLICY_INVALID"
+      ]);
     }
   });
 

@@ -95,7 +95,29 @@ export const workflowJsonSchema = {
         determinism: { $ref: "#/$defs/determinism" },
         skillId: { type: "string", minLength: 1 },
         adapterId: { type: "string", minLength: 1 },
+        adapterIds: {
+          type: "array",
+          items: { type: "string", minLength: 1 }
+        },
+        adapterOperations: {
+          type: "array",
+          items: { $ref: "#/$defs/adapterOperation" }
+        },
+        secretRefs: {
+          type: "object",
+          additionalProperties: { type: "string", minLength: 1 }
+        },
         codegen: { $ref: "#/$defs/codegen" }
+      }
+    },
+    adapterOperation: {
+      type: "object",
+      required: ["adapterId", "operation", "operationVersion"],
+      additionalProperties: false,
+      properties: {
+        adapterId: { type: "string", minLength: 1 },
+        operation: { type: "string", minLength: 1 },
+        operationVersion: { type: "string", minLength: 1 }
       }
     },
     portRef: {

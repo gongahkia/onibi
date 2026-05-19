@@ -98,6 +98,12 @@ export const workflowCodegenMetadataSchema = z.object({
   llmBacked: z.boolean()
 });
 
+export const workflowAdapterOperationRefSchema = z.object({
+  adapterId: z.string().min(1),
+  operation: z.string().min(1),
+  operationVersion: z.string().min(1)
+});
+
 export const workflowNodeSchema = z.object({
   id: z.string().min(1),
   kind: z.enum(["trigger", "skill", "codegen", "transform", "approval", "delivery"]),
@@ -110,6 +116,9 @@ export const workflowNodeSchema = z.object({
   determinism: workflowDeterminismSchema,
   skillId: z.string().min(1).optional(),
   adapterId: z.string().min(1).optional(),
+  adapterIds: z.array(z.string().min(1)).optional(),
+  adapterOperations: z.array(workflowAdapterOperationRefSchema).optional(),
+  secretRefs: z.record(z.string(), z.string().min(1)).optional(),
   codegen: workflowCodegenMetadataSchema.optional()
 });
 

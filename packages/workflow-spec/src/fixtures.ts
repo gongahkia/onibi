@@ -2,13 +2,14 @@ import { workflowSchemaVersion } from "./types.js";
 import type {
   JsonRecord,
   JsonSchemaShape,
+  WorkflowAdapterOperationRef,
   WorkflowDeterminism,
   WorkflowRuntime,
   WorkflowSpec
 } from "./types.js";
 
 const createdAt = "2026-05-18T00:00:00.000Z";
-const checksumA = "sha256:fe7089c55f65f4fe08e04af27951ea6b70c2262332c3079591326fd471ee1279";
+const checksumA = "sha256:c08362c97cdcadc45e6a92220548890bf2c158af4d99864e8bdcce61e4880c8f";
 const checksumB = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const checksumC = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 
@@ -46,6 +47,18 @@ function externalDeterminism(externalCalls: readonly string[]): WorkflowDetermin
       enabled: false
     },
     replayBehavior: "record"
+  };
+}
+
+function adapterOperation(
+  adapterId: string,
+  operation: string,
+  operationVersion = "1.0.0"
+): WorkflowAdapterOperationRef {
+  return {
+    adapterId,
+    operation,
+    operationVersion
   };
 }
 
@@ -107,7 +120,13 @@ export const gmailReceiptsToSheetsWorkflowFixture = workflowBase({
       },
       runtime: deterministicRuntime,
       determinism: externalDeterminism(["adapter.gmail.fake"]),
-      skillId: "skill.gmail.receipts.read"
+      skillId: "skill.gmail.receipts.read",
+      adapterId: "adapter.gmail.fake",
+      adapterIds: ["adapter.gmail.fake"],
+      adapterOperations: [adapterOperation("adapter.gmail.fake", "gmail.receipts.search")],
+      secretRefs: {
+        "gmail.oauth": "mock:gmail.oauth"
+      }
     },
     {
       id: "normalize-receipts",
@@ -143,7 +162,40 @@ export const gmailReceiptsToSheetsWorkflowFixture = workflowBase({
       },
       runtime: deterministicRuntime,
       determinism: externalDeterminism(["adapter.sheets.fake"]),
-      adapterId: "adapter.sheets.fake"
+      skillId: "skill.sheets.rows.append",
+      adapterId: "adapter.sheets.fake",
+      adapterIds: ["adapter.sheets.fake"],
+      adapterOperations: [adapterOperation("adapter.sheets.fake", "sheets.rows.append")],
+      secretRefs: {
+        "sheets.oauth": "mock:sheets.oauth"
+      }
+    },
+    {
+      id: "deliver-results-email",
+      kind: "delivery",
+      label: "Deliver Email Results",
+      description: "Emails the final receipt sync result through the fake email adapter.",
+      inputs: {
+        delivery: objectSchema
+      },
+      outputs: {
+        delivery: objectSchema
+      },
+      config: {
+        channel: "email",
+        channels: ["email"],
+        to: "owner@example.com",
+        subject: "Receipt sync completed"
+      },
+      runtime: deterministicRuntime,
+      determinism: externalDeterminism(["adapter.email.fake"]),
+      skillId: "skill.email.results.deliver",
+      adapterId: "adapter.email.fake",
+      adapterIds: ["adapter.email.fake"],
+      adapterOperations: [adapterOperation("adapter.email.fake", "email.results.send")],
+      secretRefs: {
+        "email.delivery": "mock:email.delivery"
+      }
     }
   ],
   edges: [
@@ -161,6 +213,11 @@ export const gmailReceiptsToSheetsWorkflowFixture = workflowBase({
       id: "edge.normalize-receipts.append-sheet-rows",
       source: { nodeId: "normalize-receipts", port: "rows" },
       target: { nodeId: "append-sheet-rows", port: "rows" }
+    },
+    {
+      id: "edge.append-sheet-rows.deliver-results-email",
+      source: { nodeId: "append-sheet-rows", port: "delivery" },
+      target: { nodeId: "deliver-results-email", port: "delivery" }
     }
   ]
 });
@@ -173,7 +230,13 @@ export const approvedGmailReceiptsToSheetsWorkflowFixture: WorkflowSpec = {
     approvedAt: "2026-05-18T01:00:00.000Z",
     frozenRevision: 1,
     frozenDagHash: checksumA,
-    nodeOrder: ["manual-trigger", "read-gmail-receipts", "normalize-receipts", "append-sheet-rows"]
+    nodeOrder: [
+      "manual-trigger",
+      "read-gmail-receipts",
+      "normalize-receipts",
+      "append-sheet-rows",
+      "deliver-results-email"
+    ]
   }
 };
 
@@ -312,7 +375,13 @@ export const timeSensitiveAlertDeliveryWorkflowFixture = workflowBase({
         source: "support@example.com"
       },
       runtime: deterministicRuntime,
-      determinism: externalDeterminism(["adapter.email.fake"])
+      determinism: externalDeterminism(["adapter.email.fake"]),
+      adapterId: "adapter.email.fake",
+      adapterIds: ["adapter.email.fake"],
+      adapterOperations: [adapterOperation("adapter.email.fake", "email.approval.request")],
+      secretRefs: {
+        "email.delivery": "mock:email.delivery"
+      }
     },
     {
       id: "classify-urgency",
@@ -361,11 +430,23 @@ export const timeSensitiveAlertDeliveryWorkflowFixture = workflowBase({
         delivery: objectSchema
       },
       config: {
-        channels: ["whatsapp", "telegram"]
+        channel: "email",
+        channels: ["whatsapp", "telegram"],
+        timeSensitive: true
       },
       runtime: deterministicRuntime,
       determinism: externalDeterminism(["adapter.whatsapp.fake", "adapter.telegram.fake"]),
-      adapterId: "adapter.telegram.fake"
+      skillId: "skill.alert.push.dispatch",
+      adapterId: "adapter.telegram.fake",
+      adapterIds: ["adapter.whatsapp.fake", "adapter.telegram.fake"],
+      adapterOperations: [
+        adapterOperation("adapter.whatsapp.fake", "whatsapp.alert.send"),
+        adapterOperation("adapter.telegram.fake", "telegram.alert.send")
+      ],
+      secretRefs: {
+        "whatsapp.apiKey": "mock:whatsapp.apiKey",
+        "telegram.botToken": "mock:telegram.botToken"
+      }
     }
   ],
   edges: [

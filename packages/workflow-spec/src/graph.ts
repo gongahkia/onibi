@@ -3,6 +3,7 @@ import type {
   JsonRecord,
   JsonSchemaShape,
   WorkflowCodegenMetadata,
+  WorkflowAdapterOperationRef,
   WorkflowDeterminism,
   WorkflowEdge,
   WorkflowNode,
@@ -51,6 +52,9 @@ export interface WorkflowNodeFactoryInput {
   readonly determinism?: PartialWorkflowDeterminism | undefined;
   readonly skillId?: string | undefined;
   readonly adapterId?: string | undefined;
+  readonly adapterIds?: readonly string[] | undefined;
+  readonly adapterOperations?: readonly WorkflowAdapterOperationRef[] | undefined;
+  readonly secretRefs?: Readonly<Record<string, string>> | undefined;
   readonly codegen?: WorkflowCodegenMetadata | undefined;
 }
 
@@ -127,6 +131,9 @@ export function createWorkflowNode(input: WorkflowNodeFactoryInput): WorkflowNod
     determinism: createWorkflowDeterminism(input.determinism),
     ...(input.skillId ? { skillId: input.skillId } : {}),
     ...(input.adapterId ? { adapterId: input.adapterId } : {}),
+    ...(input.adapterIds ? { adapterIds: input.adapterIds } : {}),
+    ...(input.adapterOperations ? { adapterOperations: input.adapterOperations } : {}),
+    ...(input.secretRefs ? { secretRefs: input.secretRefs } : {}),
     ...((input.codegen ?? defaults.codegen) ? { codegen: input.codegen ?? defaults.codegen } : {})
   };
 
@@ -295,7 +302,7 @@ function nodeKindDefaults(kind: WorkflowNodeKind): {
         description: "Sends the prepared output through a configured delivery adapter.",
         inputs: { rows: arraySchema },
         outputs: { delivery: objectSchema },
-        config: { channel: "sheets", destination: "sheet.receipts" }
+        config: { channel: "email", channels: ["email"], destination: "owner@example.com" }
       };
   }
 }

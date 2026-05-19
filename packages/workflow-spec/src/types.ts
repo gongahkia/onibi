@@ -118,6 +118,12 @@ export interface WorkflowCodegenMetadata {
   readonly llmBacked: boolean;
 }
 
+export interface WorkflowAdapterOperationRef {
+  readonly adapterId: string;
+  readonly operation: string;
+  readonly operationVersion: string;
+}
+
 export interface WorkflowNode {
   readonly id: string;
   readonly kind: WorkflowNodeKind;
@@ -130,6 +136,9 @@ export interface WorkflowNode {
   readonly determinism: WorkflowDeterminism;
   readonly skillId?: string | undefined;
   readonly adapterId?: string | undefined;
+  readonly adapterIds?: readonly string[] | undefined;
+  readonly adapterOperations?: readonly WorkflowAdapterOperationRef[] | undefined;
+  readonly secretRefs?: Readonly<Record<string, string>> | undefined;
   readonly codegen?: WorkflowCodegenMetadata | undefined;
 }
 
@@ -219,7 +228,11 @@ export const workflowValidationErrorCodes = [
   "WORKFLOW_CODEGEN_REVIEW_REQUIRED",
   "WORKFLOW_CODEGEN_DEPENDENCY_POLICY_INVALID",
   "WORKFLOW_CODEGEN_SANDBOX_INVALID",
-  "WORKFLOW_CODEGEN_ARTIFACT_DRIFT"
+  "WORKFLOW_CODEGEN_ARTIFACT_DRIFT",
+  "WORKFLOW_ADAPTER_DECLARATION_INVALID",
+  "WORKFLOW_ADAPTER_SECRET_MISSING",
+  "WORKFLOW_ADAPTER_NETWORK_POLICY_INVALID",
+  "WORKFLOW_DELIVERY_CHANNEL_POLICY_INVALID"
 ] as const;
 
 export type WorkflowValidationErrorCode = (typeof workflowValidationErrorCodes)[number];

@@ -26,6 +26,50 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     },
     {
       "kind": "same",
+      "text": "      "id": "edge.append-sheet-rows.deliver-results-email",",
+    },
+    {
+      "kind": "same",
+      "text": "      "source": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "nodeId": "append-sheet-rows",",
+    },
+    {
+      "kind": "same",
+      "text": "        "port": "delivery"",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "target": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "nodeId": "deliver-results-email",",
+    },
+    {
+      "kind": "same",
+      "text": "        "port": "delivery"",
+    },
+    {
+      "kind": "same",
+      "text": "      }",
+    },
+    {
+      "kind": "same",
+      "text": "    },",
+    },
+    {
+      "kind": "same",
+      "text": "    {",
+    },
+    {
+      "kind": "same",
       "text": "      "id": "edge.manual-trigger.read-gmail-receipts",",
     },
     {
@@ -175,6 +219,46 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     {
       "kind": "same",
       "text": "      "adapterId": "adapter.sheets.fake",",
+    },
+    {
+      "kind": "same",
+      "text": "      "adapterIds": [",
+    },
+    {
+      "kind": "same",
+      "text": "        "adapter.sheets.fake"",
+    },
+    {
+      "kind": "same",
+      "text": "      ],",
+    },
+    {
+      "kind": "same",
+      "text": "      "adapterOperations": [",
+    },
+    {
+      "kind": "same",
+      "text": "        {",
+    },
+    {
+      "kind": "same",
+      "text": "          "adapterId": "adapter.sheets.fake",",
+    },
+    {
+      "kind": "same",
+      "text": "          "operation": "sheets.rows.append",",
+    },
+    {
+      "kind": "same",
+      "text": "          "operationVersion": "1.0.0"",
+    },
+    {
+      "kind": "same",
+      "text": "        }",
+    },
+    {
+      "kind": "same",
+      "text": "      ],",
     },
     {
       "kind": "same",
@@ -370,7 +454,23 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     },
     {
       "kind": "same",
-      "text": "      }",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "secretRefs": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "sheets.oauth": "mock:sheets.oauth"",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "skillId": "skill.sheets.rows.append"",
     },
     {
       "kind": "same",
@@ -379,6 +479,318 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     {
       "kind": "same",
       "text": "    {",
+    },
+    {
+      "kind": "same",
+      "text": "      "adapterId": "adapter.email.fake",",
+    },
+    {
+      "kind": "same",
+      "text": "      "adapterIds": [",
+    },
+    {
+      "kind": "same",
+      "text": "        "adapter.email.fake"",
+    },
+    {
+      "kind": "same",
+      "text": "      ],",
+    },
+    {
+      "kind": "same",
+      "text": "      "adapterOperations": [",
+    },
+    {
+      "kind": "same",
+      "text": "        {",
+    },
+    {
+      "kind": "same",
+      "text": "          "adapterId": "adapter.email.fake",",
+    },
+    {
+      "kind": "same",
+      "text": "          "operation": "email.results.send",",
+    },
+    {
+      "kind": "same",
+      "text": "          "operationVersion": "1.0.0"",
+    },
+    {
+      "kind": "same",
+      "text": "        }",
+    },
+    {
+      "kind": "same",
+      "text": "      ],",
+    },
+    {
+      "kind": "same",
+      "text": "      "config": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "channel": "email",",
+    },
+    {
+      "kind": "same",
+      "text": "        "channels": [",
+    },
+    {
+      "kind": "same",
+      "text": "          "email"",
+    },
+    {
+      "kind": "same",
+      "text": "        ],",
+    },
+    {
+      "kind": "same",
+      "text": "        "subject": "Receipt sync completed",",
+    },
+    {
+      "kind": "same",
+      "text": "        "to": "owner@example.com"",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "description": "Emails the final receipt sync result through the fake email adapter.",",
+    },
+    {
+      "kind": "same",
+      "text": "      "determinism": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "externalCalls": [",
+    },
+    {
+      "kind": "same",
+      "text": "          "adapter.email.fake"",
+    },
+    {
+      "kind": "same",
+      "text": "        ],",
+    },
+    {
+      "kind": "same",
+      "text": "        "replayBehavior": "record",",
+    },
+    {
+      "kind": "same",
+      "text": "        "seededRandomness": {",
+    },
+    {
+      "kind": "same",
+      "text": "          "enabled": false",
+    },
+    {
+      "kind": "same",
+      "text": "        }",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "id": "deliver-results-email",",
+    },
+    {
+      "kind": "same",
+      "text": "      "inputs": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "delivery": {",
+    },
+    {
+      "kind": "same",
+      "text": "          "additionalProperties": true,",
+    },
+    {
+      "kind": "same",
+      "text": "          "type": "object"",
+    },
+    {
+      "kind": "same",
+      "text": "        }",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "kind": "delivery",",
+    },
+    {
+      "kind": "same",
+      "text": "      "label": "Deliver Email Results",",
+    },
+    {
+      "kind": "same",
+      "text": "      "outputs": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "delivery": {",
+    },
+    {
+      "kind": "same",
+      "text": "          "additionalProperties": true,",
+    },
+    {
+      "kind": "same",
+      "text": "          "type": "object"",
+    },
+    {
+      "kind": "same",
+      "text": "        }",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "runtime": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "command": [",
+    },
+    {
+      "kind": "same",
+      "text": "          "node",",
+    },
+    {
+      "kind": "same",
+      "text": "          "/workspace/run-node.js"",
+    },
+    {
+      "kind": "same",
+      "text": "        ],",
+    },
+    {
+      "kind": "same",
+      "text": "        "environment": {},",
+    },
+    {
+      "kind": "same",
+      "text": "        "image": "node:20-alpine",",
+    },
+    {
+      "kind": "same",
+      "text": "        "resources": {",
+    },
+    {
+      "kind": "same",
+      "text": "          "cpu": "1",",
+    },
+    {
+      "kind": "same",
+      "text": "          "memoryMb": 512",
+    },
+    {
+      "kind": "same",
+      "text": "        },",
+    },
+    {
+      "kind": "same",
+      "text": "        "retry": {",
+    },
+    {
+      "kind": "same",
+      "text": "          "backoffSeconds": 0,",
+    },
+    {
+      "kind": "same",
+      "text": "          "maxAttempts": 1",
+    },
+    {
+      "kind": "same",
+      "text": "        },",
+    },
+    {
+      "kind": "same",
+      "text": "        "timeoutSeconds": 300",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "secretRefs": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "email.delivery": "mock:email.delivery"",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "skillId": "skill.email.results.deliver"",
+    },
+    {
+      "kind": "same",
+      "text": "    },",
+    },
+    {
+      "kind": "same",
+      "text": "    {",
+    },
+    {
+      "kind": "same",
+      "text": "      "adapterId": "adapter.gmail.fake",",
+    },
+    {
+      "kind": "same",
+      "text": "      "adapterIds": [",
+    },
+    {
+      "kind": "same",
+      "text": "        "adapter.gmail.fake"",
+    },
+    {
+      "kind": "same",
+      "text": "      ],",
+    },
+    {
+      "kind": "same",
+      "text": "      "adapterOperations": [",
+    },
+    {
+      "kind": "same",
+      "text": "        {",
+    },
+    {
+      "kind": "same",
+      "text": "          "adapterId": "adapter.gmail.fake",",
+    },
+    {
+      "kind": "same",
+      "text": "          "operation": "gmail.receipts.search",",
+    },
+    {
+      "kind": "same",
+      "text": "          "operationVersion": "1.0.0"",
+    },
+    {
+      "kind": "same",
+      "text": "        }",
+    },
+    {
+      "kind": "same",
+      "text": "      ],",
     },
     {
       "kind": "same",
@@ -567,6 +979,18 @@ exports[`workflow graph helpers > creates stable workflow diffs for approval rev
     {
       "kind": "same",
       "text": "        "timeoutSeconds": 300",
+    },
+    {
+      "kind": "same",
+      "text": "      },",
+    },
+    {
+      "kind": "same",
+      "text": "      "secretRefs": {",
+    },
+    {
+      "kind": "same",
+      "text": "        "gmail.oauth": "mock:gmail.oauth"",
     },
     {
       "kind": "same",
@@ -1005,6 +1429,17 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
   "createdAt": "2026-05-18T00:00:00.000Z",
   "edges": [
     {
+      "id": "edge.append-sheet-rows.deliver-results-email",
+      "source": {
+        "nodeId": "append-sheet-rows",
+        "port": "delivery"
+      },
+      "target": {
+        "nodeId": "deliver-results-email",
+        "port": "delivery"
+      }
+    },
+    {
       "id": "edge.manual-trigger.read-gmail-receipts",
       "source": {
         "nodeId": "manual-trigger",
@@ -1043,6 +1478,16 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
   "nodes": [
     {
       "adapterId": "adapter.sheets.fake",
+      "adapterIds": [
+        "adapter.sheets.fake"
+      ],
+      "adapterOperations": [
+        {
+          "adapterId": "adapter.sheets.fake",
+          "operation": "sheets.rows.append",
+          "operationVersion": "1.0.0"
+        }
+      ],
       "config": {
         "range": "Receipts!A:D",
         "spreadsheetId": "sheet.receipts"
@@ -1091,9 +1536,91 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
           "maxAttempts": 1
         },
         "timeoutSeconds": 300
-      }
+      },
+      "secretRefs": {
+        "sheets.oauth": "mock:sheets.oauth"
+      },
+      "skillId": "skill.sheets.rows.append"
     },
     {
+      "adapterId": "adapter.email.fake",
+      "adapterIds": [
+        "adapter.email.fake"
+      ],
+      "adapterOperations": [
+        {
+          "adapterId": "adapter.email.fake",
+          "operation": "email.results.send",
+          "operationVersion": "1.0.0"
+        }
+      ],
+      "config": {
+        "channel": "email",
+        "channels": [
+          "email"
+        ],
+        "subject": "Receipt sync completed",
+        "to": "owner@example.com"
+      },
+      "description": "Emails the final receipt sync result through the fake email adapter.",
+      "determinism": {
+        "externalCalls": [
+          "adapter.email.fake"
+        ],
+        "replayBehavior": "record",
+        "seededRandomness": {
+          "enabled": false
+        }
+      },
+      "id": "deliver-results-email",
+      "inputs": {
+        "delivery": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "kind": "delivery",
+      "label": "Deliver Email Results",
+      "outputs": {
+        "delivery": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "runtime": {
+        "command": [
+          "node",
+          "/workspace/run-node.js"
+        ],
+        "environment": {},
+        "image": "node:20-alpine",
+        "resources": {
+          "cpu": "1",
+          "memoryMb": 512
+        },
+        "retry": {
+          "backoffSeconds": 0,
+          "maxAttempts": 1
+        },
+        "timeoutSeconds": 300
+      },
+      "secretRefs": {
+        "email.delivery": "mock:email.delivery"
+      },
+      "skillId": "skill.email.results.deliver"
+    },
+    {
+      "adapterId": "adapter.gmail.fake",
+      "adapterIds": [
+        "adapter.gmail.fake"
+      ],
+      "adapterOperations": [
+        {
+          "adapterId": "adapter.gmail.fake",
+          "operation": "gmail.receipts.search",
+          "operationVersion": "1.0.0"
+        }
+      ],
       "config": {
         "query": "from:(receipts OR orders) newer_than:30d"
       },
@@ -1141,6 +1668,9 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
           "maxAttempts": 1
         },
         "timeoutSeconds": 300
+      },
+      "secretRefs": {
+        "gmail.oauth": "mock:gmail.oauth"
       },
       "skillId": "skill.gmail.receipts.read"
     },
@@ -1559,11 +2089,29 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
     },
     {
       "adapterId": "adapter.telegram.fake",
+      "adapterIds": [
+        "adapter.whatsapp.fake",
+        "adapter.telegram.fake"
+      ],
+      "adapterOperations": [
+        {
+          "adapterId": "adapter.whatsapp.fake",
+          "operation": "whatsapp.alert.send",
+          "operationVersion": "1.0.0"
+        },
+        {
+          "adapterId": "adapter.telegram.fake",
+          "operation": "telegram.alert.send",
+          "operationVersion": "1.0.0"
+        }
+      ],
       "config": {
+        "channel": "email",
         "channels": [
           "whatsapp",
           "telegram"
-        ]
+        ],
+        "timeSensitive": true
       },
       "description": "Sends approved alert content to fake WhatsApp and Telegram adapters.",
       "determinism": {
@@ -1607,7 +2155,12 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
           "maxAttempts": 1
         },
         "timeoutSeconds": 300
-      }
+      },
+      "secretRefs": {
+        "telegram.botToken": "mock:telegram.botToken",
+        "whatsapp.apiKey": "mock:whatsapp.apiKey"
+      },
+      "skillId": "skill.alert.push.dispatch"
     },
     {
       "config": {
@@ -1656,6 +2209,17 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
       "skillId": "skill.alert.urgency.classify"
     },
     {
+      "adapterId": "adapter.email.fake",
+      "adapterIds": [
+        "adapter.email.fake"
+      ],
+      "adapterOperations": [
+        {
+          "adapterId": "adapter.email.fake",
+          "operation": "email.approval.request",
+          "operationVersion": "1.0.0"
+        }
+      ],
       "config": {
         "source": "support@example.com"
       },
@@ -1695,6 +2259,9 @@ exports[`workflow spec validation > serializes fixtures as stable canonical JSON
           "maxAttempts": 1
         },
         "timeoutSeconds": 300
+      },
+      "secretRefs": {
+        "email.delivery": "mock:email.delivery"
       }
     }
   ],
