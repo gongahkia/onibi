@@ -13,6 +13,7 @@ let mockCurrentWorkflow: WorkflowSpec | null = null;
 
 beforeEach(() => {
   mockCurrentWorkflow = null;
+  localStorage.clear();
   vi.stubGlobal("fetch", vi.fn(mockFetch));
 });
 
@@ -30,6 +31,32 @@ describe("OpenClaw planner shell", () => {
     expect(screen.getByText("Read Gmail Receipts")).toBeInTheDocument();
     expect(screen.getByText("skill")).toBeInTheDocument();
     expect(screen.getByLabelText("Label")).toHaveValue("Read Gmail Receipts");
+  });
+
+  it("renders live integration readiness and sends admin bearer auth", async () => {
+    render(<App />);
+
+    expect(await screen.findByLabelText("Integration setup")).toBeInTheDocument();
+    expect(screen.getByText("google.oauth.default")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Admin token"), {
+      target: { value: "local-admin-token" }
+    });
+    fireEvent.change(screen.getByLabelText("Workflow Prompt"), {
+      target: { value: "extract transaction details from Gmail receipts into Sheets" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Plan$/i }));
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/workflows/plan",
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            authorization: "Bearer local-admin-token"
+          })
+        })
+      );
+    });
   });
 
   it("edits selected node labels and validates invalid port changes inline", async () => {
@@ -68,11 +95,11 @@ describe("OpenClaw planner shell", () => {
     fireEvent.change(screen.getByLabelText("Adapter-backed skill"), {
       target: { value: "skill.email.results.deliver" }
     });
-    expect(screen.getByLabelText("Adapter")).toHaveValue("adapter.email.fake");
+    expect(screen.getByLabelText("Adapter")).toHaveValue("adapter.email");
 
     fireEvent.click(screen.getByLabelText("WhatsApp"));
     expect((screen.getByLabelText("Adapter") as HTMLInputElement).value).toContain(
-      "adapter.whatsapp.fake"
+      "adapter.whatsapp"
     );
   });
 
@@ -127,6 +154,29 @@ describe("OpenClaw planner shell", () => {
 async function mockFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
   const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
   const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
+
+  if (url.endsWith("/api/secrets")) {
+    return jsonResponse({
+      ok: true,
+      secrets: [
+        {
+          name: "google.oauth.default",
+          createdAt: "2026-05-18T00:00:00.000Z",
+          updatedAt: "2026-05-18T00:00:00.000Z"
+        }
+      ],
+      integrations: [
+        { id: "google", ready: true, requiredSecrets: ["google.oauth.default"] },
+        { id: "smtp", ready: false, requiredSecrets: ["email.smtp.default"] },
+        { id: "whatsapp", ready: false, requiredSecrets: ["whatsapp.cloud.default"] },
+        { id: "telegram", ready: false, requiredSecrets: ["telegram.bot.default"] }
+      ]
+    });
+  }
+
+  if (url.endsWith("/api/integrations/google/status")) {
+    return jsonResponse({ ok: true, connected: true });
+  }
 
   if (url.endsWith("/plan")) {
     const prompt = String(body.prompt ?? gmailReceiptsToSheetsWorkflowFixture.prompt);

@@ -39,6 +39,35 @@ export interface CodegenPromotionResponse {
   };
 }
 
+export interface SecretMetadata {
+  readonly name: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface IntegrationReadiness {
+  readonly id: string;
+  readonly ready: boolean;
+  readonly requiredSecrets: readonly string[];
+}
+
+export interface SecretListResponse {
+  readonly ok: true;
+  readonly secrets: readonly SecretMetadata[];
+  readonly integrations: readonly IntegrationReadiness[];
+}
+
+export interface GoogleIntegrationStatusResponse {
+  readonly ok: true;
+  readonly connected: boolean;
+}
+
+export interface GoogleConnectResponse {
+  readonly ok: true;
+  readonly url: string;
+  readonly state: string;
+}
+
 export class OpenClawApiError extends Error {
   public readonly status: number;
 
@@ -101,6 +130,30 @@ export const openClawApi = {
     return getJson(
       `/api/workflows/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(runId)}`
     );
+  },
+
+  listSecrets(): Promise<SecretListResponse> {
+    return getJson("/api/secrets");
+  },
+
+  upsertSecret(name: string, value: string): Promise<{ readonly ok: true; readonly secret: SecretMetadata }> {
+    return putJson("/api/secrets", { name, value });
+  },
+
+  deleteSecret(name: string): Promise<{ readonly ok: true; readonly deleted: boolean }> {
+    return deleteJson(`/api/secrets/${encodeURIComponent(name)}`);
+  },
+
+  googleStatus(): Promise<GoogleIntegrationStatusResponse> {
+    return getJson("/api/integrations/google/status");
+  },
+
+  googleConnect(): Promise<GoogleConnectResponse> {
+    return getJson("/api/integrations/google/connect");
+  },
+
+  googleRevoke(): Promise<{ readonly ok: true; readonly deleted: boolean }> {
+    return postJson("/api/integrations/google/revoke", {});
   }
 };
 
@@ -108,7 +161,8 @@ async function postJson<TResponse>(url: string, body: unknown): Promise<TRespons
   const response = await fetch(url, {
     method: "POST",
     headers: {
-      "content-type": "application/json"
+      "content-type": "application/json",
+      ...authHeader()
     },
     body: JSON.stringify(body)
   });
@@ -116,8 +170,32 @@ async function postJson<TResponse>(url: string, body: unknown): Promise<TRespons
   return parseJsonResponse<TResponse>(response);
 }
 
+async function putJson<TResponse>(url: string, body: unknown): Promise<TResponse> {
+  const response = await fetch(url, {
+    method: "PUT",
+    headers: {
+      "content-type": "application/json",
+      ...authHeader()
+    },
+    body: JSON.stringify(body)
+  });
+
+  return parseJsonResponse<TResponse>(response);
+}
+
+async function deleteJson<TResponse>(url: string): Promise<TResponse> {
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: authHeader()
+  });
+
+  return parseJsonResponse<TResponse>(response);
+}
+
 async function getJson<TResponse>(url: string): Promise<TResponse> {
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    headers: authHeader()
+  });
   return parseJsonResponse<TResponse>(response);
 }
 
@@ -131,4 +209,40 @@ async function parseJsonResponse<TResponse>(response: Response): Promise<TRespon
   }
 
   return payload as TResponse;
+}
+
+export function readOpenClawAdminToken(): string {
+  const stored = readLocalStorage("kelpclaw.adminToken");
+  const env = (import.meta as ImportMeta & { readonly env?: Record<string, string | undefined> })
+    .env;
+  return stored || env?.VITE_OPENCLAW_ADMIN_TOKEN || "";
+}
+
+export function saveOpenClawAdminToken(token: string): void {
+  writeLocalStorage("kelpclaw.adminToken", token.trim());
+}
+
+function authHeader(): Record<string, string> {
+  const token = readOpenClawAdminToken();
+  return token ? { authorization: `Bearer ${token}` } : {};
+}
+
+function readLocalStorage(key: string): string {
+  try {
+    return globalThis.localStorage?.getItem(key) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function writeLocalStorage(key: string, value: string): void {
+  try {
+    if (value.length === 0) {
+      globalThis.localStorage?.removeItem(key);
+    } else {
+      globalThis.localStorage?.setItem(key, value);
+    }
+  } catch {
+    // The token remains in component state when storage is unavailable.
+  }
 }

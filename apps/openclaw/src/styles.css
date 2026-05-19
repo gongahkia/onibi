@@ -178,6 +178,7 @@ textarea::placeholder {
 .component-browser,
 .prompt-form,
 .inspector-stack,
+.integration-panel,
 .validation-panel,
 .approval-panel,
 .codegen-panel,
@@ -247,6 +248,7 @@ textarea::placeholder {
 }
 
 .prompt-form,
+.integration-panel,
 .validation-panel,
 .approval-panel,
 .run-panel {
@@ -711,6 +713,64 @@ dd {
 .delivery-controls {
   display: grid;
   gap: 0.7rem;
+}
+
+.integration-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.integration-row {
+  background: #202126;
+  border: 1px solid #34363d;
+  border-radius: 6px;
+  display: grid;
+  gap: 0.58rem;
+  padding: 0.65rem;
+}
+
+.integration-row-header,
+.integration-row-header span,
+.secret-meta,
+.integration-actions {
+  align-items: center;
+  display: flex;
+  gap: 0.45rem;
+}
+
+.integration-row-header,
+.secret-meta {
+  justify-content: space-between;
+}
+
+.integration-row-header span {
+  color: #eef0f5;
+  font-size: 0.82rem;
+  font-weight: 800;
+  min-width: 0;
+}
+
+.secret-meta {
+  color: #9da3af;
+  font-size: 0.68rem;
+}
+
+.secret-meta span:first-child {
+  overflow-wrap: anywhere;
+}
+
+.integration-row textarea {
+  min-height: 4.5rem;
+}
+
+.integration-actions {
+  flex-wrap: wrap;
+}
+
+.integration-actions button {
+  font-size: 0.72rem;
+  min-height: 2rem;
+  padding: 0.34rem 0.5rem;
 }
 
 .channel-checkboxes {
