@@ -40,6 +40,10 @@ import type {
   WorkflowEventSeverity,
   WorkflowFeedbackRequest,
   WorkflowFeedbackResponse,
+  WorkflowJob,
+  WorkflowJobEvent,
+  WorkflowJobType,
+  JsonRecord,
   WorkflowNode,
   WorkflowObservabilityEventKind,
   WorkflowPlanRequest,
@@ -87,8 +91,20 @@ interface RunRouteParams {
   readonly runId: string;
 }
 
+interface JobRouteParams {
+  readonly jobId: string;
+}
+
 interface ApprovalRequestBody {
   readonly approvedBy: string;
+}
+
+interface CreateJobRequestBody {
+  readonly type: WorkflowJobType;
+  readonly workflowId?: string | undefined;
+  readonly revisionId?: string | undefined;
+  readonly nodeId?: string | undefined;
+  readonly maxAttempts?: number | undefined;
 }
 
 interface CodegenReviewRequestBody {
@@ -177,6 +193,96 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     ok: true,
     integrations: secretReadiness(secretStore)
   }));
+
+  app.post<{ Body: CreateJobRequestBody }>("/api/jobs", async (request, reply) => {
+    const correlationId = correlationIdForRequest(request);
+    const job = createJob({
+      type: request.body.type,
+      workflowId: request.body.workflowId,
+      revisionId: request.body.revisionId,
+      nodeId: request.body.nodeId,
+      correlationId,
+      maxAttempts: request.body.maxAttempts
+    });
+    const saved = store.saveJob(job);
+    if (job.workflowId) {
+      recordAudit(store, {
+        action: "job.created",
+        actor: "api",
+        workflowId: job.workflowId,
+        revisionId: job.revisionId ?? `job.${job.id}`,
+        nodeId: job.nodeId,
+        correlationId,
+        summary: `Created ${job.type} job.`,
+        metadata: {
+          jobId: job.id,
+          jobType: job.type
+        }
+      });
+    }
+
+    return reply.code(201).send({
+      ok: true,
+      job: saved
+    });
+  });
+
+  app.get<{ Params: JobRouteParams }>("/api/jobs/:jobId", async (request, reply) => {
+    const job = store.getJob(request.params.jobId);
+    if (!job) {
+      return reply.code(404).send({
+        ok: false,
+        error: "JOB_NOT_FOUND",
+        message: `Job '${request.params.jobId}' was not found.`
+      });
+    }
+
+    return {
+      ok: true,
+      job
+    };
+  });
+
+  app.post<{ Params: JobRouteParams; Body: { readonly reason?: string | undefined } }>(
+    "/api/jobs/:jobId/cancel",
+    async (request, reply) => {
+      const job = store.getJob(request.params.jobId);
+      if (!job) {
+        return reply.code(404).send({
+          ok: false,
+          error: "JOB_NOT_FOUND",
+          message: `Job '${request.params.jobId}' was not found.`
+        });
+      }
+
+      const now = new Date().toISOString();
+      const cancelled =
+        job.status === "succeeded" || job.status === "failed" || job.status === "cancelled"
+          ? job
+          : store.saveJob({
+              ...job,
+              status: "cancelled",
+              updatedAt: now,
+              finishedAt: now,
+              cancelledAt: now,
+              cancellationReason: request.body.reason ?? "Cancelled by API request."
+            });
+      const withEvent =
+        cancelled.events.at(-1)?.message === "Job cancelled."
+          ? cancelled
+          : store.appendJobEvent(
+              cancelled.id,
+              createJobEvent(cancelled, "error", "Job cancelled.", {
+                reason: request.body.reason ?? "Cancelled by API request."
+              })
+            );
+
+      return {
+        ok: true,
+        job: withEvent
+      };
+    }
+  );
 
   app.put<{ Body: { readonly name: string; readonly value: string } }>(
     "/api/secrets",
@@ -1352,6 +1458,57 @@ function correlationIdForRequest(request: FastifyRequest): string {
   }
 
   return typeof header === "string" && header.length > 0 ? header : `corr.${randomUUID()}`;
+}
+
+function createJob(input: {
+  readonly type: WorkflowJobType;
+  readonly workflowId?: string | undefined;
+  readonly revisionId?: string | undefined;
+  readonly nodeId?: string | undefined;
+  readonly correlationId: string;
+  readonly maxAttempts?: number | undefined;
+}): WorkflowJob {
+  const now = new Date().toISOString();
+  const jobId = `job.${input.type}.${Date.now()}.${randomUUID()}`;
+  const job: WorkflowJob = {
+    id: jobId,
+    type: input.type,
+    status: "queued",
+    workflowId: input.workflowId,
+    revisionId: input.revisionId,
+    nodeId: input.nodeId,
+    correlationId: input.correlationId,
+    createdAt: now,
+    updatedAt: now,
+    retry: {
+      attempt: 0,
+      maxAttempts: input.maxAttempts ?? 1,
+      retryable: true
+    },
+    events: []
+  };
+
+  return {
+    ...job,
+    events: [createJobEvent(job, "info", `Queued ${input.type} job.`)]
+  };
+}
+
+function createJobEvent(
+  job: Pick<WorkflowJob, "id">,
+  level: WorkflowJobEvent["level"],
+  message: string,
+  metadata?: JsonRecord | undefined
+): WorkflowJobEvent {
+  return {
+    id: `event.${job.id}.${Date.now()}.${randomUUID()}`,
+    jobId: job.id,
+    timestamp: new Date().toISOString(),
+    level,
+    message,
+    kind: "job.lifecycle",
+    ...(metadata ? { metadata } : {})
+  };
 }
 
 function recordAudit(

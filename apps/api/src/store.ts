@@ -18,6 +18,8 @@ import type {
   WorkflowDraftRevision,
   WorkflowDraftRevisionSource,
   WorkflowGraphDiff,
+  WorkflowJob,
+  WorkflowJobEvent,
   WorkflowPlannerFeedback,
   WorkflowRunRecord,
   WorkflowRunEvent,
@@ -98,6 +100,10 @@ export interface WorkflowStore {
   savePlannerFeedback(record: WorkflowPlannerFeedback): WorkflowPlannerFeedback;
   getPlannerFeedback(id: string): WorkflowPlannerFeedback | undefined;
   listPlannerFeedback(workflowId: string): readonly WorkflowPlannerFeedback[];
+  saveJob(record: WorkflowJob): WorkflowJob;
+  getJob(id: string): WorkflowJob | undefined;
+  listJobs(workflowId?: string | undefined): readonly WorkflowJob[];
+  appendJobEvent(jobId: string, event: WorkflowJobEvent): WorkflowJob;
   requireWorkflow(id: string): StoredWorkflow;
 }
 
@@ -111,6 +117,7 @@ export class InMemoryWorkflowStore implements WorkflowStore {
   protected readonly artifactManifests = new Map<string, WorkflowArtifactManifestRecord>();
   protected readonly graphDiffs = new Map<string, WorkflowGraphDiff>();
   protected readonly plannerFeedback = new Map<string, WorkflowPlannerFeedback>();
+  protected readonly jobs = new Map<string, WorkflowJob>();
 
   public saveWorkflow(
     workflow: WorkflowSpec,
@@ -436,6 +443,39 @@ export class InMemoryWorkflowStore implements WorkflowStore {
       );
   }
 
+  public saveJob(record: WorkflowJob): WorkflowJob {
+    this.jobs.set(record.id, record);
+    return record;
+  }
+
+  public getJob(id: string): WorkflowJob | undefined {
+    return this.jobs.get(id);
+  }
+
+  public listJobs(workflowId?: string | undefined): readonly WorkflowJob[] {
+    return [...this.jobs.values()]
+      .filter((record) => workflowId === undefined || record.workflowId === workflowId)
+      .sort(
+        (left, right) =>
+          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
+      );
+  }
+
+  public appendJobEvent(jobId: string, event: WorkflowJobEvent): WorkflowJob {
+    const job = this.jobs.get(jobId);
+    if (!job) {
+      throw new Error(`Unknown job '${jobId}'.`);
+    }
+
+    const updated: WorkflowJob = {
+      ...job,
+      updatedAt: event.timestamp,
+      events: [...job.events, event]
+    };
+    this.jobs.set(jobId, updated);
+    return updated;
+  }
+
   public requireWorkflow(id: string): StoredWorkflow {
     const aggregate = this.workflows.get(id);
     if (!aggregate) {
@@ -589,6 +629,24 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
     return saved;
   }
 
+  public override saveJob(record: WorkflowJob): WorkflowJob {
+    const saved = super.saveJob(record);
+    this.persistJob(saved);
+    return saved;
+  }
+
+  public override appendJobEvent(jobId: string, event: WorkflowJobEvent): WorkflowJob {
+    const saved = super.appendJobEvent(jobId, event);
+    this.persistJob(saved);
+    this.runSql(
+      [
+        "INSERT OR REPLACE INTO job_events (id, job_id, timestamp, event_json)",
+        `VALUES (${sqlValue(event.id)}, ${sqlValue(jobId)}, ${sqlValue(event.timestamp)}, ${sqlValue(stableStringify(event))});`
+      ].join(" ")
+    );
+    return saved;
+  }
+
   private persistAllWorkflowState(workflowId: string): void {
     const stored = this.requireWorkflow(workflowId);
     for (const draft of stored.draftRevisions) {
@@ -727,6 +785,23 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
     )) {
       this.plannerFeedback.set(row.id, parseJson(row.record_json));
     }
+
+    for (const row of this.queryRows<JobRow>("SELECT * FROM jobs ORDER BY created_at, id;")) {
+      this.jobs.set(row.id, parseJson(row.record_json));
+    }
+  }
+
+  private persistJob(job: WorkflowJob): void {
+    this.runSql(
+      [
+        "INSERT OR REPLACE INTO jobs (id, type, status, workflow_id, created_at, updated_at, correlation_id, record_json)",
+        `VALUES (${sqlValue(job.id)}, ${sqlValue(job.type)}, ${sqlValue(job.status)}, ${sqlValue(job.workflowId)}, ${sqlValue(job.createdAt)}, ${sqlValue(job.updatedAt)}, ${sqlValue(job.correlationId)}, ${sqlValue(stableStringify(job))});`,
+        ...job.events.map(
+          (event) =>
+            `INSERT OR REPLACE INTO job_events (id, job_id, timestamp, event_json) VALUES (${sqlValue(event.id)}, ${sqlValue(job.id)}, ${sqlValue(event.timestamp)}, ${sqlValue(stableStringify(event))});`
+        )
+      ].join("\n")
+    );
   }
 
   private runSql(sql: string): void {
@@ -918,6 +993,22 @@ const sqliteMigrations = [
     created_at TEXT NOT NULL,
     record_json TEXT NOT NULL
   );`,
+  `CREATE TABLE IF NOT EXISTS jobs (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    workflow_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    correlation_id TEXT NOT NULL,
+    record_json TEXT NOT NULL
+  );`,
+  `CREATE TABLE IF NOT EXISTS job_events (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    event_json TEXT NOT NULL
+  );`,
   "INSERT OR IGNORE INTO schema_migrations (id) VALUES ('0001_phase7_enterprise_store');"
 ] as const;
 
@@ -991,6 +1082,11 @@ interface GraphDiffRow {
 }
 
 interface PlannerFeedbackRow {
+  readonly id: string;
+  readonly record_json: string;
+}
+
+interface JobRow {
   readonly id: string;
   readonly record_json: string;
 }
