@@ -25,9 +25,15 @@ import type {
   WorkflowValidateRequest,
   WorkflowValidateResponse
 } from "@kelpclaw/workflow-spec";
-import { planWorkflowDraft, repromptWorkflow } from "./planner.js";
+import {
+  createLivePlannerBackend,
+  planMockWorkflowDraft,
+  planWorkflowDraft,
+  repromptWorkflow
+} from "./planner.js";
 import { InMemoryWorkflowStore } from "./store.js";
 import type { RevisionInput } from "./store.js";
+import type { WorkflowPlannerBackend } from "./planner.js";
 
 interface RouteParamsWithId {
   readonly id: string;
@@ -48,6 +54,7 @@ interface MockPlanRequestBody {
 
 export interface ApiAppOptions {
   readonly store?: InMemoryWorkflowStore | undefined;
+  readonly planner?: WorkflowPlannerBackend | undefined;
 }
 
 export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
@@ -55,6 +62,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     logger: false
   });
   const store = options.store ?? new InMemoryWorkflowStore();
+  const planner = options.planner ?? createLivePlannerBackend();
 
   app.get("/health", async () => ({
     status: "ok",
@@ -63,7 +71,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
 
   app.post<{ Body: MockPlanRequestBody }>("/api/plans/mock", async (request) => {
     const prompt = request.body?.name ?? gmailReceiptsToSheetsWorkflowFixture.prompt;
-    const workflow = planWorkflowDraft({ prompt });
+    const workflow = planMockWorkflowDraft({ prompt });
 
     return {
       workflow
@@ -73,7 +81,16 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
   app.post<{ Body: WorkflowPlanRequest; Reply: WorkflowPlanResponse }>(
     "/api/workflows/plan",
     async (request, reply) => {
-      const workflow = planWorkflowDraft(request.body);
+      let workflow: WorkflowSpec;
+      try {
+        workflow = await planWorkflowDraft(request.body, planner);
+      } catch (error) {
+        return reply.code(503).send({
+          ok: false,
+          error: "PLANNER_BACKEND_UNAVAILABLE",
+          message: error instanceof Error ? error.message : "Planner backend is unavailable."
+        } as never);
+      }
       const validation = validateWorkflowSpec(workflow);
       if (!validation.ok) {
         return reply.code(500).send({

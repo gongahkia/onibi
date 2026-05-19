@@ -38,9 +38,15 @@ importers:
 
   apps/api:
     dependencies:
+      '@kelpclaw/codegen':
+        specifier: workspace:*
+        version: link:../../packages/codegen
       '@kelpclaw/nanoclaw':
         specifier: workspace:*
         version: link:../../packages/nanoclaw
+      '@kelpclaw/skill-registry':
+        specifier: workspace:*
+        version: link:../../packages/skill-registry
       '@kelpclaw/workflow-spec':
         specifier: workspace:*
         version: link:../../packages/workflow-spec
