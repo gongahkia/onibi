@@ -154,3 +154,116 @@ export const workflowSpecSchema = z.object({
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime()
 });
+
+export const workflowEventSeveritySchema = z.enum(["debug", "info", "warn", "error", "critical"]);
+
+export const workflowObservabilityEventKindSchema = z.enum([
+  "prompt.planning",
+  "skill.matching",
+  "draft.edit",
+  "node.reprompt",
+  "workflow.approval",
+  "dag.compilation",
+  "node.container",
+  "adapter.call",
+  "codegen.artifact",
+  "delivery.event",
+  "run.lifecycle"
+]);
+
+export const workflowObservabilityContextSchema = z.object({
+  workflowId: z.string().min(1),
+  revisionId: z.string().min(1),
+  runId: z.string().min(1).optional(),
+  nodeId: z.string().min(1).optional(),
+  correlationId: z.string().min(1)
+});
+
+export const workflowObservabilityEventSchema = workflowObservabilityContextSchema.extend({
+  id: z.string().min(1),
+  timestamp: z.string().datetime(),
+  severity: workflowEventSeveritySchema,
+  kind: workflowObservabilityEventKindSchema,
+  message: z.string().min(1),
+  metadata: jsonRecordSchema.optional()
+});
+
+export const workflowAuditActionSchema = z.enum([
+  "workflow.created",
+  "workflow.edited",
+  "workflow.approved",
+  "codegen.reviewed",
+  "secret.referenced",
+  "container.ran",
+  "adapter.called",
+  "delivery.completed",
+  "run.completed"
+]);
+
+export const workflowSpecDiffLineSchema = z.object({
+  kind: z.enum(["same", "added", "removed"]),
+  text: z.string()
+});
+
+export const workflowSpecDiffSchema = z.object({
+  changed: z.boolean(),
+  summary: z.array(z.string()),
+  lines: z.array(workflowSpecDiffLineSchema)
+});
+
+export const workflowAuditRecordSchema = workflowObservabilityContextSchema.extend({
+  id: z.string().min(1),
+  timestamp: z.string().datetime(),
+  action: workflowAuditActionSchema,
+  actor: z.string().min(1),
+  summary: z.string().min(1),
+  diff: workflowSpecDiffSchema.optional(),
+  approvedArtifactRefs: z
+    .array(
+      z.object({
+        path: z.string().min(1),
+        checksum: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+        contentType: z.enum(["application/json", "text/markdown", "text/plain", "text/typescript"])
+      })
+    )
+    .optional(),
+  secretRefs: z.array(z.string().min(1)).optional(),
+  container: z
+    .object({
+      image: z.string().min(1),
+      command: z.array(z.string().min(1)),
+      network: z.enum(["none", "declared", "bridge"]),
+      workspacePath: z.string().min(1).optional()
+    })
+    .optional(),
+  adapterCall: z
+    .object({
+      adapterId: z.string().min(1),
+      operation: z.string().min(1),
+      operationVersion: z.string().min(1),
+      status: z.enum(["succeeded", "failed"])
+    })
+    .optional(),
+  delivery: z
+    .object({
+      channels: z.array(z.string().min(1)),
+      status: z.enum(["succeeded", "failed"])
+    })
+    .optional(),
+  metadata: jsonRecordSchema.optional()
+});
+
+export const workflowArtifactManifestRecordSchema = z.object({
+  id: z.string().min(1),
+  workflowId: z.string().min(1),
+  revisionId: z.string().min(1),
+  createdAt: z.string().datetime(),
+  artifacts: z.array(
+    z.object({
+      path: z.string().min(1),
+      checksum: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+      contentType: z.enum(["application/json", "text/markdown", "text/plain", "text/typescript"])
+    })
+  ),
+  manifestChecksum: z.string().regex(/^sha256:[a-f0-9]{64}$/)
+});

@@ -19,6 +19,8 @@ import {
   validateWorkflowSpec,
   withConfig,
   workflowIdFromPrompt,
+  workflowAuditRecordSchema,
+  workflowObservabilityEventSchema,
   workflowJsonSchema,
   workflowSchemaVersion
 } from "../src/index.js";
@@ -229,6 +231,49 @@ describe("workflow migrations", () => {
         schemaVersion: "0.9.0"
       })
     ).toThrow("Unsupported workflow schema version");
+  });
+});
+
+describe("enterprise observability contracts", () => {
+  it("validates structured event and audit records with correlation context", () => {
+    const context = {
+      workflowId: "workflow.gmail-receipts-to-sheets",
+      revisionId: "approved.workflow.gmail-receipts-to-sheets.r1",
+      runId: "run.workflow.gmail-receipts-to-sheets.r1.1",
+      correlationId: "corr.phase7"
+    };
+
+    expect(
+      workflowObservabilityEventSchema.parse({
+        ...context,
+        id: "event.run.started",
+        timestamp: "2026-05-18T02:00:00.000Z",
+        severity: "info",
+        kind: "run.lifecycle",
+        message: "NanoClaw run started.",
+        metadata: {
+          redacted: true
+        }
+      })
+    ).toMatchObject({
+      workflowId: context.workflowId,
+      correlationId: context.correlationId
+    });
+
+    expect(
+      workflowAuditRecordSchema.parse({
+        ...context,
+        id: "audit.workflow.approved",
+        timestamp: "2026-05-18T02:00:00.000Z",
+        action: "workflow.approved",
+        actor: "owner@example.com",
+        summary: "Approved workflow revision.",
+        secretRefs: ["mock:gmail.oauth"]
+      })
+    ).toMatchObject({
+      action: "workflow.approved",
+      actor: "owner@example.com"
+    });
   });
 });
 

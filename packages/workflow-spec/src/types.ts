@@ -284,13 +284,50 @@ export interface WorkflowApprovedRevision {
 
 export type WorkflowRunStatus = "queued" | "running" | "succeeded" | "failed";
 export type WorkflowRunEventLevel = "info" | "error";
+export type WorkflowEventSeverity = "debug" | "info" | "warn" | "error" | "critical";
+export type WorkflowObservabilityEventKind =
+  | "prompt.planning"
+  | "skill.matching"
+  | "draft.edit"
+  | "node.reprompt"
+  | "workflow.approval"
+  | "dag.compilation"
+  | "node.container"
+  | "adapter.call"
+  | "codegen.artifact"
+  | "delivery.event"
+  | "run.lifecycle";
+
+export interface WorkflowObservabilityContext {
+  readonly workflowId: string;
+  readonly revisionId: string;
+  readonly runId?: string | undefined;
+  readonly nodeId?: string | undefined;
+  readonly correlationId: string;
+}
+
+export interface WorkflowObservabilityEvent extends WorkflowObservabilityContext {
+  readonly id: string;
+  readonly timestamp: string;
+  readonly severity: WorkflowEventSeverity;
+  readonly kind: WorkflowObservabilityEventKind;
+  readonly message: string;
+  readonly metadata?: JsonRecord | undefined;
+}
 
 export interface WorkflowRunEvent {
   readonly id: string;
   readonly timestamp: string;
   readonly level: WorkflowRunEventLevel;
   readonly message: string;
+  readonly severity?: WorkflowEventSeverity | undefined;
+  readonly kind?: WorkflowObservabilityEventKind | undefined;
+  readonly workflowId?: string | undefined;
+  readonly revisionId?: string | undefined;
+  readonly runId?: string | undefined;
+  readonly correlationId?: string | undefined;
   readonly nodeId?: string | undefined;
+  readonly metadata?: JsonRecord | undefined;
 }
 
 export interface WorkflowRunRecord {
@@ -304,6 +341,60 @@ export interface WorkflowRunRecord {
   readonly finishedAt: string;
   readonly events: readonly WorkflowRunEvent[];
   readonly result: WorkflowExecutionResult | null;
+}
+
+export type WorkflowAuditAction =
+  | "workflow.created"
+  | "workflow.edited"
+  | "workflow.approved"
+  | "codegen.reviewed"
+  | "secret.referenced"
+  | "container.ran"
+  | "adapter.called"
+  | "delivery.completed"
+  | "run.completed";
+
+export interface WorkflowAuditContainerRecord {
+  readonly image: string;
+  readonly command: readonly string[];
+  readonly network: "none" | "declared" | "bridge";
+  readonly workspacePath?: string | undefined;
+}
+
+export interface WorkflowAuditAdapterCallRecord {
+  readonly adapterId: string;
+  readonly operation: string;
+  readonly operationVersion: string;
+  readonly status: "succeeded" | "failed";
+}
+
+export interface WorkflowAuditDeliveryRecord {
+  readonly channels: readonly string[];
+  readonly status: "succeeded" | "failed";
+}
+
+export interface WorkflowAuditRecord extends WorkflowObservabilityContext {
+  readonly id: string;
+  readonly timestamp: string;
+  readonly action: WorkflowAuditAction;
+  readonly actor: string;
+  readonly summary: string;
+  readonly diff?: WorkflowSpecDiff | undefined;
+  readonly approvedArtifactRefs?: readonly WorkflowCodegenArtifactRef[] | undefined;
+  readonly secretRefs?: readonly string[] | undefined;
+  readonly container?: WorkflowAuditContainerRecord | undefined;
+  readonly adapterCall?: WorkflowAuditAdapterCallRecord | undefined;
+  readonly delivery?: WorkflowAuditDeliveryRecord | undefined;
+  readonly metadata?: JsonRecord | undefined;
+}
+
+export interface WorkflowArtifactManifestRecord {
+  readonly id: string;
+  readonly workflowId: string;
+  readonly revisionId: string;
+  readonly createdAt: string;
+  readonly artifacts: readonly WorkflowCodegenArtifactRef[];
+  readonly manifestChecksum: string;
 }
 
 export interface WorkflowPlanRequest {
