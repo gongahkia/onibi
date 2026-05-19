@@ -1,5 +1,11 @@
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import Fastify from "fastify";
-import { LocalCodegenArtifactStore, createGeneratedArtifact } from "@kelpclaw/codegen";
+import {
+  LocalCodegenArtifactStore,
+  checksumArtifactContent,
+  createGeneratedArtifact
+} from "@kelpclaw/codegen";
 import { registerPromotedSkill } from "@kelpclaw/skill-registry";
 import {
   AdapterBackedNodeRunner,
@@ -11,15 +17,24 @@ import {
 import {
   WorkflowValidationError,
   gmailReceiptsToSheetsWorkflowFixture,
+  stableJsonStringify,
   validateWorkflowSpec
 } from "@kelpclaw/workflow-spec";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { CodegenArtifactStore } from "@kelpclaw/codegen";
 import type { SkillMetadata } from "@kelpclaw/skill-registry";
 import type {
+  WorkflowArtifactManifestRecord,
+  WorkflowAuditAction,
+  WorkflowAuditAdapterCallRecord,
+  WorkflowAuditContainerRecord,
+  WorkflowAuditDeliveryRecord,
+  WorkflowAuditRecord,
   WorkflowApproveRequest,
   WorkflowApproveResponse,
+  WorkflowEventSeverity,
   WorkflowNode,
+  WorkflowObservabilityEventKind,
   WorkflowPlanRequest,
   WorkflowPlanResponse,
   WorkflowRepromptNodeRequest,
@@ -38,8 +53,8 @@ import {
   planWorkflowDraft,
   repromptWorkflow
 } from "./planner.js";
-import { InMemoryWorkflowStore } from "./store.js";
-import type { RevisionInput } from "./store.js";
+import { InMemoryWorkflowStore, SqliteWorkflowStore } from "./store.js";
+import type { RevisionInput, WorkflowStore } from "./store.js";
 import type { WorkflowPlannerBackend } from "./planner.js";
 
 interface RouteParamsWithId {
@@ -70,9 +85,20 @@ interface MockPlanRequestBody {
 }
 
 export interface ApiAppOptions {
-  readonly store?: InMemoryWorkflowStore | undefined;
+  readonly store?: WorkflowStore | undefined;
   readonly planner?: WorkflowPlannerBackend | undefined;
   readonly artifactStore?: CodegenArtifactStore | undefined;
+}
+
+export function createConfiguredWorkflowStore(): WorkflowStore {
+  if (process.env.KELPCLAW_WORKFLOW_STORE === "memory") {
+    return new InMemoryWorkflowStore();
+  }
+
+  return new SqliteWorkflowStore({
+    databasePath:
+      process.env.KELPCLAW_WORKFLOW_DB ?? join(process.cwd(), ".kelpclaw", "workflow.sqlite")
+  });
 }
 
 export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
@@ -124,6 +150,21 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         force: true,
         preserveRevision: true
       });
+      persistCodegenArtifactManifests(
+        store,
+        draftRevision.workflow,
+        draftRevision.id,
+        draftRevision.createdAt
+      );
+      recordAudit(store, {
+        action: "workflow.created",
+        actor: "planner",
+        workflowId: draftRevision.workflowId,
+        revisionId: draftRevision.id,
+        correlationId: correlationIdForRequest(request),
+        summary: "Planned workflow draft revision.",
+        secretRefs: collectSecretRefs(draftRevision.workflow)
+      });
 
       return {
         ok: true,
@@ -146,6 +187,16 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     }
 
     const stored = store.saveWorkflow(validation.workflow, validation);
+    const draftRevision = stored.draftRevisions.at(-1);
+    recordAudit(store, {
+      action: "workflow.created",
+      actor: "api",
+      workflowId: stored.workflow.id,
+      revisionId: draftRevision?.id ?? `draft.${stored.workflow.id}.r${stored.workflow.revision}`,
+      correlationId: correlationIdForRequest(request),
+      summary: "Created workflow draft revision.",
+      secretRefs: collectSecretRefs(stored.workflow)
+    });
     return reply.code(201).send({
       ok: true,
       workflow: stored.workflow
@@ -191,6 +242,21 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     }
 
     const draftRevision = store.saveDraftRevision(validation.workflow, validation, "validate");
+    persistCodegenArtifactManifests(
+      store,
+      draftRevision.workflow,
+      draftRevision.id,
+      draftRevision.createdAt
+    );
+    recordAudit(store, {
+      action: "workflow.edited",
+      actor: "validator",
+      workflowId: draftRevision.workflowId,
+      revisionId: draftRevision.id,
+      correlationId: correlationIdForRequest(request),
+      summary: "Validated workflow draft revision.",
+      secretRefs: collectSecretRefs(draftRevision.workflow)
+    });
     return {
       ok: true,
       validation: draftRevision.validation,
@@ -215,6 +281,17 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         }
         const approvedRevision = store.approveWorkflow(request.params.id, request.body.approvedBy);
         const workflow = approvedRevision.workflow;
+        recordAudit(store, {
+          action: "workflow.approved",
+          actor: request.body.approvedBy,
+          workflowId: approvedRevision.workflowId,
+          revisionId: approvedRevision.id,
+          correlationId: correlationIdForRequest(request),
+          summary: "Approved workflow revision.",
+          diff: approvedRevision.diff,
+          secretRefs: collectSecretRefs(workflow),
+          approvedArtifactRefs: collectCodegenArtifactRefs(workflow)
+        });
         return {
           workflowId: workflow.id,
           revision: workflow.revision,
@@ -267,6 +344,23 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       }
 
       const draftRevision = store.saveDraftRevision(validation.workflow, validation, "reprompt");
+      persistCodegenArtifactManifests(
+        store,
+        draftRevision.workflow,
+        draftRevision.id,
+        draftRevision.createdAt
+      );
+      recordAudit(store, {
+        action: "workflow.edited",
+        actor: "planner",
+        workflowId: draftRevision.workflowId,
+        revisionId: draftRevision.id,
+        nodeId: request.body.nodeId,
+        correlationId: correlationIdForRequest(request),
+        summary: "Reprompted workflow node.",
+        diff: reprompted.diff,
+        secretRefs: collectSecretRefs(draftRevision.workflow)
+      });
       return {
         ok: true,
         workflow: draftRevision.workflow,
@@ -326,6 +420,17 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         request.body.approvedBy,
         validation.workflow
       );
+      recordAudit(store, {
+        action: "workflow.approved",
+        actor: request.body.approvedBy,
+        workflowId: approvedRevision.workflowId,
+        revisionId: approvedRevision.id,
+        correlationId: correlationIdForRequest(request),
+        summary: "Approved workflow revision.",
+        diff: approvedRevision.diff,
+        secretRefs: collectSecretRefs(approvedRevision.workflow),
+        approvedArtifactRefs: collectCodegenArtifactRefs(approvedRevision.workflow)
+      });
       return {
         ok: true,
         workflowId: approvedRevision.workflowId,
@@ -407,6 +512,22 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     const draftRevision = store.saveDraftRevision(validation.workflow, validation, "validate", {
       force: true
     });
+    persistCodegenArtifactManifests(
+      store,
+      draftRevision.workflow,
+      draftRevision.id,
+      draftRevision.createdAt
+    );
+    recordAudit(store, {
+      action: "codegen.reviewed",
+      actor: request.body.reviewedBy,
+      workflowId: draftRevision.workflowId,
+      revisionId: draftRevision.id,
+      nodeId: node.id,
+      correlationId: correlationIdForRequest(request),
+      summary: `Reviewed generated code as ${request.body.status}.`,
+      approvedArtifactRefs: request.body.status === "approved" ? node.codegen.artifacts : undefined
+    });
     return {
       ok: true,
       workflow: draftRevision.workflow,
@@ -485,14 +606,39 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     }
 
     try {
+      const correlationId = correlationIdForRequest(request);
+      const runId = `run.${approvedRevision.workflowId}.r${approvedRevision.revision}.${Date.now()}`;
       const dag = compileWorkflowDag(approvedRevision.workflow);
+      const compiledAt = new Date().toISOString();
       const result = await executeCompiledDag(dag, createNanoClawRunner(), {
-        codegenArtifactStore: artifactStore
+        codegenArtifactStore: artifactStore,
+        runId
       });
       const now = new Date().toISOString();
-      const events = result.events ?? createRunEvents(result.nodeResults, now);
+      const events = enrichRunEvents(
+        [
+          createStructuredRunEvent({
+            id: "event.dag.compiled",
+            timestamp: compiledAt,
+            level: "info",
+            message: "NanoClaw DAG compiled.",
+            kind: "dag.compilation",
+            metadata: {
+              dagHash: dag.dagHash,
+              nodeOrder: [...dag.order]
+            }
+          }),
+          ...(result.events ?? createRunEvents(result.nodeResults, now))
+        ],
+        {
+          workflowId: approvedRevision.workflowId,
+          revisionId: approvedRevision.id,
+          runId,
+          correlationId
+        }
+      );
       const run = store.saveRun({
-        id: `run.${approvedRevision.workflowId}.r${approvedRevision.revision}.${Date.now()}`,
+        id: runId,
         workflowId: approvedRevision.workflowId,
         approvedRevisionId: approvedRevision.id,
         revision: approvedRevision.revision,
@@ -503,6 +649,13 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         events,
         result
       });
+      recordRunAuditRecords(
+        store,
+        approvedRevision.workflow,
+        approvedRevision.id,
+        run,
+        correlationId
+      );
 
       return reply.code(202).send({
         ok: true,
@@ -545,11 +698,94 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     };
   });
 
+  app.get<{ Params: RunRouteParams }>(
+    "/api/workflows/:id/runs/:runId/events",
+    async (request, reply) => {
+      const run = store.getRun(request.params.runId);
+      if (!run) {
+        return reply.code(404).send({
+          ok: false,
+          error: "RUN_NOT_FOUND",
+          message: `Run '${request.params.runId}' was not found.`
+        });
+      }
+      if (run.workflowId !== request.params.id) {
+        return reply.code(409).send({
+          ok: false,
+          error: "WORKFLOW_RUN_ID_MISMATCH",
+          message: `Run '${run.id}' belongs to workflow '${run.workflowId}'.`
+        });
+      }
+
+      return {
+        ok: true,
+        events: store.listRunEvents(run.id)
+      };
+    }
+  );
+
+  app.get<{ Params: RouteParamsWithId }>("/api/workflows/:id/audit", async (request, reply) => {
+    const stored = store.getWorkflow(request.params.id);
+    if (!stored) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_NOT_FOUND",
+        message: `Workflow '${request.params.id}' was not found.`
+      });
+    }
+
+    return {
+      ok: true,
+      audit: store.listAuditRecords(request.params.id)
+    };
+  });
+
+  app.get<{ Params: RouteParamsWithId & { readonly revisionId: string } }>(
+    "/api/workflows/:id/revisions/:revisionId",
+    async (request, reply) => {
+      const revision = store.getWorkflowRevision(request.params.revisionId);
+      if (!revision) {
+        return reply.code(404).send({
+          ok: false,
+          error: "WORKFLOW_REVISION_NOT_FOUND",
+          message: `Workflow revision '${request.params.revisionId}' was not found.`
+        });
+      }
+
+      const workflowId =
+        revision.approvedRevision?.workflowId ?? revision.draftRevision?.workflowId ?? null;
+      if (workflowId !== request.params.id) {
+        return reply.code(409).send({
+          ok: false,
+          error: "WORKFLOW_REVISION_ID_MISMATCH",
+          message: `Workflow revision '${request.params.revisionId}' belongs to workflow '${workflowId}'.`
+        });
+      }
+
+      return {
+        ok: true,
+        ...revision
+      };
+    }
+  );
+
   app.post<{ Params: RouteParamsWithId; Body: RevisionInput }>(
     "/api/workflows/:id/revisions",
     async (request, reply) => {
       try {
         const updated = store.createRevision(request.params.id, request.body);
+        const latestDraft = store.getLatestDraftRevision(request.params.id);
+        if (latestDraft) {
+          recordAudit(store, {
+            action: "workflow.edited",
+            actor: "api",
+            workflowId: latestDraft.workflowId,
+            revisionId: latestDraft.id,
+            correlationId: correlationIdForRequest(request),
+            summary: "Created workflow draft revision.",
+            secretRefs: collectSecretRefs(latestDraft.workflow)
+          });
+        }
         return reply.code(201).send({
           workflowId: updated.workflow.id,
           revision: updated.workflow.revision,
@@ -735,6 +971,256 @@ function createNanoClawRunner(): AdapterBackedNodeRunner | DockerNodeRunner {
   return new AdapterBackedNodeRunner({
     fallbackRunner: new MockNodeRunner()
   });
+}
+
+function correlationIdForRequest(request: FastifyRequest): string {
+  const header = request.headers["x-correlation-id"];
+  if (Array.isArray(header)) {
+    return header[0] ?? `corr.${randomUUID()}`;
+  }
+
+  return typeof header === "string" && header.length > 0 ? header : `corr.${randomUUID()}`;
+}
+
+function recordAudit(
+  store: WorkflowStore,
+  input: Omit<WorkflowAuditRecord, "id" | "timestamp">
+): WorkflowAuditRecord {
+  return store.saveAuditRecord({
+    ...input,
+    id: `audit.${input.action}.${Date.now()}.${randomUUID()}`,
+    timestamp: new Date().toISOString()
+  });
+}
+
+function persistCodegenArtifactManifests(
+  store: WorkflowStore,
+  workflow: WorkflowSpec,
+  revisionId: string,
+  createdAt: string
+): readonly WorkflowArtifactManifestRecord[] {
+  return workflow.nodes
+    .filter((node) => node.kind === "codegen" && node.codegen)
+    .map((node) => {
+      const artifacts = node.codegen?.artifacts ?? [];
+      return store.saveArtifactManifest({
+        id: `manifest.${workflow.id}.${revisionId}.${node.id}`,
+        workflowId: workflow.id,
+        revisionId,
+        createdAt,
+        artifacts,
+        manifestChecksum: checksumArtifactContent(stableJsonStringify(artifacts as never))
+      });
+    });
+}
+
+function collectSecretRefs(workflow: WorkflowSpec): readonly string[] {
+  return [
+    ...new Set(
+      workflow.nodes.flatMap((node) =>
+        Object.values(node.secretRefs ?? {}).filter((secretRef) => secretRef.length > 0)
+      )
+    )
+  ].sort();
+}
+
+function collectCodegenArtifactRefs(workflow: WorkflowSpec) {
+  return workflow.nodes.flatMap((node) => node.codegen?.artifacts ?? []);
+}
+
+function recordRunAuditRecords(
+  store: WorkflowStore,
+  workflow: WorkflowSpec,
+  revisionId: string,
+  run: {
+    readonly id: string;
+    readonly status: string;
+    readonly events: readonly WorkflowRunEvent[];
+    readonly result: WorkflowStartRunResponse["run"]["result"];
+  },
+  correlationId: string
+): void {
+  if (!run.result) {
+    return;
+  }
+
+  const nodesById = new Map(workflow.nodes.map((node) => [node.id, node]));
+  const resultByNodeId = new Map(run.result.nodeResults.map((result) => [result.nodeId, result]));
+
+  for (const node of workflow.nodes) {
+    const result = resultByNodeId.get(node.id);
+    if (!result) {
+      continue;
+    }
+
+    recordAudit(store, {
+      action: "container.ran",
+      actor: "nanoclaw",
+      workflowId: workflow.id,
+      revisionId,
+      runId: run.id,
+      nodeId: node.id,
+      correlationId,
+      summary: `Node '${node.id}' ${result.status}.`,
+      container: containerAuditRecord(node, result)
+    });
+
+    for (const adapterCall of adapterAuditRecords(node, result.status === "succeeded")) {
+      recordAudit(store, {
+        action: "adapter.called",
+        actor: "nanoclaw",
+        workflowId: workflow.id,
+        revisionId,
+        runId: run.id,
+        nodeId: node.id,
+        correlationId,
+        summary: `Adapter '${adapterCall.adapterId}' ${adapterCall.status}.`,
+        adapterCall,
+        secretRefs: Object.values(node.secretRefs ?? {})
+      });
+    }
+
+    const delivery = deliveryAuditRecord(node, result.output, result.status === "succeeded");
+    if (delivery) {
+      recordAudit(store, {
+        action: "delivery.completed",
+        actor: "nanoclaw",
+        workflowId: workflow.id,
+        revisionId,
+        runId: run.id,
+        nodeId: node.id,
+        correlationId,
+        summary: `Delivery node '${node.id}' ${delivery.status}.`,
+        delivery
+      });
+    }
+  }
+
+  recordAudit(store, {
+    action: "run.completed",
+    actor: "nanoclaw",
+    workflowId: workflow.id,
+    revisionId,
+    runId: run.id,
+    correlationId,
+    summary: `Run '${run.id}' ${run.status}.`,
+    metadata: {
+      eventCount: run.events.length,
+      nodeCount: nodesById.size
+    }
+  });
+}
+
+function containerAuditRecord(
+  node: WorkflowNode,
+  result: { readonly workspacePath?: string | undefined; readonly metadata?: unknown }
+): WorkflowAuditContainerRecord {
+  const metadata = result.metadata as { readonly network?: unknown } | undefined;
+  const network =
+    metadata?.network === "bridge"
+      ? "bridge"
+      : (node.codegen?.sandbox.network ??
+        (node.determinism.externalCalls.length > 0 || node.adapterId ? "declared" : "none"));
+
+  return {
+    image: node.runtime.image,
+    command: [...node.runtime.command],
+    network,
+    workspacePath: result.workspacePath
+  };
+}
+
+function adapterAuditRecords(
+  node: WorkflowNode,
+  succeeded: boolean
+): readonly WorkflowAuditAdapterCallRecord[] {
+  return (node.adapterOperations ?? []).map((operation) => ({
+    adapterId: operation.adapterId,
+    operation: operation.operation,
+    operationVersion: operation.operationVersion,
+    status: succeeded ? "succeeded" : "failed"
+  }));
+}
+
+function deliveryAuditRecord(
+  node: WorkflowNode,
+  output: unknown,
+  succeeded: boolean
+): WorkflowAuditDeliveryRecord | undefined {
+  if (node.kind !== "delivery") {
+    return undefined;
+  }
+
+  const delivery = typeof output === "object" && output !== null ? output : {};
+  const nested =
+    "delivery" in delivery && typeof delivery.delivery === "object" && delivery.delivery !== null
+      ? delivery.delivery
+      : delivery;
+  const channels =
+    typeof nested === "object" &&
+    nested !== null &&
+    "channels" in nested &&
+    Array.isArray(nested.channels)
+      ? nested.channels.filter((channel): channel is string => typeof channel === "string")
+      : declaredDeliveryChannels(node);
+
+  return {
+    channels,
+    status: succeeded ? "succeeded" : "failed"
+  };
+}
+
+function declaredDeliveryChannels(node: WorkflowNode): readonly string[] {
+  const channels = node.config.channels;
+  if (Array.isArray(channels)) {
+    return channels.filter((channel): channel is string => typeof channel === "string");
+  }
+
+  return typeof node.config.channel === "string" ? [node.config.channel] : ["email"];
+}
+
+function enrichRunEvents(
+  events: readonly WorkflowRunEvent[],
+  context: {
+    readonly workflowId: string;
+    readonly revisionId: string;
+    readonly runId: string;
+    readonly correlationId: string;
+  }
+): readonly WorkflowRunEvent[] {
+  return events.map((event) => ({
+    ...event,
+    severity: event.severity ?? severityForRunEvent(event),
+    kind: event.kind ?? kindForRunEvent(event),
+    workflowId: event.workflowId ?? context.workflowId,
+    revisionId: event.revisionId ?? context.revisionId,
+    runId: event.runId ?? context.runId,
+    correlationId: event.correlationId ?? context.correlationId
+  }));
+}
+
+function createStructuredRunEvent(
+  input: WorkflowRunEvent & {
+    readonly kind: WorkflowObservabilityEventKind;
+    readonly metadata?: WorkflowRunEvent["metadata"];
+  }
+): WorkflowRunEvent {
+  return input;
+}
+
+function severityForRunEvent(event: WorkflowRunEvent): WorkflowEventSeverity {
+  return event.level === "error" ? "error" : "info";
+}
+
+function kindForRunEvent(event: WorkflowRunEvent): WorkflowObservabilityEventKind {
+  if (event.nodeId) {
+    return "node.container";
+  }
+  if (event.message.toLowerCase().includes("delivery")) {
+    return "delivery.event";
+  }
+
+  return "run.lifecycle";
 }
 
 function createRunEvents(

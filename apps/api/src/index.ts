@@ -1,4 +1,4 @@
-export { buildApiApp } from "./app.js";
+export { buildApiApp, createConfiguredWorkflowStore } from "./app.js";
 export { createDeterministicPlannerBackend, createLivePlannerBackend } from "./planner.js";
 export type { WorkflowPlannerBackend } from "./planner.js";
 export {

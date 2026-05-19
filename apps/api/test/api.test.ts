@@ -280,6 +280,9 @@ describe("kelpclaw api contracts", () => {
     const run = await app.inject({
       method: "POST",
       url: `/api/workflows/${workflow.id}/runs`,
+      headers: {
+        "x-correlation-id": "corr.api-test"
+      },
       payload: {
         approvedRevisionId: approved.json().approvedRevisionId
       }
@@ -289,6 +292,9 @@ describe("kelpclaw api contracts", () => {
     expect(run.json().run.events.map((event: { message: string }) => event.message)).toContain(
       "NanoClaw run finished."
     );
+    expect(run.json().run.events[0].workflowId).toBe(workflow.id);
+    expect(run.json().run.events[0].revisionId).toBe(approved.json().approvedRevisionId);
+    expect(run.json().run.events[0].correlationId).toBe("corr.api-test");
 
     const fetchedRun = await app.inject({
       method: "GET",
@@ -296,6 +302,29 @@ describe("kelpclaw api contracts", () => {
     });
     expect(fetchedRun.statusCode).toBe(200);
     expect(fetchedRun.json().run.id).toBe(run.json().run.id);
+
+    const runEvents = await app.inject({
+      method: "GET",
+      url: `/api/workflows/${workflow.id}/runs/${run.json().run.id}/events`
+    });
+    expect(runEvents.statusCode).toBe(200);
+    expect(runEvents.json().events.at(-1).kind).toBe("run.lifecycle");
+
+    const audit = await app.inject({
+      method: "GET",
+      url: `/api/workflows/${workflow.id}/audit`
+    });
+    expect(audit.statusCode).toBe(200);
+    expect(audit.json().audit.map((record: { action: string }) => record.action)).toContain(
+      "run.completed"
+    );
+
+    const fetchedRevision = await app.inject({
+      method: "GET",
+      url: `/api/workflows/${workflow.id}/revisions/${approved.json().approvedRevisionId}`
+    });
+    expect(fetchedRevision.statusCode).toBe(200);
+    expect(fetchedRevision.json().approvedRevision.id).toBe(approved.json().approvedRevisionId);
   });
 
   it("validates invalid workflows with stable errors", async () => {
