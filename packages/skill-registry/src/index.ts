@@ -16,6 +16,7 @@ export {
 export type {
   BuiltinSkillCapability,
   SkillCapability,
+  SkillAdapterOperationDependency,
   SkillExampleFixture,
   SkillLookupQuery,
   SkillMatch,

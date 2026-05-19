@@ -6,7 +6,9 @@ export type BuiltinSkillCapability =
   | "alert-urgency-classification"
   | "workflow-validation"
   | "approval-routing"
-  | "adapter-dispatch";
+  | "adapter-dispatch"
+  | "email-results-deliver"
+  | "alert-push-dispatch";
 
 export type SkillCapability = BuiltinSkillCapability | (string & {});
 
@@ -15,6 +17,12 @@ export interface SkillExampleFixture {
   readonly description: string;
   readonly input: Readonly<Record<string, unknown>>;
   readonly output: Readonly<Record<string, unknown>>;
+}
+
+export interface SkillAdapterOperationDependency {
+  readonly adapterId: string;
+  readonly operation: string;
+  readonly operationVersion: string;
 }
 
 export interface SkillMetadata {
@@ -29,6 +37,7 @@ export interface SkillMetadata {
   readonly outputSchema: Readonly<Record<string, JsonSchemaShape>>;
   readonly requiredSecrets: readonly string[];
   readonly adapterDependencies: readonly string[];
+  readonly adapterOperations: readonly SkillAdapterOperationDependency[];
   readonly runtimeTemplate: WorkflowRuntime;
   readonly metaprompt: string;
   readonly validationRules: readonly string[];

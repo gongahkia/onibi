@@ -23,6 +23,7 @@ describe("skill registry", () => {
     expect(listSkills().every((skill) => skill.runtimeTemplate.image.length > 0)).toBe(true);
     expect(listSkills().every((skill) => skill.validationRules.length > 0)).toBe(true);
     expect(listSkills().every((skill) => skill.examples.length > 0)).toBe(true);
+    expect(listSkills().every((skill) => Array.isArray(skill.adapterOperations))).toBe(true);
   });
 
   it("looks up skills by exact id", () => {
@@ -37,6 +38,23 @@ describe("skill registry", () => {
         adapterDependencies: ["adapter.sheets.fake"]
       }).id
     ).toBe("skill.sheets.rows.append");
+  });
+
+  it("declares operation-level adapter dependencies for integration skills", () => {
+    expect(requireSkill("skill.gmail.receipts.read").adapterOperations).toEqual([
+      {
+        adapterId: "adapter.gmail.fake",
+        operation: "gmail.receipts.search",
+        operationVersion: "1.0.0"
+      }
+    ]);
+    expect(requireSkill("skill.email.results.deliver").requiredSecrets).toEqual([
+      "email.delivery"
+    ]);
+    expect(requireSkill("skill.alert.push.dispatch").adapterDependencies).toEqual([
+      "adapter.whatsapp.fake",
+      "adapter.telegram.fake"
+    ]);
   });
 
   it("filters skills by capability through deterministic matching", () => {
@@ -143,6 +161,7 @@ function promotedScraperSkill(): SkillMetadata {
     },
     requiredSecrets: [],
     adapterDependencies: [],
+    adapterOperations: [],
     runtimeTemplate,
     metaprompt: "Select this skill for public status page scraping workflows.",
     validationRules: ["fixture output must contain page"],

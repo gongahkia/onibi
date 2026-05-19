@@ -19,6 +19,14 @@ const runtimeTemplate: WorkflowRuntime = {
   }
 };
 
+function adapterOperation(adapterId: string, operation: string, operationVersion = "1.0.0") {
+  return {
+    adapterId,
+    operation,
+    operationVersion
+  };
+}
+
 export const builtinSkills: readonly SkillMetadata[] = [
   {
     id: "skill.gmail.receipts.read",
@@ -36,6 +44,7 @@ export const builtinSkills: readonly SkillMetadata[] = [
     },
     requiredSecrets: ["gmail.oauth"],
     adapterDependencies: ["adapter.gmail.fake"],
+    adapterOperations: [adapterOperation("adapter.gmail.fake", "gmail.receipts.search")],
     runtimeTemplate,
     metaprompt:
       "Select this skill when the workflow needs Gmail receipt, order, invoice, or payment messages.",
@@ -65,6 +74,7 @@ export const builtinSkills: readonly SkillMetadata[] = [
     },
     requiredSecrets: ["sheets.oauth"],
     adapterDependencies: ["adapter.sheets.fake"],
+    adapterOperations: [adapterOperation("adapter.sheets.fake", "sheets.rows.append")],
     runtimeTemplate,
     metaprompt:
       "Select this skill when structured rows should be appended to a spreadsheet or sheet range.",
@@ -75,6 +85,36 @@ export const builtinSkills: readonly SkillMetadata[] = [
         description: "Append receipt rows.",
         input: { rows: [{ total: 10 }] },
         output: { delivery: { status: "recorded" } }
+      }
+    ]
+  },
+  {
+    id: "skill.email.results.deliver",
+    name: "Deliver Email Results",
+    version: "1.0.0",
+    description: "Delivers workflow summaries and final result payloads through email.",
+    deterministic: true,
+    nodeKinds: ["delivery"],
+    capabilities: ["email-results-deliver"],
+    inputSchema: {
+      delivery: objectSchema
+    },
+    outputSchema: {
+      delivery: objectSchema
+    },
+    requiredSecrets: ["email.delivery"],
+    adapterDependencies: ["adapter.email.fake"],
+    adapterOperations: [adapterOperation("adapter.email.fake", "email.results.send")],
+    runtimeTemplate,
+    metaprompt:
+      "Select this skill when a workflow needs primary result delivery, summaries, or completion notices by email.",
+    validationRules: ["email is the default final result channel", "to must be configured"],
+    examples: [
+      {
+        id: "example.email.results.deliver",
+        description: "Email a workflow result summary.",
+        input: { delivery: { appendedRows: 2 } },
+        output: { delivery: { channel: "email", delivered: true } }
       }
     ]
   },
@@ -94,6 +134,7 @@ export const builtinSkills: readonly SkillMetadata[] = [
     },
     requiredSecrets: [],
     adapterDependencies: [],
+    adapterOperations: [],
     runtimeTemplate,
     metaprompt:
       "Select this skill when a support, incident, or escalation message needs urgency classification.",
@@ -104,6 +145,42 @@ export const builtinSkills: readonly SkillMetadata[] = [
         description: "Classify a support escalation.",
         input: { message: { subject: "urgent outage" } },
         output: { alert: { severity: "high" } }
+      }
+    ]
+  },
+  {
+    id: "skill.alert.push.dispatch",
+    name: "Dispatch Push Alert",
+    version: "1.0.0",
+    description: "Dispatches opt-in time-sensitive alerts through WhatsApp and Telegram.",
+    deterministic: true,
+    nodeKinds: ["delivery"],
+    capabilities: ["alert-push-dispatch"],
+    inputSchema: {
+      approvedAlert: objectSchema
+    },
+    outputSchema: {
+      delivery: objectSchema
+    },
+    requiredSecrets: ["whatsapp.apiKey", "telegram.botToken"],
+    adapterDependencies: ["adapter.whatsapp.fake", "adapter.telegram.fake"],
+    adapterOperations: [
+      adapterOperation("adapter.whatsapp.fake", "whatsapp.alert.send"),
+      adapterOperation("adapter.telegram.fake", "telegram.alert.send")
+    ],
+    runtimeTemplate,
+    metaprompt:
+      "Select this skill only when a workflow explicitly asks for WhatsApp or Telegram time-sensitive push alerts.",
+    validationRules: [
+      "WhatsApp and Telegram are opt-in secondary channels",
+      "config.channels must declare each push channel"
+    ],
+    examples: [
+      {
+        id: "example.alert.push.dispatch",
+        description: "Send a high severity alert over both push channels.",
+        input: { approvedAlert: { severity: "high", text: "incident" } },
+        output: { delivery: { channels: ["whatsapp", "telegram"], delivered: true } }
       }
     ]
   },
@@ -123,6 +200,7 @@ export const builtinSkills: readonly SkillMetadata[] = [
     },
     requiredSecrets: [],
     adapterDependencies: [],
+    adapterOperations: [],
     runtimeTemplate,
     metaprompt: "Select this skill when the workflow itself needs deterministic validation.",
     validationRules: ["must return stable validation codes"],
@@ -151,6 +229,7 @@ export const builtinSkills: readonly SkillMetadata[] = [
     },
     requiredSecrets: [],
     adapterDependencies: [],
+    adapterOperations: [],
     runtimeTemplate,
     metaprompt: "Select this skill when execution must pause for explicit human approval.",
     validationRules: ["requiredRole must be operator or owner"],
@@ -179,6 +258,11 @@ export const builtinSkills: readonly SkillMetadata[] = [
     },
     requiredSecrets: [],
     adapterDependencies: ["adapter.email.fake", "adapter.whatsapp.fake", "adapter.telegram.fake"],
+    adapterOperations: [
+      adapterOperation("adapter.email.fake", "email.results.send"),
+      adapterOperation("adapter.whatsapp.fake", "whatsapp.alert.send"),
+      adapterOperation("adapter.telegram.fake", "telegram.alert.send")
+    ],
     runtimeTemplate,
     metaprompt:
       "Select this skill when a workflow needs fake email, WhatsApp, or Telegram dispatch.",
