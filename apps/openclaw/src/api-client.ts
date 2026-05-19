@@ -9,6 +9,11 @@ import type {
   WorkflowPlanResponse,
   WorkflowRepromptNodeRequest,
   WorkflowRepromptNodeResponse,
+  WorkflowJob,
+  WorkflowJobEvent,
+  WorkflowWorkspace,
+  WorkflowDeploymentKind,
+  WorkflowDeploymentRecord,
   WorkflowStartRunRequest,
   WorkflowStartRunResponse,
   WorkflowValidateRequest,
@@ -40,6 +45,27 @@ export interface CodegenPromotionResponse {
     readonly checksum: string;
     readonly contentType: string;
   };
+}
+
+export interface CodegenBuildResponse {
+  readonly ok: true;
+  readonly workflow: WorkflowPlanResponse["workflow"];
+  readonly draftRevision: WorkflowPlanResponse["draftRevision"];
+  readonly validation: WorkflowValidateResponse["validation"];
+  readonly job: WorkflowJob;
+  readonly workspace: WorkflowWorkspace;
+  readonly agentRuns: readonly unknown[];
+  readonly artifacts: readonly unknown[];
+  readonly testReport: unknown;
+  readonly evalReport: unknown;
+}
+
+export interface CodegenEvalsResponse {
+  readonly ok: true;
+  readonly agentRuns: readonly unknown[];
+  readonly agentArtifacts: readonly unknown[];
+  readonly testReports: readonly unknown[];
+  readonly evalReports: readonly unknown[];
 }
 
 export interface SecretMetadata {
@@ -136,6 +162,30 @@ export const openClawApi = {
     );
   },
 
+  buildCodegen(
+    workflowId: string,
+    nodeId: string,
+    request: {
+      readonly maxIterations?: number;
+      readonly maxWallClockSeconds?: number;
+      readonly maxModelCostUsd?: number;
+      readonly runTestsInDocker?: boolean;
+    },
+    jobId?: string | undefined
+  ): Promise<CodegenBuildResponse> {
+    return postJson(
+      `/api/workflows/${encodeURIComponent(workflowId)}/codegen/${encodeURIComponent(nodeId)}/build`,
+      request,
+      jobId ? { "x-kelpclaw-job-id": jobId } : undefined
+    );
+  },
+
+  fetchCodegenEvals(workflowId: string, nodeId: string): Promise<CodegenEvalsResponse> {
+    return getJson(
+      `/api/workflows/${encodeURIComponent(workflowId)}/codegen/${encodeURIComponent(nodeId)}/evals`
+    );
+  },
+
   startRun(
     workflowId: string,
     request: WorkflowStartRunRequest
@@ -174,15 +224,86 @@ export const openClawApi = {
 
   googleRevoke(): Promise<{ readonly ok: true; readonly deleted: boolean }> {
     return postJson("/api/integrations/google/revoke", {});
+  },
+
+  createJob(request: {
+    readonly type: WorkflowJob["type"];
+    readonly workflowId?: string;
+    readonly revisionId?: string;
+    readonly nodeId?: string;
+    readonly maxAttempts?: number;
+  }): Promise<{ readonly ok: true; readonly job: WorkflowJob }> {
+    return postJson("/api/jobs", request);
+  },
+
+  fetchJob(jobId: string): Promise<{ readonly ok: true; readonly job: WorkflowJob }> {
+    return getJson(`/api/jobs/${encodeURIComponent(jobId)}`);
+  },
+
+  fetchWorkspace(
+    workspaceId: string
+  ): Promise<{ readonly ok: true; readonly workspace: WorkflowWorkspace }> {
+    return getJson(`/api/workspaces/${encodeURIComponent(workspaceId)}`);
+  },
+
+  deployWorkflow(
+    workflowId: string,
+    request: {
+      readonly approvedRevisionId: string;
+      readonly kind: WorkflowDeploymentKind;
+      readonly createdBy: string;
+      readonly rollbackPlan: string;
+      readonly metadata?: Record<string, unknown>;
+    }
+  ): Promise<{ readonly ok: true; readonly deployment: WorkflowDeploymentRecord }> {
+    return postJson(`/api/workflows/${encodeURIComponent(workflowId)}/deployments`, request);
+  },
+
+  async streamJobEvents(
+    jobId: string,
+    onEvent: (event: WorkflowJobEvent | WorkflowJob) => void
+  ): Promise<void> {
+    const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/events`, {
+      headers: authHeader()
+    });
+    if (!response.ok || !response.body) {
+      await parseJsonResponse(response);
+      return;
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      const chunks = buffer.split("\n\n");
+      buffer = chunks.pop() ?? "";
+      for (const chunk of chunks) {
+        const line = chunk
+          .split("\n")
+          .find((candidate) => candidate.startsWith("data: "));
+        if (line) {
+          onEvent(JSON.parse(line.slice("data: ".length)) as WorkflowJobEvent | WorkflowJob);
+        }
+      }
+    }
   }
 };
 
-async function postJson<TResponse>(url: string, body: unknown): Promise<TResponse> {
+async function postJson<TResponse>(
+  url: string,
+  body: unknown,
+  extraHeaders: Record<string, string> = {}
+): Promise<TResponse> {
   const response = await fetch(url, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      ...authHeader()
+      ...authHeader(),
+      ...extraHeaders
     },
     body: JSON.stringify(body)
   });

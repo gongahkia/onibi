@@ -106,6 +106,10 @@ interface JobRouteParams {
   readonly jobId: string;
 }
 
+interface WorkspaceRouteParams {
+  readonly workspaceId: string;
+}
+
 interface ApprovalRequestBody {
   readonly approvedBy: string;
 }
@@ -364,6 +368,25 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       return {
         ok: true,
         job: withEvent
+      };
+    }
+  );
+
+  app.get<{ Params: WorkspaceRouteParams }>(
+    "/api/workspaces/:workspaceId",
+    async (request, reply) => {
+      const workspace = store.getWorkspace(request.params.workspaceId);
+      if (!workspace) {
+        return reply.code(404).send({
+          ok: false,
+          error: "WORKSPACE_NOT_FOUND",
+          message: `Workspace '${request.params.workspaceId}' was not found.`
+        });
+      }
+
+      return {
+        ok: true,
+        workspace
       };
     }
   );

@@ -48,6 +48,8 @@ import type {
   WorkflowDraftEvaluation,
   WorkflowAdapterOperationRef,
   WorkflowApprovedRevision,
+  WorkflowJob,
+  WorkflowWorkspace,
   WorkflowNode,
   WorkflowNodeKind,
   WorkflowPlannerFeedback,
@@ -247,6 +249,10 @@ export function App() {
   const [taskRoute, setTaskRoute] = useState<WorkflowTaskRoute | null>(null);
   const [plannerFeedback, setPlannerFeedback] = useState<WorkflowPlannerFeedback | null>(null);
   const [draftEvaluation, setDraftEvaluation] = useState<WorkflowDraftEvaluation | null>(null);
+  const [activeJob, setActiveJob] = useState<WorkflowJob | null>(null);
+  const [workspace, setWorkspace] = useState<WorkflowWorkspace | null>(null);
+  const [agentRuns, setAgentRuns] = useState<readonly unknown[]>([]);
+  const [deploymentNotice, setDeploymentNotice] = useState<string | null>(null);
   const [dirtyNodeIds, setDirtyNodeIds] = useState<ReadonlySet<string>>(new Set());
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>("read-gmail-receipts");
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
@@ -325,6 +331,7 @@ export function App() {
       setRun(null);
       setPromotionNotice(null);
       setDraftEvaluation(null);
+      setDeploymentNotice(null);
       loadWorkflow(nextWorkflow);
       void requestPlannerFeedback(previousWorkflow, nextWorkflow);
     },
@@ -681,6 +688,47 @@ export function App() {
     });
   }
 
+  function buildCodegenNode() {
+    if (!selectedNode || selectedNode.kind !== "codegen") {
+      return;
+    }
+
+    void executeApiAction("build-codegen", async () => {
+      const jobResponse = await openClawApi.createJob({
+        type: "build.codegen-node",
+        workflowId: workflow.id,
+        nodeId: selectedNode.id
+      });
+      setActiveJob(jobResponse.job);
+      void openClawApi.streamJobEvents(jobResponse.job.id, (event) => {
+        if ("status" in event) {
+          setActiveJob(event);
+        } else {
+          setActiveJob((current) =>
+            current ? { ...current, events: [...current.events, event] } : current
+          );
+        }
+      });
+      const response = await openClawApi.buildCodegen(
+        workflow.id,
+        selectedNode.id,
+        {
+          maxIterations: 3,
+          maxWallClockSeconds: 600,
+          maxModelCostUsd: 2,
+          runTestsInDocker: false
+        },
+        jobResponse.job.id
+      );
+      loadWorkflow(response.workflow, response.validation);
+      setActiveJob(response.job);
+      setWorkspace(response.workspace);
+      setAgentRuns(response.agentRuns);
+      setDraftEvaluation(null);
+      setPromotionNotice(null);
+    });
+  }
+
   function approveWorkflow() {
     void executeApiAction("approve", async () => {
       const response = await openClawApi.approve(workflow.id, {
@@ -707,6 +755,25 @@ export function App() {
     });
   }
 
+  function deployWorkflow() {
+    if (!approvedRevision || !draftEvaluation) {
+      return;
+    }
+
+    void executeApiAction("deploy", async () => {
+      const response = await openClawApi.deployWorkflow(workflow.id, {
+        approvedRevisionId: approvedRevision.id,
+        kind: "workflow.bundle",
+        createdBy: "owner@example.com",
+        rollbackPlan: `Rollback to ${approvedRevision.id}.`,
+        metadata: {
+          source: "openclaw"
+        }
+      });
+      setDeploymentNotice(`Deployment ready: ${response.deployment.kind}`);
+    });
+  }
+
   function resetWorkflow() {
     setPrompt(defaultPrompt);
     setDirtyNodeIds(new Set());
@@ -720,6 +787,10 @@ export function App() {
     setTaskRoute(null);
     setPlannerFeedback(null);
     setDraftEvaluation(null);
+    setActiveJob(null);
+    setWorkspace(null);
+    setAgentRuns([]);
+    setDeploymentNotice(null);
     setPromotionNotice(null);
     loadWorkflow(
       gmailReceiptsToSheetsWorkflowFixture,
@@ -910,6 +981,14 @@ export function App() {
                 <Play size={18} />
                 Run
               </button>
+              <button
+                title="Deploy workflow"
+                onClick={deployWorkflow}
+                disabled={!approvedRevision || !draftEvaluation?.readyForApproval || busyAction !== null}
+              >
+                <Send size={18} />
+                Deploy
+              </button>
               <button className="icon-button" title="Reset workflow" onClick={resetWorkflow}>
                 <RefreshCw size={18} />
               </button>
@@ -990,9 +1069,14 @@ export function App() {
             approvalDiff={approvalDiff}
             approvedRevision={approvedRevision}
             run={run}
+            activeJob={activeJob}
+            workspace={workspace}
+            agentRuns={agentRuns}
+            deploymentNotice={deploymentNotice}
             busyAction={busyAction}
             onNodePromptChange={setNodePrompt}
             onReprompt={repromptNode}
+            onBuildCodegen={buildCodegenNode}
             onReviewCodegen={reviewCodegenNode}
             onPromoteCodegen={promoteCodegenNode}
             onUpdateNode={updateNode}
@@ -1014,10 +1098,15 @@ function Inspector(props: {
   readonly approvalDiff: WorkflowSpecDiff | null;
   readonly approvedRevision: WorkflowApprovedRevision | null;
   readonly run: WorkflowRunRecord | null;
+  readonly activeJob: WorkflowJob | null;
+  readonly workspace: WorkflowWorkspace | null;
+  readonly agentRuns: readonly unknown[];
+  readonly deploymentNotice: string | null;
   readonly busyAction: string | null;
   readonly promotionNotice: string | null;
   readonly onNodePromptChange: (value: string) => void;
   readonly onReprompt: () => void;
+  readonly onBuildCodegen: () => void;
   readonly onReviewCodegen: () => void;
   readonly onPromoteCodegen: () => void;
   readonly onUpdateNode: (nodeId: string, updater: (node: WorkflowNode) => WorkflowNode) => void;
@@ -1230,6 +1319,14 @@ function Inspector(props: {
               />
               <button
                 type="button"
+                onClick={props.onBuildCodegen}
+                disabled={props.busyAction !== null}
+              >
+                <WandSparkles size={18} />
+                Build Generated Node
+              </button>
+              <button
+                type="button"
                 onClick={props.onReviewCodegen}
                 disabled={props.busyAction !== null || node.codegen?.review.status === "approved"}
               >
@@ -1269,6 +1366,9 @@ function Inspector(props: {
       )}
 
       <ApprovalPanel diff={props.approvalDiff} approvedRevision={props.approvedRevision} />
+      <JobPanel job={props.activeJob} />
+      <WorkspacePanel workspace={props.workspace} agentRuns={props.agentRuns} />
+      {props.deploymentNotice ? <p className="success-text">{props.deploymentNotice}</p> : null}
       <RunPanel run={props.run} />
     </>
   );
@@ -1543,6 +1643,47 @@ function ApprovalPanel(props: {
           </pre>
         </>
       ) : null}
+    </section>
+  );
+}
+
+function JobPanel(props: { readonly job: WorkflowJob | null }) {
+  return (
+    <section className="run-panel" aria-label="Job activity">
+      <h2>Job</h2>
+      <StatusRow
+        label="Status"
+        value={props.job?.status ?? "idle"}
+        tone={props.job?.status ?? "idle"}
+      />
+      {props.job ? (
+        <ul className="event-list">
+          {props.job.events.slice(-8).map((event) => (
+            <li key={event.id}>
+              <strong>{event.level}</strong>
+              <span>{event.message}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
+function WorkspacePanel(props: {
+  readonly workspace: WorkflowWorkspace | null;
+  readonly agentRuns: readonly unknown[];
+}) {
+  return (
+    <section className="run-panel" aria-label="Workspace artifacts">
+      <h2>Workspace</h2>
+      <StatusRow
+        label="Artifacts"
+        value={String(props.workspace?.artifactsProduced.length ?? 0)}
+        tone={props.workspace ? "valid" : "idle"}
+      />
+      <StatusRow label="Agents" value={String(props.agentRuns.length)} tone="pending" />
+      {props.workspace ? <pre className="result-view">{formatJson(props.workspace)}</pre> : null}
     </section>
   );
 }
