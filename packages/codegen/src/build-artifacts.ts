@@ -6,7 +6,7 @@ import type {
   GeneratedNodeDesignSpec,
   WorkflowCodegenArtifactRef
 } from "./types.js";
-import type { WorkflowAgentRole } from "@kelpclaw/workflow-spec";
+import type { WorkflowAgentRole, WorkflowModelInvocationRecord } from "@kelpclaw/workflow-spec";
 
 export function createGeneratedNodeDesignSpecArtifact(
   spec: GeneratedNodeDesignSpec
@@ -61,6 +61,7 @@ export function createCodegenAgentRunRecord(input: {
   readonly outputArtifactRefs: readonly WorkflowCodegenArtifactRef[];
   readonly modelProvider?: string | undefined;
   readonly model?: string | undefined;
+  readonly modelInvocations?: readonly WorkflowModelInvocationRecord[] | undefined;
   readonly error?: string | undefined;
 }): CodegenAgentRunRecord {
   return {
@@ -76,6 +77,7 @@ export function createCodegenAgentRunRecord(input: {
     outputArtifactRefs: input.outputArtifactRefs,
     modelProvider: input.modelProvider ?? "deterministic",
     model: input.model ?? "none",
+    ...(input.modelInvocations ? { modelInvocations: input.modelInvocations } : {}),
     ...(input.error ? { error: input.error } : {})
   };
 }

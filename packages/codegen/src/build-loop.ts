@@ -1,3 +1,5 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import {
   createCodegenAgentArtifactRecords,
   createCodegenAgentRunRecord,
@@ -11,25 +13,44 @@ import {
 import { createCodegenMetadata, createGeneratedArtifact } from "./artifacts.js";
 import type {
   CodeGenerator,
+  CodegenAgentRunRecord,
   CodegenGenerationRequest,
   CodegenGenerationResult,
+  GeneratedArtifact,
   GeneratedNodeBuildLoopRequest,
   GeneratedNodeBuildLoopResult,
+  GeneratedNodeBuildRole,
   GeneratedNodeDesignSpec,
+  GeneratedNodeRoleRunInput,
+  GeneratedNodeRoleRunResult,
+  GeneratedNodeRoleRunner,
+  GeneratedNodeTestExecution,
+  GeneratedNodeTestExecutor,
   WorkflowCodegenArtifactRef
 } from "./types.js";
 
 export interface GeneratedNodeBuildLoopOptions {
   readonly codeGenerator?: CodeGenerator | undefined;
+  readonly roleRunners?:
+    | Partial<Record<GeneratedNodeBuildRole, GeneratedNodeRoleRunner>>
+    | undefined;
+  readonly testExecutor?: GeneratedNodeTestExecutor | undefined;
+  readonly workspaceRoot?: string | undefined;
   readonly now?: (() => string) | undefined;
 }
 
 export class GeneratedNodeBuildLoop {
   private readonly codeGenerator: CodeGenerator;
+  private readonly roleRunners: Partial<Record<GeneratedNodeBuildRole, GeneratedNodeRoleRunner>>;
+  private readonly testExecutor: GeneratedNodeTestExecutor;
+  private readonly workspaceRoot: string | undefined;
   private readonly now: () => string;
 
   public constructor(options: GeneratedNodeBuildLoopOptions = {}) {
     this.codeGenerator = options.codeGenerator ?? new DeterministicBuildLoopCodeGenerator();
+    this.roleRunners = options.roleRunners ?? {};
+    this.testExecutor = options.testExecutor ?? new StaticGeneratedNodeTestExecutor();
+    this.workspaceRoot = options.workspaceRoot;
     this.now = options.now ?? (() => new Date().toISOString());
   }
 
@@ -37,109 +58,381 @@ export class GeneratedNodeBuildLoop {
     request: GeneratedNodeBuildLoopRequest
   ): Promise<GeneratedNodeBuildLoopResult> {
     const startedAt = this.now();
+    const deadline = Date.now() + request.maxWallClockSeconds * 1000;
     const designSpec = createDesignSpec(request);
     const designSpecArtifact = createGeneratedNodeDesignSpecArtifact(designSpec);
-    const architectRun = createCodegenAgentRunRecord({
-      workflowId: request.workflowId,
-      nodeId: request.nodeId,
-      jobId: request.job.id,
-      role: "workflow-architect",
-      status: "succeeded",
-      startedAt,
-      finishedAt: this.now(),
-      inputSummary: request.prompt,
-      outputArtifactRefs: [artifactRef(designSpecArtifact)]
-    });
-
-    const generation = await this.codeGenerator.generate(request);
-    const coderRun = createCodegenAgentRunRecord({
-      workflowId: request.workflowId,
-      nodeId: request.nodeId,
-      jobId: request.job.id,
-      role: "coder",
-      status: "succeeded",
-      startedAt,
-      finishedAt: this.now(),
-      inputSummary: designSpec.plannerRationale,
-      outputArtifactRefs: [
-        artifactRef(generation.sourceArtifact),
-        artifactRef(generation.dependencyManifestArtifact)
-      ],
-      modelProvider: generation.metadata.llmBacked ? "anthropic" : "deterministic",
-      model: generation.metadata.provenance.generator
-    });
-
-    const testArtifact = createGeneratedNodeContractTestArtifact({
-      workflowId: request.workflowId,
-      nodeId: request.nodeId,
-      outputPorts: Object.keys(request.outputSchema).sort()
-    });
-    const testerRun = createCodegenAgentRunRecord({
-      workflowId: request.workflowId,
-      nodeId: request.nodeId,
-      jobId: request.job.id,
-      role: "tester",
-      status: "succeeded",
-      startedAt,
-      finishedAt: this.now(),
-      inputSummary: "Generate node contract tests.",
-      outputArtifactRefs: [artifactRef(testArtifact)]
-    });
-    const runnerRun = createCodegenAgentRunRecord({
-      workflowId: request.workflowId,
-      nodeId: request.nodeId,
-      jobId: request.job.id,
-      role: "runner",
-      status: "succeeded",
-      startedAt,
-      finishedAt: this.now(),
-      inputSummary: request.runTestsInDocker
-        ? "Docker contract test run."
-        : "Static contract test run.",
-      outputArtifactRefs: []
-    });
-    const evaluatorRun = createCodegenAgentRunRecord({
-      workflowId: request.workflowId,
-      nodeId: request.nodeId,
-      jobId: request.job.id,
-      role: "evaluator",
-      status: "succeeded",
-      startedAt,
-      finishedAt: this.now(),
-      inputSummary: "Evaluate generated node artifacts against contract.",
-      outputArtifactRefs: [
-        artifactRef(generation.sourceArtifact),
-        artifactRef(generation.dependencyManifestArtifact),
-        artifactRef(testArtifact)
-      ]
-    });
-    const agentRuns = [architectRun, coderRun, testerRun, runnerRun, evaluatorRun];
-    const allArtifactRefs = [
-      artifactRef(designSpecArtifact),
-      artifactRef(generation.sourceArtifact),
-      artifactRef(generation.dependencyManifestArtifact),
-      artifactRef(testArtifact)
-    ];
-    const agentArtifacts = agentRuns.flatMap((run) =>
-      createCodegenAgentArtifactRecords({
+    const testArtifacts = [
+      createGeneratedNodeContractTestArtifact({
         workflowId: request.workflowId,
         nodeId: request.nodeId,
-        jobId: request.job.id,
-        agentRunId: run.id,
-        createdAt: run.finishedAt,
-        artifacts: allArtifactRefs.filter((artifact) =>
-          run.outputArtifactRefs.some((output) => output.path === artifact.path)
-        )
-      })
+        outputPorts: Object.keys(request.outputSchema).sort()
+      }),
+      createGeneratedNodeFixtureTestArtifact(request)
+    ];
+    const agentRuns: CodegenAgentRunRecord[] = [];
+    const fixHistory: string[] = [];
+    const logs: string[] = [];
+    let spentModelCostUsd = 0;
+    let lastGeneration: CodegenGenerationResult | undefined;
+    let lastExecution: GeneratedNodeTestExecution | undefined;
+    let lastFailure: string | undefined;
+
+    await materializeWorkspaceFiles(this.workspaceRootFor(request), [
+      designSpecArtifact,
+      ...testArtifacts
+    ]);
+
+    agentRuns.push(
+      runToRecord(
+        request,
+        "workflow-architect",
+        await this.runRole({
+          role: "workflow-architect",
+          request,
+          iteration: 0,
+          inputSummary: request.prompt,
+          outputArtifactRefs: [artifactRef(designSpecArtifact)],
+          generateCode: (codegenRequest) => this.codeGenerator.generate(codegenRequest)
+        }),
+        startedAt,
+        this.now()
+      )
     );
 
+    for (let iteration = 1; iteration <= request.maxIterations; iteration += 1) {
+      throwIfAborted(request);
+      if (Date.now() > deadline) {
+        lastFailure = `Generated-node build exceeded ${request.maxWallClockSeconds}s wall-clock budget.`;
+        break;
+      }
+      if (spentModelCostUsd > request.maxModelCostUsd) {
+        lastFailure = `Generated-node build exceeded $${request.maxModelCostUsd} model budget.`;
+        break;
+      }
+
+      const coderResult = await this.runRole({
+        role: "coder",
+        request,
+        iteration,
+        inputSummary: lastFailure ?? request.plannerRationale,
+        outputArtifactRefs: [],
+        previousFailure: lastFailure,
+        generateCode: (codegenRequest) => this.codeGenerator.generate(codegenRequest)
+      });
+      spentModelCostUsd += coderResult.modelCostUsd ?? 0;
+      agentRuns.push(runToRecord(request, "coder", coderResult, startedAt, this.now()));
+      if (coderResult.generation) {
+        lastGeneration = coderResult.generation;
+        await materializeWorkspaceFiles(this.workspaceRootFor(request), [
+          lastGeneration.sourceArtifact,
+          lastGeneration.dependencyManifestArtifact
+        ]);
+      }
+      if (coderResult.status === "failed" || !lastGeneration) {
+        lastFailure = coderResult.error ?? "Coder role did not produce generated node artifacts.";
+        fixHistory.push(`iteration ${iteration}: ${lastFailure}`);
+        if (iteration < request.maxIterations) {
+          agentRuns.push(
+            runToRecord(
+              request,
+              "fixer",
+              await this.runRole({
+                role: "fixer",
+                request,
+                iteration,
+                inputSummary: lastFailure,
+                outputArtifactRefs: [],
+                previousFailure: lastFailure,
+                generateCode: (codegenRequest) => this.codeGenerator.generate(codegenRequest)
+              }),
+              startedAt,
+              this.now()
+            )
+          );
+          continue;
+        }
+        break;
+      }
+
+      const testerResult = await this.runRole({
+        role: "tester",
+        request,
+        iteration,
+        inputSummary: "Generate contract and workflow fixture tests.",
+        outputArtifactRefs: testArtifacts.map(artifactRef),
+        previousFailure: lastFailure,
+        generateCode: (codegenRequest) => this.codeGenerator.generate(codegenRequest)
+      });
+      agentRuns.push(runToRecord(request, "tester", testerResult, startedAt, this.now()));
+
+      const runnerInput = {
+        request,
+        generation: lastGeneration,
+        testArtifacts,
+        iteration
+      };
+      lastExecution = await this.testExecutor.execute(runnerInput);
+      logs.push(...lastExecution.logs);
+      const runnerResult = await this.runRole({
+        role: "runner",
+        request,
+        iteration,
+        inputSummary: request.runTestsInDocker
+          ? "Docker scoped generated-node test execution."
+          : "Static scoped generated-node test execution.",
+        outputArtifactRefs: lastExecution.resultArtifacts.map(artifactRef),
+        previousFailure: lastExecution.failureMessage,
+        generateCode: (codegenRequest) => this.codeGenerator.generate(codegenRequest)
+      });
+      agentRuns.push(runToRecord(request, "runner", runnerResult, startedAt, this.now()));
+
+      const evaluatorResult = await this.runRole({
+        role: "evaluator",
+        request,
+        iteration,
+        inputSummary: lastExecution.failureMessage ?? "Evaluate generated node artifacts.",
+        outputArtifactRefs: [
+          artifactRef(lastGeneration.sourceArtifact),
+          artifactRef(lastGeneration.dependencyManifestArtifact),
+          ...lastExecution.resultArtifacts.map(artifactRef)
+        ],
+        previousFailure: lastExecution.failureMessage,
+        generateCode: (codegenRequest) => this.codeGenerator.generate(codegenRequest)
+      });
+      agentRuns.push(runToRecord(request, "evaluator", evaluatorResult, startedAt, this.now()));
+
+      if (lastExecution.status === "passed") {
+        const allArtifactRefs = [
+          artifactRef(designSpecArtifact),
+          artifactRef(lastGeneration.sourceArtifact),
+          artifactRef(lastGeneration.dependencyManifestArtifact),
+          ...testArtifacts.map(artifactRef),
+          ...lastExecution.resultArtifacts.map(artifactRef)
+        ];
+        return {
+          status: "passed",
+          generation: lastGeneration,
+          designSpecArtifact,
+          testArtifacts,
+          resultArtifacts: lastExecution.resultArtifacts,
+          agentRuns,
+          agentArtifacts: createAgentArtifacts(request, agentRuns, allArtifactRefs),
+          fixHistory,
+          logs,
+          schemaValid: lastExecution.schemaValid,
+          securityValid: lastExecution.securityValid,
+          replayValid: lastExecution.replayValid,
+          dependencyPolicyValid: lastExecution.dependencyPolicyValid,
+          findings: lastExecution.findings
+        };
+      }
+
+      lastFailure = lastExecution.failureMessage ?? "Generated-node eval failed.";
+      fixHistory.push(`iteration ${iteration}: ${lastFailure}`);
+      if (iteration < request.maxIterations) {
+        agentRuns.push(
+          runToRecord(
+            request,
+            "fixer",
+            await this.runRole({
+              role: "fixer",
+              request,
+              iteration,
+              inputSummary: lastFailure,
+              outputArtifactRefs: [],
+              previousFailure: lastFailure,
+              generateCode: (codegenRequest) => this.codeGenerator.generate(codegenRequest)
+            }),
+            startedAt,
+            this.now()
+          )
+        );
+      }
+    }
+
+    const failureGeneration =
+      lastGeneration ?? createFailureGeneration(request, lastFailure ?? "Code generation failed.");
+    const unresolvedFailureArtifact = createUnresolvedFailureArtifact(request, {
+      failure: lastFailure ?? "Generated-node build loop did not pass before the budget expired.",
+      fixHistory
+    });
+    await materializeWorkspaceFiles(this.workspaceRootFor(request), [
+      failureGeneration.sourceArtifact,
+      failureGeneration.dependencyManifestArtifact,
+      unresolvedFailureArtifact
+    ]);
+    const failedExecution =
+      lastExecution ??
+      createFailedExecution(
+        request,
+        unresolvedFailureArtifact,
+        lastFailure ?? "Generated-node build loop did not produce an executable candidate."
+      );
+    const allArtifactRefs = [
+      artifactRef(designSpecArtifact),
+      artifactRef(failureGeneration.sourceArtifact),
+      artifactRef(failureGeneration.dependencyManifestArtifact),
+      ...testArtifacts.map(artifactRef),
+      ...failedExecution.resultArtifacts.map(artifactRef),
+      artifactRef(unresolvedFailureArtifact)
+    ];
+
     return {
-      generation,
+      status: "failed",
+      generation: failureGeneration,
       designSpecArtifact,
-      testArtifacts: [testArtifact],
+      testArtifacts,
+      resultArtifacts: failedExecution.resultArtifacts,
       agentRuns,
-      agentArtifacts,
-      fixHistory: []
+      agentArtifacts: createAgentArtifacts(request, agentRuns, allArtifactRefs),
+      fixHistory,
+      logs: [...logs, ...(failedExecution.logs.length ? failedExecution.logs : [])],
+      schemaValid: failedExecution.schemaValid,
+      securityValid: failedExecution.securityValid,
+      replayValid: failedExecution.replayValid,
+      dependencyPolicyValid: failedExecution.dependencyPolicyValid,
+      findings: failedExecution.findings,
+      unresolvedFailureArtifact
+    };
+  }
+
+  private async runRole(input: GeneratedNodeRoleRunInput): Promise<GeneratedNodeRoleRunResult> {
+    throwIfAborted(input.request);
+    const runner =
+      this.roleRunners[input.role] ?? new DeterministicGeneratedNodeRoleRunner(input.role);
+    const result = await runner.run(input);
+    throwIfAborted(input.request);
+    return result;
+  }
+
+  private workspaceRootFor(request: GeneratedNodeBuildLoopRequest): string | undefined {
+    return request.workspaceRoot ?? this.workspaceRoot;
+  }
+}
+
+class DeterministicGeneratedNodeRoleRunner implements GeneratedNodeRoleRunner {
+  public constructor(public readonly role: GeneratedNodeBuildRole) {}
+
+  public async run(input: GeneratedNodeRoleRunInput): Promise<GeneratedNodeRoleRunResult> {
+    if (input.role === "coder") {
+      try {
+        const generation = await input.generateCode(input.request);
+        return {
+          status: "succeeded",
+          inputSummary: input.inputSummary,
+          outputArtifactRefs: [
+            artifactRef(generation.sourceArtifact),
+            artifactRef(generation.dependencyManifestArtifact)
+          ],
+          generation,
+          modelProvider: generation.metadata.llmBacked ? "anthropic" : "deterministic",
+          model: generation.metadata.provenance.generator
+        };
+      } catch (error) {
+        return {
+          status: "failed",
+          inputSummary: input.inputSummary,
+          outputArtifactRefs: [],
+          error: error instanceof Error ? error.message : "Code generation failed."
+        };
+      }
+    }
+
+    return {
+      status: "succeeded",
+      inputSummary: input.inputSummary,
+      outputArtifactRefs: input.outputArtifactRefs
+    };
+  }
+}
+
+export class StaticGeneratedNodeTestExecutor implements GeneratedNodeTestExecutor {
+  public async execute(input: {
+    readonly request: GeneratedNodeBuildLoopRequest;
+    readonly generation: CodegenGenerationResult;
+    readonly testArtifacts: readonly GeneratedArtifact[];
+    readonly iteration: number;
+  }): Promise<GeneratedNodeTestExecution> {
+    throwIfAborted(input.request);
+    const logs = [
+      `Materialized generated node candidate for iteration ${input.iteration}.`,
+      input.request.runTestsInDocker
+        ? `Docker eval requested with network '${input.request.sandbox.network}'.`
+        : "Static generated-node eval executed in scoped workspace."
+    ];
+    const findings = [];
+    const source = input.generation.sourceArtifact.content;
+    const outputPorts = Object.keys(input.request.outputSchema).sort();
+    const schemaValid =
+      outputPorts.length > 0 &&
+      source.includes("NANOCLAW_NODE_INPUT") &&
+      source.includes("NANOCLAW_NODE_OUTPUT");
+    if (!schemaValid) {
+      findings.push({
+        id: `finding.${input.request.nodeId}.schema`,
+        severity: "error" as const,
+        target: { kind: "node" as const, id: input.request.nodeId },
+        message: "Generated node does not satisfy the NanoClaw input/output payload contract.",
+        issues: []
+      });
+    }
+    const securityValid =
+      input.request.sandbox.network !== "none" ||
+      !/\b(fetch|XMLHttpRequest|https?:\/\/|node:net|node:http|node:https)\b/u.test(source);
+    if (!securityValid) {
+      findings.push({
+        id: `finding.${input.request.nodeId}.network`,
+        severity: "error" as const,
+        target: { kind: "node" as const, id: input.request.nodeId },
+        message: "Generated node attempted undeclared network access.",
+        issues: []
+      });
+    }
+    const dependencyPolicyValid = input.generation.dependencyManifest.packageManager === "none";
+    if (!dependencyPolicyValid) {
+      findings.push({
+        id: `finding.${input.request.nodeId}.dependencies`,
+        severity: "error" as const,
+        target: { kind: "artifact" as const, id: input.generation.dependencyManifest.path },
+        message: "Generated node dependency manifest requires policy review.",
+        issues: []
+      });
+    }
+    const replayValid = input.generation.metadata.replay.mode !== "always-regenerate";
+    const outputArtifact = createGeneratedArtifact({
+      path: `generated/${input.request.nodeId}.eval-output.json`,
+      content: JSON.stringify(
+        {
+          iteration: input.iteration,
+          output: Object.fromEntries(
+            outputPorts.map((port) => [port, { generated: true, fixture: true }])
+          )
+        },
+        null,
+        2
+      ),
+      contentType: "application/json"
+    });
+    await materializeWorkspaceFiles(input.request.workspaceRoot, [
+      ...input.testArtifacts,
+      outputArtifact
+    ]);
+    const passed = schemaValid && securityValid && dependencyPolicyValid && replayValid;
+
+    return {
+      status: passed ? "passed" : "failed",
+      logs,
+      resultArtifacts: [outputArtifact],
+      schemaValid,
+      securityValid,
+      replayValid,
+      dependencyPolicyValid,
+      findings,
+      ...(passed
+        ? {}
+        : {
+            failureMessage: findings.map((finding) => finding.message).join("; ")
+          })
     };
   }
 }
@@ -214,6 +507,183 @@ function createDesignSpec(request: GeneratedNodeBuildLoopRequest): GeneratedNode
   };
 }
 
+function createGeneratedNodeFixtureTestArtifact(
+  request: GeneratedNodeBuildLoopRequest
+): GeneratedArtifact {
+  return createGeneratedArtifact({
+    path: `generated/${request.nodeId}.fixture.test.json`,
+    content: JSON.stringify(
+      {
+        workflowId: request.workflowId,
+        nodeId: request.nodeId,
+        input: Object.fromEntries(
+          Object.keys(request.inputSchema)
+            .sort()
+            .map((port) => [port, { fixture: true }])
+        ),
+        expectedOutputPorts: Object.keys(request.outputSchema).sort()
+      },
+      null,
+      2
+    ),
+    contentType: "application/json",
+    metadata: {
+      workflowId: request.workflowId,
+      nodeId: request.nodeId,
+      artifactKind: "workflow-fixture-test"
+    }
+  });
+}
+
+function createFailureGeneration(
+  request: GeneratedNodeBuildLoopRequest,
+  failure: string
+): CodegenGenerationResult {
+  const sourceArtifact = createGeneratedArtifact({
+    path: `generated/${request.nodeId}.failed.ts`,
+    content: [
+      'import { writeFileSync } from "node:fs";',
+      'const outputPath = process.env.NANOCLAW_NODE_OUTPUT ?? "/workspace/output.json";',
+      `writeFileSync(outputPath, ${JSON.stringify(JSON.stringify({ error: failure }, null, 2))});`,
+      `throw new Error(${JSON.stringify(failure)});`,
+      ""
+    ].join("\n"),
+    contentType: "text/typescript"
+  });
+  const dependencyManifestArtifact = createDependencyManifestArtifact({
+    packageManager: "none"
+  });
+  const dependencyManifest = dependencyManifestFromArtifact(dependencyManifestArtifact, {
+    packageManager: "none",
+    dependencies: [],
+    devDependencies: [],
+    installCommand: []
+  });
+
+  return {
+    sourceArtifact,
+    dependencyManifestArtifact,
+    dependencyManifest,
+    metadata: createCodegenMetadata({
+      generator: "kelpclaw.codegen.unresolved-failure",
+      generatedAt: request.generatedAt ?? new Date().toISOString(),
+      sourcePrompt: request.prompt,
+      plannerRationale: request.plannerRationale,
+      artifact: sourceArtifact,
+      dependencyManifest,
+      sandbox: request.sandbox,
+      replay: {
+        mode: "fail-on-drift",
+        seed: `${request.workflowId}.${request.nodeId}.failed`
+      },
+      llmBacked: false
+    })
+  };
+}
+
+function createFailedExecution(
+  request: GeneratedNodeBuildLoopRequest,
+  artifact: GeneratedArtifact,
+  failure: string
+): GeneratedNodeTestExecution {
+  return {
+    status: "failed",
+    logs: [failure],
+    resultArtifacts: [artifact],
+    schemaValid: false,
+    securityValid: false,
+    replayValid: false,
+    dependencyPolicyValid: false,
+    findings: [
+      {
+        id: `finding.${request.nodeId}.unresolved`,
+        severity: "error",
+        target: { kind: "node", id: request.nodeId },
+        message: failure,
+        issues: []
+      }
+    ],
+    failureMessage: failure
+  };
+}
+
+function createUnresolvedFailureArtifact(
+  request: GeneratedNodeBuildLoopRequest,
+  input: { readonly failure: string; readonly fixHistory: readonly string[] }
+): GeneratedArtifact {
+  return createGeneratedArtifact({
+    path: `generated/${request.nodeId}.unresolved-failure.json`,
+    content: JSON.stringify(
+      {
+        workflowId: request.workflowId,
+        nodeId: request.nodeId,
+        failure: input.failure,
+        fixHistory: input.fixHistory
+      },
+      null,
+      2
+    ),
+    contentType: "application/json"
+  });
+}
+
+function runToRecord(
+  request: GeneratedNodeBuildLoopRequest,
+  role: GeneratedNodeBuildRole,
+  result: GeneratedNodeRoleRunResult,
+  startedAt: string,
+  finishedAt: string
+) {
+  return createCodegenAgentRunRecord({
+    workflowId: request.workflowId,
+    nodeId: request.nodeId,
+    jobId: request.job.id,
+    role,
+    status: result.status,
+    startedAt,
+    finishedAt,
+    inputSummary: result.inputSummary,
+    outputArtifactRefs: result.outputArtifactRefs,
+    modelProvider: result.modelProvider,
+    model: result.model,
+    modelInvocations: result.modelInvocations,
+    error: result.error
+  });
+}
+
+function createAgentArtifacts(
+  request: GeneratedNodeBuildLoopRequest,
+  agentRuns: readonly ReturnType<typeof createCodegenAgentRunRecord>[],
+  artifactRefs: readonly WorkflowCodegenArtifactRef[]
+) {
+  return agentRuns.flatMap((run) =>
+    createCodegenAgentArtifactRecords({
+      workflowId: request.workflowId,
+      nodeId: request.nodeId,
+      jobId: request.job.id,
+      agentRunId: run.id,
+      createdAt: run.finishedAt,
+      artifacts: artifactRefs.filter((artifact) =>
+        run.outputArtifactRefs.some((output) => output.path === artifact.path)
+      )
+    })
+  );
+}
+
+async function materializeWorkspaceFiles(
+  workspaceRoot: string | undefined,
+  artifacts: readonly GeneratedArtifact[]
+): Promise<void> {
+  if (!workspaceRoot) {
+    return;
+  }
+  for (const artifact of artifacts) {
+    const path = join(workspaceRoot, artifact.path);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, artifact.content, "utf8");
+  }
+}
+
 function artifactRef(artifact: {
   readonly path: string;
   readonly checksum: string;
@@ -224,4 +694,11 @@ function artifactRef(artifact: {
     checksum: artifact.checksum,
     contentType: artifact.contentType
   };
+}
+
+function throwIfAborted(request: GeneratedNodeBuildLoopRequest): void {
+  if (request.signal?.aborted) {
+    const reason = request.signal.reason;
+    throw reason instanceof Error ? reason : new Error("Generated-node build was cancelled.");
+  }
 }

@@ -10,7 +10,13 @@ import type {
   WorkflowCodegenSandboxPolicy,
   WorkflowRuntime
 } from "@kelpclaw/workflow-spec";
-import type { WorkflowAgentRole, WorkflowJob, WorkflowWorkspace } from "@kelpclaw/workflow-spec";
+import type {
+  WorkflowAgentRole,
+  WorkflowDraftEvaluationFinding,
+  WorkflowJob,
+  WorkflowModelInvocationRecord,
+  WorkflowWorkspace
+} from "@kelpclaw/workflow-spec";
 
 export type ArtifactContentType = WorkflowCodegenArtifactContentType;
 
@@ -114,6 +120,7 @@ export interface CodegenAgentRunRecord {
   readonly outputArtifactRefs: readonly WorkflowCodegenArtifactRef[];
   readonly modelProvider: string;
   readonly model: string;
+  readonly modelInvocations?: readonly WorkflowModelInvocationRecord[] | undefined;
   readonly error?: string | undefined;
 }
 
@@ -130,19 +137,87 @@ export interface CodegenAgentArtifactRecord {
 export interface GeneratedNodeBuildLoopRequest extends CodegenGenerationRequest {
   readonly job: WorkflowJob;
   readonly workspace?: WorkflowWorkspace | undefined;
+  readonly workspaceRoot?: string | undefined;
   readonly maxIterations: number;
   readonly maxWallClockSeconds: number;
   readonly maxModelCostUsd: number;
+  readonly maxDockerRuntimeSeconds?: number | undefined;
   readonly runTestsInDocker: boolean;
+  readonly signal?: AbortSignal | undefined;
+}
+
+export type GeneratedNodeBuildRole =
+  | "workflow-architect"
+  | "coder"
+  | "tester"
+  | "runner"
+  | "fixer"
+  | "evaluator";
+
+export interface GeneratedNodeRoleRunInput {
+  readonly role: GeneratedNodeBuildRole;
+  readonly request: GeneratedNodeBuildLoopRequest;
+  readonly iteration: number;
+  readonly inputSummary: string;
+  readonly outputArtifactRefs: readonly WorkflowCodegenArtifactRef[];
+  readonly previousFailure?: string | undefined;
+  readonly generateCode: (request: CodegenGenerationRequest) => Promise<CodegenGenerationResult>;
+}
+
+export interface GeneratedNodeRoleRunResult {
+  readonly status: "succeeded" | "failed";
+  readonly inputSummary: string;
+  readonly outputArtifactRefs: readonly WorkflowCodegenArtifactRef[];
+  readonly generation?: CodegenGenerationResult | undefined;
+  readonly modelProvider?: string | undefined;
+  readonly model?: string | undefined;
+  readonly modelCostUsd?: number | undefined;
+  readonly modelInvocations?: readonly WorkflowModelInvocationRecord[] | undefined;
+  readonly error?: string | undefined;
+}
+
+export interface GeneratedNodeRoleRunner {
+  readonly role: GeneratedNodeBuildRole;
+  run(input: GeneratedNodeRoleRunInput): Promise<GeneratedNodeRoleRunResult>;
+}
+
+export interface GeneratedNodeTestExecution {
+  readonly status: "passed" | "failed";
+  readonly logs: readonly string[];
+  readonly resultArtifacts: readonly GeneratedArtifact[];
+  readonly schemaValid: boolean;
+  readonly securityValid: boolean;
+  readonly replayValid: boolean;
+  readonly dependencyPolicyValid: boolean;
+  readonly findings: readonly WorkflowDraftEvaluationFinding[];
+  readonly failureMessage?: string | undefined;
+}
+
+export interface GeneratedNodeTestExecutor {
+  execute(input: {
+    readonly request: GeneratedNodeBuildLoopRequest;
+    readonly generation: CodegenGenerationResult;
+    readonly testArtifacts: readonly GeneratedArtifact[];
+    readonly iteration: number;
+  }): Promise<GeneratedNodeTestExecution>;
 }
 
 export interface GeneratedNodeBuildLoopResult {
+  readonly status: "passed" | "failed";
   readonly generation: CodegenGenerationResult;
   readonly designSpecArtifact: GeneratedArtifact;
   readonly testArtifacts: readonly GeneratedArtifact[];
+  readonly resultArtifacts: readonly GeneratedArtifact[];
   readonly agentRuns: readonly CodegenAgentRunRecord[];
   readonly agentArtifacts: readonly CodegenAgentArtifactRecord[];
   readonly fixHistory: readonly string[];
+  readonly logs: readonly string[];
+  readonly schemaValid: boolean;
+  readonly securityValid: boolean;
+  readonly replayValid: boolean;
+  readonly dependencyPolicyValid: boolean;
+  readonly findings: readonly WorkflowDraftEvaluationFinding[];
+  readonly unresolvedFailureArtifact?: GeneratedArtifact | undefined;
 }
 
 export type {
