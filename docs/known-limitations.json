@@ -4,11 +4,11 @@
   "limitations": [
     {
       "id": "KL-001",
-      "title": "Adapter coverage is limited to nmap XML, nuclei JSONL, Burp Issues XML, ZAP JSON, Nessus XML, SARIF, ffuf JSON, and sqlmap artifacts",
+      "title": "Adapter coverage is limited to implemented Phase 1 and Phase 1.1 importers",
       "affected_feature": "pentest evidence ingestion",
       "severity": "medium",
-      "impact": "common consultant exports such as Metasploit still require follow-up adapter work",
-      "workaround": "Use the implemented nmap, nuclei, Burp, ZAP, Nessus, SARIF, ffuf, and sqlmap importers, or keep unsupported exports as raw engagement evidence outside normalized reports until their adapter issues are complete.",
+      "impact": "long-tail consultant exports outside nmap, nuclei, Burp, ZAP, Nessus, SARIF, ffuf, sqlmap, and Metasploit still require follow-up adapter work",
+      "workaround": "Use the implemented importers, or keep unsupported exports as raw engagement evidence outside normalized reports until their adapter issues are complete.",
       "status": "open",
       "introduced_version": "0.2.0",
       "last_reviewed": "2026-05-17",

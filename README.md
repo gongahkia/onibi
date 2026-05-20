@@ -117,6 +117,9 @@ uv run piranesi ingest ffuf \
 uv run piranesi ingest sqlmap \
   --input tests/fixtures/pentest/sqlmap/localhost-sqli.json \
   --workspace ./workspace
+uv run piranesi ingest metasploit \
+  --input tests/fixtures/pentest/metasploit/local-evidence.json \
+  --workspace ./workspace
 uv run piranesi ingest c2 \
   --input tests/fixtures/redteam/c2/mock-c2-events.jsonl \
   --workspace ./workspace \
@@ -198,6 +201,7 @@ Implemented Phase 1 pieces:
 - SARIF 2.1.0 findings ingestion.
 - ffuf JSON discovery output ingestion.
 - sqlmap JSON/text artifact ingestion.
+- Metasploit JSON evidence ingestion for vulnerability, loot, and session records.
 - Neutral C2 JSONL import into evidence and timeline.
 - Pentest report rendering to JSON, Markdown, and PDF.
 - Red-team handoff rendering to JSON, Markdown, PDF, and archive ZIP.
@@ -255,6 +259,7 @@ added with `piranesi evidence add` are also copied under `raw/<kind>/` and index
 - [SARIF ingestion](docs/sarif-ingest.md)
 - [ffuf ingestion](docs/ffuf-ingest.md)
 - [sqlmap ingestion](docs/sqlmap-ingest.md)
+- [Metasploit ingestion](docs/metasploit-ingest.md)
 - [Phase 1.1 adapter expansion](docs/adapter-expansion.md)
 - [Piranesi Finding Format v0](docs/pff-v0.md)
 - [C2 log import](docs/c2-log-import.md)

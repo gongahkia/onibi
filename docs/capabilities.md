@@ -19,6 +19,7 @@ Current product boundaries are tracked in [`docs/non-goals.md`](non-goals.md).
 | SARIF ingest | Alpha | Imports SARIF 2.1.0 results, including tool/rule metadata, artifact locations, CWE/CVE tags, references, and result evidence. |
 | ffuf JSON ingest | Alpha | Imports ffuf discovery results, including URL, status, redirect, and response-size metadata as informational evidence. |
 | sqlmap artifact ingest | Alpha | Imports sqlmap JSON summaries and basic text logs, including target, parameter, DBMS, CWE-89, references, and redacted payload evidence. |
+| Metasploit JSON ingest | Alpha | Imports exported vulnerability, loot, and session evidence without live session control or payload execution. |
 | Neutral C2 JSONL import | Alpha | Preserves local C2-style logs as evidence and appends safe summaries to the engagement timeline without live C2 access. |
 | Operator evidence vault | Alpha | CLI and browser UI preserve notes, screenshots, transcripts, C2 logs, payload metadata, detection artifacts, scanner exports, and other local artifacts. |
 | Pentest report rendering | Alpha | JSON, Markdown, WeasyPrint PDF, and ReportLab PDF. |
@@ -33,7 +34,7 @@ Current product boundaries are tracked in [`docs/non-goals.md`](non-goals.md).
 These areas are tracked by GitHub issues but should not be presented as implemented
 features until their own acceptance criteria are complete:
 
-- Metasploit and other adapter expansion.
+- Additional long-tail adapter expansion beyond the implemented Phase 1.1 set.
 - Live C2 operation, implant management, payload execution, and active exploitation.
 - Autonomous scanning, scheduled scanning, AI-driven target interaction, payload
   generation, and replay beyond original ingested scope.
