@@ -202,6 +202,7 @@ export const workflowObservabilityEventKindSchema = z.enum([
 export const workflowObservabilityContextSchema = z.object({
   workflowId: z.string().min(1),
   revisionId: z.string().min(1),
+  branchId: z.string().min(1).optional(),
   runId: z.string().min(1).optional(),
   nodeId: z.string().min(1).optional(),
   correlationId: z.string().min(1)
@@ -220,6 +221,10 @@ export const workflowAuditActionSchema = z.enum([
   "workflow.created",
   "workflow.edited",
   "plan.accepted",
+  "branch.created",
+  "branch.merged",
+  "branch.cherry-picked",
+  "codegen.reused",
   "workflow.approved",
   "codegen.reviewed",
   "task.routed",
@@ -293,6 +298,7 @@ export const workflowAuditRecordSchema = workflowObservabilityContextSchema.exte
 export const workflowArtifactManifestRecordSchema = z.object({
   id: z.string().min(1),
   workflowId: z.string().min(1),
+  branchId: z.string().min(1).optional(),
   revisionId: z.string().min(1),
   createdAt: z.string().datetime(),
   artifacts: z.array(
@@ -403,6 +409,7 @@ export const workflowGraphChangeSchema = z.object({
 export const workflowGraphDiffSchema = z.object({
   id: z.string().min(1),
   workflowId: z.string().min(1),
+  branchId: z.string().min(1).optional(),
   baseRevision: z.number().int().positive(),
   editedRevision: z.number().int().positive(),
   createdAt: z.string().datetime(),
@@ -428,12 +435,97 @@ export const workflowPlannerSuggestionSchema = z.object({
 export const workflowPlannerFeedbackSchema = z.object({
   id: z.string().min(1),
   workflowId: z.string().min(1),
+  branchId: z.string().min(1).optional(),
   graphDiffId: z.string().min(1),
   route: workflowTaskRouteSchema,
   createdAt: z.string().datetime(),
   status: z.enum(["ready", "warnings", "blocked"]),
   suggestions: z.array(workflowPlannerSuggestionSchema),
   issues: z.array(workflowValidationIssueSchema)
+});
+
+export const workflowBranchSchema = z.object({
+  id: z.string().min(1),
+  workflowId: z.string().min(1),
+  name: z.string().min(1),
+  status: z.enum(["active", "archived"]),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  createdBy: z.string().min(1),
+  parentBranchId: z.string().min(1).optional(),
+  baseDraftRevisionId: z.string().min(1),
+  headDraftRevisionId: z.string().min(1),
+  acceptedDraftRevisionId: z.string().min(1).optional(),
+  latestApprovedRevisionId: z.string().min(1).optional(),
+  latestDraftEvaluationId: z.string().min(1).optional(),
+  metadata: jsonRecordSchema.optional()
+});
+
+export const workflowPromptTurnSchema = z.object({
+  id: z.string().min(1),
+  workflowId: z.string().min(1),
+  branchId: z.string().min(1),
+  source: z.enum(["plan", "reprompt", "edit", "merge", "cherry-pick"]),
+  prompt: z.string().min(1),
+  actor: z.string().min(1),
+  createdAt: z.string().datetime(),
+  baseDraftRevisionId: z.string().min(1).optional(),
+  resultingDraftRevisionId: z.string().min(1).optional(),
+  route: workflowTaskRouteSchema.optional(),
+  metadata: jsonRecordSchema.optional()
+});
+
+export const workflowBranchMergeConflictSchema = z.object({
+  id: z.string().min(1),
+  kind: z.enum([
+    "both-edited",
+    "delete-edit",
+    "add-add-id-collision",
+    "missing-edge-endpoint",
+    "schema-drift",
+    "runtime-drift",
+    "codegen-drift",
+    "validation-blocked"
+  ]),
+  elementKind: z.enum(["workflow", "node", "edge"]),
+  elementId: z.string().min(1).optional(),
+  path: z.array(z.union([z.string(), z.number().int()])),
+  message: z.string().min(1),
+  baseValue: jsonValueSchema.optional(),
+  sourceValue: jsonValueSchema.optional(),
+  targetValue: jsonValueSchema.optional()
+});
+
+export const workflowBranchMergeResolutionSchema = z.object({
+  conflictId: z.string().min(1),
+  choice: z.enum(["source", "target", "manual"]),
+  value: jsonValueSchema.optional()
+});
+
+export const workflowBranchMergePreviewSchema = z.object({
+  id: z.string().min(1),
+  workflowId: z.string().min(1),
+  sourceBranchId: z.string().min(1),
+  targetBranchId: z.string().min(1),
+  mode: z.enum(["merge", "cherry-pick"]),
+  status: z.enum(["clean", "conflicts", "blocked"]),
+  createdAt: z.string().datetime(),
+  baseDraftRevisionId: z.string().min(1),
+  sourceHeadDraftRevisionId: z.string().min(1),
+  targetHeadDraftRevisionId: z.string().min(1),
+  graphDiff: workflowGraphDiffSchema,
+  conflicts: z.array(workflowBranchMergeConflictSchema),
+  mergedWorkflow: workflowSpecSchema.optional(),
+  validation: workflowValidationResultSchema,
+  summary: z.array(z.string())
+});
+
+export const workflowBranchMergeRecordSchema = workflowBranchMergePreviewSchema.extend({
+  status: z.enum(["clean", "conflicts", "blocked", "applied"]),
+  appliedAt: z.string().datetime().optional(),
+  appliedBy: z.string().min(1).optional(),
+  mergedDraftRevisionId: z.string().min(1).optional(),
+  resolutions: z.array(workflowBranchMergeResolutionSchema)
 });
 
 export const workflowJobEventSchema = z.object({
@@ -461,6 +553,7 @@ export const workflowJobSchema = z.object({
   ]),
   status: z.enum(["queued", "running", "succeeded", "failed", "cancelled"]),
   workflowId: z.string().min(1).optional(),
+  branchId: z.string().min(1).optional(),
   revisionId: z.string().min(1).optional(),
   nodeId: z.string().min(1).optional(),
   workspaceId: z.string().min(1).optional(),
@@ -490,10 +583,50 @@ const workflowArtifactRefSchema = z.object({
   contentType: z.enum(["application/json", "text/markdown", "text/plain", "text/typescript"])
 });
 
+export const workflowGeneratedModuleSignatureSchema = z.object({
+  promptHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  inputSchemaHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  outputSchemaHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  runtimeHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  sandboxHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  dependencyManifestHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  replaySeed: z.string().min(1),
+  artifactHash: z.string().regex(/^sha256:[a-f0-9]{64}$/)
+});
+
+export const workflowGeneratedModuleReuseDecisionSchema = z.object({
+  id: z.string().min(1),
+  workflowId: z.string().min(1),
+  branchId: z.string().min(1),
+  nodeId: z.string().min(1),
+  status: z.enum(["reuse", "reuse-with-reeval", "regenerate", "blocked-drift"]),
+  createdAt: z.string().datetime(),
+  sourceBranchId: z.string().min(1).optional(),
+  sourceDraftRevisionId: z.string().min(1).optional(),
+  sourceEvalReportId: z.string().min(1).optional(),
+  signature: workflowGeneratedModuleSignatureSchema,
+  gates: z.array(
+    z.enum([
+      "prompt",
+      "schema",
+      "runtime",
+      "sandbox",
+      "dependency",
+      "network",
+      "replay",
+      "evaluation",
+      "unresolved-failure"
+    ])
+  ),
+  reason: z.string().min(1),
+  artifacts: z.array(workflowArtifactRefSchema)
+});
+
 export const workflowWorkspaceSchema = z.object({
   id: z.string().min(1),
   jobId: z.string().min(1),
   workflowId: z.string().min(1),
+  branchId: z.string().min(1).optional(),
   revisionId: z.string().min(1).optional(),
   draftId: z.string().min(1).optional(),
   rootPath: z.string().min(1),
@@ -538,6 +671,7 @@ export const workflowDraftEvaluationFindingSchema = z.object({
 export const workflowDraftEvaluationSchema = z.object({
   id: z.string().min(1),
   workflowId: z.string().min(1),
+  branchId: z.string().min(1).optional(),
   draftRevisionId: z.string().min(1),
   jobId: z.string().min(1).optional(),
   status: z.enum(["passed", "failed"]),
@@ -558,6 +692,7 @@ export const workflowDraftEvaluationSchema = z.object({
       kind: workflowObservabilityEventKindSchema.optional(),
       workflowId: z.string().min(1).optional(),
       revisionId: z.string().min(1).optional(),
+      branchId: z.string().min(1).optional(),
       runId: z.string().min(1).optional(),
       correlationId: z.string().min(1).optional(),
       nodeId: z.string().min(1).optional(),
@@ -570,6 +705,7 @@ export const workflowDraftEvaluationSchema = z.object({
 export const generatedNodeTestReportSchema = z.object({
   id: z.string().min(1),
   workflowId: z.string().min(1),
+  branchId: z.string().min(1).optional(),
   nodeId: z.string().min(1),
   jobId: z.string().min(1),
   status: z.enum(["passed", "failed"]),
@@ -584,6 +720,7 @@ export const generatedNodeTestReportSchema = z.object({
 export const generatedNodeEvalReportSchema = z.object({
   id: z.string().min(1),
   workflowId: z.string().min(1),
+  branchId: z.string().min(1).optional(),
   nodeId: z.string().min(1),
   jobId: z.string().min(1),
   status: z.enum(["passed", "failed"]),
@@ -602,6 +739,7 @@ export const generatedNodeEvalReportSchema = z.object({
 export const workflowDeploymentRecordSchema = z.object({
   id: z.string().min(1),
   workflowId: z.string().min(1),
+  branchId: z.string().min(1).optional(),
   approvedRevisionId: z.string().min(1),
   draftEvaluationId: z.string().min(1),
   kind: z.enum([
