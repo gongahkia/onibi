@@ -16,6 +16,18 @@ def test_deferred_adapter_expansion_keeps_host_work_parked() -> None:
     assert "Claiming adapter support from synthetic fixtures" in text
 
 
+def test_bloodhound_import_gate_stays_parked_without_real_exports() -> None:
+    text = (ROOT / "docs" / "bloodhound-import-gate.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "Status: parked behind sanitized authorized collection exports." in text
+    assert "BloodHound CE JSON files" in text
+    assert "SharpHound ZIP output" in text
+    assert "Relationship shape should be preserved" in text
+    assert "Running SharpHound or any collector" in text
+    assert "docs/bloodhound-import-gate.md" in readme
+
+
 def test_known_limitations_link_deferred_adapter_expansion() -> None:
     payload = json.loads((ROOT / "docs" / "known-limitations.json").read_text(encoding="utf-8"))
     limitation = next(item for item in payload["limitations"] if item["id"] == "KL-001")

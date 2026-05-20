@@ -263,6 +263,7 @@ added with `piranesi evidence add` are also copied under `raw/<kind>/` and index
 - [Metasploit ingestion](docs/metasploit-ingest.md)
 - [Phase 1.1 adapter expansion](docs/adapter-expansion.md)
 - [Adapter intake gate](docs/adapter-intake.md)
+- [BloodHound import gate](docs/bloodhound-import-gate.md)
 - [Piranesi Finding Format v0](docs/pff-v0.md)
 - [Python adapter SDK](docs/python-adapter-sdk.md)
 - [Plugin API security model](docs/plugin-api-security-model.md)
