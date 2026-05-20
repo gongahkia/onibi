@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 import os
 import webbrowser
+from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated, Any, Literal, NoReturn
+from typing import Annotated, Any, Literal, NoReturn, Protocol
 
 import typer
 
@@ -14,10 +15,12 @@ from piranesi.adapters import (
     C2ParseError,
     NmapParseError,
     NucleiParseError,
+    ZapParseError,
     parse_burp_xml_file,
     parse_c2_jsonl_file,
     parse_nmap_xml_file,
     parse_nuclei_jsonl_file,
+    parse_zap_json_file,
 )
 from piranesi.detections import (
     DetectionConfidence,
@@ -95,6 +98,7 @@ from piranesi.workspace import (
     DeliveryMetadata,
     DeliveryStatus,
     EngagementMetadata,
+    NormalizedFinding,
     WorkspaceError,
     WorkspaceState,
     copy_tool_input,
@@ -122,6 +126,15 @@ EXIT_USAGE_ERROR = 2
 DEFAULT_WORKSPACE = Path("piranesi-workspace")
 ReportType = Literal["pentest", "red-team"]
 ReportOutputFormat = Literal["json", "md", "pdf", "archive"]
+
+
+class _FindingParseResult(Protocol):
+    findings: list[NormalizedFinding]
+    warnings: list[str]
+    metadata: dict[str, Any]
+
+
+_FindingParser = Callable[[Path, str, str], _FindingParseResult]
 
 app = typer.Typer(
     add_completion=False,
@@ -197,6 +210,52 @@ def _fail(message: str, *, code: int = EXIT_USAGE_ERROR, json_errors: bool = Fal
     else:
         typer.echo(f"error: {message}", err=True)
     raise typer.Exit(code=code)
+
+
+def _ingest_findings_export(
+    *,
+    input_path: Path,
+    workspace: Path,
+    tool: str,
+    command: str,
+    parser: _FindingParser,
+) -> tuple[dict[str, Any], _FindingParseResult]:
+    state = create_workspace(workspace)
+    state, record = copy_tool_input(state, tool=tool, input_path=input_path)
+    raw_input_path = workspace_path(state.root, record.raw_path, allowed_roots=("raw",))
+    parse_result = parser(raw_input_path, record.sha256, record.raw_path)
+    state, record = copy_tool_input(
+        state,
+        tool=tool,
+        input_path=input_path,
+        metadata=parse_result.metadata,
+    )
+    before_ids = {finding.id for finding in state.findings.findings}
+    incoming_ids = {finding.id for finding in parse_result.findings}
+    state = upsert_findings(state, parse_result.findings)
+    output_digest = file_sha256(state.root / FINDINGS_FILE)
+    summary = {
+        "tool": tool,
+        "created": len(incoming_ids - before_ids),
+        "updated": len(incoming_ids & before_ids),
+        "records": parse_result.metadata.get("valid_records", len(parse_result.findings)),
+        "findings": len(incoming_ids),
+        "warnings": parse_result.warnings,
+        "input_record": record.id,
+    }
+    append_workspace_audit_event(
+        state,
+        AuditEvent(
+            timestamp=utc_now(),
+            command=command,
+            input_path=record.raw_path,
+            input_sha256=record.sha256,
+            output_path=FINDINGS_FILE,
+            output_sha256=output_digest,
+            summary=summary,
+        ),
+    )
+    return summary, parse_result
 
 
 @app.callback()
@@ -600,6 +659,69 @@ def ingest_burp_command(
         json_output=json_output,
         text=(
             "Ingested Burp Issues XML: "
+            f"{summary['findings']} findings "
+            f"({summary['created']} created, {summary['updated']} updated, "
+            f"{warning_count} warnings)"
+        ),
+    )
+
+
+@ingest_app.command("zap", help="Ingest OWASP ZAP JSON alerts into a workspace.")
+def ingest_zap_command(
+    input_path: Annotated[
+        Path,
+        typer.Option(
+            "--input",
+            "-i",
+            exists=False,
+            dir_okay=False,
+            file_okay=True,
+            help="OWASP ZAP JSON alert/report export to ingest.",
+        ),
+    ],
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to create or update.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print ingest summary as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    if not input_path.is_file():
+        _fail(f"input file does not exist: {input_path}", json_errors=json_errors)
+
+    try:
+        summary, parse_result = _ingest_findings_export(
+            input_path=input_path,
+            workspace=workspace,
+            tool="zap",
+            command="ingest zap",
+            parser=lambda path, digest, raw_path: parse_zap_json_file(
+                path,
+                input_sha256=digest,
+                raw_path=raw_path,
+            ),
+        )
+    except (WorkspaceError, ZapParseError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    warning_count = len(parse_result.warnings)
+    _emit(
+        summary,
+        json_output=json_output,
+        text=(
+            "Ingested ZAP JSON: "
             f"{summary['findings']} findings "
             f"({summary['created']} created, {summary['updated']} updated, "
             f"{warning_count} warnings)"

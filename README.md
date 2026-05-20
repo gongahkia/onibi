@@ -102,6 +102,9 @@ uv run piranesi ingest nuclei \
 uv run piranesi ingest burp \
   --input tests/fixtures/pentest/burp/lab-issues.xml \
   --workspace ./workspace
+uv run piranesi ingest zap \
+  --input tests/fixtures/pentest/zap/localhost-alerts.json \
+  --workspace ./workspace
 uv run piranesi ingest c2 \
   --input tests/fixtures/redteam/c2/mock-c2-events.jsonl \
   --workspace ./workspace \
@@ -178,6 +181,7 @@ Implemented Phase 1 pieces:
 - nmap XML ingestion.
 - nuclei JSONL ingestion.
 - Burp Suite Pro Issues XML ingestion.
+- OWASP ZAP JSON alert ingestion.
 - Neutral C2 JSONL import into evidence and timeline.
 - Pentest report rendering to JSON, Markdown, and PDF.
 - Red-team handoff rendering to JSON, Markdown, PDF, and archive ZIP.
@@ -230,6 +234,7 @@ added with `piranesi evidence add` are also copied under `raw/<kind>/` and index
 - [Report schema](docs/pentest-report-schema.md)
 - [Local report template library](docs/report-template-library.md)
 - [Burp ingestion](docs/burp-ingest.md)
+- [OWASP ZAP ingestion](docs/zap-ingest.md)
 - [Phase 1.1 adapter expansion](docs/adapter-expansion.md)
 - [Piranesi Finding Format v0](docs/pff-v0.md)
 - [C2 log import](docs/c2-log-import.md)
