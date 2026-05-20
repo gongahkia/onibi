@@ -285,6 +285,7 @@ added with `piranesi evidence add` are also copied under `raw/<kind>/` and index
 - [AI suggestions](docs/ai-suggestions.md)
 - [Phase 6 AI co-pilot closeout](docs/phase6-ai-copilot.md)
 - [Roadmap next-ten closeout](docs/roadmap-next-ten-closeout.md)
+- [Release install validation](docs/release-install-validation.md)
 - [Rescan CLI](docs/rescan-cli.md)
 - [Rescan execution RFC](docs/rfcs/rescan-execution-layer.md)
 - [Rescan image policy](docs/rescan-image-policy.md)
