@@ -34,6 +34,8 @@ import type {
   WorkflowReuseCandidatesResponse,
   WorkflowStartRunRequest,
   WorkflowStartRunResponse,
+  WorkflowUpdateBranchRequest,
+  WorkflowUpdateBranchResponse,
   WorkflowValidateRequest,
   WorkflowValidateResponse
 } from "@kelpclaw/workflow-spec";
@@ -225,6 +227,17 @@ export const openClawApi = {
   fetchBranch(workflowId: string, branchId: string): Promise<WorkflowGetBranchResponse> {
     return getJson(
       `/api/workflows/${encodeURIComponent(workflowId)}/branches/${encodeURIComponent(branchId)}`
+    );
+  },
+
+  updateBranch(
+    workflowId: string,
+    branchId: string,
+    request: WorkflowUpdateBranchRequest
+  ): Promise<WorkflowUpdateBranchResponse> {
+    return patchJson(
+      `/api/workflows/${encodeURIComponent(workflowId)}/branches/${encodeURIComponent(branchId)}`,
+      request
     );
   },
 
@@ -491,6 +504,19 @@ async function postJson<TResponse>(
 async function putJson<TResponse>(url: string, body: unknown): Promise<TResponse> {
   const response = await fetch(url, {
     method: "PUT",
+    headers: {
+      "content-type": "application/json",
+      ...authHeader()
+    },
+    body: JSON.stringify(body)
+  });
+
+  return parseJsonResponse<TResponse>(response);
+}
+
+async function patchJson<TResponse>(url: string, body: unknown): Promise<TResponse> {
+  const response = await fetch(url, {
+    method: "PATCH",
     headers: {
       "content-type": "application/json",
       ...authHeader()

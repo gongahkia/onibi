@@ -393,6 +393,16 @@ dd {
   border-color: #53e0a0;
 }
 
+.inline-control {
+  align-items: center;
+  display: flex;
+  gap: 0.45rem;
+}
+
+.inline-control input {
+  width: auto;
+}
+
 .status-row {
   align-items: center;
   color: #d8dbe2;

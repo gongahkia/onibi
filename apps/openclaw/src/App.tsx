@@ -272,6 +272,8 @@ export function App() {
   const [activeBranchId, setActiveBranchId] = useState<string | null>(null);
   const [promptTurns, setPromptTurns] = useState<readonly WorkflowPromptTurn[]>([]);
   const [branchNameDraft, setBranchNameDraft] = useState("Experiment");
+  const [branchRenameDraft, setBranchRenameDraft] = useState("");
+  const [showArchivedBranches, setShowArchivedBranches] = useState(false);
   const [branchNotice, setBranchNotice] = useState<string | null>(null);
   const [mergeSourceBranchId, setMergeSourceBranchId] = useState<string>("");
   const [mergeMode, setMergeMode] = useState<"merge" | "cherry-pick">("merge");
@@ -319,12 +321,26 @@ export function App() {
     () => branches.find((branch) => branch.id === activeBranchId) ?? null,
     [activeBranchId, branches]
   );
-  const mergeSources = useMemo(
-    () => branches.filter((branch) => branch.id !== activeBranchId && branch.status === "active"),
-    [activeBranchId, branches]
+  const branchLifecycleLocked = activeBranch?.status === "archived";
+  const visibleBranches = useMemo(
+    () =>
+      showArchivedBranches
+        ? branches
+        : branches.filter((branch) => branch.status !== "archived"),
+    [branches, showArchivedBranches]
   );
-  const canApprove = validation.ok && draftEvaluation?.readyForApproval === true;
-  const canRun = approvedRevision !== null;
+  const mergeSources = useMemo(
+    () =>
+      branches.filter(
+        (branch) =>
+          branch.id !== activeBranchId &&
+          (showArchivedBranches || branch.status !== "archived")
+      ),
+    [activeBranchId, branches, showArchivedBranches]
+  );
+  const canApprove =
+    validation.ok && draftEvaluation?.readyForApproval === true && !branchLifecycleLocked;
+  const canRun = approvedRevision !== null && !branchLifecycleLocked;
 
   const refreshIntegrations = useCallback(async () => {
     try {
@@ -351,6 +367,7 @@ export function App() {
           response.branches[0] ??
           null;
         setActiveBranchId(nextActive?.id ?? null);
+        setBranchRenameDraft(nextActive?.name ?? "");
         if (nextActive) {
           const branchResponse = await openClawApi.fetchBranch(workflowId, nextActive.id);
           setPromptTurns(branchResponse.promptTurns);
@@ -512,6 +529,7 @@ export function App() {
     void executeApiAction("switch-branch", async () => {
       const response = await openClawApi.fetchBranch(workflow.id, branchId);
       setActiveBranchId(response.branch.id);
+      setBranchRenameDraft(response.branch.name);
       setPromptTurns(response.promptTurns);
       setMergePreview(null);
       setMergeResolutionModes({});
@@ -534,6 +552,10 @@ export function App() {
       setApiError("Branch name is required.");
       return;
     }
+    if (branchLifecycleLocked) {
+      setApiError("Archived branches are read-only.");
+      return;
+    }
 
     void executeApiAction("fork-branch", async () => {
       const response = await openClawApi.createBranch(workflow.id, {
@@ -543,6 +565,7 @@ export function App() {
       });
       await refreshBranches(workflow.id, response.branch.id);
       setActiveBranchId(response.branch.id);
+      setBranchRenameDraft(response.branch.name);
       setPromptTurns([]);
       setMergePreview(null);
       setMergeResolutionModes({});
@@ -553,9 +576,66 @@ export function App() {
     });
   }
 
+  function renameBranch() {
+    if (!activeBranch) {
+      setApiError("Select a branch before renaming it.");
+      return;
+    }
+    const name = branchRenameDraft.trim();
+    if (!name) {
+      setApiError("Branch name is required.");
+      return;
+    }
+
+    void executeApiAction("rename-branch", async () => {
+      const response = await openClawApi.updateBranch(workflow.id, activeBranch.id, {
+        name,
+        updatedBy: "owner@example.com"
+      });
+      setBranches((previous) =>
+        previous.map((branch) => (branch.id === response.branch.id ? response.branch : branch))
+      );
+      setBranchRenameDraft(response.branch.name);
+      setBranchNotice(`Renamed branch to ${response.branch.name}`);
+    });
+  }
+
+  function toggleBranchArchive() {
+    if (!activeBranch) {
+      setApiError("Select a branch before changing archive status.");
+      return;
+    }
+
+    void executeApiAction("archive-branch", async () => {
+      const nextStatus = activeBranch.status === "archived" ? "active" : "archived";
+      const response = await openClawApi.updateBranch(workflow.id, activeBranch.id, {
+        status: nextStatus,
+        updatedBy: "owner@example.com"
+      });
+      setBranches((previous) =>
+        previous.map((branch) => (branch.id === response.branch.id ? response.branch : branch))
+      );
+      setBranchRenameDraft(response.branch.name);
+      if (nextStatus === "archived") {
+        setShowArchivedBranches(true);
+      }
+      setBranchNotice(
+        `${nextStatus === "archived" ? "Archived" : "Restored"} ${response.branch.name}`
+      );
+    });
+  }
+
   function previewMerge() {
     if (!activeBranchId || !mergeSourceBranchId) {
       setApiError("Choose an active branch and a source branch before previewing a merge.");
+      return;
+    }
+    if (branchLifecycleLocked) {
+      setApiError("Archived branches are read-only.");
+      return;
+    }
+    if (mergeSources.find((branch) => branch.id === mergeSourceBranchId)?.status === "archived") {
+      setApiError("Archived branches cannot be merged.");
       return;
     }
 
@@ -586,6 +666,10 @@ export function App() {
 
   function applyMerge() {
     if (!activeBranchId || !mergePreview) {
+      return;
+    }
+    if (branchLifecycleLocked) {
+      setApiError("Archived branches are read-only.");
       return;
     }
 
@@ -798,6 +882,10 @@ export function App() {
   }
 
   function planDraft() {
+    if (branchLifecycleLocked) {
+      setApiError("Archived branches are read-only.");
+      return;
+    }
     void executeApiAction("plan", async () => {
       const job = await startTrackedJob({
         type: "plan.workflow",
@@ -852,6 +940,10 @@ export function App() {
   }
 
   function validateDraft() {
+    if (branchLifecycleLocked) {
+      setApiError("Archived branches are read-only.");
+      return;
+    }
     void executeApiAction("validate", async () => {
       const response = await openClawApi.validate(workflow.id, { workflow });
       setValidation(response.validation);
@@ -862,6 +954,10 @@ export function App() {
   }
 
   function evaluateDraft() {
+    if (branchLifecycleLocked) {
+      setApiError("Archived branches are read-only.");
+      return;
+    }
     void executeApiAction("evaluate-draft", async () => {
       const job = await startTrackedJob({
         type: "evaluate.draft",
@@ -910,6 +1006,10 @@ export function App() {
     if (!selectedNode) {
       return;
     }
+    if (branchLifecycleLocked) {
+      setApiError("Archived branches are read-only.");
+      return;
+    }
 
     void executeApiAction("reprompt", async () => {
       const response = activeBranchId
@@ -942,6 +1042,10 @@ export function App() {
     if (!selectedNode || selectedNode.kind !== "codegen") {
       return;
     }
+    if (branchLifecycleLocked) {
+      setApiError("Archived branches are read-only.");
+      return;
+    }
 
     void executeApiAction("review-codegen", async () => {
       const response = await openClawApi.reviewCodegen(workflow.id, selectedNode.id, {
@@ -961,6 +1065,10 @@ export function App() {
     if (!selectedNode || selectedNode.kind !== "codegen") {
       return;
     }
+    if (branchLifecycleLocked) {
+      setApiError("Archived branches are read-only.");
+      return;
+    }
 
     void executeApiAction("promote-codegen", async () => {
       const response = await openClawApi.promoteCodegen(workflow.id, selectedNode.id);
@@ -970,6 +1078,10 @@ export function App() {
 
   function buildCodegenNode() {
     if (!selectedNode || selectedNode.kind !== "codegen") {
+      return;
+    }
+    if (branchLifecycleLocked) {
+      setApiError("Archived branches are read-only.");
       return;
     }
 
@@ -1001,6 +1113,10 @@ export function App() {
   }
 
   function approveWorkflow() {
+    if (branchLifecycleLocked) {
+      setApiError("Archived branches are read-only.");
+      return;
+    }
     void executeApiAction("approve", async () => {
       const response = await openClawApi.approve(workflow.id, {
         workflow,
@@ -1014,6 +1130,10 @@ export function App() {
   }
 
   function acceptPlanShape() {
+    if (branchLifecycleLocked) {
+      setApiError("Archived branches are read-only.");
+      return;
+    }
     void executeApiAction("accept-plan", async () => {
       const response = activeBranchId
         ? await openClawApi.acceptBranchPlan(workflow.id, activeBranchId, {
@@ -1039,6 +1159,10 @@ export function App() {
     if (!approvedRevision) {
       return;
     }
+    if (branchLifecycleLocked) {
+      setApiError("Archived branches are read-only.");
+      return;
+    }
 
     void executeApiAction("run", async () => {
       const job = await startTrackedJob({
@@ -1061,6 +1185,10 @@ export function App() {
 
   function deployWorkflow() {
     if (!approvedRevision || !draftEvaluation) {
+      return;
+    }
+    if (branchLifecycleLocked) {
+      setApiError("Archived branches are read-only.");
       return;
     }
 
@@ -1204,7 +1332,12 @@ export function App() {
               onChange={(event) => setPrompt(event.target.value)}
               rows={4}
             />
-            <button type="submit" disabled={busyAction !== null || prompt.trim().length === 0}>
+            <button
+              type="submit"
+              disabled={
+                busyAction !== null || prompt.trim().length === 0 || branchLifecycleLocked
+              }
+            >
               <WandSparkles size={18} />
               Plan
             </button>
@@ -1232,15 +1365,22 @@ export function App() {
           </section>
 
           <BranchPanel
-            branches={branches}
+            branches={visibleBranches}
+            activeBranch={activeBranch}
             activeBranchId={activeBranchId}
             promptTurns={promptTurns}
             branchNameDraft={branchNameDraft}
+            branchRenameDraft={branchRenameDraft}
+            showArchivedBranches={showArchivedBranches}
             branchNotice={branchNotice}
             busyAction={busyAction}
             onBranchNameChange={setBranchNameDraft}
+            onBranchRenameChange={setBranchRenameDraft}
+            onShowArchivedChange={setShowArchivedBranches}
             onFork={forkBranch}
             onSwitch={switchBranch}
+            onRename={renameBranch}
+            onArchiveToggle={toggleBranchArchive}
           />
           <BranchMergeReusePanel
             activeBranch={activeBranch}
@@ -1252,6 +1392,7 @@ export function App() {
             mergeManualJson={mergeManualJson}
             reuseDecisions={reuseDecisions}
             busyAction={busyAction}
+            branchLifecycleLocked={branchLifecycleLocked}
             onMergeSourceChange={setMergeSourceBranchId}
             onMergeModeChange={setMergeMode}
             onPreviewMerge={previewMerge}
@@ -1321,7 +1462,7 @@ export function App() {
               <button
                 title="Validate workflow"
                 onClick={validateDraft}
-                disabled={busyAction !== null}
+                disabled={busyAction !== null || branchLifecycleLocked}
               >
                 <ShieldCheck size={18} />
                 Validate
@@ -1329,7 +1470,7 @@ export function App() {
               <button
                 title="Accept plan shape"
                 onClick={acceptPlanShape}
-                disabled={!validation.ok || busyAction !== null}
+                disabled={!validation.ok || busyAction !== null || branchLifecycleLocked}
               >
                 <CheckCircle2 size={18} />
                 Accept Plan
@@ -1337,7 +1478,7 @@ export function App() {
               <button
                 title="Evaluate draft"
                 onClick={evaluateDraft}
-                disabled={!validation.ok || busyAction !== null}
+                disabled={!validation.ok || busyAction !== null || branchLifecycleLocked}
               >
                 <ListChecks size={18} />
                 Evaluate
@@ -1362,7 +1503,10 @@ export function App() {
                 title="Deploy workflow"
                 onClick={deployWorkflow}
                 disabled={
-                  !approvedRevision || !draftEvaluation?.readyForApproval || busyAction !== null
+                  !approvedRevision ||
+                  !draftEvaluation?.readyForApproval ||
+                  busyAction !== null ||
+                  branchLifecycleLocked
                 }
               >
                 <Send size={18} />
@@ -1467,6 +1611,7 @@ export function App() {
             planAcceptedNotice={planAcceptedNotice}
             deploymentActivations={deploymentActivations}
             busyAction={busyAction}
+            branchLifecycleLocked={branchLifecycleLocked}
             onNodePromptChange={setNodePrompt}
             onReprompt={repromptNode}
             onBuildCodegen={buildCodegenNode}
@@ -1498,6 +1643,7 @@ function Inspector(props: {
   readonly planAcceptedNotice: string | null;
   readonly deploymentActivations: DeploymentActivationSummaryResponse | null;
   readonly busyAction: string | null;
+  readonly branchLifecycleLocked: boolean;
   readonly promotionNotice: string | null;
   readonly onNodePromptChange: (value: string) => void;
   readonly onReprompt: () => void;
@@ -1696,7 +1842,11 @@ function Inspector(props: {
               onChange={(event) => props.onNodePromptChange(event.target.value)}
             />
           </label>
-          <button type="button" onClick={props.onReprompt} disabled={props.busyAction !== null}>
+          <button
+            type="button"
+            onClick={props.onReprompt}
+            disabled={props.busyAction !== null || props.branchLifecycleLocked}
+          >
             <WandSparkles size={18} />
             Reprompt Node
           </button>
@@ -1715,27 +1865,35 @@ function Inspector(props: {
               {typeof node.config.reusedFromBranchId === "string" ? (
                 <StatusRow label="Reuse" value={node.config.reusedFromBranchId} tone="pending" />
               ) : null}
-              <button
-                type="button"
-                onClick={props.onBuildCodegen}
-                disabled={props.busyAction !== null}
-              >
+	              <button
+	                type="button"
+	                onClick={props.onBuildCodegen}
+	                disabled={props.busyAction !== null || props.branchLifecycleLocked}
+	              >
                 <WandSparkles size={18} />
                 Build Generated Node
               </button>
               <button
-                type="button"
-                onClick={props.onReviewCodegen}
-                disabled={props.busyAction !== null || node.codegen?.review.status === "approved"}
-              >
+	                type="button"
+	                onClick={props.onReviewCodegen}
+	                disabled={
+	                  props.busyAction !== null ||
+	                  props.branchLifecycleLocked ||
+	                  node.codegen?.review.status === "approved"
+	                }
+	              >
                 <CheckCircle2 size={18} />
                 Review Generated Code
               </button>
               <button
-                type="button"
-                onClick={props.onPromoteCodegen}
-                disabled={props.busyAction !== null || node.codegen?.review.status !== "approved"}
-              >
+	                type="button"
+	                onClick={props.onPromoteCodegen}
+	                disabled={
+	                  props.busyAction !== null ||
+	                  props.branchLifecycleLocked ||
+	                  node.codegen?.review.status !== "approved"
+	                }
+	              >
                 <WandSparkles size={18} />
                 Promote Skill
               </button>
@@ -1776,15 +1934,24 @@ function Inspector(props: {
 
 function BranchPanel(props: {
   readonly branches: readonly WorkflowBranch[];
+  readonly activeBranch: WorkflowBranch | null;
   readonly activeBranchId: string | null;
   readonly promptTurns: readonly WorkflowPromptTurn[];
   readonly branchNameDraft: string;
+  readonly branchRenameDraft: string;
+  readonly showArchivedBranches: boolean;
   readonly branchNotice: string | null;
   readonly busyAction: string | null;
   readonly onBranchNameChange: (value: string) => void;
+  readonly onBranchRenameChange: (value: string) => void;
+  readonly onShowArchivedChange: (value: boolean) => void;
   readonly onFork: () => void;
   readonly onSwitch: (branchId: string) => void;
+  readonly onRename: () => void;
+  readonly onArchiveToggle: () => void;
 }) {
+  const activeBranchIsDefault = props.activeBranch?.id.endsWith(".main") === true;
+
   return (
     <section aria-label="Branch tree" className="validation-panel">
       <div className="panel-heading">
@@ -1793,9 +1960,17 @@ function BranchPanel(props: {
       </div>
       <StatusRow
         label="Active"
-        value={props.branches.find((branch) => branch.id === props.activeBranchId)?.name ?? "none"}
+        value={props.activeBranch?.name ?? "none"}
         tone={props.activeBranchId ? "valid" : "idle"}
       />
+      <label className="inline-control">
+        <input
+          type="checkbox"
+          checked={props.showArchivedBranches}
+          onChange={(event) => props.onShowArchivedChange(event.target.checked)}
+        />
+        Show archived
+      </label>
       <div className="branch-list">
         {props.branches.map((branch) => (
           <button
@@ -1813,6 +1988,36 @@ function BranchPanel(props: {
         ))}
       </div>
       <label>
+        Rename active branch
+        <input
+          value={props.branchRenameDraft}
+          onChange={(event) => props.onBranchRenameChange(event.target.value)}
+          disabled={!props.activeBranch}
+        />
+      </label>
+      <div className="integration-actions">
+        <button
+          type="button"
+          onClick={props.onRename}
+          disabled={
+            props.busyAction !== null ||
+            !props.activeBranch ||
+            props.branchRenameDraft.trim().length === 0
+          }
+        >
+          <CheckCircle2 size={16} />
+          Rename
+        </button>
+        <button
+          type="button"
+          onClick={props.onArchiveToggle}
+          disabled={props.busyAction !== null || !props.activeBranch || activeBranchIsDefault}
+        >
+          <Trash2 size={16} />
+          {props.activeBranch?.status === "archived" ? "Restore" : "Archive"}
+        </button>
+      </div>
+      <label>
         Fork name
         <input
           value={props.branchNameDraft}
@@ -1822,7 +2027,11 @@ function BranchPanel(props: {
       <button
         type="button"
         onClick={props.onFork}
-        disabled={props.busyAction !== null || props.branchNameDraft.trim().length === 0}
+        disabled={
+          props.busyAction !== null ||
+          props.branchNameDraft.trim().length === 0 ||
+          props.activeBranch?.status === "archived"
+        }
       >
         <GitBranch size={16} />
         Fork Branch
@@ -1852,6 +2061,7 @@ function BranchMergeReusePanel(props: {
   readonly mergeManualJson: Readonly<Record<string, string>>;
   readonly reuseDecisions: readonly WorkflowGeneratedModuleReuseDecision[];
   readonly busyAction: string | null;
+  readonly branchLifecycleLocked: boolean;
   readonly onMergeSourceChange: (branchId: string) => void;
   readonly onMergeModeChange: (mode: "merge" | "cherry-pick") => void;
   readonly onPreviewMerge: () => void;
@@ -1866,6 +2076,9 @@ function BranchMergeReusePanel(props: {
   const conflictsResolved =
     props.mergePreview?.conflicts.every((conflict) => props.mergeResolutionModes[conflict.id]) ??
     true;
+  const selectedSourceArchived =
+    props.mergeSources.find((branch) => branch.id === props.mergeSourceBranchId)?.status ===
+    "archived";
 
   return (
     <section aria-label="Branch merge and reuse" className="validation-panel">
@@ -1878,12 +2091,13 @@ function BranchMergeReusePanel(props: {
         <select
           value={props.mergeSourceBranchId}
           onChange={(event) => props.onMergeSourceChange(event.target.value)}
-          disabled={!props.activeBranch}
+          disabled={!props.activeBranch || props.branchLifecycleLocked}
         >
           <option value="">Choose branch</option>
           {props.mergeSources.map((branch) => (
-            <option key={branch.id} value={branch.id}>
+            <option key={branch.id} value={branch.id} disabled={branch.status === "archived"}>
               {branch.name}
+              {branch.status === "archived" ? " (archived)" : ""}
             </option>
           ))}
         </select>
@@ -1895,7 +2109,7 @@ function BranchMergeReusePanel(props: {
           onChange={(event) =>
             props.onMergeModeChange(event.target.value as "merge" | "cherry-pick")
           }
-          disabled={!props.activeBranch}
+          disabled={!props.activeBranch || props.branchLifecycleLocked}
         >
           <option value="merge">Merge</option>
           <option value="cherry-pick">Cherry-pick</option>
@@ -1906,10 +2120,12 @@ function BranchMergeReusePanel(props: {
           type="button"
           onClick={props.onPreviewMerge}
           disabled={
-            props.busyAction !== null ||
-            !props.activeBranch ||
-            props.mergeSourceBranchId.length === 0
-          }
+	            props.busyAction !== null ||
+	            !props.activeBranch ||
+	            props.branchLifecycleLocked ||
+	            props.mergeSourceBranchId.length === 0 ||
+	            selectedSourceArchived
+	          }
         >
           Preview
         </button>
@@ -1917,18 +2133,20 @@ function BranchMergeReusePanel(props: {
           type="button"
           onClick={props.onApplyMerge}
           disabled={
-            props.busyAction !== null ||
-            !props.mergePreview ||
-            props.mergePreview.status === "blocked" ||
-            !conflictsResolved
-          }
+	            props.busyAction !== null ||
+	            !props.mergePreview ||
+	            props.mergePreview.status === "blocked" ||
+	            props.branchLifecycleLocked ||
+	            selectedSourceArchived ||
+	            !conflictsResolved
+	          }
         >
           Apply
         </button>
         <button
           type="button"
           onClick={props.onRefreshReuse}
-          disabled={props.busyAction !== null || !props.activeBranch}
+          disabled={props.busyAction !== null || !props.activeBranch || props.branchLifecycleLocked}
         >
           Reuse Candidates
         </button>
