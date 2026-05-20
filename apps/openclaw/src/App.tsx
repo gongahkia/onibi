@@ -49,11 +49,13 @@ import type {
   WorkflowBranch,
   WorkflowBranchMergeConflict,
   WorkflowBranchMergePreview,
+  WorkflowBranchMergeResolution,
   WorkflowDraftEvaluation,
   WorkflowAdapterOperationRef,
   WorkflowApprovedRevision,
   WorkflowGeneratedModuleReuseDecision,
   WorkflowJob,
+  JsonValue,
   WorkflowWorkspace,
   WorkflowNode,
   WorkflowNodeKind,
@@ -272,7 +274,12 @@ export function App() {
   const [branchNameDraft, setBranchNameDraft] = useState("Experiment");
   const [branchNotice, setBranchNotice] = useState<string | null>(null);
   const [mergeSourceBranchId, setMergeSourceBranchId] = useState<string>("");
+  const [mergeMode, setMergeMode] = useState<"merge" | "cherry-pick">("merge");
   const [mergePreview, setMergePreview] = useState<WorkflowBranchMergePreview | null>(null);
+  const [mergeResolutionModes, setMergeResolutionModes] = useState<
+    Readonly<Record<string, "source" | "target" | "manual">>
+  >({});
+  const [mergeManualJson, setMergeManualJson] = useState<Readonly<Record<string, string>>>({});
   const [reuseDecisions, setReuseDecisions] = useState<
     readonly WorkflowGeneratedModuleReuseDecision[]
   >([]);
@@ -312,7 +319,7 @@ export function App() {
     () => branches.find((branch) => branch.id === activeBranchId) ?? null,
     [activeBranchId, branches]
   );
-  const mergeTargets = useMemo(
+  const mergeSources = useMemo(
     () => branches.filter((branch) => branch.id !== activeBranchId && branch.status === "active"),
     [activeBranchId, branches]
   );
@@ -507,6 +514,8 @@ export function App() {
       setActiveBranchId(response.branch.id);
       setPromptTurns(response.promptTurns);
       setMergePreview(null);
+      setMergeResolutionModes({});
+      setMergeManualJson({});
       setReuseDecisions([]);
       loadWorkflow(response.headDraftRevision.workflow, response.headDraftRevision.validation);
       setApprovedRevision(null);
@@ -536,9 +545,85 @@ export function App() {
       setActiveBranchId(response.branch.id);
       setPromptTurns([]);
       setMergePreview(null);
+      setMergeResolutionModes({});
+      setMergeManualJson({});
       setReuseDecisions([]);
       loadWorkflow(response.draftRevision.workflow, response.draftRevision.validation);
       setBranchNotice(`Forked ${response.branch.name}`);
+    });
+  }
+
+  function previewMerge() {
+    if (!activeBranchId || !mergeSourceBranchId) {
+      setApiError("Choose an active branch and a source branch before previewing a merge.");
+      return;
+    }
+
+    void executeApiAction("merge-preview", async () => {
+      const response = await openClawApi.previewBranchMerge(workflow.id, mergeSourceBranchId, {
+        targetBranchId: activeBranchId,
+        mode: mergeMode
+      });
+      setMergePreview(response.preview);
+      setMergeResolutionModes({});
+      setMergeManualJson({});
+    });
+  }
+
+  function updateMergeResolutionMode(conflictId: string, mode: "source" | "target" | "manual") {
+    setMergeResolutionModes((previous) => ({
+      ...previous,
+      [conflictId]: mode
+    }));
+  }
+
+  function updateMergeManualJson(conflictId: string, value: string) {
+    setMergeManualJson((previous) => ({
+      ...previous,
+      [conflictId]: value
+    }));
+  }
+
+  function applyMerge() {
+    if (!activeBranchId || !mergePreview) {
+      return;
+    }
+
+    void executeApiAction("branch-merge", async () => {
+      const resolutions = mergePreview.conflicts.map((conflict) =>
+        mergeResolutionForConflict(conflict, mergeResolutionModes, mergeManualJson)
+      );
+      const response = await openClawApi.mergeBranch(workflow.id, mergePreview.sourceBranchId, {
+        targetBranchId: activeBranchId,
+        mode: mergePreview.mode,
+        appliedBy: "owner@example.com",
+        resolutions
+      });
+      loadWorkflow(response.workflow, response.validation);
+      setActiveBranchId(response.branch.id);
+      setMergePreview(null);
+      setMergeResolutionModes({});
+      setMergeManualJson({});
+      setReuseDecisions([]);
+      setDraftEvaluation(null);
+      setApprovedRevision(null);
+      setApprovalDiff(null);
+      await refreshBranches(response.workflow.id, response.branch.id);
+      setBranchNotice(
+        `${response.merge.mode === "cherry-pick" ? "Cherry-picked" : "Merged"} ${response.merge.sourceBranchId}`
+      );
+    });
+  }
+
+  function refreshReuseCandidates() {
+    if (!activeBranchId) {
+      setApiError("Select a branch before checking generated module reuse.");
+      return;
+    }
+
+    void executeApiAction("reuse-candidates", async () => {
+      const response = await openClawApi.fetchReuseCandidates(workflow.id, activeBranchId);
+      setReuseDecisions(response.decisions);
     });
   }
 
@@ -1040,7 +1125,10 @@ export function App() {
     setPromptTurns([]);
     setBranchNotice(null);
     setMergeSourceBranchId("");
+    setMergeMode("merge");
     setMergePreview(null);
+    setMergeResolutionModes({});
+    setMergeManualJson({});
     setReuseDecisions([]);
     setPromotionNotice(null);
     loadWorkflow(
@@ -1153,6 +1241,24 @@ export function App() {
             onBranchNameChange={setBranchNameDraft}
             onFork={forkBranch}
             onSwitch={switchBranch}
+          />
+          <BranchMergeReusePanel
+            activeBranch={activeBranch}
+            mergeSources={mergeSources}
+            mergeSourceBranchId={mergeSourceBranchId}
+            mergeMode={mergeMode}
+            mergePreview={mergePreview}
+            mergeResolutionModes={mergeResolutionModes}
+            mergeManualJson={mergeManualJson}
+            reuseDecisions={reuseDecisions}
+            busyAction={busyAction}
+            onMergeSourceChange={setMergeSourceBranchId}
+            onMergeModeChange={setMergeMode}
+            onPreviewMerge={previewMerge}
+            onApplyMerge={applyMerge}
+            onResolutionModeChange={updateMergeResolutionMode}
+            onManualResolutionChange={updateMergeManualJson}
+            onRefreshReuse={refreshReuseCandidates}
           />
 
           <RoutePanel route={taskRoute} />
@@ -1606,6 +1712,9 @@ function Inspector(props: {
                 value={node.codegen?.replay.mode ?? "missing"}
                 tone="pending"
               />
+              {typeof node.config.reusedFromBranchId === "string" ? (
+                <StatusRow label="Reuse" value={node.config.reusedFromBranchId} tone="pending" />
+              ) : null}
               <button
                 type="button"
                 onClick={props.onBuildCodegen}
@@ -1730,6 +1839,178 @@ function BranchPanel(props: {
         </ul>
       ) : null}
     </section>
+  );
+}
+
+function BranchMergeReusePanel(props: {
+  readonly activeBranch: WorkflowBranch | null;
+  readonly mergeSources: readonly WorkflowBranch[];
+  readonly mergeSourceBranchId: string;
+  readonly mergeMode: "merge" | "cherry-pick";
+  readonly mergePreview: WorkflowBranchMergePreview | null;
+  readonly mergeResolutionModes: Readonly<Record<string, "source" | "target" | "manual">>;
+  readonly mergeManualJson: Readonly<Record<string, string>>;
+  readonly reuseDecisions: readonly WorkflowGeneratedModuleReuseDecision[];
+  readonly busyAction: string | null;
+  readonly onMergeSourceChange: (branchId: string) => void;
+  readonly onMergeModeChange: (mode: "merge" | "cherry-pick") => void;
+  readonly onPreviewMerge: () => void;
+  readonly onApplyMerge: () => void;
+  readonly onResolutionModeChange: (
+    conflictId: string,
+    mode: "source" | "target" | "manual"
+  ) => void;
+  readonly onManualResolutionChange: (conflictId: string, value: string) => void;
+  readonly onRefreshReuse: () => void;
+}) {
+  const conflictsResolved =
+    props.mergePreview?.conflicts.every((conflict) => props.mergeResolutionModes[conflict.id]) ??
+    true;
+
+  return (
+    <section aria-label="Branch merge and reuse" className="validation-panel">
+      <div className="panel-heading">
+        <GitBranch size={18} />
+        <h2>Merge & Reuse</h2>
+      </div>
+      <label>
+        Source branch
+        <select
+          value={props.mergeSourceBranchId}
+          onChange={(event) => props.onMergeSourceChange(event.target.value)}
+          disabled={!props.activeBranch}
+        >
+          <option value="">Choose branch</option>
+          {props.mergeSources.map((branch) => (
+            <option key={branch.id} value={branch.id}>
+              {branch.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Mode
+        <select
+          value={props.mergeMode}
+          onChange={(event) =>
+            props.onMergeModeChange(event.target.value as "merge" | "cherry-pick")
+          }
+          disabled={!props.activeBranch}
+        >
+          <option value="merge">Merge</option>
+          <option value="cherry-pick">Cherry-pick</option>
+        </select>
+      </label>
+      <div className="integration-actions">
+        <button
+          type="button"
+          onClick={props.onPreviewMerge}
+          disabled={
+            props.busyAction !== null ||
+            !props.activeBranch ||
+            props.mergeSourceBranchId.length === 0
+          }
+        >
+          Preview
+        </button>
+        <button
+          type="button"
+          onClick={props.onApplyMerge}
+          disabled={
+            props.busyAction !== null ||
+            !props.mergePreview ||
+            props.mergePreview.status === "blocked" ||
+            !conflictsResolved
+          }
+        >
+          Apply
+        </button>
+        <button
+          type="button"
+          onClick={props.onRefreshReuse}
+          disabled={props.busyAction !== null || !props.activeBranch}
+        >
+          Reuse Candidates
+        </button>
+      </div>
+      {props.mergePreview ? (
+        <div className="merge-preview">
+          <StatusRow
+            label="Preview"
+            value={props.mergePreview.status}
+            tone={props.mergePreview.status}
+          />
+          <ul className="diff-summary">
+            {props.mergePreview.summary.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+          {props.mergePreview.conflicts.map((conflict) => (
+            <MergeConflictItem
+              key={conflict.id}
+              conflict={conflict}
+              mode={props.mergeResolutionModes[conflict.id] ?? ""}
+              manualJson={props.mergeManualJson[conflict.id] ?? ""}
+              onModeChange={props.onResolutionModeChange}
+              onManualChange={props.onManualResolutionChange}
+            />
+          ))}
+        </div>
+      ) : null}
+      {props.reuseDecisions.length > 0 ? (
+        <ul className="event-list">
+          {props.reuseDecisions.map((decision) => (
+            <li key={decision.id}>
+              <strong>{decision.status}</strong>
+              <span>
+                {decision.nodeId}
+                {decision.sourceBranchId ? ` from ${decision.sourceBranchId}` : ""}
+                {decision.gates.length ? ` (${decision.gates.join(", ")})` : ""}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
+function MergeConflictItem(props: {
+  readonly conflict: WorkflowBranchMergeConflict;
+  readonly mode: "source" | "target" | "manual" | "";
+  readonly manualJson: string;
+  readonly onModeChange: (conflictId: string, mode: "source" | "target" | "manual") => void;
+  readonly onManualChange: (conflictId: string, value: string) => void;
+}) {
+  return (
+    <div className="issue-button">
+      <strong>{props.conflict.kind}</strong>
+      <span>{props.conflict.message}</span>
+      <div className="integration-actions">
+        <button type="button" onClick={() => props.onModeChange(props.conflict.id, "source")}>
+          Use Source
+        </button>
+        <button type="button" onClick={() => props.onModeChange(props.conflict.id, "target")}>
+          Keep Target
+        </button>
+        <button type="button" onClick={() => props.onModeChange(props.conflict.id, "manual")}>
+          Manual
+        </button>
+      </div>
+      <StatusRow
+        label="Resolution"
+        value={props.mode || "unresolved"}
+        tone={props.mode ? "valid" : "blocked"}
+      />
+      {props.mode === "manual" ? (
+        <textarea
+          aria-label={`Manual resolution for ${props.conflict.id}`}
+          value={props.manualJson}
+          rows={4}
+          onChange={(event) => props.onManualChange(props.conflict.id, event.target.value)}
+        />
+      ) : null}
+    </div>
   );
 }
 
@@ -2214,6 +2495,26 @@ function parseJsonRecord(
       error: error instanceof Error ? error.message : "Invalid JSON."
     };
   }
+}
+
+function mergeResolutionForConflict(
+  conflict: WorkflowBranchMergeConflict,
+  modes: Readonly<Record<string, "source" | "target" | "manual">>,
+  manualJson: Readonly<Record<string, string>>
+): WorkflowBranchMergeResolution {
+  const mode = modes[conflict.id] ?? "target";
+  if (mode === "manual") {
+    return {
+      conflictId: conflict.id,
+      choice: "manual",
+      value: JSON.parse(manualJson[conflict.id] ?? "null") as JsonValue
+    };
+  }
+
+  return {
+    conflictId: conflict.id,
+    choice: mode
+  };
 }
 
 function applyAdapterSkillPreset(node: WorkflowNode, skillId: string): WorkflowNode {
