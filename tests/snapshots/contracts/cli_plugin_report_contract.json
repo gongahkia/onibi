@@ -16,13 +16,23 @@
       "ingest": [
         "burp",
         "c2",
+        "ffuf",
         "init",
+        "metasploit",
+        "nessus",
         "nmap",
-        "nuclei"
+        "nuclei",
+        "sarif",
+        "sqlmap",
+        "zap"
       ],
       "objectives": [
         "add",
         "list"
+      ],
+      "pff": [
+        "export",
+        "validate"
       ],
       "procedures": [
         "add",
@@ -39,6 +49,7 @@
       "evidence",
       "ingest",
       "objectives",
+      "pff",
       "procedures",
       "report",
       "rescan",

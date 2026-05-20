@@ -105,9 +105,7 @@ def _alert_records(payload: dict[str, Any]) -> list[dict[str, Any]]:
                 "site_host": _as_str(site.get("@host")) or _as_str(site.get("host")),
                 "site_port": _as_int(site.get("@port")) or _as_int(site.get("port")),
                 "site_ssl": (
-                    _as_bool(site.get("@ssl"))
-                    if "@ssl" in site
-                    else _as_bool(site.get("ssl"))
+                    _as_bool(site.get("@ssl")) if "@ssl" in site else _as_bool(site.get("ssl"))
                 ),
             }
             alerts = site.get("alerts")
@@ -333,9 +331,10 @@ def _map_severity(value: str | None) -> Severity:
     }
     if normalized in riskcode_map:
         return riskcode_map[normalized]
-    for severity in ("critical", "high", "medium", "low"):
+    severity_words: tuple[Severity, ...] = ("critical", "high", "medium", "low")
+    for severity in severity_words:
         if severity in normalized:
-            return severity  # type: ignore[return-value]
+            return severity
     return "info"
 
 

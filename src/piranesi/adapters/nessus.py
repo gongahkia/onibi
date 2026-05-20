@@ -47,9 +47,7 @@ def parse_nessus_file(
         raise NessusParseError("unsupported Nessus XML: expected NessusClientData_v2 root")
 
     report_hosts = [
-        item
-        for report in _children(root, "Report")
-        for item in _children(report, "ReportHost")
+        item for report in _children(root, "Report") for item in _children(report, "ReportHost")
     ]
     if not report_hosts:
         raise NessusParseError("empty Nessus XML: document contains no ReportHost records")

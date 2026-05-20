@@ -145,9 +145,14 @@ ReportOutputFormat = Literal["json", "md", "pdf", "archive"]
 
 
 class _FindingParseResult(Protocol):
-    findings: list[NormalizedFinding]
-    warnings: list[str]
-    metadata: dict[str, Any]
+    @property
+    def findings(self) -> list[NormalizedFinding]: ...
+
+    @property
+    def warnings(self) -> list[str]: ...
+
+    @property
+    def metadata(self) -> dict[str, Any]: ...
 
 
 _FindingParser = Callable[[Path, str, str], _FindingParseResult]

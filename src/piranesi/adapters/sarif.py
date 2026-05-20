@@ -288,12 +288,13 @@ def _map_severity(result: dict[str, Any], rule: dict[str, Any]) -> Severity:
         if security_severity > 0.0:
             return "low"
     level = _as_str(result.get("level")) or _default_rule_level(rule)
-    return {
+    level_map: dict[str, Severity] = {
         "error": "high",
         "warning": "medium",
         "note": "low",
         "none": "info",
-    }.get((level or "none").lower(), "info")
+    }
+    return level_map.get((level or "none").lower(), "info")
 
 
 def _security_severity(payload: dict[str, Any]) -> float | None:
