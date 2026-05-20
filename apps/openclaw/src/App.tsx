@@ -40,7 +40,7 @@ import {
 import {
   createWorkflowEdge,
   createWorkflowNode,
-  gmailReceiptsToSheetsWorkflowFixture,
+  createWorkflowSpec,
   stableWorkflowStringify,
   validateWorkflowSpec
 } from "@kelpclaw/workflow-spec";
@@ -96,11 +96,25 @@ const nodeKinds: readonly WorkflowNodeKind[] = [
   "delivery"
 ];
 
-const defaultPrompt = "extract transaction details from Gmail receipts into Sheets";
-const initialSelectedNode =
-  gmailReceiptsToSheetsWorkflowFixture.nodes.find((node) => node.id === "read-gmail-receipts") ??
-  gmailReceiptsToSheetsWorkflowFixture.nodes[0] ??
-  null;
+const defaultPrompt = "";
+const emptyWorkflowDraft = createWorkflowSpec({
+  id: "workflow.openclaw-draft",
+  name: "Untitled Workflow",
+  prompt: defaultPrompt,
+  nodes: [],
+  edges: [],
+  createdAt: "1970-01-01T00:00:00.000Z",
+  updatedAt: "1970-01-01T00:00:00.000Z"
+});
+
+function isEmptyStarterWorkflow(workflow: WorkflowSpec): boolean {
+  return (
+    workflow.id === emptyWorkflowDraft.id &&
+    workflow.prompt.trim().length === 0 &&
+    workflow.nodes.length === 0 &&
+    workflow.edges.length === 0
+  );
+}
 
 interface AdapterSkillPreset {
   readonly id: string;
@@ -250,10 +264,10 @@ const integrationSetups = [
 ] as const;
 
 export function App() {
-  const [workflow, setWorkflow] = useState<WorkflowSpec>(gmailReceiptsToSheetsWorkflowFixture);
+  const [workflow, setWorkflow] = useState<WorkflowSpec>(emptyWorkflowDraft);
   const [prompt, setPrompt] = useState(defaultPrompt);
   const [validation, setValidation] = useState<WorkflowValidationResult>(
-    validateWorkflowSpec(gmailReceiptsToSheetsWorkflowFixture)
+    validateWorkflowSpec(emptyWorkflowDraft)
   );
   const [approvedRevision, setApprovedRevision] = useState<WorkflowApprovedRevision | null>(null);
   const [approvalDiff, setApprovalDiff] = useState<WorkflowSpecDiff | null>(null);
@@ -286,9 +300,9 @@ export function App() {
     readonly WorkflowGeneratedModuleReuseDecision[]
   >([]);
   const [dirtyNodeIds, setDirtyNodeIds] = useState<ReadonlySet<string>>(new Set());
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>("read-gmail-receipts");
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
-  const [nodePrompt, setNodePrompt] = useState(initialSelectedNode?.description ?? "");
+  const [nodePrompt, setNodePrompt] = useState("");
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
@@ -335,8 +349,12 @@ export function App() {
       ),
     [activeBranchId, branches, showArchivedBranches]
   );
+  const workflowHasGraph = workflow.nodes.length > 0;
   const canApprove =
-    validation.ok && draftEvaluation?.readyForApproval === true && !branchLifecycleLocked;
+    workflowHasGraph &&
+    validation.ok &&
+    draftEvaluation?.readyForApproval === true &&
+    !branchLifecycleLocked;
   const canRun = approvedRevision !== null && !branchLifecycleLocked;
 
   const refreshIntegrations = useCallback(async () => {
@@ -355,6 +373,13 @@ export function App() {
 
   const refreshBranches = useCallback(
     async (workflowId: string, preferredBranchId?: string | undefined) => {
+      if (workflowId === emptyWorkflowDraft.id) {
+        setBranches([]);
+        setActiveBranchId(null);
+        setPromptTurns([]);
+        return;
+      }
+
       try {
         const response = await openClawApi.listBranches(workflowId);
         setBranches(response.branches);
@@ -884,9 +909,10 @@ export function App() {
       return;
     }
     void executeApiAction("plan", async () => {
+      const currentWorkflow = isEmptyStarterWorkflow(workflow) ? undefined : workflow;
       const job = await startTrackedJob({
         type: "plan.workflow",
-        workflowId: workflow.id
+        ...(currentWorkflow ? { workflowId: currentWorkflow.id } : {})
       });
       const response = activeBranchId
         ? await openClawApi.planBranch(
@@ -894,7 +920,7 @@ export function App() {
             activeBranchId,
             {
               prompt,
-              currentWorkflow: workflow,
+              ...(currentWorkflow ? { currentWorkflow } : {}),
               preserveNodeIds: [...dirtyNodeIds],
               actor: "owner@example.com"
             },
@@ -903,7 +929,7 @@ export function App() {
         : await openClawApi.plan(
             {
               prompt,
-              currentWorkflow: workflow,
+              ...(currentWorkflow ? { currentWorkflow } : {}),
               preserveNodeIds: [...dirtyNodeIds]
             },
             job.id
@@ -1229,9 +1255,9 @@ export function App() {
   function resetWorkflow() {
     setPrompt(defaultPrompt);
     setDirtyNodeIds(new Set());
-    setSelectedNodeId("read-gmail-receipts");
+    setSelectedNodeId(null);
     setSelectedEdgeId(null);
-    setNodePrompt(initialSelectedNode?.description ?? "");
+    setNodePrompt("");
     setJsonError(null);
     setApprovedRevision(null);
     setApprovalDiff(null);
@@ -1256,10 +1282,7 @@ export function App() {
     setMergeManualJson({});
     setReuseDecisions([]);
     setPromotionNotice(null);
-    loadWorkflow(
-      gmailReceiptsToSheetsWorkflowFixture,
-      validateWorkflowSpec(gmailReceiptsToSheetsWorkflowFixture)
-    );
+    loadWorkflow(emptyWorkflowDraft, validateWorkflowSpec(emptyWorkflowDraft));
   }
 
   return (
@@ -1465,7 +1488,12 @@ export function App() {
               <button
                 title="Accept plan shape"
                 onClick={acceptPlanShape}
-                disabled={!validation.ok || busyAction !== null || branchLifecycleLocked}
+                disabled={
+                  !workflowHasGraph ||
+                  !validation.ok ||
+                  busyAction !== null ||
+                  branchLifecycleLocked
+                }
               >
                 <CheckCircle2 size={18} />
                 Accept Plan
@@ -1473,7 +1501,12 @@ export function App() {
               <button
                 title="Evaluate draft"
                 onClick={evaluateDraft}
-                disabled={!validation.ok || busyAction !== null || branchLifecycleLocked}
+                disabled={
+                  !workflowHasGraph ||
+                  !validation.ok ||
+                  busyAction !== null ||
+                  branchLifecycleLocked
+                }
               >
                 <ListChecks size={18} />
                 Evaluate
@@ -2024,6 +2057,7 @@ function BranchPanel(props: {
         onClick={props.onFork}
         disabled={
           props.busyAction !== null ||
+          !props.activeBranch ||
           props.branchNameDraft.trim().length === 0 ||
           props.activeBranch?.status === "archived"
         }

@@ -27,14 +27,20 @@ afterEach(() => {
 });
 
 describe("OpenClaw planner shell", () => {
-  it("renders the planner workspace, workflow nodes, and inspector", () => {
+  it("renders a blank planner workspace for a fresh session", () => {
     render(<App />);
 
     expect(screen.getByRole("heading", { name: "OpenClaw" })).toBeInTheDocument();
-    expect(screen.getByText("Gmail Receipts To Sheets")).toBeInTheDocument();
-    expect(screen.getByText("Read Gmail Receipts")).toBeInTheDocument();
-    expect(screen.getByText("skill")).toBeInTheDocument();
-    expect(screen.getByLabelText("Label")).toHaveValue("Read Gmail Receipts");
+    expect(screen.getByText("Untitled Workflow")).toBeInTheDocument();
+    expect(screen.getByLabelText("Workflow Prompt")).toHaveValue("");
+    expect(screen.getByText("workflow.openclaw-draft")).toBeInTheDocument();
+    expect(screen.getByText("Selected Edge")).toBeInTheDocument();
+    expect(screen.getByLabelText("Workflow summary")).toHaveTextContent(/Nodes\s*0/u);
+    expect(screen.getByLabelText("Workflow summary")).toHaveTextContent(/Edges\s*0/u);
+    expect(screen.queryByLabelText("Label")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Plan$/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Accept Plan/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Evaluate/i })).toBeDisabled();
   });
 
   it("renders live integration readiness and sends admin bearer auth", async () => {
@@ -61,10 +67,13 @@ describe("OpenClaw planner shell", () => {
         })
       );
     });
+    const planCall = vi.mocked(fetch).mock.calls.find(([url]) => String(url).endsWith("/plan"));
+    expect(JSON.parse(String(planCall?.[1]?.body))).not.toHaveProperty("currentWorkflow");
   });
 
   it("edits selected node labels and validates invalid port changes inline", async () => {
     render(<App />);
+    await planGmailWorkflow();
 
     fireEvent.change(screen.getByLabelText("Label"), {
       target: { value: "Read Gmail Orders" }
@@ -109,6 +118,7 @@ describe("OpenClaw planner shell", () => {
 
   it("approves a frozen diff and renders NanoClaw run state", async () => {
     render(<App />);
+    await planGmailWorkflow();
 
     fireEvent.click(screen.getByRole("button", { name: /evaluate/i }));
     await waitFor(() => {
@@ -144,12 +154,13 @@ describe("OpenClaw planner shell", () => {
 
   it("records plan acceptance before executable approval", async () => {
     render(<App />);
+    await planGmailWorkflow();
 
     fireEvent.click(screen.getByRole("button", { name: /Accept Plan/i }));
 
     expect(await screen.findByText(/Plan accepted:/i)).toBeInTheDocument();
     expect(
-      screen.getByText(/draft\.workflow\.gmail-receipts-to-sheets\.accepted/u)
+      screen.getByText(/draft\.workflow\.gmail-receipts-to-sheets\.(accepted|r1\.plan-accepted)/u)
     ).toBeInTheDocument();
   });
 
@@ -171,6 +182,7 @@ describe("OpenClaw planner shell", () => {
 
   it("renders worker job and deployment activation state", async () => {
     render(<App />);
+    await planGmailWorkflow();
 
     fireEvent.click(screen.getByRole("button", { name: /evaluate/i }));
     await waitFor(() => {
@@ -189,6 +201,7 @@ describe("OpenClaw planner shell", () => {
 
   it("renders branch tree controls, merge conflicts, and reuse decisions", async () => {
     render(<App />);
+    await planGmailWorkflow();
 
     expect(await screen.findByRole("heading", { name: "Branches" })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Fork name"), {
@@ -220,6 +233,7 @@ describe("OpenClaw planner shell", () => {
 
   it("renames, archives, hides, and restores workflow branches", async () => {
     render(<App />);
+    await planGmailWorkflow();
 
     expect(await screen.findByRole("heading", { name: "Branches" })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Fork name"), {
@@ -249,6 +263,18 @@ describe("OpenClaw planner shell", () => {
     );
   });
 });
+
+async function planGmailWorkflow() {
+  fireEvent.change(screen.getByLabelText("Workflow Prompt"), {
+    target: { value: "extract transaction details from Gmail receipts into Sheets" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: /^Plan$/i }));
+  await screen.findByText("Gmail Receipts To Sheets");
+  await screen.findByText("Read Gmail Receipts");
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: /Fork Branch/i })).toBeEnabled();
+  });
+}
 
 async function mockFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
   const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
