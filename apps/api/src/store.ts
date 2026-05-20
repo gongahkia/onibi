@@ -19,6 +19,7 @@ import type {
   WorkflowApprovalRecord,
   WorkflowApprovedRevision,
   WorkflowAuditRecord,
+  WorkflowBranch,
   WorkflowDraftEvaluation,
   WorkflowDraftRevision,
   WorkflowDraftRevisionSource,
@@ -26,6 +27,7 @@ import type {
   WorkflowJob,
   WorkflowJobEvent,
   WorkflowPlannerFeedback,
+  WorkflowPromptTurn,
   WorkflowRunRecord,
   WorkflowRunEvent,
   WorkflowSpec,
@@ -77,8 +79,14 @@ export interface WorkflowStore {
     workflow: WorkflowSpec,
     validation: WorkflowValidationResult,
     source: WorkflowDraftRevisionSource,
-    options?: { readonly force?: boolean; readonly preserveRevision?: boolean }
+    options?: SaveDraftRevisionOptions
   ): WorkflowDraftRevision;
+  saveBranch(record: WorkflowBranch): WorkflowBranch;
+  getBranch(id: string): WorkflowBranch | undefined;
+  getDefaultBranch(workflowId: string): WorkflowBranch;
+  listBranches(workflowId: string): readonly WorkflowBranch[];
+  savePromptTurn(record: WorkflowPromptTurn): WorkflowPromptTurn;
+  listPromptTurns(workflowId: string, branchId?: string | undefined): readonly WorkflowPromptTurn[];
   getWorkflow(id: string): StoredWorkflow | undefined;
   approveWorkflow(
     workflowId: string,
@@ -144,10 +152,20 @@ export interface WorkflowStore {
   requireWorkflow(id: string): StoredWorkflow;
 }
 
+export interface SaveDraftRevisionOptions {
+  readonly force?: boolean;
+  readonly preserveRevision?: boolean;
+  readonly branchId?: string | undefined;
+  readonly parentDraftRevisionId?: string | undefined;
+  readonly updateBranchHead?: boolean | undefined;
+}
+
 export class InMemoryWorkflowStore implements WorkflowStore {
   protected readonly workflows = new Map<string, WorkflowAggregate>();
   protected readonly draftRevisions = new Map<string, WorkflowDraftRevision>();
   protected readonly approvedRevisions = new Map<string, WorkflowApprovedRevision>();
+  protected readonly branches = new Map<string, WorkflowBranch>();
+  protected readonly promptTurns = new Map<string, WorkflowPromptTurn>();
   protected readonly executions = new Map<string, StoredExecution>();
   protected readonly runs = new Map<string, WorkflowRunRecord>();
   protected readonly audits = new Map<string, WorkflowAuditRecord>();
@@ -179,27 +197,37 @@ export class InMemoryWorkflowStore implements WorkflowStore {
     workflow: WorkflowSpec,
     validation: WorkflowValidationResult,
     source: WorkflowDraftRevisionSource,
-    options: { readonly force?: boolean; readonly preserveRevision?: boolean } = {}
+    options: SaveDraftRevisionOptions = {}
   ): WorkflowDraftRevision {
     if (!validation.ok) {
       throw new Error("Cannot save an invalid workflow draft revision.");
     }
 
     const existing = this.workflows.get(workflow.id);
-    const latestDraft = existing?.latestDraftRevisionId
-      ? this.draftRevisions.get(existing.latestDraftRevisionId)
-      : undefined;
+    const branchId = options.branchId ?? defaultBranchId(workflow.id);
+    const existingBranch = this.branches.get(branchId);
+    const latestDraftId = existingBranch?.headDraftRevisionId ?? existing?.latestDraftRevisionId;
+    const latestDraft = latestDraftId ? this.draftRevisions.get(latestDraftId) : undefined;
     if (
       !options.force &&
       latestDraft &&
       draftFingerprint(latestDraft.workflow) === draftFingerprint(workflow)
     ) {
+      if (existingBranch && options.updateBranchHead !== false) {
+        this.branches.set(existingBranch.id, {
+          ...existingBranch,
+          headDraftRevisionId: latestDraft.id,
+          updatedAt: latestDraft.createdAt
+        });
+      }
       return latestDraft;
     }
 
     const now = new Date().toISOString();
     const revision =
-      options.preserveRevision || !existing ? workflow.revision : existing.workflow.revision + 1;
+      options.preserveRevision || !existing
+        ? workflow.revision
+        : (latestDraft?.workflow.revision ?? existing.workflow.revision) + 1;
     const draftWorkflow: WorkflowSpec = {
       ...workflow,
       id: workflow.id,
@@ -215,8 +243,10 @@ export class InMemoryWorkflowStore implements WorkflowStore {
     }
 
     const draftRevision: WorkflowDraftRevision = {
-      id: `draft.${draftWorkflow.id}.r${draftWorkflow.revision}.${existing?.draftRevisionIds.length ?? 0}`,
+      id: draftRevisionId(draftWorkflow.id, branchId, draftWorkflow.revision, existing),
       workflowId: draftWorkflow.id,
+      branchId,
+      parentDraftRevisionId: options.parentDraftRevisionId ?? existingBranch?.headDraftRevisionId,
       revision: draftWorkflow.revision,
       workflow: draftWorkflow,
       validation: draftValidation,
@@ -235,13 +265,84 @@ export class InMemoryWorkflowStore implements WorkflowStore {
       draftRevisionIds: [],
       approvedRevisionIds: []
     };
-    aggregate.workflow = draftWorkflow;
-    aggregate.validation = draftValidation;
-    aggregate.latestDraftRevisionId = draftRevision.id;
+    const updatesMainBranch = branchId === defaultBranchId(draftWorkflow.id);
+    if (!existing || updatesMainBranch) {
+      aggregate.workflow = draftWorkflow;
+      aggregate.validation = draftValidation;
+      aggregate.latestDraftRevisionId = draftRevision.id;
+    }
     aggregate.draftRevisionIds = [...aggregate.draftRevisionIds, draftRevision.id];
     this.workflows.set(draftWorkflow.id, aggregate);
+    const branch =
+      existingBranch ??
+      (branchId === defaultBranchId(draftWorkflow.id)
+        ? this.createDefaultBranch(draftWorkflow, draftRevision, "system")
+        : undefined);
+    if (branch && options.updateBranchHead !== false) {
+      this.branches.set(branch.id, {
+        ...branch,
+        headDraftRevisionId: draftRevision.id,
+        updatedAt: now
+      });
+    }
 
     return draftRevision;
+  }
+
+  public saveBranch(record: WorkflowBranch): WorkflowBranch {
+    this.branches.set(record.id, record);
+    return record;
+  }
+
+  public getBranch(id: string): WorkflowBranch | undefined {
+    return this.branches.get(id);
+  }
+
+  public getDefaultBranch(workflowId: string): WorkflowBranch {
+    const branchId = defaultBranchId(workflowId);
+    const existing = this.branches.get(branchId);
+    if (existing) {
+      return existing;
+    }
+    const latestDraft = this.getLatestDraftRevision(workflowId);
+    if (!latestDraft) {
+      throw new Error(`Workflow '${workflowId}' does not have a draft revision.`);
+    }
+    const branch = this.createDefaultBranch(latestDraft.workflow, latestDraft, "system");
+    this.branches.set(branch.id, branch);
+    return branch;
+  }
+
+  public listBranches(workflowId: string): readonly WorkflowBranch[] {
+    if (this.workflows.has(workflowId) && !this.branches.has(defaultBranchId(workflowId))) {
+      this.getDefaultBranch(workflowId);
+    }
+    return [...this.branches.values()]
+      .filter((branch) => branch.workflowId === workflowId)
+      .sort(
+        (left, right) =>
+          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
+      );
+  }
+
+  public savePromptTurn(record: WorkflowPromptTurn): WorkflowPromptTurn {
+    this.promptTurns.set(record.id, record);
+    return record;
+  }
+
+  public listPromptTurns(
+    workflowId: string,
+    branchId?: string | undefined
+  ): readonly WorkflowPromptTurn[] {
+    return [...this.promptTurns.values()]
+      .filter(
+        (turn) =>
+          turn.workflowId === workflowId && (branchId === undefined || turn.branchId === branchId)
+      )
+      .sort(
+        (left, right) =>
+          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
+      );
   }
 
   public getWorkflow(id: string): StoredWorkflow | undefined {
@@ -690,6 +791,28 @@ export class InMemoryWorkflowStore implements WorkflowStore {
     return this.toStoredWorkflow(aggregate);
   }
 
+  protected createDefaultBranch(
+    workflow: WorkflowSpec,
+    draftRevision: WorkflowDraftRevision,
+    createdBy: string
+  ): WorkflowBranch {
+    const now = draftRevision.createdAt;
+    return {
+      id: defaultBranchId(workflow.id),
+      workflowId: workflow.id,
+      name: "main",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+      createdBy,
+      baseDraftRevisionId: draftRevision.id,
+      headDraftRevisionId: draftRevision.id,
+      metadata: {
+        default: true
+      }
+    };
+  }
+
   private toStoredWorkflow(aggregate: WorkflowAggregate): StoredWorkflow {
     return {
       workflow: aggregate.workflow,
@@ -737,12 +860,39 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
     workflow: WorkflowSpec,
     validation: WorkflowValidationResult,
     source: WorkflowDraftRevisionSource,
-    options: { readonly force?: boolean; readonly preserveRevision?: boolean } = {}
+    options: SaveDraftRevisionOptions = {}
   ): WorkflowDraftRevision {
     const draft = super.saveDraftRevision(workflow, validation, source, options);
+    const branch = draft.branchId ? this.branches.get(draft.branchId) : undefined;
+    if (branch) {
+      this.persistBranch(branch);
+    }
     this.persistDraftRevision(draft);
     this.persistWorkflowAggregate(draft.workflowId);
     return draft;
+  }
+
+  public override saveBranch(record: WorkflowBranch): WorkflowBranch {
+    const saved = super.saveBranch(record);
+    this.persistBranch(saved);
+    return saved;
+  }
+
+  public override getDefaultBranch(workflowId: string): WorkflowBranch {
+    const branch = super.getDefaultBranch(workflowId);
+    this.persistBranch(branch);
+    return branch;
+  }
+
+  public override savePromptTurn(record: WorkflowPromptTurn): WorkflowPromptTurn {
+    const saved = super.savePromptTurn(record);
+    this.runSql(
+      [
+        "INSERT OR REPLACE INTO workflow_prompt_turns (id, workflow_id, branch_id, created_at, record_json)",
+        `VALUES (${sqlValue(saved.id)}, ${sqlValue(saved.workflowId)}, ${sqlValue(saved.branchId)}, ${sqlValue(saved.createdAt)}, ${sqlValue(stableStringify(saved))});`
+      ].join(" ")
+    );
+    return saved;
   }
 
   public override approveWorkflow(
@@ -943,7 +1093,19 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
     for (const approved of stored.approvedRevisions) {
       this.persistApprovedRevision(approved);
     }
+    for (const branch of this.listBranches(workflowId)) {
+      this.persistBranch(branch);
+    }
     this.persistWorkflowAggregate(workflowId);
+  }
+
+  private persistBranch(branch: WorkflowBranch): void {
+    this.runSql(
+      [
+        "INSERT OR REPLACE INTO workflow_branches (id, workflow_id, name, status, created_at, updated_at, record_json)",
+        `VALUES (${sqlValue(branch.id)}, ${sqlValue(branch.workflowId)}, ${sqlValue(branch.name)}, ${sqlValue(branch.status)}, ${sqlValue(branch.createdAt)}, ${sqlValue(branch.updatedAt)}, ${sqlValue(stableStringify(branch))});`
+      ].join(" ")
+    );
   }
 
   private persistWorkflowAggregate(workflowId: string): void {
@@ -964,7 +1126,9 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
     this.runSql(
       [
         "INSERT OR REPLACE INTO draft_revisions (id, workflow_id, revision, workflow_json, validation_json, source, created_at)",
-        `VALUES (${sqlValue(draft.id)}, ${sqlValue(draft.workflowId)}, ${draft.revision}, ${sqlValue(stableStringify(draft.workflow))}, ${sqlValue(stableStringify(draft.validation))}, ${sqlValue(draft.source)}, ${sqlValue(draft.createdAt)});`
+        `VALUES (${sqlValue(draft.id)}, ${sqlValue(draft.workflowId)}, ${draft.revision}, ${sqlValue(stableStringify(draft.workflow))}, ${sqlValue(stableStringify(draft.validation))}, ${sqlValue(draft.source)}, ${sqlValue(draft.createdAt)});`,
+        "INSERT OR REPLACE INTO draft_revision_records (id, workflow_id, created_at, record_json)",
+        `VALUES (${sqlValue(draft.id)}, ${sqlValue(draft.workflowId)}, ${sqlValue(draft.createdAt)}, ${sqlValue(stableStringify(draft))});`
       ].join(" ")
     );
   }
@@ -973,7 +1137,9 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
     this.runSql(
       [
         "INSERT OR IGNORE INTO approved_revisions (id, workflow_id, revision, approved_by, created_at, workflow_json, draft_spec_json, frozen_spec_json, diff_json)",
-        `VALUES (${sqlValue(approved.id)}, ${sqlValue(approved.workflowId)}, ${approved.revision}, ${sqlValue(approved.approvedBy)}, ${sqlValue(approved.createdAt)}, ${sqlValue(stableStringify(approved.workflow))}, ${sqlValue(approved.draftSpecJson)}, ${sqlValue(approved.frozenSpecJson)}, ${sqlValue(stableStringify(approved.diff))});`
+        `VALUES (${sqlValue(approved.id)}, ${sqlValue(approved.workflowId)}, ${approved.revision}, ${sqlValue(approved.approvedBy)}, ${sqlValue(approved.createdAt)}, ${sqlValue(stableStringify(approved.workflow))}, ${sqlValue(approved.draftSpecJson)}, ${sqlValue(approved.frozenSpecJson)}, ${sqlValue(stableStringify(approved.diff))});`,
+        "INSERT OR IGNORE INTO approved_revision_records (id, workflow_id, created_at, record_json)",
+        `VALUES (${sqlValue(approved.id)}, ${sqlValue(approved.workflowId)}, ${sqlValue(approved.createdAt)}, ${sqlValue(stableStringify(approved))});`
       ].join(" ")
     );
   }
@@ -992,6 +1158,11 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
         createdAt: row.created_at
       });
     }
+    for (const row of this.queryRows<RecordJsonRow>(
+      "SELECT * FROM draft_revision_records ORDER BY created_at, id;"
+    )) {
+      this.draftRevisions.set(row.id, parseJson(row.record_json));
+    }
 
     for (const row of this.queryRows<ApprovedRevisionRow>(
       "SELECT * FROM approved_revisions ORDER BY created_at, id;"
@@ -1008,6 +1179,11 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
         diff: parseJson(row.diff_json)
       });
     }
+    for (const row of this.queryRows<RecordJsonRow>(
+      "SELECT * FROM approved_revision_records ORDER BY created_at, id;"
+    )) {
+      this.approvedRevisions.set(row.id, parseJson(row.record_json));
+    }
 
     for (const row of this.queryRows<WorkflowAggregateRow>(
       "SELECT * FROM workflow_aggregates ORDER BY created_at, workflow_id;"
@@ -1021,6 +1197,28 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
         draftRevisionIds: parseJson(row.draft_revision_ids_json),
         approvedRevisionIds: parseJson(row.approved_revision_ids_json)
       });
+    }
+
+    for (const row of this.queryRows<RecordJsonRow>(
+      "SELECT * FROM workflow_branches ORDER BY created_at, id;"
+    )) {
+      this.branches.set(row.id, parseJson(row.record_json));
+    }
+    for (const workflowId of this.workflows.keys()) {
+      if (!this.branches.has(defaultBranchId(workflowId))) {
+        const latestDraft = this.getLatestDraftRevision(workflowId);
+        if (latestDraft) {
+          this.branches.set(
+            defaultBranchId(workflowId),
+            this.createDefaultBranch(latestDraft.workflow, latestDraft, "system")
+          );
+        }
+      }
+    }
+    for (const row of this.queryRows<RecordJsonRow>(
+      "SELECT * FROM workflow_prompt_turns ORDER BY created_at, id;"
+    )) {
+      this.promptTurns.set(row.id, parseJson(row.record_json));
     }
 
     for (const row of this.queryRows<ExecutionRow>(
@@ -1201,6 +1399,27 @@ function draftFingerprint(workflow: WorkflowSpec): string {
   });
 }
 
+export function defaultBranchId(workflowId: string): string {
+  return `branch.${workflowId}.main`;
+}
+
+function draftRevisionId(
+  workflowId: string,
+  branchId: string,
+  revision: number,
+  existing: WorkflowAggregate | undefined
+): string {
+  const index = existing?.draftRevisionIds.length ?? 0;
+  if (branchId === defaultBranchId(workflowId)) {
+    return `draft.${workflowId}.r${revision}.${index}`;
+  }
+  return `draft.${workflowId}.${sanitizeRecordIdPart(branchId)}.r${revision}.${index}`;
+}
+
+function sanitizeRecordIdPart(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]+/gu, "_");
+}
+
 function assertImmutableRecordUnchanged(
   kind: string,
   id: string,
@@ -1252,6 +1471,12 @@ const sqliteMigrations = [
     source TEXT NOT NULL,
     created_at TEXT NOT NULL
   );`,
+  `CREATE TABLE IF NOT EXISTS draft_revision_records (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+  );`,
   `CREATE TABLE IF NOT EXISTS approved_revisions (
     id TEXT PRIMARY KEY,
     workflow_id TEXT NOT NULL,
@@ -1262,6 +1487,28 @@ const sqliteMigrations = [
     draft_spec_json TEXT NOT NULL,
     frozen_spec_json TEXT NOT NULL,
     diff_json TEXT NOT NULL
+  );`,
+  `CREATE TABLE IF NOT EXISTS approved_revision_records (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+  );`,
+  `CREATE TABLE IF NOT EXISTS workflow_branches (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+  );`,
+  `CREATE TABLE IF NOT EXISTS workflow_prompt_turns (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    branch_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
   );`,
   `CREATE TABLE IF NOT EXISTS executions (
     id TEXT PRIMARY KEY,
@@ -1427,6 +1674,12 @@ interface DraftRevisionRow {
   readonly validation_json: string;
   readonly source: WorkflowDraftRevisionSource;
   readonly created_at: string;
+}
+
+interface RecordJsonRow {
+  readonly id: string;
+  readonly created_at: string;
+  readonly record_json: string;
 }
 
 interface ApprovedRevisionRow {
