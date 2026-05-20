@@ -226,6 +226,7 @@ added with `piranesi evidence add` are also copied under `raw/<kind>/` and index
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Workspace contract](docs/pentest-workspace.md)
+- [Solo engagement management](docs/engagement-management.md)
 - [Report schema](docs/pentest-report-schema.md)
 - [Burp ingestion](docs/burp-ingest.md)
 - [Phase 1.1 adapter expansion](docs/adapter-expansion.md)

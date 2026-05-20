@@ -43,6 +43,9 @@ WORKSPACE_DIRECTORIES = (
 Severity = Literal["info", "low", "medium", "high", "critical"]
 Confidence = Literal["info", "tool-observed", "low", "medium", "high", "confirmed"]
 FindingStatus = Literal["new", "open", "closed", "changed", "regressed", "accepted-risk"]
+MilestoneStatus = Literal["planned", "in-progress", "complete", "blocked"]
+RetestRoundStatus = Literal["planned", "in-progress", "complete", "blocked"]
+DeliveryStatus = Literal["draft", "ready-for-review", "approved", "delivered", "needs-retest"]
 
 
 class WorkspaceError(ValueError):
@@ -53,12 +56,39 @@ class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class EngagementMilestone(_StrictModel):
+    id: str
+    title: str
+    status: MilestoneStatus = "planned"
+    due_date: str | None = None
+    notes: str | None = None
+
+
+class RetestRound(_StrictModel):
+    id: str
+    title: str
+    status: RetestRoundStatus = "planned"
+    baseline_workspace: str | None = None
+    current_workspace: str | None = None
+    notes: str | None = None
+
+
+class DeliveryMetadata(_StrictModel):
+    status: DeliveryStatus = "draft"
+    reviewer: str | None = None
+    reviewer_notes: list[str] = Field(default_factory=list)
+    delivered_at: str | None = None
+
+
 class EngagementMetadata(_StrictModel):
     client: str | None = None
     project: str | None = None
     scope: list[str] = Field(default_factory=list)
     assessment_type: str | None = None
     owner: str | None = None
+    milestones: list[EngagementMilestone] = Field(default_factory=list)
+    retest_rounds: list[RetestRound] = Field(default_factory=list)
+    delivery: DeliveryMetadata = Field(default_factory=DeliveryMetadata)
 
 
 class ReportSettings(_StrictModel):
@@ -490,12 +520,18 @@ __all__ = [
     "AffectedInstance",
     "AuditEvent",
     "Confidence",
+    "DeliveryMetadata",
+    "DeliveryStatus",
     "EngagementMetadata",
+    "EngagementMilestone",
     "EvidenceSnippet",
     "FindingStatus",
+    "MilestoneStatus",
     "NormalizedFinding",
     "NormalizedFindingsDocument",
     "ReportSettings",
+    "RetestRound",
+    "RetestRoundStatus",
     "ServiceContext",
     "Severity",
     "SourceReference",
