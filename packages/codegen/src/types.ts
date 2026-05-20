@@ -193,6 +193,33 @@ export interface GeneratedNodeTestExecution {
   readonly failureMessage?: string | undefined;
 }
 
+export interface DockerGeneratedNodeCommand {
+  readonly executable: string;
+  readonly args: readonly string[];
+  readonly workspaceRoot: string;
+  readonly network: "none" | "bridge";
+  readonly timeoutMs: number;
+  readonly inputPath: string;
+  readonly outputPath: string;
+  readonly stdoutPath: string;
+  readonly stderrPath: string;
+}
+
+export interface DockerGeneratedNodeCommandResult {
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly timedOut?: boolean | undefined;
+  readonly output?: unknown;
+}
+
+export interface DockerGeneratedNodeCommandRunner {
+  run(
+    command: DockerGeneratedNodeCommand,
+    signal?: AbortSignal | undefined
+  ): Promise<DockerGeneratedNodeCommandResult>;
+}
+
 export interface GeneratedNodeTestExecutor {
   execute(input: {
     readonly request: GeneratedNodeBuildLoopRequest;

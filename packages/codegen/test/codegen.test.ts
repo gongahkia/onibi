@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   AgentSdkCodeGenerator,
+  DockerGeneratedNodeTestExecutor,
   GeneratedNodeBuildLoop,
   LocalCodegenArtifactStore,
   assertSafeArtifactPath,
@@ -17,6 +18,8 @@ import {
 import type {
   AgentQueryRunner,
   CodegenGenerationRequest,
+  DockerGeneratedNodeCommand,
+  DockerGeneratedNodeCommandRunner,
   GeneratedNodeBuildLoopRequest,
   GeneratedNodeRoleRunner,
   GeneratedNodeTestExecutor
@@ -292,6 +295,80 @@ describe("codegen artifact contracts", () => {
       "runner",
       "evaluator"
     ]);
+  });
+
+  it("runs generated-node evals through Docker when requested", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "kelpclaw-codegen-docker-"));
+    let capturedCommand: DockerGeneratedNodeCommand | undefined;
+    const runner: DockerGeneratedNodeCommandRunner = {
+      async run(command) {
+        capturedCommand = command;
+        return {
+          exitCode: 0,
+          stdout: "node ok\n",
+          stderr: "",
+          output: {
+            artifact: {
+              ok: true
+            }
+          }
+        };
+      }
+    };
+    const loop = new GeneratedNodeBuildLoop({
+      testExecutor: new DockerGeneratedNodeTestExecutor({ commandRunner: runner })
+    });
+
+    const result = await loop.build({
+      ...buildLoopRequestFixture(),
+      workspaceRoot,
+      runTestsInDocker: true,
+      maxDockerRuntimeSeconds: 7
+    });
+
+    expect(result.status).toBe("passed");
+    expect(capturedCommand?.args).toContain("--network");
+    expect(capturedCommand?.args).toContain("none");
+    expect(capturedCommand?.args).toContain("node:20-alpine");
+    expect(capturedCommand?.timeoutMs).toBe(7000);
+    await expect(
+      readFile(join(workspaceRoot, "generated/scrape-status-page.docker-command.json"), "utf8")
+    ).resolves.toContain('"network": "none"');
+    await expect(
+      readFile(join(workspaceRoot, "generated/scrape-status-page.docker-output.json"), "utf8")
+    ).resolves.toContain('"artifact"');
+  });
+
+  it("fails Docker evals when the output payload does not match declared ports", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "kelpclaw-codegen-docker-fail-"));
+    const runner: DockerGeneratedNodeCommandRunner = {
+      async run() {
+        return {
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          output: {
+            wrongPort: true
+          }
+        };
+      }
+    };
+    const loop = new GeneratedNodeBuildLoop({
+      testExecutor: new DockerGeneratedNodeTestExecutor({ commandRunner: runner })
+    });
+
+    const result = await loop.build({
+      ...buildLoopRequestFixture(),
+      workspaceRoot,
+      runTestsInDocker: true,
+      maxIterations: 1
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.findings.map((finding) => finding.id)).toContain(
+      "finding.scrape-status-page.docker-schema"
+    );
+    expect(result.unresolvedFailureArtifact?.content).toContain("declared output ports");
   });
 
   it("emits unresolved failure artifacts after max generated-node iterations", async () => {

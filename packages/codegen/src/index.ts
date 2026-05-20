@@ -13,8 +13,16 @@ export {
   createGeneratedNodeContractTestArtifact,
   createGeneratedNodeDesignSpecArtifact
 } from "./build-artifacts.js";
-export { GeneratedNodeBuildLoop } from "./build-loop.js";
-export type { GeneratedNodeBuildLoopOptions } from "./build-loop.js";
+export {
+  DefaultGeneratedNodeTestExecutor,
+  DockerGeneratedNodeTestExecutor,
+  GeneratedNodeBuildLoop,
+  StaticGeneratedNodeTestExecutor
+} from "./build-loop.js";
+export type {
+  DockerGeneratedNodeTestExecutorOptions,
+  GeneratedNodeBuildLoopOptions
+} from "./build-loop.js";
 export {
   assertDependencyManifestPolicy,
   createDependencyManifestArtifact,
@@ -31,6 +39,9 @@ export type {
   CodegenGenerationRequest,
   CodegenGenerationResult,
   CodegenMetadataInput,
+  DockerGeneratedNodeCommand,
+  DockerGeneratedNodeCommandResult,
+  DockerGeneratedNodeCommandRunner,
   CodegenAgentArtifactRecord,
   CodegenAgentRunRecord,
   GeneratedArtifact,

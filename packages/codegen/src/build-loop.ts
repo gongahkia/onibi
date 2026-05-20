@@ -1,5 +1,6 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { spawn } from "node:child_process";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   createCodegenAgentArtifactRecords,
   createCodegenAgentRunRecord,
@@ -16,6 +17,9 @@ import type {
   CodegenAgentRunRecord,
   CodegenGenerationRequest,
   CodegenGenerationResult,
+  DockerGeneratedNodeCommand,
+  DockerGeneratedNodeCommandResult,
+  DockerGeneratedNodeCommandRunner,
   GeneratedArtifact,
   GeneratedNodeBuildLoopRequest,
   GeneratedNodeBuildLoopResult,
@@ -49,7 +53,7 @@ export class GeneratedNodeBuildLoop {
   public constructor(options: GeneratedNodeBuildLoopOptions = {}) {
     this.codeGenerator = options.codeGenerator ?? new DeterministicBuildLoopCodeGenerator();
     this.roleRunners = options.roleRunners ?? {};
-    this.testExecutor = options.testExecutor ?? new StaticGeneratedNodeTestExecutor();
+    this.testExecutor = options.testExecutor ?? new DefaultGeneratedNodeTestExecutor();
     this.workspaceRoot = options.workspaceRoot;
     this.now = options.now ?? (() => new Date().toISOString());
   }
@@ -355,6 +359,32 @@ class DeterministicGeneratedNodeRoleRunner implements GeneratedNodeRoleRunner {
   }
 }
 
+export class DefaultGeneratedNodeTestExecutor implements GeneratedNodeTestExecutor {
+  private readonly staticExecutor: GeneratedNodeTestExecutor;
+  private readonly dockerExecutor: GeneratedNodeTestExecutor;
+
+  public constructor(
+    options: {
+      readonly staticExecutor?: GeneratedNodeTestExecutor | undefined;
+      readonly dockerExecutor?: GeneratedNodeTestExecutor | undefined;
+    } = {}
+  ) {
+    this.staticExecutor = options.staticExecutor ?? new StaticGeneratedNodeTestExecutor();
+    this.dockerExecutor = options.dockerExecutor ?? new DockerGeneratedNodeTestExecutor();
+  }
+
+  public async execute(input: {
+    readonly request: GeneratedNodeBuildLoopRequest;
+    readonly generation: CodegenGenerationResult;
+    readonly testArtifacts: readonly GeneratedArtifact[];
+    readonly iteration: number;
+  }): Promise<GeneratedNodeTestExecution> {
+    return input.request.runTestsInDocker
+      ? this.dockerExecutor.execute(input)
+      : this.staticExecutor.execute(input);
+  }
+}
+
 export class StaticGeneratedNodeTestExecutor implements GeneratedNodeTestExecutor {
   public async execute(input: {
     readonly request: GeneratedNodeBuildLoopRequest;
@@ -443,6 +473,305 @@ export class StaticGeneratedNodeTestExecutor implements GeneratedNodeTestExecuto
             failureMessage: findings.map((finding) => finding.message).join("; ")
           })
     };
+  }
+}
+
+export interface DockerGeneratedNodeTestExecutorOptions {
+  readonly dockerBin?: string | undefined;
+  readonly containerWorkspace?: string | undefined;
+  readonly commandRunner?: DockerGeneratedNodeCommandRunner | undefined;
+}
+
+export class DockerGeneratedNodeTestExecutor implements GeneratedNodeTestExecutor {
+  private readonly dockerBin: string;
+  private readonly containerWorkspace: string;
+  private readonly commandRunner: DockerGeneratedNodeCommandRunner;
+
+  public constructor(options: DockerGeneratedNodeTestExecutorOptions = {}) {
+    this.dockerBin = options.dockerBin ?? "docker";
+    this.containerWorkspace = options.containerWorkspace ?? "/workspace";
+    this.commandRunner = options.commandRunner ?? new SpawnDockerGeneratedNodeCommandRunner();
+  }
+
+  public buildCommand(input: {
+    readonly request: GeneratedNodeBuildLoopRequest;
+    readonly workspaceRoot: string;
+    readonly runtimeScriptPath: string;
+    readonly inputPath: string;
+    readonly outputPath: string;
+    readonly stdoutPath: string;
+    readonly stderrPath: string;
+  }): DockerGeneratedNodeCommand {
+    const network = input.request.sandbox.network === "none" ? "none" : "bridge";
+    const containerPath = (path: string) => `${this.containerWorkspace}/${path}`;
+
+    return {
+      executable: this.dockerBin,
+      args: [
+        "run",
+        "--rm",
+        "--network",
+        network,
+        "--cpus",
+        input.request.runtime.resources.cpu,
+        "--memory",
+        `${input.request.runtime.resources.memoryMb}m`,
+        "--volume",
+        `${input.workspaceRoot}:${this.containerWorkspace}:rw`,
+        "--workdir",
+        this.containerWorkspace,
+        "--env",
+        `NANOCLAW_NODE_INPUT=${containerPath(input.inputPath)}`,
+        "--env",
+        `NANOCLAW_NODE_OUTPUT=${containerPath(input.outputPath)}`,
+        "--env",
+        `NANOCLAW_NODE_ID=${input.request.nodeId}`,
+        input.request.runtime.image,
+        "node",
+        containerPath(input.runtimeScriptPath)
+      ],
+      workspaceRoot: input.workspaceRoot,
+      network,
+      timeoutMs:
+        (input.request.maxDockerRuntimeSeconds ?? input.request.runtime.timeoutSeconds) * 1000,
+      inputPath: input.inputPath,
+      outputPath: input.outputPath,
+      stdoutPath: input.stdoutPath,
+      stderrPath: input.stderrPath
+    };
+  }
+
+  public async execute(input: {
+    readonly request: GeneratedNodeBuildLoopRequest;
+    readonly generation: CodegenGenerationResult;
+    readonly testArtifacts: readonly GeneratedArtifact[];
+    readonly iteration: number;
+  }): Promise<GeneratedNodeTestExecution> {
+    throwIfAborted(input.request);
+    const workspaceRoot = input.request.workspaceRoot;
+    if (!workspaceRoot) {
+      return failedDockerExecution(input, "Docker generated-node eval requires a workspace root.");
+    }
+
+    const runtimeScript = createGeneratedArtifact({
+      path: `generated/${input.request.nodeId}.docker-runner.mjs`,
+      content: input.generation.sourceArtifact.content,
+      contentType: "text/typescript"
+    });
+    const inputArtifact = createGeneratedArtifact({
+      path: `generated/${input.request.nodeId}.docker-input.json`,
+      content: JSON.stringify(createFixturePayload(input.request), null, 2),
+      contentType: "application/json"
+    });
+    const outputPath = `generated/${input.request.nodeId}.docker-output.json`;
+    const stdoutPath = `generated/${input.request.nodeId}.docker-stdout.log`;
+    const stderrPath = `generated/${input.request.nodeId}.docker-stderr.log`;
+    const command = this.buildCommand({
+      request: input.request,
+      workspaceRoot,
+      runtimeScriptPath: runtimeScript.path,
+      inputPath: inputArtifact.path,
+      outputPath,
+      stdoutPath,
+      stderrPath
+    });
+    const commandArtifact = createGeneratedArtifact({
+      path: `generated/${input.request.nodeId}.docker-command.json`,
+      content: JSON.stringify(
+        {
+          executable: command.executable,
+          args: command.args,
+          network: command.network,
+          timeoutMs: command.timeoutMs
+        },
+        null,
+        2
+      ),
+      contentType: "application/json"
+    });
+
+    await materializeWorkspaceFiles(workspaceRoot, [
+      ...input.testArtifacts,
+      runtimeScript,
+      inputArtifact,
+      commandArtifact
+    ]);
+
+    const result = await this.commandRunner.run(command, input.request.signal);
+    throwIfAborted(input.request);
+    const stdoutArtifact = createGeneratedArtifact({
+      path: stdoutPath,
+      content: result.stdout,
+      contentType: "text/plain"
+    });
+    const stderrArtifact = createGeneratedArtifact({
+      path: stderrPath,
+      content: result.stderr,
+      contentType: "text/plain"
+    });
+    const outputRead =
+      result.output === undefined
+        ? await readDockerOutput(workspaceRoot, outputPath)
+        : validateDockerOutput(result.output);
+    const outputArtifact = createGeneratedArtifact({
+      path: outputPath,
+      content: outputRead.raw,
+      contentType: "application/json"
+    });
+    await materializeWorkspaceFiles(workspaceRoot, [
+      stdoutArtifact,
+      stderrArtifact,
+      outputArtifact
+    ]);
+
+    const findings = [];
+    const outputPorts = Object.keys(input.request.outputSchema).sort();
+    const schemaValid =
+      outputRead.ok &&
+      outputPorts.every((port) => Object.prototype.hasOwnProperty.call(outputRead.output, port));
+    if (!schemaValid) {
+      findings.push({
+        id: `finding.${input.request.nodeId}.docker-schema`,
+        severity: "error" as const,
+        target: { kind: "node" as const, id: input.request.nodeId },
+        message: outputRead.ok
+          ? "Docker generated-node eval output did not include all declared output ports."
+          : outputRead.error,
+        issues: []
+      });
+    }
+    const dependencyPolicyValid = input.generation.dependencyManifest.packageManager === "none";
+    if (!dependencyPolicyValid) {
+      findings.push({
+        id: `finding.${input.request.nodeId}.docker-dependencies`,
+        severity: "error" as const,
+        target: { kind: "artifact" as const, id: input.generation.dependencyManifest.path },
+        message:
+          "Docker generated-node eval requires a dependency-free candidate unless dependencies are already vendored in the scoped workspace.",
+        issues: []
+      });
+    }
+    const securityValid = command.network === "none" || input.request.sandbox.network !== "none";
+    if (!securityValid) {
+      findings.push({
+        id: `finding.${input.request.nodeId}.docker-network`,
+        severity: "error" as const,
+        target: { kind: "node" as const, id: input.request.nodeId },
+        message: "Docker generated-node eval attempted undeclared network access.",
+        issues: []
+      });
+    }
+    if (result.timedOut) {
+      findings.push({
+        id: `finding.${input.request.nodeId}.docker-timeout`,
+        severity: "error" as const,
+        target: { kind: "node" as const, id: input.request.nodeId },
+        message: `Docker generated-node eval exceeded ${command.timeoutMs}ms runtime budget.`,
+        issues: []
+      });
+    }
+    if (result.exitCode !== 0) {
+      findings.push({
+        id: `finding.${input.request.nodeId}.docker-exit`,
+        severity: "error" as const,
+        target: { kind: "node" as const, id: input.request.nodeId },
+        message: `Docker generated-node eval exited with code ${result.exitCode}.`,
+        issues: []
+      });
+    }
+    const replayValid = input.generation.metadata.replay.mode !== "always-regenerate";
+    const passed =
+      result.exitCode === 0 &&
+      !result.timedOut &&
+      schemaValid &&
+      securityValid &&
+      replayValid &&
+      dependencyPolicyValid;
+
+    return {
+      status: passed ? "passed" : "failed",
+      logs: [
+        `Docker generated-node eval executed in ${workspaceRoot}.`,
+        `${command.executable} ${command.args.join(" ")}`,
+        ...(result.stdout.length > 0 ? [`stdout: ${result.stdout}`] : []),
+        ...(result.stderr.length > 0 ? [`stderr: ${result.stderr}`] : [])
+      ],
+      resultArtifacts: [commandArtifact, stdoutArtifact, stderrArtifact, outputArtifact],
+      schemaValid,
+      securityValid,
+      replayValid,
+      dependencyPolicyValid,
+      findings,
+      ...(passed
+        ? {}
+        : {
+            failureMessage:
+              findings.map((finding) => finding.message).join("; ") ||
+              "Docker generated-node eval failed."
+          })
+    };
+  }
+}
+
+class SpawnDockerGeneratedNodeCommandRunner implements DockerGeneratedNodeCommandRunner {
+  public async run(
+    command: DockerGeneratedNodeCommand,
+    signal?: AbortSignal | undefined
+  ): Promise<DockerGeneratedNodeCommandResult> {
+    const controller = new AbortController();
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, command.timeoutMs);
+    const abortFromParent = () => controller.abort(signal?.reason);
+    signal?.addEventListener("abort", abortFromParent, { once: true });
+
+    try {
+      return await new Promise<DockerGeneratedNodeCommandResult>((resolve, reject) => {
+        const child = spawn(command.executable, command.args, {
+          cwd: command.workspaceRoot,
+          stdio: ["ignore", "pipe", "pipe"],
+          signal: controller.signal
+        });
+        const stdoutChunks: Buffer[] = [];
+        const stderrChunks: Buffer[] = [];
+        let settled = false;
+        const settle = (result: DockerGeneratedNodeCommandResult): void => {
+          if (!settled) {
+            settled = true;
+            resolve(result);
+          }
+        };
+        child.stdout.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
+        child.stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+        child.on("error", (error) => {
+          if (timedOut || controller.signal.aborted) {
+            settle({
+              exitCode: 1,
+              stdout: Buffer.concat(stdoutChunks).toString("utf8"),
+              stderr:
+                Buffer.concat(stderrChunks).toString("utf8") ||
+                (error instanceof Error ? error.message : "Docker command aborted."),
+              timedOut
+            });
+            return;
+          }
+          reject(error);
+        });
+        child.on("close", (code) =>
+          settle({
+            exitCode: code ?? 1,
+            stdout: Buffer.concat(stdoutChunks).toString("utf8"),
+            stderr: Buffer.concat(stderrChunks).toString("utf8"),
+            ...(timedOut ? { timedOut } : {})
+          })
+        );
+      });
+    } finally {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", abortFromParent);
+    }
   }
 }
 
@@ -687,9 +1016,116 @@ async function materializeWorkspaceFiles(
     return;
   }
   for (const artifact of artifacts) {
-    const path = join(workspaceRoot, artifact.path);
+    const path = resolveWorkspacePath(workspaceRoot, artifact.path);
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, artifact.content, "utf8");
+  }
+}
+
+function resolveWorkspacePath(workspaceRoot: string, artifactPath: string): string {
+  const root = resolve(workspaceRoot);
+  const path = resolve(root, artifactPath);
+  const relativePath = relative(root, path);
+  if (relativePath.startsWith("..") || isAbsolute(relativePath)) {
+    throw new Error(
+      `Generated artifact path '${artifactPath}' must stay inside workspace '${workspaceRoot}'.`
+    );
+  }
+
+  return path;
+}
+
+function failedDockerExecution(
+  input: {
+    readonly request: GeneratedNodeBuildLoopRequest;
+  },
+  message: string
+): GeneratedNodeTestExecution {
+  return {
+    status: "failed",
+    logs: [message],
+    resultArtifacts: [],
+    schemaValid: false,
+    securityValid: false,
+    replayValid: false,
+    dependencyPolicyValid: false,
+    findings: [
+      {
+        id: `finding.${input.request.nodeId}.docker`,
+        severity: "error",
+        target: { kind: "node", id: input.request.nodeId },
+        message,
+        issues: []
+      }
+    ],
+    failureMessage: message
+  };
+}
+
+function createFixturePayload(request: GeneratedNodeBuildLoopRequest): {
+  readonly inputs: Record<string, unknown>;
+} {
+  return {
+    inputs: Object.fromEntries(
+      Object.keys(request.inputSchema)
+        .sort()
+        .map((port) => [port, { fixture: true }])
+    )
+  };
+}
+
+async function readDockerOutput(
+  workspaceRoot: string,
+  outputPath: string
+): Promise<
+  | { readonly ok: true; readonly output: Record<string, unknown>; readonly raw: string }
+  | { readonly ok: false; readonly error: string; readonly raw: string }
+> {
+  try {
+    return validateDockerOutput(
+      await readFile(resolveWorkspacePath(workspaceRoot, outputPath), "utf8")
+    );
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : `Unable to read Docker output '${outputPath}'.`;
+    return {
+      ok: false,
+      error: message,
+      raw: JSON.stringify({ error: message }, null, 2)
+    };
+  }
+}
+
+function validateDockerOutput(
+  output: unknown
+):
+  | { readonly ok: true; readonly output: Record<string, unknown>; readonly raw: string }
+  | { readonly ok: false; readonly error: string; readonly raw: string } {
+  try {
+    const parsed = typeof output === "string" ? JSON.parse(output) : output;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {
+        ok: false,
+        error: "Docker generated-node eval output must be a JSON object.",
+        raw: typeof output === "string" ? output : JSON.stringify(output, null, 2)
+      };
+    }
+
+    return {
+      ok: true,
+      output: parsed as Record<string, unknown>,
+      raw: JSON.stringify(parsed, null, 2)
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Docker generated-node eval output was invalid JSON.";
+    return {
+      ok: false,
+      error: message,
+      raw: typeof output === "string" ? output : JSON.stringify({ error: message }, null, 2)
+    };
   }
 }
 
