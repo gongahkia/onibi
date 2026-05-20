@@ -501,6 +501,14 @@ describe("kelpclaw api contracts", () => {
       }
     });
     expect(built.statusCode).toBe(200);
+    expect(built.json().workspace.mountedAgents).toContain("evaluator");
+    expect(
+      built
+        .json()
+        .workspace.fileHashes.some(
+          (file: { readonly path: string }) => file.path === "generated/scrape-status-page.ts"
+        )
+    ).toBe(true);
     const evals = await app.inject({
       method: "GET",
       url: `/api/workflows/${workflow.id}/codegen/scrape-status-page/evals`

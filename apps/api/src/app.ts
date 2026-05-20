@@ -1,6 +1,7 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import type { ServerResponse } from "node:http";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import Fastify from "fastify";
 import {
   AgentSdkCodeGenerator,
@@ -2492,14 +2493,28 @@ function createWorkflowWorkspace(input: {
   const id = `workspace.${input.jobId}`;
   const rootPath = join(process.cwd(), ".kelpclaw", "workspaces", id);
   const mountedAgents: WorkflowWorkspace["mountedAgents"] = [
-    "planner",
+    "workflow-architect",
     "coder",
     "tester",
     "runner",
-    "fixer"
+    "fixer",
+    "evaluator"
   ];
+  mkdirSync(rootPath, { recursive: true });
+  mkdirSync(resolveWorkspacePath(rootPath, "logs"), { recursive: true });
+  mkdirSync(resolveWorkspacePath(rootPath, "artifacts"), { recursive: true });
 
-  return {
+  const mounts = mountedAgents.map((role) => {
+    const mountPath = resolveWorkspacePath(rootPath, `mounts/${role}`);
+    mkdirSync(mountPath, { recursive: true });
+    return {
+      role,
+      path: mountPath,
+      mode: role === "workflow-architect" ? ("ro" as const) : ("rw" as const)
+    };
+  });
+
+  const workspace: WorkflowWorkspace = {
     id,
     jobId: input.jobId,
     workflowId: input.workflowId,
@@ -2508,11 +2523,7 @@ function createWorkflowWorkspace(input: {
     createdAt: now,
     updatedAt: now,
     mountedAgents,
-    mounts: mountedAgents.map((role) => ({
-      role,
-      path: join(rootPath, role),
-      mode: role === "planner" ? "ro" : "rw"
-    })),
+    mounts,
     filesCreated: [],
     fileHashes: [],
     artifactsProduced: [],
@@ -2522,6 +2533,8 @@ function createWorkflowWorkspace(input: {
     retentionPolicy: "retain-on-failure",
     retentionStatus: "active"
   };
+
+  return workspace;
 }
 
 function createUpdatedWorkspaceRecord(
@@ -2534,24 +2547,72 @@ function createUpdatedWorkspaceRecord(
     readonly retentionStatus: WorkflowWorkspace["retentionStatus"];
   }
 ): WorkflowWorkspace {
-  const logPaths = input.logs.map((_log, index) =>
-    join(workspace.rootPath, "logs", `build-${index + 1}.log`)
+  const artifactRefs = input.artifacts.map((artifact) => {
+    resolveWorkspacePath(workspace.rootPath, artifact.path);
+    return artifact;
+  });
+  const filePaths = input.files.map((file) =>
+    normalizeWorkspaceRelativePath(workspace.rootPath, file)
   );
+  const existingLogCount = workspace.logs.length;
+  const logPaths = input.logs.map((log, index) => {
+    const relativeLogPath = `logs/build-${existingLogCount + index + 1}.log`;
+    const absolutePath = resolveWorkspacePath(workspace.rootPath, relativeLogPath);
+    mkdirSync(dirname(absolutePath), { recursive: true });
+    writeFileSync(absolutePath, log, "utf8");
+    return {
+      relativePath: relativeLogPath,
+      absolutePath
+    };
+  });
+  const filesCreated = uniqueStrings([
+    ...workspace.filesCreated,
+    ...filePaths,
+    ...logPaths.map((log) => log.relativePath)
+  ]);
 
   return {
     ...workspace,
     updatedAt: new Date().toISOString(),
-    filesCreated: uniqueStrings([...workspace.filesCreated, ...input.files]),
-    fileHashes: input.artifacts.map((artifact) => ({
-      path: artifact.path,
-      checksum: artifact.checksum
-    })),
-    artifactsProduced: input.artifacts,
+    filesCreated,
+    fileHashes: hashWorkspaceFiles(workspace.rootPath, filesCreated),
+    artifactsProduced: artifactRefs,
     logs: [...workspace.logs, ...input.logs],
-    logPaths: uniqueStrings([...workspace.logPaths, ...logPaths]),
+    logPaths: uniqueStrings([...workspace.logPaths, ...logPaths.map((log) => log.absolutePath)]),
     testReports: uniqueStrings([...workspace.testReports, ...input.testReports]),
     retentionStatus: input.retentionStatus
   };
+}
+
+function resolveWorkspacePath(workspaceRoot: string, path: string): string {
+  const root = resolve(workspaceRoot);
+  const target = resolve(root, path);
+  const relativePath = relative(root, target);
+  if (relativePath.startsWith("..") || isAbsolute(relativePath)) {
+    throw new Error(`Workspace path '${path}' must stay inside '${workspaceRoot}'.`);
+  }
+
+  return target;
+}
+
+function normalizeWorkspaceRelativePath(workspaceRoot: string, path: string): string {
+  const absolutePath = resolveWorkspacePath(workspaceRoot, path);
+  return relative(resolve(workspaceRoot), absolutePath);
+}
+
+function hashWorkspaceFiles(
+  workspaceRoot: string,
+  paths: readonly string[]
+): WorkflowWorkspace["fileHashes"] {
+  return paths
+    .filter((path) => existsSync(resolveWorkspacePath(workspaceRoot, path)))
+    .map((path) => ({
+      path,
+      checksum: `sha256:${createHash("sha256")
+        .update(readFileSync(resolveWorkspacePath(workspaceRoot, path)))
+        .digest("hex")}`
+    }))
+    .sort((left, right) => left.path.localeCompare(right.path));
 }
 
 function uniqueStrings(values: readonly string[]): readonly string[] {

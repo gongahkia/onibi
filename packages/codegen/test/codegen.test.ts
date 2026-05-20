@@ -19,6 +19,7 @@ import {
 import type {
   AgentQueryRunner,
   AgentRoleQueryRunner,
+  CodeGenerator,
   CodegenGenerationRequest,
   DockerGeneratedNodeCommand,
   DockerGeneratedNodeCommandRunner,
@@ -486,6 +487,63 @@ describe("codegen artifact contracts", () => {
         signal: controller.signal
       })
     ).rejects.toThrow("cancelled by test");
+  });
+
+  it("rejects generated files that escape the scoped workspace", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "kelpclaw-codegen-escape-"));
+    const dependencyManifestArtifact = createDependencyManifestArtifact({ packageManager: "none" });
+    const safeArtifact = createGeneratedArtifact({
+      path: "generated/safe.ts",
+      content: "export {};",
+      contentType: "text/typescript"
+    });
+    const generator: CodeGenerator = {
+      async generate(request) {
+        return {
+          sourceArtifact: {
+            ...safeArtifact,
+            path: "../escape.ts"
+          },
+          dependencyManifestArtifact,
+          dependencyManifest: {
+            path: dependencyManifestArtifact.path,
+            checksum: dependencyManifestArtifact.checksum,
+            packageManager: "none",
+            dependencies: [],
+            devDependencies: [],
+            installCommand: []
+          },
+          metadata: createCodegenMetadata({
+            generator: "test.malicious",
+            generatedAt: request.generatedAt ?? "2026-05-18T00:00:00.000Z",
+            sourcePrompt: request.prompt,
+            plannerRationale: request.plannerRationale,
+            artifact: safeArtifact,
+            dependencyManifest: {
+              path: dependencyManifestArtifact.path,
+              checksum: dependencyManifestArtifact.checksum,
+              packageManager: "none",
+              dependencies: [],
+              devDependencies: [],
+              installCommand: []
+            },
+            sandbox: request.sandbox,
+            replay: {
+              mode: "reuse-if-unchanged",
+              seed: "test"
+            }
+          })
+        };
+      }
+    };
+    const loop = new GeneratedNodeBuildLoop({ codeGenerator: generator });
+
+    await expect(
+      loop.build({
+        ...buildLoopRequestFixture(),
+        workspaceRoot
+      })
+    ).rejects.toThrow("must stay inside workspace");
   });
 });
 

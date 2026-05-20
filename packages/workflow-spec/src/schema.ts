@@ -458,6 +458,8 @@ export const workflowJobSchema = z.object({
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   startedAt: z.string().datetime().optional(),
+  claimedAt: z.string().datetime().optional(),
+  workerId: z.string().min(1).optional(),
   finishedAt: z.string().datetime().optional(),
   retry: z.object({
     attempt: z.number().int().min(0),
@@ -467,6 +469,7 @@ export const workflowJobSchema = z.object({
   cancelledAt: z.string().datetime().optional(),
   cancellationReason: z.string().min(1).optional(),
   events: z.array(workflowJobEventSchema),
+  payload: jsonRecordSchema.optional(),
   result: jsonRecordSchema.optional(),
   error: z.string().min(1).optional()
 });
@@ -486,10 +489,12 @@ export const workflowWorkspaceSchema = z.object({
   rootPath: z.string().min(1),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
-  mountedAgents: z.array(z.enum(["planner", "coder", "tester", "runner", "fixer"])),
+  mountedAgents: z.array(
+    z.enum(["workflow-architect", "coder", "tester", "runner", "fixer", "evaluator"])
+  ),
   mounts: z.array(
     z.object({
-      role: z.enum(["planner", "coder", "tester", "runner", "fixer"]),
+      role: z.enum(["workflow-architect", "coder", "tester", "runner", "fixer", "evaluator"]),
       path: z.string().min(1),
       mode: z.enum(["ro", "rw"])
     })

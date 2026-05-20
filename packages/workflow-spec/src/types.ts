@@ -625,7 +625,13 @@ export interface WorkflowJob {
   readonly error?: string | undefined;
 }
 
-export type WorkflowWorkspaceMountRole = "planner" | "coder" | "tester" | "runner" | "fixer";
+export type WorkflowWorkspaceMountRole =
+  | "workflow-architect"
+  | "coder"
+  | "tester"
+  | "runner"
+  | "fixer"
+  | "evaluator";
 
 export interface WorkflowWorkspaceMount {
   readonly role: WorkflowWorkspaceMountRole;
