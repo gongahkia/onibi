@@ -28,6 +28,7 @@ Current product boundaries are tracked in [`docs/non-goals.md`](non-goals.md).
 | Opt-in rescan replay | Alpha | `piranesi rescan --from-baseline` recovers supported nmap/nuclei commands from baseline evidence, requires optional runtime support and digest-pinned images, and writes raw outputs for existing ingest commands. |
 | Retest lifecycle diff | Alpha | `new`, `open`, `closed`, `changed`, `regressed`, and `ambiguous` classifications. |
 | Local web app | Alpha | `piranesi serve --workspace`; loopback by default, engagement setup, guided empty states, note capture, evidence file upload, and workspace/report preview. |
+| AI drafting and suggestions | Alpha | Redacted, traceable, operator-approved remediation drafts, executive summary drafts, and non-mutating dedupe/severity/retest suggestions. |
 
 ## Roadmap, Not Current Capability
 
@@ -46,10 +47,10 @@ features until their own acceptance criteria are complete:
   when Docker default networking is used without portable egress enforcement.
 - Engagement-scale design-partner feedback loops.
 - Audit evidence packaging and assessor-ready bundles.
-- Workflow integrations, PFF SDKs, enterprise deployment, and AI assistance.
-- AI assistance must follow
-  [`ai-operator-control-policy.md`](ai-operator-control-policy.md) before any
-  provider implementation or report-drafting workflow is added.
+- Workflow integrations, PFF SDKs, and enterprise deployment.
+- Autonomous AI-driven target interaction, payload generation, scanner operation,
+  finding creation, evidence creation, or report changes without explicit human
+  approval.
 
 ## Quality Gates
 
