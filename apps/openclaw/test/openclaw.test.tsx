@@ -151,6 +151,22 @@ describe("OpenClaw planner shell", () => {
     fireEvent.click(screen.getByRole("button", { name: /Promote Skill/i }));
     expect(await screen.findByText("Promoted Scrape Status Page")).toBeInTheDocument();
   });
+
+  it("renders worker job and deployment activation state", async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: /evaluate/i }));
+    expect((await screen.findAllByText("ready")).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: /approve/i }));
+    expect(await screen.findByText("Frozen approval metadata changed.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Deploy$/i }));
+
+    expect(await screen.findByText("Deployment deployed: workflow.bundle")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Deployments" })).toBeInTheDocument();
+    expect(screen.getByText(/deployment\.workflow\.bundle/u)).toBeInTheDocument();
+    expect(screen.getByText("worker.openclaw-test")).toBeInTheDocument();
+  });
 });
 
 async function mockFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
@@ -399,6 +415,53 @@ async function mockFetch(input: string | URL | Request, init?: RequestInit): Pro
     return jsonResponse({ ok: true, run: createRunRecord("approved.workflow.r1") });
   }
 
+  if (url.endsWith("/deployments/active")) {
+    return jsonResponse({
+      ok: true,
+      activeDeployments: [
+        {
+          id: "deployment.workflow.bundle",
+          workflowId: mockCurrentWorkflow?.id ?? "workflow.gmail-receipts-to-sheets",
+          approvedRevisionId: "approved.workflow.r1",
+          draftEvaluationId: "eval.workflow.r1",
+          kind: "workflow.bundle",
+          status: "deployed",
+          createdAt: "2026-05-18T01:00:00.000Z",
+          createdBy: "owner@example.com",
+          requiredIntegrations: [],
+          secretRefs: [],
+          rollbackPlan: "Rollback.",
+          auditRecordId: "audit.deployment",
+          metadata: {}
+        }
+      ],
+      activeSchedules: [],
+      runnerConfigurations: [
+        {
+          deploymentId: "deployment.runner",
+          status: "active",
+          dagHash: "sha256:test"
+        }
+      ],
+      skillPublications: [],
+      integrationBindings: [],
+      bundles: [
+        {
+          deploymentId: "deployment.workflow.bundle",
+          path: "deployments/deployment.workflow.bundle/workflow-bundle.json"
+        }
+      ],
+      generatedServices: []
+    });
+  }
+
+  if (url.endsWith("/deployments") && init?.method === "GET") {
+    return jsonResponse({
+      ok: true,
+      deployments: []
+    });
+  }
+
   if (url.endsWith("/deployments")) {
     return jsonResponse(
       {
@@ -439,6 +502,8 @@ function mockJob(
     correlationId: "corr.openclaw-test",
     createdAt: "2026-05-18T01:00:00.000Z",
     updatedAt: "2026-05-18T01:00:00.000Z",
+    claimedAt: status === "queued" ? undefined : "2026-05-18T01:00:00.000Z",
+    workerId: status === "queued" ? undefined : "worker.openclaw-test",
     retry: { attempt: 0, maxAttempts: 1, retryable: true },
     events: [
       {

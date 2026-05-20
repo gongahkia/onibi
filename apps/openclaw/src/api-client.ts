@@ -1,4 +1,5 @@
 import type {
+  JsonRecord,
   WorkflowApproveRequest,
   WorkflowApproveResponse,
   WorkflowDraftEvaluation,
@@ -21,6 +22,17 @@ import type {
   WorkflowValidateRequest,
   WorkflowValidateResponse
 } from "@kelpclaw/workflow-spec";
+
+export interface DeploymentActivationSummaryResponse {
+  readonly ok: true;
+  readonly activeDeployments: readonly WorkflowDeploymentRecord[];
+  readonly activeSchedules: readonly JsonRecord[];
+  readonly runnerConfigurations: readonly JsonRecord[];
+  readonly skillPublications: readonly JsonRecord[];
+  readonly integrationBindings: readonly JsonRecord[];
+  readonly bundles: readonly JsonRecord[];
+  readonly generatedServices: readonly JsonRecord[];
+}
 
 export interface CodegenReviewRequest {
   readonly status: "approved" | "rejected";
@@ -284,6 +296,16 @@ export const openClawApi = {
     workspaceId: string
   ): Promise<{ readonly ok: true; readonly workspace: WorkflowWorkspace }> {
     return getJson(`/api/workspaces/${encodeURIComponent(workspaceId)}`);
+  },
+
+  fetchDeployments(
+    workflowId: string
+  ): Promise<{ readonly ok: true; readonly deployments: readonly WorkflowDeploymentRecord[] }> {
+    return getJson(`/api/workflows/${encodeURIComponent(workflowId)}/deployments`);
+  },
+
+  fetchActiveDeployments(workflowId: string): Promise<DeploymentActivationSummaryResponse> {
+    return getJson(`/api/workflows/${encodeURIComponent(workflowId)}/deployments/active`);
   },
 
   deployWorkflow(

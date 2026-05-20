@@ -63,7 +63,11 @@ import type {
   WorkflowValidationResult
 } from "@kelpclaw/workflow-spec";
 import { openClawApi, readOpenClawAdminToken, saveOpenClawAdminToken } from "./api-client.js";
-import type { IntegrationReadiness, SecretMetadata } from "./api-client.js";
+import type {
+  DeploymentActivationSummaryResponse,
+  IntegrationReadiness,
+  SecretMetadata
+} from "./api-client.js";
 import {
   firstInputPort,
   firstOutputPort,
@@ -254,6 +258,8 @@ export function App() {
   const [workspace, setWorkspace] = useState<WorkflowWorkspace | null>(null);
   const [agentRuns, setAgentRuns] = useState<readonly unknown[]>([]);
   const [deploymentNotice, setDeploymentNotice] = useState<string | null>(null);
+  const [deploymentActivations, setDeploymentActivations] =
+    useState<DeploymentActivationSummaryResponse | null>(null);
   const [dirtyNodeIds, setDirtyNodeIds] = useState<ReadonlySet<string>>(new Set());
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>("read-gmail-receipts");
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
@@ -834,7 +840,9 @@ export function App() {
         },
         job.id
       );
+      const active = await openClawApi.fetchActiveDeployments(workflow.id);
       setDeploymentNotice(`Deployment ${response.deployment.status}: ${response.deployment.kind}`);
+      setDeploymentActivations(active);
     });
   }
 
@@ -866,6 +874,7 @@ export function App() {
     setWorkspace(null);
     setAgentRuns([]);
     setDeploymentNotice(null);
+    setDeploymentActivations(null);
     setPromotionNotice(null);
     loadWorkflow(
       gmailReceiptsToSheetsWorkflowFixture,
@@ -1162,6 +1171,7 @@ export function App() {
             workspace={workspace}
             agentRuns={agentRuns}
             deploymentNotice={deploymentNotice}
+            deploymentActivations={deploymentActivations}
             busyAction={busyAction}
             onNodePromptChange={setNodePrompt}
             onReprompt={repromptNode}
@@ -1191,6 +1201,7 @@ function Inspector(props: {
   readonly workspace: WorkflowWorkspace | null;
   readonly agentRuns: readonly unknown[];
   readonly deploymentNotice: string | null;
+  readonly deploymentActivations: DeploymentActivationSummaryResponse | null;
   readonly busyAction: string | null;
   readonly promotionNotice: string | null;
   readonly onNodePromptChange: (value: string) => void;
@@ -1458,6 +1469,7 @@ function Inspector(props: {
       <JobPanel job={props.activeJob} />
       <WorkspacePanel workspace={props.workspace} agentRuns={props.agentRuns} />
       {props.deploymentNotice ? <p className="success-text">{props.deploymentNotice}</p> : null}
+      <DeploymentPanel activations={props.deploymentActivations} />
       <RunPanel run={props.run} />
     </>
   );
@@ -1743,6 +1755,16 @@ function JobPanel(props: { readonly job: WorkflowJob | null }) {
         value={props.job?.status ?? "idle"}
         tone={props.job?.status ?? "idle"}
       />
+      <StatusRow
+        label="Worker"
+        value={props.job?.workerId ?? "unclaimed"}
+        tone={props.job?.workerId ? "valid" : "idle"}
+      />
+      <StatusRow
+        label="Attempt"
+        value={String(props.job?.retry.attempt ?? 0)}
+        tone={props.job?.status === "failed" ? "blocked" : "pending"}
+      />
       {props.job ? (
         <ul className="event-list">
           {props.job.events.slice(-8).map((event) => (
@@ -1761,6 +1783,7 @@ function WorkspacePanel(props: {
   readonly workspace: WorkflowWorkspace | null;
   readonly agentRuns: readonly unknown[];
 }) {
+  const agentRuns = props.agentRuns.map(agentRunView);
   return (
     <section className="run-panel" aria-label="Workspace artifacts">
       <h2>Workspace</h2>
@@ -1770,9 +1793,106 @@ function WorkspacePanel(props: {
         tone={props.workspace ? "valid" : "idle"}
       />
       <StatusRow label="Agents" value={String(props.agentRuns.length)} tone="pending" />
+      {props.workspace ? (
+        <ul className="event-list">
+          {props.workspace.fileHashes.slice(0, 6).map((file) => (
+            <li key={file.path}>
+              <strong>{file.path}</strong>
+              <span>{file.checksum.slice(0, 19)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {agentRuns.length > 0 ? (
+        <ul className="event-list">
+          {agentRuns.map((run, index) => (
+            <li key={`${run.role}-${index}`}>
+              <strong>{run.role}</strong>
+              <span>
+                {run.status} · {run.model}
+                {run.costUsd !== null ? ` · $${run.costUsd.toFixed(4)}` : ""}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {props.workspace ? <pre className="result-view">{formatJson(props.workspace)}</pre> : null}
     </section>
   );
+}
+
+function DeploymentPanel(props: {
+  readonly activations: DeploymentActivationSummaryResponse | null;
+}) {
+  return (
+    <section className="run-panel" aria-label="Deployment activations">
+      <h2>Deployments</h2>
+      <StatusRow
+        label="Active"
+        value={String(props.activations?.activeDeployments.length ?? 0)}
+        tone={props.activations?.activeDeployments.length ? "valid" : "idle"}
+      />
+      <StatusRow
+        label="Schedules"
+        value={String(props.activations?.activeSchedules.length ?? 0)}
+        tone={props.activations?.activeSchedules.length ? "valid" : "idle"}
+      />
+      <StatusRow
+        label="Runners"
+        value={String(props.activations?.runnerConfigurations.length ?? 0)}
+        tone={props.activations?.runnerConfigurations.length ? "valid" : "idle"}
+      />
+      {props.activations ? (
+        <pre className="result-view">
+          {formatJson(deploymentActivationPreview(props.activations))}
+        </pre>
+      ) : null}
+    </section>
+  );
+}
+
+function agentRunView(run: unknown): {
+  readonly role: string;
+  readonly status: string;
+  readonly model: string;
+  readonly costUsd: number | null;
+} {
+  const record = jsonObject(run);
+  const invocations = Array.isArray(record.modelInvocations)
+    ? record.modelInvocations.map(jsonObject)
+    : [];
+  const costUsd = invocations.reduce((total, invocation) => {
+    const cost = typeof invocation.costUsd === "number" ? invocation.costUsd : 0;
+    return total + cost;
+  }, 0);
+
+  return {
+    role: typeof record.role === "string" ? record.role : "agent",
+    status: typeof record.status === "string" ? record.status : "unknown",
+    model: typeof record.model === "string" ? record.model : "none",
+    costUsd: costUsd > 0 ? costUsd : null
+  };
+}
+
+function jsonObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function deploymentActivationPreview(activations: DeploymentActivationSummaryResponse): JsonRecord {
+  return {
+    activeDeployments: activations.activeDeployments.map((deployment) => ({
+      id: deployment.id,
+      kind: deployment.kind,
+      status: deployment.status
+    })),
+    activeSchedules: [...activations.activeSchedules],
+    runnerConfigurations: [...activations.runnerConfigurations],
+    skillPublications: [...activations.skillPublications],
+    integrationBindings: [...activations.integrationBindings],
+    generatedServices: [...activations.generatedServices]
+  };
 }
 
 function RunPanel(props: { readonly run: WorkflowRunRecord | null }) {
