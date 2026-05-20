@@ -46,6 +46,7 @@ from piranesi.detections import (
     add_ioc,
     load_detections,
 )
+from piranesi.email_handoff import EmailHandoffError, write_email_handoff_draft
 from piranesi.evidence import (
     EvidenceError,
     EvidenceKind,
@@ -459,6 +460,79 @@ def integrations_github_issues_command(
             f"{'dry-run' if dry_run else 'complete'}: "
             f"{len(results)} findings, {payload['created']} created, {payload['failed']} failed"
         ),
+    )
+
+
+@integrations_app.command("email-handoff", help="Generate a local email handoff draft.")
+def integrations_email_handoff_command(
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to summarize.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    recipients: Annotated[
+        list[str] | None,
+        typer.Option("--to", help="Email recipient. Repeatable."),
+    ] = None,
+    cc: Annotated[
+        list[str] | None,
+        typer.Option("--cc", help="CC recipient. Repeatable."),
+    ] = None,
+    subject: Annotated[
+        str | None,
+        typer.Option("--subject", help="Draft subject line."),
+    ] = None,
+    artifact_paths: Annotated[
+        list[Path] | None,
+        typer.Option(
+            "--artifact",
+            dir_okay=False,
+            file_okay=True,
+            help="Workspace report artifact to reference. Repeatable.",
+        ),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            dir_okay=False,
+            file_okay=True,
+            help="Output .eml path. Defaults to workspace/reports/email-handoff-draft.eml.",
+        ),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print draft metadata as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    try:
+        state = load_workspace(workspace)
+        draft = write_email_handoff_draft(
+            state,
+            recipients=recipients or [],
+            cc=cc,
+            subject=subject,
+            artifact_paths=artifact_paths,
+            output_path=output,
+        )
+    except (WorkspaceError, EmailHandoffError, OSError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    payload = draft.as_payload()
+    _emit(
+        payload,
+        json_output=json_output,
+        text=f"Email handoff draft written: {draft.path}",
     )
 
 
