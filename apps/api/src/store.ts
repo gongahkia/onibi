@@ -25,6 +25,7 @@ import type {
   WorkflowDraftRevision,
   WorkflowDraftRevisionSource,
   WorkflowGraphDiff,
+  WorkflowGeneratedModuleReuseDecision,
   WorkflowJob,
   WorkflowJobEvent,
   WorkflowPlannerFeedback,
@@ -90,6 +91,13 @@ export interface WorkflowStore {
   listPromptTurns(workflowId: string, branchId?: string | undefined): readonly WorkflowPromptTurn[];
   saveBranchMerge(record: WorkflowBranchMergeRecord): WorkflowBranchMergeRecord;
   listBranchMerges(workflowId: string): readonly WorkflowBranchMergeRecord[];
+  saveGeneratedModuleReuseDecision(
+    record: WorkflowGeneratedModuleReuseDecision
+  ): WorkflowGeneratedModuleReuseDecision;
+  listGeneratedModuleReuseDecisions(
+    workflowId: string,
+    branchId?: string | undefined
+  ): readonly WorkflowGeneratedModuleReuseDecision[];
   getWorkflow(id: string): StoredWorkflow | undefined;
   approveWorkflow(
     workflowId: string,
@@ -170,6 +178,10 @@ export class InMemoryWorkflowStore implements WorkflowStore {
   protected readonly branches = new Map<string, WorkflowBranch>();
   protected readonly promptTurns = new Map<string, WorkflowPromptTurn>();
   protected readonly branchMerges = new Map<string, WorkflowBranchMergeRecord>();
+  protected readonly generatedModuleReuseDecisions = new Map<
+    string,
+    WorkflowGeneratedModuleReuseDecision
+  >();
   protected readonly executions = new Map<string, StoredExecution>();
   protected readonly runs = new Map<string, WorkflowRunRecord>();
   protected readonly audits = new Map<string, WorkflowAuditRecord>();
@@ -357,6 +369,29 @@ export class InMemoryWorkflowStore implements WorkflowStore {
   public listBranchMerges(workflowId: string): readonly WorkflowBranchMergeRecord[] {
     return [...this.branchMerges.values()]
       .filter((merge) => merge.workflowId === workflowId)
+      .sort(
+        (left, right) =>
+          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
+      );
+  }
+
+  public saveGeneratedModuleReuseDecision(
+    record: WorkflowGeneratedModuleReuseDecision
+  ): WorkflowGeneratedModuleReuseDecision {
+    this.generatedModuleReuseDecisions.set(record.id, record);
+    return record;
+  }
+
+  public listGeneratedModuleReuseDecisions(
+    workflowId: string,
+    branchId?: string | undefined
+  ): readonly WorkflowGeneratedModuleReuseDecision[] {
+    return [...this.generatedModuleReuseDecisions.values()]
+      .filter(
+        (decision) =>
+          decision.workflowId === workflowId &&
+          (branchId === undefined || decision.branchId === branchId)
+      )
       .sort(
         (left, right) =>
           left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
@@ -924,6 +959,19 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
     return saved;
   }
 
+  public override saveGeneratedModuleReuseDecision(
+    record: WorkflowGeneratedModuleReuseDecision
+  ): WorkflowGeneratedModuleReuseDecision {
+    const saved = super.saveGeneratedModuleReuseDecision(record);
+    this.runSql(
+      [
+        "INSERT OR REPLACE INTO generated_module_reuse_decisions (id, workflow_id, branch_id, node_id, status, created_at, record_json)",
+        `VALUES (${sqlValue(saved.id)}, ${sqlValue(saved.workflowId)}, ${sqlValue(saved.branchId)}, ${sqlValue(saved.nodeId)}, ${sqlValue(saved.status)}, ${sqlValue(saved.createdAt)}, ${sqlValue(stableStringify(saved))});`
+      ].join(" ")
+    );
+    return saved;
+  }
+
   public override approveWorkflow(
     workflowId: string,
     approvedBy: string,
@@ -1254,6 +1302,11 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
     )) {
       this.branchMerges.set(row.id, parseJson(row.record_json));
     }
+    for (const row of this.queryRows<RecordJsonRow>(
+      "SELECT * FROM generated_module_reuse_decisions ORDER BY created_at, id;"
+    )) {
+      this.generatedModuleReuseDecisions.set(row.id, parseJson(row.record_json));
+    }
 
     for (const row of this.queryRows<ExecutionRow>(
       "SELECT * FROM executions ORDER BY created_at, id;"
@@ -1549,6 +1602,15 @@ const sqliteMigrations = [
     workflow_id TEXT NOT NULL,
     source_branch_id TEXT NOT NULL,
     target_branch_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+  );`,
+  `CREATE TABLE IF NOT EXISTS generated_module_reuse_decisions (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    branch_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    status TEXT NOT NULL,
     created_at TEXT NOT NULL,
     record_json TEXT NOT NULL
   );`,

@@ -38,6 +38,7 @@ export {
 } from "./dependency-policy.js";
 export type { DependencyManifestInput } from "./dependency-policy.js";
 export { decideReplay, defaultReplayPolicy, manifestFingerprint } from "./replay.js";
+export { createGeneratedModuleSignature, generatedModuleSignaturesMatch } from "./reuse.js";
 export { LocalCodegenArtifactStore, defaultCodegenArtifactStoreRoot } from "./storage.js";
 export type { CodegenArtifactStore } from "./storage.js";
 export type {

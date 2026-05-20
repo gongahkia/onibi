@@ -10,7 +10,9 @@ import {
   checksumArtifactContent,
   createArtifactManifest,
   createAgentSdkGeneratedNodeRoleRunners,
-  createGeneratedArtifact
+  createGeneratedArtifact,
+  createGeneratedModuleSignature,
+  generatedModuleSignaturesMatch
 } from "@kelpclaw/codegen";
 import { registerPromotedSkill } from "@kelpclaw/skill-registry";
 import { createDefaultMockAdapters } from "@kelpclaw/adapters";
@@ -69,6 +71,8 @@ import type {
   WorkflowFeedbackRequest,
   WorkflowFeedbackResponse,
   WorkflowGetBranchResponse,
+  WorkflowGeneratedModuleReuseDecision,
+  WorkflowGeneratedModuleReuseGate,
   JsonValue,
   WorkflowJob,
   WorkflowJobEvent,
@@ -88,6 +92,7 @@ import type {
   WorkflowRepromptNodeResponse,
   WorkflowGraphChange,
   WorkflowRunEvent,
+  WorkflowReuseCandidatesResponse,
   WorkflowSpec,
   WorkflowStartRunRequest,
   WorkflowStartRunResponse,
@@ -862,6 +867,33 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     };
   });
 
+  app.get<{
+    Params: BranchRouteParams;
+    Reply: WorkflowReuseCandidatesResponse;
+  }>("/api/workflows/:id/branches/:branchId/reuse-candidates", async (request, reply) => {
+    const branch = store.getBranch(request.params.branchId);
+    const headDraft = branch ? store.getDraftRevision(branch.headDraftRevisionId) : undefined;
+    if (!branch || branch.workflowId !== request.params.id || !headDraft) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_BRANCH_NOT_FOUND",
+        message: `Branch '${request.params.branchId}' was not found for workflow '${request.params.id}'.`
+      } as never);
+    }
+
+    const decisions = computeGeneratedModuleReuseDecisions(
+      store,
+      request.params.id,
+      branch.id,
+      headDraft.workflow
+    ).map((decision) => store.saveGeneratedModuleReuseDecision(decision));
+
+    return {
+      ok: true,
+      decisions
+    };
+  });
+
   app.post<{
     Params: BranchRouteParams;
     Body: WorkflowBranchPlanRequest;
@@ -914,16 +946,51 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       } as never);
     }
 
-    const draftRevision = store.saveDraftRevision(validation.workflow, validation, "branch-plan", {
+    let draftRevision = store.saveDraftRevision(validation.workflow, validation, "branch-plan", {
       branchId: branch.id,
       force: true,
       parentDraftRevisionId: headDraft.id
     });
-    const updatedBranch = store.saveBranch({
+    let updatedBranch = store.saveBranch({
       ...branch,
       headDraftRevisionId: draftRevision.id,
       updatedAt: draftRevision.createdAt
     });
+    const reuse = applyGeneratedModuleReuse(
+      store,
+      request.params.id,
+      branch.id,
+      draftRevision.workflow
+    );
+    for (const decision of reuse.decisions) {
+      store.saveGeneratedModuleReuseDecision(decision);
+    }
+    if (reuse.changed) {
+      const reusedValidation = validateWorkflowSpec(reuse.workflow);
+      if (!reusedValidation.ok) {
+        return reply.code(422).send({
+          ok: false,
+          error: "WORKFLOW_CODEGEN_REUSE_INVALID",
+          message: reusedValidation.errors.map((error) => error.code).join(", "),
+          validation: reusedValidation
+        } as never);
+      }
+      draftRevision = store.saveDraftRevision(
+        reusedValidation.workflow,
+        reusedValidation,
+        "validate",
+        {
+          branchId: branch.id,
+          force: true,
+          parentDraftRevisionId: draftRevision.id
+        }
+      );
+      updatedBranch = store.saveBranch({
+        ...updatedBranch,
+        headDraftRevisionId: draftRevision.id,
+        updatedAt: draftRevision.createdAt
+      });
+    }
     persistCodegenArtifactManifests(
       store,
       draftRevision.workflow,
@@ -3116,6 +3183,218 @@ function promotionCapability(node: WorkflowNode): string {
   }
 
   return `promoted-${slugify(node.id)}`;
+}
+
+function applyGeneratedModuleReuse(
+  store: WorkflowStore,
+  workflowId: string,
+  branchId: string,
+  workflow: WorkflowSpec
+): {
+  readonly workflow: WorkflowSpec;
+  readonly decisions: readonly WorkflowGeneratedModuleReuseDecision[];
+  readonly changed: boolean;
+} {
+  const decisions = computeGeneratedModuleReuseDecisions(store, workflowId, branchId, workflow);
+  const reusable = new Map(
+    decisions
+      .filter((decision) => decision.status === "reuse" || decision.status === "reuse-with-reeval")
+      .map((decision) => [decision.nodeId, decision])
+  );
+  if (reusable.size === 0) {
+    return { workflow, decisions, changed: false };
+  }
+
+  let changed = false;
+  const nodes = workflow.nodes.map((node) => {
+    const decision = reusable.get(node.id);
+    if (!decision?.sourceDraftRevisionId || node.kind !== "codegen") {
+      return node;
+    }
+    const sourceDraft = store.getDraftRevision(decision.sourceDraftRevisionId);
+    const sourceNode = sourceDraft?.workflow.nodes.find(
+      (candidate) => candidate.id === node.id && candidate.kind === "codegen"
+    );
+    if (!sourceNode?.codegen) {
+      return node;
+    }
+    changed = true;
+    return {
+      ...node,
+      config: {
+        ...node.config,
+        artifactStatus: "draft",
+        reusedFromBranchId: decision.sourceBranchId ?? "",
+        reusedFromDraftRevisionId: decision.sourceDraftRevisionId
+      },
+      codegen: {
+        ...sourceNode.codegen,
+        review: {
+          status: "draft" as const,
+          notes: `Reused from ${decision.sourceBranchId}; branch-local eval is required.`
+        }
+      }
+    };
+  });
+
+  return {
+    workflow: {
+      ...workflow,
+      approval: null,
+      nodes
+    },
+    decisions,
+    changed
+  };
+}
+
+function computeGeneratedModuleReuseDecisions(
+  store: WorkflowStore,
+  workflowId: string,
+  branchId: string,
+  workflow: WorkflowSpec
+): readonly WorkflowGeneratedModuleReuseDecision[] {
+  return workflow.nodes
+    .filter((node) => node.kind === "codegen" && node.codegen)
+    .map((node) => {
+      const signature = createGeneratedModuleSignature(node);
+      const candidate = findGeneratedModuleReuseCandidate(
+        store,
+        workflowId,
+        branchId,
+        node,
+        signature
+      );
+      const now = new Date().toISOString();
+      if (candidate?.matching) {
+        return {
+          id: `reuse.${workflowId}.${branchId}.${node.id}.${Date.now()}.${randomUUID()}`,
+          workflowId,
+          branchId,
+          nodeId: node.id,
+          status: "reuse-with-reeval" as const,
+          createdAt: now,
+          sourceBranchId: candidate.branch.id,
+          sourceDraftRevisionId: candidate.draft.id,
+          sourceEvalReportId: candidate.evalReportId,
+          signature,
+          gates: [],
+          reason:
+            "Generated module signature matches a passed module from another branch; branch-local re-evaluation is required.",
+          artifacts: candidate.node.codegen?.artifacts ?? []
+        };
+      }
+      const gates = candidate?.node.codegen
+        ? reuseMismatchGates(signature, createGeneratedModuleSignature(candidate.node))
+        : (["evaluation"] as const);
+      return {
+        id: `reuse.${workflowId}.${branchId}.${node.id}.${Date.now()}.${randomUUID()}`,
+        workflowId,
+        branchId,
+        nodeId: node.id,
+        status: candidate ? ("blocked-drift" as const) : ("regenerate" as const),
+        createdAt: now,
+        sourceBranchId: candidate?.branch.id,
+        sourceDraftRevisionId: candidate?.draft.id,
+        signature,
+        gates,
+        reason: candidate
+          ? `Generated module reuse blocked by ${gates.join(", ")} gate drift.`
+          : "No compatible generated module was found on another branch.",
+        artifacts: []
+      };
+    });
+}
+
+function findGeneratedModuleReuseCandidate(
+  store: WorkflowStore,
+  workflowId: string,
+  branchId: string,
+  node: WorkflowNode,
+  signature: ReturnType<typeof createGeneratedModuleSignature>
+):
+  | {
+      readonly matching: boolean;
+      readonly branch: ReturnType<WorkflowStore["getDefaultBranch"]>;
+      readonly draft: NonNullable<ReturnType<WorkflowStore["getDraftRevision"]>>;
+      readonly node: WorkflowNode;
+      readonly evalReportId?: string | undefined;
+    }
+  | undefined {
+  let fallback:
+    | {
+        readonly matching: false;
+        readonly branch: ReturnType<WorkflowStore["getDefaultBranch"]>;
+        readonly draft: NonNullable<ReturnType<WorkflowStore["getDraftRevision"]>>;
+        readonly node: WorkflowNode;
+      }
+    | undefined;
+  for (const branch of store.listBranches(workflowId)) {
+    if (branch.id === branchId) {
+      continue;
+    }
+    const draft = store.getDraftRevision(branch.headDraftRevisionId);
+    const candidate = draft?.workflow.nodes.find(
+      (item) => item.id === node.id && item.kind === "codegen" && item.codegen
+    );
+    if (!draft || !candidate?.codegen) {
+      continue;
+    }
+    const candidateSignature = createGeneratedModuleSignature(candidate);
+    const latestPassedEval = store
+      .listGeneratedNodeEvalReports(workflowId, candidate.id)
+      .filter(
+        (report) =>
+          report.status === "passed" &&
+          (report.branchId === undefined || report.branchId === branch.id)
+      )
+      .at(-1);
+    if (generatedModuleSignaturesMatch(signature, candidateSignature) && latestPassedEval) {
+      return {
+        matching: true,
+        branch,
+        draft,
+        node: candidate,
+        evalReportId: latestPassedEval.id
+      };
+    }
+    fallback = fallback ?? {
+      matching: false,
+      branch,
+      draft,
+      node: candidate
+    };
+  }
+  return fallback;
+}
+
+function reuseMismatchGates(
+  left: ReturnType<typeof createGeneratedModuleSignature>,
+  right: ReturnType<typeof createGeneratedModuleSignature>
+): readonly WorkflowGeneratedModuleReuseGate[] {
+  const gates: WorkflowGeneratedModuleReuseGate[] = [];
+  if (left.promptHash !== right.promptHash) {
+    gates.push("prompt");
+  }
+  if (
+    left.inputSchemaHash !== right.inputSchemaHash ||
+    left.outputSchemaHash !== right.outputSchemaHash
+  ) {
+    gates.push("schema");
+  }
+  if (left.runtimeHash !== right.runtimeHash) {
+    gates.push("runtime");
+  }
+  if (left.sandboxHash !== right.sandboxHash) {
+    gates.push("sandbox");
+  }
+  if (left.dependencyManifestHash !== right.dependencyManifestHash) {
+    gates.push("dependency");
+  }
+  if (left.replaySeed !== right.replaySeed || left.artifactHash !== right.artifactHash) {
+    gates.push("replay");
+  }
+  return gates.length > 0 ? gates : ["evaluation"];
 }
 
 function createBranchMergePreview(
