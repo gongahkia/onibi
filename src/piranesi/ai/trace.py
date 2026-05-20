@@ -146,6 +146,42 @@ def load_ai_traces(root: Path | str) -> list[AITraceRecord]:
     return records
 
 
+def update_ai_trace_approval(
+    state: WorkspaceState,
+    *,
+    trace_id: str,
+    approval_state: AIApprovalState,
+) -> AITraceRecord:
+    records = load_ai_traces(state.root)
+    updated: list[AITraceRecord] = []
+    selected: AITraceRecord | None = None
+    for record in records:
+        if record.trace_id == trace_id:
+            selected = record.model_copy(update={"approval_state": approval_state})
+            updated.append(selected)
+        else:
+            updated.append(record)
+    if selected is None:
+        raise AITraceError(f"unknown AI trace ID: {trace_id}")
+
+    trace_path = workspace_path(state.root, AI_TRACE_FILE, allowed_roots=("ai",))
+    trace_path.write_text(
+        "".join(_canonical_json(record.model_dump(mode="json")) for record in updated),
+        encoding="utf-8",
+    )
+    append_audit_event(
+        state,
+        AuditEvent(
+            timestamp=utc_now(),
+            command="ai trace approval",
+            output_path=AI_TRACE_FILE,
+            output_sha256=file_sha256(trace_path),
+            summary={"trace_id": trace_id, "approval_state": approval_state},
+        ),
+    )
+    return selected
+
+
 def _payload_sha256(payload: dict[str, Any]) -> str:
     return sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
 
@@ -163,4 +199,5 @@ __all__ = [
     "AITraceResponse",
     "load_ai_traces",
     "record_ai_trace",
+    "update_ai_trace_approval",
 ]

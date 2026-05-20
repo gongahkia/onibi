@@ -10,10 +10,10 @@ Each trace record includes:
 - approval state;
 - prompt and response digests.
 
-Trace records are append-only workspace artifacts. `piranesi sign` includes
-`ai/traces.jsonl` in the chain-of-custody manifest with role `ai-trace`, and
-verification detects trace tampering the same way it detects report or evidence
-tampering.
+Trace records are workspace artifacts. Approval changes update the trace approval
+state and append audit events. `piranesi sign` includes `ai/traces.jsonl` in the
+chain-of-custody manifest with role `ai-trace`, and verification detects trace
+tampering the same way it detects report or evidence tampering.
 
 Trace records must not contain unredacted client identifiers, hostnames, request
 or response evidence, tokens, cookies, passwords, API keys, or private keys.

@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+from piranesi.ai.drafts import (
+    AI_REMEDIATION_DRAFT_SCHEMA_VERSION,
+    AIDraftError,
+    AIRemediationDraft,
+    accept_remediation_draft,
+    create_remediation_draft,
+    load_remediation_draft,
+    reject_remediation_draft,
+)
 from piranesi.ai.evals import (
     AI_EVAL_SCHEMA_VERSION,
     AIEvaluationError,
@@ -38,20 +47,24 @@ from piranesi.ai.trace import (
     AITraceResponse,
     load_ai_traces,
     record_ai_trace,
+    update_ai_trace_approval,
 )
 
 __all__ = [
     "AI_EVAL_SCHEMA_VERSION",
     "AI_PROVIDER_SCHEMA_VERSION",
+    "AI_REMEDIATION_DRAFT_SCHEMA_VERSION",
     "AI_TRACE_FILE",
     "AI_TRACE_SCHEMA_VERSION",
     "PROMPT_SCHEMA_VERSION",
     "AICompletionResult",
+    "AIDraftError",
     "AIEvaluationError",
     "AIEvaluationFailure",
     "AIEvaluationResult",
     "AIProvider",
     "AIProviderError",
+    "AIRemediationDraft",
     "AITraceRecord",
     "AITraceResponse",
     "CloudAIProviderConfig",
@@ -63,13 +76,18 @@ __all__ = [
     "RedactedPromptPayload",
     "RedactionEvent",
     "StaticLocalAIProvider",
+    "accept_remediation_draft",
     "build_redacted_prompt_payload",
     "cloud_provider_config",
+    "create_remediation_draft",
     "evaluate_ai_output",
     "load_ai_traces",
+    "load_remediation_draft",
     "local_provider_config",
     "record_ai_trace",
     "redact_text_for_prompt",
+    "reject_remediation_draft",
     "require_cloud_provider_ready",
     "require_trace_approved_for_report_change",
+    "update_ai_trace_approval",
 ]
