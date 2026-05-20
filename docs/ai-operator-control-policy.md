@@ -40,6 +40,8 @@ and must never interact with targets, tools, scanners, payloads, or infrastructu
 
 Cloud provider configuration is documented in
 [`ai-provider-config.md`](ai-provider-config.md).
+Local provider configuration is documented in
+[`ai-local-provider.md`](ai-local-provider.md).
 
 ## Redaction Boundary
 
