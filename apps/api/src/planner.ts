@@ -8,6 +8,9 @@ import {
 } from "@kelpclaw/codegen";
 import { chooseSkillOrCodegen } from "@kelpclaw/skill-registry";
 import {
+  createWorkflowEdge,
+  createWorkflowNode,
+  createWorkflowSpec,
   createWorkflowSpecDiff,
   gmailReceiptsToSheetsWorkflowFixture,
   scheduledScrapingWorkflowFixture,
@@ -508,8 +511,173 @@ function chooseTemplate(prompt: string): WorkflowSpec {
     return scheduledScrapingWorkflowFixture;
   }
 
-  return gmailReceiptsToSheetsWorkflowFixture;
+  if (
+    normalizedPrompt.includes("research") ||
+    normalizedPrompt.includes("investigate") ||
+    normalizedPrompt.includes("agent") ||
+    normalizedPrompt.includes("reason") ||
+    normalizedPrompt.includes("compare multiple")
+  ) {
+    return agenticResearchWorkflowTemplate;
+  }
+
+  if (
+    normalizedPrompt.includes("gmail") ||
+    normalizedPrompt.includes("receipt") ||
+    normalizedPrompt.includes("receipts") ||
+    normalizedPrompt.includes("sheets")
+  ) {
+    return gmailReceiptsToSheetsWorkflowFixture;
+  }
+
+  return genericManualTaskWorkflowTemplate;
 }
+
+const agenticResearchWorkflowTemplate = createWorkflowSpec({
+  id: "workflow.agentic-research-task",
+  name: "Agentic Research Task",
+  prompt: "Research a task and prepare a reviewed summary.",
+  nodes: [
+    createWorkflowNode({
+      id: "manual-research-request",
+      kind: "trigger",
+      label: "Research Request",
+      description: "Starts when an operator submits research instructions.",
+      config: {
+        trigger: "manual",
+        promptSource: "operator"
+      }
+    }),
+    createWorkflowNode({
+      id: "research-task",
+      kind: "skill",
+      label: "Research Task",
+      description:
+        "Uses a bounded agentic research policy to investigate the request and produce a structured summary.",
+      config: {
+        skillMode: "agentic",
+        plannerRationale:
+          "Prompt asks for research or investigation rather than a fixed adapter flow."
+      },
+      agentic: {
+        tools: ["web-search", "summarizer"],
+        memoryScope: "workspace",
+        stopConditions: ["research-summary-ready", "source-confidence-recorded"],
+        humanApprovalBoundaries: ["Before external delivery or publication."],
+        networkPolicy: "declared",
+        allowedHosts: ["*"],
+        secretRefs: [],
+        evalContract: {
+          requiredFields: ["summary", "sources", "limitations"]
+        },
+        budget: {
+          maxIterations: 3,
+          maxWallClockSeconds: 300,
+          maxModelCostUsd: 2,
+          maxDockerRuntimeSeconds: 120,
+          maxRetries: 1
+        }
+      }
+    }),
+    createWorkflowNode({
+      id: "approve-research-summary",
+      kind: "approval",
+      label: "Approve Research Summary",
+      description: "Requires human review before the research summary is delivered.",
+      config: {
+        requiredRole: "owner",
+        approvalReason: "Research output may need source and policy review."
+      }
+    }),
+    createWorkflowNode({
+      id: "deliver-research-summary",
+      kind: "delivery",
+      label: "Deliver Research Summary",
+      description: "Sends the approved research summary to the configured destination.",
+      config: {
+        channel: "email",
+        channels: ["email"],
+        destination: "owner@example.com"
+      }
+    })
+  ],
+  edges: [
+    createWorkflowEdge({
+      sourceNodeId: "manual-research-request",
+      sourcePort: "request",
+      targetNodeId: "research-task",
+      targetPort: "request"
+    }),
+    createWorkflowEdge({
+      sourceNodeId: "research-task",
+      sourcePort: "result",
+      targetNodeId: "approve-research-summary",
+      targetPort: "input"
+    }),
+    createWorkflowEdge({
+      sourceNodeId: "approve-research-summary",
+      sourcePort: "approved",
+      targetNodeId: "deliver-research-summary",
+      targetPort: "rows"
+    })
+  ],
+  createdAt: "2026-05-20T00:00:00.000Z",
+  updatedAt: "2026-05-20T00:00:00.000Z"
+});
+
+const genericManualTaskWorkflowTemplate = createWorkflowSpec({
+  id: "workflow.manual-task",
+  name: "Manual Task Workflow",
+  prompt: "Prepare and deliver a manually supplied workflow result.",
+  nodes: [
+    createWorkflowNode({
+      id: "manual-task-request",
+      kind: "trigger",
+      label: "Manual Task Request",
+      description: "Starts when an operator submits task instructions.",
+      config: {
+        trigger: "manual",
+        promptSource: "operator"
+      }
+    }),
+    createWorkflowNode({
+      id: "prepare-task-output",
+      kind: "transform",
+      label: "Prepare Task Output",
+      description: "Converts the manual task request into a structured result for delivery.",
+      config: {
+        mode: "manual-structured-output"
+      }
+    }),
+    createWorkflowNode({
+      id: "deliver-task-result",
+      kind: "delivery",
+      label: "Deliver Task Result",
+      description: "Sends the prepared task result to the configured destination.",
+      config: {
+        channel: "email",
+        channels: ["email"],
+        destination: "owner@example.com"
+      }
+    })
+  ],
+  edges: [
+    createWorkflowEdge({
+      sourceNodeId: "manual-task-request",
+      sourcePort: "request",
+      targetNodeId: "prepare-task-output",
+      targetPort: "input"
+    }),
+    createWorkflowEdge({
+      sourceNodeId: "prepare-task-output",
+      sourcePort: "output",
+      targetNodeId: "deliver-task-result",
+      targetPort: "rows"
+    })
+  ],
+  createdAt: "2026-05-20T00:00:00.000Z",
+  updatedAt: "2026-05-20T00:00:00.000Z"
+});
 
 function titleFromPrompt(prompt: string): string {
   return prompt

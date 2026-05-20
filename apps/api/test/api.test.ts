@@ -295,6 +295,31 @@ describe("kelpclaw api contracts", () => {
     expect(planned.json().route.requiredModel.mode).toBe("none");
   });
 
+  it("routes research prompts to an agentic graph instead of the Gmail demo template", async () => {
+    app = buildTestApiApp();
+
+    const planned = await app.inject({
+      method: "POST",
+      url: "/api/workflows/plan",
+      payload: {
+        prompt: "i want to have someone research this tasking for me"
+      }
+    });
+
+    expect(planned.statusCode).toBe(200);
+    expect(planned.json().route.route).toBe("agentic");
+    expect(planned.json().workflow.nodes.map((node: { id: string }) => node.id)).toEqual([
+      "manual-research-request",
+      "research-task",
+      "approve-research-summary",
+      "deliver-research-summary"
+    ]);
+    expect(planned.json().workflow.nodes.map((node: { id: string }) => node.id)).not.toContain(
+      "read-gmail-receipts"
+    );
+    expect(planned.json().workflow.nodes[1].agentic.tools).toContain("web-search");
+  });
+
   it("routes codegen prompts through OpenAI when selected", async () => {
     const previousProvider = process.env.KELPCLAW_PLANNER_PROVIDER;
     process.env.KELPCLAW_PLANNER_PROVIDER = "openai";
