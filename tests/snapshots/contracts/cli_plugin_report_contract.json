@@ -32,7 +32,8 @@
       ],
       "integrations": [
         "email-handoff",
-        "github-issues"
+        "github-issues",
+        "slack-notify"
       ],
       "objectives": [
         "add",

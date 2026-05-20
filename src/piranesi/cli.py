@@ -104,6 +104,7 @@ from piranesi.signing import (
     verification_result_payload,
     verify_workspace,
 )
+from piranesi.slack_notify import SlackEventType, SlackNotificationError, send_slack_notification
 from piranesi.templates import TemplateError, load_template_library, select_templates
 from piranesi.timeline import (
     TimelineConfidence,
@@ -533,6 +534,72 @@ def integrations_email_handoff_command(
         payload,
         json_output=json_output,
         text=f"Email handoff draft written: {draft.path}",
+    )
+
+
+@integrations_app.command("slack-notify", help="Send or preview a summary-only Slack notification.")
+def integrations_slack_notify_command(
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to summarize.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    event: Annotated[
+        SlackEventType,
+        typer.Option("--event", help="Workflow event to notify."),
+    ] = "report-ready",
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run/--live",
+            help="Preview payload without calling Slack, or post with --live.",
+        ),
+    ] = True,
+    include_engagement: Annotated[
+        bool,
+        typer.Option(
+            "--include-engagement/--redact-engagement",
+            help="Include client/project labels in the Slack payload.",
+        ),
+    ] = False,
+    webhook_url: Annotated[
+        str | None,
+        typer.Option(
+            "--webhook-url",
+            help="Slack incoming webhook URL. Not printed or stored.",
+        ),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print notification metadata as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    try:
+        state = load_workspace(workspace)
+        result = send_slack_notification(
+            state,
+            event=event,
+            dry_run=dry_run,
+            include_engagement=include_engagement,
+            webhook_url=webhook_url,
+        )
+    except (WorkspaceError, SlackNotificationError, OSError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    payload = result.as_payload()
+    _emit(
+        payload,
+        json_output=json_output,
+        text=f"Slack notification {'dry-run' if dry_run else 'sent'}: {event}",
     )
 
 
