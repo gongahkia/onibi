@@ -47,6 +47,9 @@ features until their own acceptance criteria are complete:
 - Engagement-scale design-partner feedback loops.
 - Audit evidence packaging and assessor-ready bundles.
 - Workflow integrations, PFF SDKs, enterprise deployment, and AI assistance.
+- AI assistance must follow
+  [`ai-operator-control-policy.md`](ai-operator-control-policy.md) before any
+  provider implementation or report-drafting workflow is added.
 
 ## Quality Gates
 
