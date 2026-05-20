@@ -87,8 +87,7 @@ def _post_multipart(
         [
             f"--{boundary}\r\n".encode(),
             (
-                f'Content-Disposition: form-data; name="{file_field}"; '
-                f'filename="{filename}"\r\n'
+                f'Content-Disposition: form-data; name="{file_field}"; filename="{filename}"\r\n'
             ).encode(),
             b"Content-Type: application/octet-stream\r\n\r\n",
             file_body,

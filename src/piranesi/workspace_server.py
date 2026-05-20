@@ -494,7 +494,16 @@ def _evidence_sensitivity(value: object) -> EvidenceSensitivity:
 
 
 def _evidence_kind(value: object) -> EvidenceKind:
-    if value in {"screenshot", "c2-log", "transcript", "payload", "detection", "scanner", "note", "other"}:
+    if value in {
+        "screenshot",
+        "c2-log",
+        "transcript",
+        "payload",
+        "detection",
+        "scanner",
+        "note",
+        "other",
+    }:
         return cast(EvidenceKind, value)
     return "other"
 

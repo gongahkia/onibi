@@ -295,11 +295,11 @@ def render_red_team_html(report: RedTeamReport) -> str:
     )
     summary = report.executive_summary
     summary_html = (
-        f'{summary["evidence_count"]} evidence records, '
-        f'{summary["timeline_event_count"]} timeline events, '
-        f'{summary["objective_count"]} objectives, '
-        f'{summary["procedure_count"]} procedures, '
-        f'{summary["finding_count"]} findings, and {summary["ioc_count"]} IOCs.'
+        f"{summary['evidence_count']} evidence records, "
+        f"{summary['timeline_event_count']} timeline events, "
+        f"{summary['objective_count']} objectives, "
+        f"{summary['procedure_count']} procedures, "
+        f"{summary['finding_count']} findings, and {summary['ioc_count']} IOCs."
     )
     return f"""<!doctype html>
 <html>
@@ -462,10 +462,7 @@ def _append_pdf_section(
 
 
 def _html_list_section(title: str, lines: list[str]) -> str:
-    items = "\n".join(
-        f"<li>{html.escape(line.removeprefix('- '))}</li>"
-        for line in lines
-    )
+    items = "\n".join(f"<li>{html.escape(line.removeprefix('- '))}</li>" for line in lines)
     return f"<section><h2>{html.escape(title)}</h2><ul>{items}</ul></section>"
 
 
