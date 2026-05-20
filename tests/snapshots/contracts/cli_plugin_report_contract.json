@@ -6,6 +6,9 @@
         "add-note",
         "list"
       ],
+      "engagement": [
+        "delivery"
+      ],
       "evidence": [
         "add",
         "list"
@@ -32,6 +35,7 @@
     },
     "root_commands": [
       "detections",
+      "engagement",
       "evidence",
       "ingest",
       "objectives",

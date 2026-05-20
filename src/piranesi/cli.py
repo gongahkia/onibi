@@ -4,7 +4,7 @@ import json
 import os
 import webbrowser
 from pathlib import Path
-from typing import Annotated, Any, Literal, NoReturn, cast
+from typing import Annotated, Any, Literal, NoReturn
 
 import typer
 
@@ -45,7 +45,6 @@ from piranesi.objectives import (
 )
 from piranesi.report.pentest import (
     PdfBackend,
-    ReportFormat,
     ReportRenderError,
     build_pentest_report,
     render_report_artifact,
@@ -1646,7 +1645,7 @@ def report_command(
             artifact_path = render_report_artifact(
                 report_model,
                 output_dir=output_dir,
-                output_format=cast(ReportFormat, output_format),
+                output_format=output_format,
                 pdf_backend=pdf_backend,
             )
     except (WorkspaceError, ReportRenderError, RedTeamReportError, TemplateError) as exc:

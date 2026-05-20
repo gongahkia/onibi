@@ -331,7 +331,7 @@ class _WorkspaceRequestHandler(BaseHTTPRequestHandler):
             if not isinstance(name, str) or not name:
                 continue
             filename = part.get_filename()
-            raw_payload = part.get_payload(decode=True) or b""
+            raw_payload = cast(bytes, part.get_payload(decode=True) or b"")
             if filename:
                 safe_name = _safe_upload_filename(filename)
                 if not raw_payload:

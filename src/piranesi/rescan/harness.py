@@ -73,20 +73,20 @@ def ingest_replay_outputs(
     for output in outputs:
         raw_path = workspace_path(state.root, output.raw_path, allowed_roots=("raw",))
         if output.tool == "nmap":
-            parse_result = parse_nmap_xml_file(
+            findings = parse_nmap_xml_file(
                 raw_path,
                 input_sha256=output.sha256,
                 raw_path=output.raw_path,
-            )
+            ).findings
         elif output.tool == "nuclei":
-            parse_result = parse_nuclei_jsonl_file(
+            findings = parse_nuclei_jsonl_file(
                 raw_path,
                 input_sha256=output.sha256,
                 raw_path=output.raw_path,
-            )
+            ).findings
         else:
             raise ReplayHarnessError(f"unsupported replay harness tool: {output.tool}")
-        state = upsert_findings(state, parse_result.findings)
+        state = upsert_findings(state, findings)
     return state
 
 

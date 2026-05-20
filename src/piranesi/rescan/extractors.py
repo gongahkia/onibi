@@ -83,6 +83,8 @@ def _extract_nmap_spec(root: Path | str, record: ToolInputRecord) -> ReplaySpec:
         document = DefusedET.parse(path).getroot()
     except ParseError as exc:
         raise ReplayExtractionError(f"invalid nmap XML: {exc}") from exc
+    if document is None:
+        raise ReplayExtractionError("invalid nmap XML: missing document root")
     args = document.attrib.get("args")
     if not args:
         raise ReplayExtractionError("nmap XML does not include original args")
