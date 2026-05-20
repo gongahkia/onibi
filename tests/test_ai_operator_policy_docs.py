@@ -6,9 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_ai_operator_policy_sets_phase_6_boundaries() -> None:
-    text = (ROOT / "docs" / "ai-operator-control-policy.md").read_text(
-        encoding="utf-8"
-    )
+    text = (ROOT / "docs" / "ai-operator-control-policy.md").read_text(encoding="utf-8")
 
     for required in [
         "must never be treated as confirmed evidence",

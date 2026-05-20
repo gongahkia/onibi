@@ -35,12 +35,12 @@ from piranesi.workspace import (
 AI_REMEDIATION_DRAFT_SCHEMA_VERSION: Literal["piranesi.ai-remediation-draft.v1"] = (
     "piranesi.ai-remediation-draft.v1"
 )
-AI_EXECUTIVE_SUMMARY_DRAFT_SCHEMA_VERSION: Literal[
+AI_EXECUTIVE_SUMMARY_DRAFT_SCHEMA_VERSION: Literal["piranesi.ai-executive-summary-draft.v1"] = (
     "piranesi.ai-executive-summary-draft.v1"
-] = "piranesi.ai-executive-summary-draft.v1"
-AI_ACCEPTED_EXECUTIVE_SUMMARY_SCHEMA_VERSION: Literal[
+)
+AI_ACCEPTED_EXECUTIVE_SUMMARY_SCHEMA_VERSION: Literal["piranesi.ai-executive-summary.v1"] = (
     "piranesi.ai-executive-summary.v1"
-] = "piranesi.ai-executive-summary.v1"
+)
 ACCEPTED_EXECUTIVE_SUMMARY_FILE = "reports/ai-executive-summary.json"
 DraftStatus = Literal["draft", "accepted", "rejected"]
 

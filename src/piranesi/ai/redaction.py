@@ -124,9 +124,7 @@ class PromptRedactionContext:
                     field=field,
                 )
             )
-        redacted = SECRET_PATTERN.sub(
-            lambda match: f"{match.group(1)}=[redacted secret]", redacted
-        )
+        redacted = SECRET_PATTERN.sub(lambda match: f"{match.group(1)}=[redacted secret]", redacted)
         if redacted != value and not any(
             event.category == "secret" and event.field == field for event in self._events
         ):

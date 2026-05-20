@@ -101,8 +101,7 @@ def require_trace_approved_for_report_change(
     raw_field = trace.target.get("field")
     if raw_field != target_field:
         raise AIEvaluationError(
-            f"AI trace {trace.trace_id} targets {raw_field!r}; "
-            f"cannot apply it to {target_field!r}"
+            f"AI trace {trace.trace_id} targets {raw_field!r}; cannot apply it to {target_field!r}"
         )
 
 

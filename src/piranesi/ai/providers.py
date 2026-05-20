@@ -179,9 +179,7 @@ def require_cloud_provider_ready(
         raise AIProviderError("external model calls require explicit enablement")
     api_key = active_env.get(config.api_key_env)
     if not api_key:
-        raise AIProviderError(
-            f"BYOK environment variable {config.api_key_env!r} is required"
-        )
+        raise AIProviderError(f"BYOK environment variable {config.api_key_env!r} is required")
     return ProviderRuntimeAuth(api_key=api_key, api_key_env=config.api_key_env)
 
 
