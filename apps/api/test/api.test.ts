@@ -345,6 +345,35 @@ describe("kelpclaw api contracts", () => {
     expect(stored.json().workflow.nodes[0].label).toBe(workflow.nodes[0]?.label);
   });
 
+  it("records plan acceptance without creating a production approval", async () => {
+    app = buildTestApiApp();
+
+    const planned = await app.inject({
+      method: "POST",
+      url: "/api/workflows/plan",
+      payload: {
+        prompt: "extract transaction details from Gmail receipts into Sheets"
+      }
+    });
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/api/workflows/${planned.json().workflow.id}/accept-plan`,
+      payload: {
+        workflow: planned.json().workflow,
+        acceptedBy: "owner@example.com"
+      }
+    });
+    const stored = await app.inject({
+      method: "GET",
+      url: `/api/workflows/${planned.json().workflow.id}`
+    });
+
+    expect(accepted.statusCode).toBe(200);
+    expect(accepted.json().draftRevision.source).toBe("plan-accepted");
+    expect(accepted.json().workflow.approval).toBeNull();
+    expect(stored.json().latestApprovedRevisionId).toBeNull();
+  });
+
   it("creates, cancels, and streams job events", async () => {
     app = buildTestApiApp();
 

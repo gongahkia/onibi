@@ -45,6 +45,8 @@ import type {
   WorkflowAuditContainerRecord,
   WorkflowAuditDeliveryRecord,
   WorkflowAuditRecord,
+  WorkflowAcceptPlanRequest,
+  WorkflowAcceptPlanResponse,
   WorkflowApproveRequest,
   WorkflowApproveResponse,
   WorkflowEventSeverity,
@@ -737,6 +739,69 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       validation: draftRevision.validation,
       workflow: draftRevision.workflow,
       draftRevision
+    };
+  });
+
+  app.post<{
+    Params: RouteParamsWithId;
+    Body: WorkflowAcceptPlanRequest;
+    Reply: WorkflowAcceptPlanResponse;
+  }>("/api/workflows/:id/accept-plan", async (request, reply) => {
+    if (request.body.workflow.id !== request.params.id) {
+      return reply.code(409).send({
+        ok: false,
+        error: "WORKFLOW_ID_MISMATCH",
+        message: `Workflow id '${request.body.workflow.id}' does not match route id '${request.params.id}'.`
+      } as never);
+    }
+
+    const validation = validateWorkflowSpec(request.body.workflow);
+    if (!validation.ok) {
+      return reply.code(422).send({
+        ok: false,
+        error: "WORKFLOW_PLAN_ACCEPTANCE_INVALID",
+        message: validation.errors.map((error) => error.code).join(", "),
+        validation
+      } as never);
+    }
+
+    const draftRevision = store.saveDraftRevision(
+      validation.workflow,
+      validation,
+      "plan-accepted",
+      {
+        force: true,
+        preserveRevision: true
+      }
+    );
+    persistCodegenArtifactManifests(
+      store,
+      draftRevision.workflow,
+      draftRevision.id,
+      draftRevision.createdAt
+    );
+    recordAudit(store, {
+      action: "plan.accepted",
+      actor: request.body.acceptedBy,
+      workflowId: draftRevision.workflowId,
+      revisionId: draftRevision.id,
+      correlationId: correlationIdForRequest(request),
+      summary:
+        "Accepted workflow plan shape before implementation; production approval still requires implementation and draft evaluation.",
+      secretRefs: collectSecretRefs(draftRevision.workflow),
+      metadata: {
+        semanticCheckpoint: "plan-shape-accepted",
+        productionApprovalRequired: true
+      }
+    });
+
+    return {
+      ok: true,
+      workflowId: draftRevision.workflowId,
+      draftRevisionId: draftRevision.id,
+      workflow: draftRevision.workflow,
+      draftRevision,
+      validation: draftRevision.validation
     };
   });
 

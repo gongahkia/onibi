@@ -219,6 +219,7 @@ export const workflowObservabilityEventSchema = workflowObservabilityContextSche
 export const workflowAuditActionSchema = z.enum([
   "workflow.created",
   "workflow.edited",
+  "plan.accepted",
   "workflow.approved",
   "codegen.reviewed",
   "task.routed",

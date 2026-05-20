@@ -1,5 +1,7 @@
 import type {
   JsonRecord,
+  WorkflowAcceptPlanRequest,
+  WorkflowAcceptPlanResponse,
   WorkflowApproveRequest,
   WorkflowApproveResponse,
   WorkflowDraftEvaluation,
@@ -182,6 +184,13 @@ export const openClawApi = {
 
   approve(workflowId: string, request: WorkflowApproveRequest): Promise<WorkflowApproveResponse> {
     return postJson(`/api/workflows/${encodeURIComponent(workflowId)}/approve`, request);
+  },
+
+  acceptPlan(
+    workflowId: string,
+    request: WorkflowAcceptPlanRequest
+  ): Promise<WorkflowAcceptPlanResponse> {
+    return postJson(`/api/workflows/${encodeURIComponent(workflowId)}/accept-plan`, request);
   },
 
   reviewCodegen(

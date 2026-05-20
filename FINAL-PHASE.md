@@ -347,6 +347,15 @@ Deployment must require:
 - Rollback plan.
 - Audit record.
 
+## Plan Acceptance Versus Production Approval
+
+KelpClaw intentionally has two separate user checkpoints:
+
+- **Plan acceptance** means the user accepts the workflow graph shape after prompting, ReactFlow edits, reprompts, and planner feedback. This is recorded as a `plan.accepted` audit action and can create a `plan-accepted` draft revision, but it does not freeze the workflow for production.
+- **Production approval** means the user approves an executable revision after generated nodes have been implemented, artifacts have been persisted, draft evaluation has passed, and readiness gates are satisfied. This creates the immutable approved revision used by production runs and deployments.
+
+The normal high-level flow is: prompt -> draft plan -> ReactFlow edits/reprompts -> planner feedback -> plan acceptance -> implementation/codegen -> draft evaluation/tests -> production approval -> run/deploy.
+
 ## Data And Persistence
 
 New durable records likely needed:
@@ -383,6 +392,7 @@ Potential API additions:
 - `GET /api/jobs/:jobId/events`
 - `POST /api/jobs/:jobId/cancel`
 - `POST /api/workflows/:id/feedback`
+- `POST /api/workflows/:id/accept-plan`
 - `POST /api/workflows/:id/evaluate-draft`
 - `POST /api/workflows/:id/codegen/:nodeId/build`
 - `GET /api/workflows/:id/codegen/:nodeId/evals`
@@ -396,6 +406,8 @@ Potential type additions:
 - `WorkflowDraftEvaluation`
 - `WorkflowGraphDiff`
 - `WorkflowPlannerFeedback`
+- `WorkflowAcceptPlanRequest`
+- `WorkflowAcceptPlanResponse`
 - `WorkflowJob`
 - `WorkflowWorkspace`
 - `GeneratedNodeTestReport`

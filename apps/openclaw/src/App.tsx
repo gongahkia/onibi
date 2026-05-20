@@ -258,6 +258,7 @@ export function App() {
   const [workspace, setWorkspace] = useState<WorkflowWorkspace | null>(null);
   const [agentRuns, setAgentRuns] = useState<readonly unknown[]>([]);
   const [deploymentNotice, setDeploymentNotice] = useState<string | null>(null);
+  const [planAcceptedNotice, setPlanAcceptedNotice] = useState<string | null>(null);
   const [deploymentActivations, setDeploymentActivations] =
     useState<DeploymentActivationSummaryResponse | null>(null);
   const [dirtyNodeIds, setDirtyNodeIds] = useState<ReadonlySet<string>>(new Set());
@@ -793,6 +794,20 @@ export function App() {
     });
   }
 
+  function acceptPlanShape() {
+    void executeApiAction("accept-plan", async () => {
+      const response = await openClawApi.acceptPlan(workflow.id, {
+        workflow,
+        acceptedBy: "owner@example.com"
+      });
+      loadWorkflow(response.workflow, response.validation);
+      setPlanAcceptedNotice(`Plan accepted: ${response.draftRevision.id}`);
+      setDraftEvaluation(null);
+      setApprovedRevision(null);
+      setApprovalDiff(null);
+    });
+  }
+
   function runWorkflow() {
     if (!approvedRevision) {
       return;
@@ -874,6 +889,7 @@ export function App() {
     setWorkspace(null);
     setAgentRuns([]);
     setDeploymentNotice(null);
+    setPlanAcceptedNotice(null);
     setDeploymentActivations(null);
     setPromotionNotice(null);
     loadWorkflow(
@@ -1042,6 +1058,14 @@ export function App() {
                 Validate
               </button>
               <button
+                title="Accept plan shape"
+                onClick={acceptPlanShape}
+                disabled={!validation.ok || busyAction !== null}
+              >
+                <CheckCircle2 size={18} />
+                Accept Plan
+              </button>
+              <button
                 title="Evaluate draft"
                 onClick={evaluateDraft}
                 disabled={!validation.ok || busyAction !== null}
@@ -1171,6 +1195,7 @@ export function App() {
             workspace={workspace}
             agentRuns={agentRuns}
             deploymentNotice={deploymentNotice}
+            planAcceptedNotice={planAcceptedNotice}
             deploymentActivations={deploymentActivations}
             busyAction={busyAction}
             onNodePromptChange={setNodePrompt}
@@ -1201,6 +1226,7 @@ function Inspector(props: {
   readonly workspace: WorkflowWorkspace | null;
   readonly agentRuns: readonly unknown[];
   readonly deploymentNotice: string | null;
+  readonly planAcceptedNotice: string | null;
   readonly deploymentActivations: DeploymentActivationSummaryResponse | null;
   readonly busyAction: string | null;
   readonly promotionNotice: string | null;
@@ -1466,6 +1492,7 @@ function Inspector(props: {
       )}
 
       <ApprovalPanel diff={props.approvalDiff} approvedRevision={props.approvedRevision} />
+      {props.planAcceptedNotice ? <p className="success-text">{props.planAcceptedNotice}</p> : null}
       <JobPanel job={props.activeJob} />
       <WorkspacePanel workspace={props.workspace} agentRuns={props.agentRuns} />
       {props.deploymentNotice ? <p className="success-text">{props.deploymentNotice}</p> : null}

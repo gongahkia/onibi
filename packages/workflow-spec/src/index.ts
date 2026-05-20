@@ -107,6 +107,8 @@ export type {
   GeneratedNodeEvalReport,
   GeneratedNodeTestReport,
   WorkflowAdapterOperationRef,
+  WorkflowAcceptPlanRequest,
+  WorkflowAcceptPlanResponse,
   WorkflowAgentBudget,
   WorkflowAgentRole,
   WorkflowAgenticNodePolicy,

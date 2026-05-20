@@ -284,7 +284,12 @@ export type WorkflowValidationResult =
   | { readonly ok: true; readonly workflow: WorkflowSpec }
   | { readonly ok: false; readonly errors: readonly WorkflowValidationIssue[] };
 
-export type WorkflowDraftRevisionSource = "plan" | "validate" | "reprompt" | "revision";
+export type WorkflowDraftRevisionSource =
+  | "plan"
+  | "plan-accepted"
+  | "validate"
+  | "reprompt"
+  | "revision";
 
 export interface WorkflowDraftRevision {
   readonly id: string;
@@ -390,6 +395,7 @@ export interface WorkflowRunRecord {
 export type WorkflowAuditAction =
   | "workflow.created"
   | "workflow.edited"
+  | "plan.accepted"
   | "workflow.approved"
   | "codegen.reviewed"
   | "task.routed"
@@ -805,6 +811,20 @@ export interface WorkflowValidateResponse {
 export interface WorkflowApproveRequest {
   readonly workflow: WorkflowSpec;
   readonly approvedBy: string;
+}
+
+export interface WorkflowAcceptPlanRequest {
+  readonly workflow: WorkflowSpec;
+  readonly acceptedBy: string;
+}
+
+export interface WorkflowAcceptPlanResponse {
+  readonly ok: true;
+  readonly workflowId: string;
+  readonly draftRevisionId: string;
+  readonly workflow: WorkflowSpec;
+  readonly draftRevision: WorkflowDraftRevision;
+  readonly validation: WorkflowValidationResult;
 }
 
 export interface WorkflowApproveResponse {

@@ -109,13 +109,15 @@ describe("OpenClaw planner shell", () => {
     render(<App />);
 
     fireEvent.click(screen.getByRole("button", { name: /evaluate/i }));
-    expect((await screen.findAllByText("ready")).length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /approve/i })).toBeEnabled();
+    });
     fireEvent.click(screen.getByRole("button", { name: /approve/i }));
     expect(await screen.findByText("Frozen approval metadata changed.")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /^Run$/i }));
     expect(await screen.findByText("succeeded")).toBeInTheDocument();
-    expect(screen.getByText("NanoClaw run finished.")).toBeInTheDocument();
+    expect(await screen.findByText("NanoClaw run finished.")).toBeInTheDocument();
   });
 
   it("plans a prompt through the mocked API and reprompts a node", async () => {
@@ -138,6 +140,17 @@ describe("OpenClaw planner shell", () => {
     expect(screen.getByTestId("approval-diff")).toHaveTextContent("Classify Incidents");
   });
 
+  it("records plan acceptance before executable approval", async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Accept Plan/i }));
+
+    expect(await screen.findByText(/Plan accepted:/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/draft\.workflow\.gmail-receipts-to-sheets\.accepted/u)
+    ).toBeInTheDocument();
+  });
+
   it("reviews and promotes generated code nodes", async () => {
     render(<App />);
 
@@ -158,7 +171,9 @@ describe("OpenClaw planner shell", () => {
     render(<App />);
 
     fireEvent.click(screen.getByRole("button", { name: /evaluate/i }));
-    expect((await screen.findAllByText("ready")).length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /approve/i })).toBeEnabled();
+    });
     fireEvent.click(screen.getByRole("button", { name: /approve/i }));
     expect(await screen.findByText("Frozen approval metadata changed.")).toBeInTheDocument();
 
@@ -315,6 +330,26 @@ async function mockFetch(input: string | URL | Request, init?: RequestInit): Pro
         ],
         issues: []
       }
+    });
+  }
+
+  if (url.endsWith("/accept-plan")) {
+    const workflow = body.workflow as WorkflowSpec;
+    return jsonResponse({
+      ok: true,
+      workflowId: workflow.id,
+      draftRevisionId: `draft.${workflow.id}.accepted`,
+      workflow,
+      draftRevision: {
+        id: `draft.${workflow.id}.accepted`,
+        workflowId: workflow.id,
+        revision: workflow.revision,
+        workflow,
+        validation: { ok: true, workflow },
+        source: "plan-accepted",
+        createdAt: "2026-05-18T01:00:00.000Z"
+      },
+      validation: { ok: true, workflow }
     });
   }
 
