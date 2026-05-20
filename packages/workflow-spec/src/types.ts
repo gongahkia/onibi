@@ -425,6 +425,7 @@ export type WorkflowObservabilityEventKind =
   | "workflow.approval"
   | "job.lifecycle"
   | "agent.activity"
+  | "budget.lifecycle"
   | "workspace.artifact"
   | "dag.compilation"
   | "node.container"
@@ -499,8 +500,13 @@ export type WorkflowAuditAction =
   | "draft.evaluated"
   | "job.created"
   | "agent.ran"
+  | "budget.updated"
+  | "budget.blocked"
   | "workspace.created"
   | "deployment.created"
+  | "deployment.undeployed"
+  | "deployment.rolled-back"
+  | "audit.exported"
   | "secret.referenced"
   | "container.ran"
   | "adapter.called"
@@ -591,6 +597,116 @@ export interface WorkflowModelInvocationRecord {
   readonly totalTokens?: number | undefined;
   readonly costUsd?: number | undefined;
   readonly modelUsage?: JsonRecord | undefined;
+  readonly failureReason?: string | undefined;
+}
+
+export type WorkflowLifecycleStage =
+  | "empty"
+  | "planned"
+  | "accepted"
+  | "generated"
+  | "evaluated"
+  | "approved"
+  | "deployed"
+  | "runnable";
+
+export interface WorkflowRuntimeTruthSnapshot {
+  readonly workflowId: string;
+  readonly branchId?: string | undefined;
+  readonly stage: WorkflowLifecycleStage;
+  readonly planned: boolean;
+  readonly accepted: boolean;
+  readonly generated: boolean;
+  readonly evaluated: boolean;
+  readonly approved: boolean;
+  readonly deployed: boolean;
+  readonly runnable: boolean;
+  readonly draftRevisionId?: string | undefined;
+  readonly acceptedDraftRevisionId?: string | undefined;
+  readonly evaluationId?: string | undefined;
+  readonly approvedRevisionId?: string | undefined;
+  readonly runnerDeploymentId?: string | undefined;
+  readonly activeDeploymentIds: readonly string[];
+  readonly blockingReasons: readonly string[];
+  readonly updatedAt: string;
+}
+
+export interface WorkflowProviderRuntimeConfig {
+  readonly role:
+    | "planner"
+    | "agentic-research"
+    | "codegen"
+    | "workflow-architect"
+    | "coder"
+    | "tester"
+    | "runner"
+    | "fixer"
+    | "evaluator";
+  readonly provider: "anthropic" | "openai" | "deterministic";
+  readonly model: string;
+  readonly configured: boolean;
+  readonly missingCredential?: string | undefined;
+  readonly tokenAccounting: boolean;
+  readonly costAccounting: boolean;
+  readonly retryBudget: WorkflowRetryBudget;
+  readonly runtimeLimits: JsonRecord;
+}
+
+export interface WorkflowBudgetPolicy {
+  readonly workflowId: string;
+  readonly branchId?: string | undefined;
+  readonly maxWorkflowCostUsd: number;
+  readonly maxCodegenCostUsd: number;
+  readonly maxAgenticCostUsd: number;
+  readonly expensiveRetryConfirmationUsd: number;
+  readonly perAgentMaxCostUsd: Partial<Record<WorkflowAgentRole, number>>;
+  readonly updatedAt: string;
+  readonly updatedBy: string;
+}
+
+export interface WorkflowBudgetLedger {
+  readonly id: string;
+  readonly workflowId: string;
+  readonly branchId?: string | undefined;
+  readonly jobId?: string | undefined;
+  readonly agentRunId?: string | undefined;
+  readonly scope: "workflow" | "job" | "agent";
+  readonly projectedCostUsd: number;
+  readonly actualCostUsd: number;
+  readonly remainingCostUsd: number;
+  readonly retryEstimateUsd: number;
+  readonly status: "within-budget" | "confirmation-required" | "blocked" | "exhausted";
+  readonly stopReason?: string | undefined;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface WorkflowAgentTimelineEvent {
+  readonly id: string;
+  readonly workflowId: string;
+  readonly branchId?: string | undefined;
+  readonly jobId?: string | undefined;
+  readonly nodeId?: string | undefined;
+  readonly agentRunId?: string | undefined;
+  readonly role: WorkflowAgentRole;
+  readonly timestamp: string;
+  readonly status: "started" | "succeeded" | "failed" | "blocked";
+  readonly title: string;
+  readonly summary: string;
+  readonly decision?: string | undefined;
+  readonly fixTriageAction?:
+    | "targeted-patch"
+    | "retry-codegen"
+    | "rearchitect"
+    | "give-up"
+    | undefined;
+  readonly outputArtifactRefs: readonly WorkflowCodegenArtifactRef[];
+  readonly inputTokens?: number | undefined;
+  readonly outputTokens?: number | undefined;
+  readonly totalTokens?: number | undefined;
+  readonly costUsd?: number | undefined;
+  readonly cumulativeCostUsd: number;
+  readonly metadata?: JsonRecord | undefined;
 }
 
 export interface WorkflowTaskRoute {
@@ -916,7 +1032,7 @@ export interface WorkflowDeploymentRecord {
   readonly approvedRevisionId: string;
   readonly draftEvaluationId: string;
   readonly kind: WorkflowDeploymentKind;
-  readonly status: "ready" | "blocked" | "deployed" | "rolled-back";
+  readonly status: "ready" | "blocked" | "deployed" | "rolled-back" | "undeployed";
   readonly createdAt: string;
   readonly createdBy: string;
   readonly requiredIntegrations: readonly string[];
@@ -924,6 +1040,40 @@ export interface WorkflowDeploymentRecord {
   readonly rollbackPlan: string;
   readonly auditRecordId: string;
   readonly metadata: JsonRecord;
+}
+
+export interface WorkflowDeploymentActivationRecord {
+  readonly deploymentId: string;
+  readonly workflowId: string;
+  readonly branchId?: string | undefined;
+  readonly approvedRevisionId: string;
+  readonly kind: WorkflowDeploymentKind;
+  readonly status: "active" | "inactive";
+  readonly artifactRefs: readonly WorkflowCodegenArtifactRef[];
+  readonly runnerConfig?: JsonRecord | undefined;
+  readonly rollbackTarget?: string | undefined;
+  readonly activatedAt: string;
+}
+
+export interface WorkflowDeploymentRollbackTarget {
+  readonly deploymentId: string;
+  readonly workflowId: string;
+  readonly branchId?: string | undefined;
+  readonly approvedRevisionId: string;
+  readonly previousDeploymentId?: string | undefined;
+  readonly rollbackPlan: string;
+  readonly artifactRefs: readonly WorkflowCodegenArtifactRef[];
+  readonly createdAt: string;
+}
+
+export interface WorkflowAuditExportRecord {
+  readonly id: string;
+  readonly workflowId: string;
+  readonly exportedAt: string;
+  readonly format: "jsonl";
+  readonly redacted: true;
+  readonly lineCount: number;
+  readonly records: readonly JsonRecord[];
 }
 
 export interface WorkflowPlanRequest {
@@ -1118,6 +1268,7 @@ export interface WorkflowApproveResponse {
 export interface WorkflowStartRunRequest {
   readonly approvedRevisionId: string;
   readonly branchId?: string | undefined;
+  readonly deploymentId?: string | undefined;
 }
 
 export interface WorkflowStartRunResponse {

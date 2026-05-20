@@ -98,6 +98,12 @@ export const workflowCodegenMetadataSchema = z.object({
   llmBacked: z.boolean()
 });
 
+export const workflowArtifactRefSchema = z.object({
+  path: z.string().min(1),
+  checksum: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  contentType: z.enum(["application/json", "text/markdown", "text/plain", "text/typescript"])
+});
+
 export const workflowAgentBudgetSchema = z.object({
   maxIterations: z.number().int().min(0),
   maxWallClockSeconds: z.number().int().positive(),
@@ -189,6 +195,7 @@ export const workflowObservabilityEventKindSchema = z.enum([
   "workflow.approval",
   "job.lifecycle",
   "agent.activity",
+  "budget.lifecycle",
   "workspace.artifact",
   "dag.compilation",
   "node.container",
@@ -234,8 +241,13 @@ export const workflowAuditActionSchema = z.enum([
   "draft.evaluated",
   "job.created",
   "agent.ran",
+  "budget.updated",
+  "budget.blocked",
   "workspace.created",
   "deployment.created",
+  "deployment.undeployed",
+  "deployment.rolled-back",
+  "audit.exported",
   "secret.referenced",
   "container.ran",
   "adapter.called",
@@ -374,7 +386,114 @@ export const workflowModelInvocationRecordSchema = z.object({
   cacheCreationInputTokens: z.number().int().min(0).optional(),
   totalTokens: z.number().int().min(0).optional(),
   costUsd: z.number().min(0).optional(),
-  modelUsage: jsonRecordSchema.optional()
+  modelUsage: jsonRecordSchema.optional(),
+  failureReason: z.string().min(1).optional()
+});
+
+export const workflowLifecycleStageSchema = z.enum([
+  "empty",
+  "planned",
+  "accepted",
+  "generated",
+  "evaluated",
+  "approved",
+  "deployed",
+  "runnable"
+]);
+
+export const workflowRuntimeTruthSnapshotSchema = z.object({
+  workflowId: z.string().min(1),
+  branchId: z.string().min(1).optional(),
+  stage: workflowLifecycleStageSchema,
+  planned: z.boolean(),
+  accepted: z.boolean(),
+  generated: z.boolean(),
+  evaluated: z.boolean(),
+  approved: z.boolean(),
+  deployed: z.boolean(),
+  runnable: z.boolean(),
+  draftRevisionId: z.string().min(1).optional(),
+  acceptedDraftRevisionId: z.string().min(1).optional(),
+  evaluationId: z.string().min(1).optional(),
+  approvedRevisionId: z.string().min(1).optional(),
+  runnerDeploymentId: z.string().min(1).optional(),
+  activeDeploymentIds: z.array(z.string().min(1)),
+  blockingReasons: z.array(z.string().min(1)),
+  updatedAt: z.string().datetime()
+});
+
+export const workflowProviderRuntimeConfigSchema = z.object({
+  role: z.enum([
+    "planner",
+    "agentic-research",
+    "codegen",
+    "workflow-architect",
+    "coder",
+    "tester",
+    "runner",
+    "fixer",
+    "evaluator"
+  ]),
+  provider: z.enum(["anthropic", "openai", "deterministic"]),
+  model: z.string().min(1),
+  configured: z.boolean(),
+  missingCredential: z.string().min(1).optional(),
+  tokenAccounting: z.boolean(),
+  costAccounting: z.boolean(),
+  retryBudget: workflowRetryBudgetSchema,
+  runtimeLimits: jsonRecordSchema
+});
+
+export const workflowBudgetPolicySchema = z.object({
+  workflowId: z.string().min(1),
+  branchId: z.string().min(1).optional(),
+  maxWorkflowCostUsd: z.number().min(0),
+  maxCodegenCostUsd: z.number().min(0),
+  maxAgenticCostUsd: z.number().min(0),
+  expensiveRetryConfirmationUsd: z.number().min(0),
+  perAgentMaxCostUsd: z.record(z.string(), z.number().min(0)),
+  updatedAt: z.string().datetime(),
+  updatedBy: z.string().min(1)
+});
+
+export const workflowBudgetLedgerSchema = z.object({
+  id: z.string().min(1),
+  workflowId: z.string().min(1),
+  branchId: z.string().min(1).optional(),
+  jobId: z.string().min(1).optional(),
+  agentRunId: z.string().min(1).optional(),
+  scope: z.enum(["workflow", "job", "agent"]),
+  projectedCostUsd: z.number().min(0),
+  actualCostUsd: z.number().min(0),
+  remainingCostUsd: z.number(),
+  retryEstimateUsd: z.number().min(0),
+  status: z.enum(["within-budget", "confirmation-required", "blocked", "exhausted"]),
+  stopReason: z.string().min(1).optional(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime()
+});
+
+export const workflowAgentTimelineEventSchema = z.object({
+  id: z.string().min(1),
+  workflowId: z.string().min(1),
+  branchId: z.string().min(1).optional(),
+  jobId: z.string().min(1).optional(),
+  nodeId: z.string().min(1).optional(),
+  agentRunId: z.string().min(1).optional(),
+  role: workflowAgentRoleSchema,
+  timestamp: z.string().datetime(),
+  status: z.enum(["started", "succeeded", "failed", "blocked"]),
+  title: z.string().min(1),
+  summary: z.string().min(1),
+  decision: z.string().min(1).optional(),
+  fixTriageAction: z.enum(["targeted-patch", "retry-codegen", "rearchitect", "give-up"]).optional(),
+  outputArtifactRefs: z.array(workflowArtifactRefSchema),
+  inputTokens: z.number().int().min(0).optional(),
+  outputTokens: z.number().int().min(0).optional(),
+  totalTokens: z.number().int().min(0).optional(),
+  costUsd: z.number().min(0).optional(),
+  cumulativeCostUsd: z.number().min(0),
+  metadata: jsonRecordSchema.optional()
 });
 
 export const workflowTaskRouteSchema = z.object({
@@ -593,12 +712,6 @@ export const workflowJobSchema = z.object({
   error: z.string().min(1).optional()
 });
 
-const workflowArtifactRefSchema = z.object({
-  path: z.string().min(1),
-  checksum: z.string().regex(/^sha256:[a-f0-9]{64}$/),
-  contentType: z.enum(["application/json", "text/markdown", "text/plain", "text/typescript"])
-});
-
 export const workflowGeneratedModuleSignatureSchema = z.object({
   promptHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   inputSchemaHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
@@ -766,7 +879,7 @@ export const workflowDeploymentRecordSchema = z.object({
     "workflow.bundle",
     "generated.service"
   ]),
-  status: z.enum(["ready", "blocked", "deployed", "rolled-back"]),
+  status: z.enum(["ready", "blocked", "deployed", "rolled-back", "undeployed"]),
   createdAt: z.string().datetime(),
   createdBy: z.string().min(1),
   requiredIntegrations: z.array(z.string()),
@@ -774,4 +887,45 @@ export const workflowDeploymentRecordSchema = z.object({
   rollbackPlan: z.string().min(1),
   auditRecordId: z.string().min(1),
   metadata: jsonRecordSchema
+});
+
+export const workflowDeploymentActivationRecordSchema = z.object({
+  deploymentId: z.string().min(1),
+  workflowId: z.string().min(1),
+  branchId: z.string().min(1).optional(),
+  approvedRevisionId: z.string().min(1),
+  kind: z.enum([
+    "schedule.activation",
+    "skill.publication",
+    "integration.configuration",
+    "runner.configuration",
+    "workflow.bundle",
+    "generated.service"
+  ]),
+  status: z.enum(["active", "inactive"]),
+  artifactRefs: z.array(workflowArtifactRefSchema),
+  runnerConfig: jsonRecordSchema.optional(),
+  rollbackTarget: z.string().min(1).optional(),
+  activatedAt: z.string().datetime()
+});
+
+export const workflowDeploymentRollbackTargetSchema = z.object({
+  deploymentId: z.string().min(1),
+  workflowId: z.string().min(1),
+  branchId: z.string().min(1).optional(),
+  approvedRevisionId: z.string().min(1),
+  previousDeploymentId: z.string().min(1).optional(),
+  rollbackPlan: z.string().min(1),
+  artifactRefs: z.array(workflowArtifactRefSchema),
+  createdAt: z.string().datetime()
+});
+
+export const workflowAuditExportRecordSchema = z.object({
+  id: z.string().min(1),
+  workflowId: z.string().min(1),
+  exportedAt: z.string().datetime(),
+  format: z.literal("jsonl"),
+  redacted: z.literal(true),
+  lineCount: z.number().int().min(0),
+  records: z.array(jsonRecordSchema)
 });
