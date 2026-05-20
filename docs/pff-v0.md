@@ -16,6 +16,12 @@ Export workspace findings to PFF:
 uv run piranesi pff export --workspace ./workspace --output findings.pff.json
 ```
 
+Validate the committed compatibility fixtures:
+
+```bash
+uv run python scripts/validate_pff_fixtures.py
+```
+
 The v0 schema is intentionally close to the current normalized finding model so current adapter
 findings can be represented without known information loss. It is additive-first: future changes
 should add optional fields until a separately documented migration policy exists.

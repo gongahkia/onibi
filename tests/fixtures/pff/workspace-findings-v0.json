@@ -1,0 +1,58 @@
+{
+  "engagement": {
+    "assessment_type": "web",
+    "client": "Fixture Client",
+    "delivery": {
+      "delivered_at": null,
+      "reviewer": null,
+      "reviewer_notes": [],
+      "status": "draft"
+    },
+    "milestones": [],
+    "owner": "piranesi",
+    "project": "PFF Compatibility Fixture",
+    "retest_rounds": [],
+    "scope": [
+      "127.0.0.1"
+    ]
+  },
+  "findings": [
+    {
+      "assets": [
+        "127.0.0.1"
+      ],
+      "confidence": "tool-observed",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "locator": "fixture:1",
+          "redacted": false,
+          "value": "Compatibility fixture finding evidence."
+        }
+      ],
+      "id": "finding:fixture-pff-v0",
+      "provenance": {
+        "tool": "fixture",
+        "type": "compatibility"
+      },
+      "severity": "low",
+      "source_references": [
+        {
+          "input_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "locator": "fixture:1",
+          "metadata": {},
+          "raw_path": "raw/fixture/input.json",
+          "tool": "fixture"
+        }
+      ],
+      "status": "open",
+      "title": "PFF v0 compatibility fixture"
+    }
+  ],
+  "known_gaps": [],
+  "producer": {
+    "name": "piranesi",
+    "version": "0.2.0"
+  },
+  "schema_version": "piranesi.pff.v0"
+}
