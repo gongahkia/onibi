@@ -16,6 +16,17 @@ Export workspace findings to PFF:
 uv run piranesi pff export --workspace ./workspace --output findings.pff.json
 ```
 
+Import PFF findings into a workspace:
+
+```bash
+uv run piranesi pff import --input findings.pff.json --workspace ./workspace
+```
+
+Imports validate the PFF document first, preserve original source references, tag
+imported records with `pff-import`, and add import metadata to finding provenance.
+They upsert by finding ID, so repeated imports update existing records instead of
+duplicating findings.
+
 Validate the committed compatibility fixtures:
 
 ```bash

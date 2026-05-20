@@ -9,7 +9,16 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError, ValidationError
 
 from piranesi import __version__
-from piranesi.workspace import NormalizedFinding, WorkspaceState, load_workspace
+from piranesi.workspace import (
+    AffectedInstance,
+    EvidenceSnippet,
+    NormalizedFinding,
+    ServiceContext,
+    SourceReference,
+    WorkspaceState,
+    load_workspace,
+    utc_now,
+)
 
 PFF_SCHEMA_VERSION: Literal["piranesi.pff.v0"] = "piranesi.pff.v0"
 LATEST_PFF_SCHEMA_VERSION = PFF_SCHEMA_VERSION
@@ -88,6 +97,31 @@ def load_and_validate_pff_file(path: Path | str) -> dict[str, Any]:
     return payload
 
 
+def findings_from_pff_document(
+    document: Mapping[str, Any],
+    *,
+    input_sha256: str | None = None,
+    raw_path: str | None = None,
+) -> list[NormalizedFinding]:
+    validate_pff_document(document)
+    imported_at = utc_now()
+    raw_producer = document.get("producer")
+    producer: dict[str, Any] = dict(raw_producer) if isinstance(raw_producer, dict) else {}
+    findings = document.get("findings")
+    if not isinstance(findings, list):
+        raise PffValidationError("PFF document findings must be an array")
+    return [
+        _normalized_finding_from_pff(
+            finding,
+            imported_at=imported_at,
+            producer=producer,
+            input_sha256=input_sha256,
+            raw_path=raw_path,
+        )
+        for finding in findings
+    ]
+
+
 def pff_schema_version(document: Mapping[str, Any]) -> str:
     version = document.get("schema_version")
     if not isinstance(version, str) or not version:
@@ -161,6 +195,70 @@ def _pff_finding(finding: NormalizedFinding) -> dict[str, Any]:
     }
 
 
+def _normalized_finding_from_pff(
+    finding: Mapping[str, Any],
+    *,
+    imported_at: str,
+    producer: Mapping[str, Any],
+    input_sha256: str | None,
+    raw_path: str | None,
+) -> NormalizedFinding:
+    assets = finding.get("assets")
+    asset = assets[0] if isinstance(assets, list) and assets else None
+    provenance = dict(finding.get("provenance") or {})
+    retest_status = finding.get("retest_status")
+    if retest_status is not None:
+        provenance["retest_status"] = retest_status
+    chain_of_custody = finding.get("chain_of_custody")
+    if chain_of_custody is not None:
+        provenance["chain_of_custody"] = chain_of_custody
+    provenance["pff_import"] = {
+        "imported_at": imported_at,
+        "input_sha256": input_sha256,
+        "producer": dict(producer),
+        "raw_path": raw_path,
+    }
+    service_payload = finding.get("service")
+    service = ServiceContext.model_validate(service_payload) if service_payload else None
+    try:
+        return NormalizedFinding(
+            id=str(finding["id"]),
+            title=str(finding["title"]),
+            severity=finding.get("severity", "info"),
+            confidence=finding.get("confidence", "info"),
+            status=finding.get("status", "open"),
+            description=finding.get("description"),
+            remediation=finding.get("remediation"),
+            asset=asset,
+            service=service,
+            weakness_ids=list(finding.get("weakness_ids") or []),
+            references=list(finding.get("references") or []),
+            tags=sorted(set(finding.get("tags") or []) | {"pff-import"}),
+            evidence=[
+                EvidenceSnippet.model_validate(item)
+                for item in finding.get("evidence", [])
+                if isinstance(item, dict)
+            ],
+            source_references=[
+                SourceReference.model_validate(item)
+                for item in finding.get("source_references", [])
+                if isinstance(item, dict)
+            ],
+            affected_instances=[
+                AffectedInstance.model_validate(item)
+                for item in finding.get("affected_instances", [])
+                if isinstance(item, dict)
+            ],
+            first_seen=imported_at,
+            last_seen=imported_at,
+            provenance=provenance,
+        )
+    except Exception as exc:
+        raise PffValidationError(
+            f"cannot convert PFF finding {finding.get('id')!r}: {exc}"
+        ) from exc
+
+
 __all__ = [
     "LATEST_PFF_SCHEMA_VERSION",
     "PFF_SCHEMA_PATH",
@@ -170,6 +268,7 @@ __all__ = [
     "PffValidationError",
     "build_pff_document",
     "ensure_supported_pff_version",
+    "findings_from_pff_document",
     "load_and_validate_pff_file",
     "load_pff_schema",
     "migrate_pff_document",

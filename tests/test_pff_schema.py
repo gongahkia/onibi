@@ -14,6 +14,7 @@ from piranesi.pff import (
     PffValidationError,
     build_pff_document,
     ensure_supported_pff_version,
+    findings_from_pff_document,
     load_and_validate_pff_file,
     load_pff_schema,
     migrate_pff_document,
@@ -101,6 +102,81 @@ def test_pff_export_command_writes_valid_artifact_and_audit(tmp_path: Path) -> N
     ]
     assert audit_events[-1]["command"] == "pff export"
     assert audit_events[-1]["output_sha256"] == summary["sha256"]
+
+
+def test_pff_import_command_upserts_valid_findings_and_audit(tmp_path: Path) -> None:
+    source_workspace = tmp_path / "source-workspace"
+    target_workspace = tmp_path / "target-workspace"
+    ingest = runner.invoke(
+        app,
+        [
+            "ingest",
+            "nmap",
+            "--input",
+            str(NMAP_FIXTURE),
+            "--workspace",
+            str(source_workspace),
+        ],
+    )
+    assert ingest.exit_code == 0, ingest.output
+    pff_path = tmp_path / "findings.pff.json"
+    export = runner.invoke(
+        app,
+        [
+            "pff",
+            "export",
+            "--workspace",
+            str(source_workspace),
+            "--output",
+            str(pff_path),
+        ],
+    )
+    assert export.exit_code == 0, export.output
+
+    first_import = runner.invoke(
+        app,
+        ["pff", "import", "--input", str(pff_path), "--workspace", str(target_workspace), "--json"],
+    )
+    second_import = runner.invoke(
+        app,
+        ["pff", "import", "--input", str(pff_path), "--workspace", str(target_workspace), "--json"],
+    )
+
+    assert first_import.exit_code == 0, first_import.output
+    first_summary = json.loads(first_import.stdout)
+    assert first_summary["created"] == 2
+    assert first_summary["updated"] == 0
+    assert second_import.exit_code == 0, second_import.output
+    second_summary = json.loads(second_import.stdout)
+    assert second_summary["created"] == 0
+    assert second_summary["updated"] == 2
+
+    imported = build_pff_document(target_workspace)
+    assert len(imported["findings"]) == 2
+    assert all("pff-import" in finding["tags"] for finding in imported["findings"])
+    assert all("pff_import" in finding["provenance"] for finding in imported["findings"])
+
+    audit_events = [
+        json.loads(line)
+        for line in (target_workspace / "audit-log.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert audit_events[-1]["command"] == "pff import"
+    assert audit_events[-1]["summary"]["updated"] == 2
+
+
+def test_findings_from_pff_document_preserves_source_references() -> None:
+    document = load_and_validate_pff_file(Path("tests/fixtures/pff/workspace-findings-v0.json"))
+
+    findings = findings_from_pff_document(
+        document,
+        input_sha256="f" * 64,
+        raw_path="raw/pff/findings.pff.json",
+    )
+
+    assert len(findings) == 1
+    assert findings[0].source_references[0].tool == "fixture"
+    assert findings[0].provenance["pff_import"]["input_sha256"] == "f" * 64
+    assert "pff-import" in findings[0].tags
 
 
 def test_validate_pff_document_reports_schema_errors() -> None:

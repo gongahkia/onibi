@@ -59,6 +59,7 @@ from piranesi.objectives import (
 from piranesi.pff import (
     PffValidationError,
     build_pff_document,
+    findings_from_pff_document,
     load_and_validate_pff_file,
     validate_pff_document,
 )
@@ -2103,6 +2104,89 @@ def pff_export_command(
         payload,
         json_output=json_output,
         text=f"Exported PFF: {payload['findings']} findings -> {output_path}",
+    )
+
+
+@pff_app.command("import", help="Import PFF findings into a workspace.")
+def pff_import_command(
+    input_path: Annotated[
+        Path,
+        typer.Option(
+            "--input",
+            "-i",
+            exists=False,
+            dir_okay=False,
+            file_okay=True,
+            help="PFF JSON document to import.",
+        ),
+    ],
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to create or update.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print import summary as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    if not input_path.is_file():
+        _fail(f"input file does not exist: {input_path}", json_errors=json_errors)
+
+    try:
+        state = create_workspace(workspace)
+        state, record = copy_tool_input(state, tool="pff", input_path=input_path)
+        raw_input_path = workspace_path(state.root, record.raw_path, allowed_roots=("raw",))
+        document = load_and_validate_pff_file(raw_input_path)
+        findings = findings_from_pff_document(
+            document,
+            input_sha256=record.sha256,
+            raw_path=record.raw_path,
+        )
+        before_ids = {finding.id for finding in state.findings.findings}
+        incoming_ids = {finding.id for finding in findings}
+        state = upsert_findings(state, findings)
+        output_digest = file_sha256(state.root / FINDINGS_FILE)
+        summary = {
+            "schema_version": document["schema_version"],
+            "producer": document["producer"],
+            "input_record": record.id,
+            "created": len(incoming_ids - before_ids),
+            "updated": len(incoming_ids & before_ids),
+            "findings": len(incoming_ids),
+        }
+        append_workspace_audit_event(
+            state,
+            AuditEvent(
+                timestamp=utc_now(),
+                command="pff import",
+                input_path=record.raw_path,
+                input_sha256=record.sha256,
+                output_path=FINDINGS_FILE,
+                output_sha256=output_digest,
+                summary=summary,
+            ),
+        )
+    except (WorkspaceError, PffValidationError, OSError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    _emit(
+        summary,
+        json_output=json_output,
+        text=(
+            "Imported PFF: "
+            f"{summary['findings']} findings "
+            f"({summary['created']} created, {summary['updated']} updated)"
+        ),
     )
 
 

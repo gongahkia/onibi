@@ -32,6 +32,7 @@
       ],
       "pff": [
         "export",
+        "import",
         "validate"
       ],
       "procedures": [
