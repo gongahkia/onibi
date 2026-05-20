@@ -16,12 +16,14 @@ from piranesi.adapters import (
     NessusParseError,
     NmapParseError,
     NucleiParseError,
+    SarifParseError,
     ZapParseError,
     parse_burp_xml_file,
     parse_c2_jsonl_file,
     parse_nessus_file,
     parse_nmap_xml_file,
     parse_nuclei_jsonl_file,
+    parse_sarif_file,
     parse_zap_json_file,
 )
 from piranesi.detections import (
@@ -787,6 +789,69 @@ def ingest_nessus_command(
         json_output=json_output,
         text=(
             "Ingested Nessus XML: "
+            f"{summary['findings']} findings "
+            f"({summary['created']} created, {summary['updated']} updated, "
+            f"{warning_count} warnings)"
+        ),
+    )
+
+
+@ingest_app.command("sarif", help="Ingest SARIF 2.1.0 findings into a workspace.")
+def ingest_sarif_command(
+    input_path: Annotated[
+        Path,
+        typer.Option(
+            "--input",
+            "-i",
+            exists=False,
+            dir_okay=False,
+            file_okay=True,
+            help="SARIF 2.1.0 JSON export to ingest.",
+        ),
+    ],
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to create or update.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print ingest summary as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    if not input_path.is_file():
+        _fail(f"input file does not exist: {input_path}", json_errors=json_errors)
+
+    try:
+        summary, parse_result = _ingest_findings_export(
+            input_path=input_path,
+            workspace=workspace,
+            tool="sarif",
+            command="ingest sarif",
+            parser=lambda path, digest, raw_path: parse_sarif_file(
+                path,
+                input_sha256=digest,
+                raw_path=raw_path,
+            ),
+        )
+    except (WorkspaceError, SarifParseError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    warning_count = len(parse_result.warnings)
+    _emit(
+        summary,
+        json_output=json_output,
+        text=(
+            "Ingested SARIF: "
             f"{summary['findings']} findings "
             f"({summary['created']} created, {summary['updated']} updated, "
             f"{warning_count} warnings)"

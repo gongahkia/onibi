@@ -108,6 +108,9 @@ uv run piranesi ingest zap \
 uv run piranesi ingest nessus \
   --input tests/fixtures/pentest/nessus/localhost-web.nessus \
   --workspace ./workspace
+uv run piranesi ingest sarif \
+  --input tests/fixtures/pentest/sarif/local-sast.sarif.json \
+  --workspace ./workspace
 uv run piranesi ingest c2 \
   --input tests/fixtures/redteam/c2/mock-c2-events.jsonl \
   --workspace ./workspace \
@@ -186,6 +189,7 @@ Implemented Phase 1 pieces:
 - Burp Suite Pro Issues XML ingestion.
 - OWASP ZAP JSON alert ingestion.
 - Nessus `.nessus` XML ingestion.
+- SARIF 2.1.0 findings ingestion.
 - Neutral C2 JSONL import into evidence and timeline.
 - Pentest report rendering to JSON, Markdown, and PDF.
 - Red-team handoff rendering to JSON, Markdown, PDF, and archive ZIP.
@@ -240,6 +244,7 @@ added with `piranesi evidence add` are also copied under `raw/<kind>/` and index
 - [Burp ingestion](docs/burp-ingest.md)
 - [OWASP ZAP ingestion](docs/zap-ingest.md)
 - [Nessus ingestion](docs/nessus-ingest.md)
+- [SARIF ingestion](docs/sarif-ingest.md)
 - [Phase 1.1 adapter expansion](docs/adapter-expansion.md)
 - [Piranesi Finding Format v0](docs/pff-v0.md)
 - [C2 log import](docs/c2-log-import.md)

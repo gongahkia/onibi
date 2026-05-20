@@ -7,6 +7,7 @@ from piranesi.adapters.nuclei import (
     NucleiParseResult,
     parse_nuclei_jsonl_file,
 )
+from piranesi.adapters.sarif import SarifParseError, SarifParseResult, parse_sarif_file
 from piranesi.adapters.zap import ZapParseError, ZapParseResult, parse_zap_json_file
 
 __all__ = [
@@ -20,6 +21,8 @@ __all__ = [
     "NmapParseResult",
     "NucleiParseError",
     "NucleiParseResult",
+    "SarifParseError",
+    "SarifParseResult",
     "ZapParseError",
     "ZapParseResult",
     "parse_burp_xml_file",
@@ -27,5 +30,6 @@ __all__ = [
     "parse_nessus_file",
     "parse_nmap_xml_file",
     "parse_nuclei_jsonl_file",
+    "parse_sarif_file",
     "parse_zap_json_file",
 ]
