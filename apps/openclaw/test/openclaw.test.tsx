@@ -104,10 +104,31 @@ describe("OpenClaw planner shell", () => {
     });
   });
 
+  it("uses component categories and search to add concrete nodes", async () => {
+    render(<App />);
+
+    expect(screen.getByRole("button", { name: /Add Manual Input/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Data Sources" }));
+    fireEvent.click(screen.getByRole("button", { name: /Add Gmail Receipts/i }));
+    expect(screen.getByLabelText("Label")).toHaveValue("Gmail Receipts");
+    expect(screen.getByLabelText("Workflow summary")).toHaveTextContent(/Nodes\s*1/u);
+
+    fireEvent.click(screen.getByRole("button", { name: /Discover more components/i }));
+    expect(screen.getByRole("button", { name: /Add Generated Code/i })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Search components"), {
+      target: { value: "research" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Add Research Agent/i }));
+    expect(screen.getByLabelText("Label")).toHaveValue("Research Agent");
+    expect(screen.getByLabelText("Workflow summary")).toHaveTextContent(/Nodes\s*2/u);
+  });
+
   it("configures adapter-backed delivery skills and opt-in push channels", async () => {
     render(<App />);
 
-    fireEvent.click(screen.getByRole("button", { name: /Delivery/i }));
+    fireEvent.click(screen.getByTitle("Add delivery node"));
     fireEvent.change(screen.getByLabelText("Adapter-backed skill"), {
       target: { value: "skill.email.results.deliver" }
     });

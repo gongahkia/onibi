@@ -224,6 +224,23 @@ textarea::placeholder {
   gap: 0.35rem;
 }
 
+.component-palette {
+  border-top: 1px solid #30333b;
+  display: grid;
+  gap: 0.45rem;
+  padding-top: 0.75rem;
+}
+
+.component-palette-heading {
+  align-items: center;
+  color: #9ea3ae;
+  display: flex;
+  font-size: 0.72rem;
+  font-weight: 800;
+  justify-content: space-between;
+  text-transform: uppercase;
+}
+
 .component-row,
 .discover-button {
   background: transparent;
@@ -246,6 +263,37 @@ textarea::placeholder {
 
 .discover-button {
   margin-top: 0.25rem;
+}
+
+.component-option {
+  align-items: center;
+  background: #202126;
+  border-color: #34363d;
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  justify-items: stretch;
+  min-height: 4.1rem;
+  padding: 0.65rem;
+  text-align: left;
+}
+
+.component-option span {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.component-option strong {
+  color: #f1f2f5;
+  font-size: 0.84rem;
+}
+
+.component-option small {
+  color: #a5a9b3;
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.25;
 }
 
 .prompt-form,

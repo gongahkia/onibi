@@ -220,13 +220,201 @@ const adapterSkillPresets: readonly AdapterSkillPreset[] = [
 ];
 
 const componentCategories = [
-  { label: "Input & Output", icon: Unplug },
-  { label: "Data Sources", icon: Database },
-  { label: "Models & Agents", icon: Layers3 },
-  { label: "LLM Operations", icon: WandSparkles },
-  { label: "Files & Knowledge", icon: FileStack },
-  { label: "Processing", icon: SlidersHorizontal },
-  { label: "Flow Control", icon: GitBranch }
+  { id: "input-output", label: "Input & Output", icon: Unplug },
+  { id: "data-sources", label: "Data Sources", icon: Database },
+  { id: "models-agents", label: "Models & Agents", icon: Layers3 },
+  { id: "llm-operations", label: "LLM Operations", icon: WandSparkles },
+  { id: "files-knowledge", label: "Files & Knowledge", icon: FileStack },
+  { id: "processing", label: "Processing", icon: SlidersHorizontal },
+  { id: "flow-control", label: "Flow Control", icon: GitBranch }
+] as const;
+
+type ComponentCategoryId = (typeof componentCategories)[number]["id"];
+type ComponentPaletteFilter = ComponentCategoryId | "all";
+
+interface ComponentPaletteItem {
+  readonly id: string;
+  readonly category: ComponentCategoryId;
+  readonly label: string;
+  readonly description: string;
+  readonly kind: WorkflowNodeKind;
+  readonly inputs?: WorkflowNode["inputs"] | undefined;
+  readonly outputs?: WorkflowNode["outputs"] | undefined;
+  readonly config?: JsonRecord | undefined;
+  readonly skillId?: string | undefined;
+  readonly adapterId?: string | undefined;
+  readonly adapterIds?: readonly string[] | undefined;
+  readonly adapterOperations?: readonly WorkflowAdapterOperationRef[] | undefined;
+  readonly secretRefs?: Readonly<Record<string, string>> | undefined;
+  readonly agentic?: WorkflowNode["agentic"] | undefined;
+}
+
+const objectPort = { type: "object" as const, additionalProperties: true };
+const arrayPort = { type: "array" as const, items: objectPort };
+const gmailReceiptsPreset = adapterSkillPresets[0]!;
+const sheetsAppendPreset = adapterSkillPresets[1]!;
+
+const componentPaletteItems: readonly ComponentPaletteItem[] = [
+  {
+    id: "manual-input",
+    category: "input-output",
+    label: "Manual Input",
+    description: "Starts the workflow from operator-supplied payloads.",
+    kind: "trigger",
+    outputs: { request: objectPort },
+    config: { trigger: "manual", promptSource: "operator" }
+  },
+  {
+    id: "webhook-input",
+    category: "input-output",
+    label: "Webhook Input",
+    description: "Starts the workflow from an incoming HTTP payload.",
+    kind: "trigger",
+    outputs: { request: objectPort },
+    config: { trigger: "webhook", path: "/webhooks/openclaw" }
+  },
+  {
+    id: "email-delivery",
+    category: "input-output",
+    label: "Email Delivery",
+    description: "Delivers a prepared result through SMTP metadata.",
+    kind: "delivery",
+    inputs: { rows: arrayPort, approved: objectPort },
+    outputs: { delivery: objectPort },
+    skillId: "skill.email.results.deliver",
+    adapterId: "adapter.email",
+    adapterIds: ["adapter.email"],
+    adapterOperations: [
+      {
+        adapterId: "adapter.email",
+        operation: "email.results.send",
+        operationVersion: "1.0.0"
+      }
+    ],
+    secretRefs: { "email.delivery": "secret:email.smtp.default" },
+    config: {
+      channel: "email",
+      channels: ["email"],
+      destination: "owner@example.com",
+      allowedHosts: ["smtp"]
+    }
+  },
+  {
+    id: "gmail-receipts",
+    category: "data-sources",
+    label: "Gmail Receipts",
+    description: "Reads matching Gmail receipts with the Gmail adapter.",
+    kind: "skill",
+    inputs: { request: objectPort },
+    outputs: { receipts: arrayPort },
+    skillId: "skill.gmail.receipts.read",
+    adapterId: "adapter.gmail",
+    adapterIds: ["adapter.gmail"],
+    adapterOperations: gmailReceiptsPreset.adapterOperations,
+    secretRefs: gmailReceiptsPreset.secretRefs,
+    config: {
+      skillMode: "adapter",
+      ...gmailReceiptsPreset.config
+    }
+  },
+  {
+    id: "sheets-append",
+    category: "data-sources",
+    label: "Sheets Append",
+    description: "Appends structured rows to Google Sheets.",
+    kind: "delivery",
+    inputs: { rows: arrayPort },
+    outputs: { delivery: objectPort },
+    skillId: "skill.sheets.rows.append",
+    adapterId: "adapter.sheets",
+    adapterIds: ["adapter.sheets"],
+    adapterOperations: sheetsAppendPreset.adapterOperations,
+    secretRefs: sheetsAppendPreset.secretRefs,
+    config: {
+      ...sheetsAppendPreset.config
+    }
+  },
+  {
+    id: "research-agent",
+    category: "models-agents",
+    label: "Research Agent",
+    description: "Runs bounded live web research with source and limitation capture.",
+    kind: "skill",
+    inputs: { request: objectPort },
+    outputs: { result: objectPort },
+    config: {
+      skillMode: "agentic",
+      plannerRationale: "Manual component palette insertion for bounded research."
+    },
+    agentic: {
+      tools: ["web-search", "summarizer"],
+      memoryScope: "workspace",
+      stopConditions: ["research-summary-ready", "source-confidence-recorded"],
+      humanApprovalBoundaries: ["Before external delivery or publication."],
+      networkPolicy: "declared",
+      allowedHosts: ["*"],
+      secretRefs: [],
+      evalContract: {
+        requiredFields: ["summary", "sources", "limitations"]
+      },
+      budget: {
+        maxIterations: 3,
+        maxWallClockSeconds: 300,
+        maxModelCostUsd: 2,
+        maxDockerRuntimeSeconds: 120,
+        maxRetries: 1
+      }
+    }
+  },
+  {
+    id: "generated-code",
+    category: "models-agents",
+    label: "Generated Code",
+    description: "Creates a codegen node for custom deterministic logic.",
+    kind: "codegen",
+    inputs: { request: objectPort },
+    outputs: { artifact: objectPort },
+    config: { sandboxPolicy: "network-none", artifactStatus: "draft" }
+  },
+  {
+    id: "llm-summary",
+    category: "llm-operations",
+    label: "Summarize Text",
+    description: "Summarizes upstream content into a compact result object.",
+    kind: "skill",
+    inputs: { request: objectPort },
+    outputs: { result: objectPort },
+    config: { skillMode: "deterministic", task: "summarize" }
+  },
+  {
+    id: "file-ingest",
+    category: "files-knowledge",
+    label: "File Intake",
+    description: "Accepts uploaded or workspace file metadata as workflow input.",
+    kind: "trigger",
+    outputs: { file: objectPort },
+    config: { trigger: "file", source: "workspace" }
+  },
+  {
+    id: "transform-data",
+    category: "processing",
+    label: "Transform Data",
+    description: "Maps upstream payloads into a downstream shape.",
+    kind: "transform",
+    inputs: { input: objectPort },
+    outputs: { output: objectPort },
+    config: { mode: "map" }
+  },
+  {
+    id: "approval-gate",
+    category: "flow-control",
+    label: "Approval Gate",
+    description: "Requires owner approval before downstream execution.",
+    kind: "approval",
+    inputs: { input: objectPort },
+    outputs: { approved: objectPort },
+    config: { requiredRole: "owner" }
+  }
 ] as const;
 
 const railItems = [
@@ -322,6 +510,9 @@ export function App() {
   const [secretMetadata, setSecretMetadata] = useState<readonly SecretMetadata[]>([]);
   const [googleConnected, setGoogleConnected] = useState<boolean | null>(null);
   const [secretDrafts, setSecretDrafts] = useState<Readonly<Record<string, string>>>({});
+  const [componentSearch, setComponentSearch] = useState("");
+  const [selectedComponentCategory, setSelectedComponentCategory] =
+    useState<ComponentPaletteFilter>("input-output");
 
   const validationIssues = validation.ok ? [] : validation.errors;
   const [nodes, setNodes, onNodesChangeBase] = useNodesState<WorkflowFlowNode>(
@@ -370,6 +561,23 @@ export function App() {
     draftEvaluation?.readyForApproval === true &&
     !branchLifecycleLocked;
   const canRun = approvedRevision !== null && !branchLifecycleLocked;
+  const visibleComponentItems = useMemo(
+    () =>
+      componentPaletteItems.filter((item) => {
+        const search = componentSearch.trim().toLowerCase();
+        const matchesCategory =
+          selectedComponentCategory === "all" || item.category === selectedComponentCategory;
+        const matchesSearch =
+          search.length === 0 ||
+          [item.label, item.description, item.kind, categoryLabel(item.category)]
+            .join(" ")
+            .toLowerCase()
+            .includes(search);
+
+        return matchesCategory && matchesSearch;
+      }),
+    [componentSearch, selectedComponentCategory]
+  );
 
   const refreshIntegrations = useCallback(async () => {
     try {
@@ -834,6 +1042,44 @@ export function App() {
       config: {
         canvas: position
       }
+    });
+    updateLocalWorkflow({
+      ...workflow,
+      approval: null,
+      nodes: [...workflow.nodes, node]
+    });
+    setSelectedNodeId(id);
+    setSelectedEdgeId(null);
+    setNodePrompt(node.description);
+    setJsonError(null);
+    markDirty(id);
+  }
+
+  function addComponentNode(item: ComponentPaletteItem) {
+    if (branchLifecycleLocked) {
+      setApiError("Archived branches are read-only.");
+      return;
+    }
+
+    const id = uniqueComponentNodeId(item.id, workflow.nodes);
+    const position = nextNodePosition(nodes);
+    const node = createWorkflowNode({
+      id,
+      kind: item.kind,
+      label: item.label,
+      description: item.description,
+      ...(item.inputs ? { inputs: item.inputs } : {}),
+      ...(item.outputs ? { outputs: item.outputs } : {}),
+      config: {
+        ...(item.config ?? {}),
+        canvas: position
+      },
+      ...(item.skillId ? { skillId: item.skillId } : {}),
+      ...(item.adapterId ? { adapterId: item.adapterId } : {}),
+      ...(item.adapterIds ? { adapterIds: item.adapterIds } : {}),
+      ...(item.adapterOperations ? { adapterOperations: item.adapterOperations } : {}),
+      ...(item.secretRefs ? { secretRefs: item.secretRefs } : {}),
+      ...(item.agentic ? { agentic: item.agentic } : {})
     });
     updateLocalWorkflow({
       ...workflow,
@@ -1363,7 +1609,12 @@ export function App() {
         <aside className="panel planner-panel" aria-label="Workflow planner">
           <div className="sidebar-search">
             <Search size={18} />
-            <input aria-label="Search components" placeholder="Search" />
+            <input
+              aria-label="Search components"
+              placeholder="Search"
+              value={componentSearch}
+              onChange={(event) => setComponentSearch(event.target.value)}
+            />
             <kbd>/</kbd>
           </div>
 
@@ -1373,13 +1624,16 @@ export function App() {
               <SlidersHorizontal size={16} />
             </div>
             <div className="component-list">
-              {componentCategories.map((category, index) => {
+              {componentCategories.map((category) => {
                 const Icon = category.icon;
+                const selected = selectedComponentCategory === category.id;
                 return (
                   <button
                     key={category.label}
-                    className={index === 0 ? "component-row component-row-active" : "component-row"}
+                    aria-pressed={selected}
+                    className={selected ? "component-row component-row-active" : "component-row"}
                     type="button"
+                    onClick={() => setSelectedComponentCategory(category.id)}
                   >
                     <Icon size={18} />
                     <span>{category.label}</span>
@@ -1388,7 +1642,38 @@ export function App() {
                 );
               })}
             </div>
-            <button className="discover-button" type="button">
+            <div className="component-palette" aria-label="Available components">
+              <div className="component-palette-heading">
+                <span>{categoryLabel(selectedComponentCategory)}</span>
+                <span>{visibleComponentItems.length}</span>
+              </div>
+              {visibleComponentItems.length > 0 ? (
+                visibleComponentItems.map((item) => (
+                  <button
+                    key={item.id}
+                    className="component-option"
+                    type="button"
+                    aria-label={`Add ${item.label}`}
+                    disabled={branchLifecycleLocked}
+                    onClick={() => addComponentNode(item)}
+                  >
+                    <span>
+                      <strong>{item.label}</strong>
+                      <small>{item.description}</small>
+                    </span>
+                    <Plus size={16} />
+                  </button>
+                ))
+              ) : (
+                <p className="muted-text">No matching components</p>
+              )}
+            </div>
+            <button
+              className="discover-button"
+              type="button"
+              aria-pressed={selectedComponentCategory === "all"}
+              onClick={() => setSelectedComponentCategory("all")}
+            >
               <Grid2X2 size={18} />
               Discover more components
             </button>
@@ -3108,6 +3393,26 @@ function deliveryChannels(node: WorkflowNode): ReadonlySet<string> {
   }
 
   return channels;
+}
+
+function categoryLabel(category: ComponentPaletteFilter): string {
+  if (category === "all") {
+    return "All components";
+  }
+
+  return componentCategories.find((candidate) => candidate.id === category)?.label ?? "Components";
+}
+
+function uniqueComponentNodeId(baseId: string, nodes: readonly WorkflowNode[]): string {
+  const existing = new Set(nodes.map((node) => node.id));
+  let index = 1;
+  let id = baseId;
+  while (existing.has(id)) {
+    index += 1;
+    id = `${baseId}-${index}`;
+  }
+
+  return id;
 }
 
 function uniqueNodeId(kind: WorkflowNodeKind, nodes: readonly WorkflowNode[]): string {
