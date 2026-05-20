@@ -154,6 +154,25 @@ export type GeneratedNodeBuildRole =
   | "fixer"
   | "evaluator";
 
+export type GeneratedNodeFixTriageAction =
+  | "targeted-patch"
+  | "retry-codegen"
+  | "rearchitect"
+  | "give-up";
+
+export type GeneratedNodeFixTriageScope =
+  | "local-code"
+  | "node-contract"
+  | "workflow-design"
+  | "external-blocker";
+
+export interface GeneratedNodeFixTriageDecision {
+  readonly action: GeneratedNodeFixTriageAction;
+  readonly scope: GeneratedNodeFixTriageScope;
+  readonly rationale: string;
+  readonly confidence: number;
+}
+
 export interface GeneratedNodeRoleRunInput {
   readonly role: GeneratedNodeBuildRole;
   readonly request: GeneratedNodeBuildLoopRequest;
@@ -173,6 +192,7 @@ export interface GeneratedNodeRoleRunResult {
   readonly model?: string | undefined;
   readonly modelCostUsd?: number | undefined;
   readonly modelInvocations?: readonly WorkflowModelInvocationRecord[] | undefined;
+  readonly fixTriage?: GeneratedNodeFixTriageDecision | undefined;
   readonly error?: string | undefined;
 }
 

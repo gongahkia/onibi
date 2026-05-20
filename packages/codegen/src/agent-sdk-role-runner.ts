@@ -2,6 +2,7 @@ import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { JsonRecord } from "@kelpclaw/workflow-spec";
 import type {
   GeneratedNodeBuildRole,
+  GeneratedNodeFixTriageDecision,
   GeneratedNodeRoleRunInput,
   GeneratedNodeRoleRunResult,
   GeneratedNodeRoleRunner,
@@ -26,6 +27,7 @@ interface RoleQueryResult {
   readonly status: "succeeded" | "failed";
   readonly totalCostUsd: number;
   readonly outputArtifactRefs: readonly WorkflowCodegenArtifactRef[];
+  readonly fixTriage?: GeneratedNodeFixTriageDecision | undefined;
   readonly usage: ModelUsageSnapshot;
 }
 
@@ -92,6 +94,7 @@ export class AgentSdkGeneratedNodeRoleRunner implements GeneratedNodeRoleRunner 
           model: this.model ?? "default",
           modelCostUsd: roleResult.totalCostUsd,
           modelInvocations: [modelInvocation],
+          fixTriage: roleResult.fixTriage,
           error: roleResult.summary
         };
       }
@@ -128,7 +131,8 @@ export class AgentSdkGeneratedNodeRoleRunner implements GeneratedNodeRoleRunner 
         modelProvider: "anthropic",
         model: this.model ?? "default",
         modelCostUsd: roleResult.totalCostUsd,
-        modelInvocations: [modelInvocation]
+        modelInvocations: [modelInvocation],
+        fixTriage: roleResult.fixTriage
       };
     } catch (error) {
       return {
@@ -257,6 +261,7 @@ async function runRoleQuery(
   let totalCostUsd = 0;
   let outputArtifactRefs: readonly WorkflowCodegenArtifactRef[] = fallbackArtifacts;
   let usage: ModelUsageSnapshot = {};
+  let fixTriage: GeneratedNodeFixTriageDecision | undefined;
 
   for await (const message of runner(prompt, options)) {
     if (message.type !== "result") {
@@ -268,6 +273,7 @@ async function runRoleQuery(
     const structured = parseRoleStructuredOutput(record.structured_output ?? record.result);
     summary = structured.summary;
     status = structured.status;
+    fixTriage = structured.fixTriage;
     outputArtifactRefs =
       structured.outputArtifactRefs.length > 0 ? structured.outputArtifactRefs : fallbackArtifacts;
   }
@@ -281,6 +287,7 @@ async function runRoleQuery(
     status,
     totalCostUsd,
     outputArtifactRefs,
+    fixTriage,
     usage
   };
 }
@@ -344,6 +351,7 @@ function parseRoleStructuredOutput(output: unknown): {
   readonly summary: string;
   readonly status: RoleQueryResult["status"];
   readonly outputArtifactRefs: readonly WorkflowCodegenArtifactRef[];
+  readonly fixTriage?: GeneratedNodeFixTriageDecision | undefined;
 } {
   const parsed = typeof output === "string" ? safeParseJson(output) : output;
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -353,6 +361,7 @@ function parseRoleStructuredOutput(output: unknown): {
     readonly summary?: unknown;
     readonly status?: unknown;
     readonly outputArtifactRefs?: unknown;
+    readonly fixTriage?: unknown;
   };
   if (typeof record.summary !== "string" || record.summary.length === 0) {
     throw new Error("Generated-node role output requires a summary.");
@@ -361,11 +370,41 @@ function parseRoleStructuredOutput(output: unknown): {
   const outputArtifactRefs = Array.isArray(record.outputArtifactRefs)
     ? record.outputArtifactRefs.filter(isArtifactRef)
     : [];
+  const fixTriage = parseFixTriageDecision(record.fixTriage);
 
   return {
     summary: record.summary,
     status,
-    outputArtifactRefs
+    outputArtifactRefs,
+    ...(fixTriage ? { fixTriage } : {})
+  };
+}
+
+function parseFixTriageDecision(value: unknown): GeneratedNodeFixTriageDecision | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Partial<GeneratedNodeFixTriageDecision>;
+  const actions = ["targeted-patch", "retry-codegen", "rearchitect", "give-up"] as const;
+  const scopes = ["local-code", "node-contract", "workflow-design", "external-blocker"] as const;
+  if (
+    !actions.includes(record.action as (typeof actions)[number]) ||
+    !scopes.includes(record.scope as (typeof scopes)[number]) ||
+    typeof record.rationale !== "string"
+  ) {
+    return undefined;
+  }
+
+  const confidence =
+    typeof record.confidence === "number" && Number.isFinite(record.confidence)
+      ? Math.min(1, Math.max(0, record.confidence))
+      : 0.5;
+
+  return {
+    action: record.action as GeneratedNodeFixTriageDecision["action"],
+    scope: record.scope as GeneratedNodeFixTriageDecision["scope"],
+    rationale: record.rationale,
+    confidence
   };
 }
 
@@ -418,6 +457,9 @@ function createRolePrompt(input: GeneratedNodeRoleRunInput): string {
     `Outputs JSON Schema: ${JSON.stringify(input.request.outputSchema)}`,
     `Sandbox: ${JSON.stringify(input.request.sandbox)}`,
     input.previousFailure ? `Previous failure: ${input.previousFailure}` : "",
+    input.role === "fixer"
+      ? "Fixer instruction: triage before repair. Set fixTriage.action to targeted-patch for small local code/payload/runtime issues, retry-codegen for normal regeneration, rearchitect when workflow or node design is wrong, and give-up for external blockers."
+      : "",
     `Known output artifacts: ${JSON.stringify(input.outputArtifactRefs)}`
   ]
     .filter((line) => line.length > 0)
@@ -442,6 +484,21 @@ const roleOutputSchema = {
           checksum: { type: "string", minLength: 1 },
           contentType: { enum: ["text/typescript", "application/json", "text/plain"] }
         }
+      }
+    },
+    fixTriage: {
+      type: "object",
+      required: ["action", "scope", "rationale", "confidence"],
+      additionalProperties: false,
+      properties: {
+        action: {
+          enum: ["targeted-patch", "retry-codegen", "rearchitect", "give-up"]
+        },
+        scope: {
+          enum: ["local-code", "node-contract", "workflow-design", "external-blocker"]
+        },
+        rationale: { type: "string", minLength: 1 },
+        confidence: { type: "number", minimum: 0, maximum: 1 }
       }
     }
   }

@@ -7,6 +7,7 @@ import type {
 } from "./openai-generator.js";
 import type {
   GeneratedNodeBuildRole,
+  GeneratedNodeFixTriageDecision,
   GeneratedNodeRoleRunInput,
   GeneratedNodeRoleRunResult,
   GeneratedNodeRoleRunner,
@@ -24,6 +25,7 @@ interface RoleQueryResult {
   readonly summary: string;
   readonly status: "succeeded" | "failed";
   readonly outputArtifactRefs: readonly WorkflowCodegenArtifactRef[];
+  readonly fixTriage?: GeneratedNodeFixTriageDecision | undefined;
   readonly response: OpenAiResponsesResult;
 }
 
@@ -79,6 +81,7 @@ export class OpenAiGeneratedNodeRoleRunner implements GeneratedNodeRoleRunner {
           model: roleResult.response.model ?? this.model,
           modelCostUsd,
           modelInvocations: [modelInvocation],
+          fixTriage: roleResult.fixTriage,
           error: roleResult.summary
         };
       }
@@ -115,7 +118,8 @@ export class OpenAiGeneratedNodeRoleRunner implements GeneratedNodeRoleRunner {
         modelProvider: "openai",
         model: roleResult.response.model ?? this.model,
         modelCostUsd,
-        modelInvocations: [modelInvocation]
+        modelInvocations: [modelInvocation],
+        fixTriage: roleResult.fixTriage
       };
     } catch (error) {
       return {
@@ -263,6 +267,7 @@ async function runRoleResponse(
     status: structured.status,
     outputArtifactRefs:
       structured.outputArtifactRefs.length > 0 ? structured.outputArtifactRefs : fallbackArtifacts,
+    fixTriage: structured.fixTriage,
     response
   };
 }
@@ -271,6 +276,7 @@ function parseRoleStructuredOutput(output: unknown): {
   readonly summary: string;
   readonly status: RoleQueryResult["status"];
   readonly outputArtifactRefs: readonly WorkflowCodegenArtifactRef[];
+  readonly fixTriage?: GeneratedNodeFixTriageDecision | undefined;
 } {
   const parsed = typeof output === "string" ? safeParseJson(output) : output;
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -280,6 +286,7 @@ function parseRoleStructuredOutput(output: unknown): {
     readonly summary?: unknown;
     readonly status?: unknown;
     readonly outputArtifactRefs?: unknown;
+    readonly fixTriage?: unknown;
   };
   if (typeof record.summary !== "string" || record.summary.length === 0) {
     throw new Error("OpenAI generated-node role output requires a summary.");
@@ -288,11 +295,41 @@ function parseRoleStructuredOutput(output: unknown): {
   const outputArtifactRefs = Array.isArray(record.outputArtifactRefs)
     ? record.outputArtifactRefs.filter(isArtifactRef)
     : [];
+  const fixTriage = parseFixTriageDecision(record.fixTriage);
 
   return {
     summary: record.summary,
     status,
-    outputArtifactRefs
+    outputArtifactRefs,
+    ...(fixTriage ? { fixTriage } : {})
+  };
+}
+
+function parseFixTriageDecision(value: unknown): GeneratedNodeFixTriageDecision | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Partial<GeneratedNodeFixTriageDecision>;
+  const actions = ["targeted-patch", "retry-codegen", "rearchitect", "give-up"] as const;
+  const scopes = ["local-code", "node-contract", "workflow-design", "external-blocker"] as const;
+  if (
+    !actions.includes(record.action as (typeof actions)[number]) ||
+    !scopes.includes(record.scope as (typeof scopes)[number]) ||
+    typeof record.rationale !== "string"
+  ) {
+    return undefined;
+  }
+
+  const confidence =
+    typeof record.confidence === "number" && Number.isFinite(record.confidence)
+      ? Math.min(1, Math.max(0, record.confidence))
+      : 0.5;
+
+  return {
+    action: record.action as GeneratedNodeFixTriageDecision["action"],
+    scope: record.scope as GeneratedNodeFixTriageDecision["scope"],
+    rationale: record.rationale,
+    confidence
   };
 }
 
@@ -362,6 +399,9 @@ function createRolePrompt(input: GeneratedNodeRoleRunInput): string {
     `Outputs JSON Schema: ${JSON.stringify(input.request.outputSchema)}`,
     `Sandbox: ${JSON.stringify(input.request.sandbox)}`,
     input.previousFailure ? `Previous failure: ${input.previousFailure}` : "",
+    input.role === "fixer"
+      ? "Fixer instruction: triage before repair. Set fixTriage.action to targeted-patch for small local code/payload/runtime issues, retry-codegen for normal regeneration, rearchitect when workflow or node design is wrong, and give-up for external blockers."
+      : "",
     `Known output artifacts: ${JSON.stringify(input.outputArtifactRefs)}`
   ]
     .filter((line) => line.length > 0)
@@ -386,6 +426,21 @@ const roleOutputSchema = {
           checksum: { type: "string", minLength: 1 },
           contentType: { enum: ["text/typescript", "application/json", "text/plain"] }
         }
+      }
+    },
+    fixTriage: {
+      type: "object",
+      required: ["action", "scope", "rationale", "confidence"],
+      additionalProperties: false,
+      properties: {
+        action: {
+          enum: ["targeted-patch", "retry-codegen", "rearchitect", "give-up"]
+        },
+        scope: {
+          enum: ["local-code", "node-contract", "workflow-design", "external-blocker"]
+        },
+        rationale: { type: "string", minLength: 1 },
+        confidence: { type: "number", minimum: 0, maximum: 1 }
       }
     }
   }

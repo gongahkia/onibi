@@ -25,6 +25,7 @@ import type {
   GeneratedNodeBuildLoopResult,
   GeneratedNodeBuildRole,
   GeneratedNodeDesignSpec,
+  GeneratedNodeFixTriageDecision,
   GeneratedNodeRoleRunInput,
   GeneratedNodeRoleRunResult,
   GeneratedNodeRoleRunner,
@@ -80,6 +81,8 @@ export class GeneratedNodeBuildLoop {
     let lastGeneration: CodegenGenerationResult | undefined;
     let lastExecution: GeneratedNodeTestExecution | undefined;
     let lastFailure: string | undefined;
+    let nextCoderInputSummary = request.plannerRationale;
+    let rearchitectBeforeNextCoder = false;
 
     await materializeWorkspaceFiles(this.workspaceRootFor(request), [
       designSpecArtifact,
@@ -114,11 +117,38 @@ export class GeneratedNodeBuildLoop {
         break;
       }
 
+      if (rearchitectBeforeNextCoder) {
+        const architectResult = await this.runRole({
+          role: "workflow-architect",
+          request,
+          iteration,
+          inputSummary: lastFailure ?? "Fixer triage requested a full generated-node redesign.",
+          outputArtifactRefs: [
+            artifactRef(designSpecArtifact),
+            ...(lastGeneration ? [artifactRef(lastGeneration.sourceArtifact)] : [])
+          ],
+          previousFailure: lastFailure,
+          generateCode: (codegenRequest) => this.codeGenerator.generate(codegenRequest)
+        });
+        spentModelCostUsd += architectResult.modelCostUsd ?? 0;
+        agentRuns.push(
+          runToRecord(request, "workflow-architect", architectResult, startedAt, this.now())
+        );
+        nextCoderInputSummary = [
+          "Rearchitect generated node from scratch after fixer triage.",
+          architectResult.inputSummary,
+          lastFailure ? `Prior failure: ${lastFailure}` : ""
+        ]
+          .filter((part) => part.length > 0)
+          .join(" ");
+        rearchitectBeforeNextCoder = false;
+      }
+
       const coderResult = await this.runRole({
         role: "coder",
         request,
         iteration,
-        inputSummary: lastFailure ?? request.plannerRationale,
+        inputSummary: nextCoderInputSummary,
         outputArtifactRefs: [],
         previousFailure: lastFailure,
         generateCode: (codegenRequest) => this.codeGenerator.generate(codegenRequest)
@@ -134,27 +164,28 @@ export class GeneratedNodeBuildLoop {
       }
       if (coderResult.status === "failed" || !lastGeneration) {
         lastFailure = coderResult.error ?? "Coder role did not produce generated node artifacts.";
-        fixHistory.push(`iteration ${iteration}: ${lastFailure}`);
         if (iteration < request.maxIterations) {
-          agentRuns.push(
-            runToRecord(
-              request,
-              "fixer",
-              await this.runRole({
-                role: "fixer",
-                request,
-                iteration,
-                inputSummary: lastFailure,
-                outputArtifactRefs: [],
-                previousFailure: lastFailure,
-                generateCode: (codegenRequest) => this.codeGenerator.generate(codegenRequest)
-              }),
-              startedAt,
-              this.now()
-            )
+          const fix = await this.runFixerTriage({
+            request,
+            iteration,
+            failure: lastFailure,
+            outputArtifactRefs: [],
+            startedAt,
+            agentRuns
+          });
+          spentModelCostUsd += fix.modelCostUsd;
+          const decision = fix.decision;
+          fixHistory.push(
+            `iteration ${iteration}: ${lastFailure}; fixer triage: ${formatFixTriageDecision(decision)}`
           );
+          if (decision.action === "give-up") {
+            break;
+          }
+          rearchitectBeforeNextCoder = decision.action === "rearchitect";
+          nextCoderInputSummary = coderInputSummaryFromFixer(decision, lastFailure);
           continue;
         }
+        fixHistory.push(`iteration ${iteration}: ${lastFailure}`);
         break;
       }
 
@@ -232,25 +263,31 @@ export class GeneratedNodeBuildLoop {
       }
 
       lastFailure = lastExecution.failureMessage ?? "Generated-node eval failed.";
-      fixHistory.push(`iteration ${iteration}: ${lastFailure}`);
       if (iteration < request.maxIterations) {
-        agentRuns.push(
-          runToRecord(
-            request,
-            "fixer",
-            await this.runRole({
-              role: "fixer",
-              request,
-              iteration,
-              inputSummary: lastFailure,
-              outputArtifactRefs: [],
-              previousFailure: lastFailure,
-              generateCode: (codegenRequest) => this.codeGenerator.generate(codegenRequest)
-            }),
-            startedAt,
-            this.now()
-          )
+        const fix = await this.runFixerTriage({
+          request,
+          iteration,
+          failure: lastFailure,
+          outputArtifactRefs: [
+            artifactRef(lastGeneration.sourceArtifact),
+            artifactRef(lastGeneration.dependencyManifestArtifact),
+            ...lastExecution.resultArtifacts.map(artifactRef)
+          ],
+          startedAt,
+          agentRuns
+        });
+        spentModelCostUsd += fix.modelCostUsd;
+        const decision = fix.decision;
+        fixHistory.push(
+          `iteration ${iteration}: ${lastFailure}; fixer triage: ${formatFixTriageDecision(decision)}`
         );
+        if (decision.action === "give-up") {
+          break;
+        }
+        rearchitectBeforeNextCoder = decision.action === "rearchitect";
+        nextCoderInputSummary = coderInputSummaryFromFixer(decision, lastFailure);
+      } else {
+        fixHistory.push(`iteration ${iteration}: ${lastFailure}`);
       }
     }
 
@@ -309,6 +346,38 @@ export class GeneratedNodeBuildLoop {
     return result;
   }
 
+  private async runFixerTriage(input: {
+    readonly request: GeneratedNodeBuildLoopRequest;
+    readonly iteration: number;
+    readonly failure: string;
+    readonly outputArtifactRefs: readonly WorkflowCodegenArtifactRef[];
+    readonly startedAt: string;
+    readonly agentRuns: CodegenAgentRunRecord[];
+  }): Promise<{
+    readonly decision: GeneratedNodeFixTriageDecision;
+    readonly modelCostUsd: number;
+  }> {
+    const result = await this.runRole({
+      role: "fixer",
+      request: input.request,
+      iteration: input.iteration,
+      inputSummary: [
+        "Diagnose before repairing.",
+        "Classify whether this is a small local fix, a normal regeneration, a workflow redesign, or an external blocker.",
+        input.failure
+      ].join(" "),
+      outputArtifactRefs: input.outputArtifactRefs,
+      previousFailure: input.failure,
+      generateCode: (codegenRequest) => this.codeGenerator.generate(codegenRequest)
+    });
+    input.agentRuns.push(runToRecord(input.request, "fixer", result, input.startedAt, this.now()));
+
+    return {
+      decision: result.fixTriage ?? inferFixTriageDecision(input.failure),
+      modelCostUsd: result.modelCostUsd ?? 0
+    };
+  }
+
   private workspaceRootFor(request: GeneratedNodeBuildLoopRequest): string | undefined {
     return request.workspaceRoot ?? this.workspaceRoot;
   }
@@ -351,11 +420,96 @@ class DeterministicGeneratedNodeRoleRunner implements GeneratedNodeRoleRunner {
       }
     }
 
+    if (input.role === "fixer") {
+      const decision = inferFixTriageDecision(input.previousFailure ?? input.inputSummary);
+      return {
+        status: decision.action === "give-up" ? "failed" : "succeeded",
+        inputSummary: `Fixer triage selected ${formatFixTriageDecision(decision)}`,
+        outputArtifactRefs: input.outputArtifactRefs,
+        fixTriage: decision,
+        ...(decision.action === "give-up" ? { error: decision.rationale } : {})
+      };
+    }
+
     return {
       status: "succeeded",
       inputSummary: input.inputSummary,
       outputArtifactRefs: input.outputArtifactRefs
     };
+  }
+}
+
+function inferFixTriageDecision(failure: string): GeneratedNodeFixTriageDecision {
+  const normalized = failure.toLowerCase();
+  if (
+    /\b(workflow design|planner|graph|edge|trigger|wrong node|wrong workflow|cannot satisfy)\b/u.test(
+      normalized
+    )
+  ) {
+    return {
+      action: "rearchitect",
+      scope: "workflow-design",
+      rationale:
+        "The failure appears to come from the generated-node design or surrounding workflow assumptions.",
+      confidence: 0.8
+    };
+  }
+
+  if (
+    /\b(secret|credential|approval|quota|budget|policy review|external provider|permission)\b/u.test(
+      normalized
+    )
+  ) {
+    return {
+      action: "give-up",
+      scope: "external-blocker",
+      rationale: "The failure appears blocked by external readiness rather than code generation.",
+      confidence: 0.75
+    };
+  }
+
+  if (
+    /\b(schema|payload|contract|declared output|output port|input\/output|network|timeout|exit code)\b/u.test(
+      normalized
+    )
+  ) {
+    return {
+      action: "targeted-patch",
+      scope: "local-code",
+      rationale:
+        "The failure is localized to generated source behavior, payload shape, sandbox, or runtime wiring.",
+      confidence: 0.82
+    };
+  }
+
+  return {
+    action: "retry-codegen",
+    scope: "node-contract",
+    rationale:
+      "The failure is likely repairable by regenerating the node against the same contract.",
+    confidence: 0.6
+  };
+}
+
+function formatFixTriageDecision(decision: GeneratedNodeFixTriageDecision): string {
+  return `${decision.action}/${decision.scope} (${Math.round(
+    decision.confidence * 100
+  )}%): ${decision.rationale}`;
+}
+
+function coderInputSummaryFromFixer(
+  decision: GeneratedNodeFixTriageDecision,
+  failure: string
+): string {
+  switch (decision.action) {
+    case "targeted-patch":
+      return `Apply the smallest local patch. Do not redesign the workflow. Failure: ${failure}. Triage rationale: ${decision.rationale}`;
+    case "retry-codegen":
+      return `Regenerate the candidate against the existing node contract. Failure: ${failure}. Triage rationale: ${decision.rationale}`;
+    case "rearchitect":
+      return `Rebuild from a revised architecture before coding. Failure: ${failure}. Triage rationale: ${decision.rationale}`;
+    case "give-up":
+      return `Do not continue codegen. External blocker: ${failure}. Triage rationale: ${decision.rationale}`;
   }
 }
 

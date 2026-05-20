@@ -388,6 +388,47 @@ describe("codegen artifact contracts", () => {
     ]);
   });
 
+  it("triages small generated-node failures before applying a targeted repair", async () => {
+    const loop = new GeneratedNodeBuildLoop({
+      testExecutor: failOnceThenPassExecutor("schema mismatch")
+    });
+
+    const result = await loop.build(buildLoopRequestFixture());
+
+    expect(result.status).toBe("passed");
+    expect(result.fixHistory[0]).toContain("targeted-patch/local-code");
+    expect(result.agentRuns.filter((run) => run.role === "workflow-architect")).toHaveLength(1);
+    expect(result.agentRuns.filter((run) => run.role === "coder")).toHaveLength(2);
+  });
+
+  it("reruns the architect only when fixer triage requires rearchitecture", async () => {
+    const loop = new GeneratedNodeBuildLoop({
+      testExecutor: failOnceThenPassExecutor("workflow design mismatch")
+    });
+
+    const result = await loop.build(buildLoopRequestFixture());
+
+    expect(result.status).toBe("passed");
+    expect(result.fixHistory[0]).toContain("rearchitect/workflow-design");
+    expect(result.agentRuns.filter((run) => run.role === "workflow-architect")).toHaveLength(2);
+  });
+
+  it("stops generated-node repairs when fixer triage finds an external blocker", async () => {
+    const loop = new GeneratedNodeBuildLoop({
+      testExecutor: alwaysFailingTestExecutor("credential permission missing")
+    });
+
+    const result = await loop.build({
+      ...buildLoopRequestFixture(),
+      maxIterations: 3
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.fixHistory).toHaveLength(1);
+    expect(result.fixHistory[0]).toContain("give-up/external-blocker");
+    expect(result.agentRuns.filter((run) => run.role === "coder")).toHaveLength(1);
+  });
+
   it("runs role-specific Agent SDK agents through the generated-node loop", async () => {
     const rolePrompts: string[] = [];
     const roleRunner: AgentRoleQueryRunner = async function* (prompt, options) {
