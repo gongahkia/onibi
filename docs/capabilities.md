@@ -60,6 +60,9 @@ features until their own acceptance criteria are complete:
 - Linear and Jira implementations until design-partner evidence justifies them.
 - Enterprise deployment until the
   [`enterprise-demand-gate.md`](enterprise-demand-gate.md) criteria are met.
+- Enterprise SSO/RBAC, on-prem or air-gapped deployment, data residency controls,
+  SIEM export, and support bundle automation; parked requirements are summarized
+  in [`phase5-enterprise-parked.md`](phase5-enterprise-parked.md).
 - Go/TypeScript adapter SDKs, marketplace or registry mechanics, and executable
   plugin runtime.
 - Autonomous AI-driven target interaction, payload generation, scanner operation,

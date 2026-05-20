@@ -276,6 +276,7 @@ added with `piranesi evidence add` are also copied under `raw/<kind>/` and index
 - [Enterprise SSO and RBAC requirements](docs/enterprise-sso-rbac-requirements.md)
 - [Enterprise deployment and data-control requirements](docs/enterprise-deployment-data-control-requirements.md)
 - [Enterprise SIEM and support bundle requirements](docs/enterprise-siem-support-requirements.md)
+- [Phase 5 enterprise parked closeout](docs/phase5-enterprise-parked.md)
 - [AI operator-control policy](docs/ai-operator-control-policy.md)
 - [AI suggestions](docs/ai-suggestions.md)
 - [Phase 6 AI co-pilot closeout](docs/phase6-ai-copilot.md)
