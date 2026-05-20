@@ -16,7 +16,15 @@ from pathlib import Path
 from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
-from piranesi.detections import load_detections
+from piranesi.detections import (
+    DetectionConfidence,
+    DetectionError,
+    DetectionSensitivity,
+    IOCType,
+    add_detection_note,
+    add_ioc,
+    load_detections,
+)
 from piranesi.evidence import (
     EvidenceError,
     EvidenceKind,
@@ -24,7 +32,14 @@ from piranesi.evidence import (
     add_evidence_file,
     load_evidence_index,
 )
-from piranesi.objectives import load_objectives, load_procedures
+from piranesi.objectives import (
+    ObjectiveError,
+    ObjectiveStatus,
+    add_objective,
+    add_procedure,
+    load_objectives,
+    load_procedures,
+)
 from piranesi.report.pentest import (
     PdfBackend,
     PentestReport,
@@ -32,9 +47,18 @@ from piranesi.report.pentest import (
     render_markdown,
     render_report_artifact,
 )
-from piranesi.timeline import load_timeline_events
+from piranesi.timeline import (
+    TimelineConfidence,
+    TimelineError,
+    append_timeline_event,
+    load_timeline_events,
+)
 from piranesi.workspace import (
+    DETECTIONS_FILE,
     EVIDENCE_FILE,
+    OBJECTIVES_FILE,
+    PROCEDURES_FILE,
+    TIMELINE_FILE,
     AuditEvent,
     EngagementMetadata,
     WorkspaceError,
@@ -291,6 +315,160 @@ class _WorkspaceRequestHandler(BaseHTTPRequestHandler):
             except (EvidenceError, WorkspaceError, WorkspaceServerError, ValueError) as exc:
                 self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
             return
+        if parsed.path == "/api/timeline/event":
+            try:
+                payload = self._read_json_body()
+                state = create_workspace(self.workspace_state.workspace_root)
+                event = append_timeline_event(
+                    state,
+                    summary=_required_string(payload.get("summary"), "summary"),
+                    timestamp=_optional_string(payload.get("timestamp")),
+                    phase=_optional_string(payload.get("phase")),
+                    actor=_optional_string(payload.get("actor")),
+                    details=_optional_string(payload.get("details")),
+                    evidence_ids=_string_list(payload.get("evidence_ids")),
+                    finding_ids=_string_list(payload.get("finding_ids")),
+                    objective_ids=_string_list(payload.get("objective_ids")),
+                    tags=_string_list(payload.get("tags")),
+                    confidence=_timeline_confidence(payload.get("confidence")),
+                )
+                append_audit_event(
+                    state,
+                    AuditEvent(
+                        timestamp=utc_now(),
+                        command="web timeline event",
+                        output_path=TIMELINE_FILE,
+                        output_sha256=file_sha256(state.root / TIMELINE_FILE),
+                        summary={"event_id": event.id, "summary": event.summary},
+                    ),
+                )
+                self._send_json(_workspace_payload(self.workspace_state.workspace_root))
+            except (TimelineError, WorkspaceError, WorkspaceServerError, ValueError) as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/objectives/objective":
+            try:
+                payload = self._read_json_body()
+                state = create_workspace(self.workspace_state.workspace_root)
+                _objectives_document, objective = add_objective(
+                    state,
+                    title=_required_string(payload.get("title"), "title"),
+                    status=_objective_status(payload.get("status")),
+                    owner=_optional_string(payload.get("owner")),
+                    target_assets=_string_list(payload.get("target_assets")),
+                    success_criteria=_string_list(payload.get("success_criteria")),
+                    evidence_ids=_string_list(payload.get("evidence_ids")),
+                    timeline_event_ids=_string_list(payload.get("timeline_event_ids")),
+                    tags=_string_list(payload.get("tags")),
+                    notes=_optional_string(payload.get("notes")),
+                )
+                append_audit_event(
+                    state,
+                    AuditEvent(
+                        timestamp=utc_now(),
+                        command="web objective add",
+                        output_path=OBJECTIVES_FILE,
+                        output_sha256=file_sha256(state.root / OBJECTIVES_FILE),
+                        summary={"objective_id": objective.id, "title": objective.title},
+                    ),
+                )
+                self._send_json(_workspace_payload(self.workspace_state.workspace_root))
+            except (ObjectiveError, WorkspaceError, WorkspaceServerError, ValueError) as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/objectives/procedure":
+            try:
+                payload = self._read_json_body()
+                state = create_workspace(self.workspace_state.workspace_root)
+                _procedures_document, procedure = add_procedure(
+                    state,
+                    summary=_required_string(payload.get("summary"), "summary"),
+                    tactic=_optional_string(payload.get("tactic")),
+                    technique_id=_optional_string(payload.get("technique_id")),
+                    technique_name=_optional_string(payload.get("technique_name")),
+                    command=_optional_string(payload.get("command")),
+                    evidence_ids=_string_list(payload.get("evidence_ids")),
+                    timeline_event_ids=_string_list(payload.get("timeline_event_ids")),
+                    finding_ids=_string_list(payload.get("finding_ids")),
+                    objective_ids=_string_list(payload.get("objective_ids")),
+                    tags=_string_list(payload.get("tags")),
+                    notes=_optional_string(payload.get("notes")),
+                )
+                append_audit_event(
+                    state,
+                    AuditEvent(
+                        timestamp=utc_now(),
+                        command="web procedure add",
+                        output_path=PROCEDURES_FILE,
+                        output_sha256=file_sha256(state.root / PROCEDURES_FILE),
+                        summary={"procedure_id": procedure.id, "summary": procedure.summary},
+                    ),
+                )
+                self._send_json(_workspace_payload(self.workspace_state.workspace_root))
+            except (ObjectiveError, WorkspaceError, WorkspaceServerError, ValueError) as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/detections/ioc":
+            try:
+                payload = self._read_json_body()
+                state = create_workspace(self.workspace_state.workspace_root)
+                _ioc_document, ioc = add_ioc(
+                    state,
+                    ioc_type=_ioc_type(payload.get("type")),
+                    value=_required_string(payload.get("value"), "value"),
+                    first_observed=_optional_string(payload.get("first_observed")),
+                    last_observed=_optional_string(payload.get("last_observed")),
+                    evidence_ids=_string_list(payload.get("evidence_ids")),
+                    timeline_event_ids=_string_list(payload.get("timeline_event_ids")),
+                    procedure_ids=_string_list(payload.get("procedure_ids")),
+                    sensitivity=_detection_sensitivity(payload.get("sensitivity")),
+                    confidence=_detection_confidence(payload.get("confidence")),
+                    tags=_string_list(payload.get("tags")),
+                    notes=_optional_string(payload.get("notes")),
+                )
+                append_audit_event(
+                    state,
+                    AuditEvent(
+                        timestamp=utc_now(),
+                        command="web detection ioc",
+                        output_path=DETECTIONS_FILE,
+                        output_sha256=file_sha256(state.root / DETECTIONS_FILE),
+                        summary={"ioc_id": ioc.id, "type": ioc.type, "value": ioc.value},
+                    ),
+                )
+                self._send_json(_workspace_payload(self.workspace_state.workspace_root))
+            except (DetectionError, WorkspaceError, WorkspaceServerError, ValueError) as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/detections/note":
+            try:
+                payload = self._read_json_body()
+                state = create_workspace(self.workspace_state.workspace_root)
+                _detection_note_document, note = add_detection_note(
+                    state,
+                    title=_required_string(payload.get("title"), "title"),
+                    body=_required_string(payload.get("body"), "body"),
+                    evidence_ids=_string_list(payload.get("evidence_ids")),
+                    timeline_event_ids=_string_list(payload.get("timeline_event_ids")),
+                    procedure_ids=_string_list(payload.get("procedure_ids")),
+                    finding_ids=_string_list(payload.get("finding_ids")),
+                    sensitivity=_detection_sensitivity(payload.get("sensitivity")),
+                    tags=_string_list(payload.get("tags")),
+                )
+                append_audit_event(
+                    state,
+                    AuditEvent(
+                        timestamp=utc_now(),
+                        command="web detection note",
+                        output_path=DETECTIONS_FILE,
+                        output_sha256=file_sha256(state.root / DETECTIONS_FILE),
+                        summary={"note_id": note.id, "title": note.title},
+                    ),
+                )
+                self._send_json(_workspace_payload(self.workspace_state.workspace_root))
+            except (DetectionError, WorkspaceError, WorkspaceServerError, ValueError) as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
         self._send_json({"error": "not found"}, status=HTTPStatus.NOT_FOUND)
 
     def _read_json_body(self) -> dict[str, Any]:
@@ -508,6 +686,47 @@ def _evidence_kind(value: object) -> EvidenceKind:
     return "other"
 
 
+def _timeline_confidence(value: object) -> TimelineConfidence:
+    if value in {"low", "medium", "high", "confirmed"}:
+        return cast(TimelineConfidence, value)
+    return "medium"
+
+
+def _objective_status(value: object) -> ObjectiveStatus:
+    if value in {"planned", "in-progress", "achieved", "blocked", "deferred"}:
+        return cast(ObjectiveStatus, value)
+    return "planned"
+
+
+def _ioc_type(value: object) -> IOCType:
+    if value in {
+        "ip",
+        "domain",
+        "url",
+        "hash",
+        "email",
+        "username",
+        "file-path",
+        "registry-key",
+        "process",
+        "other",
+    }:
+        return cast(IOCType, value)
+    return "other"
+
+
+def _detection_confidence(value: object) -> DetectionConfidence:
+    if value in {"low", "medium", "high", "confirmed"}:
+        return cast(DetectionConfidence, value)
+    return "medium"
+
+
+def _detection_sensitivity(value: object) -> DetectionSensitivity:
+    if value in {"public", "internal", "sensitive", "secret"}:
+        return cast(DetectionSensitivity, value)
+    return "sensitive"
+
+
 def _safe_upload_filename(name: str) -> str:
     basename = Path(name).name
     cleaned = "".join(
@@ -585,6 +804,82 @@ _INDEX_HTML = """<!doctype html>
         <h2>Engagement Flow</h2>
       </div>
       <div class="flow" id="flow"></div>
+    </section>
+    <section class="entry">
+      <div>
+        <h2>Timeline</h2>
+        <p id="timeline-status">No event queued.</p>
+      </div>
+      <form id="timeline-form">
+        <input name="summary" placeholder="Event summary" required>
+        <input name="phase" placeholder="Phase">
+        <input name="actor" placeholder="Actor">
+        <input name="tags" placeholder="Tags, comma separated">
+        <textarea name="details" placeholder="Details"></textarea>
+        <button type="submit">Add Event</button>
+      </form>
+    </section>
+    <section class="entry">
+      <div>
+        <h2>Objectives</h2>
+        <p id="objective-status">No objective queued.</p>
+      </div>
+      <form id="objective-form">
+        <input name="title" placeholder="Objective title" required>
+        <select name="status">
+          <option value="planned">Planned</option>
+          <option value="in-progress">In progress</option>
+          <option value="achieved">Achieved</option>
+          <option value="blocked">Blocked</option>
+          <option value="deferred">Deferred</option>
+        </select>
+        <input name="owner" placeholder="Owner">
+        <input name="target_assets" placeholder="Target assets, comma separated">
+        <textarea name="success_criteria" placeholder="Success criteria, comma separated"></textarea>
+        <button type="submit">Add Objective</button>
+      </form>
+      <form id="procedure-form" class="file-form">
+        <input name="summary" placeholder="Procedure summary" required>
+        <input name="technique_id" placeholder="ATT&CK technique ID">
+        <input name="technique_name" placeholder="Technique name">
+        <input name="tactic" placeholder="Tactic">
+        <input name="tags" placeholder="Tags, comma separated">
+        <button type="submit">Add Procedure</button>
+      </form>
+    </section>
+    <section class="entry">
+      <div>
+        <h2>Detection Handoff</h2>
+        <p id="detection-status">No handoff record queued.</p>
+      </div>
+      <form id="ioc-form">
+        <select name="type">
+          <option value="ip">IP</option>
+          <option value="domain">Domain</option>
+          <option value="url">URL</option>
+          <option value="hash">Hash</option>
+          <option value="email">Email</option>
+          <option value="username">Username</option>
+          <option value="file-path">File path</option>
+          <option value="process">Process</option>
+          <option value="other">Other</option>
+        </select>
+        <input name="value" placeholder="IOC value" required>
+        <select name="confidence">
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+          <option value="high">High</option>
+          <option value="confirmed">Confirmed</option>
+        </select>
+        <input name="tags" placeholder="Tags, comma separated">
+        <button type="submit">Add IOC</button>
+      </form>
+      <form id="detection-note-form" class="file-form">
+        <input name="title" placeholder="Detection note title" required>
+        <input name="tags" placeholder="Tags, comma separated">
+        <textarea name="body" placeholder="Blue-team handoff note" required></textarea>
+        <button type="submit">Add Note</button>
+      </form>
     </section>
     <section>
       <div class="section-title">
@@ -745,6 +1040,82 @@ document.getElementById("file-evidence-form").addEventListener("submit", (event)
       document.getElementById("evidence-status").textContent = "Evidence file uploaded.";
       renderWorkspace(data);
     });
+});
+
+function postJson(path, form, statusId, successMessage, bodyBuilder) {
+  fetch(path, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(bodyBuilder(form))
+  })
+    .then((response) => response.json())
+    .then((data) => {
+      const status = document.getElementById(statusId);
+      if (data.error) {
+        status.textContent = data.error;
+        return;
+      }
+      form.reset();
+      status.textContent = successMessage;
+      renderWorkspace(data);
+    });
+}
+
+document.getElementById("timeline-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  postJson("/api/timeline/event", event.currentTarget, "timeline-status", "Timeline event saved.", () => ({
+    summary: form.get("summary"),
+    phase: form.get("phase"),
+    actor: form.get("actor"),
+    tags: form.get("tags"),
+    details: form.get("details")
+  }));
+});
+
+document.getElementById("objective-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  postJson("/api/objectives/objective", event.currentTarget, "objective-status", "Objective saved.", () => ({
+    title: form.get("title"),
+    status: form.get("status"),
+    owner: form.get("owner"),
+    target_assets: form.get("target_assets"),
+    success_criteria: form.get("success_criteria")
+  }));
+});
+
+document.getElementById("procedure-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  postJson("/api/objectives/procedure", event.currentTarget, "objective-status", "Procedure saved.", () => ({
+    summary: form.get("summary"),
+    tactic: form.get("tactic"),
+    technique_id: form.get("technique_id"),
+    technique_name: form.get("technique_name"),
+    tags: form.get("tags")
+  }));
+});
+
+document.getElementById("ioc-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  postJson("/api/detections/ioc", event.currentTarget, "detection-status", "IOC saved.", () => ({
+    type: form.get("type"),
+    value: form.get("value"),
+    confidence: form.get("confidence"),
+    tags: form.get("tags")
+  }));
+});
+
+document.getElementById("detection-note-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  postJson("/api/detections/note", event.currentTarget, "detection-status", "Detection note saved.", () => ({
+    title: form.get("title"),
+    tags: form.get("tags"),
+    body: form.get("body")
+  }));
 });
 
 function renderWorkspace(data) {

@@ -242,6 +242,78 @@ def test_workspace_server_uploads_evidence_file_from_ui_flow(tmp_path: Path) -> 
         server.server_close()
 
 
+def test_workspace_server_adds_workflow_records_from_ui_flow(tmp_path: Path) -> None:
+    workspace = tmp_path / "browser-workspace"
+    server = run_workspace_server(WorkspaceServeOptions(workspace=workspace, port=0), block=False)
+    try:
+        url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+        timeline_status, timeline_payload = _post_json(
+            f"{url}/api/timeline/event",
+            {
+                "summary": "Initial access confirmed in authorized lab",
+                "phase": "initial-access",
+                "actor": "operator-1",
+                "tags": "lab, ui",
+                "details": "Event created from the browser workflow.",
+            },
+        )
+        objective_status, objective_payload = _post_json(
+            f"{url}/api/objectives/objective",
+            {
+                "title": "Validate detection coverage",
+                "status": "in-progress",
+                "owner": "operator-1",
+                "target_assets": "lab-web-01, lab-idp-01",
+                "success_criteria": "Timeline linked, IOC handed off",
+            },
+        )
+        procedure_status, procedure_payload = _post_json(
+            f"{url}/api/objectives/procedure",
+            {
+                "summary": "Map observed procedure to ATT&CK",
+                "tactic": "Discovery",
+                "technique_id": "T1087",
+                "technique_name": "Account Discovery",
+                "tags": "attack-map, ui",
+            },
+        )
+        ioc_status, ioc_payload = _post_json(
+            f"{url}/api/detections/ioc",
+            {
+                "type": "domain",
+                "value": "lab-control.example.test",
+                "confidence": "confirmed",
+                "tags": "handoff, ui",
+            },
+        )
+        note_status, note_payload = _post_json(
+            f"{url}/api/detections/note",
+            {
+                "title": "Blue-team handoff",
+                "body": "Review DNS telemetry for the lab control domain.",
+                "tags": "handoff, ui",
+            },
+        )
+
+        assert timeline_status == 200
+        assert timeline_payload["empty_states"]["timeline"] is False  # type: ignore[index]
+        assert timeline_payload["timeline"][0]["phase"] == "initial-access"  # type: ignore[index]
+        assert objective_status == 200
+        assert objective_payload["empty_states"]["objectives"] is False  # type: ignore[index]
+        assert objective_payload["objectives"][0]["status"] == "in-progress"  # type: ignore[index]
+        assert procedure_status == 200
+        assert procedure_payload["empty_states"]["procedures"] is False  # type: ignore[index]
+        assert procedure_payload["procedures"][0]["technique_id"] == "T1087"  # type: ignore[index]
+        assert ioc_status == 200
+        assert ioc_payload["detections"]["iocs"][0]["value"] == "lab-control.example.test"  # type: ignore[index]
+        assert note_status == 200
+        assert note_payload["empty_states"]["detections"] is False  # type: ignore[index]
+        assert note_payload["detections"]["notes"][0]["title"] == "Blue-team handoff"  # type: ignore[index]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_workspace_server_renders_real_workspace_data(tmp_path: Path) -> None:
     workspace = _ingest_nmap(tmp_path / "workspace")
     server = run_workspace_server(WorkspaceServeOptions(workspace=workspace, port=0), block=False)
