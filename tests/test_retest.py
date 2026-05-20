@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+import shutil
+from collections.abc import Sequence
 from pathlib import Path
 
 from typer.testing import CliRunner
 
 from piranesi.cli import app
+from piranesi.rescan.image_policy import AcceptedImage
+from piranesi.rescan.runtime import ContainerRuntimeStatus
 from piranesi.retest import build_retest_result
 from piranesi.workspace import (
     AUDIT_LOG_FILE,
@@ -19,6 +23,7 @@ OPEN_FIXTURE = Path(__file__).parent / "fixtures" / "pentest" / "nmap" / "localh
 CLOSED_FIXTURE = (
     Path(__file__).parent / "fixtures" / "pentest" / "nmap" / "localhost-http-closed.xml"
 )
+DIGEST = "sha256:" + "a" * 64
 runner = CliRunner()
 
 
@@ -179,6 +184,58 @@ def test_retest_flags_ambiguous_fallback_matches(tmp_path: Path) -> None:
     assert set(result.ambiguous_matches[0]["candidate_baseline_ids"]) == {
         baseline_state.findings.findings[0].id,
         "finding:duplicate-fallback",
+    }
+
+
+def test_retest_can_generate_current_workspace_with_rescan(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    baseline = _ingest_nmap(tmp_path / "baseline", OPEN_FIXTURE)
+    current = tmp_path / "current"
+    output = tmp_path / "retest.json"
+    monkeypatch.setattr(
+        "piranesi.rescan.executor.ensure_container_runtime",
+        lambda: ContainerRuntimeStatus(docker_python_available=True, docker_cli_path="/bin/docker"),
+    )
+
+    def fake_runner(
+        _image: AcceptedImage,
+        _command: Sequence[str],
+        _host_output_dir: Path,
+        host_output_path: Path,
+        _timeout_seconds: int,
+    ) -> None:
+        shutil.copyfile(OPEN_FIXTURE, host_output_path)
+
+    monkeypatch.setattr("piranesi.rescan.executor._run_replay_container", fake_runner)
+
+    result = runner.invoke(
+        app,
+        [
+            "retest",
+            "--baseline",
+            str(baseline),
+            "--current",
+            str(current),
+            "--rescan",
+            "--image",
+            f"nmap=ghcr.io/acme/nmap:v1@{DIGEST}",
+            "--allow-unenforced-network",
+            "--output",
+            str(output),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["summary"]["open"] == 2
+    assert payload["rescan"]["output_workspace"] == str(current.resolve())
+    current_state = load_workspace(current)
+    assert len(current_state.findings.findings) == 2
+    assert {finding.provenance["retest_status"] for finding in current_state.findings.findings} == {
+        "open"
     }
 
 

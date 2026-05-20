@@ -63,6 +63,7 @@ from piranesi.rescan import (
     RescanExecutionError,
     RescanRuntimeError,
     execute_rescan_from_baseline,
+    ingest_replay_outputs,
     plan_rescan_from_baseline,
 )
 from piranesi.retest import (
@@ -1663,14 +1664,14 @@ def retest_command(
         ),
     ],
     current: Annotated[
-        Path,
+        Path | None,
         typer.Option(
             "--current",
             dir_okay=True,
             file_okay=False,
-            help="Current workspace directory.",
+            help="Current workspace directory. With --rescan, this is the generated workspace.",
         ),
-    ],
+    ] = None,
     output: Annotated[
         Path,
         typer.Option(
@@ -1681,6 +1682,32 @@ def retest_command(
             help="Retest output path. Use .json or .md.",
         ),
     ] = Path("retest.json"),
+    rescan_current: Annotated[
+        bool,
+        typer.Option("--rescan", help="Generate the current workspace with rescan first."),
+    ] = False,
+    image_overrides: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--image",
+            help=("Digest-pinned rescan image mapping. Repeat as tool=repo:tag@sha256:<digest>."),
+        ),
+    ] = None,
+    allow_unenforced_network: Annotated[
+        bool,
+        typer.Option(
+            "--allow-unenforced-network",
+            help="Record an explicit Docker default-network override for rescan.",
+        ),
+    ] = False,
+    timeout_seconds: Annotated[
+        int,
+        typer.Option(
+            "--timeout-seconds",
+            min=1,
+            help="Per-container rescan timeout when --rescan is used.",
+        ),
+    ] = DEFAULT_RESCAN_TIMEOUT_SECONDS,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Print retest summary as JSON."),
@@ -1691,11 +1718,34 @@ def retest_command(
     ] = False,
 ) -> None:
     try:
-        result = compare_workspaces(baseline, current)
+        rescan_payload = None
+        current_workspace = current
+        if rescan_current:
+            rescan_result = execute_rescan_from_baseline(
+                baseline,
+                output_workspace=current,
+                image_overrides=image_overrides or [],
+                allow_unenforced_network=allow_unenforced_network,
+                timeout_seconds=timeout_seconds,
+            )
+            ingest_replay_outputs(rescan_result.plan.output_workspace, rescan_result.outputs)
+            current_workspace = rescan_result.plan.output_workspace
+            rescan_payload = rescan_result.as_dict()
+        if current_workspace is None:
+            raise RetestError("--current is required unless --rescan is supplied")
+        result = compare_workspaces(baseline, current_workspace)
         output_path = write_retest_output(result, output)
-        current_state = load_workspace(current)
+        current_state = load_workspace(current_workspace)
         append_retest_audit(current_state, result, output_path)
-    except (WorkspaceError, RetestError) as exc:
+    except (
+        NetworkPolicyError,
+        ReplayExtractionError,
+        ReplayImageConfigError,
+        RescanExecutionError,
+        RescanRuntimeError,
+        WorkspaceError,
+        RetestError,
+    ) as exc:
         _fail(str(exc), json_errors=json_errors)
 
     payload = {
@@ -1704,6 +1754,8 @@ def retest_command(
         "summary": result.summary,
         "ambiguous": len(result.ambiguous_matches),
     }
+    if rescan_payload is not None:
+        payload["rescan"] = rescan_payload
     _emit(payload, json_output=json_output, text=f"retest: {output_path}")
 
 
