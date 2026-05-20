@@ -870,6 +870,66 @@ describe("kelpclaw api contracts", () => {
     );
   });
 
+  it("activates scheduled deployments as durable local registrations", async () => {
+    app = buildTestApiApp();
+
+    const planned = await app.inject({
+      method: "POST",
+      url: "/api/workflows/plan",
+      payload: {
+        prompt: "extract transaction details from Gmail receipts into Sheets"
+      }
+    });
+    const workflow = {
+      ...planned.json().workflow,
+      nodes: planned.json().workflow.nodes.map((node: { readonly id: string; config: object }) =>
+        node.id === "manual-trigger"
+          ? {
+              ...node,
+              config: {
+                ...node.config,
+                schedule: "0 8 * * *",
+                timezone: "UTC"
+              }
+            }
+          : node
+      )
+    };
+    await app.inject({
+      method: "POST",
+      url: `/api/workflows/${workflow.id}/evaluate-draft`,
+      payload: { workflow, mockOnly: true }
+    });
+    const approved = await app.inject({
+      method: "POST",
+      url: `/api/workflows/${workflow.id}/approve`,
+      payload: {
+        workflow,
+        approvedBy: "owner@example.com"
+      }
+    });
+    const deployed = await app.inject({
+      method: "POST",
+      url: `/api/workflows/${workflow.id}/deployments`,
+      payload: {
+        approvedRevisionId: approved.json().approvedRevisionId,
+        kind: "schedule.activation",
+        createdBy: "owner@example.com",
+        rollbackPlan: "Disable the schedule registration."
+      }
+    });
+    const active = await app.inject({
+      method: "GET",
+      url: `/api/workflows/${workflow.id}/deployments/active`
+    });
+
+    expect(deployed.statusCode).toBe(201);
+    expect(deployed.json().deployment.metadata.activeScheduleRegistrations[0].nodeId).toBe(
+      "manual-trigger"
+    );
+    expect(active.json().activeSchedules[0].schedule).toBe("0 8 * * *");
+  });
+
   it("creates a new draft revision after approval", async () => {
     app = buildTestApiApp();
 

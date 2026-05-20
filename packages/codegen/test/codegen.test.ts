@@ -434,6 +434,47 @@ describe("codegen artifact contracts", () => {
     expect(result.unresolvedFailureArtifact?.content).toContain("declared output ports");
   });
 
+  it("persists Docker timeout and stderr artifacts for failed evals", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "kelpclaw-codegen-docker-timeout-"));
+    const runner: DockerGeneratedNodeCommandRunner = {
+      async run() {
+        return {
+          exitCode: 1,
+          stdout: "",
+          stderr: "runtime exceeded\n",
+          timedOut: true,
+          output: {
+            artifact: {
+              ok: true
+            }
+          }
+        };
+      }
+    };
+    const loop = new GeneratedNodeBuildLoop({
+      testExecutor: new DockerGeneratedNodeTestExecutor({ commandRunner: runner })
+    });
+
+    const result = await loop.build({
+      ...buildLoopRequestFixture(),
+      workspaceRoot,
+      runTestsInDocker: true,
+      maxDockerRuntimeSeconds: 1,
+      maxIterations: 1
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.findings.map((finding) => finding.id)).toEqual(
+      expect.arrayContaining([
+        "finding.scrape-status-page.docker-timeout",
+        "finding.scrape-status-page.docker-exit"
+      ])
+    );
+    await expect(
+      readFile(join(workspaceRoot, "generated/scrape-status-page.docker-stderr.log"), "utf8")
+    ).resolves.toBe("runtime exceeded\n");
+  });
+
   it("emits unresolved failure artifacts after max generated-node iterations", async () => {
     const loop = new GeneratedNodeBuildLoop({
       testExecutor: alwaysFailingTestExecutor("schema mismatch")
