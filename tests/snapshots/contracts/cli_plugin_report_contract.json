@@ -30,6 +30,9 @@
         "sqlmap",
         "zap"
       ],
+      "integrations": [
+        "github-issues"
+      ],
       "objectives": [
         "add",
         "list"
@@ -54,6 +57,7 @@
       "engagement",
       "evidence",
       "ingest",
+      "integrations",
       "objectives",
       "pff",
       "procedures",

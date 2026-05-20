@@ -53,6 +53,7 @@ from piranesi.evidence import (
     add_evidence_file,
     load_evidence_index,
 )
+from piranesi.github_export import GitHubExportError, export_findings_to_github_issues
 from piranesi.objectives import (
     ObjectiveError,
     ObjectiveStatus,
@@ -213,6 +214,11 @@ ci_app = typer.Typer(
     help="CI-friendly artifact validation commands.",
     no_args_is_help=True,
 )
+integrations_app = typer.Typer(
+    add_completion=False,
+    help="One-way external handoff integrations.",
+    no_args_is_help=True,
+)
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(engagement_app, name="engagement")
 app.add_typer(evidence_app, name="evidence")
@@ -222,6 +228,7 @@ app.add_typer(procedures_app, name="procedures")
 app.add_typer(detections_app, name="detections")
 app.add_typer(pff_app, name="pff")
 app.add_typer(ci_app, name="ci")
+app.add_typer(integrations_app, name="integrations")
 
 
 def _load_local_llm_env(env_path: Path | None = None) -> None:
@@ -376,6 +383,81 @@ def ci_validate_report_bundle_command(
         text=(
             "Valid report bundle: "
             f"{len(payload['reports'])} JSON reports, {len(payload['archives'])} archives"
+        ),
+    )
+
+
+@integrations_app.command("github-issues", help="Export selected findings to GitHub Issues.")
+def integrations_github_issues_command(
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to export from.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    repo: Annotated[
+        str,
+        typer.Option("--repo", help="Destination GitHub repository in owner/name form."),
+    ] = "",
+    finding_ids: Annotated[
+        list[str] | None,
+        typer.Option("--finding-id", help="Finding ID to export. Repeatable."),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run/--live",
+            help="Preview payloads without calling GitHub, or create issues with --live.",
+        ),
+    ] = True,
+    include_assets: Annotated[
+        bool,
+        typer.Option(
+            "--include-assets/--redact-assets",
+            help="Include affected asset labels in issue bodies.",
+        ),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print export results as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    if not repo:
+        _fail("--repo is required", json_errors=json_errors)
+    try:
+        state = load_workspace(workspace)
+        results = export_findings_to_github_issues(
+            state,
+            repo=repo,
+            finding_ids=finding_ids or [],
+            dry_run=dry_run,
+            include_assets=include_assets,
+        )
+    except (WorkspaceError, GitHubExportError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    payload = {
+        "repo": repo,
+        "dry_run": dry_run,
+        "results": [result.as_payload() for result in results],
+        "created": len([result for result in results if result.issue_url is not None]),
+        "failed": len([result for result in results if result.error is not None]),
+    }
+    _emit(
+        payload,
+        json_output=json_output,
+        text=(
+            "GitHub Issues export "
+            f"{'dry-run' if dry_run else 'complete'}: "
+            f"{len(results)} findings, {payload['created']} created, {payload['failed']} failed"
         ),
     )
 
