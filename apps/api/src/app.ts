@@ -3468,12 +3468,17 @@ function finalizeBranchDraftWithReuse(
     readonly correlationId: string;
   }
 ): BranchDraftFinalizationResult {
-  let draftRevision = store.saveDraftRevision(input.validation.workflow, input.validation, input.source, {
-    branchId: input.branch.id,
-    force: true,
-    parentDraftRevisionId: input.parentDraftRevisionId,
-    updateBranchHead: false
-  });
+  let draftRevision = store.saveDraftRevision(
+    input.validation.workflow,
+    input.validation,
+    input.source,
+    {
+      branchId: input.branch.id,
+      force: true,
+      parentDraftRevisionId: input.parentDraftRevisionId,
+      updateBranchHead: false
+    }
+  );
   const reuse = applyGeneratedModuleReuse(
     store,
     input.workflowId,
@@ -3492,12 +3497,17 @@ function finalizeBranchDraftWithReuse(
         validation: reusedValidation
       };
     }
-    draftRevision = store.saveDraftRevision(reusedValidation.workflow, reusedValidation, input.source, {
-      branchId: input.branch.id,
-      force: true,
-      parentDraftRevisionId: draftRevision.id,
-      updateBranchHead: false
-    });
+    draftRevision = store.saveDraftRevision(
+      reusedValidation.workflow,
+      reusedValidation,
+      input.source,
+      {
+        branchId: input.branch.id,
+        force: true,
+        parentDraftRevisionId: draftRevision.id,
+        updateBranchHead: false
+      }
+    );
   }
 
   const branch = store.saveBranch({

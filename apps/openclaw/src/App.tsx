@@ -324,17 +324,14 @@ export function App() {
   const branchLifecycleLocked = activeBranch?.status === "archived";
   const visibleBranches = useMemo(
     () =>
-      showArchivedBranches
-        ? branches
-        : branches.filter((branch) => branch.status !== "archived"),
+      showArchivedBranches ? branches : branches.filter((branch) => branch.status !== "archived"),
     [branches, showArchivedBranches]
   );
   const mergeSources = useMemo(
     () =>
       branches.filter(
         (branch) =>
-          branch.id !== activeBranchId &&
-          (showArchivedBranches || branch.status !== "archived")
+          branch.id !== activeBranchId && (showArchivedBranches || branch.status !== "archived")
       ),
     [activeBranchId, branches, showArchivedBranches]
   );
@@ -1334,9 +1331,7 @@ export function App() {
             />
             <button
               type="submit"
-              disabled={
-                busyAction !== null || prompt.trim().length === 0 || branchLifecycleLocked
-              }
+              disabled={busyAction !== null || prompt.trim().length === 0 || branchLifecycleLocked}
             >
               <WandSparkles size={18} />
               Plan
@@ -1865,35 +1860,35 @@ function Inspector(props: {
               {typeof node.config.reusedFromBranchId === "string" ? (
                 <StatusRow label="Reuse" value={node.config.reusedFromBranchId} tone="pending" />
               ) : null}
-	              <button
-	                type="button"
-	                onClick={props.onBuildCodegen}
-	                disabled={props.busyAction !== null || props.branchLifecycleLocked}
-	              >
+              <button
+                type="button"
+                onClick={props.onBuildCodegen}
+                disabled={props.busyAction !== null || props.branchLifecycleLocked}
+              >
                 <WandSparkles size={18} />
                 Build Generated Node
               </button>
               <button
-	                type="button"
-	                onClick={props.onReviewCodegen}
-	                disabled={
-	                  props.busyAction !== null ||
-	                  props.branchLifecycleLocked ||
-	                  node.codegen?.review.status === "approved"
-	                }
-	              >
+                type="button"
+                onClick={props.onReviewCodegen}
+                disabled={
+                  props.busyAction !== null ||
+                  props.branchLifecycleLocked ||
+                  node.codegen?.review.status === "approved"
+                }
+              >
                 <CheckCircle2 size={18} />
                 Review Generated Code
               </button>
               <button
-	                type="button"
-	                onClick={props.onPromoteCodegen}
-	                disabled={
-	                  props.busyAction !== null ||
-	                  props.branchLifecycleLocked ||
-	                  node.codegen?.review.status !== "approved"
-	                }
-	              >
+                type="button"
+                onClick={props.onPromoteCodegen}
+                disabled={
+                  props.busyAction !== null ||
+                  props.branchLifecycleLocked ||
+                  node.codegen?.review.status !== "approved"
+                }
+              >
                 <WandSparkles size={18} />
                 Promote Skill
               </button>
@@ -2120,12 +2115,12 @@ function BranchMergeReusePanel(props: {
           type="button"
           onClick={props.onPreviewMerge}
           disabled={
-	            props.busyAction !== null ||
-	            !props.activeBranch ||
-	            props.branchLifecycleLocked ||
-	            props.mergeSourceBranchId.length === 0 ||
-	            selectedSourceArchived
-	          }
+            props.busyAction !== null ||
+            !props.activeBranch ||
+            props.branchLifecycleLocked ||
+            props.mergeSourceBranchId.length === 0 ||
+            selectedSourceArchived
+          }
         >
           Preview
         </button>
@@ -2133,13 +2128,13 @@ function BranchMergeReusePanel(props: {
           type="button"
           onClick={props.onApplyMerge}
           disabled={
-	            props.busyAction !== null ||
-	            !props.mergePreview ||
-	            props.mergePreview.status === "blocked" ||
-	            props.branchLifecycleLocked ||
-	            selectedSourceArchived ||
-	            !conflictsResolved
-	          }
+            props.busyAction !== null ||
+            !props.mergePreview ||
+            props.mergePreview.status === "blocked" ||
+            props.branchLifecycleLocked ||
+            selectedSourceArchived ||
+            !conflictsResolved
+          }
         >
           Apply
         </button>
