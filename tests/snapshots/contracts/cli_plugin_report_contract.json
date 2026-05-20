@@ -2,6 +2,7 @@
   "cli": {
     "groups": {
       "ci": [
+        "validate-delivery",
         "validate-pff",
         "validate-report-bundle"
       ],

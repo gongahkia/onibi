@@ -20,6 +20,7 @@ piranesi ci validate-pff --input workspace/reports/findings.pff.json
 piranesi ci validate-report-bundle --path workspace/reports
 piranesi sign --workspace workspace
 piranesi sign --workspace workspace --verify
+piranesi ci validate-delivery --workspace workspace
 ```
 
 The templates do not run active scans against external targets.
@@ -29,3 +30,5 @@ test lane; real Docker replay tests should stay behind the `docker` marker.
 The `piranesi ci` commands exit non-zero when a PFF artifact, report JSON file,
 report directory, or red-team handoff archive has an unsupported schema version,
 malformed structure, unsafe archive entry path, or missing archive manifest entry.
+`validate-delivery` adds a local pre-delivery QA gate over findings, evidence
+references, report redaction, handoff manifests, and chain-of-custody coverage.

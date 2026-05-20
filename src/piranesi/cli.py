@@ -81,6 +81,7 @@ from piranesi.report.redteam import (
     build_red_team_report,
     render_red_team_report_artifact,
 )
+from piranesi.report_qa import render_report_qa_text, validate_delivery
 from piranesi.rescan import (
     DEFAULT_RESCAN_TIMEOUT_SECONDS,
     NetworkPolicyError,
@@ -387,6 +388,40 @@ def ci_validate_report_bundle_command(
             f"{len(payload['reports'])} JSON reports, {len(payload['archives'])} archives"
         ),
     )
+
+
+@ci_app.command("validate-delivery", help="Run local pre-delivery QA over a workspace.")
+def ci_validate_delivery_command(
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to validate before report delivery.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print QA result as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    try:
+        result = validate_delivery(workspace)
+    except (WorkspaceError, OSError) as exc:
+        _fail(str(exc), code=EXIT_OPERATION_FAILED, json_errors=json_errors)
+    _emit(
+        result.as_payload(),
+        json_output=json_output,
+        text=render_report_qa_text(result),
+    )
+    if not result.valid:
+        raise typer.Exit(code=EXIT_OPERATION_FAILED)
 
 
 @integrations_app.command("github-issues", help="Export selected findings to GitHub Issues.")
