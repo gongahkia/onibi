@@ -17,6 +17,12 @@ The manifest also stores an audit-chain head. Each audit-log JSONL event is cano
 hashed with the previous event hash, starting from 64 zeroes. Removing, reordering, or editing
 events changes the chain head and causes verification to fail.
 
+When a workspace contains evidence produced by `piranesi rescan`, the manifest also includes
+optional replay provenance entries. Each entry records the replay spec digest, recovered command,
+normalized environment allowlist, intended target scope, input evidence digests, digest-pinned
+image reference and image digest, network policy, and output evidence digest. Older manifests that
+do not include replay provenance remain readable and verifiable.
+
 Verify a workspace with:
 
 ```bash

@@ -56,6 +56,26 @@ class AuditChainEntry(_StrictModel):
     timestamp: str | None = None
 
 
+class ReplayProvenanceEvidence(_StrictModel):
+    path: str
+    sha256: str
+
+
+class ReplayProvenanceEnvelope(_StrictModel):
+    schema_version: Literal["piranesi.replay-provenance.v1"] = "piranesi.replay-provenance.v1"
+    tool: str
+    input_record: str
+    replay_spec_sha256: str
+    command: list[str]
+    command_display: str | None = None
+    environment: dict[str, Any] = Field(default_factory=dict)
+    target_scope: list[str]
+    input_evidence: list[ReplayProvenanceEvidence]
+    image: dict[str, str | None]
+    network_policy: str
+    output_evidence: list[ReplayProvenanceEvidence]
+
+
 class ChainOfCustodyManifest(_StrictModel):
     schema_version: Literal["piranesi.chain-of-custody.v1"] = MANIFEST_SCHEMA_VERSION
     manifest_id: str
@@ -65,6 +85,7 @@ class ChainOfCustodyManifest(_StrictModel):
     command: dict[str, Any]
     artifacts: list[ManifestArtifact]
     tool_inputs: list[dict[str, Any]]
+    replay_provenance: list[ReplayProvenanceEnvelope] = Field(default_factory=list)
     audit_chain: list[AuditChainEntry] = Field(default_factory=list)
     audit_chain_head: str
     limitations: list[str]
@@ -182,6 +203,9 @@ def build_manifest(state: WorkspaceState) -> ChainOfCustodyManifest:
             _tool_input_manifest(item)
             for item in sorted(state.workspace.tool_inputs, key=lambda record: record.id)
         ],
+        "replay_provenance": [
+            envelope.model_dump(mode="json") for envelope in replay_provenance_envelopes(state)
+        ],
         "audit_chain": [entry.model_dump(mode="json") for entry in audit.entries],
         "audit_chain_head": audit.head,
         "limitations": [
@@ -231,6 +255,16 @@ def collect_manifest_artifacts(workspace_root: Path) -> list[ManifestArtifact]:
                 )
             )
     return sorted(artifacts, key=lambda artifact: (artifact.role, artifact.path))
+
+
+def replay_provenance_envelopes(state: WorkspaceState) -> list[ReplayProvenanceEnvelope]:
+    envelopes: list[ReplayProvenanceEnvelope] = []
+    for record in sorted(state.workspace.tool_inputs, key=lambda item: item.id):
+        raw_rescan = record.metadata.get("rescan")
+        if not isinstance(raw_rescan, dict):
+            continue
+        envelopes.append(_replay_provenance_envelope(record, raw_rescan))
+    return envelopes
 
 
 @dataclass(frozen=True)
@@ -306,6 +340,46 @@ def _tool_input_manifest(record: Any) -> dict[str, Any]:
     }
 
 
+def _replay_provenance_envelope(
+    record: Any,
+    metadata: dict[str, Any],
+) -> ReplayProvenanceEnvelope:
+    input_evidence = [
+        ReplayProvenanceEvidence(path=item["path"], sha256=item["sha256"])
+        for item in metadata.get("input_evidence", [])
+        if isinstance(item, dict)
+        and isinstance(item.get("path"), str)
+        and isinstance(item.get("sha256"), str)
+    ]
+    return ReplayProvenanceEnvelope(
+        tool=record.tool,
+        input_record=record.id,
+        replay_spec_sha256=str(metadata.get("spec_sha256") or ""),
+        command=[str(item) for item in metadata.get("command", [])],
+        command_display=_string_or_none(metadata.get("command_display")),
+        environment=_dict_or_empty(metadata.get("environment")),
+        target_scope=[str(item) for item in metadata.get("target_scope", [])],
+        input_evidence=input_evidence,
+        image=_image_provenance(metadata.get("image")),
+        network_policy=str(metadata.get("network_policy") or "unknown"),
+        output_evidence=[ReplayProvenanceEvidence(path=record.raw_path, sha256=record.sha256)],
+    )
+
+
+def _image_provenance(value: Any) -> dict[str, str | None]:
+    if not isinstance(value, dict):
+        return {}
+    image: dict[str, str | None] = {}
+    for key in ("image_reference", "image_repository", "image_tag", "image_digest"):
+        item = value.get(key)
+        image[key] = item if isinstance(item, str) or item is None else str(item)
+    return image
+
+
+def _dict_or_empty(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
 def _manifest_id(payload: dict[str, Any]) -> str:
     canonical_payload = dict(payload)
     canonical_payload["manifest_id"] = ""
@@ -329,6 +403,7 @@ def _string_or_none(value: object) -> str | None:
 __all__ = [
     "ChainOfCustodyManifest",
     "ManifestArtifact",
+    "ReplayProvenanceEnvelope",
     "SigningError",
     "VerificationFailure",
     "VerificationResult",
@@ -336,6 +411,7 @@ __all__ = [
     "build_manifest",
     "collect_manifest_artifacts",
     "latest_manifest_path",
+    "replay_provenance_envelopes",
     "sign_workspace",
     "verification_result_payload",
     "verify_workspace",

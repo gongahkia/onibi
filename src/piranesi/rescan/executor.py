@@ -412,6 +412,7 @@ def _output_metadata(output: _GeneratedReplayOutput) -> dict[str, Any]:
             "spec": output.spec.model_dump(mode="json"),
             "command": output.command,
             "command_display": shlex.join(output.command),
+            "environment": {"allowlist": {}},
             "target_scope": output.spec.target_scope,
             "input_evidence": [item.model_dump(mode="json") for item in output.spec.input_evidence],
             "image": output.image.provenance(),

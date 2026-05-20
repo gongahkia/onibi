@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 import json
+import shutil
+from collections.abc import Sequence
+from hashlib import sha256
 from pathlib import Path
 
 from typer.testing import CliRunner
 
 from piranesi.cli import app
+from piranesi.rescan.executor import execute_rescan_from_baseline
+from piranesi.rescan.image_policy import AcceptedImage
+from piranesi.rescan.runtime import ContainerRuntimeStatus
 from piranesi.signing import audit_chain, verify_workspace
 
 FIXTURE = Path(__file__).parent / "fixtures" / "pentest" / "nmap" / "localhost-http.xml"
+DIGEST = "sha256:" + "a" * 64
 runner = CliRunner()
 
 
@@ -42,6 +49,81 @@ def test_sign_workspace_is_stable_and_verifiable(tmp_path: Path) -> None:
     verify = runner.invoke(app, ["sign", "--workspace", str(workspace), "--verify", "--json"])
     assert verify.exit_code == 0, verify.output
     assert json.loads(verify.stdout)["ok"] is True
+
+
+def test_verify_accepts_legacy_manifest_without_replay_provenance(tmp_path: Path) -> None:
+    workspace = _workspace_with_report(tmp_path)
+    sign = runner.invoke(app, ["sign", "--workspace", str(workspace), "--json"])
+    assert sign.exit_code == 0, sign.output
+    manifest_path = Path(json.loads(sign.stdout)["path"])
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.pop("replay_provenance", None)
+    manifest["manifest_id"] = _manifest_id(manifest)
+    legacy_path = workspace / "signatures" / f"manifest-{manifest['manifest_id']}.json"
+    legacy_path.write_text(_canonical_json(manifest), encoding="utf-8")
+
+    result = verify_workspace(workspace, manifest_path=legacy_path)
+
+    assert result.ok is True
+
+
+def test_replay_manifest_includes_signed_provenance_envelope(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    baseline = tmp_path / "baseline"
+    output = tmp_path / "current"
+    ingest = runner.invoke(
+        app,
+        ["ingest", "nmap", "--input", str(FIXTURE), "--workspace", str(baseline)],
+    )
+    assert ingest.exit_code == 0, ingest.output
+
+    monkeypatch.setattr(
+        "piranesi.rescan.executor.ensure_container_runtime",
+        lambda: ContainerRuntimeStatus(docker_python_available=True, docker_cli_path="/bin/docker"),
+    )
+
+    def fake_runner(
+        _image: AcceptedImage,
+        _command: Sequence[str],
+        _host_output_dir: Path,
+        host_output_path: Path,
+        _timeout_seconds: int,
+    ) -> None:
+        shutil.copyfile(FIXTURE, host_output_path)
+
+    result = execute_rescan_from_baseline(
+        baseline,
+        output_workspace=output,
+        image_overrides=[f"nmap=ghcr.io/acme/nmap:v1@{DIGEST}"],
+        allow_unenforced_network=True,
+        container_runner=fake_runner,
+    )
+    sign = runner.invoke(app, ["sign", "--workspace", str(output), "--json"])
+    assert sign.exit_code == 0, sign.output
+    manifest_path = Path(json.loads(sign.stdout)["path"])
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert len(manifest["replay_provenance"]) == 1
+    envelope = manifest["replay_provenance"][0]
+    assert envelope["schema_version"] == "piranesi.replay-provenance.v1"
+    assert envelope["tool"] == "nmap"
+    assert envelope["replay_spec_sha256"] == result.outputs[0].spec_sha256
+    assert envelope["command"][0] == "nmap"
+    assert envelope["environment"] == {"allowlist": {}}
+    assert envelope["image"]["image_reference"] == f"ghcr.io/acme/nmap:v1@{DIGEST}"
+    assert envelope["image"]["image_digest"] == DIGEST
+    assert envelope["input_evidence"][0]["sha256"]
+    assert envelope["output_evidence"] == [
+        {"path": result.outputs[0].raw_path, "sha256": result.outputs[0].sha256}
+    ]
+
+    raw_path = output / result.outputs[0].raw_path
+    raw_path.write_text("<tampered />\n", encoding="utf-8")
+    tampered = verify_workspace(output, manifest_path=manifest_path)
+    assert tampered.ok is False
+    assert any(failure.path == result.outputs[0].raw_path for failure in tampered.failures)
 
 
 def test_sign_verify_reports_precise_tamper_failure(tmp_path: Path) -> None:
@@ -154,3 +236,13 @@ def _workspace_with_report(tmp_path: Path) -> Path:
     report = runner.invoke(app, ["report", "--workspace", str(workspace), "--format", "json"])
     assert report.exit_code == 0, report.output
     return workspace
+
+
+def _manifest_id(payload: dict[str, object]) -> str:
+    canonical_payload = dict(payload)
+    canonical_payload["manifest_id"] = ""
+    return sha256(_canonical_json(canonical_payload).encode("utf-8")).hexdigest()
+
+
+def _canonical_json(payload: object) -> str:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
