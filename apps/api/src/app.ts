@@ -1228,6 +1228,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
           `draft.${stored.workflow.id}.r${stored.workflow.revision}`
       })
     );
+    const workspaceRoot = join(process.cwd(), ".kelpclaw", "workspaces", workspace.id);
     const buildLoop = new GeneratedNodeBuildLoop({
       codeGenerator: process.env.ANTHROPIC_API_KEY
         ? new AgentSdkCodeGenerator({
@@ -1252,9 +1253,12 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         generatedAt: new Date().toISOString(),
         job: runningJob,
         workspace,
+        workspaceRoot,
         maxIterations: request.body.maxIterations ?? 3,
         maxWallClockSeconds: request.body.maxWallClockSeconds ?? 600,
         maxModelCostUsd: request.body.maxModelCostUsd ?? 2,
+        maxDockerRuntimeSeconds: 300,
+        signal: jobSignal,
         runTestsInDocker: request.body.runTestsInDocker ?? false
       });
       if (jobSignal?.aborted || jobSupervisor.isCancelled(runningJob.id)) {
@@ -1264,7 +1268,9 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         result.designSpecArtifact,
         result.generation.sourceArtifact,
         result.generation.dependencyManifestArtifact,
-        ...result.testArtifacts
+        ...result.testArtifacts,
+        ...result.resultArtifacts,
+        ...(result.unresolvedFailureArtifact ? [result.unresolvedFailureArtifact] : [])
       ];
       await artifactStore.putManifest(
         createArtifactManifest({
@@ -1292,14 +1298,15 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
           workflowId: stored.workflow.id,
           nodeId: node.id,
           jobId: runningJob.id,
-          status: "passed",
+          status: result.status,
           testFiles: result.testArtifacts.map(toArtifactRef),
-          resultArtifacts: [],
-          logs: [
-            request.body.runTestsInDocker === true
-              ? "Docker contract test execution requested."
-              : "Static contract test execution completed."
-          ]
+          resultArtifacts: result.resultArtifacts.map(toArtifactRef),
+          logs: result.logs,
+          failureMessage:
+            result.status === "failed"
+              ? result.findings.map((finding) => finding.message).join("; ") ||
+                "Generated-node eval failed."
+              : undefined
         })
       );
       const evalReport = store.saveGeneratedNodeEvalReport(
@@ -1307,12 +1314,54 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
           workflowId: stored.workflow.id,
           nodeId: node.id,
           jobId: runningJob.id,
-          status: "passed",
+          status: result.status,
           designSpec: toArtifactRef(result.designSpecArtifact),
           testReportId: testReport.id,
-          fixHistory: result.fixHistory
+          fixHistory: result.fixHistory,
+          schemaValid: result.schemaValid,
+          securityValid: result.securityValid,
+          replayValid: result.replayValid,
+          dependencyPolicyValid: result.dependencyPolicyValid,
+          findings: result.findings
         })
       );
+      if (result.status === "failed") {
+        const finishedAt = new Date().toISOString();
+        const currentJob = store.getJob(runningJob.id) ?? runningJob;
+        const failedJob = store.appendJobEvent(
+          store.saveJob({
+            ...currentJob,
+            status: "failed",
+            workspaceId: workspace.id,
+            updatedAt: finishedAt,
+            finishedAt,
+            error:
+              evalReport.findings.map((finding) => finding.message).join("; ") ||
+              "Generated-node eval failed.",
+            result: {
+              workspaceId: workspace.id,
+              testReportId: testReport.id,
+              evalReportId: evalReport.id
+            }
+          }).id,
+          createJobEvent(currentJob, "error", "Generated-node build loop failed eval.", {
+            workspaceId: workspace.id,
+            testReportId: testReport.id,
+            evalReportId: evalReport.id
+          })
+        );
+        return reply.code(409).send({
+          ok: false,
+          error: "CODEGEN_EVAL_FAILED",
+          message: failedJob.error ?? "Generated-node eval failed.",
+          job: failedJob,
+          workspace,
+          agentRuns: result.agentRuns,
+          artifacts: artifactRefs,
+          testReport,
+          evalReport
+        });
+      }
       const workflowWithGeneratedNode: WorkflowSpec = {
         ...stored.workflow,
         approval: null,
@@ -2369,6 +2418,11 @@ function createGeneratedNodeEvalReport(input: {
   readonly designSpec: WorkflowCodegenArtifactRef;
   readonly testReportId: string;
   readonly fixHistory: readonly string[];
+  readonly schemaValid?: boolean | undefined;
+  readonly securityValid?: boolean | undefined;
+  readonly replayValid?: boolean | undefined;
+  readonly dependencyPolicyValid?: boolean | undefined;
+  readonly findings?: GeneratedNodeEvalReport["findings"] | undefined;
 }): GeneratedNodeEvalReport {
   const now = new Date().toISOString();
 
@@ -2382,12 +2436,12 @@ function createGeneratedNodeEvalReport(input: {
     finishedAt: now,
     designSpec: input.designSpec,
     testReportId: input.testReportId,
-    schemaValid: input.status === "passed",
-    securityValid: input.status === "passed",
-    replayValid: input.status === "passed",
-    dependencyPolicyValid: input.status === "passed",
+    schemaValid: input.schemaValid ?? input.status === "passed",
+    securityValid: input.securityValid ?? input.status === "passed",
+    replayValid: input.replayValid ?? input.status === "passed",
+    dependencyPolicyValid: input.dependencyPolicyValid ?? input.status === "passed",
     fixHistory: input.fixHistory,
-    findings: []
+    findings: input.findings ?? []
   };
 }
 
