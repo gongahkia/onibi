@@ -141,6 +141,7 @@ Current adapters:
 
 - nmap XML
 - nuclei JSONL
+- Burp Suite Pro Issues XML
 
 Adapter requirements:
 

@@ -10,8 +10,10 @@ import typer
 
 from piranesi import __version__
 from piranesi.adapters import (
+    BurpParseError,
     NmapParseError,
     NucleiParseError,
+    parse_burp_xml_file,
     parse_nmap_xml_file,
     parse_nuclei_jsonl_file,
 )
@@ -99,7 +101,6 @@ from piranesi.workspace_server import (
 EXIT_OK = 0
 EXIT_OPERATION_FAILED = 1
 EXIT_USAGE_ERROR = 2
-EXIT_NOT_IMPLEMENTED = 64
 
 DEFAULT_WORKSPACE = Path("piranesi-workspace")
 ReportType = Literal["pentest", "red-team"]
@@ -416,7 +417,7 @@ def ingest_nuclei_command(
     )
 
 
-@ingest_app.command("burp", help="Reserved for Burp Suite Pro Issues XML ingestion.")
+@ingest_app.command("burp", help="Ingest real Burp Suite Pro Issues XML into a workspace.")
 def ingest_burp_command(
     input_path: Annotated[
         Path,
@@ -439,16 +440,71 @@ def ingest_burp_command(
             help="Workspace directory to create or update.",
         ),
     ] = DEFAULT_WORKSPACE,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print ingest summary as JSON."),
+    ] = False,
     json_errors: Annotated[
         bool,
         typer.Option("--json-errors", help="Print command errors as JSON."),
     ] = False,
 ) -> None:
-    _ = (input_path, workspace)
-    _fail(
-        "Burp Suite Pro Issues XML ingestion is tracked in issue #32 and needs a real fixture.",
-        code=EXIT_NOT_IMPLEMENTED,
-        json_errors=json_errors,
+    if not input_path.is_file():
+        _fail(f"input file does not exist: {input_path}", json_errors=json_errors)
+
+    try:
+        state = create_workspace(workspace)
+        state, record = copy_tool_input(state, tool="burp", input_path=input_path)
+        raw_input_path = workspace_path(state.root, record.raw_path, allowed_roots=("raw",))
+        parse_result = parse_burp_xml_file(
+            raw_input_path,
+            input_sha256=record.sha256,
+            raw_path=record.raw_path,
+        )
+        state, record = copy_tool_input(
+            state,
+            tool="burp",
+            input_path=input_path,
+            metadata=parse_result.metadata,
+        )
+        before_ids = {finding.id for finding in state.findings.findings}
+        incoming_ids = {finding.id for finding in parse_result.findings}
+        state = upsert_findings(state, parse_result.findings)
+        output_digest = file_sha256(state.root / FINDINGS_FILE)
+        summary = {
+            "tool": "burp",
+            "created": len(incoming_ids - before_ids),
+            "updated": len(incoming_ids & before_ids),
+            "records": parse_result.metadata["valid_records"],
+            "findings": len(incoming_ids),
+            "warnings": parse_result.warnings,
+            "input_record": record.id,
+        }
+        append_workspace_audit_event(
+            state,
+            AuditEvent(
+                timestamp=utc_now(),
+                command="ingest burp",
+                input_path=record.raw_path,
+                input_sha256=record.sha256,
+                output_path=FINDINGS_FILE,
+                output_sha256=output_digest,
+                summary=summary,
+            ),
+        )
+    except (WorkspaceError, BurpParseError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    warning_count = len(parse_result.warnings)
+    _emit(
+        summary,
+        json_output=json_output,
+        text=(
+            "Ingested Burp Issues XML: "
+            f"{summary['findings']} findings "
+            f"({summary['created']} created, {summary['updated']} updated, "
+            f"{warning_count} warnings)"
+        ),
     )
 
 

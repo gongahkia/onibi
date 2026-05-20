@@ -45,6 +45,10 @@ uv run piranesi ingest nmap \
 uv run piranesi ingest nuclei \
   --input tests/fixtures/pentest/nuclei/localhost-http.jsonl \
   --workspace ./workspace
+
+uv run piranesi ingest burp \
+  --input tests/fixtures/pentest/burp/lab-issues.xml \
+  --workspace ./workspace
 ```
 
 ## Render Reports
@@ -96,6 +100,7 @@ uv run piranesi retest \
 
 - [Workspace contract](pentest-workspace.md)
 - [Report schema](pentest-report-schema.md)
+- [Burp ingestion](burp-ingest.md)
 - [Nuclei ingestion](nuclei-ingest.md)
 - [Retest workflow](retest-workflow.md)
 - [Chain of custody](chain-of-custody.md)

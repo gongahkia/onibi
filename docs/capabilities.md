@@ -12,6 +12,7 @@ Known limitations are tracked in [`docs/known-limitations.json`](known-limitatio
 | Real fixture provenance | Alpha | Parser fixtures require provenance, sanitization notes, real tool output, and secret scanning. |
 | nmap XML ingest | Alpha | Imports open services and script output from real nmap XML. |
 | nuclei JSONL ingest | Alpha | Imports real nuclei JSONL, including template metadata, references, CWE/CVE IDs, matched URLs, extractors, and redacted request/response evidence. |
+| Burp Suite Pro Issues XML ingest | Alpha | Imports real Burp Issues XML, including severity, confidence, host/path/location, CWE/reference metadata, and redacted request/response evidence. |
 | Operator evidence vault | Alpha | CLI and browser UI preserve notes, screenshots, transcripts, C2 logs, payload metadata, detection artifacts, scanner exports, and other local artifacts. |
 | Pentest report rendering | Alpha | JSON, Markdown, WeasyPrint PDF, and ReportLab PDF. |
 | Red-team handoff rendering | Alpha | JSON, Markdown, PDF, and archive ZIP with report artifacts plus workspace indexes; raw evidence is opt-in. |
@@ -24,7 +25,6 @@ Known limitations are tracked in [`docs/known-limitations.json`](known-limitatio
 These areas are tracked by GitHub issues but should not be presented as implemented
 features until their own acceptance criteria are complete:
 
-- Burp Suite Pro Issues XML ingestion.
 - ZAP, Nessus, ffuf, sqlmap, SARIF, Metasploit, and other adapter expansion.
 - Live C2 operation, implant management, payload execution, and active exploitation.
 - Engagement-scale design-partner feedback loops.

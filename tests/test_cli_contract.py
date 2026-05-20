@@ -47,7 +47,7 @@ def test_old_commands_are_not_accepted() -> None:
     assert "No such command" in result.output
 
 
-def test_not_yet_implemented_adapter_has_deliberate_exit_code(tmp_path) -> None:
+def test_burp_adapter_reports_invalid_fixture_as_usage_error(tmp_path) -> None:
     fixture = tmp_path / "burp.xml"
     fixture.write_text("<issues/>", encoding="utf-8")
 
@@ -64,7 +64,7 @@ def test_not_yet_implemented_adapter_has_deliberate_exit_code(tmp_path) -> None:
         ],
     )
 
-    assert result.exit_code == 64
+    assert result.exit_code == 2
     payload = json.loads(result.output)
-    assert payload["exit_code"] == 64
-    assert "issue #32" in payload["error"]
+    assert payload["exit_code"] == 2
+    assert "empty Burp Issues XML" in payload["error"]

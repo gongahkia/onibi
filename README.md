@@ -97,6 +97,9 @@ uv run piranesi ingest nmap \
 uv run piranesi ingest nuclei \
   --input tests/fixtures/pentest/nuclei/localhost-http.jsonl \
   --workspace ./workspace
+uv run piranesi ingest burp \
+  --input tests/fixtures/pentest/burp/lab-issues.xml \
+  --workspace ./workspace
 uv run piranesi report --workspace ./workspace --format md
 uv run piranesi report \
   --workspace ./workspace \
@@ -142,6 +145,7 @@ Implemented Phase 1 pieces:
 - Real fixture policy and provenance validation for parser fixtures.
 - nmap XML ingestion.
 - nuclei JSONL ingestion.
+- Burp Suite Pro Issues XML ingestion.
 - Pentest report rendering to JSON, Markdown, and PDF.
 - Red-team handoff rendering to JSON, Markdown, PDF, and archive ZIP.
 - Chain-of-custody manifest creation and verification.
@@ -187,6 +191,7 @@ added with `piranesi evidence add` are also copied under `raw/<kind>/` and index
 - [Architecture](docs/ARCHITECTURE.md)
 - [Workspace contract](docs/pentest-workspace.md)
 - [Report schema](docs/pentest-report-schema.md)
+- [Burp ingestion](docs/burp-ingest.md)
 - [Nuclei ingestion](docs/nuclei-ingest.md)
 - [Retest workflow](docs/retest-workflow.md)
 - [Chain of custody](docs/chain-of-custody.md)
