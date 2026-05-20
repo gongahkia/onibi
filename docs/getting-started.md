@@ -49,6 +49,11 @@ uv run piranesi ingest nuclei \
 uv run piranesi ingest burp \
   --input tests/fixtures/pentest/burp/lab-issues.xml \
   --workspace ./workspace
+
+uv run piranesi ingest c2 \
+  --input tests/fixtures/redteam/c2/mock-c2-events.jsonl \
+  --workspace ./workspace \
+  --title "Mock C2 event log"
 ```
 
 ## Render Reports
@@ -101,6 +106,7 @@ uv run piranesi retest \
 - [Workspace contract](pentest-workspace.md)
 - [Report schema](pentest-report-schema.md)
 - [Burp ingestion](burp-ingest.md)
+- [C2 log import](c2-log-import.md)
 - [Nuclei ingestion](nuclei-ingest.md)
 - [Retest workflow](retest-workflow.md)
 - [Chain of custody](chain-of-custody.md)

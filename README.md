@@ -100,6 +100,10 @@ uv run piranesi ingest nuclei \
 uv run piranesi ingest burp \
   --input tests/fixtures/pentest/burp/lab-issues.xml \
   --workspace ./workspace
+uv run piranesi ingest c2 \
+  --input tests/fixtures/redteam/c2/mock-c2-events.jsonl \
+  --workspace ./workspace \
+  --title "Mock C2 event log"
 uv run piranesi report --workspace ./workspace --format md
 uv run piranesi report \
   --workspace ./workspace \
@@ -146,6 +150,7 @@ Implemented Phase 1 pieces:
 - nmap XML ingestion.
 - nuclei JSONL ingestion.
 - Burp Suite Pro Issues XML ingestion.
+- Neutral C2 JSONL import into evidence and timeline.
 - Pentest report rendering to JSON, Markdown, and PDF.
 - Red-team handoff rendering to JSON, Markdown, PDF, and archive ZIP.
 - Chain-of-custody manifest creation and verification.
@@ -192,6 +197,7 @@ added with `piranesi evidence add` are also copied under `raw/<kind>/` and index
 - [Workspace contract](docs/pentest-workspace.md)
 - [Report schema](docs/pentest-report-schema.md)
 - [Burp ingestion](docs/burp-ingest.md)
+- [C2 log import](docs/c2-log-import.md)
 - [Nuclei ingestion](docs/nuclei-ingest.md)
 - [Retest workflow](docs/retest-workflow.md)
 - [Chain of custody](docs/chain-of-custody.md)

@@ -12,6 +12,7 @@
       ],
       "ingest": [
         "burp",
+        "c2",
         "init",
         "nmap",
         "nuclei"

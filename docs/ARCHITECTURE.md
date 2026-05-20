@@ -28,7 +28,7 @@ Command responsibilities:
 | Verb | Responsibility |
 | --- | --- |
 | `evidence` | Preserve operator artifacts such as screenshots, notes, logs, transcripts, and payload metadata. |
-| `ingest` | Create/update a workspace and import real tool exports. |
+| `ingest` | Create/update a workspace and import real tool exports or neutral local C2 event logs. |
 | `report` | Render pentest reports and red-team handoff artifacts from workspace data. |
 | `retest` | Compare two workspaces and classify finding lifecycle status. |
 | `sign` | Create or verify a chain-of-custody manifest. |
@@ -142,6 +142,7 @@ Current adapters:
 - nmap XML
 - nuclei JSONL
 - Burp Suite Pro Issues XML
+- neutral C2 JSONL into evidence and timeline records
 
 Adapter requirements:
 
@@ -154,6 +155,10 @@ Adapter requirements:
 - warnings for partially invalid input where safe;
 - hard failures for empty or fully invalid input;
 - report-safe evidence redaction for sensitive request/response material.
+
+The C2 adapter boundary is intentionally passive: it imports local JSONL records,
+preserves the original log as evidence, appends safe summaries to the timeline, and
+does not connect to live C2 infrastructure or execute commands.
 
 ## Report Rendering
 

@@ -11,9 +11,11 @@ import typer
 from piranesi import __version__
 from piranesi.adapters import (
     BurpParseError,
+    C2ParseError,
     NmapParseError,
     NucleiParseError,
     parse_burp_xml_file,
+    parse_c2_jsonl_file,
     parse_nmap_xml_file,
     parse_nuclei_jsonl_file,
 )
@@ -504,6 +506,124 @@ def ingest_burp_command(
             f"{summary['findings']} findings "
             f"({summary['created']} created, {summary['updated']} updated, "
             f"{warning_count} warnings)"
+        ),
+    )
+
+
+@ingest_app.command("c2", help="Import neutral local C2 JSONL into evidence and timeline.")
+def ingest_c2_command(
+    input_path: Annotated[
+        Path,
+        typer.Option(
+            "--input",
+            "-i",
+            exists=False,
+            dir_okay=False,
+            file_okay=True,
+            help="Neutral C2 JSONL export to preserve and convert into timeline events.",
+        ),
+    ],
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to create or update.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    title: Annotated[
+        str | None,
+        typer.Option("--title", help="Human-readable evidence title."),
+    ] = None,
+    source: Annotated[
+        str | None,
+        typer.Option("--source", help="Operator, lab, or tool that produced the log."),
+    ] = None,
+    sensitivity: Annotated[
+        EvidenceSensitivity,
+        typer.Option("--sensitivity", help="Evidence sensitivity marker."),
+    ] = "sensitive",
+    tags: Annotated[
+        list[str] | None,
+        typer.Option("--tag", help="Evidence tag; repeatable."),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print ingest summary as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    if not input_path.is_file():
+        _fail(f"input file does not exist: {input_path}", json_errors=json_errors)
+
+    try:
+        state = create_workspace(workspace)
+        _index, record = add_evidence_file(
+            state.root,
+            file_path=input_path,
+            kind="c2-log",
+            title=title or input_path.name,
+            source=source,
+            sensitivity=sensitivity,
+            tags=tags,
+            notes="Neutral C2 JSONL imported into the timeline.",
+        )
+        raw_input_path = workspace_path(state.root, record.raw_path, allowed_roots=("raw",))
+        parse_result = parse_c2_jsonl_file(
+            raw_input_path,
+            input_sha256=record.sha256,
+            raw_path=record.raw_path,
+        )
+        events = [
+            append_timeline_event(
+                state,
+                summary=event.summary,
+                timestamp=event.timestamp,
+                phase="c2",
+                actor=event.actor,
+                details=event.details,
+                evidence_ids=[record.id],
+                tags=event.tags,
+                confidence=event.confidence,
+            )
+            for event in parse_result.events
+        ]
+        output_digest = file_sha256(state.root / TIMELINE_FILE)
+        summary = {
+            "tool": "c2",
+            "evidence_id": record.id,
+            "events": len(events),
+            "records": parse_result.metadata["valid_records"],
+            "warnings": parse_result.warnings,
+            "event_ids": [event.id for event in events],
+            "input_record": record.id,
+        }
+        append_workspace_audit_event(
+            state,
+            AuditEvent(
+                timestamp=utc_now(),
+                command="ingest c2",
+                input_path=record.raw_path,
+                input_sha256=record.sha256,
+                output_path=TIMELINE_FILE,
+                output_sha256=output_digest,
+                summary=summary,
+            ),
+        )
+    except (WorkspaceError, EvidenceError, C2ParseError, TimelineError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    _emit(
+        summary,
+        json_output=json_output,
+        text=(
+            "Imported C2 JSONL: "
+            f"{summary['events']} timeline events from evidence {summary['evidence_id']}"
         ),
     )
 
