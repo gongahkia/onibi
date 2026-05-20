@@ -1419,6 +1419,7 @@ export function App() {
         selectedNode.id,
         {
           maxIterations: 3,
+          maxReimplementationAttempts: 2,
           maxWallClockSeconds: 600,
           maxModelCostUsd: 2,
           runTestsInDocker: false,

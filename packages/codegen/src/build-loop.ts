@@ -83,6 +83,8 @@ export class GeneratedNodeBuildLoop {
     let lastFailure: string | undefined;
     let nextCoderInputSummary = request.plannerRationale;
     let rearchitectBeforeNextCoder = false;
+    let reimplementationAttempts = 0;
+    const maxReimplementationAttempts = request.maxReimplementationAttempts ?? 2;
 
     await materializeWorkspaceFiles(this.workspaceRootFor(request), [
       designSpecArtifact,
@@ -118,6 +120,14 @@ export class GeneratedNodeBuildLoop {
       }
 
       if (rearchitectBeforeNextCoder) {
+        reimplementationAttempts += 1;
+        if (reimplementationAttempts > maxReimplementationAttempts) {
+          lastFailure = `Generated-node reimplementation loop exceeded ${maxReimplementationAttempts} rearchitecture attempt${maxReimplementationAttempts === 1 ? "" : "s"}.`;
+          fixHistory.push(
+            `reimplementation threshold: attempted ${reimplementationAttempts}; limit ${maxReimplementationAttempts}`
+          );
+          break;
+        }
         const architectResult = await this.runRole({
           role: "workflow-architect",
           request,

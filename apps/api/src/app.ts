@@ -200,6 +200,7 @@ interface EvaluateDraftRequestBody {
 
 interface CodegenBuildRequestBody {
   readonly maxIterations?: number | undefined;
+  readonly maxReimplementationAttempts?: number | undefined;
   readonly maxWallClockSeconds?: number | undefined;
   readonly maxModelCostUsd?: number | undefined;
   readonly runTestsInDocker?: boolean | undefined;
@@ -2310,6 +2311,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         workspace,
         workspaceRoot: workspace.rootPath,
         maxIterations: request.body.maxIterations ?? 3,
+        maxReimplementationAttempts: request.body.maxReimplementationAttempts ?? 2,
         maxWallClockSeconds: request.body.maxWallClockSeconds ?? 600,
         maxModelCostUsd: request.body.maxModelCostUsd ?? 2,
         maxDockerRuntimeSeconds: 300,

@@ -413,6 +413,25 @@ describe("codegen artifact contracts", () => {
     expect(result.agentRuns.filter((run) => run.role === "workflow-architect")).toHaveLength(2);
   });
 
+  it("fails when the generated-node reimplementation loop exceeds its threshold", async () => {
+    const loop = new GeneratedNodeBuildLoop({
+      testExecutor: alwaysFailingTestExecutor("workflow design mismatch")
+    });
+
+    const result = await loop.build({
+      ...buildLoopRequestFixture(),
+      maxIterations: 4,
+      maxReimplementationAttempts: 1
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.fixHistory.join("\n")).toContain("reimplementation threshold");
+    expect(result.unresolvedFailureArtifact?.content).toContain(
+      "exceeded 1 rearchitecture attempt"
+    );
+    expect(result.agentRuns.filter((run) => run.role === "workflow-architect")).toHaveLength(2);
+  });
+
   it("stops generated-node repairs when fixer triage finds an external blocker", async () => {
     const loop = new GeneratedNodeBuildLoop({
       testExecutor: alwaysFailingTestExecutor("credential permission missing")

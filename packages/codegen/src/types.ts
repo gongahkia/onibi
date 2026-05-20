@@ -139,6 +139,7 @@ export interface GeneratedNodeBuildLoopRequest extends CodegenGenerationRequest 
   readonly workspace?: WorkflowWorkspace | undefined;
   readonly workspaceRoot?: string | undefined;
   readonly maxIterations: number;
+  readonly maxReimplementationAttempts?: number | undefined;
   readonly maxWallClockSeconds: number;
   readonly maxModelCostUsd: number;
   readonly maxDockerRuntimeSeconds?: number | undefined;

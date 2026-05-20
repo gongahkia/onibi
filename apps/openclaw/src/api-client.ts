@@ -331,6 +331,7 @@ export const openClawApi = {
     nodeId: string,
     request: {
       readonly maxIterations?: number;
+      readonly maxReimplementationAttempts?: number;
       readonly maxWallClockSeconds?: number;
       readonly maxModelCostUsd?: number;
       readonly runTestsInDocker?: boolean;
