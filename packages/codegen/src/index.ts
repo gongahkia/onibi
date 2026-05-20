@@ -8,6 +8,18 @@ export type {
   AgentRoleQueryRunner,
   AgentSdkGeneratedNodeRoleRunnerOptions
 } from "./agent-sdk-role-runner.js";
+export { OpenAiCodeGenerator } from "./openai-generator.js";
+export type {
+  OpenAiCodeGeneratorOptions,
+  OpenAiResponsesCreateRequest,
+  OpenAiResponsesResult,
+  OpenAiResponsesRunner
+} from "./openai-generator.js";
+export {
+  OpenAiGeneratedNodeRoleRunner,
+  createOpenAiGeneratedNodeRoleRunners
+} from "./openai-role-runner.js";
+export type { OpenAiGeneratedNodeRoleRunnerOptions } from "./openai-role-runner.js";
 export {
   assertSafeArtifactPath,
   checksumArtifactContent,

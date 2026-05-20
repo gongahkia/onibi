@@ -8,6 +8,8 @@ import {
   DockerGeneratedNodeTestExecutor,
   GeneratedNodeBuildLoop,
   LocalCodegenArtifactStore,
+  OpenAiCodeGenerator,
+  OpenAiGeneratedNodeRoleRunner,
   assertSafeArtifactPath,
   createDependencyManifestArtifact,
   createArtifactManifest,
@@ -28,7 +30,8 @@ import type {
   DockerGeneratedNodeCommandRunner,
   GeneratedNodeBuildLoopRequest,
   GeneratedNodeRoleRunner,
-  GeneratedNodeTestExecutor
+  GeneratedNodeTestExecutor,
+  OpenAiResponsesRunner
 } from "../src/index.js";
 
 describe("codegen artifact contracts", () => {
@@ -312,6 +315,61 @@ describe("codegen artifact contracts", () => {
     );
   });
 
+  it("uses OpenAI Responses structured output and bounded repair for generated code", async () => {
+    let calls = 0;
+    const runner: OpenAiResponsesRunner = async (request) => {
+      calls += 1;
+      expect(request.model).toBe("gpt-test-codegen");
+      expect(request.text.format.type).toBe("json_schema");
+      return {
+        id: `resp_${calls}`,
+        model: request.model,
+        output_text: JSON.stringify(
+          calls === 1
+            ? {
+                sourceCode: "export {};",
+                packageManager: "npm",
+                dependencies: ["left-pad"],
+                devDependencies: [],
+                installCommand: ["npm", "install"]
+              }
+            : {
+                sourceCode:
+                  'import { writeFileSync } from "node:fs";\nwriteFileSync(process.env.NANOCLAW_NODE_OUTPUT!, JSON.stringify({ artifact: { ok: true } }));',
+                packageManager: "none",
+                dependencies: [],
+                devDependencies: [],
+                installCommand: []
+              }
+        )
+      };
+    };
+    const generator = new OpenAiCodeGenerator({
+      apiKey: "test-key",
+      model: "gpt-test-codegen",
+      responsesRunner: runner,
+      maxRepairAttempts: 1
+    });
+
+    const result = await generator.generate(codegenRequestFixture());
+
+    expect(calls).toBe(2);
+    expect(result.sourceArtifact.path).toBe("generated/scrape-status-page.ts");
+    expect(result.dependencyManifest.packageManager).toBe("none");
+    expect(result.metadata.provenance.generator).toBe("openai.responses");
+    expect(result.metadata.llmBacked).toBe(true);
+  });
+
+  it("fails clearly when OpenAI live credentials are missing", async () => {
+    const generator = new OpenAiCodeGenerator({
+      apiKey: ""
+    });
+
+    await expect(generator.generate(codegenRequestFixture())).rejects.toThrow(
+      "OPENAI_API_KEY is required"
+    );
+  });
+
   it("creates design, source, test, and eval agent artifacts through the build loop", async () => {
     const loop = new GeneratedNodeBuildLoop();
     const result = await loop.build(buildLoopRequestFixture());
@@ -388,6 +446,97 @@ describe("codegen artifact contracts", () => {
       totalTokens: 15
     });
     expect(rolePrompts.some((prompt) => prompt.startsWith("claude-fixer:"))).toBe(true);
+  });
+
+  it("runs role-specific OpenAI agents through the generated-node loop", async () => {
+    const rolePrompts: string[] = [];
+    const responsesRunner: OpenAiResponsesRunner = async (request) => {
+      if (request.text.format.name === "kelpclaw_generated_node") {
+        return {
+          id: "resp_codegen",
+          model: request.model,
+          output_text: JSON.stringify({
+            sourceCode:
+              'import { writeFileSync } from "node:fs";\nwriteFileSync(process.env.NANOCLAW_NODE_OUTPUT!, JSON.stringify({ artifact: { ok: true } }));',
+            packageManager: "none",
+            dependencies: [],
+            devDependencies: [],
+            installCommand: []
+          })
+        };
+      }
+
+      rolePrompts.push(`${request.model}:${request.input.split("\n")[0] ?? ""}`);
+      return {
+        id: `resp_${rolePrompts.length}`,
+        model: request.model,
+        output_text: JSON.stringify({
+          summary: `completed ${request.input.match(/You are the ([^ ]+) agent/u)?.[1] ?? "role"}`,
+          status: "succeeded",
+          outputArtifactRefs: []
+        }),
+        total_cost_usd: 0.02,
+        usage: {
+          input_tokens: 7,
+          input_tokens_details: {
+            cached_tokens: 2
+          },
+          output_tokens: 3,
+          output_tokens_details: {
+            reasoning_tokens: 1
+          },
+          total_tokens: 10
+        }
+      };
+    };
+    const roles = [
+      "workflow-architect",
+      "coder",
+      "tester",
+      "runner",
+      "fixer",
+      "evaluator"
+    ] as const;
+    const loop = new GeneratedNodeBuildLoop({
+      codeGenerator: new OpenAiCodeGenerator({
+        apiKey: "test-key",
+        model: "gpt-test-codegen",
+        responsesRunner
+      }),
+      roleRunners: Object.fromEntries(
+        roles.map((role) => [
+          role,
+          new OpenAiGeneratedNodeRoleRunner({
+            role,
+            apiKey: "test-key",
+            model: `gpt-${role}`,
+            responsesRunner
+          })
+        ])
+      ),
+      testExecutor: failOnceThenPassExecutor("schema mismatch")
+    });
+
+    const result = await loop.build(buildLoopRequestFixture());
+
+    expect(result.status).toBe("passed");
+    expect(result.generation.metadata.provenance.generator).toBe("openai.responses");
+    expect(result.agentRuns.map((run) => run.role)).toContain("fixer");
+    expect(result.agentRuns.every((run) => run.modelProvider === "openai")).toBe(true);
+    expect(
+      result.agentRuns.flatMap((run) => run.modelInvocations ?? []).map((record) => record.provider)
+    ).toEqual(rolePrompts.map(() => "openai"));
+    expect(result.agentRuns[0]?.modelInvocations?.[0]).toMatchObject({
+      costUsd: 0.02,
+      inputTokens: 7,
+      outputTokens: 3,
+      totalTokens: 10,
+      cacheReadInputTokens: 2,
+      modelUsage: {
+        reasoningTokens: 1
+      }
+    });
+    expect(rolePrompts.some((prompt) => prompt.startsWith("gpt-fixer:"))).toBe(true);
   });
 
   it("runs generated-node evals through Docker when requested", async () => {
