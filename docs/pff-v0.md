@@ -13,6 +13,7 @@ uv run piranesi pff validate --input findings.pff.json
 The v0 schema is intentionally close to the current normalized finding model so current adapter
 findings can be represented without known information loss. It is additive-first: future changes
 should add optional fields until a separately documented migration policy exists.
+Versioning rules are documented in [`docs/pff-versioning.md`](pff-versioning.md).
 
 Top-level fields:
 

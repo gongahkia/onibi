@@ -12,6 +12,15 @@ from piranesi import __version__
 from piranesi.workspace import NormalizedFinding, WorkspaceState, load_workspace
 
 PFF_SCHEMA_VERSION: Literal["piranesi.pff.v0"] = "piranesi.pff.v0"
+LATEST_PFF_SCHEMA_VERSION = PFF_SCHEMA_VERSION
+SUPPORTED_PFF_SCHEMA_VERSIONS: tuple[str, ...] = (PFF_SCHEMA_VERSION,)
+PFF_VERSION_HISTORY: dict[str, dict[str, str]] = {
+    PFF_SCHEMA_VERSION: {
+        "status": "current",
+        "introduced": "0.2.0",
+        "compatibility": "initial public PFF schema; no migration required",
+    }
+}
 PFF_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "docs" / "schemas" / "pff-v0.schema.json"
 
 
@@ -54,6 +63,7 @@ def load_pff_schema() -> dict[str, Any]:
 
 
 def validate_pff_document(document: Mapping[str, Any]) -> None:
+    ensure_supported_pff_version(document)
     schema = load_pff_schema()
     validator = Draft202012Validator(schema)
     errors = sorted(validator.iter_errors(document), key=lambda item: list(item.path))
@@ -76,6 +86,44 @@ def load_and_validate_pff_file(path: Path | str) -> dict[str, Any]:
         raise PffValidationError("PFF document must be a JSON object")
     validate_pff_document(payload)
     return payload
+
+
+def pff_schema_version(document: Mapping[str, Any]) -> str:
+    version = document.get("schema_version")
+    if not isinstance(version, str) or not version:
+        raise PffValidationError("PFF document is missing schema_version")
+    return version
+
+
+def ensure_supported_pff_version(document: Mapping[str, Any]) -> str:
+    version = pff_schema_version(document)
+    if version not in SUPPORTED_PFF_SCHEMA_VERSIONS:
+        supported = ", ".join(SUPPORTED_PFF_SCHEMA_VERSIONS)
+        raise PffValidationError(
+            f"unsupported PFF schema version {version!r}; supported versions: {supported}"
+        )
+    return version
+
+
+def migrate_pff_document(
+    document: Mapping[str, Any],
+    *,
+    target_version: str = LATEST_PFF_SCHEMA_VERSION,
+) -> dict[str, Any]:
+    source_version = ensure_supported_pff_version(document)
+    if target_version not in SUPPORTED_PFF_SCHEMA_VERSIONS:
+        supported = ", ".join(SUPPORTED_PFF_SCHEMA_VERSIONS)
+        raise PffValidationError(
+            f"unsupported target PFF schema version {target_version!r}; "
+            f"supported versions: {supported}"
+        )
+    if source_version == target_version:
+        migrated = dict(document)
+        validate_pff_document(migrated)
+        return migrated
+    raise PffValidationError(
+        f"no migration path from PFF schema {source_version!r} to {target_version!r}"
+    )
 
 
 def _format_validation_error(error: ValidationError) -> str:
@@ -114,11 +162,17 @@ def _pff_finding(finding: NormalizedFinding) -> dict[str, Any]:
 
 
 __all__ = [
+    "LATEST_PFF_SCHEMA_VERSION",
     "PFF_SCHEMA_PATH",
     "PFF_SCHEMA_VERSION",
+    "PFF_VERSION_HISTORY",
+    "SUPPORTED_PFF_SCHEMA_VERSIONS",
     "PffValidationError",
     "build_pff_document",
+    "ensure_supported_pff_version",
     "load_and_validate_pff_file",
     "load_pff_schema",
+    "migrate_pff_document",
+    "pff_schema_version",
     "validate_pff_document",
 ]

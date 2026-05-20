@@ -10,10 +10,14 @@ from piranesi.cli import app
 from piranesi.pff import (
     PFF_SCHEMA_PATH,
     PFF_SCHEMA_VERSION,
+    PFF_VERSION_HISTORY,
     PffValidationError,
     build_pff_document,
+    ensure_supported_pff_version,
     load_and_validate_pff_file,
     load_pff_schema,
+    migrate_pff_document,
+    pff_schema_version,
     validate_pff_document,
 )
 
@@ -79,5 +83,26 @@ def test_validate_pff_document_reports_schema_errors() -> None:
         validate_pff_document(invalid)
     except PffValidationError as exc:
         assert "$.producer" in str(exc) or "$" in str(exc)
+    else:
+        raise AssertionError("expected PffValidationError")
+
+
+def test_pff_versioning_accepts_current_version_and_rejects_unknown() -> None:
+    document = {
+        "schema_version": PFF_SCHEMA_VERSION,
+        "producer": {"name": "piranesi", "version": "0.2.0"},
+        "findings": [],
+    }
+
+    assert pff_schema_version(document) == PFF_SCHEMA_VERSION
+    assert ensure_supported_pff_version(document) == PFF_SCHEMA_VERSION
+    assert PFF_VERSION_HISTORY[PFF_SCHEMA_VERSION]["status"] == "current"
+    assert migrate_pff_document(document) == document
+
+    unknown = {**document, "schema_version": "piranesi.pff.v99"}
+    try:
+        ensure_supported_pff_version(unknown)
+    except PffValidationError as exc:
+        assert "unsupported PFF schema version" in str(exc)
     else:
         raise AssertionError("expected PffValidationError")
