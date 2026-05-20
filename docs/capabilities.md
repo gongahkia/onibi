@@ -18,6 +18,7 @@ Current product boundaries are tracked in [`docs/non-goals.md`](non-goals.md).
 | Nessus `.nessus` ingest | Alpha | Imports Nessus XML report items, including plugin metadata, host/service context, CVE/CWE/reference metadata, and redacted plugin output. |
 | SARIF ingest | Alpha | Imports SARIF 2.1.0 results, including tool/rule metadata, artifact locations, CWE/CVE tags, references, and result evidence. |
 | ffuf JSON ingest | Alpha | Imports ffuf discovery results, including URL, status, redirect, and response-size metadata as informational evidence. |
+| sqlmap artifact ingest | Alpha | Imports sqlmap JSON summaries and basic text logs, including target, parameter, DBMS, CWE-89, references, and redacted payload evidence. |
 | Neutral C2 JSONL import | Alpha | Preserves local C2-style logs as evidence and appends safe summaries to the engagement timeline without live C2 access. |
 | Operator evidence vault | Alpha | CLI and browser UI preserve notes, screenshots, transcripts, C2 logs, payload metadata, detection artifacts, scanner exports, and other local artifacts. |
 | Pentest report rendering | Alpha | JSON, Markdown, WeasyPrint PDF, and ReportLab PDF. |
@@ -32,7 +33,7 @@ Current product boundaries are tracked in [`docs/non-goals.md`](non-goals.md).
 These areas are tracked by GitHub issues but should not be presented as implemented
 features until their own acceptance criteria are complete:
 
-- sqlmap, Metasploit, and other adapter expansion.
+- Metasploit and other adapter expansion.
 - Live C2 operation, implant management, payload execution, and active exploitation.
 - Autonomous scanning, scheduled scanning, AI-driven target interaction, payload
   generation, and replay beyond original ingested scope.
