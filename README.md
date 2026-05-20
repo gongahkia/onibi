@@ -251,6 +251,7 @@ added with `piranesi evidence add` are also copied under `raw/<kind>/` and index
 - [Architecture](docs/ARCHITECTURE.md)
 - [Workspace contract](docs/pentest-workspace.md)
 - [Solo engagement management](docs/engagement-management.md)
+- [Phase 3 workflow closeout](docs/phase3-workflow-closeout.md)
 - [Report schema](docs/pentest-report-schema.md)
 - [Local report template library](docs/report-template-library.md)
 - [Burp ingestion](docs/burp-ingest.md)

@@ -22,8 +22,13 @@ Current product boundaries are tracked in [`docs/non-goals.md`](non-goals.md).
 | Metasploit JSON ingest | Alpha | Imports exported vulnerability, loot, and session evidence without live session control or payload execution. |
 | Neutral C2 JSONL import | Alpha | Preserves local C2-style logs as evidence and appends safe summaries to the engagement timeline without live C2 access. |
 | Operator evidence vault | Alpha | CLI and browser UI preserve notes, screenshots, transcripts, C2 logs, payload metadata, detection artifacts, scanner exports, and other local artifacts. |
+| Solo engagement management | Alpha | Local client/project/scope metadata, milestones, retest rounds, delivery status, reviewer, and reviewer notes. |
 | Pentest report rendering | Alpha | JSON, Markdown, WeasyPrint PDF, and ReportLab PDF. |
 | Red-team handoff rendering | Alpha | JSON, Markdown, PDF, and archive ZIP with report artifacts plus workspace indexes; raw evidence is opt-in. |
+| Local report template library | Alpha | Operator-owned methodology, remediation, and custom section text can be selected at report render time. |
+| GitHub Issues handoff | Alpha | One-way selected finding export with dry-run preview, redacted assets by default, and no bidirectional status sync. |
+| Slack notifications | Alpha | Summary-only workflow notifications with dry-run default, redacted engagement labels, and no raw evidence. |
+| Email handoff drafts | Alpha | Local `.eml` draft generation for report delivery without sending mail. |
 | Chain of custody | Alpha | Local manifest creation and verification for workspace artifacts and audit chain. |
 | Piranesi Finding Format v0 | Alpha | Public finding interchange with JSON Schema, validation, workspace export/import, fixture validation, and versioning rules. |
 | Python adapter SDK v0 | Alpha | Helpers for third-party adapters to emit valid PFF documents without mutating workspaces directly. |
@@ -50,8 +55,10 @@ features until their own acceptance criteria are complete:
   when Docker default networking is used without portable egress enforcement.
 - Engagement-scale design-partner feedback loops.
 - Audit evidence packaging and assessor-ready bundles.
-- Workflow integrations beyond the current one-way handoff paths and enterprise
-  deployment.
+- Workflow integrations beyond the current one-way GitHub Issues, Slack, and
+  email handoff paths.
+- Linear and Jira implementations until design-partner evidence justifies them.
+- Enterprise deployment.
 - Go/TypeScript adapter SDKs, marketplace or registry mechanics, and executable
   plugin runtime.
 - Autonomous AI-driven target interaction, payload generation, scanner operation,
