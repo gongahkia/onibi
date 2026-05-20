@@ -92,12 +92,16 @@ from piranesi.workspace import (
     PROCEDURES_FILE,
     TIMELINE_FILE,
     AuditEvent,
+    DeliveryMetadata,
+    DeliveryStatus,
     EngagementMetadata,
     WorkspaceError,
+    WorkspaceState,
     copy_tool_input,
     create_workspace,
     file_sha256,
     load_workspace,
+    save_workspace,
     upsert_findings,
     utc_now,
     workspace_path,
@@ -154,7 +158,13 @@ detections_app = typer.Typer(
     help="Track IOCs and blue-team detection handoff notes.",
     no_args_is_help=True,
 )
+engagement_app = typer.Typer(
+    add_completion=False,
+    help="Track solo engagement review and delivery state.",
+    no_args_is_help=True,
+)
 app.add_typer(ingest_app, name="ingest")
+app.add_typer(engagement_app, name="engagement")
 app.add_typer(evidence_app, name="evidence")
 app.add_typer(timeline_app, name="timeline")
 app.add_typer(objectives_app, name="objectives")
@@ -199,6 +209,82 @@ def main(
     if version:
         typer.echo(f"piranesi {__version__}")
         raise typer.Exit(code=EXIT_OK)
+
+
+@engagement_app.command("delivery", help="Update local report review and delivery state.")
+def engagement_delivery_command(
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    status: Annotated[
+        DeliveryStatus,
+        typer.Option(
+            "--status",
+            help="Delivery status.",
+        ),
+    ] = "draft",
+    reviewer: Annotated[
+        str | None,
+        typer.Option("--reviewer", help="Reviewer name or identifier."),
+    ] = None,
+    note: Annotated[
+        list[str] | None,
+        typer.Option("--note", help="Reviewer or delivery note. Repeatable."),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print updated delivery state as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    try:
+        state = load_workspace(workspace)
+        existing = state.workspace.engagement.delivery
+        delivered_at = existing.delivered_at
+        if status == "delivered" and delivered_at is None:
+            delivered_at = utc_now()
+        delivery = DeliveryMetadata(
+            status=status,
+            reviewer=reviewer if reviewer is not None else existing.reviewer,
+            reviewer_notes=[*existing.reviewer_notes, *(note or [])],
+            delivered_at=delivered_at,
+        )
+        engagement = state.workspace.engagement.model_copy(update={"delivery": delivery})
+        workspace_doc = state.workspace.model_copy(update={"engagement": engagement})
+        updated_state = WorkspaceState(
+            root=state.root,
+            workspace=workspace_doc,
+            findings=state.findings,
+        )
+        save_workspace(updated_state)
+        updated_state = load_workspace(state.root)
+        append_workspace_audit_event(
+            updated_state,
+            AuditEvent(
+                timestamp=utc_now(),
+                command="engagement delivery",
+                summary={
+                    "status": status,
+                    "reviewer": delivery.reviewer,
+                    "notes_added": len(note or []),
+                },
+            ),
+        )
+    except WorkspaceError as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    payload = delivery.model_dump(mode="json")
+    _emit(payload, json_output=json_output, text=f"engagement delivery: {delivery.status}")
 
 
 @ingest_app.command("init", help="Initialize or update a pentest engagement workspace.")

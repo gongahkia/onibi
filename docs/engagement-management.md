@@ -46,3 +46,17 @@ Engagement metadata lives in `workspace.json`:
 Existing Phase 1 workspaces continue to load because the new fields have defaults. Exported
 reports and archives remain local artifacts, and external workflow integrations should map to this
 schema instead of adding organization or team concepts to the core workspace.
+
+Update local review and delivery state with:
+
+```bash
+piranesi engagement delivery \
+  --workspace ./workspace \
+  --status ready-for-review \
+  --reviewer "Solo Reviewer" \
+  --note "Initial report ready."
+```
+
+Supported delivery statuses are `draft`, `ready-for-review`, `approved`, `delivered`, and
+`needs-retest`. Each status change appends an audit-log event, and pentest reports surface the
+current delivery status and reviewer in the engagement section.
