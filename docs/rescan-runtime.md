@@ -17,4 +17,5 @@ an import traceback.
 
 This only enables the local runtime boundary. Replay still requires supported
 extractors, digest-pinned images, recovered baseline scope, and the fail-closed
-policy documented in [the rescan RFC](rfcs/rescan-execution-layer.md).
+policy documented in [the rescan RFC](rfcs/rescan-execution-layer.md) and
+[rescan CLI guide](rescan-cli.md).

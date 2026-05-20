@@ -55,6 +55,15 @@ from piranesi.report.redteam import (
     build_red_team_report,
     render_red_team_report_artifact,
 )
+from piranesi.rescan import (
+    DEFAULT_RESCAN_TIMEOUT_SECONDS,
+    ReplayExtractionError,
+    ReplayImageConfigError,
+    RescanExecutionError,
+    RescanRuntimeError,
+    execute_rescan_from_baseline,
+    plan_rescan_from_baseline,
+)
 from piranesi.retest import (
     RetestError,
     append_retest_audit,
@@ -1538,6 +1547,107 @@ def report_command(
         "sha256": file_sha256(artifact_path),
     }
     _emit(payload, json_output=json_output, text=f"report: {artifact_path}")
+
+
+@app.command("rescan", help="Replay supported baseline scans.")
+def rescan_command(
+    from_baseline: Annotated[
+        Path,
+        typer.Option(
+            "--from-baseline",
+            dir_okay=True,
+            file_okay=False,
+            help="Baseline workspace to inspect for supported replay evidence.",
+        ),
+    ],
+    output_workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--output-workspace",
+            "-o",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace for replay evidence. Defaults to <baseline>-rescan.",
+        ),
+    ] = None,
+    image_overrides: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--image",
+            help=("Digest-pinned scanner image mapping. Repeat as tool=repo:tag@sha256:<digest>."),
+        ),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Print recovered replay specs without running Docker."),
+    ] = False,
+    allow_unenforced_network: Annotated[
+        bool,
+        typer.Option(
+            "--allow-unenforced-network",
+            help=(
+                "Acknowledge that replay uses Docker default networking until the "
+                "network egress policy is implemented."
+            ),
+        ),
+    ] = False,
+    timeout_seconds: Annotated[
+        int,
+        typer.Option(
+            "--timeout-seconds",
+            min=1,
+            help="Per-container replay timeout.",
+        ),
+    ] = DEFAULT_RESCAN_TIMEOUT_SECONDS,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print rescan metadata as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    images = image_overrides or []
+    try:
+        if dry_run:
+            plan = plan_rescan_from_baseline(
+                from_baseline,
+                output_workspace=output_workspace,
+                image_overrides=images,
+            )
+            payload = plan.as_dict()
+            payload["dry_run"] = True
+            spec_count = len(plan.extraction.specs)
+            _emit(
+                payload,
+                json_output=json_output,
+                text=(
+                    f"rescan dry-run: {spec_count} replay specs recovered "
+                    f"for {plan.output_workspace}"
+                ),
+            )
+            return
+
+        result = execute_rescan_from_baseline(
+            from_baseline,
+            output_workspace=output_workspace,
+            image_overrides=images,
+            allow_unenforced_network=allow_unenforced_network,
+            timeout_seconds=timeout_seconds,
+        )
+    except (RescanRuntimeError, RescanExecutionError) as exc:
+        _fail(str(exc), code=EXIT_OPERATION_FAILED, json_errors=json_errors)
+    except (WorkspaceError, ReplayExtractionError, ReplayImageConfigError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    payload = result.as_dict()
+    output_count = len(result.outputs)
+    _emit(
+        payload,
+        json_output=json_output,
+        text=f"rescan: wrote {output_count} replay outputs to {result.plan.output_workspace}",
+    )
 
 
 @app.command("retest", help="Compare two workspaces and classify finding lifecycle status.")

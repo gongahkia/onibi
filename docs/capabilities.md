@@ -18,6 +18,7 @@ Known limitations are tracked in [`docs/known-limitations.json`](known-limitatio
 | Pentest report rendering | Alpha | JSON, Markdown, WeasyPrint PDF, and ReportLab PDF. |
 | Red-team handoff rendering | Alpha | JSON, Markdown, PDF, and archive ZIP with report artifacts plus workspace indexes; raw evidence is opt-in. |
 | Chain of custody | Alpha | Local manifest creation and verification for workspace artifacts and audit chain. |
+| Opt-in rescan replay | Alpha | `piranesi rescan --from-baseline` recovers supported nmap/nuclei commands from baseline evidence, requires optional runtime support and digest-pinned images, and writes raw outputs for existing ingest commands. |
 | Retest lifecycle diff | Alpha | `new`, `open`, `closed`, `changed`, `regressed`, and `ambiguous` classifications. |
 | Local web app | Alpha | `piranesi serve --workspace`; loopback by default, engagement setup, guided empty states, note capture, evidence file upload, and workspace/report preview. |
 
@@ -29,9 +30,8 @@ features until their own acceptance criteria are complete:
 - ZAP, Nessus, ffuf, sqlmap, SARIF, Metasploit, and other adapter expansion.
 - Live C2 operation, implant management, payload execution, and active exploitation.
 - Vendor-specific C2 adapters beyond the neutral local JSONL format.
-- Opt-in `rescan` execution; the accepted design is documented in
-  [`docs/rfcs/rescan-execution-layer.md`](rfcs/rescan-execution-layer.md).
-  Optional runtime wiring is documented in [`docs/rescan-runtime.md`](rescan-runtime.md).
+- Enforced network egress policy for replay containers. Current rescan execution
+  requires explicit acknowledgement of Docker default networking.
 - Engagement-scale design-partner feedback loops.
 - Audit evidence packaging and assessor-ready bundles.
 - Workflow integrations, PFF SDKs, enterprise deployment, and AI assistance.

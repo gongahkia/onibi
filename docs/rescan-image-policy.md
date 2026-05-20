@@ -18,3 +18,6 @@ Rejected:
 The accepted digest is recorded separately from the human-facing image reference so
 future replay provenance can prove exactly which image was used. Piranesi does not
 auto-select images or silently trust mutable registry tags.
+
+Pass accepted image references to `piranesi rescan` with repeatable
+`--image tool=repo:tag@sha256:<digest>` options.

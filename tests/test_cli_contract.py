@@ -20,7 +20,7 @@ def test_root_help_exposes_current_workspace_verbs() -> None:
     output = _plain_output(result.stdout)
 
     assert result.exit_code == 0
-    for command in ["evidence", "ingest", "report", "retest", "sign", "serve"]:
+    for command in ["evidence", "ingest", "report", "rescan", "retest", "sign", "serve"]:
         assert command in output
     for old_command in [
         "quickstart",

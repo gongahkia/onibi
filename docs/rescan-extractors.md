@@ -33,4 +33,5 @@ Fail-closed behavior:
 - nuclei JSONL with multiple targets and no original list file is rejected as
   ambiguous.
 
-These specs are consumed by future `rescan` execution and provenance work.
+These specs are consumed by `piranesi rescan --from-baseline`; use `--dry-run --json`
+to inspect them before execution.

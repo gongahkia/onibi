@@ -134,4 +134,6 @@ output evidence exists.
   [rescan replay extractors](../rescan-extractors.md)).
 - #98: concrete image pinning and verification policy (documented in
   [rescan image policy](../rescan-image-policy.md)).
-- #95: user-facing `piranesi rescan --from-baseline <workspace>`.
+- #95: user-facing `piranesi rescan --from-baseline <workspace>` (documented in
+  [rescan CLI](../rescan-cli.md)).
+- #99: enforced network egress policy for replay containers.

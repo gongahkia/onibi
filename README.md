@@ -32,6 +32,7 @@ small, with scanner imports retained as one evidence source:
 piranesi evidence
 piranesi ingest
 piranesi report
+piranesi rescan
 piranesi retest
 piranesi sign
 piranesi serve
@@ -50,7 +51,8 @@ without leaking client data.
 
 Piranesi focuses on that artifact layer:
 
-- **Import-only:** Phase 1 does not run active scans or payloads.
+- **Import-only by default:** normal workflows do not run active scans or payloads;
+  `rescan` is an explicit replay path for already ingested scanner evidence.
 - **Operator-evidence aware:** screenshots, transcripts, logs, and other artifacts can
   be preserved in the local evidence vault from the CLI or browser UI.
 - **Evidence-bound:** findings cite raw tool exports, source digests, and locators.
@@ -144,6 +146,26 @@ Optional rescan/runtime support is intentionally separate from the default insta
 uv sync --extra rescan
 ```
 
+Replay previously ingested nmap or nuclei evidence into a new workspace:
+
+```bash
+uv run piranesi rescan \
+  --from-baseline ./workspace-before \
+  --output-workspace ./workspace-after \
+  --dry-run
+```
+
+Execution requires digest-pinned images and an explicit network-policy
+acknowledgement until scoped egress enforcement lands:
+
+```bash
+uv run piranesi rescan \
+  --from-baseline ./workspace-before \
+  --output-workspace ./workspace-after \
+  --image nmap=ghcr.io/example/nmap:v1@sha256:<digest> \
+  --allow-unenforced-network
+```
+
 ## Current Capabilities
 
 Implemented Phase 1 pieces:
@@ -160,6 +182,9 @@ Implemented Phase 1 pieces:
 - Pentest report rendering to JSON, Markdown, and PDF.
 - Red-team handoff rendering to JSON, Markdown, PDF, and archive ZIP.
 - Chain-of-custody manifest creation and verification.
+- Opt-in `rescan --from-baseline` replay for supported nmap and nuclei baseline
+  evidence, with optional runtime checks, digest-pinned images, and raw outputs
+  shaped for existing ingest commands.
 - Retest lifecycle diff with `new`, `open`, `closed`, `changed`, `regressed`, and
   `ambiguous` statuses.
 - Local loopback web app via `piranesi serve`, including empty-workspace setup and
@@ -209,6 +234,7 @@ added with `piranesi evidence add` are also copied under `raw/<kind>/` and index
 - [Chain of custody](docs/chain-of-custody.md)
 - [Local preview UI](docs/local-ui.md)
 - [Product interface decision](docs/product-interface-decision.md)
+- [Rescan CLI](docs/rescan-cli.md)
 - [Rescan execution RFC](docs/rfcs/rescan-execution-layer.md)
 - [Rescan image policy](docs/rescan-image-policy.md)
 - [Rescan replay extractors](docs/rescan-extractors.md)
@@ -219,7 +245,7 @@ added with `piranesi evidence add` are also copied under `raw/<kind>/` and index
 ## Non-Goals In Phase 1
 
 - No hosted SaaS, auth, teams, or client portal.
-- No new scanner engine or active target interaction.
+- No new scanner engine, autonomous scan selection, or unsupervised target interaction.
 - No C2 operation, implant management, or payload execution.
 - No autonomous exploitation, payload generation, or AI writeups.
 - No fleet management or live SSH probing.

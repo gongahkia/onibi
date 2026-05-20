@@ -183,10 +183,11 @@ ID first, then conservative fallback keys, and writes JSON or Markdown lifecycle
 diffs. Ambiguous fallback matches are surfaced for reviewer decision rather than
 silently classified.
 
-Future opt-in replay work is bounded by the
-[rescan execution RFC](rfcs/rescan-execution-layer.md). `rescan` stays disabled by
-default, requires optional container support, and can only replay supported scans
-recovered from existing baseline evidence.
+Opt-in replay is bounded by the [rescan execution RFC](rfcs/rescan-execution-layer.md).
+`piranesi rescan --from-baseline` never runs during normal ingest, requires optional
+container support for execution, and can only replay supported scans recovered from
+existing baseline evidence. Replay outputs are stored as raw tool inputs so the
+existing ingest commands can consume them unchanged.
 
 ## Chain Of Custody
 
