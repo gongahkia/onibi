@@ -305,6 +305,45 @@ describe("kelpclaw api contracts", () => {
     expect(feedback.json().feedback.status).toBe("ready");
   });
 
+  it("persists planner suggestion decisions without mutating the workflow", async () => {
+    app = buildTestApiApp();
+    const workflow = gmailReceiptsToSheetsWorkflowFixture;
+    await app.inject({
+      method: "POST",
+      url: "/api/workflows",
+      payload: workflow
+    });
+    const editedWorkflow = {
+      ...workflow,
+      nodes: workflow.nodes.slice(1)
+    };
+    const feedback = await app.inject({
+      method: "POST",
+      url: `/api/workflows/${workflow.id}/feedback`,
+      payload: {
+        baseWorkflow: workflow,
+        editedWorkflow
+      }
+    });
+    const suggestionId = feedback.json().feedback.suggestions[0].id;
+    const decided = await app.inject({
+      method: "POST",
+      url: `/api/workflows/${workflow.id}/feedback/${feedback.json().feedback.id}/suggestions/${suggestionId}/decision`,
+      payload: {
+        suggestionId,
+        decision: "rejected"
+      }
+    });
+    const stored = await app.inject({
+      method: "GET",
+      url: `/api/workflows/${workflow.id}`
+    });
+
+    expect(decided.statusCode).toBe(200);
+    expect(decided.json().feedback.suggestions[0].status).toBe("rejected");
+    expect(stored.json().workflow.nodes[0].label).toBe(workflow.nodes[0]?.label);
+  });
+
   it("creates, cancels, and streams job events", async () => {
     app = buildTestApiApp();
 
@@ -727,7 +766,8 @@ describe("kelpclaw api contracts", () => {
 
     expect(approved.statusCode).toBe(200);
     expect(deployed.statusCode).toBe(201);
-    expect(deployed.json().deployment.status).toBe("ready");
+    expect(deployed.json().deployment.status).toBe("deployed");
+    expect(deployed.json().deployment.metadata.bundle.path).toContain("workflow-bundle.json");
   });
 
   it("creates a new draft revision after approval", async () => {

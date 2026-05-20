@@ -180,6 +180,32 @@ async function mockFetch(input: string | URL | Request, init?: RequestInit): Pro
     return jsonResponse({ ok: true, connected: true });
   }
 
+  if (url.endsWith("/api/jobs")) {
+    return jsonResponse(
+      {
+        ok: true,
+        job: mockJob(
+          String(body.type ?? "plan.workflow"),
+          String(body.workflowId ?? "workflow.test")
+        )
+      },
+      201
+    );
+  }
+
+  if (url.includes("/api/jobs/") && url.endsWith("/cancel")) {
+    const job = mockJob("plan.workflow", "workflow.test", "cancelled");
+    return jsonResponse({ ok: true, job });
+  }
+
+  if (url.includes("/api/jobs/") && url.endsWith("/events")) {
+    const job = mockJob("plan.workflow", "workflow.test", "succeeded");
+    return new Response(`event: job-complete\ndata: ${JSON.stringify(job)}\n\n`, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" }
+    });
+  }
+
   if (url.endsWith("/plan")) {
     const prompt = String(body.prompt ?? gmailReceiptsToSheetsWorkflowFixture.prompt);
     const workflow: WorkflowSpec =
@@ -243,6 +269,32 @@ async function mockFetch(input: string | URL | Request, init?: RequestInit): Pro
         createdAt: "2026-05-18T01:00:00.000Z",
         status: "ready",
         suggestions: [],
+        issues: []
+      }
+    });
+  }
+
+  if (url.includes("/feedback/") && url.endsWith("/decision")) {
+    return jsonResponse({
+      ok: true,
+      feedback: {
+        id: "feedback.workflow.gmail-receipts-to-sheets",
+        workflowId: "workflow.gmail-receipts-to-sheets",
+        graphDiffId: "graphdiff.workflow.gmail-receipts-to-sheets",
+        route: taskRouteForWorkflow(mockCurrentWorkflow ?? gmailReceiptsToSheetsWorkflowFixture),
+        createdAt: "2026-05-18T01:00:00.000Z",
+        status: "ready",
+        suggestions: [
+          {
+            id: String(body.suggestionId),
+            status: body.decision,
+            conflict: "safe",
+            target: { kind: "workflow" },
+            title: "Persisted decision",
+            message: "Decision was persisted.",
+            issues: []
+          }
+        ],
         issues: []
       }
     });
@@ -347,7 +399,58 @@ async function mockFetch(input: string | URL | Request, init?: RequestInit): Pro
     return jsonResponse({ ok: true, run: createRunRecord("approved.workflow.r1") });
   }
 
+  if (url.endsWith("/deployments")) {
+    return jsonResponse(
+      {
+        ok: true,
+        deployment: {
+          id: "deployment.workflow.bundle",
+          workflowId: mockCurrentWorkflow?.id ?? "workflow.gmail-receipts-to-sheets",
+          approvedRevisionId: String(body.approvedRevisionId),
+          draftEvaluationId: "eval.workflow.r1",
+          kind: body.kind,
+          status: "deployed",
+          createdAt: "2026-05-18T01:00:00.000Z",
+          createdBy: body.createdBy,
+          requiredIntegrations: [],
+          secretRefs: [],
+          rollbackPlan: body.rollbackPlan,
+          auditRecordId: "audit.deployment",
+          metadata: { artifacts: [] }
+        }
+      },
+      201
+    );
+  }
+
   return jsonResponse({ ok: false, message: "Unhandled mock route" }, 500);
+}
+
+function mockJob(
+  type: string,
+  workflowId: string,
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled" = "queued"
+) {
+  return {
+    id: `job.${type}.test`,
+    type,
+    status,
+    workflowId,
+    correlationId: "corr.openclaw-test",
+    createdAt: "2026-05-18T01:00:00.000Z",
+    updatedAt: "2026-05-18T01:00:00.000Z",
+    retry: { attempt: 0, maxAttempts: 1, retryable: true },
+    events: [
+      {
+        id: `event.${type}.queued`,
+        jobId: `job.${type}.test`,
+        timestamp: "2026-05-18T01:00:00.000Z",
+        level: status === "failed" ? "error" : "info",
+        message: `${type} ${status}.`,
+        kind: "job.lifecycle"
+      }
+    ]
+  };
 }
 
 function createAlertWorkflow(prompt: string): WorkflowSpec {

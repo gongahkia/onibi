@@ -17,7 +17,9 @@ import {
 import type {
   AgentQueryRunner,
   CodegenGenerationRequest,
-  GeneratedNodeBuildLoopRequest
+  GeneratedNodeBuildLoopRequest,
+  GeneratedNodeRoleRunner,
+  GeneratedNodeTestExecutor
 } from "../src/index.js";
 
 describe("codegen artifact contracts", () => {
@@ -291,7 +293,100 @@ describe("codegen artifact contracts", () => {
       "evaluator"
     ]);
   });
+
+  it("emits unresolved failure artifacts after max generated-node iterations", async () => {
+    const loop = new GeneratedNodeBuildLoop({
+      testExecutor: alwaysFailingTestExecutor("schema mismatch")
+    });
+
+    const result = await loop.build({
+      ...buildLoopRequestFixture(),
+      maxIterations: 2
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.fixHistory).toHaveLength(2);
+    expect(result.unresolvedFailureArtifact?.path).toBe(
+      "generated/scrape-status-page.unresolved-failure.json"
+    );
+    expect(result.agentRuns.map((run) => run.role)).toContain("fixer");
+  });
+
+  it("stops the generated-node loop when the model budget is exhausted", async () => {
+    const costlyCoder: GeneratedNodeRoleRunner = {
+      role: "coder",
+      async run(input) {
+        const generation = await input.generateCode(input.request);
+        return {
+          status: "succeeded",
+          inputSummary: input.inputSummary,
+          outputArtifactRefs: [
+            {
+              path: generation.sourceArtifact.path,
+              checksum: generation.sourceArtifact.checksum,
+              contentType: generation.sourceArtifact.contentType
+            }
+          ],
+          generation,
+          modelCostUsd: 5
+        };
+      }
+    };
+    const loop = new GeneratedNodeBuildLoop({
+      roleRunners: { coder: costlyCoder },
+      testExecutor: alwaysFailingTestExecutor("needs repair")
+    });
+
+    const result = await loop.build({
+      ...buildLoopRequestFixture(),
+      maxIterations: 3,
+      maxModelCostUsd: 1
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.fixHistory[0]).toContain("needs repair");
+    expect(result.unresolvedFailureArtifact?.content).toContain("model budget");
+  });
+
+  it("honors cancellation signals during generated-node builds", async () => {
+    const controller = new AbortController();
+    controller.abort(new Error("cancelled by test"));
+    const loop = new GeneratedNodeBuildLoop();
+
+    await expect(
+      loop.build({
+        ...buildLoopRequestFixture(),
+        signal: controller.signal
+      })
+    ).rejects.toThrow("cancelled by test");
+  });
 });
+
+function alwaysFailingTestExecutor(message: string): GeneratedNodeTestExecutor {
+  return {
+    async execute(input) {
+      return {
+        status: "failed",
+        logs: [message],
+        resultArtifacts: [],
+        schemaValid: false,
+        securityValid: true,
+        replayValid: true,
+        dependencyPolicyValid: true,
+        findings: [
+          {
+            id: `finding.${input.request.nodeId}.test`,
+            severity: "error",
+            target: { kind: "node", id: input.request.nodeId },
+            message,
+            issues: []
+          }
+        ],
+        failureMessage: message
+      };
+    }
+  };
+}
 
 function buildLoopRequestFixture(): GeneratedNodeBuildLoopRequest {
   return {

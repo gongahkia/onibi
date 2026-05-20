@@ -196,7 +196,10 @@ export function createConfiguredSecretStore(): SecretStore {
 
 export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
   const app = Fastify({
-    logger: false
+    logger: false,
+    routerOptions: {
+      maxParamLength: 512
+    }
   });
   const store = options.store ?? new InMemoryWorkflowStore();
   const secretStore = options.secretStore ?? new InMemorySecretStore();
