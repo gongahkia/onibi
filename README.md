@@ -277,6 +277,7 @@ added with `piranesi evidence add` are also copied under `raw/<kind>/` and index
 - [Local preview UI](docs/local-ui.md)
 - [Product interface decision](docs/product-interface-decision.md)
 - [Enterprise demand gate](docs/enterprise-demand-gate.md)
+- [Enterprise demand intake template](docs/enterprise-demand-intake-template.md)
 - [Enterprise SSO and RBAC requirements](docs/enterprise-sso-rbac-requirements.md)
 - [Enterprise deployment and data-control requirements](docs/enterprise-deployment-data-control-requirements.md)
 - [Enterprise SIEM and support bundle requirements](docs/enterprise-siem-support-requirements.md)
