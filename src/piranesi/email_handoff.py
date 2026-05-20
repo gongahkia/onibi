@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any
 
 from piranesi.report.redteam import build_red_team_report
-from piranesi.workspace import WorkspaceState, file_sha256, workspace_path
+from piranesi.workspace import WorkspaceState, file_sha256, utc_now, workspace_path
 
 
 class EmailHandoffError(ValueError):
@@ -16,6 +17,7 @@ class EmailHandoffError(ValueError):
 @dataclass(frozen=True, slots=True)
 class EmailHandoffDraft:
     path: Path
+    manifest_path: Path
     subject: str
     recipients: list[str]
     artifact_references: list[dict[str, str]]
@@ -23,6 +25,7 @@ class EmailHandoffDraft:
     def as_payload(self) -> dict[str, Any]:
         return {
             "path": str(self.path),
+            "manifest_path": str(self.manifest_path),
             "subject": self.subject,
             "recipients": self.recipients,
             "artifact_references": self.artifact_references,
@@ -63,8 +66,18 @@ def write_email_handoff_draft(
         output = workspace_path(state.root, output, allowed_roots=("reports",))
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_bytes(bytes(message))
+    manifest_path = _write_handoff_manifest(
+        output.parent / "email-handoff-manifest.json",
+        subject=email_subject,
+        recipients=recipients,
+        cc=cc or [],
+        draft_path=output,
+        workspace_root=state.root,
+        references=references,
+    )
     return EmailHandoffDraft(
         path=output,
+        manifest_path=manifest_path,
         subject=email_subject,
         recipients=recipients,
         artifact_references=references,
@@ -138,6 +151,36 @@ def _artifact_references(
             }
         )
     return references
+
+
+def _write_handoff_manifest(
+    path: Path,
+    *,
+    subject: str,
+    recipients: list[str],
+    cc: list[str],
+    draft_path: Path,
+    workspace_root: Path,
+    references: list[dict[str, str]],
+) -> Path:
+    relative_draft = draft_path.resolve(strict=True).relative_to(workspace_root)
+    payload = {
+        "schema_version": "piranesi.handoff-manifest.v1",
+        "generated_at": utc_now(),
+        "delivery_channel": "email-draft",
+        "sent": False,
+        "subject": subject,
+        "recipients": recipients,
+        "cc": cc,
+        "draft": {
+            "path": relative_draft.as_posix(),
+            "sha256": file_sha256(draft_path),
+        },
+        "artifacts": references,
+        "sensitive_content_embedded": False,
+    }
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path
 
 
 __all__ = [

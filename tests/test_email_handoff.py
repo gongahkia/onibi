@@ -68,12 +68,22 @@ def test_email_handoff_draft_references_artifacts_without_sensitive_content(tmp_
     assert payload["sent"] is False
     assert payload["recipients"] == ["client@example.com"]
     draft_path = Path(payload["path"])
+    manifest_path = Path(payload["manifest_path"])
     message = BytesParser(policy=policy.default).parsebytes(draft_path.read_bytes())
     body = message.get_content()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert message["To"] == "client@example.com"
     assert "red-team-handoff-archive.zip" in body
     assert "Sensitive evidence content and raw artifacts are not embedded" in body
     assert "super-secret-value" not in body
+    assert manifest["schema_version"] == "piranesi.handoff-manifest.v1"
+    assert manifest["delivery_channel"] == "email-draft"
+    assert manifest["sent"] is False
+    assert manifest["recipients"] == ["client@example.com"]
+    assert manifest["draft"]["path"] == "reports/email-handoff-draft.eml"
+    assert manifest["draft"]["sha256"]
+    assert manifest["artifacts"] == payload["artifact_references"]
+    assert manifest["sensitive_content_embedded"] is False
 
 
 def test_email_handoff_requires_recipient(tmp_path: Path) -> None:
