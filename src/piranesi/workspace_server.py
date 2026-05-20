@@ -164,6 +164,12 @@ class _WorkspaceRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/app.js":
             self._send_text(_APP_JS, content_type="application/javascript; charset=utf-8")
             return
+        if parsed.path == "/api/health":
+            try:
+                self._send_json(_health_payload(self.workspace_state.workspace_root))
+            except WorkspaceError as exc:
+                self._send_json({"status": "error", "error": str(exc)}, status=HTTPStatus.CONFLICT)
+            return
         if parsed.path == "/api/workspace":
             try:
                 self._send_json(_workspace_payload(self.workspace_state.workspace_root))
@@ -605,6 +611,18 @@ def _workspace_payload(workspace_root: Path) -> dict[str, Any]:
             "report_markdown": "/api/report/markdown",
             "report_pdf": "/api/report/pdf?backend=reportlab",
         },
+    }
+
+
+def _health_payload(workspace_root: Path) -> dict[str, Any]:
+    state = load_workspace(workspace_root)
+    return {
+        "status": "ok",
+        "type": "workspace-health",
+        "workspace": str(workspace_root),
+        "schema_version": state.workspace.schema_version,
+        "finding_count": len(state.findings.findings),
+        "report_artifact_count": len(_report_artifacts(workspace_root)),
     }
 
 

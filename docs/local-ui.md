@@ -38,6 +38,7 @@ The command prints a warning when `--unsafe-bind` is used.
 Routes are fixed and do not expose arbitrary workspace file paths:
 
 - `GET /`
+- `GET /api/health`
 - `GET /api/workspace`
 - `POST /api/workspace/init`
 - `POST /api/evidence/note`
@@ -54,6 +55,9 @@ Routes are fixed and do not expose arbitrary workspace file paths:
 
 The PDF routes render from the report model. ReportLab is the deterministic fallback
 when WeasyPrint system dependencies are unavailable.
+
+The health route returns lightweight JSON for local smoke checks and does not
+generate report content or call external services.
 
 ## Non-Goals
 

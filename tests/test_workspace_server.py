@@ -148,6 +148,29 @@ def test_workspace_server_opens_empty_workspace(tmp_path: Path) -> None:
         server.server_close()
 
 
+def test_workspace_server_exposes_lightweight_health_route(tmp_path: Path) -> None:
+    workspace = tmp_path / "health-workspace"
+    server = run_workspace_server(WorkspaceServeOptions(workspace=workspace, port=0), block=False)
+    try:
+        url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+        status, headers, body = _get_raw(f"{url}/api/health")
+        payload = json.loads(body.decode("utf-8"))
+
+        assert status == 200
+        assert headers["content-type"] == "application/json; charset=utf-8"
+        assert payload == {
+            "finding_count": 0,
+            "report_artifact_count": 0,
+            "schema_version": "piranesi.workspace.v1",
+            "status": "ok",
+            "type": "workspace-health",
+            "workspace": str(workspace.resolve(strict=False)),
+        }
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_workspace_server_initializes_engagement_from_browser_flow(tmp_path: Path) -> None:
     workspace = tmp_path / "browser-workspace"
     server = run_workspace_server(WorkspaceServeOptions(workspace=workspace, port=0), block=False)
