@@ -249,6 +249,7 @@ added with `piranesi evidence add` are also copied under `raw/<kind>/` and index
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
+- [Higher-level goals](HIGHER-LEVEL-GOALS.md)
 - [Workspace contract](docs/pentest-workspace.md)
 - [Solo engagement management](docs/engagement-management.md)
 - [Phase 3 workflow closeout](docs/phase3-workflow-closeout.md)
@@ -276,6 +277,13 @@ added with `piranesi evidence add` are also copied under `raw/<kind>/` and index
 - [Chain of custody](docs/chain-of-custody.md)
 - [Local preview UI](docs/local-ui.md)
 - [Product interface decision](docs/product-interface-decision.md)
+- [Detection opportunity matrix](docs/detection-opportunity-matrix.md)
+- [Measurable events mode](docs/measurable-events-mode.md)
+- [Purple-team handoff pack](docs/purple-team-handoff-pack.md)
+- [Attack-path evidence import](docs/attack-path-evidence-import.md)
+- [Operator debrief workflow](docs/operator-debrief-workflow.md)
+- [Report QA before delivery](docs/report-qa-before-delivery.md)
+- [Client outcome view](docs/client-outcome-view.md)
 - [Enterprise demand gate](docs/enterprise-demand-gate.md)
 - [Enterprise demand intake template](docs/enterprise-demand-intake-template.md)
 - [Enterprise SSO and RBAC requirements](docs/enterprise-sso-rbac-requirements.md)
