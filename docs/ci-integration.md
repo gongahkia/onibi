@@ -20,3 +20,5 @@ piranesi sign --workspace workspace --verify
 ```
 
 The templates do not run active scans against external targets.
+The deterministic replay harness uses fixture-backed replay outputs in the default
+test lane; real Docker replay tests should stay behind the `docker` marker.

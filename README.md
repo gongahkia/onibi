@@ -238,6 +238,7 @@ added with `piranesi evidence add` are also copied under `raw/<kind>/` and index
 - [Rescan execution RFC](docs/rfcs/rescan-execution-layer.md)
 - [Rescan image policy](docs/rescan-image-policy.md)
 - [Rescan replay extractors](docs/rescan-extractors.md)
+- [Replay test harness](docs/replay-test-harness.md)
 - [Rescan runtime support](docs/rescan-runtime.md)
 - [Privacy and data handling](docs/privacy-data-handling.md)
 - [Non-goals](docs/non-goals.md)

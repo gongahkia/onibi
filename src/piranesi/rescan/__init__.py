@@ -20,6 +20,13 @@ from piranesi.rescan.extractors import (
     extract_replay_spec_for_input,
     extract_replay_specs,
 )
+from piranesi.rescan.harness import (
+    ReplayHarnessError,
+    ReplayHarnessResult,
+    ingest_replay_outputs,
+    normalize_findings_for_replay,
+    run_deterministic_replay_harness,
+)
 from piranesi.rescan.image_policy import (
     AcceptedImage,
     ImagePolicyError,
@@ -47,6 +54,8 @@ __all__ = [
     "ReplayEvidence",
     "ReplayExtractionError",
     "ReplayExtractionResult",
+    "ReplayHarnessError",
+    "ReplayHarnessResult",
     "ReplayImageConfigError",
     "ReplaySpec",
     "RescanExecutionError",
@@ -62,8 +71,11 @@ __all__ = [
     "execute_rescan_from_baseline",
     "extract_replay_spec_for_input",
     "extract_replay_specs",
+    "ingest_replay_outputs",
+    "normalize_findings_for_replay",
     "parse_image_overrides",
     "plan_rescan_from_baseline",
+    "run_deterministic_replay_harness",
     "spec_sha256",
     "validate_replay_image",
 ]
