@@ -34,7 +34,8 @@ import {
   Table2,
   Trash2,
   Unplug,
-  WandSparkles
+  WandSparkles,
+  XCircle
 } from "lucide-react";
 import {
   createWorkflowEdge,
@@ -323,6 +324,30 @@ export function App() {
     [setEdges, setNodes]
   );
 
+  const startTrackedJob = useCallback(
+    async (request: {
+      readonly type: WorkflowJob["type"];
+      readonly workflowId?: string;
+      readonly revisionId?: string;
+      readonly nodeId?: string;
+      readonly maxAttempts?: number;
+    }) => {
+      const response = await openClawApi.createJob(request);
+      setActiveJob(response.job);
+      void openClawApi.streamJobEvents(response.job.id, (event) => {
+        if ("status" in event) {
+          setActiveJob(event);
+        } else {
+          setActiveJob((current) =>
+            current ? { ...current, events: [...current.events, event] } : current
+          );
+        }
+      });
+      return response.job;
+    },
+    []
+  );
+
   const requestPlannerFeedback = useCallback(
     async (baseWorkflow: WorkflowSpec, editedWorkflow: WorkflowSpec) => {
       if (baseWorkflow.id !== editedWorkflow.id) {
@@ -330,18 +355,26 @@ export function App() {
       }
 
       try {
-        const response = await openClawApi.feedback(editedWorkflow.id, {
-          baseWorkflow,
-          editedWorkflow,
-          prompt
+        const job = await startTrackedJob({
+          type: "feedback.graph",
+          workflowId: editedWorkflow.id
         });
+        const response = await openClawApi.feedback(
+          editedWorkflow.id,
+          {
+            baseWorkflow,
+            editedWorkflow,
+            prompt
+          },
+          job.id
+        );
         setPlannerFeedback(response.feedback);
         setTaskRoute(response.feedback.route);
       } catch {
         // Local edits can occur before the draft has been persisted through the API.
       }
     },
-    [prompt]
+    [prompt, startTrackedJob]
   );
 
   const updateLocalWorkflow = useCallback(
@@ -579,11 +612,18 @@ export function App() {
 
   function planDraft() {
     void executeApiAction("plan", async () => {
-      const response = await openClawApi.plan({
-        prompt,
-        currentWorkflow: workflow,
-        preserveNodeIds: [...dirtyNodeIds]
+      const job = await startTrackedJob({
+        type: "plan.workflow",
+        workflowId: workflow.id
       });
+      const response = await openClawApi.plan(
+        {
+          prompt,
+          currentWorkflow: workflow,
+          preserveNodeIds: [...dirtyNodeIds]
+        },
+        job.id
+      );
       loadWorkflow(response.workflow, response.validation);
       setTaskRoute(response.route);
       setPlannerFeedback(null);
@@ -615,10 +655,18 @@ export function App() {
 
   function evaluateDraft() {
     void executeApiAction("evaluate-draft", async () => {
-      const response = await openClawApi.evaluateDraft(workflow.id, {
-        workflow,
-        mockOnly: true
+      const job = await startTrackedJob({
+        type: "evaluate.draft",
+        workflowId: workflow.id
       });
+      const response = await openClawApi.evaluateDraft(
+        workflow.id,
+        {
+          workflow,
+          mockOnly: true
+        },
+        job.id
+      );
       setDraftEvaluation(response.evaluation);
       setPlannerFeedback((previous) =>
         previous
@@ -632,16 +680,21 @@ export function App() {
   }
 
   function updateSuggestionDecision(suggestionId: string, status: "accepted" | "rejected") {
-    setPlannerFeedback((previous) =>
-      previous
-        ? {
-            ...previous,
-            suggestions: previous.suggestions.map((suggestion) =>
-              suggestion.id === suggestionId ? { ...suggestion, status } : suggestion
-            )
-          }
-        : previous
-    );
+    void executeApiAction("feedback-decision", async () => {
+      if (!plannerFeedback) {
+        return;
+      }
+      const response = await openClawApi.decideSuggestion(
+        workflow.id,
+        plannerFeedback.id,
+        suggestionId,
+        {
+          suggestionId,
+          decision: status
+        }
+      );
+      setPlannerFeedback(response.feedback);
+    });
   }
 
   function repromptNode() {
@@ -697,20 +750,10 @@ export function App() {
     }
 
     void executeApiAction("build-codegen", async () => {
-      const jobResponse = await openClawApi.createJob({
+      const job = await startTrackedJob({
         type: "build.codegen-node",
         workflowId: workflow.id,
         nodeId: selectedNode.id
-      });
-      setActiveJob(jobResponse.job);
-      void openClawApi.streamJobEvents(jobResponse.job.id, (event) => {
-        if ("status" in event) {
-          setActiveJob(event);
-        } else {
-          setActiveJob((current) =>
-            current ? { ...current, events: [...current.events, event] } : current
-          );
-        }
       });
       const response = await openClawApi.buildCodegen(
         workflow.id,
@@ -721,7 +764,7 @@ export function App() {
           maxModelCostUsd: 2,
           runTestsInDocker: false
         },
-        jobResponse.job.id
+        job.id
       );
       loadWorkflow(response.workflow, response.validation);
       setActiveJob(response.job);
@@ -750,9 +793,18 @@ export function App() {
     }
 
     void executeApiAction("run", async () => {
-      const response = await openClawApi.startRun(workflow.id, {
-        approvedRevisionId: approvedRevision.id
+      const job = await startTrackedJob({
+        type: "run.workflow",
+        workflowId: workflow.id,
+        revisionId: approvedRevision.id
       });
+      const response = await openClawApi.startRun(
+        workflow.id,
+        {
+          approvedRevisionId: approvedRevision.id
+        },
+        job.id
+      );
       const fetched = await openClawApi.fetchRun(workflow.id, response.run.id);
       setRun(fetched.run);
     });
@@ -764,16 +816,36 @@ export function App() {
     }
 
     void executeApiAction("deploy", async () => {
-      const response = await openClawApi.deployWorkflow(workflow.id, {
-        approvedRevisionId: approvedRevision.id,
-        kind: "workflow.bundle",
-        createdBy: "owner@example.com",
-        rollbackPlan: `Rollback to ${approvedRevision.id}.`,
-        metadata: {
-          source: "openclaw"
-        }
+      const job = await startTrackedJob({
+        type: "deploy.workflow",
+        workflowId: workflow.id,
+        revisionId: approvedRevision.id
       });
-      setDeploymentNotice(`Deployment ready: ${response.deployment.kind}`);
+      const response = await openClawApi.deployWorkflow(
+        workflow.id,
+        {
+          approvedRevisionId: approvedRevision.id,
+          kind: "workflow.bundle",
+          createdBy: "owner@example.com",
+          rollbackPlan: `Rollback to ${approvedRevision.id}.`,
+          metadata: {
+            source: "openclaw"
+          }
+        },
+        job.id
+      );
+      setDeploymentNotice(`Deployment ${response.deployment.status}: ${response.deployment.kind}`);
+    });
+  }
+
+  function cancelActiveJob() {
+    if (!activeJob || ["succeeded", "failed", "cancelled"].includes(activeJob.status)) {
+      return;
+    }
+
+    void executeApiAction("cancel-job", async () => {
+      const response = await openClawApi.cancelJob(activeJob.id, "Stopped from OpenClaw.");
+      setActiveJob(response.job);
     });
   }
 
@@ -993,6 +1065,18 @@ export function App() {
               >
                 <Send size={18} />
                 Deploy
+              </button>
+              <button
+                title="Stop active job"
+                onClick={cancelActiveJob}
+                disabled={
+                  !activeJob ||
+                  ["succeeded", "failed", "cancelled"].includes(activeJob.status) ||
+                  busyAction === "cancel-job"
+                }
+              >
+                <XCircle size={18} />
+                Stop
               </button>
               <button className="icon-button" title="Reset workflow" onClick={resetWorkflow}>
                 <RefreshCw size={18} />

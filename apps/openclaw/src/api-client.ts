@@ -7,6 +7,8 @@ import type {
   WorkflowFetchRunResponse,
   WorkflowPlanRequest,
   WorkflowPlanResponse,
+  WorkflowPlannerSuggestionDecisionRequest,
+  WorkflowPlannerSuggestionDecisionResponse,
   WorkflowRepromptNodeRequest,
   WorkflowRepromptNodeResponse,
   WorkflowJob,
@@ -108,8 +110,12 @@ export class OpenClawApiError extends Error {
 }
 
 export const openClawApi = {
-  plan(request: WorkflowPlanRequest): Promise<WorkflowPlanResponse> {
-    return postJson("/api/workflows/plan", request);
+  plan(request: WorkflowPlanRequest, jobId?: string | undefined): Promise<WorkflowPlanResponse> {
+    return postJson(
+      "/api/workflows/plan",
+      request,
+      jobId ? { "x-kelpclaw-job-id": jobId } : undefined
+    );
   },
 
   validate(
@@ -128,16 +134,38 @@ export const openClawApi = {
 
   feedback(
     workflowId: string,
-    request: WorkflowFeedbackRequest
+    request: WorkflowFeedbackRequest,
+    jobId?: string | undefined
   ): Promise<WorkflowFeedbackResponse> {
-    return postJson(`/api/workflows/${encodeURIComponent(workflowId)}/feedback`, request);
+    return postJson(
+      `/api/workflows/${encodeURIComponent(workflowId)}/feedback`,
+      request,
+      jobId ? { "x-kelpclaw-job-id": jobId } : undefined
+    );
+  },
+
+  decideSuggestion(
+    workflowId: string,
+    feedbackId: string,
+    suggestionId: string,
+    request: WorkflowPlannerSuggestionDecisionRequest
+  ): Promise<WorkflowPlannerSuggestionDecisionResponse> {
+    return postJson(
+      `/api/workflows/${encodeURIComponent(workflowId)}/feedback/${encodeURIComponent(feedbackId)}/suggestions/${encodeURIComponent(suggestionId)}/decision`,
+      request
+    );
   },
 
   evaluateDraft(
     workflowId: string,
-    request: { readonly workflow: WorkflowPlanResponse["workflow"]; readonly mockOnly: true }
+    request: { readonly workflow: WorkflowPlanResponse["workflow"]; readonly mockOnly: true },
+    jobId?: string | undefined
   ): Promise<{ readonly ok: true; readonly evaluation: WorkflowDraftEvaluation }> {
-    return postJson(`/api/workflows/${encodeURIComponent(workflowId)}/evaluate-draft`, request);
+    return postJson(
+      `/api/workflows/${encodeURIComponent(workflowId)}/evaluate-draft`,
+      request,
+      jobId ? { "x-kelpclaw-job-id": jobId } : undefined
+    );
   },
 
   approve(workflowId: string, request: WorkflowApproveRequest): Promise<WorkflowApproveResponse> {
@@ -188,9 +216,14 @@ export const openClawApi = {
 
   startRun(
     workflowId: string,
-    request: WorkflowStartRunRequest
+    request: WorkflowStartRunRequest,
+    jobId?: string | undefined
   ): Promise<WorkflowStartRunResponse> {
-    return postJson(`/api/workflows/${encodeURIComponent(workflowId)}/runs`, request);
+    return postJson(
+      `/api/workflows/${encodeURIComponent(workflowId)}/runs`,
+      request,
+      jobId ? { "x-kelpclaw-job-id": jobId } : undefined
+    );
   },
 
   fetchRun(workflowId: string, runId: string): Promise<WorkflowFetchRunResponse> {
@@ -240,6 +273,13 @@ export const openClawApi = {
     return getJson(`/api/jobs/${encodeURIComponent(jobId)}`);
   },
 
+  cancelJob(
+    jobId: string,
+    reason: string
+  ): Promise<{ readonly ok: true; readonly job: WorkflowJob }> {
+    return postJson(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, { reason });
+  },
+
   fetchWorkspace(
     workspaceId: string
   ): Promise<{ readonly ok: true; readonly workspace: WorkflowWorkspace }> {
@@ -254,9 +294,14 @@ export const openClawApi = {
       readonly createdBy: string;
       readonly rollbackPlan: string;
       readonly metadata?: Record<string, unknown>;
-    }
+    },
+    jobId?: string | undefined
   ): Promise<{ readonly ok: true; readonly deployment: WorkflowDeploymentRecord }> {
-    return postJson(`/api/workflows/${encodeURIComponent(workflowId)}/deployments`, request);
+    return postJson(
+      `/api/workflows/${encodeURIComponent(workflowId)}/deployments`,
+      request,
+      jobId ? { "x-kelpclaw-job-id": jobId } : undefined
+    );
   },
 
   async streamJobEvents(
@@ -294,14 +339,14 @@ export const openClawApi = {
 async function postJson<TResponse>(
   url: string,
   body: unknown,
-  extraHeaders: Record<string, string> = {}
+  extraHeaders: Record<string, string> | undefined = undefined
 ): Promise<TResponse> {
   const response = await fetch(url, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       ...authHeader(),
-      ...extraHeaders
+      ...(extraHeaders ?? {})
     },
     body: JSON.stringify(body)
   });
