@@ -25,6 +25,11 @@ from piranesi.rescan.image_policy import (
     ImagePolicyError,
     validate_replay_image,
 )
+from piranesi.rescan.network_policy import (
+    NetworkPolicy,
+    NetworkPolicyError,
+    derive_network_policy,
+)
 from piranesi.rescan.runtime import (
     ContainerRuntimeStatus,
     RescanRuntimeError,
@@ -37,6 +42,8 @@ __all__ = [
     "AcceptedImage",
     "ContainerRuntimeStatus",
     "ImagePolicyError",
+    "NetworkPolicy",
+    "NetworkPolicyError",
     "ReplayEvidence",
     "ReplayExtractionError",
     "ReplayExtractionResult",
@@ -49,6 +56,7 @@ __all__ = [
     "RescanRuntimeError",
     "build_container_replay_command",
     "default_rescan_output_workspace",
+    "derive_network_policy",
     "detect_container_runtime",
     "ensure_container_runtime",
     "execute_rescan_from_baseline",

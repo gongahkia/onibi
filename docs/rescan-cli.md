@@ -31,8 +31,10 @@ Execution requirements:
 - Docker CLI and daemon are available;
 - every recovered tool has a `--image tool=repo:tag@sha256:<digest>` override;
 - images are already available locally, because Piranesi does not pull implicitly;
-- `--allow-unenforced-network` is supplied until scoped egress enforcement is
-  implemented.
+- Piranesi derives the intended network scope from baseline evidence and rejects
+  recovered commands that would expand beyond it;
+- `--allow-unenforced-network` is supplied when Docker egress allowlisting cannot be
+  enforced by the local runtime. The override is recorded in rescan provenance.
 
 Successful replay writes raw files under `raw/<tool>/` in the output workspace with
 rescan provenance metadata. Those files remain in the same nmap XML or nuclei JSONL

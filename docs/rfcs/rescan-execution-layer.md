@@ -69,7 +69,8 @@ Execution requires:
 - explicit target scope recovered from evidence;
 - a digest-pinned container image accepted by policy;
 - optional runtime dependencies installed;
-- an egress policy that fails closed when unsupported.
+- a derived network policy that records recovered scope and fails closed unless
+  unsupported Docker egress allowlisting is explicitly acknowledged.
 
 ## Provenance Contract
 
@@ -111,6 +112,7 @@ The high-level image policy is fail closed:
 - requested target scope would exceed the baseline scope;
 - image reference is mutable or unpinned;
 - network egress policy cannot be enforced or explicitly documented;
+- recovered command targets exceed the baseline-derived target scope;
 - output path would escape the workspace;
 - runtime errors leave output evidence incomplete.
 

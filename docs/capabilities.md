@@ -33,8 +33,9 @@ features until their own acceptance criteria are complete:
 - Autonomous scanning, scheduled scanning, AI-driven target interaction, payload
   generation, and replay beyond original ingested scope.
 - Vendor-specific C2 adapters beyond the neutral local JSONL format.
-- Enforced network egress policy for replay containers. Current rescan execution
-  requires explicit acknowledgement of Docker default networking.
+- OS/runtime-enforced network egress allowlisting for replay containers. Current
+  rescan derives and validates baseline scope, then requires explicit acknowledgement
+  when Docker default networking is used without portable egress enforcement.
 - Engagement-scale design-partner feedback loops.
 - Audit evidence packaging and assessor-ready bundles.
 - Workflow integrations, PFF SDKs, enterprise deployment, and AI assistance.

@@ -16,6 +16,10 @@ from piranesi.rescan.extractors import (
     extract_replay_specs,
 )
 from piranesi.rescan.image_policy import AcceptedImage, ImagePolicyError, validate_replay_image
+from piranesi.rescan.network_policy import (
+    NetworkPolicy,
+    derive_network_policy,
+)
 from piranesi.rescan.runtime import ensure_container_runtime
 from piranesi.workspace import (
     AuditEvent,
@@ -50,6 +54,10 @@ class RescanPlan:
     images: Mapping[str, AcceptedImage]
 
     def as_dict(self) -> dict[str, Any]:
+        network_policy = derive_network_policy(
+            self.extraction.specs,
+            allow_unenforced_network=False,
+        )
         return {
             "schema_version": "piranesi.rescan-plan.v1",
             "baseline_workspace": str(self.baseline),
@@ -58,6 +66,7 @@ class RescanPlan:
             "warnings": self.extraction.warnings,
             "required_images": sorted({spec.tool for spec in self.extraction.specs}),
             "images": {tool: image.provenance() for tool, image in sorted(self.images.items())},
+            "network_policy": network_policy.as_dict(),
         }
 
 
@@ -193,11 +202,15 @@ def execute_rescan_from_baseline(
     if not plan.images:
         _require_images_for_specs(plan.extraction.specs, plan.images)
     if not allow_unenforced_network:
-        raise RescanExecutionError(
-            "rescan execution is blocked until a network egress policy is enforced. "
-            "Use --dry-run to inspect recovered commands, or pass "
-            "--allow-unenforced-network to explicitly acknowledge Docker default network behavior."
+        policy = derive_network_policy(
+            plan.extraction.specs,
+            allow_unenforced_network=False,
         )
+        raise RescanExecutionError(policy.reason)
+    policy = derive_network_policy(
+        plan.extraction.specs,
+        allow_unenforced_network=True,
+    )
 
     runner = container_runner or _run_replay_container
     baseline_state = load_workspace(plan.baseline)
@@ -216,7 +229,7 @@ def execute_rescan_from_baseline(
         )
         outputs: list[RescanOutput] = []
         for generated_output in generated:
-            metadata = _output_metadata(generated_output)
+            metadata = _output_metadata(generated_output, network_policy=policy)
             output_state, record = copy_tool_input(
                 output_state,
                 tool=generated_output.spec.tool,
@@ -225,11 +238,11 @@ def execute_rescan_from_baseline(
             )
             outputs.append(_to_rescan_output(generated_output, record))
 
-    _append_rescan_audit(plan, outputs, network_policy="explicitly-unenforced-docker-default")
+    _append_rescan_audit(plan, outputs, network_policy=policy)
     return RescanExecutionResult(
         plan=plan,
         outputs=outputs,
-        network_policy="explicitly-unenforced-docker-default",
+        network_policy=policy.enforcement_mode,
     )
 
 
@@ -404,7 +417,11 @@ def _replay_output_filename(index: int, spec: ReplaySpec) -> str:
     return f"{index:03d}-{spec.tool}.{extension}"
 
 
-def _output_metadata(output: _GeneratedReplayOutput) -> dict[str, Any]:
+def _output_metadata(
+    output: _GeneratedReplayOutput,
+    *,
+    network_policy: NetworkPolicy,
+) -> dict[str, Any]:
     return {
         "rescan": {
             "schema_version": "piranesi.rescan-provenance.v1",
@@ -416,7 +433,8 @@ def _output_metadata(output: _GeneratedReplayOutput) -> dict[str, Any]:
             "target_scope": output.spec.target_scope,
             "input_evidence": [item.model_dump(mode="json") for item in output.spec.input_evidence],
             "image": output.image.provenance(),
-            "network_policy": "explicitly-unenforced-docker-default",
+            "network_policy": network_policy.enforcement_mode,
+            "network_policy_details": network_policy.as_dict(),
         }
     }
 
@@ -442,7 +460,7 @@ def _append_rescan_audit(
     plan: RescanPlan,
     outputs: Sequence[RescanOutput],
     *,
-    network_policy: str,
+    network_policy: NetworkPolicy,
 ) -> None:
     state = load_workspace(plan.output_workspace)
     append_audit_event(
@@ -455,7 +473,7 @@ def _append_rescan_audit(
                 "baseline_workspace": str(plan.baseline),
                 "outputs": [output.as_dict() for output in outputs],
                 "warnings": plan.extraction.warnings,
-                "network_policy": network_policy,
+                "network_policy": network_policy.as_dict(),
             },
         ),
     )

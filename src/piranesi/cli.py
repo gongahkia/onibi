@@ -57,6 +57,7 @@ from piranesi.report.redteam import (
 )
 from piranesi.rescan import (
     DEFAULT_RESCAN_TIMEOUT_SECONDS,
+    NetworkPolicyError,
     ReplayExtractionError,
     ReplayImageConfigError,
     RescanExecutionError,
@@ -1636,7 +1637,7 @@ def rescan_command(
             allow_unenforced_network=allow_unenforced_network,
             timeout_seconds=timeout_seconds,
         )
-    except (RescanRuntimeError, RescanExecutionError) as exc:
+    except (RescanRuntimeError, RescanExecutionError, NetworkPolicyError) as exc:
         _fail(str(exc), code=EXIT_OPERATION_FAILED, json_errors=json_errors)
     except (WorkspaceError, ReplayExtractionError, ReplayImageConfigError) as exc:
         _fail(str(exc), json_errors=json_errors)
