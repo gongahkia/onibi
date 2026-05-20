@@ -78,6 +78,7 @@ from piranesi.signing import (
     verification_result_payload,
     verify_workspace,
 )
+from piranesi.templates import TemplateError, load_template_library, select_templates
 from piranesi.timeline import (
     TimelineConfidence,
     TimelineError,
@@ -1585,6 +1586,19 @@ def report_command(
             help="Include raw evidence marked secret in red-team archive exports.",
         ),
     ] = False,
+    template_library: Annotated[
+        Path | None,
+        typer.Option(
+            "--template-library",
+            dir_okay=False,
+            file_okay=True,
+            help="Local JSON report template library.",
+        ),
+    ] = None,
+    template_ids: Annotated[
+        list[str] | None,
+        typer.Option("--template", help="Template id to include. Repeatable."),
+    ] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Print artifact metadata as JSON."),
@@ -1598,6 +1612,10 @@ def report_command(
         state = load_workspace(workspace)
         output_dir = output or workspace_path(state.root, "reports", allowed_roots=("reports",))
         if report_type == "red-team":
+            if template_library is not None or template_ids:
+                raise ReportRenderError(
+                    "local report templates are only supported for pentest reports"
+                )
             red_team_report = build_red_team_report(
                 state,
                 redact_sensitive_evidence=redact_sensitive_evidence,
@@ -1614,9 +1632,16 @@ def report_command(
         else:
             if output_format == "archive":
                 raise ReportRenderError("archive format is only supported for red-team reports")
+            selected_templates = []
+            if template_library is not None:
+                library = load_template_library(template_library)
+                selected_templates = select_templates(library, template_ids or [])
+            elif template_ids:
+                raise TemplateError("--template requires --template-library")
             report_model = build_pentest_report(
                 state,
                 redact_sensitive_evidence=redact_sensitive_evidence,
+                templates=selected_templates,
             )
             artifact_path = render_report_artifact(
                 report_model,
@@ -1624,7 +1649,7 @@ def report_command(
                 output_format=cast(ReportFormat, output_format),
                 pdf_backend=pdf_backend,
             )
-    except (WorkspaceError, ReportRenderError, RedTeamReportError) as exc:
+    except (WorkspaceError, ReportRenderError, RedTeamReportError, TemplateError) as exc:
         _fail(str(exc), json_errors=json_errors)
 
     payload = {
