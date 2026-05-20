@@ -10,9 +10,12 @@ services:
       KELPCLAW_ADMIN_TOKEN: ${KELPCLAW_ADMIN_TOKEN:-}
       KELPCLAW_SECRET_MASTER_KEY: ${KELPCLAW_SECRET_MASTER_KEY:-}
       KELPCLAW_PUBLIC_BASE_URL: ${KELPCLAW_PUBLIC_BASE_URL:-http://127.0.0.1:8787}
+      KELPCLAW_PREFLIGHT: ${KELPCLAW_PREFLIGHT:-1}
+      KELPCLAW_SECRET_STORE: ${KELPCLAW_SECRET_STORE:-}
       KELPCLAW_WORKFLOW_DB: /data/workflow.sqlite
       KELPCLAW_SECRET_DB: /data/workflow.sqlite
       KELPCLAW_ARTIFACT_STORE: /data/artifacts
+      KELPCLAW_PLANNER_MODE: ${KELPCLAW_PLANNER_MODE:-live}
       KELPCLAW_PLANNER_PROVIDER: ${KELPCLAW_PLANNER_PROVIDER:-anthropic}
       KELPCLAW_PLANNER_MODEL: ${KELPCLAW_PLANNER_MODEL:-}
       KELPCLAW_CODEGEN_PROVIDER: ${KELPCLAW_CODEGEN_PROVIDER:-}
@@ -21,9 +24,21 @@ services:
       KELPCLAW_OPENAI_CODEGEN_MODEL: ${KELPCLAW_OPENAI_CODEGEN_MODEL:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      NANOCLAW_RUNNER: ${NANOCLAW_RUNNER:-production}
+      NANOCLAW_DOCKER_BIN: ${NANOCLAW_DOCKER_BIN:-docker}
       NANOCLAW_HOST_WORKSPACE: /workspace
     ports:
       - "8787:8787"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "fetch(''http://127.0.0.1:8787/health'').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"'
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
     volumes:
       - kelpclaw-data:/data
       - kelpclaw-workspaces:/workspace
@@ -33,16 +48,16 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.openclaw
-    env_file:
-      - path: .env
-        required: false
     environment:
       OPENCLAW_API_TARGET: http://api:8787
+      KELPCLAW_PREFLIGHT: ${KELPCLAW_PREFLIGHT:-1}
+      KELPCLAW_ADMIN_TOKEN: ${KELPCLAW_ADMIN_TOKEN:-}
       VITE_OPENCLAW_ADMIN_TOKEN: ${KELPCLAW_ADMIN_TOKEN:-}
     ports:
       - "5173:5173"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   kelpclaw-data:

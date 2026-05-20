@@ -82,6 +82,8 @@ API health: `http://127.0.0.1:8787/health`
 
 The named `kelpclaw-data` volume stores SQLite data and artifacts. The `kelpclaw-workspaces` volume is mounted at `/workspace` for Docker-backed node execution. The API and OpenClaw services are fully wrapped by Compose; the mounted Docker socket is only for NanoClaw's nested Docker-per-node sandbox.
 
+Both containers run a fast preflight before starting the servers. It blocks startup when required admin tokens, provider keys, secret encryption keys, Docker socket access, or writable mounted directories are missing. Set `KELPCLAW_PREFLIGHT=0` only for local debugging when you intentionally want to bypass those startup checks.
+
 To run the whole stack with OpenAI-backed planning/codegen:
 
 ```console

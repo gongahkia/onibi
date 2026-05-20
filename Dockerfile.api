@@ -1,6 +1,6 @@
 FROM node:20.19.5-bookworm-slim
 
-WORKDIR /workspace
+WORKDIR /app
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends docker.io sqlite3 \
@@ -14,6 +14,8 @@ COPY packages ./packages
 RUN pnpm install --frozen-lockfile \
   && pnpm --filter @kelpclaw/api... build
 
+COPY scripts ./scripts
+
 ENV PORT=8787
 ENV KELPCLAW_WORKFLOW_STORE=sqlite
 ENV KELPCLAW_WORKFLOW_DB=/data/workflow.sqlite
@@ -26,4 +28,5 @@ ENV NANOCLAW_HOST_WORKSPACE=/workspace
 
 EXPOSE 8787
 
+ENTRYPOINT ["node", "scripts/docker-preflight.mjs", "api", "--"]
 CMD ["pnpm", "--filter", "@kelpclaw/api", "start"]
