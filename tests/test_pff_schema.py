@@ -76,6 +76,33 @@ def test_validate_pff_file_returns_valid_document(tmp_path: Path) -> None:
     assert summary["findings"] == len(document["findings"])
 
 
+def test_pff_export_command_writes_valid_artifact_and_audit(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    ingest = runner.invoke(
+        app,
+        ["ingest", "nuclei", "--input", str(NUCLEI_FIXTURE), "--workspace", str(workspace)],
+    )
+    assert ingest.exit_code == 0, ingest.output
+
+    result = runner.invoke(app, ["pff", "export", "--workspace", str(workspace), "--json"])
+
+    assert result.exit_code == 0, result.output
+    summary = json.loads(result.stdout)
+    pff_path = Path(summary["path"])
+    assert pff_path == workspace / "reports" / "findings.pff.json"
+    document = load_and_validate_pff_file(pff_path)
+    assert summary["sha256"]
+    assert summary["findings"] == len(document["findings"])
+    assert document["findings"][0]["source_references"][0]["tool"] == "nuclei"
+
+    audit_events = [
+        json.loads(line)
+        for line in (workspace / "audit-log.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert audit_events[-1]["command"] == "pff export"
+    assert audit_events[-1]["output_sha256"] == summary["sha256"]
+
+
 def test_validate_pff_document_reports_schema_errors() -> None:
     invalid = {"schema_version": PFF_SCHEMA_VERSION, "producer": {"name": "piranesi"}}
 

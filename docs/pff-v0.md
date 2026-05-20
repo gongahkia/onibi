@@ -10,6 +10,12 @@ Validate a PFF document with the bundled schema:
 uv run piranesi pff validate --input findings.pff.json
 ```
 
+Export workspace findings to PFF:
+
+```bash
+uv run piranesi pff export --workspace ./workspace --output findings.pff.json
+```
+
 The v0 schema is intentionally close to the current normalized finding model so current adapter
 findings can be represented without known information loss. It is additive-first: future changes
 should add optional fields until a separately documented migration policy exists.

@@ -50,7 +50,12 @@ from piranesi.objectives import (
     load_objectives,
     load_procedures,
 )
-from piranesi.pff import PffValidationError, load_and_validate_pff_file
+from piranesi.pff import (
+    PffValidationError,
+    build_pff_document,
+    load_and_validate_pff_file,
+    validate_pff_document,
+)
 from piranesi.report.pentest import (
     PdfBackend,
     ReportRenderError,
@@ -1828,6 +1833,77 @@ def pff_validate_command(
         "valid": True,
     }
     _emit(payload, json_output=json_output, text=f"Valid PFF document: {count} findings")
+
+
+@pff_app.command("export", help="Export workspace findings to a PFF JSON document.")
+def pff_export_command(
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to export.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            dir_okay=False,
+            file_okay=True,
+            help="Output PFF JSON path. Defaults to workspace/reports/findings.pff.json.",
+        ),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print export summary as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    try:
+        state = load_workspace(workspace)
+        document = build_pff_document(state)
+        validate_pff_document(document)
+        output_path = output or (state.root / "reports" / "findings.pff.json")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(
+            json.dumps(document, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        output_digest = file_sha256(output_path)
+        append_workspace_audit_event(
+            state,
+            AuditEvent(
+                timestamp=utc_now(),
+                command="pff export",
+                output_path=str(output_path),
+                output_sha256=output_digest,
+                summary={
+                    "schema_version": document["schema_version"],
+                    "findings": len(document["findings"]),
+                },
+            ),
+        )
+    except (WorkspaceError, PffValidationError, OSError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    payload = {
+        "path": str(output_path),
+        "sha256": output_digest,
+        "schema_version": document["schema_version"],
+        "findings": len(document["findings"]),
+    }
+    _emit(
+        payload,
+        json_output=json_output,
+        text=f"Exported PFF: {payload['findings']} findings -> {output_path}",
+    )
 
 
 @app.command("report", help="Generate pentest report artifacts from a workspace.")
