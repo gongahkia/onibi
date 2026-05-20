@@ -394,6 +394,7 @@ export type WorkflowAuditAction =
   | "codegen.reviewed"
   | "task.routed"
   | "planner.feedback.created"
+  | "planner.feedback.decided"
   | "draft.evaluated"
   | "job.created"
   | "agent.ran"

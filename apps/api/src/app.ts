@@ -59,6 +59,8 @@ import type {
   WorkflowObservabilityEventKind,
   WorkflowPlanRequest,
   WorkflowPlanResponse,
+  WorkflowPlannerSuggestionDecisionRequest,
+  WorkflowPlannerSuggestionDecisionResponse,
   WorkflowRepromptNodeRequest,
   WorkflowRepromptNodeResponse,
   WorkflowRunEvent,
@@ -109,6 +111,11 @@ interface JobRouteParams {
 
 interface WorkspaceRouteParams {
   readonly workspaceId: string;
+}
+
+interface FeedbackDecisionRouteParams extends RouteParamsWithId {
+  readonly feedbackId: string;
+  readonly suggestionId: string;
 }
 
 interface ApprovalRequestBody {
@@ -809,6 +816,78 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       feedback
     };
   });
+
+  app.post<{
+    Params: FeedbackDecisionRouteParams;
+    Body: WorkflowPlannerSuggestionDecisionRequest;
+    Reply: WorkflowPlannerSuggestionDecisionResponse;
+  }>(
+    "/api/workflows/:id/feedback/:feedbackId/suggestions/:suggestionId/decision",
+    async (request, reply) => {
+      if (request.body.suggestionId !== request.params.suggestionId) {
+        return reply.code(409).send({
+          ok: false,
+          error: "SUGGESTION_ID_MISMATCH",
+          message: "Suggestion decision body must match the route suggestion id."
+        } as never);
+      }
+
+      const feedback = store.getPlannerFeedback(request.params.feedbackId);
+      if (!feedback || feedback.workflowId !== request.params.id) {
+        return reply.code(404).send({
+          ok: false,
+          error: "PLANNER_FEEDBACK_NOT_FOUND",
+          message: `Planner feedback '${request.params.feedbackId}' was not found for workflow '${request.params.id}'.`
+        } as never);
+      }
+
+      const suggestion = feedback.suggestions.find(
+        (candidate) => candidate.id === request.params.suggestionId
+      );
+      if (!suggestion) {
+        return reply.code(404).send({
+          ok: false,
+          error: "PLANNER_SUGGESTION_NOT_FOUND",
+          message: `Planner suggestion '${request.params.suggestionId}' was not found.`
+        } as never);
+      }
+
+      const updatedFeedback = store.savePlannerFeedback({
+        ...feedback,
+        suggestions: feedback.suggestions.map((candidate) =>
+          candidate.id === suggestion.id
+            ? {
+                ...candidate,
+                status: request.body.decision
+              }
+            : candidate
+        )
+      });
+      recordAudit(store, {
+        action: "planner.feedback.decided",
+        actor: "api",
+        workflowId: request.params.id,
+        revisionId:
+          store.getLatestDraftRevision(request.params.id)?.id ??
+          `feedback.${request.params.feedbackId}`,
+        nodeId: suggestion.target.kind === "node" ? suggestion.target.id : undefined,
+        correlationId: correlationIdForRequest(request),
+        summary: `Marked planner suggestion '${suggestion.id}' as ${request.body.decision}.`,
+        metadata: {
+          feedbackId: feedback.id,
+          suggestionId: suggestion.id,
+          decision: request.body.decision,
+          targetKind: suggestion.target.kind,
+          targetId: suggestion.target.id ?? null
+        }
+      });
+
+      return {
+        ok: true,
+        feedback: updatedFeedback
+      };
+    }
+  );
 
   app.post<{ Params: RouteParamsWithId; Body: EvaluateDraftRequestBody }>(
     "/api/workflows/:id/evaluate-draft",

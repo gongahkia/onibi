@@ -223,6 +223,7 @@ export const workflowAuditActionSchema = z.enum([
   "codegen.reviewed",
   "task.routed",
   "planner.feedback.created",
+  "planner.feedback.decided",
   "draft.evaluated",
   "job.created",
   "agent.ran",
