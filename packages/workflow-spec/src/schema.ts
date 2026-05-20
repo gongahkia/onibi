@@ -483,14 +483,30 @@ export const workflowWorkspaceSchema = z.object({
   workflowId: z.string().min(1),
   revisionId: z.string().min(1).optional(),
   draftId: z.string().min(1).optional(),
+  rootPath: z.string().min(1),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   mountedAgents: z.array(z.enum(["planner", "coder", "tester", "runner", "fixer"])),
+  mounts: z.array(
+    z.object({
+      role: z.enum(["planner", "coder", "tester", "runner", "fixer"]),
+      path: z.string().min(1),
+      mode: z.enum(["ro", "rw"])
+    })
+  ),
   filesCreated: z.array(z.string()),
+  fileHashes: z.array(
+    z.object({
+      path: z.string().min(1),
+      checksum: z.string().regex(/^sha256:[a-f0-9]{64}$/)
+    })
+  ),
   artifactsProduced: z.array(workflowArtifactRefSchema),
   logs: z.array(z.string()),
+  logPaths: z.array(z.string()),
   testReports: z.array(z.string()),
-  retentionPolicy: z.enum(["ephemeral", "retain-on-failure", "retain"])
+  retentionPolicy: z.enum(["ephemeral", "retain-on-failure", "retain"]),
+  retentionStatus: z.enum(["active", "retained", "eligible-for-cleanup"])
 });
 
 export const workflowDraftEvaluationFindingSchema = z.object({

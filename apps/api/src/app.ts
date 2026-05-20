@@ -1228,7 +1228,6 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
           `draft.${stored.workflow.id}.r${stored.workflow.revision}`
       })
     );
-    const workspaceRoot = join(process.cwd(), ".kelpclaw", "workspaces", workspace.id);
     const buildLoop = new GeneratedNodeBuildLoop({
       codeGenerator: process.env.ANTHROPIC_API_KEY
         ? new AgentSdkCodeGenerator({
@@ -1253,7 +1252,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         generatedAt: new Date().toISOString(),
         job: runningJob,
         workspace,
-        workspaceRoot,
+        workspaceRoot: workspace.rootPath,
         maxIterations: request.body.maxIterations ?? 3,
         maxWallClockSeconds: request.body.maxWallClockSeconds ?? 600,
         maxModelCostUsd: request.body.maxModelCostUsd ?? 2,
@@ -1325,6 +1324,15 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
           findings: result.findings
         })
       );
+      const updatedWorkspace = store.saveWorkspace(
+        createUpdatedWorkspaceRecord(workspace, {
+          artifacts: artifactRefs,
+          files: buildArtifacts.map((artifact) => artifact.path),
+          logs: result.logs,
+          testReports: [testReport.id],
+          retentionStatus: result.status === "failed" ? "retained" : "active"
+        })
+      );
       if (result.status === "failed") {
         const finishedAt = new Date().toISOString();
         const currentJob = store.getJob(runningJob.id) ?? runningJob;
@@ -1332,20 +1340,20 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
           store.saveJob({
             ...currentJob,
             status: "failed",
-            workspaceId: workspace.id,
+            workspaceId: updatedWorkspace.id,
             updatedAt: finishedAt,
             finishedAt,
             error:
               evalReport.findings.map((finding) => finding.message).join("; ") ||
               "Generated-node eval failed.",
             result: {
-              workspaceId: workspace.id,
+              workspaceId: updatedWorkspace.id,
               testReportId: testReport.id,
               evalReportId: evalReport.id
             }
           }).id,
           createJobEvent(currentJob, "error", "Generated-node build loop failed eval.", {
-            workspaceId: workspace.id,
+            workspaceId: updatedWorkspace.id,
             testReportId: testReport.id,
             evalReportId: evalReport.id
           })
@@ -1355,7 +1363,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
           error: "CODEGEN_EVAL_FAILED",
           message: failedJob.error ?? "Generated-node eval failed.",
           job: failedJob,
-          workspace,
+          workspace: updatedWorkspace,
           agentRuns: result.agentRuns,
           artifacts: artifactRefs,
           testReport,
@@ -1411,19 +1419,19 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         store.saveJob({
           ...currentJob,
           status: "succeeded",
-          workspaceId: workspace.id,
+          workspaceId: updatedWorkspace.id,
           updatedAt: finishedAt,
           finishedAt,
           result: {
             draftRevisionId: draftRevision.id,
-            workspaceId: workspace.id,
+            workspaceId: updatedWorkspace.id,
             testReportId: testReport.id,
             evalReportId: evalReport.id
           }
         }).id,
         createJobEvent(runningJob, "info", "Generated-node build loop completed.", {
           draftRevisionId: draftRevision.id,
-          workspaceId: workspace.id,
+          workspaceId: updatedWorkspace.id,
           testReportId: testReport.id,
           evalReportId: evalReport.id
         })
@@ -1435,7 +1443,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         draftRevision,
         validation: draftRevision.validation,
         job: completedJob,
-        workspace,
+        workspace: updatedWorkspace,
         agentRuns: result.agentRuns,
         artifacts: artifactRefs,
         testReport,
@@ -2366,21 +2374,73 @@ function createWorkflowWorkspace(input: {
   readonly revisionId?: string | undefined;
 }): WorkflowWorkspace {
   const now = new Date().toISOString();
+  const id = `workspace.${input.jobId}`;
+  const rootPath = join(process.cwd(), ".kelpclaw", "workspaces", id);
+  const mountedAgents: WorkflowWorkspace["mountedAgents"] = [
+    "planner",
+    "coder",
+    "tester",
+    "runner",
+    "fixer"
+  ];
 
   return {
-    id: `workspace.${input.jobId}`,
+    id,
     jobId: input.jobId,
     workflowId: input.workflowId,
     revisionId: input.revisionId,
+    rootPath,
     createdAt: now,
     updatedAt: now,
-    mountedAgents: ["planner", "coder", "tester", "runner", "fixer"],
+    mountedAgents,
+    mounts: mountedAgents.map((role) => ({
+      role,
+      path: join(rootPath, role),
+      mode: role === "planner" ? "ro" : "rw"
+    })),
     filesCreated: [],
+    fileHashes: [],
     artifactsProduced: [],
     logs: [],
+    logPaths: [],
     testReports: [],
-    retentionPolicy: "retain-on-failure"
+    retentionPolicy: "retain-on-failure",
+    retentionStatus: "active"
   };
+}
+
+function createUpdatedWorkspaceRecord(
+  workspace: WorkflowWorkspace,
+  input: {
+    readonly artifacts: readonly WorkflowCodegenArtifactRef[];
+    readonly files: readonly string[];
+    readonly logs: readonly string[];
+    readonly testReports: readonly string[];
+    readonly retentionStatus: WorkflowWorkspace["retentionStatus"];
+  }
+): WorkflowWorkspace {
+  const logPaths = input.logs.map((_log, index) =>
+    join(workspace.rootPath, "logs", `build-${index + 1}.log`)
+  );
+
+  return {
+    ...workspace,
+    updatedAt: new Date().toISOString(),
+    filesCreated: uniqueStrings([...workspace.filesCreated, ...input.files]),
+    fileHashes: input.artifacts.map((artifact) => ({
+      path: artifact.path,
+      checksum: artifact.checksum
+    })),
+    artifactsProduced: input.artifacts,
+    logs: [...workspace.logs, ...input.logs],
+    logPaths: uniqueStrings([...workspace.logPaths, ...logPaths]),
+    testReports: uniqueStrings([...workspace.testReports, ...input.testReports]),
+    retentionStatus: input.retentionStatus
+  };
+}
+
+function uniqueStrings(values: readonly string[]): readonly string[] {
+  return [...new Set(values)].sort();
 }
 
 function createGeneratedNodeTestReport(input: {

@@ -196,6 +196,8 @@ export type {
   WorkflowValidationIssue,
   WorkflowValidationResult,
   WorkflowWorkspace,
+  WorkflowWorkspaceFileHash,
+  WorkflowWorkspaceMount,
   WorkflowWorkspaceMountRole
 } from "./types.js";
 export { workflowSchemaVersion, workflowValidationErrorCodes } from "./types.js";

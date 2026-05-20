@@ -624,20 +624,36 @@ export interface WorkflowJob {
 
 export type WorkflowWorkspaceMountRole = "planner" | "coder" | "tester" | "runner" | "fixer";
 
+export interface WorkflowWorkspaceMount {
+  readonly role: WorkflowWorkspaceMountRole;
+  readonly path: string;
+  readonly mode: "ro" | "rw";
+}
+
+export interface WorkflowWorkspaceFileHash {
+  readonly path: string;
+  readonly checksum: string;
+}
+
 export interface WorkflowWorkspace {
   readonly id: string;
   readonly jobId: string;
   readonly workflowId: string;
   readonly revisionId?: string | undefined;
   readonly draftId?: string | undefined;
+  readonly rootPath: string;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly mountedAgents: readonly WorkflowWorkspaceMountRole[];
+  readonly mounts: readonly WorkflowWorkspaceMount[];
   readonly filesCreated: readonly string[];
+  readonly fileHashes: readonly WorkflowWorkspaceFileHash[];
   readonly artifactsProduced: readonly WorkflowCodegenArtifactRef[];
   readonly logs: readonly string[];
+  readonly logPaths: readonly string[];
   readonly testReports: readonly string[];
   readonly retentionPolicy: "ephemeral" | "retain-on-failure" | "retain";
+  readonly retentionStatus: "active" | "retained" | "eligible-for-cleanup";
 }
 
 export type WorkflowDraftEvaluationFindingSeverity = "info" | "warn" | "error";
