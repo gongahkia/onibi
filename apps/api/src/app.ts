@@ -1968,6 +1968,14 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
           message: `Deployment is blocked by integration readiness: ${blockedIntegrations.join(", ")}.`
         });
       }
+      const kindBlock = deploymentKindBlocker(request.body.kind, approvedRevision.workflow);
+      if (kindBlock) {
+        return reply.code(409).send({
+          ok: false,
+          error: "WORKFLOW_DEPLOYMENT_BLOCKED",
+          message: kindBlock
+        });
+      }
 
       const correlationId = correlationIdForRequest(request);
       updateRequestJob(
@@ -1981,7 +1989,19 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         },
         jobSupervisor
       );
-      throwIfRequestJobCancelled(store, jobSupervisor, request);
+      try {
+        throwIfRequestJobCancelled(store, jobSupervisor, request);
+      } catch (error) {
+        if (error instanceof JobCancelledError) {
+          updateRequestJob(store, request, "cancelled", error.message, undefined, jobSupervisor);
+          return reply.code(409).send({
+            ok: false,
+            error: "JOB_CANCELLED",
+            message: error.message
+          });
+        }
+        throw error;
+      }
       const audit = recordAudit(store, {
         action: "deployment.created",
         actor: request.body.createdBy,
@@ -1991,35 +2011,47 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         summary: `Created ${request.body.kind} deployment record.`,
         secretRefs: collectSecretRefs(approvedRevision.workflow)
       });
-      const deployment = store.saveDeployment(
-        createDeploymentRecord({
-          workflowId: request.params.id,
-          approvedRevisionId: approvedRevision.id,
-          draftEvaluationId: latestEvaluation.id,
-          kind: request.body.kind,
-          createdBy: request.body.createdBy,
-          requiredIntegrations,
-          secretRefs: collectSecretRefs(approvedRevision.workflow),
-          rollbackPlan: request.body.rollbackPlan,
-          auditRecordId: audit.id,
-          metadata: request.body.metadata ?? {}
-        })
-      );
+      const deployment = createDeploymentRecord({
+        workflowId: request.params.id,
+        approvedRevisionId: approvedRevision.id,
+        draftEvaluationId: latestEvaluation.id,
+        kind: request.body.kind,
+        createdBy: request.body.createdBy,
+        requiredIntegrations,
+        secretRefs: collectSecretRefs(approvedRevision.workflow),
+        rollbackPlan: request.body.rollbackPlan,
+        auditRecordId: audit.id,
+        metadata: request.body.metadata ?? {}
+      });
+      const nativeMetadata = await materializeNativeDeployment({
+        deployment,
+        approvedRevision,
+        latestEvaluationId: latestEvaluation.id,
+        artifactStore
+      });
+      const savedDeployment = store.saveDeployment({
+        ...deployment,
+        status: "deployed",
+        metadata: {
+          ...deployment.metadata,
+          ...nativeMetadata
+        }
+      });
       updateRequestJob(
         store,
         request,
         "succeeded",
         "Workflow deployment completed.",
         {
-          deploymentId: deployment.id,
-          status: deployment.status
+          deploymentId: savedDeployment.id,
+          status: savedDeployment.status
         },
         jobSupervisor
       );
 
       return reply.code(201).send({
         ok: true,
-        deployment
+        deployment: savedDeployment
       });
     }
   );
@@ -2042,7 +2074,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         });
         const execution = store.saveExecution({
           id: result.id,
-          workflowId: workflow.id,
+          workflowId: request.params.id,
           revision: workflow.revision,
           createdAt: result.startedAt,
           result
@@ -2532,6 +2564,157 @@ function createDeploymentRecord(input: {
     auditRecordId: input.auditRecordId,
     metadata: input.metadata
   };
+}
+
+function deploymentKindBlocker(
+  kind: WorkflowDeploymentKind,
+  workflow: WorkflowSpec
+): string | null {
+  const approvedCodegenNodes = workflow.nodes.filter(
+    (node) => node.kind === "codegen" && node.codegen?.review.status === "approved"
+  );
+  if (
+    (kind === "skill.publication" || kind === "generated.service") &&
+    approvedCodegenNodes.length === 0
+  ) {
+    return `${kind} requires at least one approved generated node.`;
+  }
+  if (
+    kind === "schedule.activation" &&
+    !workflow.nodes.some((node) => typeof node.config.schedule === "string")
+  ) {
+    return "schedule.activation requires at least one scheduled trigger node.";
+  }
+
+  return null;
+}
+
+async function materializeNativeDeployment(input: {
+  readonly deployment: WorkflowDeploymentRecord;
+  readonly approvedRevision: Exclude<ReturnType<WorkflowStore["getApprovedRevision"]>, undefined>;
+  readonly latestEvaluationId: string;
+  readonly artifactStore: CodegenArtifactStore;
+}): Promise<JsonRecord> {
+  const workflow = input.approvedRevision.workflow;
+  switch (input.deployment.kind) {
+    case "schedule.activation": {
+      const schedules = workflow.nodes
+        .filter((node) => typeof node.config.schedule === "string")
+        .map((node) => ({
+          nodeId: node.id,
+          label: node.label,
+          schedule: String(node.config.schedule)
+        }));
+      const artifact = await writeDeploymentArtifact(input, "schedule-activation.json", {
+        deploymentId: input.deployment.id,
+        approvedRevisionId: input.approvedRevision.id,
+        schedules
+      });
+      return jsonRecord({
+        activation: {
+          status: "active",
+          schedules
+        },
+        artifacts: [artifact]
+      });
+    }
+    case "skill.publication": {
+      const promotedSkills = workflow.nodes
+        .filter((node) => node.kind === "codegen" && node.codegen?.review.status === "approved")
+        .map((node) => registerPromotedSkill(createPromotedSkill(workflow, node)));
+      const artifact = await writeDeploymentArtifact(input, "promoted-skills.json", {
+        deploymentId: input.deployment.id,
+        promotedSkills
+      });
+      return jsonRecord({
+        promotedSkills,
+        artifacts: [artifact]
+      });
+    }
+    case "integration.configuration": {
+      const bindings = requiredIntegrationsForWorkflow(workflow).map((integration) => ({
+        integration,
+        secretRefs: collectSecretRefs(workflow).filter((secretRef) =>
+          secretRef.toLowerCase().includes(integration)
+        )
+      }));
+      const artifact = await writeDeploymentArtifact(input, "integration-config.json", {
+        deploymentId: input.deployment.id,
+        bindings
+      });
+      return jsonRecord({
+        integrationBindings: bindings,
+        artifacts: [artifact]
+      });
+    }
+    case "runner.configuration": {
+      const dag = compileWorkflowDag(workflow);
+      const artifact = await writeDeploymentArtifact(input, "runner-config.json", {
+        deploymentId: input.deployment.id,
+        approvedRevisionId: input.approvedRevision.id,
+        dagHash: dag.dagHash,
+        nodeOrder: [...dag.order]
+      });
+      return jsonRecord({
+        runner: {
+          dagHash: dag.dagHash,
+          nodeOrder: [...dag.order]
+        },
+        artifacts: [artifact]
+      });
+    }
+    case "workflow.bundle": {
+      const artifact = await writeDeploymentArtifact(input, "workflow-bundle.json", {
+        deploymentId: input.deployment.id,
+        approvedRevision: input.approvedRevision,
+        draftEvaluationId: input.latestEvaluationId,
+        rollbackPlan: input.deployment.rollbackPlan
+      });
+      return jsonRecord({
+        bundle: artifact,
+        artifacts: [artifact]
+      });
+    }
+    case "generated.service": {
+      const services = workflow.nodes
+        .filter((node) => node.kind === "codegen" && node.codegen?.review.status === "approved")
+        .map((node) => ({
+          nodeId: node.id,
+          runtime: node.runtime,
+          artifacts: node.codegen?.artifacts ?? []
+        }));
+      const artifact = await writeDeploymentArtifact(input, "generated-service.json", {
+        deploymentId: input.deployment.id,
+        services
+      });
+      return jsonRecord({
+        generatedServices: services,
+        artifacts: [artifact]
+      });
+    }
+  }
+}
+
+async function writeDeploymentArtifact(
+  input: {
+    readonly deployment: WorkflowDeploymentRecord;
+    readonly artifactStore: CodegenArtifactStore;
+  },
+  filename: string,
+  payload: unknown
+): Promise<WorkflowCodegenArtifactRef> {
+  const stored = await input.artifactStore.putArtifact(
+    createGeneratedArtifact({
+      path: `deployments/${input.deployment.id}/${filename}`,
+      content: JSON.stringify(payload, null, 2),
+      contentType: "application/json"
+    })
+  );
+  return stored.ref;
+}
+
+function jsonRecord(value: unknown): JsonRecord {
+  return JSON.parse(JSON.stringify(value)) as JsonRecord;
 }
 
 function toArtifactRef(artifact: {
