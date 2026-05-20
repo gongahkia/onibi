@@ -46,15 +46,20 @@ import {
 } from "@kelpclaw/workflow-spec";
 import type {
   JsonRecord,
+  WorkflowBranch,
+  WorkflowBranchMergeConflict,
+  WorkflowBranchMergePreview,
   WorkflowDraftEvaluation,
   WorkflowAdapterOperationRef,
   WorkflowApprovedRevision,
+  WorkflowGeneratedModuleReuseDecision,
   WorkflowJob,
   WorkflowWorkspace,
   WorkflowNode,
   WorkflowNodeKind,
   WorkflowPlannerFeedback,
   WorkflowPlannerSuggestion,
+  WorkflowPromptTurn,
   WorkflowRunRecord,
   WorkflowSpec,
   WorkflowSpecDiff,
@@ -261,6 +266,16 @@ export function App() {
   const [planAcceptedNotice, setPlanAcceptedNotice] = useState<string | null>(null);
   const [deploymentActivations, setDeploymentActivations] =
     useState<DeploymentActivationSummaryResponse | null>(null);
+  const [branches, setBranches] = useState<readonly WorkflowBranch[]>([]);
+  const [activeBranchId, setActiveBranchId] = useState<string | null>(null);
+  const [promptTurns, setPromptTurns] = useState<readonly WorkflowPromptTurn[]>([]);
+  const [branchNameDraft, setBranchNameDraft] = useState("Experiment");
+  const [branchNotice, setBranchNotice] = useState<string | null>(null);
+  const [mergeSourceBranchId, setMergeSourceBranchId] = useState<string>("");
+  const [mergePreview, setMergePreview] = useState<WorkflowBranchMergePreview | null>(null);
+  const [reuseDecisions, setReuseDecisions] = useState<
+    readonly WorkflowGeneratedModuleReuseDecision[]
+  >([]);
   const [dirtyNodeIds, setDirtyNodeIds] = useState<ReadonlySet<string>>(new Set());
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>("read-gmail-receipts");
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
@@ -293,6 +308,14 @@ export function App() {
     () => workflow.edges.find((edge) => edge.id === selectedEdgeId) ?? null,
     [selectedEdgeId, workflow.edges]
   );
+  const activeBranch = useMemo(
+    () => branches.find((branch) => branch.id === activeBranchId) ?? null,
+    [activeBranchId, branches]
+  );
+  const mergeTargets = useMemo(
+    () => branches.filter((branch) => branch.id !== activeBranchId && branch.status === "active"),
+    [activeBranchId, branches]
+  );
   const canApprove = validation.ok && draftEvaluation?.readyForApproval === true;
   const canRun = approvedRevision !== null;
 
@@ -310,12 +333,43 @@ export function App() {
     }
   }, []);
 
+  const refreshBranches = useCallback(
+    async (workflowId: string, preferredBranchId?: string | undefined) => {
+      try {
+        const response = await openClawApi.listBranches(workflowId);
+        setBranches(response.branches);
+        const nextActive =
+          response.branches.find((branch) => branch.id === preferredBranchId) ??
+          response.branches.find((branch) => branch.name.toLowerCase() === "main") ??
+          response.branches[0] ??
+          null;
+        setActiveBranchId(nextActive?.id ?? null);
+        if (nextActive) {
+          const branchResponse = await openClawApi.fetchBranch(workflowId, nextActive.id);
+          setPromptTurns(branchResponse.promptTurns);
+        }
+      } catch {
+        setBranches([]);
+        setActiveBranchId(null);
+        setPromptTurns([]);
+      }
+    },
+    []
+  );
+
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       void refreshIntegrations();
     }, 0);
     return () => window.clearTimeout(timeout);
   }, [adminToken, refreshIntegrations]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void refreshBranches(workflow.id);
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [refreshBranches, workflow.id]);
 
   const loadWorkflow = useCallback(
     (
@@ -444,6 +498,47 @@ export function App() {
     void executeApiAction(`delete-secret-${secretName}`, async () => {
       await openClawApi.deleteSecret(secretName);
       await refreshIntegrations();
+    });
+  }
+
+  function switchBranch(branchId: string) {
+    void executeApiAction("switch-branch", async () => {
+      const response = await openClawApi.fetchBranch(workflow.id, branchId);
+      setActiveBranchId(response.branch.id);
+      setPromptTurns(response.promptTurns);
+      setMergePreview(null);
+      setReuseDecisions([]);
+      loadWorkflow(response.headDraftRevision.workflow, response.headDraftRevision.validation);
+      setApprovedRevision(null);
+      setApprovalDiff(null);
+      setDraftEvaluation(null);
+      setRun(null);
+      setDeploymentNotice(null);
+      setPlanAcceptedNotice(null);
+      setBranchNotice(`Switched to ${response.branch.name}`);
+    });
+  }
+
+  function forkBranch() {
+    const name = branchNameDraft.trim();
+    if (!name) {
+      setApiError("Branch name is required.");
+      return;
+    }
+
+    void executeApiAction("fork-branch", async () => {
+      const response = await openClawApi.createBranch(workflow.id, {
+        name,
+        createdBy: "owner@example.com",
+        ...(activeBranchId ? { fromBranchId: activeBranchId } : {})
+      });
+      await refreshBranches(workflow.id, response.branch.id);
+      setActiveBranchId(response.branch.id);
+      setPromptTurns([]);
+      setMergePreview(null);
+      setReuseDecisions([]);
+      loadWorkflow(response.draftRevision.workflow, response.draftRevision.validation);
+      setBranchNotice(`Forked ${response.branch.name}`);
     });
   }
 
@@ -623,17 +718,38 @@ export function App() {
         type: "plan.workflow",
         workflowId: workflow.id
       });
-      const response = await openClawApi.plan(
-        {
-          prompt,
-          currentWorkflow: workflow,
-          preserveNodeIds: [...dirtyNodeIds]
-        },
-        job.id
-      );
+      const response = activeBranchId
+        ? await openClawApi.planBranch(
+            workflow.id,
+            activeBranchId,
+            {
+              prompt,
+              currentWorkflow: workflow,
+              preserveNodeIds: [...dirtyNodeIds],
+              actor: "owner@example.com"
+            },
+            job.id
+          )
+        : await openClawApi.plan(
+            {
+              prompt,
+              currentWorkflow: workflow,
+              preserveNodeIds: [...dirtyNodeIds]
+            },
+            job.id
+          );
       loadWorkflow(response.workflow, response.validation);
       setTaskRoute(response.route);
       setPlannerFeedback(null);
+      setReuseDecisions([]);
+      if ("branch" in response) {
+        const branchResponse = response as Awaited<ReturnType<typeof openClawApi.planBranch>>;
+        setActiveBranchId(branchResponse.branch.id);
+        setPromptTurns((previous) => [...previous, branchResponse.promptTurn]);
+        await refreshBranches(branchResponse.workflow.id, branchResponse.branch.id);
+      } else {
+        await refreshBranches(response.workflow.id);
+      }
       setDraftEvaluation(null);
       const nextSelectedNode =
         response.workflow.nodes.find((node) => node.kind !== "trigger") ??
@@ -670,7 +786,8 @@ export function App() {
         workflow.id,
         {
           workflow,
-          mockOnly: true
+          mockOnly: true,
+          ...(activeBranchId ? { branchId: activeBranchId } : {})
         },
         job.id
       );
@@ -710,13 +827,27 @@ export function App() {
     }
 
     void executeApiAction("reprompt", async () => {
-      const response = await openClawApi.repromptNode(workflow.id, {
-        nodeId: selectedNode.id,
-        prompt: nodePrompt,
-        currentWorkflow: workflow
-      });
+      const response = activeBranchId
+        ? await openClawApi.repromptBranchNode(workflow.id, activeBranchId, {
+            nodeId: selectedNode.id,
+            prompt: nodePrompt,
+            currentWorkflow: workflow,
+            actor: "owner@example.com"
+          })
+        : await openClawApi.repromptNode(workflow.id, {
+            nodeId: selectedNode.id,
+            prompt: nodePrompt,
+            currentWorkflow: workflow
+          });
       loadWorkflow(response.workflow, response.validation);
       setApprovalDiff(response.diff);
+      if ("branch" in response) {
+        const branchResponse = response as Awaited<
+          ReturnType<typeof openClawApi.repromptBranchNode>
+        >;
+        setPromptTurns((previous) => [...previous, branchResponse.promptTurn]);
+        await refreshBranches(branchResponse.workflow.id, branchResponse.branch.id);
+      }
       markDirty(selectedNode.id);
       setPromotionNotice(null);
     });
@@ -730,7 +861,8 @@ export function App() {
     void executeApiAction("review-codegen", async () => {
       const response = await openClawApi.reviewCodegen(workflow.id, selectedNode.id, {
         status: "approved",
-        reviewedBy: "owner@example.com"
+        reviewedBy: "owner@example.com",
+        ...(activeBranchId ? { branchId: activeBranchId } : {})
       });
       loadWorkflow(response.workflow, response.validation);
       setApprovedRevision(null);
@@ -769,7 +901,8 @@ export function App() {
           maxIterations: 3,
           maxWallClockSeconds: 600,
           maxModelCostUsd: 2,
-          runTestsInDocker: false
+          runTestsInDocker: false,
+          ...(activeBranchId ? { branchId: activeBranchId } : {})
         },
         job.id
       );
@@ -786,7 +919,8 @@ export function App() {
     void executeApiAction("approve", async () => {
       const response = await openClawApi.approve(workflow.id, {
         workflow,
-        approvedBy: "owner@example.com"
+        approvedBy: "owner@example.com",
+        ...(activeBranchId ? { branchId: activeBranchId } : {})
       });
       setApprovedRevision(response.approvedRevision);
       setApprovalDiff(response.diff);
@@ -796,12 +930,20 @@ export function App() {
 
   function acceptPlanShape() {
     void executeApiAction("accept-plan", async () => {
-      const response = await openClawApi.acceptPlan(workflow.id, {
-        workflow,
-        acceptedBy: "owner@example.com"
-      });
+      const response = activeBranchId
+        ? await openClawApi.acceptBranchPlan(workflow.id, activeBranchId, {
+            workflow,
+            acceptedBy: "owner@example.com"
+          })
+        : await openClawApi.acceptPlan(workflow.id, {
+            workflow,
+            acceptedBy: "owner@example.com"
+          });
       loadWorkflow(response.workflow, response.validation);
       setPlanAcceptedNotice(`Plan accepted: ${response.draftRevision.id}`);
+      if (activeBranchId) {
+        await refreshBranches(response.workflow.id, activeBranchId);
+      }
       setDraftEvaluation(null);
       setApprovedRevision(null);
       setApprovalDiff(null);
@@ -822,7 +964,8 @@ export function App() {
       const response = await openClawApi.startRun(
         workflow.id,
         {
-          approvedRevisionId: approvedRevision.id
+          approvedRevisionId: approvedRevision.id,
+          ...(activeBranchId ? { branchId: activeBranchId } : {})
         },
         job.id
       );
@@ -849,6 +992,7 @@ export function App() {
           kind: "workflow.bundle",
           createdBy: "owner@example.com",
           rollbackPlan: `Rollback to ${approvedRevision.id}.`,
+          ...(activeBranchId ? { branchId: activeBranchId } : {}),
           metadata: {
             source: "openclaw"
           }
@@ -891,6 +1035,13 @@ export function App() {
     setDeploymentNotice(null);
     setPlanAcceptedNotice(null);
     setDeploymentActivations(null);
+    setBranches([]);
+    setActiveBranchId(null);
+    setPromptTurns([]);
+    setBranchNotice(null);
+    setMergeSourceBranchId("");
+    setMergePreview(null);
+    setReuseDecisions([]);
     setPromotionNotice(null);
     loadWorkflow(
       gmailReceiptsToSheetsWorkflowFixture,
@@ -991,6 +1142,18 @@ export function App() {
               </div>
             </dl>
           </section>
+
+          <BranchPanel
+            branches={branches}
+            activeBranchId={activeBranchId}
+            promptTurns={promptTurns}
+            branchNameDraft={branchNameDraft}
+            branchNotice={branchNotice}
+            busyAction={busyAction}
+            onBranchNameChange={setBranchNameDraft}
+            onFork={forkBranch}
+            onSwitch={switchBranch}
+          />
 
           <RoutePanel route={taskRoute} />
           <DraftEvaluationPanel evaluation={draftEvaluation} />
@@ -1499,6 +1662,74 @@ function Inspector(props: {
       <DeploymentPanel activations={props.deploymentActivations} />
       <RunPanel run={props.run} />
     </>
+  );
+}
+
+function BranchPanel(props: {
+  readonly branches: readonly WorkflowBranch[];
+  readonly activeBranchId: string | null;
+  readonly promptTurns: readonly WorkflowPromptTurn[];
+  readonly branchNameDraft: string;
+  readonly branchNotice: string | null;
+  readonly busyAction: string | null;
+  readonly onBranchNameChange: (value: string) => void;
+  readonly onFork: () => void;
+  readonly onSwitch: (branchId: string) => void;
+}) {
+  return (
+    <section aria-label="Branch tree" className="validation-panel">
+      <div className="panel-heading">
+        <GitBranch size={18} />
+        <h2>Branches</h2>
+      </div>
+      <StatusRow
+        label="Active"
+        value={props.branches.find((branch) => branch.id === props.activeBranchId)?.name ?? "none"}
+        tone={props.activeBranchId ? "valid" : "idle"}
+      />
+      <div className="branch-list">
+        {props.branches.map((branch) => (
+          <button
+            key={branch.id}
+            className={
+              branch.id === props.activeBranchId ? "branch-row branch-row-active" : "branch-row"
+            }
+            type="button"
+            onClick={() => props.onSwitch(branch.id)}
+            disabled={props.busyAction !== null || branch.id === props.activeBranchId}
+          >
+            <span>{branch.name}</span>
+            <strong>{branch.status}</strong>
+          </button>
+        ))}
+      </div>
+      <label>
+        Fork name
+        <input
+          value={props.branchNameDraft}
+          onChange={(event) => props.onBranchNameChange(event.target.value)}
+        />
+      </label>
+      <button
+        type="button"
+        onClick={props.onFork}
+        disabled={props.busyAction !== null || props.branchNameDraft.trim().length === 0}
+      >
+        <GitBranch size={16} />
+        Fork Branch
+      </button>
+      {props.branchNotice ? <p className="success-text">{props.branchNotice}</p> : null}
+      {props.promptTurns.length > 0 ? (
+        <ul className="event-list">
+          {props.promptTurns.slice(-4).map((turn) => (
+            <li key={turn.id}>
+              <strong>{turn.source}</strong>
+              <span>{turn.prompt}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
   );
 }
 

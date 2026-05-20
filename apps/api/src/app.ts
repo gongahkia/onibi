@@ -171,6 +171,7 @@ interface CreateJobRequestBody {
 interface EvaluateDraftRequestBody {
   readonly workflow?: WorkflowSpec | undefined;
   readonly mockOnly?: boolean | undefined;
+  readonly branchId?: string | undefined;
 }
 
 interface CodegenBuildRequestBody {
@@ -178,6 +179,7 @@ interface CodegenBuildRequestBody {
   readonly maxWallClockSeconds?: number | undefined;
   readonly maxModelCostUsd?: number | undefined;
   readonly runTestsInDocker?: boolean | undefined;
+  readonly branchId?: string | undefined;
 }
 
 interface DeploymentRequestBody {
@@ -185,6 +187,7 @@ interface DeploymentRequestBody {
   readonly kind: WorkflowDeploymentKind;
   readonly createdBy: string;
   readonly rollbackPlan: string;
+  readonly branchId?: string | undefined;
   readonly metadata?: JsonRecord | undefined;
 }
 
@@ -192,6 +195,7 @@ interface CodegenReviewRequestBody {
   readonly status: "approved" | "rejected";
   readonly reviewedBy: string;
   readonly notes?: string | undefined;
+  readonly branchId?: string | undefined;
 }
 
 interface MockPlanRequestBody {
@@ -1705,6 +1709,16 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         });
       }
 
+      const branch = request.body.branchId ? store.getBranch(request.body.branchId) : undefined;
+      const branchHead = branch ? store.getDraftRevision(branch.headDraftRevisionId) : undefined;
+      if (request.body.branchId && (!branch || branch.workflowId !== request.params.id)) {
+        return reply.code(404).send({
+          ok: false,
+          error: "WORKFLOW_BRANCH_NOT_FOUND",
+          message: `Branch '${request.body.branchId}' was not found for workflow '${request.params.id}'.`
+        });
+      }
+
       const workflow = request.body.workflow ?? stored.workflow;
       if (workflow.id !== request.params.id) {
         return reply.code(409).send({
@@ -1721,7 +1735,8 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         "running",
         "Draft evaluation started.",
         {
-          workflowId: workflow.id
+          workflowId: workflow.id,
+          ...(branch ? { branchId: branch.id } : {})
         },
         jobSupervisor
       );
@@ -1731,11 +1746,16 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         throwIfRequestJobCancelled(store, jobSupervisor, request);
         const validation = validateWorkflowSpec(workflow);
         draftRevision = validation.ok
-          ? store.saveDraftRevision(validation.workflow, validation, "validate")
+          ? store.saveDraftRevision(validation.workflow, validation, "validate", {
+              branchId: branch?.id,
+              force: branch !== undefined,
+              parentDraftRevisionId: branchHead?.id
+            })
           : store.getLatestDraftRevision(workflow.id);
         evaluation = store.saveDraftEvaluation(
           await evaluateDraftWorkflow(workflow, {
             draftRevisionId: draftRevision?.id,
+            branchId: branch?.id,
             jobId: requestJobId(request),
             codegenArtifactStore: artifactStore,
             runGeneratedNodesInDocker: process.env.NANOCLAW_DRAFT_DOCKER === "1",
@@ -1759,6 +1779,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         action: "draft.evaluated",
         actor: "draft-evaluator",
         workflowId: workflow.id,
+        branchId: branch?.id,
         revisionId: draftRevision?.id ?? `draft.${workflow.id}.r${workflow.revision}`,
         correlationId,
         summary: `Draft evaluation ${evaluation.status}.`,
@@ -1929,7 +1950,8 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       const codegenIssues = await validateApprovalReadiness(
         store,
         validation.workflow,
-        artifactStore
+        artifactStore,
+        request.body.branchId
       );
       if (codegenIssues.length > 0) {
         return reply.code(409).send({
@@ -1942,12 +1964,14 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       const approvedRevision = store.approveWorkflow(
         request.params.id,
         request.body.approvedBy,
-        validation.workflow
+        validation.workflow,
+        request.body.branchId
       );
       recordAudit(store, {
         action: "workflow.approved",
         actor: request.body.approvedBy,
         workflowId: approvedRevision.workflowId,
+        branchId: approvedRevision.branchId,
         revisionId: approvedRevision.id,
         correlationId: correlationIdForRequest(request),
         summary: "Approved workflow revision.",
@@ -1985,7 +2009,20 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       });
     }
 
-    const node = stored.workflow.nodes.find((candidate) => candidate.id === request.params.nodeId);
+    const branch = request.body.branchId ? store.getBranch(request.body.branchId) : undefined;
+    const branchHead = branch ? store.getDraftRevision(branch.headDraftRevisionId) : undefined;
+    if (
+      request.body.branchId &&
+      (!branch || branch.workflowId !== request.params.id || !branchHead)
+    ) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_BRANCH_NOT_FOUND",
+        message: `Branch '${request.body.branchId}' was not found for workflow '${request.params.id}'.`
+      });
+    }
+    const sourceWorkflow = branchHead?.workflow ?? stored.workflow;
+    const node = sourceWorkflow.nodes.find((candidate) => candidate.id === request.params.nodeId);
     if (node?.kind !== "codegen" || !node.codegen) {
       return reply.code(404).send({
         ok: false,
@@ -2001,10 +2038,11 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         : store.saveJob(
             createJob({
               type: "build.codegen-node",
-              workflowId: stored.workflow.id,
+              workflowId: sourceWorkflow.id,
               revisionId:
-                store.getLatestDraftRevision(stored.workflow.id)?.id ??
-                `draft.${stored.workflow.id}.r${stored.workflow.revision}`,
+                branchHead?.id ??
+                store.getLatestDraftRevision(sourceWorkflow.id)?.id ??
+                `draft.${sourceWorkflow.id}.r${sourceWorkflow.revision}`,
               nodeId: node.id,
               correlationId,
               maxAttempts: 1
@@ -2026,10 +2064,12 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     const workspace = store.saveWorkspace(
       createWorkflowWorkspace({
         jobId: runningJob.id,
-        workflowId: stored.workflow.id,
+        workflowId: sourceWorkflow.id,
+        branchId: branch?.id,
         revisionId:
-          store.getLatestDraftRevision(stored.workflow.id)?.id ??
-          `draft.${stored.workflow.id}.r${stored.workflow.revision}`
+          branchHead?.id ??
+          store.getLatestDraftRevision(sourceWorkflow.id)?.id ??
+          `draft.${sourceWorkflow.id}.r${sourceWorkflow.revision}`
       })
     );
     const buildLoop = new GeneratedNodeBuildLoop({
@@ -2104,6 +2144,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       const testReport = store.saveGeneratedNodeTestReport(
         createGeneratedNodeTestReport({
           workflowId: stored.workflow.id,
+          branchId: branch?.id,
           nodeId: node.id,
           jobId: runningJob.id,
           status: result.status,
@@ -2120,6 +2161,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       const evalReport = store.saveGeneratedNodeEvalReport(
         createGeneratedNodeEvalReport({
           workflowId: stored.workflow.id,
+          branchId: branch?.id,
           nodeId: node.id,
           jobId: runningJob.id,
           status: result.status,
@@ -2180,10 +2222,10 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         });
       }
       const workflowWithGeneratedNode: WorkflowSpec = {
-        ...stored.workflow,
+        ...sourceWorkflow,
         approval: null,
         updatedAt: new Date().toISOString(),
-        nodes: stored.workflow.nodes.map((candidate) =>
+        nodes: sourceWorkflow.nodes.map((candidate) =>
           candidate.id === node.id
             ? {
                 ...candidate,
@@ -2206,7 +2248,9 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         throw new Error(validation.errors.map((issue) => issue.code).join(", "));
       }
       const draftRevision = store.saveDraftRevision(validation.workflow, validation, "validate", {
-        force: true
+        branchId: branch?.id,
+        force: true,
+        parentDraftRevisionId: branchHead?.id
       });
       persistCodegenArtifactManifests(
         store,
@@ -2329,7 +2373,20 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       });
     }
 
-    const node = stored.workflow.nodes.find((candidate) => candidate.id === request.params.nodeId);
+    const branch = request.body.branchId ? store.getBranch(request.body.branchId) : undefined;
+    const branchHead = branch ? store.getDraftRevision(branch.headDraftRevisionId) : undefined;
+    if (
+      request.body.branchId &&
+      (!branch || branch.workflowId !== request.params.id || !branchHead)
+    ) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_BRANCH_NOT_FOUND",
+        message: `Branch '${request.body.branchId}' was not found for workflow '${request.params.id}'.`
+      });
+    }
+    const sourceWorkflow = branchHead?.workflow ?? stored.workflow;
+    const node = sourceWorkflow.nodes.find((candidate) => candidate.id === request.params.nodeId);
     if (node?.kind !== "codegen" || !node.codegen) {
       return reply.code(404).send({
         ok: false,
@@ -2350,10 +2407,10 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       review
     };
     const reviewedWorkflow: WorkflowSpec = {
-      ...stored.workflow,
+      ...sourceWorkflow,
       approval: null,
       updatedAt: now,
-      nodes: stored.workflow.nodes.map((candidate) =>
+      nodes: sourceWorkflow.nodes.map((candidate) =>
         candidate.id === node.id
           ? {
               ...candidate,
@@ -2378,7 +2435,9 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     }
 
     const draftRevision = store.saveDraftRevision(validation.workflow, validation, "validate", {
-      force: true
+      branchId: branch?.id,
+      force: true,
+      parentDraftRevisionId: branchHead?.id
     });
     persistCodegenArtifactManifests(
       store,
@@ -2390,6 +2449,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       action: "codegen.reviewed",
       actor: request.body.reviewedBy,
       workflowId: draftRevision.workflowId,
+      branchId: branch?.id,
       revisionId: draftRevision.id,
       nodeId: node.id,
       correlationId: correlationIdForRequest(request),
@@ -2472,6 +2532,17 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         message: `Approved revision '${approvedRevision.id}' belongs to workflow '${approvedRevision.workflowId}'.`
       } as never);
     }
+    if (
+      request.body.branchId &&
+      approvedRevision.branchId &&
+      request.body.branchId !== approvedRevision.branchId
+    ) {
+      return reply.code(409).send({
+        ok: false,
+        error: "WORKFLOW_BRANCH_MISMATCH",
+        message: `Approved revision '${approvedRevision.id}' belongs to branch '${approvedRevision.branchId}'.`
+      } as never);
+    }
 
     try {
       const correlationId = correlationIdForRequest(request);
@@ -2481,7 +2552,8 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         "running",
         "Workflow run started.",
         {
-          approvedRevisionId: approvedRevision.id
+          approvedRevisionId: approvedRevision.id,
+          ...(approvedRevision.branchId ? { branchId: approvedRevision.branchId } : {})
         },
         jobSupervisor
       );
@@ -2503,7 +2575,8 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       const deployedRunnerConfig = latestDeployedRunnerConfiguration(
         store,
         approvedRevision.workflowId,
-        approvedRevision.id
+        approvedRevision.id,
+        approvedRevision.branchId
       );
       const compiledAt = new Date().toISOString();
       const signal = requestJobId(request)
@@ -2540,6 +2613,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         ],
         {
           workflowId: approvedRevision.workflowId,
+          branchId: approvedRevision.branchId,
           revisionId: approvedRevision.id,
           runId,
           correlationId
@@ -2548,6 +2622,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       const run = store.saveRun({
         id: runId,
         workflowId: approvedRevision.workflowId,
+        branchId: approvedRevision.branchId,
         approvedRevisionId: approvedRevision.id,
         revision: approvedRevision.revision,
         status: result.status,
@@ -2759,8 +2834,23 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
           message: `Approved revision '${request.body.approvedRevisionId}' was not found for workflow '${request.params.id}'.`
         });
       }
+      const deploymentBranchId = request.body.branchId ?? approvedRevision.branchId;
+      if (
+        request.body.branchId &&
+        approvedRevision.branchId &&
+        request.body.branchId !== approvedRevision.branchId
+      ) {
+        return reply.code(409).send({
+          ok: false,
+          error: "WORKFLOW_BRANCH_MISMATCH",
+          message: `Approved revision '${approvedRevision.id}' belongs to branch '${approvedRevision.branchId}'.`
+        });
+      }
 
-      const latestEvaluation = store.getLatestDraftEvaluation(request.params.id);
+      const latestEvaluation = store.getLatestDraftEvaluation(
+        request.params.id,
+        deploymentBranchId
+      );
       if (!latestEvaluation || latestEvaluation.status !== "passed") {
         return reply.code(409).send({
           ok: false,
@@ -2826,6 +2916,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         action: "task.routed",
         actor: "router",
         workflowId: request.params.id,
+        branchId: deploymentBranchId,
         revisionId: approvedRevision.id,
         correlationId,
         summary: `Routed workflow deployment as ${route.route}.`,
@@ -2864,6 +2955,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         action: "deployment.created",
         actor: request.body.createdBy,
         workflowId: request.params.id,
+        branchId: deploymentBranchId,
         revisionId: approvedRevision.id,
         correlationId,
         summary: `Created ${request.body.kind} deployment record.`,
@@ -2871,6 +2963,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       });
       const deployment = createDeploymentRecord({
         workflowId: request.params.id,
+        branchId: deploymentBranchId,
         approvedRevisionId: approvedRevision.id,
         draftEvaluationId: latestEvaluation.id,
         kind: request.body.kind,
@@ -3072,10 +3165,11 @@ function googleTokenForRevocation(secret: string): string | null {
 async function validateApprovalReadiness(
   store: WorkflowStore,
   workflow: WorkflowSpec,
-  artifactStore: CodegenArtifactStore
+  artifactStore: CodegenArtifactStore,
+  branchId?: string | undefined
 ): Promise<readonly WorkflowValidationIssue[]> {
   const issues: WorkflowValidationIssue[] = [];
-  const latestEvaluation = store.getLatestDraftEvaluation(workflow.id);
+  const latestEvaluation = store.getLatestDraftEvaluation(workflow.id, branchId);
   if (!latestEvaluation || latestEvaluation.status !== "passed") {
     issues.push({
       code: "WORKFLOW_DRAFT_EVALUATION_REQUIRED",
@@ -3109,7 +3203,10 @@ async function validateApprovalReadiness(
 
     const latestEval = store
       .listGeneratedNodeEvalReports(workflow.id, node.id)
-      .filter((report) => report.status === "passed")
+      .filter(
+        (report) =>
+          report.status === "passed" && (branchId === undefined || report.branchId === branchId)
+      )
       .at(-1);
     if (!latestEval) {
       issues.push({
@@ -3781,6 +3878,7 @@ function createJob(input: {
 function createWorkflowWorkspace(input: {
   readonly jobId: string;
   readonly workflowId: string;
+  readonly branchId?: string | undefined;
   readonly revisionId?: string | undefined;
 }): WorkflowWorkspace {
   const now = new Date().toISOString();
@@ -3812,6 +3910,7 @@ function createWorkflowWorkspace(input: {
     id,
     jobId: input.jobId,
     workflowId: input.workflowId,
+    branchId: input.branchId,
     revisionId: input.revisionId,
     rootPath,
     createdAt: now,
@@ -3915,6 +4014,7 @@ function uniqueStrings(values: readonly string[]): readonly string[] {
 
 function createGeneratedNodeTestReport(input: {
   readonly workflowId: string;
+  readonly branchId?: string | undefined;
   readonly nodeId: string;
   readonly jobId: string;
   readonly status: GeneratedNodeTestReport["status"];
@@ -3928,6 +4028,7 @@ function createGeneratedNodeTestReport(input: {
   return {
     id: `test-report.${input.jobId}.${input.nodeId}`,
     workflowId: input.workflowId,
+    branchId: input.branchId,
     nodeId: input.nodeId,
     jobId: input.jobId,
     status: input.status,
@@ -3942,6 +4043,7 @@ function createGeneratedNodeTestReport(input: {
 
 function createGeneratedNodeEvalReport(input: {
   readonly workflowId: string;
+  readonly branchId?: string | undefined;
   readonly nodeId: string;
   readonly jobId: string;
   readonly status: GeneratedNodeEvalReport["status"];
@@ -3959,6 +4061,7 @@ function createGeneratedNodeEvalReport(input: {
   return {
     id: `eval-report.${input.jobId}.${input.nodeId}`,
     workflowId: input.workflowId,
+    branchId: input.branchId,
     nodeId: input.nodeId,
     jobId: input.jobId,
     status: input.status,
@@ -3977,6 +4080,7 @@ function createGeneratedNodeEvalReport(input: {
 
 function createDeploymentRecord(input: {
   readonly workflowId: string;
+  readonly branchId?: string | undefined;
   readonly approvedRevisionId: string;
   readonly draftEvaluationId: string;
   readonly kind: WorkflowDeploymentKind;
@@ -3990,6 +4094,7 @@ function createDeploymentRecord(input: {
   return {
     id: `deployment.${input.workflowId}.${Date.now()}.${randomUUID()}`,
     workflowId: input.workflowId,
+    branchId: input.branchId,
     approvedRevisionId: input.approvedRevisionId,
     draftEvaluationId: input.draftEvaluationId,
     kind: input.kind,
@@ -4224,7 +4329,8 @@ function deploymentActivationSummary(
 function latestDeployedRunnerConfiguration(
   store: WorkflowStore,
   workflowId: string,
-  approvedRevisionId: string
+  approvedRevisionId: string,
+  branchId?: string | undefined
 ): WorkflowDeploymentRecord | undefined {
   return store
     .listDeployments(workflowId)
@@ -4233,6 +4339,7 @@ function latestDeployedRunnerConfiguration(
         deployment.kind === "runner.configuration" &&
         deployment.status === "deployed" &&
         deployment.approvedRevisionId === approvedRevisionId &&
+        (branchId === undefined || deployment.branchId === branchId) &&
         jsonObjectMetadata(deployment.metadata.runnerConfig)
     )
     .at(-1);
@@ -4831,6 +4938,7 @@ function enrichRunEvents(
   events: readonly WorkflowRunEvent[],
   context: {
     readonly workflowId: string;
+    readonly branchId?: string | undefined;
     readonly revisionId: string;
     readonly runId: string;
     readonly correlationId: string;
@@ -4841,6 +4949,7 @@ function enrichRunEvents(
     severity: event.severity ?? severityForRunEvent(event),
     kind: event.kind ?? kindForRunEvent(event),
     workflowId: event.workflowId ?? context.workflowId,
+    branchId: event.branchId ?? context.branchId,
     revisionId: event.revisionId ?? context.revisionId,
     runId: event.runId ?? context.runId,
     correlationId: event.correlationId ?? context.correlationId

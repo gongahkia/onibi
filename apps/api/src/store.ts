@@ -102,7 +102,8 @@ export interface WorkflowStore {
   approveWorkflow(
     workflowId: string,
     approvedBy: string,
-    workflowOverride?: WorkflowSpec
+    workflowOverride?: WorkflowSpec,
+    branchId?: string | undefined
   ): WorkflowApprovedRevision;
   createRevision(workflowId: string, input?: RevisionInput): StoredWorkflow;
   getDraftRevision(id: string): WorkflowDraftRevision | undefined;
@@ -136,8 +137,14 @@ export interface WorkflowStore {
   appendJobEvent(jobId: string, event: WorkflowJobEvent): WorkflowJob;
   saveDraftEvaluation(record: WorkflowDraftEvaluation): WorkflowDraftEvaluation;
   getDraftEvaluation(id: string): WorkflowDraftEvaluation | undefined;
-  getLatestDraftEvaluation(workflowId: string): WorkflowDraftEvaluation | undefined;
-  listDraftEvaluations(workflowId: string): readonly WorkflowDraftEvaluation[];
+  getLatestDraftEvaluation(
+    workflowId: string,
+    branchId?: string | undefined
+  ): WorkflowDraftEvaluation | undefined;
+  listDraftEvaluations(
+    workflowId: string,
+    branchId?: string | undefined
+  ): readonly WorkflowDraftEvaluation[];
   saveWorkspace(record: WorkflowWorkspace): WorkflowWorkspace;
   getWorkspace(id: string): WorkflowWorkspace | undefined;
   listWorkspaces(workflowId: string): readonly WorkflowWorkspace[];
@@ -410,20 +417,29 @@ export class InMemoryWorkflowStore implements WorkflowStore {
   public approveWorkflow(
     workflowId: string,
     approvedBy: string,
-    workflowOverride?: WorkflowSpec
+    workflowOverride?: WorkflowSpec,
+    branchId?: string | undefined
   ): WorkflowApprovedRevision {
     const stored = this.requireWorkflow(workflowId);
-    const workflow = workflowOverride ?? stored.workflow;
+    const targetBranchId = branchId ?? defaultBranchId(workflowId);
+    const branch = this.branches.get(targetBranchId);
+    const branchHead = branch ? this.draftRevisions.get(branch.headDraftRevisionId) : undefined;
+    const workflow = workflowOverride ?? branchHead?.workflow ?? stored.workflow;
     const validation = validateWorkflowSpec(workflow);
     if (!validation.ok) {
       throw new Error(validation.errors.map((error) => error.code).join(", "));
     }
 
-    const latestDraft = this.saveDraftRevision(
+    const latestDraftRevision = this.saveDraftRevision(
       validation.workflow,
       validation,
-      "validate"
-    ).workflow;
+      "validate",
+      {
+        branchId: targetBranchId,
+        parentDraftRevisionId: branchHead?.id
+      }
+    );
+    const latestDraft = latestDraftRevision.workflow;
     const approval: WorkflowApprovalRecord = {
       status: "approved",
       approvedBy,
@@ -442,9 +458,12 @@ export class InMemoryWorkflowStore implements WorkflowStore {
       throw new Error(approvedValidation.errors.map((error) => error.code).join(", "));
     }
 
+    const approvedBranchId =
+      targetBranchId === defaultBranchId(approvedWorkflow.id) ? undefined : targetBranchId;
     const approvedRevision: WorkflowApprovedRevision = {
-      id: `approved.${approvedWorkflow.id}.r${approvedWorkflow.revision}`,
+      id: approvedRevisionId(approvedWorkflow.id, targetBranchId, approvedWorkflow.revision),
       workflowId: approvedWorkflow.id,
+      ...(approvedBranchId ? { branchId: approvedBranchId } : {}),
       revision: approvedWorkflow.revision,
       approvedBy,
       createdAt: approval.approvedAt,
@@ -470,13 +489,23 @@ export class InMemoryWorkflowStore implements WorkflowStore {
     if (!aggregate) {
       throw new Error(`Unknown workflow '${workflowId}'.`);
     }
-    aggregate.workflow = approvedWorkflow;
-    aggregate.validation = approvedValidation;
-    aggregate.latestApprovedRevisionId = approvedRevision.id;
+    if (targetBranchId === defaultBranchId(approvedWorkflow.id)) {
+      aggregate.workflow = approvedWorkflow;
+      aggregate.validation = approvedValidation;
+      aggregate.latestApprovedRevisionId = approvedRevision.id;
+    }
     if (!aggregate.approvedRevisionIds.includes(approvedRevision.id)) {
       aggregate.approvedRevisionIds = [...aggregate.approvedRevisionIds, approvedRevision.id];
     }
     this.workflows.set(approvedWorkflow.id, aggregate);
+    const latestBranch = this.branches.get(targetBranchId);
+    if (latestBranch) {
+      this.branches.set(targetBranchId, {
+        ...latestBranch,
+        latestApprovedRevisionId: approvedRevision.id,
+        updatedAt: approval.approvedAt
+      });
+    }
 
     return approvedRevision;
   }
@@ -710,13 +739,23 @@ export class InMemoryWorkflowStore implements WorkflowStore {
     return this.draftEvaluations.get(id);
   }
 
-  public getLatestDraftEvaluation(workflowId: string): WorkflowDraftEvaluation | undefined {
-    return this.listDraftEvaluations(workflowId).at(-1);
+  public getLatestDraftEvaluation(
+    workflowId: string,
+    branchId?: string | undefined
+  ): WorkflowDraftEvaluation | undefined {
+    return this.listDraftEvaluations(workflowId, branchId).at(-1);
   }
 
-  public listDraftEvaluations(workflowId: string): readonly WorkflowDraftEvaluation[] {
+  public listDraftEvaluations(
+    workflowId: string,
+    branchId?: string | undefined
+  ): readonly WorkflowDraftEvaluation[] {
     return [...this.draftEvaluations.values()]
-      .filter((record) => record.workflowId === workflowId)
+      .filter(
+        (record) =>
+          record.workflowId === workflowId &&
+          (branchId === undefined || record.branchId === branchId)
+      )
       .sort(
         (left, right) =>
           left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
@@ -975,11 +1014,15 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
   public override approveWorkflow(
     workflowId: string,
     approvedBy: string,
-    workflowOverride?: WorkflowSpec
+    workflowOverride?: WorkflowSpec,
+    branchId?: string | undefined
   ): WorkflowApprovedRevision {
-    const approved = super.approveWorkflow(workflowId, approvedBy, workflowOverride);
+    const approved = super.approveWorkflow(workflowId, approvedBy, workflowOverride, branchId);
     this.persistApprovedRevision(approved);
     this.persistWorkflowAggregate(workflowId);
+    for (const branch of this.listBranches(workflowId)) {
+      this.persistBranch(branch);
+    }
     return approved;
   }
 
@@ -1501,6 +1544,13 @@ function draftRevisionId(
     return `draft.${workflowId}.r${revision}.${index}`;
   }
   return `draft.${workflowId}.${sanitizeRecordIdPart(branchId)}.r${revision}.${index}`;
+}
+
+function approvedRevisionId(workflowId: string, branchId: string, revision: number): string {
+  if (branchId === defaultBranchId(workflowId)) {
+    return `approved.${workflowId}.r${revision}`;
+  }
+  return `approved.${workflowId}.${sanitizeRecordIdPart(branchId)}.r${revision}`;
 }
 
 function sanitizeRecordIdPart(value: string): string {

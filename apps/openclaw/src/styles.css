@@ -358,7 +358,8 @@ dd {
 
 .detail-list,
 .event-list,
-.issue-list {
+.issue-list,
+.branch-list {
   display: grid;
   gap: 0.55rem;
 }
@@ -373,6 +374,23 @@ dd {
 
 .detail-list dd {
   overflow-wrap: anywhere;
+}
+
+.branch-row {
+  background: #202126;
+  border-color: #34363d;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  justify-content: stretch;
+  text-align: left;
+}
+
+.branch-row span {
+  overflow-wrap: anywhere;
+}
+
+.branch-row-active {
+  border-color: #53e0a0;
 }
 
 .status-row {

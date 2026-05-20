@@ -18,6 +18,7 @@ import type { SecretResolver, SecretResolutionContext } from "./secrets.js";
 
 export interface DraftWorkflowEvaluationOptions {
   readonly draftRevisionId?: string | undefined;
+  readonly branchId?: string | undefined;
   readonly jobId?: string | undefined;
   readonly workspaceRoot?: string | undefined;
   readonly codegenArtifactStore?: CodegenArtifactStore | undefined;
@@ -166,6 +167,7 @@ function createEvaluation(input: {
   return {
     id: `eval.${input.workflow.id}.r${input.workflow.revision}.${Date.now()}`,
     workflowId: input.workflow.id,
+    branchId: input.options.branchId,
     draftRevisionId:
       input.options.draftRevisionId ?? `draft.${input.workflow.id}.r${input.workflow.revision}`,
     jobId: input.options.jobId,

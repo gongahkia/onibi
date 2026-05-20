@@ -1013,6 +1013,7 @@ export interface WorkflowValidateResponse {
 export interface WorkflowApproveRequest {
   readonly workflow: WorkflowSpec;
   readonly approvedBy: string;
+  readonly branchId?: string | undefined;
 }
 
 export interface WorkflowAcceptPlanRequest {
@@ -1070,6 +1071,7 @@ export interface WorkflowApproveResponse {
 
 export interface WorkflowStartRunRequest {
   readonly approvedRevisionId: string;
+  readonly branchId?: string | undefined;
 }
 
 export interface WorkflowStartRunResponse {
