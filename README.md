@@ -138,6 +138,12 @@ Verify a signed workspace manifest:
 uv run piranesi sign --workspace ./workspace --verify
 ```
 
+Optional rescan/runtime support is intentionally separate from the default install:
+
+```bash
+uv sync --extra rescan
+```
+
 ## Current Capabilities
 
 Implemented Phase 1 pieces:
@@ -204,6 +210,7 @@ added with `piranesi evidence add` are also copied under `raw/<kind>/` and index
 - [Local preview UI](docs/local-ui.md)
 - [Product interface decision](docs/product-interface-decision.md)
 - [Rescan execution RFC](docs/rfcs/rescan-execution-layer.md)
+- [Rescan runtime support](docs/rescan-runtime.md)
 - [Privacy and data handling](docs/privacy-data-handling.md)
 - [CI examples](docs/ci-integration.md)
 

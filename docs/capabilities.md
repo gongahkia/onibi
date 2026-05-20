@@ -31,6 +31,7 @@ features until their own acceptance criteria are complete:
 - Vendor-specific C2 adapters beyond the neutral local JSONL format.
 - Opt-in `rescan` execution; the accepted design is documented in
   [`docs/rfcs/rescan-execution-layer.md`](rfcs/rescan-execution-layer.md).
+  Optional runtime wiring is documented in [`docs/rescan-runtime.md`](rescan-runtime.md).
 - Engagement-scale design-partner feedback loops.
 - Audit evidence packaging and assessor-ready bundles.
 - Workflow integrations, PFF SDKs, enterprise deployment, and AI assistance.

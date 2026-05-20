@@ -38,6 +38,11 @@ dependencies = [
     "weasyprint>=62.0",
 ]
 
+[project.optional-dependencies]
+rescan = [
+    "docker>=7.1.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/gongahkia/piranesi"
 Repository = "https://github.com/gongahkia/piranesi"
