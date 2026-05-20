@@ -222,6 +222,7 @@ export const workflowAuditActionSchema = z.enum([
   "workflow.edited",
   "plan.accepted",
   "branch.created",
+  "branch.updated",
   "branch.merged",
   "branch.cherry-picked",
   "codegen.reused",
@@ -473,6 +474,21 @@ export const workflowPromptTurnSchema = z.object({
   resultingDraftRevisionId: z.string().min(1).optional(),
   route: workflowTaskRouteSchema.optional(),
   metadata: jsonRecordSchema.optional()
+});
+
+export const workflowUpdateBranchRequestSchema = z
+  .object({
+    name: z.string().optional(),
+    status: z.enum(["active", "archived"]).optional(),
+    updatedBy: z.string().min(1)
+  })
+  .refine((request) => request.name !== undefined || request.status !== undefined, {
+    message: "Branch update must include a name or status."
+  });
+
+export const workflowUpdateBranchResponseSchema = z.object({
+  ok: z.literal(true),
+  branch: workflowBranchSchema
 });
 
 export const workflowBranchMergeConflictSchema = z.object({

@@ -46,6 +46,7 @@ import type {
   WorkflowAuditContainerRecord,
   WorkflowAuditDeliveryRecord,
   WorkflowAuditRecord,
+  WorkflowApiError,
   WorkflowAcceptPlanRequest,
   WorkflowAcceptPlanResponse,
   WorkflowApproveRequest,
@@ -98,6 +99,8 @@ import type {
   WorkflowSpec,
   WorkflowStartRunRequest,
   WorkflowStartRunResponse,
+  WorkflowUpdateBranchRequest,
+  WorkflowUpdateBranchResponse,
   WorkflowValidationIssue,
   WorkflowValidationResult,
   WorkflowValidateRequest,
@@ -874,6 +877,85 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     };
   });
 
+  app.patch<{
+    Params: BranchRouteParams;
+    Body: WorkflowUpdateBranchRequest;
+    Reply: WorkflowUpdateBranchResponse;
+  }>("/api/workflows/:id/branches/:branchId", async (request, reply) => {
+    const branch = store.getBranch(request.params.branchId);
+    if (!branch || branch.workflowId !== request.params.id) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_BRANCH_NOT_FOUND",
+        message: `Branch '${request.params.branchId}' was not found for workflow '${request.params.id}'.`
+      } as never);
+    }
+    const nextName = request.body.name?.trim() ?? branch.name;
+    const nextStatus = request.body.status ?? branch.status;
+    if (nextName.length === 0) {
+      return reply.code(422).send({
+        ok: false,
+        error: "WORKFLOW_BRANCH_NAME_REQUIRED",
+        message: "Branch name cannot be empty."
+      } as never);
+    }
+    if (branch.id === store.getDefaultBranch(request.params.id).id && nextStatus === "archived") {
+      return reply.code(409).send({
+        ok: false,
+        error: "WORKFLOW_DEFAULT_BRANCH_ARCHIVE_BLOCKED",
+        message: "The default main branch cannot be archived."
+      } as never);
+    }
+    if (
+      nextStatus === "active" &&
+      store
+        .listBranches(request.params.id)
+        .some(
+          (candidate) =>
+            candidate.id !== branch.id &&
+            candidate.status === "active" &&
+            candidate.name.trim().toLowerCase() === nextName.toLowerCase()
+        )
+    ) {
+      return reply.code(409).send({
+        ok: false,
+        error: "WORKFLOW_BRANCH_NAME_CONFLICT",
+        message: `An active branch named '${nextName}' already exists.`
+      } as never);
+    }
+
+    const updated = store.saveBranch({
+      ...branch,
+      name: nextName,
+      status: nextStatus,
+      updatedAt: new Date().toISOString(),
+      metadata: jsonRecord({
+        ...(branch.metadata ?? {}),
+        updatedBy: request.body.updatedBy
+      })
+    });
+    recordAudit(store, {
+      action: "branch.updated",
+      actor: request.body.updatedBy,
+      workflowId: request.params.id,
+      branchId: updated.id,
+      revisionId: updated.headDraftRevisionId,
+      correlationId: correlationIdForRequest(request),
+      summary: `Updated workflow branch '${updated.name}'.`,
+      metadata: {
+        previousName: branch.name,
+        nextName: updated.name,
+        previousStatus: branch.status,
+        nextStatus: updated.status
+      }
+    });
+
+    return {
+      ok: true,
+      branch: updated
+    };
+  });
+
   app.get<{
     Params: BranchRouteParams;
     Reply: WorkflowReuseCandidatesResponse;
@@ -914,6 +996,9 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         error: "WORKFLOW_BRANCH_NOT_FOUND",
         message: `Branch '${request.params.branchId}' was not found for workflow '${request.params.id}'.`
       } as never);
+    }
+    if (branch.status === "archived") {
+      return reply.code(409).send(archivedBranchApiError(branch) as never);
     }
 
     const correlationId = correlationIdForRequest(request);
@@ -1039,6 +1124,9 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         message: `Branch '${request.params.branchId}' was not found for workflow '${request.params.id}'.`
       } as never);
     }
+    if (branch.status === "archived") {
+      return reply.code(409).send(archivedBranchApiError(branch) as never);
+    }
     if (sourceWorkflow.id !== request.params.id) {
       return reply.code(409).send({
         ok: false,
@@ -1138,6 +1226,9 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         message: `Branch '${request.params.branchId}' was not found for workflow '${request.params.id}'.`
       } as never);
     }
+    if (branch.status === "archived") {
+      return reply.code(409).send(archivedBranchApiError(branch) as never);
+    }
     if (request.body.workflow.id !== request.params.id) {
       return reply.code(409).send({
         ok: false,
@@ -1210,6 +1301,14 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     Body: WorkflowBranchMergePreviewRequest;
     Reply: WorkflowBranchMergePreviewResponse;
   }>("/api/workflows/:id/branches/:sourceBranchId/merge-preview", async (request, reply) => {
+    const sourceBranch = store.getBranch(request.params.sourceBranchId);
+    const targetBranch = store.getBranch(request.body.targetBranchId);
+    if (sourceBranch?.status === "archived") {
+      return reply.code(409).send(archivedBranchApiError(sourceBranch) as never);
+    }
+    if (targetBranch?.status === "archived") {
+      return reply.code(409).send(archivedBranchApiError(targetBranch) as never);
+    }
     const preview = createBranchMergePreview(
       store,
       request.params.id,
@@ -1238,6 +1337,14 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     Body: WorkflowBranchMergeRequest;
     Reply: WorkflowBranchMergeResponse;
   }>("/api/workflows/:id/branches/:sourceBranchId/merge", async (request, reply) => {
+    const sourceBranch = store.getBranch(request.params.sourceBranchId);
+    const requestedTargetBranch = store.getBranch(request.body.targetBranchId);
+    if (sourceBranch?.status === "archived") {
+      return reply.code(409).send(archivedBranchApiError(sourceBranch) as never);
+    }
+    if (requestedTargetBranch?.status === "archived") {
+      return reply.code(409).send(archivedBranchApiError(requestedTargetBranch) as never);
+    }
     const preview = createBranchMergePreview(
       store,
       request.params.id,
@@ -1703,6 +1810,9 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
           message: `Branch '${request.body.branchId}' was not found for workflow '${request.params.id}'.`
         });
       }
+      if (branch?.status === "archived") {
+        return reply.code(409).send(archivedBranchApiError(branch));
+      }
 
       const workflow = request.body.workflow ?? stored.workflow;
       if (workflow.id !== request.params.id) {
@@ -1913,6 +2023,17 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     Body: WorkflowApproveRequest;
     Reply: WorkflowApproveResponse;
   }>("/api/workflows/:id/approve", async (request, reply) => {
+    const branch = request.body.branchId ? store.getBranch(request.body.branchId) : undefined;
+    if (request.body.branchId && (!branch || branch.workflowId !== request.params.id)) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_BRANCH_NOT_FOUND",
+        message: `Branch '${request.body.branchId}' was not found for workflow '${request.params.id}'.`
+      } as never);
+    }
+    if (branch?.status === "archived") {
+      return reply.code(409).send(archivedBranchApiError(branch) as never);
+    }
     if (request.body.workflow.id !== request.params.id) {
       return reply.code(409).send({
         ok: false,
@@ -2005,6 +2126,9 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         error: "WORKFLOW_BRANCH_NOT_FOUND",
         message: `Branch '${request.body.branchId}' was not found for workflow '${request.params.id}'.`
       });
+    }
+    if (branch?.status === "archived") {
+      return reply.code(409).send(archivedBranchApiError(branch));
     }
     const sourceWorkflow = branchHead?.workflow ?? stored.workflow;
     const node = sourceWorkflow.nodes.find((candidate) => candidate.id === request.params.nodeId);
@@ -2370,6 +2494,9 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         message: `Branch '${request.body.branchId}' was not found for workflow '${request.params.id}'.`
       });
     }
+    if (branch?.status === "archived") {
+      return reply.code(409).send(archivedBranchApiError(branch));
+    }
     const sourceWorkflow = branchHead?.workflow ?? stored.workflow;
     const node = sourceWorkflow.nodes.find((candidate) => candidate.id === request.params.nodeId);
     if (node?.kind !== "codegen" || !node.codegen) {
@@ -2527,6 +2654,11 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         error: "WORKFLOW_BRANCH_MISMATCH",
         message: `Approved revision '${approvedRevision.id}' belongs to branch '${approvedRevision.branchId}'.`
       } as never);
+    }
+    const runBranchId = request.body.branchId ?? approvedRevision.branchId;
+    const runBranch = runBranchId ? store.getBranch(runBranchId) : undefined;
+    if (runBranch?.status === "archived") {
+      return reply.code(409).send(archivedBranchApiError(runBranch) as never);
     }
 
     try {
@@ -2830,6 +2962,10 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
           error: "WORKFLOW_BRANCH_MISMATCH",
           message: `Approved revision '${approvedRevision.id}' belongs to branch '${approvedRevision.branchId}'.`
         });
+      }
+      const deploymentBranch = deploymentBranchId ? store.getBranch(deploymentBranchId) : undefined;
+      if (deploymentBranch?.status === "archived") {
+        return reply.code(409).send(archivedBranchApiError(deploymentBranch));
       }
 
       const latestEvaluation = store.getLatestDraftEvaluation(
@@ -4484,6 +4620,14 @@ function jsonObjectMetadata(value: unknown): value is JsonRecord {
 
 function jsonRecord(value: unknown): JsonRecord {
   return JSON.parse(JSON.stringify(value)) as JsonRecord;
+}
+
+function archivedBranchApiError(branch: WorkflowBranch): WorkflowApiError {
+  return {
+    ok: false,
+    error: "WORKFLOW_BRANCH_ARCHIVED",
+    message: `Branch '${branch.name}' is archived and cannot be modified.`
+  };
 }
 
 function toArtifactRef(artifact: {

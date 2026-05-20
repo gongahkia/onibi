@@ -487,6 +487,7 @@ export type WorkflowAuditAction =
   | "workflow.edited"
   | "plan.accepted"
   | "branch.created"
+  | "branch.updated"
   | "branch.merged"
   | "branch.cherry-picked"
   | "codegen.reused"
@@ -963,6 +964,17 @@ export interface WorkflowGetBranchResponse {
   readonly branch: WorkflowBranch;
   readonly headDraftRevision: WorkflowDraftRevision;
   readonly promptTurns: readonly WorkflowPromptTurn[];
+}
+
+export interface WorkflowUpdateBranchRequest {
+  readonly name?: string | undefined;
+  readonly status?: WorkflowBranchStatus | undefined;
+  readonly updatedBy: string;
+}
+
+export interface WorkflowUpdateBranchResponse {
+  readonly ok: true;
+  readonly branch: WorkflowBranch;
 }
 
 export interface WorkflowBranchPlanRequest extends WorkflowPlanRequest {

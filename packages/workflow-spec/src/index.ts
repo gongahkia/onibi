@@ -91,6 +91,8 @@ export {
   workflowSpecDiffSchema,
   workflowSpecSchema,
   workflowTaskRouteSchema,
+  workflowUpdateBranchRequestSchema,
+  workflowUpdateBranchResponseSchema,
   workflowValidationIssueSchema,
   workflowValidationResultSchema,
   workflowWorkspaceSchema
@@ -228,6 +230,8 @@ export type {
   WorkflowTaskRoute,
   WorkflowTaskRouteKind,
   WorkflowReuseCandidatesResponse,
+  WorkflowUpdateBranchRequest,
+  WorkflowUpdateBranchResponse,
   WorkflowValidateRequest,
   WorkflowValidateResponse,
   WorkflowValidationErrorCode,
