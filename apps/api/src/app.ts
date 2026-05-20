@@ -27,6 +27,7 @@ import {
   WorkflowValidationError,
   createWorkflowGraphDiff,
   createWorkflowPlannerFeedback,
+  createWorkflowSpecDiff,
   gmailReceiptsToSheetsWorkflowFixture,
   redactSecretString,
   stableJsonStringify,
@@ -49,6 +50,14 @@ import type {
   WorkflowAcceptPlanResponse,
   WorkflowApproveRequest,
   WorkflowApproveResponse,
+  WorkflowBranchMergeConflict,
+  WorkflowBranchMergePreview,
+  WorkflowBranchMergePreviewRequest,
+  WorkflowBranchMergePreviewResponse,
+  WorkflowBranchMergeRecord,
+  WorkflowBranchMergeRequest,
+  WorkflowBranchMergeResolution,
+  WorkflowBranchMergeResponse,
   WorkflowBranchPlanRequest,
   WorkflowBranchPlanResponse,
   WorkflowBranchRepromptNodeRequest,
@@ -60,12 +69,14 @@ import type {
   WorkflowFeedbackRequest,
   WorkflowFeedbackResponse,
   WorkflowGetBranchResponse,
+  JsonValue,
   WorkflowJob,
   WorkflowJobEvent,
   WorkflowJobType,
   WorkflowCodegenArtifactRef,
   WorkflowDeploymentKind,
   WorkflowDeploymentRecord,
+  WorkflowEdge,
   WorkflowListBranchesResponse,
   WorkflowNode,
   WorkflowObservabilityEventKind,
@@ -75,6 +86,7 @@ import type {
   WorkflowPlannerSuggestionDecisionResponse,
   WorkflowRepromptNodeRequest,
   WorkflowRepromptNodeResponse,
+  WorkflowGraphChange,
   WorkflowRunEvent,
   WorkflowSpec,
   WorkflowStartRunRequest,
@@ -110,6 +122,10 @@ interface RouteParamsWithId {
 
 interface BranchRouteParams extends RouteParamsWithId {
   readonly branchId: string;
+}
+
+interface SourceBranchRouteParams extends RouteParamsWithId {
+  readonly sourceBranchId: string;
 }
 
 interface CodegenRouteParams extends RouteParamsWithId {
@@ -1139,6 +1155,156 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       draftRevisionId: draftRevision.id,
       workflow: draftRevision.workflow,
       draftRevision,
+      validation: draftRevision.validation
+    };
+  });
+
+  app.post<{
+    Params: SourceBranchRouteParams;
+    Body: WorkflowBranchMergePreviewRequest;
+    Reply: WorkflowBranchMergePreviewResponse;
+  }>("/api/workflows/:id/branches/:sourceBranchId/merge-preview", async (request, reply) => {
+    const preview = createBranchMergePreview(
+      store,
+      request.params.id,
+      request.params.sourceBranchId,
+      {
+        targetBranchId: request.body.targetBranchId,
+        mode: request.body.mode ?? "merge",
+        cherryPickChangeIds: request.body.cherryPickChangeIds
+      }
+    );
+    if (!preview) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_BRANCH_NOT_FOUND",
+        message: "Source, target, or base branch draft was not found."
+      } as never);
+    }
+    return {
+      ok: true,
+      preview
+    };
+  });
+
+  app.post<{
+    Params: SourceBranchRouteParams;
+    Body: WorkflowBranchMergeRequest;
+    Reply: WorkflowBranchMergeResponse;
+  }>("/api/workflows/:id/branches/:sourceBranchId/merge", async (request, reply) => {
+    const preview = createBranchMergePreview(
+      store,
+      request.params.id,
+      request.params.sourceBranchId,
+      {
+        targetBranchId: request.body.targetBranchId,
+        mode: request.body.mode ?? "merge",
+        cherryPickChangeIds: request.body.cherryPickChangeIds,
+        resolutions: request.body.resolutions
+      }
+    );
+    if (!preview) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_BRANCH_NOT_FOUND",
+        message: "Source, target, or base branch draft was not found."
+      } as never);
+    }
+    if (preview.status !== "clean" || !preview.mergedWorkflow) {
+      return reply.code(409).send({
+        ok: false,
+        error: "WORKFLOW_BRANCH_MERGE_CONFLICTS",
+        message: `Merge has ${preview.conflicts.length} unresolved conflict(s).`,
+        issues: preview.validation.ok ? [] : preview.validation.errors
+      } as never);
+    }
+
+    const targetBranch = store.getBranch(request.body.targetBranchId);
+    const targetHead = targetBranch
+      ? store.getDraftRevision(targetBranch.headDraftRevisionId)
+      : undefined;
+    if (!targetBranch || !targetHead) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_BRANCH_NOT_FOUND",
+        message: `Target branch '${request.body.targetBranchId}' was not found.`
+      } as never);
+    }
+    const validation = validateWorkflowSpec(preview.mergedWorkflow);
+    if (!validation.ok) {
+      return reply.code(422).send({
+        ok: false,
+        error: "WORKFLOW_BRANCH_MERGE_INVALID",
+        message: validation.errors.map((error) => error.code).join(", "),
+        validation
+      } as never);
+    }
+
+    const source = preview.mode === "cherry-pick" ? "branch-cherry-pick" : "branch-merge";
+    const draftRevision = store.saveDraftRevision(validation.workflow, validation, source, {
+      branchId: targetBranch.id,
+      force: true,
+      parentDraftRevisionId: targetHead.id
+    });
+    const branch = store.saveBranch({
+      ...targetBranch,
+      headDraftRevisionId: draftRevision.id,
+      updatedAt: draftRevision.createdAt
+    });
+    const merge: WorkflowBranchMergeRecord = store.saveBranchMerge({
+      ...preview,
+      status: "applied",
+      appliedAt: draftRevision.createdAt,
+      appliedBy: request.body.appliedBy,
+      mergedDraftRevisionId: draftRevision.id,
+      resolutions: request.body.resolutions
+    });
+    const graphDiff = store.saveGraphDiff(
+      createWorkflowGraphDiff({
+        id: `graphdiff.${request.params.id}.${Date.now()}.${randomUUID()}`,
+        baseWorkflow: targetHead.workflow,
+        editedWorkflow: draftRevision.workflow,
+        createdAt: draftRevision.createdAt
+      })
+    );
+    store.savePromptTurn({
+      id: `prompt-turn.${branch.id}.${Date.now()}.${randomUUID()}`,
+      workflowId: request.params.id,
+      branchId: branch.id,
+      source: preview.mode === "cherry-pick" ? "cherry-pick" : "merge",
+      prompt: `${preview.mode} ${preview.sourceBranchId} into ${preview.targetBranchId}`,
+      actor: request.body.appliedBy,
+      createdAt: draftRevision.createdAt,
+      baseDraftRevisionId: targetHead.id,
+      resultingDraftRevisionId: draftRevision.id,
+      metadata: {
+        mergeId: merge.id,
+        graphDiffId: graphDiff.id
+      }
+    });
+    recordAudit(store, {
+      action: preview.mode === "cherry-pick" ? "branch.cherry-picked" : "branch.merged",
+      actor: request.body.appliedBy,
+      workflowId: draftRevision.workflowId,
+      branchId: branch.id,
+      revisionId: draftRevision.id,
+      correlationId: correlationIdForRequest(request),
+      summary: `${preview.mode === "cherry-pick" ? "Cherry-picked" : "Merged"} branch '${preview.sourceBranchId}' into '${preview.targetBranchId}'.`,
+      diff: graphDiffToSpecDiff(targetHead.workflow, draftRevision.workflow),
+      metadata: {
+        mergeId: merge.id,
+        sourceBranchId: preview.sourceBranchId,
+        targetBranchId: preview.targetBranchId,
+        conflictsResolved: request.body.resolutions.length
+      }
+    });
+
+    return {
+      ok: true,
+      merge,
+      branch,
+      draftRevision,
+      workflow: draftRevision.workflow,
       validation: draftRevision.validation
     };
   });
@@ -2950,6 +3116,312 @@ function promotionCapability(node: WorkflowNode): string {
   }
 
   return `promoted-${slugify(node.id)}`;
+}
+
+function createBranchMergePreview(
+  store: WorkflowStore,
+  workflowId: string,
+  sourceBranchId: string,
+  input: {
+    readonly targetBranchId: string;
+    readonly mode: "merge" | "cherry-pick";
+    readonly cherryPickChangeIds?: readonly string[] | undefined;
+    readonly resolutions?: readonly WorkflowBranchMergeResolution[] | undefined;
+  }
+): WorkflowBranchMergePreview | undefined {
+  const sourceBranch = store.getBranch(sourceBranchId);
+  const targetBranch = store.getBranch(input.targetBranchId);
+  if (!sourceBranch || !targetBranch) {
+    return undefined;
+  }
+  if (sourceBranch.workflowId !== workflowId || targetBranch.workflowId !== workflowId) {
+    return undefined;
+  }
+  const baseDraft = store.getDraftRevision(sourceBranch.baseDraftRevisionId);
+  const sourceHead = store.getDraftRevision(sourceBranch.headDraftRevisionId);
+  const targetHead = store.getDraftRevision(targetBranch.headDraftRevisionId);
+  if (!baseDraft || !sourceHead || !targetHead) {
+    return undefined;
+  }
+
+  const sourceDiff = createWorkflowGraphDiff({
+    id: `graphdiff.${workflowId}.source.${Date.now()}.${randomUUID()}`,
+    baseWorkflow: baseDraft.workflow,
+    editedWorkflow: sourceHead.workflow
+  });
+  const selectedChangeIds =
+    input.mode === "cherry-pick" ? new Set(input.cherryPickChangeIds ?? []) : undefined;
+  const result = mergeWorkflowGraphs({
+    base: baseDraft.workflow,
+    source: sourceHead.workflow,
+    target: targetHead.workflow,
+    sourceChanges: sourceDiff.changes,
+    selectedChangeIds,
+    resolutions: input.resolutions ?? []
+  });
+  const graphDiff = createWorkflowGraphDiff({
+    id: `graphdiff.${workflowId}.merge.${Date.now()}.${randomUUID()}`,
+    baseWorkflow: targetHead.workflow,
+    editedWorkflow: result.workflow,
+    createdAt: new Date().toISOString()
+  });
+  const validation = validateWorkflowSpec(result.workflow);
+  const validationConflicts: WorkflowBranchMergeConflict[] = validation.ok
+    ? []
+    : validation.errors.map((issue, index) => ({
+        id: `conflict.validation.${index}`,
+        kind: "validation-blocked",
+        elementKind:
+          issue.path[0] === "edges" ? "edge" : issue.path[0] === "nodes" ? "node" : "workflow",
+        path: issue.path,
+        message: issue.message
+      }));
+  const conflicts = [...result.conflicts, ...validationConflicts];
+  const status = conflicts.length > 0 ? "conflicts" : validation.ok ? "clean" : "blocked";
+
+  return {
+    id: `merge.${workflowId}.${Date.now()}.${randomUUID()}`,
+    workflowId,
+    sourceBranchId,
+    targetBranchId: input.targetBranchId,
+    mode: input.mode,
+    status,
+    createdAt: graphDiff.createdAt,
+    baseDraftRevisionId: baseDraft.id,
+    sourceHeadDraftRevisionId: sourceHead.id,
+    targetHeadDraftRevisionId: targetHead.id,
+    graphDiff,
+    conflicts,
+    ...(conflicts.length === 0 && validation.ok ? { mergedWorkflow: result.workflow } : {}),
+    validation,
+    summary:
+      conflicts.length > 0
+        ? [`Merge has ${conflicts.length} conflict${conflicts.length === 1 ? "" : "s"}.`]
+        : graphDiff.summary
+  };
+}
+
+function mergeWorkflowGraphs(input: {
+  readonly base: WorkflowSpec;
+  readonly source: WorkflowSpec;
+  readonly target: WorkflowSpec;
+  readonly sourceChanges: readonly WorkflowGraphChange[];
+  readonly selectedChangeIds?: ReadonlySet<string> | undefined;
+  readonly resolutions: readonly WorkflowBranchMergeResolution[];
+}): {
+  readonly workflow: WorkflowSpec;
+  readonly conflicts: readonly WorkflowBranchMergeConflict[];
+} {
+  const resolutionMap = new Map(
+    input.resolutions.map((resolution) => [resolution.conflictId, resolution])
+  );
+  const nodes = mergeElements({
+    kind: "node",
+    base: new Map(input.base.nodes.map((node) => [node.id, node])),
+    source: new Map(input.source.nodes.map((node) => [node.id, node])),
+    target: new Map(input.target.nodes.map((node) => [node.id, node])),
+    sourceChanges: input.sourceChanges,
+    selectedChangeIds: input.selectedChangeIds,
+    resolutions: resolutionMap
+  });
+  const edges = mergeElements({
+    kind: "edge",
+    base: new Map(input.base.edges.map((edge) => [edge.id, edge])),
+    source: new Map(input.source.edges.map((edge) => [edge.id, edge])),
+    target: new Map(input.target.edges.map((edge) => [edge.id, edge])),
+    sourceChanges: input.sourceChanges,
+    selectedChangeIds: input.selectedChangeIds,
+    resolutions: resolutionMap
+  });
+  const mergedNodes = nodes.values as WorkflowNode[];
+  const mergedEdges = edges.values as WorkflowEdge[];
+  const nodeIds = new Set(mergedNodes.map((node) => node.id));
+  const endpointConflicts = mergedEdges
+    .filter((edge) => !nodeIds.has(edge.source.nodeId) || !nodeIds.has(edge.target.nodeId))
+    .map(
+      (edge): WorkflowBranchMergeConflict => ({
+        id: `conflict.edge.endpoint.${edge.id}`,
+        kind: "missing-edge-endpoint",
+        elementKind: "edge",
+        elementId: edge.id,
+        path: ["edges", edge.id],
+        message: `Merged edge '${edge.id}' references a missing source or target node.`,
+        sourceValue: edge as unknown as JsonValue
+      })
+    );
+
+  return {
+    workflow: {
+      ...input.target,
+      prompt: input.source.prompt,
+      nodes: mergedNodes,
+      edges: mergedEdges,
+      approval: null
+    },
+    conflicts: [...nodes.conflicts, ...edges.conflicts, ...endpointConflicts]
+  };
+}
+
+function mergeElements<T extends WorkflowNode | WorkflowEdge>(input: {
+  readonly kind: "node" | "edge";
+  readonly base: ReadonlyMap<string, T>;
+  readonly source: ReadonlyMap<string, T>;
+  readonly target: ReadonlyMap<string, T>;
+  readonly sourceChanges: readonly WorkflowGraphChange[];
+  readonly selectedChangeIds?: ReadonlySet<string> | undefined;
+  readonly resolutions: ReadonlyMap<string, WorkflowBranchMergeResolution>;
+}): { readonly values: readonly T[]; readonly conflicts: readonly WorkflowBranchMergeConflict[] } {
+  const ids = new Set([...input.base.keys(), ...input.source.keys(), ...input.target.keys()]);
+  const values: T[] = [];
+  const conflicts: WorkflowBranchMergeConflict[] = [];
+  for (const id of [...ids].sort()) {
+    const baseValue = input.base.get(id);
+    const sourceValue = sourceValueForMerge(input, id, baseValue);
+    const targetValue = input.target.get(id);
+    const conflict = conflictForElement(input.kind, id, baseValue, sourceValue, targetValue);
+    if (conflict) {
+      const resolution = input.resolutions.get(conflict.id);
+      if (!resolution) {
+        conflicts.push(conflict);
+        if (targetValue) {
+          values.push(targetValue);
+        }
+        continue;
+      }
+      const resolved = resolveConflictValue(resolution, conflict);
+      if (resolved !== undefined) {
+        values.push(resolved as unknown as T);
+      }
+      continue;
+    }
+
+    const merged = automaticMergeValue(baseValue, sourceValue, targetValue);
+    if (merged !== undefined) {
+      values.push(merged);
+    }
+  }
+  return { values, conflicts };
+}
+
+function sourceValueForMerge<T extends WorkflowNode | WorkflowEdge>(
+  input: {
+    readonly kind: "node" | "edge";
+    readonly base: ReadonlyMap<string, T>;
+    readonly source: ReadonlyMap<string, T>;
+    readonly sourceChanges: readonly WorkflowGraphChange[];
+    readonly selectedChangeIds?: ReadonlySet<string> | undefined;
+  },
+  id: string,
+  baseValue: T | undefined
+): T | undefined {
+  if (!input.selectedChangeIds) {
+    return input.source.get(id);
+  }
+  const selected = input.sourceChanges.some(
+    (change) =>
+      change.elementId === id &&
+      change.kind.startsWith(input.kind) &&
+      input.selectedChangeIds?.has(change.id)
+  );
+  return selected ? input.source.get(id) : baseValue;
+}
+
+function automaticMergeValue<T>(
+  baseValue: T | undefined,
+  sourceValue: T | undefined,
+  targetValue: T | undefined
+): T | undefined {
+  if (sameJson(sourceValue, baseValue)) {
+    return targetValue;
+  }
+  if (sameJson(targetValue, baseValue) || sameJson(sourceValue, targetValue)) {
+    return sourceValue;
+  }
+  return targetValue;
+}
+
+function conflictForElement<T extends WorkflowNode | WorkflowEdge>(
+  elementKind: "node" | "edge",
+  id: string,
+  baseValue: T | undefined,
+  sourceValue: T | undefined,
+  targetValue: T | undefined
+): WorkflowBranchMergeConflict | undefined {
+  if (
+    sameJson(sourceValue, baseValue) ||
+    sameJson(targetValue, baseValue) ||
+    sameJson(sourceValue, targetValue)
+  ) {
+    return undefined;
+  }
+  const sourceDeleted = sourceValue === undefined && baseValue !== undefined;
+  const targetDeleted = targetValue === undefined && baseValue !== undefined;
+  const bothAdded =
+    baseValue === undefined && sourceValue !== undefined && targetValue !== undefined;
+  const kind = bothAdded
+    ? "add-add-id-collision"
+    : sourceDeleted || targetDeleted
+      ? "delete-edit"
+      : classifyMergeConflict(baseValue, sourceValue, targetValue);
+  return {
+    id: `conflict.${elementKind}.${kind}.${id}`,
+    kind,
+    elementKind,
+    elementId: id,
+    path: [elementKind === "node" ? "nodes" : "edges", id],
+    message: `Branch ${elementKind} '${id}' has conflicting ${kind.replace(/-/gu, " ")} changes.`,
+    baseValue: baseValue as unknown as JsonValue,
+    sourceValue: sourceValue as unknown as JsonValue,
+    targetValue: targetValue as unknown as JsonValue
+  };
+}
+
+function classifyMergeConflict<T extends WorkflowNode | WorkflowEdge>(
+  baseValue: T | undefined,
+  sourceValue: T | undefined,
+  targetValue: T | undefined
+): WorkflowBranchMergeConflict["kind"] {
+  if (isWorkflowNode(baseValue) || isWorkflowNode(sourceValue) || isWorkflowNode(targetValue)) {
+    const sourceNode = isWorkflowNode(sourceValue) ? sourceValue : undefined;
+    const targetNode = isWorkflowNode(targetValue) ? targetValue : undefined;
+    if (!sameJson(sourceNode?.codegen, targetNode?.codegen)) {
+      return "codegen-drift";
+    }
+    if (!sameJson(sourceNode?.runtime, targetNode?.runtime)) {
+      return "runtime-drift";
+    }
+    if (
+      !sameJson(sourceNode?.inputs, targetNode?.inputs) ||
+      !sameJson(sourceNode?.outputs, targetNode?.outputs)
+    ) {
+      return "schema-drift";
+    }
+  }
+  return "both-edited";
+}
+
+function resolveConflictValue(
+  resolution: WorkflowBranchMergeResolution,
+  conflict: WorkflowBranchMergeConflict
+): JsonValue | undefined {
+  if (resolution.choice === "manual") {
+    return resolution.value;
+  }
+  return resolution.choice === "source" ? conflict.sourceValue : conflict.targetValue;
+}
+
+function isWorkflowNode(value: unknown): value is WorkflowNode {
+  return typeof value === "object" && value !== null && "kind" in value && "runtime" in value;
+}
+
+function sameJson(left: unknown, right: unknown): boolean {
+  return (
+    stableJsonStringify((left ?? null) as never) === stableJsonStringify((right ?? null) as never)
+  );
+}
+
+function graphDiffToSpecDiff(before: WorkflowSpec, after: WorkflowSpec) {
+  return createWorkflowSpecDiff(before, after);
 }
 
 function defaultFixturePayload(

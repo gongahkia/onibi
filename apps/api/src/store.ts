@@ -20,6 +20,7 @@ import type {
   WorkflowApprovedRevision,
   WorkflowAuditRecord,
   WorkflowBranch,
+  WorkflowBranchMergeRecord,
   WorkflowDraftEvaluation,
   WorkflowDraftRevision,
   WorkflowDraftRevisionSource,
@@ -87,6 +88,8 @@ export interface WorkflowStore {
   listBranches(workflowId: string): readonly WorkflowBranch[];
   savePromptTurn(record: WorkflowPromptTurn): WorkflowPromptTurn;
   listPromptTurns(workflowId: string, branchId?: string | undefined): readonly WorkflowPromptTurn[];
+  saveBranchMerge(record: WorkflowBranchMergeRecord): WorkflowBranchMergeRecord;
+  listBranchMerges(workflowId: string): readonly WorkflowBranchMergeRecord[];
   getWorkflow(id: string): StoredWorkflow | undefined;
   approveWorkflow(
     workflowId: string,
@@ -166,6 +169,7 @@ export class InMemoryWorkflowStore implements WorkflowStore {
   protected readonly approvedRevisions = new Map<string, WorkflowApprovedRevision>();
   protected readonly branches = new Map<string, WorkflowBranch>();
   protected readonly promptTurns = new Map<string, WorkflowPromptTurn>();
+  protected readonly branchMerges = new Map<string, WorkflowBranchMergeRecord>();
   protected readonly executions = new Map<string, StoredExecution>();
   protected readonly runs = new Map<string, WorkflowRunRecord>();
   protected readonly audits = new Map<string, WorkflowAuditRecord>();
@@ -339,6 +343,20 @@ export class InMemoryWorkflowStore implements WorkflowStore {
         (turn) =>
           turn.workflowId === workflowId && (branchId === undefined || turn.branchId === branchId)
       )
+      .sort(
+        (left, right) =>
+          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
+      );
+  }
+
+  public saveBranchMerge(record: WorkflowBranchMergeRecord): WorkflowBranchMergeRecord {
+    this.branchMerges.set(record.id, record);
+    return record;
+  }
+
+  public listBranchMerges(workflowId: string): readonly WorkflowBranchMergeRecord[] {
+    return [...this.branchMerges.values()]
+      .filter((merge) => merge.workflowId === workflowId)
       .sort(
         (left, right) =>
           left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
@@ -895,6 +913,17 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
     return saved;
   }
 
+  public override saveBranchMerge(record: WorkflowBranchMergeRecord): WorkflowBranchMergeRecord {
+    const saved = super.saveBranchMerge(record);
+    this.runSql(
+      [
+        "INSERT OR REPLACE INTO workflow_branch_merges (id, workflow_id, source_branch_id, target_branch_id, created_at, record_json)",
+        `VALUES (${sqlValue(saved.id)}, ${sqlValue(saved.workflowId)}, ${sqlValue(saved.sourceBranchId)}, ${sqlValue(saved.targetBranchId)}, ${sqlValue(saved.createdAt)}, ${sqlValue(stableStringify(saved))});`
+      ].join(" ")
+    );
+    return saved;
+  }
+
   public override approveWorkflow(
     workflowId: string,
     approvedBy: string,
@@ -1220,6 +1249,11 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
     )) {
       this.promptTurns.set(row.id, parseJson(row.record_json));
     }
+    for (const row of this.queryRows<RecordJsonRow>(
+      "SELECT * FROM workflow_branch_merges ORDER BY created_at, id;"
+    )) {
+      this.branchMerges.set(row.id, parseJson(row.record_json));
+    }
 
     for (const row of this.queryRows<ExecutionRow>(
       "SELECT * FROM executions ORDER BY created_at, id;"
@@ -1507,6 +1541,14 @@ const sqliteMigrations = [
     id TEXT PRIMARY KEY,
     workflow_id TEXT NOT NULL,
     branch_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+  );`,
+  `CREATE TABLE IF NOT EXISTS workflow_branch_merges (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    source_branch_id TEXT NOT NULL,
+    target_branch_id TEXT NOT NULL,
     created_at TEXT NOT NULL,
     record_json TEXT NOT NULL
   );`,
