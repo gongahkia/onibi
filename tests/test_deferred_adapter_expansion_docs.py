@@ -28,6 +28,20 @@ def test_bloodhound_import_gate_stays_parked_without_real_exports() -> None:
     assert "docs/bloodhound-import-gate.md" in readme
 
 
+def test_netexec_crackmapexec_gate_blocks_live_credential_actions() -> None:
+    text = (ROOT / "docs" / "netexec-crackmapexec-import-gate.md").read_text(
+        encoding="utf-8"
+    )
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "Status: parked behind redacted real output fixtures." in text
+    assert "real JSON output, structured log output, or terminal transcript" in text
+    assert "hashes, passwords, tickets, tokens" in text
+    assert "It must never run NetExec or CrackMapExec" in text
+    assert "Credential validation or spraying" in text
+    assert "docs/netexec-crackmapexec-import-gate.md" in readme
+
+
 def test_known_limitations_link_deferred_adapter_expansion() -> None:
     payload = json.loads((ROOT / "docs" / "known-limitations.json").read_text(encoding="utf-8"))
     limitation = next(item for item in payload["limitations"] if item["id"] == "KL-001")
