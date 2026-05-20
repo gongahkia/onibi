@@ -25,6 +25,9 @@ Current product boundaries are tracked in [`docs/non-goals.md`](non-goals.md).
 | Pentest report rendering | Alpha | JSON, Markdown, WeasyPrint PDF, and ReportLab PDF. |
 | Red-team handoff rendering | Alpha | JSON, Markdown, PDF, and archive ZIP with report artifacts plus workspace indexes; raw evidence is opt-in. |
 | Chain of custody | Alpha | Local manifest creation and verification for workspace artifacts and audit chain. |
+| Piranesi Finding Format v0 | Alpha | Public finding interchange with JSON Schema, validation, workspace export/import, fixture validation, and versioning rules. |
+| Python adapter SDK v0 | Alpha | Helpers for third-party adapters to emit valid PFF documents without mutating workspaces directly. |
+| Plugin security boundary | Accepted design | Out-of-process, validation-first plugin model; executable plugin runtime and registry mechanics remain deferred. |
 | Opt-in rescan replay | Alpha | `piranesi rescan --from-baseline` recovers supported nmap/nuclei commands from baseline evidence, requires optional runtime support and digest-pinned images, and writes raw outputs for existing ingest commands. |
 | Retest lifecycle diff | Alpha | `new`, `open`, `closed`, `changed`, `regressed`, and `ambiguous` classifications. |
 | Local web app | Alpha | `piranesi serve --workspace`; loopback by default, engagement setup, guided empty states, note capture, evidence file upload, and workspace/report preview. |
@@ -47,7 +50,10 @@ features until their own acceptance criteria are complete:
   when Docker default networking is used without portable egress enforcement.
 - Engagement-scale design-partner feedback loops.
 - Audit evidence packaging and assessor-ready bundles.
-- Workflow integrations, PFF SDKs, and enterprise deployment.
+- Workflow integrations beyond the current one-way handoff paths and enterprise
+  deployment.
+- Go/TypeScript adapter SDKs, marketplace or registry mechanics, and executable
+  plugin runtime.
 - Autonomous AI-driven target interaction, payload generation, scanner operation,
   finding creation, evidence creation, or report changes without explicit human
   approval.
