@@ -46,6 +46,7 @@ import type {
   WorkflowApproveRequest,
   WorkflowApproveResponse,
   WorkflowEventSeverity,
+  WorkflowDraftEvaluation,
   WorkflowFeedbackRequest,
   WorkflowFeedbackResponse,
   WorkflowJob,
@@ -195,6 +196,8 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
   const artifactStore = options.artifactStore ?? new LocalCodegenArtifactStore();
   const planner = options.planner ?? createPlannerBackendFromEnv({ artifactStore });
   const runner = options.runner;
+  recoverInterruptedJobs(store);
+  const jobSupervisor = new ApiJobSupervisor(store);
   const adminToken =
     options.adminToken === undefined ? process.env.KELPCLAW_ADMIN_TOKEN : options.adminToken;
 
@@ -344,26 +347,11 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       }
 
       const now = new Date().toISOString();
-      const cancelled =
-        job.status === "succeeded" || job.status === "failed" || job.status === "cancelled"
-          ? job
-          : store.saveJob({
-              ...job,
-              status: "cancelled",
-              updatedAt: now,
-              finishedAt: now,
-              cancelledAt: now,
-              cancellationReason: request.body.reason ?? "Cancelled by API request."
-            });
-      const withEvent =
-        cancelled.events.at(-1)?.message === "Job cancelled."
-          ? cancelled
-          : store.appendJobEvent(
-              cancelled.id,
-              createJobEvent(cancelled, "error", "Job cancelled.", {
-                reason: request.body.reason ?? "Cancelled by API request."
-              })
-            );
+      const withEvent = jobSupervisor.cancelJob(
+        job.id,
+        request.body.reason ?? "Cancelled by API request.",
+        now
+      );
 
       return {
         ok: true,
@@ -516,23 +504,40 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         provider: process.env.KELPCLAW_PLANNER_PROVIDER ?? "anthropic",
         model: process.env.KELPCLAW_PLANNER_MODEL
       });
-      updateRequestJob(store, request, "running", "Planning workflow.", {
-        route: route.route
-      });
+      updateRequestJob(
+        store,
+        request,
+        "running",
+        "Planning workflow.",
+        {
+          route: route.route
+        },
+        jobSupervisor
+      );
       let workflow: WorkflowSpec;
       try {
+        throwIfRequestJobCancelled(store, jobSupervisor, request);
         const routedPlanner =
           route.requiredModel.mode === "none"
             ? createDeterministicPlannerBackend({ artifactStore })
             : planner;
         workflow = await planWorkflowDraft(request.body, routedPlanner);
+        throwIfRequestJobCancelled(store, jobSupervisor, request);
       } catch (error) {
-        updateRequestJob(store, request, "failed", "Workflow planning failed.", {
-          route: route.route
-        });
+        const cancelled = error instanceof JobCancelledError;
+        updateRequestJob(
+          store,
+          request,
+          cancelled ? "cancelled" : "failed",
+          cancelled ? error.message : "Workflow planning failed.",
+          {
+            route: route.route
+          },
+          jobSupervisor
+        );
         return reply.code(503).send({
           ok: false,
-          error: "PLANNER_BACKEND_UNAVAILABLE",
+          error: cancelled ? "JOB_CANCELLED" : "PLANNER_BACKEND_UNAVAILABLE",
           message:
             error instanceof Error
               ? redactSecretString(error.message)
@@ -580,10 +585,17 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         summary: "Planned workflow draft revision.",
         secretRefs: collectSecretRefs(draftRevision.workflow)
       });
-      updateRequestJob(store, request, "succeeded", "Workflow planning completed.", {
-        workflowId: draftRevision.workflowId,
-        draftRevisionId: draftRevision.id
-      });
+      updateRequestJob(
+        store,
+        request,
+        "succeeded",
+        "Workflow planning completed.",
+        {
+          workflowId: draftRevision.workflowId,
+          draftRevisionId: draftRevision.id
+        },
+        jobSupervisor
+      );
 
       return {
         ok: true,
@@ -712,9 +724,29 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
 
     const correlationId = correlationIdForRequest(request);
     const now = new Date().toISOString();
-    updateRequestJob(store, request, "running", "Generating planner feedback.", {
-      workflowId: request.params.id
-    });
+    updateRequestJob(
+      store,
+      request,
+      "running",
+      "Generating planner feedback.",
+      {
+        workflowId: request.params.id
+      },
+      jobSupervisor
+    );
+    try {
+      throwIfRequestJobCancelled(store, jobSupervisor, request);
+    } catch (error) {
+      if (error instanceof JobCancelledError) {
+        updateRequestJob(store, request, "cancelled", error.message, undefined, jobSupervisor);
+        return reply.code(409).send({
+          ok: false,
+          error: "JOB_CANCELLED",
+          message: error.message
+        } as never);
+      }
+      throw error;
+    }
     const graphDiff = store.saveGraphDiff(
       createWorkflowGraphDiff({
         id: `graphdiff.${request.params.id}.${Date.now()}.${randomUUID()}`,
@@ -758,11 +790,18 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         status: feedback.status
       }
     });
-    updateRequestJob(store, request, "succeeded", "Planner feedback completed.", {
-      graphDiffId: graphDiff.id,
-      feedbackId: feedback.id,
-      status: feedback.status
-    });
+    updateRequestJob(
+      store,
+      request,
+      "succeeded",
+      "Planner feedback completed.",
+      {
+        graphDiffId: graphDiff.id,
+        feedbackId: feedback.id,
+        status: feedback.status
+      },
+      jobSupervisor
+    );
 
     return {
       ok: true,
@@ -793,23 +832,46 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       }
 
       const correlationId = correlationIdForRequest(request);
-      updateRequestJob(store, request, "running", "Draft evaluation started.", {
-        workflowId: workflow.id
-      });
-      const validation = validateWorkflowSpec(workflow);
-      const draftRevision = validation.ok
-        ? store.saveDraftRevision(validation.workflow, validation, "validate")
-        : store.getLatestDraftRevision(workflow.id);
-      const evaluation = store.saveDraftEvaluation(
-        await evaluateDraftWorkflow(workflow, {
-          draftRevisionId: draftRevision?.id,
-          jobId: requestJobId(request),
-          codegenArtifactStore: artifactStore,
-          runGeneratedNodesInDocker: process.env.NANOCLAW_DRAFT_DOCKER === "1",
-          dockerBin: process.env.NANOCLAW_DOCKER_BIN,
-          hostWorkspace: process.env.NANOCLAW_HOST_WORKSPACE ?? process.cwd()
-        })
+      updateRequestJob(
+        store,
+        request,
+        "running",
+        "Draft evaluation started.",
+        {
+          workflowId: workflow.id
+        },
+        jobSupervisor
       );
+      let evaluation: WorkflowDraftEvaluation;
+      let draftRevision: ReturnType<WorkflowStore["getLatestDraftRevision"]>;
+      try {
+        throwIfRequestJobCancelled(store, jobSupervisor, request);
+        const validation = validateWorkflowSpec(workflow);
+        draftRevision = validation.ok
+          ? store.saveDraftRevision(validation.workflow, validation, "validate")
+          : store.getLatestDraftRevision(workflow.id);
+        evaluation = store.saveDraftEvaluation(
+          await evaluateDraftWorkflow(workflow, {
+            draftRevisionId: draftRevision?.id,
+            jobId: requestJobId(request),
+            codegenArtifactStore: artifactStore,
+            runGeneratedNodesInDocker: process.env.NANOCLAW_DRAFT_DOCKER === "1",
+            dockerBin: process.env.NANOCLAW_DOCKER_BIN,
+            hostWorkspace: process.env.NANOCLAW_HOST_WORKSPACE ?? process.cwd()
+          })
+        );
+        throwIfRequestJobCancelled(store, jobSupervisor, request);
+      } catch (error) {
+        if (error instanceof JobCancelledError) {
+          updateRequestJob(store, request, "cancelled", error.message, undefined, jobSupervisor);
+          return reply.code(409).send({
+            ok: false,
+            error: "JOB_CANCELLED",
+            message: error.message
+          } as never);
+        }
+        throw error;
+      }
       recordAudit(store, {
         action: "draft.evaluated",
         actor: "draft-evaluator",
@@ -831,7 +893,8 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         {
           evaluationId: evaluation.id,
           readyForApproval: evaluation.readyForApproval
-        }
+        },
+        jobSupervisor
       );
 
       return {
@@ -1076,6 +1139,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         nodeId: node.id
       })
     );
+    const jobSignal = jobSupervisor.startJob(runningJob.id);
     const workspace = store.saveWorkspace(
       createWorkflowWorkspace({
         jobId: runningJob.id,
@@ -1094,6 +1158,9 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         : undefined
     });
     try {
+      if (jobSignal?.aborted || jobSupervisor.isCancelled(runningJob.id)) {
+        throw new JobCancelledError(runningJob.id);
+      }
       const result = await buildLoop.build({
         workflowId: stored.workflow.id,
         nodeId: node.id,
@@ -1111,6 +1178,9 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         maxModelCostUsd: request.body.maxModelCostUsd ?? 2,
         runTestsInDocker: request.body.runTestsInDocker ?? false
       });
+      if (jobSignal?.aborted || jobSupervisor.isCancelled(runningJob.id)) {
+        throw new JobCancelledError(runningJob.id);
+      }
       const buildArtifacts = [
         result.designSpecArtifact,
         result.generation.sourceArtifact,
@@ -1200,9 +1270,18 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         draftRevision.createdAt
       );
       const finishedAt = new Date().toISOString();
+      const currentJob = store.getJob(runningJob.id) ?? runningJob;
+      if (isTerminalJobStatus(currentJob.status)) {
+        return reply.code(currentJob.status === "cancelled" ? 409 : 500).send({
+          ok: false,
+          error: currentJob.status === "cancelled" ? "JOB_CANCELLED" : "CODEGEN_BUILD_FAILED",
+          message:
+            currentJob.error ?? currentJob.cancellationReason ?? "Codegen build did not complete."
+        });
+      }
       const completedJob = store.appendJobEvent(
         store.saveJob({
-          ...runningJob,
+          ...currentJob,
           status: "succeeded",
           workspaceId: workspace.id,
           updatedAt: finishedAt,
@@ -1236,9 +1315,22 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       };
     } catch (error) {
       const finishedAt = new Date().toISOString();
+      const currentJob = store.getJob(runningJob.id) ?? runningJob;
+      if (error instanceof JobCancelledError || currentJob.status === "cancelled") {
+        const cancelled = jobSupervisor.cancelJob(
+          runningJob.id,
+          error instanceof Error ? error.message : "Codegen build cancelled.",
+          finishedAt
+        );
+        return reply.code(409).send({
+          ok: false,
+          error: "JOB_CANCELLED",
+          message: cancelled.cancellationReason ?? "Codegen build cancelled."
+        });
+      }
       const failedJob = store.appendJobEvent(
         store.saveJob({
-          ...runningJob,
+          ...currentJob,
           status: "failed",
           updatedAt: finishedAt,
           finishedAt,
@@ -1253,6 +1345,8 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         error: "CODEGEN_BUILD_FAILED",
         message: failedJob.error ?? "Codegen build failed."
       });
+    } finally {
+      jobSupervisor.finishJob(runningJob.id);
     }
   });
 
@@ -1436,14 +1530,42 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
 
     try {
       const correlationId = correlationIdForRequest(request);
+      updateRequestJob(
+        store,
+        request,
+        "running",
+        "Workflow run started.",
+        {
+          approvedRevisionId: approvedRevision.id
+        },
+        jobSupervisor
+      );
+      try {
+        throwIfRequestJobCancelled(store, jobSupervisor, request);
+      } catch (error) {
+        if (error instanceof JobCancelledError) {
+          updateRequestJob(store, request, "cancelled", error.message, undefined, jobSupervisor);
+          return reply.code(409).send({
+            ok: false,
+            error: "JOB_CANCELLED",
+            message: error.message
+          } as never);
+        }
+        throw error;
+      }
       const runId = `run.${approvedRevision.workflowId}.r${approvedRevision.revision}.${Date.now()}`;
       const dag = compileWorkflowDag(approvedRevision.workflow);
       const compiledAt = new Date().toISOString();
+      const signal = requestJobId(request)
+        ? jobSupervisor.signalFor(requestJobId(request) ?? "")
+        : undefined;
       const result = await executeCompiledDag(dag, runner ?? createNanoClawRunner(), {
         codegenArtifactStore: artifactStore,
         runId,
-        secretResolver: new SecretStoreResolver(secretStore)
+        secretResolver: new SecretStoreResolver(secretStore),
+        signal
       });
+      throwIfRequestJobCancelled(store, jobSupervisor, request);
       const now = new Date().toISOString();
       const events = enrichRunEvents(
         [
@@ -1486,13 +1608,40 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         run,
         correlationId
       );
+      updateRequestJob(
+        store,
+        request,
+        result.status === "succeeded" ? "succeeded" : "failed",
+        "Workflow run completed.",
+        {
+          runId: run.id,
+          status: result.status
+        },
+        jobSupervisor
+      );
 
       return reply.code(202).send({
         ok: true,
         run
       });
     } catch (error) {
+      if (error instanceof JobCancelledError) {
+        updateRequestJob(store, request, "cancelled", error.message, undefined, jobSupervisor);
+        return reply.code(409).send({
+          ok: false,
+          error: "JOB_CANCELLED",
+          message: error.message
+        } as never);
+      }
       if (error instanceof WorkflowValidationError) {
+        updateRequestJob(
+          store,
+          request,
+          "failed",
+          "Workflow run failed validation.",
+          undefined,
+          jobSupervisor
+        );
         return reply.code(409).send({
           ok: false,
           error: "WORKFLOW_APPROVAL_REQUIRED",
@@ -1685,6 +1834,18 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       }
 
       const correlationId = correlationIdForRequest(request);
+      updateRequestJob(
+        store,
+        request,
+        "running",
+        "Workflow deployment started.",
+        {
+          approvedRevisionId: approvedRevision.id,
+          kind: request.body.kind
+        },
+        jobSupervisor
+      );
+      throwIfRequestJobCancelled(store, jobSupervisor, request);
       const audit = recordAudit(store, {
         action: "deployment.created",
         actor: request.body.createdBy,
@@ -1707,6 +1868,17 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
           auditRecordId: audit.id,
           metadata: request.body.metadata ?? {}
         })
+      );
+      updateRequestJob(
+        store,
+        request,
+        "succeeded",
+        "Workflow deployment completed.",
+        {
+          deploymentId: deployment.id,
+          status: deployment.status
+        },
+        jobSupervisor
       );
 
       return reply.code(201).send({
@@ -2223,12 +2395,132 @@ function createJobEvent(
   };
 }
 
+class JobCancelledError extends Error {
+  public constructor(jobId: string) {
+    super(`Job '${jobId}' was cancelled.`);
+    this.name = "JobCancelledError";
+  }
+}
+
+class ApiJobSupervisor {
+  private readonly active = new Map<string, AbortController>();
+
+  public constructor(private readonly store: WorkflowStore) {}
+
+  public startJob(jobId: string): AbortSignal | undefined {
+    const job = this.store.getJob(jobId);
+    if (!job || isTerminalJobStatus(job.status)) {
+      return undefined;
+    }
+
+    const existing = this.active.get(jobId);
+    if (existing) {
+      return existing.signal;
+    }
+
+    const controller = new AbortController();
+    this.active.set(jobId, controller);
+    return controller.signal;
+  }
+
+  public signalFor(jobId: string): AbortSignal | undefined {
+    return this.active.get(jobId)?.signal;
+  }
+
+  public finishJob(jobId: string): void {
+    this.active.delete(jobId);
+  }
+
+  public isCancelled(jobId: string): boolean {
+    const job = this.store.getJob(jobId);
+    return job?.status === "cancelled" || this.active.get(jobId)?.signal.aborted === true;
+  }
+
+  public cancelJob(
+    jobId: string,
+    reason: string,
+    cancelledAt = new Date().toISOString()
+  ): WorkflowJob {
+    const job = this.store.getJob(jobId);
+    if (!job) {
+      throw new Error(`Unknown job '${jobId}'.`);
+    }
+    const controller = this.active.get(jobId);
+    if (controller && !controller.signal.aborted) {
+      controller.abort(new JobCancelledError(jobId));
+    }
+
+    if (isTerminalJobStatus(job.status)) {
+      return job;
+    }
+
+    const cancelled = this.store.saveJob({
+      ...job,
+      status: "cancelled",
+      updatedAt: cancelledAt,
+      finishedAt: cancelledAt,
+      cancelledAt,
+      cancellationReason: reason
+    });
+    const withEvent =
+      cancelled.events.at(-1)?.message === "Job cancelled."
+        ? cancelled
+        : this.store.appendJobEvent(
+            cancelled.id,
+            createJobEvent(cancelled, "error", "Job cancelled.", { reason })
+          );
+    this.finishJob(jobId);
+    return withEvent;
+  }
+}
+
+function recoverInterruptedJobs(store: WorkflowStore): void {
+  const now = new Date().toISOString();
+  for (const job of store.listJobs()) {
+    if (job.status !== "running") {
+      continue;
+    }
+    const failed = store.saveJob({
+      ...job,
+      status: "failed",
+      updatedAt: now,
+      finishedAt: now,
+      error: "API restarted before this running job completed.",
+      retry: {
+        ...job.retry,
+        retryable: true
+      }
+    });
+    store.appendJobEvent(
+      failed.id,
+      createJobEvent(failed, "error", "Running job was interrupted by API restart.", {
+        retryable: true
+      })
+    );
+  }
+}
+
+function throwIfRequestJobCancelled(
+  store: WorkflowStore,
+  supervisor: ApiJobSupervisor,
+  request: FastifyRequest
+): void {
+  const jobId = requestJobId(request);
+  if (!jobId) {
+    return;
+  }
+  if (supervisor.isCancelled(jobId) || store.getJob(jobId)?.status === "cancelled") {
+    throw new JobCancelledError(jobId);
+  }
+}
+
 function updateRequestJob(
   store: WorkflowStore,
   request: FastifyRequest,
   status: WorkflowJob["status"],
   message: string,
-  metadata?: JsonRecord | undefined
+  metadata?: JsonRecord | undefined,
+  supervisor?: ApiJobSupervisor | undefined
 ): WorkflowJob | undefined {
   const jobIdHeader = request.headers["x-kelpclaw-job-id"];
   const jobId = Array.isArray(jobIdHeader) ? jobIdHeader[0] : jobIdHeader;
@@ -2246,12 +2538,25 @@ function updateRequestJob(
     status,
     updatedAt: now,
     ...(status === "running" && !job.startedAt ? { startedAt: now } : {}),
-    ...(isTerminalJobStatus(status) ? { finishedAt: now } : {})
+    ...(isTerminalJobStatus(status) ? { finishedAt: now } : {}),
+    ...(status === "cancelled" ? { cancelledAt: now, cancellationReason: message } : {})
   });
+
+  if (status === "running") {
+    supervisor?.startJob(updated.id);
+  }
+  if (isTerminalJobStatus(status)) {
+    supervisor?.finishJob(updated.id);
+  }
 
   return store.appendJobEvent(
     updated.id,
-    createJobEvent(updated, status === "failed" ? "error" : "info", message, metadata)
+    createJobEvent(
+      updated,
+      status === "failed" || status === "cancelled" ? "error" : "info",
+      message,
+      metadata
+    )
   );
 }
 
