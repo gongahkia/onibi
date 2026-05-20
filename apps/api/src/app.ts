@@ -49,16 +49,24 @@ import type {
   WorkflowAcceptPlanResponse,
   WorkflowApproveRequest,
   WorkflowApproveResponse,
+  WorkflowBranchPlanRequest,
+  WorkflowBranchPlanResponse,
+  WorkflowBranchRepromptNodeRequest,
+  WorkflowBranchRepromptNodeResponse,
   WorkflowEventSeverity,
+  WorkflowCreateBranchRequest,
+  WorkflowCreateBranchResponse,
   WorkflowDraftEvaluation,
   WorkflowFeedbackRequest,
   WorkflowFeedbackResponse,
+  WorkflowGetBranchResponse,
   WorkflowJob,
   WorkflowJobEvent,
   WorkflowJobType,
   WorkflowCodegenArtifactRef,
   WorkflowDeploymentKind,
   WorkflowDeploymentRecord,
+  WorkflowListBranchesResponse,
   WorkflowNode,
   WorkflowObservabilityEventKind,
   WorkflowPlanRequest,
@@ -91,13 +99,17 @@ import {
   createOAuthState,
   secretReadiness
 } from "./secrets.js";
-import { InMemoryWorkflowStore, SqliteWorkflowStore } from "./store.js";
+import { InMemoryWorkflowStore, SqliteWorkflowStore, defaultBranchId } from "./store.js";
 import type { SecretStore } from "./secrets.js";
 import type { RevisionInput, WorkflowStore } from "./store.js";
 import type { WorkflowPlannerBackend } from "./planner.js";
 
 interface RouteParamsWithId {
   readonly id: string;
+}
+
+interface BranchRouteParams extends RouteParamsWithId {
+  readonly branchId: string;
 }
 
 interface CodegenRouteParams extends RouteParamsWithId {
@@ -687,6 +699,448 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     }
 
     return stored;
+  });
+
+  app.post<{
+    Params: RouteParamsWithId;
+    Body: WorkflowCreateBranchRequest;
+    Reply: WorkflowCreateBranchResponse;
+  }>("/api/workflows/:id/branches", async (request, reply) => {
+    const stored = store.getWorkflow(request.params.id);
+    if (!stored) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_NOT_FOUND",
+        message: `Workflow '${request.params.id}' was not found.`
+      } as never);
+    }
+
+    const sourceBranch = request.body.fromBranchId
+      ? store.getBranch(request.body.fromBranchId)
+      : store.getDefaultBranch(request.params.id);
+    if (!sourceBranch || sourceBranch.workflowId !== request.params.id) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_BRANCH_NOT_FOUND",
+        message: `Source branch was not found for workflow '${request.params.id}'.`
+      } as never);
+    }
+
+    const sourceDraft = request.body.fromDraftRevisionId
+      ? store.getDraftRevision(request.body.fromDraftRevisionId)
+      : store.getDraftRevision(sourceBranch.headDraftRevisionId);
+    if (!sourceDraft || sourceDraft.workflowId !== request.params.id) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_DRAFT_NOT_FOUND",
+        message: `Source draft was not found for workflow '${request.params.id}'.`
+      } as never);
+    }
+
+    const branchId = `branch.${request.params.id}.${slugify(request.body.name)}.${randomUUID()}`;
+    const draftRevision = store.saveDraftRevision(
+      sourceDraft.workflow,
+      sourceDraft.validation,
+      "branch-fork",
+      {
+        branchId,
+        force: true,
+        preserveRevision: true,
+        parentDraftRevisionId: sourceDraft.id,
+        updateBranchHead: false
+      }
+    );
+    const now = draftRevision.createdAt;
+    const branch = store.saveBranch({
+      id: branchId,
+      workflowId: request.params.id,
+      name: request.body.name,
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+      createdBy: request.body.createdBy,
+      parentBranchId: sourceBranch.id,
+      baseDraftRevisionId: sourceDraft.id,
+      headDraftRevisionId: draftRevision.id,
+      metadata: {
+        forkedFromBranchId: sourceBranch.id
+      }
+    });
+    store.savePromptTurn({
+      id: `prompt-turn.${branch.id}.${Date.now()}.${randomUUID()}`,
+      workflowId: request.params.id,
+      branchId: branch.id,
+      source: "edit",
+      prompt: sourceDraft.workflow.prompt,
+      actor: request.body.createdBy,
+      createdAt: now,
+      baseDraftRevisionId: sourceDraft.id,
+      resultingDraftRevisionId: draftRevision.id,
+      metadata: {
+        action: "branch-fork"
+      }
+    });
+    recordAudit(store, {
+      action: "branch.created",
+      actor: request.body.createdBy,
+      workflowId: request.params.id,
+      branchId: branch.id,
+      revisionId: draftRevision.id,
+      correlationId: correlationIdForRequest(request),
+      summary: `Created workflow branch '${branch.name}'.`,
+      metadata: {
+        sourceBranchId: sourceBranch.id,
+        sourceDraftRevisionId: sourceDraft.id
+      }
+    });
+
+    return reply.code(201).send({
+      ok: true,
+      branch,
+      draftRevision
+    });
+  });
+
+  app.get<{
+    Params: RouteParamsWithId;
+    Reply: WorkflowListBranchesResponse;
+  }>("/api/workflows/:id/branches", async (request, reply) => {
+    if (!store.getWorkflow(request.params.id)) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_NOT_FOUND",
+        message: `Workflow '${request.params.id}' was not found.`
+      } as never);
+    }
+    return {
+      ok: true,
+      branches: store.listBranches(request.params.id)
+    };
+  });
+
+  app.get<{
+    Params: BranchRouteParams;
+    Reply: WorkflowGetBranchResponse;
+  }>("/api/workflows/:id/branches/:branchId", async (request, reply) => {
+    const branch = store.getBranch(request.params.branchId);
+    if (!branch || branch.workflowId !== request.params.id) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_BRANCH_NOT_FOUND",
+        message: `Branch '${request.params.branchId}' was not found for workflow '${request.params.id}'.`
+      } as never);
+    }
+    const headDraftRevision = store.getDraftRevision(branch.headDraftRevisionId);
+    if (!headDraftRevision) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_DRAFT_NOT_FOUND",
+        message: `Branch head draft '${branch.headDraftRevisionId}' was not found.`
+      } as never);
+    }
+    return {
+      ok: true,
+      branch,
+      headDraftRevision,
+      promptTurns: store.listPromptTurns(request.params.id, branch.id)
+    };
+  });
+
+  app.post<{
+    Params: BranchRouteParams;
+    Body: WorkflowBranchPlanRequest;
+    Reply: WorkflowBranchPlanResponse;
+  }>("/api/workflows/:id/branches/:branchId/plan", async (request, reply) => {
+    const branch = store.getBranch(request.params.branchId);
+    const headDraft = branch ? store.getDraftRevision(branch.headDraftRevisionId) : undefined;
+    if (!branch || branch.workflowId !== request.params.id || !headDraft) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_BRANCH_NOT_FOUND",
+        message: `Branch '${request.params.branchId}' was not found for workflow '${request.params.id}'.`
+      } as never);
+    }
+
+    const correlationId = correlationIdForRequest(request);
+    const planRequest: WorkflowPlanRequest = {
+      ...request.body,
+      currentWorkflow: request.body.currentWorkflow ?? headDraft.workflow
+    };
+    const route = routeWorkflowTask(planRequest, {
+      correlationId,
+      provider: process.env.KELPCLAW_PLANNER_PROVIDER ?? "anthropic",
+      model: process.env.KELPCLAW_PLANNER_MODEL
+    });
+    const routedPlanner =
+      route.requiredModel.mode === "none"
+        ? createDeterministicPlannerBackend({ artifactStore })
+        : planner;
+    let workflow: WorkflowSpec;
+    try {
+      workflow = await planWorkflowDraft(planRequest, routedPlanner);
+    } catch (error) {
+      return reply.code(503).send({
+        ok: false,
+        error: "PLANNER_BACKEND_UNAVAILABLE",
+        message:
+          error instanceof Error
+            ? redactSecretString(error.message)
+            : "Planner backend is unavailable."
+      } as never);
+    }
+    const validation = validateWorkflowSpec(workflow);
+    if (!validation.ok) {
+      return reply.code(500).send({
+        ok: false,
+        error: "PLANNER_GENERATED_INVALID_WORKFLOW",
+        message: validation.errors.map((error) => error.code).join(", "),
+        validation
+      } as never);
+    }
+
+    const draftRevision = store.saveDraftRevision(validation.workflow, validation, "branch-plan", {
+      branchId: branch.id,
+      force: true,
+      parentDraftRevisionId: headDraft.id
+    });
+    const updatedBranch = store.saveBranch({
+      ...branch,
+      headDraftRevisionId: draftRevision.id,
+      updatedAt: draftRevision.createdAt
+    });
+    persistCodegenArtifactManifests(
+      store,
+      draftRevision.workflow,
+      draftRevision.id,
+      draftRevision.createdAt
+    );
+    const promptTurn = store.savePromptTurn({
+      id: `prompt-turn.${branch.id}.${Date.now()}.${randomUUID()}`,
+      workflowId: request.params.id,
+      branchId: branch.id,
+      source: "plan",
+      prompt: request.body.prompt,
+      actor: request.body.actor ?? "planner",
+      createdAt: draftRevision.createdAt,
+      baseDraftRevisionId: headDraft.id,
+      resultingDraftRevisionId: draftRevision.id,
+      route
+    });
+    recordAudit(store, {
+      action: "task.routed",
+      actor: "router",
+      workflowId: draftRevision.workflowId,
+      branchId: branch.id,
+      revisionId: draftRevision.id,
+      correlationId,
+      summary: `Routed branch workflow task as ${route.route}.`,
+      metadata: jsonRecord({
+        route: route.route,
+        rationale: route.rationale,
+        requiredModel: route.requiredModel,
+        modelInvocations: route.modelInvocations
+      })
+    });
+    recordAudit(store, {
+      action: "workflow.created",
+      actor: "planner",
+      workflowId: draftRevision.workflowId,
+      branchId: branch.id,
+      revisionId: draftRevision.id,
+      correlationId,
+      summary: "Planned branch workflow draft revision.",
+      secretRefs: collectSecretRefs(draftRevision.workflow)
+    });
+
+    return {
+      ok: true,
+      workflow: draftRevision.workflow,
+      draftRevision,
+      validation: draftRevision.validation,
+      route,
+      branch: updatedBranch,
+      promptTurn
+    };
+  });
+
+  app.post<{
+    Params: BranchRouteParams;
+    Body: WorkflowBranchRepromptNodeRequest;
+    Reply: WorkflowBranchRepromptNodeResponse;
+  }>("/api/workflows/:id/branches/:branchId/reprompt-node", async (request, reply) => {
+    const branch = store.getBranch(request.params.branchId);
+    const headDraft = branch ? store.getDraftRevision(branch.headDraftRevisionId) : undefined;
+    const sourceWorkflow = request.body.currentWorkflow ?? headDraft?.workflow;
+    if (!branch || branch.workflowId !== request.params.id || !headDraft || !sourceWorkflow) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_BRANCH_NOT_FOUND",
+        message: `Branch '${request.params.branchId}' was not found for workflow '${request.params.id}'.`
+      } as never);
+    }
+    if (sourceWorkflow.id !== request.params.id) {
+      return reply.code(409).send({
+        ok: false,
+        error: "WORKFLOW_ID_MISMATCH",
+        message: `Workflow id '${sourceWorkflow.id}' does not match route id '${request.params.id}'.`
+      } as never);
+    }
+
+    try {
+      const reprompted = repromptWorkflow(sourceWorkflow, request.body);
+      const validation = validateWorkflowSpec(reprompted.workflow);
+      if (!validation.ok) {
+        return reply.code(422).send({
+          ok: false,
+          error: "WORKFLOW_REPROMPT_INVALID",
+          message: validation.errors.map((error) => error.code).join(", "),
+          validation
+        } as never);
+      }
+
+      const draftRevision = store.saveDraftRevision(
+        validation.workflow,
+        validation,
+        "branch-reprompt",
+        {
+          branchId: branch.id,
+          force: true,
+          parentDraftRevisionId: headDraft.id
+        }
+      );
+      const updatedBranch = store.saveBranch({
+        ...branch,
+        headDraftRevisionId: draftRevision.id,
+        updatedAt: draftRevision.createdAt
+      });
+      persistCodegenArtifactManifests(
+        store,
+        draftRevision.workflow,
+        draftRevision.id,
+        draftRevision.createdAt
+      );
+      const promptTurn = store.savePromptTurn({
+        id: `prompt-turn.${branch.id}.${Date.now()}.${randomUUID()}`,
+        workflowId: request.params.id,
+        branchId: branch.id,
+        source: "reprompt",
+        prompt: request.body.prompt,
+        actor: request.body.actor ?? "planner",
+        createdAt: draftRevision.createdAt,
+        baseDraftRevisionId: headDraft.id,
+        resultingDraftRevisionId: draftRevision.id
+      });
+      recordAudit(store, {
+        action: "workflow.edited",
+        actor: "planner",
+        workflowId: draftRevision.workflowId,
+        branchId: branch.id,
+        revisionId: draftRevision.id,
+        nodeId: request.body.nodeId,
+        correlationId: correlationIdForRequest(request),
+        summary: "Reprompted branch workflow node.",
+        diff: reprompted.diff,
+        secretRefs: collectSecretRefs(draftRevision.workflow)
+      });
+      return {
+        ok: true,
+        workflow: draftRevision.workflow,
+        draftRevision,
+        validation: draftRevision.validation,
+        before: reprompted.before,
+        after: reprompted.after,
+        diff: reprompted.diff,
+        branch: updatedBranch,
+        promptTurn
+      };
+    } catch (error) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_NODE_NOT_FOUND",
+        message: error instanceof Error ? error.message : "Workflow node was not found."
+      } as never);
+    }
+  });
+
+  app.post<{
+    Params: BranchRouteParams;
+    Body: WorkflowAcceptPlanRequest;
+    Reply: WorkflowAcceptPlanResponse;
+  }>("/api/workflows/:id/branches/:branchId/accept-plan", async (request, reply) => {
+    const branch = store.getBranch(request.params.branchId);
+    const headDraft = branch ? store.getDraftRevision(branch.headDraftRevisionId) : undefined;
+    if (!branch || branch.workflowId !== request.params.id || !headDraft) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_BRANCH_NOT_FOUND",
+        message: `Branch '${request.params.branchId}' was not found for workflow '${request.params.id}'.`
+      } as never);
+    }
+    if (request.body.workflow.id !== request.params.id) {
+      return reply.code(409).send({
+        ok: false,
+        error: "WORKFLOW_ID_MISMATCH",
+        message: `Workflow id '${request.body.workflow.id}' does not match route id '${request.params.id}'.`
+      } as never);
+    }
+
+    const validation = validateWorkflowSpec(request.body.workflow);
+    if (!validation.ok) {
+      return reply.code(422).send({
+        ok: false,
+        error: "WORKFLOW_PLAN_ACCEPTANCE_INVALID",
+        message: validation.errors.map((error) => error.code).join(", "),
+        validation
+      } as never);
+    }
+
+    const draftRevision = store.saveDraftRevision(
+      validation.workflow,
+      validation,
+      "plan-accepted",
+      {
+        branchId: branch.id,
+        force: true,
+        preserveRevision: true,
+        parentDraftRevisionId: headDraft.id
+      }
+    );
+    store.saveBranch({
+      ...branch,
+      headDraftRevisionId: draftRevision.id,
+      acceptedDraftRevisionId: draftRevision.id,
+      updatedAt: draftRevision.createdAt
+    });
+    persistCodegenArtifactManifests(
+      store,
+      draftRevision.workflow,
+      draftRevision.id,
+      draftRevision.createdAt
+    );
+    recordAudit(store, {
+      action: "plan.accepted",
+      actor: request.body.acceptedBy,
+      workflowId: draftRevision.workflowId,
+      branchId: branch.id,
+      revisionId: draftRevision.id,
+      correlationId: correlationIdForRequest(request),
+      summary:
+        "Accepted branch workflow plan shape before implementation; production approval still requires implementation and draft evaluation.",
+      secretRefs: collectSecretRefs(draftRevision.workflow),
+      metadata: {
+        semanticCheckpoint: "branch-plan-shape-accepted",
+        productionApprovalRequired: true
+      }
+    });
+
+    return {
+      ok: true,
+      workflowId: draftRevision.workflowId,
+      draftRevisionId: draftRevision.id,
+      workflow: draftRevision.workflow,
+      draftRevision,
+      validation: draftRevision.validation
+    };
   });
 
   app.post<{
