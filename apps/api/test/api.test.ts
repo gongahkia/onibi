@@ -828,11 +828,46 @@ describe("kelpclaw api contracts", () => {
         rollbackPlan: "Rollback to the previous approved revision."
       }
     });
+    const runnerDeployment = await app.inject({
+      method: "POST",
+      url: `/api/workflows/${workflow.id}/deployments`,
+      payload: {
+        approvedRevisionId: approved.json().approvedRevisionId,
+        kind: "runner.configuration",
+        createdBy: "owner@example.com",
+        rollbackPlan: "Rollback to the previous approved revision."
+      }
+    });
+    const deployments = await app.inject({
+      method: "GET",
+      url: `/api/workflows/${workflow.id}/deployments`
+    });
+    const active = await app.inject({
+      method: "GET",
+      url: `/api/workflows/${workflow.id}/deployments/active`
+    });
+    const run = await app.inject({
+      method: "POST",
+      url: `/api/workflows/${workflow.id}/runs`,
+      payload: {
+        approvedRevisionId: approved.json().approvedRevisionId
+      }
+    });
 
     expect(approved.statusCode).toBe(200);
     expect(deployed.statusCode).toBe(201);
     expect(deployed.json().deployment.status).toBe("deployed");
     expect(deployed.json().deployment.metadata.bundle.path).toContain("workflow-bundle.json");
+    expect(runnerDeployment.statusCode).toBe(201);
+    expect(runnerDeployment.json().deployment.metadata.runnerConfig.status).toBe("active");
+    expect(deployments.json().deployments).toHaveLength(2);
+    expect(active.json().runnerConfigurations[0].deploymentId).toBe(
+      runnerDeployment.json().deployment.id
+    );
+    expect(run.statusCode).toBe(202);
+    expect(run.json().run.events[0].metadata.runnerDeploymentId).toBe(
+      runnerDeployment.json().deployment.id
+    );
   });
 
   it("creates a new draft revision after approval", async () => {

@@ -1748,6 +1748,11 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       }
       const runId = `run.${approvedRevision.workflowId}.r${approvedRevision.revision}.${Date.now()}`;
       const dag = compileWorkflowDag(approvedRevision.workflow);
+      const deployedRunnerConfig = latestDeployedRunnerConfiguration(
+        store,
+        approvedRevision.workflowId,
+        approvedRevision.id
+      );
       const compiledAt = new Date().toISOString();
       const signal = requestJobId(request)
         ? jobSupervisor.signalFor(requestJobId(request) ?? "")
@@ -1770,7 +1775,13 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
             kind: "dag.compilation",
             metadata: {
               dagHash: dag.dagHash,
-              nodeOrder: [...dag.order]
+              nodeOrder: [...dag.order],
+              ...(deployedRunnerConfig
+                ? {
+                    runnerDeploymentId: deployedRunnerConfig.id,
+                    deployedRunnerConfig: deployedRunnerConfig.metadata.runnerConfig
+                  }
+                : {})
             }
           }),
           ...(result.events ?? createRunEvents(result.nodeResults, now))
@@ -1970,6 +1981,19 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         });
       }
     }
+  );
+
+  app.get<{ Params: RouteParamsWithId }>("/api/workflows/:id/deployments", async (request) => ({
+    ok: true,
+    deployments: store.listDeployments(request.params.id)
+  }));
+
+  app.get<{ Params: RouteParamsWithId }>(
+    "/api/workflows/:id/deployments/active",
+    async (request) => ({
+      ok: true,
+      ...deploymentActivationSummary(store, request.params.id)
+    })
   );
 
   app.post<{ Params: RouteParamsWithId; Body: DeploymentRequestBody }>(
@@ -2745,9 +2769,12 @@ async function materializeNativeDeployment(input: {
       const schedules = workflow.nodes
         .filter((node) => typeof node.config.schedule === "string")
         .map((node) => ({
+          deploymentId: input.deployment.id,
           nodeId: node.id,
           label: node.label,
-          schedule: String(node.config.schedule)
+          schedule: String(node.config.schedule),
+          status: "active",
+          registeredAt: input.deployment.createdAt
         }));
       const artifact = await writeDeploymentArtifact(input, "schedule-activation.json", {
         deploymentId: input.deployment.id,
@@ -2759,6 +2786,7 @@ async function materializeNativeDeployment(input: {
           status: "active",
           schedules
         },
+        activeScheduleRegistrations: schedules,
         artifacts: [artifact]
       });
     }
@@ -2771,13 +2799,22 @@ async function materializeNativeDeployment(input: {
         promotedSkills
       });
       return jsonRecord({
+        skillPublications: promotedSkills.map((skill) => ({
+          deploymentId: input.deployment.id,
+          skillId: skill.id,
+          name: skill.name,
+          status: "published",
+          publishedAt: input.deployment.createdAt
+        })),
         promotedSkills,
         artifacts: [artifact]
       });
     }
     case "integration.configuration": {
       const bindings = requiredIntegrationsForWorkflow(workflow).map((integration) => ({
+        deploymentId: input.deployment.id,
         integration,
+        status: "ready",
         secretRefs: collectSecretRefs(workflow).filter((secretRef) =>
           secretRef.toLowerCase().includes(integration)
         )
@@ -2793,17 +2830,20 @@ async function materializeNativeDeployment(input: {
     }
     case "runner.configuration": {
       const dag = compileWorkflowDag(workflow);
-      const artifact = await writeDeploymentArtifact(input, "runner-config.json", {
+      const runnerConfig = {
         deploymentId: input.deployment.id,
         approvedRevisionId: input.approvedRevision.id,
         dagHash: dag.dagHash,
-        nodeOrder: [...dag.order]
+        nodeOrder: [...dag.order],
+        status: "active",
+        activatedAt: input.deployment.createdAt
+      };
+      const artifact = await writeDeploymentArtifact(input, "runner-config.json", {
+        ...runnerConfig
       });
       return jsonRecord({
-        runner: {
-          dagHash: dag.dagHash,
-          nodeOrder: [...dag.order]
-        },
+        runner: runnerConfig,
+        runnerConfig,
         artifacts: [artifact]
       });
     }
@@ -2815,7 +2855,11 @@ async function materializeNativeDeployment(input: {
         rollbackPlan: input.deployment.rollbackPlan
       });
       return jsonRecord({
-        bundle: artifact,
+        bundle: {
+          ...artifact,
+          deploymentId: input.deployment.id,
+          approvedRevisionId: input.approvedRevision.id
+        },
         artifacts: [artifact]
       });
     }
@@ -2832,6 +2876,11 @@ async function materializeNativeDeployment(input: {
         services
       });
       return jsonRecord({
+        generatedServiceConfig: {
+          deploymentId: input.deployment.id,
+          status: "active",
+          services
+        },
         generatedServices: services,
         artifacts: [artifact]
       });
@@ -2855,6 +2904,76 @@ async function writeDeploymentArtifact(
     })
   );
   return stored.ref;
+}
+
+function deploymentActivationSummary(
+  store: WorkflowStore,
+  workflowId: string
+): {
+  readonly activeDeployments: readonly WorkflowDeploymentRecord[];
+  readonly activeSchedules: readonly JsonRecord[];
+  readonly runnerConfigurations: readonly JsonRecord[];
+  readonly skillPublications: readonly JsonRecord[];
+  readonly integrationBindings: readonly JsonRecord[];
+  readonly bundles: readonly JsonRecord[];
+  readonly generatedServices: readonly JsonRecord[];
+} {
+  const activeDeployments = store
+    .listDeployments(workflowId)
+    .filter((deployment) => deployment.status === "deployed");
+
+  return {
+    activeDeployments,
+    activeSchedules: activeDeployments.flatMap((deployment) =>
+      jsonArrayMetadata(deployment.metadata.activeScheduleRegistrations)
+    ),
+    runnerConfigurations: activeDeployments.flatMap((deployment) =>
+      jsonObjectMetadata(deployment.metadata.runnerConfig)
+        ? [deployment.metadata.runnerConfig as JsonRecord]
+        : []
+    ),
+    skillPublications: activeDeployments.flatMap((deployment) =>
+      jsonArrayMetadata(deployment.metadata.skillPublications)
+    ),
+    integrationBindings: activeDeployments.flatMap((deployment) =>
+      jsonArrayMetadata(deployment.metadata.integrationBindings)
+    ),
+    bundles: activeDeployments.flatMap((deployment) =>
+      jsonObjectMetadata(deployment.metadata.bundle)
+        ? [deployment.metadata.bundle as JsonRecord]
+        : []
+    ),
+    generatedServices: activeDeployments.flatMap((deployment) =>
+      jsonObjectMetadata(deployment.metadata.generatedServiceConfig)
+        ? [deployment.metadata.generatedServiceConfig as JsonRecord]
+        : []
+    )
+  };
+}
+
+function latestDeployedRunnerConfiguration(
+  store: WorkflowStore,
+  workflowId: string,
+  approvedRevisionId: string
+): WorkflowDeploymentRecord | undefined {
+  return store
+    .listDeployments(workflowId)
+    .filter(
+      (deployment) =>
+        deployment.kind === "runner.configuration" &&
+        deployment.status === "deployed" &&
+        deployment.approvedRevisionId === approvedRevisionId &&
+        jsonObjectMetadata(deployment.metadata.runnerConfig)
+    )
+    .at(-1);
+}
+
+function jsonArrayMetadata(value: unknown): readonly JsonRecord[] {
+  return Array.isArray(value) ? value.filter(jsonObjectMetadata) : [];
+}
+
+function jsonObjectMetadata(value: unknown): value is JsonRecord {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function jsonRecord(value: unknown): JsonRecord {
