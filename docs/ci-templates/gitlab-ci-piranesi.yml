@@ -10,6 +10,9 @@ piranesi:
     - piranesi ingest nuclei --input tests/fixtures/pentest/nuclei/localhost-http.jsonl --workspace workspace
     - piranesi report --workspace workspace --format json
     - piranesi report --workspace workspace --format md
+    - piranesi pff export --workspace workspace
+    - piranesi ci validate-pff --input workspace/reports/findings.pff.json
+    - piranesi ci validate-report-bundle --path workspace/reports
     - piranesi sign --workspace workspace
     - piranesi sign --workspace workspace --verify
   artifacts:

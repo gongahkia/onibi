@@ -1,6 +1,10 @@
 {
   "cli": {
     "groups": {
+      "ci": [
+        "validate-pff",
+        "validate-report-bundle"
+      ],
       "detections": [
         "add-ioc",
         "add-note",
@@ -45,6 +49,7 @@
       ]
     },
     "root_commands": [
+      "ci",
       "detections",
       "engagement",
       "evidence",

@@ -32,6 +32,11 @@ from piranesi.adapters import (
     parse_sqlmap_file,
     parse_zap_json_file,
 )
+from piranesi.ci_validation import (
+    CiValidationError,
+    validate_pff_artifact,
+    validate_report_bundle,
+)
 from piranesi.detections import (
     DetectionConfidence,
     DetectionError,
@@ -203,6 +208,11 @@ engagement_app = typer.Typer(
     help="Track solo engagement review and delivery state.",
     no_args_is_help=True,
 )
+ci_app = typer.Typer(
+    add_completion=False,
+    help="CI-friendly artifact validation commands.",
+    no_args_is_help=True,
+)
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(engagement_app, name="engagement")
 app.add_typer(evidence_app, name="evidence")
@@ -211,6 +221,7 @@ app.add_typer(objectives_app, name="objectives")
 app.add_typer(procedures_app, name="procedures")
 app.add_typer(detections_app, name="detections")
 app.add_typer(pff_app, name="pff")
+app.add_typer(ci_app, name="ci")
 
 
 def _load_local_llm_env(env_path: Path | None = None) -> None:
@@ -296,6 +307,77 @@ def main(
     if version:
         typer.echo(f"piranesi {__version__}")
         raise typer.Exit(code=EXIT_OK)
+
+
+@ci_app.command("validate-pff", help="Validate a PFF artifact for CI.")
+def ci_validate_pff_command(
+    input_path: Annotated[
+        Path,
+        typer.Option(
+            "--input",
+            "-i",
+            exists=False,
+            dir_okay=False,
+            file_okay=True,
+            help="PFF JSON artifact to validate.",
+        ),
+    ],
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print validation summary as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    if not input_path.is_file():
+        _fail(f"input file does not exist: {input_path}", json_errors=json_errors)
+    try:
+        payload = validate_pff_artifact(input_path)
+    except (CiValidationError, PffValidationError, OSError) as exc:
+        _fail(str(exc), code=EXIT_OPERATION_FAILED, json_errors=json_errors)
+    _emit(
+        payload,
+        json_output=json_output,
+        text=f"Valid PFF artifact: {payload['findings']} findings",
+    )
+
+
+@ci_app.command("validate-report-bundle", help="Validate report artifacts or archives for CI.")
+def ci_validate_report_bundle_command(
+    path: Annotated[
+        Path,
+        typer.Option(
+            "--path",
+            "-p",
+            exists=False,
+            help="Report JSON file, report directory, or red-team archive ZIP.",
+        ),
+    ],
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print validation summary as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    if not path.exists():
+        _fail(f"report bundle path does not exist: {path}", json_errors=json_errors)
+    try:
+        payload = validate_report_bundle(path)
+    except (CiValidationError, OSError) as exc:
+        _fail(str(exc), code=EXIT_OPERATION_FAILED, json_errors=json_errors)
+    _emit(
+        payload,
+        json_output=json_output,
+        text=(
+            "Valid report bundle: "
+            f"{len(payload['reports'])} JSON reports, {len(payload['archives'])} archives"
+        ),
+    )
 
 
 @engagement_app.command("delivery", help="Update local report review and delivery state.")

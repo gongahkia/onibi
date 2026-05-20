@@ -29,6 +29,9 @@ def test_ci_templates_default_to_deterministic_mode() -> None:
         assert "piranesi ingest nmap" in payload
         assert "piranesi ingest nuclei" in payload
         assert "piranesi report --workspace workspace --format json" in payload
+        assert "piranesi pff export --workspace workspace" in payload
+        assert "piranesi ci validate-pff" in payload
+        assert "piranesi ci validate-report-bundle" in payload
         assert "piranesi sign --workspace workspace --verify" in payload
         assert "OPENAI_API_KEY" not in payload
         assert "ANTHROPIC_API_KEY" not in payload
