@@ -217,6 +217,37 @@ describe("OpenClaw planner shell", () => {
     expect(await screen.findByText("reuse-with-reeval")).toBeInTheDocument();
     expect(screen.getByText(/scrape-status-page/u)).toBeInTheDocument();
   });
+
+  it("renames, archives, hides, and restores workflow branches", async () => {
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Branches" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Fork name"), {
+      target: { value: "Archive me" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Fork Branch/i }));
+    expect(await screen.findByText("Forked Archive me")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Rename active branch"), {
+      target: { value: "Archived plan" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Rename$/i }));
+    expect(await screen.findByText("Renamed branch to Archived plan")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Archive$/i }));
+    expect(await screen.findByText("Archived Archived plan")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Plan$/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Restore$/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Restore$/i }));
+    expect(await screen.findByText("Restored Archived plan")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Plan$/i })).toBeEnabled();
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/branches/branch.workflow.gmail-receipts-to-sheets.tax-branch"),
+      expect.objectContaining({ method: "PATCH" })
+    );
+  });
 });
 
 async function mockFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
@@ -461,6 +492,24 @@ async function mockFetch(input: string | URL | Request, init?: RequestInit): Pro
       draftRevision: draftRevision(workflow, "plan-accepted"),
       validation: { ok: true, workflow }
     });
+  }
+
+  if (url.includes("/branches/") && init?.method === "PATCH") {
+    const branchId = branchIdFromUrl(url);
+    const branch = mockBranches.find((candidate) => candidate.id === branchId);
+    if (branch) {
+      const updated: WorkflowBranch = {
+        ...branch,
+        name: typeof body.name === "string" ? body.name : branch.name,
+        status:
+          body.status === "active" || body.status === "archived" ? body.status : branch.status,
+        updatedAt: "2026-05-18T01:05:00.000Z"
+      };
+      mockBranches = mockBranches.map((candidate) =>
+        candidate.id === updated.id ? updated : candidate
+      );
+      return jsonResponse({ ok: true, branch: updated });
+    }
   }
 
   if (url.includes("/branches/") && (!init?.method || init.method === "GET")) {
