@@ -130,6 +130,7 @@ output evidence exists.
 ## Follow-Up Work
 
 - #103: optional dependency/runtime wiring.
-- #97: baseline replay extractors for `nmap` and `nuclei`.
+- #97: baseline replay extractors for `nmap` and `nuclei` (documented in
+  [rescan replay extractors](../rescan-extractors.md)).
 - #98: concrete image pinning and verification policy.
 - #95: user-facing `piranesi rescan --from-baseline <workspace>`.
