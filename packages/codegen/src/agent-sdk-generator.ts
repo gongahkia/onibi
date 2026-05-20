@@ -89,7 +89,7 @@ export class AgentSdkCodeGenerator implements CodeGenerator {
               mode: "reuse-if-unchanged",
               seed: `${request.workflowId}.${request.nodeId}`
             },
-            llmBacked: false
+            llmBacked: true
           })
         };
       } catch (error) {

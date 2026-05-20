@@ -572,6 +572,20 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         draftRevision.createdAt
       );
       recordAudit(store, {
+        action: "task.routed",
+        actor: "router",
+        workflowId: draftRevision.workflowId,
+        revisionId: draftRevision.id,
+        correlationId,
+        summary: `Routed workflow task as ${route.route}.`,
+        metadata: jsonRecord({
+          route: route.route,
+          rationale: route.rationale,
+          requiredModel: route.requiredModel,
+          modelInvocations: route.modelInvocations
+        })
+      });
+      recordAudit(store, {
         action: "workflow.created",
         actor: "planner",
         workflowId: draftRevision.workflowId,
@@ -774,6 +788,22 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         now
       }
     );
+    recordAudit(store, {
+      action: "task.routed",
+      actor: "router",
+      workflowId: request.params.id,
+      revisionId:
+        store.getLatestDraftRevision(request.params.id)?.id ??
+        `draft.${request.params.id}.r${request.body.editedWorkflow.revision}`,
+      correlationId,
+      summary: `Routed planner feedback as ${route.route}.`,
+      metadata: jsonRecord({
+        route: route.route,
+        rationale: route.rationale,
+        requiredModel: route.requiredModel,
+        modelInvocations: route.modelInvocations
+      })
+    });
     const feedback = store.savePlannerFeedback(
       createWorkflowPlannerFeedback({
         id: `feedback.${request.params.id}.${Date.now()}.${randomUUID()}`,
@@ -1978,6 +2008,31 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       }
 
       const correlationId = correlationIdForRequest(request);
+      const route = routeWorkflowTask(
+        {
+          prompt: `Deploy workflow '${request.params.id}' as ${request.body.kind}.`,
+          currentWorkflow: approvedRevision.workflow
+        },
+        {
+          correlationId,
+          provider: process.env.KELPCLAW_PLANNER_PROVIDER ?? "anthropic",
+          model: process.env.KELPCLAW_PLANNER_MODEL
+        }
+      );
+      recordAudit(store, {
+        action: "task.routed",
+        actor: "router",
+        workflowId: request.params.id,
+        revisionId: approvedRevision.id,
+        correlationId,
+        summary: `Routed workflow deployment as ${route.route}.`,
+        metadata: jsonRecord({
+          route: route.route,
+          rationale: route.rationale,
+          requiredModel: route.requiredModel,
+          modelInvocations: route.modelInvocations
+        })
+      });
       updateRequestJob(
         store,
         request,

@@ -326,7 +326,16 @@ class DeterministicGeneratedNodeRoleRunner implements GeneratedNodeRoleRunner {
           ],
           generation,
           modelProvider: generation.metadata.llmBacked ? "anthropic" : "deterministic",
-          model: generation.metadata.provenance.generator
+          model: generation.metadata.provenance.generator,
+          modelInvocations: generation.metadata.llmBacked
+            ? [
+                createModelInvocationRecord(input, {
+                  provider: "anthropic",
+                  model: generation.metadata.provenance.generator,
+                  outputArtifact: generation.sourceArtifact.path
+                })
+              ]
+            : []
         };
       } catch (error) {
         return {
@@ -693,6 +702,31 @@ function artifactRef(artifact: {
     path: artifact.path,
     checksum: artifact.checksum,
     contentType: artifact.contentType
+  };
+}
+
+function createModelInvocationRecord(
+  input: GeneratedNodeRoleRunInput,
+  model: {
+    readonly provider: string;
+    readonly model: string;
+    readonly outputArtifact: string;
+  }
+): NonNullable<GeneratedNodeRoleRunResult["modelInvocations"]>[number] {
+  return {
+    id: `model.${input.request.job.id}.${input.role}.${input.iteration}`,
+    role: input.role,
+    inputSummary: input.inputSummary,
+    outputArtifact: model.outputArtifact,
+    provider: model.provider,
+    model: model.model,
+    determinismExpectation: "bounded",
+    retryBudget: {
+      maxAttempts: input.request.job.retry.maxAttempts,
+      maxCostUsd: input.request.maxModelCostUsd
+    },
+    correlationId: input.request.job.correlationId,
+    createdAt: input.request.generatedAt ?? new Date().toISOString()
   };
 }
 
