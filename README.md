@@ -228,6 +228,7 @@ added with `piranesi evidence add` are also copied under `raw/<kind>/` and index
 - [Workspace contract](docs/pentest-workspace.md)
 - [Report schema](docs/pentest-report-schema.md)
 - [Burp ingestion](docs/burp-ingest.md)
+- [Phase 1.1 adapter expansion](docs/adapter-expansion.md)
 - [C2 log import](docs/c2-log-import.md)
 - [Nuclei ingestion](docs/nuclei-ingest.md)
 - [Retest workflow](docs/retest-workflow.md)
