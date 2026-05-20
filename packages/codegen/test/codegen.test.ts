@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   AgentSdkCodeGenerator,
+  AgentSdkGeneratedNodeRoleRunner,
   DockerGeneratedNodeTestExecutor,
   GeneratedNodeBuildLoop,
   LocalCodegenArtifactStore,
@@ -17,6 +18,7 @@ import {
 } from "../src/index.js";
 import type {
   AgentQueryRunner,
+  AgentRoleQueryRunner,
   CodegenGenerationRequest,
   DockerGeneratedNodeCommand,
   DockerGeneratedNodeCommandRunner,
@@ -297,6 +299,54 @@ describe("codegen artifact contracts", () => {
     ]);
   });
 
+  it("runs role-specific Agent SDK agents through the generated-node loop", async () => {
+    const rolePrompts: string[] = [];
+    const roleRunner: AgentRoleQueryRunner = async function* (prompt, options) {
+      rolePrompts.push(`${options.model ?? "default"}:${prompt.split("\n")[0] ?? ""}`);
+      yield {
+        type: "result",
+        total_cost_usd: 0.05,
+        structured_output: {
+          summary: `completed ${prompt.match(/You are the ([^ ]+) agent/u)?.[1] ?? "role"}`,
+          status: "succeeded",
+          outputArtifactRefs: []
+        }
+      };
+    };
+    const roles = [
+      "workflow-architect",
+      "coder",
+      "tester",
+      "runner",
+      "fixer",
+      "evaluator"
+    ] as const;
+    const loop = new GeneratedNodeBuildLoop({
+      roleRunners: Object.fromEntries(
+        roles.map((role) => [
+          role,
+          new AgentSdkGeneratedNodeRoleRunner({
+            role,
+            apiKey: "test-key",
+            model: `claude-${role}`,
+            queryRunner: roleRunner
+          })
+        ])
+      ),
+      testExecutor: failOnceThenPassExecutor("schema mismatch")
+    });
+
+    const result = await loop.build(buildLoopRequestFixture());
+
+    expect(result.status).toBe("passed");
+    expect(result.agentRuns.map((run) => run.role)).toContain("fixer");
+    expect(result.agentRuns.every((run) => run.modelProvider === "anthropic")).toBe(true);
+    expect(
+      result.agentRuns.flatMap((run) => run.modelInvocations ?? []).map((record) => record.provider)
+    ).toEqual(rolePrompts.map(() => "anthropic"));
+    expect(rolePrompts.some((prompt) => prompt.startsWith("claude-fixer:"))).toBe(true);
+  });
+
   it("runs generated-node evals through Docker when requested", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "kelpclaw-codegen-docker-"));
     let capturedCommand: DockerGeneratedNodeCommand | undefined;
@@ -460,6 +510,35 @@ function alwaysFailingTestExecutor(message: string): GeneratedNodeTestExecutor {
           }
         ],
         failureMessage: message
+      };
+    }
+  };
+}
+
+function failOnceThenPassExecutor(message: string): GeneratedNodeTestExecutor {
+  let calls = 0;
+  return {
+    async execute(input) {
+      calls += 1;
+      if (calls === 1) {
+        return alwaysFailingTestExecutor(message).execute(input);
+      }
+
+      return {
+        status: "passed",
+        logs: ["passed after repair"],
+        resultArtifacts: [
+          createGeneratedArtifact({
+            path: `generated/${input.request.nodeId}.repaired-output.json`,
+            content: JSON.stringify({ artifact: { ok: true } }, null, 2),
+            contentType: "application/json"
+          })
+        ],
+        schemaValid: true,
+        securityValid: true,
+        replayValid: true,
+        dependencyPolicyValid: true,
+        findings: []
       };
     }
   };

@@ -8,6 +8,7 @@ import {
   LocalCodegenArtifactStore,
   checksumArtifactContent,
   createArtifactManifest,
+  createAgentSdkGeneratedNodeRoleRunners,
   createGeneratedArtifact
 } from "@kelpclaw/codegen";
 import { registerPromotedSkill } from "@kelpclaw/skill-registry";
@@ -1266,6 +1267,11 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         ? new AgentSdkCodeGenerator({
             apiKey: process.env.ANTHROPIC_API_KEY,
             model: process.env.KELPCLAW_CODEGEN_MODEL ?? process.env.KELPCLAW_PLANNER_MODEL
+          })
+        : undefined,
+      roleRunners: process.env.ANTHROPIC_API_KEY
+        ? createAgentSdkGeneratedNodeRoleRunners({
+            apiKey: process.env.ANTHROPIC_API_KEY
           })
         : undefined
     });

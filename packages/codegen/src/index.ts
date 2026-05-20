@@ -1,6 +1,14 @@
 export { AgentSdkCodeGenerator } from "./agent-sdk-generator.js";
 export type { AgentQueryRunner, AgentSdkCodeGeneratorOptions } from "./agent-sdk-generator.js";
 export {
+  AgentSdkGeneratedNodeRoleRunner,
+  createAgentSdkGeneratedNodeRoleRunners
+} from "./agent-sdk-role-runner.js";
+export type {
+  AgentRoleQueryRunner,
+  AgentSdkGeneratedNodeRoleRunnerOptions
+} from "./agent-sdk-role-runner.js";
+export {
   assertSafeArtifactPath,
   checksumArtifactContent,
   createArtifactManifest,
