@@ -272,6 +272,7 @@ added with `piranesi evidence add` are also copied under `raw/<kind>/` and index
 - [Chain of custody](docs/chain-of-custody.md)
 - [Local preview UI](docs/local-ui.md)
 - [Product interface decision](docs/product-interface-decision.md)
+- [Enterprise demand gate](docs/enterprise-demand-gate.md)
 - [AI operator-control policy](docs/ai-operator-control-policy.md)
 - [AI suggestions](docs/ai-suggestions.md)
 - [Phase 6 AI co-pilot closeout](docs/phase6-ai-copilot.md)

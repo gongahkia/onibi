@@ -58,7 +58,8 @@ features until their own acceptance criteria are complete:
 - Workflow integrations beyond the current one-way GitHub Issues, Slack, and
   email handoff paths.
 - Linear and Jira implementations until design-partner evidence justifies them.
-- Enterprise deployment.
+- Enterprise deployment until the
+  [`enterprise-demand-gate.md`](enterprise-demand-gate.md) criteria are met.
 - Go/TypeScript adapter SDKs, marketplace or registry mechanics, and executable
   plugin runtime.
 - Autonomous AI-driven target interaction, payload generation, scanner operation,
