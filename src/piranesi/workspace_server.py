@@ -7,6 +7,8 @@ import tempfile
 import threading
 import webbrowser
 from dataclasses import dataclass
+from email.parser import BytesParser
+from email.policy import default as email_default_policy
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from ipaddress import ip_address
@@ -17,6 +19,7 @@ from urllib.parse import parse_qs, urlparse
 from piranesi.detections import load_detections
 from piranesi.evidence import (
     EvidenceError,
+    EvidenceKind,
     EvidenceSensitivity,
     add_evidence_file,
     load_evidence_index,
@@ -58,6 +61,12 @@ class WorkspaceServeOptions:
 @dataclass(slots=True)
 class WorkspaceServerState:
     workspace_root: Path
+
+
+@dataclass(frozen=True, slots=True)
+class _UploadedEvidenceFile:
+    filename: str
+    body: bytes
 
 
 def is_loopback_host(host: str) -> bool:
@@ -241,6 +250,47 @@ class _WorkspaceRequestHandler(BaseHTTPRequestHandler):
             except (EvidenceError, WorkspaceError, WorkspaceServerError, ValueError) as exc:
                 self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
             return
+        if parsed.path == "/api/evidence/file":
+            try:
+                payload, uploaded = self._read_multipart_body()
+                state = create_workspace(self.workspace_state.workspace_root)
+                kind = _evidence_kind(payload.get("kind"))
+                title = _optional_string(payload.get("title")) or uploaded.filename
+                with tempfile.TemporaryDirectory(prefix="piranesi-upload-") as tmp:
+                    upload_path = Path(tmp) / _safe_upload_filename(uploaded.filename)
+                    upload_path.write_bytes(uploaded.body)
+                    _index, record = add_evidence_file(
+                        state.root,
+                        file_path=upload_path,
+                        kind=kind,
+                        title=title,
+                        observed_at=_optional_string(payload.get("observed_at")),
+                        source=_optional_string(payload.get("source")) or "piranesi-ui",
+                        sensitivity=_evidence_sensitivity(payload.get("sensitivity")),
+                        tags=_string_list(payload.get("tags")),
+                        notes=_optional_string(payload.get("notes")),
+                    )
+                output_digest = file_sha256(state.root / EVIDENCE_FILE)
+                append_audit_event(
+                    state,
+                    AuditEvent(
+                        timestamp=utc_now(),
+                        command="web evidence file",
+                        input_path=record.raw_path,
+                        input_sha256=record.sha256,
+                        output_path=EVIDENCE_FILE,
+                        output_sha256=output_digest,
+                        summary={
+                            "evidence_id": record.id,
+                            "kind": record.kind,
+                            "title": record.title,
+                        },
+                    ),
+                )
+                self._send_json(_workspace_payload(self.workspace_state.workspace_root))
+            except (EvidenceError, WorkspaceError, WorkspaceServerError, ValueError) as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
         self._send_json({"error": "not found"}, status=HTTPStatus.NOT_FOUND)
 
     def _read_json_body(self) -> dict[str, Any]:
@@ -256,6 +306,43 @@ class _WorkspaceRequestHandler(BaseHTTPRequestHandler):
         if not isinstance(payload, dict):
             raise WorkspaceServerError("expected JSON object")
         return payload
+
+    def _read_multipart_body(self) -> tuple[dict[str, object], _UploadedEvidenceFile]:
+        content_type = self.headers.get("Content-Type", "")
+        if not content_type.startswith("multipart/form-data"):
+            raise WorkspaceServerError("expected multipart/form-data upload")
+        raw_length = self.headers.get("Content-Length") or "0"
+        try:
+            length = int(raw_length)
+        except ValueError as exc:
+            raise WorkspaceServerError("invalid Content-Length") from exc
+        if length <= 0:
+            raise WorkspaceServerError("empty upload body")
+        body = self.rfile.read(length)
+        message = BytesParser(policy=email_default_policy).parsebytes(
+            f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode() + body
+        )
+        if not message.is_multipart():
+            raise WorkspaceServerError("expected multipart/form-data upload")
+        fields: dict[str, object] = {}
+        uploaded: _UploadedEvidenceFile | None = None
+        for part in message.iter_parts():
+            name = part.get_param("name", header="content-disposition")
+            if not isinstance(name, str) or not name:
+                continue
+            filename = part.get_filename()
+            raw_payload = part.get_payload(decode=True) or b""
+            if filename:
+                safe_name = _safe_upload_filename(filename)
+                if not raw_payload:
+                    raise WorkspaceServerError("uploaded evidence file is empty")
+                uploaded = _UploadedEvidenceFile(filename=safe_name, body=raw_payload)
+            else:
+                charset = part.get_content_charset() or "utf-8"
+                fields[name] = raw_payload.decode(charset, errors="replace")
+        if uploaded is None:
+            raise WorkspaceServerError("file is required")
+        return fields, uploaded
 
     def _send_json(self, payload: dict[str, Any], *, status: HTTPStatus = HTTPStatus.OK) -> None:
         body = json.dumps(payload, sort_keys=True).encode("utf-8")
@@ -406,6 +493,22 @@ def _evidence_sensitivity(value: object) -> EvidenceSensitivity:
     return "sensitive"
 
 
+def _evidence_kind(value: object) -> EvidenceKind:
+    if value in {"screenshot", "c2-log", "transcript", "payload", "detection", "scanner", "note", "other"}:
+        return cast(EvidenceKind, value)
+    return "other"
+
+
+def _safe_upload_filename(name: str) -> str:
+    basename = Path(name).name
+    cleaned = "".join(
+        character if character.isalnum() or character in {".", "-", "_"} else "-"
+        for character in basename
+    )
+    cleaned = cleaned.strip(".-")
+    return cleaned or "evidence-upload"
+
+
 _INDEX_HTML = """<!doctype html>
 <html lang="en">
 <head>
@@ -434,14 +537,37 @@ _INDEX_HTML = """<!doctype html>
     </section>
     <section class="entry">
       <div>
-        <h2>Add Note Evidence</h2>
+        <h2>Add Evidence</h2>
         <p id="evidence-status">No note queued.</p>
       </div>
       <form id="evidence-form" class="note-form">
         <input name="title" placeholder="Title">
         <input name="tags" placeholder="Tags, comma separated">
         <textarea name="content" placeholder="Operator note or transcript excerpt" required></textarea>
-        <button type="submit">Add Evidence</button>
+        <button type="submit">Add Note</button>
+      </form>
+      <form id="file-evidence-form" class="file-form">
+        <input name="title" placeholder="Title">
+        <select name="kind">
+          <option value="screenshot">Screenshot</option>
+          <option value="transcript">Transcript</option>
+          <option value="c2-log">C2 log</option>
+          <option value="payload">Payload metadata</option>
+          <option value="detection">Detection artifact</option>
+          <option value="scanner">Scanner export</option>
+          <option value="other">Other</option>
+        </select>
+        <select name="sensitivity">
+          <option value="sensitive">Sensitive</option>
+          <option value="internal">Internal</option>
+          <option value="public">Public</option>
+          <option value="secret">Secret</option>
+        </select>
+        <input name="tags" placeholder="Tags, comma separated">
+        <input name="source" placeholder="Source">
+        <input name="notes" placeholder="Notes">
+        <input name="file" type="file" required>
+        <button type="submit">Upload File</button>
       </form>
     </section>
     <section class="summary" id="summary"></section>
@@ -480,11 +606,13 @@ main { max-width: 1120px; margin: 0 auto; padding: 24px 20px 48px; }
 .setup, .entry, .metric, .finding, .step { background: #ffffff; border: 1px solid #d8dee7; border-radius: 8px; padding: 14px; }
 .setup, .entry { display: grid; grid-template-columns: minmax(220px, 1fr) 2fr; gap: 16px; align-items: start; margin-bottom: 16px; }
 form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-input, textarea { min-width: 0; border: 1px solid #b7c2d0; border-radius: 6px; padding: 8px 10px; font: inherit; }
+input, select, textarea { min-width: 0; border: 1px solid #b7c2d0; border-radius: 6px; padding: 8px 10px; font: inherit; background: #ffffff; }
 textarea { min-height: 84px; resize: vertical; }
 button { border: 1px solid #075985; border-radius: 6px; padding: 8px 10px; color: #ffffff; background: #075985; font-weight: 650; }
 .note-form { grid-template-columns: 1fr 1fr auto; }
 .note-form textarea { grid-column: 1 / -1; }
+.file-form { grid-column: 2; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid #d8dee7; padding-top: 12px; }
+.file-form input[type="file"] { grid-column: span 2; }
 .metric b { display: block; font-size: 24px; margin-top: 4px; }
 .section-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
 nav { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -498,8 +626,10 @@ a { color: #075985; font-weight: 650; text-decoration: none; }
 .pill { border: 1px solid #b7c2d0; border-radius: 999px; padding: 3px 8px; font-size: 12px; color: #334155; background: #f8fafc; }
 .evidence { color: #334155; font-size: 13px; line-height: 1.45; white-space: pre-wrap; }
 @media (max-width: 720px) {
-  .setup, .entry, form, .note-form { grid-template-columns: 1fr; }
+  .setup, .entry, form, .note-form, .file-form { grid-template-columns: 1fr; }
   .note-form textarea { grid-column: auto; }
+  .file-form { grid-column: auto; }
+  .file-form input[type="file"] { grid-column: auto; }
 }
 """
 
@@ -585,6 +715,25 @@ document.getElementById("evidence-form").addEventListener("submit", (event) => {
       }
       event.currentTarget.reset();
       document.getElementById("evidence-status").textContent = "Evidence saved.";
+      renderWorkspace(data);
+    });
+});
+
+document.getElementById("file-evidence-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  fetch("/api/evidence/file", {
+    method: "POST",
+    body: form
+  })
+    .then((response) => response.json())
+    .then((data) => {
+      if (data.error) {
+        document.getElementById("evidence-status").textContent = data.error;
+        return;
+      }
+      event.currentTarget.reset();
+      document.getElementById("evidence-status").textContent = "Evidence file uploaded.";
       renderWorkspace(data);
     });
 });

@@ -61,6 +61,61 @@ def _post_json(url: str, payload: dict[str, object]) -> tuple[int, dict[str, obj
         connection.close()
 
 
+def _post_multipart(
+    url: str,
+    *,
+    fields: dict[str, str],
+    file_field: str,
+    filename: str,
+    file_body: bytes,
+) -> tuple[int, dict[str, object]]:
+    parsed = urlparse(url)
+    assert parsed.scheme == "http"
+    assert parsed.hostname is not None
+    boundary = "----piranesi-test-boundary"
+    parts: list[bytes] = []
+    for key, value in fields.items():
+        parts.extend(
+            [
+                f"--{boundary}\r\n".encode(),
+                f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode(),
+                value.encode("utf-8"),
+                b"\r\n",
+            ]
+        )
+    parts.extend(
+        [
+            f"--{boundary}\r\n".encode(),
+            (
+                f'Content-Disposition: form-data; name="{file_field}"; '
+                f'filename="{filename}"\r\n'
+            ).encode(),
+            b"Content-Type: application/octet-stream\r\n\r\n",
+            file_body,
+            b"\r\n",
+            f"--{boundary}--\r\n".encode(),
+        ]
+    )
+    body = b"".join(parts)
+    connection = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=5)
+    try:
+        path = parsed.path or "/"
+        connection.request(
+            "POST",
+            path,
+            body=body,
+            headers={
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+                "Content-Length": str(len(body)),
+            },
+        )
+        response = connection.getresponse()
+        raw_body = response.read()
+        return response.status, json.loads(raw_body.decode("utf-8"))
+    finally:
+        connection.close()
+
+
 def test_workspace_server_opens_empty_workspace(tmp_path: Path) -> None:
     workspace = tmp_path / "empty-workspace"
     server = run_workspace_server(WorkspaceServeOptions(workspace=workspace, port=0), block=False)
@@ -152,6 +207,42 @@ def test_workspace_server_adds_note_evidence_from_ui_flow(tmp_path: Path) -> Non
         server.server_close()
 
 
+def test_workspace_server_uploads_evidence_file_from_ui_flow(tmp_path: Path) -> None:
+    workspace = tmp_path / "browser-workspace"
+    server = run_workspace_server(WorkspaceServeOptions(workspace=workspace, port=0), block=False)
+    try:
+        url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+        status, payload = _post_multipart(
+            f"{url}/api/evidence/file",
+            fields={
+                "kind": "transcript",
+                "title": "Operator terminal transcript",
+                "tags": "terminal, ui",
+                "source": "operator-1",
+                "sensitivity": "internal",
+                "notes": "Captured during authorized local lab validation.",
+            },
+            file_field="file",
+            filename="../operator-terminal.txt",
+            file_body=b"$ id\nuid=1000(operator)\n",
+        )
+
+        assert status == 200
+        assert payload["empty_states"]["evidence"] is False  # type: ignore[index]
+        assert payload["evidence"][0]["title"] == "Operator terminal transcript"  # type: ignore[index]
+        assert payload["evidence"][0]["kind"] == "transcript"  # type: ignore[index]
+        assert payload["evidence"][0]["source"] == "operator-1"  # type: ignore[index]
+        assert payload["evidence"][0]["sensitivity"] == "internal"  # type: ignore[index]
+        assert payload["evidence"][0]["tags"] == ["terminal", "ui"]  # type: ignore[index]
+        raw_path = workspace / payload["evidence"][0]["raw_path"]  # type: ignore[index]
+        assert raw_path.is_file()
+        assert raw_path.name.endswith("-operator-terminal.txt")
+        assert raw_path.read_bytes() == b"$ id\nuid=1000(operator)\n"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_workspace_server_renders_real_workspace_data(tmp_path: Path) -> None:
     workspace = _ingest_nmap(tmp_path / "workspace")
     server = run_workspace_server(WorkspaceServeOptions(workspace=workspace, port=0), block=False)
@@ -163,7 +254,8 @@ def test_workspace_server_renders_real_workspace_data(tmp_path: Path) -> None:
         assert html_status == 200
         html = html_body.decode("utf-8")
         assert "Piranesi Workspace Review" in html
-        assert "Add Note Evidence" in html
+        assert "Add Evidence" in html
+        assert "Upload File" in html
         assert "Engagement Flow" in html
         assert "workbench" not in html.lower()
         assert payload["type"] == "workspace"
