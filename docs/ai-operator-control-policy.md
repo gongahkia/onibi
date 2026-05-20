@@ -38,6 +38,9 @@ and must never interact with targets, tools, scanners, payloads, or infrastructu
 - Provider identity, model identity, privacy mode, and external-call status must
   be visible in AI trace records.
 
+Cloud provider configuration is documented in
+[`ai-provider-config.md`](ai-provider-config.md).
+
 ## Redaction Boundary
 
 Every prompt payload must pass through the redaction-before-prompt contract before
