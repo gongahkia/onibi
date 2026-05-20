@@ -1,4 +1,5 @@
 import { createDefaultLiveAdapters } from "@kelpclaw/adapters";
+import { AgenticResearchNodeRunner, isAgenticNode } from "./agentic-runner.js";
 import { declaredAdapterOperations } from "./adapter-policy.js";
 import { AdapterBackedNodeRunner } from "./adapter-runner.js";
 import { DeterministicNodeRunner } from "./deterministic-runner.js";
@@ -31,6 +32,7 @@ export class ProductionNodeRunner implements NodeRunner {
 class ProductionFallbackNodeRunner implements NodeRunner {
   private readonly deterministicRunner = new DeterministicNodeRunner();
   private readonly dockerRunner: DockerNodeRunner;
+  private readonly agenticRunner = new AgenticResearchNodeRunner();
 
   public constructor(options: ProductionNodeRunnerOptions) {
     this.dockerRunner = new DockerNodeRunner({
@@ -41,6 +43,9 @@ class ProductionFallbackNodeRunner implements NodeRunner {
   }
 
   public run(node: CompiledDagNode, context: NodeRunContext): Promise<NodeRunnerResult> {
+    if (isAgenticNode(node)) {
+      return this.agenticRunner.run(node, context);
+    }
     if (declaredAdapterOperations(node).length > 0 || node.kind === "codegen") {
       return this.dockerRunner.run(node, context);
     }

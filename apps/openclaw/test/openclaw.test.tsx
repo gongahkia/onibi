@@ -2,6 +2,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createApprovedWorkflowFixture,
+  createWorkflowEdge,
+  createWorkflowNode,
+  createWorkflowSpec,
   createWorkflowSpecDiff,
   gmailReceiptsToSheetsWorkflowFixture,
   scheduledScrapingWorkflowFixture
@@ -150,6 +153,30 @@ describe("OpenClaw planner shell", () => {
 
     expect(await screen.findByText("Classify Incidents With Severity And")).toBeInTheDocument();
     expect(screen.getByTestId("approval-diff")).toHaveTextContent("Classify Incidents");
+  });
+
+  it("asks clarification questions before planning vague research prompts", async () => {
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText("Workflow Prompt"), {
+      target: { value: "i want to have someone research this tasking for me" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Plan$/i }));
+
+    expect(await screen.findByRole("heading", { name: "Clarify First" })).toBeInTheDocument();
+    expect(screen.getByText(/What exact topic/u)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Plan With Answers/i })).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText(/What exact topic/u), {
+      target: { value: "OpenAI web search support for workflow research agents" }
+    });
+    fireEvent.change(screen.getByLabelText(/What should the agent produce/u), {
+      target: { value: "A concise sourced recommendation with limitations" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Plan With Answers/i }));
+
+    expect(await screen.findByText("Research Task")).toBeInTheDocument();
+    expect(screen.queryByText("Read Gmail Receipts")).not.toBeInTheDocument();
   });
 
   it("records plan acceptance before executable approval", async () => {
@@ -553,12 +580,37 @@ async function mockFetch(input: string | URL | Request, init?: RequestInit): Pro
 
   if (url.endsWith("/plan")) {
     const prompt = String(body.prompt ?? gmailReceiptsToSheetsWorkflowFixture.prompt);
+    if (prompt.includes("research this tasking") && !Array.isArray(body.clarificationAnswers)) {
+      return jsonResponse({
+        ok: true,
+        status: "clarification-required",
+        clarification: mockClarification(prompt),
+        route: {
+          route: "agentic",
+          rationale: "Prompt asks for research but needs more detail.",
+          requiredModel: {
+            mode: "live",
+            role: "agentic-node-designer",
+            provider: "openai",
+            model: "test-model",
+            retryBudget: { maxAttempts: 2, maxCostUsd: 2 }
+          },
+          expectedNodeKinds: ["trigger", "skill", "approval", "delivery"],
+          dockerSandboxRequired: true,
+          draftTestsRequired: true,
+          productionDeterministic: false,
+          modelInvocations: []
+        }
+      });
+    }
     const workflow: WorkflowSpec =
       prompt.includes("urgent") || prompt.includes("Telegram")
         ? createAlertWorkflow(prompt)
-        : prompt.includes("scrape")
-          ? createCodegenWorkflow(prompt)
-          : gmailReceiptsToSheetsWorkflowFixture;
+        : prompt.includes("research this tasking")
+          ? createResearchWorkflow(prompt)
+          : prompt.includes("scrape")
+            ? createCodegenWorkflow(prompt)
+            : gmailReceiptsToSheetsWorkflowFixture;
     mockCurrentWorkflow = workflow;
 
     return jsonResponse({
@@ -925,6 +977,27 @@ function mockGeneratedModuleSignature() {
   };
 }
 
+function mockClarification(prompt: string) {
+  return {
+    id: "clarify.test",
+    prompt,
+    reason: "The prompt needs a concrete topic and output.",
+    createdAt: "2026-05-18T01:00:00.000Z",
+    questions: [
+      {
+        id: "research-topic",
+        question: "What exact topic, entity, or decision should the research focus on?",
+        required: true
+      },
+      {
+        id: "desired-output",
+        question: "What should the agent produce when it is done?",
+        required: true
+      }
+    ]
+  };
+}
+
 function createAlertWorkflow(prompt: string): WorkflowSpec {
   const [trigger, skill, transform, delivery] = gmailReceiptsToSheetsWorkflowFixture.nodes;
   if (!trigger || !skill || !transform || !delivery) {
@@ -958,6 +1031,82 @@ function createAlertWorkflow(prompt: string): WorkflowSpec {
       }
     ]
   };
+}
+
+function createResearchWorkflow(prompt: string): WorkflowSpec {
+  return createWorkflowSpec({
+    id: "workflow.research-tasking",
+    name: "Research Tasking",
+    prompt,
+    nodes: [
+      createWorkflowNode({
+        id: "manual-research-request",
+        kind: "trigger",
+        label: "Research Request"
+      }),
+      createWorkflowNode({
+        id: "research-task",
+        kind: "skill",
+        label: "Research Task",
+        description: "Researches the clarified request with bounded web search.",
+        config: {
+          skillMode: "agentic"
+        },
+        agentic: {
+          tools: ["web-search"],
+          memoryScope: "workspace",
+          stopConditions: ["summary-ready"],
+          humanApprovalBoundaries: ["Before delivery."],
+          networkPolicy: "declared",
+          allowedHosts: ["*"],
+          secretRefs: [],
+          evalContract: {
+            requiredFields: ["summary", "sources", "limitations"]
+          },
+          budget: {
+            maxIterations: 3,
+            maxWallClockSeconds: 300,
+            maxModelCostUsd: 2,
+            maxDockerRuntimeSeconds: 120,
+            maxRetries: 1
+          }
+        }
+      }),
+      createWorkflowNode({
+        id: "approve-research-summary",
+        kind: "approval",
+        label: "Approve Research Summary"
+      }),
+      createWorkflowNode({
+        id: "deliver-research-summary",
+        kind: "delivery",
+        label: "Deliver Research Summary",
+        inputs: {
+          approved: { type: "object", additionalProperties: true }
+        }
+      })
+    ],
+    edges: [
+      createWorkflowEdge({
+        sourceNodeId: "manual-research-request",
+        sourcePort: "request",
+        targetNodeId: "research-task",
+        targetPort: "request"
+      }),
+      createWorkflowEdge({
+        sourceNodeId: "research-task",
+        sourcePort: "result",
+        targetNodeId: "approve-research-summary",
+        targetPort: "input"
+      }),
+      createWorkflowEdge({
+        sourceNodeId: "approve-research-summary",
+        sourcePort: "approved",
+        targetNodeId: "deliver-research-summary",
+        targetPort: "approved"
+      })
+    ]
+  });
 }
 
 function createCodegenWorkflow(prompt: string): WorkflowSpec {
@@ -1004,28 +1153,33 @@ function draftRevision(workflow: WorkflowSpec, source: string) {
 
 function taskRouteForWorkflow(workflow: WorkflowSpec) {
   const codegen = workflow.nodes.some((node) => node.kind === "codegen");
+  const agentic = workflow.nodes.some((node) => node.agentic);
 
   return {
-    route: codegen ? "codegen" : "adapter",
+    route: codegen ? "codegen" : agentic ? "agentic" : "adapter",
     rationale: codegen
       ? "Prompt requires generated node artifacts."
-      : "Prompt uses existing adapter workflow templates.",
+      : agentic
+        ? "Prompt asks for bounded research."
+        : "Prompt uses existing adapter workflow templates.",
     requiredModel: {
-      mode: codegen ? "live" : "none",
-      role: codegen ? "workflow-architect" : "classifier",
-      provider: codegen ? "anthropic" : undefined,
-      model: codegen ? "test-model" : undefined,
+      mode: codegen || agentic ? "live" : "none",
+      role: codegen ? "workflow-architect" : agentic ? "agentic-node-designer" : "classifier",
+      provider: codegen || agentic ? "anthropic" : undefined,
+      model: codegen || agentic ? "test-model" : undefined,
       retryBudget: {
         maxAttempts: 1,
-        maxCostUsd: codegen ? 1 : 0
+        maxCostUsd: agentic ? 2 : codegen ? 1 : 0
       }
     },
     expectedNodeKinds: codegen
       ? ["trigger", "codegen", "transform", "delivery"]
-      : ["trigger", "skill", "transform", "delivery"],
-    dockerSandboxRequired: codegen,
-    draftTestsRequired: codegen,
-    productionDeterministic: true,
+      : agentic
+        ? ["trigger", "skill", "approval", "delivery"]
+        : ["trigger", "skill", "transform", "delivery"],
+    dockerSandboxRequired: codegen || agentic,
+    draftTestsRequired: codegen || agentic,
+    productionDeterministic: !agentic,
     modelInvocations: []
   };
 }

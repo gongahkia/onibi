@@ -649,7 +649,9 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     async (request, reply) => {
       const correlationId = correlationIdForRequest(request);
       const clarification = createClarificationRequestIfNeeded(request.body, correlationId);
-      const planRequest = clarification ? request.body : enrichPlanRequestWithClarifications(request.body);
+      const planRequest = clarification
+        ? request.body
+        : enrichPlanRequestWithClarifications(request.body);
       const route = routeWorkflowTask(planRequest, {
         correlationId,
         provider: process.env.KELPCLAW_PLANNER_PROVIDER ?? "anthropic",
@@ -3335,7 +3337,8 @@ function createClarificationRequestIfNeeded(
   return {
     id,
     prompt,
-    reason: "The prompt does not include enough concrete target, input, or output detail to plan safely.",
+    reason:
+      "The prompt does not include enough concrete target, input, or output detail to plan safely.",
     createdAt: new Date().toISOString(),
     questions
   };

@@ -1,5 +1,13 @@
 export { AdapterBackedNodeRunner, type AdapterBackedNodeRunnerOptions } from "./adapter-runner.js";
 export {
+  AgenticResearchNodeRunner,
+  isAgenticNode,
+  type AgenticProvider,
+  type AgenticQueryRunner,
+  type AgenticResearchNodeRunnerOptions,
+  type OpenAiAgenticResponsesRunner
+} from "./agentic-runner.js";
+export {
   assertNodeAdapterPolicy,
   createAdapterMetadataRegistry,
   declaredAdapterOperations,

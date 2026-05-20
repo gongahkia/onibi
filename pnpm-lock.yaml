@@ -120,6 +120,9 @@ importers:
 
   packages/nanoclaw:
     dependencies:
+      '@anthropic-ai/claude-agent-sdk':
+        specifier: ^0.3.144
+        version: 0.3.144(@anthropic-ai/sdk@0.96.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(zod@4.4.3)
       '@kelpclaw/adapters':
         specifier: workspace:*
         version: link:../adapters
@@ -132,6 +135,9 @@ importers:
       ajv:
         specifier: ^8.20.0
         version: 8.20.0
+      openai:
+        specifier: ^6.38.0
+        version: 6.38.0(zod@4.4.3)
 
   packages/skill-registry:
     dependencies:

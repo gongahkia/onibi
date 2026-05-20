@@ -50,6 +50,7 @@ import type {
   WorkflowBranchMergeConflict,
   WorkflowBranchMergePreview,
   WorkflowBranchMergeResolution,
+  WorkflowBranchPlanResponse,
   WorkflowClarificationRequest,
   WorkflowDraftEvaluation,
   WorkflowAdapterOperationRef,
@@ -60,6 +61,8 @@ import type {
   WorkflowWorkspace,
   WorkflowNode,
   WorkflowNodeKind,
+  WorkflowPlanResponse,
+  WorkflowPlanSuccessResponse,
   WorkflowPlannerFeedback,
   WorkflowPlannerSuggestion,
   WorkflowPromptTurn,
@@ -277,9 +280,9 @@ export function App() {
   const [plannerFeedback, setPlannerFeedback] = useState<WorkflowPlannerFeedback | null>(null);
   const [draftEvaluation, setDraftEvaluation] = useState<WorkflowDraftEvaluation | null>(null);
   const [clarification, setClarification] = useState<WorkflowClarificationRequest | null>(null);
-  const [clarificationAnswers, setClarificationAnswers] = useState<Readonly<Record<string, string>>>(
-    {}
-  );
+  const [clarificationAnswers, setClarificationAnswers] = useState<
+    Readonly<Record<string, string>>
+  >({});
   const [activeJob, setActiveJob] = useState<WorkflowJob | null>(null);
   const [workspace, setWorkspace] = useState<WorkflowWorkspace | null>(null);
   const [agentRuns, setAgentRuns] = useState<readonly unknown[]>([]);
@@ -990,11 +993,10 @@ export function App() {
       setTaskRoute(response.route);
       setPlannerFeedback(null);
       setReuseDecisions([]);
-      if ("branch" in response) {
-        const branchResponse = response as Awaited<ReturnType<typeof openClawApi.planBranch>>;
-        setActiveBranchId(branchResponse.branch.id);
-        setPromptTurns((previous) => [...previous, branchResponse.promptTurn]);
-        await refreshBranches(branchResponse.workflow.id, branchResponse.branch.id);
+      if (isBranchPlanSuccessResponse(response)) {
+        setActiveBranchId(response.branch.id);
+        setPromptTurns((previous) => [...previous, response.promptTurn]);
+        await refreshBranches(response.workflow.id, response.branch.id);
       } else {
         await refreshBranches(response.workflow.id);
       }
@@ -2054,6 +2056,17 @@ function ClarificationPanel(props: {
       ))}
     </section>
   );
+}
+
+type WorkflowBranchPlanSuccessResponse = WorkflowPlanSuccessResponse & {
+  readonly branch: WorkflowBranch;
+  readonly promptTurn: WorkflowPromptTurn;
+};
+
+function isBranchPlanSuccessResponse(
+  response: WorkflowPlanResponse | WorkflowBranchPlanResponse
+): response is WorkflowBranchPlanSuccessResponse {
+  return "branch" in response && "promptTurn" in response;
 }
 
 function BranchPanel(props: {

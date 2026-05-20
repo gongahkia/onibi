@@ -492,12 +492,13 @@ function annotateSkillPlanning(node: WorkflowNode, prompt: string): WorkflowNode
 function chooseTemplate(prompt: string): WorkflowSpec {
   const normalizedPrompt = prompt.toLowerCase();
   if (
-    normalizedPrompt.includes("alert") ||
-    normalizedPrompt.includes("telegram") ||
-    normalizedPrompt.includes("whatsapp") ||
-    normalizedPrompt.includes("support")
+    normalizedPrompt.includes("research") ||
+    normalizedPrompt.includes("investigate") ||
+    normalizedPrompt.includes("agent") ||
+    normalizedPrompt.includes("reason") ||
+    normalizedPrompt.includes("compare multiple")
   ) {
-    return timeSensitiveAlertDeliveryWorkflowFixture;
+    return agenticResearchWorkflowTemplate;
   }
 
   if (
@@ -512,13 +513,12 @@ function chooseTemplate(prompt: string): WorkflowSpec {
   }
 
   if (
-    normalizedPrompt.includes("research") ||
-    normalizedPrompt.includes("investigate") ||
-    normalizedPrompt.includes("agent") ||
-    normalizedPrompt.includes("reason") ||
-    normalizedPrompt.includes("compare multiple")
+    normalizedPrompt.includes("alert") ||
+    normalizedPrompt.includes("telegram") ||
+    normalizedPrompt.includes("whatsapp") ||
+    normalizedPrompt.includes("support")
   ) {
-    return agenticResearchWorkflowTemplate;
+    return timeSensitiveAlertDeliveryWorkflowFixture;
   }
 
   if (

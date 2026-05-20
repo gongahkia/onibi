@@ -26,6 +26,7 @@ import {
 } from "@kelpclaw/workflow-spec";
 import {
   AdapterBackedNodeRunner,
+  AgenticResearchNodeRunner,
   DockerNodeRunner,
   MockNodeRunner,
   ProductionNodeRunner,
@@ -368,6 +369,42 @@ describe("nanoclaw dag runtime", () => {
     expect(adapters.get("adapter.gmail")?.invocations).toHaveLength(1);
   });
 
+  it("executes agentic research nodes through an injected OpenAI web research runner", async () => {
+    const workflow = approveForNanoClaw(createAgenticResearchWorkflowFixture());
+    const agenticRunner = new AgenticResearchNodeRunner({
+      provider: "openai",
+      openAiRunner: async (request) => ({
+        model: request.model,
+        output_text: JSON.stringify({
+          summary: "Found two relevant sources and summarized the requested task.",
+          sources: [
+            {
+              title: "Example source",
+              url: "https://example.com/research",
+              snippet: "Relevant excerpt"
+            }
+          ],
+          limitations: ["Synthetic test response."]
+        })
+      })
+    });
+    const fallback = new MockNodeRunner();
+    const runner = nodeRunner((node, context) =>
+      node.agentic ? agenticRunner.run(node, context) : fallback.run(node, context)
+    );
+
+    const result = await executeCompiledDag(compileWorkflowDag(workflow), runner);
+
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults[1]?.output.result).toMatchObject({
+      summary: expect.stringContaining("Found two relevant sources"),
+      sources: [expect.objectContaining({ url: "https://example.com/research" })]
+    });
+    expect(result.nodeResults[1]?.metadata).toEqual(
+      expect.objectContaining({ agentic: true, provider: "openai", sourceCount: 1 })
+    );
+  });
+
   it("rejects approved workflows when the frozen DAG hash drifts", () => {
     const workflow = {
       ...approvedGmailReceiptsToSheetsWorkflowFixture,
@@ -706,6 +743,57 @@ function approveForNanoClaw(
   return createApprovedWorkflowFixture(workflow, {
     frozenDagHash: hashWorkflowDag(workflow),
     ...override
+  });
+}
+
+function createAgenticResearchWorkflowFixture() {
+  return createWorkflowSpec({
+    id: "workflow.agentic-research-test",
+    name: "Agentic Research Test",
+    prompt: "research OpenAI web search support",
+    nodes: [
+      createWorkflowNode({
+        id: "manual-research-request",
+        kind: "trigger",
+        label: "Research Request"
+      }),
+      createWorkflowNode({
+        id: "research-task",
+        kind: "skill",
+        label: "Research Task",
+        description: "Research the supplied topic with web search.",
+        config: {
+          skillMode: "agentic"
+        },
+        agentic: {
+          tools: ["web-search"],
+          memoryScope: "workspace",
+          stopConditions: ["summary-ready"],
+          humanApprovalBoundaries: ["Before delivery."],
+          networkPolicy: "declared",
+          allowedHosts: ["*"],
+          secretRefs: [],
+          evalContract: {
+            requiredFields: ["summary", "sources", "limitations"]
+          },
+          budget: {
+            maxIterations: 2,
+            maxWallClockSeconds: 120,
+            maxModelCostUsd: 1,
+            maxDockerRuntimeSeconds: 60,
+            maxRetries: 0
+          }
+        }
+      })
+    ],
+    edges: [
+      createWorkflowEdge({
+        sourceNodeId: "manual-research-request",
+        sourcePort: "request",
+        targetNodeId: "research-task",
+        targetPort: "request"
+      })
+    ]
   });
 }
 

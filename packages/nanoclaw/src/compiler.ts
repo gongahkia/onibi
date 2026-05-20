@@ -113,6 +113,7 @@ function compileDagShape(workflow: WorkflowSpec): Omit<CompiledDag, "approval"> 
       adapterIds: node.adapterIds,
       adapterOperations: node.adapterOperations,
       secretRefs: node.secretRefs,
+      agentic: node.agentic,
       codegen: node.codegen,
       dependencies: [...(dependencies.get(node.id) ?? [])].sort(),
       dependents: [...(dependents.get(node.id) ?? [])].sort(),

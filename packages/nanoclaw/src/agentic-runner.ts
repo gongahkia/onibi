@@ -97,7 +97,7 @@ export class AgenticResearchNodeRunner implements NodeRunner {
           provider: this.provider,
           model: this.model,
           sourceCount: research.sources.length,
-          tools: node.agentic?.tools ?? []
+          tools: [...(node.agentic?.tools ?? [])]
         }
       };
     } catch (error) {
@@ -114,10 +114,7 @@ export class AgenticResearchNodeRunner implements NodeRunner {
     }
   }
 
-  private async runOpenAi(
-    node: CompiledDagNode,
-    context: NodeRunContext
-  ): Promise<ResearchOutput> {
+  private async runOpenAi(node: CompiledDagNode, context: NodeRunContext): Promise<ResearchOutput> {
     const runner = await this.getOpenAiRunner();
     const response = await runner(
       {
@@ -147,22 +144,23 @@ export class AgenticResearchNodeRunner implements NodeRunner {
     const runner = await this.getAnthropicRunner();
     const abortController = abortControllerForSignal(context.signal);
     let result: unknown;
-    for await (const message of runner(researchPrompt(node, context), {
+    const options: Options = {
       maxTurns: node.agentic?.budget.maxIterations ?? 3,
       tools: ["WebSearch", "WebFetch"],
       allowedTools: ["WebSearch", "WebFetch"],
-      abortController,
       env: {
         ...process.env,
-        ANTHROPIC_API_KEY: this.apiKey,
+        ...(this.apiKey ? { ANTHROPIC_API_KEY: this.apiKey } : {}),
         CLAUDE_AGENT_SDK_CLIENT_APP: "kelpclaw-agentic-research/0.1.0"
       },
       outputFormat: {
         type: "json_schema",
         schema: researchOutputSchema
       },
+      ...(abortController ? { abortController } : {}),
       ...(this.model ? { model: this.model } : {})
-    })) {
+    };
+    for await (const message of runner(researchPrompt(node, context), options)) {
       if (message.type === "result") {
         result = message.structured_output ?? message.result;
       }
@@ -297,7 +295,9 @@ function parseResearchOutput(output: unknown): ResearchOutput {
       ? record.sources.map((source) => normalizeSource(source)).filter((source) => source.url)
       : [],
     limitations: Array.isArray(record.limitations)
-      ? record.limitations.filter((limitation): limitation is string => typeof limitation === "string")
+      ? record.limitations.filter(
+          (limitation): limitation is string => typeof limitation === "string"
+        )
       : []
   };
 }

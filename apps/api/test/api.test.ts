@@ -295,14 +295,49 @@ describe("kelpclaw api contracts", () => {
     expect(planned.json().route.requiredModel.mode).toBe("none");
   });
 
-  it("routes research prompts to an agentic graph instead of the Gmail demo template", async () => {
+  it("asks clarifying questions before planning vague prompts", async () => {
+    app = buildTestApiApp();
+
+    const clarification = await app.inject({
+      method: "POST",
+      url: "/api/workflows/plan",
+      payload: {
+        prompt: "i want to have someone research this tasking for me"
+      }
+    });
+
+    expect(clarification.statusCode).toBe(200);
+    expect(clarification.json()).toMatchObject({
+      ok: true,
+      status: "clarification-required",
+      route: { route: "agentic" }
+    });
+    expect(
+      clarification
+        .json()
+        .clarification.questions.map((question: { readonly id: string }) => question.id)
+    ).toContain("research-topic");
+  });
+
+  it("routes clarified research prompts to an agentic graph instead of the Gmail demo template", async () => {
     app = buildTestApiApp();
 
     const planned = await app.inject({
       method: "POST",
       url: "/api/workflows/plan",
       payload: {
-        prompt: "i want to have someone research this tasking for me"
+        prompt: "i want to have someone research this tasking for me",
+        clarificationRequestId: "clarify.test",
+        clarificationAnswers: [
+          {
+            questionId: "research-topic",
+            answer: "OpenAI web search support for production workflow research agents"
+          },
+          {
+            questionId: "desired-output",
+            answer: "A concise sourced recommendation with limitations and next steps"
+          }
+        ]
       }
     });
 
