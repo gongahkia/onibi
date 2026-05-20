@@ -22,6 +22,9 @@ import {
   withConfig,
   workflowIdFromPrompt,
   workflowAuditRecordSchema,
+  workflowBranchMergePreviewSchema,
+  workflowBranchSchema,
+  workflowGeneratedModuleReuseDecisionSchema,
   workflowObservabilityEventSchema,
   workflowJsonSchema,
   workflowSchemaVersion
@@ -216,6 +219,81 @@ describe("workflow spec validation", () => {
         "WORKFLOW_CODEGEN_REVIEW_REQUIRED"
       ]);
     }
+  });
+
+  it("validates branch, merge preview, and module reuse records", () => {
+    const branch = workflowBranchSchema.parse({
+      id: "branch.workflow.gmail.main",
+      workflowId: "workflow.gmail",
+      name: "main",
+      status: "active",
+      createdAt: "2026-05-20T00:00:00.000Z",
+      updatedAt: "2026-05-20T00:00:00.000Z",
+      createdBy: "owner@example.com",
+      baseDraftRevisionId: "draft.workflow.gmail.r1.0",
+      headDraftRevisionId: "draft.workflow.gmail.r1.0",
+      metadata: {}
+    });
+
+    const mergePreview = workflowBranchMergePreviewSchema.parse({
+      id: "merge-preview.workflow.gmail.1",
+      workflowId: branch.workflowId,
+      sourceBranchId: "branch.workflow.gmail.experiment",
+      targetBranchId: branch.id,
+      mode: "merge",
+      status: "conflicts",
+      createdAt: "2026-05-20T00:01:00.000Z",
+      baseDraftRevisionId: "draft.workflow.gmail.r1.0",
+      sourceHeadDraftRevisionId: "draft.workflow.gmail.experiment.r2.1",
+      targetHeadDraftRevisionId: "draft.workflow.gmail.r2.2",
+      graphDiff: {
+        id: "graphdiff.workflow.gmail.merge",
+        workflowId: branch.workflowId,
+        baseRevision: 1,
+        editedRevision: 2,
+        createdAt: "2026-05-20T00:01:00.000Z",
+        summary: ["node.edited: 1"],
+        changes: [],
+        validation: { ok: true, workflow: gmailReceiptsToSheetsWorkflowFixture }
+      },
+      conflicts: [
+        {
+          id: "conflict.node.both-edited.read",
+          kind: "both-edited",
+          elementKind: "node",
+          elementId: "read",
+          path: ["nodes", "read"],
+          message: "Both branches edited read."
+        }
+      ],
+      summary: ["Merge has 1 conflict."],
+      validation: { ok: true, workflow: gmailReceiptsToSheetsWorkflowFixture }
+    });
+
+    const reuseDecision = workflowGeneratedModuleReuseDecisionSchema.parse({
+      id: "reuse.workflow.gmail.branch.node.1",
+      workflowId: branch.workflowId,
+      branchId: branch.id,
+      nodeId: "generated-node",
+      status: "blocked-drift",
+      createdAt: "2026-05-20T00:02:00.000Z",
+      signature: {
+        promptHash: `sha256:${"a".repeat(64)}`,
+        inputSchemaHash: `sha256:${"b".repeat(64)}`,
+        outputSchemaHash: `sha256:${"c".repeat(64)}`,
+        runtimeHash: `sha256:${"d".repeat(64)}`,
+        sandboxHash: `sha256:${"e".repeat(64)}`,
+        dependencyManifestHash: `sha256:${"f".repeat(64)}`,
+        replaySeed: "seed",
+        artifactHash: `sha256:${"1".repeat(64)}`
+      },
+      gates: ["schema", "dependency"],
+      reason: "Generated module reuse blocked by schema and dependency drift.",
+      artifacts: []
+    });
+
+    expect(mergePreview.conflicts[0]?.kind).toBe("both-edited");
+    expect(reuseDecision.gates).toEqual(["schema", "dependency"]);
   });
 
   it("serializes fixtures as stable canonical JSON snapshots", () => {

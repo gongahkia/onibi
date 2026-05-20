@@ -10,9 +10,7 @@ import {
   checksumArtifactContent,
   createArtifactManifest,
   createAgentSdkGeneratedNodeRoleRunners,
-  createGeneratedArtifact,
-  createGeneratedModuleSignature,
-  generatedModuleSignaturesMatch
+  createGeneratedArtifact
 } from "@kelpclaw/codegen";
 import { registerPromotedSkill } from "@kelpclaw/skill-registry";
 import { createDefaultMockAdapters } from "@kelpclaw/adapters";
@@ -73,6 +71,7 @@ import type {
   WorkflowGetBranchResponse,
   WorkflowGeneratedModuleReuseDecision,
   WorkflowGeneratedModuleReuseGate,
+  WorkflowGeneratedModuleSignature,
   JsonValue,
   WorkflowJob,
   WorkflowJobEvent,
@@ -3280,6 +3279,44 @@ function promotionCapability(node: WorkflowNode): string {
   }
 
   return `promoted-${slugify(node.id)}`;
+}
+
+function createGeneratedModuleSignature(node: WorkflowNode): WorkflowGeneratedModuleSignature {
+  if (!node.codegen) {
+    throw new Error(`Workflow node '${node.id}' does not have generated module metadata.`);
+  }
+
+  return {
+    promptHash: hashReusableModuleValue(node.codegen.latestPrompt),
+    inputSchemaHash: hashReusableModuleValue(node.inputs),
+    outputSchemaHash: hashReusableModuleValue(node.outputs),
+    runtimeHash: hashReusableModuleValue(node.runtime),
+    sandboxHash: hashReusableModuleValue(node.codegen.sandbox),
+    dependencyManifestHash: hashReusableModuleValue(node.codegen.dependencyManifest),
+    replaySeed: node.codegen.replay.seed,
+    artifactHash: hashReusableModuleValue(
+      node.codegen.artifacts
+        .map((artifact) => ({
+          path: artifact.path,
+          checksum: artifact.checksum,
+          contentType: artifact.contentType
+        }))
+        .sort((left, right) => left.path.localeCompare(right.path))
+    )
+  };
+}
+
+function generatedModuleSignaturesMatch(
+  left: WorkflowGeneratedModuleSignature,
+  right: WorkflowGeneratedModuleSignature
+): boolean {
+  return stableJsonStringify(left as never) === stableJsonStringify(right as never);
+}
+
+function hashReusableModuleValue(value: unknown): string {
+  return checksumArtifactContent(
+    typeof value === "string" ? value : stableJsonStringify(value as never)
+  );
 }
 
 function applyGeneratedModuleReuse(

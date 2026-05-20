@@ -13,9 +13,12 @@ import {
   createArtifactManifest,
   createCodegenMetadata,
   createGeneratedArtifact,
+  createGeneratedModuleSignature,
   decideReplay,
+  generatedModuleSignaturesMatch,
   assertDependencyManifestPolicy
 } from "../src/index.js";
+import { scheduledScrapingWorkflowFixture } from "@kelpclaw/workflow-spec";
 import type {
   AgentQueryRunner,
   AgentRoleQueryRunner,
@@ -187,6 +190,33 @@ describe("codegen artifact contracts", () => {
       },
       llmBacked: false
     });
+  });
+
+  it("computes generated module signatures from reusable node contracts", () => {
+    const node = scheduledScrapingWorkflowFixture.nodes.find(
+      (candidate) => candidate.id === "scrape-status-page"
+    );
+    if (!node?.codegen) {
+      throw new Error("Scheduled scraping fixture is missing a codegen node.");
+    }
+
+    const signature = createGeneratedModuleSignature(node);
+    const dependencyDrift = createGeneratedModuleSignature({
+      ...node,
+      codegen: {
+        ...node.codegen,
+        dependencyManifest: {
+          ...node.codegen.dependencyManifest,
+          dependencies: ["undici@6.0.0"]
+        }
+      }
+    });
+
+    expect(signature.promptHash).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(generatedModuleSignaturesMatch(signature, createGeneratedModuleSignature(node))).toBe(
+      true
+    );
+    expect(generatedModuleSignaturesMatch(signature, dependencyDrift)).toBe(false);
   });
 
   it("stores generated artifacts by content hash and materializes them", async () => {

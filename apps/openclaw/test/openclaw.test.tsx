@@ -6,15 +6,17 @@ import {
   gmailReceiptsToSheetsWorkflowFixture,
   scheduledScrapingWorkflowFixture
 } from "@kelpclaw/workflow-spec";
-import type { WorkflowRunRecord, WorkflowSpec } from "@kelpclaw/workflow-spec";
+import type { WorkflowBranch, WorkflowRunRecord, WorkflowSpec } from "@kelpclaw/workflow-spec";
 import { App } from "../src/App.js";
 
 vi.setConfig({ testTimeout: 10_000 });
 
 let mockCurrentWorkflow: WorkflowSpec | null = null;
+let mockBranches: WorkflowBranch[] = [];
 
 beforeEach(() => {
   mockCurrentWorkflow = null;
+  mockBranches = [mockBranch("branch.workflow.gmail-receipts-to-sheets.main", "main")];
   localStorage.clear();
   vi.stubGlobal("fetch", vi.fn(mockFetch));
 });
@@ -51,7 +53,7 @@ describe("OpenClaw planner shell", () => {
 
     await waitFor(() => {
       expect(fetch).toHaveBeenCalledWith(
-        "/api/workflows/plan",
+        expect.stringMatching(/\/plan$/u),
         expect.objectContaining({
           headers: expect.objectContaining({
             authorization: "Bearer local-admin-token"
@@ -184,6 +186,37 @@ describe("OpenClaw planner shell", () => {
     expect(screen.getByText(/deployment\.workflow\.bundle/u)).toBeInTheDocument();
     expect(screen.getByText("worker.openclaw-test")).toBeInTheDocument();
   });
+
+  it("renders branch tree controls, merge conflicts, and reuse decisions", async () => {
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Branches" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Fork name"), {
+      target: { value: "Tax branch" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Fork Branch/i }));
+    expect(await screen.findByText("Forked Tax branch")).toBeInTheDocument();
+
+    const sourceBranchSelect = screen.getByLabelText("Source branch") as HTMLSelectElement;
+    await waitFor(() => expect(sourceBranchSelect.options.length).toBeGreaterThan(1));
+    const sourceBranchId =
+      [...sourceBranchSelect.options].find((option) => option.value.length > 0)?.value ?? "";
+    fireEvent.change(sourceBranchSelect, {
+      target: { value: sourceBranchId }
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Preview" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    expect(await screen.findByText("both-edited")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Use Source" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(
+      await screen.findByText(new RegExp(`Merged ${sourceBranchId}`, "u"))
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Reuse Candidates/i }));
+    expect(await screen.findByText("reuse-with-reeval")).toBeInTheDocument();
+    expect(screen.getByText(/scrape-status-page/u)).toBeInTheDocument();
+  });
 });
 
 async function mockFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
@@ -237,6 +270,210 @@ async function mockFetch(input: string | URL | Request, init?: RequestInit): Pro
       status: 200,
       headers: { "content-type": "text/event-stream" }
     });
+  }
+
+  if (url.endsWith("/branches") && (!init?.method || init.method === "GET")) {
+    return jsonResponse({ ok: true, branches: mockBranches });
+  }
+
+  if (url.endsWith("/branches") && init?.method === "POST") {
+    const workflowId = workflowIdFromBranchUrl(url);
+    const branch = mockBranch(
+      `branch.${workflowId}.tax-branch`,
+      String(body.name ?? "Tax branch"),
+      String(body.fromBranchId ?? mockBranches[0]?.id ?? "")
+    );
+    mockBranches = [...mockBranches, branch];
+    return jsonResponse(
+      {
+        ok: true,
+        branch,
+        draftRevision: draftRevision(
+          mockCurrentWorkflow ?? gmailReceiptsToSheetsWorkflowFixture,
+          "branch-fork"
+        )
+      },
+      201
+    );
+  }
+
+  if (url.includes("/branches/") && url.endsWith("/reuse-candidates")) {
+    const branchId = branchIdFromUrl(url);
+    return jsonResponse({
+      ok: true,
+      decisions: [
+        {
+          id: `reuse.${branchId}.scrape-status-page`,
+          workflowId: mockCurrentWorkflow?.id ?? gmailReceiptsToSheetsWorkflowFixture.id,
+          branchId,
+          nodeId: "scrape-status-page",
+          status: "reuse-with-reeval",
+          createdAt: "2026-05-18T01:00:00.000Z",
+          sourceBranchId: "branch.workflow.gmail-receipts-to-sheets.main",
+          sourceDraftRevisionId: "draft.workflow.gmail-receipts-to-sheets.r1.0",
+          sourceEvalReportId: "eval-report.codegen.test",
+          signature: mockGeneratedModuleSignature(),
+          gates: [],
+          reason: "Generated module signature matches.",
+          artifacts: []
+        }
+      ]
+    });
+  }
+
+  if (url.includes("/branches/") && url.endsWith("/merge-preview")) {
+    const workflow = mockCurrentWorkflow ?? gmailReceiptsToSheetsWorkflowFixture;
+    return jsonResponse({
+      ok: true,
+      preview: {
+        id: `merge-preview.${workflow.id}`,
+        workflowId: workflow.id,
+        sourceBranchId: branchIdFromUrl(url),
+        targetBranchId: String(body.targetBranchId),
+        mode: body.mode ?? "merge",
+        status: "conflicts",
+        createdAt: "2026-05-18T01:00:00.000Z",
+        baseDraftRevisionId: `draft.${workflow.id}.base`,
+        sourceHeadDraftRevisionId: `draft.${workflow.id}.source`,
+        targetHeadDraftRevisionId: `draft.${workflow.id}.target`,
+        graphDiff: {
+          id: `graphdiff.${workflow.id}.merge`,
+          workflowId: workflow.id,
+          baseRevision: workflow.revision,
+          editedRevision: workflow.revision,
+          createdAt: "2026-05-18T01:00:00.000Z",
+          summary: ["node.edited: 1"],
+          changes: [],
+          validation: { ok: true, workflow }
+        },
+        conflicts: [
+          {
+            id: "conflict.node.both-edited.read-gmail-receipts",
+            kind: "both-edited",
+            elementKind: "node",
+            elementId: "read-gmail-receipts",
+            path: ["nodes", "read-gmail-receipts"],
+            message: "Both branches edited Read Gmail Receipts."
+          }
+        ],
+        summary: ["Merge has 1 conflict."],
+        validation: { ok: true, workflow }
+      }
+    });
+  }
+
+  if (url.includes("/branches/") && url.endsWith("/merge")) {
+    const workflow = mockCurrentWorkflow ?? gmailReceiptsToSheetsWorkflowFixture;
+    const targetBranch =
+      mockBranches.find((branch) => branch.id === body.targetBranchId) ?? mockBranches[0]!;
+    return jsonResponse({
+      ok: true,
+      merge: {
+        id: `merge.${workflow.id}`,
+        workflowId: workflow.id,
+        sourceBranchId: branchIdFromUrl(url),
+        targetBranchId: targetBranch.id,
+        mode: body.mode ?? "merge",
+        status: "applied",
+        createdAt: "2026-05-18T01:00:00.000Z",
+        appliedAt: "2026-05-18T01:00:00.000Z",
+        appliedBy: body.appliedBy,
+        baseDraftRevisionId: `draft.${workflow.id}.base`,
+        sourceHeadDraftRevisionId: `draft.${workflow.id}.source`,
+        targetHeadDraftRevisionId: `draft.${workflow.id}.target`,
+        graphDiff: {
+          id: `graphdiff.${workflow.id}.merge`,
+          workflowId: workflow.id,
+          baseRevision: workflow.revision,
+          editedRevision: workflow.revision,
+          createdAt: "2026-05-18T01:00:00.000Z",
+          summary: ["node.edited: 1"],
+          changes: [],
+          validation: { ok: true, workflow }
+        },
+        mergedDraftRevisionId: `draft.${workflow.id}.merged`,
+        conflicts: [],
+        resolutions: body.resolutions,
+        summary: ["Merged branch."],
+        validation: { ok: true, workflow }
+      },
+      branch: targetBranch,
+      draftRevision: draftRevision(workflow, "branch-merge"),
+      workflow,
+      validation: { ok: true, workflow }
+    });
+  }
+
+  if (url.includes("/branches/") && url.endsWith("/plan")) {
+    const prompt = String(body.prompt ?? gmailReceiptsToSheetsWorkflowFixture.prompt);
+    const workflow = prompt.includes("scrape")
+      ? createCodegenWorkflow(prompt)
+      : createAlertWorkflow(prompt);
+    mockCurrentWorkflow = workflow;
+    const branch = mockBranches.find((candidate) => candidate.id === branchIdFromUrl(url))!;
+    return jsonResponse({
+      ok: true,
+      workflow,
+      draftRevision: draftRevision(workflow, "branch-plan"),
+      validation: { ok: true, workflow },
+      route: taskRouteForWorkflow(workflow),
+      branch,
+      promptTurn: mockPromptTurn(workflow.id, branch.id, "plan", prompt)
+    });
+  }
+
+  if (url.includes("/branches/") && url.endsWith("/reprompt-node")) {
+    const workflow = body.currentWorkflow as WorkflowSpec;
+    const branch = mockBranches.find((candidate) => candidate.id === branchIdFromUrl(url))!;
+    const nodeId = String(body.nodeId);
+    const before = workflow.nodes.find((node) => node.id === nodeId) ?? workflow.nodes[0]!;
+    const after = {
+      ...before,
+      label: "Classify Incidents With Severity And",
+      description: String(body.prompt)
+    };
+    const nextWorkflow = {
+      ...workflow,
+      nodes: workflow.nodes.map((node) => (node.id === nodeId ? after : node))
+    };
+    const diff = createWorkflowSpecDiff(workflow, nextWorkflow);
+    mockCurrentWorkflow = nextWorkflow;
+    return jsonResponse({
+      ok: true,
+      workflow: nextWorkflow,
+      draftRevision: draftRevision(nextWorkflow, "branch-reprompt"),
+      validation: { ok: true, workflow: nextWorkflow },
+      before,
+      after,
+      diff,
+      branch,
+      promptTurn: mockPromptTurn(workflow.id, branch.id, "reprompt", String(body.prompt))
+    });
+  }
+
+  if (url.includes("/branches/") && url.endsWith("/accept-plan")) {
+    const workflow = body.workflow as WorkflowSpec;
+    return jsonResponse({
+      ok: true,
+      workflowId: workflow.id,
+      draftRevisionId: `draft.${workflow.id}.branch.accepted`,
+      workflow,
+      draftRevision: draftRevision(workflow, "plan-accepted"),
+      validation: { ok: true, workflow }
+    });
+  }
+
+  if (url.includes("/branches/") && (!init?.method || init.method === "GET")) {
+    const workflow = mockCurrentWorkflow ?? gmailReceiptsToSheetsWorkflowFixture;
+    const branch = mockBranches.find((candidate) => candidate.id === branchIdFromUrl(url));
+    if (branch) {
+      return jsonResponse({
+        ok: true,
+        branch,
+        headDraftRevision: draftRevision(workflow, "branch-head"),
+        promptTurns: [mockPromptTurn(workflow.id, branch.id, "plan", workflow.prompt)]
+      });
+    }
   }
 
   if (url.endsWith("/plan")) {
@@ -552,6 +789,64 @@ function mockJob(
         kind: "job.lifecycle"
       }
     ]
+  };
+}
+
+function mockBranch(id: string, name: string, parentBranchId?: string): WorkflowBranch {
+  return {
+    id,
+    workflowId: "workflow.gmail-receipts-to-sheets",
+    name,
+    status: "active",
+    createdAt: "2026-05-18T01:00:00.000Z",
+    updatedAt: "2026-05-18T01:00:00.000Z",
+    createdBy: "owner@example.com",
+    ...(parentBranchId ? { parentBranchId } : {}),
+    baseDraftRevisionId: "draft.workflow.gmail-receipts-to-sheets.r1.0",
+    headDraftRevisionId: "draft.workflow.gmail-receipts-to-sheets.r1.0",
+    metadata: {}
+  };
+}
+
+function mockPromptTurn(
+  workflowId: string,
+  branchId: string,
+  source: "plan" | "reprompt" | "edit" | "merge" | "cherry-pick",
+  prompt: string
+) {
+  return {
+    id: `prompt-turn.${branchId}.${source}`,
+    workflowId,
+    branchId,
+    source,
+    prompt,
+    actor: "owner@example.com",
+    createdAt: "2026-05-18T01:00:00.000Z",
+    baseDraftRevisionId: "draft.workflow.gmail-receipts-to-sheets.r1.0",
+    resultingDraftRevisionId: "draft.workflow.gmail-receipts-to-sheets.r2.1"
+  };
+}
+
+function branchIdFromUrl(url: string): string {
+  const match = /\/branches\/([^/?]+)/u.exec(url);
+  return decodeURIComponent(match?.[1] ?? "branch.workflow.gmail-receipts-to-sheets.main");
+}
+
+function workflowIdFromBranchUrl(url: string): string {
+  const match = /\/api\/workflows\/([^/?]+)\/branches/u.exec(url);
+  return decodeURIComponent(match?.[1] ?? "workflow.gmail-receipts-to-sheets");
+}
+
+function mockGeneratedModuleSignature() {
+  return {
+    promptHash: `sha256:${"a".repeat(64)}`,
+    inputSchemaHash: `sha256:${"b".repeat(64)}`,
+    outputSchemaHash: `sha256:${"c".repeat(64)}`,
+    runtimeHash: `sha256:${"d".repeat(64)}`,
+    sandboxHash: `sha256:${"e".repeat(64)}`,
+    dependencyManifestHash: `sha256:${"f".repeat(64)}`,
+    replaySeed: "fixture",
+    artifactHash: `sha256:${"1".repeat(64)}`
   };
 }
 
