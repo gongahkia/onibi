@@ -203,6 +203,7 @@ added with `piranesi evidence add` are also copied under `raw/<kind>/` and index
 - [Chain of custody](docs/chain-of-custody.md)
 - [Local preview UI](docs/local-ui.md)
 - [Product interface decision](docs/product-interface-decision.md)
+- [Rescan execution RFC](docs/rfcs/rescan-execution-layer.md)
 - [Privacy and data handling](docs/privacy-data-handling.md)
 - [CI examples](docs/ci-integration.md)
 

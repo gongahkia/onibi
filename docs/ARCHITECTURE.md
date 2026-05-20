@@ -183,6 +183,11 @@ ID first, then conservative fallback keys, and writes JSON or Markdown lifecycle
 diffs. Ambiguous fallback matches are surfaced for reviewer decision rather than
 silently classified.
 
+Future opt-in replay work is bounded by the
+[rescan execution RFC](rfcs/rescan-execution-layer.md). `rescan` stays disabled by
+default, requires optional container support, and can only replay supported scans
+recovered from existing baseline evidence.
+
 ## Chain Of Custody
 
 `piranesi sign` writes deterministic manifests under `signatures/`. Verification
