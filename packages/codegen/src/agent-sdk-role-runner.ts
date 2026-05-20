@@ -1,4 +1,5 @@
 import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { JsonRecord } from "@kelpclaw/workflow-spec";
 import type {
   GeneratedNodeBuildRole,
   GeneratedNodeRoleRunInput,
@@ -25,6 +26,19 @@ interface RoleQueryResult {
   readonly status: "succeeded" | "failed";
   readonly totalCostUsd: number;
   readonly outputArtifactRefs: readonly WorkflowCodegenArtifactRef[];
+  readonly usage: ModelUsageSnapshot;
+}
+
+interface ModelUsageSnapshot {
+  readonly durationMs?: number | undefined;
+  readonly durationApiMs?: number | undefined;
+  readonly inputTokens?: number | undefined;
+  readonly outputTokens?: number | undefined;
+  readonly cacheReadInputTokens?: number | undefined;
+  readonly cacheCreationInputTokens?: number | undefined;
+  readonly totalTokens?: number | undefined;
+  readonly costUsd?: number | undefined;
+  readonly modelUsage?: JsonRecord | undefined;
 }
 
 export class AgentSdkGeneratedNodeRoleRunner implements GeneratedNodeRoleRunner {
@@ -65,7 +79,8 @@ export class AgentSdkGeneratedNodeRoleRunner implements GeneratedNodeRoleRunner 
           maxCostUsd: input.request.maxModelCostUsd
         },
         correlationId: input.request.job.correlationId,
-        createdAt: input.request.generatedAt ?? new Date().toISOString()
+        createdAt: input.request.generatedAt ?? new Date().toISOString(),
+        ...roleResult.usage
       };
 
       if (roleResult.status === "failed") {
@@ -241,6 +256,7 @@ async function runRoleQuery(
   let status: RoleQueryResult["status"] = "succeeded";
   let totalCostUsd = 0;
   let outputArtifactRefs: readonly WorkflowCodegenArtifactRef[] = fallbackArtifacts;
+  let usage: ModelUsageSnapshot = {};
 
   for await (const message of runner(prompt, options)) {
     if (message.type !== "result") {
@@ -248,6 +264,7 @@ async function runRoleQuery(
     }
     const record = message as Record<string, unknown>;
     totalCostUsd += numberValue(record.total_cost_usd);
+    usage = mergeUsage(usage, usageFromResult(record));
     const structured = parseRoleStructuredOutput(record.structured_output ?? record.result);
     summary = structured.summary;
     status = structured.status;
@@ -263,7 +280,63 @@ async function runRoleQuery(
     summary,
     status,
     totalCostUsd,
-    outputArtifactRefs
+    outputArtifactRefs,
+    usage
+  };
+}
+
+function usageFromResult(record: Record<string, unknown>): ModelUsageSnapshot {
+  const usage = recordValue(record.usage);
+  const inputTokens =
+    numberValue(usage.input_tokens) ||
+    numberValue(usage.inputTokens) ||
+    numberValue(usage.cache_creation_input_tokens) + numberValue(usage.cache_read_input_tokens);
+  const outputTokens = numberValue(usage.output_tokens) || numberValue(usage.outputTokens);
+  const cacheReadInputTokens =
+    numberValue(usage.cache_read_input_tokens) || numberValue(usage.cacheReadInputTokens);
+  const cacheCreationInputTokens =
+    numberValue(usage.cache_creation_input_tokens) || numberValue(usage.cacheCreationInputTokens);
+  const costUsd =
+    numberValue(record.total_cost_usd) ||
+    numberValue(record.totalCostUsd) ||
+    numberValue(record.costUSD);
+  const durationMs = numberValue(record.duration_ms) || numberValue(record.durationMs);
+  const durationApiMs = numberValue(record.duration_api_ms) || numberValue(record.durationApiMs);
+  const modelUsage = jsonRecordValue(record.modelUsage);
+  const totalTokens = inputTokens + outputTokens + cacheReadInputTokens + cacheCreationInputTokens;
+
+  return {
+    ...(durationMs > 0 ? { durationMs } : {}),
+    ...(durationApiMs > 0 ? { durationApiMs } : {}),
+    ...(inputTokens > 0 ? { inputTokens } : {}),
+    ...(outputTokens > 0 ? { outputTokens } : {}),
+    ...(cacheReadInputTokens > 0 ? { cacheReadInputTokens } : {}),
+    ...(cacheCreationInputTokens > 0 ? { cacheCreationInputTokens } : {}),
+    ...(totalTokens > 0 ? { totalTokens } : {}),
+    ...(costUsd > 0 ? { costUsd } : {}),
+    ...(Object.keys(modelUsage).length > 0 ? { modelUsage } : {})
+  };
+}
+
+function mergeUsage(left: ModelUsageSnapshot, right: ModelUsageSnapshot): ModelUsageSnapshot {
+  return {
+    durationMs: (left.durationMs ?? 0) + (right.durationMs ?? 0) || undefined,
+    durationApiMs: (left.durationApiMs ?? 0) + (right.durationApiMs ?? 0) || undefined,
+    inputTokens: (left.inputTokens ?? 0) + (right.inputTokens ?? 0) || undefined,
+    outputTokens: (left.outputTokens ?? 0) + (right.outputTokens ?? 0) || undefined,
+    cacheReadInputTokens:
+      (left.cacheReadInputTokens ?? 0) + (right.cacheReadInputTokens ?? 0) || undefined,
+    cacheCreationInputTokens:
+      (left.cacheCreationInputTokens ?? 0) + (right.cacheCreationInputTokens ?? 0) || undefined,
+    totalTokens: (left.totalTokens ?? 0) + (right.totalTokens ?? 0) || undefined,
+    costUsd: (left.costUsd ?? 0) + (right.costUsd ?? 0) || undefined,
+    modelUsage:
+      left.modelUsage || right.modelUsage
+        ? {
+            ...(left.modelUsage ?? {}),
+            ...(right.modelUsage ?? {})
+          }
+        : undefined
   };
 }
 
@@ -318,6 +391,16 @@ function safeParseJson(value: string): unknown {
 
 function numberValue(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function jsonRecordValue(value: unknown): JsonRecord {
+  return JSON.parse(JSON.stringify(recordValue(value))) as JsonRecord;
 }
 
 function createRolePrompt(input: GeneratedNodeRoleRunInput): string {

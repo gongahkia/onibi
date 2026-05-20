@@ -480,6 +480,15 @@ export interface WorkflowModelInvocationRecord {
   readonly retryBudget: WorkflowRetryBudget;
   readonly correlationId: string;
   readonly createdAt: string;
+  readonly durationMs?: number | undefined;
+  readonly durationApiMs?: number | undefined;
+  readonly inputTokens?: number | undefined;
+  readonly outputTokens?: number | undefined;
+  readonly cacheReadInputTokens?: number | undefined;
+  readonly cacheCreationInputTokens?: number | undefined;
+  readonly totalTokens?: number | undefined;
+  readonly costUsd?: number | undefined;
+  readonly modelUsage?: JsonRecord | undefined;
 }
 
 export interface WorkflowTaskRoute {

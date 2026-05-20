@@ -307,6 +307,11 @@ describe("codegen artifact contracts", () => {
       yield {
         type: "result",
         total_cost_usd: 0.05,
+        duration_ms: 12,
+        usage: {
+          input_tokens: 10,
+          output_tokens: 5
+        },
         structured_output: {
           summary: `completed ${prompt.match(/You are the ([^ ]+) agent/u)?.[1] ?? "role"}`,
           status: "succeeded",
@@ -345,6 +350,13 @@ describe("codegen artifact contracts", () => {
     expect(
       result.agentRuns.flatMap((run) => run.modelInvocations ?? []).map((record) => record.provider)
     ).toEqual(rolePrompts.map(() => "anthropic"));
+    expect(result.agentRuns[0]?.modelInvocations?.[0]).toMatchObject({
+      costUsd: 0.05,
+      durationMs: 12,
+      inputTokens: 10,
+      outputTokens: 5,
+      totalTokens: 15
+    });
     expect(rolePrompts.some((prompt) => prompt.startsWith("claude-fixer:"))).toBe(true);
   });
 

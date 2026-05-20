@@ -357,7 +357,16 @@ export const workflowModelInvocationRecordSchema = z.object({
   determinismExpectation: z.enum(["deterministic", "bounded", "non-deterministic"]),
   retryBudget: workflowRetryBudgetSchema,
   correlationId: z.string().min(1),
-  createdAt: z.string().datetime()
+  createdAt: z.string().datetime(),
+  durationMs: z.number().min(0).optional(),
+  durationApiMs: z.number().min(0).optional(),
+  inputTokens: z.number().int().min(0).optional(),
+  outputTokens: z.number().int().min(0).optional(),
+  cacheReadInputTokens: z.number().int().min(0).optional(),
+  cacheCreationInputTokens: z.number().int().min(0).optional(),
+  totalTokens: z.number().int().min(0).optional(),
+  costUsd: z.number().min(0).optional(),
+  modelUsage: jsonRecordSchema.optional()
 });
 
 export const workflowTaskRouteSchema = z.object({
