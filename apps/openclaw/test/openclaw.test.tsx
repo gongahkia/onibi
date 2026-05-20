@@ -221,6 +221,16 @@ describe("OpenClaw planner shell", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Plan$/i }));
 
     expect(await screen.findByText("Scrape Status Page")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Build Generated Node/i }));
+
+    expect(await screen.findByRole("heading", { name: "Workspace" })).toBeInTheDocument();
+    expect(await screen.findByText("Total Tokens")).toBeInTheDocument();
+    expect(screen.getByText("2,750")).toBeInTheDocument();
+    expect(screen.getByText("Total Cost")).toBeInTheDocument();
+    expect(screen.getByText("$0.1600")).toBeInTheDocument();
+    expect(screen.getByText("workflow-architect")).toBeInTheDocument();
+    expect(screen.getByText(/1,500 tokens .* \$0\.0900/u)).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole("button", { name: /Review Generated Code/i }));
     expect(await screen.findByText("approved")).toBeInTheDocument();
 
@@ -773,6 +783,24 @@ async function mockFetch(input: string | URL | Request, init?: RequestInit): Pro
     });
   }
 
+  if (url.includes("/codegen/") && url.endsWith("/build")) {
+    const workflow = mockCurrentWorkflow ?? scheduledScrapingWorkflowFixture;
+    mockCurrentWorkflow = workflow;
+    const job = mockJob("build.codegen-node", workflow.id, "succeeded");
+    return jsonResponse({
+      ok: true,
+      workflow,
+      draftRevision: draftRevision(workflow, "validate"),
+      validation: { ok: true, workflow },
+      job,
+      workspace: mockWorkspace(workflow.id, job.id),
+      agentRuns: mockAgentRuns(workflow.id, job.id),
+      artifacts: [],
+      testReport: { id: "test-report.codegen.scrape-status-page", status: "passed" },
+      evalReport: { id: "eval-report.codegen.scrape-status-page", status: "passed" }
+    });
+  }
+
   if (url.includes("/codegen/") && url.endsWith("/review")) {
     const workflow = reviewCodegenWorkflow(mockCurrentWorkflow ?? scheduledScrapingWorkflowFixture);
     mockCurrentWorkflow = workflow;
@@ -1158,6 +1186,120 @@ function reviewCodegenWorkflow(workflow: WorkflowSpec): WorkflowSpec {
         : node
     )
   };
+}
+
+function mockWorkspace(workflowId: string, jobId: string) {
+  return {
+    id: "workspace.codegen.scrape-status-page",
+    jobId,
+    workflowId,
+    rootPath: "/tmp/kelpclaw/workspaces/workspace.codegen.scrape-status-page",
+    createdAt: "2026-05-18T01:00:00.000Z",
+    updatedAt: "2026-05-18T01:00:00.000Z",
+    mountedAgents: ["workflow-architect", "coder"],
+    mounts: [
+      {
+        role: "workflow-architect",
+        path: "roles/workflow-architect",
+        mode: "rw"
+      },
+      {
+        role: "coder",
+        path: "roles/coder",
+        mode: "rw"
+      }
+    ],
+    filesCreated: ["generated/scrape-status-page.ts"],
+    fileHashes: [
+      {
+        path: "generated/scrape-status-page.ts",
+        checksum: `sha256:${"b".repeat(64)}`
+      }
+    ],
+    artifactsProduced: [],
+    logs: ["Generated node build passed."],
+    logPaths: ["logs/build.log"],
+    testReports: ["test-report.codegen.scrape-status-page"],
+    retentionPolicy: "ephemeral",
+    retentionStatus: "active"
+  };
+}
+
+function mockAgentRuns(workflowId: string, jobId: string) {
+  return [
+    {
+      id: `agent.${jobId}.workflow-architect.scrape-status-page`,
+      workflowId,
+      nodeId: "scrape-status-page",
+      jobId,
+      role: "workflow-architect",
+      status: "succeeded",
+      startedAt: "2026-05-18T01:00:00.000Z",
+      finishedAt: "2026-05-18T01:00:01.000Z",
+      inputSummary: "Design generated node.",
+      outputArtifactRefs: [],
+      modelProvider: "openai",
+      model: "gpt-4.1",
+      inputTokens: 1200,
+      outputTokens: 300,
+      totalTokens: 1500,
+      costUsd: 0.09,
+      modelInvocations: [
+        {
+          id: "model-invocation.workflow-architect",
+          timestamp: "2026-05-18T01:00:00.000Z",
+          provider: "openai",
+          model: "gpt-4.1",
+          role: "workflow-architect",
+          rationale: "Design generated node.",
+          deterministicExpected: false,
+          retryBudget: { maxAttempts: 1, maxCostUsd: 1 },
+          correlationId: jobId,
+          inputTokens: 1200,
+          outputTokens: 300,
+          totalTokens: 1500,
+          costUsd: 0.09,
+          outputArtifactRefs: []
+        }
+      ]
+    },
+    {
+      id: `agent.${jobId}.coder.scrape-status-page`,
+      workflowId,
+      nodeId: "scrape-status-page",
+      jobId,
+      role: "coder",
+      status: "succeeded",
+      startedAt: "2026-05-18T01:00:01.000Z",
+      finishedAt: "2026-05-18T01:00:02.000Z",
+      inputSummary: "Implement generated node.",
+      outputArtifactRefs: [],
+      modelProvider: "openai",
+      model: "gpt-4.1",
+      inputTokens: 800,
+      outputTokens: 450,
+      totalTokens: 1250,
+      costUsd: 0.07,
+      modelInvocations: [
+        {
+          id: "model-invocation.coder",
+          timestamp: "2026-05-18T01:00:01.000Z",
+          provider: "openai",
+          model: "gpt-4.1",
+          role: "coder",
+          rationale: "Implement generated node.",
+          deterministicExpected: false,
+          retryBudget: { maxAttempts: 1, maxCostUsd: 1 },
+          correlationId: jobId,
+          inputTokens: 800,
+          outputTokens: 450,
+          totalTokens: 1250,
+          costUsd: 0.07,
+          outputArtifactRefs: []
+        }
+      ]
+    }
+  ];
 }
 
 function draftRevision(workflow: WorkflowSpec, source: string) {

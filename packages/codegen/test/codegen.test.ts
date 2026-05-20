@@ -505,6 +505,12 @@ describe("codegen artifact contracts", () => {
       outputTokens: 5,
       totalTokens: 15
     });
+    expect(result.agentRuns[0]).toMatchObject({
+      costUsd: 0.05,
+      inputTokens: 10,
+      outputTokens: 5,
+      totalTokens: 15
+    });
     expect(rolePrompts.some((prompt) => prompt.startsWith("claude-fixer:"))).toBe(true);
   });
 
@@ -595,6 +601,13 @@ describe("codegen artifact contracts", () => {
       modelUsage: {
         reasoningTokens: 1
       }
+    });
+    expect(result.agentRuns[0]).toMatchObject({
+      costUsd: 0.02,
+      inputTokens: 7,
+      outputTokens: 3,
+      totalTokens: 10,
+      cacheReadInputTokens: 2
     });
     expect(rolePrompts.some((prompt) => prompt.startsWith("gpt-fixer:"))).toBe(true);
   });

@@ -64,6 +64,8 @@ export function createCodegenAgentRunRecord(input: {
   readonly modelInvocations?: readonly WorkflowModelInvocationRecord[] | undefined;
   readonly error?: string | undefined;
 }): CodegenAgentRunRecord {
+  const modelInvocations = input.modelInvocations ?? [];
+  const usage = modelInvocationUsageSummary(modelInvocations);
   return {
     id: `agent.${input.jobId}.${input.role}.${input.nodeId}`,
     workflowId: input.workflowId,
@@ -77,9 +79,53 @@ export function createCodegenAgentRunRecord(input: {
     outputArtifactRefs: input.outputArtifactRefs,
     modelProvider: input.modelProvider ?? "deterministic",
     model: input.model ?? "none",
-    ...(input.modelInvocations ? { modelInvocations: input.modelInvocations } : {}),
+    ...(modelInvocations.length > 0 ? { modelInvocations } : {}),
+    ...usage,
     ...(input.error ? { error: input.error } : {})
   };
+}
+
+function modelInvocationUsageSummary(
+  modelInvocations: readonly WorkflowModelInvocationRecord[]
+): Partial<
+  Pick<
+    CodegenAgentRunRecord,
+    | "inputTokens"
+    | "outputTokens"
+    | "cacheReadInputTokens"
+    | "cacheCreationInputTokens"
+    | "totalTokens"
+    | "costUsd"
+  >
+> {
+  return {
+    ...positiveUsageField(modelInvocations, "inputTokens"),
+    ...positiveUsageField(modelInvocations, "outputTokens"),
+    ...positiveUsageField(modelInvocations, "cacheReadInputTokens"),
+    ...positiveUsageField(modelInvocations, "cacheCreationInputTokens"),
+    ...positiveUsageField(modelInvocations, "totalTokens"),
+    ...positiveUsageField(modelInvocations, "costUsd")
+  };
+}
+
+function positiveUsageField<
+  Field extends
+    | "inputTokens"
+    | "outputTokens"
+    | "cacheReadInputTokens"
+    | "cacheCreationInputTokens"
+    | "totalTokens"
+    | "costUsd"
+>(
+  modelInvocations: readonly WorkflowModelInvocationRecord[],
+  field: Field
+): Partial<Record<Field, number>> {
+  const total = modelInvocations.reduce((sum, invocation) => {
+    const value = invocation[field];
+    return typeof value === "number" && Number.isFinite(value) ? sum + value : sum;
+  }, 0);
+
+  return total > 0 ? ({ [field]: total } as Partial<Record<Field, number>>) : {};
 }
 
 export function createCodegenAgentArtifactRecords(input: {

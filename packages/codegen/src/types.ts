@@ -121,6 +121,12 @@ export interface CodegenAgentRunRecord {
   readonly modelProvider: string;
   readonly model: string;
   readonly modelInvocations?: readonly WorkflowModelInvocationRecord[] | undefined;
+  readonly inputTokens?: number | undefined;
+  readonly outputTokens?: number | undefined;
+  readonly cacheReadInputTokens?: number | undefined;
+  readonly cacheCreationInputTokens?: number | undefined;
+  readonly totalTokens?: number | undefined;
+  readonly costUsd?: number | undefined;
   readonly error?: string | undefined;
 }
 

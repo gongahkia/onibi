@@ -2965,6 +2965,7 @@ function WorkspacePanel(props: {
   readonly agentRuns: readonly unknown[];
 }) {
   const agentRuns = props.agentRuns.map(agentRunView);
+  const usageSummary = summarizeAgentUsage(agentRuns);
   return (
     <section className="run-panel" aria-label="Workspace artifacts">
       <h2>Workspace</h2>
@@ -2974,6 +2975,20 @@ function WorkspacePanel(props: {
         tone={props.workspace ? "valid" : "idle"}
       />
       <StatusRow label="Agents" value={String(props.agentRuns.length)} tone="pending" />
+      {agentRuns.length > 0 ? (
+        <>
+          <StatusRow
+            label="Total Tokens"
+            value={formatTokenCount(usageSummary.totalTokens)}
+            tone={usageSummary.totalTokens > 0 ? "valid" : "idle"}
+          />
+          <StatusRow
+            label="Total Cost"
+            value={formatUsd(usageSummary.costUsd)}
+            tone={usageSummary.costUsd > 0 ? "valid" : "idle"}
+          />
+        </>
+      ) : null}
       {props.workspace ? (
         <ul className="event-list">
           {props.workspace.fileHashes.slice(0, 6).map((file) => (
@@ -2990,8 +3005,10 @@ function WorkspacePanel(props: {
             <li key={`${run.role}-${index}`}>
               <strong>{run.role}</strong>
               <span>
-                {run.status} · {run.model}
-                {run.costUsd !== null ? ` · $${run.costUsd.toFixed(4)}` : ""}
+                {run.status} · {run.model} ·{" "}
+                {run.hasUsage
+                  ? `${formatTokenCount(run.totalTokens)} tokens · ${formatUsd(run.costUsd)}${formatTokenSplit(run)}`
+                  : "usage n/a"}
               </span>
             </li>
           ))}
@@ -3036,23 +3053,114 @@ function agentRunView(run: unknown): {
   readonly role: string;
   readonly status: string;
   readonly model: string;
-  readonly costUsd: number | null;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly cacheReadInputTokens: number;
+  readonly cacheCreationInputTokens: number;
+  readonly totalTokens: number;
+  readonly costUsd: number;
+  readonly hasUsage: boolean;
 } {
   const record = jsonObject(run);
   const invocations = Array.isArray(record.modelInvocations)
     ? record.modelInvocations.map(jsonObject)
     : [];
-  const costUsd = invocations.reduce((total, invocation) => {
-    const cost = typeof invocation.costUsd === "number" ? invocation.costUsd : 0;
-    return total + cost;
-  }, 0);
+  const inputTokens = usageNumber(record, invocations, "inputTokens");
+  const outputTokens = usageNumber(record, invocations, "outputTokens");
+  const cacheReadInputTokens = usageNumber(record, invocations, "cacheReadInputTokens");
+  const cacheCreationInputTokens = usageNumber(record, invocations, "cacheCreationInputTokens");
+  const invocationTotalTokens = usageNumber(record, invocations, "totalTokens");
+  const totalTokens =
+    invocationTotalTokens > 0 ? invocationTotalTokens : inputTokens + outputTokens;
+  const costUsd = usageNumber(record, invocations, "costUsd");
+  const hasUsage =
+    inputTokens > 0 ||
+    outputTokens > 0 ||
+    cacheReadInputTokens > 0 ||
+    cacheCreationInputTokens > 0 ||
+    totalTokens > 0 ||
+    costUsd > 0;
 
   return {
     role: typeof record.role === "string" ? record.role : "agent",
     status: typeof record.status === "string" ? record.status : "unknown",
     model: typeof record.model === "string" ? record.model : "none",
-    costUsd: costUsd > 0 ? costUsd : null
+    inputTokens,
+    outputTokens,
+    cacheReadInputTokens,
+    cacheCreationInputTokens,
+    totalTokens,
+    costUsd,
+    hasUsage
   };
+}
+
+function usageNumber(
+  record: Record<string, unknown>,
+  invocations: readonly Record<string, unknown>[],
+  field: string
+): number {
+  const recordValue = record[field];
+  if (typeof recordValue === "number" && Number.isFinite(recordValue)) {
+    return recordValue;
+  }
+
+  return invocations.reduce((total, invocation) => {
+    const value = invocation[field];
+    return typeof value === "number" && Number.isFinite(value) ? total + value : total;
+  }, 0);
+}
+
+function summarizeAgentUsage(
+  agentRuns: readonly ReturnType<typeof agentRunView>[]
+): ReturnType<typeof agentRunView> {
+  return agentRuns.reduce(
+    (summary, run) => ({
+      role: "all-agents",
+      status: "summary",
+      model: "all-models",
+      inputTokens: summary.inputTokens + run.inputTokens,
+      outputTokens: summary.outputTokens + run.outputTokens,
+      cacheReadInputTokens: summary.cacheReadInputTokens + run.cacheReadInputTokens,
+      cacheCreationInputTokens: summary.cacheCreationInputTokens + run.cacheCreationInputTokens,
+      totalTokens: summary.totalTokens + run.totalTokens,
+      costUsd: summary.costUsd + run.costUsd,
+      hasUsage: summary.hasUsage || run.hasUsage
+    }),
+    {
+      role: "all-agents",
+      status: "summary",
+      model: "all-models",
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadInputTokens: 0,
+      cacheCreationInputTokens: 0,
+      totalTokens: 0,
+      costUsd: 0,
+      hasUsage: false
+    }
+  );
+}
+
+function formatTokenSplit(run: ReturnType<typeof agentRunView>): string {
+  const parts = [
+    run.inputTokens > 0 ? `${formatTokenCount(run.inputTokens)} in` : "",
+    run.outputTokens > 0 ? `${formatTokenCount(run.outputTokens)} out` : "",
+    run.cacheReadInputTokens > 0 ? `${formatTokenCount(run.cacheReadInputTokens)} cache read` : "",
+    run.cacheCreationInputTokens > 0
+      ? `${formatTokenCount(run.cacheCreationInputTokens)} cache write`
+      : ""
+  ].filter(Boolean);
+
+  return parts.length > 0 ? ` (${parts.join(", ")})` : "";
+}
+
+function formatTokenCount(value: number): string {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
+}
+
+function formatUsd(value: number): string {
+  return `$${value.toFixed(4)}`;
 }
 
 function jsonObject(value: unknown): Record<string, unknown> {
