@@ -231,6 +231,7 @@ added with `piranesi evidence add` are also copied under `raw/<kind>/` and index
 - [Local report template library](docs/report-template-library.md)
 - [Burp ingestion](docs/burp-ingest.md)
 - [Phase 1.1 adapter expansion](docs/adapter-expansion.md)
+- [Piranesi Finding Format v0](docs/pff-v0.md)
 - [C2 log import](docs/c2-log-import.md)
 - [Nuclei ingestion](docs/nuclei-ingest.md)
 - [Retest workflow](docs/retest-workflow.md)
