@@ -50,6 +50,7 @@ from piranesi.objectives import (
     load_objectives,
     load_procedures,
 )
+from piranesi.pff import PffValidationError, load_and_validate_pff_file
 from piranesi.report.pentest import (
     PdfBackend,
     ReportRenderError,
@@ -175,6 +176,11 @@ detections_app = typer.Typer(
     help="Track IOCs and blue-team detection handoff notes.",
     no_args_is_help=True,
 )
+pff_app = typer.Typer(
+    add_completion=False,
+    help="Validate and export Piranesi Finding Format artifacts.",
+    no_args_is_help=True,
+)
 engagement_app = typer.Typer(
     add_completion=False,
     help="Track solo engagement review and delivery state.",
@@ -187,6 +193,7 @@ app.add_typer(timeline_app, name="timeline")
 app.add_typer(objectives_app, name="objectives")
 app.add_typer(procedures_app, name="procedures")
 app.add_typer(detections_app, name="detections")
+app.add_typer(pff_app, name="pff")
 
 
 def _load_local_llm_env(env_path: Path | None = None) -> None:
@@ -1780,6 +1787,47 @@ def detection_list_command(
         typer.echo(f"ioc\t{ioc.id}\t{ioc.type}\t{ioc.value}")
     for note in document.notes:
         typer.echo(f"note\t{note.id}\t{note.title}")
+
+
+@pff_app.command("validate", help="Validate a PFF JSON document against the bundled schema.")
+def pff_validate_command(
+    input_path: Annotated[
+        Path,
+        typer.Option(
+            "--input",
+            "-i",
+            exists=False,
+            dir_okay=False,
+            file_okay=True,
+            help="PFF JSON document to validate.",
+        ),
+    ],
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print validation summary as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    if not input_path.is_file():
+        _fail(f"input file does not exist: {input_path}", json_errors=json_errors)
+
+    try:
+        document = load_and_validate_pff_file(input_path)
+    except PffValidationError as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    findings = document.get("findings")
+    count = len(findings) if isinstance(findings, list) else 0
+    payload = {
+        "input": str(input_path),
+        "schema_version": document.get("schema_version"),
+        "findings": count,
+        "valid": True,
+    }
+    _emit(payload, json_output=json_output, text=f"Valid PFF document: {count} findings")
 
 
 @app.command("report", help="Generate pentest report artifacts from a workspace.")

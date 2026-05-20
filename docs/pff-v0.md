@@ -4,9 +4,15 @@ Piranesi Finding Format (PFF) v0 is the first public interchange shape for findi
 evidence, provenance, retest state, and chain-of-custody references. The JSON Schema lives at
 [`docs/schemas/pff-v0.schema.json`](schemas/pff-v0.schema.json).
 
-The v0 schema is intentionally close to the current normalized finding model so nmap, nuclei, and
-Burp findings can be represented without known information loss. It is additive-first: future
-changes should add optional fields until a separately documented migration policy exists.
+Validate a PFF document with the bundled schema:
+
+```bash
+uv run piranesi pff validate --input findings.pff.json
+```
+
+The v0 schema is intentionally close to the current normalized finding model so current adapter
+findings can be represented without known information loss. It is additive-first: future changes
+should add optional fields until a separately documented migration policy exists.
 
 Top-level fields:
 
