@@ -4,7 +4,7 @@ import json
 import os
 import webbrowser
 from pathlib import Path
-from typing import Annotated, Any, Literal, NoReturn
+from typing import Annotated, Any, Literal, NoReturn, cast
 
 import typer
 
@@ -103,6 +103,7 @@ EXIT_NOT_IMPLEMENTED = 64
 
 DEFAULT_WORKSPACE = Path("piranesi-workspace")
 ReportType = Literal["pentest", "red-team"]
+ReportOutputFormat = Literal["json", "md", "pdf", "archive"]
 
 app = typer.Typer(
     add_completion=False,
@@ -1269,7 +1270,7 @@ def report_command(
         ),
     ] = DEFAULT_WORKSPACE,
     output_format: Annotated[
-        ReportFormat,
+        ReportOutputFormat,
         typer.Option("--format", "-f", help="Report artifact format."),
     ] = "md",
     report_type: Annotated[
@@ -1297,6 +1298,20 @@ def report_command(
             help="Redact evidence snippets marked sensitive in the workspace.",
         ),
     ] = True,
+    include_raw_evidence: Annotated[
+        bool,
+        typer.Option(
+            "--include-raw-evidence",
+            help="Include raw evidence files in red-team archive exports.",
+        ),
+    ] = False,
+    include_secret_raw_evidence: Annotated[
+        bool,
+        typer.Option(
+            "--include-secret-raw-evidence",
+            help="Include raw evidence marked secret in red-team archive exports.",
+        ),
+    ] = False,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Print artifact metadata as JSON."),
@@ -1310,10 +1325,6 @@ def report_command(
         state = load_workspace(workspace)
         output_dir = output or workspace_path(state.root, "reports", allowed_roots=("reports",))
         if report_type == "red-team":
-            if output_format == "pdf":
-                raise RedTeamReportError(
-                    "red-team report PDF output is not implemented yet; use --format md or json"
-                )
             red_team_report = build_red_team_report(
                 state,
                 redact_sensitive_evidence=redact_sensitive_evidence,
@@ -1322,8 +1333,14 @@ def report_command(
                 red_team_report,
                 output_dir=output_dir,
                 output_format=output_format,
+                pdf_backend=pdf_backend,
+                workspace_root=state.root,
+                include_raw_evidence=include_raw_evidence,
+                include_secret_raw_evidence=include_secret_raw_evidence,
             )
         else:
+            if output_format == "archive":
+                raise ReportRenderError("archive format is only supported for red-team reports")
             report_model = build_pentest_report(
                 state,
                 redact_sensitive_evidence=redact_sensitive_evidence,
@@ -1331,7 +1348,7 @@ def report_command(
             artifact_path = render_report_artifact(
                 report_model,
                 output_dir=output_dir,
-                output_format=output_format,
+                output_format=cast(ReportFormat, output_format),
                 pdf_backend=pdf_backend,
             )
     except (WorkspaceError, ReportRenderError, RedTeamReportError) as exc:

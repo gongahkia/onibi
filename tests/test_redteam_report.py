@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import zipfile
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -140,3 +141,98 @@ def test_red_team_report_markdown_empty_workspace(tmp_path: Path) -> None:
     markdown = path.read_text(encoding="utf-8")
     assert "# Piranesi Red-Team Handoff" in markdown
     assert "No objectives recorded" in markdown
+
+
+def test_red_team_report_pdf_and_archive_exports(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    public_evidence = tmp_path / "screenshot.svg"
+    secret_evidence = tmp_path / "secret.txt"
+    public_evidence.write_text("<svg><text>portal</text></svg>\n", encoding="utf-8")
+    secret_evidence.write_text("token=secret\n", encoding="utf-8")
+    add_public = runner.invoke(
+        app,
+        [
+            "evidence",
+            "add",
+            "--workspace",
+            str(workspace),
+            "--file",
+            str(public_evidence),
+            "--kind",
+            "screenshot",
+            "--title",
+            "Portal screenshot",
+            "--sensitivity",
+            "internal",
+            "--json",
+        ],
+    )
+    assert add_public.exit_code == 0, add_public.output
+    add_secret = runner.invoke(
+        app,
+        [
+            "evidence",
+            "add",
+            "--workspace",
+            str(workspace),
+            "--file",
+            str(secret_evidence),
+            "--kind",
+            "payload",
+            "--title",
+            "Secret payload note",
+            "--sensitivity",
+            "secret",
+            "--json",
+        ],
+    )
+    assert add_secret.exit_code == 0, add_secret.output
+
+    pdf = runner.invoke(
+        app,
+        [
+            "report",
+            "--workspace",
+            str(workspace),
+            "--type",
+            "red-team",
+            "--format",
+            "pdf",
+            "--pdf-backend",
+            "reportlab",
+            "--json",
+        ],
+    )
+    archive = runner.invoke(
+        app,
+        [
+            "report",
+            "--workspace",
+            str(workspace),
+            "--type",
+            "red-team",
+            "--format",
+            "archive",
+            "--include-raw-evidence",
+            "--json",
+        ],
+    )
+
+    assert pdf.exit_code == 0, pdf.output
+    pdf_path = Path(json.loads(pdf.stdout)["path"])
+    assert pdf_path.read_bytes().startswith(b"%PDF")
+    assert archive.exit_code == 0, archive.output
+    archive_path = Path(json.loads(archive.stdout)["path"])
+    with zipfile.ZipFile(archive_path) as bundle:
+        names = set(bundle.namelist())
+        manifest = json.loads(bundle.read("archive-manifest.json").decode("utf-8"))
+
+    assert "reports/red-team-report.json" in names
+    assert "reports/red-team-report.md" in names
+    assert "reports/red-team-report-reportlab.pdf" in names
+    assert "evidence/index.json" in names
+    assert "timeline/events.jsonl" in names
+    assert any(name.startswith("raw/screenshot/") for name in names)
+    assert not any(name.startswith("raw/payload/") for name in names)
+    assert manifest["include_raw_evidence"] is True
+    assert manifest["include_secret_raw_evidence"] is False
