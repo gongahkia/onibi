@@ -210,6 +210,7 @@ added with `piranesi evidence add` are also copied under `raw/<kind>/` and index
 - [Local preview UI](docs/local-ui.md)
 - [Product interface decision](docs/product-interface-decision.md)
 - [Rescan execution RFC](docs/rfcs/rescan-execution-layer.md)
+- [Rescan image policy](docs/rescan-image-policy.md)
 - [Rescan replay extractors](docs/rescan-extractors.md)
 - [Rescan runtime support](docs/rescan-runtime.md)
 - [Privacy and data handling](docs/privacy-data-handling.md)
