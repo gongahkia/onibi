@@ -45,6 +45,9 @@ it reaches any provider. Prompt construction must use redacted workspace facts,
 approved report fields, and evidence identifiers. It must not pass raw evidence
 directly to provider code.
 
+The implementation contract is documented in
+[`ai-redaction.md`](ai-redaction.md).
+
 ## Approval Boundary
 
 AI-authored report text starts as a draft. A draft may be accepted, rejected, or
@@ -68,4 +71,3 @@ data.
 5. Privacy and hallucination evaluation suite.
 6. Human-approved draft modes for remediation, executive summaries, and
    suggestions.
-
