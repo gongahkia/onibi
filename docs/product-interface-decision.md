@@ -32,11 +32,12 @@ The CLI remains important because scanner imports, report generation, signing, r
 - The app can create an empty workspace and initialize engagement metadata.
 - The app exposes guided empty states for evidence, timeline, objectives, findings, detection handoff, reports, and signing.
 - Operator note evidence can be added from the UI.
+- Local evidence files can be uploaded from the UI and preserved through the same evidence vault used by the CLI.
 - Scanner imports remain available from the CLI and are represented in the UI through findings and source counts.
 - The service boundary stays JSON-based so future desktop, bot, or collaboration interfaces can reuse the workspace model.
 
 ## Current Limits
 
-- File upload UI is not yet implemented; the first browser evidence path captures typed operator notes.
-- Red-team PDF output is not implemented yet; red-team handoff currently supports Markdown and JSON.
 - The web app is still local single-user software and does not provide hosted auth, RBAC, or multi-operator synchronization.
+- Scanner imports still run through the CLI; the app represents imported findings but does not execute scanner tools.
+- Red-team archive export can include raw evidence only when explicitly requested.

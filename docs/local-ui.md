@@ -7,9 +7,10 @@ piranesi serve --workspace ./workspace
 ```
 
 The server creates the workspace if it does not exist yet. The app can initialize
-engagement metadata, add typed operator-note evidence, show guided empty states,
-and render current workspace data: evidence, timeline, objectives, procedures,
-findings, detection handoff records, report artifacts, and chain-of-custody status.
+engagement metadata, add typed operator-note evidence, upload local evidence files,
+show guided empty states, and render current workspace data: evidence, timeline,
+objectives, procedures, findings, detection handoff records, report artifacts, and
+chain-of-custody status.
 
 The product decision behind this interface is documented in
 [Product Interface Decision](product-interface-decision.md).
@@ -39,6 +40,7 @@ Routes are fixed and do not expose arbitrary workspace file paths:
 - `GET /api/workspace`
 - `POST /api/workspace/init`
 - `POST /api/evidence/note`
+- `POST /api/evidence/file`
 - `GET /api/report/json`
 - `GET /api/report/markdown`
 - `GET /api/report/pdf?backend=reportlab`
@@ -49,6 +51,7 @@ when WeasyPrint system dependencies are unavailable.
 
 ## Non-Goals
 
-The Phase 1 app has no arbitrary file upload UI, client portal, authentication,
-hosted mode, team workflow, or scanner execution. Scanner import remains available
-through the CLI and imported findings are represented in the app.
+The Phase 1 app has no client portal, authentication, hosted mode, team workflow,
+or scanner execution. File upload is limited to explicit evidence preservation; the
+server still does not serve arbitrary workspace paths. Scanner import remains
+available through the CLI and imported findings are represented in the app.

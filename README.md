@@ -52,11 +52,28 @@ Piranesi focuses on that artifact layer:
 
 - **Import-only:** Phase 1 does not run active scans or payloads.
 - **Operator-evidence aware:** screenshots, transcripts, logs, and other artifacts can
-  be preserved in the local evidence vault.
+  be preserved in the local evidence vault from the CLI or browser UI.
 - **Evidence-bound:** findings cite raw tool exports, source digests, and locators.
 - **Local-first:** workspaces, reports, signatures, and previews stay on disk.
 - **Deterministic:** normalized IDs and contract snapshots make reports reproducible.
-- **Reviewable:** Markdown, JSON, PDF, retest output, and signatures are inspectable.
+- **Reviewable:** Markdown, JSON, PDF, handoff archives, retest output, and signatures
+  are inspectable.
+
+## Red-Team Workspace Flow
+
+```mermaid
+flowchart LR
+  A["Operator evidence"] --> B["Evidence vault"]
+  C["Scanner exports"] --> D["Normalized findings"]
+  B --> E["Timeline, objectives, procedures"]
+  D --> F["Report and handoff archive"]
+  E --> F
+  F --> G["Signed local deliverable"]
+```
+
+Scanner imports are one evidence source. The broader workspace also tracks operator
+notes, screenshots, transcripts, C2-style logs, objectives, procedures, detection
+handoff notes, report artifacts, and custody manifests.
 
 ## Quick Start
 
@@ -81,6 +98,11 @@ uv run piranesi ingest nuclei \
   --input tests/fixtures/pentest/nuclei/localhost-http.jsonl \
   --workspace ./workspace
 uv run piranesi report --workspace ./workspace --format md
+uv run piranesi report \
+  --workspace ./workspace \
+  --type red-team \
+  --format archive \
+  --include-raw-evidence
 uv run piranesi sign --workspace ./workspace
 uv run piranesi serve --workspace ./workspace
 ```
@@ -121,11 +143,12 @@ Implemented Phase 1 pieces:
 - nmap XML ingestion.
 - nuclei JSONL ingestion.
 - Pentest report rendering to JSON, Markdown, and PDF.
+- Red-team handoff rendering to JSON, Markdown, PDF, and archive ZIP.
 - Chain-of-custody manifest creation and verification.
 - Retest lifecycle diff with `new`, `open`, `closed`, `changed`, `regressed`, and
   `ambiguous` statuses.
 - Local loopback web app via `piranesi serve`, including empty-workspace setup and
-  typed operator-note evidence capture.
+  typed note capture plus browser file upload for evidence artifacts.
 
 See [docs/capabilities.md](docs/capabilities.md) for the detailed Phase 1 matrix and
 [docs/known-limitations.json](docs/known-limitations.json) for tracked limitations.

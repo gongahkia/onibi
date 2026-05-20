@@ -29,7 +29,7 @@ Command responsibilities:
 | --- | --- |
 | `evidence` | Preserve operator artifacts such as screenshots, notes, logs, transcripts, and payload metadata. |
 | `ingest` | Create/update a workspace and import real tool exports. |
-| `report` | Render JSON, Markdown, or PDF from normalized workspace findings. |
+| `report` | Render pentest reports and red-team handoff artifacts from workspace data. |
 | `retest` | Compare two workspaces and classify finding lifecycle status. |
 | `sign` | Create or verify a chain-of-custody manifest. |
 | `serve` | Start a loopback-only local report preview UI for a workspace. |
@@ -79,25 +79,30 @@ flowchart LR
     B --> F["Evidence inventory"]
     D --> E
     D --> G["Normalized findings"]
+    F --> H["piranesi report"]
     G --> H
     G --> I["piranesi retest"]
     E --> J["piranesi sign"]
     F --> J
     G --> J
     H --> J
-    F -. future red-team sections .-> H["piranesi report"]
-    F -. future preview surfaces .-> K["piranesi serve"]
+    F --> K["piranesi serve"]
     G --> K
 ```
 
-Dashed edges show the next reporting/preview work. The first pivot slice stores and
-signs the evidence inventory; red-team report sections will consume it in a follow-up.
+The report path now consumes both scanner findings and red-team workspace records.
+Archive handoff export packages report artifacts and workspace indexes; raw evidence
+files are opt-in and raw evidence marked `secret` requires a separate explicit flag.
 
 ## Evidence Vault
 
 `piranesi evidence add` preserves operator artifacts without interpreting or rewriting
 their contents. Each evidence record stores a kind, title, raw path, SHA-256 digest,
 timestamp metadata, source, sensitivity marker, tags, and optional notes.
+
+The local web app uses the same evidence path for browser uploads. It does not expose
+arbitrary workspace file serving; uploads are copied through the evidence vault and
+returned to the UI as inventory records.
 
 Initial evidence kinds are:
 
@@ -124,6 +129,8 @@ The red-team workspace pivot is tracked as a focused issue chain:
 - #112: provenance coverage for red-team artifacts
 - #114: authorized lab validation
 - #115: first-class local web app
+- #116: browser evidence file upload
+- #117: red-team PDF and handoff archive export
 
 ## Adapter Boundary
 
@@ -149,16 +156,19 @@ Adapter requirements:
 
 ## Report Rendering
 
-`piranesi report` builds a typed report model from the workspace and renders:
+`piranesi report` builds typed report models from the workspace and renders:
 
-- JSON for automation;
-- Markdown for consultant review and editing;
+- pentest JSON, Markdown, and PDF;
+- red-team handoff JSON, Markdown, PDF, and archive ZIP;
 - PDF through WeasyPrint when system dependencies are available;
-- PDF through ReportLab as a deterministic fallback that does not require WeasyPrint native
-  libraries.
+- PDF through ReportLab as a deterministic fallback that does not require WeasyPrint
+  native libraries.
 
 Reports include engagement metadata, executive summary, severity summary, affected
 assets, findings, evidence, retest status, and chain-of-custody status.
+
+Red-team handoff reports additionally include objectives, timeline events, procedures,
+ATT&CK mapping fields, detection notes, IOCs, and an evidence appendix.
 
 ## Retest
 
