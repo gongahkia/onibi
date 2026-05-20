@@ -35,6 +35,13 @@ from piranesi.workspace import (
 AI_REMEDIATION_DRAFT_SCHEMA_VERSION: Literal["piranesi.ai-remediation-draft.v1"] = (
     "piranesi.ai-remediation-draft.v1"
 )
+AI_EXECUTIVE_SUMMARY_DRAFT_SCHEMA_VERSION: Literal[
+    "piranesi.ai-executive-summary-draft.v1"
+] = "piranesi.ai-executive-summary-draft.v1"
+AI_ACCEPTED_EXECUTIVE_SUMMARY_SCHEMA_VERSION: Literal[
+    "piranesi.ai-executive-summary.v1"
+] = "piranesi.ai-executive-summary.v1"
+ACCEPTED_EXECUTIVE_SUMMARY_FILE = "reports/ai-executive-summary.json"
 DraftStatus = Literal["draft", "accepted", "rejected"]
 
 
@@ -60,6 +67,32 @@ class AIRemediationDraft(_StrictModel):
     accepted_at: str | None = None
     rejected_at: str | None = None
     evaluation: dict[str, object] = Field(default_factory=dict)
+
+
+class AIExecutiveSummaryDraft(_StrictModel):
+    schema_version: Literal["piranesi.ai-executive-summary-draft.v1"] = (
+        AI_EXECUTIVE_SUMMARY_DRAFT_SCHEMA_VERSION
+    )
+    draft_id: str
+    text: str
+    trace_id: str
+    status: DraftStatus = "draft"
+    ai_generated: bool = True
+    created_at: str
+    accepted_at: str | None = None
+    rejected_at: str | None = None
+    evaluation: dict[str, object] = Field(default_factory=dict)
+
+
+class AcceptedExecutiveSummary(_StrictModel):
+    schema_version: Literal["piranesi.ai-executive-summary.v1"] = (
+        AI_ACCEPTED_EXECUTIVE_SUMMARY_SCHEMA_VERSION
+    )
+    text: str
+    draft_id: str
+    trace_id: str
+    accepted_at: str
+    ai_generated: bool = True
 
 
 def create_remediation_draft(
@@ -108,6 +141,67 @@ def create_remediation_draft(
             summary={
                 "draft_id": draft.draft_id,
                 "finding_id": draft.finding_id,
+                "trace_id": draft.trace_id,
+                "status": draft.status,
+            },
+        ),
+    )
+    return draft
+
+
+def create_executive_summary_draft(
+    state: WorkspaceState,
+    *,
+    provider: AIProvider,
+) -> AIExecutiveSummaryDraft:
+    prompt = build_redacted_prompt_payload(state, purpose="executive-summary-draft")
+    prompt = prompt.model_copy(
+        update={
+            "findings": [
+                finding.model_copy(update={"evidence": []}) for finding in prompt.findings
+            ],
+            "policy": {
+                **prompt.policy,
+                "summary_input": "counts_severities_scope_and_approved_finding_text",
+            },
+        }
+    )
+    provider_result = provider.complete(prompt)
+    evaluation = evaluate_ai_output(prompt, output_text=provider_result.text)
+    try:
+        evaluation.require_passed()
+    except AIEvaluationError as exc:
+        raise AIDraftError(str(exc)) from exc
+    trace = record_ai_trace(
+        state,
+        prompt=prompt,
+        provider=provider.trace_metadata,
+        output_text=provider_result.text,
+        target={"field": "executive_summary"},
+        response_metadata=provider_result.metadata,
+    )
+    draft = AIExecutiveSummaryDraft(
+        draft_id=_draft_id("executive-summary", "workspace", trace.trace_id),
+        text=trace.response.text,
+        trace_id=trace.trace_id,
+        created_at=utc_now(),
+        evaluation=evaluation.model_dump(mode="json"),
+    )
+    path = _executive_summary_draft_path(state, draft.draft_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(draft.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    append_audit_event(
+        state,
+        AuditEvent(
+            timestamp=utc_now(),
+            command="ai executive-summary draft",
+            output_path=path.relative_to(state.root).as_posix(),
+            output_sha256=file_sha256(path),
+            summary={
+                "draft_id": draft.draft_id,
                 "trace_id": draft.trace_id,
                 "status": draft.status,
             },
@@ -178,6 +272,57 @@ def accept_remediation_draft(
     return accepted
 
 
+def accept_executive_summary_draft(
+    state: WorkspaceState,
+    *,
+    draft_id: str,
+) -> AIExecutiveSummaryDraft:
+    draft, path = load_executive_summary_draft(state.root, draft_id=draft_id)
+    if draft.status != "draft":
+        raise AIDraftError(f"executive summary draft {draft_id} is already {draft.status}")
+
+    approved_trace = update_ai_trace_approval(
+        state,
+        trace_id=draft.trace_id,
+        approval_state="accepted",
+    )
+    require_trace_approved_for_report_change(
+        approved_trace,
+        target_field="executive_summary",
+    )
+    accepted = draft.model_copy(update={"status": "accepted", "accepted_at": utc_now()})
+    path.write_text(
+        json.dumps(accepted.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    accepted_summary = AcceptedExecutiveSummary(
+        text=accepted.text,
+        draft_id=accepted.draft_id,
+        trace_id=accepted.trace_id,
+        accepted_at=accepted.accepted_at or utc_now(),
+    )
+    summary_path = workspace_path(
+        state.root,
+        ACCEPTED_EXECUTIVE_SUMMARY_FILE,
+        allowed_roots=("reports",),
+    )
+    summary_path.write_text(
+        json.dumps(accepted_summary.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    append_audit_event(
+        state,
+        AuditEvent(
+            timestamp=utc_now(),
+            command="ai executive-summary accept",
+            output_path=ACCEPTED_EXECUTIVE_SUMMARY_FILE,
+            output_sha256=file_sha256(summary_path),
+            summary={"draft_id": accepted.draft_id, "trace_id": accepted.trace_id},
+        ),
+    )
+    return accepted
+
+
 def reject_remediation_draft(
     state: WorkspaceState,
     *,
@@ -208,6 +353,36 @@ def reject_remediation_draft(
     return rejected
 
 
+def reject_executive_summary_draft(
+    state: WorkspaceState,
+    *,
+    draft_id: str,
+) -> AIExecutiveSummaryDraft:
+    draft, path = load_executive_summary_draft(state.root, draft_id=draft_id)
+    if draft.status != "draft":
+        raise AIDraftError(f"executive summary draft {draft_id} is already {draft.status}")
+    try:
+        update_ai_trace_approval(state, trace_id=draft.trace_id, approval_state="rejected")
+    except AITraceError as exc:
+        raise AIDraftError(str(exc)) from exc
+    rejected = draft.model_copy(update={"status": "rejected", "rejected_at": utc_now()})
+    path.write_text(
+        json.dumps(rejected.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    append_audit_event(
+        state,
+        AuditEvent(
+            timestamp=utc_now(),
+            command="ai executive-summary reject",
+            output_path=path.relative_to(state.root).as_posix(),
+            output_sha256=file_sha256(path),
+            summary={"draft_id": rejected.draft_id, "trace_id": rejected.trace_id},
+        ),
+    )
+    return rejected
+
+
 def load_remediation_draft(
     root: Path | str,
     *,
@@ -222,6 +397,38 @@ def load_remediation_draft(
         if draft.draft_id == draft_id:
             return draft, path
     raise AIDraftError(f"unknown remediation draft ID: {draft_id}")
+
+
+def load_executive_summary_draft(
+    root: Path | str,
+    *,
+    draft_id: str,
+) -> tuple[AIExecutiveSummaryDraft, Path]:
+    drafts_dir = workspace_path(root, "ai/drafts", allowed_roots=("ai",))
+    for path in sorted(drafts_dir.glob("executive-summary-*.json")):
+        try:
+            draft = AIExecutiveSummaryDraft.model_validate(
+                json.loads(path.read_text(encoding="utf-8"))
+            )
+        except (json.JSONDecodeError, ValidationError) as exc:
+            raise AIDraftError(f"invalid executive summary draft {path}: {exc}") from exc
+        if draft.draft_id == draft_id:
+            return draft, path
+    raise AIDraftError(f"unknown executive summary draft ID: {draft_id}")
+
+
+def load_accepted_executive_summary(root: Path | str) -> AcceptedExecutiveSummary | None:
+    path = workspace_path(
+        root,
+        ACCEPTED_EXECUTIVE_SUMMARY_FILE,
+        allowed_roots=("reports",),
+    )
+    if not path.is_file():
+        return None
+    try:
+        return AcceptedExecutiveSummary.model_validate(json.loads(path.read_text(encoding="utf-8")))
+    except (json.JSONDecodeError, ValidationError) as exc:
+        raise AIDraftError(f"invalid accepted executive summary {path}: {exc}") from exc
 
 
 def _finding_by_id(state: WorkspaceState, finding_id: str) -> NormalizedFinding:
@@ -240,18 +447,37 @@ def _remediation_draft_path(state: WorkspaceState, draft_id: str) -> Path:
     )
 
 
+def _executive_summary_draft_path(state: WorkspaceState, draft_id: str) -> Path:
+    safe_id = draft_id.replace(":", "-")
+    return workspace_path(
+        state.root,
+        f"ai/drafts/executive-summary-{safe_id}.json",
+        allowed_roots=("ai",),
+    )
+
+
 def _draft_id(kind: str, finding_id: str, trace_id: str) -> str:
     digest = sha256(f"{kind}\0{finding_id}\0{trace_id}".encode()).hexdigest()[:24]
     return f"ai-draft:{kind}:{digest}"
 
 
 __all__ = [
+    "ACCEPTED_EXECUTIVE_SUMMARY_FILE",
+    "AI_ACCEPTED_EXECUTIVE_SUMMARY_SCHEMA_VERSION",
+    "AI_EXECUTIVE_SUMMARY_DRAFT_SCHEMA_VERSION",
     "AI_REMEDIATION_DRAFT_SCHEMA_VERSION",
     "AIDraftError",
+    "AIExecutiveSummaryDraft",
     "AIRemediationDraft",
+    "AcceptedExecutiveSummary",
     "DraftStatus",
+    "accept_executive_summary_draft",
     "accept_remediation_draft",
+    "create_executive_summary_draft",
     "create_remediation_draft",
+    "load_accepted_executive_summary",
+    "load_executive_summary_draft",
     "load_remediation_draft",
+    "reject_executive_summary_draft",
     "reject_remediation_draft",
 ]

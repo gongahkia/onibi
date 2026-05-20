@@ -82,3 +82,5 @@ Trace storage is documented in [`ai-trace-log.md`](ai-trace-log.md).
 Privacy and hallucination evals are documented in [`ai-evals.md`](ai-evals.md).
 Remediation drafts are documented in
 [`ai-remediation-drafts.md`](ai-remediation-drafts.md).
+Executive summary drafts are documented in
+[`ai-executive-summary-drafts.md`](ai-executive-summary-drafts.md).
