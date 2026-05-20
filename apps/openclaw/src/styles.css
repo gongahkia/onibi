@@ -179,6 +179,7 @@ textarea::placeholder {
 .prompt-form,
 .inspector-stack,
 .integration-panel,
+.clarification-panel,
 .validation-panel,
 .approval-panel,
 .codegen-panel,
@@ -249,6 +250,7 @@ textarea::placeholder {
 
 .prompt-form,
 .integration-panel,
+.clarification-panel,
 .validation-panel,
 .approval-panel,
 .run-panel {

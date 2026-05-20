@@ -22,6 +22,7 @@ import type {
   WorkflowFetchRunResponse,
   WorkflowPlanRequest,
   WorkflowPlanResponse,
+  WorkflowPlanSuccessResponse,
   WorkflowPlannerSuggestionDecisionRequest,
   WorkflowPlannerSuggestionDecisionResponse,
   WorkflowRepromptNodeRequest,
@@ -60,8 +61,8 @@ export interface CodegenReviewRequest {
 
 export interface CodegenReviewResponse {
   readonly ok: true;
-  readonly workflow: WorkflowPlanResponse["workflow"];
-  readonly draftRevision: WorkflowPlanResponse["draftRevision"];
+  readonly workflow: WorkflowPlanSuccessResponse["workflow"];
+  readonly draftRevision: WorkflowPlanSuccessResponse["draftRevision"];
   readonly validation: WorkflowValidateResponse["validation"];
   readonly node: unknown;
 }
@@ -81,8 +82,8 @@ export interface CodegenPromotionResponse {
 
 export interface CodegenBuildResponse {
   readonly ok: true;
-  readonly workflow: WorkflowPlanResponse["workflow"];
-  readonly draftRevision: WorkflowPlanResponse["draftRevision"];
+  readonly workflow: WorkflowPlanSuccessResponse["workflow"];
+  readonly draftRevision: WorkflowPlanSuccessResponse["draftRevision"];
   readonly validation: WorkflowValidateResponse["validation"];
   readonly job: WorkflowJob;
   readonly workspace: WorkflowWorkspace;
@@ -189,7 +190,7 @@ export const openClawApi = {
   evaluateDraft(
     workflowId: string,
     request: {
-      readonly workflow: WorkflowPlanResponse["workflow"];
+      readonly workflow: WorkflowPlanSuccessResponse["workflow"];
       readonly mockOnly: true;
       readonly branchId?: string | undefined;
     },

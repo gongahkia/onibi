@@ -50,6 +50,7 @@ import type {
   WorkflowBranchMergeConflict,
   WorkflowBranchMergePreview,
   WorkflowBranchMergeResolution,
+  WorkflowClarificationRequest,
   WorkflowDraftEvaluation,
   WorkflowAdapterOperationRef,
   WorkflowApprovedRevision,
@@ -275,6 +276,10 @@ export function App() {
   const [taskRoute, setTaskRoute] = useState<WorkflowTaskRoute | null>(null);
   const [plannerFeedback, setPlannerFeedback] = useState<WorkflowPlannerFeedback | null>(null);
   const [draftEvaluation, setDraftEvaluation] = useState<WorkflowDraftEvaluation | null>(null);
+  const [clarification, setClarification] = useState<WorkflowClarificationRequest | null>(null);
+  const [clarificationAnswers, setClarificationAnswers] = useState<Readonly<Record<string, string>>>(
+    {}
+  );
   const [activeJob, setActiveJob] = useState<WorkflowJob | null>(null);
   const [workspace, setWorkspace] = useState<WorkflowWorkspace | null>(null);
   const [agentRuns, setAgentRuns] = useState<readonly unknown[]>([]);
@@ -350,6 +355,12 @@ export function App() {
     [activeBranchId, branches, showArchivedBranches]
   );
   const workflowHasGraph = workflow.nodes.length > 0;
+  const clarificationReady =
+    !clarification ||
+    clarification.questions.every(
+      (question) =>
+        !question.required || (clarificationAnswers[question.id]?.trim().length ?? 0) > 0
+    );
   const canApprove =
     workflowHasGraph &&
     validation.ok &&
@@ -903,6 +914,19 @@ export function App() {
     }));
   }
 
+  function updatePrompt(value: string) {
+    setPrompt(value);
+    setClarification(null);
+    setClarificationAnswers({});
+  }
+
+  function updateClarificationAnswer(questionId: string, value: string) {
+    setClarificationAnswers((previous) => ({
+      ...previous,
+      [questionId]: value
+    }));
+  }
+
   function planDraft() {
     if (branchLifecycleLocked) {
       setApiError("Archived branches are read-only.");
@@ -922,6 +946,15 @@ export function App() {
               prompt,
               ...(currentWorkflow ? { currentWorkflow } : {}),
               preserveNodeIds: [...dirtyNodeIds],
+              ...(clarification
+                ? {
+                    clarificationRequestId: clarification.id,
+                    clarificationAnswers: clarification.questions.map((question) => ({
+                      questionId: question.id,
+                      answer: clarificationAnswers[question.id] ?? ""
+                    }))
+                  }
+                : {}),
               actor: "owner@example.com"
             },
             job.id
@@ -930,11 +963,30 @@ export function App() {
             {
               prompt,
               ...(currentWorkflow ? { currentWorkflow } : {}),
-              preserveNodeIds: [...dirtyNodeIds]
+              preserveNodeIds: [...dirtyNodeIds],
+              ...(clarification
+                ? {
+                    clarificationRequestId: clarification.id,
+                    clarificationAnswers: clarification.questions.map((question) => ({
+                      questionId: question.id,
+                      answer: clarificationAnswers[question.id] ?? ""
+                    }))
+                  }
+                : {})
             },
             job.id
           );
+      if (response.status === "clarification-required") {
+        setClarification(response.clarification);
+        setClarificationAnswers({});
+        setTaskRoute(response.route);
+        setPlannerFeedback(null);
+        setReuseDecisions([]);
+        return;
+      }
       loadWorkflow(response.workflow, response.validation);
+      setClarification(null);
+      setClarificationAnswers({});
       setTaskRoute(response.route);
       setPlannerFeedback(null);
       setReuseDecisions([]);
@@ -1265,6 +1317,8 @@ export function App() {
     setTaskRoute(null);
     setPlannerFeedback(null);
     setDraftEvaluation(null);
+    setClarification(null);
+    setClarificationAnswers({});
     setActiveJob(null);
     setWorkspace(null);
     setAgentRuns([]);
@@ -1349,15 +1403,25 @@ export function App() {
             <textarea
               id="workflow-prompt"
               value={prompt}
-              onChange={(event) => setPrompt(event.target.value)}
+              onChange={(event) => updatePrompt(event.target.value)}
               rows={4}
+            />
+            <ClarificationPanel
+              clarification={clarification}
+              answers={clarificationAnswers}
+              onAnswerChange={updateClarificationAnswer}
             />
             <button
               type="submit"
-              disabled={busyAction !== null || prompt.trim().length === 0 || branchLifecycleLocked}
+              disabled={
+                busyAction !== null ||
+                prompt.trim().length === 0 ||
+                branchLifecycleLocked ||
+                !clarificationReady
+              }
             >
               <WandSparkles size={18} />
-              Plan
+              {clarification ? "Plan With Answers" : "Plan"}
             </button>
           </form>
 
@@ -1957,6 +2021,38 @@ function Inspector(props: {
       <DeploymentPanel activations={props.deploymentActivations} />
       <RunPanel run={props.run} />
     </>
+  );
+}
+
+function ClarificationPanel(props: {
+  readonly clarification: WorkflowClarificationRequest | null;
+  readonly answers: Readonly<Record<string, string>>;
+  readonly onAnswerChange: (questionId: string, value: string) => void;
+}) {
+  if (!props.clarification) {
+    return null;
+  }
+
+  return (
+    <section aria-label="Clarification questions" className="clarification-panel">
+      <div className="panel-heading">
+        <MessageCircle size={18} />
+        <h2>Clarify First</h2>
+      </div>
+      <p className="muted-text">{props.clarification.reason}</p>
+      {props.clarification.questions.map((question) => (
+        <label key={question.id}>
+          {question.question}
+          <textarea
+            value={props.answers[question.id] ?? ""}
+            placeholder={question.placeholder}
+            rows={2}
+            required={question.required}
+            onChange={(event) => props.onAnswerChange(question.id, event.target.value)}
+          />
+        </label>
+      ))}
+    </section>
   );
 }
 

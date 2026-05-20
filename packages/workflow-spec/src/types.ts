@@ -931,15 +931,47 @@ export interface WorkflowPlanRequest {
   readonly currentWorkflow?: WorkflowSpec | undefined;
   readonly preserveNodeIds?: readonly string[] | undefined;
   readonly forceDeterministic?: boolean | undefined;
+  readonly clarificationRequestId?: string | undefined;
+  readonly clarificationAnswers?: readonly WorkflowClarificationAnswer[] | undefined;
 }
 
-export interface WorkflowPlanResponse {
+export interface WorkflowClarificationQuestion {
+  readonly id: string;
+  readonly question: string;
+  readonly required: boolean;
+  readonly placeholder?: string | undefined;
+}
+
+export interface WorkflowClarificationAnswer {
+  readonly questionId: string;
+  readonly answer: string;
+}
+
+export interface WorkflowClarificationRequest {
+  readonly id: string;
+  readonly prompt: string;
+  readonly reason: string;
+  readonly createdAt: string;
+  readonly questions: readonly WorkflowClarificationQuestion[];
+}
+
+export interface WorkflowPlanSuccessResponse {
   readonly ok: true;
+  readonly status?: "planned" | undefined;
   readonly workflow: WorkflowSpec;
   readonly draftRevision: WorkflowDraftRevision;
   readonly validation: WorkflowValidationResult;
   readonly route: WorkflowTaskRoute;
 }
+
+export interface WorkflowPlanClarificationResponse {
+  readonly ok: true;
+  readonly status: "clarification-required";
+  readonly clarification: WorkflowClarificationRequest;
+  readonly route: WorkflowTaskRoute;
+}
+
+export type WorkflowPlanResponse = WorkflowPlanSuccessResponse | WorkflowPlanClarificationResponse;
 
 export interface WorkflowCreateBranchRequest {
   readonly name: string;
@@ -981,10 +1013,12 @@ export interface WorkflowBranchPlanRequest extends WorkflowPlanRequest {
   readonly actor?: string | undefined;
 }
 
-export interface WorkflowBranchPlanResponse extends WorkflowPlanResponse {
-  readonly branch: WorkflowBranch;
-  readonly promptTurn: WorkflowPromptTurn;
-}
+export type WorkflowBranchPlanResponse =
+  | (WorkflowPlanSuccessResponse & {
+      readonly branch: WorkflowBranch;
+      readonly promptTurn: WorkflowPromptTurn;
+    })
+  | WorkflowPlanClarificationResponse;
 
 export interface WorkflowRepromptNodeRequest {
   readonly nodeId: string;

@@ -71,6 +71,8 @@ import type {
   WorkflowBranchPlanResponse,
   WorkflowBranchRepromptNodeRequest,
   WorkflowBranchRepromptNodeResponse,
+  WorkflowClarificationAnswer,
+  WorkflowClarificationRequest,
   WorkflowEventSeverity,
   WorkflowCreateBranchRequest,
   WorkflowCreateBranchResponse,
@@ -646,11 +648,32 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     "/api/workflows/plan",
     async (request, reply) => {
       const correlationId = correlationIdForRequest(request);
-      const route = routeWorkflowTask(request.body, {
+      const clarification = createClarificationRequestIfNeeded(request.body, correlationId);
+      const planRequest = clarification ? request.body : enrichPlanRequestWithClarifications(request.body);
+      const route = routeWorkflowTask(planRequest, {
         correlationId,
         provider: process.env.KELPCLAW_PLANNER_PROVIDER ?? "anthropic",
         model: process.env.KELPCLAW_PLANNER_MODEL
       });
+      if (clarification) {
+        updateRequestJob(
+          store,
+          request,
+          "succeeded",
+          "Planning paused for clarification.",
+          {
+            route: route.route,
+            clarificationId: clarification.id
+          },
+          jobSupervisor
+        );
+        return {
+          ok: true,
+          status: "clarification-required",
+          clarification,
+          route
+        };
+      }
       updateRequestJob(
         store,
         request,
@@ -668,7 +691,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
           route.requiredModel.mode === "none"
             ? createDeterministicPlannerBackend({ artifactStore })
             : planner;
-        workflow = await planWorkflowDraft(request.body, routedPlanner);
+        workflow = await planWorkflowDraft(planRequest, routedPlanner);
         throwIfRequestJobCancelled(store, jobSupervisor, request);
       } catch (error) {
         const cancelled = error instanceof JobCancelledError;
@@ -1075,15 +1098,27 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     }
 
     const correlationId = correlationIdForRequest(request);
-    const planRequest: WorkflowPlanRequest = {
+    const branchPlanInput: WorkflowPlanRequest = {
       ...request.body,
       currentWorkflow: request.body.currentWorkflow ?? headDraft.workflow
     };
+    const clarification = createClarificationRequestIfNeeded(branchPlanInput, correlationId);
+    const planRequest = clarification
+      ? branchPlanInput
+      : enrichPlanRequestWithClarifications(branchPlanInput);
     const route = routeWorkflowTask(planRequest, {
       correlationId,
       provider: process.env.KELPCLAW_PLANNER_PROVIDER ?? "anthropic",
       model: process.env.KELPCLAW_PLANNER_MODEL
     });
+    if (clarification) {
+      return {
+        ok: true,
+        status: "clarification-required",
+        clarification,
+        route
+      };
+    }
     const routedPlanner =
       route.requiredModel.mode === "none"
         ? createDeterministicPlannerBackend({ artifactStore })
@@ -3240,6 +3275,126 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
 }
 
 export type { WorkflowSpec };
+
+function createClarificationRequestIfNeeded(
+  request: WorkflowPlanRequest,
+  correlationId: string
+): WorkflowClarificationRequest | null {
+  const prompt = request.prompt.trim();
+  if (!promptNeedsClarification(prompt) || hasRequiredClarificationAnswers(request)) {
+    return null;
+  }
+
+  const id = `clarify.${createHash("sha256")
+    .update(`${correlationId}:${prompt}`)
+    .digest("hex")
+    .slice(0, 16)}`;
+  const researchLike = /\b(research|investigate|agent|reason|compare|tasking)\b/iu.test(prompt);
+  const questions = researchLike
+    ? [
+        {
+          id: "research-topic",
+          question: "What exact topic, entity, or decision should the research focus on?",
+          required: true,
+          placeholder: "Example: vendors for SOC2 monitoring in Singapore fintech teams"
+        },
+        {
+          id: "desired-output",
+          question: "What should the agent produce when it is done?",
+          required: true,
+          placeholder: "Example: ranked options with sources, risks, and recommendation"
+        },
+        {
+          id: "scope",
+          question: "Are there source, geography, freshness, or exclusion constraints?",
+          required: false,
+          placeholder: "Example: official docs and 2025+ sources only"
+        }
+      ]
+    : [
+        {
+          id: "goal",
+          question: "What outcome should this workflow accomplish?",
+          required: true,
+          placeholder: "Example: summarize new support tickets and email a daily digest"
+        },
+        {
+          id: "inputs",
+          question: "What input source should start or feed the workflow?",
+          required: true,
+          placeholder: "Example: Gmail label, uploaded CSV, webhook, or manual text"
+        },
+        {
+          id: "delivery",
+          question: "Where should the final result go?",
+          required: false,
+          placeholder: "Example: email, Sheets, Slack, or leave in workspace"
+        }
+      ];
+
+  return {
+    id,
+    prompt,
+    reason: "The prompt does not include enough concrete target, input, or output detail to plan safely.",
+    createdAt: new Date().toISOString(),
+    questions
+  };
+}
+
+function promptNeedsClarification(prompt: string): boolean {
+  const normalized = prompt.toLowerCase();
+  const words = normalized.split(/\s+/u).filter(Boolean);
+  if (words.length < 5) {
+    return true;
+  }
+
+  return [
+    /\b(this|that|it|something|someone|stuff|thing|tasking)\b/iu,
+    /\b(help me|do this|handle this|figure this out)\b/iu,
+    /\bresearch\s+(this|it|that)\b/iu
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function hasRequiredClarificationAnswers(request: WorkflowPlanRequest): boolean {
+  const answers = usableClarificationAnswers(request.clarificationAnswers);
+  if (answers.length === 0) {
+    return false;
+  }
+  if (answers.length >= 2) {
+    return true;
+  }
+
+  return answers.some((answer) => answer.answer.trim().split(/\s+/u).filter(Boolean).length >= 6);
+}
+
+function enrichPlanRequestWithClarifications(request: WorkflowPlanRequest): WorkflowPlanRequest {
+  const answers = usableClarificationAnswers(request.clarificationAnswers);
+  if (answers.length === 0) {
+    return request;
+  }
+
+  const clarificationText = answers
+    .map((answer) => `- ${questionLabel(answer.questionId)}: ${answer.answer.trim()}`)
+    .join("\n");
+  return {
+    ...request,
+    prompt: `${request.prompt.trim()}\n\nClarifications:\n${clarificationText}`
+  };
+}
+
+function usableClarificationAnswers(
+  answers: readonly WorkflowClarificationAnswer[] | undefined
+): readonly WorkflowClarificationAnswer[] {
+  return (answers ?? []).filter((answer) => answer.answer.trim().length > 0);
+}
+
+function questionLabel(questionId: string): string {
+  return questionId
+    .split("-")
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
 
 function isValidateRequest(input: unknown): input is WorkflowValidateRequest {
   return (

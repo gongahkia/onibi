@@ -594,6 +594,9 @@ const agenticResearchWorkflowTemplate = createWorkflowSpec({
       kind: "delivery",
       label: "Deliver Research Summary",
       description: "Sends the approved research summary to the configured destination.",
+      inputs: {
+        approved: { type: "object", additionalProperties: true }
+      },
       config: {
         channel: "email",
         channels: ["email"],
@@ -618,7 +621,7 @@ const agenticResearchWorkflowTemplate = createWorkflowSpec({
       sourceNodeId: "approve-research-summary",
       sourcePort: "approved",
       targetNodeId: "deliver-research-summary",
-      targetPort: "rows"
+      targetPort: "approved"
     })
   ],
   createdAt: "2026-05-20T00:00:00.000Z",
@@ -654,6 +657,9 @@ const genericManualTaskWorkflowTemplate = createWorkflowSpec({
       kind: "delivery",
       label: "Deliver Task Result",
       description: "Sends the prepared task result to the configured destination.",
+      inputs: {
+        output: { type: "object", additionalProperties: true }
+      },
       config: {
         channel: "email",
         channels: ["email"],
@@ -672,7 +678,7 @@ const genericManualTaskWorkflowTemplate = createWorkflowSpec({
       sourceNodeId: "prepare-task-output",
       sourcePort: "output",
       targetNodeId: "deliver-task-result",
-      targetPort: "rows"
+      targetPort: "output"
     })
   ],
   createdAt: "2026-05-20T00:00:00.000Z",
