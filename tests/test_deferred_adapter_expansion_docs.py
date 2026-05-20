@@ -29,9 +29,7 @@ def test_bloodhound_import_gate_stays_parked_without_real_exports() -> None:
 
 
 def test_netexec_crackmapexec_gate_blocks_live_credential_actions() -> None:
-    text = (ROOT / "docs" / "netexec-crackmapexec-import-gate.md").read_text(
-        encoding="utf-8"
-    )
+    text = (ROOT / "docs" / "netexec-crackmapexec-import-gate.md").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "Status: parked behind redacted real output fixtures." in text

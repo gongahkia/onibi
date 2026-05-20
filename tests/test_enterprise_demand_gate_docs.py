@@ -6,9 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_enterprise_demand_intake_template_keeps_implementation_parked() -> None:
-    text = (ROOT / "docs" / "enterprise-demand-intake-template.md").read_text(
-        encoding="utf-8"
-    )
+    text = (ROOT / "docs" / "enterprise-demand-intake-template.md").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "Status: template only; enterprise implementation remains parked." in text
