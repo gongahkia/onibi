@@ -78,3 +78,5 @@ Trace storage is documented in [`ai-trace-log.md`](ai-trace-log.md).
 5. Privacy and hallucination evaluation suite.
 6. Human-approved draft modes for remediation, executive summaries, and
    suggestions.
+
+Privacy and hallucination evals are documented in [`ai-evals.md`](ai-evals.md).

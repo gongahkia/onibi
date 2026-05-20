@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+from piranesi.ai.evals import (
+    AI_EVAL_SCHEMA_VERSION,
+    AIEvaluationError,
+    AIEvaluationFailure,
+    AIEvaluationResult,
+    evaluate_ai_output,
+    require_trace_approved_for_report_change,
+)
 from piranesi.ai.providers import (
     AI_PROVIDER_SCHEMA_VERSION,
     AICompletionResult,
@@ -33,11 +41,15 @@ from piranesi.ai.trace import (
 )
 
 __all__ = [
+    "AI_EVAL_SCHEMA_VERSION",
     "AI_PROVIDER_SCHEMA_VERSION",
     "AI_TRACE_FILE",
     "AI_TRACE_SCHEMA_VERSION",
     "PROMPT_SCHEMA_VERSION",
     "AICompletionResult",
+    "AIEvaluationError",
+    "AIEvaluationFailure",
+    "AIEvaluationResult",
     "AIProvider",
     "AIProviderError",
     "AITraceRecord",
@@ -53,9 +65,11 @@ __all__ = [
     "StaticLocalAIProvider",
     "build_redacted_prompt_payload",
     "cloud_provider_config",
+    "evaluate_ai_output",
     "load_ai_traces",
     "local_provider_config",
     "record_ai_trace",
     "redact_text_for_prompt",
     "require_cloud_provider_ready",
+    "require_trace_approved_for_report_change",
 ]
