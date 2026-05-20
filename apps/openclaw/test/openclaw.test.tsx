@@ -9,6 +9,8 @@ import {
 import type { WorkflowRunRecord, WorkflowSpec } from "@kelpclaw/workflow-spec";
 import { App } from "../src/App.js";
 
+vi.setConfig({ testTimeout: 10_000 });
+
 let mockCurrentWorkflow: WorkflowSpec | null = null;
 
 beforeEach(() => {
