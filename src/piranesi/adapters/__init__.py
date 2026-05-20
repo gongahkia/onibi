@@ -1,5 +1,6 @@
 from piranesi.adapters.burp import BurpParseError, BurpParseResult, parse_burp_xml_file
 from piranesi.adapters.c2 import C2ParseError, C2ParseResult, parse_c2_jsonl_file
+from piranesi.adapters.nessus import NessusParseError, NessusParseResult, parse_nessus_file
 from piranesi.adapters.nmap import NmapParseError, NmapParseResult, parse_nmap_xml_file
 from piranesi.adapters.nuclei import (
     NucleiParseError,
@@ -13,6 +14,8 @@ __all__ = [
     "BurpParseResult",
     "C2ParseError",
     "C2ParseResult",
+    "NessusParseError",
+    "NessusParseResult",
     "NmapParseError",
     "NmapParseResult",
     "NucleiParseError",
@@ -21,6 +24,7 @@ __all__ = [
     "ZapParseResult",
     "parse_burp_xml_file",
     "parse_c2_jsonl_file",
+    "parse_nessus_file",
     "parse_nmap_xml_file",
     "parse_nuclei_jsonl_file",
     "parse_zap_json_file",

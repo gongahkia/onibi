@@ -15,6 +15,7 @@ Current product boundaries are tracked in [`docs/non-goals.md`](non-goals.md).
 | nuclei JSONL ingest | Alpha | Imports real nuclei JSONL, including template metadata, references, CWE/CVE IDs, matched URLs, extractors, and redacted request/response evidence. |
 | Burp Suite Pro Issues XML ingest | Alpha | Imports real Burp Issues XML, including severity, confidence, host/path/location, CWE/reference metadata, and redacted request/response evidence. |
 | OWASP ZAP JSON ingest | Alpha | Imports ZAP JSON alerts, including risk/confidence metadata, affected URI instances, CWE/reference metadata, and redacted alert evidence. |
+| Nessus `.nessus` ingest | Alpha | Imports Nessus XML report items, including plugin metadata, host/service context, CVE/CWE/reference metadata, and redacted plugin output. |
 | Neutral C2 JSONL import | Alpha | Preserves local C2-style logs as evidence and appends safe summaries to the engagement timeline without live C2 access. |
 | Operator evidence vault | Alpha | CLI and browser UI preserve notes, screenshots, transcripts, C2 logs, payload metadata, detection artifacts, scanner exports, and other local artifacts. |
 | Pentest report rendering | Alpha | JSON, Markdown, WeasyPrint PDF, and ReportLab PDF. |
@@ -29,7 +30,7 @@ Current product boundaries are tracked in [`docs/non-goals.md`](non-goals.md).
 These areas are tracked by GitHub issues but should not be presented as implemented
 features until their own acceptance criteria are complete:
 
-- Nessus, ffuf, sqlmap, SARIF, Metasploit, and other adapter expansion.
+- ffuf, sqlmap, SARIF, Metasploit, and other adapter expansion.
 - Live C2 operation, implant management, payload execution, and active exploitation.
 - Autonomous scanning, scheduled scanning, AI-driven target interaction, payload
   generation, and replay beyond original ingested scope.
