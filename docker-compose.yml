@@ -4,11 +4,23 @@ services:
       context: .
       dockerfile: Dockerfile.api
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
+      KELPCLAW_ADMIN_TOKEN: ${KELPCLAW_ADMIN_TOKEN:-}
+      KELPCLAW_SECRET_MASTER_KEY: ${KELPCLAW_SECRET_MASTER_KEY:-}
+      KELPCLAW_PUBLIC_BASE_URL: ${KELPCLAW_PUBLIC_BASE_URL:-http://127.0.0.1:8787}
       KELPCLAW_WORKFLOW_DB: /data/workflow.sqlite
       KELPCLAW_SECRET_DB: /data/workflow.sqlite
       KELPCLAW_ARTIFACT_STORE: /data/artifacts
+      KELPCLAW_PLANNER_PROVIDER: ${KELPCLAW_PLANNER_PROVIDER:-anthropic}
+      KELPCLAW_PLANNER_MODEL: ${KELPCLAW_PLANNER_MODEL:-}
+      KELPCLAW_CODEGEN_PROVIDER: ${KELPCLAW_CODEGEN_PROVIDER:-}
+      KELPCLAW_CODEGEN_MODEL: ${KELPCLAW_CODEGEN_MODEL:-}
+      KELPCLAW_OPENAI_PLANNER_MODEL: ${KELPCLAW_OPENAI_PLANNER_MODEL:-}
+      KELPCLAW_OPENAI_CODEGEN_MODEL: ${KELPCLAW_OPENAI_CODEGEN_MODEL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       NANOCLAW_HOST_WORKSPACE: /workspace
     ports:
       - "8787:8787"
@@ -22,10 +34,11 @@ services:
       context: .
       dockerfile: Dockerfile.openclaw
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       OPENCLAW_API_TARGET: http://api:8787
-      VITE_OPENCLAW_ADMIN_TOKEN: ${KELPCLAW_ADMIN_TOKEN}
+      VITE_OPENCLAW_ADMIN_TOKEN: ${KELPCLAW_ADMIN_TOKEN:-}
     ports:
       - "5173:5173"
     depends_on:

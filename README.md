@@ -92,7 +92,7 @@ Google uses OAuth web flow endpoints under `/api/integrations/google/*`. SMTP em
 
 `POST /api/workflows/plan` now uses the registry-backed draft planner instead of the legacy fixture mock. The planner checks built-in and promoted skill metadata first. When no deterministic skill reaches the reuse threshold, it creates an explicit codegen node with planner rationale, generated source and dependency artifact references, sandbox policy, review state, and replay metadata.
 
-Live code generation uses the Anthropic Agent SDK through `@anthropic-ai/claude-agent-sdk`. Set `ANTHROPIC_API_KEY` for live codegen. Tests and local deterministic harnesses inject a fake generator, so CI does not need Anthropic credentials.
+Live code generation can use either the Anthropic Agent SDK or OpenAI Responses API. Set `KELPCLAW_PLANNER_PROVIDER=anthropic` with `ANTHROPIC_API_KEY`, or `KELPCLAW_PLANNER_PROVIDER=openai` with `OPENAI_API_KEY`. `KELPCLAW_CODEGEN_PROVIDER` can override the planner provider for generated-node build roles. Tests and local deterministic harnesses inject fake generators, so CI does not need live provider credentials.
 
 Generated artifacts are written to a content-addressed local store. Set `KELPCLAW_ARTIFACT_STORE` to override the default `.kelpclaw/artifacts` path. Runtime-generated artifacts are ignored by git.
 
@@ -103,7 +103,7 @@ $ curl -X POST /api/workflows/:id/codegen/:nodeId/review
 $ curl -X POST /api/workflows/:id/codegen/:nodeId/promote
 ```
 
-NanoClaw verifies stored artifact hashes before execution, materializes reviewed generated source into the isolated node workspace, and never regenerates code during approved runs. Promotion writes a reusable skill record to the artifact store and registers it so future matching can reuse the promoted skill instead of creating another codegen node.
+NanoClaw is the deterministic workflow runtime, not a model provider. It verifies stored artifact hashes before execution, materializes reviewed generated source into the isolated node workspace, and never regenerates code during approved runs. Promotion writes a reusable skill record to the artifact store and registers it so future matching can reuse the promoted skill instead of creating another codegen node.
 
 ## Validation Guarantees
 

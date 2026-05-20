@@ -15,7 +15,11 @@ Edit `.env` before starting the API:
 - `KELPCLAW_ADMIN_TOKEN`: required Bearer token for OpenClaw and API calls.
 - `KELPCLAW_SECRET_MASTER_KEY`: required AES-256-GCM master key for encrypted local secrets.
 - `KELPCLAW_PUBLIC_BASE_URL`: externally reachable API base URL for OAuth callbacks.
-- `ANTHROPIC_API_KEY`: required when `KELPCLAW_PLANNER_MODE=live`.
+- `KELPCLAW_PLANNER_PROVIDER`: `anthropic` or `openai` for live planning/codegen during planning.
+- `KELPCLAW_CODEGEN_PROVIDER`: optional override for generated-node build roles; defaults to `KELPCLAW_PLANNER_PROVIDER`.
+- `ANTHROPIC_API_KEY`: required when the selected live provider is `anthropic`.
+- `OPENAI_API_KEY`: required when the selected live provider is `openai`.
+- `KELPCLAW_PLANNER_MODEL` and `KELPCLAW_CODEGEN_MODEL`: optional provider model overrides. OpenAI-specific overrides are `KELPCLAW_OPENAI_PLANNER_MODEL` and `KELPCLAW_OPENAI_CODEGEN_MODEL`.
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`: OAuth web client credentials.
 - SMTP, WhatsApp, and Telegram defaults as needed for your providers.
 
@@ -76,7 +80,18 @@ OpenClaw: `http://127.0.0.1:5173`
 
 API health: `http://127.0.0.1:8787/health`
 
-The named `kelpclaw-data` volume stores SQLite data and artifacts. The `kelpclaw-workspaces` volume is mounted at `/workspace` for Docker-backed node execution.
+The named `kelpclaw-data` volume stores SQLite data and artifacts. The `kelpclaw-workspaces` volume is mounted at `/workspace` for Docker-backed node execution. The API and OpenClaw services are fully wrapped by Compose; the mounted Docker socket is only for NanoClaw's nested Docker-per-node sandbox.
+
+To run the whole stack with OpenAI-backed planning/codegen:
+
+```console
+$ KELPCLAW_PLANNER_PROVIDER=openai \
+  KELPCLAW_CODEGEN_PROVIDER=openai \
+  OPENAI_API_KEY=sk-... \
+  docker compose up --build
+```
+
+To keep Anthropic-backed planning/codegen, leave `KELPCLAW_PLANNER_PROVIDER=anthropic` and set `ANTHROPIC_API_KEY`.
 
 ## Dev And Test Mode
 
