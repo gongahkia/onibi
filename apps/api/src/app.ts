@@ -129,6 +129,7 @@ interface CreateJobRequestBody {
   readonly revisionId?: string | undefined;
   readonly nodeId?: string | undefined;
   readonly maxAttempts?: number | undefined;
+  readonly payload?: JsonRecord | undefined;
 }
 
 interface EvaluateDraftRequestBody {
@@ -209,8 +210,23 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
   const runner = options.runner;
   recoverInterruptedJobs(store);
   const jobSupervisor = new ApiJobSupervisor(store);
+  const jobWorker = new ApiJobWorker(store, jobSupervisor);
+  jobWorker.register("smoke.integration", async (job, signal) => {
+    await sleepWithSignal(numberFromJson(job.payload?.durationMs) ?? 0, signal);
+    return {
+      result: {
+        workerId: job.workerId ?? "local",
+        smokedAt: new Date().toISOString()
+      }
+    };
+  });
+  jobWorker.start();
   const adminToken =
     options.adminToken === undefined ? process.env.KELPCLAW_ADMIN_TOKEN : options.adminToken;
+
+  app.addHook("onClose", async () => {
+    jobWorker.stop();
+  });
 
   app.addHook("preHandler", async (request, reply) => {
     if (!adminToken || isPublicRoute(request.method, request.url)) {
@@ -251,7 +267,8 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       revisionId: request.body.revisionId,
       nodeId: request.body.nodeId,
       correlationId,
-      maxAttempts: request.body.maxAttempts
+      maxAttempts: request.body.maxAttempts,
+      payload: request.body.payload
     });
     const saved = store.saveJob(job);
     if (job.workflowId) {
@@ -2437,6 +2454,7 @@ function createJob(input: {
   readonly nodeId?: string | undefined;
   readonly correlationId: string;
   readonly maxAttempts?: number | undefined;
+  readonly payload?: JsonRecord | undefined;
 }): WorkflowJob {
   const now = new Date().toISOString();
   const jobId = `job.${input.type}.${Date.now()}.${randomUUID()}`;
@@ -2455,6 +2473,7 @@ function createJob(input: {
       maxAttempts: input.maxAttempts ?? 1,
       retryable: true
     },
+    ...(input.payload ? { payload: input.payload } : {}),
     events: []
   };
 
@@ -2914,6 +2933,131 @@ class ApiJobSupervisor {
   }
 }
 
+type ApiJobWorkerHandler = (
+  job: WorkflowJob,
+  signal: AbortSignal
+) => Promise<{ readonly result?: JsonRecord | undefined } | void>;
+
+class ApiJobWorker {
+  private readonly workerId = `worker.${process.pid}.${randomUUID()}`;
+  private readonly handlers = new Map<WorkflowJobType, ApiJobWorkerHandler>();
+  private timer: NodeJS.Timeout | undefined;
+  private tickInFlight = false;
+
+  public constructor(
+    private readonly store: WorkflowStore,
+    private readonly supervisor: ApiJobSupervisor
+  ) {}
+
+  public register(type: WorkflowJobType, handler: ApiJobWorkerHandler): void {
+    this.handlers.set(type, handler);
+  }
+
+  public start(): void {
+    if (this.timer) {
+      return;
+    }
+    this.timer = setInterval(() => void this.tick(), 250);
+    void this.tick();
+  }
+
+  public stop(): void {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = undefined;
+    }
+  }
+
+  private async tick(): Promise<void> {
+    if (this.tickInFlight || this.handlers.size === 0) {
+      return;
+    }
+    this.tickInFlight = true;
+    try {
+      while (true) {
+        const job = this.store.claimNextQueuedJob(this.workerId, [...this.handlers.keys()]);
+        if (!job) {
+          return;
+        }
+        void this.runClaimedJob(job);
+      }
+    } finally {
+      this.tickInFlight = false;
+    }
+  }
+
+  private async runClaimedJob(job: WorkflowJob): Promise<void> {
+    const handler = this.handlers.get(job.type);
+    if (!handler) {
+      return;
+    }
+    const signal = this.supervisor.startJob(job.id);
+    const claimed = this.store.appendJobEvent(
+      job.id,
+      createJobEvent(job, "info", "Job claimed by local worker.", {
+        workerId: this.workerId,
+        attempt: job.retry.attempt
+      })
+    );
+
+    try {
+      if (signal?.aborted || this.supervisor.isCancelled(job.id)) {
+        throw new JobCancelledError(job.id);
+      }
+      const output = await handler(claimed, signal ?? new AbortController().signal);
+      if (signal?.aborted || this.supervisor.isCancelled(job.id)) {
+        throw new JobCancelledError(job.id);
+      }
+      const current = this.store.getJob(job.id) ?? claimed;
+      if (isTerminalJobStatus(current.status)) {
+        return;
+      }
+      const finishedAt = new Date().toISOString();
+      this.store.appendJobEvent(
+        this.store.saveJob({
+          ...current,
+          status: "succeeded",
+          updatedAt: finishedAt,
+          finishedAt,
+          ...(output?.result ? { result: output.result } : {})
+        }).id,
+        createJobEvent(current, "info", "Worker job completed.", output?.result)
+      );
+    } catch (error) {
+      const current = this.store.getJob(job.id) ?? claimed;
+      if (error instanceof JobCancelledError || current.status === "cancelled") {
+        this.supervisor.cancelJob(
+          job.id,
+          error instanceof Error ? error.message : "Worker job cancelled."
+        );
+        return;
+      }
+
+      const finishedAt = new Date().toISOString();
+      const failed = this.store.saveJob({
+        ...current,
+        status: "failed",
+        updatedAt: finishedAt,
+        finishedAt,
+        error: error instanceof Error ? error.message : "Worker job failed.",
+        retry: {
+          ...current.retry,
+          retryable: current.retry.attempt < current.retry.maxAttempts
+        }
+      });
+      this.store.appendJobEvent(
+        failed.id,
+        createJobEvent(failed, "error", "Worker job failed.", {
+          retryable: failed.retry.retryable,
+          error: failed.error ?? "Worker job failed."
+        })
+      );
+    } finally {
+      this.supervisor.finishJob(job.id);
+    }
+  }
+}
+
 function recoverInterruptedJobs(store: WorkflowStore): void {
   const now = new Date().toISOString();
   for (const job of store.listJobs()) {
@@ -2938,6 +3082,28 @@ function recoverInterruptedJobs(store: WorkflowStore): void {
       })
     );
   }
+}
+
+function sleepWithSignal(durationMs: number, signal: AbortSignal): Promise<void> {
+  if (durationMs <= 0) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(resolve, durationMs);
+    const abort = () => {
+      clearTimeout(timeout);
+      reject(signal.reason instanceof Error ? signal.reason : new Error("Job cancelled."));
+    };
+    if (signal.aborted) {
+      abort();
+      return;
+    }
+    signal.addEventListener("abort", abort, { once: true });
+  });
+}
+
+function numberFromJson(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function throwIfRequestJobCancelled(

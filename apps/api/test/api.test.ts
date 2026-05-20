@@ -4,6 +4,7 @@ import { createDefaultMockAdapters } from "@kelpclaw/adapters";
 import { AdapterBackedNodeRunner, MockNodeRunner } from "@kelpclaw/nanoclaw";
 import { clearPromotedSkillsForTests } from "@kelpclaw/skill-registry";
 import { gmailReceiptsToSheetsWorkflowFixture } from "@kelpclaw/workflow-spec";
+import type { WorkflowJob } from "@kelpclaw/workflow-spec";
 import {
   buildApiApp,
   createDeterministicPlannerBackend,
@@ -371,6 +372,62 @@ describe("kelpclaw api contracts", () => {
     expect(cancelled.json().job.status).toBe("cancelled");
     expect(events.statusCode).toBe(200);
     expect(events.body).toContain("event: job-complete");
+  });
+
+  it("claims queued jobs through the local durable worker", async () => {
+    app = buildTestApiApp();
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/jobs",
+      payload: {
+        type: "smoke.integration",
+        workflowId: "workflow.worker",
+        payload: {
+          durationMs: 1
+        }
+      }
+    });
+    const completed = await waitForJobStatus(app, created.json().job.id, "succeeded");
+
+    expect(created.statusCode).toBe(201);
+    expect(completed.status).toBe("succeeded");
+    expect(completed.workerId).toMatch(/^worker\./u);
+    expect(completed.claimedAt).toBeDefined();
+    expect(completed.retry.attempt).toBe(1);
+    expect(completed.result?.workerId).toBe(completed.workerId);
+    expect(completed.events.map((event: { message: string }) => event.message)).toContain(
+      "Job claimed by local worker."
+    );
+  });
+
+  it("cancels active local worker jobs", async () => {
+    app = buildTestApiApp();
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/jobs",
+      payload: {
+        type: "smoke.integration",
+        workflowId: "workflow.worker",
+        payload: {
+          durationMs: 1000
+        }
+      }
+    });
+    await waitForJobStatus(app, created.json().job.id, "running");
+    const cancelled = await app.inject({
+      method: "POST",
+      url: `/api/jobs/${created.json().job.id}/cancel`,
+      payload: {
+        reason: "stop worker"
+      }
+    });
+    const terminal = await waitForJobStatus(app, created.json().job.id, "cancelled");
+
+    expect(cancelled.statusCode).toBe(200);
+    expect(terminal.status).toBe("cancelled");
+    expect(terminal.cancellationReason).toBe("stop worker");
   });
 
   it("plans codegen fallback nodes with persisted artifact metadata", async () => {
@@ -806,4 +863,25 @@ function restoreEnv(name: string, value: string | undefined): void {
   } else {
     process.env[name] = value;
   }
+}
+
+async function waitForJobStatus(
+  app: FastifyInstance,
+  jobId: string,
+  status: string
+): Promise<WorkflowJob> {
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline) {
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/jobs/${jobId}`
+    });
+    const job = response.json().job as WorkflowJob;
+    if (job.status === status) {
+      return job;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+
+  throw new Error(`Timed out waiting for job '${jobId}' to reach '${status}'.`);
 }

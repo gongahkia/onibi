@@ -613,11 +613,14 @@ export interface WorkflowJob {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly startedAt?: string | undefined;
+  readonly claimedAt?: string | undefined;
+  readonly workerId?: string | undefined;
   readonly finishedAt?: string | undefined;
   readonly retry: WorkflowJobRetryMetadata;
   readonly cancelledAt?: string | undefined;
   readonly cancellationReason?: string | undefined;
   readonly events: readonly WorkflowJobEvent[];
+  readonly payload?: JsonRecord | undefined;
   readonly result?: JsonRecord | undefined;
   readonly error?: string | undefined;
 }

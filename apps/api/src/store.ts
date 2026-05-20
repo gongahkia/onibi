@@ -109,6 +109,11 @@ export interface WorkflowStore {
   saveJob(record: WorkflowJob): WorkflowJob;
   getJob(id: string): WorkflowJob | undefined;
   listJobs(workflowId?: string | undefined): readonly WorkflowJob[];
+  claimNextQueuedJob(
+    workerId: string,
+    types?: readonly WorkflowJob["type"][] | undefined,
+    claimedAt?: string | undefined
+  ): WorkflowJob | undefined;
   appendJobEvent(jobId: string, event: WorkflowJobEvent): WorkflowJob;
   saveDraftEvaluation(record: WorkflowDraftEvaluation): WorkflowDraftEvaluation;
   getDraftEvaluation(id: string): WorkflowDraftEvaluation | undefined;
@@ -498,6 +503,33 @@ export class InMemoryWorkflowStore implements WorkflowStore {
         (left, right) =>
           left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
       );
+  }
+
+  public claimNextQueuedJob(
+    workerId: string,
+    types?: readonly WorkflowJob["type"][] | undefined,
+    claimedAt = new Date().toISOString()
+  ): WorkflowJob | undefined {
+    const allowedTypes = types ? new Set(types) : undefined;
+    const job = this.listJobs().find(
+      (record) => record.status === "queued" && (!allowedTypes || allowedTypes.has(record.type))
+    );
+    if (!job) {
+      return undefined;
+    }
+
+    return this.saveJob({
+      ...job,
+      status: "running",
+      startedAt: job.startedAt ?? claimedAt,
+      claimedAt,
+      workerId,
+      updatedAt: claimedAt,
+      retry: {
+        ...job.retry,
+        attempt: job.retry.attempt + 1
+      }
+    });
   }
 
   public appendJobEvent(jobId: string, event: WorkflowJobEvent): WorkflowJob {
