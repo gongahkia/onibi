@@ -1,6 +1,7 @@
 import {
   AgentSdkCodeGenerator,
   LocalCodegenArtifactStore,
+  OpenAiCodeGenerator,
   createArtifactManifest,
   createDependencyManifestArtifact,
   createGeneratedArtifact
@@ -37,23 +38,20 @@ export interface RegistryPlannerBackendOptions {
 }
 
 export type PlannerBackendMode = "deterministic" | "live";
-export type PlannerBackendProvider = "anthropic";
+export type PlannerBackendProvider = "anthropic" | "openai";
 
 export interface LivePlannerBackendOptions extends Partial<RegistryPlannerBackendOptions> {
   readonly apiKey?: string | undefined;
   readonly model?: string | undefined;
+  readonly provider?: PlannerBackendProvider | undefined;
 }
 
 export function createLivePlannerBackend(
   options: LivePlannerBackendOptions = {}
 ): WorkflowPlannerBackend {
+  const provider = options.provider ?? plannerProviderFromEnv();
   return new RegistryPlannerBackend({
-    codeGenerator:
-      options.codeGenerator ??
-      new AgentSdkCodeGenerator({
-        apiKey: options.apiKey,
-        model: options.model
-      }),
+    codeGenerator: options.codeGenerator ?? createLivePlannerCodeGenerator(provider, options),
     artifactStore: options.artifactStore ?? new LocalCodegenArtifactStore()
   });
 }
@@ -76,14 +74,11 @@ export function createPlannerBackendFromEnv(
   }
 
   const provider = plannerProviderFromEnv();
-  if (provider !== "anthropic") {
-    throw new Error(`Unsupported planner provider '${provider}'.`);
-  }
-
   return createLivePlannerBackend({
     ...options,
-    apiKey: process.env.ANTHROPIC_API_KEY,
-    model: process.env.KELPCLAW_PLANNER_MODEL
+    provider,
+    apiKey: apiKeyForPlannerProvider(provider),
+    model: plannerModelForProvider(provider)
   });
 }
 
@@ -105,11 +100,49 @@ function plannerModeFromEnv(): PlannerBackendMode {
 
 function plannerProviderFromEnv(): PlannerBackendProvider {
   const provider = process.env.KELPCLAW_PLANNER_PROVIDER ?? "anthropic";
-  if (provider === "anthropic") {
+  if (provider === "anthropic" || provider === "openai") {
     return provider;
   }
 
-  throw new Error("KELPCLAW_PLANNER_PROVIDER must be 'anthropic'.");
+  throw new Error("KELPCLAW_PLANNER_PROVIDER must be 'anthropic' or 'openai'.");
+}
+
+function createLivePlannerCodeGenerator(
+  provider: PlannerBackendProvider,
+  options: LivePlannerBackendOptions
+): CodeGenerator {
+  switch (provider) {
+    case "anthropic":
+      return new AgentSdkCodeGenerator({
+        apiKey: options.apiKey,
+        model: options.model
+      });
+    case "openai":
+      return new OpenAiCodeGenerator({
+        apiKey: options.apiKey,
+        model: options.model
+      });
+  }
+}
+
+function apiKeyForPlannerProvider(provider: PlannerBackendProvider): string | undefined {
+  switch (provider) {
+    case "anthropic":
+      return process.env.ANTHROPIC_API_KEY;
+    case "openai":
+      return process.env.OPENAI_API_KEY;
+  }
+}
+
+function plannerModelForProvider(provider: PlannerBackendProvider): string | undefined {
+  switch (provider) {
+    case "anthropic":
+      return process.env.KELPCLAW_PLANNER_MODEL;
+    case "openai":
+      return (
+        process.env.KELPCLAW_OPENAI_PLANNER_MODEL ?? process.env.KELPCLAW_PLANNER_MODEL ?? "gpt-5.4"
+      );
+  }
 }
 
 export function planMockWorkflowDraft(request: WorkflowPlanRequest): WorkflowSpec {

@@ -213,6 +213,28 @@ describe("kelpclaw api contracts", () => {
     }
   });
 
+  it("accepts OpenAI as a live planner provider", () => {
+    const previousMode = process.env.KELPCLAW_PLANNER_MODE;
+    const previousProvider = process.env.KELPCLAW_PLANNER_PROVIDER;
+    process.env.KELPCLAW_PLANNER_MODE = "live";
+    process.env.KELPCLAW_PLANNER_PROVIDER = "openai";
+
+    try {
+      expect(() => createPlannerBackendFromEnv()).not.toThrow();
+    } finally {
+      if (previousMode === undefined) {
+        delete process.env.KELPCLAW_PLANNER_MODE;
+      } else {
+        process.env.KELPCLAW_PLANNER_MODE = previousMode;
+      }
+      if (previousProvider === undefined) {
+        delete process.env.KELPCLAW_PLANNER_PROVIDER;
+      } else {
+        process.env.KELPCLAW_PLANNER_PROVIDER = previousProvider;
+      }
+    }
+  });
+
   it("plans and validates draft workflow revisions through the Phase 3 routes", async () => {
     app = buildTestApiApp();
 
@@ -271,6 +293,33 @@ describe("kelpclaw api contracts", () => {
     expect(planned.statusCode).toBe(200);
     expect(planned.json().route.route).toBe("adapter");
     expect(planned.json().route.requiredModel.mode).toBe("none");
+  });
+
+  it("routes codegen prompts through OpenAI when selected", async () => {
+    const previousProvider = process.env.KELPCLAW_PLANNER_PROVIDER;
+    process.env.KELPCLAW_PLANNER_PROVIDER = "openai";
+    app = buildTestApiApp();
+
+    try {
+      const planned = await app.inject({
+        method: "POST",
+        url: "/api/workflows/plan",
+        payload: {
+          prompt: "scrape a custom public status page and summarize incidents"
+        }
+      });
+
+      expect(planned.statusCode).toBe(200);
+      expect(planned.json().route.route).toBe("codegen");
+      expect(planned.json().route.requiredModel.provider).toBe("openai");
+      expect(planned.json().route.modelInvocations[0].provider).toBe("openai");
+    } finally {
+      if (previousProvider === undefined) {
+        delete process.env.KELPCLAW_PLANNER_PROVIDER;
+      } else {
+        process.env.KELPCLAW_PLANNER_PROVIDER = previousProvider;
+      }
+    }
   });
 
   it("returns graph feedback without mutating the edited draft", async () => {

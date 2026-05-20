@@ -7,9 +7,11 @@ import {
   AgentSdkCodeGenerator,
   GeneratedNodeBuildLoop,
   LocalCodegenArtifactStore,
+  OpenAiCodeGenerator,
   checksumArtifactContent,
   createArtifactManifest,
   createAgentSdkGeneratedNodeRoleRunners,
+  createOpenAiGeneratedNodeRoleRunners,
   createGeneratedArtifact
 } from "@kelpclaw/codegen";
 import { registerPromotedSkill } from "@kelpclaw/skill-registry";
@@ -34,7 +36,12 @@ import {
   validateWorkflowSpec
 } from "@kelpclaw/workflow-spec";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import type { CodegenArtifactStore } from "@kelpclaw/codegen";
+import type {
+  CodeGenerator,
+  CodegenArtifactStore,
+  GeneratedNodeBuildRole,
+  GeneratedNodeRoleRunner
+} from "@kelpclaw/codegen";
 import type { NodeRunner } from "@kelpclaw/nanoclaw";
 import type { SkillMetadata } from "@kelpclaw/skill-registry";
 import type {
@@ -148,6 +155,15 @@ interface RunRouteParams {
   readonly runId: string;
 }
 
+type CodegenProvider = "anthropic" | "openai";
+
+interface LiveGeneratedNodeProviders {
+  readonly codeGenerator?: CodeGenerator | undefined;
+  readonly roleRunners?:
+    | Partial<Record<GeneratedNodeBuildRole, GeneratedNodeRoleRunner>>
+    | undefined;
+}
+
 interface JobRouteParams {
   readonly jobId: string;
 }
@@ -240,6 +256,63 @@ export function createConfiguredSecretStore(): SecretStore {
       join(process.cwd(), ".kelpclaw", "workflow.sqlite"),
     masterKey: process.env.KELPCLAW_SECRET_MASTER_KEY ?? ""
   });
+}
+
+function createLiveGeneratedNodeProvidersFromEnv(): LiveGeneratedNodeProviders {
+  const provider = codegenProviderFromEnv();
+  switch (provider) {
+    case "anthropic":
+      if (!process.env.ANTHROPIC_API_KEY) {
+        return {};
+      }
+      return {
+        codeGenerator: new AgentSdkCodeGenerator({
+          apiKey: process.env.ANTHROPIC_API_KEY,
+          model: codegenModelForProvider(provider)
+        }),
+        roleRunners: createAgentSdkGeneratedNodeRoleRunners({
+          apiKey: process.env.ANTHROPIC_API_KEY
+        })
+      };
+    case "openai":
+      if (!process.env.OPENAI_API_KEY) {
+        return {};
+      }
+      return {
+        codeGenerator: new OpenAiCodeGenerator({
+          apiKey: process.env.OPENAI_API_KEY,
+          model: codegenModelForProvider(provider)
+        }),
+        roleRunners: createOpenAiGeneratedNodeRoleRunners({
+          apiKey: process.env.OPENAI_API_KEY
+        })
+      };
+  }
+}
+
+function codegenProviderFromEnv(): CodegenProvider {
+  const provider =
+    process.env.KELPCLAW_CODEGEN_PROVIDER ?? process.env.KELPCLAW_PLANNER_PROVIDER ?? "anthropic";
+  if (provider === "anthropic" || provider === "openai") {
+    return provider;
+  }
+
+  throw new Error("KELPCLAW_CODEGEN_PROVIDER must be 'anthropic' or 'openai'.");
+}
+
+function codegenModelForProvider(provider: CodegenProvider): string | undefined {
+  switch (provider) {
+    case "anthropic":
+      return process.env.KELPCLAW_CODEGEN_MODEL ?? process.env.KELPCLAW_PLANNER_MODEL;
+    case "openai":
+      return (
+        process.env.KELPCLAW_OPENAI_CODEGEN_MODEL ??
+        process.env.KELPCLAW_CODEGEN_MODEL ??
+        process.env.KELPCLAW_OPENAI_PLANNER_MODEL ??
+        process.env.KELPCLAW_PLANNER_MODEL ??
+        "gpt-5.4"
+      );
+  }
 }
 
 export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
@@ -2181,19 +2254,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
           `draft.${sourceWorkflow.id}.r${sourceWorkflow.revision}`
       })
     );
-    const buildLoop = new GeneratedNodeBuildLoop({
-      codeGenerator: process.env.ANTHROPIC_API_KEY
-        ? new AgentSdkCodeGenerator({
-            apiKey: process.env.ANTHROPIC_API_KEY,
-            model: process.env.KELPCLAW_CODEGEN_MODEL ?? process.env.KELPCLAW_PLANNER_MODEL
-          })
-        : undefined,
-      roleRunners: process.env.ANTHROPIC_API_KEY
-        ? createAgentSdkGeneratedNodeRoleRunners({
-            apiKey: process.env.ANTHROPIC_API_KEY
-          })
-        : undefined
-    });
+    const buildLoop = new GeneratedNodeBuildLoop(createLiveGeneratedNodeProvidersFromEnv());
     try {
       if (jobSignal?.aborted || jobSupervisor.isCancelled(runningJob.id)) {
         throw new JobCancelledError(runningJob.id);
