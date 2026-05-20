@@ -50,6 +50,7 @@ import type {
   WorkflowAcceptPlanResponse,
   WorkflowApproveRequest,
   WorkflowApproveResponse,
+  WorkflowBranch,
   WorkflowBranchMergeConflict,
   WorkflowBranchMergePreview,
   WorkflowBranchMergePreviewRequest,
@@ -66,6 +67,8 @@ import type {
   WorkflowCreateBranchRequest,
   WorkflowCreateBranchResponse,
   WorkflowDraftEvaluation,
+  WorkflowDraftRevision,
+  WorkflowDraftRevisionSource,
   WorkflowFeedbackRequest,
   WorkflowFeedbackResponse,
   WorkflowGetBranchResponse,
@@ -96,6 +99,7 @@ import type {
   WorkflowStartRunRequest,
   WorkflowStartRunResponse,
   WorkflowValidationIssue,
+  WorkflowValidationResult,
   WorkflowValidateRequest,
   WorkflowValidateResponse,
   WorkflowWorkspace
@@ -949,57 +953,24 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       } as never);
     }
 
-    let draftRevision = store.saveDraftRevision(validation.workflow, validation, "branch-plan", {
-      branchId: branch.id,
-      force: true,
-      parentDraftRevisionId: headDraft.id
+    const finalized = finalizeBranchDraftWithReuse(store, {
+      workflowId: request.params.id,
+      branch,
+      validation,
+      source: "branch-plan",
+      parentDraftRevisionId: headDraft.id,
+      actor: request.body.actor ?? "planner",
+      correlationId
     });
-    let updatedBranch = store.saveBranch({
-      ...branch,
-      headDraftRevisionId: draftRevision.id,
-      updatedAt: draftRevision.createdAt
-    });
-    const reuse = applyGeneratedModuleReuse(
-      store,
-      request.params.id,
-      branch.id,
-      draftRevision.workflow
-    );
-    for (const decision of reuse.decisions) {
-      store.saveGeneratedModuleReuseDecision(decision);
+    if (!finalized.ok) {
+      return reply.code(422).send({
+        ok: false,
+        error: "WORKFLOW_CODEGEN_REUSE_INVALID",
+        message: finalized.validation.errors.map((error) => error.code).join(", "),
+        validation: finalized.validation
+      } as never);
     }
-    if (reuse.changed) {
-      const reusedValidation = validateWorkflowSpec(reuse.workflow);
-      if (!reusedValidation.ok) {
-        return reply.code(422).send({
-          ok: false,
-          error: "WORKFLOW_CODEGEN_REUSE_INVALID",
-          message: reusedValidation.errors.map((error) => error.code).join(", "),
-          validation: reusedValidation
-        } as never);
-      }
-      draftRevision = store.saveDraftRevision(
-        reusedValidation.workflow,
-        reusedValidation,
-        "validate",
-        {
-          branchId: branch.id,
-          force: true,
-          parentDraftRevisionId: draftRevision.id
-        }
-      );
-      updatedBranch = store.saveBranch({
-        ...updatedBranch,
-        headDraftRevisionId: draftRevision.id,
-        updatedAt: draftRevision.createdAt
-      });
-    }
-    persistCodegenArtifactManifests(
-      store,
-      draftRevision.workflow,
-      draftRevision.id,
-      draftRevision.createdAt
-    );
+    const { draftRevision, branch: updatedBranch } = finalized;
     const promptTurn = store.savePromptTurn({
       id: `prompt-turn.${branch.id}.${Date.now()}.${randomUUID()}`,
       workflowId: request.params.id,
@@ -1010,7 +981,11 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       createdAt: draftRevision.createdAt,
       baseDraftRevisionId: headDraft.id,
       resultingDraftRevisionId: draftRevision.id,
-      route
+      route,
+      metadata: {
+        reuseDecisionIds: finalized.reuseDecisions.map((decision) => decision.id),
+        reuseApplied: finalized.reuseApplied
+      }
     });
     recordAudit(store, {
       action: "task.routed",
@@ -1084,27 +1059,24 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         } as never);
       }
 
-      const draftRevision = store.saveDraftRevision(
-        validation.workflow,
+      const finalized = finalizeBranchDraftWithReuse(store, {
+        workflowId: request.params.id,
+        branch,
         validation,
-        "branch-reprompt",
-        {
-          branchId: branch.id,
-          force: true,
-          parentDraftRevisionId: headDraft.id
-        }
-      );
-      const updatedBranch = store.saveBranch({
-        ...branch,
-        headDraftRevisionId: draftRevision.id,
-        updatedAt: draftRevision.createdAt
+        source: "branch-reprompt",
+        parentDraftRevisionId: headDraft.id,
+        actor: request.body.actor ?? "planner",
+        correlationId: correlationIdForRequest(request)
       });
-      persistCodegenArtifactManifests(
-        store,
-        draftRevision.workflow,
-        draftRevision.id,
-        draftRevision.createdAt
-      );
+      if (!finalized.ok) {
+        return reply.code(422).send({
+          ok: false,
+          error: "WORKFLOW_CODEGEN_REUSE_INVALID",
+          message: finalized.validation.errors.map((error) => error.code).join(", "),
+          validation: finalized.validation
+        } as never);
+      }
+      const { draftRevision, branch: updatedBranch } = finalized;
       const promptTurn = store.savePromptTurn({
         id: `prompt-turn.${branch.id}.${Date.now()}.${randomUUID()}`,
         workflowId: request.params.id,
@@ -1114,7 +1086,11 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         actor: request.body.actor ?? "planner",
         createdAt: draftRevision.createdAt,
         baseDraftRevisionId: headDraft.id,
-        resultingDraftRevisionId: draftRevision.id
+        resultingDraftRevisionId: draftRevision.id,
+        metadata: {
+          reuseDecisionIds: finalized.reuseDecisions.map((decision) => decision.id),
+          reuseApplied: finalized.reuseApplied
+        }
       });
       recordAudit(store, {
         action: "workflow.edited",
@@ -1311,16 +1287,24 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     }
 
     const source = preview.mode === "cherry-pick" ? "branch-cherry-pick" : "branch-merge";
-    const draftRevision = store.saveDraftRevision(validation.workflow, validation, source, {
-      branchId: targetBranch.id,
-      force: true,
-      parentDraftRevisionId: targetHead.id
+    const finalized = finalizeBranchDraftWithReuse(store, {
+      workflowId: request.params.id,
+      branch: targetBranch,
+      validation,
+      source,
+      parentDraftRevisionId: targetHead.id,
+      actor: request.body.appliedBy,
+      correlationId: correlationIdForRequest(request)
     });
-    const branch = store.saveBranch({
-      ...targetBranch,
-      headDraftRevisionId: draftRevision.id,
-      updatedAt: draftRevision.createdAt
-    });
+    if (!finalized.ok) {
+      return reply.code(422).send({
+        ok: false,
+        error: "WORKFLOW_CODEGEN_REUSE_INVALID",
+        message: finalized.validation.errors.map((error) => error.code).join(", "),
+        validation: finalized.validation
+      } as never);
+    }
+    const { draftRevision, branch } = finalized;
     const merge: WorkflowBranchMergeRecord = store.saveBranchMerge({
       ...preview,
       status: "applied",
@@ -1349,7 +1333,9 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       resultingDraftRevisionId: draftRevision.id,
       metadata: {
         mergeId: merge.id,
-        graphDiffId: graphDiff.id
+        graphDiffId: graphDiff.id,
+        reuseDecisionIds: finalized.reuseDecisions.map((decision) => decision.id),
+        reuseApplied: finalized.reuseApplied
       }
     });
     recordAudit(store, {
@@ -3317,6 +3303,112 @@ function hashReusableModuleValue(value: unknown): string {
   return checksumArtifactContent(
     typeof value === "string" ? value : stableJsonStringify(value as never)
   );
+}
+
+type SuccessfulWorkflowValidation = Extract<WorkflowValidationResult, { readonly ok: true }>;
+
+type BranchDraftFinalizationResult =
+  | {
+      readonly ok: true;
+      readonly draftRevision: WorkflowDraftRevision;
+      readonly branch: WorkflowBranch;
+      readonly reuseDecisions: readonly WorkflowGeneratedModuleReuseDecision[];
+      readonly reuseApplied: boolean;
+    }
+  | {
+      readonly ok: false;
+      readonly validation: Exclude<WorkflowValidationResult, { readonly ok: true }>;
+    };
+
+function finalizeBranchDraftWithReuse(
+  store: WorkflowStore,
+  input: {
+    readonly workflowId: string;
+    readonly branch: WorkflowBranch;
+    readonly validation: SuccessfulWorkflowValidation;
+    readonly source: WorkflowDraftRevisionSource;
+    readonly parentDraftRevisionId: string;
+    readonly actor: string;
+    readonly correlationId: string;
+  }
+): BranchDraftFinalizationResult {
+  let draftRevision = store.saveDraftRevision(input.validation.workflow, input.validation, input.source, {
+    branchId: input.branch.id,
+    force: true,
+    parentDraftRevisionId: input.parentDraftRevisionId,
+    updateBranchHead: false
+  });
+  const reuse = applyGeneratedModuleReuse(
+    store,
+    input.workflowId,
+    input.branch.id,
+    draftRevision.workflow
+  );
+  const reuseDecisions = reuse.decisions.map((decision) =>
+    store.saveGeneratedModuleReuseDecision(decision)
+  );
+
+  if (reuse.changed) {
+    const reusedValidation = validateWorkflowSpec(reuse.workflow);
+    if (!reusedValidation.ok) {
+      return {
+        ok: false,
+        validation: reusedValidation
+      };
+    }
+    draftRevision = store.saveDraftRevision(reusedValidation.workflow, reusedValidation, input.source, {
+      branchId: input.branch.id,
+      force: true,
+      parentDraftRevisionId: draftRevision.id,
+      updateBranchHead: false
+    });
+  }
+
+  const branch = store.saveBranch({
+    ...input.branch,
+    headDraftRevisionId: draftRevision.id,
+    updatedAt: draftRevision.createdAt,
+    metadata: jsonRecord({
+      ...(input.branch.metadata ?? {}),
+      latestReuseDecisionIds: reuseDecisions.map((decision) => decision.id),
+      latestReuseApplied: reuse.changed,
+      latestReuseDraftRevisionId: draftRevision.id,
+      latestReuseSource: input.source
+    })
+  });
+  persistCodegenArtifactManifests(
+    store,
+    draftRevision.workflow,
+    draftRevision.id,
+    draftRevision.createdAt
+  );
+
+  if (reuse.changed) {
+    recordAudit(store, {
+      action: "codegen.reused",
+      actor: input.actor,
+      workflowId: draftRevision.workflowId,
+      branchId: input.branch.id,
+      revisionId: draftRevision.id,
+      correlationId: input.correlationId,
+      summary: "Applied compatible generated module reuse to branch draft.",
+      metadata: jsonRecord({
+        source: input.source,
+        reuseDecisionIds: reuseDecisions.map((decision) => decision.id),
+        nodeIds: reuseDecisions
+          .filter((decision) => decision.status === "reuse-with-reeval")
+          .map((decision) => decision.nodeId)
+      })
+    });
+  }
+
+  return {
+    ok: true,
+    draftRevision,
+    branch,
+    reuseDecisions,
+    reuseApplied: reuse.changed
+  };
 }
 
 function applyGeneratedModuleReuse(
