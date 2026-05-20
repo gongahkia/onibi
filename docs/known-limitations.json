@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "last_updated": "2026-05-17",
+  "last_updated": "2026-05-20",
   "limitations": [
     {
       "id": "KL-001",
@@ -11,7 +11,8 @@
       "workaround": "Use the implemented importers, or keep unsupported exports as raw engagement evidence outside normalized reports until their adapter issues are complete.",
       "status": "open",
       "introduced_version": "0.2.0",
-      "last_reviewed": "2026-05-17",
+      "last_reviewed": "2026-05-20",
+      "review_state": "reviewed",
       "docs_refs": [
         "docs/capabilities.md",
         "docs/pentest-workspace.md",
@@ -27,7 +28,8 @@
       "workaround": "Use `piranesi report --format pdf --pdf-backend reportlab` for the deterministic fallback renderer.",
       "status": "monitoring",
       "introduced_version": "0.2.0",
-      "last_reviewed": "2026-05-17",
+      "last_reviewed": "2026-05-20",
+      "review_state": "reviewed",
       "docs_refs": [
         "docs/pentest-report-schema.md",
         "docs/getting-started.md"
@@ -42,7 +44,8 @@
       "workaround": "Review `ambiguous_matches` in retest JSON and adjust source evidence or normalized finding state before final delivery.",
       "status": "monitoring",
       "introduced_version": "0.2.0",
-      "last_reviewed": "2026-05-17",
+      "last_reviewed": "2026-05-20",
+      "review_state": "reviewed",
       "docs_refs": [
         "docs/retest-workflow.md"
       ]
@@ -56,7 +59,8 @@
       "workaround": "Use authorized external tool runs, store the exports, then ingest them into a Piranesi workspace.",
       "status": "monitoring",
       "introduced_version": "0.2.0",
-      "last_reviewed": "2026-05-17",
+      "last_reviewed": "2026-05-20",
+      "review_state": "reviewed",
       "docs_refs": [
         "README.md",
         "docs/ARCHITECTURE.md"
