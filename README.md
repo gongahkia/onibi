@@ -240,14 +240,18 @@ added with `piranesi evidence add` are also copied under `raw/<kind>/` and index
 - [Rescan replay extractors](docs/rescan-extractors.md)
 - [Rescan runtime support](docs/rescan-runtime.md)
 - [Privacy and data handling](docs/privacy-data-handling.md)
+- [Non-goals](docs/non-goals.md)
 - [CI examples](docs/ci-integration.md)
 
 ## Non-Goals In Phase 1
 
 - No hosted SaaS, auth, teams, or client portal.
-- No new scanner engine, autonomous scan selection, or unsupervised target interaction.
+- No new scanner engine, autonomous scan selection, scheduled scanning, or
+  unsupervised target interaction.
+- No replay that expands beyond the original ingested engagement scope.
 - No C2 operation, implant management, or payload execution.
-- No autonomous exploitation, payload generation, or AI writeups.
+- No autonomous exploitation, payload generation, AI-driven target interaction, or
+  AI-driven report changes without explicit human approval.
 - No fleet management or live SSH probing.
 - No compliance certification claims.
 

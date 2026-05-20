@@ -205,5 +205,7 @@ serve arbitrary paths from the workspace.
 ## Non-Goals
 
 Phase 1 does not include hosted SaaS, authentication, teams, a new scanner engine,
-active testing orchestration, C2 operation, implant management, payload execution,
-AI-authored report text, live SSH probing, or compliance certification claims.
+autonomous or scheduled scanning, active testing orchestration, replay beyond the
+original ingested engagement scope, C2 operation, implant management, payload
+execution, AI-driven target interaction, AI-authored report changes without human
+approval, live SSH probing, or compliance certification claims.

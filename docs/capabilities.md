@@ -5,6 +5,7 @@ describes the current Phase 1 surface only. Historical host-posture and source-c
 workflows are legacy context and are not current guidance.
 
 Known limitations are tracked in [`docs/known-limitations.json`](known-limitations.json).
+Current product boundaries are tracked in [`docs/non-goals.md`](non-goals.md).
 
 | Capability | Status | Notes |
 | --- | --- | --- |
@@ -29,6 +30,8 @@ features until their own acceptance criteria are complete:
 
 - ZAP, Nessus, ffuf, sqlmap, SARIF, Metasploit, and other adapter expansion.
 - Live C2 operation, implant management, payload execution, and active exploitation.
+- Autonomous scanning, scheduled scanning, AI-driven target interaction, payload
+  generation, and replay beyond original ingested scope.
 - Vendor-specific C2 adapters beyond the neutral local JSONL format.
 - Enforced network egress policy for replay containers. Current rescan execution
   requires explicit acknowledgement of Docker default networking.
