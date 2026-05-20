@@ -14,7 +14,8 @@
       "last_reviewed": "2026-05-17",
       "docs_refs": [
         "docs/capabilities.md",
-        "docs/pentest-workspace.md"
+        "docs/pentest-workspace.md",
+        "docs/deferred-adapter-expansion.md"
       ]
     },
     {

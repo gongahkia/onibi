@@ -34,7 +34,9 @@ Current product boundaries are tracked in [`docs/non-goals.md`](non-goals.md).
 These areas are tracked by GitHub issues but should not be presented as implemented
 features until their own acceptance criteria are complete:
 
-- Additional long-tail adapter expansion beyond the implemented Phase 1.1 set.
+- Additional long-tail adapter expansion beyond the implemented Phase 1.1 set;
+  see [`deferred-adapter-expansion.md`](deferred-adapter-expansion.md) for the
+  Phase 1.2 evidence gate.
 - Live C2 operation, implant management, payload execution, and active exploitation.
 - Autonomous scanning, scheduled scanning, AI-driven target interaction, payload
   generation, and replay beyond original ingested scope.
