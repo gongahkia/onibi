@@ -115,7 +115,7 @@ import {
   createOAuthState,
   secretReadiness
 } from "./secrets.js";
-import { InMemoryWorkflowStore, SqliteWorkflowStore, defaultBranchId } from "./store.js";
+import { InMemoryWorkflowStore, SqliteWorkflowStore } from "./store.js";
 import type { SecretStore } from "./secrets.js";
 import type { RevisionInput, WorkflowStore } from "./store.js";
 import type { WorkflowPlannerBackend } from "./planner.js";
