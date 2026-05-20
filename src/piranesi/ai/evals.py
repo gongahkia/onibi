@@ -14,8 +14,9 @@ from piranesi.ai.trace import AITraceRecord
 
 AI_EVAL_SCHEMA_VERSION: Literal["piranesi.ai-eval.v1"] = "piranesi.ai-eval.v1"
 
-EVIDENCE_ID_PATTERN = re.compile(r"finding:[A-Za-z0-9_.:-]+:evidence:\d+")
-FINDING_ID_PATTERN = re.compile(r"finding:[A-Za-z0-9_.:-]+")
+_FINDING_ID_SEGMENT = r"[A-Za-z0-9_:-]+(?:\.[A-Za-z0-9_:-]+)*"
+EVIDENCE_ID_PATTERN = re.compile(rf"\bfinding:{_FINDING_ID_SEGMENT}:evidence:\d+\b")
+FINDING_ID_PATTERN = re.compile(rf"\bfinding:{_FINDING_ID_SEGMENT}\b")
 
 
 class AIEvaluationError(ValueError):

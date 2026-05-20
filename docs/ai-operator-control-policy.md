@@ -84,3 +84,4 @@ Remediation drafts are documented in
 [`ai-remediation-drafts.md`](ai-remediation-drafts.md).
 Executive summary drafts are documented in
 [`ai-executive-summary-drafts.md`](ai-executive-summary-drafts.md).
+Suggestion mode is documented in [`ai-suggestions.md`](ai-suggestions.md).

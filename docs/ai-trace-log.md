@@ -15,5 +15,10 @@ state and append audit events. `piranesi sign` includes `ai/traces.jsonl` in the
 chain-of-custody manifest with role `ai-trace`, and verification detects trace
 tampering the same way it detects report or evidence tampering.
 
+Suggestion payloads are stored separately under `ai/suggestions/`; their trace
+records preserve the prompt, response, provider metadata, and operator
+accept/reject/ignore disposition. Accepting a suggestion records approval state
+only and does not apply report or finding changes.
+
 Trace records must not contain unredacted client identifiers, hostnames, request
 or response evidence, tokens, cookies, passwords, API keys, or private keys.
