@@ -62,6 +62,8 @@ metadata, approval state, and target field for every AI draft or suggestion. Tra
 records must be inspectable and must avoid storing unredacted secrets or client
 data.
 
+Trace storage is documented in [`ai-trace-log.md`](ai-trace-log.md).
+
 ## Implementation Order
 
 1. Redaction-before-prompt contract and tests.

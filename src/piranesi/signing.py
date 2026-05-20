@@ -30,6 +30,7 @@ ArtifactRole = Literal[
     "objective",
     "procedure",
     "detection",
+    "ai-trace",
     "signature",
 ]
 
@@ -242,6 +243,7 @@ def collect_manifest_artifacts(workspace_root: Path) -> list[ManifestArtifact]:
         ("objectives", "objective"),
         ("procedures", "procedure"),
         ("detections", "detection"),
+        ("ai", "ai-trace"),
     ):
         root = workspace_root / root_name
         if not root.is_dir():

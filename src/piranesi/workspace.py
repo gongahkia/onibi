@@ -38,6 +38,7 @@ WORKSPACE_DIRECTORIES = (
     "objectives",
     "procedures",
     "detections",
+    "ai",
 )
 
 Severity = Literal["info", "low", "medium", "high", "critical"]

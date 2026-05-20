@@ -10,6 +10,7 @@ The Phase 1 manifest covers:
 - `audit-log.jsonl`;
 - copied raw inputs under `raw/`;
 - report artifacts under `reports/`;
+- AI trace logs under `ai/`;
 - imported tool metadata such as version and command arguments when available;
 - workspace and findings schema versions.
 
