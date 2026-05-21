@@ -182,9 +182,27 @@ export interface WorkflowAgentBudget {
   readonly maxRetries: number;
 }
 
+export type WorkflowAgenticToolGrantKind = "builtin" | "mcp" | "adapter";
+export type WorkflowAgenticToolSideEffect = "none" | "read" | "write";
+
+export interface WorkflowAgenticToolGrant {
+  readonly kind: WorkflowAgenticToolGrantKind;
+  readonly name: string;
+  readonly connectorId?: string | undefined;
+  readonly adapterId?: string | undefined;
+  readonly operation?: string | undefined;
+  readonly operationVersion?: string | undefined;
+  readonly allowedHosts: readonly string[];
+  readonly secretRefs: readonly string[];
+  readonly sideEffect: WorkflowAgenticToolSideEffect;
+}
+
+export type WorkflowAgentMemoryScope = "none" | "node" | "workflow" | "workspace";
+
 export interface WorkflowAgenticNodePolicy {
   readonly tools: readonly string[];
-  readonly memoryScope: "none" | "node" | "workflow" | "workspace";
+  readonly toolGrants?: readonly WorkflowAgenticToolGrant[] | undefined;
+  readonly memoryScope: WorkflowAgentMemoryScope;
   readonly stopConditions: readonly string[];
   readonly humanApprovalBoundaries: readonly string[];
   readonly networkPolicy: WorkflowCodegenSandboxPolicy["network"];
@@ -618,6 +636,20 @@ export type WorkflowTaskRouteKind =
   | "agentic"
   | "deployment";
 
+export interface WorkflowTaskRouteScore {
+  readonly route: WorkflowTaskRouteKind;
+  readonly score: number;
+  readonly positiveSignals: readonly string[];
+  readonly negativeSignals: readonly string[];
+}
+
+export interface WorkflowTaskRouteAlternative {
+  readonly route: WorkflowTaskRouteKind;
+  readonly score: number;
+  readonly reason: string;
+  readonly suppressed: boolean;
+}
+
 export interface WorkflowRetryBudget {
   readonly maxAttempts: number;
   readonly maxCostUsd: number;
@@ -772,7 +804,12 @@ export type WorkflowDecisionTraceKind =
   | "codegen.tester"
   | "codegen.runner"
   | "codegen.fixer"
-  | "codegen.evaluator";
+  | "codegen.evaluator"
+  | "runtime.router-classification"
+  | "runtime.agent-policy"
+  | "runtime.tool-call"
+  | "runtime.memory-read"
+  | "runtime.memory-write";
 
 export interface WorkflowNodeDecisionTraceEvent {
   readonly id: string;
@@ -867,6 +904,81 @@ export interface WorkflowTaskRoute {
   readonly draftTestsRequired: boolean;
   readonly productionDeterministic: boolean;
   readonly modelInvocations: readonly WorkflowModelInvocationRecord[];
+  readonly classifierVersion: string;
+  readonly confidence: number;
+  readonly scores: readonly WorkflowTaskRouteScore[];
+  readonly alternatives: readonly WorkflowTaskRouteAlternative[];
+  readonly matchedSignals: readonly string[];
+}
+
+export interface WorkflowRouterEvalCase {
+  readonly id: string;
+  readonly prompt: string;
+  readonly expectedRoute: WorkflowTaskRouteKind;
+  readonly minConfidence: number;
+  readonly forceDeterministic?: boolean | undefined;
+  readonly expectedNodeKinds?: readonly WorkflowNodeKind[] | undefined;
+}
+
+export interface WorkflowRouterEvalCaseResult {
+  readonly id: string;
+  readonly prompt: string;
+  readonly expectedRoute: WorkflowTaskRouteKind;
+  readonly actualRoute: WorkflowTaskRouteKind;
+  readonly confidence: number;
+  readonly passed: boolean;
+  readonly route: WorkflowTaskRoute;
+  readonly failures: readonly string[];
+}
+
+export interface WorkflowRouterEvalRun {
+  readonly id: string;
+  readonly classifierVersion: string;
+  readonly createdAt: string;
+  readonly passed: boolean;
+  readonly total: number;
+  readonly failed: number;
+  readonly results: readonly WorkflowRouterEvalCaseResult[];
+}
+
+export interface WorkflowRouterEvaluateResponse {
+  readonly ok: true;
+  readonly route: WorkflowTaskRoute;
+}
+
+export interface WorkflowRouterEvalListResponse {
+  readonly ok: true;
+  readonly classifierVersion: string;
+  readonly cases: readonly WorkflowRouterEvalCase[];
+  readonly latestRun?: WorkflowRouterEvalRun | undefined;
+}
+
+export interface WorkflowRouterEvalRunResponse {
+  readonly ok: true;
+  readonly run: WorkflowRouterEvalRun;
+}
+
+export interface WorkflowAgentMemoryRecord {
+  readonly id: string;
+  readonly scope: Exclude<WorkflowAgentMemoryScope, "none">;
+  readonly namespace: string;
+  readonly workflowId: string;
+  readonly branchId?: string | undefined;
+  readonly runId?: string | undefined;
+  readonly nodeId?: string | undefined;
+  readonly tags: readonly string[];
+  readonly contentHash: string;
+  readonly content: JsonRecord;
+  readonly shareable: boolean;
+  readonly sourceTraceId?: string | undefined;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly expiresAt?: string | undefined;
+}
+
+export interface WorkflowAgentMemoryListResponse {
+  readonly ok: true;
+  readonly memories: readonly WorkflowAgentMemoryRecord[];
 }
 
 export type WorkflowGraphChangeKind =
@@ -1339,6 +1451,15 @@ export interface WorkflowOpsHealth {
   readonly connectors: {
     readonly total: number;
     readonly failedTests: number;
+  };
+  readonly memory: {
+    readonly total: number;
+    readonly expired: number;
+  };
+  readonly router: {
+    readonly classifierVersion: string;
+    readonly evalCases: number;
+    readonly lastEvalPassed?: boolean | undefined;
   };
   readonly checkedAt: string;
 }

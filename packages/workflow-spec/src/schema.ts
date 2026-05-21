@@ -112,8 +112,21 @@ export const workflowAgentBudgetSchema = z.object({
   maxRetries: z.number().int().min(0)
 });
 
+export const workflowAgenticToolGrantSchema = z.object({
+  kind: z.enum(["builtin", "mcp", "adapter"]),
+  name: z.string().min(1),
+  connectorId: z.string().min(1).optional(),
+  adapterId: z.string().min(1).optional(),
+  operation: z.string().min(1).optional(),
+  operationVersion: z.string().min(1).optional(),
+  allowedHosts: z.array(z.string().min(1)),
+  secretRefs: z.array(z.string().min(1)),
+  sideEffect: z.enum(["none", "read", "write"])
+});
+
 export const workflowAgenticNodePolicySchema = z.object({
   tools: z.array(z.string().min(1)),
+  toolGrants: z.array(workflowAgenticToolGrantSchema).optional(),
   memoryScope: z.enum(["none", "node", "workflow", "workspace"]),
   stopConditions: z.array(z.string().min(1)),
   humanApprovalBoundaries: z.array(z.string().min(1)),
@@ -525,7 +538,12 @@ export const workflowDecisionTraceKindSchema = z.enum([
   "codegen.tester",
   "codegen.runner",
   "codegen.fixer",
-  "codegen.evaluator"
+  "codegen.evaluator",
+  "runtime.router-classification",
+  "runtime.agent-policy",
+  "runtime.tool-call",
+  "runtime.memory-read",
+  "runtime.memory-write"
 ]);
 
 export const workflowNodeDecisionTraceEventSchema = z.object({
@@ -620,7 +638,76 @@ export const workflowTaskRouteSchema = z.object({
   dockerSandboxRequired: z.boolean(),
   draftTestsRequired: z.boolean(),
   productionDeterministic: z.boolean(),
-  modelInvocations: z.array(workflowModelInvocationRecordSchema)
+  modelInvocations: z.array(workflowModelInvocationRecordSchema),
+  classifierVersion: z.string().min(1),
+  confidence: z.number().min(0).max(1),
+  scores: z.array(
+    z.object({
+      route: z.enum(["deterministic", "adapter", "codegen", "agentic", "deployment"]),
+      score: z.number(),
+      positiveSignals: z.array(z.string().min(1)),
+      negativeSignals: z.array(z.string().min(1))
+    })
+  ),
+  alternatives: z.array(
+    z.object({
+      route: z.enum(["deterministic", "adapter", "codegen", "agentic", "deployment"]),
+      score: z.number(),
+      reason: z.string().min(1),
+      suppressed: z.boolean()
+    })
+  ),
+  matchedSignals: z.array(z.string().min(1))
+});
+
+export const workflowRouterEvalCaseSchema = z.object({
+  id: z.string().min(1),
+  prompt: z.string().min(1),
+  expectedRoute: z.enum(["deterministic", "adapter", "codegen", "agentic", "deployment"]),
+  minConfidence: z.number().min(0).max(1),
+  forceDeterministic: z.boolean().optional(),
+  expectedNodeKinds: z
+    .array(z.enum(["trigger", "skill", "codegen", "transform", "approval", "delivery"]))
+    .optional()
+});
+
+export const workflowRouterEvalCaseResultSchema = z.object({
+  id: z.string().min(1),
+  prompt: z.string().min(1),
+  expectedRoute: z.enum(["deterministic", "adapter", "codegen", "agentic", "deployment"]),
+  actualRoute: z.enum(["deterministic", "adapter", "codegen", "agentic", "deployment"]),
+  confidence: z.number().min(0).max(1),
+  passed: z.boolean(),
+  route: workflowTaskRouteSchema,
+  failures: z.array(z.string().min(1))
+});
+
+export const workflowRouterEvalRunSchema = z.object({
+  id: z.string().min(1),
+  classifierVersion: z.string().min(1),
+  createdAt: z.string().datetime(),
+  passed: z.boolean(),
+  total: z.number().int().min(0),
+  failed: z.number().int().min(0),
+  results: z.array(workflowRouterEvalCaseResultSchema)
+});
+
+export const workflowAgentMemoryRecordSchema = z.object({
+  id: z.string().min(1),
+  scope: z.enum(["node", "workflow", "workspace"]),
+  namespace: z.string().min(1),
+  workflowId: z.string().min(1),
+  branchId: z.string().min(1).optional(),
+  runId: z.string().min(1).optional(),
+  nodeId: z.string().min(1).optional(),
+  tags: z.array(z.string().min(1)),
+  contentHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  content: jsonRecordSchema,
+  shareable: z.boolean(),
+  sourceTraceId: z.string().min(1).optional(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  expiresAt: z.string().datetime().optional()
 });
 
 export const workflowGraphChangeSchema = z.object({
@@ -1166,6 +1253,15 @@ export const workflowOpsHealthSchema = z.object({
   connectors: z.object({
     total: z.number().int().min(0),
     failedTests: z.number().int().min(0)
+  }),
+  memory: z.object({
+    total: z.number().int().min(0),
+    expired: z.number().int().min(0)
+  }),
+  router: z.object({
+    classifierVersion: z.string().min(1),
+    evalCases: z.number().int().min(0),
+    lastEvalPassed: z.boolean().optional()
   }),
   checkedAt: z.string().datetime()
 });
