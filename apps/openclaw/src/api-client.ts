@@ -2,8 +2,11 @@ import type {
   JsonRecord,
   WorkflowAcceptPlanRequest,
   WorkflowAcceptPlanResponse,
+  WorkflowAgentTimelineEvent,
   WorkflowApproveRequest,
   WorkflowApproveResponse,
+  WorkflowBudgetLedger,
+  WorkflowBudgetPolicy,
   WorkflowBranchMergePreviewRequest,
   WorkflowBranchMergePreviewResponse,
   WorkflowBranchMergeRequest,
@@ -32,7 +35,9 @@ import type {
   WorkflowWorkspace,
   WorkflowDeploymentKind,
   WorkflowDeploymentRecord,
+  WorkflowProviderRuntimeConfig,
   WorkflowReuseCandidatesResponse,
+  WorkflowRuntimeTruthSnapshot,
   WorkflowStartRunRequest,
   WorkflowStartRunResponse,
   WorkflowUpdateBranchRequest,
@@ -50,6 +55,27 @@ export interface DeploymentActivationSummaryResponse {
   readonly integrationBindings: readonly JsonRecord[];
   readonly bundles: readonly JsonRecord[];
   readonly generatedServices: readonly JsonRecord[];
+}
+
+export interface RuntimeProviderStatusResponse {
+  readonly ok: true;
+  readonly providers: readonly WorkflowProviderRuntimeConfig[];
+}
+
+export interface RuntimeTruthResponse {
+  readonly ok: true;
+  readonly truth: WorkflowRuntimeTruthSnapshot;
+}
+
+export interface BudgetResponse {
+  readonly ok: true;
+  readonly policy: WorkflowBudgetPolicy;
+  readonly ledgers: readonly WorkflowBudgetLedger[];
+}
+
+export interface AgentTimelineResponse {
+  readonly ok: true;
+  readonly events: readonly WorkflowAgentTimelineEvent[];
 }
 
 export interface CodegenReviewRequest {

@@ -121,7 +121,7 @@ class DraftFallbackRunner implements NodeRunner {
 
   public constructor(options: DraftWorkflowEvaluationOptions) {
     this.dockerRunner =
-      options.runGeneratedNodesInDocker === true
+      options.runGeneratedNodesInDocker !== false
         ? new DockerNodeRunner({
             dockerBin: options.dockerBin,
             hostWorkspace: options.hostWorkspace ?? process.cwd()

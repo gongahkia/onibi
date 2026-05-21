@@ -196,6 +196,7 @@ export const workflowObservabilityEventKindSchema = z.enum([
   "job.lifecycle",
   "agent.activity",
   "budget.lifecycle",
+  "node.decision",
   "workspace.artifact",
   "dag.compilation",
   "node.container",
@@ -241,6 +242,7 @@ export const workflowAuditActionSchema = z.enum([
   "draft.evaluated",
   "job.created",
   "agent.ran",
+  "decision.trace.recorded",
   "budget.updated",
   "budget.blocked",
   "workspace.created",
@@ -494,6 +496,97 @@ export const workflowAgentTimelineEventSchema = z.object({
   costUsd: z.number().min(0).optional(),
   cumulativeCostUsd: z.number().min(0),
   metadata: jsonRecordSchema.optional()
+});
+
+export const workflowDecisionTraceKindSchema = z.enum([
+  "planner.node-created",
+  "planner.node-updated",
+  "planner.edge-designed",
+  "codegen.architect",
+  "codegen.coder",
+  "codegen.tester",
+  "codegen.runner",
+  "codegen.fixer",
+  "codegen.evaluator"
+]);
+
+export const workflowNodeDecisionTraceEventSchema = z.object({
+  id: z.string().min(1),
+  traceId: z.string().min(1),
+  workflowId: z.string().min(1),
+  branchId: z.string().min(1).optional(),
+  nodeId: z.string().min(1),
+  revisionId: z.string().min(1).optional(),
+  jobId: z.string().min(1).optional(),
+  agentRunId: z.string().min(1).optional(),
+  kind: workflowDecisionTraceKindSchema,
+  role: workflowAgentRoleSchema,
+  createdAt: z.string().datetime(),
+  summary: z.string().min(1),
+  rationale: z.string().min(1),
+  alternativesConsidered: z.array(z.string().min(1)),
+  selectedAction: z.string().min(1),
+  inputSummary: z.string().min(1),
+  promptHash: z.string().regex(/^sha256:[a-f0-9]{64}$/).optional(),
+  promptExcerpt: z.string().min(1).optional(),
+  route: z.enum(["deterministic", "adapter", "codegen", "agentic", "deployment"]).optional(),
+  provider: z.string().min(1).optional(),
+  model: z.string().min(1).optional(),
+  modelInvocationIds: z.array(z.string().min(1)),
+  affectedNodeIds: z.array(z.string().min(1)),
+  affectedEdgeIds: z.array(z.string().min(1)),
+  constraints: jsonRecordSchema,
+  outputArtifactRefs: z.array(workflowArtifactRefSchema),
+  evalOutcome: z.enum(["passed", "failed", "blocked", "not-run"]).optional(),
+  failureClass: z.string().min(1).optional(),
+  fixTriageAction: z.enum(["targeted-patch", "retry-codegen", "rearchitect", "give-up"]).optional(),
+  inputTokens: z.number().int().min(0).optional(),
+  outputTokens: z.number().int().min(0).optional(),
+  totalTokens: z.number().int().min(0).optional(),
+  costUsd: z.number().min(0).optional(),
+  metadata: jsonRecordSchema.optional()
+});
+
+export const workflowNodeDecisionTraceSchema = z.object({
+  id: z.string().min(1),
+  workflowId: z.string().min(1),
+  branchId: z.string().min(1).optional(),
+  nodeId: z.string().min(1),
+  revisionId: z.string().min(1).optional(),
+  kind: workflowDecisionTraceKindSchema,
+  source: z.enum(["planner", "codegen"]),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  status: z.enum(["recorded", "succeeded", "failed", "blocked"]),
+  events: z.array(workflowNodeDecisionTraceEventSchema).min(1)
+});
+
+export const workflowDecisionTraceEvalExampleSchema = z.object({
+  id: z.string().min(1),
+  traceId: z.string().min(1),
+  workflowId: z.string().min(1),
+  branchId: z.string().min(1).optional(),
+  nodeId: z.string().min(1),
+  kind: workflowDecisionTraceKindSchema,
+  createdAt: z.string().datetime(),
+  input: jsonRecordSchema,
+  expectedDecision: z.string().min(1).optional(),
+  actualDecision: z.string().min(1),
+  outcome: z.enum(["pass", "fail", "blocked", "unknown"]),
+  failureClass: z.string().min(1).optional(),
+  artifactRefs: z.array(workflowArtifactRefSchema),
+  metadata: jsonRecordSchema.optional()
+});
+
+export const workflowNodeDecisionTraceExportSchema = z.object({
+  id: z.string().min(1),
+  workflowId: z.string().min(1),
+  exportedAt: z.string().datetime(),
+  format: z.literal("jsonl"),
+  redacted: z.literal(true),
+  lineCount: z.number().int().min(0),
+  records: z.array(jsonRecordSchema),
+  evalExamples: z.array(workflowDecisionTraceEvalExampleSchema)
 });
 
 export const workflowTaskRouteSchema = z.object({

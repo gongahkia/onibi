@@ -125,6 +125,36 @@ describe("OpenClaw planner shell", () => {
     expect(screen.getByLabelText("Workflow summary")).toHaveTextContent(/Nodes\s*2/u);
   });
 
+  it("wires the workspace navigation rail to sidebar targets", () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    expect(screen.getByLabelText("Search components")).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Attachments" }));
+    expect(screen.getByRole("button", { name: "Attachments" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
+    expect(screen.getByRole("button", { name: "Files & Knowledge" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    expect(screen.getByRole("button", { name: "History" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Components" }));
+    expect(screen.getByRole("button", { name: "Components" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
+    expect(screen.getByLabelText("Available components")).toHaveTextContent("Manual Input");
+  });
+
   it("configures adapter-backed delivery skills and opt-in push channels", async () => {
     render(<App />);
 

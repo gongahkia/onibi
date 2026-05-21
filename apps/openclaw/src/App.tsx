@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   Controls,
@@ -11,19 +11,15 @@ import type { Connection, Edge, EdgeChange, NodeChange } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
   CheckCircle2,
-  ChevronRight,
   Clock3,
   Database,
   FileStack,
   GitBranch,
-  Grid2X2,
-  History,
   KeyRound,
   Layers3,
   ListChecks,
   Mail,
   MessageCircle,
-  Paperclip,
   Play,
   Plus,
   RefreshCw,
@@ -417,13 +413,6 @@ const componentPaletteItems: readonly ComponentPaletteItem[] = [
   }
 ] as const;
 
-const railItems = [
-  { label: "Search", icon: Search },
-  { label: "Components", icon: Grid2X2 },
-  { label: "Attachments", icon: Paperclip },
-  { label: "History", icon: History }
-] as const;
-
 const integrationSetups = [
   {
     id: "google",
@@ -454,6 +443,31 @@ const integrationSetups = [
     placeholder: '{"botToken":"...","chatId":"..."}'
   }
 ] as const;
+
+interface PaletteCommand {
+  readonly id: string;
+  readonly group: string;
+  readonly label: string;
+  readonly detail?: string | undefined;
+  readonly keywords?: readonly string[] | undefined;
+  readonly disabled?: boolean | undefined;
+  readonly closeOnSelect?: boolean | undefined;
+  readonly onSelect: () => void;
+}
+
+type CommandPaletteMode =
+  | { readonly kind: "commands" }
+  | { readonly kind: "plan"; readonly value: string }
+  | { readonly kind: "clarification" }
+  | { readonly kind: "fork-branch"; readonly value: string }
+  | { readonly kind: "rename-branch"; readonly value: string }
+  | { readonly kind: "admin-token"; readonly value: string }
+  | {
+      readonly kind: "secret";
+      readonly label: string;
+      readonly secretName: string;
+      readonly value: string;
+    };
 
 export function App() {
   const [workflow, setWorkflow] = useState<WorkflowSpec>(emptyWorkflowDraft);
@@ -510,9 +524,11 @@ export function App() {
   const [secretMetadata, setSecretMetadata] = useState<readonly SecretMetadata[]>([]);
   const [googleConnected, setGoogleConnected] = useState<boolean | null>(null);
   const [secretDrafts, setSecretDrafts] = useState<Readonly<Record<string, string>>>({});
-  const [componentSearch, setComponentSearch] = useState("");
-  const [selectedComponentCategory, setSelectedComponentCategory] =
-    useState<ComponentPaletteFilter>("input-output");
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState("");
+  const [paletteSelection, setPaletteSelection] = useState(0);
+  const [paletteMode, setPaletteMode] = useState<CommandPaletteMode>({ kind: "commands" });
+  const commandPaletteInputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
 
   const validationIssues = validation.ok ? [] : validation.errors;
   const [nodes, setNodes, onNodesChangeBase] = useNodesState<WorkflowFlowNode>(
@@ -561,24 +577,6 @@ export function App() {
     draftEvaluation?.readyForApproval === true &&
     !branchLifecycleLocked;
   const canRun = approvedRevision !== null && !branchLifecycleLocked;
-  const visibleComponentItems = useMemo(
-    () =>
-      componentPaletteItems.filter((item) => {
-        const search = componentSearch.trim().toLowerCase();
-        const matchesCategory =
-          selectedComponentCategory === "all" || item.category === selectedComponentCategory;
-        const matchesSearch =
-          search.length === 0 ||
-          [item.label, item.description, item.kind, categoryLabel(item.category)]
-            .join(" ")
-            .toLowerCase()
-            .includes(search);
-
-        return matchesCategory && matchesSearch;
-      }),
-    [componentSearch, selectedComponentCategory]
-  );
-
   const refreshIntegrations = useCallback(async () => {
     try {
       const [secrets, google] = await Promise.all([
@@ -638,6 +636,33 @@ export function App() {
     }, 0);
     return () => window.clearTimeout(timeout);
   }, [refreshBranches, workflow.id]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        setPaletteMode({ kind: "commands" });
+        setPaletteQuery("");
+        setPaletteSelection(0);
+        setPaletteOpen(true);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  useEffect(() => {
+    if (!paletteOpen) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      commandPaletteInputRef.current?.focus();
+      commandPaletteInputRef.current?.select();
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [paletteMode.kind, paletteOpen]);
 
   const loadWorkflow = useCallback(
     (
@@ -745,8 +770,8 @@ export function App() {
     }));
   }
 
-  function saveSecret(secretName: string) {
-    const value = secretDrafts[secretName]?.trim() ?? "";
+  function saveSecret(secretName: string, valueOverride?: string | undefined) {
+    const value = (valueOverride ?? secretDrafts[secretName] ?? "").trim();
     if (!value) {
       setApiError(`Secret '${secretName}' requires a value.`);
       return;
@@ -790,8 +815,8 @@ export function App() {
     });
   }
 
-  function forkBranch() {
-    const name = branchNameDraft.trim();
+  function forkBranch(nameOverride?: string | undefined) {
+    const name = (nameOverride ?? branchNameDraft).trim();
     if (!name) {
       setApiError("Branch name is required.");
       return;
@@ -820,12 +845,12 @@ export function App() {
     });
   }
 
-  function renameBranch() {
+  function renameBranch(nameOverride?: string | undefined) {
     if (!activeBranch) {
       setApiError("Select a branch before renaming it.");
       return;
     }
-    const name = branchRenameDraft.trim();
+    const name = (nameOverride ?? branchRenameDraft).trim();
     if (!name) {
       setApiError("Branch name is required.");
       return;
@@ -869,8 +894,13 @@ export function App() {
     });
   }
 
-  function previewMerge() {
-    if (!activeBranchId || !mergeSourceBranchId) {
+  function previewMerge(
+    sourceBranchIdOverride?: string | undefined,
+    modeOverride?: "merge" | "cherry-pick" | undefined
+  ) {
+    const sourceBranchId = sourceBranchIdOverride ?? mergeSourceBranchId;
+    const selectedMergeMode = modeOverride ?? mergeMode;
+    if (!activeBranchId || !sourceBranchId) {
       setApiError("Choose an active branch and a source branch before previewing a merge.");
       return;
     }
@@ -878,16 +908,18 @@ export function App() {
       setApiError("Archived branches are read-only.");
       return;
     }
-    if (mergeSources.find((branch) => branch.id === mergeSourceBranchId)?.status === "archived") {
+    if (mergeSources.find((branch) => branch.id === sourceBranchId)?.status === "archived") {
       setApiError("Archived branches cannot be merged.");
       return;
     }
 
     void executeApiAction("merge-preview", async () => {
-      const response = await openClawApi.previewBranchMerge(workflow.id, mergeSourceBranchId, {
+      const response = await openClawApi.previewBranchMerge(workflow.id, sourceBranchId, {
         targetBranchId: activeBranchId,
-        mode: mergeMode
+        mode: selectedMergeMode
       });
+      setMergeSourceBranchId(sourceBranchId);
+      setMergeMode(selectedMergeMode);
       setMergePreview(response.preview);
       setMergeResolutionModes({});
       setMergeManualJson({});
@@ -1176,7 +1208,16 @@ export function App() {
     }));
   }
 
-  function planDraft() {
+  function planDraft(
+    promptOverride?: string | undefined,
+    clarificationAnswersOverride?: Readonly<Record<string, string>> | undefined
+  ) {
+    const nextPrompt = (promptOverride ?? prompt).trim();
+    const nextClarificationAnswers = clarificationAnswersOverride ?? clarificationAnswers;
+    if (!nextPrompt) {
+      setApiError("Workflow prompt is required.");
+      return;
+    }
     if (branchLifecycleLocked) {
       setApiError("Archived branches are read-only.");
       return;
@@ -1192,7 +1233,7 @@ export function App() {
             workflow.id,
             activeBranchId,
             {
-              prompt,
+              prompt: nextPrompt,
               ...(currentWorkflow ? { currentWorkflow } : {}),
               preserveNodeIds: [...dirtyNodeIds],
               ...(clarification
@@ -1200,7 +1241,7 @@ export function App() {
                     clarificationRequestId: clarification.id,
                     clarificationAnswers: clarification.questions.map((question) => ({
                       questionId: question.id,
-                      answer: clarificationAnswers[question.id] ?? ""
+                      answer: nextClarificationAnswers[question.id] ?? ""
                     }))
                   }
                 : {}),
@@ -1210,7 +1251,7 @@ export function App() {
           )
         : await openClawApi.plan(
             {
-              prompt,
+              prompt: nextPrompt,
               ...(currentWorkflow ? { currentWorkflow } : {}),
               preserveNodeIds: [...dirtyNodeIds],
               ...(clarification
@@ -1218,7 +1259,7 @@ export function App() {
                     clarificationRequestId: clarification.id,
                     clarificationAnswers: clarification.questions.map((question) => ({
                       questionId: question.id,
-                      answer: clarificationAnswers[question.id] ?? ""
+                      answer: nextClarificationAnswers[question.id] ?? ""
                     }))
                   }
                 : {})
@@ -1226,13 +1267,17 @@ export function App() {
             job.id
           );
       if (response.status === "clarification-required") {
+        setPrompt(nextPrompt);
         setClarification(response.clarification);
         setClarificationAnswers({});
         setTaskRoute(response.route);
         setPlannerFeedback(null);
         setReuseDecisions([]);
+        setPaletteMode({ kind: "clarification" });
+        setPaletteOpen(true);
         return;
       }
+      setPrompt(nextPrompt);
       loadWorkflow(response.workflow, response.validation);
       setClarification(null);
       setClarificationAnswers({});
@@ -1588,245 +1633,403 @@ export function App() {
     loadWorkflow(emptyWorkflowDraft, validateWorkflowSpec(emptyWorkflowDraft));
   }
 
+  function openPalette(mode: CommandPaletteMode = { kind: "commands" }) {
+    setPaletteMode(mode);
+    setPaletteQuery("");
+    setPaletteSelection(0);
+    setPaletteOpen(true);
+  }
+
+  function closePalette() {
+    setPaletteOpen(false);
+    setPaletteMode({ kind: "commands" });
+    setPaletteQuery("");
+    setPaletteSelection(0);
+  }
+
+  function executePaletteCommand(command: PaletteCommand | undefined) {
+    if (!command || command.disabled) {
+      return;
+    }
+
+    command.onSelect();
+    if (command.closeOnSelect !== false) {
+      closePalette();
+    }
+  }
+
+  function submitPalettePlan(value: string) {
+    const nextPrompt = value.trim();
+    planDraft(nextPrompt);
+    if (nextPrompt) {
+      closePalette();
+    }
+  }
+
+  function submitPaletteClarification() {
+    planDraft(prompt, clarificationAnswers);
+    closePalette();
+  }
+
+  function submitPaletteFork(value: string) {
+    forkBranch(value);
+    if (value.trim()) {
+      closePalette();
+    }
+  }
+
+  function submitPaletteRename(value: string) {
+    renameBranch(value);
+    if (value.trim()) {
+      closePalette();
+    }
+  }
+
+  function submitPaletteAdminToken(value: string) {
+    updateAdminToken(value);
+    closePalette();
+  }
+
+  function submitPaletteSecret(secretName: string, value: string) {
+    saveSecret(secretName, value);
+    if (value.trim()) {
+      closePalette();
+    }
+  }
+
+  const storedSecretNames = new Set(secretMetadata.map((secret) => secret.name));
+  const activeBranchIsDefault = activeBranch?.id.endsWith(".main") === true;
+  const mergeConflictsResolved =
+    mergePreview?.conflicts.every((conflict) => mergeResolutionModes[conflict.id]) ?? true;
+  const commonActionBlocked = busyAction !== null || branchLifecycleLocked;
+  const paletteCommands: PaletteCommand[] = [
+    ...componentPaletteItems.map((item) => ({
+      id: `component-${item.id}`,
+      group: "Components",
+      label: `Add ${item.label}`,
+      detail: item.description,
+      keywords: [item.kind, categoryLabel(item.category)],
+      disabled: branchLifecycleLocked,
+      onSelect: () => addComponentNode(item)
+    })),
+    {
+      id: "workflow-plan",
+      group: "Workflow",
+      label: "Plan Workflow",
+      detail: "Draft or revise the workflow from a prompt.",
+      disabled: commonActionBlocked,
+      closeOnSelect: false,
+      onSelect: () => openPalette({ kind: "plan", value: prompt })
+    },
+    {
+      id: "workflow-validate",
+      group: "Workflow",
+      label: "Validate Workflow",
+      detail: "Run graph validation against the current draft.",
+      disabled: commonActionBlocked,
+      onSelect: validateDraft
+    },
+    {
+      id: "workflow-accept-plan",
+      group: "Workflow",
+      label: "Accept Plan",
+      detail: "Record the current draft plan shape.",
+      disabled: !workflowHasGraph || !validation.ok || commonActionBlocked,
+      onSelect: acceptPlanShape
+    },
+    {
+      id: "workflow-evaluate",
+      group: "Workflow",
+      label: "Evaluate Draft",
+      detail: "Run the draft evaluator before approval.",
+      disabled: !workflowHasGraph || !validation.ok || commonActionBlocked,
+      onSelect: evaluateDraft
+    },
+    {
+      id: "workflow-approve",
+      group: "Workflow",
+      label: "Approve Workflow",
+      detail: "Freeze an approval revision for the current draft.",
+      disabled: !canApprove || busyAction !== null,
+      onSelect: approveWorkflow
+    },
+    {
+      id: "workflow-run",
+      group: "Workflow",
+      label: "Run Workflow",
+      detail: "Start a run from the approved revision.",
+      disabled: !canRun || busyAction !== null,
+      onSelect: runWorkflow
+    },
+    {
+      id: "workflow-deploy",
+      group: "Workflow",
+      label: "Deploy Workflow",
+      detail: "Deploy the approved and evaluated workflow bundle.",
+      disabled:
+        !approvedRevision ||
+        !draftEvaluation?.readyForApproval ||
+        busyAction !== null ||
+        branchLifecycleLocked,
+      onSelect: deployWorkflow
+    },
+    {
+      id: "workflow-stop",
+      group: "Workflow",
+      label: "Stop Job",
+      detail: "Cancel the active worker job.",
+      disabled:
+        !activeJob ||
+        ["succeeded", "failed", "cancelled"].includes(activeJob.status) ||
+        busyAction === "cancel-job",
+      onSelect: cancelActiveJob
+    },
+    {
+      id: "workflow-reset",
+      group: "Workflow",
+      label: "Reset Workflow",
+      detail: "Clear the local draft and start over.",
+      onSelect: resetWorkflow
+    },
+    {
+      id: "selection-delete",
+      group: "Workflow",
+      label: "Delete Selection",
+      detail: "Remove the selected node or edge.",
+      disabled: !selectedNodeId && !selectedEdgeId,
+      onSelect: deleteSelection
+    },
+    {
+      id: "branch-fork",
+      group: "Branches",
+      label: "Fork Branch",
+      detail: activeBranch ? `Create a branch from ${activeBranch.name}.` : "No branch selected.",
+      disabled: busyAction !== null || !activeBranch || branchLifecycleLocked,
+      closeOnSelect: false,
+      onSelect: () => openPalette({ kind: "fork-branch", value: branchNameDraft })
+    },
+    {
+      id: "branch-rename",
+      group: "Branches",
+      label: "Rename Active Branch",
+      detail: activeBranch ? `Rename ${activeBranch.name}.` : "No branch selected.",
+      disabled: busyAction !== null || !activeBranch,
+      closeOnSelect: false,
+      onSelect: () => openPalette({ kind: "rename-branch", value: branchRenameDraft })
+    },
+    {
+      id: "branch-archive",
+      group: "Branches",
+      label: activeBranch?.status === "archived" ? "Restore Active Branch" : "Archive Active Branch",
+      detail: activeBranch ? activeBranch.name : "No branch selected.",
+      disabled: busyAction !== null || !activeBranch || activeBranchIsDefault,
+      onSelect: toggleBranchArchive
+    },
+    {
+      id: "branch-archived-toggle",
+      group: "Branches",
+      label: showArchivedBranches ? "Hide Archived Branches" : "Show Archived Branches",
+      detail: "Toggle archived branch visibility for branch commands.",
+      onSelect: () => setShowArchivedBranches(!showArchivedBranches)
+    },
+    ...visibleBranches.map((branch) => ({
+      id: `branch-switch-${branch.id}`,
+      group: "Branches",
+      label: `Switch To ${branch.name}`,
+      detail: branch.status,
+      disabled: busyAction !== null || branch.id === activeBranchId,
+      onSelect: () => switchBranch(branch.id)
+    })),
+    ...mergeSources.flatMap((branch) => [
+      {
+        id: `branch-preview-merge-${branch.id}`,
+        group: "Branches",
+        label: `Preview Merge From ${branch.name}`,
+        detail: `Merge into ${activeBranch?.name ?? "active branch"}.`,
+        disabled: busyAction !== null || !activeBranch || branchLifecycleLocked || branch.status === "archived",
+        onSelect: () => previewMerge(branch.id, "merge")
+      },
+      {
+        id: `branch-preview-cherry-pick-${branch.id}`,
+        group: "Branches",
+        label: `Preview Cherry-pick From ${branch.name}`,
+        detail: `Cherry-pick into ${activeBranch?.name ?? "active branch"}.`,
+        disabled: busyAction !== null || !activeBranch || branchLifecycleLocked || branch.status === "archived",
+        onSelect: () => previewMerge(branch.id, "cherry-pick")
+      }
+    ]),
+    ...(mergePreview
+      ? mergePreview.conflicts.flatMap((conflict) => [
+          {
+            id: `merge-source-${conflict.id}`,
+            group: "Branches",
+            label: `Use Source For ${conflict.kind}`,
+            detail: conflict.message,
+            onSelect: () => updateMergeResolutionMode(conflict.id, "source")
+          },
+          {
+            id: `merge-target-${conflict.id}`,
+            group: "Branches",
+            label: `Keep Target For ${conflict.kind}`,
+            detail: conflict.message,
+            onSelect: () => updateMergeResolutionMode(conflict.id, "target")
+          }
+        ])
+      : []),
+    {
+      id: "branch-apply-merge",
+      group: "Branches",
+      label: "Apply Merge Preview",
+      detail: mergePreview ? `${mergePreview.mode} from ${mergePreview.sourceBranchId}` : "No merge preview.",
+      disabled:
+        busyAction !== null ||
+        !mergePreview ||
+        mergePreview.status === "blocked" ||
+        branchLifecycleLocked ||
+        !mergeConflictsResolved,
+      onSelect: applyMerge
+    },
+    {
+      id: "branch-reuse",
+      group: "Branches",
+      label: "Refresh Reuse Candidates",
+      detail: "Check generated modules that can be reused on this branch.",
+      disabled: busyAction !== null || !activeBranch || branchLifecycleLocked,
+      onSelect: refreshReuseCandidates
+    },
+    {
+      id: "integration-refresh",
+      group: "Integrations",
+      label: "Refresh Integration Status",
+      detail: "Reload secrets and provider readiness.",
+      disabled: busyAction !== null,
+      onSelect: () => {
+        void refreshIntegrations();
+      }
+    },
+    {
+      id: "integration-admin-token",
+      group: "Integrations",
+      label: "Set Admin Token",
+      detail: "Save the bearer token used for OpenClaw admin API calls.",
+      closeOnSelect: false,
+      onSelect: () => openPalette({ kind: "admin-token", value: adminToken })
+    },
+    {
+      id: "integration-google-connect",
+      group: "Integrations",
+      label: "Connect Google",
+      detail: "Start Google OAuth for Gmail and Sheets.",
+      disabled: busyAction !== null,
+      onSelect: connectGoogle
+    },
+    {
+      id: "integration-google-revoke",
+      group: "Integrations",
+      label: "Revoke Google",
+      detail: "Remove the stored Google OAuth secret.",
+      disabled: busyAction !== null || !storedSecretNames.has("google.oauth.default"),
+      onSelect: revokeGoogle
+    },
+    ...integrationSetups.flatMap((setup) => [
+      {
+        id: `integration-status-${setup.id}`,
+        group: "Integrations",
+        label: `${setup.label} Integration`,
+        detail: `${setup.secretName} is ${storedSecretNames.has(setup.secretName) ? "stored" : "missing"}.`,
+        disabled: true,
+        onSelect: () => {}
+      },
+      {
+        id: `integration-save-${setup.id}`,
+        group: "Integrations",
+        label: `Save ${setup.label} Secret`,
+        detail: setup.secretName,
+        disabled: busyAction !== null,
+        closeOnSelect: false,
+        onSelect: () =>
+          openPalette({
+            kind: "secret",
+            label: setup.label,
+            secretName: setup.secretName,
+            value: secretDrafts[setup.secretName] ?? ""
+          })
+      },
+      {
+        id: `integration-delete-${setup.id}`,
+        group: "Integrations",
+        label: `Delete ${setup.label} Secret`,
+        detail: setup.secretName,
+        disabled: busyAction !== null || !storedSecretNames.has(setup.secretName),
+        onSelect: () => deleteSecret(setup.secretName)
+      }
+    ]),
+    {
+      id: "status-workflow",
+      group: "Status",
+      label: `Workflow: ${workflow.name}`,
+      detail: `${workflow.nodes.length} nodes, ${workflow.edges.length} edges, revision ${workflow.revision}.`,
+      disabled: true,
+      onSelect: () => {}
+    },
+    {
+      id: "status-branch",
+      group: "Status",
+      label: `Active Branch: ${activeBranch?.name ?? "none"}`,
+      detail: activeBranch?.status ?? "No branch selected.",
+      disabled: true,
+      onSelect: () => {}
+    },
+    {
+      id: "status-route",
+      group: "Status",
+      label: `Route: ${taskRoute?.route ?? "unrouted"}`,
+      detail: taskRoute?.rationale ?? "No route has been calculated.",
+      disabled: true,
+      onSelect: () => {}
+    },
+    {
+      id: "status-evaluation",
+      group: "Status",
+      label: `Draft Eval: ${draftEvaluation?.status ?? "not run"}`,
+      detail: draftEvaluation?.readyForApproval ? "Ready for approval." : "Approval is blocked.",
+      disabled: true,
+      onSelect: () => {}
+    },
+    ...(validationIssues.length > 0
+      ? validationIssues.map((issue, index) => ({
+          id: `validation-${index}-${issue.code}`,
+          group: "Validation",
+          label: issue.code,
+          detail: issue.message,
+          keywords: [issue.path.join(".")],
+          onSelect: () => selectIssue(issue)
+        }))
+      : [
+          {
+            id: "validation-valid",
+            group: "Validation",
+            label: "Validation: valid",
+            detail: "No graph validation issues.",
+            disabled: true,
+            onSelect: () => {}
+          }
+        ])
+  ];
+  const filteredPaletteCommands =
+    paletteMode.kind === "commands"
+      ? paletteCommands.filter((command) => commandMatchesQuery(command, paletteQuery))
+      : [];
+
   return (
     <main className="app-shell">
       <section className="workspace">
-        <aside className="nav-rail" aria-label="Workspace navigation">
-          {railItems.map((item, index) => {
-            const Icon = item.icon;
-            return (
-              <button
-                key={item.label}
-                className={index === 1 ? "rail-button rail-button-active" : "rail-button"}
-                type="button"
-                title={item.label}
-              >
-                <Icon size={19} />
-              </button>
-            );
-          })}
-        </aside>
-
-        <aside className="panel planner-panel" aria-label="Workflow planner">
-          <div className="sidebar-search">
-            <Search size={18} />
-            <input
-              aria-label="Search components"
-              placeholder="Search"
-              value={componentSearch}
-              onChange={(event) => setComponentSearch(event.target.value)}
-            />
-            <kbd>/</kbd>
-          </div>
-
-          <section className="component-browser" aria-label="Component categories">
-            <div className="component-heading">
-              <h2>Components</h2>
-              <SlidersHorizontal size={16} />
-            </div>
-            <div className="component-list">
-              {componentCategories.map((category) => {
-                const Icon = category.icon;
-                const selected = selectedComponentCategory === category.id;
-                return (
-                  <button
-                    key={category.label}
-                    aria-pressed={selected}
-                    className={selected ? "component-row component-row-active" : "component-row"}
-                    type="button"
-                    onClick={() => setSelectedComponentCategory(category.id)}
-                  >
-                    <Icon size={18} />
-                    <span>{category.label}</span>
-                    <ChevronRight size={16} />
-                  </button>
-                );
-              })}
-            </div>
-            <div className="component-palette" aria-label="Available components">
-              <div className="component-palette-heading">
-                <span>{categoryLabel(selectedComponentCategory)}</span>
-                <span>{visibleComponentItems.length}</span>
-              </div>
-              {visibleComponentItems.length > 0 ? (
-                visibleComponentItems.map((item) => (
-                  <button
-                    key={item.id}
-                    className="component-option"
-                    type="button"
-                    aria-label={`Add ${item.label}`}
-                    disabled={branchLifecycleLocked}
-                    onClick={() => addComponentNode(item)}
-                  >
-                    <span>
-                      <strong>{item.label}</strong>
-                      <small>{item.description}</small>
-                    </span>
-                    <Plus size={16} />
-                  </button>
-                ))
-              ) : (
-                <p className="muted-text">No matching components</p>
-              )}
-            </div>
-            <button
-              className="discover-button"
-              type="button"
-              aria-pressed={selectedComponentCategory === "all"}
-              onClick={() => setSelectedComponentCategory("all")}
-            >
-              <Grid2X2 size={18} />
-              Discover more components
-            </button>
-          </section>
-
-          <form
-            className="prompt-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              planDraft();
-            }}
-          >
-            <label htmlFor="workflow-prompt">Workflow Prompt</label>
-            <textarea
-              id="workflow-prompt"
-              value={prompt}
-              onChange={(event) => updatePrompt(event.target.value)}
-              rows={4}
-            />
-            <ClarificationPanel
-              clarification={clarification}
-              answers={clarificationAnswers}
-              onAnswerChange={updateClarificationAnswer}
-            />
-            <button
-              type="submit"
-              disabled={
-                busyAction !== null ||
-                prompt.trim().length === 0 ||
-                branchLifecycleLocked ||
-                !clarificationReady
-              }
-            >
-              <WandSparkles size={18} />
-              {clarification ? "Plan With Answers" : "Plan"}
-            </button>
-          </form>
-
-          <section aria-label="Workflow summary">
-            <div className="panel-heading">
-              <GitBranch size={18} />
-              <h2>{workflow.name}</h2>
-            </div>
-            <dl className="metric-grid">
-              <div>
-                <dt>Nodes</dt>
-                <dd>{workflow.nodes.length}</dd>
-              </div>
-              <div>
-                <dt>Edges</dt>
-                <dd>{workflow.edges.length}</dd>
-              </div>
-              <div>
-                <dt>Revision</dt>
-                <dd>{workflow.revision}</dd>
-              </div>
-            </dl>
-          </section>
-
-          <BranchPanel
-            branches={visibleBranches}
-            activeBranch={activeBranch}
-            activeBranchId={activeBranchId}
-            promptTurns={promptTurns}
-            branchNameDraft={branchNameDraft}
-            branchRenameDraft={branchRenameDraft}
-            showArchivedBranches={showArchivedBranches}
-            branchNotice={branchNotice}
-            busyAction={busyAction}
-            onBranchNameChange={setBranchNameDraft}
-            onBranchRenameChange={setBranchRenameDraft}
-            onShowArchivedChange={setShowArchivedBranches}
-            onFork={forkBranch}
-            onSwitch={switchBranch}
-            onRename={renameBranch}
-            onArchiveToggle={toggleBranchArchive}
-          />
-          <BranchMergeReusePanel
-            activeBranch={activeBranch}
-            mergeSources={mergeSources}
-            mergeSourceBranchId={mergeSourceBranchId}
-            mergeMode={mergeMode}
-            mergePreview={mergePreview}
-            mergeResolutionModes={mergeResolutionModes}
-            mergeManualJson={mergeManualJson}
-            reuseDecisions={reuseDecisions}
-            busyAction={busyAction}
-            branchLifecycleLocked={branchLifecycleLocked}
-            onMergeSourceChange={setMergeSourceBranchId}
-            onMergeModeChange={setMergeMode}
-            onPreviewMerge={previewMerge}
-            onApplyMerge={applyMerge}
-            onResolutionModeChange={updateMergeResolutionMode}
-            onManualResolutionChange={updateMergeManualJson}
-            onRefreshReuse={refreshReuseCandidates}
-          />
-
-          <RoutePanel route={taskRoute} />
-          <DraftEvaluationPanel evaluation={draftEvaluation} />
-          <FeedbackPanel feedback={plannerFeedback} onDecision={updateSuggestionDecision} />
-
-          <section aria-label="Validation panel" className="validation-panel">
-            <div className="panel-heading">
-              <ListChecks size={18} />
-              <h2>Validation</h2>
-            </div>
-            <StatusRow
-              label="Graph"
-              value={validation.ok ? "valid" : "blocked"}
-              tone={validation.ok ? "valid" : "blocked"}
-            />
-            {validationIssues.length > 0 ? (
-              <div className="issue-list">
-                {validationIssues.map((issue) => (
-                  <button
-                    key={`${issue.code}-${issue.path.join(".")}`}
-                    className="issue-button"
-                    onClick={() => selectIssue(issue)}
-                    type="button"
-                  >
-                    <strong>{issue.code}</strong>
-                    <span>{issue.message}</span>
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </section>
-
-          <IntegrationPanel
-            adminToken={adminToken}
-            integrations={integrationReadiness}
-            secrets={secretMetadata}
-            googleConnected={googleConnected}
-            secretDrafts={secretDrafts}
-            busyAction={busyAction}
-            onAdminTokenChange={updateAdminToken}
-            onRefresh={refreshIntegrations}
-            onSecretDraftChange={updateSecretDraft}
-            onSaveSecret={saveSecret}
-            onDeleteSecret={deleteSecret}
-            onConnectGoogle={connectGoogle}
-            onRevokeGoogle={revokeGoogle}
-          />
-
-          {apiError ? <p className="error-text">{apiError}</p> : null}
-        </aside>
-
         <section className="canvas-panel" aria-label="Workflow graph">
           <header className="topbar">
             <div>
               <p className="eyebrow">KelpClaw</p>
               <h1>OpenClaw</h1>
+              <p className="topbar-workflow">{workflow.name}</p>
             </div>
             <div className="topbar-actions" aria-label="Workflow actions">
               <button
@@ -2003,7 +2206,331 @@ export function App() {
           />
         </aside>
       </section>
+      <CommandPalette
+        open={paletteOpen}
+        mode={paletteMode}
+        query={paletteQuery}
+        commands={filteredPaletteCommands}
+        selectedIndex={paletteSelection}
+        clarification={clarification}
+        clarificationAnswers={clarificationAnswers}
+        clarificationReady={clarificationReady}
+        busyAction={busyAction}
+        inputRef={commandPaletteInputRef}
+        onClose={closePalette}
+        onModeChange={setPaletteMode}
+        onQueryChange={(value) => {
+          setPaletteQuery(value);
+          setPaletteSelection(0);
+        }}
+        onSelectionChange={setPaletteSelection}
+        onExecuteCommand={executePaletteCommand}
+        onSubmitPlan={submitPalettePlan}
+        onSubmitClarification={submitPaletteClarification}
+        onClarificationAnswerChange={updateClarificationAnswer}
+        onSubmitFork={submitPaletteFork}
+        onSubmitRename={submitPaletteRename}
+        onSubmitAdminToken={submitPaletteAdminToken}
+        onSubmitSecret={submitPaletteSecret}
+      />
+      {apiError || branchNotice ? (
+        <div className="app-toast-stack" aria-live="polite">
+          {apiError ? <p className="error-text">{apiError}</p> : null}
+          {branchNotice ? <p className="success-text">{branchNotice}</p> : null}
+        </div>
+      ) : null}
     </main>
+  );
+}
+
+function CommandPalette(props: {
+  readonly open: boolean;
+  readonly mode: CommandPaletteMode;
+  readonly query: string;
+  readonly commands: readonly PaletteCommand[];
+  readonly selectedIndex: number;
+  readonly clarification: WorkflowClarificationRequest | null;
+  readonly clarificationAnswers: Readonly<Record<string, string>>;
+  readonly clarificationReady: boolean;
+  readonly busyAction: string | null;
+  readonly inputRef: { readonly current: HTMLInputElement | HTMLTextAreaElement | null };
+  readonly onClose: () => void;
+  readonly onModeChange: (mode: CommandPaletteMode) => void;
+  readonly onQueryChange: (value: string) => void;
+  readonly onSelectionChange: (index: number) => void;
+  readonly onExecuteCommand: (command: PaletteCommand | undefined) => void;
+  readonly onSubmitPlan: (value: string) => void;
+  readonly onSubmitClarification: () => void;
+  readonly onClarificationAnswerChange: (questionId: string, value: string) => void;
+  readonly onSubmitFork: (value: string) => void;
+  readonly onSubmitRename: (value: string) => void;
+  readonly onSubmitAdminToken: (value: string) => void;
+  readonly onSubmitSecret: (secretName: string, value: string) => void;
+}) {
+  if (!props.open) {
+    return null;
+  }
+
+  function handleShellKeyDown(event: React.KeyboardEvent) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (props.mode.kind === "commands") {
+        props.onClose();
+      } else {
+        props.onModeChange({ kind: "commands" });
+      }
+      return;
+    }
+
+    if (props.mode.kind !== "commands") {
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      props.onSelectionChange(Math.min(props.selectedIndex + 1, props.commands.length - 1));
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      props.onSelectionChange(Math.max(props.selectedIndex - 1, 0));
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      props.onExecuteCommand(props.commands[props.selectedIndex]);
+    }
+  }
+
+  return (
+    <div
+      className="command-palette-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          props.onClose();
+        }
+      }}
+    >
+      <section
+        aria-label="Command palette"
+        aria-modal="true"
+        className="command-palette"
+        role="dialog"
+        onKeyDown={handleShellKeyDown}
+      >
+        {props.mode.kind === "commands" ? (
+          <>
+            <div className="command-palette-input-row">
+              <Search size={18} />
+              <input
+                ref={props.inputRef as React.RefObject<HTMLInputElement>}
+                aria-label="Command palette"
+                value={props.query}
+                placeholder="Type a command or component"
+                onChange={(event) => props.onQueryChange(event.target.value)}
+              />
+              <kbd>⌘P</kbd>
+            </div>
+            <div className="command-palette-list" role="listbox">
+              {props.commands.length > 0 ? (
+                props.commands.map((command, index) => (
+                  <button
+                    key={command.id}
+                    aria-selected={index === props.selectedIndex}
+                    className={
+                      index === props.selectedIndex
+                        ? "command-palette-command command-palette-command-active"
+                        : "command-palette-command"
+                    }
+                    disabled={command.disabled}
+                    role="option"
+                    type="button"
+                    onMouseEnter={() => props.onSelectionChange(index)}
+                    onClick={() => props.onExecuteCommand(command)}
+                  >
+                    <span>
+                      <strong>{command.label}</strong>
+                      {command.detail ? <small>{command.detail}</small> : null}
+                    </span>
+                    <em>{command.group}</em>
+                  </button>
+                ))
+              ) : (
+                <p className="muted-text">No commands found</p>
+              )}
+            </div>
+          </>
+        ) : null}
+
+        {props.mode.kind === "plan" ? (
+          <PaletteTextForm
+            inputRef={props.inputRef}
+            label="Workflow prompt"
+            title="Plan Workflow"
+            value={props.mode.value}
+            placeholder="Describe the workflow to build"
+            submitLabel="Submit Plan"
+            disabled={props.busyAction !== null || props.mode.value.trim().length === 0}
+            onBack={() => props.onModeChange({ kind: "commands" })}
+            onChange={(value) => props.onModeChange({ kind: "plan", value })}
+            onSubmit={() => props.onSubmitPlan(props.mode.value)}
+          />
+        ) : null}
+
+        {props.mode.kind === "clarification" && props.clarification ? (
+          <form
+            className="command-palette-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              props.onSubmitClarification();
+            }}
+          >
+            <h2>Clarify First</h2>
+            <p className="muted-text">{props.clarification.reason}</p>
+            {props.clarification.questions.map((question, index) => (
+              <label key={question.id}>
+                {question.question}
+                <textarea
+                  ref={index === 0 ? (props.inputRef as React.RefObject<HTMLTextAreaElement>) : undefined}
+                  value={props.clarificationAnswers[question.id] ?? ""}
+                  placeholder={question.placeholder}
+                  rows={3}
+                  required={question.required}
+                  onChange={(event) =>
+                    props.onClarificationAnswerChange(question.id, event.target.value)
+                  }
+                />
+              </label>
+            ))}
+            <div className="command-palette-form-actions">
+              <button type="button" onClick={() => props.onModeChange({ kind: "commands" })}>
+                Back
+              </button>
+              <button
+                type="submit"
+                disabled={props.busyAction !== null || !props.clarificationReady}
+              >
+                Plan With Answers
+              </button>
+            </div>
+          </form>
+        ) : null}
+
+        {props.mode.kind === "fork-branch" ? (
+          <PaletteTextForm
+            inputRef={props.inputRef}
+            label="Fork name"
+            title="Fork Branch"
+            value={props.mode.value}
+            placeholder="Experiment"
+            submitLabel="Fork Branch"
+            disabled={props.busyAction !== null || props.mode.value.trim().length === 0}
+            onBack={() => props.onModeChange({ kind: "commands" })}
+            onChange={(value) => props.onModeChange({ kind: "fork-branch", value })}
+            onSubmit={() => props.onSubmitFork(props.mode.value)}
+          />
+        ) : null}
+
+        {props.mode.kind === "rename-branch" ? (
+          <PaletteTextForm
+            inputRef={props.inputRef}
+            label="Branch name"
+            title="Rename Active Branch"
+            value={props.mode.value}
+            placeholder="Branch name"
+            submitLabel="Rename"
+            disabled={props.busyAction !== null || props.mode.value.trim().length === 0}
+            onBack={() => props.onModeChange({ kind: "commands" })}
+            onChange={(value) => props.onModeChange({ kind: "rename-branch", value })}
+            onSubmit={() => props.onSubmitRename(props.mode.value)}
+          />
+        ) : null}
+
+        {props.mode.kind === "admin-token" ? (
+          <PaletteTextForm
+            inputRef={props.inputRef}
+            label="Admin token"
+            title="Set Admin Token"
+            type="password"
+            value={props.mode.value}
+            placeholder="Admin bearer token"
+            submitLabel="Save Token"
+            disabled={props.busyAction !== null}
+            onBack={() => props.onModeChange({ kind: "commands" })}
+            onChange={(value) => props.onModeChange({ kind: "admin-token", value })}
+            onSubmit={() => props.onSubmitAdminToken(props.mode.value)}
+          />
+        ) : null}
+
+        {props.mode.kind === "secret" ? (
+          <PaletteTextForm
+            inputRef={props.inputRef}
+            label={`${props.mode.label} secret`}
+            title={`Save ${props.mode.label} Secret`}
+            value={props.mode.value}
+            placeholder="Paste secret JSON"
+            submitLabel="Save Secret"
+            disabled={props.busyAction !== null || props.mode.value.trim().length === 0}
+            onBack={() => props.onModeChange({ kind: "commands" })}
+            onChange={(value) =>
+              props.onModeChange({
+                kind: "secret",
+                label: props.mode.label,
+                secretName: props.mode.secretName,
+                value
+              })
+            }
+            onSubmit={() => props.onSubmitSecret(props.mode.secretName, props.mode.value)}
+          />
+        ) : null}
+      </section>
+    </div>
+  );
+}
+
+function PaletteTextForm(props: {
+  readonly inputRef: { readonly current: HTMLInputElement | HTMLTextAreaElement | null };
+  readonly title: string;
+  readonly label: string;
+  readonly value: string;
+  readonly placeholder: string;
+  readonly submitLabel: string;
+  readonly disabled: boolean;
+  readonly type?: "password" | "text" | undefined;
+  readonly onBack: () => void;
+  readonly onChange: (value: string) => void;
+  readonly onSubmit: () => void;
+}) {
+  return (
+    <form
+      className="command-palette-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        props.onSubmit();
+      }}
+    >
+      <h2>{props.title}</h2>
+      <label>
+        {props.label}
+        <input
+          ref={props.inputRef as React.RefObject<HTMLInputElement>}
+          type={props.type ?? "text"}
+          value={props.value}
+          placeholder={props.placeholder}
+          onChange={(event) => props.onChange(event.target.value)}
+        />
+      </label>
+      <div className="command-palette-form-actions">
+        <button type="button" onClick={props.onBack}>
+          Back
+        </button>
+        <button type="submit" disabled={props.disabled}>
+          {props.submitLabel}
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -2893,6 +3420,18 @@ function integrationStatus(
   const readiness = integrations.find((candidate) => candidate.id === id);
   const ready = id === "google" ? (googleConnected ?? readiness?.ready ?? false) : readiness?.ready;
   return ready ? { label: "ready", tone: "valid" } : { label: "blocked", tone: "blocked" };
+}
+
+function commandMatchesQuery(command: PaletteCommand, query: string): boolean {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+
+  return [command.group, command.label, command.detail ?? "", ...(command.keywords ?? [])]
+    .join(" ")
+    .toLowerCase()
+    .includes(normalized);
 }
 
 function ApprovalPanel(props: {

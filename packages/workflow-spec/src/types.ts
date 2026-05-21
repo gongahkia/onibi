@@ -426,6 +426,7 @@ export type WorkflowObservabilityEventKind =
   | "job.lifecycle"
   | "agent.activity"
   | "budget.lifecycle"
+  | "node.decision"
   | "workspace.artifact"
   | "dag.compilation"
   | "node.container"
@@ -500,6 +501,7 @@ export type WorkflowAuditAction =
   | "draft.evaluated"
   | "job.created"
   | "agent.ran"
+  | "decision.trace.recorded"
   | "budget.updated"
   | "budget.blocked"
   | "workspace.created"
@@ -707,6 +709,101 @@ export interface WorkflowAgentTimelineEvent {
   readonly costUsd?: number | undefined;
   readonly cumulativeCostUsd: number;
   readonly metadata?: JsonRecord | undefined;
+}
+
+export type WorkflowDecisionTraceKind =
+  | "planner.node-created"
+  | "planner.node-updated"
+  | "planner.edge-designed"
+  | "codegen.architect"
+  | "codegen.coder"
+  | "codegen.tester"
+  | "codegen.runner"
+  | "codegen.fixer"
+  | "codegen.evaluator";
+
+export interface WorkflowNodeDecisionTraceEvent {
+  readonly id: string;
+  readonly traceId: string;
+  readonly workflowId: string;
+  readonly branchId?: string | undefined;
+  readonly nodeId: string;
+  readonly revisionId?: string | undefined;
+  readonly jobId?: string | undefined;
+  readonly agentRunId?: string | undefined;
+  readonly kind: WorkflowDecisionTraceKind;
+  readonly role: WorkflowAgentRole;
+  readonly createdAt: string;
+  readonly summary: string;
+  readonly rationale: string;
+  readonly alternativesConsidered: readonly string[];
+  readonly selectedAction: string;
+  readonly inputSummary: string;
+  readonly promptHash?: string | undefined;
+  readonly promptExcerpt?: string | undefined;
+  readonly route?: WorkflowTaskRouteKind | undefined;
+  readonly provider?: string | undefined;
+  readonly model?: string | undefined;
+  readonly modelInvocationIds: readonly string[];
+  readonly affectedNodeIds: readonly string[];
+  readonly affectedEdgeIds: readonly string[];
+  readonly constraints: JsonRecord;
+  readonly outputArtifactRefs: readonly WorkflowCodegenArtifactRef[];
+  readonly evalOutcome?: "passed" | "failed" | "blocked" | "not-run" | undefined;
+  readonly failureClass?: string | undefined;
+  readonly fixTriageAction?:
+    | "targeted-patch"
+    | "retry-codegen"
+    | "rearchitect"
+    | "give-up"
+    | undefined;
+  readonly inputTokens?: number | undefined;
+  readonly outputTokens?: number | undefined;
+  readonly totalTokens?: number | undefined;
+  readonly costUsd?: number | undefined;
+  readonly metadata?: JsonRecord | undefined;
+}
+
+export interface WorkflowNodeDecisionTrace {
+  readonly id: string;
+  readonly workflowId: string;
+  readonly branchId?: string | undefined;
+  readonly nodeId: string;
+  readonly revisionId?: string | undefined;
+  readonly kind: WorkflowDecisionTraceKind;
+  readonly source: "planner" | "codegen";
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly status: "recorded" | "succeeded" | "failed" | "blocked";
+  readonly events: readonly WorkflowNodeDecisionTraceEvent[];
+}
+
+export interface WorkflowDecisionTraceEvalExample {
+  readonly id: string;
+  readonly traceId: string;
+  readonly workflowId: string;
+  readonly branchId?: string | undefined;
+  readonly nodeId: string;
+  readonly kind: WorkflowDecisionTraceKind;
+  readonly createdAt: string;
+  readonly input: JsonRecord;
+  readonly expectedDecision?: string | undefined;
+  readonly actualDecision: string;
+  readonly outcome: "pass" | "fail" | "blocked" | "unknown";
+  readonly failureClass?: string | undefined;
+  readonly artifactRefs: readonly WorkflowCodegenArtifactRef[];
+  readonly metadata?: JsonRecord | undefined;
+}
+
+export interface WorkflowNodeDecisionTraceExport {
+  readonly id: string;
+  readonly workflowId: string;
+  readonly exportedAt: string;
+  readonly format: "jsonl";
+  readonly redacted: true;
+  readonly lineCount: number;
+  readonly records: readonly JsonRecord[];
+  readonly evalExamples: readonly WorkflowDecisionTraceEvalExample[];
 }
 
 export interface WorkflowTaskRoute {

@@ -19,6 +19,9 @@ import type {
   WorkflowApprovalRecord,
   WorkflowApprovedRevision,
   WorkflowAuditRecord,
+  WorkflowAgentTimelineEvent,
+  WorkflowBudgetLedger,
+  WorkflowBudgetPolicy,
   WorkflowBranch,
   WorkflowBranchMergeRecord,
   WorkflowDraftEvaluation,
@@ -28,6 +31,7 @@ import type {
   WorkflowGeneratedModuleReuseDecision,
   WorkflowJob,
   WorkflowJobEvent,
+  WorkflowNodeDecisionTrace,
   WorkflowPlannerFeedback,
   WorkflowPromptTurn,
   WorkflowRunRecord,
@@ -167,6 +171,20 @@ export interface WorkflowStore {
   ): readonly GeneratedNodeEvalReport[];
   saveDeployment(record: WorkflowDeploymentRecord): WorkflowDeploymentRecord;
   listDeployments(workflowId: string): readonly WorkflowDeploymentRecord[];
+  saveBudgetPolicy(record: WorkflowBudgetPolicy): WorkflowBudgetPolicy;
+  getBudgetPolicy(
+    workflowId: string,
+    branchId?: string | undefined
+  ): WorkflowBudgetPolicy | undefined;
+  saveBudgetLedger(record: WorkflowBudgetLedger): WorkflowBudgetLedger;
+  listBudgetLedgers(workflowId: string): readonly WorkflowBudgetLedger[];
+  saveAgentTimelineEvent(record: WorkflowAgentTimelineEvent): WorkflowAgentTimelineEvent;
+  listAgentTimelineEvents(workflowId: string): readonly WorkflowAgentTimelineEvent[];
+  saveNodeDecisionTrace(record: WorkflowNodeDecisionTrace): WorkflowNodeDecisionTrace;
+  listNodeDecisionTraces(
+    workflowId: string,
+    nodeId?: string | undefined
+  ): readonly WorkflowNodeDecisionTrace[];
   requireWorkflow(id: string): StoredWorkflow;
 }
 
@@ -203,6 +221,10 @@ export class InMemoryWorkflowStore implements WorkflowStore {
   protected readonly generatedNodeTestReports = new Map<string, GeneratedNodeTestReport>();
   protected readonly generatedNodeEvalReports = new Map<string, GeneratedNodeEvalReport>();
   protected readonly deployments = new Map<string, WorkflowDeploymentRecord>();
+  protected readonly budgetPolicies = new Map<string, WorkflowBudgetPolicy>();
+  protected readonly budgetLedgers = new Map<string, WorkflowBudgetLedger>();
+  protected readonly agentTimelineEvents = new Map<string, WorkflowAgentTimelineEvent>();
+  protected readonly nodeDecisionTraces = new Map<string, WorkflowNodeDecisionTrace>();
 
   public saveWorkflow(
     workflow: WorkflowSpec,
@@ -874,6 +896,75 @@ export class InMemoryWorkflowStore implements WorkflowStore {
       );
   }
 
+  public saveBudgetPolicy(record: WorkflowBudgetPolicy): WorkflowBudgetPolicy {
+    this.budgetPolicies.set(budgetPolicyKey(record.workflowId, record.branchId), record);
+    return record;
+  }
+
+  public getBudgetPolicy(
+    workflowId: string,
+    branchId?: string | undefined
+  ): WorkflowBudgetPolicy | undefined {
+    return (
+      this.budgetPolicies.get(budgetPolicyKey(workflowId, branchId)) ??
+      this.budgetPolicies.get(budgetPolicyKey(workflowId, undefined))
+    );
+  }
+
+  public saveBudgetLedger(record: WorkflowBudgetLedger): WorkflowBudgetLedger {
+    this.budgetLedgers.set(record.id, record);
+    return record;
+  }
+
+  public listBudgetLedgers(workflowId: string): readonly WorkflowBudgetLedger[] {
+    return [...this.budgetLedgers.values()]
+      .filter((record) => record.workflowId === workflowId)
+      .sort(
+        (left, right) =>
+          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
+      );
+  }
+
+  public saveAgentTimelineEvent(record: WorkflowAgentTimelineEvent): WorkflowAgentTimelineEvent {
+    this.agentTimelineEvents.set(record.id, record);
+    return record;
+  }
+
+  public listAgentTimelineEvents(workflowId: string): readonly WorkflowAgentTimelineEvent[] {
+    return [...this.agentTimelineEvents.values()]
+      .filter((record) => record.workflowId === workflowId)
+      .sort(
+        (left, right) =>
+          left.timestamp.localeCompare(right.timestamp) || left.id.localeCompare(right.id)
+      );
+  }
+
+  public saveNodeDecisionTrace(record: WorkflowNodeDecisionTrace): WorkflowNodeDecisionTrace {
+    const existing = this.nodeDecisionTraces.get(record.id);
+    if (existing) {
+      assertImmutableRecordUnchanged("node decision trace", record.id, existing, record);
+      return existing;
+    }
+
+    this.nodeDecisionTraces.set(record.id, record);
+    return record;
+  }
+
+  public listNodeDecisionTraces(
+    workflowId: string,
+    nodeId?: string | undefined
+  ): readonly WorkflowNodeDecisionTrace[] {
+    return [...this.nodeDecisionTraces.values()]
+      .filter(
+        (record) =>
+          record.workflowId === workflowId && (nodeId === undefined || record.nodeId === nodeId)
+      )
+      .sort(
+        (left, right) =>
+          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
+      );
+  }
+
   public requireWorkflow(id: string): StoredWorkflow {
     const aggregate = this.workflows.get(id);
     if (!aggregate) {
@@ -1205,6 +1296,54 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
     return saved;
   }
 
+  public override saveBudgetPolicy(record: WorkflowBudgetPolicy): WorkflowBudgetPolicy {
+    const saved = super.saveBudgetPolicy(record);
+    this.runSql(
+      [
+        "INSERT OR REPLACE INTO budget_policies (id, workflow_id, branch_id, updated_at, record_json)",
+        `VALUES (${sqlValue(budgetPolicyKey(saved.workflowId, saved.branchId))}, ${sqlValue(saved.workflowId)}, ${sqlValue(saved.branchId ?? null)}, ${sqlValue(saved.updatedAt)}, ${sqlValue(stableStringify(saved))});`
+      ].join(" ")
+    );
+    return saved;
+  }
+
+  public override saveBudgetLedger(record: WorkflowBudgetLedger): WorkflowBudgetLedger {
+    const saved = super.saveBudgetLedger(record);
+    this.runSql(
+      [
+        "INSERT OR REPLACE INTO budget_ledgers (id, workflow_id, created_at, updated_at, status, record_json)",
+        `VALUES (${sqlValue(saved.id)}, ${sqlValue(saved.workflowId)}, ${sqlValue(saved.createdAt)}, ${sqlValue(saved.updatedAt)}, ${sqlValue(saved.status)}, ${sqlValue(stableStringify(saved))});`
+      ].join(" ")
+    );
+    return saved;
+  }
+
+  public override saveAgentTimelineEvent(
+    record: WorkflowAgentTimelineEvent
+  ): WorkflowAgentTimelineEvent {
+    const saved = super.saveAgentTimelineEvent(record);
+    this.runSql(
+      [
+        "INSERT OR REPLACE INTO agent_timeline_events (id, workflow_id, timestamp, role, status, record_json)",
+        `VALUES (${sqlValue(saved.id)}, ${sqlValue(saved.workflowId)}, ${sqlValue(saved.timestamp)}, ${sqlValue(saved.role)}, ${sqlValue(saved.status)}, ${sqlValue(stableStringify(saved))});`
+      ].join(" ")
+    );
+    return saved;
+  }
+
+  public override saveNodeDecisionTrace(
+    record: WorkflowNodeDecisionTrace
+  ): WorkflowNodeDecisionTrace {
+    const saved = super.saveNodeDecisionTrace(record);
+    this.runSql(
+      [
+        "INSERT OR IGNORE INTO node_decision_traces (id, workflow_id, node_id, created_at, kind, source, record_json)",
+        `VALUES (${sqlValue(saved.id)}, ${sqlValue(saved.workflowId)}, ${sqlValue(saved.nodeId)}, ${sqlValue(saved.createdAt)}, ${sqlValue(saved.kind)}, ${sqlValue(saved.source)}, ${sqlValue(stableStringify(saved))});`
+      ].join(" ")
+    );
+    return saved;
+  }
+
   private persistAllWorkflowState(workflowId: string): void {
     const stored = this.requireWorkflow(workflowId);
     for (const draft of stored.draftRevisions) {
@@ -1447,6 +1586,31 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
     )) {
       this.deployments.set(row.id, parseJson(row.record_json));
     }
+
+    for (const row of this.queryRows<BudgetPolicyRow>(
+      "SELECT * FROM budget_policies ORDER BY updated_at, id;"
+    )) {
+      const policy = parseJson<WorkflowBudgetPolicy>(row.record_json);
+      this.budgetPolicies.set(budgetPolicyKey(policy.workflowId, policy.branchId), policy);
+    }
+
+    for (const row of this.queryRows<BudgetLedgerRow>(
+      "SELECT * FROM budget_ledgers ORDER BY created_at, id;"
+    )) {
+      this.budgetLedgers.set(row.id, parseJson(row.record_json));
+    }
+
+    for (const row of this.queryRows<AgentTimelineEventRow>(
+      "SELECT * FROM agent_timeline_events ORDER BY timestamp, id;"
+    )) {
+      this.agentTimelineEvents.set(row.id, parseJson(row.record_json));
+    }
+
+    for (const row of this.queryRows<NodeDecisionTraceRow>(
+      "SELECT * FROM node_decision_traces ORDER BY created_at, id;"
+    )) {
+      this.nodeDecisionTraces.set(row.id, parseJson(row.record_json));
+    }
   }
 
   private persistJob(job: WorkflowJob): void {
@@ -1531,6 +1695,10 @@ function draftFingerprint(workflow: WorkflowSpec): string {
 
 export function defaultBranchId(workflowId: string): string {
   return `branch.${workflowId}.main`;
+}
+
+function budgetPolicyKey(workflowId: string, branchId: string | undefined): string {
+  return `${workflowId}:${branchId ?? "workflow"}`;
 }
 
 function draftRevisionId(
@@ -1806,6 +1974,38 @@ const sqliteMigrations = [
     created_at TEXT NOT NULL,
     record_json TEXT NOT NULL
   );`,
+  `CREATE TABLE IF NOT EXISTS budget_policies (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    branch_id TEXT,
+    updated_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+  );`,
+  `CREATE TABLE IF NOT EXISTS budget_ledgers (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    status TEXT NOT NULL,
+    record_json TEXT NOT NULL
+  );`,
+  `CREATE TABLE IF NOT EXISTS agent_timeline_events (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    role TEXT NOT NULL,
+    status TEXT NOT NULL,
+    record_json TEXT NOT NULL
+  );`,
+  `CREATE TABLE IF NOT EXISTS node_decision_traces (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    source TEXT NOT NULL,
+    record_json TEXT NOT NULL
+  );`,
   "INSERT OR IGNORE INTO schema_migrations (id) VALUES ('0001_phase7_enterprise_store');"
 ] as const;
 
@@ -1925,6 +2125,26 @@ interface GeneratedNodeEvalReportRow {
 }
 
 interface DeploymentRow {
+  readonly id: string;
+  readonly record_json: string;
+}
+
+interface BudgetPolicyRow {
+  readonly id: string;
+  readonly record_json: string;
+}
+
+interface BudgetLedgerRow {
+  readonly id: string;
+  readonly record_json: string;
+}
+
+interface AgentTimelineEventRow {
+  readonly id: string;
+  readonly record_json: string;
+}
+
+interface NodeDecisionTraceRow {
   readonly id: string;
   readonly record_json: string;
 }

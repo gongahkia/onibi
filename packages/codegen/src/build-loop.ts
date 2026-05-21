@@ -91,21 +91,17 @@ export class GeneratedNodeBuildLoop {
       ...testArtifacts
     ]);
 
+    const architectResult = await this.runRole({
+      role: "workflow-architect",
+      request,
+      iteration: 0,
+      inputSummary: request.prompt,
+      outputArtifactRefs: [artifactRef(designSpecArtifact)],
+      generateCode: (codegenRequest) => this.codeGenerator.generate(codegenRequest)
+    });
+    spentModelCostUsd += architectResult.modelCostUsd ?? 0;
     agentRuns.push(
-      runToRecord(
-        request,
-        "workflow-architect",
-        await this.runRole({
-          role: "workflow-architect",
-          request,
-          iteration: 0,
-          inputSummary: request.prompt,
-          outputArtifactRefs: [artifactRef(designSpecArtifact)],
-          generateCode: (codegenRequest) => this.codeGenerator.generate(codegenRequest)
-        }),
-        startedAt,
-        this.now()
-      )
+      runToRecord(request, "workflow-architect", architectResult, startedAt, this.now())
     );
 
     for (let iteration = 1; iteration <= request.maxIterations; iteration += 1) {
@@ -120,6 +116,15 @@ export class GeneratedNodeBuildLoop {
       }
 
       if (rearchitectBeforeNextCoder) {
+        const budgetFailure = modelBudgetFailureForRole(
+          request,
+          "workflow-architect",
+          spentModelCostUsd
+        );
+        if (budgetFailure) {
+          lastFailure = budgetFailure;
+          break;
+        }
         reimplementationAttempts += 1;
         if (reimplementationAttempts > maxReimplementationAttempts) {
           lastFailure = `Generated-node reimplementation loop exceeded ${maxReimplementationAttempts} rearchitecture attempt${maxReimplementationAttempts === 1 ? "" : "s"}.`;
@@ -154,6 +159,11 @@ export class GeneratedNodeBuildLoop {
         rearchitectBeforeNextCoder = false;
       }
 
+      const coderBudgetFailure = modelBudgetFailureForRole(request, "coder", spentModelCostUsd);
+      if (coderBudgetFailure) {
+        lastFailure = coderBudgetFailure;
+        break;
+      }
       const coderResult = await this.runRole({
         role: "coder",
         request,
@@ -181,7 +191,8 @@ export class GeneratedNodeBuildLoop {
             failure: lastFailure,
             outputArtifactRefs: [],
             startedAt,
-            agentRuns
+            agentRuns,
+            spentModelCostUsd
           });
           spentModelCostUsd += fix.modelCostUsd;
           const decision = fix.decision;
@@ -199,6 +210,11 @@ export class GeneratedNodeBuildLoop {
         break;
       }
 
+      const testerBudgetFailure = modelBudgetFailureForRole(request, "tester", spentModelCostUsd);
+      if (testerBudgetFailure) {
+        lastFailure = testerBudgetFailure;
+        break;
+      }
       const testerResult = await this.runRole({
         role: "tester",
         request,
@@ -208,6 +224,7 @@ export class GeneratedNodeBuildLoop {
         previousFailure: lastFailure,
         generateCode: (codegenRequest) => this.codeGenerator.generate(codegenRequest)
       });
+      spentModelCostUsd += testerResult.modelCostUsd ?? 0;
       agentRuns.push(runToRecord(request, "tester", testerResult, startedAt, this.now()));
 
       const runnerInput = {
@@ -218,6 +235,11 @@ export class GeneratedNodeBuildLoop {
       };
       lastExecution = await this.testExecutor.execute(runnerInput);
       logs.push(...lastExecution.logs);
+      const runnerBudgetFailure = modelBudgetFailureForRole(request, "runner", spentModelCostUsd);
+      if (runnerBudgetFailure) {
+        lastFailure = runnerBudgetFailure;
+        break;
+      }
       const runnerResult = await this.runRole({
         role: "runner",
         request,
@@ -229,8 +251,18 @@ export class GeneratedNodeBuildLoop {
         previousFailure: lastExecution.failureMessage,
         generateCode: (codegenRequest) => this.codeGenerator.generate(codegenRequest)
       });
+      spentModelCostUsd += runnerResult.modelCostUsd ?? 0;
       agentRuns.push(runToRecord(request, "runner", runnerResult, startedAt, this.now()));
 
+      const evaluatorBudgetFailure = modelBudgetFailureForRole(
+        request,
+        "evaluator",
+        spentModelCostUsd
+      );
+      if (evaluatorBudgetFailure) {
+        lastFailure = evaluatorBudgetFailure;
+        break;
+      }
       const evaluatorResult = await this.runRole({
         role: "evaluator",
         request,
@@ -244,6 +276,7 @@ export class GeneratedNodeBuildLoop {
         previousFailure: lastExecution.failureMessage,
         generateCode: (codegenRequest) => this.codeGenerator.generate(codegenRequest)
       });
+      spentModelCostUsd += evaluatorResult.modelCostUsd ?? 0;
       agentRuns.push(runToRecord(request, "evaluator", evaluatorResult, startedAt, this.now()));
 
       if (lastExecution.status === "passed") {
@@ -284,7 +317,8 @@ export class GeneratedNodeBuildLoop {
             ...lastExecution.resultArtifacts.map(artifactRef)
           ],
           startedAt,
-          agentRuns
+          agentRuns,
+          spentModelCostUsd
         });
         spentModelCostUsd += fix.modelCostUsd;
         const decision = fix.decision;
@@ -363,10 +397,25 @@ export class GeneratedNodeBuildLoop {
     readonly outputArtifactRefs: readonly WorkflowCodegenArtifactRef[];
     readonly startedAt: string;
     readonly agentRuns: CodegenAgentRunRecord[];
+    readonly spentModelCostUsd: number;
   }): Promise<{
     readonly decision: GeneratedNodeFixTriageDecision;
     readonly modelCostUsd: number;
   }> {
+    const budgetFailure = modelBudgetFailureForRole(
+      input.request,
+      "fixer",
+      input.spentModelCostUsd
+    );
+    if (budgetFailure) {
+      const decision: GeneratedNodeFixTriageDecision = {
+        action: "give-up",
+        scope: "external-blocker",
+        rationale: budgetFailure,
+        confidence: 1
+      };
+      return { decision, modelCostUsd: 0 };
+    }
     const result = await this.runRole({
       role: "fixer",
       request: input.request,
@@ -505,6 +554,38 @@ function formatFixTriageDecision(decision: GeneratedNodeFixTriageDecision): stri
   return `${decision.action}/${decision.scope} (${Math.round(
     decision.confidence * 100
   )}%): ${decision.rationale}`;
+}
+
+function modelBudgetFailureForRole(
+  request: GeneratedNodeBuildLoopRequest,
+  role: GeneratedNodeBuildRole,
+  spentModelCostUsd: number
+): string | undefined {
+  const projectedCostUsd = estimatedRoleModelCostUsd(role);
+  if (spentModelCostUsd + projectedCostUsd <= request.maxModelCostUsd) {
+    return undefined;
+  }
+
+  return `Generated-node build stopped before ${role} because projected next-step cost $${projectedCostUsd.toFixed(
+    4
+  )} would exceed remaining model budget $${Math.max(
+    0,
+    request.maxModelCostUsd - spentModelCostUsd
+  ).toFixed(4)}.`;
+}
+
+function estimatedRoleModelCostUsd(role: GeneratedNodeBuildRole): number {
+  switch (role) {
+    case "workflow-architect":
+    case "coder":
+      return 0.25;
+    case "fixer":
+    case "evaluator":
+      return 0.1;
+    case "tester":
+    case "runner":
+      return 0.05;
+  }
 }
 
 function coderInputSummaryFromFixer(

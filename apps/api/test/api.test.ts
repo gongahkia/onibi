@@ -1175,7 +1175,7 @@ describe("kelpclaw api contracts", () => {
     });
     expect(missingRun.statusCode).toBe(404);
 
-    const run = await app.inject({
+    const blockedRun = await app.inject({
       method: "POST",
       url: `/api/workflows/${workflow.id}/runs`,
       headers: {
@@ -1183,6 +1183,32 @@ describe("kelpclaw api contracts", () => {
       },
       payload: {
         approvedRevisionId: approved.json().approvedRevisionId
+      }
+    });
+    expect(blockedRun.statusCode).toBe(409);
+    expect(blockedRun.json().error).toBe("WORKFLOW_RUN_REQUIRES_DEPLOYMENT");
+
+    const runnerDeployment = await app.inject({
+      method: "POST",
+      url: `/api/workflows/${workflow.id}/deployments`,
+      payload: {
+        approvedRevisionId: approved.json().approvedRevisionId,
+        kind: "runner.configuration",
+        createdBy: "owner@example.com",
+        rollbackPlan: "Rollback to the previous approved revision."
+      }
+    });
+    expect(runnerDeployment.statusCode).toBe(201);
+
+    const run = await app.inject({
+      method: "POST",
+      url: `/api/workflows/${workflow.id}/runs`,
+      headers: {
+        "x-correlation-id": "corr.api-test"
+      },
+      payload: {
+        approvedRevisionId: approved.json().approvedRevisionId,
+        deploymentId: runnerDeployment.json().deployment.id
       }
     });
     expect(run.statusCode).toBe(202);

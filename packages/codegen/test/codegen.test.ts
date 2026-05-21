@@ -777,7 +777,7 @@ describe("codegen artifact contracts", () => {
     });
 
     expect(result.status).toBe("failed");
-    expect(result.fixHistory[0]).toContain("needs repair");
+    expect(result.fixHistory).toHaveLength(0);
     expect(result.unresolvedFailureArtifact?.content).toContain("model budget");
   });
 

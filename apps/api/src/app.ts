@@ -31,6 +31,7 @@ import {
   createWorkflowPlannerFeedback,
   createWorkflowSpecDiff,
   gmailReceiptsToSheetsWorkflowFixture,
+  redactJsonRecord,
   redactSecretString,
   stableJsonStringify,
   validateWorkflowSpec
@@ -38,6 +39,7 @@ import {
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type {
   CodeGenerator,
+  CodegenAgentRunRecord,
   CodegenArtifactStore,
   GeneratedNodeBuildRole,
   GeneratedNodeRoleRunner
@@ -49,10 +51,14 @@ import type {
   GeneratedNodeTestReport,
   JsonRecord,
   WorkflowArtifactManifestRecord,
+  WorkflowAgentTimelineEvent,
   WorkflowAuditAdapterCallRecord,
   WorkflowAuditContainerRecord,
   WorkflowAuditDeliveryRecord,
+  WorkflowAuditExportRecord,
   WorkflowAuditRecord,
+  WorkflowBudgetLedger,
+  WorkflowBudgetPolicy,
   WorkflowApiError,
   WorkflowAcceptPlanRequest,
   WorkflowAcceptPlanResponse,
@@ -73,6 +79,7 @@ import type {
   WorkflowBranchRepromptNodeResponse,
   WorkflowClarificationAnswer,
   WorkflowClarificationRequest,
+  WorkflowDecisionTraceEvalExample,
   WorkflowEventSeverity,
   WorkflowCreateBranchRequest,
   WorkflowCreateBranchResponse,
@@ -90,11 +97,16 @@ import type {
   WorkflowJobEvent,
   WorkflowJobType,
   WorkflowCodegenArtifactRef,
+  WorkflowProviderRuntimeConfig,
   WorkflowDeploymentKind,
   WorkflowDeploymentRecord,
+  WorkflowDeploymentRollbackTarget,
   WorkflowEdge,
   WorkflowListBranchesResponse,
   WorkflowNode,
+  WorkflowNodeDecisionTrace,
+  WorkflowNodeDecisionTraceEvent,
+  WorkflowNodeDecisionTraceExport,
   WorkflowObservabilityEventKind,
   WorkflowPlanRequest,
   WorkflowPlanResponse,
@@ -105,9 +117,11 @@ import type {
   WorkflowGraphChange,
   WorkflowRunEvent,
   WorkflowReuseCandidatesResponse,
+  WorkflowRuntimeTruthSnapshot,
   WorkflowSpec,
   WorkflowStartRunRequest,
   WorkflowStartRunResponse,
+  WorkflowTaskRoute,
   WorkflowUpdateBranchRequest,
   WorkflowUpdateBranchResponse,
   WorkflowValidationIssue,
@@ -155,6 +169,10 @@ interface CodegenRouteParams extends RouteParamsWithId {
 interface RunRouteParams {
   readonly id: string;
   readonly runId: string;
+}
+
+interface DeploymentRouteParams extends RouteParamsWithId {
+  readonly deploymentId: string;
 }
 
 type CodegenProvider = "anthropic" | "openai";
@@ -214,6 +232,16 @@ interface DeploymentRequestBody {
   readonly rollbackPlan: string;
   readonly branchId?: string | undefined;
   readonly metadata?: JsonRecord | undefined;
+}
+
+interface BudgetPatchRequestBody {
+  readonly branchId?: string | undefined;
+  readonly maxWorkflowCostUsd?: number | undefined;
+  readonly maxCodegenCostUsd?: number | undefined;
+  readonly maxAgenticCostUsd?: number | undefined;
+  readonly expensiveRetryConfirmationUsd?: number | undefined;
+  readonly perAgentMaxCostUsd?: Partial<Record<string, number>> | undefined;
+  readonly updatedBy?: string | undefined;
 }
 
 interface CodegenReviewRequestBody {
@@ -368,6 +396,11 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
   app.get("/health", async () => ({
     status: "ok",
     service: "kelpclaw-api"
+  }));
+
+  app.get("/api/runtime/providers", async () => ({
+    ok: true,
+    providers: providerRuntimeConfigsFromEnv()
   }));
 
   app.get("/api/secrets", async () => ({
@@ -1964,7 +1997,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
             branchId: branch?.id,
             jobId: requestJobId(request),
             codegenArtifactStore: artifactStore,
-            runGeneratedNodesInDocker: process.env.NANOCLAW_DRAFT_DOCKER === "1",
+            runGeneratedNodesInDocker: process.env.NANOCLAW_DRAFT_DOCKER !== "0",
             dockerBin: process.env.NANOCLAW_DOCKER_BIN,
             hostWorkspace: process.env.NANOCLAW_HOST_WORKSPACE ?? process.cwd()
           })
@@ -2250,6 +2283,52 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         message: `Codegen node '${request.params.nodeId}' was not found.`
       });
     }
+    const budgetPolicy = ensureBudgetPolicy(store, sourceWorkflow.id, branch?.id);
+    const projectedCostUsd = Math.min(
+      request.body.maxModelCostUsd ?? budgetPolicy.maxCodegenCostUsd,
+      budgetPolicy.maxCodegenCostUsd
+    );
+    const budgetCheck = budgetCheckForProjectedCost(
+      store,
+      budgetPolicy,
+      projectedCostUsd,
+      "Generated-node build"
+    );
+    if (!budgetCheck.ok) {
+      const ledger = store.saveBudgetLedger(
+        createBudgetLedger({
+          workflowId: sourceWorkflow.id,
+          branchId: branch?.id,
+          scope: "job",
+          projectedCostUsd,
+          actualCostUsd: 0,
+          remainingCostUsd: budgetCheck.remainingCostUsd,
+          retryEstimateUsd: budgetPolicy.expensiveRetryConfirmationUsd,
+          status: "blocked",
+          stopReason: budgetCheck.reason
+        })
+      );
+      recordAudit(store, {
+        action: "budget.blocked",
+        actor: "budget",
+        workflowId: sourceWorkflow.id,
+        branchId: branch?.id,
+        revisionId: branchHead?.id ?? `draft.${sourceWorkflow.id}`,
+        correlationId: correlationIdForRequest(request),
+        summary: budgetCheck.reason,
+        metadata: {
+          ledgerId: ledger.id,
+          projectedCostUsd,
+          remainingCostUsd: budgetCheck.remainingCostUsd
+        }
+      });
+      return reply.code(409).send({
+        ok: false,
+        error: "WORKFLOW_BUDGET_EXCEEDED",
+        message: budgetCheck.reason,
+        ledger
+      });
+    }
 
     const correlationId = correlationIdForRequest(request);
     const job =
@@ -2313,10 +2392,10 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         maxIterations: request.body.maxIterations ?? 3,
         maxReimplementationAttempts: request.body.maxReimplementationAttempts ?? 2,
         maxWallClockSeconds: request.body.maxWallClockSeconds ?? 600,
-        maxModelCostUsd: request.body.maxModelCostUsd ?? 2,
+        maxModelCostUsd: Math.min(projectedCostUsd, budgetCheck.remainingCostUsd),
         maxDockerRuntimeSeconds: 300,
         signal: jobSignal,
-        runTestsInDocker: request.body.runTestsInDocker ?? false
+        runTestsInDocker: request.body.runTestsInDocker ?? true
       });
       if (jobSignal?.aborted || jobSupervisor.isCancelled(runningJob.id)) {
         throw new JobCancelledError(runningJob.id);
@@ -2339,6 +2418,8 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       for (const run of result.agentRuns) {
         store.saveAgentRun(run);
       }
+      saveBudgetLedgersForAgentRuns(store, budgetPolicy, result.agentRuns, runningJob.id);
+      saveTimelineEventsForAgentRuns(store, result.agentRuns, branch?.id);
       for (const artifact of result.agentArtifacts) {
         store.saveAgentArtifact(artifact);
       }
@@ -2760,6 +2841,39 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     if (runBranch?.status === "archived") {
       return reply.code(409).send(archivedBranchApiError(runBranch) as never);
     }
+    const requestedDeployment = request.body.deploymentId
+      ? store
+          .listDeployments(request.params.id)
+          .find((deployment) => deployment.id === request.body.deploymentId)
+      : undefined;
+    if (request.body.deploymentId && !requestedDeployment) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_DEPLOYMENT_NOT_FOUND",
+        message: `Deployment '${request.body.deploymentId}' was not found.`
+      } as never);
+    }
+    const deployedRunnerConfig =
+      requestedDeployment ??
+      latestDeployedRunnerConfiguration(
+        store,
+        approvedRevision.workflowId,
+        approvedRevision.id,
+        approvedRevision.branchId
+      );
+    if (
+      !deployedRunnerConfig ||
+      deployedRunnerConfig.kind !== "runner.configuration" ||
+      deployedRunnerConfig.status !== "deployed" ||
+      deployedRunnerConfig.approvedRevisionId !== approvedRevision.id
+    ) {
+      return reply.code(409).send({
+        ok: false,
+        error: "WORKFLOW_RUN_REQUIRES_DEPLOYMENT",
+        message:
+          "Production runs require an active runner.configuration deployment for the approved revision."
+      } as never);
+    }
 
     try {
       const correlationId = correlationIdForRequest(request);
@@ -2789,12 +2903,6 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       }
       const runId = `run.${approvedRevision.workflowId}.r${approvedRevision.revision}.${Date.now()}`;
       const dag = compileWorkflowDag(approvedRevision.workflow);
-      const deployedRunnerConfig = latestDeployedRunnerConfiguration(
-        store,
-        approvedRevision.workflowId,
-        approvedRevision.id,
-        approvedRevision.branchId
-      );
       const compiledAt = new Date().toISOString();
       const signal = requestJobId(request)
         ? jobSupervisor.signalFor(requestJobId(request) ?? "")
@@ -3032,6 +3140,137 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     deployments: store.listDeployments(request.params.id)
   }));
 
+  app.get<{ Params: RouteParamsWithId; Querystring: { readonly branchId?: string } }>(
+    "/api/workflows/:id/runtime-truth",
+    async (request, reply) => {
+      const stored = store.getWorkflow(request.params.id);
+      if (!stored) {
+        return reply.code(404).send({
+          ok: false,
+          error: "WORKFLOW_NOT_FOUND",
+          message: `Workflow '${request.params.id}' was not found.`
+        });
+      }
+
+      return {
+        ok: true,
+        truth: runtimeTruthSnapshot(store, request.params.id, request.query.branchId)
+      };
+    }
+  );
+
+  app.get<{ Params: RouteParamsWithId; Querystring: { readonly branchId?: string } }>(
+    "/api/workflows/:id/budget",
+    async (request, reply) => {
+      if (!store.getWorkflow(request.params.id)) {
+        return reply.code(404).send({
+          ok: false,
+          error: "WORKFLOW_NOT_FOUND",
+          message: `Workflow '${request.params.id}' was not found.`
+        });
+      }
+      const policy = ensureBudgetPolicy(store, request.params.id, request.query.branchId);
+      return {
+        ok: true,
+        policy,
+        ledgers: store.listBudgetLedgers(request.params.id)
+      };
+    }
+  );
+
+  app.patch<{ Params: RouteParamsWithId; Body: BudgetPatchRequestBody }>(
+    "/api/workflows/:id/budget",
+    async (request, reply) => {
+      if (!store.getWorkflow(request.params.id)) {
+        return reply.code(404).send({
+          ok: false,
+          error: "WORKFLOW_NOT_FOUND",
+          message: `Workflow '${request.params.id}' was not found.`
+        });
+      }
+      const policy = ensureBudgetPolicy(store, request.params.id, request.body.branchId);
+      const updated = store.saveBudgetPolicy({
+        ...policy,
+        maxWorkflowCostUsd: request.body.maxWorkflowCostUsd ?? policy.maxWorkflowCostUsd,
+        maxCodegenCostUsd: request.body.maxCodegenCostUsd ?? policy.maxCodegenCostUsd,
+        maxAgenticCostUsd: request.body.maxAgenticCostUsd ?? policy.maxAgenticCostUsd,
+        expensiveRetryConfirmationUsd:
+          request.body.expensiveRetryConfirmationUsd ?? policy.expensiveRetryConfirmationUsd,
+        perAgentMaxCostUsd: request.body.perAgentMaxCostUsd
+          ? sanitizePerAgentBudget(request.body.perAgentMaxCostUsd)
+          : policy.perAgentMaxCostUsd,
+        updatedAt: new Date().toISOString(),
+        updatedBy: request.body.updatedBy ?? "api"
+      });
+      recordAudit(store, {
+        action: "budget.updated",
+        actor: updated.updatedBy,
+        workflowId: request.params.id,
+        branchId: updated.branchId,
+        revisionId: `budget.${request.params.id}`,
+        correlationId: correlationIdForRequest(request),
+        summary: "Updated workflow budget policy.",
+        metadata: jsonRecord(updated)
+      });
+      return {
+        ok: true,
+        policy: updated,
+        ledgers: store.listBudgetLedgers(request.params.id)
+      };
+    }
+  );
+
+  app.get<{ Params: RouteParamsWithId }>("/api/workflows/:id/agent-timeline", async (request) => ({
+    ok: true,
+    events: store.listAgentTimelineEvents(request.params.id)
+  }));
+
+  app.get<{ Params: RouteParamsWithId }>("/api/workflows/:id/decision-traces", async (request) => ({
+    ok: true,
+    traces: store.listNodeDecisionTraces(request.params.id)
+  }));
+
+  app.get<{ Params: CodegenRouteParams }>(
+    "/api/workflows/:id/nodes/:nodeId/decision-traces",
+    async (request) => ({
+      ok: true,
+      traces: store.listNodeDecisionTraces(request.params.id, request.params.nodeId)
+    })
+  );
+
+  app.get<{ Params: RouteParamsWithId }>(
+    "/api/workflows/:id/decision-traces/export",
+    async (request) => {
+      const exportRecord = createDecisionTraceExportRecord(store, request.params.id);
+      return {
+        ok: true,
+        export: exportRecord,
+        jsonl: exportRecord.records.map((record) => stableJsonStringify(record)).join("\n")
+      };
+    }
+  );
+
+  app.get<{ Params: RouteParamsWithId }>("/api/workflows/:id/audit/export", async (request) => {
+    const exportRecord = createAuditExportRecord(store, request.params.id);
+    recordAudit(store, {
+      action: "audit.exported",
+      actor: "api",
+      workflowId: request.params.id,
+      revisionId: `audit-export.${request.params.id}`,
+      correlationId: correlationIdForRequest(request),
+      summary: "Exported redacted workflow audit records.",
+      metadata: {
+        exportId: exportRecord.id,
+        lineCount: exportRecord.lineCount
+      }
+    });
+    return {
+      ok: true,
+      export: exportRecord,
+      jsonl: exportRecord.records.map((record) => stableJsonStringify(record)).join("\n")
+    };
+  });
+
   app.get<{ Params: RouteParamsWithId }>(
     "/api/workflows/:id/deployments/active",
     async (request) => ({
@@ -3225,6 +3464,113 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         ok: true,
         deployment: savedDeployment
       });
+    }
+  );
+
+  app.post<{ Params: DeploymentRouteParams }>(
+    "/api/workflows/:id/deployments/:deploymentId/undeploy",
+    async (request, reply) => {
+      const deployment = store
+        .listDeployments(request.params.id)
+        .find((candidate) => candidate.id === request.params.deploymentId);
+      if (!deployment) {
+        return reply.code(404).send({
+          ok: false,
+          error: "WORKFLOW_DEPLOYMENT_NOT_FOUND",
+          message: `Deployment '${request.params.deploymentId}' was not found.`
+        });
+      }
+      if (deployment.status !== "deployed") {
+        return {
+          ok: true,
+          deployment
+        };
+      }
+
+      const updated = store.saveDeployment({
+        ...deployment,
+        status: "undeployed",
+        metadata: {
+          ...deployment.metadata,
+          undeployedAt: new Date().toISOString()
+        }
+      });
+      recordAudit(store, {
+        action: "deployment.undeployed",
+        actor: "api",
+        workflowId: request.params.id,
+        branchId: deployment.branchId,
+        revisionId: deployment.approvedRevisionId,
+        correlationId: correlationIdForRequest(request),
+        summary: `Undeployed ${deployment.kind} deployment '${deployment.id}'.`,
+        metadata: {
+          deploymentId: deployment.id,
+          kind: deployment.kind
+        }
+      });
+      return {
+        ok: true,
+        deployment: updated,
+        active: deploymentActivationSummary(store, request.params.id)
+      };
+    }
+  );
+
+  app.post<{ Params: DeploymentRouteParams }>(
+    "/api/workflows/:id/deployments/:deploymentId/rollback",
+    async (request, reply) => {
+      const deployments = store.listDeployments(request.params.id);
+      const deployment = deployments.find(
+        (candidate) => candidate.id === request.params.deploymentId
+      );
+      if (!deployment) {
+        return reply.code(404).send({
+          ok: false,
+          error: "WORKFLOW_DEPLOYMENT_NOT_FOUND",
+          message: `Deployment '${request.params.deploymentId}' was not found.`
+        });
+      }
+      const rollbackTarget = deployments
+        .filter(
+          (candidate) =>
+            candidate.id !== deployment.id &&
+            candidate.kind === deployment.kind &&
+            candidate.status === "deployed" &&
+            candidate.createdAt < deployment.createdAt
+        )
+        .at(-1);
+      const updated = store.saveDeployment({
+        ...deployment,
+        status: "rolled-back",
+        metadata: {
+          ...deployment.metadata,
+          rolledBackAt: new Date().toISOString(),
+          rollbackTarget: jsonRecord(
+            rollbackTarget
+              ? createDeploymentRollbackTarget(deployment, rollbackTarget)
+              : createDeploymentRollbackTarget(deployment)
+          )
+        }
+      });
+      recordAudit(store, {
+        action: "deployment.rolled-back",
+        actor: "api",
+        workflowId: request.params.id,
+        branchId: deployment.branchId,
+        revisionId: deployment.approvedRevisionId,
+        correlationId: correlationIdForRequest(request),
+        summary: `Rolled back ${deployment.kind} deployment '${deployment.id}'.`,
+        metadata: {
+          deploymentId: deployment.id,
+          rollbackTargetId: rollbackTarget?.id ?? null
+        }
+      });
+      return {
+        ok: true,
+        deployment: updated,
+        rollbackTarget: updated.metadata.rollbackTarget,
+        active: deploymentActivationSummary(store, request.params.id)
+      };
     }
   );
 
@@ -4822,6 +5168,41 @@ function deploymentActivationSummary(
   };
 }
 
+function createDeploymentRollbackTarget(
+  deployment: WorkflowDeploymentRecord,
+  previousDeployment?: WorkflowDeploymentRecord | undefined
+): WorkflowDeploymentRollbackTarget {
+  return {
+    deploymentId: deployment.id,
+    workflowId: deployment.workflowId,
+    ...(deployment.branchId ? { branchId: deployment.branchId } : {}),
+    approvedRevisionId: deployment.approvedRevisionId,
+    ...(previousDeployment ? { previousDeploymentId: previousDeployment.id } : {}),
+    rollbackPlan: deployment.rollbackPlan,
+    artifactRefs: deploymentArtifactRefs(deployment),
+    createdAt: new Date().toISOString()
+  };
+}
+
+function deploymentArtifactRefs(
+  deployment: WorkflowDeploymentRecord
+): readonly WorkflowCodegenArtifactRef[] {
+  return [
+    ...jsonArrayMetadata(deployment.metadata.artifacts),
+    ...(jsonObjectMetadata(deployment.metadata.bundle) ? [deployment.metadata.bundle] : [])
+  ].filter(isWorkflowArtifactRef);
+}
+
+function isWorkflowArtifactRef(
+  value: JsonRecord
+): value is JsonRecord & WorkflowCodegenArtifactRef {
+  return (
+    typeof value.path === "string" &&
+    typeof value.checksum === "string" &&
+    typeof value.contentType === "string"
+  );
+}
+
 function latestDeployedRunnerConfiguration(
   store: WorkflowStore,
   workflowId: string,
@@ -4851,6 +5232,511 @@ function jsonObjectMetadata(value: unknown): value is JsonRecord {
 
 function jsonRecord(value: unknown): JsonRecord {
   return JSON.parse(JSON.stringify(value)) as JsonRecord;
+}
+
+function providerRuntimeConfigsFromEnv(): readonly WorkflowProviderRuntimeConfig[] {
+  const plannerProvider = providerFromEnv("KELPCLAW_PLANNER_PROVIDER");
+  const agenticProvider = providerFromEnv("KELPCLAW_AGENTIC_PROVIDER", plannerProvider);
+  const codegenProvider = providerFromEnv("KELPCLAW_CODEGEN_PROVIDER", plannerProvider);
+  const configs: WorkflowProviderRuntimeConfig[] = [
+    providerRuntimeConfig({
+      role: "planner",
+      provider: plannerProvider,
+      model: modelForProviderRole("planner", plannerProvider)
+    }),
+    providerRuntimeConfig({
+      role: "agentic-research",
+      provider: agenticProvider,
+      model: modelForProviderRole("agentic-research", agenticProvider)
+    }),
+    providerRuntimeConfig({
+      role: "codegen",
+      provider: codegenProvider,
+      model: modelForProviderRole("codegen", codegenProvider)
+    })
+  ];
+
+  for (const role of [
+    "workflow-architect",
+    "coder",
+    "tester",
+    "runner",
+    "fixer",
+    "evaluator"
+  ] as const) {
+    configs.push(
+      providerRuntimeConfig({
+        role,
+        provider: codegenProvider,
+        model: modelForProviderRole(role, codegenProvider)
+      })
+    );
+  }
+
+  return configs;
+}
+
+function providerRuntimeConfig(input: {
+  readonly role: WorkflowProviderRuntimeConfig["role"];
+  readonly provider: WorkflowProviderRuntimeConfig["provider"];
+  readonly model: string;
+}): WorkflowProviderRuntimeConfig {
+  const missingCredential =
+    input.provider === "deterministic"
+      ? undefined
+      : input.provider === "openai" && !process.env.OPENAI_API_KEY
+        ? "OPENAI_API_KEY"
+        : input.provider === "anthropic" && !process.env.ANTHROPIC_API_KEY
+          ? "ANTHROPIC_API_KEY"
+          : undefined;
+
+  return {
+    role: input.role,
+    provider: input.provider,
+    model: input.model,
+    configured: missingCredential === undefined,
+    ...(missingCredential ? { missingCredential } : {}),
+    tokenAccounting: input.provider !== "deterministic",
+    costAccounting: input.provider !== "deterministic",
+    retryBudget: {
+      maxAttempts: input.role === "planner" ? 1 : 2,
+      maxCostUsd: input.role === "agentic-research" ? 2 : input.role === "planner" ? 1 : 2
+    },
+    runtimeLimits: {
+      maxWallClockSeconds: input.role === "planner" ? 120 : 600,
+      maxDockerRuntimeSeconds: input.role === "runner" ? 120 : 0
+    }
+  };
+}
+
+function providerFromEnv(
+  key: "KELPCLAW_PLANNER_PROVIDER" | "KELPCLAW_AGENTIC_PROVIDER" | "KELPCLAW_CODEGEN_PROVIDER",
+  fallback: WorkflowProviderRuntimeConfig["provider"] = "anthropic"
+): WorkflowProviderRuntimeConfig["provider"] {
+  const value = process.env[key] ?? fallback;
+  return value === "openai" || value === "anthropic" || value === "deterministic"
+    ? value
+    : fallback;
+}
+
+function modelForProviderRole(
+  role: WorkflowProviderRuntimeConfig["role"],
+  provider: WorkflowProviderRuntimeConfig["provider"]
+): string {
+  if (provider === "deterministic") {
+    return "deterministic";
+  }
+  if (provider === "openai") {
+    return (
+      openAiRoleModel(role) ??
+      process.env.KELPCLAW_OPENAI_CODEGEN_MODEL ??
+      process.env.KELPCLAW_CODEGEN_MODEL ??
+      process.env.KELPCLAW_OPENAI_PLANNER_MODEL ??
+      process.env.KELPCLAW_PLANNER_MODEL ??
+      "gpt-5.4"
+    );
+  }
+
+  return (
+    anthropicRoleModel(role) ??
+    process.env.KELPCLAW_CODEGEN_MODEL ??
+    process.env.KELPCLAW_PLANNER_MODEL ??
+    "claude-sonnet-4-5-20250929"
+  );
+}
+
+function openAiRoleModel(role: WorkflowProviderRuntimeConfig["role"]): string | undefined {
+  switch (role) {
+    case "planner":
+      return process.env.KELPCLAW_OPENAI_PLANNER_MODEL;
+    case "agentic-research":
+      return process.env.KELPCLAW_OPENAI_AGENTIC_MODEL ?? process.env.KELPCLAW_AGENTIC_MODEL;
+    case "workflow-architect":
+      return process.env.KELPCLAW_OPENAI_WORKFLOW_ARCHITECT_MODEL;
+    case "coder":
+      return process.env.KELPCLAW_OPENAI_CODER_MODEL;
+    case "tester":
+      return process.env.KELPCLAW_OPENAI_TESTER_MODEL;
+    case "runner":
+      return process.env.KELPCLAW_OPENAI_RUNNER_MODEL;
+    case "fixer":
+      return process.env.KELPCLAW_OPENAI_FIXER_MODEL;
+    case "evaluator":
+      return process.env.KELPCLAW_OPENAI_EVALUATOR_MODEL;
+    case "codegen":
+      return process.env.KELPCLAW_OPENAI_CODEGEN_MODEL;
+  }
+}
+
+function anthropicRoleModel(role: WorkflowProviderRuntimeConfig["role"]): string | undefined {
+  switch (role) {
+    case "planner":
+      return process.env.KELPCLAW_PLANNER_MODEL;
+    case "agentic-research":
+      return process.env.KELPCLAW_ANTHROPIC_AGENTIC_MODEL ?? process.env.KELPCLAW_AGENTIC_MODEL;
+    case "workflow-architect":
+      return process.env.KELPCLAW_WORKFLOW_ARCHITECT_MODEL ?? process.env.KELPCLAW_ARCHITECT_MODEL;
+    case "coder":
+      return process.env.KELPCLAW_CODER_MODEL;
+    case "tester":
+      return process.env.KELPCLAW_TESTER_MODEL;
+    case "runner":
+      return process.env.KELPCLAW_RUNNER_MODEL;
+    case "fixer":
+      return process.env.KELPCLAW_FIXER_MODEL;
+    case "evaluator":
+      return process.env.KELPCLAW_EVALUATOR_MODEL;
+    case "codegen":
+      return process.env.KELPCLAW_CODEGEN_MODEL;
+  }
+}
+
+function defaultBudgetPolicy(
+  workflowId: string,
+  branchId?: string | undefined
+): WorkflowBudgetPolicy {
+  return {
+    workflowId,
+    ...(branchId ? { branchId } : {}),
+    maxWorkflowCostUsd: 5,
+    maxCodegenCostUsd: 2,
+    maxAgenticCostUsd: 2,
+    expensiveRetryConfirmationUsd: 0.25,
+    perAgentMaxCostUsd: {},
+    updatedAt: new Date().toISOString(),
+    updatedBy: "system"
+  };
+}
+
+function ensureBudgetPolicy(
+  store: WorkflowStore,
+  workflowId: string,
+  branchId?: string | undefined
+): WorkflowBudgetPolicy {
+  return (
+    store.getBudgetPolicy(workflowId, branchId) ??
+    store.saveBudgetPolicy(defaultBudgetPolicy(workflowId, branchId))
+  );
+}
+
+function sanitizePerAgentBudget(
+  value: Partial<Record<string, number>>
+): WorkflowBudgetPolicy["perAgentMaxCostUsd"] {
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, number] => {
+      const amount = entry[1];
+      return typeof amount === "number" && Number.isFinite(amount) && amount >= 0;
+    })
+  ) as WorkflowBudgetPolicy["perAgentMaxCostUsd"];
+}
+
+function budgetCheckForProjectedCost(
+  store: WorkflowStore,
+  policy: WorkflowBudgetPolicy,
+  projectedCostUsd: number,
+  operation: string
+):
+  | { readonly ok: true; readonly remainingCostUsd: number }
+  | {
+      readonly ok: false;
+      readonly remainingCostUsd: number;
+      readonly reason: string;
+    } {
+  const actualCostUsd = workflowActualCostUsd(store, policy.workflowId);
+  const remainingCostUsd = Math.max(0, policy.maxWorkflowCostUsd - actualCostUsd);
+  if (projectedCostUsd > remainingCostUsd) {
+    return {
+      ok: false,
+      remainingCostUsd,
+      reason: `${operation} is blocked because projected cost $${projectedCostUsd.toFixed(
+        4
+      )} exceeds remaining workflow budget $${remainingCostUsd.toFixed(4)}.`
+    };
+  }
+
+  return { ok: true, remainingCostUsd };
+}
+
+function workflowActualCostUsd(store: WorkflowStore, workflowId: string): number {
+  return store
+    .listAgentRuns(workflowId)
+    .reduce((total, run) => total + (run.costUsd ?? agentRunInvocationCostUsd(run)), 0);
+}
+
+function agentRunInvocationCostUsd(run: CodegenAgentRunRecord): number {
+  return (run.modelInvocations ?? []).reduce(
+    (total, invocation) => total + (invocation.costUsd ?? 0),
+    0
+  );
+}
+
+function createBudgetLedger(input: {
+  readonly workflowId: string;
+  readonly branchId?: string | undefined;
+  readonly jobId?: string | undefined;
+  readonly agentRunId?: string | undefined;
+  readonly scope: WorkflowBudgetLedger["scope"];
+  readonly projectedCostUsd: number;
+  readonly actualCostUsd: number;
+  readonly remainingCostUsd: number;
+  readonly retryEstimateUsd: number;
+  readonly status: WorkflowBudgetLedger["status"];
+  readonly stopReason?: string | undefined;
+}): WorkflowBudgetLedger {
+  const now = new Date().toISOString();
+  return {
+    id: `budget.${input.scope}.${input.workflowId}.${Date.now()}.${randomUUID()}`,
+    workflowId: input.workflowId,
+    ...(input.branchId ? { branchId: input.branchId } : {}),
+    ...(input.jobId ? { jobId: input.jobId } : {}),
+    ...(input.agentRunId ? { agentRunId: input.agentRunId } : {}),
+    scope: input.scope,
+    projectedCostUsd: input.projectedCostUsd,
+    actualCostUsd: input.actualCostUsd,
+    remainingCostUsd: input.remainingCostUsd,
+    retryEstimateUsd: input.retryEstimateUsd,
+    status: input.status,
+    ...(input.stopReason ? { stopReason: input.stopReason } : {}),
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+function saveBudgetLedgersForAgentRuns(
+  store: WorkflowStore,
+  policy: WorkflowBudgetPolicy,
+  agentRuns: readonly CodegenAgentRunRecord[],
+  jobId: string
+): void {
+  let cumulativeActualCostUsd = workflowActualCostUsd(store, policy.workflowId);
+  const jobActualCostUsd = agentRuns.reduce(
+    (total, run) => total + (run.costUsd ?? agentRunInvocationCostUsd(run)),
+    0
+  );
+  const remainingAfterJob = Math.max(0, policy.maxWorkflowCostUsd - cumulativeActualCostUsd);
+  store.saveBudgetLedger(
+    createBudgetLedger({
+      workflowId: policy.workflowId,
+      branchId: policy.branchId,
+      jobId,
+      scope: "job",
+      projectedCostUsd: Math.min(policy.maxCodegenCostUsd, policy.maxWorkflowCostUsd),
+      actualCostUsd: jobActualCostUsd,
+      remainingCostUsd: remainingAfterJob,
+      retryEstimateUsd: policy.expensiveRetryConfirmationUsd,
+      status:
+        remainingAfterJob <= 0
+          ? "exhausted"
+          : jobActualCostUsd >= policy.expensiveRetryConfirmationUsd
+            ? "confirmation-required"
+            : "within-budget"
+    })
+  );
+
+  cumulativeActualCostUsd -= jobActualCostUsd;
+  for (const run of agentRuns) {
+    const actualCostUsd = run.costUsd ?? agentRunInvocationCostUsd(run);
+    cumulativeActualCostUsd += actualCostUsd;
+    store.saveBudgetLedger(
+      createBudgetLedger({
+        workflowId: run.workflowId,
+        branchId: policy.branchId,
+        jobId: run.jobId,
+        agentRunId: run.id,
+        scope: "agent",
+        projectedCostUsd: policy.perAgentMaxCostUsd[run.role] ?? policy.maxCodegenCostUsd,
+        actualCostUsd,
+        remainingCostUsd: Math.max(0, policy.maxWorkflowCostUsd - cumulativeActualCostUsd),
+        retryEstimateUsd: policy.expensiveRetryConfirmationUsd,
+        status:
+          actualCostUsd >= policy.expensiveRetryConfirmationUsd
+            ? "confirmation-required"
+            : "within-budget"
+      })
+    );
+  }
+}
+
+function saveTimelineEventsForAgentRuns(
+  store: WorkflowStore,
+  agentRuns: readonly CodegenAgentRunRecord[],
+  branchId?: string | undefined
+): void {
+  let cumulativeCostUsd = 0;
+  for (const run of agentRuns) {
+    const costUsd = run.costUsd ?? agentRunInvocationCostUsd(run);
+    cumulativeCostUsd += costUsd;
+    store.saveAgentTimelineEvent({
+      id: `timeline.${run.id}.${run.finishedAt}`,
+      workflowId: run.workflowId,
+      ...(branchId ? { branchId } : {}),
+      jobId: run.jobId,
+      nodeId: run.nodeId,
+      agentRunId: run.id,
+      role: run.role,
+      timestamp: run.finishedAt,
+      status: run.status,
+      title: `${run.role} ${run.status}`,
+      summary: run.error ?? run.inputSummary,
+      decision: timelineDecisionForRun(run),
+      fixTriageAction: fixTriageActionFromSummary(run.inputSummary),
+      outputArtifactRefs: run.outputArtifactRefs,
+      ...(run.inputTokens !== undefined ? { inputTokens: run.inputTokens } : {}),
+      ...(run.outputTokens !== undefined ? { outputTokens: run.outputTokens } : {}),
+      ...(run.totalTokens !== undefined ? { totalTokens: run.totalTokens } : {}),
+      ...(costUsd > 0 ? { costUsd } : {}),
+      cumulativeCostUsd,
+      metadata: {
+        provider: run.modelProvider,
+        model: run.model
+      }
+    });
+  }
+}
+
+function timelineDecisionForRun(run: CodegenAgentRunRecord): string {
+  if (run.error) {
+    return run.error;
+  }
+  if (run.role === "fixer") {
+    return run.inputSummary;
+  }
+  return run.outputArtifactRefs.length > 0
+    ? `Produced ${run.outputArtifactRefs.length} artifact reference(s).`
+    : "Completed role step.";
+}
+
+function fixTriageActionFromSummary(
+  summary: string
+): WorkflowAgentTimelineEvent["fixTriageAction"] | undefined {
+  if (summary.includes("smallest local patch")) return "targeted-patch";
+  if (summary.includes("Regenerate")) return "retry-codegen";
+  if (summary.includes("Rebuild from a revised architecture")) return "rearchitect";
+  if (summary.includes("External blocker")) return "give-up";
+  return undefined;
+}
+
+function runtimeTruthSnapshot(
+  store: WorkflowStore,
+  workflowId: string,
+  branchId?: string | undefined
+): WorkflowRuntimeTruthSnapshot {
+  const stored = store.requireWorkflow(workflowId);
+  const branch = branchId ? store.getBranch(branchId) : store.getDefaultBranch(workflowId);
+  const draftId = branch?.headDraftRevisionId ?? store.getLatestDraftRevision(workflowId)?.id;
+  const draft = draftId
+    ? store.getDraftRevision(draftId)
+    : store.getLatestDraftRevision(workflowId);
+  const acceptedDraft = stored.draftRevisions
+    .filter(
+      (revision) =>
+        (!branch?.id || revision.branchId === branch.id) && revision.source === "plan-accepted"
+    )
+    .at(-1);
+  const latestEvaluation = store.getLatestDraftEvaluation(workflowId, branch?.id);
+  const approvedRevision = stored.approvedRevisions
+    .filter((revision) => !branch?.id || revision.branchId === branch.id)
+    .at(-1);
+  const activeDeployments = store
+    .listDeployments(workflowId)
+    .filter(
+      (deployment) =>
+        deployment.status === "deployed" &&
+        (!branch?.id || deployment.branchId === branch.id) &&
+        (!approvedRevision || deployment.approvedRevisionId === approvedRevision.id)
+    );
+  const runnerDeployment = activeDeployments.find(
+    (deployment) => deployment.kind === "runner.configuration"
+  );
+  const workflow = draft?.workflow ?? stored.workflow;
+  const planned = workflow.nodes.length > 0;
+  const accepted = acceptedDraft !== undefined;
+  const generated =
+    accepted &&
+    workflow.nodes
+      .filter((node) => node.kind === "codegen")
+      .every((node) => node.codegen !== undefined && node.codegen.artifacts.length > 0);
+  const evaluated = latestEvaluation?.status === "passed";
+  const approved = approvedRevision !== undefined;
+  const deployed = activeDeployments.length > 0;
+  const runnable = deployed && runnerDeployment !== undefined && approved;
+  const blockingReasons = [
+    planned ? "" : "Create a planned workflow graph.",
+    accepted ? "" : "Accept the plan before production approval.",
+    generated ? "" : "Build generated/custom nodes before approval.",
+    evaluated ? "" : "Run and pass draft evaluation.",
+    approved ? "" : "Approve an immutable workflow revision.",
+    deployed ? "" : "Deploy the approved revision.",
+    runnerDeployment ? "" : "Deploy a runner.configuration before production run."
+  ].filter((reason) => reason.length > 0);
+
+  return {
+    workflowId,
+    ...(branch?.id ? { branchId: branch.id } : {}),
+    stage: lifecycleStage({
+      planned,
+      accepted,
+      generated,
+      evaluated,
+      approved,
+      deployed,
+      runnable
+    }),
+    planned,
+    accepted,
+    generated,
+    evaluated,
+    approved,
+    deployed,
+    runnable,
+    ...(draft?.id ? { draftRevisionId: draft.id } : {}),
+    ...(acceptedDraft?.id ? { acceptedDraftRevisionId: acceptedDraft.id } : {}),
+    ...(latestEvaluation?.id ? { evaluationId: latestEvaluation.id } : {}),
+    ...(approvedRevision?.id ? { approvedRevisionId: approvedRevision.id } : {}),
+    ...(runnerDeployment?.id ? { runnerDeploymentId: runnerDeployment.id } : {}),
+    activeDeploymentIds: activeDeployments.map((deployment) => deployment.id),
+    blockingReasons,
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function lifecycleStage(input: {
+  readonly planned: boolean;
+  readonly accepted: boolean;
+  readonly generated: boolean;
+  readonly evaluated: boolean;
+  readonly approved: boolean;
+  readonly deployed: boolean;
+  readonly runnable: boolean;
+}): WorkflowRuntimeTruthSnapshot["stage"] {
+  if (input.runnable) return "runnable";
+  if (input.deployed) return "deployed";
+  if (input.approved) return "approved";
+  if (input.evaluated) return "evaluated";
+  if (input.generated) return "generated";
+  if (input.accepted) return "accepted";
+  if (input.planned) return "planned";
+  return "empty";
+}
+
+function createAuditExportRecord(
+  store: WorkflowStore,
+  workflowId: string
+): WorkflowAuditExportRecord {
+  const records = store.listAuditRecords(workflowId).map((record) =>
+    redactJsonRecord(jsonRecord(JSON.parse(JSON.stringify(record))), {
+      secretRefs: record.secretRefs
+    })
+  );
+  return {
+    id: `audit-export.${workflowId}.${Date.now()}`,
+    workflowId,
+    exportedAt: new Date().toISOString(),
+    format: "jsonl",
+    redacted: true,
+    lineCount: records.length,
+    records
+  };
 }
 
 function archivedBranchApiError(branch: WorkflowBranch): WorkflowApiError {
