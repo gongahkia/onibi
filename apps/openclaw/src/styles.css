@@ -90,7 +90,7 @@ textarea::placeholder {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(320px, 380px) minmax(520px, 1fr) minmax(318px, 370px);
+  grid-template-columns: minmax(0, 1fr) minmax(318px, 370px);
   height: 100vh;
   min-height: 0;
 }
@@ -112,44 +112,7 @@ textarea::placeholder {
   border-inline: 1px solid #333640 0;
 }
 
-.planner-panel {
-  align-content: start;
-  display: grid;
-  gap: 1rem;
-  grid-auto-rows: max-content;
-}
-
-.workspace-rail {
-  display: grid;
-  gap: 0.4rem;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.workspace-rail button {
-  min-width: 0;
-  padding-inline: 0.35rem;
-}
-
-.workspace-rail button[aria-current="page"] {
-  border-color: #6b7cff;
-}
-
-.search-box {
-  border-bottom: 1px solid #30333b;
-  padding-bottom: 0.75rem;
-}
-
-.summary-grid {
-  display: grid;
-  gap: 0.5rem;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.prompt-form,
 .inspector-stack,
-.integration-panel,
-.clarification-panel,
-.validation-panel,
 .approval-panel,
 .codegen-panel,
 .decision-trace-panel,
@@ -158,7 +121,6 @@ textarea::placeholder {
   gap: 0.75rem;
 }
 
-.component-heading,
 .panel-heading,
 .workflow-card-header,
 .workflow-card-footer,
@@ -170,115 +132,27 @@ textarea::placeholder {
   gap: 0.5rem;
 }
 
-.component-heading,
 .workflow-card-header,
 .workflow-card-footer {
   justify-content: space-between;
 }
 
-.component-heading h2,
 .panel h2,
 .topbar h1 {
   letter-spacing: 0;
   margin: 0;
 }
 
-.component-heading h2,
 .panel h2 {
   color: #d8dae0;
   font-size: 0.9rem;
 }
 
-.component-list {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.component-palette {
-  border-top: 1px solid #30333b;
-  display: grid;
-  gap: 0.45rem;
-  padding-top: 0.75rem;
-}
-
-.component-palette-heading {
-  align-items: center;
-  color: #9ea3ae;
-  display: flex;
-  font-size: 0.72rem;
-  font-weight: 800;
-  justify-content: space-between;
-  text-transform: uppercase;
-}
-
-.component-row,
-.discover-button {
-  background: transparent;
-  border-color: transparent;
-  color: #d7d9df;
-  display: grid;
-  font-size: 0.98rem;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  justify-items: start;
-  min-height: 2.6rem;
-  padding-inline: 0.72rem;
-  text-align: left;
-}
-
-.component-row-active,
-.component-row:hover:not(:disabled),
-.discover-button {
-  background: #2a2b30;
-}
-
-.discover-button {
-  margin-top: 0.25rem;
-}
-
-.component-option {
-  align-items: center;
-  background: #202126;
-  border-color: #34363d;
-  display: grid;
-  gap: 0.55rem;
-  grid-template-columns: minmax(0, 1fr) auto;
-  justify-items: stretch;
-  min-height: 4.1rem;
-  padding: 0.65rem;
-  text-align: left;
-}
-
-.component-option span {
-  display: grid;
-  gap: 0.18rem;
-  min-width: 0;
-}
-
-.component-option strong {
-  color: #f1f2f5;
-  font-size: 0.84rem;
-}
-
-.component-option small {
-  color: #a5a9b3;
-  font-size: 0.72rem;
-  font-weight: 650;
-  line-height: 1.25;
-}
-
-.prompt-form,
-.integration-panel,
-.clarification-panel,
-.validation-panel,
 .approval-panel,
 .decision-trace-panel,
 .run-panel {
   border-top: 1px solid #30333b;
   padding-top: 0.95rem;
-}
-
-.prompt-form textarea {
-  min-height: 5.5rem;
 }
 
 .topbar {
@@ -519,8 +393,7 @@ dd {
 
 .detail-list,
 .event-list,
-.issue-list,
-.branch-list {
+.issue-list {
   display: grid;
   gap: 0.55rem;
 }
@@ -535,33 +408,6 @@ dd {
 
 .detail-list dd {
   overflow-wrap: anywhere;
-}
-
-.branch-row {
-  background: #202126;
-  border-color: #34363d;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  justify-content: stretch;
-  text-align: left;
-}
-
-.branch-row span {
-  overflow-wrap: anywhere;
-}
-
-.branch-row-active {
-  border-color: #53e0a0;
-}
-
-.inline-control {
-  align-items: center;
-  display: flex;
-  gap: 0.45rem;
-}
-
-.inline-control input {
-  width: auto;
 }
 
 .status-row {
@@ -877,22 +723,6 @@ dd {
   stroke: #ff8a42;
 }
 
-.issue-button {
-  align-items: flex-start;
-  background: rgba(255, 194, 87, 0.12);
-  border-color: rgba(255, 194, 87, 0.35);
-  color: #ffd18a;
-  display: grid;
-  justify-items: start;
-  text-align: left;
-}
-
-.issue-button span {
-  color: #e1c99e;
-  font-size: 0.78rem;
-  font-weight: 500;
-}
-
 .inline-grid {
   display: grid;
   gap: 0.7rem;
@@ -904,52 +734,10 @@ dd {
   gap: 0.7rem;
 }
 
-.integration-list {
-  display: grid;
-  gap: 0.65rem;
-}
-
-.integration-row {
-  background: #202126;
-  border: 1px solid #34363d;
-  border-radius: 6px;
-  display: grid;
-  gap: 0.58rem;
-  padding: 0.65rem;
-}
-
-.integration-row-header,
-.integration-row-header span,
-.secret-meta,
 .integration-actions {
   align-items: center;
   display: flex;
   gap: 0.45rem;
-}
-
-.integration-row-header,
-.secret-meta {
-  justify-content: space-between;
-}
-
-.integration-row-header span {
-  color: #eef0f5;
-  font-size: 0.82rem;
-  font-weight: 800;
-  min-width: 0;
-}
-
-.secret-meta {
-  color: #9da3af;
-  font-size: 0.68rem;
-}
-
-.secret-meta span:first-child {
-  overflow-wrap: anywhere;
-}
-
-.integration-row textarea {
-  min-height: 4.5rem;
 }
 
 .integration-actions {

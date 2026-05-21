@@ -12,24 +12,15 @@ import "@xyflow/react/dist/style.css";
 import {
   CheckCircle2,
   Clock3,
-  Database,
   FileStack,
-  GitBranch,
-  KeyRound,
-  Layers3,
   ListChecks,
-  Mail,
-  MessageCircle,
   Play,
   Plus,
   RefreshCw,
   Search,
   Send,
   ShieldCheck,
-  SlidersHorizontal,
-  Table2,
   Trash2,
-  Unplug,
   WandSparkles,
   XCircle
 } from "lucide-react";
@@ -61,7 +52,6 @@ import type {
   WorkflowPlanResponse,
   WorkflowPlanSuccessResponse,
   WorkflowPlannerFeedback,
-  WorkflowPlannerSuggestion,
   WorkflowPromptTurn,
   WorkflowRunRecord,
   WorkflowSpec,
@@ -98,6 +88,7 @@ const nodeKinds: readonly WorkflowNodeKind[] = [
 ];
 
 const defaultPrompt = "";
+const defaultBranchName = "Experiment";
 const emptyWorkflowDraft = createWorkflowSpec({
   id: "workflow.openclaw-draft",
   name: "Untitled Workflow",
@@ -216,17 +207,17 @@ const adapterSkillPresets: readonly AdapterSkillPreset[] = [
   }
 ];
 
-const componentCategories = [
-  { id: "input-output", label: "Input & Output", icon: Unplug },
-  { id: "data-sources", label: "Data Sources", icon: Database },
-  { id: "models-agents", label: "Models & Agents", icon: Layers3 },
-  { id: "llm-operations", label: "LLM Operations", icon: WandSparkles },
-  { id: "files-knowledge", label: "Files & Knowledge", icon: FileStack },
-  { id: "processing", label: "Processing", icon: SlidersHorizontal },
-  { id: "flow-control", label: "Flow Control", icon: GitBranch }
-] as const;
+const componentCategoryLabels = {
+  "input-output": "Input & Output",
+  "data-sources": "Data Sources",
+  "models-agents": "Models & Agents",
+  "llm-operations": "LLM Operations",
+  "files-knowledge": "Files & Knowledge",
+  processing: "Processing",
+  "flow-control": "Flow Control"
+} as const;
 
-type ComponentCategoryId = (typeof componentCategories)[number]["id"];
+type ComponentCategoryId = keyof typeof componentCategoryLabels;
 type ComponentPaletteFilter = ComponentCategoryId | "all";
 
 interface ComponentPaletteItem {
@@ -418,28 +409,24 @@ const integrationSetups = [
   {
     id: "google",
     label: "Google",
-    icon: Table2,
     secretName: "google.oauth.default",
     placeholder: '{"refreshToken":"...","clientId":"...","clientSecret":"..."}'
   },
   {
     id: "smtp",
     label: "SMTP",
-    icon: Mail,
     secretName: "email.smtp.default",
     placeholder: '{"host":"smtp.example.com","port":587,"username":"...","password":"..."}'
   },
   {
     id: "whatsapp",
     label: "WhatsApp",
-    icon: MessageCircle,
     secretName: "whatsapp.cloud.default",
     placeholder: '{"accessToken":"...","phoneNumberId":"...","apiVersion":"v20.0"}'
   },
   {
     id: "telegram",
     label: "Telegram",
-    icon: Send,
     secretName: "telegram.bot.default",
     placeholder: '{"botToken":"...","chatId":"..."}'
   }
@@ -500,7 +487,7 @@ export function App() {
   const [branches, setBranches] = useState<readonly WorkflowBranch[]>([]);
   const [activeBranchId, setActiveBranchId] = useState<string | null>(null);
   const [promptTurns, setPromptTurns] = useState<readonly WorkflowPromptTurn[]>([]);
-  const [branchNameDraft, setBranchNameDraft] = useState("Experiment");
+  const branchNameDraft = defaultBranchName;
   const [branchRenameDraft, setBranchRenameDraft] = useState("");
   const [showArchivedBranches, setShowArchivedBranches] = useState(false);
   const [branchNotice, setBranchNotice] = useState<string | null>(null);
@@ -510,7 +497,6 @@ export function App() {
   const [mergeResolutionModes, setMergeResolutionModes] = useState<
     Readonly<Record<string, "source" | "target" | "manual">>
   >({});
-  const [mergeManualJson, setMergeManualJson] = useState<Readonly<Record<string, string>>>({});
   const mergeResolutionModesRef = useRef<Readonly<Record<string, "source" | "target" | "manual">>>(
     {}
   );
@@ -533,11 +519,6 @@ export function App() {
   const [secretMetadata, setSecretMetadata] = useState<readonly SecretMetadata[]>([]);
   const [googleConnected, setGoogleConnected] = useState<boolean | null>(null);
   const [secretDrafts, setSecretDrafts] = useState<Readonly<Record<string, string>>>({});
-  const [componentSearch, setComponentSearch] = useState("");
-  const [selectedComponentCategory, setSelectedComponentCategory] =
-    useState<ComponentPaletteFilter>("input-output");
-  const [activeRailItemId, setActiveRailItemId] = useState("components");
-  const componentSearchInputRef = useRef<HTMLInputElement>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
   const [paletteSelection, setPaletteSelection] = useState(0);
@@ -591,23 +572,6 @@ export function App() {
     draftEvaluation?.readyForApproval === true &&
     !branchLifecycleLocked;
   const canRun = approvedRevision !== null && !branchLifecycleLocked;
-  const visibleComponentItems = useMemo(
-    () =>
-      componentPaletteItems.filter((item) => {
-        const search = componentSearch.trim().toLowerCase();
-        const matchesCategory =
-          selectedComponentCategory === "all" || item.category === selectedComponentCategory;
-        const matchesSearch =
-          search.length === 0 ||
-          [item.label, item.description, item.kind, categoryLabel(item.category)]
-            .join(" ")
-            .toLowerCase()
-            .includes(search);
-
-        return matchesCategory && matchesSearch;
-      }),
-    [componentSearch, selectedComponentCategory]
-  );
   const refreshIntegrations = useCallback(async () => {
     try {
       const [secrets, google] = await Promise.all([
@@ -819,13 +783,6 @@ export function App() {
     saveOpenClawAdminToken(value);
   }
 
-  function updateSecretDraft(secretName: string, value: string) {
-    setSecretDrafts((previous) => ({
-      ...previous,
-      [secretName]: value
-    }));
-  }
-
   function saveSecret(secretName: string, valueOverride?: string | undefined) {
     const value = (valueOverride ?? secretDrafts[secretName] ?? "").trim();
     if (!value) {
@@ -859,7 +816,6 @@ export function App() {
       setMergePreview(null);
       setMergeResolutionModes({});
       mergeResolutionModesRef.current = {};
-      setMergeManualJson({});
       mergeManualJsonRef.current = {};
       setReuseDecisions([]);
       loadWorkflow(response.headDraftRevision.workflow, response.headDraftRevision.validation);
@@ -897,7 +853,6 @@ export function App() {
       setMergePreview(null);
       setMergeResolutionModes({});
       mergeResolutionModesRef.current = {};
-      setMergeManualJson({});
       mergeManualJsonRef.current = {};
       setReuseDecisions([]);
       loadWorkflow(response.draftRevision.workflow, response.draftRevision.validation);
@@ -981,9 +936,11 @@ export function App() {
       setMergeSourceBranchId(sourceBranchId);
       setMergeMode(selectedMergeMode);
       setMergePreview(response.preview);
+      setBranchNotice(
+        `${selectedMergeMode === "cherry-pick" ? "Cherry-pick" : "Merge"} preview ${response.preview.status}: ${response.preview.summary.join("; ")}`
+      );
       setMergeResolutionModes({});
       mergeResolutionModesRef.current = {};
-      setMergeManualJson({});
       mergeManualJsonRef.current = {};
     });
   }
@@ -995,15 +952,6 @@ export function App() {
     };
     mergeResolutionModesRef.current = next;
     setMergeResolutionModes(next);
-  }
-
-  function updateMergeManualJson(conflictId: string, value: string) {
-    const next = {
-      ...mergeManualJsonRef.current,
-      [conflictId]: value
-    };
-    mergeManualJsonRef.current = next;
-    setMergeManualJson(next);
   }
 
   function applyMerge() {
@@ -1036,7 +984,6 @@ export function App() {
       setMergePreview(null);
       setMergeResolutionModes({});
       mergeResolutionModesRef.current = {};
-      setMergeManualJson({});
       mergeManualJsonRef.current = {};
       setReuseDecisions([]);
       setDraftEvaluation(null);
@@ -1058,6 +1005,7 @@ export function App() {
     void executeApiAction("reuse-candidates", async () => {
       const response = await openClawApi.fetchReuseCandidates(workflow.id, activeBranchId);
       setReuseDecisions(response.decisions);
+      setBranchNotice(`Reuse candidates: ${response.decisions.length}`);
     });
   }
 
@@ -1267,12 +1215,6 @@ export function App() {
       ...node,
       [field]: parsed.value
     }));
-  }
-
-  function updatePrompt(value: string) {
-    setPrompt(value);
-    setClarification(null);
-    setClarificationAnswers({});
   }
 
   function updateClarificationAnswer(questionId: string, value: string) {
@@ -1716,7 +1658,6 @@ export function App() {
     setMergePreview(null);
     setMergeResolutionModes({});
     mergeResolutionModesRef.current = {};
-    setMergeManualJson({});
     mergeManualJsonRef.current = {};
     setReuseDecisions([]);
     setPromotionNotice(null);
@@ -1998,6 +1939,43 @@ export function App() {
       disabled: busyAction !== null || !activeBranch || branchLifecycleLocked,
       onSelect: refreshReuseCandidates
     },
+    ...reuseDecisions.map((decision) => ({
+      id: `reuse-decision-${decision.id}`,
+      group: "Branches",
+      label: `Reuse ${decision.nodeId}: ${decision.status}`,
+      detail: `${decision.reason}${decision.sourceBranchId ? ` Source: ${decision.sourceBranchId}.` : ""}`,
+      keywords: [decision.nodeId, decision.status, decision.sourceBranchId ?? ""],
+      disabled: true,
+      onSelect: () => {}
+    })),
+    ...(plannerFeedback?.suggestions.flatMap((suggestion) => [
+      {
+        id: `suggestion-accept-${suggestion.id}`,
+        group: "Suggestions",
+        label: `Accept Suggestion: ${suggestion.title}`,
+        detail: suggestion.message,
+        keywords: [suggestion.status, suggestion.conflict],
+        disabled: busyAction !== null || suggestion.status !== "suggested",
+        onSelect: () => updateSuggestionDecision(suggestion.id, "accepted")
+      },
+      {
+        id: `suggestion-reject-${suggestion.id}`,
+        group: "Suggestions",
+        label: `Reject Suggestion: ${suggestion.title}`,
+        detail: suggestion.message,
+        keywords: [suggestion.status, suggestion.conflict],
+        disabled: busyAction !== null || suggestion.status !== "suggested",
+        onSelect: () => updateSuggestionDecision(suggestion.id, "rejected")
+      }
+    ]) ?? []),
+    ...promptTurns.slice(-6).map((turn) => ({
+      id: `prompt-turn-${turn.id}`,
+      group: "Branches",
+      label: `Prompt Turn: ${turn.source}`,
+      detail: turn.prompt,
+      disabled: true,
+      onSelect: () => {}
+    })),
     {
       id: "integration-refresh",
       group: "Integrations",
@@ -2037,7 +2015,7 @@ export function App() {
         id: `integration-status-${setup.id}`,
         group: "Integrations",
         label: `${setup.label} Integration`,
-        detail: `${setup.secretName} is ${storedSecretNames.has(setup.secretName) ? "stored" : "missing"}.`,
+        detail: `${setup.secretName} is ${storedSecretNames.has(setup.secretName) ? "stored" : "missing"}; ${integrationStatus(setup.id, integrationReadiness, googleConnected).label}.`,
         disabled: true,
         onSelect: () => {}
       },
@@ -2123,216 +2101,9 @@ export function App() {
         paletteCommands.filter((command) => commandMatchesQuery(command, paletteQuery))
       : [];
 
-  function activateRailItem(id: string) {
-    setActiveRailItemId(id);
-    if (id === "search") {
-      componentSearchInputRef.current?.focus();
-    }
-    if (id === "components") {
-      setSelectedComponentCategory("input-output");
-    }
-    if (id === "attachments") {
-      setSelectedComponentCategory("files-knowledge");
-    }
-  }
-
   return (
     <main className="app-shell">
       <section className="workspace">
-        <aside className="panel planner-panel" aria-label="Workflow planner">
-          <nav className="workspace-rail" aria-label="Workspace navigation">
-            {(
-              [
-                ["search", "Search"],
-                ["components", "Components"],
-                ["attachments", "Attachments"],
-                ["history", "History"]
-              ] as const
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                aria-current={activeRailItemId === id ? "page" : undefined}
-                aria-pressed={
-                  id === "attachments" && selectedComponentCategory === "files-knowledge"
-                    ? "true"
-                    : undefined
-                }
-                onClick={() => activateRailItem(id)}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
-          <label className="search-box">
-            Search components
-            <input
-              ref={componentSearchInputRef}
-              value={componentSearch}
-              placeholder="Search"
-              onChange={(event) => setComponentSearch(event.target.value)}
-            />
-          </label>
-          <section aria-label="Components" className="component-palette">
-            <div className="component-heading">
-              <h2>Components</h2>
-            </div>
-            <div className="component-list" aria-label="Component categories">
-              {componentCategories.map((category) => {
-                const Icon = category.icon;
-                return (
-                  <button
-                    key={category.id}
-                    type="button"
-                    className={
-                      selectedComponentCategory === category.id
-                        ? "component-row component-row-active"
-                        : "component-row"
-                    }
-                    aria-pressed={selectedComponentCategory === category.id}
-                    onClick={() => setSelectedComponentCategory(category.id)}
-                  >
-                    <Icon size={18} />
-                    {category.label}
-                    <ChevronIndicator />
-                  </button>
-                );
-              })}
-              <button
-                type="button"
-                className="discover-button"
-                onClick={() => setSelectedComponentCategory("all")}
-              >
-                <Table2 size={18} />
-                Discover more components
-                <ChevronIndicator />
-              </button>
-            </div>
-            <div className="component-list" aria-label="Available components">
-              {visibleComponentItems.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className="component-option"
-                  onClick={() => addComponentNode(item)}
-                  disabled={branchLifecycleLocked}
-                >
-                  <span>
-                    <strong>Add {item.label}</strong>
-                    <small>{item.description}</small>
-                  </span>
-                  <Plus size={16} />
-                </button>
-              ))}
-            </div>
-          </section>
-          <form
-            className="prompt-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              planDraft();
-            }}
-          >
-            <label>
-              Workflow Prompt
-              <textarea
-                value={prompt}
-                onChange={(event) => updatePrompt(event.target.value)}
-                placeholder="Describe the workflow to build"
-              />
-            </label>
-            <button
-              type="submit"
-              disabled={busyAction !== null || branchLifecycleLocked || prompt.trim().length === 0}
-            >
-              <WandSparkles size={18} />
-              Plan
-            </button>
-          </form>
-          <section aria-label="Workflow summary" className="validation-panel">
-            <div className="panel-heading">
-              <GitBranch size={18} />
-              <h2>{workflow.name}</h2>
-            </div>
-            <div className="summary-grid">
-              <StatusRow label="Nodes" value={String(workflow.nodes.length)} tone="pending" />
-              <StatusRow label="Edges" value={String(workflow.edges.length)} tone="pending" />
-              <StatusRow label="Revision" value={String(workflow.revision)} tone="pending" />
-            </div>
-            {validationIssues.length > 0 ? (
-              <ul className="event-list" aria-label="Validation issues">
-                {validationIssues.map((issue, index) => (
-                  <li key={`${issue.code}-${index}`}>
-                    <button type="button" onClick={() => selectIssue(issue)}>
-                      <strong>{issue.code}</strong>
-                      <span>{issue.message}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </section>
-          <ClarificationPanel
-            clarification={paletteMode.kind === "clarification" ? null : clarification}
-            answers={clarificationAnswers}
-            onAnswerChange={updateClarificationAnswer}
-          />
-          <RoutePanel route={taskRoute} />
-          <DraftEvaluationPanel evaluation={draftEvaluation} />
-          <FeedbackPanel feedback={plannerFeedback} onDecision={updateSuggestionDecision} />
-          <BranchPanel
-            branches={visibleBranches}
-            activeBranch={activeBranch}
-            activeBranchId={activeBranchId}
-            promptTurns={promptTurns}
-            branchNameDraft={branchNameDraft}
-            branchRenameDraft={branchRenameDraft}
-            showArchivedBranches={showArchivedBranches}
-            branchNotice={branchNotice}
-            busyAction={busyAction}
-            onBranchNameChange={setBranchNameDraft}
-            onBranchRenameChange={setBranchRenameDraft}
-            onShowArchivedChange={setShowArchivedBranches}
-            onFork={forkBranch}
-            onSwitch={switchBranch}
-            onRename={renameBranch}
-            onArchiveToggle={toggleBranchArchive}
-          />
-          <BranchMergeReusePanel
-            activeBranch={activeBranch}
-            mergeSources={mergeSources}
-            mergeSourceBranchId={mergeSourceBranchId}
-            mergeMode={mergeMode}
-            mergePreview={mergePreview}
-            mergeResolutionModes={mergeResolutionModes}
-            mergeManualJson={mergeManualJson}
-            reuseDecisions={reuseDecisions}
-            busyAction={busyAction}
-            branchLifecycleLocked={branchLifecycleLocked}
-            onMergeSourceChange={setMergeSourceBranchId}
-            onMergeModeChange={setMergeMode}
-            onPreviewMerge={previewMerge}
-            onApplyMerge={applyMerge}
-            onResolutionModeChange={updateMergeResolutionMode}
-            onManualResolutionChange={updateMergeManualJson}
-            onRefreshReuse={refreshReuseCandidates}
-          />
-          <IntegrationPanel
-            adminToken={adminToken}
-            integrations={integrationReadiness}
-            secrets={secretMetadata}
-            googleConnected={googleConnected}
-            secretDrafts={secretDrafts}
-            busyAction={busyAction}
-            onAdminTokenChange={updateAdminToken}
-            onRefresh={refreshIntegrations}
-            onSecretDraftChange={updateSecretDraft}
-            onSaveSecret={saveSecret}
-            onDeleteSecret={deleteSecret}
-            onConnectGoogle={connectGoogle}
-            onRevokeGoogle={revokeGoogle}
-          />
-        </aside>
         <section className="canvas-panel" aria-label="Workflow graph">
           <header className="topbar">
             <div>
@@ -2341,6 +2112,10 @@ export function App() {
               <p className="topbar-workflow">Revision {workflow.revision}</p>
             </div>
             <div className="topbar-actions" aria-label="Workflow actions">
+              <button type="button" title="Open command palette" onClick={() => openPalette()}>
+                <Search size={18} />
+                Commands
+              </button>
               <button
                 title="Validate workflow"
                 onClick={validateDraft}
@@ -2545,9 +2320,10 @@ export function App() {
         onSubmitAdminToken={submitPaletteAdminToken}
         onSubmitSecret={submitPaletteSecret}
       />
-      {apiError ? (
+      {apiError || branchNotice ? (
         <div className="app-toast-stack" aria-live="polite">
-          <p className="error-text">{apiError}</p>
+          {apiError ? <p className="error-text">{apiError}</p> : null}
+          {branchNotice ? <p className="success-text">{branchNotice}</p> : null}
         </div>
       ) : null}
     </main>
@@ -2870,10 +2646,6 @@ function PaletteTextForm(props: {
   );
 }
 /* eslint-enable react-hooks/refs */
-
-function ChevronIndicator() {
-  return <span aria-hidden="true">&gt;</span>;
-}
 
 function Inspector(props: {
   readonly workflow: WorkflowSpec;
@@ -3254,38 +3026,6 @@ function DecisionTracePanel(props: {
   );
 }
 
-function ClarificationPanel(props: {
-  readonly clarification: WorkflowClarificationRequest | null;
-  readonly answers: Readonly<Record<string, string>>;
-  readonly onAnswerChange: (questionId: string, value: string) => void;
-}) {
-  if (!props.clarification) {
-    return null;
-  }
-
-  return (
-    <section aria-label="Clarification questions" className="clarification-panel">
-      <div className="panel-heading">
-        <MessageCircle size={18} />
-        <h2>Clarification</h2>
-      </div>
-      <p className="muted-text">{props.clarification.reason}</p>
-      {props.clarification.questions.map((question) => (
-        <label key={question.id}>
-          {question.question}
-          <textarea
-            value={props.answers[question.id] ?? ""}
-            placeholder={question.placeholder}
-            rows={2}
-            required={question.required}
-            onChange={(event) => props.onAnswerChange(question.id, event.target.value)}
-          />
-        </label>
-      ))}
-    </section>
-  );
-}
-
 type WorkflowBranchPlanSuccessResponse = WorkflowPlanSuccessResponse & {
   readonly branch: WorkflowBranch;
   readonly promptTurn: WorkflowPromptTurn;
@@ -3295,532 +3035,6 @@ function isBranchPlanSuccessResponse(
   response: WorkflowPlanResponse | WorkflowBranchPlanResponse
 ): response is WorkflowBranchPlanSuccessResponse {
   return "branch" in response && "promptTurn" in response;
-}
-
-function BranchPanel(props: {
-  readonly branches: readonly WorkflowBranch[];
-  readonly activeBranch: WorkflowBranch | null;
-  readonly activeBranchId: string | null;
-  readonly promptTurns: readonly WorkflowPromptTurn[];
-  readonly branchNameDraft: string;
-  readonly branchRenameDraft: string;
-  readonly showArchivedBranches: boolean;
-  readonly branchNotice: string | null;
-  readonly busyAction: string | null;
-  readonly onBranchNameChange: (value: string) => void;
-  readonly onBranchRenameChange: (value: string) => void;
-  readonly onShowArchivedChange: (value: boolean) => void;
-  readonly onFork: () => void;
-  readonly onSwitch: (branchId: string) => void;
-  readonly onRename: () => void;
-  readonly onArchiveToggle: () => void;
-}) {
-  const activeBranchIsDefault = props.activeBranch?.id.endsWith(".main") === true;
-
-  return (
-    <section aria-label="Branch tree" className="validation-panel">
-      <div className="panel-heading">
-        <GitBranch size={18} />
-        <h2>Branches</h2>
-      </div>
-      <StatusRow
-        label="Active"
-        value={props.activeBranch?.name ?? "none"}
-        tone={props.activeBranchId ? "valid" : "idle"}
-      />
-      <label className="inline-control">
-        <input
-          type="checkbox"
-          checked={props.showArchivedBranches}
-          onChange={(event) => props.onShowArchivedChange(event.target.checked)}
-        />
-        Show archived
-      </label>
-      <div className="branch-list">
-        {props.branches.map((branch) => (
-          <button
-            key={branch.id}
-            className={
-              branch.id === props.activeBranchId ? "branch-row branch-row-active" : "branch-row"
-            }
-            type="button"
-            onClick={() => props.onSwitch(branch.id)}
-            disabled={props.busyAction !== null || branch.id === props.activeBranchId}
-          >
-            <span>{branch.name}</span>
-            <strong>{branch.status}</strong>
-          </button>
-        ))}
-      </div>
-      <label>
-        Rename active branch
-        <input
-          value={props.branchRenameDraft}
-          onChange={(event) => props.onBranchRenameChange(event.target.value)}
-          disabled={!props.activeBranch}
-        />
-      </label>
-      <div className="integration-actions">
-        <button
-          type="button"
-          onClick={() => props.onRename()}
-          disabled={
-            props.busyAction !== null ||
-            !props.activeBranch ||
-            props.branchRenameDraft.trim().length === 0
-          }
-        >
-          <CheckCircle2 size={16} />
-          Rename
-        </button>
-        <button
-          type="button"
-          onClick={() => props.onArchiveToggle()}
-          disabled={props.busyAction !== null || !props.activeBranch || activeBranchIsDefault}
-        >
-          <Trash2 size={16} />
-          {props.activeBranch?.status === "archived" ? "Restore" : "Archive"}
-        </button>
-      </div>
-      <label>
-        Fork name
-        <input
-          value={props.branchNameDraft}
-          onChange={(event) => props.onBranchNameChange(event.target.value)}
-        />
-      </label>
-      <button
-        type="button"
-        onClick={() => props.onFork()}
-        disabled={
-          props.busyAction !== null ||
-          !props.activeBranch ||
-          props.branchNameDraft.trim().length === 0 ||
-          props.activeBranch?.status === "archived"
-        }
-      >
-        <GitBranch size={16} />
-        Fork Branch
-      </button>
-      {props.branchNotice ? <p className="success-text">{props.branchNotice}</p> : null}
-      {props.promptTurns.length > 0 ? (
-        <ul className="event-list">
-          {props.promptTurns.slice(-4).map((turn) => (
-            <li key={turn.id}>
-              <strong>{turn.source}</strong>
-              <span>{turn.prompt}</span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </section>
-  );
-}
-
-function BranchMergeReusePanel(props: {
-  readonly activeBranch: WorkflowBranch | null;
-  readonly mergeSources: readonly WorkflowBranch[];
-  readonly mergeSourceBranchId: string;
-  readonly mergeMode: "merge" | "cherry-pick";
-  readonly mergePreview: WorkflowBranchMergePreview | null;
-  readonly mergeResolutionModes: Readonly<Record<string, "source" | "target" | "manual">>;
-  readonly mergeManualJson: Readonly<Record<string, string>>;
-  readonly reuseDecisions: readonly WorkflowGeneratedModuleReuseDecision[];
-  readonly busyAction: string | null;
-  readonly branchLifecycleLocked: boolean;
-  readonly onMergeSourceChange: (branchId: string) => void;
-  readonly onMergeModeChange: (mode: "merge" | "cherry-pick") => void;
-  readonly onPreviewMerge: () => void;
-  readonly onApplyMerge: () => void;
-  readonly onResolutionModeChange: (
-    conflictId: string,
-    mode: "source" | "target" | "manual"
-  ) => void;
-  readonly onManualResolutionChange: (conflictId: string, value: string) => void;
-  readonly onRefreshReuse: () => void;
-}) {
-  const selectedSourceArchived =
-    props.mergeSources.find((branch) => branch.id === props.mergeSourceBranchId)?.status ===
-    "archived";
-
-  return (
-    <section aria-label="Branch merge and reuse" className="validation-panel">
-      <div className="panel-heading">
-        <GitBranch size={18} />
-        <h2>Merge & Reuse</h2>
-      </div>
-      <label>
-        Source branch
-        <select
-          value={props.mergeSourceBranchId}
-          onChange={(event) => props.onMergeSourceChange(event.target.value)}
-          disabled={!props.activeBranch || props.branchLifecycleLocked}
-        >
-          <option value="">Choose branch</option>
-          {props.mergeSources.map((branch) => (
-            <option key={branch.id} value={branch.id} disabled={branch.status === "archived"}>
-              {branch.name}
-              {branch.status === "archived" ? " (archived)" : ""}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        Mode
-        <select
-          value={props.mergeMode}
-          onChange={(event) =>
-            props.onMergeModeChange(event.target.value as "merge" | "cherry-pick")
-          }
-          disabled={!props.activeBranch || props.branchLifecycleLocked}
-        >
-          <option value="merge">Merge</option>
-          <option value="cherry-pick">Cherry-pick</option>
-        </select>
-      </label>
-      <div className="integration-actions">
-        <button
-          type="button"
-          onClick={() => props.onPreviewMerge()}
-          disabled={
-            props.busyAction !== null ||
-            !props.activeBranch ||
-            props.branchLifecycleLocked ||
-            props.mergeSourceBranchId.length === 0 ||
-            selectedSourceArchived
-          }
-        >
-          Preview
-        </button>
-        <button
-          type="button"
-          onClick={() => props.onApplyMerge()}
-          disabled={
-            props.busyAction === "branch-merge" ||
-            !props.mergePreview ||
-            props.mergePreview.status === "blocked" ||
-            props.branchLifecycleLocked ||
-            selectedSourceArchived
-          }
-        >
-          Apply
-        </button>
-        <button
-          type="button"
-          onClick={() => props.onRefreshReuse()}
-          disabled={props.busyAction !== null || !props.activeBranch || props.branchLifecycleLocked}
-        >
-          Reuse Candidates
-        </button>
-      </div>
-      {props.mergePreview ? (
-        <div className="merge-preview">
-          <StatusRow
-            label="Preview"
-            value={props.mergePreview.status}
-            tone={props.mergePreview.status}
-          />
-          <ul className="diff-summary">
-            {props.mergePreview.summary.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-          {props.mergePreview.conflicts.map((conflict) => (
-            <MergeConflictItem
-              key={conflict.id}
-              conflict={conflict}
-              mode={props.mergeResolutionModes[conflict.id] ?? ""}
-              manualJson={props.mergeManualJson[conflict.id] ?? ""}
-              onModeChange={props.onResolutionModeChange}
-              onManualChange={props.onManualResolutionChange}
-            />
-          ))}
-        </div>
-      ) : null}
-      {props.reuseDecisions.length > 0 ? (
-        <ul className="event-list">
-          {props.reuseDecisions.map((decision) => (
-            <li key={decision.id}>
-              <strong>{decision.status}</strong>
-              <span>
-                {decision.nodeId}
-                {decision.sourceBranchId ? ` from ${decision.sourceBranchId}` : ""}
-                {decision.gates.length ? ` (${decision.gates.join(", ")})` : ""}
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </section>
-  );
-}
-
-function MergeConflictItem(props: {
-  readonly conflict: WorkflowBranchMergeConflict;
-  readonly mode: "source" | "target" | "manual" | "";
-  readonly manualJson: string;
-  readonly onModeChange: (conflictId: string, mode: "source" | "target" | "manual") => void;
-  readonly onManualChange: (conflictId: string, value: string) => void;
-}) {
-  return (
-    <div className="issue-button">
-      <strong>{props.conflict.kind}</strong>
-      <span>{props.conflict.message}</span>
-      <div className="integration-actions">
-        <button type="button" onClick={() => props.onModeChange(props.conflict.id, "source")}>
-          Use Source
-        </button>
-        <button type="button" onClick={() => props.onModeChange(props.conflict.id, "target")}>
-          Keep Target
-        </button>
-        <button type="button" onClick={() => props.onModeChange(props.conflict.id, "manual")}>
-          Manual
-        </button>
-      </div>
-      <StatusRow
-        label="Resolution"
-        value={props.mode || "unresolved"}
-        tone={props.mode ? "valid" : "blocked"}
-      />
-      {props.mode === "manual" ? (
-        <textarea
-          aria-label={`Manual resolution for ${props.conflict.id}`}
-          value={props.manualJson}
-          rows={4}
-          onChange={(event) => props.onManualChange(props.conflict.id, event.target.value)}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-function RoutePanel(props: { readonly route: WorkflowTaskRoute | null }) {
-  return (
-    <section aria-label="Task route" className="validation-panel">
-      <div className="panel-heading">
-        <GitBranch size={18} />
-        <h2>Route</h2>
-      </div>
-      <StatusRow
-        label="Mode"
-        value={props.route?.route ?? "unrouted"}
-        tone={props.route ? "valid" : "pending"}
-      />
-      <StatusRow
-        label="Model"
-        value={props.route?.requiredModel.mode ?? "none"}
-        tone={props.route?.requiredModel.mode === "live" ? "pending" : "valid"}
-      />
-      <StatusRow
-        label="Production"
-        value={props.route?.productionDeterministic === false ? "agentic" : "deterministic"}
-        tone={props.route?.productionDeterministic === false ? "pending" : "valid"}
-      />
-      {props.route ? <p className="muted-text">{props.route.rationale}</p> : null}
-    </section>
-  );
-}
-
-function DraftEvaluationPanel(props: { readonly evaluation: WorkflowDraftEvaluation | null }) {
-  return (
-    <section aria-label="Draft evaluation" className="validation-panel">
-      <div className="panel-heading">
-        <ListChecks size={18} />
-        <h2>Draft Eval</h2>
-      </div>
-      <StatusRow
-        label="Status"
-        value={props.evaluation?.status ?? "not run"}
-        tone={props.evaluation?.readyForApproval ? "valid" : "pending"}
-      />
-      <StatusRow
-        label="Approval"
-        value={props.evaluation?.readyForApproval ? "ready" : "blocked"}
-        tone={props.evaluation?.readyForApproval ? "approved" : "blocked"}
-      />
-      {props.evaluation?.findings.length ? (
-        <div className="issue-list">
-          {props.evaluation.findings.map((finding) => (
-            <div className="issue-button" key={finding.id}>
-              <strong>{finding.severity}</strong>
-              <span>{finding.message}</span>
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-function FeedbackPanel(props: {
-  readonly feedback: WorkflowPlannerFeedback | null;
-  readonly onDecision: (suggestionId: string, status: "accepted" | "rejected") => void;
-}) {
-  if (!props.feedback) {
-    return null;
-  }
-
-  return (
-    <section aria-label="Planner feedback" className="validation-panel">
-      <div className="panel-heading">
-        <WandSparkles size={18} />
-        <h2>Suggestions</h2>
-      </div>
-      <StatusRow label="Status" value={props.feedback.status} tone={props.feedback.status} />
-      <div className="issue-list">
-        {props.feedback.suggestions.map((suggestion) => (
-          <SuggestionItem
-            key={suggestion.id}
-            suggestion={suggestion}
-            onDecision={props.onDecision}
-          />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function SuggestionItem(props: {
-  readonly suggestion: WorkflowPlannerSuggestion;
-  readonly onDecision: (suggestionId: string, status: "accepted" | "rejected") => void;
-}) {
-  return (
-    <div className="issue-button">
-      <strong>{props.suggestion.title}</strong>
-      <span>{props.suggestion.message}</span>
-      <div className="integration-actions">
-        <button
-          type="button"
-          onClick={() => props.onDecision(props.suggestion.id, "accepted")}
-          disabled={props.suggestion.status !== "suggested"}
-        >
-          Accept
-        </button>
-        <button
-          type="button"
-          onClick={() => props.onDecision(props.suggestion.id, "rejected")}
-          disabled={props.suggestion.status !== "suggested"}
-        >
-          Reject
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function IntegrationPanel(props: {
-  readonly adminToken: string;
-  readonly integrations: readonly IntegrationReadiness[];
-  readonly secrets: readonly SecretMetadata[];
-  readonly googleConnected: boolean | null;
-  readonly secretDrafts: Readonly<Record<string, string>>;
-  readonly busyAction: string | null;
-  readonly onAdminTokenChange: (value: string) => void;
-  readonly onRefresh: () => Promise<void>;
-  readonly onSecretDraftChange: (secretName: string, value: string) => void;
-  readonly onSaveSecret: (secretName: string) => void;
-  readonly onDeleteSecret: (secretName: string) => void;
-  readonly onConnectGoogle: () => void;
-  readonly onRevokeGoogle: () => void;
-}) {
-  const secretMap = new Map(props.secrets.map((secret) => [secret.name, secret]));
-
-  return (
-    <section className="integration-panel" aria-label="Integration setup">
-      <div className="panel-heading">
-        <KeyRound size={18} />
-        <h2>Integrations</h2>
-        <button
-          className="icon-button"
-          type="button"
-          title="Refresh integrations"
-          onClick={() => {
-            void props.onRefresh();
-          }}
-        >
-          <RefreshCw size={16} />
-        </button>
-      </div>
-      <label>
-        Admin token
-        <input
-          type="password"
-          value={props.adminToken}
-          onChange={(event) => props.onAdminTokenChange(event.target.value)}
-          autoComplete="off"
-        />
-      </label>
-      <div className="integration-list">
-        {integrationSetups.map((setup) => {
-          const Icon = setup.icon;
-          const status = integrationStatus(setup.id, props.integrations, props.googleConnected);
-          const secret = secretMap.get(setup.secretName);
-          const draft = props.secretDrafts[setup.secretName] ?? "";
-          return (
-            <section className="integration-row" key={setup.id}>
-              <div className="integration-row-header">
-                <span>
-                  <Icon size={16} />
-                  {setup.label}
-                </span>
-                <strong className={`status-pill status-${status.tone}`}>{status.label}</strong>
-              </div>
-              <div className="secret-meta">
-                <span>{setup.secretName}</span>
-                <span>{secret ? "stored" : "missing"}</span>
-              </div>
-              <textarea
-                aria-label={`${setup.label} secret`}
-                value={draft}
-                placeholder={setup.placeholder}
-                rows={2}
-                onChange={(event) =>
-                  props.onSecretDraftChange(setup.secretName, event.target.value)
-                }
-              />
-              <div className="integration-actions">
-                {setup.id === "google" ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={props.onConnectGoogle}
-                      disabled={props.busyAction !== null}
-                    >
-                      <Table2 size={16} />
-                      Connect
-                    </button>
-                    <button
-                      type="button"
-                      onClick={props.onRevokeGoogle}
-                      disabled={props.busyAction !== null || !secret}
-                    >
-                      Revoke
-                    </button>
-                  </>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => props.onSaveSecret(setup.secretName)}
-                  disabled={props.busyAction !== null || draft.trim().length === 0}
-                >
-                  <CheckCircle2 size={16} />
-                  Save
-                </button>
-                <button
-                  type="button"
-                  onClick={() => props.onDeleteSecret(setup.secretName)}
-                  disabled={props.busyAction !== null || !secret}
-                >
-                  <Trash2 size={16} />
-                  Delete
-                </button>
-              </div>
-            </section>
-          );
-        })}
-      </div>
-    </section>
-  );
 }
 
 function integrationStatus(
@@ -4459,7 +3673,7 @@ function categoryLabel(category: ComponentPaletteFilter): string {
     return "All components";
   }
 
-  return componentCategories.find((candidate) => candidate.id === category)?.label ?? "Components";
+  return componentCategoryLabels[category] ?? "Components";
 }
 
 function uniqueComponentNodeId(baseId: string, nodes: readonly WorkflowNode[]): string {

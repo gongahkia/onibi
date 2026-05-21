@@ -39,14 +39,16 @@ describe("OpenClaw planner shell", () => {
     render(<App />);
 
     expect(screen.getByRole("heading", { name: "OpenClaw" })).toBeInTheDocument();
-    expect(screen.getByText("Untitled Workflow")).toBeInTheDocument();
-    expect(screen.getByLabelText("Workflow Prompt")).toHaveValue("");
     expect(screen.getByText("workflow.openclaw-draft")).toBeInTheDocument();
     expect(screen.getByText("Selected Edge")).toBeInTheDocument();
-    expect(screen.getByLabelText("Workflow summary")).toHaveTextContent(/Nodes\s*0/u);
-    expect(screen.getByLabelText("Workflow summary")).toHaveTextContent(/Edges\s*0/u);
     expect(screen.queryByLabelText("Label")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Plan$/i })).toBeDisabled();
+    expect(screen.queryByLabelText("Workflow planner")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Workspace navigation")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Search components")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Component categories")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Workflow Prompt")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Plan$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Commands/i })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Accept Plan/i })).toBeDisabled();
     expect(screen.getByRole("button", { name: /Evaluate/i })).toBeDisabled();
   });
@@ -54,16 +56,22 @@ describe("OpenClaw planner shell", () => {
   it("renders live integration readiness and sends admin bearer auth", async () => {
     render(<App />);
 
-    expect(await screen.findByLabelText("Integration setup")).toBeInTheDocument();
-    expect(screen.getByText("google.oauth.default")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringMatching(/\/api\/secrets$/u),
+        expect.any(Object)
+      );
+    });
+    await filterCommand("Google Integration");
+    expect(screen.getByText(/google\.oauth\.default is stored; ready/u)).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Command palette" }), { key: "Escape" });
 
+    await executeCommand("Set Admin Token");
     fireEvent.change(screen.getByLabelText("Admin token"), {
       target: { value: "local-admin-token" }
     });
-    fireEvent.change(screen.getByLabelText("Workflow Prompt"), {
-      target: { value: "extract transaction details from Gmail receipts into Sheets" }
-    });
-    fireEvent.click(screen.getByRole("button", { name: /^Plan$/i }));
+    fireEvent.submit(screen.getByLabelText("Admin token").closest("form")!);
+    await planWorkflowFromPalette("extract transaction details from Gmail receipts into Sheets");
 
     await waitFor(() => {
       expect(fetch).toHaveBeenCalledWith(
@@ -93,6 +101,7 @@ describe("OpenClaw planner shell", () => {
     });
     fireEvent.blur(screen.getByLabelText("Inputs"));
 
+    await filterCommand("WORKFLOW_EDGE_TARGET_PORT_INVALID");
     expect(await screen.findByText("WORKFLOW_EDGE_TARGET_PORT_INVALID")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /approve/i })).toBeDisabled();
   });
@@ -130,49 +139,43 @@ describe("OpenClaw planner shell", () => {
   it("uses component categories and search to add concrete nodes", async () => {
     render(<App />);
 
-    expect(screen.getByRole("button", { name: /Add Manual Input/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Component categories")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Available components")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Data Sources" }));
-    fireEvent.click(screen.getByRole("button", { name: /Add Gmail Receipts/i }));
+    await executeCommand("Add Gmail Receipts");
     expect(screen.getByLabelText("Label")).toHaveValue("Gmail Receipts");
-    expect(screen.getByLabelText("Workflow summary")).toHaveTextContent(/Nodes\s*1/u);
+    await filterCommand("Workflow:");
+    expect(screen.getByText(/1 nodes, 0 edges/u)).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Command palette" }), { key: "Escape" });
 
-    fireEvent.click(screen.getByRole("button", { name: /Discover more components/i }));
-    expect(screen.getByRole("button", { name: /Add Generated Code/i })).toBeInTheDocument();
-
-    fireEvent.change(screen.getByLabelText("Search components"), {
-      target: { value: "research" }
-    });
-    fireEvent.click(screen.getByRole("button", { name: /Add Research Agent/i }));
+    await executeCommand("research");
     expect(screen.getByLabelText("Label")).toHaveValue("Research Agent");
-    expect(screen.getByLabelText("Workflow summary")).toHaveTextContent(/Nodes\s*2/u);
+    await filterCommand("Workflow:");
+    expect(screen.getByText(/2 nodes, 0 edges/u)).toBeInTheDocument();
   });
 
-  it("wires the workspace navigation rail to sidebar targets", () => {
+  it("opens the command palette globally and blocks disabled commands", async () => {
     render(<App />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Search" }));
-    expect(screen.getByLabelText("Search components")).toHaveFocus();
+    const metaInput = await openCommandPaletteWithKey("meta");
+    expect(metaInput).toHaveFocus();
+    fireEvent.keyDown(metaInput, { key: "Escape" });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Command palette" })).not.toBeInTheDocument();
+    });
 
-    fireEvent.click(screen.getByRole("button", { name: "Attachments" }));
-    expect(screen.getByRole("button", { name: "Attachments" })).toHaveAttribute(
-      "aria-current",
-      "page"
+    const ctrlInput = await openCommandPaletteWithKey("ctrl");
+    fireEvent.change(ctrlInput, { target: { value: "Accept Plan" } });
+    const acceptCommand = (await screen.findAllByText("Accept Plan")).find((element) =>
+      element.closest(".command-palette")
     );
-    expect(screen.getByRole("button", { name: "Files & Knowledge" })).toHaveAttribute(
-      "aria-pressed",
-      "true"
+    expect(acceptCommand).toBeDefined();
+    expect(acceptCommand?.closest("button")).toBeDisabled();
+    fireEvent.keyDown(ctrlInput, { key: "Enter" });
+    expect(fetch).not.toHaveBeenCalledWith(
+      expect.stringMatching(/\/accept-plan$/u),
+      expect.any(Object)
     );
-
-    fireEvent.click(screen.getByRole("button", { name: "History" }));
-    expect(screen.getByRole("button", { name: "History" })).toHaveAttribute("aria-current", "page");
-
-    fireEvent.click(screen.getByRole("button", { name: "Components" }));
-    expect(screen.getByRole("button", { name: "Components" })).toHaveAttribute(
-      "aria-current",
-      "page"
-    );
-    expect(screen.getByLabelText("Available components")).toHaveTextContent("Manual Input");
   });
 
   it("configures adapter-backed delivery skills and opt-in push channels", async () => {
@@ -209,12 +212,9 @@ describe("OpenClaw planner shell", () => {
   it("plans a prompt through the mocked API and reprompts a node", async () => {
     render(<App />);
 
-    fireEvent.change(screen.getByLabelText("Workflow Prompt"), {
-      target: { value: "monitor urgent support messages and send Telegram alerts" }
-    });
-    fireEvent.click(screen.getByRole("button", { name: /^Plan$/i }));
+    await planWorkflowFromPalette("monitor urgent support messages and send Telegram alerts");
 
-    expect(await screen.findByText("Monitor Urgent Support Messages And")).toBeInTheDocument();
+    expect(await screen.findByText("Classify Urgency")).toBeInTheDocument();
     expect(screen.getByText("Approve Alert")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Node Prompt"), {
@@ -229,10 +229,7 @@ describe("OpenClaw planner shell", () => {
   it("asks clarification questions before planning vague research prompts", async () => {
     render(<App />);
 
-    fireEvent.change(screen.getByLabelText("Workflow Prompt"), {
-      target: { value: "i want to have someone research this tasking for me" }
-    });
-    fireEvent.click(screen.getByRole("button", { name: /^Plan$/i }));
+    await planWorkflowFromPalette("i want to have someone research this tasking for me");
 
     expect(await screen.findByRole("heading", { name: "Clarify First" })).toBeInTheDocument();
     expect(screen.getByText(/What exact topic/u)).toBeInTheDocument();
@@ -265,10 +262,7 @@ describe("OpenClaw planner shell", () => {
   it("reviews and promotes generated code nodes", async () => {
     render(<App />);
 
-    fireEvent.change(screen.getByLabelText("Workflow Prompt"), {
-      target: { value: "scrape a custom public status page and summarize incidents" }
-    });
-    fireEvent.click(screen.getByRole("button", { name: /^Plan$/i }));
+    await planWorkflowFromPalette("scrape a custom public status page and summarize incidents");
 
     expect(await screen.findByText("Scrape Status Page")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Build Generated Node/i }));
@@ -311,59 +305,56 @@ describe("OpenClaw planner shell", () => {
     render(<App />);
     await planGmailWorkflow();
 
-    expect(await screen.findByRole("heading", { name: "Branches" })).toBeInTheDocument();
+    await executeCommand("Fork Branch");
     fireEvent.change(screen.getByLabelText("Fork name"), {
       target: { value: "Tax branch" }
     });
-    fireEvent.click(screen.getByRole("button", { name: /Fork Branch/i }));
+    fireEvent.submit(screen.getByLabelText("Fork name").closest("form")!);
     expect(await screen.findByText("Forked Tax branch")).toBeInTheDocument();
 
-    const sourceBranchSelect = screen.getByLabelText("Source branch") as HTMLSelectElement;
-    await waitFor(() => expect(sourceBranchSelect.options.length).toBeGreaterThan(1));
-    const sourceBranchId =
-      [...sourceBranchSelect.options].find((option) => option.value.length > 0)?.value ?? "";
-    fireEvent.change(sourceBranchSelect, {
-      target: { value: sourceBranchId }
-    });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Preview" })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
-    expect(await screen.findByText("both-edited")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Use Source" }));
-    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    const sourceBranchId = "branch.workflow.gmail-receipts-to-sheets.main";
+    await executeCommand("Preview Merge From main");
+    expect(await screen.findByText(/Merge preview conflicts/u)).toBeInTheDocument();
+    await executeCommand("Use Source For both-edited");
+    await executeCommand("Apply Merge Preview");
     expect(
       await screen.findByText(new RegExp(`Merged ${sourceBranchId}`, "u"))
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /Reuse Candidates/i }));
-    expect(await screen.findByText("reuse-with-reeval")).toBeInTheDocument();
-    expect(screen.getByText(/scrape-status-page/u)).toBeInTheDocument();
+    await executeCommand("Refresh Reuse Candidates");
+    expect(await screen.findByText("Reuse candidates: 1")).toBeInTheDocument();
+    await filterCommand("reuse-with-reeval");
+    expect(screen.getByText(/Reuse scrape-status-page: reuse-with-reeval/u)).toBeInTheDocument();
   });
 
   it("renames, archives, hides, and restores workflow branches", async () => {
     render(<App />);
     await planGmailWorkflow();
 
-    expect(await screen.findByRole("heading", { name: "Branches" })).toBeInTheDocument();
+    await executeCommand("Fork Branch");
     fireEvent.change(screen.getByLabelText("Fork name"), {
       target: { value: "Archive me" }
     });
-    fireEvent.click(screen.getByRole("button", { name: /Fork Branch/i }));
+    fireEvent.submit(screen.getByLabelText("Fork name").closest("form")!);
     expect(await screen.findByText("Forked Archive me")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Rename active branch"), {
+    await executeCommand("Rename Active Branch");
+    fireEvent.change(screen.getByLabelText("Branch name"), {
       target: { value: "Archived plan" }
     });
-    fireEvent.click(screen.getByRole("button", { name: /^Rename$/i }));
+    fireEvent.submit(screen.getByLabelText("Branch name").closest("form")!);
     expect(await screen.findByText("Renamed branch to Archived plan")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /^Archive$/i }));
+    await executeCommand("Archive Active Branch");
     expect(await screen.findByText("Archived Archived plan")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Plan$/i })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /^Restore$/i })).toBeInTheDocument();
+    await filterCommand("Plan Workflow");
+    expect(screen.getByText("Plan Workflow").closest("button")).toBeDisabled();
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Command palette" }), { key: "Escape" });
 
-    fireEvent.click(screen.getByRole("button", { name: /^Restore$/i }));
+    await executeCommand("Restore Active Branch");
     expect(await screen.findByText("Restored Archived plan")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Plan$/i })).toBeEnabled();
+    await filterCommand("Plan Workflow");
+    expect(screen.getByText("Plan Workflow").closest("button")).toBeEnabled();
 
     expect(fetch).toHaveBeenCalledWith(
       expect.stringContaining("/branches/branch.workflow.gmail-receipts-to-sheets.tax-branch"),
@@ -373,15 +364,41 @@ describe("OpenClaw planner shell", () => {
 });
 
 async function planGmailWorkflow() {
-  fireEvent.change(screen.getByLabelText("Workflow Prompt"), {
-    target: { value: "extract transaction details from Gmail receipts into Sheets" }
-  });
-  fireEvent.click(screen.getByRole("button", { name: /^Plan$/i }));
-  await screen.findByText("Gmail Receipts To Sheets");
+  await planWorkflowFromPalette("extract transaction details from Gmail receipts into Sheets");
   await screen.findByText("Read Gmail Receipts");
-  await waitFor(() => {
-    expect(screen.getByRole("button", { name: /Fork Branch/i })).toBeEnabled();
+}
+
+async function planWorkflowFromPalette(prompt: string) {
+  await executeCommand("Plan Workflow");
+  const promptInput = await screen.findByRole("textbox", { name: "Workflow prompt" });
+  fireEvent.change(promptInput, { target: { value: prompt } });
+  fireEvent.submit(promptInput.closest("form")!);
+}
+
+async function executeCommand(query: string) {
+  const input = await filterCommand(query);
+  fireEvent.keyDown(input, { key: "Enter" });
+}
+
+async function filterCommand(query: string) {
+  const input = await openCommandPaletteWithKey("meta");
+  fireEvent.change(input, { target: { value: query } });
+  return input;
+}
+
+async function openCommandPaletteWithKey(modifier: "meta" | "ctrl") {
+  const event = new KeyboardEvent("keydown", {
+    key: "p",
+    metaKey: modifier === "meta",
+    ctrlKey: modifier === "ctrl",
+    bubbles: true,
+    cancelable: true
   });
+  window.dispatchEvent(event);
+  expect(event.defaultPrevented).toBe(true);
+  const input = await screen.findByRole("textbox", { name: "Command palette" });
+  await waitFor(() => expect(input).toHaveFocus());
+  return input;
 }
 
 async function mockFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
