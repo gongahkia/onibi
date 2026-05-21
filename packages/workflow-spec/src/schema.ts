@@ -527,7 +527,10 @@ export const workflowNodeDecisionTraceEventSchema = z.object({
   alternativesConsidered: z.array(z.string().min(1)),
   selectedAction: z.string().min(1),
   inputSummary: z.string().min(1),
-  promptHash: z.string().regex(/^sha256:[a-f0-9]{64}$/).optional(),
+  promptHash: z
+    .string()
+    .regex(/^sha256:[a-f0-9]{64}$/)
+    .optional(),
   promptExcerpt: z.string().min(1).optional(),
   route: z.enum(["deterministic", "adapter", "codegen", "agentic", "deployment"]).optional(),
   provider: z.string().min(1).optional(),

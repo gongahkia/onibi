@@ -822,6 +822,69 @@ describe("kelpclaw api contracts", () => {
     expect(approved.statusCode).toBe(200);
   });
 
+  it("records per-node planner and codegen decision traces for eval export", async () => {
+    app = buildTestApiApp();
+
+    const planned = await app.inject({
+      method: "POST",
+      url: "/api/workflows/plan",
+      payload: {
+        prompt: "scrape a custom public status page and summarize incidents"
+      }
+    });
+    const workflow = planned.json().workflow;
+    const plannerTraces = await app.inject({
+      method: "GET",
+      url: `/api/workflows/${workflow.id}/decision-traces`
+    });
+    const nodePlannerTraces = await app.inject({
+      method: "GET",
+      url: `/api/workflows/${workflow.id}/nodes/scrape-status-page/decision-traces`
+    });
+    const built = await app.inject({
+      method: "POST",
+      url: `/api/workflows/${workflow.id}/codegen/scrape-status-page/build`,
+      payload: {
+        runTestsInDocker: false
+      }
+    });
+    const nodeTraces = await app.inject({
+      method: "GET",
+      url: `/api/workflows/${workflow.id}/nodes/scrape-status-page/decision-traces`
+    });
+    const traceExport = await app.inject({
+      method: "GET",
+      url: `/api/workflows/${workflow.id}/decision-traces/export`
+    });
+    const auditExport = await app.inject({
+      method: "GET",
+      url: `/api/workflows/${workflow.id}/audit/export`
+    });
+
+    expect(plannerTraces.statusCode).toBe(200);
+    expect(plannerTraces.json().traces.length).toBe(workflow.nodes.length);
+    expect(nodePlannerTraces.json().traces[0].events[0]).toMatchObject({
+      role: "planner",
+      kind: "planner.node-created",
+      route: "codegen",
+      promptHash: expect.stringMatching(/^sha256:/u)
+    });
+    expect(built.statusCode).toBe(200);
+    const codegenRoles = nodeTraces
+      .json()
+      .traces.map((trace: { events: readonly { role: string }[] }) => trace.events[0]?.role);
+    expect(codegenRoles).toContain("workflow-architect");
+    expect(codegenRoles).toContain("coder");
+    expect(codegenRoles).toContain("tester");
+    expect(codegenRoles).toContain("runner");
+    expect(codegenRoles).toContain("evaluator");
+    expect(traceExport.statusCode).toBe(200);
+    expect(traceExport.json().export.evalExamples.length).toBeGreaterThan(0);
+    expect(traceExport.body).toContain("decision-trace-eval-example");
+    expect(auditExport.statusCode).toBe(200);
+    expect(auditExport.body).toContain("node-decision-trace");
+  });
+
   it("reuses generated modules across branches only after a passing eval", async () => {
     app = buildTestApiApp();
 

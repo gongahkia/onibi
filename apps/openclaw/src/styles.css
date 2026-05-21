@@ -90,7 +90,7 @@ textarea::placeholder {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(520px, 1fr) minmax(318px, 370px);
+  grid-template-columns: minmax(320px, 380px) minmax(520px, 1fr) minmax(318px, 370px);
   height: 100vh;
   min-height: 0;
 }
@@ -112,6 +112,39 @@ textarea::placeholder {
   border-inline: 1px solid #333640 0;
 }
 
+.planner-panel {
+  align-content: start;
+  display: grid;
+  gap: 1rem;
+  grid-auto-rows: max-content;
+}
+
+.workspace-rail {
+  display: grid;
+  gap: 0.4rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.workspace-rail button {
+  min-width: 0;
+  padding-inline: 0.35rem;
+}
+
+.workspace-rail button[aria-current="page"] {
+  border-color: #6b7cff;
+}
+
+.search-box {
+  border-bottom: 1px solid #30333b;
+  padding-bottom: 0.75rem;
+}
+
+.summary-grid {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .prompt-form,
 .inspector-stack,
 .integration-panel,
@@ -119,6 +152,7 @@ textarea::placeholder {
 .validation-panel,
 .approval-panel,
 .codegen-panel,
+.decision-trace-panel,
 .run-panel {
   display: grid;
   gap: 0.75rem;
@@ -237,6 +271,7 @@ textarea::placeholder {
 .clarification-panel,
 .validation-panel,
 .approval-panel,
+.decision-trace-panel,
 .run-panel {
   border-top: 1px solid #30333b;
   padding-top: 0.95rem;

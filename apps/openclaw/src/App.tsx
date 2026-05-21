@@ -56,6 +56,7 @@ import type {
   JsonValue,
   WorkflowWorkspace,
   WorkflowNode,
+  WorkflowNodeDecisionTrace,
   WorkflowNodeKind,
   WorkflowPlanResponse,
   WorkflowPlanSuccessResponse,
@@ -488,6 +489,10 @@ export function App() {
   const [activeJob, setActiveJob] = useState<WorkflowJob | null>(null);
   const [workspace, setWorkspace] = useState<WorkflowWorkspace | null>(null);
   const [agentRuns, setAgentRuns] = useState<readonly unknown[]>([]);
+  const [nodeDecisionTraces, setNodeDecisionTraces] = useState<
+    readonly WorkflowNodeDecisionTrace[]
+  >([]);
+  const [decisionTraceExportNotice, setDecisionTraceExportNotice] = useState<string | null>(null);
   const [deploymentNotice, setDeploymentNotice] = useState<string | null>(null);
   const [planAcceptedNotice, setPlanAcceptedNotice] = useState<string | null>(null);
   const [deploymentActivations, setDeploymentActivations] =
@@ -506,6 +511,10 @@ export function App() {
     Readonly<Record<string, "source" | "target" | "manual">>
   >({});
   const [mergeManualJson, setMergeManualJson] = useState<Readonly<Record<string, string>>>({});
+  const mergeResolutionModesRef = useRef<Readonly<Record<string, "source" | "target" | "manual">>>(
+    {}
+  );
+  const mergeManualJsonRef = useRef<Readonly<Record<string, string>>>({});
   const [reuseDecisions, setReuseDecisions] = useState<
     readonly WorkflowGeneratedModuleReuseDecision[]
   >([]);
@@ -524,6 +533,11 @@ export function App() {
   const [secretMetadata, setSecretMetadata] = useState<readonly SecretMetadata[]>([]);
   const [googleConnected, setGoogleConnected] = useState<boolean | null>(null);
   const [secretDrafts, setSecretDrafts] = useState<Readonly<Record<string, string>>>({});
+  const [componentSearch, setComponentSearch] = useState("");
+  const [selectedComponentCategory, setSelectedComponentCategory] =
+    useState<ComponentPaletteFilter>("input-output");
+  const [activeRailItemId, setActiveRailItemId] = useState("components");
+  const componentSearchInputRef = useRef<HTMLInputElement>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
   const [paletteSelection, setPaletteSelection] = useState(0);
@@ -577,6 +591,23 @@ export function App() {
     draftEvaluation?.readyForApproval === true &&
     !branchLifecycleLocked;
   const canRun = approvedRevision !== null && !branchLifecycleLocked;
+  const visibleComponentItems = useMemo(
+    () =>
+      componentPaletteItems.filter((item) => {
+        const search = componentSearch.trim().toLowerCase();
+        const matchesCategory =
+          selectedComponentCategory === "all" || item.category === selectedComponentCategory;
+        const matchesSearch =
+          search.length === 0 ||
+          [item.label, item.description, item.kind, categoryLabel(item.category)]
+            .join(" ")
+            .toLowerCase()
+            .includes(search);
+
+        return matchesCategory && matchesSearch;
+      }),
+    [componentSearch, selectedComponentCategory]
+  );
   const refreshIntegrations = useCallback(async () => {
     try {
       const [secrets, google] = await Promise.all([
@@ -636,6 +667,31 @@ export function App() {
     }, 0);
     return () => window.clearTimeout(timeout);
   }, [refreshBranches, workflow.id]);
+
+  useEffect(() => {
+    if (!selectedNodeId || workflow.id === emptyWorkflowDraft.id) {
+      const timeout = window.setTimeout(() => setNodeDecisionTraces([]), 0);
+      return () => window.clearTimeout(timeout);
+    }
+
+    let cancelled = false;
+    void openClawApi
+      .fetchNodeDecisionTraces(workflow.id, selectedNodeId)
+      .then((response) => {
+        if (!cancelled) {
+          setNodeDecisionTraces(response.traces);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setNodeDecisionTraces([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedNodeId, workflow.id, workflow.revision]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -802,7 +858,9 @@ export function App() {
       setPromptTurns(response.promptTurns);
       setMergePreview(null);
       setMergeResolutionModes({});
+      mergeResolutionModesRef.current = {};
       setMergeManualJson({});
+      mergeManualJsonRef.current = {};
       setReuseDecisions([]);
       loadWorkflow(response.headDraftRevision.workflow, response.headDraftRevision.validation);
       setApprovedRevision(null);
@@ -838,7 +896,9 @@ export function App() {
       setPromptTurns([]);
       setMergePreview(null);
       setMergeResolutionModes({});
+      mergeResolutionModesRef.current = {};
       setMergeManualJson({});
+      mergeManualJsonRef.current = {};
       setReuseDecisions([]);
       loadWorkflow(response.draftRevision.workflow, response.draftRevision.validation);
       setBranchNotice(`Forked ${response.branch.name}`);
@@ -922,22 +982,28 @@ export function App() {
       setMergeMode(selectedMergeMode);
       setMergePreview(response.preview);
       setMergeResolutionModes({});
+      mergeResolutionModesRef.current = {};
       setMergeManualJson({});
+      mergeManualJsonRef.current = {};
     });
   }
 
   function updateMergeResolutionMode(conflictId: string, mode: "source" | "target" | "manual") {
-    setMergeResolutionModes((previous) => ({
-      ...previous,
+    const next = {
+      ...mergeResolutionModesRef.current,
       [conflictId]: mode
-    }));
+    };
+    mergeResolutionModesRef.current = next;
+    setMergeResolutionModes(next);
   }
 
   function updateMergeManualJson(conflictId: string, value: string) {
-    setMergeManualJson((previous) => ({
-      ...previous,
+    const next = {
+      ...mergeManualJsonRef.current,
       [conflictId]: value
-    }));
+    };
+    mergeManualJsonRef.current = next;
+    setMergeManualJson(next);
   }
 
   function applyMerge() {
@@ -948,10 +1014,16 @@ export function App() {
       setApiError("Archived branches are read-only.");
       return;
     }
+    const resolutionModes = mergeResolutionModesRef.current;
+    const manualJson = mergeManualJsonRef.current;
+    if (!mergePreview.conflicts.every((conflict) => resolutionModes[conflict.id])) {
+      setApiError("Resolve every merge conflict before applying.");
+      return;
+    }
 
     void executeApiAction("branch-merge", async () => {
       const resolutions = mergePreview.conflicts.map((conflict) =>
-        mergeResolutionForConflict(conflict, mergeResolutionModes, mergeManualJson)
+        mergeResolutionForConflict(conflict, resolutionModes, manualJson)
       );
       const response = await openClawApi.mergeBranch(workflow.id, mergePreview.sourceBranchId, {
         targetBranchId: activeBranchId,
@@ -963,7 +1035,9 @@ export function App() {
       setActiveBranchId(response.branch.id);
       setMergePreview(null);
       setMergeResolutionModes({});
+      mergeResolutionModesRef.current = {};
       setMergeManualJson({});
+      mergeManualJsonRef.current = {};
       setReuseDecisions([]);
       setDraftEvaluation(null);
       setApprovedRevision(null);
@@ -1587,6 +1661,20 @@ export function App() {
     });
   }
 
+  function exportDecisionTraces() {
+    if (workflow.id === emptyWorkflowDraft.id) {
+      setApiError("Plan a workflow before exporting decision traces.");
+      return;
+    }
+
+    void executeApiAction("export-decision-traces", async () => {
+      const response = await openClawApi.exportDecisionTraces(workflow.id);
+      setDecisionTraceExportNotice(
+        `Decision trace export ${response.export.id}: ${response.export.lineCount} JSONL line(s).`
+      );
+    });
+  }
+
   function cancelActiveJob() {
     if (!activeJob || ["succeeded", "failed", "cancelled"].includes(activeJob.status)) {
       return;
@@ -1627,7 +1715,9 @@ export function App() {
     setMergeMode("merge");
     setMergePreview(null);
     setMergeResolutionModes({});
+    mergeResolutionModesRef.current = {};
     setMergeManualJson({});
+    mergeManualJsonRef.current = {};
     setReuseDecisions([]);
     setPromotionNotice(null);
     loadWorkflow(emptyWorkflowDraft, validateWorkflowSpec(emptyWorkflowDraft));
@@ -1820,7 +1910,8 @@ export function App() {
     {
       id: "branch-archive",
       group: "Branches",
-      label: activeBranch?.status === "archived" ? "Restore Active Branch" : "Archive Active Branch",
+      label:
+        activeBranch?.status === "archived" ? "Restore Active Branch" : "Archive Active Branch",
       detail: activeBranch ? activeBranch.name : "No branch selected.",
       disabled: busyAction !== null || !activeBranch || activeBranchIsDefault,
       onSelect: toggleBranchArchive
@@ -1846,7 +1937,11 @@ export function App() {
         group: "Branches",
         label: `Preview Merge From ${branch.name}`,
         detail: `Merge into ${activeBranch?.name ?? "active branch"}.`,
-        disabled: busyAction !== null || !activeBranch || branchLifecycleLocked || branch.status === "archived",
+        disabled:
+          busyAction !== null ||
+          !activeBranch ||
+          branchLifecycleLocked ||
+          branch.status === "archived",
         onSelect: () => previewMerge(branch.id, "merge")
       },
       {
@@ -1854,7 +1949,11 @@ export function App() {
         group: "Branches",
         label: `Preview Cherry-pick From ${branch.name}`,
         detail: `Cherry-pick into ${activeBranch?.name ?? "active branch"}.`,
-        disabled: busyAction !== null || !activeBranch || branchLifecycleLocked || branch.status === "archived",
+        disabled:
+          busyAction !== null ||
+          !activeBranch ||
+          branchLifecycleLocked ||
+          branch.status === "archived",
         onSelect: () => previewMerge(branch.id, "cherry-pick")
       }
     ]),
@@ -1880,7 +1979,9 @@ export function App() {
       id: "branch-apply-merge",
       group: "Branches",
       label: "Apply Merge Preview",
-      detail: mergePreview ? `${mergePreview.mode} from ${mergePreview.sourceBranchId}` : "No merge preview.",
+      detail: mergePreview
+        ? `${mergePreview.mode} from ${mergePreview.sourceBranchId}`
+        : "No merge preview.",
       disabled:
         busyAction !== null ||
         !mergePreview ||
@@ -2018,18 +2119,226 @@ export function App() {
   ];
   const filteredPaletteCommands =
     paletteMode.kind === "commands"
-      ? paletteCommands.filter((command) => commandMatchesQuery(command, paletteQuery))
+      ? // eslint-disable-next-line react-hooks/refs -- Command callbacks only touch refs when executed.
+        paletteCommands.filter((command) => commandMatchesQuery(command, paletteQuery))
       : [];
+
+  function activateRailItem(id: string) {
+    setActiveRailItemId(id);
+    if (id === "search") {
+      componentSearchInputRef.current?.focus();
+    }
+    if (id === "components") {
+      setSelectedComponentCategory("input-output");
+    }
+    if (id === "attachments") {
+      setSelectedComponentCategory("files-knowledge");
+    }
+  }
 
   return (
     <main className="app-shell">
       <section className="workspace">
+        <aside className="panel planner-panel" aria-label="Workflow planner">
+          <nav className="workspace-rail" aria-label="Workspace navigation">
+            {(
+              [
+                ["search", "Search"],
+                ["components", "Components"],
+                ["attachments", "Attachments"],
+                ["history", "History"]
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                aria-current={activeRailItemId === id ? "page" : undefined}
+                aria-pressed={
+                  id === "attachments" && selectedComponentCategory === "files-knowledge"
+                    ? "true"
+                    : undefined
+                }
+                onClick={() => activateRailItem(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+          <label className="search-box">
+            Search components
+            <input
+              ref={componentSearchInputRef}
+              value={componentSearch}
+              placeholder="Search"
+              onChange={(event) => setComponentSearch(event.target.value)}
+            />
+          </label>
+          <section aria-label="Components" className="component-palette">
+            <div className="component-heading">
+              <h2>Components</h2>
+            </div>
+            <div className="component-list" aria-label="Component categories">
+              {componentCategories.map((category) => {
+                const Icon = category.icon;
+                return (
+                  <button
+                    key={category.id}
+                    type="button"
+                    className={
+                      selectedComponentCategory === category.id
+                        ? "component-row component-row-active"
+                        : "component-row"
+                    }
+                    aria-pressed={selectedComponentCategory === category.id}
+                    onClick={() => setSelectedComponentCategory(category.id)}
+                  >
+                    <Icon size={18} />
+                    {category.label}
+                    <ChevronIndicator />
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                className="discover-button"
+                onClick={() => setSelectedComponentCategory("all")}
+              >
+                <Table2 size={18} />
+                Discover more components
+                <ChevronIndicator />
+              </button>
+            </div>
+            <div className="component-list" aria-label="Available components">
+              {visibleComponentItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="component-option"
+                  onClick={() => addComponentNode(item)}
+                  disabled={branchLifecycleLocked}
+                >
+                  <span>
+                    <strong>Add {item.label}</strong>
+                    <small>{item.description}</small>
+                  </span>
+                  <Plus size={16} />
+                </button>
+              ))}
+            </div>
+          </section>
+          <form
+            className="prompt-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              planDraft();
+            }}
+          >
+            <label>
+              Workflow Prompt
+              <textarea
+                value={prompt}
+                onChange={(event) => updatePrompt(event.target.value)}
+                placeholder="Describe the workflow to build"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={busyAction !== null || branchLifecycleLocked || prompt.trim().length === 0}
+            >
+              <WandSparkles size={18} />
+              Plan
+            </button>
+          </form>
+          <section aria-label="Workflow summary" className="validation-panel">
+            <div className="panel-heading">
+              <GitBranch size={18} />
+              <h2>{workflow.name}</h2>
+            </div>
+            <div className="summary-grid">
+              <StatusRow label="Nodes" value={String(workflow.nodes.length)} tone="pending" />
+              <StatusRow label="Edges" value={String(workflow.edges.length)} tone="pending" />
+              <StatusRow label="Revision" value={String(workflow.revision)} tone="pending" />
+            </div>
+            {validationIssues.length > 0 ? (
+              <ul className="event-list" aria-label="Validation issues">
+                {validationIssues.map((issue, index) => (
+                  <li key={`${issue.code}-${index}`}>
+                    <button type="button" onClick={() => selectIssue(issue)}>
+                      <strong>{issue.code}</strong>
+                      <span>{issue.message}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </section>
+          <ClarificationPanel
+            clarification={paletteMode.kind === "clarification" ? null : clarification}
+            answers={clarificationAnswers}
+            onAnswerChange={updateClarificationAnswer}
+          />
+          <RoutePanel route={taskRoute} />
+          <DraftEvaluationPanel evaluation={draftEvaluation} />
+          <FeedbackPanel feedback={plannerFeedback} onDecision={updateSuggestionDecision} />
+          <BranchPanel
+            branches={visibleBranches}
+            activeBranch={activeBranch}
+            activeBranchId={activeBranchId}
+            promptTurns={promptTurns}
+            branchNameDraft={branchNameDraft}
+            branchRenameDraft={branchRenameDraft}
+            showArchivedBranches={showArchivedBranches}
+            branchNotice={branchNotice}
+            busyAction={busyAction}
+            onBranchNameChange={setBranchNameDraft}
+            onBranchRenameChange={setBranchRenameDraft}
+            onShowArchivedChange={setShowArchivedBranches}
+            onFork={forkBranch}
+            onSwitch={switchBranch}
+            onRename={renameBranch}
+            onArchiveToggle={toggleBranchArchive}
+          />
+          <BranchMergeReusePanel
+            activeBranch={activeBranch}
+            mergeSources={mergeSources}
+            mergeSourceBranchId={mergeSourceBranchId}
+            mergeMode={mergeMode}
+            mergePreview={mergePreview}
+            mergeResolutionModes={mergeResolutionModes}
+            mergeManualJson={mergeManualJson}
+            reuseDecisions={reuseDecisions}
+            busyAction={busyAction}
+            branchLifecycleLocked={branchLifecycleLocked}
+            onMergeSourceChange={setMergeSourceBranchId}
+            onMergeModeChange={setMergeMode}
+            onPreviewMerge={previewMerge}
+            onApplyMerge={applyMerge}
+            onResolutionModeChange={updateMergeResolutionMode}
+            onManualResolutionChange={updateMergeManualJson}
+            onRefreshReuse={refreshReuseCandidates}
+          />
+          <IntegrationPanel
+            adminToken={adminToken}
+            integrations={integrationReadiness}
+            secrets={secretMetadata}
+            googleConnected={googleConnected}
+            secretDrafts={secretDrafts}
+            busyAction={busyAction}
+            onAdminTokenChange={updateAdminToken}
+            onRefresh={refreshIntegrations}
+            onSecretDraftChange={updateSecretDraft}
+            onSaveSecret={saveSecret}
+            onDeleteSecret={deleteSecret}
+            onConnectGoogle={connectGoogle}
+            onRevokeGoogle={revokeGoogle}
+          />
+        </aside>
         <section className="canvas-panel" aria-label="Workflow graph">
           <header className="topbar">
             <div>
               <p className="eyebrow">KelpClaw</p>
               <h1>OpenClaw</h1>
-              <p className="topbar-workflow">{workflow.name}</p>
+              <p className="topbar-workflow">Revision {workflow.revision}</p>
             </div>
             <div className="topbar-actions" aria-label="Workflow actions">
               <button
@@ -2190,6 +2499,8 @@ export function App() {
             activeJob={activeJob}
             workspace={workspace}
             agentRuns={agentRuns}
+            nodeDecisionTraces={nodeDecisionTraces}
+            decisionTraceExportNotice={decisionTraceExportNotice}
             deploymentNotice={deploymentNotice}
             planAcceptedNotice={planAcceptedNotice}
             deploymentActivations={deploymentActivations}
@@ -2200,6 +2511,7 @@ export function App() {
             onBuildCodegen={buildCodegenNode}
             onReviewCodegen={reviewCodegenNode}
             onPromoteCodegen={promoteCodegenNode}
+            onExportDecisionTraces={exportDecisionTraces}
             onUpdateNode={updateNode}
             onUpdateJsonField={updateJsonField}
             promotionNotice={promotionNotice}
@@ -2233,16 +2545,16 @@ export function App() {
         onSubmitAdminToken={submitPaletteAdminToken}
         onSubmitSecret={submitPaletteSecret}
       />
-      {apiError || branchNotice ? (
+      {apiError ? (
         <div className="app-toast-stack" aria-live="polite">
-          {apiError ? <p className="error-text">{apiError}</p> : null}
-          {branchNotice ? <p className="success-text">{branchNotice}</p> : null}
+          <p className="error-text">{apiError}</p>
         </div>
       ) : null}
     </main>
   );
 }
 
+/* eslint-disable react-hooks/refs -- Palette children forward one focus ref through typed props. */
 function CommandPalette(props: {
   readonly open: boolean;
   readonly mode: CommandPaletteMode;
@@ -2375,7 +2687,11 @@ function CommandPalette(props: {
             disabled={props.busyAction !== null || props.mode.value.trim().length === 0}
             onBack={() => props.onModeChange({ kind: "commands" })}
             onChange={(value) => props.onModeChange({ kind: "plan", value })}
-            onSubmit={() => props.onSubmitPlan(props.mode.value)}
+            onSubmit={() =>
+              props.onSubmitPlan(
+                (props.mode as Extract<CommandPaletteMode, { kind: "plan" }>).value
+              )
+            }
           />
         ) : null}
 
@@ -2393,7 +2709,11 @@ function CommandPalette(props: {
               <label key={question.id}>
                 {question.question}
                 <textarea
-                  ref={index === 0 ? (props.inputRef as React.RefObject<HTMLTextAreaElement>) : undefined}
+                  ref={
+                    index === 0
+                      ? (props.inputRef as React.RefObject<HTMLTextAreaElement>)
+                      : undefined
+                  }
                   value={props.clarificationAnswers[question.id] ?? ""}
                   placeholder={question.placeholder}
                   rows={3}
@@ -2429,7 +2749,11 @@ function CommandPalette(props: {
             disabled={props.busyAction !== null || props.mode.value.trim().length === 0}
             onBack={() => props.onModeChange({ kind: "commands" })}
             onChange={(value) => props.onModeChange({ kind: "fork-branch", value })}
-            onSubmit={() => props.onSubmitFork(props.mode.value)}
+            onSubmit={() =>
+              props.onSubmitFork(
+                (props.mode as Extract<CommandPaletteMode, { kind: "fork-branch" }>).value
+              )
+            }
           />
         ) : null}
 
@@ -2444,7 +2768,11 @@ function CommandPalette(props: {
             disabled={props.busyAction !== null || props.mode.value.trim().length === 0}
             onBack={() => props.onModeChange({ kind: "commands" })}
             onChange={(value) => props.onModeChange({ kind: "rename-branch", value })}
-            onSubmit={() => props.onSubmitRename(props.mode.value)}
+            onSubmit={() =>
+              props.onSubmitRename(
+                (props.mode as Extract<CommandPaletteMode, { kind: "rename-branch" }>).value
+              )
+            }
           />
         ) : null}
 
@@ -2460,7 +2788,11 @@ function CommandPalette(props: {
             disabled={props.busyAction !== null}
             onBack={() => props.onModeChange({ kind: "commands" })}
             onChange={(value) => props.onModeChange({ kind: "admin-token", value })}
-            onSubmit={() => props.onSubmitAdminToken(props.mode.value)}
+            onSubmit={() =>
+              props.onSubmitAdminToken(
+                (props.mode as Extract<CommandPaletteMode, { kind: "admin-token" }>).value
+              )
+            }
           />
         ) : null}
 
@@ -2474,15 +2806,19 @@ function CommandPalette(props: {
             submitLabel="Save Secret"
             disabled={props.busyAction !== null || props.mode.value.trim().length === 0}
             onBack={() => props.onModeChange({ kind: "commands" })}
-            onChange={(value) =>
+            onChange={(value) => {
+              const mode = props.mode as Extract<CommandPaletteMode, { kind: "secret" }>;
               props.onModeChange({
                 kind: "secret",
-                label: props.mode.label,
-                secretName: props.mode.secretName,
+                label: mode.label,
+                secretName: mode.secretName,
                 value
-              })
-            }
-            onSubmit={() => props.onSubmitSecret(props.mode.secretName, props.mode.value)}
+              });
+            }}
+            onSubmit={() => {
+              const mode = props.mode as Extract<CommandPaletteMode, { kind: "secret" }>;
+              props.onSubmitSecret(mode.secretName, mode.value);
+            }}
           />
         ) : null}
       </section>
@@ -2533,6 +2869,11 @@ function PaletteTextForm(props: {
     </form>
   );
 }
+/* eslint-enable react-hooks/refs */
+
+function ChevronIndicator() {
+  return <span aria-hidden="true">&gt;</span>;
+}
 
 function Inspector(props: {
   readonly workflow: WorkflowSpec;
@@ -2546,6 +2887,8 @@ function Inspector(props: {
   readonly activeJob: WorkflowJob | null;
   readonly workspace: WorkflowWorkspace | null;
   readonly agentRuns: readonly unknown[];
+  readonly nodeDecisionTraces: readonly WorkflowNodeDecisionTrace[];
+  readonly decisionTraceExportNotice: string | null;
   readonly deploymentNotice: string | null;
   readonly planAcceptedNotice: string | null;
   readonly deploymentActivations: DeploymentActivationSummaryResponse | null;
@@ -2557,6 +2900,7 @@ function Inspector(props: {
   readonly onBuildCodegen: () => void;
   readonly onReviewCodegen: () => void;
   readonly onPromoteCodegen: () => void;
+  readonly onExportDecisionTraces: () => void;
   readonly onUpdateNode: (nodeId: string, updater: (node: WorkflowNode) => WorkflowNode) => void;
   readonly onUpdateJsonField: (
     nodeId: string,
@@ -2809,6 +3153,12 @@ function Inspector(props: {
               ) : null}
             </section>
           ) : null}
+          <DecisionTracePanel
+            traces={props.nodeDecisionTraces}
+            exportNotice={props.decisionTraceExportNotice}
+            busyAction={props.busyAction}
+            onExport={props.onExportDecisionTraces}
+          />
           {props.jsonError ? <p className="error-text">{props.jsonError}</p> : null}
         </div>
       ) : (
@@ -2839,6 +3189,71 @@ function Inspector(props: {
   );
 }
 
+function DecisionTracePanel(props: {
+  readonly traces: readonly WorkflowNodeDecisionTrace[];
+  readonly exportNotice: string | null;
+  readonly busyAction: string | null;
+  readonly onExport: () => void;
+}) {
+  const latestEvents = props.traces
+    .flatMap((trace) => trace.events.map((event) => ({ trace, event })))
+    .sort((left, right) => right.event.createdAt.localeCompare(left.event.createdAt))
+    .slice(0, 8);
+  const totalCostUsd = latestEvents.reduce((sum, item) => sum + (item.event.costUsd ?? 0), 0);
+  const totalTokens = latestEvents.reduce((sum, item) => sum + (item.event.totalTokens ?? 0), 0);
+
+  return (
+    <section className="decision-trace-panel" aria-label="Node decision trace">
+      <div className="panel-heading">
+        <ListChecks size={18} />
+        <h2>Decision Trace</h2>
+      </div>
+      <StatusRow
+        label="Events"
+        value={String(latestEvents.length)}
+        tone={latestEvents.length > 0 ? "valid" : "idle"}
+      />
+      <StatusRow
+        label="Tokens"
+        value={formatTokenCount(totalTokens)}
+        tone={totalTokens > 0 ? "valid" : "idle"}
+      />
+      <StatusRow
+        label="Cost"
+        value={formatUsd(totalCostUsd)}
+        tone={totalCostUsd > 0 ? "valid" : "idle"}
+      />
+      <button
+        type="button"
+        onClick={props.onExport}
+        disabled={props.busyAction === "export-decision-traces"}
+      >
+        <FileStack size={18} />
+        Export Trace JSONL
+      </button>
+      {props.exportNotice ? <p className="success-text">{props.exportNotice}</p> : null}
+      {latestEvents.length > 0 ? (
+        <ul className="event-list">
+          {latestEvents.map(({ trace, event }) => (
+            <li key={event.id}>
+              <strong>{event.role}</strong>
+              <span>
+                {event.selectedAction} · {trace.kind} · {event.evalOutcome ?? "not-run"}
+              </span>
+              <span>{event.rationale}</span>
+              {event.alternativesConsidered.length > 0 ? (
+                <span>Alternatives: {event.alternativesConsidered.join("; ")}</span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted-text">No decision trace has been recorded for this node yet.</p>
+      )}
+    </section>
+  );
+}
+
 function ClarificationPanel(props: {
   readonly clarification: WorkflowClarificationRequest | null;
   readonly answers: Readonly<Record<string, string>>;
@@ -2852,7 +3267,7 @@ function ClarificationPanel(props: {
     <section aria-label="Clarification questions" className="clarification-panel">
       <div className="panel-heading">
         <MessageCircle size={18} />
-        <h2>Clarify First</h2>
+        <h2>Clarification</h2>
       </div>
       <p className="muted-text">{props.clarification.reason}</p>
       {props.clarification.questions.map((question) => (
@@ -2948,7 +3363,7 @@ function BranchPanel(props: {
       <div className="integration-actions">
         <button
           type="button"
-          onClick={props.onRename}
+          onClick={() => props.onRename()}
           disabled={
             props.busyAction !== null ||
             !props.activeBranch ||
@@ -2960,7 +3375,7 @@ function BranchPanel(props: {
         </button>
         <button
           type="button"
-          onClick={props.onArchiveToggle}
+          onClick={() => props.onArchiveToggle()}
           disabled={props.busyAction !== null || !props.activeBranch || activeBranchIsDefault}
         >
           <Trash2 size={16} />
@@ -2976,7 +3391,7 @@ function BranchPanel(props: {
       </label>
       <button
         type="button"
-        onClick={props.onFork}
+        onClick={() => props.onFork()}
         disabled={
           props.busyAction !== null ||
           !props.activeBranch ||
@@ -3024,9 +3439,6 @@ function BranchMergeReusePanel(props: {
   readonly onManualResolutionChange: (conflictId: string, value: string) => void;
   readonly onRefreshReuse: () => void;
 }) {
-  const conflictsResolved =
-    props.mergePreview?.conflicts.every((conflict) => props.mergeResolutionModes[conflict.id]) ??
-    true;
   const selectedSourceArchived =
     props.mergeSources.find((branch) => branch.id === props.mergeSourceBranchId)?.status ===
     "archived";
@@ -3069,7 +3481,7 @@ function BranchMergeReusePanel(props: {
       <div className="integration-actions">
         <button
           type="button"
-          onClick={props.onPreviewMerge}
+          onClick={() => props.onPreviewMerge()}
           disabled={
             props.busyAction !== null ||
             !props.activeBranch ||
@@ -3082,21 +3494,20 @@ function BranchMergeReusePanel(props: {
         </button>
         <button
           type="button"
-          onClick={props.onApplyMerge}
+          onClick={() => props.onApplyMerge()}
           disabled={
-            props.busyAction !== null ||
+            props.busyAction === "branch-merge" ||
             !props.mergePreview ||
             props.mergePreview.status === "blocked" ||
             props.branchLifecycleLocked ||
-            selectedSourceArchived ||
-            !conflictsResolved
+            selectedSourceArchived
           }
         >
           Apply
         </button>
         <button
           type="button"
-          onClick={props.onRefreshReuse}
+          onClick={() => props.onRefreshReuse()}
           disabled={props.busyAction !== null || !props.activeBranch || props.branchLifecycleLocked}
         >
           Reuse Candidates

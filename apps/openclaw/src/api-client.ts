@@ -32,6 +32,8 @@ import type {
   WorkflowRepromptNodeResponse,
   WorkflowJob,
   WorkflowJobEvent,
+  WorkflowNodeDecisionTrace,
+  WorkflowNodeDecisionTraceExport,
   WorkflowWorkspace,
   WorkflowDeploymentKind,
   WorkflowDeploymentRecord,
@@ -76,6 +78,17 @@ export interface BudgetResponse {
 export interface AgentTimelineResponse {
   readonly ok: true;
   readonly events: readonly WorkflowAgentTimelineEvent[];
+}
+
+export interface DecisionTraceResponse {
+  readonly ok: true;
+  readonly traces: readonly WorkflowNodeDecisionTrace[];
+}
+
+export interface DecisionTraceExportResponse {
+  readonly ok: true;
+  readonly export: WorkflowNodeDecisionTraceExport;
+  readonly jsonl: string;
 }
 
 export interface CodegenReviewRequest {
@@ -376,6 +389,20 @@ export const openClawApi = {
     return getJson(
       `/api/workflows/${encodeURIComponent(workflowId)}/codegen/${encodeURIComponent(nodeId)}/evals`
     );
+  },
+
+  fetchDecisionTraces(workflowId: string): Promise<DecisionTraceResponse> {
+    return getJson(`/api/workflows/${encodeURIComponent(workflowId)}/decision-traces`);
+  },
+
+  fetchNodeDecisionTraces(workflowId: string, nodeId: string): Promise<DecisionTraceResponse> {
+    return getJson(
+      `/api/workflows/${encodeURIComponent(workflowId)}/nodes/${encodeURIComponent(nodeId)}/decision-traces`
+    );
+  },
+
+  exportDecisionTraces(workflowId: string): Promise<DecisionTraceExportResponse> {
+    return getJson(`/api/workflows/${encodeURIComponent(workflowId)}/decision-traces/export`);
   },
 
   startRun(

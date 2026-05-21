@@ -9,7 +9,12 @@ import {
   gmailReceiptsToSheetsWorkflowFixture,
   scheduledScrapingWorkflowFixture
 } from "@kelpclaw/workflow-spec";
-import type { WorkflowBranch, WorkflowRunRecord, WorkflowSpec } from "@kelpclaw/workflow-spec";
+import type {
+  WorkflowBranch,
+  WorkflowNodeDecisionTrace,
+  WorkflowRunRecord,
+  WorkflowSpec
+} from "@kelpclaw/workflow-spec";
 import { App } from "../src/App.js";
 
 vi.setConfig({ testTimeout: 10_000 });
@@ -92,6 +97,24 @@ describe("OpenClaw planner shell", () => {
     expect(screen.getByRole("button", { name: /approve/i })).toBeDisabled();
   });
 
+  it("shows selected-node decision traces and exports JSONL", async () => {
+    render(<App />);
+    await planGmailWorkflow();
+
+    expect(await screen.findByLabelText("Node decision trace")).toBeInTheDocument();
+    expect(
+      screen.getByText("Planner selected this node for the requested workflow.")
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Export Trace JSONL/i }));
+
+    expect(await screen.findByText(/Decision trace export/u)).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringMatching(/\/decision-traces\/export$/u),
+      expect.any(Object)
+    );
+  });
+
   it("adds and deletes nodes on the canvas", async () => {
     render(<App />);
 
@@ -142,10 +165,7 @@ describe("OpenClaw planner shell", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "History" }));
-    expect(screen.getByRole("button", { name: "History" })).toHaveAttribute(
-      "aria-current",
-      "page"
-    );
+    expect(screen.getByRole("button", { name: "History" })).toHaveAttribute("aria-current", "page");
 
     fireEvent.click(screen.getByRole("button", { name: "Components" }));
     expect(screen.getByRole("button", { name: "Components" })).toHaveAttribute(
@@ -414,6 +434,53 @@ async function mockFetch(input: string | URL | Request, init?: RequestInit): Pro
     return new Response(`event: job-complete\ndata: ${JSON.stringify(job)}\n\n`, {
       status: 200,
       headers: { "content-type": "text/event-stream" }
+    });
+  }
+
+  if (url.endsWith("/decision-traces/export")) {
+    const workflow = mockCurrentWorkflow ?? gmailReceiptsToSheetsWorkflowFixture;
+    const traces = mockDecisionTraces(workflow, workflow.nodes[0]?.id ?? "manual-run");
+    return jsonResponse({
+      ok: true,
+      export: {
+        id: `decision-trace-export.${workflow.id}`,
+        workflowId: workflow.id,
+        exportedAt: "2026-05-18T01:00:00.000Z",
+        format: "jsonl",
+        redacted: true,
+        lineCount: traces.length,
+        records: traces,
+        evalExamples: traces.map((trace) => ({
+          id: `eval-example.${trace.id}`,
+          traceId: trace.id,
+          workflowId: trace.workflowId,
+          nodeId: trace.nodeId,
+          kind: trace.kind,
+          createdAt: trace.createdAt,
+          input: { inputSummary: trace.events[0]?.inputSummary ?? "" },
+          actualDecision: trace.events[0]?.selectedAction ?? "unknown",
+          outcome: "unknown",
+          artifactRefs: []
+        }))
+      },
+      jsonl: traces.map((trace) => JSON.stringify(trace)).join("\n")
+    });
+  }
+
+  if (url.includes("/nodes/") && url.endsWith("/decision-traces")) {
+    const workflow = mockCurrentWorkflow ?? gmailReceiptsToSheetsWorkflowFixture;
+    const nodeId = String(url.split("/nodes/")[1]?.split("/")[0] ?? workflow.nodes[0]?.id);
+    return jsonResponse({
+      ok: true,
+      traces: mockDecisionTraces(workflow, decodeURIComponent(nodeId))
+    });
+  }
+
+  if (url.endsWith("/decision-traces")) {
+    const workflow = mockCurrentWorkflow ?? gmailReceiptsToSheetsWorkflowFixture;
+    return jsonResponse({
+      ok: true,
+      traces: workflow.nodes.flatMap((node) => mockDecisionTraces(workflow, node.id))
     });
   }
 
@@ -1216,6 +1283,56 @@ function reviewCodegenWorkflow(workflow: WorkflowSpec): WorkflowSpec {
         : node
     )
   };
+}
+
+function mockDecisionTraces(
+  workflow: WorkflowSpec,
+  nodeId: string
+): readonly WorkflowNodeDecisionTrace[] {
+  return [
+    {
+      id: `trace.${workflow.id}.${nodeId}.planner`,
+      workflowId: workflow.id,
+      nodeId,
+      revisionId: `draft.${workflow.id}.r${workflow.revision}`,
+      kind: "planner.node-created",
+      source: "planner",
+      createdAt: "2026-05-18T01:00:00.000Z",
+      updatedAt: "2026-05-18T01:00:00.000Z",
+      status: "recorded",
+      events: [
+        {
+          id: `trace.${workflow.id}.${nodeId}.planner.event`,
+          traceId: `trace.${workflow.id}.${nodeId}.planner`,
+          workflowId: workflow.id,
+          nodeId,
+          revisionId: `draft.${workflow.id}.r${workflow.revision}`,
+          kind: "planner.node-created",
+          role: "planner",
+          createdAt: "2026-05-18T01:00:00.000Z",
+          summary: "Created planned node.",
+          rationale: "Planner selected this node for the requested workflow.",
+          alternativesConsidered: ["Use an existing skill.", "Generate a custom node."],
+          selectedAction: "Use planned node.",
+          inputSummary: workflow.prompt,
+          promptHash: `sha256:${"c".repeat(64)}`,
+          promptExcerpt: workflow.prompt,
+          route: "deterministic",
+          provider: "openai",
+          model: "gpt-4.1",
+          modelInvocationIds: [],
+          affectedNodeIds: [nodeId],
+          affectedEdgeIds: [],
+          constraints: {
+            nodeKind: workflow.nodes.find((node) => node.id === nodeId)?.kind ?? "skill"
+          },
+          outputArtifactRefs: [],
+          evalOutcome: "not-run",
+          metadata: {}
+        }
+      ]
+    }
+  ];
 }
 
 function mockWorkspace(workflowId: string, jobId: string) {

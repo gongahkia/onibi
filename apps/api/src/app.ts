@@ -80,6 +80,7 @@ import type {
   WorkflowClarificationAnswer,
   WorkflowClarificationRequest,
   WorkflowDecisionTraceEvalExample,
+  WorkflowDecisionTraceKind,
   WorkflowEventSeverity,
   WorkflowCreateBranchRequest,
   WorkflowCreateBranchResponse,
@@ -770,6 +771,15 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         draftRevision.id,
         draftRevision.createdAt
       );
+      recordPlannerNodeDecisionTraces(store, {
+        workflow: draftRevision.workflow,
+        revisionId: draftRevision.id,
+        correlationId,
+        prompt: planRequest.prompt,
+        source: "plan",
+        route,
+        validationIssues: []
+      });
       recordAudit(store, {
         action: "task.routed",
         actor: "router",
@@ -1200,6 +1210,16 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       } as never);
     }
     const { draftRevision, branch: updatedBranch } = finalized;
+    recordPlannerNodeDecisionTraces(store, {
+      workflow: draftRevision.workflow,
+      revisionId: draftRevision.id,
+      branchId: branch.id,
+      correlationId,
+      prompt: planRequest.prompt,
+      source: "plan",
+      route,
+      validationIssues: []
+    });
     const promptTurn = store.savePromptTurn({
       id: `prompt-turn.${branch.id}.${Date.now()}.${randomUUID()}`,
       workflowId: request.params.id,
@@ -1309,6 +1329,16 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         } as never);
       }
       const { draftRevision, branch: updatedBranch } = finalized;
+      recordPlannerNodeDecisionTraces(store, {
+        workflow: draftRevision.workflow,
+        revisionId: draftRevision.id,
+        branchId: branch.id,
+        correlationId: correlationIdForRequest(request),
+        prompt: request.body.prompt,
+        source: "reprompt",
+        changedNodeIds: [request.body.nodeId],
+        validationIssues: []
+      });
       const promptTurn = store.savePromptTurn({
         id: `prompt-turn.${branch.id}.${Date.now()}.${randomUUID()}`,
         workflowId: request.params.id,
@@ -2133,6 +2163,15 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         draftRevision.id,
         draftRevision.createdAt
       );
+      recordPlannerNodeDecisionTraces(store, {
+        workflow: draftRevision.workflow,
+        revisionId: draftRevision.id,
+        correlationId: correlationIdForRequest(request),
+        prompt: request.body.prompt,
+        source: "reprompt",
+        changedNodeIds: [request.body.nodeId],
+        validationIssues: []
+      });
       recordAudit(store, {
         action: "workflow.edited",
         actor: "planner",
@@ -2475,6 +2514,20 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         })
       );
       if (result.status === "failed") {
+        recordCodegenNodeDecisionTraces(store, {
+          workflowId: stored.workflow.id,
+          branchId: branch?.id,
+          nodeId: node.id,
+          revisionId:
+            branchHead?.id ??
+            store.getLatestDraftRevision(sourceWorkflow.id)?.id ??
+            `draft.${sourceWorkflow.id}.r${sourceWorkflow.revision}`,
+          jobId: runningJob.id,
+          correlationId,
+          agentRuns: result.agentRuns,
+          testReport,
+          evalReport
+        });
         const finishedAt = new Date().toISOString();
         const currentJob = store.getJob(runningJob.id) ?? runningJob;
         const failedJob = store.appendJobEvent(
@@ -2548,6 +2601,17 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         draftRevision.id,
         draftRevision.createdAt
       );
+      recordCodegenNodeDecisionTraces(store, {
+        workflowId: stored.workflow.id,
+        branchId: branch?.id,
+        nodeId: node.id,
+        revisionId: draftRevision.id,
+        jobId: runningJob.id,
+        correlationId,
+        agentRuns: result.agentRuns,
+        testReport,
+        evalReport
+      });
       const finishedAt = new Date().toISOString();
       const currentJob = store.getJob(runningJob.id) ?? runningJob;
       if (isTerminalJobStatus(currentJob.status)) {
@@ -5616,6 +5680,90 @@ function fixTriageActionFromSummary(
   return undefined;
 }
 
+function codegenDecisionKindForRole(
+  role: CodegenAgentRunRecord["role"]
+): WorkflowDecisionTraceKind {
+  switch (role) {
+    case "workflow-architect":
+      return "codegen.architect";
+    case "coder":
+      return "codegen.coder";
+    case "tester":
+      return "codegen.tester";
+    case "runner":
+      return "codegen.runner";
+    case "fixer":
+      return "codegen.fixer";
+    case "evaluator":
+      return "codegen.evaluator";
+    default:
+      return "codegen.evaluator";
+  }
+}
+
+function codegenAlternativesForRun(run: CodegenAgentRunRecord): readonly string[] {
+  if (run.role === "fixer") {
+    return [
+      "Apply a targeted local patch.",
+      "Regenerate code against the same contract.",
+      "Rearchitect before coding again.",
+      "Stop on external blocker."
+    ];
+  }
+  if (run.role === "workflow-architect") {
+    return ["Reuse the current node contract.", "Revise the generated-node design."];
+  }
+  return ["Continue the existing generated-node loop.", "Stop and report an unresolved failure."];
+}
+
+function codegenSelectedAction(run: CodegenAgentRunRecord): string {
+  const triage = fixTriageActionFromSummary(run.inputSummary);
+  if (triage) {
+    return triage;
+  }
+  if (run.error) {
+    return "record-failure";
+  }
+  return `complete-${run.role}`;
+}
+
+function plannerAlternativesForNode(
+  node: WorkflowNode,
+  route?: WorkflowTaskRoute | undefined
+): readonly string[] {
+  const alternatives = [
+    "Use deterministic workflow primitives.",
+    "Use adapter-backed skills.",
+    "Generate a custom code node.",
+    "Use an agentic runtime node."
+  ];
+  if (route?.route === "deterministic") {
+    return alternatives.filter((item) => !item.includes("agentic"));
+  }
+  if (node.kind === "codegen") {
+    return ["Use an existing skill or adapter.", "Generate a custom code node."];
+  }
+  if (node.agentic) {
+    return ["Use a deterministic transform.", "Use an agentic runtime node."];
+  }
+  return alternatives;
+}
+
+function failureClassFromMessage(message: string): string {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("schema")) return "schema";
+  if (normalized.includes("dependency")) return "dependency";
+  if (normalized.includes("network")) return "network";
+  if (normalized.includes("budget")) return "budget";
+  if (normalized.includes("timeout") || normalized.includes("timed out")) return "timeout";
+  if (normalized.includes("secret") || normalized.includes("credential")) return "secret";
+  return "runtime";
+}
+
+function sha256String(value: string): string {
+  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
+}
+
 function runtimeTruthSnapshot(
   store: WorkflowStore,
   workflowId: string,
@@ -5723,11 +5871,21 @@ function createAuditExportRecord(
   store: WorkflowStore,
   workflowId: string
 ): WorkflowAuditExportRecord {
-  const records = store.listAuditRecords(workflowId).map((record) =>
-    redactJsonRecord(jsonRecord(JSON.parse(JSON.stringify(record))), {
-      secretRefs: record.secretRefs
-    })
+  const auditRecords = store.listAuditRecords(workflowId).map((record) =>
+    redactJsonRecord(
+      jsonRecord({
+        recordType: "audit",
+        ...JSON.parse(JSON.stringify(record))
+      }),
+      {
+        secretRefs: record.secretRefs
+      }
+    )
   );
+  const decisionTraceRecords = store
+    .listNodeDecisionTraces(workflowId)
+    .map((trace) => redactJsonRecord(jsonRecord({ recordType: "node-decision-trace", ...trace })));
+  const records = [...auditRecords, ...decisionTraceRecords];
   return {
     id: `audit-export.${workflowId}.${Date.now()}`,
     workflowId,
@@ -5736,6 +5894,74 @@ function createAuditExportRecord(
     redacted: true,
     lineCount: records.length,
     records
+  };
+}
+
+function createDecisionTraceExportRecord(
+  store: WorkflowStore,
+  workflowId: string
+): WorkflowNodeDecisionTraceExport {
+  const traces = store.listNodeDecisionTraces(workflowId);
+  const evalExamples = traces.map(decisionTraceEvalExample);
+  const records = [
+    ...traces.map((trace) =>
+      redactJsonRecord(jsonRecord({ recordType: "node-decision-trace", ...trace }))
+    ),
+    ...evalExamples.map((example) =>
+      redactJsonRecord(jsonRecord({ recordType: "decision-trace-eval-example", ...example }))
+    )
+  ];
+
+  return {
+    id: `decision-trace-export.${workflowId}.${Date.now()}`,
+    workflowId,
+    exportedAt: new Date().toISOString(),
+    format: "jsonl",
+    redacted: true,
+    lineCount: records.length,
+    records,
+    evalExamples
+  };
+}
+
+function decisionTraceEvalExample(
+  trace: WorkflowNodeDecisionTrace
+): WorkflowDecisionTraceEvalExample {
+  const event = trace.events.at(-1)!;
+  const outcome =
+    event.evalOutcome === "passed"
+      ? "pass"
+      : event.evalOutcome === "failed"
+        ? "fail"
+        : event.evalOutcome === "blocked"
+          ? "blocked"
+          : "unknown";
+  return {
+    id: `eval-example.${trace.id}`,
+    traceId: trace.id,
+    workflowId: trace.workflowId,
+    ...(trace.branchId ? { branchId: trace.branchId } : {}),
+    nodeId: trace.nodeId,
+    kind: trace.kind,
+    createdAt: trace.createdAt,
+    input: jsonRecord({
+      inputSummary: event.inputSummary,
+      constraints: event.constraints,
+      promptHash: event.promptHash,
+      route: event.route,
+      role: event.role
+    }),
+    actualDecision: event.selectedAction,
+    outcome,
+    ...(event.failureClass ? { failureClass: event.failureClass } : {}),
+    artifactRefs: event.outputArtifactRefs,
+    metadata: jsonRecord({
+      rationale: event.rationale,
+      alternativesConsidered: event.alternativesConsidered,
+      modelInvocationIds: event.modelInvocationIds,
+      costUsd: event.costUsd,
+      totalTokens: event.totalTokens
+    })
   };
 }
 
@@ -6136,6 +6362,230 @@ function recordAudit(
     id: `audit.${input.action}.${Date.now()}.${randomUUID()}`,
     timestamp: new Date().toISOString()
   });
+}
+
+function recordPlannerNodeDecisionTraces(
+  store: WorkflowStore,
+  input: {
+    readonly workflow: WorkflowSpec;
+    readonly revisionId: string;
+    readonly branchId?: string | undefined;
+    readonly correlationId: string;
+    readonly prompt: string;
+    readonly source: "plan" | "reprompt";
+    readonly route?: WorkflowTaskRoute | undefined;
+    readonly changedNodeIds?: readonly string[] | undefined;
+    readonly validationIssues?: readonly WorkflowValidationIssue[] | undefined;
+  }
+): readonly WorkflowNodeDecisionTrace[] {
+  const now = new Date().toISOString();
+  const prompt = input.prompt.trim() || input.workflow.prompt;
+  const promptHash = sha256String(prompt);
+  const promptExcerpt = redactSecretString(prompt).slice(0, 500) || "No prompt text captured.";
+  const changedNodeIds = new Set(
+    input.changedNodeIds ?? input.workflow.nodes.map((node) => node.id)
+  );
+  const traces: WorkflowNodeDecisionTrace[] = [];
+
+  for (const node of input.workflow.nodes.filter((candidate) => changedNodeIds.has(candidate.id))) {
+    const kind: WorkflowDecisionTraceKind =
+      input.source === "reprompt" ? "planner.node-updated" : "planner.node-created";
+    const traceId = `trace.${input.workflow.id}.${node.id}.${Date.now()}.${randomUUID()}`;
+    const affectedEdges = input.workflow.edges
+      .filter((edge) => edge.source.nodeId === node.id || edge.target.nodeId === node.id)
+      .map((edge) => edge.id);
+    const rationale =
+      node.codegen?.plannerRationale ??
+      node.description ??
+      input.route?.rationale ??
+      "Planner selected this node to satisfy the workflow prompt.";
+    const event: WorkflowNodeDecisionTraceEvent = {
+      id: `${traceId}.event.${randomUUID()}`,
+      traceId,
+      workflowId: input.workflow.id,
+      ...(input.branchId ? { branchId: input.branchId } : {}),
+      nodeId: node.id,
+      revisionId: input.revisionId,
+      kind,
+      role: "planner",
+      createdAt: now,
+      summary: `${input.source === "reprompt" ? "Updated" : "Created"} ${node.kind} node '${node.label}'.`,
+      rationale: redactSecretString(rationale),
+      alternativesConsidered: plannerAlternativesForNode(node, input.route),
+      selectedAction: `Use ${node.kind} node '${node.label}'.`,
+      inputSummary: promptExcerpt,
+      promptHash,
+      promptExcerpt,
+      ...(input.route?.route ? { route: input.route.route } : {}),
+      ...(input.route?.requiredModel.provider
+        ? { provider: input.route.requiredModel.provider }
+        : {}),
+      ...(input.route?.requiredModel.model ? { model: input.route.requiredModel.model } : {}),
+      modelInvocationIds: input.route?.modelInvocations.map((invocation) => invocation.id) ?? [],
+      affectedNodeIds: [node.id],
+      affectedEdgeIds: affectedEdges,
+      constraints: jsonRecord({
+        nodeKind: node.kind,
+        runtime: node.runtime,
+        determinism: node.determinism,
+        inputPorts: Object.keys(node.inputs),
+        outputPorts: Object.keys(node.outputs),
+        skillId: node.skillId,
+        adapterIds: node.adapterIds ?? (node.adapterId ? [node.adapterId] : []),
+        sandbox: node.codegen?.sandbox,
+        approvalBoundaries: node.agentic?.humanApprovalBoundaries ?? [],
+        validationIssues: (input.validationIssues ?? []).map((issue) => ({
+          code: issue.code,
+          message: issue.message,
+          path: issue.path
+        }))
+      }),
+      outputArtifactRefs: node.codegen?.artifacts ?? [],
+      evalOutcome: "not-run",
+      metadata: jsonRecord({
+        correlationId: input.correlationId,
+        routeRationale: input.route?.rationale,
+        expectedNodeKinds: input.route?.expectedNodeKinds,
+        productionDeterministic: input.route?.productionDeterministic
+      })
+    };
+    const trace = store.saveNodeDecisionTrace({
+      id: traceId,
+      workflowId: input.workflow.id,
+      ...(input.branchId ? { branchId: input.branchId } : {}),
+      nodeId: node.id,
+      revisionId: input.revisionId,
+      kind,
+      source: "planner",
+      createdAt: now,
+      updatedAt: now,
+      status: "recorded",
+      events: [event]
+    });
+    traces.push(trace);
+    recordAudit(store, {
+      action: "decision.trace.recorded",
+      actor: "planner",
+      workflowId: input.workflow.id,
+      branchId: input.branchId,
+      revisionId: input.revisionId,
+      nodeId: node.id,
+      correlationId: input.correlationId,
+      summary: `Recorded planner decision trace for node '${node.id}'.`,
+      metadata: {
+        traceId,
+        kind
+      }
+    });
+  }
+
+  return traces;
+}
+
+function recordCodegenNodeDecisionTraces(
+  store: WorkflowStore,
+  input: {
+    readonly workflowId: string;
+    readonly branchId?: string | undefined;
+    readonly nodeId: string;
+    readonly revisionId: string;
+    readonly jobId: string;
+    readonly correlationId: string;
+    readonly agentRuns: readonly CodegenAgentRunRecord[];
+    readonly testReport?: GeneratedNodeTestReport | undefined;
+    readonly evalReport?: GeneratedNodeEvalReport | undefined;
+  }
+): readonly WorkflowNodeDecisionTrace[] {
+  const traces: WorkflowNodeDecisionTrace[] = [];
+  let cumulativeCostUsd = 0;
+  for (const run of input.agentRuns) {
+    const now = run.finishedAt || new Date().toISOString();
+    const kind = codegenDecisionKindForRole(run.role);
+    const traceId = `trace.${input.workflowId}.${input.nodeId}.${run.role}.${Date.now()}.${randomUUID()}`;
+    const costUsd = agentRunInvocationCostUsd(run);
+    cumulativeCostUsd += costUsd;
+    const event: WorkflowNodeDecisionTraceEvent = {
+      id: `${traceId}.event.${randomUUID()}`,
+      traceId,
+      workflowId: input.workflowId,
+      ...(input.branchId ? { branchId: input.branchId } : {}),
+      nodeId: input.nodeId,
+      revisionId: input.revisionId,
+      jobId: input.jobId,
+      agentRunId: run.id,
+      kind,
+      role: run.role,
+      createdAt: now,
+      summary: run.error ?? run.inputSummary,
+      rationale: run.error ?? timelineDecisionForRun(run),
+      alternativesConsidered: codegenAlternativesForRun(run),
+      selectedAction: codegenSelectedAction(run),
+      inputSummary: run.inputSummary,
+      provider: run.modelProvider,
+      model: run.model,
+      modelInvocationIds: run.modelInvocations?.map((invocation) => invocation.id) ?? [],
+      affectedNodeIds: [input.nodeId],
+      affectedEdgeIds: [],
+      constraints: jsonRecord({
+        role: run.role,
+        status: run.status,
+        testReportId: input.testReport?.id,
+        evalReportId: input.evalReport?.id,
+        schemaValid: input.evalReport?.schemaValid,
+        securityValid: input.evalReport?.securityValid,
+        replayValid: input.evalReport?.replayValid,
+        dependencyPolicyValid: input.evalReport?.dependencyPolicyValid
+      }),
+      outputArtifactRefs: run.outputArtifactRefs,
+      ...(input.evalReport ? { evalOutcome: input.evalReport.status } : { evalOutcome: "not-run" }),
+      ...(run.error ? { failureClass: failureClassFromMessage(run.error) } : {}),
+      ...(fixTriageActionFromSummary(run.inputSummary)
+        ? { fixTriageAction: fixTriageActionFromSummary(run.inputSummary) }
+        : {}),
+      ...(run.inputTokens !== undefined ? { inputTokens: run.inputTokens } : {}),
+      ...(run.outputTokens !== undefined ? { outputTokens: run.outputTokens } : {}),
+      ...(run.totalTokens !== undefined ? { totalTokens: run.totalTokens } : {}),
+      ...(costUsd > 0 ? { costUsd } : {}),
+      metadata: jsonRecord({
+        correlationId: input.correlationId,
+        cumulativeCostUsd,
+        failureFindings: input.evalReport?.findings.map((finding) => finding.message) ?? [],
+        fixHistory: input.evalReport?.fixHistory ?? []
+      })
+    };
+    const trace = store.saveNodeDecisionTrace({
+      id: traceId,
+      workflowId: input.workflowId,
+      ...(input.branchId ? { branchId: input.branchId } : {}),
+      nodeId: input.nodeId,
+      revisionId: input.revisionId,
+      kind,
+      source: "codegen",
+      createdAt: run.startedAt,
+      updatedAt: now,
+      status: run.status === "succeeded" ? "succeeded" : "failed",
+      events: [event]
+    });
+    traces.push(trace);
+    recordAudit(store, {
+      action: "decision.trace.recorded",
+      actor: run.role,
+      workflowId: input.workflowId,
+      branchId: input.branchId,
+      revisionId: input.revisionId,
+      nodeId: input.nodeId,
+      correlationId: input.correlationId,
+      summary: `Recorded ${run.role} decision trace for node '${input.nodeId}'.`,
+      metadata: {
+        traceId,
+        kind,
+        agentRunId: run.id,
+        modelInvocationIds: [...event.modelInvocationIds]
+      }
+    });
+  }
+
+  return traces;
 }
 
 function persistCodegenArtifactManifests(
