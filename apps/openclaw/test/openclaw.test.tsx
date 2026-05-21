@@ -46,8 +46,8 @@ describe("OpenClaw planner shell", () => {
       "src",
       "/app-logo.png"
     );
-    expect(screen.getByText("workflow.openclaw-draft")).toBeInTheDocument();
-    expect(screen.getByText("Selected Edge")).toBeInTheDocument();
+    expect(screen.queryByText("workflow.openclaw-draft")).not.toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "Details drawer" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Label")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Workflow planner")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Workspace navigation")).not.toBeInTheDocument();
@@ -55,9 +55,10 @@ describe("OpenClaw planner shell", () => {
     expect(screen.queryByLabelText("Component categories")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Workflow Prompt")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Plan$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add node" })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Commands/i })).toBeEnabled();
-    expect(screen.getByRole("button", { name: /Accept Plan/i })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /Evaluate/i })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /Accept Plan/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Evaluate/i })).not.toBeInTheDocument();
   });
 
   it("renders live integration readiness and sends admin bearer auth", async () => {
@@ -97,6 +98,7 @@ describe("OpenClaw planner shell", () => {
   it("edits selected node labels and validates invalid port changes inline", async () => {
     render(<App />);
     await planGmailWorkflow();
+    await openNodeDetails("Read Gmail Receipts", "Config");
 
     fireEvent.change(screen.getByLabelText("Label"), {
       target: { value: "Read Gmail Orders" }
@@ -110,12 +112,15 @@ describe("OpenClaw planner shell", () => {
 
     await filterCommand("WORKFLOW_EDGE_TARGET_PORT_INVALID");
     expect(await screen.findByText("WORKFLOW_EDGE_TARGET_PORT_INVALID")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /approve/i })).toBeDisabled();
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Command palette" }), { key: "Escape" });
+    await filterCommand("Approve Workflow");
+    expect(screen.getByText("Approve Workflow").closest("button")).toBeDisabled();
   });
 
   it("shows selected-node decision traces and exports JSONL", async () => {
     render(<App />);
     await planGmailWorkflow();
+    await openNodeDetails("Read Gmail Receipts", "Trace");
 
     expect(await screen.findByLabelText("Node decision trace")).toBeInTheDocument();
     expect(
@@ -134,6 +139,7 @@ describe("OpenClaw planner shell", () => {
   it("renders agent runtime diagnostics and runs router evals", async () => {
     render(<App />);
     await planGmailWorkflow();
+    await openNodeDetails("Read Gmail Receipts", "Runtime");
 
     expect(await screen.findByLabelText("Agent runtime diagnostics")).toBeInTheDocument();
     expect(screen.getByText("kelpclaw.router.scored-v1")).toBeInTheDocument();
@@ -150,10 +156,15 @@ describe("OpenClaw planner shell", () => {
   it("adds and deletes nodes on the canvas", async () => {
     render(<App />);
 
-    fireEvent.click(screen.getByRole("button", { name: /Codegen/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Add node" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Command palette" }), {
+      target: { value: "Generated Code" }
+    });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Command palette" }), { key: "Enter" });
     expect(await screen.findByText("Generated Code")).toBeInTheDocument();
+    await screen.findByLabelText("Node label");
 
-    fireEvent.click(screen.getByTitle("Delete selected"));
+    pressGlobalKey("Delete");
     await waitFor(() => {
       expect(screen.queryByText("Generated Code")).not.toBeInTheDocument();
     });
@@ -166,13 +177,13 @@ describe("OpenClaw planner shell", () => {
     expect(screen.queryByLabelText("Available components")).not.toBeInTheDocument();
 
     await executeCommand("Add Gmail Receipts");
-    expect(screen.getByLabelText("Label")).toHaveValue("Gmail Receipts");
+    expect(screen.getByLabelText("Node label")).toHaveValue("Gmail Receipts");
     await filterCommand("Workflow:");
     expect(screen.getByText(/1 nodes, 0 edges/u)).toBeInTheDocument();
     fireEvent.keyDown(screen.getByRole("textbox", { name: "Command palette" }), { key: "Escape" });
 
     await executeCommand("research");
-    expect(screen.getByLabelText("Label")).toHaveValue("Research Agent");
+    expect(screen.getByLabelText("Node label")).toHaveValue("Research Agent");
     await filterCommand("Workflow:");
     expect(screen.getByText(/2 nodes, 0 edges/u)).toBeInTheDocument();
   });
@@ -204,7 +215,8 @@ describe("OpenClaw planner shell", () => {
   it("configures adapter-backed delivery skills and opt-in push channels", async () => {
     render(<App />);
 
-    fireEvent.click(screen.getByTitle("Add delivery node"));
+    await executeCommand("Add Email Delivery");
+    await openSelectedDetails("Node");
     fireEvent.change(screen.getByLabelText("Adapter-backed skill"), {
       target: { value: "skill.email.results.deliver" }
     });
@@ -220,11 +232,8 @@ describe("OpenClaw planner shell", () => {
     render(<App />);
     await planGmailWorkflow();
 
-    fireEvent.click(screen.getByRole("button", { name: /evaluate/i }));
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /approve/i })).toBeEnabled();
-    });
-    fireEvent.click(screen.getByRole("button", { name: /approve/i }));
+    await executeCommand("Evaluate Draft");
+    await executeCommand("Approve Workflow");
     expect(await screen.findByText("Frozen approval metadata changed.")).toBeInTheDocument();
 
     expect(screen.getByRole("button", { name: /^Run$/i })).toBeDisabled();
@@ -232,7 +241,7 @@ describe("OpenClaw planner shell", () => {
       "title",
       "Deploy an active runner.configuration before running."
     );
-    fireEvent.click(screen.getByRole("button", { name: /^Deploy$/i }));
+    await executeCommand("Deploy Workflow");
     expect(
       await screen.findByText("Deployment deployed: runner.configuration")
     ).toBeInTheDocument();
@@ -257,6 +266,7 @@ describe("OpenClaw planner shell", () => {
 
     expect(await screen.findByText("Classify Urgency")).toBeInTheDocument();
     expect(screen.getByText("Approve Alert")).toBeInTheDocument();
+    await openNodeDetails("Classify Urgency", "Node");
 
     fireEvent.change(screen.getByLabelText("Node Prompt"), {
       target: { value: "Classify incidents with severity and owner routing." }
@@ -292,7 +302,7 @@ describe("OpenClaw planner shell", () => {
     render(<App />);
     await planGmailWorkflow();
 
-    fireEvent.click(screen.getByRole("button", { name: /Accept Plan/i }));
+    await executeCommand("Accept Plan");
 
     expect(await screen.findByText(/Plan accepted:/i)).toBeInTheDocument();
     expect(
@@ -306,8 +316,10 @@ describe("OpenClaw planner shell", () => {
     await planWorkflowFromPalette("scrape a custom public status page and summarize incidents");
 
     expect(await screen.findByText("Scrape Status Page")).toBeInTheDocument();
+    await openNodeDetails("Scrape Status Page", "Node");
     fireEvent.click(screen.getByRole("button", { name: /Build Generated Node/i }));
 
+    fireEvent.click(await screen.findByRole("tab", { name: "Runtime" }));
     expect(await screen.findByRole("heading", { name: "Workspace" })).toBeInTheDocument();
     expect(await screen.findByText("Total Tokens")).toBeInTheDocument();
     expect(screen.getByText("2,750")).toBeInTheDocument();
@@ -327,23 +339,23 @@ describe("OpenClaw planner shell", () => {
     render(<App />);
     await planGmailWorkflow();
 
-    fireEvent.click(screen.getByRole("button", { name: /evaluate/i }));
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /approve/i })).toBeEnabled();
-    });
-    fireEvent.click(screen.getByRole("button", { name: /approve/i }));
+    await executeCommand("Evaluate Draft");
+    await executeCommand("Approve Workflow");
     expect(await screen.findByText("Frozen approval metadata changed.")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /^Deploy$/i }));
+    await executeCommand("Deploy Workflow");
 
     expect(
       await screen.findByText("Deployment deployed: runner.configuration")
     ).toBeInTheDocument();
+    await openNodeDetails("Read Gmail Receipts", "Ops");
     expect(screen.getByRole("heading", { name: "Deployments" })).toBeInTheDocument();
     expect(screen.getAllByText(/deployment\.runner/u).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("tab", { name: "Runtime" }));
     expect(screen.getByRole("heading", { name: "Runtime Truth" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Providers" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Budget" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Ops" }));
     expect(screen.getByRole("heading", { name: "Agent Timeline" })).toBeInTheDocument();
     expect(screen.getByText("worker.openclaw-test")).toBeInTheDocument();
 
@@ -416,6 +428,32 @@ describe("OpenClaw planner shell", () => {
 async function planGmailWorkflow() {
   await planWorkflowFromPalette("extract transaction details from Gmail receipts into Sheets");
   await screen.findByText("Read Gmail Receipts");
+}
+
+async function selectNode(label: string) {
+  fireEvent.click(await screen.findByText(label));
+  await screen.findByLabelText("Node label");
+}
+
+async function openNodeDetails(label: string, tab: "Node" | "Config" | "Trace" | "Runtime" | "Ops") {
+  await selectNode(label);
+  await openSelectedDetails(tab);
+}
+
+async function openSelectedDetails(tab: "Node" | "Config" | "Trace" | "Runtime" | "Ops") {
+  pressGlobalKey("Enter");
+  const tabButton = await screen.findByRole("tab", { name: tab });
+  fireEvent.click(tabButton);
+}
+
+function pressGlobalKey(key: string) {
+  const event = new KeyboardEvent("keydown", {
+    key,
+    bubbles: true,
+    cancelable: true
+  });
+  window.dispatchEvent(event);
+  expect(event.defaultPrevented).toBe(true);
 }
 
 async function planWorkflowFromPalette(prompt: string) {

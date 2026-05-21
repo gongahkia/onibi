@@ -1,5 +1,7 @@
 import { Handle, Position } from "@xyflow/react";
 import type { Edge, Node, NodeProps } from "@xyflow/react";
+import { PanelRightOpen, Plus, Trash2, WandSparkles } from "lucide-react";
+import type { SyntheticEvent } from "react";
 import type {
   WorkflowEdge,
   WorkflowNode,
@@ -11,6 +13,14 @@ import type {
 export interface WorkflowNodeData extends Record<string, unknown> {
   readonly workflowNode: WorkflowNode;
   readonly issueCount: number;
+  readonly onInlineEdit?: (
+    nodeId: string,
+    patch: Pick<WorkflowNode, "label" | "description">
+  ) => void;
+  readonly onOpenDetails?: (nodeId: string) => void;
+  readonly onDeleteNode?: (nodeId: string) => void;
+  readonly onRepromptNode?: (nodeId: string) => void;
+  readonly onAddNextNode?: (nodeId: string, outputPort: string | undefined) => void;
 }
 
 export type WorkflowFlowNode = Node<WorkflowNodeData, "workflowNode">;
@@ -125,9 +135,16 @@ function WorkflowNodeCard(props: NodeProps<WorkflowFlowNode>) {
   const node = props.data.workflowNode;
   const inputPorts = Object.keys(node.inputs);
   const outputPorts = Object.keys(node.outputs);
+  const selected = Boolean(props.selected);
 
   return (
-    <div className={`workflow-card workflow-card-${node.kind}`}>
+    <div
+      className={`workflow-card workflow-card-${node.kind}${selected ? " workflow-card-selected" : ""}`}
+      onDoubleClick={(event) => {
+        event.stopPropagation();
+        props.data.onOpenDetails?.(node.id);
+      }}
+    >
       {inputPorts.map((port, index) => (
         <Handle
           key={port}
@@ -141,31 +158,118 @@ function WorkflowNodeCard(props: NodeProps<WorkflowFlowNode>) {
       <div className="workflow-card-header">
         <div className="node-title">
           <span className="node-glyph">{nodeGlyph(node.kind)}</span>
-          <strong>{node.label}</strong>
+          <div className="node-title-copy">
+            {selected ? (
+              <input
+                aria-label="Node label"
+                className="node-inline-input nodrag"
+                value={node.label}
+                onChange={(event) =>
+                  props.data.onInlineEdit?.(node.id, {
+                    label: event.target.value,
+                    description: node.description
+                  })
+                }
+                onDoubleClick={stopNodeEvent}
+                onPointerDown={stopNodeEvent}
+              />
+            ) : (
+              <strong title={node.label}>{node.label}</strong>
+            )}
+            <span className="node-compact-meta">
+              {node.kind} · {nodeStatusLabel(node)}
+            </span>
+          </div>
         </div>
-        <span className="node-runtime">{runtimeBadge(node)}</span>
-      </div>
-      <p>{node.description}</p>
-      <div className="node-config-preview">
-        {inputPorts.length > 0 ? (
-          <div className="port-row">
-            <span>{inputPorts[0]}</span>
-            <span>Receiving input</span>
-          </div>
-        ) : (
-          <div className="port-row">
-            <span>Trigger</span>
-            <span>Manual input</span>
-          </div>
-        )}
-      </div>
-      <div className="workflow-card-footer">
-        <span className="node-kind">{node.kind}</span>
-        <NodeMeta node={node} />
         {props.data.issueCount > 0 ? (
-          <span className="node-issues">{props.data.issueCount}</span>
+          <span className="node-issues" aria-label={`${props.data.issueCount} validation issues`}>
+            {props.data.issueCount}
+          </span>
         ) : null}
       </div>
+      {selected ? (
+        <div className="node-inline-editor">
+          <label className="node-inline-label">
+            Description
+            <textarea
+              aria-label="Node description"
+              className="node-inline-textarea nodrag"
+              rows={3}
+              value={node.description}
+              onChange={(event) =>
+                props.data.onInlineEdit?.(node.id, {
+                  label: node.label,
+                  description: event.target.value
+                })
+              }
+              onDoubleClick={stopNodeEvent}
+              onPointerDown={stopNodeEvent}
+            />
+          </label>
+          <div className="node-port-chips" aria-label="Node ports and status">
+            <span>{portCount(node.inputs)} in</span>
+            <span>{portCount(node.outputs)} out</span>
+            <span>{nodeStatusLabel(node)}</span>
+          </div>
+          <div className="node-selection-actions" aria-label="Selected node actions">
+            <button
+              className="icon-button"
+              type="button"
+              title="Open details"
+              onClick={(event) => {
+                event.stopPropagation();
+                props.data.onOpenDetails?.(node.id);
+              }}
+              onPointerDown={stopNodeEvent}
+            >
+              <PanelRightOpen size={16} />
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              title="Reprompt node"
+              onClick={(event) => {
+                event.stopPropagation();
+                props.data.onRepromptNode?.(node.id);
+              }}
+              onPointerDown={stopNodeEvent}
+            >
+              <WandSparkles size={16} />
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              title="Delete node"
+              onClick={(event) => {
+                event.stopPropagation();
+                props.data.onDeleteNode?.(node.id);
+              }}
+              onPointerDown={stopNodeEvent}
+            >
+              <Trash2 size={16} />
+            </button>
+          </div>
+          {outputPorts.length > 0 ? (
+            <div className="node-next-actions" aria-label="Add connected node">
+              {outputPorts.map((port) => (
+                <button
+                  key={port}
+                  type="button"
+                  title={`Add node after ${port}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    props.data.onAddNextNode?.(node.id, port);
+                  }}
+                  onPointerDown={stopNodeEvent}
+                >
+                  <Plus size={14} />
+                  {port}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       {outputPorts.map((port, index) => (
         <Handle
           key={port}
@@ -178,6 +282,10 @@ function WorkflowNodeCard(props: NodeProps<WorkflowFlowNode>) {
       ))}
     </div>
   );
+}
+
+function stopNodeEvent(event: SyntheticEvent) {
+  event.stopPropagation();
 }
 
 function nodeGlyph(kind: WorkflowNodeKind): string {
@@ -197,43 +305,17 @@ function nodeGlyph(kind: WorkflowNodeKind): string {
   }
 }
 
-function runtimeBadge(node: WorkflowNode): string {
+function nodeStatusLabel(node: WorkflowNode): string {
   if (node.kind === "codegen") {
     return node.codegen?.review.status === "approved"
       ? "reviewed"
       : (node.codegen?.review.status ?? "draft");
   }
   if (node.adapterOperations && node.adapterOperations.length > 0) {
-    return "24ms";
+    return "adapter";
   }
 
-  return "11ms";
-}
-
-function NodeMeta(props: { readonly node: WorkflowNode }) {
-  if (props.node.kind === "codegen") {
-    return (
-      <div className="node-meta">
-        <span>{String(props.node.config.artifactStatus ?? "generated")}</span>
-        <span>{String(props.node.config.sandboxPolicy ?? "network-none")}</span>
-      </div>
-    );
-  }
-
-  if (props.node.kind === "delivery") {
-    return (
-      <div className="node-meta">
-        <span>{String(props.node.config.channel ?? props.node.adapterId ?? "delivery")}</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="node-meta">
-      <span>{portCount(props.node.inputs)} in</span>
-      <span>{portCount(props.node.outputs)} out</span>
-    </div>
-  );
+  return "ready";
 }
 
 function portOffset(index: number, total: number): number {

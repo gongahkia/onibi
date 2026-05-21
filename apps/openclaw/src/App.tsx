@@ -13,7 +13,9 @@ import {
   CheckCircle2,
   Clock3,
   FileStack,
+  Info,
   ListChecks,
+  PanelRightOpen,
   Play,
   Plus,
   RefreshCw,
@@ -22,6 +24,7 @@ import {
   ShieldCheck,
   Trash2,
   WandSparkles,
+  X,
   XCircle
 } from "lucide-react";
 import {
@@ -457,7 +460,7 @@ interface PaletteCommand {
 }
 
 type CommandPaletteMode =
-  | { readonly kind: "commands" }
+  | { readonly kind: "commands"; readonly scope?: "all" | "node-create" | undefined }
   | { readonly kind: "plan"; readonly value: string }
   | { readonly kind: "clarification" }
   | { readonly kind: "fork-branch"; readonly value: string }
@@ -469,6 +472,21 @@ type CommandPaletteMode =
       readonly secretName: string;
       readonly value: string;
     };
+
+type DetailsTab = "node" | "config" | "trace" | "runtime" | "ops";
+
+interface PendingNodeConnection {
+  readonly sourceNodeId: string;
+  readonly outputPort?: string | undefined;
+}
+
+const detailTabs: readonly { readonly id: DetailsTab; readonly label: string }[] = [
+  { id: "node", label: "Node" },
+  { id: "config", label: "Config" },
+  { id: "trace", label: "Trace" },
+  { id: "runtime", label: "Runtime" },
+  { id: "ops", label: "Ops" }
+];
 
 export function App() {
   const [workflow, setWorkflow] = useState<WorkflowSpec>(emptyWorkflowDraft);
@@ -535,6 +553,12 @@ export function App() {
   const [dirtyNodeIds, setDirtyNodeIds] = useState<ReadonlySet<string>>(new Set());
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsTab, setDetailsTab] = useState<DetailsTab>("node");
+  const [statusPopoverOpen, setStatusPopoverOpen] = useState(false);
+  const [pendingNodeConnection, setPendingNodeConnection] = useState<PendingNodeConnection | null>(
+    null
+  );
   const [nodePrompt, setNodePrompt] = useState("");
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
@@ -562,13 +586,15 @@ export function App() {
   );
 
   const selectedNode = useMemo(
-    () => workflow.nodes.find((node) => node.id === selectedNodeId) ?? workflow.nodes[0] ?? null,
+    () => workflow.nodes.find((node) => node.id === selectedNodeId) ?? null,
     [selectedNodeId, workflow.nodes]
   );
   const selectedEdge = useMemo(
     () => workflow.edges.find((edge) => edge.id === selectedEdgeId) ?? null,
     [selectedEdgeId, workflow.edges]
   );
+  const flowNodes = nodes;
+  const flowEdges = edges;
   const activeBranch = useMemo(
     () => branches.find((branch) => branch.id === activeBranchId) ?? null,
     [activeBranchId, branches]
@@ -808,16 +834,50 @@ export function App() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
         event.preventDefault();
-        setPaletteMode({ kind: "commands" });
-        setPaletteQuery("");
-        setPaletteSelection(0);
-        setPaletteOpen(true);
+        openPalette();
+        return;
+      }
+
+      if (paletteOpen || isEditableTarget(event.target)) {
+        return;
+      }
+
+      if (event.key === "Enter" && (selectedNodeId || selectedEdgeId)) {
+        event.preventDefault();
+        setDetailsTab("node");
+        setDetailsOpen(true);
+        return;
+      }
+
+      if ((event.key === "Delete" || event.key === "Backspace") && (selectedNodeId || selectedEdgeId)) {
+        event.preventDefault();
+        deleteSelection();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [paletteOpen, selectedEdgeId, selectedNodeId, workflow]);
+
+  useEffect(() => {
+    const selectedNodeStillExists =
+      !selectedNodeId || workflow.nodes.some((node) => node.id === selectedNodeId);
+    const selectedEdgeStillExists =
+      !selectedEdgeId || workflow.edges.some((edge) => edge.id === selectedEdgeId);
+
+    if (!selectedNodeStillExists) {
+      setSelectedNodeId(null);
+      setNodePrompt("");
+    }
+
+    if (!selectedEdgeStillExists) {
+      setSelectedEdgeId(null);
+    }
+
+    if ((!selectedNodeStillExists && selectedNodeId) || (!selectedEdgeStillExists && selectedEdgeId)) {
+      setDetailsOpen(false);
+    }
+  }, [selectedEdgeId, selectedNodeId, workflow.edges, workflow.nodes]);
 
   useEffect(() => {
     if (!paletteOpen) {
@@ -839,7 +899,7 @@ export function App() {
       const issues = nextValidation.ok ? [] : nextValidation.errors;
       setWorkflow(nextWorkflow);
       setValidation(nextValidation);
-      setNodes(workflowToNodes(nextWorkflow, issues));
+      setNodes(attachNodeCallbacks(workflowToNodes(nextWorkflow, issues)));
       setEdges(workflowToEdges(nextWorkflow, issues));
     },
     [setEdges, setNodes]
@@ -1186,6 +1246,88 @@ export function App() {
     updateLocalWorkflow(nextWorkflow);
   }
 
+  function attachNodeCallbacks(nextNodes: readonly WorkflowFlowNode[]): WorkflowFlowNode[] {
+    return nextNodes.map((node) => ({
+      ...node,
+      data: {
+        ...node.data,
+        onInlineEdit: updateNodeInline,
+        onOpenDetails: openNodeDetails,
+        onDeleteNode: deleteNodeById,
+        onRepromptNode: repromptSelectedNode,
+        onAddNextNode: openConnectedNodePalette
+      }
+    }));
+  }
+
+  function updateNodeInline(
+    nodeId: string,
+    patch: Pick<WorkflowNode, "label" | "description">
+  ) {
+    updateNode(nodeId, (node) => ({
+      ...node,
+      label: patch.label,
+      description: patch.description
+    }));
+  }
+
+  function deleteNodeById(nodeId: string) {
+    updateLocalWorkflow({
+      ...workflow,
+      approval: null,
+      nodes: workflow.nodes.filter((node) => node.id !== nodeId),
+      edges: workflow.edges.filter(
+        (edge) => edge.source.nodeId !== nodeId && edge.target.nodeId !== nodeId
+      )
+    });
+    if (selectedNodeId === nodeId) {
+      setSelectedNodeId(null);
+      setNodePrompt("");
+      setDetailsOpen(false);
+    }
+  }
+
+  function repromptSelectedNode(nodeId: string) {
+    const node = workflow.nodes.find((candidate) => candidate.id === nodeId);
+    if (!node) {
+      return;
+    }
+    if (branchLifecycleLocked) {
+      setApiError("Archived branches are read-only.");
+      return;
+    }
+
+    setSelectedNodeId(nodeId);
+    setSelectedEdgeId(null);
+    setNodePrompt(node.description);
+
+    void executeApiAction("reprompt", async () => {
+      const response = activeBranchId
+        ? await openClawApi.repromptBranchNode(workflow.id, activeBranchId, {
+            nodeId: node.id,
+            prompt: node.description,
+            currentWorkflow: workflow,
+            actor: "owner@example.com"
+          })
+        : await openClawApi.repromptNode(workflow.id, {
+            nodeId: node.id,
+            prompt: node.description,
+            currentWorkflow: workflow
+          });
+      loadWorkflow(response.workflow, response.validation);
+      setApprovalDiff(response.diff);
+      if ("branch" in response) {
+        const branchResponse = response as Awaited<
+          ReturnType<typeof openClawApi.repromptBranchNode>
+        >;
+        setPromptTurns((previous) => [...previous, branchResponse.promptTurn]);
+        await refreshBranches(branchResponse.workflow.id, branchResponse.branch.id);
+      }
+      markDirty(node.id);
+      setPromotionNotice(null);
+    });
+  }
+
   function onNodesChange(changes: NodeChange<WorkflowFlowNode>[]) {
     onNodesChangeBase(changes);
   }
@@ -1236,6 +1378,29 @@ export function App() {
     });
   }
 
+  function pendingEdgeForNewNode(node: WorkflowNode): WorkflowSpec["edges"][number] | null {
+    if (!pendingNodeConnection) {
+      return null;
+    }
+
+    const sourceNode = workflow.nodes.find(
+      (candidate) => candidate.id === pendingNodeConnection.sourceNodeId
+    );
+    const sourcePort = pendingNodeConnection.outputPort ?? (sourceNode ? firstOutputPort(sourceNode) : undefined);
+    const targetPort = firstInputPort(node);
+    if (!sourceNode || !sourcePort || !targetPort) {
+      return null;
+    }
+
+    return createWorkflowEdge({
+      sourceNodeId: sourceNode.id,
+      sourcePort,
+      targetNodeId: node.id,
+      targetPort,
+      id: uniqueEdgeId(sourceNode.id, node.id, workflow.edges)
+    });
+  }
+
   function addNode(kind: WorkflowNodeKind) {
     const id = uniqueNodeId(kind, workflow.nodes);
     const position = nextNodePosition(nodes);
@@ -1246,10 +1411,12 @@ export function App() {
         canvas: position
       }
     });
+    const pendingEdge = pendingEdgeForNewNode(node);
     updateLocalWorkflow({
       ...workflow,
       approval: null,
-      nodes: [...workflow.nodes, node]
+      nodes: [...workflow.nodes, node],
+      edges: pendingEdge ? [...workflow.edges, pendingEdge] : workflow.edges
     });
     setSelectedNodeId(id);
     setSelectedEdgeId(null);
@@ -1284,10 +1451,12 @@ export function App() {
       ...(item.secretRefs ? { secretRefs: item.secretRefs } : {}),
       ...(item.agentic ? { agentic: item.agentic } : {})
     });
+    const pendingEdge = pendingEdgeForNewNode(node);
     updateLocalWorkflow({
       ...workflow,
       approval: null,
-      nodes: [...workflow.nodes, node]
+      nodes: [...workflow.nodes, node],
+      edges: pendingEdge ? [...workflow.edges, pendingEdge] : workflow.edges
     });
     setSelectedNodeId(id);
     setSelectedEdgeId(null);
@@ -1298,15 +1467,7 @@ export function App() {
 
   function deleteSelection() {
     if (selectedNodeId) {
-      updateLocalWorkflow({
-        ...workflow,
-        approval: null,
-        nodes: workflow.nodes.filter((node) => node.id !== selectedNodeId),
-        edges: workflow.edges.filter(
-          (edge) => edge.source.nodeId !== selectedNodeId && edge.target.nodeId !== selectedNodeId
-        )
-      });
-      setSelectedNodeId(null);
+      deleteNodeById(selectedNodeId);
       return;
     }
 
@@ -1317,6 +1478,7 @@ export function App() {
         edges: workflow.edges.filter((edge) => edge.id !== selectedEdgeId)
       });
       setSelectedEdgeId(null);
+      setDetailsOpen(false);
     }
   }
 
@@ -1330,6 +1492,11 @@ export function App() {
         (edge) => !deletedIds.has(edge.source.nodeId) && !deletedIds.has(edge.target.nodeId)
       )
     });
+    if (selectedNodeId && deletedIds.has(selectedNodeId)) {
+      setSelectedNodeId(null);
+      setNodePrompt("");
+      setDetailsOpen(false);
+    }
   }
 
   function onEdgesDelete(deletedEdges: Edge[]) {
@@ -1339,6 +1506,10 @@ export function App() {
       approval: null,
       edges: workflow.edges.filter((edge) => !deletedIds.has(edge.id))
     });
+    if (selectedEdgeId && deletedIds.has(selectedEdgeId)) {
+      setSelectedEdgeId(null);
+      setDetailsOpen(false);
+    }
   }
 
   function selectIssue(issue: WorkflowValidationIssue) {
@@ -1346,9 +1517,13 @@ export function App() {
     if (collection === "nodes" && typeof index === "number") {
       setSelectedNodeId(workflow.nodes[index]?.id ?? null);
       setSelectedEdgeId(null);
+      setDetailsTab("config");
+      setDetailsOpen(true);
     } else if (collection === "edges" && typeof index === "number") {
       setSelectedEdgeId(workflow.edges[index]?.id ?? null);
       setSelectedNodeId(null);
+      setDetailsTab("node");
+      setDetailsOpen(true);
     }
   }
 
@@ -1459,18 +1634,15 @@ export function App() {
         await refreshRuntimeStatus(response.workflow.id, activeBranchId);
       }
       setDraftEvaluation(null);
-      const nextSelectedNode =
-        response.workflow.nodes.find((node) => node.kind !== "trigger") ??
-        response.workflow.nodes[0] ??
-        null;
-      setSelectedNodeId(nextSelectedNode?.id ?? null);
+      setSelectedNodeId(null);
       setSelectedEdgeId(null);
       setDirtyNodeIds(new Set());
       setApprovedRevision(null);
       setApprovalDiff(null);
       setRun(null);
       setPromotionNotice(null);
-      setNodePrompt(nextSelectedNode?.description ?? "");
+      setNodePrompt("");
+      setDetailsOpen(false);
     });
   }
 
@@ -2033,6 +2205,9 @@ export function App() {
   }
 
   function openPalette(mode: CommandPaletteMode = { kind: "commands" }) {
+    if (mode.kind !== "commands" || mode.scope !== "node-create") {
+      setPendingNodeConnection(null);
+    }
     setPaletteMode(mode);
     setPaletteQuery("");
     setPaletteSelection(0);
@@ -2044,6 +2219,46 @@ export function App() {
     setPaletteMode({ kind: "commands" });
     setPaletteQuery("");
     setPaletteSelection(0);
+    setPendingNodeConnection(null);
+  }
+
+  function openNodeCreatePalette() {
+    setPendingNodeConnection(null);
+    openPalette({ kind: "commands", scope: "node-create" });
+  }
+
+  function openConnectedNodePalette(nodeId: string, outputPort: string | undefined) {
+    setSelectedNodeId(nodeId);
+    setSelectedEdgeId(null);
+    setPendingNodeConnection({ sourceNodeId: nodeId, outputPort });
+    openPalette({ kind: "commands", scope: "node-create" });
+  }
+
+  function openNodeDetails(nodeId: string) {
+    const node = workflow.nodes.find((candidate) => candidate.id === nodeId);
+    setSelectedNodeId(nodeId);
+    setSelectedEdgeId(null);
+    setNodePrompt(node?.description ?? "");
+    setJsonError(null);
+    setDetailsTab("node");
+    setDetailsOpen(true);
+  }
+
+  function openEdgeDetails(edgeId: string) {
+    setSelectedNodeId(null);
+    setSelectedEdgeId(edgeId);
+    setNodePrompt("");
+    setJsonError(null);
+    setDetailsTab("node");
+    setDetailsOpen(true);
+  }
+
+  function openSelectedDetails(tab: DetailsTab = "node") {
+    if (!selectedNodeId && !selectedEdgeId) {
+      return;
+    }
+    setDetailsTab(tab);
+    setDetailsOpen(true);
   }
 
   function executePaletteCommand(command: PaletteCommand | undefined) {
@@ -2211,6 +2426,36 @@ export function App() {
       detail: "Remove the selected node or edge.",
       disabled: !selectedNodeId && !selectedEdgeId,
       onSelect: deleteSelection
+    },
+    {
+      id: "selection-details",
+      group: "Workflow",
+      label: "Open Details",
+      detail: selectedNodeId
+        ? "Open the selected node drawer."
+        : selectedEdgeId
+          ? "Open the selected edge drawer."
+          : "Select a node or edge first.",
+      disabled: !selectedNodeId && !selectedEdgeId,
+      onSelect: () => openSelectedDetails("node")
+    },
+    ...detailTabs.map((tab) => ({
+      id: `selection-details-${tab.id}`,
+      group: "Details",
+      label: `Show ${tab.label}`,
+      detail:
+        selectedNodeId || selectedEdgeId
+          ? `Open the ${tab.label.toLowerCase()} details tab.`
+          : "Select a node or edge first.",
+      disabled: !selectedNodeId && !selectedEdgeId,
+      onSelect: () => openSelectedDetails(tab.id)
+    })),
+    {
+      id: "status-open",
+      group: "Status",
+      label: "Show Status Popover",
+      detail: "Show workflow, validation, deployment, and runtime status.",
+      onSelect: () => setStatusPopoverOpen(true)
     },
     {
       id: "branch-fork",
@@ -2480,60 +2725,51 @@ export function App() {
   const filteredPaletteCommands =
     paletteMode.kind === "commands"
       ? // eslint-disable-next-line react-hooks/refs -- Command callbacks only touch refs when executed.
-        paletteCommands.filter((command) => commandMatchesQuery(command, paletteQuery))
+        paletteCommands
+          .filter((command) =>
+            paletteMode.scope === "node-create" ? command.group === "Components" : true
+          )
+          .filter((command) => commandMatchesQuery(command, paletteQuery))
       : [];
 
   return (
     <main className="app-shell">
       <section className="workspace">
         <section className="canvas-panel" aria-label="Workflow graph">
-          <header className="topbar">
-            <div className="topbar-brand">
+          <header className="canvas-header">
+            <div className="workflow-header-card">
               <img className="app-logo-mark" src="/app-logo.png" alt="OpenClaw logo" />
               <div>
-                <p className="eyebrow">KelpClaw</p>
                 <h1>OpenClaw</h1>
                 <p className="topbar-workflow">Revision {workflow.revision}</p>
               </div>
             </div>
-            <div className="topbar-actions" aria-label="Workflow actions">
-              <button type="button" title="Open command palette" onClick={() => openPalette()}>
+            <div className="canvas-command-cluster" aria-label="Workflow actions">
+              <button
+                className="command-entry-button"
+                type="button"
+                title="Open command palette"
+                onClick={() => openPalette()}
+              >
                 <Search size={18} />
                 Commands
+                <kbd>⌘P</kbd>
               </button>
               <button
-                title={validateDisabledReason ?? "Validate workflow"}
-                onClick={validateDraft}
-                disabled={Boolean(validateDisabledReason)}
+                className="status-popover-button"
+                type="button"
+                title="Show workflow status"
+                onClick={() => setStatusPopoverOpen((open) => !open)}
               >
-                <ShieldCheck size={18} />
-                Validate
+                <Info size={18} />
+                {validationIssues.length > 0
+                  ? `${validationIssues.length} issues`
+                  : activeJob
+                    ? activeJob.status
+                    : run?.status ?? "ready"}
               </button>
               <button
-                title={acceptPlanDisabledReason ?? "Accept plan shape"}
-                onClick={acceptPlanShape}
-                disabled={Boolean(acceptPlanDisabledReason)}
-              >
-                <CheckCircle2 size={18} />
-                Accept Plan
-              </button>
-              <button
-                title={evaluateDisabledReason ?? "Evaluate draft"}
-                onClick={evaluateDraft}
-                disabled={Boolean(evaluateDisabledReason)}
-              >
-                <ListChecks size={18} />
-                Evaluate
-              </button>
-              <button
-                title={approveDisabledReason ?? "Approve workflow"}
-                onClick={approveWorkflow}
-                disabled={Boolean(approveDisabledReason)}
-              >
-                <CheckCircle2 size={18} />
-                Approve
-              </button>
-              <button
+                className="run-control-button"
                 title={runDisabledReason ?? "Run workflow"}
                 onClick={runWorkflow}
                 disabled={Boolean(runDisabledReason)}
@@ -2541,58 +2777,118 @@ export function App() {
                 <Play size={18} />
                 Run
               </button>
-              <button
-                title={deployDisabledReason ?? "Deploy runner configuration"}
-                onClick={() => deployWorkflow("runner.configuration")}
-                disabled={Boolean(deployDisabledReason)}
-              >
-                <Send size={18} />
-                Deploy
-              </button>
-              <button
-                title="Stop active job"
-                onClick={cancelActiveJob}
-                disabled={
-                  !activeJob ||
-                  ["succeeded", "failed", "cancelled"].includes(activeJob.status) ||
-                  busyAction === "cancel-job"
-                }
-              >
-                <XCircle size={18} />
-                Stop
-              </button>
-              <button className="icon-button" title="Reset workflow" onClick={resetWorkflow}>
-                <RefreshCw size={18} />
-              </button>
             </div>
           </header>
-          <div className="canvas-toolbar" aria-label="Canvas controls">
-            <div className="node-kind-actions">
-              {nodeKinds.map((kind) => (
-                <button
-                  key={kind}
-                  type="button"
-                  onClick={() => addNode(kind)}
-                  title={`Add ${kind} node`}
-                >
-                  <Plus size={16} />
-                  {nodeKindLabel(kind)}
-                </button>
-              ))}
+
+          {selectedEdge ? (
+            <div className="edge-selection-bar" aria-label="Selected edge actions">
+              <span>Edge {selectedEdge.source.nodeId} → {selectedEdge.target.nodeId}</span>
+              <button type="button" onClick={() => openSelectedDetails("node")}>
+                <PanelRightOpen size={16} />
+                Details
+              </button>
+              <button className="icon-button" type="button" title="Delete edge" onClick={deleteSelection}>
+                <Trash2 size={16} />
+              </button>
             </div>
-            <button
-              className="icon-button"
-              type="button"
-              onClick={deleteSelection}
-              title="Delete selected"
-              disabled={!selectedNodeId && !selectedEdgeId}
-            >
-              <Trash2 size={18} />
-            </button>
-          </div>
+          ) : null}
+
+          {statusPopoverOpen ? (
+            <StatusPopover
+              workflow={workflow}
+              activeBranch={activeBranch}
+              validationIssues={validationIssues}
+              runtimeTruth={runtimeTruth}
+              run={run}
+              activeJob={activeJob}
+              deploymentNotice={deploymentNotice}
+              planAcceptedNotice={planAcceptedNotice}
+              apiError={apiError}
+              branchNotice={branchNotice}
+              onClose={() => setStatusPopoverOpen(false)}
+            />
+          ) : null}
+
+          <button
+            className="floating-add-button"
+            type="button"
+            aria-label="Add node"
+            title="Add node"
+            onClick={openNodeCreatePalette}
+          >
+            <Plus size={26} />
+          </button>
+
+          {detailsOpen && (selectedNode || selectedEdge) ? (
+            <aside className="details-drawer" aria-label="Details drawer">
+              <Inspector
+                workflow={workflow}
+                selectedNode={selectedNode}
+                selectedEdge={selectedEdge}
+                activeTab={detailsTab}
+                tabs={detailTabs}
+                nodePrompt={nodePrompt}
+                jsonError={jsonError}
+                approvalDiff={approvalDiff}
+                approvedRevision={approvedRevision}
+                run={run}
+                taskRoute={taskRoute}
+                activeJob={activeJob}
+                workspace={workspace}
+                agentRuns={agentRuns}
+                runtimeTruth={runtimeTruth}
+                providerConfigs={providerConfigs}
+                budgetPolicy={budgetPolicy}
+                budgetLedgers={budgetLedgers}
+                agentTimeline={agentTimeline}
+                connectors={connectors}
+                workflowRuns={workflowRuns}
+                workflowSchedules={workflowSchedules}
+                opsHealth={opsHealth}
+                routerEvalCases={routerEvalCases}
+                routerEvalRun={routerEvalRun}
+                agentMemory={agentMemory}
+                nodeDecisionTraces={nodeDecisionTraces}
+                decisionTraceExportNotice={decisionTraceExportNotice}
+                auditExportNotice={auditExportNotice}
+                deploymentNotice={deploymentNotice}
+                planAcceptedNotice={planAcceptedNotice}
+                deploymentActivations={deploymentActivations}
+                activeRunnerDeployment={activeRunnerDeployment}
+                busyAction={busyAction}
+                branchLifecycleLocked={branchLifecycleLocked}
+                onClose={() => setDetailsOpen(false)}
+                onTabChange={setDetailsTab}
+                onNodePromptChange={setNodePrompt}
+                onReprompt={repromptNode}
+                onBuildCodegen={buildCodegenNode}
+                onReviewCodegen={reviewCodegenNode}
+                onPromoteCodegen={promoteCodegenNode}
+                onExportDecisionTraces={exportDecisionTraces}
+                onExportAudit={exportAudit}
+                onDeployRunner={() => deployWorkflow("runner.configuration")}
+                onDeployBundle={() => deployWorkflow("workflow.bundle")}
+                onUndeployRunner={undeployActiveRunner}
+                onRollbackRunner={rollbackActiveRunner}
+                onImportOpenApiConnector={importOpenApiConnector}
+                onRegisterMcpConnector={registerMcpConnector}
+                onTestConnector={testConnector}
+                onDeleteConnector={deleteConnector}
+                onAddConnectorOperation={addConnectorOperationNode}
+                onRunRouterEvals={runRouterEvals}
+                onReplayRun={replayRun}
+                onPauseSchedule={pauseSchedule}
+                onResumeSchedule={resumeSchedule}
+                onUpdateNode={updateNode}
+                onUpdateJsonField={updateJsonField}
+                promotionNotice={promotionNotice}
+              />
+            </aside>
+          ) : null}
+
           <ReactFlow
-            nodes={nodes}
-            edges={edges}
+            nodes={flowNodes}
+            edges={flowEdges}
             nodeTypes={workflowNodeTypes}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
@@ -2600,6 +2896,15 @@ export function App() {
             onConnect={onConnect}
             onNodesDelete={onNodesDelete}
             onEdgesDelete={onEdgesDelete}
+            onNodeDoubleClick={(_, node) => openNodeDetails(node.id)}
+            onEdgeDoubleClick={(_, edge) => openEdgeDetails(edge.id)}
+            onPaneClick={() => {
+              setSelectedNodeId(null);
+              setSelectedEdgeId(null);
+              setNodePrompt("");
+              setJsonError(null);
+              setDetailsOpen(false);
+            }}
             onSelectionChange={({ nodes: selectedNodes, edges: selectedEdges }) => {
               if (selectedNodes[0]) {
                 setSelectedNodeId(selectedNodes[0].id);
@@ -2613,6 +2918,12 @@ export function App() {
                 setSelectedEdgeId(selectedEdges[0].id);
                 setNodePrompt("");
                 setJsonError(null);
+              } else {
+                setSelectedNodeId(null);
+                setSelectedEdgeId(null);
+                setNodePrompt("");
+                setJsonError(null);
+                setDetailsOpen(false);
               }
             }}
             fitView
@@ -2624,73 +2935,11 @@ export function App() {
             <Controls showInteractive={false} />
           </ReactFlow>
           <div className="canvas-footer" aria-label="Canvas status">
-            <span className="canvas-wave">~</span>
-            <span>63%</span>
-            <Clock3 size={18} />
             <span>{workflow.nodes.length} nodes</span>
+            <span>{workflow.edges.length} edges</span>
+            <span>{validationIssues.length > 0 ? `${validationIssues.length} issues` : "valid"}</span>
           </div>
         </section>
-
-        <aside className="panel inspector-panel" aria-label="Workflow inspector">
-          <Inspector
-            workflow={workflow}
-            selectedNode={selectedNode}
-            selectedEdgeId={selectedEdge?.id ?? null}
-            nodePrompt={nodePrompt}
-            jsonError={jsonError}
-            approvalDiff={approvalDiff}
-            approvedRevision={approvedRevision}
-            run={run}
-            taskRoute={taskRoute}
-            activeJob={activeJob}
-            workspace={workspace}
-            agentRuns={agentRuns}
-            runtimeTruth={runtimeTruth}
-            providerConfigs={providerConfigs}
-            budgetPolicy={budgetPolicy}
-            budgetLedgers={budgetLedgers}
-            agentTimeline={agentTimeline}
-            connectors={connectors}
-            workflowRuns={workflowRuns}
-            workflowSchedules={workflowSchedules}
-            opsHealth={opsHealth}
-            routerEvalCases={routerEvalCases}
-            routerEvalRun={routerEvalRun}
-            agentMemory={agentMemory}
-            nodeDecisionTraces={nodeDecisionTraces}
-            decisionTraceExportNotice={decisionTraceExportNotice}
-            auditExportNotice={auditExportNotice}
-            deploymentNotice={deploymentNotice}
-            planAcceptedNotice={planAcceptedNotice}
-            deploymentActivations={deploymentActivations}
-            activeRunnerDeployment={activeRunnerDeployment}
-            busyAction={busyAction}
-            branchLifecycleLocked={branchLifecycleLocked}
-            onNodePromptChange={setNodePrompt}
-            onReprompt={repromptNode}
-            onBuildCodegen={buildCodegenNode}
-            onReviewCodegen={reviewCodegenNode}
-            onPromoteCodegen={promoteCodegenNode}
-            onExportDecisionTraces={exportDecisionTraces}
-            onExportAudit={exportAudit}
-            onDeployRunner={() => deployWorkflow("runner.configuration")}
-            onDeployBundle={() => deployWorkflow("workflow.bundle")}
-            onUndeployRunner={undeployActiveRunner}
-            onRollbackRunner={rollbackActiveRunner}
-            onImportOpenApiConnector={importOpenApiConnector}
-            onRegisterMcpConnector={registerMcpConnector}
-            onTestConnector={testConnector}
-            onDeleteConnector={deleteConnector}
-            onAddConnectorOperation={addConnectorOperationNode}
-            onRunRouterEvals={runRouterEvals}
-            onReplayRun={replayRun}
-            onPauseSchedule={pauseSchedule}
-            onResumeSchedule={resumeSchedule}
-            onUpdateNode={updateNode}
-            onUpdateJsonField={updateJsonField}
-            promotionNotice={promotionNotice}
-          />
-        </aside>
       </section>
       <CommandPalette
         open={paletteOpen}
@@ -2719,12 +2968,17 @@ export function App() {
         onSubmitAdminToken={submitPaletteAdminToken}
         onSubmitSecret={submitPaletteSecret}
       />
-      {apiError || branchNotice ? (
-        <div className="app-toast-stack" aria-live="polite">
-          {apiError ? <p className="error-text">{apiError}</p> : null}
-          {branchNotice ? <p className="success-text">{branchNotice}</p> : null}
-        </div>
-      ) : null}
+      <ToastStack
+        apiError={apiError}
+        branchNotice={branchNotice}
+        deploymentNotice={deploymentNotice}
+        planAcceptedNotice={planAcceptedNotice}
+        auditExportNotice={auditExportNotice}
+        decisionTraceExportNotice={decisionTraceExportNotice}
+        promotionNotice={promotionNotice}
+        onDismissApiError={() => setApiError(null)}
+        onDismissBranchNotice={() => setBranchNotice(null)}
+      />
     </main>
   );
 }
@@ -2815,7 +3069,9 @@ function CommandPalette(props: {
                 ref={props.inputRef as React.RefObject<HTMLInputElement>}
                 aria-label="Command palette"
                 value={props.query}
-                placeholder="Type a command or component"
+                placeholder={
+                  props.mode.scope === "node-create" ? "Search nodes to add" : "Type a command or component"
+                }
                 onChange={(event) => props.onQueryChange(event.target.value)}
               />
               <kbd>⌘P</kbd>
@@ -3046,10 +3302,115 @@ function PaletteTextForm(props: {
 }
 /* eslint-enable react-hooks/refs */
 
+function StatusPopover(props: {
+  readonly workflow: WorkflowSpec;
+  readonly activeBranch: WorkflowBranch | null;
+  readonly validationIssues: readonly WorkflowValidationIssue[];
+  readonly runtimeTruth: WorkflowRuntimeTruthSnapshot | null;
+  readonly run: WorkflowRunRecord | null;
+  readonly activeJob: WorkflowJob | null;
+  readonly deploymentNotice: string | null;
+  readonly planAcceptedNotice: string | null;
+  readonly apiError: string | null;
+  readonly branchNotice: string | null;
+  readonly onClose: () => void;
+}) {
+  return (
+    <aside className="status-popover" aria-label="Workflow status">
+      <div className="drawer-heading">
+        <div>
+          <p className="eyebrow">Status</p>
+          <h2>{props.workflow.name}</h2>
+        </div>
+        <button className="icon-button" type="button" title="Close status" onClick={props.onClose}>
+          <X size={16} />
+        </button>
+      </div>
+      <dl className="detail-list compact-detail-list">
+        <StatusRow label="Revision" value={String(props.workflow.revision)} tone="pending" />
+        <StatusRow label="Branch" value={props.activeBranch?.name ?? "none"} tone="idle" />
+        <StatusRow
+          label="Validation"
+          value={props.validationIssues.length > 0 ? `${props.validationIssues.length} issues` : "valid"}
+          tone={props.validationIssues.length > 0 ? "blocked" : "valid"}
+        />
+        <StatusRow label="Runtime" value={props.runtimeTruth?.stage ?? "empty"} tone="pending" />
+        <StatusRow label="Run" value={props.run?.status ?? props.activeJob?.status ?? "idle"} tone={props.run?.status ?? props.activeJob?.status ?? "idle"} />
+      </dl>
+      {props.validationIssues.length > 0 ? (
+        <ul className="issue-list compact-issue-list">
+          {props.validationIssues.slice(0, 4).map((issue, index) => (
+            <li key={`${issue.code}-${index}`}>
+              <strong>{issue.code}</strong>
+              <span>{issue.message}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {props.apiError ? <p className="error-text">{props.apiError}</p> : null}
+      {props.branchNotice ? <p className="success-text">{props.branchNotice}</p> : null}
+      {props.deploymentNotice ? <p className="success-text">{props.deploymentNotice}</p> : null}
+      {props.planAcceptedNotice ? <p className="success-text">{props.planAcceptedNotice}</p> : null}
+    </aside>
+  );
+}
+
+function ToastStack(props: {
+  readonly apiError: string | null;
+  readonly branchNotice: string | null;
+  readonly deploymentNotice: string | null;
+  readonly planAcceptedNotice: string | null;
+  readonly auditExportNotice: string | null;
+  readonly decisionTraceExportNotice: string | null;
+  readonly promotionNotice: string | null;
+  readonly onDismissApiError: () => void;
+  readonly onDismissBranchNotice: () => void;
+}) {
+  const passiveNotices = [
+    props.deploymentNotice,
+    props.planAcceptedNotice,
+    props.auditExportNotice,
+    props.decisionTraceExportNotice,
+    props.promotionNotice
+  ].filter((notice): notice is string => Boolean(notice));
+
+  if (!props.apiError && !props.branchNotice && passiveNotices.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="app-toast-stack" aria-live="polite">
+      {props.apiError ? (
+        <div className="toast-message toast-message-error">
+          <p className="error-text">{props.apiError}</p>
+          <button className="icon-button" type="button" title="Dismiss error" onClick={props.onDismissApiError}>
+            <X size={14} />
+          </button>
+        </div>
+      ) : null}
+      {props.branchNotice ? (
+        <div className="toast-message">
+          <p className="success-text">{props.branchNotice}</p>
+          <button className="icon-button" type="button" title="Dismiss notice" onClick={props.onDismissBranchNotice}>
+            <X size={14} />
+          </button>
+        </div>
+      ) : null}
+      {passiveNotices.map((notice) => (
+        <p className="success-text" key={notice}>
+          {notice}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 function Inspector(props: {
   readonly workflow: WorkflowSpec;
   readonly selectedNode: WorkflowNode | null;
-  readonly selectedEdgeId: string | null;
+  readonly selectedEdge: WorkflowSpec["edges"][number] | null;
+  readonly activeTab: DetailsTab;
+  readonly tabs: readonly { readonly id: DetailsTab; readonly label: string }[];
   readonly nodePrompt: string;
   readonly jsonError: string | null;
   readonly approvalDiff: WorkflowSpecDiff | null;
@@ -3081,6 +3442,8 @@ function Inspector(props: {
   readonly busyAction: string | null;
   readonly branchLifecycleLocked: boolean;
   readonly promotionNotice: string | null;
+  readonly onClose: () => void;
+  readonly onTabChange: (tab: DetailsTab) => void;
   readonly onNodePromptChange: (value: string) => void;
   readonly onReprompt: () => void;
   readonly onBuildCodegen: () => void;
@@ -3118,322 +3481,397 @@ function Inspector(props: {
   ) => void;
 }) {
   const node = props.selectedNode;
+  const edge = props.selectedEdge;
+  const drawerTitle = node ? node.label : edge ? "Selected Edge" : "Details";
 
   return (
     <>
-      <h2>Inspector</h2>
-      <LifecycleTruthPanel truth={props.runtimeTruth} />
-      <ProviderStatusPanel providers={props.providerConfigs} />
-      <BudgetPanel policy={props.budgetPolicy} ledgers={props.budgetLedgers} />
-      <OpsHealthPanel health={props.opsHealth} />
-      <AgentRuntimePanel
-        route={props.taskRoute}
-        evalCases={props.routerEvalCases}
-        evalRun={props.routerEvalRun}
-        memories={props.agentMemory}
-        traces={props.nodeDecisionTraces}
-        busyAction={props.busyAction}
-        onRunEvals={props.onRunRouterEvals}
-      />
-      <ConnectorPanel
-        connectors={props.connectors}
-        busyAction={props.busyAction}
-        onImportOpenApi={props.onImportOpenApiConnector}
-        onRegisterMcp={props.onRegisterMcpConnector}
-        onTest={props.onTestConnector}
-        onDelete={props.onDeleteConnector}
-        onAddOperation={props.onAddConnectorOperation}
-      />
-      {node ? (
+      <div className="drawer-heading">
+        <div>
+          <p className="eyebrow">Details</p>
+          <h2>{drawerTitle}</h2>
+        </div>
+        <button className="icon-button" type="button" title="Close details" onClick={props.onClose}>
+          <X size={16} />
+        </button>
+      </div>
+      <div className="details-tabs" role="tablist" aria-label="Details tabs">
+        {props.tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={props.activeTab === tab.id}
+            className={props.activeTab === tab.id ? "details-tab details-tab-active" : "details-tab"}
+            onClick={() => props.onTabChange(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {props.activeTab === "node" ? (
         <div className="inspector-stack">
-          <label>
-            Label
-            <input
-              value={node.label}
-              onChange={(event) =>
-                props.onUpdateNode(node.id, (current) => ({
-                  ...current,
-                  label: event.target.value
-                }))
-              }
-            />
-          </label>
-          <label>
-            Description
-            <textarea
-              value={node.description}
-              rows={3}
-              onChange={(event) =>
-                props.onUpdateNode(node.id, (current) => ({
-                  ...current,
-                  description: event.target.value
-                }))
-              }
-            />
-          </label>
-          {node.kind === "skill" || node.kind === "delivery" ? (
-            <label>
-              Adapter-backed skill
-              <select
-                value={node.skillId ?? ""}
-                onChange={(event) =>
-                  props.onUpdateNode(node.id, (current) =>
-                    applyAdapterSkillPreset(current, event.target.value)
-                  )
-                }
-              >
-                <option value="">Unassigned</option>
-                {adapterSkillPresets
-                  .filter((preset) => preset.nodeKinds.includes(node.kind))
-                  .map((preset) => (
-                    <option key={preset.id} value={preset.id}>
-                      {preset.label}
-                    </option>
-                  ))}
-              </select>
-            </label>
-          ) : null}
-          <label>
-            Config
-            <textarea
-              key={`config-${node.id}-${props.workflow.revision}`}
-              defaultValue={formatJson(node.config)}
-              rows={6}
-              onBlur={(event) => props.onUpdateJsonField(node.id, "config", event.target.value)}
-            />
-          </label>
-          <div className="inline-grid">
-            <label>
-              Timeout
-              <input
-                type="number"
-                min={1}
-                value={node.runtime.timeoutSeconds}
-                onChange={(event) =>
-                  props.onUpdateNode(node.id, (current) => ({
-                    ...current,
-                    runtime: {
-                      ...current.runtime,
-                      timeoutSeconds: Number(event.target.value)
-                    }
-                  }))
-                }
-              />
-            </label>
-            <label>
-              Retries
-              <input
-                type="number"
-                min={0}
-                value={node.runtime.retry.maxAttempts}
-                onChange={(event) =>
-                  props.onUpdateNode(node.id, (current) => ({
-                    ...current,
-                    runtime: {
-                      ...current.runtime,
-                      retry: {
-                        ...current.runtime.retry,
-                        maxAttempts: Number(event.target.value)
-                      }
-                    }
-                  }))
-                }
-              />
-            </label>
-          </div>
-          <div className="inline-grid">
-            <label>
-              Inputs
-              <textarea
-                key={`inputs-${node.id}-${props.workflow.revision}`}
-                defaultValue={formatJson(node.inputs)}
-                rows={4}
-                onBlur={(event) => props.onUpdateJsonField(node.id, "inputs", event.target.value)}
-              />
-            </label>
-            <label>
-              Outputs
-              <textarea
-                key={`outputs-${node.id}-${props.workflow.revision}`}
-                defaultValue={formatJson(node.outputs)}
-                rows={4}
-                onBlur={(event) => props.onUpdateJsonField(node.id, "outputs", event.target.value)}
-              />
-            </label>
-          </div>
-          {node.kind === "delivery" ? (
-            <div className="delivery-controls">
+          {node ? (
+            <>
               <label>
-                Primary channel
-                <select
-                  value={String(node.config.channel ?? "sheets")}
-                  onChange={(event) =>
-                    props.onUpdateNode(node.id, (current) =>
-                      updatePrimaryDeliveryChannel(current, event.target.value)
-                    )
-                  }
-                >
-                  <option value="sheets">Sheets</option>
-                  <option value="email">Email</option>
-                </select>
-              </label>
-              <div className="channel-checkboxes" aria-label="Secondary push channels">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={deliveryChannels(node).has("whatsapp")}
-                    onChange={(event) =>
-                      props.onUpdateNode(node.id, (current) =>
-                        toggleSecondaryDeliveryChannel(current, "whatsapp", event.target.checked)
-                      )
-                    }
-                  />
-                  WhatsApp
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={deliveryChannels(node).has("telegram")}
-                    onChange={(event) =>
-                      props.onUpdateNode(node.id, (current) =>
-                        toggleSecondaryDeliveryChannel(current, "telegram", event.target.checked)
-                      )
-                    }
-                  />
-                  Telegram
-                </label>
-              </div>
-              <label>
-                Adapter
+                Label
                 <input
-                  value={(node.adapterIds ?? (node.adapterId ? [node.adapterId] : [])).join(", ")}
+                  value={node.label}
                   onChange={(event) =>
-                    props.onUpdateNode(node.id, (current) =>
-                      updateAdapterIds(current, event.target.value)
-                    )
+                    props.onUpdateNode(node.id, (current) => ({
+                      ...current,
+                      label: event.target.value
+                    }))
                   }
                 />
               </label>
-            </div>
-          ) : null}
-          <label>
-            Node Prompt
-            <textarea
-              value={props.nodePrompt}
-              rows={3}
-              onChange={(event) => props.onNodePromptChange(event.target.value)}
-            />
-          </label>
-          <button
-            type="button"
-            onClick={props.onReprompt}
-            disabled={props.busyAction !== null || props.branchLifecycleLocked}
-          >
-            <WandSparkles size={18} />
-            Reprompt Node
-          </button>
-          {node.kind === "codegen" ? (
-            <section className="codegen-panel" aria-label="Generated code controls">
-              <StatusRow
-                label="Review"
-                value={node.codegen?.review.status ?? "missing"}
-                tone={node.codegen?.review.status ?? "blocked"}
-              />
-              <StatusRow
-                label="Replay"
-                value={node.codegen?.replay.mode ?? "missing"}
-                tone="pending"
-              />
-              {typeof node.config.reusedFromBranchId === "string" ? (
-                <StatusRow label="Reuse" value={node.config.reusedFromBranchId} tone="pending" />
+              <label>
+                Description
+                <textarea
+                  value={node.description}
+                  rows={3}
+                  onChange={(event) =>
+                    props.onUpdateNode(node.id, (current) => ({
+                      ...current,
+                      description: event.target.value
+                    }))
+                  }
+                />
+              </label>
+              <StatusRow label="Kind" value={node.kind} tone="pending" />
+              <StatusRow label="Inputs" value={String(Object.keys(node.inputs).length)} tone="idle" />
+              <StatusRow label="Outputs" value={String(Object.keys(node.outputs).length)} tone="idle" />
+              {node.kind === "skill" || node.kind === "delivery" ? (
+                <label>
+                  Adapter-backed skill
+                  <select
+                    value={node.skillId ?? ""}
+                    onChange={(event) =>
+                      props.onUpdateNode(node.id, (current) =>
+                        applyAdapterSkillPreset(current, event.target.value)
+                      )
+                    }
+                  >
+                    <option value="">Unassigned</option>
+                    {adapterSkillPresets
+                      .filter((preset) => preset.nodeKinds.includes(node.kind))
+                      .map((preset) => (
+                        <option key={preset.id} value={preset.id}>
+                          {preset.label}
+                        </option>
+                      ))}
+                  </select>
+                </label>
               ) : null}
+              {node.kind === "delivery" ? (
+                <div className="delivery-controls">
+                  <label>
+                    Primary channel
+                    <select
+                      value={String(node.config.channel ?? "sheets")}
+                      onChange={(event) =>
+                        props.onUpdateNode(node.id, (current) =>
+                          updatePrimaryDeliveryChannel(current, event.target.value)
+                        )
+                      }
+                    >
+                      <option value="sheets">Sheets</option>
+                      <option value="email">Email</option>
+                    </select>
+                  </label>
+                  <div className="channel-checkboxes" aria-label="Secondary push channels">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={deliveryChannels(node).has("whatsapp")}
+                        onChange={(event) =>
+                          props.onUpdateNode(node.id, (current) =>
+                            toggleSecondaryDeliveryChannel(
+                              current,
+                              "whatsapp",
+                              event.target.checked
+                            )
+                          )
+                        }
+                      />
+                      WhatsApp
+                    </label>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={deliveryChannels(node).has("telegram")}
+                        onChange={(event) =>
+                          props.onUpdateNode(node.id, (current) =>
+                            toggleSecondaryDeliveryChannel(
+                              current,
+                              "telegram",
+                              event.target.checked
+                            )
+                          )
+                        }
+                      />
+                      Telegram
+                    </label>
+                  </div>
+                  <label>
+                    Adapter
+                    <input
+                      value={(node.adapterIds ?? (node.adapterId ? [node.adapterId] : [])).join(", ")}
+                      onChange={(event) =>
+                        props.onUpdateNode(node.id, (current) =>
+                          updateAdapterIds(current, event.target.value)
+                        )
+                      }
+                    />
+                  </label>
+                </div>
+              ) : null}
+              <label>
+                Node Prompt
+                <textarea
+                  value={props.nodePrompt}
+                  rows={3}
+                  onChange={(event) => props.onNodePromptChange(event.target.value)}
+                />
+              </label>
               <button
                 type="button"
-                onClick={props.onBuildCodegen}
+                onClick={props.onReprompt}
                 disabled={props.busyAction !== null || props.branchLifecycleLocked}
               >
                 <WandSparkles size={18} />
-                Build Generated Node
+                Reprompt Node
               </button>
-              <button
-                type="button"
-                onClick={props.onReviewCodegen}
-                disabled={
-                  props.busyAction !== null ||
-                  props.branchLifecycleLocked ||
-                  node.codegen?.review.status === "approved"
-                }
-              >
-                <CheckCircle2 size={18} />
-                Review Generated Code
-              </button>
-              <button
-                type="button"
-                onClick={props.onPromoteCodegen}
-                disabled={
-                  props.busyAction !== null ||
-                  props.branchLifecycleLocked ||
-                  node.codegen?.review.status !== "approved"
-                }
-              >
-                <WandSparkles size={18} />
-                Promote Skill
-              </button>
-              {props.promotionNotice ? (
-                <p className="success-text">{props.promotionNotice}</p>
+              {node.kind === "codegen" ? (
+                <section className="codegen-panel" aria-label="Generated code controls">
+                  <StatusRow
+                    label="Review"
+                    value={node.codegen?.review.status ?? "missing"}
+                    tone={node.codegen?.review.status ?? "blocked"}
+                  />
+                  <StatusRow
+                    label="Replay"
+                    value={node.codegen?.replay.mode ?? "missing"}
+                    tone="pending"
+                  />
+                  {typeof node.config.reusedFromBranchId === "string" ? (
+                    <StatusRow label="Reuse" value={node.config.reusedFromBranchId} tone="pending" />
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={props.onBuildCodegen}
+                    disabled={props.busyAction !== null || props.branchLifecycleLocked}
+                  >
+                    <WandSparkles size={18} />
+                    Build Generated Node
+                  </button>
+                  <button
+                    type="button"
+                    onClick={props.onReviewCodegen}
+                    disabled={
+                      props.busyAction !== null ||
+                      props.branchLifecycleLocked ||
+                      node.codegen?.review.status === "approved"
+                    }
+                  >
+                    <CheckCircle2 size={18} />
+                    Review Generated Code
+                  </button>
+                  <button
+                    type="button"
+                    onClick={props.onPromoteCodegen}
+                    disabled={
+                      props.busyAction !== null ||
+                      props.branchLifecycleLocked ||
+                      node.codegen?.review.status !== "approved"
+                    }
+                  >
+                    <WandSparkles size={18} />
+                    Promote Skill
+                  </button>
+                  {props.promotionNotice ? (
+                    <p className="success-text">{props.promotionNotice}</p>
+                  ) : null}
+                </section>
               ) : null}
-            </section>
+            </>
+          ) : edge ? (
+            <dl className="detail-list">
+              <div>
+                <dt>Edge ID</dt>
+                <dd>{edge.id}</dd>
+              </div>
+              <div>
+                <dt>Source</dt>
+                <dd>
+                  {edge.source.nodeId}.{edge.source.port}
+                </dd>
+              </div>
+              <div>
+                <dt>Target</dt>
+                <dd>
+                  {edge.target.nodeId}.{edge.target.port}
+                </dd>
+              </div>
+            </dl>
           ) : null}
+        </div>
+      ) : null}
+
+      {props.activeTab === "config" ? (
+        <div className="inspector-stack">
+          {node ? (
+            <>
+              <label>
+                Config
+                <textarea
+                  key={`config-${node.id}-${props.workflow.revision}`}
+                  defaultValue={formatJson(node.config)}
+                  rows={8}
+                  onBlur={(event) => props.onUpdateJsonField(node.id, "config", event.target.value)}
+                />
+              </label>
+              <div className="inline-grid">
+                <label>
+                  Timeout
+                  <input
+                    type="number"
+                    min={1}
+                    value={node.runtime.timeoutSeconds}
+                    onChange={(event) =>
+                      props.onUpdateNode(node.id, (current) => ({
+                        ...current,
+                        runtime: {
+                          ...current.runtime,
+                          timeoutSeconds: Number(event.target.value)
+                        }
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  Retries
+                  <input
+                    type="number"
+                    min={0}
+                    value={node.runtime.retry.maxAttempts}
+                    onChange={(event) =>
+                      props.onUpdateNode(node.id, (current) => ({
+                        ...current,
+                        runtime: {
+                          ...current.runtime,
+                          retry: {
+                            ...current.runtime.retry,
+                            maxAttempts: Number(event.target.value)
+                          }
+                        }
+                      }))
+                    }
+                  />
+                </label>
+              </div>
+              <div className="inline-grid">
+                <label>
+                  Inputs
+                  <textarea
+                    key={`inputs-${node.id}-${props.workflow.revision}`}
+                    defaultValue={formatJson(node.inputs)}
+                    rows={5}
+                    onBlur={(event) =>
+                      props.onUpdateJsonField(node.id, "inputs", event.target.value)
+                    }
+                  />
+                </label>
+                <label>
+                  Outputs
+                  <textarea
+                    key={`outputs-${node.id}-${props.workflow.revision}`}
+                    defaultValue={formatJson(node.outputs)}
+                    rows={5}
+                    onBlur={(event) =>
+                      props.onUpdateJsonField(node.id, "outputs", event.target.value)
+                    }
+                  />
+                </label>
+              </div>
+              {props.jsonError ? <p className="error-text">{props.jsonError}</p> : null}
+            </>
+          ) : edge ? (
+            <pre className="result-view">{formatJson(edge)}</pre>
+          ) : null}
+        </div>
+      ) : null}
+
+      {props.activeTab === "trace" ? (
+        <div className="inspector-stack">
           <DecisionTracePanel
             traces={props.nodeDecisionTraces}
             exportNotice={props.decisionTraceExportNotice}
             busyAction={props.busyAction}
             onExport={props.onExportDecisionTraces}
           />
-          {props.jsonError ? <p className="error-text">{props.jsonError}</p> : null}
+          <ApprovalPanel diff={props.approvalDiff} approvedRevision={props.approvedRevision} />
+          {props.planAcceptedNotice ? (
+            <p className="success-text">{props.planAcceptedNotice}</p>
+          ) : null}
         </div>
-      ) : (
-        <dl className="detail-list">
-          <div>
-            <dt>Workflow ID</dt>
-            <dd>{props.workflow.id}</dd>
-          </div>
-          <div>
-            <dt>Selected Edge</dt>
-            <dd>{props.selectedEdgeId ?? "none"}</dd>
-          </div>
-          <div>
-            <dt>Frozen Approval</dt>
-            <dd>{props.workflow.approval?.status ?? "draft"}</dd>
-          </div>
-        </dl>
-      )}
+      ) : null}
 
-      <ApprovalPanel diff={props.approvalDiff} approvedRevision={props.approvedRevision} />
-      {props.planAcceptedNotice ? <p className="success-text">{props.planAcceptedNotice}</p> : null}
-      <JobPanel job={props.activeJob} />
-      <WorkspacePanel workspace={props.workspace} agentRuns={props.agentRuns} />
-      <AgentTimelinePanel events={props.agentTimeline} />
-      {props.deploymentNotice ? <p className="success-text">{props.deploymentNotice}</p> : null}
-      {props.auditExportNotice ? <p className="success-text">{props.auditExportNotice}</p> : null}
-      <DeploymentPanel
-        activations={props.deploymentActivations}
-        activeRunnerDeployment={props.activeRunnerDeployment}
-        busyAction={props.busyAction}
-        branchLifecycleLocked={props.branchLifecycleLocked}
-        onDeployRunner={props.onDeployRunner}
-        onDeployBundle={props.onDeployBundle}
-        onUndeployRunner={props.onUndeployRunner}
-        onRollbackRunner={props.onRollbackRunner}
-        onExportAudit={props.onExportAudit}
-      />
-      <SchedulePanel
-        schedules={props.workflowSchedules}
-        busyAction={props.busyAction}
-        onPause={props.onPauseSchedule}
-        onResume={props.onResumeSchedule}
-      />
-      <RunPanel run={props.run} runs={props.workflowRuns} onReplay={props.onReplayRun} />
+      {props.activeTab === "runtime" ? (
+        <div className="inspector-stack">
+          <LifecycleTruthPanel truth={props.runtimeTruth} />
+          <AgentRuntimePanel
+            route={props.taskRoute}
+            evalCases={props.routerEvalCases}
+            evalRun={props.routerEvalRun}
+            memories={props.agentMemory}
+            traces={props.nodeDecisionTraces}
+            busyAction={props.busyAction}
+            onRunEvals={props.onRunRouterEvals}
+          />
+          <ProviderStatusPanel providers={props.providerConfigs} />
+          <BudgetPanel policy={props.budgetPolicy} ledgers={props.budgetLedgers} />
+          <JobPanel job={props.activeJob} />
+          <WorkspacePanel workspace={props.workspace} agentRuns={props.agentRuns} />
+          <RunPanel run={props.run} runs={props.workflowRuns} onReplay={props.onReplayRun} />
+        </div>
+      ) : null}
+
+      {props.activeTab === "ops" ? (
+        <div className="inspector-stack">
+          <OpsHealthPanel health={props.opsHealth} />
+          <ConnectorPanel
+            connectors={props.connectors}
+            busyAction={props.busyAction}
+            onImportOpenApi={props.onImportOpenApiConnector}
+            onRegisterMcp={props.onRegisterMcpConnector}
+            onTest={props.onTestConnector}
+            onDelete={props.onDeleteConnector}
+            onAddOperation={props.onAddConnectorOperation}
+          />
+          <AgentTimelinePanel events={props.agentTimeline} />
+          {props.deploymentNotice ? <p className="success-text">{props.deploymentNotice}</p> : null}
+          {props.auditExportNotice ? <p className="success-text">{props.auditExportNotice}</p> : null}
+          <DeploymentPanel
+            activations={props.deploymentActivations}
+            activeRunnerDeployment={props.activeRunnerDeployment}
+            busyAction={props.busyAction}
+            branchLifecycleLocked={props.branchLifecycleLocked}
+            onDeployRunner={props.onDeployRunner}
+            onDeployBundle={props.onDeployBundle}
+            onUndeployRunner={props.onUndeployRunner}
+            onRollbackRunner={props.onRollbackRunner}
+            onExportAudit={props.onExportAudit}
+          />
+          <SchedulePanel
+            schedules={props.workflowSchedules}
+            busyAction={props.busyAction}
+            onPause={props.onPauseSchedule}
+            onResume={props.onResumeSchedule}
+          />
+        </div>
+      ) : null}
     </>
   );
 }
@@ -4398,6 +4836,14 @@ function StatusRow(props: {
       <strong className={`status-pill status-${props.tone}`}>{props.value}</strong>
     </div>
   );
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
 }
 
 function actionBlockedReason(
