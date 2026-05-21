@@ -42,10 +42,15 @@ import type {
   WorkflowDraftEvaluation,
   WorkflowAdapterOperationRef,
   WorkflowApprovedRevision,
+  WorkflowAgentTimelineEvent,
   WorkflowGeneratedModuleReuseDecision,
+  WorkflowBudgetLedger,
+  WorkflowBudgetPolicy,
   WorkflowJob,
   JsonValue,
+  WorkflowDeploymentRecord,
   WorkflowWorkspace,
+  WorkflowProviderRuntimeConfig,
   WorkflowNode,
   WorkflowNodeDecisionTrace,
   WorkflowNodeKind,
@@ -54,6 +59,7 @@ import type {
   WorkflowPlannerFeedback,
   WorkflowPromptTurn,
   WorkflowRunRecord,
+  WorkflowRuntimeTruthSnapshot,
   WorkflowSpec,
   WorkflowSpecDiff,
   WorkflowTaskRoute,
@@ -484,6 +490,14 @@ export function App() {
   const [planAcceptedNotice, setPlanAcceptedNotice] = useState<string | null>(null);
   const [deploymentActivations, setDeploymentActivations] =
     useState<DeploymentActivationSummaryResponse | null>(null);
+  const [runtimeTruth, setRuntimeTruth] = useState<WorkflowRuntimeTruthSnapshot | null>(null);
+  const [providerConfigs, setProviderConfigs] = useState<readonly WorkflowProviderRuntimeConfig[]>(
+    []
+  );
+  const [budgetPolicy, setBudgetPolicy] = useState<WorkflowBudgetPolicy | null>(null);
+  const [budgetLedgers, setBudgetLedgers] = useState<readonly WorkflowBudgetLedger[]>([]);
+  const [agentTimeline, setAgentTimeline] = useState<readonly WorkflowAgentTimelineEvent[]>([]);
+  const [auditExportNotice, setAuditExportNotice] = useState<string | null>(null);
   const [branches, setBranches] = useState<readonly WorkflowBranch[]>([]);
   const [activeBranchId, setActiveBranchId] = useState<string | null>(null);
   const [promptTurns, setPromptTurns] = useState<readonly WorkflowPromptTurn[]>([]);
@@ -546,6 +560,16 @@ export function App() {
     [activeBranchId, branches]
   );
   const branchLifecycleLocked = activeBranch?.status === "archived";
+  const activeRunnerDeployment = useMemo(
+    () =>
+      deploymentActivations?.activeDeployments.find(
+        (deployment) =>
+          deployment.kind === "runner.configuration" &&
+          deployment.status === "deployed" &&
+          (!approvedRevision || deployment.approvedRevisionId === approvedRevision.id)
+      ) ?? null,
+    [approvedRevision, deploymentActivations]
+  );
   const visibleBranches = useMemo(
     () =>
       showArchivedBranches ? branches : branches.filter((branch) => branch.status !== "archived"),
@@ -566,12 +590,35 @@ export function App() {
       (question) =>
         !question.required || (clarificationAnswers[question.id]?.trim().length ?? 0) > 0
     );
-  const canApprove =
-    workflowHasGraph &&
-    validation.ok &&
-    draftEvaluation?.readyForApproval === true &&
-    !branchLifecycleLocked;
-  const canRun = approvedRevision !== null && !branchLifecycleLocked;
+  const planDisabledReason = actionBlockedReason(busyAction, branchLifecycleLocked);
+  const validateDisabledReason = actionBlockedReason(busyAction, branchLifecycleLocked);
+  const acceptPlanDisabledReason = !workflowHasGraph
+    ? "Plan or add nodes before accepting."
+    : !validation.ok
+      ? "Fix validation issues before accepting."
+      : actionBlockedReason(busyAction, branchLifecycleLocked);
+  const evaluateDisabledReason = !workflowHasGraph
+    ? "Plan or add nodes before evaluating."
+    : !validation.ok
+      ? "Fix validation issues before evaluating."
+      : actionBlockedReason(busyAction, branchLifecycleLocked);
+  const approveDisabledReason = !workflowHasGraph
+    ? "Plan or add nodes before approval."
+    : !validation.ok
+      ? "Fix validation issues before approval."
+      : draftEvaluation?.readyForApproval !== true
+        ? "Run a passing draft evaluation before approval."
+        : actionBlockedReason(busyAction, branchLifecycleLocked);
+  const deployDisabledReason = !approvedRevision
+    ? "Approve a revision before deployment."
+    : draftEvaluation?.readyForApproval !== true
+      ? "Run a passing draft evaluation before deployment."
+      : actionBlockedReason(busyAction, branchLifecycleLocked);
+  const runDisabledReason = !approvedRevision
+    ? "Approve a revision before running."
+    : !activeRunnerDeployment
+      ? "Deploy an active runner.configuration before running."
+      : actionBlockedReason(busyAction, branchLifecycleLocked);
   const refreshIntegrations = useCallback(async () => {
     try {
       const [secrets, google] = await Promise.all([
@@ -618,6 +665,36 @@ export function App() {
     []
   );
 
+  const refreshRuntimeStatus = useCallback(
+    async (workflowId: string, branchId?: string | null | undefined) => {
+      if (workflowId === emptyWorkflowDraft.id) {
+        setRuntimeTruth(null);
+        setBudgetPolicy(null);
+        setBudgetLedgers([]);
+        setAgentTimeline([]);
+        setDeploymentActivations(null);
+        return;
+      }
+
+      try {
+        const [truth, budget, timeline, active] = await Promise.all([
+          openClawApi.fetchRuntimeTruth(workflowId, branchId ?? undefined),
+          openClawApi.fetchBudget(workflowId, branchId ?? undefined),
+          openClawApi.fetchAgentTimeline(workflowId),
+          openClawApi.fetchActiveDeployments(workflowId)
+        ]);
+        setRuntimeTruth(truth.truth);
+        setBudgetPolicy(budget.policy);
+        setBudgetLedgers(budget.ledgers);
+        setAgentTimeline(timeline.events);
+        setDeploymentActivations(active);
+      } catch (error) {
+        setApiError(error instanceof Error ? error.message : "Runtime status request failed.");
+      }
+    },
+    []
+  );
+
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       void refreshIntegrations();
@@ -626,11 +703,37 @@ export function App() {
   }, [adminToken, refreshIntegrations]);
 
   useEffect(() => {
+    let cancelled = false;
+    void openClawApi
+      .fetchRuntimeProviders()
+      .then((response) => {
+        if (!cancelled) {
+          setProviderConfigs(response.providers);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setProviderConfigs([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [adminToken]);
+
+  useEffect(() => {
     const timeout = window.setTimeout(() => {
       void refreshBranches(workflow.id);
     }, 0);
     return () => window.clearTimeout(timeout);
   }, [refreshBranches, workflow.id]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void refreshRuntimeStatus(workflow.id, activeBranchId);
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [activeBranchId, refreshRuntimeStatus, workflow.id, workflow.revision]);
 
   useEffect(() => {
     if (!selectedNodeId || workflow.id === emptyWorkflowDraft.id) {
@@ -826,6 +929,7 @@ export function App() {
       setDeploymentNotice(null);
       setPlanAcceptedNotice(null);
       setBranchNotice(`Switched to ${response.branch.name}`);
+      await refreshRuntimeStatus(response.branch.workflowId, response.branch.id);
     });
   }
 
@@ -857,6 +961,7 @@ export function App() {
       setReuseDecisions([]);
       loadWorkflow(response.draftRevision.workflow, response.draftRevision.validation);
       setBranchNotice(`Forked ${response.branch.name}`);
+      await refreshRuntimeStatus(response.branch.workflowId, response.branch.id);
     });
   }
 
@@ -1304,8 +1409,10 @@ export function App() {
         setActiveBranchId(response.branch.id);
         setPromptTurns((previous) => [...previous, response.promptTurn]);
         await refreshBranches(response.workflow.id, response.branch.id);
+        await refreshRuntimeStatus(response.workflow.id, response.branch.id);
       } else {
         await refreshBranches(response.workflow.id);
+        await refreshRuntimeStatus(response.workflow.id, activeBranchId);
       }
       setDraftEvaluation(null);
       const nextSelectedNode =
@@ -1334,6 +1441,7 @@ export function App() {
       if (response.workflow) {
         loadWorkflow(response.workflow, response.validation);
       }
+      await refreshRuntimeStatus(workflow.id, activeBranchId);
     });
   }
 
@@ -1365,6 +1473,7 @@ export function App() {
             }
           : previous
       );
+      await refreshRuntimeStatus(workflow.id, activeBranchId);
     });
   }
 
@@ -1483,7 +1592,7 @@ export function App() {
           maxReimplementationAttempts: 2,
           maxWallClockSeconds: 600,
           maxModelCostUsd: 2,
-          runTestsInDocker: false,
+          runTestsInDocker: true,
           ...(activeBranchId ? { branchId: activeBranchId } : {})
         },
         job.id
@@ -1494,6 +1603,7 @@ export function App() {
       setAgentRuns(response.agentRuns);
       setDraftEvaluation(null);
       setPromotionNotice(null);
+      await refreshRuntimeStatus(response.workflow.id, activeBranchId);
     });
   }
 
@@ -1511,6 +1621,7 @@ export function App() {
       setApprovedRevision(response.approvedRevision);
       setApprovalDiff(response.diff);
       loadWorkflow(response.workflow, validateWorkflowSpec(response.workflow));
+      await refreshRuntimeStatus(response.workflow.id, activeBranchId);
     });
   }
 
@@ -1537,11 +1648,16 @@ export function App() {
       setDraftEvaluation(null);
       setApprovedRevision(null);
       setApprovalDiff(null);
+      await refreshRuntimeStatus(response.workflow.id, activeBranchId);
     });
   }
 
   function runWorkflow() {
     if (!approvedRevision) {
+      return;
+    }
+    if (!activeRunnerDeployment) {
+      setApiError("Production runs require an active runner.configuration deployment.");
       return;
     }
     if (branchLifecycleLocked) {
@@ -1559,16 +1675,18 @@ export function App() {
         workflow.id,
         {
           approvedRevisionId: approvedRevision.id,
+          deploymentId: activeRunnerDeployment.id,
           ...(activeBranchId ? { branchId: activeBranchId } : {})
         },
         job.id
       );
       const fetched = await openClawApi.fetchRun(workflow.id, response.run.id);
       setRun(fetched.run);
+      await refreshRuntimeStatus(workflow.id, activeBranchId);
     });
   }
 
-  function deployWorkflow() {
+  function deployWorkflow(kind: WorkflowDeploymentRecord["kind"] = "runner.configuration") {
     if (!approvedRevision || !draftEvaluation) {
       return;
     }
@@ -1587,7 +1705,7 @@ export function App() {
         workflow.id,
         {
           approvedRevisionId: approvedRevision.id,
-          kind: "workflow.bundle",
+          kind,
           createdBy: "owner@example.com",
           rollbackPlan: `Rollback to ${approvedRevision.id}.`,
           ...(activeBranchId ? { branchId: activeBranchId } : {}),
@@ -1600,6 +1718,7 @@ export function App() {
       const active = await openClawApi.fetchActiveDeployments(workflow.id);
       setDeploymentNotice(`Deployment ${response.deployment.status}: ${response.deployment.kind}`);
       setDeploymentActivations(active);
+      await refreshRuntimeStatus(workflow.id, activeBranchId);
     });
   }
 
@@ -1614,6 +1733,50 @@ export function App() {
       setDecisionTraceExportNotice(
         `Decision trace export ${response.export.id}: ${response.export.lineCount} JSONL line(s).`
       );
+    });
+  }
+
+  function exportAudit() {
+    if (workflow.id === emptyWorkflowDraft.id) {
+      setApiError("Plan a workflow before exporting audit records.");
+      return;
+    }
+
+    void executeApiAction("export-audit", async () => {
+      const response = await openClawApi.exportAudit(workflow.id);
+      setAuditExportNotice(
+        `Audit export ${response.export.id}: ${response.export.lineCount} JSONL line(s).`
+      );
+    });
+  }
+
+  function undeployActiveRunner() {
+    if (!activeRunnerDeployment) {
+      setApiError("No active runner.configuration deployment is available.");
+      return;
+    }
+
+    void executeApiAction("undeploy", async () => {
+      const response = await openClawApi.undeployDeployment(workflow.id, activeRunnerDeployment.id);
+      setDeploymentActivations(response.active);
+      setDeploymentNotice(`Deployment ${response.deployment.status}: ${response.deployment.kind}`);
+      await refreshRuntimeStatus(workflow.id, activeBranchId);
+    });
+  }
+
+  function rollbackActiveRunner() {
+    if (!activeRunnerDeployment) {
+      setApiError("No active runner.configuration deployment is available.");
+      return;
+    }
+
+    void executeApiAction("rollback", async () => {
+      const response = await openClawApi.rollbackDeployment(workflow.id, activeRunnerDeployment.id);
+      setDeploymentActivations(response.active);
+      setDeploymentNotice(
+        `Rollback target ${response.rollbackTarget.deploymentId}: ${response.deployment.status}`
+      );
+      await refreshRuntimeStatus(workflow.id, activeBranchId);
     });
   }
 
@@ -1649,6 +1812,11 @@ export function App() {
     setDeploymentNotice(null);
     setPlanAcceptedNotice(null);
     setDeploymentActivations(null);
+    setRuntimeTruth(null);
+    setBudgetPolicy(null);
+    setBudgetLedgers([]);
+    setAgentTimeline([]);
+    setAuditExportNotice(null);
     setBranches([]);
     setActiveBranchId(null);
     setPromptTurns([]);
@@ -1732,7 +1900,6 @@ export function App() {
   const activeBranchIsDefault = activeBranch?.id.endsWith(".main") === true;
   const mergeConflictsResolved =
     mergePreview?.conflicts.every((conflict) => mergeResolutionModes[conflict.id]) ?? true;
-  const commonActionBlocked = busyAction !== null || branchLifecycleLocked;
   const paletteCommands: PaletteCommand[] = [
     ...componentPaletteItems.map((item) => ({
       id: `component-${item.id}`,
@@ -1747,8 +1914,8 @@ export function App() {
       id: "workflow-plan",
       group: "Workflow",
       label: "Plan Workflow",
-      detail: "Draft or revise the workflow from a prompt.",
-      disabled: commonActionBlocked,
+      detail: planDisabledReason ?? "Draft or revise the workflow from a prompt.",
+      disabled: Boolean(planDisabledReason),
       closeOnSelect: false,
       onSelect: () => openPalette({ kind: "plan", value: prompt })
     },
@@ -1756,53 +1923,68 @@ export function App() {
       id: "workflow-validate",
       group: "Workflow",
       label: "Validate Workflow",
-      detail: "Run graph validation against the current draft.",
-      disabled: commonActionBlocked,
+      detail: validateDisabledReason ?? "Run graph validation against the current draft.",
+      disabled: Boolean(validateDisabledReason),
       onSelect: validateDraft
     },
     {
       id: "workflow-accept-plan",
       group: "Workflow",
       label: "Accept Plan",
-      detail: "Record the current draft plan shape.",
-      disabled: !workflowHasGraph || !validation.ok || commonActionBlocked,
+      detail: acceptPlanDisabledReason ?? "Record the current draft plan shape.",
+      disabled: Boolean(acceptPlanDisabledReason),
       onSelect: acceptPlanShape
     },
     {
       id: "workflow-evaluate",
       group: "Workflow",
       label: "Evaluate Draft",
-      detail: "Run the draft evaluator before approval.",
-      disabled: !workflowHasGraph || !validation.ok || commonActionBlocked,
+      detail: evaluateDisabledReason ?? "Run the draft evaluator before approval.",
+      disabled: Boolean(evaluateDisabledReason),
       onSelect: evaluateDraft
     },
     {
       id: "workflow-approve",
       group: "Workflow",
       label: "Approve Workflow",
-      detail: "Freeze an approval revision for the current draft.",
-      disabled: !canApprove || busyAction !== null,
+      detail: approveDisabledReason ?? "Freeze an approval revision for the current draft.",
+      disabled: Boolean(approveDisabledReason),
       onSelect: approveWorkflow
     },
     {
       id: "workflow-run",
       group: "Workflow",
       label: "Run Workflow",
-      detail: "Start a run from the approved revision.",
-      disabled: !canRun || busyAction !== null,
+      detail: runDisabledReason ?? "Start a run from the active deployed runner config.",
+      disabled: Boolean(runDisabledReason),
       onSelect: runWorkflow
     },
     {
       id: "workflow-deploy",
       group: "Workflow",
       label: "Deploy Workflow",
-      detail: "Deploy the approved and evaluated workflow bundle.",
-      disabled:
-        !approvedRevision ||
-        !draftEvaluation?.readyForApproval ||
-        busyAction !== null ||
-        branchLifecycleLocked,
-      onSelect: deployWorkflow
+      detail: deployDisabledReason ?? "Deploy an active runner.configuration.",
+      disabled: Boolean(deployDisabledReason),
+      onSelect: () => deployWorkflow("runner.configuration")
+    },
+    {
+      id: "workflow-export-bundle",
+      group: "Workflow",
+      label: "Export Workflow Bundle",
+      detail: deployDisabledReason ?? "Export a local workflow bundle artifact.",
+      disabled: Boolean(deployDisabledReason),
+      onSelect: () => deployWorkflow("workflow.bundle")
+    },
+    {
+      id: "workflow-export-audit",
+      group: "Workflow",
+      label: "Export Audit JSONL",
+      detail:
+        workflow.id === emptyWorkflowDraft.id
+          ? "Plan a workflow before exporting audit records."
+          : "Export redacted audit and decision trace records.",
+      disabled: busyAction !== null || workflow.id === emptyWorkflowDraft.id,
+      onSelect: exportAudit
     },
     {
       id: "workflow-stop",
@@ -2117,64 +2299,49 @@ export function App() {
                 Commands
               </button>
               <button
-                title="Validate workflow"
+                title={validateDisabledReason ?? "Validate workflow"}
                 onClick={validateDraft}
-                disabled={busyAction !== null || branchLifecycleLocked}
+                disabled={Boolean(validateDisabledReason)}
               >
                 <ShieldCheck size={18} />
                 Validate
               </button>
               <button
-                title="Accept plan shape"
+                title={acceptPlanDisabledReason ?? "Accept plan shape"}
                 onClick={acceptPlanShape}
-                disabled={
-                  !workflowHasGraph ||
-                  !validation.ok ||
-                  busyAction !== null ||
-                  branchLifecycleLocked
-                }
+                disabled={Boolean(acceptPlanDisabledReason)}
               >
                 <CheckCircle2 size={18} />
                 Accept Plan
               </button>
               <button
-                title="Evaluate draft"
+                title={evaluateDisabledReason ?? "Evaluate draft"}
                 onClick={evaluateDraft}
-                disabled={
-                  !workflowHasGraph ||
-                  !validation.ok ||
-                  busyAction !== null ||
-                  branchLifecycleLocked
-                }
+                disabled={Boolean(evaluateDisabledReason)}
               >
                 <ListChecks size={18} />
                 Evaluate
               </button>
               <button
-                title="Approve workflow"
+                title={approveDisabledReason ?? "Approve workflow"}
                 onClick={approveWorkflow}
-                disabled={!canApprove || busyAction !== null}
+                disabled={Boolean(approveDisabledReason)}
               >
                 <CheckCircle2 size={18} />
                 Approve
               </button>
               <button
-                title="Run workflow"
+                title={runDisabledReason ?? "Run workflow"}
                 onClick={runWorkflow}
-                disabled={!canRun || busyAction !== null}
+                disabled={Boolean(runDisabledReason)}
               >
                 <Play size={18} />
                 Run
               </button>
               <button
-                title="Deploy workflow"
-                onClick={deployWorkflow}
-                disabled={
-                  !approvedRevision ||
-                  !draftEvaluation?.readyForApproval ||
-                  busyAction !== null ||
-                  branchLifecycleLocked
-                }
+                title={deployDisabledReason ?? "Deploy runner configuration"}
+                onClick={() => deployWorkflow("runner.configuration")}
+                disabled={Boolean(deployDisabledReason)}
               >
                 <Send size={18} />
                 Deploy
@@ -2274,11 +2441,18 @@ export function App() {
             activeJob={activeJob}
             workspace={workspace}
             agentRuns={agentRuns}
+            runtimeTruth={runtimeTruth}
+            providerConfigs={providerConfigs}
+            budgetPolicy={budgetPolicy}
+            budgetLedgers={budgetLedgers}
+            agentTimeline={agentTimeline}
             nodeDecisionTraces={nodeDecisionTraces}
             decisionTraceExportNotice={decisionTraceExportNotice}
+            auditExportNotice={auditExportNotice}
             deploymentNotice={deploymentNotice}
             planAcceptedNotice={planAcceptedNotice}
             deploymentActivations={deploymentActivations}
+            activeRunnerDeployment={activeRunnerDeployment}
             busyAction={busyAction}
             branchLifecycleLocked={branchLifecycleLocked}
             onNodePromptChange={setNodePrompt}
@@ -2287,6 +2461,11 @@ export function App() {
             onReviewCodegen={reviewCodegenNode}
             onPromoteCodegen={promoteCodegenNode}
             onExportDecisionTraces={exportDecisionTraces}
+            onExportAudit={exportAudit}
+            onDeployRunner={() => deployWorkflow("runner.configuration")}
+            onDeployBundle={() => deployWorkflow("workflow.bundle")}
+            onUndeployRunner={undeployActiveRunner}
+            onRollbackRunner={rollbackActiveRunner}
             onUpdateNode={updateNode}
             onUpdateJsonField={updateJsonField}
             promotionNotice={promotionNotice}
@@ -2659,11 +2838,18 @@ function Inspector(props: {
   readonly activeJob: WorkflowJob | null;
   readonly workspace: WorkflowWorkspace | null;
   readonly agentRuns: readonly unknown[];
+  readonly runtimeTruth: WorkflowRuntimeTruthSnapshot | null;
+  readonly providerConfigs: readonly WorkflowProviderRuntimeConfig[];
+  readonly budgetPolicy: WorkflowBudgetPolicy | null;
+  readonly budgetLedgers: readonly WorkflowBudgetLedger[];
+  readonly agentTimeline: readonly WorkflowAgentTimelineEvent[];
   readonly nodeDecisionTraces: readonly WorkflowNodeDecisionTrace[];
   readonly decisionTraceExportNotice: string | null;
+  readonly auditExportNotice: string | null;
   readonly deploymentNotice: string | null;
   readonly planAcceptedNotice: string | null;
   readonly deploymentActivations: DeploymentActivationSummaryResponse | null;
+  readonly activeRunnerDeployment: WorkflowDeploymentRecord | null;
   readonly busyAction: string | null;
   readonly branchLifecycleLocked: boolean;
   readonly promotionNotice: string | null;
@@ -2673,6 +2859,11 @@ function Inspector(props: {
   readonly onReviewCodegen: () => void;
   readonly onPromoteCodegen: () => void;
   readonly onExportDecisionTraces: () => void;
+  readonly onExportAudit: () => void;
+  readonly onDeployRunner: () => void;
+  readonly onDeployBundle: () => void;
+  readonly onUndeployRunner: () => void;
+  readonly onRollbackRunner: () => void;
   readonly onUpdateNode: (nodeId: string, updater: (node: WorkflowNode) => WorkflowNode) => void;
   readonly onUpdateJsonField: (
     nodeId: string,
@@ -2685,6 +2876,9 @@ function Inspector(props: {
   return (
     <>
       <h2>Inspector</h2>
+      <LifecycleTruthPanel truth={props.runtimeTruth} />
+      <ProviderStatusPanel providers={props.providerConfigs} />
+      <BudgetPanel policy={props.budgetPolicy} ledgers={props.budgetLedgers} />
       {node ? (
         <div className="inspector-stack">
           <label>
@@ -2954,10 +3148,138 @@ function Inspector(props: {
       {props.planAcceptedNotice ? <p className="success-text">{props.planAcceptedNotice}</p> : null}
       <JobPanel job={props.activeJob} />
       <WorkspacePanel workspace={props.workspace} agentRuns={props.agentRuns} />
+      <AgentTimelinePanel events={props.agentTimeline} />
       {props.deploymentNotice ? <p className="success-text">{props.deploymentNotice}</p> : null}
-      <DeploymentPanel activations={props.deploymentActivations} />
+      {props.auditExportNotice ? <p className="success-text">{props.auditExportNotice}</p> : null}
+      <DeploymentPanel
+        activations={props.deploymentActivations}
+        activeRunnerDeployment={props.activeRunnerDeployment}
+        busyAction={props.busyAction}
+        branchLifecycleLocked={props.branchLifecycleLocked}
+        onDeployRunner={props.onDeployRunner}
+        onDeployBundle={props.onDeployBundle}
+        onUndeployRunner={props.onUndeployRunner}
+        onRollbackRunner={props.onRollbackRunner}
+        onExportAudit={props.onExportAudit}
+      />
       <RunPanel run={props.run} />
     </>
+  );
+}
+
+const lifecycleStages: readonly {
+  readonly key: keyof Pick<
+    WorkflowRuntimeTruthSnapshot,
+    "planned" | "accepted" | "generated" | "evaluated" | "approved" | "deployed" | "runnable"
+  >;
+  readonly label: string;
+}[] = [
+  { key: "planned", label: "Planned" },
+  { key: "accepted", label: "Accepted" },
+  { key: "generated", label: "Generated" },
+  { key: "evaluated", label: "Evaluated" },
+  { key: "approved", label: "Approved" },
+  { key: "deployed", label: "Deployed" },
+  { key: "runnable", label: "Runnable" }
+];
+
+function LifecycleTruthPanel(props: { readonly truth: WorkflowRuntimeTruthSnapshot | null }) {
+  return (
+    <section className="run-panel" aria-label="Lifecycle truth">
+      <h2>Runtime Truth</h2>
+      <div className="lifecycle-rail">
+        {lifecycleStages.map((stage) => (
+          <span
+            key={stage.key}
+            className={
+              props.truth?.[stage.key]
+                ? "lifecycle-stage lifecycle-stage-active"
+                : "lifecycle-stage"
+            }
+          >
+            {stage.label}
+          </span>
+        ))}
+      </div>
+      <StatusRow
+        label="Stage"
+        value={props.truth?.stage ?? "empty"}
+        tone={props.truth?.stage ?? "idle"}
+      />
+      {props.truth?.runnerDeploymentId ? (
+        <StatusRow label="Runner" value={props.truth.runnerDeploymentId} tone="valid" />
+      ) : null}
+      {props.truth?.blockingReasons.length ? (
+        <ul className="event-list">
+          {props.truth.blockingReasons.map((reason) => (
+            <li key={reason}>{reason}</li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
+function ProviderStatusPanel(props: {
+  readonly providers: readonly WorkflowProviderRuntimeConfig[];
+}) {
+  return (
+    <section className="run-panel" aria-label="Provider status">
+      <h2>Providers</h2>
+      {props.providers.length === 0 ? (
+        <StatusRow label="Status" value="unknown" tone="idle" />
+      ) : (
+        <ul className="event-list">
+          {props.providers.map((provider) => (
+            <li key={`${provider.role}-${provider.provider}`}>
+              <strong>{provider.role}</strong> {provider.provider}/{provider.model}{" "}
+              <span className={provider.configured ? "success-inline" : "warning-inline"}>
+                {provider.configured ? "configured" : (provider.missingCredential ?? "missing key")}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function BudgetPanel(props: {
+  readonly policy: WorkflowBudgetPolicy | null;
+  readonly ledgers: readonly WorkflowBudgetLedger[];
+}) {
+  const actualCost = props.ledgers.reduce((sum, ledger) => sum + ledger.actualCostUsd, 0);
+  const projectedCost = props.ledgers.reduce((sum, ledger) => sum + ledger.projectedCostUsd, 0);
+  const remaining =
+    props.ledgers[0]?.remainingCostUsd ??
+    Math.max((props.policy?.maxWorkflowCostUsd ?? 0) - actualCost, 0);
+  return (
+    <section className="run-panel" aria-label="Budget ledger">
+      <h2>Budget</h2>
+      <StatusRow
+        label="Workflow Max"
+        value={props.policy ? formatUsd(props.policy.maxWorkflowCostUsd) : "unset"}
+        tone={props.policy ? "valid" : "idle"}
+      />
+      <StatusRow label="Projected" value={formatUsd(projectedCost)} tone="pending" />
+      <StatusRow label="Actual" value={formatUsd(actualCost)} tone="running" />
+      <StatusRow
+        label="Remaining"
+        value={formatUsd(remaining)}
+        tone={remaining > 0 ? "valid" : "blocked"}
+      />
+      {props.ledgers.length ? (
+        <ul className="event-list">
+          {props.ledgers.slice(0, 6).map((ledger) => (
+            <li key={ledger.id}>
+              <strong>{ledger.scope}</strong> {ledger.status} · actual{" "}
+              {formatUsd(ledger.actualCostUsd)}
+              {ledger.stopReason ? ` · ${ledger.stopReason}` : ""}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
   );
 }
 
@@ -3183,8 +3505,48 @@ function WorkspacePanel(props: {
   );
 }
 
+function AgentTimelinePanel(props: { readonly events: readonly WorkflowAgentTimelineEvent[] }) {
+  const totalCost = props.events.reduce((sum, event) => sum + (event.costUsd ?? 0), 0);
+  return (
+    <section className="run-panel" aria-label="Agent timeline">
+      <h2>Agent Timeline</h2>
+      <StatusRow
+        label="Events"
+        value={String(props.events.length)}
+        tone={props.events.length ? "valid" : "idle"}
+      />
+      <StatusRow
+        label="Cost"
+        value={formatUsd(totalCost)}
+        tone={totalCost > 0 ? "running" : "idle"}
+      />
+      {props.events.length ? (
+        <ul className="event-list">
+          {props.events.slice(0, 8).map((event) => (
+            <li key={event.id}>
+              <strong>{event.role}</strong> {event.title} · {event.status}
+              {event.decision ? ` · ${event.decision}` : ""}
+              {event.fixTriageAction ? ` · ${event.fixTriageAction}` : ""}
+              {event.totalTokens ? ` · ${formatTokenCount(event.totalTokens)} tokens` : ""}
+              {event.costUsd ? ` · ${formatUsd(event.costUsd)}` : ""}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
 function DeploymentPanel(props: {
   readonly activations: DeploymentActivationSummaryResponse | null;
+  readonly activeRunnerDeployment: WorkflowDeploymentRecord | null;
+  readonly busyAction: string | null;
+  readonly branchLifecycleLocked: boolean;
+  readonly onDeployRunner: () => void;
+  readonly onDeployBundle: () => void;
+  readonly onUndeployRunner: () => void;
+  readonly onRollbackRunner: () => void;
+  readonly onExportAudit: () => void;
 }) {
   return (
     <section className="run-panel" aria-label="Deployment activations">
@@ -3204,6 +3566,58 @@ function DeploymentPanel(props: {
         value={String(props.activations?.runnerConfigurations.length ?? 0)}
         tone={props.activations?.runnerConfigurations.length ? "valid" : "idle"}
       />
+      <StatusRow
+        label="Active Runner"
+        value={props.activeRunnerDeployment?.id ?? "none"}
+        tone={props.activeRunnerDeployment ? "valid" : "blocked"}
+      />
+      <div className="deployment-actions">
+        <button
+          type="button"
+          onClick={props.onDeployRunner}
+          disabled={props.busyAction !== null || props.branchLifecycleLocked}
+          title={
+            props.branchLifecycleLocked
+              ? "Archived branches are read-only."
+              : "Create a runner.configuration deployment for production runs."
+          }
+        >
+          Deploy Runner
+        </button>
+        <button
+          type="button"
+          onClick={props.onDeployBundle}
+          disabled={props.busyAction !== null || props.branchLifecycleLocked}
+          title="Export a local workflow bundle artifact."
+        >
+          Export Bundle
+        </button>
+        <button
+          type="button"
+          onClick={props.onUndeployRunner}
+          disabled={
+            props.busyAction !== null ||
+            props.branchLifecycleLocked ||
+            !props.activeRunnerDeployment
+          }
+        >
+          Undeploy Runner
+        </button>
+        <button
+          type="button"
+          onClick={props.onRollbackRunner}
+          disabled={
+            props.busyAction !== null ||
+            props.branchLifecycleLocked ||
+            !props.activeRunnerDeployment
+          }
+        >
+          Rollback Runner
+        </button>
+        <button type="button" onClick={props.onExportAudit} disabled={props.busyAction !== null}>
+          Export Audit JSONL
+        </button>
+      </div>
       {props.activations ? (
         <pre className="result-view">
           {formatJson(deploymentActivationPreview(props.activations))}
@@ -3385,6 +3799,19 @@ function StatusRow(props: {
       <strong className={`status-pill status-${props.tone}`}>{props.value}</strong>
     </div>
   );
+}
+
+function actionBlockedReason(
+  busyAction: string | null,
+  branchLifecycleLocked: boolean
+): string | null {
+  if (branchLifecycleLocked) {
+    return "Archived branches are read-only.";
+  }
+  if (busyAction) {
+    return `Wait for ${busyAction} to finish.`;
+  }
+  return null;
 }
 
 function formatJson(value: unknown): string {

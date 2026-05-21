@@ -452,6 +452,50 @@ dd {
   color: #9da5ff;
 }
 
+.status-empty,
+.status-planned,
+.status-accepted,
+.status-generated,
+.status-evaluated,
+.status-deployed,
+.status-runnable,
+.status-exhausted,
+.status-confirmation-required,
+.status-within-budget {
+  background: rgba(103, 114, 255, 0.16);
+  color: #d4d8ff;
+}
+
+.lifecycle-rail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.lifecycle-stage {
+  background: #25262d;
+  border: 1px solid #343740;
+  border-radius: 999px;
+  color: #8e939e;
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 0.24rem 0.5rem;
+}
+
+.lifecycle-stage-active {
+  background: rgba(28, 185, 113, 0.16);
+  border-color: rgba(28, 185, 113, 0.34);
+  color: #65dfa8;
+}
+
+.success-inline {
+  color: #65dfa8;
+}
+
+.warning-inline {
+  color: #ffc257;
+}
+
 .canvas-panel {
   background: #050507;
   min-height: 100vh;
@@ -744,7 +788,19 @@ dd {
   flex-wrap: wrap;
 }
 
+.deployment-actions {
+  display: grid;
+  gap: 0.45rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .integration-actions button {
+  font-size: 0.72rem;
+  min-height: 2rem;
+  padding: 0.34rem 0.5rem;
+}
+
+.deployment-actions button {
   font-size: 0.72rem;
   min-height: 2rem;
   padding: 0.34rem 0.5rem;

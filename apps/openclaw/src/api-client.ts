@@ -37,11 +37,13 @@ import type {
   WorkflowWorkspace,
   WorkflowDeploymentKind,
   WorkflowDeploymentRecord,
+  WorkflowDeploymentRollbackTarget,
   WorkflowProviderRuntimeConfig,
   WorkflowReuseCandidatesResponse,
   WorkflowRuntimeTruthSnapshot,
   WorkflowStartRunRequest,
   WorkflowStartRunResponse,
+  WorkflowAuditExportRecord,
   WorkflowUpdateBranchRequest,
   WorkflowUpdateBranchResponse,
   WorkflowValidateRequest,
@@ -88,6 +90,12 @@ export interface DecisionTraceResponse {
 export interface DecisionTraceExportResponse {
   readonly ok: true;
   readonly export: WorkflowNodeDecisionTraceExport;
+  readonly jsonl: string;
+}
+
+export interface AuditExportResponse {
+  readonly ok: true;
+  readonly export: WorkflowAuditExportRecord;
   readonly jsonl: string;
 }
 
@@ -180,6 +188,39 @@ export class OpenClawApiError extends Error {
 }
 
 export const openClawApi = {
+  fetchRuntimeProviders(): Promise<RuntimeProviderStatusResponse> {
+    return getJson("/api/runtime/providers");
+  },
+
+  fetchRuntimeTruth(
+    workflowId: string,
+    branchId?: string | undefined
+  ): Promise<RuntimeTruthResponse> {
+    return getJson(
+      `/api/workflows/${encodeURIComponent(workflowId)}/runtime-truth${queryString({ branchId })}`
+    );
+  },
+
+  fetchBudget(workflowId: string, branchId?: string | undefined): Promise<BudgetResponse> {
+    return getJson(
+      `/api/workflows/${encodeURIComponent(workflowId)}/budget${queryString({ branchId })}`
+    );
+  },
+
+  updateBudget(
+    workflowId: string,
+    request: Partial<WorkflowBudgetPolicy> & {
+      readonly branchId?: string | undefined;
+      readonly updatedBy?: string | undefined;
+    }
+  ): Promise<BudgetResponse> {
+    return patchJson(`/api/workflows/${encodeURIComponent(workflowId)}/budget`, request);
+  },
+
+  fetchAgentTimeline(workflowId: string): Promise<AgentTimelineResponse> {
+    return getJson(`/api/workflows/${encodeURIComponent(workflowId)}/agent-timeline`);
+  },
+
   plan(request: WorkflowPlanRequest, jobId?: string | undefined): Promise<WorkflowPlanResponse> {
     return postJson(
       "/api/workflows/plan",
@@ -405,6 +446,10 @@ export const openClawApi = {
     return getJson(`/api/workflows/${encodeURIComponent(workflowId)}/decision-traces/export`);
   },
 
+  exportAudit(workflowId: string): Promise<AuditExportResponse> {
+    return getJson(`/api/workflows/${encodeURIComponent(workflowId)}/audit/export`);
+  },
+
   startRun(
     workflowId: string,
     request: WorkflowStartRunRequest,
@@ -506,6 +551,35 @@ export const openClawApi = {
     );
   },
 
+  undeployDeployment(
+    workflowId: string,
+    deploymentId: string
+  ): Promise<{
+    readonly ok: true;
+    readonly deployment: WorkflowDeploymentRecord;
+    readonly active: DeploymentActivationSummaryResponse;
+  }> {
+    return postJson(
+      `/api/workflows/${encodeURIComponent(workflowId)}/deployments/${encodeURIComponent(deploymentId)}/undeploy`,
+      {}
+    );
+  },
+
+  rollbackDeployment(
+    workflowId: string,
+    deploymentId: string
+  ): Promise<{
+    readonly ok: true;
+    readonly deployment: WorkflowDeploymentRecord;
+    readonly rollbackTarget: WorkflowDeploymentRollbackTarget;
+    readonly active: DeploymentActivationSummaryResponse;
+  }> {
+    return postJson(
+      `/api/workflows/${encodeURIComponent(workflowId)}/deployments/${encodeURIComponent(deploymentId)}/rollback`,
+      {}
+    );
+  },
+
   async streamJobEvents(
     jobId: string,
     onEvent: (event: WorkflowJobEvent | WorkflowJob) => void
@@ -537,6 +611,17 @@ export const openClawApi = {
     }
   }
 };
+
+function queryString(values: Readonly<Record<string, string | undefined>>): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(values)) {
+    if (value) {
+      params.set(key, value);
+    }
+  }
+  const encoded = params.toString();
+  return encoded ? `?${encoded}` : "";
+}
 
 async function postJson<TResponse>(
   url: string,
