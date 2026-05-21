@@ -11,6 +11,7 @@ import {
 } from "@kelpclaw/workflow-spec";
 import type {
   WorkflowBranch,
+  WorkflowDeploymentRecord,
   WorkflowNodeDecisionTrace,
   WorkflowRunRecord,
   WorkflowSpec
@@ -21,10 +22,12 @@ vi.setConfig({ testTimeout: 10_000 });
 
 let mockCurrentWorkflow: WorkflowSpec | null = null;
 let mockBranches: WorkflowBranch[] = [];
+let mockDeployments: WorkflowDeploymentRecord[] = [];
 
 beforeEach(() => {
   mockCurrentWorkflow = null;
   mockBranches = [mockBranch("branch.workflow.gmail-receipts-to-sheets.main", "main")];
+  mockDeployments = [];
   localStorage.clear();
   vi.stubGlobal("fetch", vi.fn(mockFetch));
 });
@@ -204,9 +207,23 @@ describe("OpenClaw planner shell", () => {
     fireEvent.click(screen.getByRole("button", { name: /approve/i }));
     expect(await screen.findByText("Frozen approval metadata changed.")).toBeInTheDocument();
 
+    expect(screen.getByRole("button", { name: /^Run$/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Run$/i })).toHaveAttribute(
+      "title",
+      "Deploy an active runner.configuration before running."
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Deploy$/i }));
+    expect(
+      await screen.findByText("Deployment deployed: runner.configuration")
+    ).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole("button", { name: /^Run$/i }));
     expect(await screen.findByText("succeeded")).toBeInTheDocument();
     expect(await screen.findByText("NanoClaw run finished.")).toBeInTheDocument();
+    const runCall = vi.mocked(fetch).mock.calls.find(([url]) => String(url).endsWith("/runs"));
+    expect(JSON.parse(String(runCall?.[1]?.body))).toMatchObject({
+      deploymentId: "deployment.runner"
+    });
   });
 
   it("plans a prompt through the mocked API and reprompts a node", async () => {
@@ -271,9 +288,9 @@ describe("OpenClaw planner shell", () => {
     expect(await screen.findByText("Total Tokens")).toBeInTheDocument();
     expect(screen.getByText("2,750")).toBeInTheDocument();
     expect(screen.getByText("Total Cost")).toBeInTheDocument();
-    expect(screen.getByText("$0.1600")).toBeInTheDocument();
-    expect(screen.getByText("workflow-architect")).toBeInTheDocument();
-    expect(screen.getByText(/1,500 tokens .* \$0\.0900/u)).toBeInTheDocument();
+    expect(screen.getAllByText("$0.1600").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("workflow-architect").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/1,500 tokens .* \$0\.0900/u).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: /Review Generated Code/i }));
     expect(await screen.findByText("approved")).toBeInTheDocument();
@@ -295,10 +312,19 @@ describe("OpenClaw planner shell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /^Deploy$/i }));
 
-    expect(await screen.findByText("Deployment deployed: workflow.bundle")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Deployment deployed: runner.configuration")
+    ).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Deployments" })).toBeInTheDocument();
-    expect(screen.getByText(/deployment\.workflow\.bundle/u)).toBeInTheDocument();
+    expect(screen.getAllByText(/deployment\.runner/u).length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "Runtime Truth" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Providers" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Budget" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Agent Timeline" })).toBeInTheDocument();
     expect(screen.getByText("worker.openclaw-test")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Export Audit JSONL/i }));
+    expect(await screen.findByText(/Audit export/u)).toBeInTheDocument();
   });
 
   it("renders branch tree controls, merge conflicts, and reuse decisions", async () => {
@@ -451,6 +477,139 @@ async function mockFetch(input: string | URL | Request, init?: RequestInit): Pro
     return new Response(`event: job-complete\ndata: ${JSON.stringify(job)}\n\n`, {
       status: 200,
       headers: { "content-type": "text/event-stream" }
+    });
+  }
+
+  if (url.endsWith("/api/runtime/providers")) {
+    return jsonResponse({
+      ok: true,
+      providers: [
+        {
+          role: "planner",
+          provider: "openai",
+          model: "gpt-test",
+          configured: true,
+          tokenAccounting: true,
+          costAccounting: true,
+          retryBudget: { maxAttempts: 2, maxCostUsd: 2 },
+          runtimeLimits: { mode: "test" }
+        },
+        {
+          role: "coder",
+          provider: "openai",
+          model: "gpt-test-codegen",
+          configured: true,
+          tokenAccounting: true,
+          costAccounting: true,
+          retryBudget: { maxAttempts: 2, maxCostUsd: 2 },
+          runtimeLimits: { mode: "test" }
+        }
+      ]
+    });
+  }
+
+  if (url.includes("/runtime-truth")) {
+    const workflow = mockCurrentWorkflow ?? gmailReceiptsToSheetsWorkflowFixture;
+    const runnerDeployment = mockDeployments.find(
+      (deployment) => deployment.kind === "runner.configuration" && deployment.status === "deployed"
+    );
+    return jsonResponse({
+      ok: true,
+      truth: {
+        workflowId: workflow.id,
+        stage: runnerDeployment ? "runnable" : workflow.nodes.length ? "planned" : "empty",
+        planned: workflow.nodes.length > 0,
+        accepted: workflow.nodes.length > 0,
+        generated: workflow.nodes.some((node) => node.kind === "codegen"),
+        evaluated: true,
+        approved: true,
+        deployed: mockDeployments.some((deployment) => deployment.status === "deployed"),
+        runnable: Boolean(runnerDeployment),
+        draftRevisionId: `draft.${workflow.id}.r${workflow.revision}`,
+        acceptedDraftRevisionId: `draft.${workflow.id}.accepted`,
+        evaluationId: `eval.${workflow.id}.r${workflow.revision}`,
+        approvedRevisionId: `approved.${workflow.id}.r${workflow.revision}`,
+        runnerDeploymentId: runnerDeployment?.id,
+        activeDeploymentIds: mockDeployments
+          .filter((deployment) => deployment.status === "deployed")
+          .map((deployment) => deployment.id),
+        blockingReasons: runnerDeployment ? [] : ["Deploy a runner.configuration to run."],
+        updatedAt: "2026-05-18T01:00:00.000Z"
+      }
+    });
+  }
+
+  if (url.includes("/budget")) {
+    const workflow = mockCurrentWorkflow ?? gmailReceiptsToSheetsWorkflowFixture;
+    return jsonResponse({
+      ok: true,
+      policy: {
+        workflowId: workflow.id,
+        maxWorkflowCostUsd: 5,
+        maxCodegenCostUsd: 2,
+        maxAgenticCostUsd: 2,
+        expensiveRetryConfirmationUsd: 0.25,
+        perAgentMaxCostUsd: {},
+        updatedAt: "2026-05-18T01:00:00.000Z",
+        updatedBy: "test"
+      },
+      ledgers: [
+        {
+          id: `budget.${workflow.id}.workflow`,
+          workflowId: workflow.id,
+          scope: "workflow",
+          projectedCostUsd: 0.25,
+          actualCostUsd: 0.16,
+          remainingCostUsd: 4.84,
+          retryEstimateUsd: 0.1,
+          status: "within-budget",
+          createdAt: "2026-05-18T01:00:00.000Z",
+          updatedAt: "2026-05-18T01:00:00.000Z"
+        }
+      ]
+    });
+  }
+
+  if (url.includes("/agent-timeline")) {
+    const workflow = mockCurrentWorkflow ?? gmailReceiptsToSheetsWorkflowFixture;
+    return jsonResponse({
+      ok: true,
+      events: [
+        {
+          id: `timeline.${workflow.id}.architect`,
+          workflowId: workflow.id,
+          nodeId: workflow.nodes[0]?.id,
+          role: "workflow-architect",
+          timestamp: "2026-05-18T01:00:00.000Z",
+          status: "succeeded",
+          title: "Architect selected a deterministic workflow shape.",
+          summary: "Planner chose adapter-backed Gmail and Sheets nodes.",
+          decision: "use-adapter-path",
+          outputArtifactRefs: [],
+          inputTokens: 1000,
+          outputTokens: 500,
+          totalTokens: 1500,
+          costUsd: 0.09,
+          cumulativeCostUsd: 0.09
+        }
+      ]
+    });
+  }
+
+  if (url.endsWith("/audit/export")) {
+    const workflow = mockCurrentWorkflow ?? gmailReceiptsToSheetsWorkflowFixture;
+    return jsonResponse({
+      ok: true,
+      export: {
+        id: `audit-export.${workflow.id}`,
+        workflowId: workflow.id,
+        exportedAt: "2026-05-18T01:00:00.000Z",
+        format: "jsonl",
+        redacted: true,
+        lineCount: 1,
+        records: [{ action: "workflow.test", redacted: true }]
+      },
+      jsonl: JSON.stringify({ action: "workflow.test", redacted: true })
     });
   }
 
@@ -980,41 +1139,28 @@ async function mockFetch(input: string | URL | Request, init?: RequestInit): Pro
   }
 
   if (url.endsWith("/deployments/active")) {
+    const activeDeployments = mockDeployments.filter(
+      (deployment) => deployment.status === "deployed"
+    );
     return jsonResponse({
       ok: true,
-      activeDeployments: [
-        {
-          id: "deployment.workflow.bundle",
-          workflowId: mockCurrentWorkflow?.id ?? "workflow.gmail-receipts-to-sheets",
-          approvedRevisionId: "approved.workflow.r1",
-          draftEvaluationId: "eval.workflow.r1",
-          kind: "workflow.bundle",
-          status: "deployed",
-          createdAt: "2026-05-18T01:00:00.000Z",
-          createdBy: "owner@example.com",
-          requiredIntegrations: [],
-          secretRefs: [],
-          rollbackPlan: "Rollback.",
-          auditRecordId: "audit.deployment",
-          metadata: {}
-        }
-      ],
+      activeDeployments,
       activeSchedules: [],
-      runnerConfigurations: [
-        {
-          deploymentId: "deployment.runner",
+      runnerConfigurations: activeDeployments
+        .filter((deployment) => deployment.kind === "runner.configuration")
+        .map((deployment) => ({
+          deploymentId: deployment.id,
           status: "active",
           dagHash: "sha256:test"
-        }
-      ],
+        })),
       skillPublications: [],
       integrationBindings: [],
-      bundles: [
-        {
-          deploymentId: "deployment.workflow.bundle",
-          path: "deployments/deployment.workflow.bundle/workflow-bundle.json"
-        }
-      ],
+      bundles: activeDeployments
+        .filter((deployment) => deployment.kind === "workflow.bundle")
+        .map((deployment) => ({
+          deploymentId: deployment.id,
+          path: `deployments/${deployment.id}/workflow-bundle.json`
+        })),
       generatedServices: []
     });
   }
@@ -1022,29 +1168,78 @@ async function mockFetch(input: string | URL | Request, init?: RequestInit): Pro
   if (url.endsWith("/deployments") && init?.method === "GET") {
     return jsonResponse({
       ok: true,
-      deployments: []
+      deployments: mockDeployments
     });
   }
 
+  if (url.includes("/deployments/") && url.endsWith("/undeploy")) {
+    const deploymentId = decodeURIComponent(url.split("/deployments/")[1]?.split("/")[0] ?? "");
+    const deployment = mockDeployments.find((candidate) => candidate.id === deploymentId);
+    if (deployment) {
+      const updated: WorkflowDeploymentRecord = { ...deployment, status: "undeployed" };
+      mockDeployments = mockDeployments.map((candidate) =>
+        candidate.id === deploymentId ? updated : candidate
+      );
+      return jsonResponse({
+        ok: true,
+        deployment: updated,
+        active: activeDeploymentSummary()
+      });
+    }
+  }
+
+  if (url.includes("/deployments/") && url.endsWith("/rollback")) {
+    const deploymentId = decodeURIComponent(url.split("/deployments/")[1]?.split("/")[0] ?? "");
+    const deployment = mockDeployments.find((candidate) => candidate.id === deploymentId);
+    if (deployment) {
+      const updated: WorkflowDeploymentRecord = { ...deployment, status: "undeployed" };
+      mockDeployments = mockDeployments.map((candidate) =>
+        candidate.id === deploymentId ? updated : candidate
+      );
+      return jsonResponse({
+        ok: true,
+        deployment: updated,
+        rollbackTarget: {
+          deploymentId,
+          workflowId: deployment.workflowId,
+          approvedRevisionId: deployment.approvedRevisionId,
+          rollbackPlan: deployment.rollbackPlan,
+          artifactRefs: [],
+          createdAt: "2026-05-18T01:00:00.000Z"
+        },
+        active: activeDeploymentSummary()
+      });
+    }
+  }
+
   if (url.endsWith("/deployments")) {
+    const kind = String(body.kind) as WorkflowDeploymentRecord["kind"];
+    const deployment: WorkflowDeploymentRecord = {
+      id: kind === "runner.configuration" ? "deployment.runner" : "deployment.workflow.bundle",
+      workflowId: mockCurrentWorkflow?.id ?? "workflow.gmail-receipts-to-sheets",
+      approvedRevisionId: String(body.approvedRevisionId),
+      draftEvaluationId: "eval.workflow.r1",
+      kind,
+      status: "deployed",
+      createdAt: "2026-05-18T01:00:00.000Z",
+      createdBy: String(body.createdBy ?? "owner@example.com"),
+      requiredIntegrations: [],
+      secretRefs: [],
+      rollbackPlan: String(body.rollbackPlan ?? "Rollback."),
+      auditRecordId: "audit.deployment",
+      metadata:
+        kind === "runner.configuration"
+          ? { runnerConfig: { dagHash: "sha256:test" }, artifacts: [] }
+          : { artifacts: [] }
+    };
+    mockDeployments = [
+      ...mockDeployments.filter((candidate) => candidate.id !== deployment.id),
+      deployment
+    ];
     return jsonResponse(
       {
         ok: true,
-        deployment: {
-          id: "deployment.workflow.bundle",
-          workflowId: mockCurrentWorkflow?.id ?? "workflow.gmail-receipts-to-sheets",
-          approvedRevisionId: String(body.approvedRevisionId),
-          draftEvaluationId: "eval.workflow.r1",
-          kind: body.kind,
-          status: "deployed",
-          createdAt: "2026-05-18T01:00:00.000Z",
-          createdBy: body.createdBy,
-          requiredIntegrations: [],
-          secretRefs: [],
-          rollbackPlan: body.rollbackPlan,
-          auditRecordId: "audit.deployment",
-          metadata: { artifacts: [] }
-        }
+        deployment
       },
       201
     );
@@ -1079,6 +1274,33 @@ function mockJob(
         kind: "job.lifecycle"
       }
     ]
+  };
+}
+
+function activeDeploymentSummary() {
+  const activeDeployments = mockDeployments.filter(
+    (deployment) => deployment.status === "deployed"
+  );
+  return {
+    ok: true,
+    activeDeployments,
+    activeSchedules: [],
+    runnerConfigurations: activeDeployments
+      .filter((deployment) => deployment.kind === "runner.configuration")
+      .map((deployment) => ({
+        deploymentId: deployment.id,
+        status: "active",
+        dagHash: "sha256:test"
+      })),
+    skillPublications: [],
+    integrationBindings: [],
+    bundles: activeDeployments
+      .filter((deployment) => deployment.kind === "workflow.bundle")
+      .map((deployment) => ({
+        deploymentId: deployment.id,
+        path: `deployments/${deployment.id}/workflow-bundle.json`
+      })),
+    generatedServices: []
   };
 }
 
