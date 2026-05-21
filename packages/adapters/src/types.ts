@@ -1,6 +1,14 @@
 import type { JsonRecord, JsonSchemaShape } from "@kelpclaw/workflow-spec";
 
-export type AdapterKind = "gmail" | "sheets" | "email" | "whatsapp" | "telegram";
+export type AdapterKind =
+  | "gmail"
+  | "sheets"
+  | "email"
+  | "whatsapp"
+  | "telegram"
+  | "http"
+  | "openapi"
+  | "mcp";
 export type AdapterNetworkMode = "none" | "declared";
 export type AdapterOperationStatus = "succeeded" | "failed";
 export type AdapterAuditEventLevel = "info" | "error";
@@ -33,6 +41,7 @@ export interface AdapterOperationDefinition {
   readonly description: string;
   readonly inputSchema: JsonSchemaShape;
   readonly outputSchema: JsonSchemaShape;
+  readonly metadata?: JsonRecord | undefined;
 }
 
 export interface AdapterFixturePayload {

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { LocalCodegenArtifactStore } from "@kelpclaw/codegen";
@@ -25,14 +26,29 @@ import type {
   JsonRecord,
   JsonValue,
   WorkflowNodeExecutionAttempt,
+  WorkflowRunCheckpoint,
   WorkflowRunEvent
 } from "@kelpclaw/workflow-spec";
+import { stableJsonStringify } from "@kelpclaw/workflow-spec";
+
+export interface WorkflowCheckpointStore {
+  getCheckpoint(input: {
+    readonly runId: string;
+    readonly nodeId: string;
+    readonly inputHash: string;
+  }): WorkflowRunCheckpoint | Promise<WorkflowRunCheckpoint | undefined> | undefined;
+  saveCheckpoint(
+    checkpoint: WorkflowRunCheckpoint
+  ): WorkflowRunCheckpoint | Promise<WorkflowRunCheckpoint>;
+}
 
 export interface ExecuteCompiledDagOptions {
   readonly runId?: string | undefined;
   readonly workspaceRoot?: string | undefined;
   readonly codegenArtifactStore?: CodegenArtifactStore | undefined;
   readonly secretResolver?: SecretResolver | undefined;
+  readonly approvedRevisionId?: string | undefined;
+  readonly checkpointStore?: WorkflowCheckpointStore | undefined;
   readonly onEvent?: ((event: WorkflowRunEvent) => void) | undefined;
   readonly signal?: AbortSignal | undefined;
 }
@@ -55,6 +71,22 @@ export async function executeCompiledDag(
     }
 
     const input = resolveNodeInputs(node, nodeOutputs);
+    const inputHash = hashJson(input);
+    const reused = await reusableCheckpoint(options, runWorkspace.runId, node.id, inputHash);
+    if (reused) {
+      const reusedResult = resultFromCheckpoint(reused, input);
+      nodeResults.push(reusedResult);
+      nodeOutputs.set(node.id, reusedResult.output);
+      eventStream.emit("info", `Node '${node.id}' resumed from checkpoint.`, node.id, {
+        kind: "checkpoint.lifecycle",
+        metadata: {
+          checkpointId: reused.id,
+          inputHash
+        }
+      });
+      continue;
+    }
+
     const inputValidation = validateNodeInput(node, input, new Date().toISOString());
     if (inputValidation) {
       nodeResults.push(inputValidation);
@@ -63,6 +95,7 @@ export async function executeCompiledDag(
         withSkippedResults(dag, nodeResults, node.id),
         eventStream
       );
+      emitCompensationRequiredEvents(dag, nodeResults, eventStream);
       return finishExecution(
         createExecutionResult(dag, results, "failed", runWorkspace.runDir, eventStream),
         eventStream
@@ -73,6 +106,7 @@ export async function executeCompiledDag(
       dag,
       node,
       input,
+      inputHash,
       runWorkspace,
       runner,
       options
@@ -91,6 +125,7 @@ export async function executeCompiledDag(
         withSkippedResults(dag, nodeResults, node.id),
         eventStream
       );
+      emitCompensationRequiredEvents(dag, nodeResults, eventStream);
       return finishExecution(
         createExecutionResult(dag, results, "failed", runWorkspace.runDir, eventStream),
         eventStream
@@ -108,6 +143,7 @@ async function executeNodeWithAttempts(
   dag: CompiledDag,
   node: CompiledDagNode,
   input: JsonRecord,
+  inputHash: string,
   runWorkspace: ExecutionWorkspace,
   runner: NodeRunner,
   options: ExecuteCompiledDagOptions
@@ -124,6 +160,21 @@ async function executeNodeWithAttempts(
       node,
       attempt,
       inputPayload
+    });
+    const checkpointId = checkpointIdFor(runWorkspace.runId, node.id, inputHash, attempt);
+    const idempotencyKey = `${runWorkspace.runId}.${node.id}.${inputHash}.${attempt}`;
+    await options.checkpointStore?.saveCheckpoint({
+      id: checkpointId,
+      runId: runWorkspace.runId,
+      workflowId: dag.workflowId,
+      approvedRevisionId: options.approvedRevisionId ?? `approved.${dag.workflowId}.r${dag.revision}`,
+      nodeId: node.id,
+      attempt,
+      status: "running",
+      inputHash,
+      idempotencyKey,
+      startedAt,
+      workspacePath: nodeWorkspace.attemptDir
     });
     const attemptSignal = createAttemptSignal(options.signal, node.runtime.timeoutSeconds);
 
@@ -161,6 +212,19 @@ async function executeNodeWithAttempts(
       attempts.push(
         createAttemptRecord(attempt, lastResult, nodeWorkspace.attemptDir, attemptSignal.timedOut)
       );
+      await saveResultCheckpoint({
+        dag,
+        node,
+        runId: runWorkspace.runId,
+        approvedRevisionId: options.approvedRevisionId,
+        checkpointId,
+        attempt,
+        inputHash,
+        idempotencyKey,
+        result: lastResult,
+        workspacePath: nodeWorkspace.attemptDir,
+        checkpointStore: options.checkpointStore
+      });
 
       if (lastResult.status === "succeeded" || outputValidation) {
         return withAttemptMetadata(lastResult, attempts);
@@ -177,6 +241,19 @@ async function executeNodeWithAttempts(
       attempts.push(
         createAttemptRecord(attempt, lastResult, nodeWorkspace.attemptDir, attemptSignal.timedOut)
       );
+      await saveResultCheckpoint({
+        dag,
+        node,
+        runId: runWorkspace.runId,
+        approvedRevisionId: options.approvedRevisionId,
+        checkpointId,
+        attempt,
+        inputHash,
+        idempotencyKey,
+        result: lastResult,
+        workspacePath: nodeWorkspace.attemptDir,
+        checkpointStore: options.checkpointStore
+      });
       if (options.signal?.aborted || attempt === maxAttempts) {
         return withAttemptMetadata(lastResult, attempts);
       }
@@ -463,9 +540,142 @@ function emitSkippedResults(
   return nodeResults;
 }
 
+async function reusableCheckpoint(
+  options: ExecuteCompiledDagOptions,
+  runId: string,
+  nodeId: string,
+  inputHash: string
+): Promise<WorkflowRunCheckpoint | null> {
+  const checkpoint = await options.checkpointStore?.getCheckpoint({
+    runId,
+    nodeId,
+    inputHash
+  });
+  if (!checkpoint || checkpoint.status !== "succeeded" || !checkpoint.output) {
+    return null;
+  }
+
+  return checkpoint;
+}
+
+function resultFromCheckpoint(
+  checkpoint: WorkflowRunCheckpoint,
+  input: JsonRecord
+): NodeExecutionResult {
+  const timestamp = checkpoint.finishedAt ?? checkpoint.startedAt;
+  return {
+    nodeId: checkpoint.nodeId,
+    status: "succeeded",
+    startedAt: checkpoint.startedAt,
+    finishedAt: timestamp,
+    input,
+    output: checkpoint.output ?? {},
+    workspacePath: checkpoint.workspacePath,
+    attempts: [
+      {
+        attempt: checkpoint.attempt,
+        status: "succeeded",
+        startedAt: checkpoint.startedAt,
+        finishedAt: timestamp,
+        workspacePath: checkpoint.workspacePath
+      }
+    ],
+    metadata: {
+      ...(checkpoint.metadata ?? {}),
+      checkpointId: checkpoint.id,
+      checkpointReused: true
+    }
+  };
+}
+
+async function saveResultCheckpoint(input: {
+  readonly dag: CompiledDag;
+  readonly node: CompiledDagNode;
+  readonly runId: string;
+  readonly approvedRevisionId?: string | undefined;
+  readonly checkpointId: string;
+  readonly attempt: number;
+  readonly inputHash: string;
+  readonly idempotencyKey: string;
+  readonly result: NodeExecutionResult;
+  readonly workspacePath: string;
+  readonly checkpointStore?: WorkflowCheckpointStore | undefined;
+}): Promise<void> {
+  await input.checkpointStore?.saveCheckpoint({
+    id: input.checkpointId,
+    runId: input.runId,
+    workflowId: input.dag.workflowId,
+    approvedRevisionId:
+      input.approvedRevisionId ?? `approved.${input.dag.workflowId}.r${input.dag.revision}`,
+    nodeId: input.node.id,
+    attempt: input.attempt,
+    status: input.result.status === "succeeded" ? "succeeded" : "failed",
+    inputHash: input.inputHash,
+    idempotencyKey: input.idempotencyKey,
+    startedAt: input.result.startedAt,
+    finishedAt: input.result.finishedAt,
+    output: input.result.output,
+    error: input.result.error,
+    workspacePath: input.workspacePath,
+    metadata: input.result.metadata
+  });
+}
+
+function emitCompensationRequiredEvents(
+  dag: CompiledDag,
+  nodeResults: readonly NodeExecutionResult[],
+  eventStream: RunEventStream
+): void {
+  for (const result of nodeResults) {
+    if (result.status !== "succeeded") {
+      continue;
+    }
+    const node = dag.nodes.get(result.nodeId);
+    if (!node || !requiresCompensation(node)) {
+      continue;
+    }
+    eventStream.emit("warn", `Node '${node.id}' completed before a downstream failure.`, node.id, {
+      kind: "compensation.required",
+      metadata: {
+        compensation: node.compensation ?? { strategy: "manual" },
+        sideEffect: node.kind === "delivery" || (node.adapterOperations?.length ?? 0) > 0
+      }
+    });
+  }
+}
+
+function requiresCompensation(node: CompiledDagNode): boolean {
+  if (node.compensation?.strategy && node.compensation.strategy !== "none") {
+    return true;
+  }
+
+  return node.kind === "delivery" || (node.adapterOperations?.length ?? 0) > 0;
+}
+
+function hashJson(value: JsonRecord): string {
+  return `sha256:${createHash("sha256").update(stableJsonStringify(value), "utf8").digest("hex")}`;
+}
+
+function checkpointIdFor(
+  runId: string,
+  nodeId: string,
+  inputHash: string,
+  attempt: number
+): string {
+  return `checkpoint.${runId}.${nodeId}.${inputHash.slice("sha256:".length, "sha256:".length + 12)}.${attempt}`;
+}
+
 interface RunEventStream {
   readonly events: readonly WorkflowRunEvent[];
-  emit(level: WorkflowRunEvent["level"], message: string, nodeId?: string): void;
+  emit(
+    level: WorkflowRunEvent["level"],
+    message: string,
+    nodeId?: string,
+    options?: {
+      readonly kind?: WorkflowRunEvent["kind"] | undefined;
+      readonly metadata?: JsonRecord | undefined;
+    }
+  ): void;
 }
 
 function createRunEventStream(onEvent: ExecuteCompiledDagOptions["onEvent"]): RunEventStream {
@@ -473,12 +683,15 @@ function createRunEventStream(onEvent: ExecuteCompiledDagOptions["onEvent"]): Ru
 
   return {
     events,
-    emit(level, message, nodeId) {
+    emit(level, message, nodeId, options) {
       const event: WorkflowRunEvent = {
         id: `event.${events.length + 1}`,
         timestamp: new Date().toISOString(),
         level,
         message,
+        severity: level === "error" ? "error" : level === "warn" ? "warn" : "info",
+        kind: options?.kind ?? "run.lifecycle",
+        ...(options?.metadata ? { metadata: options.metadata } : {}),
         ...(nodeId ? { nodeId } : {})
       };
       events.push(event);

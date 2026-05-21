@@ -8,6 +8,7 @@ import type {
   WorkflowEdge,
   WorkflowExecutionResult,
   WorkflowNode,
+  WorkflowNodeCompensation,
   WorkflowNodeExecutionResult,
   WorkflowNodeKind,
   WorkflowPortRef,
@@ -38,6 +39,7 @@ export interface CompiledDagNode {
   readonly secretRefs?: Readonly<Record<string, string>> | undefined;
   readonly agentic?: WorkflowAgenticNodePolicy | undefined;
   readonly codegen?: WorkflowCodegenMetadata | undefined;
+  readonly compensation?: WorkflowNodeCompensation | undefined;
   readonly dependencies: readonly string[];
   readonly dependents: readonly string[];
   readonly inputBindings: readonly CompiledNodeInputBinding[];
