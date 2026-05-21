@@ -103,7 +103,7 @@ describe("OpenClaw planner shell", () => {
     fireEvent.change(screen.getByLabelText("Node label"), {
       target: { value: "Read Gmail Orders" }
     });
-    expect(screen.getByText("Read Gmail Orders")).toBeInTheDocument();
+    expect(screen.getByLabelText("Node label")).toHaveValue("Read Gmail Orders");
 
     await openSelectedDetails("Config");
     fireEvent.change(screen.getByLabelText("Inputs"), {
@@ -130,7 +130,7 @@ describe("OpenClaw planner shell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Export Trace JSONL/i }));
 
-    expect(await screen.findByText(/Decision trace export/u)).toBeInTheDocument();
+    expect((await screen.findAllByText(/Decision trace export/u)).length).toBeGreaterThan(0);
     expect(fetch).toHaveBeenCalledWith(
       expect.stringMatching(/\/decision-traces\/export$/u),
       expect.any(Object)
@@ -237,6 +237,7 @@ describe("OpenClaw planner shell", () => {
 
     await executeCommand("Evaluate Draft");
     await executeCommand("Approve Workflow");
+    await openNodeDetails("Read Gmail Receipts", "Trace");
     expect(await screen.findByText("Frozen approval metadata changed.")).toBeInTheDocument();
 
     expect(screen.getByRole("button", { name: /^Run$/i })).toBeDisabled();
@@ -277,6 +278,7 @@ describe("OpenClaw planner shell", () => {
     fireEvent.click(screen.getByRole("button", { name: /Reprompt Node/i }));
 
     expect(await screen.findByText("Classify Incidents With Severity And")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Trace" }));
     expect(screen.getByTestId("approval-diff")).toHaveTextContent("Classify Incidents");
   });
 
@@ -322,7 +324,7 @@ describe("OpenClaw planner shell", () => {
     await openNodeDetails("Scrape Status Page", "Node");
     fireEvent.click(screen.getByRole("button", { name: /Build Generated Node/i }));
 
-    fireEvent.click(await screen.findByRole("tab", { name: "Runtime" }));
+    await openNodeDetails("Scrape Status Page", "Runtime");
     expect(await screen.findByRole("heading", { name: "Workspace" })).toBeInTheDocument();
     expect(await screen.findByText("Total Tokens")).toBeInTheDocument();
     expect(screen.getByText("2,750")).toBeInTheDocument();
@@ -331,6 +333,7 @@ describe("OpenClaw planner shell", () => {
     expect(screen.getAllByText("workflow-architect").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/1,500 tokens .* \$0\.0900/u).length).toBeGreaterThan(0);
 
+    fireEvent.click(screen.getByRole("tab", { name: "Node" }));
     fireEvent.click(screen.getByRole("button", { name: /Review Generated Code/i }));
     expect(await screen.findByText("approved")).toBeInTheDocument();
 
@@ -344,6 +347,7 @@ describe("OpenClaw planner shell", () => {
 
     await executeCommand("Evaluate Draft");
     await executeCommand("Approve Workflow");
+    await openNodeDetails("Read Gmail Receipts", "Trace");
     expect(await screen.findByText("Frozen approval metadata changed.")).toBeInTheDocument();
 
     await executeCommand("Deploy Workflow");

@@ -17,6 +17,7 @@ export interface WorkflowNodeData extends Record<string, unknown> {
     nodeId: string,
     patch: Pick<WorkflowNode, "label" | "description">
   ) => void;
+  readonly onSelectNode?: (nodeId: string) => void;
   readonly onOpenDetails?: (nodeId: string) => void;
   readonly onDeleteNode?: (nodeId: string) => void;
   readonly onRepromptNode?: (nodeId: string) => void;
@@ -140,6 +141,10 @@ function WorkflowNodeCard(props: NodeProps<WorkflowFlowNode>) {
   return (
     <div
       className={`workflow-card workflow-card-${node.kind}${selected ? " workflow-card-selected" : ""}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        props.data.onSelectNode?.(node.id);
+      }}
       onDoubleClick={(event) => {
         event.stopPropagation();
         props.data.onOpenDetails?.(node.id);

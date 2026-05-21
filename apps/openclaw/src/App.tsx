@@ -91,7 +91,11 @@ import {
   workflowToEdges,
   workflowToNodes
 } from "./workflow-elements.js";
-import type { WorkflowFlowEdge, WorkflowFlowNode } from "./workflow-elements.js";
+import type {
+  WorkflowFlowEdge,
+  WorkflowFlowNode,
+  WorkflowNodeData
+} from "./workflow-elements.js";
 import "./styles.css";
 
 const nodeKinds: readonly WorkflowNodeKind[] = [
@@ -133,6 +137,15 @@ interface AdapterSkillPreset {
   readonly secretRefs: Readonly<Record<string, string>>;
   readonly config: JsonRecord;
 }
+
+type NodeActionHandlers = {
+  readonly onInlineEdit: NonNullable<WorkflowNodeData["onInlineEdit"]>;
+  readonly onSelectNode: NonNullable<WorkflowNodeData["onSelectNode"]>;
+  readonly onOpenDetails: NonNullable<WorkflowNodeData["onOpenDetails"]>;
+  readonly onDeleteNode: NonNullable<WorkflowNodeData["onDeleteNode"]>;
+  readonly onRepromptNode: NonNullable<WorkflowNodeData["onRepromptNode"]>;
+  readonly onAddNextNode: NonNullable<WorkflowNodeData["onAddNextNode"]>;
+};
 
 const adapterSkillPresets: readonly AdapterSkillPreset[] = [
   {
@@ -576,6 +589,27 @@ export function App() {
   const [paletteSelection, setPaletteSelection] = useState(0);
   const [paletteMode, setPaletteMode] = useState<CommandPaletteMode>({ kind: "commands" });
   const commandPaletteInputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
+  const selectedNodeIdRef = useRef<string | null>(null);
+  const selectedEdgeIdRef = useRef<string | null>(null);
+  const nodeActionHandlersRef = useRef<NodeActionHandlers>({
+    onInlineEdit: () => undefined,
+    onSelectNode: () => undefined,
+    onOpenDetails: () => undefined,
+    onDeleteNode: () => undefined,
+    onRepromptNode: () => undefined,
+    onAddNextNode: () => undefined
+  });
+
+  nodeActionHandlersRef.current = {
+    onInlineEdit: updateNodeInline,
+    onSelectNode: selectNodeById,
+    onOpenDetails: openNodeDetails,
+    onDeleteNode: deleteNodeById,
+    onRepromptNode: repromptSelectedNode,
+    onAddNextNode: openConnectedNodePalette
+  };
+  selectedNodeIdRef.current = selectedNodeId;
+  selectedEdgeIdRef.current = selectedEdgeId;
 
   const validationIssues = validation.ok ? [] : validation.errors;
   const [nodes, setNodes, onNodesChangeBase] = useNodesState<WorkflowFlowNode>(
@@ -899,8 +933,13 @@ export function App() {
       const issues = nextValidation.ok ? [] : nextValidation.errors;
       setWorkflow(nextWorkflow);
       setValidation(nextValidation);
-      setNodes(attachNodeCallbacks(workflowToNodes(nextWorkflow, issues)));
-      setEdges(workflowToEdges(nextWorkflow, issues));
+      setNodes(
+        applyNodeSelection(
+          attachNodeCallbacks(workflowToNodes(nextWorkflow, issues)),
+          selectedNodeIdRef.current
+        )
+      );
+      setEdges(applyEdgeSelection(workflowToEdges(nextWorkflow, issues), selectedEdgeIdRef.current));
     },
     [setEdges, setNodes]
   );
@@ -1251,13 +1290,21 @@ export function App() {
       ...node,
       data: {
         ...node.data,
-        onInlineEdit: updateNodeInline,
-        onOpenDetails: openNodeDetails,
-        onDeleteNode: deleteNodeById,
-        onRepromptNode: repromptSelectedNode,
-        onAddNextNode: openConnectedNodePalette
+        onInlineEdit: (nodeId, patch) =>
+          nodeActionHandlersRef.current.onInlineEdit(nodeId, patch),
+        onSelectNode: (nodeId) => nodeActionHandlersRef.current.onSelectNode(nodeId),
+        onOpenDetails: (nodeId) => nodeActionHandlersRef.current.onOpenDetails(nodeId),
+        onDeleteNode: (nodeId) => nodeActionHandlersRef.current.onDeleteNode(nodeId),
+        onRepromptNode: (nodeId) => nodeActionHandlersRef.current.onRepromptNode(nodeId),
+        onAddNextNode: (nodeId, outputPort) =>
+          nodeActionHandlersRef.current.onAddNextNode(nodeId, outputPort)
       }
     }));
+  }
+
+  function updateFlowSelection(nodeId: string | null, edgeId: string | null) {
+    setNodes((currentNodes) => applyNodeSelection(currentNodes, nodeId));
+    setEdges((currentEdges) => applyEdgeSelection(currentEdges, edgeId));
   }
 
   function updateNodeInline(
@@ -2230,14 +2277,25 @@ export function App() {
   function openConnectedNodePalette(nodeId: string, outputPort: string | undefined) {
     setSelectedNodeId(nodeId);
     setSelectedEdgeId(null);
+    updateFlowSelection(nodeId, null);
     setPendingNodeConnection({ sourceNodeId: nodeId, outputPort });
     openPalette({ kind: "commands", scope: "node-create" });
+  }
+
+  function selectNodeById(nodeId: string) {
+    const node = workflow.nodes.find((candidate) => candidate.id === nodeId);
+    setSelectedNodeId(nodeId);
+    setSelectedEdgeId(null);
+    setNodePrompt(node?.description ?? "");
+    setJsonError(null);
+    updateFlowSelection(nodeId, null);
   }
 
   function openNodeDetails(nodeId: string) {
     const node = workflow.nodes.find((candidate) => candidate.id === nodeId);
     setSelectedNodeId(nodeId);
     setSelectedEdgeId(null);
+    updateFlowSelection(nodeId, null);
     setNodePrompt(node?.description ?? "");
     setJsonError(null);
     setDetailsTab("node");
@@ -2247,6 +2305,7 @@ export function App() {
   function openEdgeDetails(edgeId: string) {
     setSelectedNodeId(null);
     setSelectedEdgeId(edgeId);
+    updateFlowSelection(null, edgeId);
     setNodePrompt("");
     setJsonError(null);
     setDetailsTab("node");
@@ -2901,6 +2960,7 @@ export function App() {
             onPaneClick={() => {
               setSelectedNodeId(null);
               setSelectedEdgeId(null);
+              updateFlowSelection(null, null);
               setNodePrompt("");
               setJsonError(null);
               setDetailsOpen(false);
@@ -5118,6 +5178,46 @@ function mergeAllowedHosts(
   }
 
   return [...hosts].sort();
+}
+
+function applyNodeSelection(
+  nodes: readonly WorkflowFlowNode[],
+  selectedNodeId: string | null
+): WorkflowFlowNode[] {
+  let changed = false;
+  const nextNodes = nodes.map((node) => {
+    const selected = node.id === selectedNodeId;
+    if (Boolean(node.selected) === selected) {
+      return node;
+    }
+    changed = true;
+    return {
+      ...node,
+      selected
+    };
+  });
+
+  return changed ? nextNodes : [...nodes];
+}
+
+function applyEdgeSelection(
+  edges: readonly WorkflowFlowEdge[],
+  selectedEdgeId: string | null
+): WorkflowFlowEdge[] {
+  let changed = false;
+  const nextEdges = edges.map((edge) => {
+    const selected = edge.id === selectedEdgeId;
+    if (Boolean(edge.selected) === selected) {
+      return edge;
+    }
+    changed = true;
+    return {
+      ...edge,
+      selected
+    };
+  });
+
+  return changed ? nextEdges : [...edges];
 }
 
 function deliveryChannels(node: WorkflowNode): ReadonlySet<string> {
