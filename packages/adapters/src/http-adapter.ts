@@ -50,7 +50,7 @@ export class HttpAdapter implements Adapter {
 
     const url = buildUrl(route.url, invocation.payload);
     assertAllowedHost(this.metadata, url);
-    const headers = new Headers(recordValue(invocation.payload.headers));
+    const headers = headersFromRecord(recordValue(invocation.payload.headers));
     applyHttpAuth(headers, url, route.auth, invocation);
     const body = bodyFor(route.method, invocation.payload.body);
     const response = await this.fetchImpl(url, {
@@ -145,6 +145,18 @@ function assertInvocation(metadata: AdapterMetadata, invocation: AdapterInvocati
 
 function routeKey(operation: string, version: string): string {
   return `${operation}\u0000${version}`;
+}
+
+function headersFromRecord(record: JsonRecord): Headers {
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(record)) {
+    if (value === null) {
+      continue;
+    }
+    headers.set(name, typeof value === "string" ? value : JSON.stringify(value));
+  }
+
+  return headers;
 }
 
 function buildUrl(template: string, payload: JsonRecord): URL {

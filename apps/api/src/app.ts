@@ -15,7 +15,17 @@ import {
   createGeneratedArtifact
 } from "@kelpclaw/codegen";
 import { registerPromotedSkill } from "@kelpclaw/skill-registry";
-import { createDefaultMockAdapters } from "@kelpclaw/adapters";
+import {
+  createDefaultLiveAdapters,
+  createDefaultMockAdapters,
+  createMcpAdapter,
+  createOpenApiAdapter,
+  importMcpConnector,
+  importOpenApiConnector,
+  testMcpConnector,
+  testOpenApiConnector
+} from "@kelpclaw/adapters";
+import { CronExpressionParser } from "cron-parser";
 import {
   AdapterBackedNodeRunner,
   MockNodeRunner,
@@ -60,6 +70,7 @@ import type {
   WorkflowBudgetLedger,
   WorkflowBudgetPolicy,
   WorkflowApiError,
+  WorkflowAlertPolicy,
   WorkflowAcceptPlanRequest,
   WorkflowAcceptPlanResponse,
   WorkflowApproveRequest,
@@ -79,6 +90,7 @@ import type {
   WorkflowBranchRepromptNodeResponse,
   WorkflowClarificationAnswer,
   WorkflowClarificationRequest,
+  WorkflowConnectorRecord,
   WorkflowDecisionTraceEvalExample,
   WorkflowDecisionTraceKind,
   WorkflowEventSeverity,
@@ -109,6 +121,7 @@ import type {
   WorkflowNodeDecisionTraceEvent,
   WorkflowNodeDecisionTraceExport,
   WorkflowObservabilityEventKind,
+  WorkflowOpsHealth,
   WorkflowPlanRequest,
   WorkflowPlanResponse,
   WorkflowPlannerSuggestionDecisionRequest,
@@ -117,8 +130,12 @@ import type {
   WorkflowRepromptNodeResponse,
   WorkflowGraphChange,
   WorkflowRunEvent,
+  WorkflowRunCheckpoint,
+  WorkflowRunRecord,
   WorkflowReuseCandidatesResponse,
   WorkflowRuntimeTruthSnapshot,
+  WorkflowRetentionPolicy,
+  WorkflowScheduleRecord,
   WorkflowSpec,
   WorkflowStartRunRequest,
   WorkflowStartRunResponse,
@@ -176,6 +193,14 @@ interface DeploymentRouteParams extends RouteParamsWithId {
   readonly deploymentId: string;
 }
 
+interface ConnectorRouteParams {
+  readonly connectorId: string;
+}
+
+interface ScheduleRouteParams extends RouteParamsWithId {
+  readonly scheduleId: string;
+}
+
 type CodegenProvider = "anthropic" | "openai";
 
 interface LiveGeneratedNodeProviders {
@@ -205,6 +230,7 @@ interface ApprovalRequestBody {
 interface CreateJobRequestBody {
   readonly type: WorkflowJobType;
   readonly workflowId?: string | undefined;
+  readonly branchId?: string | undefined;
   readonly revisionId?: string | undefined;
   readonly nodeId?: string | undefined;
   readonly maxAttempts?: number | undefined;
@@ -243,6 +269,39 @@ interface BudgetPatchRequestBody {
   readonly expensiveRetryConfirmationUsd?: number | undefined;
   readonly perAgentMaxCostUsd?: Partial<Record<string, number>> | undefined;
   readonly updatedBy?: string | undefined;
+}
+
+interface OpenApiImportRequestBody {
+  readonly id?: string | undefined;
+  readonly name?: string | undefined;
+  readonly sourceUrl?: string | undefined;
+  readonly document?: string | JsonRecord | undefined;
+  readonly secretRefs?: Readonly<Record<string, string>> | undefined;
+}
+
+interface McpConnectorRequestBody {
+  readonly id?: string | undefined;
+  readonly name?: string | undefined;
+  readonly endpointUrl: string;
+  readonly secretRefs?: Readonly<Record<string, string>> | undefined;
+}
+
+interface AlertPolicyRequestBody {
+  readonly enabled?: boolean | undefined;
+  readonly events?: WorkflowAlertPolicy["events"] | undefined;
+  readonly channels?: WorkflowAlertPolicy["channels"] | undefined;
+  readonly secretRefs?: Readonly<Record<string, string>> | undefined;
+  readonly updatedBy?: string | undefined;
+  readonly branchId?: string | undefined;
+}
+
+interface RetentionPolicyRequestBody {
+  readonly maxRunEventDays?: number | undefined;
+  readonly maxSuccessfulRunWorkspaceDays?: number | undefined;
+  readonly maxFailedRunWorkspaceDays?: number | undefined;
+  readonly maxJobEventDays?: number | undefined;
+  readonly updatedBy?: string | undefined;
+  readonly branchId?: string | undefined;
 }
 
 interface CodegenReviewRequestBody {
@@ -360,8 +419,19 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
   const planner = options.planner ?? createPlannerBackendFromEnv({ artifactStore });
   const runner = options.runner;
   recoverInterruptedJobs(store);
+  recoverInterruptedRuns(store);
   const jobSupervisor = new ApiJobSupervisor(store);
   const jobWorker = new ApiJobWorker(store, jobSupervisor);
+  jobWorker.register("run.workflow", async (job, signal) =>
+    executeWorkflowRunJob({
+      store,
+      secretStore,
+      artifactStore,
+      runner,
+      job,
+      signal
+    })
+  );
   jobWorker.register("smoke.integration", async (job, signal) => {
     await sleepWithSignal(numberFromJson(job.payload?.durationMs) ?? 0, signal);
     return {
@@ -372,11 +442,14 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     };
   });
   jobWorker.start();
+  const scheduleWorker = new ApiScheduleWorker(store);
+  scheduleWorker.start();
   const adminToken =
     options.adminToken === undefined ? process.env.KELPCLAW_ADMIN_TOKEN : options.adminToken;
 
   app.addHook("onClose", async () => {
     jobWorker.stop();
+    scheduleWorker.stop();
   });
 
   app.addHook("preHandler", async (request, reply) => {
@@ -404,6 +477,11 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     providers: providerRuntimeConfigsFromEnv()
   }));
 
+  app.get("/api/ops/health", async () => ({
+    ok: true,
+    health: opsHealth(store, jobWorker, scheduleWorker)
+  }));
+
   app.get("/api/secrets", async () => ({
     ok: true,
     secrets: publicSecretMetadata(secretStore),
@@ -420,6 +498,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     const job = createJob({
       type: request.body.type,
       workflowId: request.body.workflowId,
+      branchId: request.body.branchId,
       revisionId: request.body.revisionId,
       nodeId: request.body.nodeId,
       correlationId,
@@ -669,6 +748,182 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       deleted: secretStore.deleteSecret("google.oauth.default")
     };
   });
+
+  app.get("/api/connectors", async () => ({
+    ok: true,
+    connectors: store.listConnectors()
+  }));
+
+  app.post<{ Body: OpenApiImportRequestBody }>(
+    "/api/connectors/openapi/import",
+    async (request, reply) => {
+      try {
+        const id =
+          request.body.id ??
+          `connector.openapi.${slugify(request.body.name ?? request.body.sourceUrl ?? "openapi")}.${Date.now()}`;
+        const connector = store.saveConnector(
+          await importOpenApiConnector({
+            id,
+            name: request.body.name,
+            sourceUrl: request.body.sourceUrl,
+            document: request.body.document,
+            secretRefs: request.body.secretRefs
+          })
+        );
+        recordAudit(store, {
+          action: "connector.created",
+          actor: "api",
+          workflowId: "connectors",
+          revisionId: connector.id,
+          correlationId: correlationIdForRequest(request),
+          summary: `Imported OpenAPI connector '${connector.name}'.`,
+          metadata: connectorSummary(connector)
+        });
+        return reply.code(201).send({
+          ok: true,
+          connector
+        });
+      } catch (error) {
+        return reply.code(422).send({
+          ok: false,
+          error: "CONNECTOR_IMPORT_FAILED",
+          message: error instanceof Error ? error.message : "OpenAPI import failed."
+        });
+      }
+    }
+  );
+
+  app.post<{ Body: McpConnectorRequestBody }>("/api/connectors/mcp", async (request, reply) => {
+    try {
+      const id =
+        request.body.id ??
+        `connector.mcp.${slugify(request.body.name ?? request.body.endpointUrl)}.${Date.now()}`;
+      const connector = store.saveConnector(
+        await importMcpConnector({
+          id,
+          name: request.body.name,
+          endpointUrl: request.body.endpointUrl,
+          secretRefs: request.body.secretRefs
+        })
+      );
+      recordAudit(store, {
+        action: "connector.created",
+        actor: "api",
+        workflowId: "connectors",
+        revisionId: connector.id,
+        correlationId: correlationIdForRequest(request),
+        summary: `Registered MCP connector '${connector.name}'.`,
+        metadata: connectorSummary(connector)
+      });
+      return reply.code(201).send({
+        ok: true,
+        connector
+      });
+    } catch (error) {
+      return reply.code(422).send({
+        ok: false,
+        error: "CONNECTOR_IMPORT_FAILED",
+        message: error instanceof Error ? error.message : "MCP connector registration failed."
+      });
+    }
+  });
+
+  app.get<{ Params: ConnectorRouteParams }>(
+    "/api/connectors/:connectorId",
+    async (request, reply) => {
+      const connector = store.getConnector(request.params.connectorId);
+      if (!connector) {
+        return reply.code(404).send({
+          ok: false,
+          error: "CONNECTOR_NOT_FOUND",
+          message: `Connector '${request.params.connectorId}' was not found.`
+        });
+      }
+
+      return {
+        ok: true,
+        connector
+      };
+    }
+  );
+
+  app.delete<{ Params: ConnectorRouteParams }>(
+    "/api/connectors/:connectorId",
+    async (request, reply) => {
+      const connector = store.getConnector(request.params.connectorId);
+      const deleted = store.deleteConnector(request.params.connectorId);
+      if (connector && deleted) {
+        recordAudit(store, {
+          action: "connector.deleted",
+          actor: "api",
+          workflowId: "connectors",
+          revisionId: connector.id,
+          correlationId: correlationIdForRequest(request),
+          summary: `Deleted connector '${connector.name}'.`,
+          metadata: connectorSummary(connector)
+        });
+      }
+
+      return {
+        ok: true,
+        deleted
+      };
+    }
+  );
+
+  app.post<{ Params: ConnectorRouteParams }>(
+    "/api/connectors/:connectorId/test",
+    async (request, reply) => {
+      const connector = store.getConnector(request.params.connectorId);
+      if (!connector) {
+        return reply.code(404).send({
+          ok: false,
+          error: "CONNECTOR_NOT_FOUND",
+          message: `Connector '${request.params.connectorId}' was not found.`
+        });
+      }
+      try {
+        const tested = store.saveConnector(
+          connector.kind === "mcp"
+            ? await testMcpConnector(connector)
+            : connector.kind === "openapi"
+              ? await testOpenApiConnector(connector)
+              : {
+                  ...connector,
+                  updatedAt: new Date().toISOString(),
+                  lastTest: {
+                    status: "succeeded",
+                    testedAt: new Date().toISOString(),
+                    operationCount: connector.operations.length,
+                    message: `Connector has ${connector.operations.length} operation(s).`
+                  }
+                }
+        );
+
+        return {
+          ok: true,
+          connector: tested
+        };
+      } catch (error) {
+        const failed = store.saveConnector({
+          ...connector,
+          updatedAt: new Date().toISOString(),
+          lastTest: {
+            status: "failed",
+            testedAt: new Date().toISOString(),
+            operationCount: connector.operations.length,
+            message: error instanceof Error ? error.message : "Connector test failed."
+          }
+        });
+        return reply.code(502).send({
+          ok: false,
+          error: "CONNECTOR_TEST_FAILED",
+          message: failed.lastTest.message,
+          connector: failed
+        });
+      }
+    }
+  );
 
   app.post<{ Body: MockPlanRequestBody }>("/api/plans/mock", async (request) => {
     const prompt = request.body?.name ?? gmailReceiptsToSheetsWorkflowFixture.prompt;
@@ -2941,127 +3196,95 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
 
     try {
       const correlationId = correlationIdForRequest(request);
-      updateRequestJob(
-        store,
-        request,
-        "running",
-        "Workflow run started.",
-        {
-          approvedRevisionId: approvedRevision.id,
-          ...(approvedRevision.branchId ? { branchId: approvedRevision.branchId } : {})
-        },
-        jobSupervisor
-      );
-      try {
-        throwIfRequestJobCancelled(store, jobSupervisor, request);
-      } catch (error) {
-        if (error instanceof JobCancelledError) {
-          updateRequestJob(store, request, "cancelled", error.message, undefined, jobSupervisor);
-          return reply.code(409).send({
-            ok: false,
-            error: "JOB_CANCELLED",
-            message: error.message
-          } as never);
-        }
-        throw error;
-      }
-      const runId = `run.${approvedRevision.workflowId}.r${approvedRevision.revision}.${Date.now()}`;
       const dag = compileWorkflowDag(approvedRevision.workflow);
-      const compiledAt = new Date().toISOString();
-      const signal = requestJobId(request)
-        ? jobSupervisor.signalFor(requestJobId(request) ?? "")
-        : undefined;
-      const result = await executeCompiledDag(dag, runner ?? createNanoClawRunner(), {
-        codegenArtifactStore: artifactStore,
-        runId,
-        secretResolver: new SecretStoreResolver(secretStore),
-        signal
-      });
-      throwIfRequestJobCancelled(store, jobSupervisor, request);
       const now = new Date().toISOString();
-      const events = enrichRunEvents(
-        [
-          createStructuredRunEvent({
-            id: "event.dag.compiled",
-            timestamp: compiledAt,
-            level: "info",
-            message: "NanoClaw DAG compiled.",
-            kind: "dag.compilation",
-            metadata: {
-              dagHash: dag.dagHash,
-              nodeOrder: [...dag.order],
-              ...(deployedRunnerConfig
-                ? {
-                    runnerDeploymentId: deployedRunnerConfig.id,
-                    deployedRunnerConfig: deployedRunnerConfig.metadata.runnerConfig
-                  }
-                : {})
-            }
-          }),
-          ...(result.events ?? createRunEvents(result.nodeResults, now))
-        ],
-        {
-          workflowId: approvedRevision.workflowId,
-          branchId: approvedRevision.branchId,
-          revisionId: approvedRevision.id,
-          runId,
-          correlationId
-        }
-      );
+      const runId = `run.${approvedRevision.workflowId}.r${approvedRevision.revision}.${Date.now()}.${randomUUID()}`;
       const run = store.saveRun({
         id: runId,
         workflowId: approvedRevision.workflowId,
         branchId: approvedRevision.branchId,
         approvedRevisionId: approvedRevision.id,
         revision: approvedRevision.revision,
-        status: result.status,
+        status: "queued",
         createdAt: now,
-        startedAt: result.startedAt,
-        finishedAt: result.finishedAt,
-        events,
-        result
+        startedAt: now,
+        finishedAt: now,
+        events: enrichRunEvents(
+          [
+            createStructuredRunEvent({
+              id: "event.run.queued",
+              timestamp: now,
+              level: "info",
+              message: "Workflow run queued.",
+              kind: "run.lifecycle",
+              metadata: {
+                dagHash: dag.dagHash,
+                nodeOrder: [...dag.order],
+                runnerDeploymentId: deployedRunnerConfig.id,
+                deployedRunnerConfig: jsonObjectMetadata(deployedRunnerConfig.metadata.runnerConfig)
+                  ? jsonRecord(deployedRunnerConfig.metadata.runnerConfig)
+                  : null
+              }
+            })
+          ],
+          {
+            workflowId: approvedRevision.workflowId,
+            branchId: approvedRevision.branchId,
+            revisionId: approvedRevision.id,
+            runId,
+            correlationId
+          }
+        ),
+        result: null
       });
-      recordRunAuditRecords(
-        store,
-        approvedRevision.workflow,
-        approvedRevision.id,
-        run,
-        correlationId
-      );
-      updateRequestJob(
-        store,
-        request,
-        result.status === "succeeded" ? "succeeded" : "failed",
-        "Workflow run completed.",
-        {
-          runId: run.id,
-          status: result.status
-        },
-        jobSupervisor
-      );
+      const existingJobId = requestJobId(request);
+      const existingJob = existingJobId ? store.getJob(existingJobId) : undefined;
+      const jobPayload = jsonRecord({
+        runId,
+        approvedRevisionId: approvedRevision.id,
+        deploymentId: deployedRunnerConfig.id,
+        ...(runBranchId ? { branchId: runBranchId } : {})
+      });
+      const job =
+        existingJob && existingJob.type === "run.workflow" && !isTerminalJobStatus(existingJob.status)
+          ? store.appendJobEvent(
+              store.saveJob({
+                ...existingJob,
+                workflowId: approvedRevision.workflowId,
+                branchId: runBranchId,
+                revisionId: approvedRevision.id,
+                payload: jobPayload,
+                retry: {
+                  ...existingJob.retry,
+                  maxAttempts: Math.max(existingJob.retry.maxAttempts, 3),
+                  backoffSeconds: existingJob.retry.backoffSeconds ?? 2,
+                  retryable: true
+                },
+                updatedAt: now
+              }).id,
+              createJobEvent(existingJob, "info", "Attached queued workflow run.", {
+                runId
+              })
+            )
+          : store.saveJob(
+              createJob({
+                type: "run.workflow",
+                workflowId: approvedRevision.workflowId,
+                branchId: runBranchId,
+                revisionId: approvedRevision.id,
+                correlationId,
+                maxAttempts: 3,
+                payload: jobPayload
+              })
+            );
 
       return reply.code(202).send({
         ok: true,
-        run
+        run,
+        job
       });
     } catch (error) {
-      if (error instanceof JobCancelledError) {
-        updateRequestJob(store, request, "cancelled", error.message, undefined, jobSupervisor);
-        return reply.code(409).send({
-          ok: false,
-          error: "JOB_CANCELLED",
-          message: error.message
-        } as never);
-      }
       if (error instanceof WorkflowValidationError) {
-        updateRequestJob(
-          store,
-          request,
-          "failed",
-          "Workflow run failed validation.",
-          undefined,
-          jobSupervisor
-        );
         return reply.code(409).send({
           ok: false,
           error: "WORKFLOW_APPROVAL_REQUIRED",
@@ -3072,6 +3295,21 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
 
       throw error;
     }
+  });
+
+  app.get<{ Params: RouteParamsWithId }>("/api/workflows/:id/runs", async (request, reply) => {
+    if (!store.getWorkflow(request.params.id)) {
+      return reply.code(404).send({
+        ok: false,
+        error: "WORKFLOW_NOT_FOUND",
+        message: `Workflow '${request.params.id}' was not found.`
+      });
+    }
+
+    return {
+      ok: true,
+      runs: store.listRuns(request.params.id)
+    };
   });
 
   app.get<{ Params: RunRouteParams }>("/api/workflows/:id/runs/:runId", async (request, reply) => {
@@ -3093,9 +3331,112 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
 
     return {
       ok: true,
-      run
+      run,
+      checkpoints: store.listRunCheckpoints(run.id)
     };
   });
+
+  app.post<{ Params: RunRouteParams }>(
+    "/api/workflows/:id/runs/:runId/replay",
+    async (request, reply) => {
+      const sourceRun = store.getRun(request.params.runId);
+      if (!sourceRun) {
+        return reply.code(404).send({
+          ok: false,
+          error: "RUN_NOT_FOUND",
+          message: `Run '${request.params.runId}' was not found.`
+        });
+      }
+      if (sourceRun.workflowId !== request.params.id) {
+        return reply.code(409).send({
+          ok: false,
+          error: "WORKFLOW_RUN_ID_MISMATCH",
+          message: `Run '${sourceRun.id}' belongs to workflow '${sourceRun.workflowId}'.`
+        });
+      }
+      const approvedRevision = store.getApprovedRevision(sourceRun.approvedRevisionId);
+      if (!approvedRevision) {
+        return reply.code(404).send({
+          ok: false,
+          error: "APPROVED_REVISION_NOT_FOUND",
+          message: `Approved revision '${sourceRun.approvedRevisionId}' was not found.`
+        });
+      }
+      const deployedRunnerConfig = latestDeployedRunnerConfiguration(
+        store,
+        sourceRun.workflowId,
+        sourceRun.approvedRevisionId,
+        sourceRun.branchId
+      );
+      if (!deployedRunnerConfig) {
+        return reply.code(409).send({
+          ok: false,
+          error: "WORKFLOW_RUN_REQUIRES_DEPLOYMENT",
+          message: "Replay requires an active runner.configuration deployment."
+        });
+      }
+
+      const correlationId = correlationIdForRequest(request);
+      const now = new Date().toISOString();
+      const runId = `run.${sourceRun.workflowId}.replay.${Date.now()}.${randomUUID()}`;
+      const run = store.saveRun({
+        id: runId,
+        workflowId: sourceRun.workflowId,
+        branchId: sourceRun.branchId,
+        approvedRevisionId: sourceRun.approvedRevisionId,
+        revision: sourceRun.revision,
+        status: "queued",
+        createdAt: now,
+        startedAt: now,
+        finishedAt: now,
+        events: enrichRunEvents(
+          [
+            createStructuredRunEvent({
+              id: "event.run.replay-queued",
+              timestamp: now,
+              level: "info",
+              message: "Failed run replay queued.",
+              kind: "run.lifecycle",
+              metadata: {
+                sourceRunId: sourceRun.id,
+                runnerDeploymentId: deployedRunnerConfig.id
+              }
+            })
+          ],
+          {
+            workflowId: sourceRun.workflowId,
+            branchId: sourceRun.branchId,
+            revisionId: sourceRun.approvedRevisionId,
+            runId,
+            correlationId
+          }
+        ),
+        result: null
+      });
+      const job = store.saveJob(
+        createJob({
+          type: "run.workflow",
+          workflowId: sourceRun.workflowId,
+          branchId: sourceRun.branchId,
+          revisionId: sourceRun.approvedRevisionId,
+          correlationId,
+          maxAttempts: 3,
+          payload: {
+            runId,
+            approvedRevisionId: sourceRun.approvedRevisionId,
+            deploymentId: deployedRunnerConfig.id,
+            sourceRunId: sourceRun.id
+          }
+        })
+      );
+
+      return reply.code(202).send({
+        ok: true,
+        run,
+        job
+      });
+    }
+  );
 
   app.get<{ Params: RunRouteParams }>(
     "/api/workflows/:id/runs/:runId/events",
@@ -3284,6 +3625,107 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     }
   );
 
+  app.get<{ Params: RouteParamsWithId; Querystring: { readonly branchId?: string } }>(
+    "/api/workflows/:id/alerts",
+    async (request, reply) => {
+      if (!store.getWorkflow(request.params.id)) {
+        return reply.code(404).send({
+          ok: false,
+          error: "WORKFLOW_NOT_FOUND",
+          message: `Workflow '${request.params.id}' was not found.`
+        });
+      }
+      return {
+        ok: true,
+        policy: ensureAlertPolicy(store, request.params.id, request.query.branchId)
+      };
+    }
+  );
+
+  app.patch<{ Params: RouteParamsWithId; Body: AlertPolicyRequestBody }>(
+    "/api/workflows/:id/alerts",
+    async (request, reply) => {
+      if (!store.getWorkflow(request.params.id)) {
+        return reply.code(404).send({
+          ok: false,
+          error: "WORKFLOW_NOT_FOUND",
+          message: `Workflow '${request.params.id}' was not found.`
+        });
+      }
+      const current = ensureAlertPolicy(store, request.params.id, request.body.branchId);
+      const updated = store.saveAlertPolicy({
+        ...current,
+        enabled: request.body.enabled ?? current.enabled,
+        events: request.body.events ?? current.events,
+        channels: request.body.channels ?? current.channels,
+        secretRefs: request.body.secretRefs ?? current.secretRefs,
+        updatedAt: new Date().toISOString(),
+        updatedBy: request.body.updatedBy ?? "api"
+      });
+
+      return {
+        ok: true,
+        policy: updated
+      };
+    }
+  );
+
+  app.get<{ Params: RouteParamsWithId; Querystring: { readonly branchId?: string } }>(
+    "/api/workflows/:id/retention",
+    async (request, reply) => {
+      if (!store.getWorkflow(request.params.id)) {
+        return reply.code(404).send({
+          ok: false,
+          error: "WORKFLOW_NOT_FOUND",
+          message: `Workflow '${request.params.id}' was not found.`
+        });
+      }
+      return {
+        ok: true,
+        policy: ensureRetentionPolicy(store, request.params.id, request.query.branchId)
+      };
+    }
+  );
+
+  app.patch<{ Params: RouteParamsWithId; Body: RetentionPolicyRequestBody }>(
+    "/api/workflows/:id/retention",
+    async (request, reply) => {
+      if (!store.getWorkflow(request.params.id)) {
+        return reply.code(404).send({
+          ok: false,
+          error: "WORKFLOW_NOT_FOUND",
+          message: `Workflow '${request.params.id}' was not found.`
+        });
+      }
+      const current = ensureRetentionPolicy(store, request.params.id, request.body.branchId);
+      const updated = store.saveRetentionPolicy({
+        ...current,
+        maxRunEventDays: request.body.maxRunEventDays ?? current.maxRunEventDays,
+        maxSuccessfulRunWorkspaceDays:
+          request.body.maxSuccessfulRunWorkspaceDays ?? current.maxSuccessfulRunWorkspaceDays,
+        maxFailedRunWorkspaceDays:
+          request.body.maxFailedRunWorkspaceDays ?? current.maxFailedRunWorkspaceDays,
+        maxJobEventDays: request.body.maxJobEventDays ?? current.maxJobEventDays,
+        updatedAt: new Date().toISOString(),
+        updatedBy: request.body.updatedBy ?? "api"
+      });
+      recordAudit(store, {
+        action: "retention.cleaned",
+        actor: updated.updatedBy,
+        workflowId: request.params.id,
+        branchId: updated.branchId,
+        revisionId: `retention.${request.params.id}`,
+        correlationId: correlationIdForRequest(request),
+        summary: "Updated workflow retention policy.",
+        metadata: jsonRecord(updated)
+      });
+      return {
+        ok: true,
+        policy: updated
+      };
+    }
+  );
+
   app.get<{ Params: RouteParamsWithId }>("/api/workflows/:id/agent-timeline", async (request) => ({
     ok: true,
     events: store.listAgentTimelineEvents(request.params.id)
@@ -3341,6 +3783,80 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       ok: true,
       ...deploymentActivationSummary(store, request.params.id)
     })
+  );
+
+  app.get<{ Params: RouteParamsWithId }>("/api/workflows/:id/schedules", async (request) => ({
+    ok: true,
+    schedules: store.listSchedules(request.params.id)
+  }));
+
+  app.post<{ Params: ScheduleRouteParams }>(
+    "/api/workflows/:id/schedules/:scheduleId/pause",
+    async (request, reply) => {
+      const schedule = store.getSchedule(request.params.scheduleId);
+      if (!schedule || schedule.workflowId !== request.params.id) {
+        return reply.code(404).send({
+          ok: false,
+          error: "WORKFLOW_SCHEDULE_NOT_FOUND",
+          message: `Schedule '${request.params.scheduleId}' was not found.`
+        });
+      }
+      const updated = store.saveSchedule({
+        ...schedule,
+        status: "paused",
+        updatedAt: new Date().toISOString()
+      });
+      recordAudit(store, {
+        action: "schedule.updated",
+        actor: "api",
+        workflowId: updated.workflowId,
+        branchId: updated.branchId,
+        revisionId: updated.approvedRevisionId,
+        correlationId: correlationIdForRequest(request),
+        summary: `Paused schedule '${updated.id}'.`,
+        metadata: scheduleSummary(updated)
+      });
+      return {
+        ok: true,
+        schedule: updated
+      };
+    }
+  );
+
+  app.post<{ Params: ScheduleRouteParams }>(
+    "/api/workflows/:id/schedules/:scheduleId/resume",
+    async (request, reply) => {
+      const schedule = store.getSchedule(request.params.scheduleId);
+      if (!schedule || schedule.workflowId !== request.params.id) {
+        return reply.code(404).send({
+          ok: false,
+          error: "WORKFLOW_SCHEDULE_NOT_FOUND",
+          message: `Schedule '${request.params.scheduleId}' was not found.`
+        });
+      }
+      const now = new Date();
+      const updated = store.saveSchedule({
+        ...schedule,
+        status: "active",
+        updatedAt: now.toISOString(),
+        nextFireAt: nextCronFire(schedule.cron, schedule.timezone, now).toISOString(),
+        lastError: undefined
+      });
+      recordAudit(store, {
+        action: "schedule.updated",
+        actor: "api",
+        workflowId: updated.workflowId,
+        branchId: updated.branchId,
+        revisionId: updated.approvedRevisionId,
+        correlationId: correlationIdForRequest(request),
+        summary: `Resumed schedule '${updated.id}'.`,
+        metadata: scheduleSummary(updated)
+      });
+      return {
+        ok: true,
+        schedule: updated
+      };
+    }
   );
 
   app.post<{ Params: RouteParamsWithId; Body: DeploymentRequestBody }>(
@@ -3512,6 +4028,9 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
           ...nativeMetadata
         }
       });
+      if (savedDeployment.kind === "schedule.activation") {
+        registerSchedulesForDeployment(store, savedDeployment, approvedRevision);
+      }
       updateRequestJob(
         store,
         request,
@@ -3559,6 +4078,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
           undeployedAt: new Date().toISOString()
         }
       });
+      disableSchedulesForDeployment(store, deployment.id, "disabled");
       recordAudit(store, {
         action: "deployment.undeployed",
         actor: "api",
@@ -3616,6 +4136,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
           )
         }
       });
+      disableSchedulesForDeployment(store, deployment.id, "disabled");
       recordAudit(store, {
         action: "deployment.rolled-back",
         actor: "api",
@@ -3650,7 +4171,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
 
       try {
         const dag = compileWorkflowDag(workflow);
-        const result = await executeCompiledDag(dag, runner ?? createNanoClawRunner(), {
+        const result = await executeCompiledDag(dag, runner ?? createNanoClawRunner(store), {
           codegenArtifactStore: artifactStore,
           secretResolver: new SecretStoreResolver(secretStore)
         });
@@ -4722,18 +5243,212 @@ function slugify(value: string): string {
   );
 }
 
-function createNanoClawRunner(): NodeRunner {
+function createNanoClawRunner(store?: WorkflowStore): NodeRunner {
   if (process.env.NANOCLAW_RUNNER === "mock") {
     return new AdapterBackedNodeRunner({
-      adapters: createDefaultMockAdapters(),
+      adapters: createRegisteredAdapters(store, true),
       fallbackRunner: new MockNodeRunner()
     });
   }
 
-  return new ProductionNodeRunner({
-    dockerBin: process.env.NANOCLAW_DOCKER_BIN,
-    hostWorkspace: process.env.NANOCLAW_HOST_WORKSPACE ?? process.cwd()
+  return new AdapterBackedNodeRunner({
+    adapters: createRegisteredAdapters(store, false),
+    fallbackRunner: new ProductionNodeRunner({
+      dockerBin: process.env.NANOCLAW_DOCKER_BIN,
+      hostWorkspace: process.env.NANOCLAW_HOST_WORKSPACE ?? process.cwd()
+    })
   });
+}
+
+function createRegisteredAdapters(store: WorkflowStore | undefined, mock: boolean) {
+  const adapters = mock
+    ? createDefaultMockAdapters()
+    : createDefaultLiveAdapters({
+        smtp: {
+          host: process.env.SMTP_HOST,
+          port: process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined,
+          secure: process.env.SMTP_SECURE === "1",
+          username: process.env.SMTP_USERNAME,
+          password: process.env.SMTP_PASSWORD,
+          from: process.env.SMTP_FROM
+        }
+      });
+  for (const connector of store?.listConnectors() ?? []) {
+    if (connector.kind === "openapi") {
+      const adapter = createOpenApiAdapter(connector);
+      adapters.set(adapter.metadata.id, adapter);
+    }
+    if (connector.kind === "mcp") {
+      const adapter = createMcpAdapter(connector);
+      adapters.set(adapter.metadata.id, adapter);
+    }
+  }
+
+  return adapters;
+}
+
+async function executeWorkflowRunJob(input: {
+  readonly store: WorkflowStore;
+  readonly secretStore: SecretStore;
+  readonly artifactStore: CodegenArtifactStore;
+  readonly runner?: NodeRunner | undefined;
+  readonly job: WorkflowJob;
+  readonly signal: AbortSignal;
+}): Promise<{ readonly result: JsonRecord }> {
+  const payload = input.job.payload ?? {};
+  const runId = stringFromJson(payload.runId);
+  const approvedRevisionId = stringFromJson(payload.approvedRevisionId ?? input.job.revisionId);
+  const deploymentId = stringFromJson(payload.deploymentId);
+  if (!runId || !approvedRevisionId) {
+    throw new Error("run.workflow job payload requires runId and approvedRevisionId.");
+  }
+  const approvedRevision = input.store.getApprovedRevision(approvedRevisionId);
+  if (!approvedRevision) {
+    throw new Error(`Approved revision '${approvedRevisionId}' was not found.`);
+  }
+  const run = input.store.getRun(runId);
+  if (!run) {
+    throw new Error(`Run '${runId}' was not found.`);
+  }
+  const deployment =
+    deploymentId === undefined
+      ? latestDeployedRunnerConfiguration(
+          input.store,
+          approvedRevision.workflowId,
+          approvedRevision.id,
+          approvedRevision.branchId
+        )
+      : input.store
+          .listDeployments(approvedRevision.workflowId)
+          .find((candidate) => candidate.id === deploymentId);
+  if (!deployment || deployment.status !== "deployed" || deployment.kind !== "runner.configuration") {
+    throw new Error("Workflow run requires an active runner.configuration deployment.");
+  }
+
+  const dag = compileWorkflowDag(approvedRevision.workflow);
+  const correlationId = input.job.correlationId;
+  const context = {
+    workflowId: approvedRevision.workflowId,
+    branchId: approvedRevision.branchId,
+    revisionId: approvedRevision.id,
+    runId,
+    correlationId
+  };
+  let events = [...run.events];
+  const startedAt = new Date().toISOString();
+  const saveRunState = (patch: Partial<WorkflowRunRecord>) => {
+    const current = input.store.getRun(runId) ?? run;
+    input.store.saveRun({
+      ...current,
+      ...patch,
+      events
+    });
+  };
+  const appendRunEvent = (event: WorkflowRunEvent) => {
+    const [enriched] = enrichRunEvents([event], context);
+    if (!enriched) {
+      return;
+    }
+    events = [...events, enriched];
+    saveRunState({});
+  };
+
+  events = [
+    ...events,
+    ...enrichRunEvents(
+      [
+        createStructuredRunEvent({
+          id: "event.dag.compiled",
+          timestamp: startedAt,
+          level: "info",
+          message: "NanoClaw DAG compiled.",
+          kind: "dag.compilation",
+          metadata: {
+            dagHash: dag.dagHash,
+            nodeOrder: [...dag.order],
+            runnerDeploymentId: deployment.id,
+            deployedRunnerConfig: jsonObjectMetadata(deployment.metadata.runnerConfig)
+              ? jsonRecord(deployment.metadata.runnerConfig)
+              : null
+          }
+        })
+      ],
+      context
+    )
+  ];
+  saveRunState({
+    status: "running",
+    startedAt,
+    finishedAt: startedAt
+  });
+
+  try {
+    const result = await executeCompiledDag(
+      dag,
+      input.runner ?? createNanoClawRunner(input.store),
+      {
+        codegenArtifactStore: input.artifactStore,
+        runId,
+        approvedRevisionId: approvedRevision.id,
+        secretResolver: new SecretStoreResolver(input.secretStore),
+        signal: input.signal,
+        checkpointStore: {
+          getCheckpoint: ({ runId: lookupRunId, nodeId, inputHash }) =>
+            input.store.getRunCheckpoint(lookupRunId, nodeId, inputHash),
+          saveCheckpoint: (checkpoint) => input.store.saveRunCheckpoint(checkpoint)
+        },
+        onEvent: appendRunEvent
+      }
+    );
+    const finishedAt = result.finishedAt;
+    const finalResult = {
+      ...result,
+      events
+    };
+    const completed = input.store.saveRun({
+      ...(input.store.getRun(runId) ?? run),
+      status: result.status,
+      startedAt: result.startedAt,
+      finishedAt,
+      events,
+      result: finalResult
+    });
+    recordRunAuditRecords(input.store, approvedRevision.workflow, approvedRevision.id, completed, correlationId);
+    if (result.status === "failed") {
+      recordRunFailureAlert(input.store, completed, approvedRevision.id, correlationId);
+    }
+
+    return {
+      result: {
+        runId,
+        status: result.status
+      }
+    };
+  } catch (error) {
+    const failedAt = new Date().toISOString();
+    const failedEvent = enrichRunEvents(
+      [
+        createStructuredRunEvent({
+          id: `event.run.failed.${Date.now()}`,
+          timestamp: failedAt,
+          level: "error",
+          message: error instanceof Error ? redactSecretString(error.message) : "Workflow run failed.",
+          kind: "run.lifecycle"
+        })
+      ],
+      context
+    );
+    events = [...events, ...failedEvent];
+    const failed = input.store.saveRun({
+      ...(input.store.getRun(runId) ?? run),
+      status: input.signal.aborted ? "cancelled" : "failed",
+      finishedAt: failedAt,
+      events,
+      result: null
+    });
+    recordRunFailureAlert(input.store, failed, approvedRevision.id, correlationId);
+    throw error;
+  }
 }
 
 function correlationIdForRequest(request: FastifyRequest): string {
@@ -4748,6 +5463,7 @@ function correlationIdForRequest(request: FastifyRequest): string {
 function createJob(input: {
   readonly type: WorkflowJobType;
   readonly workflowId?: string | undefined;
+  readonly branchId?: string | undefined;
   readonly revisionId?: string | undefined;
   readonly nodeId?: string | undefined;
   readonly correlationId: string;
@@ -4761,6 +5477,7 @@ function createJob(input: {
     type: input.type,
     status: "queued",
     workflowId: input.workflowId,
+    branchId: input.branchId,
     revisionId: input.revisionId,
     nodeId: input.nodeId,
     correlationId: input.correlationId,
@@ -5054,6 +5771,7 @@ async function materializeNativeDeployment(input: {
           nodeId: node.id,
           label: node.label,
           schedule: String(node.config.schedule),
+          timezone: typeof node.config.timezone === "string" ? node.config.timezone : "UTC",
           status: "active",
           registeredAt: input.deployment.createdAt
         }));
@@ -5229,6 +5947,119 @@ function deploymentActivationSummary(
         ? [deployment.metadata.generatedServiceConfig as JsonRecord]
         : []
     )
+  };
+}
+
+function registerSchedulesForDeployment(
+  store: WorkflowStore,
+  deployment: WorkflowDeploymentRecord,
+  approvedRevision: Exclude<ReturnType<WorkflowStore["getApprovedRevision"]>, undefined>
+): void {
+  const now = new Date();
+  for (const registration of jsonArrayMetadata(deployment.metadata.activeScheduleRegistrations)) {
+    const nodeId = stringFromJson(registration.nodeId);
+    const cron = stringFromJson(registration.schedule);
+    if (!nodeId || !cron) {
+      continue;
+    }
+    const timezone = stringFromJson(registration.timezone) ?? "UTC";
+    let nextFireAt: string;
+    try {
+      nextFireAt = nextCronFire(cron, timezone, now).toISOString();
+    } catch (error) {
+      nextFireAt = now.toISOString();
+    }
+    const schedule = store.saveSchedule({
+      id: `schedule.${deployment.id}.${nodeId}`,
+      workflowId: deployment.workflowId,
+      ...(deployment.branchId ? { branchId: deployment.branchId } : {}),
+      deploymentId: deployment.id,
+      approvedRevisionId: approvedRevision.id,
+      nodeId,
+      label: stringFromJson(registration.label) ?? nodeId,
+      cron,
+      timezone,
+      status: "active",
+      createdAt: deployment.createdAt,
+      updatedAt: now.toISOString(),
+      nextFireAt,
+      missedCount: 0,
+      ...(Date.parse(nextFireAt) === now.getTime()
+        ? { lastError: "Schedule cron could not be parsed during deployment registration." }
+        : {})
+    });
+    recordAudit(store, {
+      action: "schedule.updated",
+      actor: "api",
+      workflowId: deployment.workflowId,
+      branchId: deployment.branchId,
+      revisionId: approvedRevision.id,
+      correlationId: `schedule.${deployment.id}`,
+      summary: `Registered schedule '${schedule.id}'.`,
+      metadata: scheduleSummary(schedule)
+    });
+  }
+}
+
+function disableSchedulesForDeployment(
+  store: WorkflowStore,
+  deploymentId: string,
+  status: WorkflowScheduleRecord["status"]
+): void {
+  const now = new Date().toISOString();
+  for (const schedule of store.listSchedules().filter((item) => item.deploymentId === deploymentId)) {
+    store.saveSchedule({
+      ...schedule,
+      status,
+      updatedAt: now
+    });
+  }
+}
+
+function nextCronFire(cron: string, timezone: string, currentDate: Date = new Date()): Date {
+  return CronExpressionParser.parse(cron, {
+    currentDate,
+    tz: timezone || "UTC"
+  })
+    .next()
+    .toDate();
+}
+
+function revisionFromApprovedRevisionId(approvedRevisionId: string): number {
+  const match = /\.r(?<revision>\d+)$/u.exec(approvedRevisionId);
+  return match?.groups?.revision ? Number(match.groups.revision) : 1;
+}
+
+function connectorSummary(connector: WorkflowConnectorRecord): JsonRecord {
+  return {
+    id: connector.id,
+    name: connector.name,
+    kind: connector.kind,
+    adapterId: connector.adapterId,
+    operationCount: connector.operations.length,
+    allowedHosts: [...connector.allowedHosts],
+    authKinds: connector.auth.map((auth) => auth.scheme),
+    lastTestStatus: connector.lastTest.status,
+    lastTestedAt: connector.lastTest.testedAt ?? null
+  };
+}
+
+function scheduleSummary(schedule: WorkflowScheduleRecord): JsonRecord {
+  return {
+    id: schedule.id,
+    workflowId: schedule.workflowId,
+    branchId: schedule.branchId ?? null,
+    deploymentId: schedule.deploymentId,
+    approvedRevisionId: schedule.approvedRevisionId,
+    nodeId: schedule.nodeId,
+    cron: schedule.cron,
+    timezone: schedule.timezone,
+    status: schedule.status,
+    nextFireAt: schedule.nextFireAt,
+    lastFireAt: schedule.lastFireAt ?? null,
+    lastRunId: schedule.lastRunId ?? null,
+    missedCount: schedule.missedCount,
+    lastError: schedule.lastError ?? null
   };
 }
 
@@ -5481,6 +6312,95 @@ function ensureBudgetPolicy(
     store.getBudgetPolicy(workflowId, branchId) ??
     store.saveBudgetPolicy(defaultBudgetPolicy(workflowId, branchId))
   );
+}
+
+function defaultAlertPolicy(
+  workflowId: string,
+  branchId?: string | undefined
+): WorkflowAlertPolicy {
+  return {
+    workflowId,
+    ...(branchId ? { branchId } : {}),
+    enabled: false,
+    events: ["run.failed", "job.failed", "schedule.missed", "deployment.failed"],
+    channels: [],
+    secretRefs: {},
+    updatedAt: new Date().toISOString(),
+    updatedBy: "system"
+  };
+}
+
+function ensureAlertPolicy(
+  store: WorkflowStore,
+  workflowId: string,
+  branchId?: string | undefined
+): WorkflowAlertPolicy {
+  return (
+    store.getAlertPolicy(workflowId, branchId) ??
+    store.saveAlertPolicy(defaultAlertPolicy(workflowId, branchId))
+  );
+}
+
+function defaultRetentionPolicy(
+  workflowId: string,
+  branchId?: string | undefined
+): WorkflowRetentionPolicy {
+  return {
+    workflowId,
+    ...(branchId ? { branchId } : {}),
+    maxRunEventDays: 14,
+    maxSuccessfulRunWorkspaceDays: 14,
+    maxFailedRunWorkspaceDays: 30,
+    maxJobEventDays: 14,
+    updatedAt: new Date().toISOString(),
+    updatedBy: "system"
+  };
+}
+
+function ensureRetentionPolicy(
+  store: WorkflowStore,
+  workflowId: string,
+  branchId?: string | undefined
+): WorkflowRetentionPolicy {
+  return (
+    store.getRetentionPolicy(workflowId, branchId) ??
+    store.saveRetentionPolicy(defaultRetentionPolicy(workflowId, branchId))
+  );
+}
+
+function recordRunFailureAlert(
+  store: WorkflowStore,
+  run: WorkflowRunRecord,
+  approvedRevisionId: string,
+  correlationId: string
+): void {
+  const policy = store.getAlertPolicy(run.workflowId, run.branchId);
+  if (!policy?.enabled || !policy.events.includes("run.failed")) {
+    return;
+  }
+  const now = new Date().toISOString();
+  store.saveRun({
+    ...run,
+    events: [
+      ...run.events,
+      createStructuredRunEvent({
+        id: `event.alert.run-failed.${Date.now()}`,
+        timestamp: now,
+        level: "warn",
+        message: "Run failure alert policy matched.",
+        kind: "alert.lifecycle",
+        workflowId: run.workflowId,
+        branchId: run.branchId,
+        revisionId: approvedRevisionId,
+        runId: run.id,
+        correlationId,
+        metadata: {
+          channels: [...policy.channels],
+          secretRefs: Object.keys(policy.secretRefs)
+        }
+      })
+    ]
+  });
 }
 
 function sanitizePerAgentBudget(
@@ -6141,6 +7061,10 @@ class ApiJobWorker {
     }
   }
 
+  public isActive(): boolean {
+    return this.timer !== undefined;
+  }
+
   private async tick(): Promise<void> {
     if (this.tickInFlight || this.handlers.size === 0) {
       return;
@@ -6207,28 +7131,199 @@ class ApiJobWorker {
       }
 
       const finishedAt = new Date().toISOString();
+      const retryable = current.retry.attempt < current.retry.maxAttempts;
+      const nextRunAt = retryable
+        ? new Date(
+            Date.now() + (current.retry.backoffSeconds ?? Math.min(60, current.retry.attempt * 2)) * 1000
+          ).toISOString()
+        : undefined;
       const failed = this.store.saveJob({
         ...current,
-        status: "failed",
+        status: retryable ? "queued" : "failed",
         updatedAt: finishedAt,
-        finishedAt,
+        ...(retryable ? { startedAt: undefined, claimedAt: undefined, workerId: undefined } : { finishedAt }),
         error: error instanceof Error ? error.message : "Worker job failed.",
         retry: {
           ...current.retry,
-          retryable: current.retry.attempt < current.retry.maxAttempts
+          retryable,
+          ...(nextRunAt ? { nextRunAt } : {})
         }
       });
       this.store.appendJobEvent(
         failed.id,
-        createJobEvent(failed, "error", "Worker job failed.", {
-          retryable: failed.retry.retryable,
-          error: failed.error ?? "Worker job failed."
-        })
+        createJobEvent(
+          failed,
+          "error",
+          retryable ? "Worker job scheduled for retry." : "Worker job failed.",
+          {
+            retryable: failed.retry.retryable,
+            ...(failed.retry.nextRunAt ? { nextRunAt: failed.retry.nextRunAt } : {}),
+            error: failed.error ?? "Worker job failed."
+          }
+        )
       );
     } finally {
       this.supervisor.finishJob(job.id);
     }
   }
+}
+
+class ApiScheduleWorker {
+  private timer: NodeJS.Timeout | undefined;
+  private tickInFlight = false;
+
+  public constructor(private readonly store: WorkflowStore) {}
+
+  public start(): void {
+    if (this.timer) {
+      return;
+    }
+    this.timer = setInterval(() => this.tick(), 1000);
+    this.tick();
+  }
+
+  public stop(): void {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = undefined;
+    }
+  }
+
+  public isActive(): boolean {
+    return this.timer !== undefined;
+  }
+
+  private tick(): void {
+    if (this.tickInFlight) {
+      return;
+    }
+    this.tickInFlight = true;
+    try {
+      const now = new Date();
+      for (const schedule of this.store.listSchedules()) {
+        if (schedule.status !== "active" || Date.parse(schedule.nextFireAt) > now.getTime()) {
+          continue;
+        }
+        this.enqueueSchedule(schedule, now);
+      }
+    } finally {
+      this.tickInFlight = false;
+    }
+  }
+
+  private enqueueSchedule(schedule: WorkflowScheduleRecord, now: Date): void {
+    const fireAt = schedule.nextFireAt;
+    const runId = `run.${schedule.workflowId}.schedule.${Date.parse(fireAt)}.${randomUUID()}`;
+    const job = this.store.saveJob(
+      createJob({
+        type: "run.workflow",
+        workflowId: schedule.workflowId,
+        branchId: schedule.branchId,
+        revisionId: schedule.approvedRevisionId,
+        correlationId: `schedule.${schedule.id}.${Date.parse(fireAt)}`,
+        maxAttempts: 3,
+        payload: {
+          runId,
+          approvedRevisionId: schedule.approvedRevisionId,
+          scheduleId: schedule.id,
+          deploymentId: schedule.deploymentId,
+          fireAt
+        }
+      })
+    );
+    this.store.saveRun({
+      id: runId,
+      workflowId: schedule.workflowId,
+      branchId: schedule.branchId,
+      approvedRevisionId: schedule.approvedRevisionId,
+      revision: revisionFromApprovedRevisionId(schedule.approvedRevisionId),
+      status: "queued",
+      createdAt: now.toISOString(),
+      startedAt: now.toISOString(),
+      finishedAt: now.toISOString(),
+      events: [
+        createStructuredRunEvent({
+          id: "event.schedule.queued",
+          timestamp: now.toISOString(),
+          level: "info",
+          message: "Scheduled workflow run queued.",
+          kind: "schedule.lifecycle",
+          workflowId: schedule.workflowId,
+          branchId: schedule.branchId,
+          revisionId: schedule.approvedRevisionId,
+          runId,
+          correlationId: job.correlationId,
+          metadata: {
+            scheduleId: schedule.id,
+            fireAt
+          }
+        })
+      ],
+      result: null
+    });
+    this.store.saveSchedule({
+      ...schedule,
+      updatedAt: now.toISOString(),
+      lastFireAt: fireAt,
+      lastRunId: runId,
+      lastJobId: job.id,
+      nextFireAt: nextCronFire(schedule.cron, schedule.timezone, now).toISOString(),
+      lastError: undefined
+    });
+  }
+}
+
+function opsHealth(
+  store: WorkflowStore,
+  jobWorker: ApiJobWorker,
+  scheduleWorker: ApiScheduleWorker
+): WorkflowOpsHealth {
+  const checkedAt = new Date().toISOString();
+  let databaseWritable = true;
+  try {
+    store.listJobs();
+  } catch {
+    databaseWritable = false;
+  }
+  const jobs = store.listJobs();
+  const schedules = store.listSchedules();
+  const dueNow = Date.now();
+  const runs = collectWorkflowIds(store).flatMap((workflowId) => [...store.listRuns(workflowId)]);
+  const runningRuns = runs.filter((run) => run.status === "running").length;
+  const resumableRuns = runs.filter((run) => run.status === "resuming").length;
+  const failedRuns = runs.filter((run) => run.status === "failed").length;
+  const failedJobs = jobs.filter((job) => job.status === "failed").length;
+  const failedConnectorTests = store
+    .listConnectors()
+    .filter((connector) => connector.lastTest.status === "failed").length;
+
+  return {
+    status: databaseWritable && failedJobs === 0 ? "ok" : "degraded",
+    databaseWritable,
+    worker: {
+      active: jobWorker.isActive(),
+      queuedJobs: jobs.filter((job) => job.status === "queued").length,
+      runningJobs: jobs.filter((job) => job.status === "running").length,
+      failedJobs
+    },
+    scheduler: {
+      active: scheduleWorker.isActive(),
+      activeSchedules: schedules.filter((schedule) => schedule.status === "active").length,
+      dueSchedules: schedules.filter(
+        (schedule) => schedule.status === "active" && Date.parse(schedule.nextFireAt) <= dueNow
+      ).length
+    },
+    runs: {
+      running: runningRuns,
+      resumable: resumableRuns,
+      failed: failedRuns
+    },
+    connectors: {
+      total: store.listConnectors().length,
+      failedTests: failedConnectorTests
+    },
+    checkedAt
+  };
 }
 
 function recoverInterruptedJobs(store: WorkflowStore): void {
@@ -6237,24 +7332,65 @@ function recoverInterruptedJobs(store: WorkflowStore): void {
     if (job.status !== "running") {
       continue;
     }
+    const retryable = job.retry.attempt < job.retry.maxAttempts;
+    const nextRunAt = retryable
+      ? new Date(Date.now() + (job.retry.backoffSeconds ?? 2) * 1000).toISOString()
+      : undefined;
     const failed = store.saveJob({
       ...job,
-      status: "failed",
+      status: retryable ? "queued" : "failed",
       updatedAt: now,
-      finishedAt: now,
+      ...(retryable ? { claimedAt: undefined, workerId: undefined } : { finishedAt: now }),
       error: "API restarted before this running job completed.",
       retry: {
         ...job.retry,
-        retryable: true
+        retryable,
+        ...(nextRunAt ? { nextRunAt } : {})
       }
     });
     store.appendJobEvent(
       failed.id,
       createJobEvent(failed, "error", "Running job was interrupted by API restart.", {
-        retryable: true
+        retryable,
+        ...(nextRunAt ? { nextRunAt } : {})
       })
     );
   }
+}
+
+function recoverInterruptedRuns(store: WorkflowStore): void {
+  const now = new Date().toISOString();
+  for (const workflow of collectWorkflowIds(store)) {
+    for (const run of store.listRuns(workflow)) {
+      if (run.status !== "running" && run.status !== "resuming") {
+        continue;
+      }
+      store.saveRun({
+        ...run,
+        status: "resuming",
+        finishedAt: now,
+        events: [
+          ...run.events,
+          createStructuredRunEvent({
+            id: `event.run.recovered.${Date.now()}`,
+            timestamp: now,
+            level: "warn",
+            message: "Run was marked resumable after API restart.",
+            kind: "run.lifecycle"
+          })
+        ]
+      });
+    }
+  }
+}
+
+function collectWorkflowIds(store: WorkflowStore): readonly string[] {
+  return [
+    ...new Set([
+      ...store.listJobs().flatMap((job) => (job.workflowId ? [job.workflowId] : [])),
+      ...store.listSchedules().map((schedule) => schedule.workflowId)
+    ])
+  ].sort();
 }
 
 function sleepWithSignal(durationMs: number, signal: AbortSignal): Promise<void> {
@@ -6277,6 +7413,10 @@ function sleepWithSignal(durationMs: number, signal: AbortSignal): Promise<void>
 
 function numberFromJson(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function stringFromJson(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function throwIfRequestJobCancelled(
@@ -6806,7 +7946,13 @@ function createStructuredRunEvent(
 }
 
 function severityForRunEvent(event: WorkflowRunEvent): WorkflowEventSeverity {
-  return event.level === "error" ? "error" : "info";
+  if (event.level === "error") {
+    return "error";
+  }
+  if (event.level === "warn") {
+    return "warn";
+  }
+  return "info";
 }
 
 function kindForRunEvent(event: WorkflowRunEvent): WorkflowObservabilityEventKind {

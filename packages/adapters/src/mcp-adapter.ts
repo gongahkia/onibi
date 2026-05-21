@@ -11,6 +11,7 @@ import type {
   AdapterMetadata,
   AdapterResult
 } from "./types.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type {
   JsonRecord,
   JsonSchemaShape,
@@ -190,8 +191,8 @@ async function listMcpTools(
     const result = await client.request({ method: "tools/list", params: {} }, ListToolsResultSchema);
     return result.tools.map((tool) => ({
       name: tool.name,
-      description: tool.description,
-      inputSchema: isRecord(tool.inputSchema) ? tool.inputSchema : undefined
+      ...(tool.description ? { description: tool.description } : {}),
+      ...(isRecord(tool.inputSchema) ? { inputSchema: tool.inputSchema } : {})
     }));
   } finally {
     await client.close();
@@ -225,7 +226,9 @@ async function connectMcp(endpointUrl: string): Promise<Client> {
     name: "kelpclaw-tool-gateway",
     version: "1.0.0"
   });
-  await client.connect(new StreamableHTTPClientTransport(new URL(endpointUrl)));
+  await client.connect(
+    new StreamableHTTPClientTransport(new URL(endpointUrl)) as unknown as Transport
+  );
   return client;
 }
 

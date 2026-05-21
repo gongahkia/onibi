@@ -121,7 +121,7 @@ async function dereferenceOpenApi(input: ImportOpenApiConnectorInput): Promise<J
   if (!source) {
     throw new Error("OpenAPI import requires sourceUrl or document.");
   }
-  return (await parser.dereference(source as never)) as JsonRecord;
+  return (await parser.dereference(source as never)) as unknown as JsonRecord;
 }
 
 function parseDocument(document: string): JsonRecord {
@@ -315,20 +315,30 @@ function openApiRouteForOperation(
     throw new Error(`OpenAPI operation '${operation.name}' is missing route metadata.`);
   }
 
+  const location =
+    authRequirement?.location === "header" ||
+    authRequirement?.location === "query" ||
+    authRequirement?.location === "cookie"
+      ? authRequirement.location
+      : undefined;
+  const auth =
+    authRequirement && authRequirement.scheme !== "none" && authRequirement.scheme !== "oauth"
+      ? {
+          secretName: authRequirement.name,
+          scheme: authRequirement.scheme,
+          ...(location ? { location } : {}),
+          ...(authRequirement.parameterName
+            ? { parameterName: authRequirement.parameterName }
+            : {})
+        }
+      : undefined;
+
   return {
     operation: operation.name,
     version: operation.version,
     method: operation.method ?? "GET",
     url,
-    auth:
-      authRequirement && authRequirement.scheme !== "none" && authRequirement.scheme !== "oauth"
-      ? {
-          secretName: authRequirement.name,
-          scheme: authRequirement.scheme,
-          location: authRequirement.location,
-          parameterName: authRequirement.parameterName
-        }
-      : undefined
+    ...(auth ? { auth } : {})
   };
 }
 

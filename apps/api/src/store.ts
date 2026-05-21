@@ -24,18 +24,23 @@ import type {
   WorkflowBudgetPolicy,
   WorkflowBranch,
   WorkflowBranchMergeRecord,
+  WorkflowAlertPolicy,
+  WorkflowConnectorRecord,
   WorkflowDraftEvaluation,
   WorkflowDraftRevision,
   WorkflowDraftRevisionSource,
   WorkflowGraphDiff,
   WorkflowGeneratedModuleReuseDecision,
+  WorkflowRetentionPolicy,
   WorkflowJob,
   WorkflowJobEvent,
   WorkflowNodeDecisionTrace,
   WorkflowPlannerFeedback,
   WorkflowPromptTurn,
+  WorkflowRunCheckpoint,
   WorkflowRunRecord,
   WorkflowRunEvent,
+  WorkflowScheduleRecord,
   WorkflowSpec,
   WorkflowValidationResult,
   WorkflowWorkspace
@@ -119,7 +124,15 @@ export interface WorkflowStore {
   getExecution(id: string): StoredExecution | undefined;
   saveRun(run: WorkflowRunRecord): WorkflowRunRecord;
   getRun(id: string): WorkflowRunRecord | undefined;
+  listRuns(workflowId: string): readonly WorkflowRunRecord[];
   listRunEvents(runId: string): readonly WorkflowRunEvent[];
+  saveRunCheckpoint(record: WorkflowRunCheckpoint): WorkflowRunCheckpoint;
+  getRunCheckpoint(
+    runId: string,
+    nodeId: string,
+    inputHash: string
+  ): WorkflowRunCheckpoint | undefined;
+  listRunCheckpoints(runId: string): readonly WorkflowRunCheckpoint[];
   saveAuditRecord(record: WorkflowAuditRecord): WorkflowAuditRecord;
   listAuditRecords(workflowId: string): readonly WorkflowAuditRecord[];
   saveArtifactManifest(record: WorkflowArtifactManifestRecord): WorkflowArtifactManifestRecord;
@@ -171,6 +184,23 @@ export interface WorkflowStore {
   ): readonly GeneratedNodeEvalReport[];
   saveDeployment(record: WorkflowDeploymentRecord): WorkflowDeploymentRecord;
   listDeployments(workflowId: string): readonly WorkflowDeploymentRecord[];
+  saveConnector(record: WorkflowConnectorRecord): WorkflowConnectorRecord;
+  getConnector(id: string): WorkflowConnectorRecord | undefined;
+  listConnectors(): readonly WorkflowConnectorRecord[];
+  deleteConnector(id: string): boolean;
+  saveSchedule(record: WorkflowScheduleRecord): WorkflowScheduleRecord;
+  getSchedule(id: string): WorkflowScheduleRecord | undefined;
+  listSchedules(workflowId?: string | undefined): readonly WorkflowScheduleRecord[];
+  saveAlertPolicy(record: WorkflowAlertPolicy): WorkflowAlertPolicy;
+  getAlertPolicy(
+    workflowId: string,
+    branchId?: string | undefined
+  ): WorkflowAlertPolicy | undefined;
+  saveRetentionPolicy(record: WorkflowRetentionPolicy): WorkflowRetentionPolicy;
+  getRetentionPolicy(
+    workflowId: string,
+    branchId?: string | undefined
+  ): WorkflowRetentionPolicy | undefined;
   saveBudgetPolicy(record: WorkflowBudgetPolicy): WorkflowBudgetPolicy;
   getBudgetPolicy(
     workflowId: string,
@@ -221,6 +251,11 @@ export class InMemoryWorkflowStore implements WorkflowStore {
   protected readonly generatedNodeTestReports = new Map<string, GeneratedNodeTestReport>();
   protected readonly generatedNodeEvalReports = new Map<string, GeneratedNodeEvalReport>();
   protected readonly deployments = new Map<string, WorkflowDeploymentRecord>();
+  protected readonly connectors = new Map<string, WorkflowConnectorRecord>();
+  protected readonly schedules = new Map<string, WorkflowScheduleRecord>();
+  protected readonly runCheckpoints = new Map<string, WorkflowRunCheckpoint>();
+  protected readonly alertPolicies = new Map<string, WorkflowAlertPolicy>();
+  protected readonly retentionPolicies = new Map<string, WorkflowRetentionPolicy>();
   protected readonly budgetPolicies = new Map<string, WorkflowBudgetPolicy>();
   protected readonly budgetLedgers = new Map<string, WorkflowBudgetLedger>();
   protected readonly agentTimelineEvents = new Map<string, WorkflowAgentTimelineEvent>();
@@ -609,8 +644,49 @@ export class InMemoryWorkflowStore implements WorkflowStore {
     return this.runs.get(id);
   }
 
+  public listRuns(workflowId: string): readonly WorkflowRunRecord[] {
+    return [...this.runs.values()]
+      .filter((record) => record.workflowId === workflowId)
+      .sort(
+        (left, right) =>
+          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
+      );
+  }
+
   public listRunEvents(runId: string): readonly WorkflowRunEvent[] {
     return this.runs.get(runId)?.events ?? [];
+  }
+
+  public saveRunCheckpoint(record: WorkflowRunCheckpoint): WorkflowRunCheckpoint {
+    this.runCheckpoints.set(record.id, record);
+    return record;
+  }
+
+  public getRunCheckpoint(
+    runId: string,
+    nodeId: string,
+    inputHash: string
+  ): WorkflowRunCheckpoint | undefined {
+    return [...this.runCheckpoints.values()]
+      .filter(
+        (record) =>
+          record.runId === runId && record.nodeId === nodeId && record.inputHash === inputHash
+      )
+      .sort(
+        (left, right) =>
+          right.attempt - left.attempt ||
+          right.startedAt.localeCompare(left.startedAt) ||
+          right.id.localeCompare(left.id)
+      )[0];
+  }
+
+  public listRunCheckpoints(runId: string): readonly WorkflowRunCheckpoint[] {
+    return [...this.runCheckpoints.values()]
+      .filter((record) => record.runId === runId)
+      .sort(
+        (left, right) =>
+          left.startedAt.localeCompare(right.startedAt) || left.id.localeCompare(right.id)
+      );
   }
 
   public saveAuditRecord(record: WorkflowAuditRecord): WorkflowAuditRecord {
@@ -716,8 +792,12 @@ export class InMemoryWorkflowStore implements WorkflowStore {
     claimedAt = new Date().toISOString()
   ): WorkflowJob | undefined {
     const allowedTypes = types ? new Set(types) : undefined;
+    const nowMs = Date.parse(claimedAt);
     const job = this.listJobs().find(
-      (record) => record.status === "queued" && (!allowedTypes || allowedTypes.has(record.type))
+      (record) =>
+        record.status === "queued" &&
+        (!allowedTypes || allowedTypes.has(record.type)) &&
+        (!record.retry.nextRunAt || Date.parse(record.retry.nextRunAt) <= nowMs)
     );
     if (!job) {
       return undefined;
@@ -894,6 +974,74 @@ export class InMemoryWorkflowStore implements WorkflowStore {
         (left, right) =>
           left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
       );
+  }
+
+  public saveConnector(record: WorkflowConnectorRecord): WorkflowConnectorRecord {
+    this.connectors.set(record.id, record);
+    return record;
+  }
+
+  public getConnector(id: string): WorkflowConnectorRecord | undefined {
+    return this.connectors.get(id);
+  }
+
+  public listConnectors(): readonly WorkflowConnectorRecord[] {
+    return [...this.connectors.values()].sort(
+      (left, right) =>
+        left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
+    );
+  }
+
+  public deleteConnector(id: string): boolean {
+    return this.connectors.delete(id);
+  }
+
+  public saveSchedule(record: WorkflowScheduleRecord): WorkflowScheduleRecord {
+    this.schedules.set(record.id, record);
+    return record;
+  }
+
+  public getSchedule(id: string): WorkflowScheduleRecord | undefined {
+    return this.schedules.get(id);
+  }
+
+  public listSchedules(workflowId?: string | undefined): readonly WorkflowScheduleRecord[] {
+    return [...this.schedules.values()]
+      .filter((record) => workflowId === undefined || record.workflowId === workflowId)
+      .sort(
+        (left, right) =>
+          left.nextFireAt.localeCompare(right.nextFireAt) || left.id.localeCompare(right.id)
+      );
+  }
+
+  public saveAlertPolicy(record: WorkflowAlertPolicy): WorkflowAlertPolicy {
+    this.alertPolicies.set(policyKey(record.workflowId, record.branchId), record);
+    return record;
+  }
+
+  public getAlertPolicy(
+    workflowId: string,
+    branchId?: string | undefined
+  ): WorkflowAlertPolicy | undefined {
+    return (
+      this.alertPolicies.get(policyKey(workflowId, branchId)) ??
+      this.alertPolicies.get(policyKey(workflowId, undefined))
+    );
+  }
+
+  public saveRetentionPolicy(record: WorkflowRetentionPolicy): WorkflowRetentionPolicy {
+    this.retentionPolicies.set(policyKey(record.workflowId, record.branchId), record);
+    return record;
+  }
+
+  public getRetentionPolicy(
+    workflowId: string,
+    branchId?: string | undefined
+  ): WorkflowRetentionPolicy | undefined {
+    return (
+      this.retentionPolicies.get(policyKey(workflowId, branchId)) ??
+      this.retentionPolicies.get(policyKey(workflowId, undefined))
+    );
   }
 
   public saveBudgetPolicy(record: WorkflowBudgetPolicy): WorkflowBudgetPolicy {
@@ -1149,6 +1297,17 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
     return saved;
   }
 
+  public override saveRunCheckpoint(record: WorkflowRunCheckpoint): WorkflowRunCheckpoint {
+    const saved = super.saveRunCheckpoint(record);
+    this.runSql(
+      [
+        "INSERT OR REPLACE INTO run_checkpoints (id, run_id, workflow_id, approved_revision_id, node_id, attempt, status, input_hash, started_at, finished_at, record_json)",
+        `VALUES (${sqlValue(saved.id)}, ${sqlValue(saved.runId)}, ${sqlValue(saved.workflowId)}, ${sqlValue(saved.approvedRevisionId)}, ${sqlValue(saved.nodeId)}, ${saved.attempt}, ${sqlValue(saved.status)}, ${sqlValue(saved.inputHash)}, ${sqlValue(saved.startedAt)}, ${sqlValue(saved.finishedAt ?? null)}, ${sqlValue(stableStringify(saved))});`
+      ].join(" ")
+    );
+    return saved;
+  }
+
   public override saveAuditRecord(record: WorkflowAuditRecord): WorkflowAuditRecord {
     const saved = super.saveAuditRecord(record);
     this.runSql(
@@ -1291,6 +1450,58 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
       [
         "INSERT OR REPLACE INTO deployments (id, workflow_id, approved_revision_id, kind, status, created_at, record_json)",
         `VALUES (${sqlValue(saved.id)}, ${sqlValue(saved.workflowId)}, ${sqlValue(saved.approvedRevisionId)}, ${sqlValue(saved.kind)}, ${sqlValue(saved.status)}, ${sqlValue(saved.createdAt)}, ${sqlValue(stableStringify(saved))});`
+      ].join(" ")
+    );
+    return saved;
+  }
+
+  public override saveConnector(record: WorkflowConnectorRecord): WorkflowConnectorRecord {
+    const saved = super.saveConnector(record);
+    this.runSql(
+      [
+        "INSERT OR REPLACE INTO connectors (id, kind, adapter_id, created_at, updated_at, record_json)",
+        `VALUES (${sqlValue(saved.id)}, ${sqlValue(saved.kind)}, ${sqlValue(saved.adapterId)}, ${sqlValue(saved.createdAt)}, ${sqlValue(saved.updatedAt)}, ${sqlValue(stableStringify(saved))});`
+      ].join(" ")
+    );
+    return saved;
+  }
+
+  public override deleteConnector(id: string): boolean {
+    const deleted = super.deleteConnector(id);
+    if (deleted) {
+      this.runSql(`DELETE FROM connectors WHERE id = ${sqlValue(id)};`);
+    }
+    return deleted;
+  }
+
+  public override saveSchedule(record: WorkflowScheduleRecord): WorkflowScheduleRecord {
+    const saved = super.saveSchedule(record);
+    this.runSql(
+      [
+        "INSERT OR REPLACE INTO workflow_schedules (id, workflow_id, deployment_id, approved_revision_id, node_id, status, next_fire_at, updated_at, record_json)",
+        `VALUES (${sqlValue(saved.id)}, ${sqlValue(saved.workflowId)}, ${sqlValue(saved.deploymentId)}, ${sqlValue(saved.approvedRevisionId)}, ${sqlValue(saved.nodeId)}, ${sqlValue(saved.status)}, ${sqlValue(saved.nextFireAt)}, ${sqlValue(saved.updatedAt)}, ${sqlValue(stableStringify(saved))});`
+      ].join(" ")
+    );
+    return saved;
+  }
+
+  public override saveAlertPolicy(record: WorkflowAlertPolicy): WorkflowAlertPolicy {
+    const saved = super.saveAlertPolicy(record);
+    this.runSql(
+      [
+        "INSERT OR REPLACE INTO alert_policies (id, workflow_id, branch_id, updated_at, record_json)",
+        `VALUES (${sqlValue(policyKey(saved.workflowId, saved.branchId))}, ${sqlValue(saved.workflowId)}, ${sqlValue(saved.branchId ?? null)}, ${sqlValue(saved.updatedAt)}, ${sqlValue(stableStringify(saved))});`
+      ].join(" ")
+    );
+    return saved;
+  }
+
+  public override saveRetentionPolicy(record: WorkflowRetentionPolicy): WorkflowRetentionPolicy {
+    const saved = super.saveRetentionPolicy(record);
+    this.runSql(
+      [
+        "INSERT OR REPLACE INTO retention_policies (id, workflow_id, branch_id, updated_at, record_json)",
+        `VALUES (${sqlValue(policyKey(saved.workflowId, saved.branchId))}, ${sqlValue(saved.workflowId)}, ${sqlValue(saved.branchId ?? null)}, ${sqlValue(saved.updatedAt)}, ${sqlValue(stableStringify(saved))});`
       ].join(" ")
     );
     return saved;
@@ -1517,6 +1728,12 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
       });
     }
 
+    for (const row of this.queryRows<RecordJsonRow>(
+      "SELECT * FROM run_checkpoints ORDER BY started_at, id;"
+    )) {
+      this.runCheckpoints.set(row.id, parseJson(row.record_json));
+    }
+
     for (const row of this.queryRows<AuditRow>(
       "SELECT * FROM audit_records ORDER BY timestamp, id;"
     )) {
@@ -1585,6 +1802,32 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
       "SELECT * FROM deployments ORDER BY created_at, id;"
     )) {
       this.deployments.set(row.id, parseJson(row.record_json));
+    }
+
+    for (const row of this.queryRows<RecordJsonRow>(
+      "SELECT * FROM connectors ORDER BY created_at, id;"
+    )) {
+      this.connectors.set(row.id, parseJson(row.record_json));
+    }
+
+    for (const row of this.queryRows<RecordJsonRow>(
+      "SELECT * FROM workflow_schedules ORDER BY next_fire_at, id;"
+    )) {
+      this.schedules.set(row.id, parseJson(row.record_json));
+    }
+
+    for (const row of this.queryRows<RecordJsonRow>(
+      "SELECT * FROM alert_policies ORDER BY updated_at, id;"
+    )) {
+      const policy = parseJson<WorkflowAlertPolicy>(row.record_json);
+      this.alertPolicies.set(policyKey(policy.workflowId, policy.branchId), policy);
+    }
+
+    for (const row of this.queryRows<RecordJsonRow>(
+      "SELECT * FROM retention_policies ORDER BY updated_at, id;"
+    )) {
+      const policy = parseJson<WorkflowRetentionPolicy>(row.record_json);
+      this.retentionPolicies.set(policyKey(policy.workflowId, policy.branchId), policy);
     }
 
     for (const row of this.queryRows<BudgetPolicyRow>(
@@ -1698,6 +1941,10 @@ export function defaultBranchId(workflowId: string): string {
 }
 
 function budgetPolicyKey(workflowId: string, branchId: string | undefined): string {
+  return `${workflowId}:${branchId ?? "workflow"}`;
+}
+
+function policyKey(workflowId: string, branchId: string | undefined): string {
   return `${workflowId}:${branchId ?? "workflow"}`;
 }
 
@@ -1858,6 +2105,19 @@ const sqliteMigrations = [
     timestamp TEXT NOT NULL,
     event_json TEXT NOT NULL
   );`,
+  `CREATE TABLE IF NOT EXISTS run_checkpoints (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    workflow_id TEXT NOT NULL,
+    approved_revision_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    attempt INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    input_hash TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    record_json TEXT NOT NULL
+  );`,
   `CREATE TABLE IF NOT EXISTS audit_records (
     id TEXT PRIMARY KEY,
     workflow_id TEXT NOT NULL,
@@ -1972,6 +2232,39 @@ const sqliteMigrations = [
     kind TEXT NOT NULL,
     status TEXT NOT NULL,
     created_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+  );`,
+  `CREATE TABLE IF NOT EXISTS connectors (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    adapter_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+  );`,
+  `CREATE TABLE IF NOT EXISTS workflow_schedules (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    deployment_id TEXT NOT NULL,
+    approved_revision_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    next_fire_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+  );`,
+  `CREATE TABLE IF NOT EXISTS alert_policies (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    branch_id TEXT,
+    updated_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+  );`,
+  `CREATE TABLE IF NOT EXISTS retention_policies (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    branch_id TEXT,
+    updated_at TEXT NOT NULL,
     record_json TEXT NOT NULL
   );`,
   `CREATE TABLE IF NOT EXISTS budget_policies (

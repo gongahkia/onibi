@@ -17,12 +17,17 @@ import type {
   WorkflowBranchRepromptNodeResponse,
   WorkflowCreateBranchRequest,
   WorkflowCreateBranchResponse,
+  WorkflowConnectorListResponse,
+  WorkflowConnectorResponse,
   WorkflowDraftEvaluation,
   WorkflowFeedbackRequest,
   WorkflowFeedbackResponse,
   WorkflowGetBranchResponse,
   WorkflowListBranchesResponse,
+  WorkflowListRunsResponse,
+  WorkflowListSchedulesResponse,
   WorkflowFetchRunResponse,
+  WorkflowOpsHealth,
   WorkflowPlanRequest,
   WorkflowPlanSuccessResponse,
   WorkflowPlanResponse,
@@ -41,6 +46,7 @@ import type {
   WorkflowProviderRuntimeConfig,
   WorkflowReuseCandidatesResponse,
   WorkflowRuntimeTruthSnapshot,
+  WorkflowScheduleRecord,
   WorkflowStartRunRequest,
   WorkflowStartRunResponse,
   WorkflowAuditExportRecord,
@@ -69,6 +75,11 @@ export interface RuntimeProviderStatusResponse {
 export interface RuntimeTruthResponse {
   readonly ok: true;
   readonly truth: WorkflowRuntimeTruthSnapshot;
+}
+
+export interface OpsHealthResponse {
+  readonly ok: true;
+  readonly health: WorkflowOpsHealth;
 }
 
 export interface BudgetResponse {
@@ -199,6 +210,10 @@ export const openClawApi = {
     return getJson(
       `/api/workflows/${encodeURIComponent(workflowId)}/runtime-truth${queryString({ branchId })}`
     );
+  },
+
+  fetchOpsHealth(): Promise<OpsHealthResponse> {
+    return getJson("/api/ops/health");
   },
 
   fetchBudget(workflowId: string, branchId?: string | undefined): Promise<BudgetResponse> {
@@ -466,6 +481,73 @@ export const openClawApi = {
     return getJson(
       `/api/workflows/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(runId)}`
     );
+  },
+
+  fetchRuns(workflowId: string): Promise<WorkflowListRunsResponse> {
+    return getJson(`/api/workflows/${encodeURIComponent(workflowId)}/runs`);
+  },
+
+  replayRun(
+    workflowId: string,
+    runId: string
+  ): Promise<WorkflowStartRunResponse> {
+    return postJson(
+      `/api/workflows/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(runId)}/replay`,
+      {}
+    );
+  },
+
+  fetchSchedules(workflowId: string): Promise<WorkflowListSchedulesResponse> {
+    return getJson(`/api/workflows/${encodeURIComponent(workflowId)}/schedules`);
+  },
+
+  pauseSchedule(
+    workflowId: string,
+    scheduleId: string
+  ): Promise<{ readonly ok: true; readonly schedule: WorkflowScheduleRecord }> {
+    return postJson(
+      `/api/workflows/${encodeURIComponent(workflowId)}/schedules/${encodeURIComponent(scheduleId)}/pause`,
+      {}
+    );
+  },
+
+  resumeSchedule(
+    workflowId: string,
+    scheduleId: string
+  ): Promise<{ readonly ok: true; readonly schedule: WorkflowScheduleRecord }> {
+    return postJson(
+      `/api/workflows/${encodeURIComponent(workflowId)}/schedules/${encodeURIComponent(scheduleId)}/resume`,
+      {}
+    );
+  },
+
+  fetchConnectors(): Promise<WorkflowConnectorListResponse> {
+    return getJson("/api/connectors");
+  },
+
+  importOpenApiConnector(request: {
+    readonly name?: string | undefined;
+    readonly sourceUrl?: string | undefined;
+    readonly document?: string | JsonRecord | undefined;
+    readonly secretRefs?: Readonly<Record<string, string>> | undefined;
+  }): Promise<WorkflowConnectorResponse> {
+    return postJson("/api/connectors/openapi/import", request);
+  },
+
+  registerMcpConnector(request: {
+    readonly name?: string | undefined;
+    readonly endpointUrl: string;
+    readonly secretRefs?: Readonly<Record<string, string>> | undefined;
+  }): Promise<WorkflowConnectorResponse> {
+    return postJson("/api/connectors/mcp", request);
+  },
+
+  testConnector(connectorId: string): Promise<WorkflowConnectorResponse> {
+    return postJson(`/api/connectors/${encodeURIComponent(connectorId)}/test`, {});
+  },
+
+  deleteConnector(connectorId: string): Promise<{ readonly ok: true; readonly deleted: boolean }> {
+    return deleteJson(`/api/connectors/${encodeURIComponent(connectorId)}`);
   },
 
   listSecrets(): Promise<SecretListResponse> {

@@ -39,6 +39,8 @@ import type {
   WorkflowBranchMergeResolution,
   WorkflowBranchPlanResponse,
   WorkflowClarificationRequest,
+  WorkflowConnectorOperation,
+  WorkflowConnectorRecord,
   WorkflowDraftEvaluation,
   WorkflowAdapterOperationRef,
   WorkflowApprovedRevision,
@@ -54,12 +56,14 @@ import type {
   WorkflowNode,
   WorkflowNodeDecisionTrace,
   WorkflowNodeKind,
+  WorkflowOpsHealth,
   WorkflowPlanResponse,
   WorkflowPlanSuccessResponse,
   WorkflowPlannerFeedback,
   WorkflowPromptTurn,
   WorkflowRunRecord,
   WorkflowRuntimeTruthSnapshot,
+  WorkflowScheduleRecord,
   WorkflowSpec,
   WorkflowSpecDiff,
   WorkflowTaskRoute,
@@ -497,6 +501,12 @@ export function App() {
   const [budgetPolicy, setBudgetPolicy] = useState<WorkflowBudgetPolicy | null>(null);
   const [budgetLedgers, setBudgetLedgers] = useState<readonly WorkflowBudgetLedger[]>([]);
   const [agentTimeline, setAgentTimeline] = useState<readonly WorkflowAgentTimelineEvent[]>([]);
+  const [connectors, setConnectors] = useState<readonly WorkflowConnectorRecord[]>([]);
+  const [workflowRuns, setWorkflowRuns] = useState<readonly WorkflowRunRecord[]>([]);
+  const [workflowSchedules, setWorkflowSchedules] = useState<readonly WorkflowScheduleRecord[]>(
+    []
+  );
+  const [opsHealth, setOpsHealth] = useState<WorkflowOpsHealth | null>(null);
   const [auditExportNotice, setAuditExportNotice] = useState<string | null>(null);
   const [branches, setBranches] = useState<readonly WorkflowBranch[]>([]);
   const [activeBranchId, setActiveBranchId] = useState<string | null>(null);
@@ -673,21 +683,33 @@ export function App() {
         setBudgetLedgers([]);
         setAgentTimeline([]);
         setDeploymentActivations(null);
+        setWorkflowRuns([]);
+        setWorkflowSchedules([]);
+        setOpsHealth(null);
         return;
       }
 
       try {
-        const [truth, budget, timeline, active] = await Promise.all([
+        const [truth, budget, timeline, active, runs, schedules, health, connectorList] =
+          await Promise.all([
           openClawApi.fetchRuntimeTruth(workflowId, branchId ?? undefined),
           openClawApi.fetchBudget(workflowId, branchId ?? undefined),
           openClawApi.fetchAgentTimeline(workflowId),
-          openClawApi.fetchActiveDeployments(workflowId)
-        ]);
+            openClawApi.fetchActiveDeployments(workflowId),
+            openClawApi.fetchRuns(workflowId),
+            openClawApi.fetchSchedules(workflowId),
+            openClawApi.fetchOpsHealth(),
+            openClawApi.fetchConnectors()
+          ]);
         setRuntimeTruth(truth.truth);
         setBudgetPolicy(budget.policy);
         setBudgetLedgers(budget.ledgers);
         setAgentTimeline(timeline.events);
         setDeploymentActivations(active);
+        setWorkflowRuns(runs.runs);
+        setWorkflowSchedules(schedules.schedules);
+        setOpsHealth(health.health);
+        setConnectors(connectorList.connectors);
       } catch (error) {
         setApiError(error instanceof Error ? error.message : "Runtime status request failed.");
       }
@@ -1680,6 +1702,7 @@ export function App() {
         },
         job.id
       );
+      setRun(response.run);
       const fetched = await openClawApi.fetchRun(workflow.id, response.run.id);
       setRun(fetched.run);
       await refreshRuntimeStatus(workflow.id, activeBranchId);
@@ -1775,6 +1798,145 @@ export function App() {
       setDeploymentActivations(response.active);
       setDeploymentNotice(
         `Rollback target ${response.rollbackTarget.deploymentId}: ${response.deployment.status}`
+      );
+      await refreshRuntimeStatus(workflow.id, activeBranchId);
+    });
+  }
+
+  function importOpenApiConnector(input: { readonly name: string; readonly sourceUrl: string }) {
+    if (!input.sourceUrl.trim()) {
+      setApiError("OpenAPI import requires a URL.");
+      return;
+    }
+
+    void executeApiAction("connector-import", async () => {
+      const response = await openClawApi.importOpenApiConnector({
+        name: input.name.trim() || undefined,
+        sourceUrl: input.sourceUrl.trim()
+      });
+      setConnectors((current) => [
+        response.connector,
+        ...current.filter((connector) => connector.id !== response.connector.id)
+      ]);
+      await refreshRuntimeStatus(workflow.id, activeBranchId);
+    });
+  }
+
+  function registerMcpConnector(input: { readonly name: string; readonly endpointUrl: string }) {
+    if (!input.endpointUrl.trim()) {
+      setApiError("MCP registration requires an endpoint URL.");
+      return;
+    }
+
+    void executeApiAction("connector-mcp", async () => {
+      const response = await openClawApi.registerMcpConnector({
+        name: input.name.trim() || undefined,
+        endpointUrl: input.endpointUrl.trim()
+      });
+      setConnectors((current) => [
+        response.connector,
+        ...current.filter((connector) => connector.id !== response.connector.id)
+      ]);
+      await refreshRuntimeStatus(workflow.id, activeBranchId);
+    });
+  }
+
+  function testConnector(connectorId: string) {
+    void executeApiAction("connector-test", async () => {
+      const response = await openClawApi.testConnector(connectorId);
+      setConnectors((current) =>
+        current.map((connector) =>
+          connector.id === response.connector.id ? response.connector : connector
+        )
+      );
+      await refreshRuntimeStatus(workflow.id, activeBranchId);
+    });
+  }
+
+  function deleteConnector(connectorId: string) {
+    void executeApiAction("connector-delete", async () => {
+      await openClawApi.deleteConnector(connectorId);
+      setConnectors((current) => current.filter((connector) => connector.id !== connectorId));
+      await refreshRuntimeStatus(workflow.id, activeBranchId);
+    });
+  }
+
+  function addConnectorOperationNode(
+    connector: WorkflowConnectorRecord,
+    operation: WorkflowConnectorOperation
+  ) {
+    if (branchLifecycleLocked) {
+      setApiError("Archived branches are read-only.");
+      return;
+    }
+    const id = uniqueComponentNodeId(`connector-${connector.id}-${operation.name}`, workflow.nodes);
+    const position = nextNodePosition(nodes);
+    const node = createWorkflowNode({
+      id,
+      kind: "skill",
+      label: operation.name,
+      description: operation.description || `${connector.name} operation.`,
+      inputs: {
+        request: operation.inputSchema
+      },
+      outputs: {
+        response: operation.outputSchema
+      },
+      config: {
+        canvas: position,
+        connectorId: connector.id,
+        operation: operation.name,
+        allowedHosts: [...connector.allowedHosts]
+      },
+      adapterId: connector.adapterId,
+      adapterOperations: [
+        {
+          adapterId: connector.adapterId,
+          operation: operation.name,
+          operationVersion: operation.version
+        }
+      ],
+      secretRefs: connector.secretRefs
+    });
+    updateLocalWorkflow({
+      ...workflow,
+      approval: null,
+      nodes: [...workflow.nodes, node]
+    });
+    setSelectedNodeId(id);
+    setSelectedEdgeId(null);
+    setNodePrompt(node.description);
+    setJsonError(null);
+    markDirty(id);
+  }
+
+  function replayRun(runId: string) {
+    void executeApiAction("run-replay", async () => {
+      const response = await openClawApi.replayRun(workflow.id, runId);
+      setRun(response.run);
+      await refreshRuntimeStatus(workflow.id, activeBranchId);
+    });
+  }
+
+  function pauseSchedule(scheduleId: string) {
+    void executeApiAction("schedule-pause", async () => {
+      const response = await openClawApi.pauseSchedule(workflow.id, scheduleId);
+      setWorkflowSchedules((current) =>
+        current.map((schedule) =>
+          schedule.id === response.schedule.id ? response.schedule : schedule
+        )
+      );
+      await refreshRuntimeStatus(workflow.id, activeBranchId);
+    });
+  }
+
+  function resumeSchedule(scheduleId: string) {
+    void executeApiAction("schedule-resume", async () => {
+      const response = await openClawApi.resumeSchedule(workflow.id, scheduleId);
+      setWorkflowSchedules((current) =>
+        current.map((schedule) =>
+          schedule.id === response.schedule.id ? response.schedule : schedule
+        )
       );
       await refreshRuntimeStatus(workflow.id, activeBranchId);
     });
@@ -2449,6 +2611,10 @@ export function App() {
             budgetPolicy={budgetPolicy}
             budgetLedgers={budgetLedgers}
             agentTimeline={agentTimeline}
+            connectors={connectors}
+            workflowRuns={workflowRuns}
+            workflowSchedules={workflowSchedules}
+            opsHealth={opsHealth}
             nodeDecisionTraces={nodeDecisionTraces}
             decisionTraceExportNotice={decisionTraceExportNotice}
             auditExportNotice={auditExportNotice}
@@ -2469,6 +2635,14 @@ export function App() {
             onDeployBundle={() => deployWorkflow("workflow.bundle")}
             onUndeployRunner={undeployActiveRunner}
             onRollbackRunner={rollbackActiveRunner}
+            onImportOpenApiConnector={importOpenApiConnector}
+            onRegisterMcpConnector={registerMcpConnector}
+            onTestConnector={testConnector}
+            onDeleteConnector={deleteConnector}
+            onAddConnectorOperation={addConnectorOperationNode}
+            onReplayRun={replayRun}
+            onPauseSchedule={pauseSchedule}
+            onResumeSchedule={resumeSchedule}
             onUpdateNode={updateNode}
             onUpdateJsonField={updateJsonField}
             promotionNotice={promotionNotice}
@@ -2846,6 +3020,10 @@ function Inspector(props: {
   readonly budgetPolicy: WorkflowBudgetPolicy | null;
   readonly budgetLedgers: readonly WorkflowBudgetLedger[];
   readonly agentTimeline: readonly WorkflowAgentTimelineEvent[];
+  readonly connectors: readonly WorkflowConnectorRecord[];
+  readonly workflowRuns: readonly WorkflowRunRecord[];
+  readonly workflowSchedules: readonly WorkflowScheduleRecord[];
+  readonly opsHealth: WorkflowOpsHealth | null;
   readonly nodeDecisionTraces: readonly WorkflowNodeDecisionTrace[];
   readonly decisionTraceExportNotice: string | null;
   readonly auditExportNotice: string | null;
@@ -2867,6 +3045,23 @@ function Inspector(props: {
   readonly onDeployBundle: () => void;
   readonly onUndeployRunner: () => void;
   readonly onRollbackRunner: () => void;
+  readonly onImportOpenApiConnector: (input: {
+    readonly name: string;
+    readonly sourceUrl: string;
+  }) => void;
+  readonly onRegisterMcpConnector: (input: {
+    readonly name: string;
+    readonly endpointUrl: string;
+  }) => void;
+  readonly onTestConnector: (connectorId: string) => void;
+  readonly onDeleteConnector: (connectorId: string) => void;
+  readonly onAddConnectorOperation: (
+    connector: WorkflowConnectorRecord,
+    operation: WorkflowConnectorOperation
+  ) => void;
+  readonly onReplayRun: (runId: string) => void;
+  readonly onPauseSchedule: (scheduleId: string) => void;
+  readonly onResumeSchedule: (scheduleId: string) => void;
   readonly onUpdateNode: (nodeId: string, updater: (node: WorkflowNode) => WorkflowNode) => void;
   readonly onUpdateJsonField: (
     nodeId: string,
@@ -2882,6 +3077,16 @@ function Inspector(props: {
       <LifecycleTruthPanel truth={props.runtimeTruth} />
       <ProviderStatusPanel providers={props.providerConfigs} />
       <BudgetPanel policy={props.budgetPolicy} ledgers={props.budgetLedgers} />
+      <OpsHealthPanel health={props.opsHealth} />
+      <ConnectorPanel
+        connectors={props.connectors}
+        busyAction={props.busyAction}
+        onImportOpenApi={props.onImportOpenApiConnector}
+        onRegisterMcp={props.onRegisterMcpConnector}
+        onTest={props.onTestConnector}
+        onDelete={props.onDeleteConnector}
+        onAddOperation={props.onAddConnectorOperation}
+      />
       {node ? (
         <div className="inspector-stack">
           <label>
@@ -3165,7 +3370,13 @@ function Inspector(props: {
         onRollbackRunner={props.onRollbackRunner}
         onExportAudit={props.onExportAudit}
       />
-      <RunPanel run={props.run} />
+      <SchedulePanel
+        schedules={props.workflowSchedules}
+        busyAction={props.busyAction}
+        onPause={props.onPauseSchedule}
+        onResume={props.onResumeSchedule}
+      />
+      <RunPanel run={props.run} runs={props.workflowRuns} onReplay={props.onReplayRun} />
     </>
   );
 }

@@ -637,11 +637,15 @@ function emitCompensationRequiredEvents(
     eventStream.emit("warn", `Node '${node.id}' completed before a downstream failure.`, node.id, {
       kind: "compensation.required",
       metadata: {
-        compensation: node.compensation ?? { strategy: "manual" },
+        compensation: jsonValue(node.compensation ?? { strategy: "manual" }),
         sideEffect: node.kind === "delivery" || (node.adapterOperations?.length ?? 0) > 0
       }
     });
   }
+}
+
+function jsonValue(value: unknown): JsonValue {
+  return JSON.parse(JSON.stringify(value)) as JsonValue;
 }
 
 function requiresCompensation(node: CompiledDagNode): boolean {
