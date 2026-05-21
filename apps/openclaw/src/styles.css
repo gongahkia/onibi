@@ -643,6 +643,10 @@ dd {
   border-color: #69758a;
 }
 
+.canvas-panel-details-open .floating-add-button {
+  right: 26rem;
+}
+
 .details-drawer,
 .status-popover,
 .edge-selection-bar {
@@ -1242,6 +1246,10 @@ dd {
   .floating-add-button {
     bottom: 0.8rem;
     right: 0.8rem;
+  }
+
+  .canvas-panel-details-open .floating-add-button {
+    display: none;
   }
 
   .workflow-card-selected {

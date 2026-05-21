@@ -2794,7 +2794,10 @@ export function App() {
   return (
     <main className="app-shell">
       <section className="workspace">
-        <section className="canvas-panel" aria-label="Workflow graph">
+        <section
+          className={detailsOpen ? "canvas-panel canvas-panel-details-open" : "canvas-panel"}
+          aria-label="Workflow graph"
+        >
           <header className="canvas-header">
             <div className="workflow-header-card">
               <img className="app-logo-mark" src="/app-logo.png" alt="OpenClaw logo" />
@@ -2909,8 +2912,6 @@ export function App() {
                 agentMemory={agentMemory}
                 nodeDecisionTraces={nodeDecisionTraces}
                 decisionTraceExportNotice={decisionTraceExportNotice}
-                auditExportNotice={auditExportNotice}
-                deploymentNotice={deploymentNotice}
                 planAcceptedNotice={planAcceptedNotice}
                 deploymentActivations={deploymentActivations}
                 activeRunnerDeployment={activeRunnerDeployment}
@@ -2940,7 +2941,6 @@ export function App() {
                 onResumeSchedule={resumeSchedule}
                 onUpdateNode={updateNode}
                 onUpdateJsonField={updateJsonField}
-                promotionNotice={promotionNotice}
               />
             </aside>
           ) : null}
@@ -3036,6 +3036,7 @@ export function App() {
         auditExportNotice={auditExportNotice}
         decisionTraceExportNotice={decisionTraceExportNotice}
         promotionNotice={promotionNotice}
+        run={run}
         onDismissApiError={() => setApiError(null)}
         onDismissBranchNotice={() => setBranchNotice(null)}
       />
@@ -3423,15 +3424,18 @@ function ToastStack(props: {
   readonly auditExportNotice: string | null;
   readonly decisionTraceExportNotice: string | null;
   readonly promotionNotice: string | null;
+  readonly run: WorkflowRunRecord | null;
   readonly onDismissApiError: () => void;
   readonly onDismissBranchNotice: () => void;
 }) {
+  const latestRunNotice = props.run?.events.at(-1)?.message ?? null;
   const passiveNotices = [
     props.deploymentNotice,
     props.planAcceptedNotice,
     props.auditExportNotice,
     props.decisionTraceExportNotice,
-    props.promotionNotice
+    props.promotionNotice,
+    latestRunNotice
   ].filter((notice): notice is string => Boolean(notice));
 
   if (!props.apiError && !props.branchNotice && passiveNotices.length === 0) {
@@ -3494,14 +3498,11 @@ function Inspector(props: {
   readonly agentMemory: readonly WorkflowAgentMemoryRecord[];
   readonly nodeDecisionTraces: readonly WorkflowNodeDecisionTrace[];
   readonly decisionTraceExportNotice: string | null;
-  readonly auditExportNotice: string | null;
-  readonly deploymentNotice: string | null;
   readonly planAcceptedNotice: string | null;
   readonly deploymentActivations: DeploymentActivationSummaryResponse | null;
   readonly activeRunnerDeployment: WorkflowDeploymentRecord | null;
   readonly busyAction: string | null;
   readonly branchLifecycleLocked: boolean;
-  readonly promotionNotice: string | null;
   readonly onClose: () => void;
   readonly onTabChange: (tab: DetailsTab) => void;
   readonly onNodePromptChange: (value: string) => void;
@@ -3750,9 +3751,6 @@ function Inspector(props: {
                     <WandSparkles size={18} />
                     Promote Skill
                   </button>
-                  {props.promotionNotice ? (
-                    <p className="success-text">{props.promotionNotice}</p>
-                  ) : null}
                 </section>
               ) : null}
             </>
@@ -3910,9 +3908,7 @@ function Inspector(props: {
             onDelete={props.onDeleteConnector}
             onAddOperation={props.onAddConnectorOperation}
           />
-          <AgentTimelinePanel events={props.agentTimeline} />
-          {props.deploymentNotice ? <p className="success-text">{props.deploymentNotice}</p> : null}
-          {props.auditExportNotice ? <p className="success-text">{props.auditExportNotice}</p> : null}
+          <AgentTimelinePanel events={props.agentTimeline} activeJob={props.activeJob} />
           <DeploymentPanel
             activations={props.deploymentActivations}
             activeRunnerDeployment={props.activeRunnerDeployment}
@@ -4274,7 +4270,10 @@ function WorkspacePanel(props: {
   );
 }
 
-function AgentTimelinePanel(props: { readonly events: readonly WorkflowAgentTimelineEvent[] }) {
+function AgentTimelinePanel(props: {
+  readonly events: readonly WorkflowAgentTimelineEvent[];
+  readonly activeJob: WorkflowJob | null;
+}) {
   const totalCost = props.events.reduce((sum, event) => sum + (event.costUsd ?? 0), 0);
   return (
     <section className="run-panel" aria-label="Agent timeline">
@@ -4288,6 +4287,11 @@ function AgentTimelinePanel(props: { readonly events: readonly WorkflowAgentTime
         label="Cost"
         value={formatUsd(totalCost)}
         tone={totalCost > 0 ? "running" : "idle"}
+      />
+      <StatusRow
+        label="Worker"
+        value={props.activeJob?.workerId ?? "unclaimed"}
+        tone={props.activeJob?.workerId ? "valid" : "idle"}
       />
       {props.events.length ? (
         <ul className="event-list">
