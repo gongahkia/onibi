@@ -47,6 +47,58 @@ describe("kelpclaw api contracts", () => {
     expect(response.json()).toEqual({ status: "ok", service: "kelpclaw-api" });
   });
 
+  it("imports, tests, lists, and deletes OpenAPI connectors", async () => {
+    app = buildTestApiApp();
+
+    const imported = await app.inject({
+      method: "POST",
+      url: "/api/connectors/openapi/import",
+      payload: {
+        name: "Status API",
+        document: {
+          openapi: "3.0.3",
+          info: { title: "Status API", version: "1.0.0" },
+          servers: [{ url: "https://status.example.test" }],
+          paths: {
+            "/health": {
+              get: {
+                operationId: "getHealth",
+                responses: {
+                  "200": {
+                    description: "ok",
+                    content: {
+                      "application/json": {
+                        schema: { type: "object", properties: { status: { type: "string" } } }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+    const listed = await app.inject({ method: "GET", url: "/api/connectors" });
+    const tested = await app.inject({
+      method: "POST",
+      url: `/api/connectors/${imported.json().connector.id}/test`
+    });
+    const health = await app.inject({ method: "GET", url: "/api/ops/health" });
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/api/connectors/${imported.json().connector.id}`
+    });
+
+    expect(imported.statusCode).toBe(201);
+    expect(imported.json().connector.operations[0].name).toBe("getHealth");
+    expect(imported.json().connector.allowedHosts).toEqual(["status.example.test"]);
+    expect(listed.json().connectors).toHaveLength(1);
+    expect(tested.json().connector.lastTest.status).toBe("succeeded");
+    expect(health.json().health.connectors.total).toBe(1);
+    expect(deleted.json().deleted).toBe(true);
+  });
+
   it("returns a mock planner workflow", async () => {
     app = buildTestApiApp();
 
@@ -1275,13 +1327,12 @@ describe("kelpclaw api contracts", () => {
       }
     });
     expect(run.statusCode).toBe(202);
-    expect(run.json().run.status).toBe("succeeded");
-    expect(run.json().run.events.map((event: { message: string }) => event.message)).toContain(
-      "NanoClaw run finished."
-    );
+    expect(run.json().run.status).toBe("queued");
+    expect(run.json().job.type).toBe("run.workflow");
     expect(run.json().run.events[0].workflowId).toBe(workflow.id);
     expect(run.json().run.events[0].revisionId).toBe(approved.json().approvedRevisionId);
     expect(run.json().run.events[0].correlationId).toBe("corr.api-test");
+    await waitForJobStatus(app, run.json().job.id, "succeeded");
 
     const fetchedRun = await app.inject({
       method: "GET",
@@ -1289,6 +1340,27 @@ describe("kelpclaw api contracts", () => {
     });
     expect(fetchedRun.statusCode).toBe(200);
     expect(fetchedRun.json().run.id).toBe(run.json().run.id);
+    expect(fetchedRun.json().run.status).toBe("succeeded");
+    expect(
+      fetchedRun.json().run.events.map((event: { message: string }) => event.message)
+    ).toContain("NanoClaw run finished.");
+    expect(Array.isArray(fetchedRun.json().checkpoints)).toBe(true);
+
+    const listedRuns = await app.inject({
+      method: "GET",
+      url: `/api/workflows/${workflow.id}/runs`
+    });
+    expect(listedRuns.statusCode).toBe(200);
+    expect(listedRuns.json().runs.map((record: { id: string }) => record.id)).toContain(
+      run.json().run.id
+    );
+
+    const replay = await app.inject({
+      method: "POST",
+      url: `/api/workflows/${workflow.id}/runs/${run.json().run.id}/replay`
+    });
+    expect(replay.statusCode).toBe(202);
+    expect(replay.json().run.status).toBe("queued");
 
     const runEvents = await app.inject({
       method: "GET",
@@ -1525,12 +1597,28 @@ describe("kelpclaw api contracts", () => {
       method: "GET",
       url: `/api/workflows/${workflow.id}/deployments/active`
     });
+    const schedules = await app.inject({
+      method: "GET",
+      url: `/api/workflows/${workflow.id}/schedules`
+    });
+    const pause = await app.inject({
+      method: "POST",
+      url: `/api/workflows/${workflow.id}/schedules/${schedules.json().schedules[0].id}/pause`
+    });
+    const resume = await app.inject({
+      method: "POST",
+      url: `/api/workflows/${workflow.id}/schedules/${schedules.json().schedules[0].id}/resume`
+    });
 
     expect(deployed.statusCode).toBe(201);
     expect(deployed.json().deployment.metadata.activeScheduleRegistrations[0].nodeId).toBe(
       "manual-trigger"
     );
     expect(active.json().activeSchedules[0].schedule).toBe("0 8 * * *");
+    expect(schedules.statusCode).toBe(200);
+    expect(schedules.json().schedules[0].timezone).toBe("UTC");
+    expect(pause.json().schedule.status).toBe("paused");
+    expect(resume.json().schedule.status).toBe("active");
   });
 
   it("creates a new draft revision after approval", async () => {

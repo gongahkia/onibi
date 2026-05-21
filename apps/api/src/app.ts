@@ -130,7 +130,6 @@ import type {
   WorkflowRepromptNodeResponse,
   WorkflowGraphChange,
   WorkflowRunEvent,
-  WorkflowRunCheckpoint,
   WorkflowRunRecord,
   WorkflowReuseCandidatesResponse,
   WorkflowRuntimeTruthSnapshot,
@@ -444,12 +443,15 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
   jobWorker.start();
   const scheduleWorker = new ApiScheduleWorker(store);
   scheduleWorker.start();
+  const cleanupWorker = new ApiRetentionCleanupWorker(store);
+  cleanupWorker.start();
   const adminToken =
     options.adminToken === undefined ? process.env.KELPCLAW_ADMIN_TOKEN : options.adminToken;
 
   app.addHook("onClose", async () => {
     jobWorker.stop();
     scheduleWorker.stop();
+    cleanupWorker.stop();
   });
 
   app.addHook("preHandler", async (request, reply) => {
@@ -847,29 +849,26 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     }
   );
 
-  app.delete<{ Params: ConnectorRouteParams }>(
-    "/api/connectors/:connectorId",
-    async (request, reply) => {
-      const connector = store.getConnector(request.params.connectorId);
-      const deleted = store.deleteConnector(request.params.connectorId);
-      if (connector && deleted) {
-        recordAudit(store, {
-          action: "connector.deleted",
-          actor: "api",
-          workflowId: "connectors",
-          revisionId: connector.id,
-          correlationId: correlationIdForRequest(request),
-          summary: `Deleted connector '${connector.name}'.`,
-          metadata: connectorSummary(connector)
-        });
-      }
-
-      return {
-        ok: true,
-        deleted
-      };
+  app.delete<{ Params: ConnectorRouteParams }>("/api/connectors/:connectorId", async (request) => {
+    const connector = store.getConnector(request.params.connectorId);
+    const deleted = store.deleteConnector(request.params.connectorId);
+    if (connector && deleted) {
+      recordAudit(store, {
+        action: "connector.deleted",
+        actor: "api",
+        workflowId: "connectors",
+        revisionId: connector.id,
+        correlationId: correlationIdForRequest(request),
+        summary: `Deleted connector '${connector.name}'.`,
+        metadata: connectorSummary(connector)
+      });
     }
-  );
+
+    return {
+      ok: true,
+      deleted
+    };
+  });
 
   app.post<{ Params: ConnectorRouteParams }>(
     "/api/connectors/:connectorId/test",
@@ -3246,7 +3245,9 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         ...(runBranchId ? { branchId: runBranchId } : {})
       });
       const job =
-        existingJob && existingJob.type === "run.workflow" && !isTerminalJobStatus(existingJob.status)
+        existingJob &&
+        existingJob.type === "run.workflow" &&
+        !isTerminalJobStatus(existingJob.status)
           ? store.appendJobEvent(
               store.saveJob({
                 ...existingJob,
@@ -5321,7 +5322,11 @@ async function executeWorkflowRunJob(input: {
       : input.store
           .listDeployments(approvedRevision.workflowId)
           .find((candidate) => candidate.id === deploymentId);
-  if (!deployment || deployment.status !== "deployed" || deployment.kind !== "runner.configuration") {
+  if (
+    !deployment ||
+    deployment.status !== "deployed" ||
+    deployment.kind !== "runner.configuration"
+  ) {
     throw new Error("Workflow run requires an active runner.configuration deployment.");
   }
 
@@ -5413,9 +5418,21 @@ async function executeWorkflowRunJob(input: {
       events,
       result: finalResult
     });
-    recordRunAuditRecords(input.store, approvedRevision.workflow, approvedRevision.id, completed, correlationId);
+    recordRunAuditRecords(
+      input.store,
+      approvedRevision.workflow,
+      approvedRevision.id,
+      completed,
+      correlationId
+    );
     if (result.status === "failed") {
-      recordRunFailureAlert(input.store, completed, approvedRevision.id, correlationId);
+      await recordRunFailureAlert(
+        input.store,
+        input.secretStore,
+        completed,
+        approvedRevision.id,
+        correlationId
+      );
     }
 
     return {
@@ -5432,7 +5449,8 @@ async function executeWorkflowRunJob(input: {
           id: `event.run.failed.${Date.now()}`,
           timestamp: failedAt,
           level: "error",
-          message: error instanceof Error ? redactSecretString(error.message) : "Workflow run failed.",
+          message:
+            error instanceof Error ? redactSecretString(error.message) : "Workflow run failed.",
           kind: "run.lifecycle"
         })
       ],
@@ -5446,7 +5464,13 @@ async function executeWorkflowRunJob(input: {
       events,
       result: null
     });
-    recordRunFailureAlert(input.store, failed, approvedRevision.id, correlationId);
+    await recordRunFailureAlert(
+      input.store,
+      input.secretStore,
+      failed,
+      approvedRevision.id,
+      correlationId
+    );
     throw error;
   }
 }
@@ -5966,7 +5990,7 @@ function registerSchedulesForDeployment(
     let nextFireAt: string;
     try {
       nextFireAt = nextCronFire(cron, timezone, now).toISOString();
-    } catch (error) {
+    } catch {
       nextFireAt = now.toISOString();
     }
     const schedule = store.saveSchedule({
@@ -6007,7 +6031,9 @@ function disableSchedulesForDeployment(
   status: WorkflowScheduleRecord["status"]
 ): void {
   const now = new Date().toISOString();
-  for (const schedule of store.listSchedules().filter((item) => item.deploymentId === deploymentId)) {
+  for (const schedule of store
+    .listSchedules()
+    .filter((item) => item.deploymentId === deploymentId)) {
     store.saveSchedule({
       ...schedule,
       status,
@@ -6368,17 +6394,48 @@ function ensureRetentionPolicy(
   );
 }
 
-function recordRunFailureAlert(
+async function recordRunFailureAlert(
   store: WorkflowStore,
+  secretStore: SecretStore,
   run: WorkflowRunRecord,
   approvedRevisionId: string,
   correlationId: string
-): void {
+): Promise<void> {
   const policy = store.getAlertPolicy(run.workflowId, run.branchId);
   if (!policy?.enabled || !policy.events.includes("run.failed")) {
     return;
   }
   const now = new Date().toISOString();
+  const deliveryEvents: WorkflowRunEvent[] = [];
+  for (const channel of policy.channels) {
+    const delivered = await deliverAlertChannel(
+      policy,
+      secretStore,
+      run,
+      channel,
+      approvedRevisionId
+    );
+    deliveryEvents.push(
+      createStructuredRunEvent({
+        id: `event.alert.${channel}.${Date.now()}.${deliveryEvents.length}`,
+        timestamp: new Date().toISOString(),
+        level: delivered.ok ? "info" : "warn",
+        message: delivered.ok
+          ? `Run failure alert delivered through ${channel}.`
+          : `Run failure alert delivery failed for ${channel}: ${delivered.error}`,
+        kind: "alert.lifecycle",
+        workflowId: run.workflowId,
+        branchId: run.branchId,
+        revisionId: approvedRevisionId,
+        runId: run.id,
+        correlationId,
+        metadata: {
+          channel,
+          status: delivered.ok ? "succeeded" : "failed"
+        }
+      })
+    );
+  }
   store.saveRun({
     ...run,
     events: [
@@ -6398,9 +6455,83 @@ function recordRunFailureAlert(
           channels: [...policy.channels],
           secretRefs: Object.keys(policy.secretRefs)
         }
-      })
+      }),
+      ...deliveryEvents
     ]
   });
+}
+
+async function deliverAlertChannel(
+  policy: WorkflowAlertPolicy,
+  secretStore: SecretStore,
+  run: WorkflowRunRecord,
+  channel: WorkflowAlertPolicy["channels"][number],
+  approvedRevisionId: string
+): Promise<{ readonly ok: true } | { readonly ok: false; readonly error: string }> {
+  if (channel === "webhook") {
+    return { ok: false, error: "webhook alert delivery is not configured in this runtime" };
+  }
+  const adapters = createDefaultLiveAdapters({
+    smtp: {
+      host: process.env.SMTP_HOST,
+      port: process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined,
+      secure: process.env.SMTP_SECURE === "1",
+      username: process.env.SMTP_USERNAME,
+      password: process.env.SMTP_PASSWORD,
+      from: process.env.SMTP_FROM
+    }
+  });
+  const adapterId = channel === "email" ? "adapter.email" : "adapter.telegram";
+  const operation = channel === "email" ? "email.results.send" : "telegram.alert.send";
+  const secretName = channel === "email" ? "email.delivery" : "telegram.botToken";
+  const secretRef =
+    policy.secretRefs[secretName] ??
+    (channel === "email" ? "secret:email.smtp.default" : "secret:telegram.bot.default");
+  const adapter = adapters.get(adapterId);
+  if (!adapter) {
+    return { ok: false, error: `adapter '${adapterId}' is unavailable` };
+  }
+  try {
+    const secretValue = await new SecretStoreResolver(secretStore).resolve(secretRef);
+    const subject = `KelpClaw run failed: ${run.workflowId}`;
+    const body = `Run ${run.id} failed for ${run.workflowId} at ${run.finishedAt}.`;
+    await adapter.invoke({
+      adapterId,
+      operation,
+      operationVersion: "1.0.0",
+      payload:
+        channel === "email"
+          ? {
+              to: process.env.KELPCLAW_ALERT_EMAIL_TO ?? "owner@example.com",
+              subject,
+              body,
+              summary: {
+                workflowId: run.workflowId,
+                runId: run.id,
+                approvedRevisionId
+              }
+            }
+          : {
+              text: body
+            },
+      secretRefs: {
+        [secretName]: secretRef
+      },
+      secrets: {
+        [secretName]: secretValue
+      },
+      idempotencyKey: `alert.${run.id}.${channel}`,
+      context: {
+        workflowId: run.workflowId,
+        nodeId: `alert.${channel}`,
+        runId: run.id,
+        attempt: 1
+      }
+    });
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "unknown error" };
+  }
 }
 
 function sanitizePerAgentBudget(
@@ -7134,14 +7265,17 @@ class ApiJobWorker {
       const retryable = current.retry.attempt < current.retry.maxAttempts;
       const nextRunAt = retryable
         ? new Date(
-            Date.now() + (current.retry.backoffSeconds ?? Math.min(60, current.retry.attempt * 2)) * 1000
+            Date.now() +
+              (current.retry.backoffSeconds ?? Math.min(60, current.retry.attempt * 2)) * 1000
           ).toISOString()
         : undefined;
       const failed = this.store.saveJob({
         ...current,
         status: retryable ? "queued" : "failed",
         updatedAt: finishedAt,
-        ...(retryable ? { startedAt: undefined, claimedAt: undefined, workerId: undefined } : { finishedAt }),
+        ...(retryable
+          ? { startedAt: undefined, claimedAt: undefined, workerId: undefined }
+          : { finishedAt }),
         error: error instanceof Error ? error.message : "Worker job failed.",
         retry: {
           ...current.retry,
@@ -7270,6 +7404,108 @@ class ApiScheduleWorker {
       nextFireAt: nextCronFire(schedule.cron, schedule.timezone, now).toISOString(),
       lastError: undefined
     });
+  }
+}
+
+class ApiRetentionCleanupWorker {
+  private timer: NodeJS.Timeout | undefined;
+
+  public constructor(private readonly store: WorkflowStore) {}
+
+  public start(): void {
+    if (this.timer) {
+      return;
+    }
+    this.timer = setInterval(() => this.tick(), 60_000);
+    this.tick();
+  }
+
+  public stop(): void {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = undefined;
+    }
+  }
+
+  private tick(): void {
+    const now = new Date();
+    for (const workflowId of collectWorkflowIds(this.store)) {
+      const policy = ensureRetentionPolicy(this.store, workflowId);
+      this.cleanupRunEvents(workflowId, policy, now);
+      this.cleanupWorkspaces(workflowId, policy, now);
+    }
+  }
+
+  private cleanupRunEvents(workflowId: string, policy: WorkflowRetentionPolicy, now: Date): void {
+    const cutoff = now.getTime() - policy.maxRunEventDays * 24 * 60 * 60 * 1000;
+    for (const run of this.store.listRuns(workflowId)) {
+      const retained = run.events.filter((event) => Date.parse(event.timestamp) >= cutoff);
+      if (retained.length === run.events.length) {
+        continue;
+      }
+      const updated = this.store.saveRun({
+        ...run,
+        events: [
+          ...retained,
+          createStructuredRunEvent({
+            id: `event.retention.${Date.now()}.${run.id}`,
+            timestamp: now.toISOString(),
+            level: "info",
+            message: `Retention cleanup removed ${run.events.length - retained.length} old run event(s).`,
+            kind: "retention.lifecycle"
+          })
+        ]
+      });
+      recordAudit(this.store, {
+        action: "retention.cleaned",
+        actor: "retention-worker",
+        workflowId,
+        branchId: run.branchId,
+        revisionId: run.approvedRevisionId,
+        runId: run.id,
+        correlationId: `retention.${run.id}`,
+        summary: "Cleaned old run events by retention policy.",
+        metadata: {
+          removedEvents: run.events.length - retained.length,
+          remainingEvents: updated.events.length
+        }
+      });
+    }
+  }
+
+  private cleanupWorkspaces(workflowId: string, policy: WorkflowRetentionPolicy, now: Date): void {
+    for (const workspace of this.store.listWorkspaces(workflowId)) {
+      if (workspace.retentionStatus !== "active") {
+        continue;
+      }
+      const retentionDays =
+        workspace.retentionPolicy === "retain-on-failure"
+          ? policy.maxFailedRunWorkspaceDays
+          : policy.maxSuccessfulRunWorkspaceDays;
+      const cutoff = now.getTime() - retentionDays * 24 * 60 * 60 * 1000;
+      if (Date.parse(workspace.updatedAt) >= cutoff) {
+        continue;
+      }
+      const updated = this.store.saveWorkspace({
+        ...workspace,
+        updatedAt: now.toISOString(),
+        retentionStatus: "eligible-for-cleanup"
+      });
+      recordAudit(this.store, {
+        action: "retention.cleaned",
+        actor: "retention-worker",
+        workflowId,
+        branchId: workspace.branchId,
+        revisionId: workspace.revisionId ?? `workspace.${workspace.id}`,
+        correlationId: `retention.${workspace.id}`,
+        summary: "Marked workspace eligible for cleanup by retention policy.",
+        metadata: {
+          workspaceId: updated.id,
+          rootPath: updated.rootPath,
+          retentionStatus: updated.retentionStatus
+        }
+      });
+    }
   }
 }
 
@@ -7964,37 +8200,4 @@ function kindForRunEvent(event: WorkflowRunEvent): WorkflowObservabilityEventKin
   }
 
   return "run.lifecycle";
-}
-
-function createRunEvents(
-  nodeResults: readonly { readonly nodeId: string; readonly status: string }[],
-  timestamp: string
-): readonly WorkflowRunEvent[] {
-  const events: WorkflowRunEvent[] = [
-    {
-      id: "event.run.started",
-      timestamp,
-      level: "info",
-      message: "NanoClaw run started."
-    }
-  ];
-
-  for (const node of nodeResults) {
-    events.push({
-      id: `event.node.${node.nodeId}.${node.status}`,
-      timestamp,
-      level: node.status === "failed" ? "error" : "info",
-      message: `Node '${node.nodeId}' ${node.status}.`,
-      nodeId: node.nodeId
-    });
-  }
-
-  events.push({
-    id: "event.run.finished",
-    timestamp,
-    level: nodeResults.some((node) => node.status === "failed") ? "error" : "info",
-    message: "NanoClaw run finished."
-  });
-
-  return events;
 }

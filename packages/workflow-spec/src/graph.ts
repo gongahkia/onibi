@@ -58,6 +58,7 @@ export interface WorkflowNodeFactoryInput {
   readonly secretRefs?: Readonly<Record<string, string>> | undefined;
   readonly codegen?: WorkflowCodegenMetadata | undefined;
   readonly agentic?: WorkflowAgenticNodePolicy | undefined;
+  readonly compensation?: WorkflowNode["compensation"] | undefined;
 }
 
 export type PartialWorkflowRuntime = Partial<
@@ -137,7 +138,8 @@ export function createWorkflowNode(input: WorkflowNodeFactoryInput): WorkflowNod
     ...(input.adapterOperations ? { adapterOperations: input.adapterOperations } : {}),
     ...(input.secretRefs ? { secretRefs: input.secretRefs } : {}),
     ...((input.codegen ?? defaults.codegen) ? { codegen: input.codegen ?? defaults.codegen } : {}),
-    ...(input.agentic ? { agentic: input.agentic } : {})
+    ...(input.agentic ? { agentic: input.agentic } : {}),
+    ...(input.compensation ? { compensation: input.compensation } : {})
   };
 
   return node;

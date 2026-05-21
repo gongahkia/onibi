@@ -99,11 +99,87 @@ To keep Anthropic-backed planning/codegen, leave `KELPCLAW_PLANNER_PROVIDER=anth
 
 OpenClaw and the API expose the authoritative lifecycle through `GET /api/workflows/:id/runtime-truth`. The visible stages are `planned`, `accepted`, `generated`, `evaluated`, `approved`, `deployed`, and `runnable`.
 
-Production runs require an active `runner.configuration` deployment for the approved revision. Creating a `workflow.bundle` export is useful for inspection and rollback artifacts, but it is not enough to run production traffic. OpenClaw's primary `Deploy` action creates a runner configuration; the deployment panel can also export a bundle, undeploy the active runner, rollback to the recorded target, and export redacted audit JSONL.
+Production runs require an active `runner.configuration` deployment for the approved revision. Creating a `workflow.bundle` export is useful for inspection and rollback artifacts, but it is not enough to run production traffic. `POST /api/workflows/:id/runs` now creates a queued `run.workflow` job and returns immediately. The local API worker executes that job, writes run events, and persists per-node checkpoints so a restarted API can mark interrupted runs resumable and reuse completed checkpoints when node input hashes still match. OpenClaw's primary `Deploy` action creates a runner configuration; the deployment panel can also export a bundle, undeploy the active runner, rollback to the recorded target, and export redacted audit JSONL.
+
+Run history and replay are available through:
+
+```console
+$ curl -H "Authorization: Bearer $KELPCLAW_ADMIN_TOKEN" \
+  http://127.0.0.1:8787/api/workflows/<workflow-id>/runs
+
+$ curl -X POST -H "Authorization: Bearer $KELPCLAW_ADMIN_TOKEN" \
+  http://127.0.0.1:8787/api/workflows/<workflow-id>/runs/<run-id>/replay
+```
+
+Queued jobs carry attempt metadata, optional `nextRunAt`, and local backoff. Retryable worker failures are requeued until `maxAttempts` is exhausted.
 
 Budget policy and ledgers are available through `GET/PATCH /api/workflows/:id/budget`. The local defaults are `$5.00` per workflow, `$2.00` per generated-node build, `$2.00` per agentic research run, and `$0.25` for expensive retry confirmation. Provider calls are stopped before the next agent step when projected cost would exceed the remaining budget.
 
 Agent role decisions, tokens, and costs are available through `GET /api/workflows/:id/agent-timeline`. Per-node planner and codegen rationale summaries are available through decision trace routes and are included in redacted audit exports. KelpClaw stores summaries and artifacts for eval-building, not raw hidden chain-of-thought.
+
+## Connectors
+
+Built-in adapters remain available for Gmail, Sheets, email, WhatsApp, and Telegram. To avoid hand-building hundreds of adapters, KelpClaw also supports stored connector records:
+
+- OpenAPI connectors import operations from `operationId`, falling back to `METHOD /path`.
+- Generic HTTP execution enforces the connector's declared allowed hosts.
+- Auth supports API keys, bearer tokens, and basic auth through encrypted `secret:<name>` refs. OAuth is v1 external-token setup: provision a token secret, then reference it from the connector.
+- MCP support is tool-consumer only. Streamable HTTP MCP servers are supported first; stdio MCP should be kept to explicit local-dev configuration.
+
+OpenAPI import:
+
+```console
+$ curl -X POST http://127.0.0.1:8787/api/connectors/openapi/import \
+  -H "Authorization: Bearer $KELPCLAW_ADMIN_TOKEN" \
+  -H "content-type: application/json" \
+  -d '{"name":"Status API","sourceUrl":"https://status.example.com/openapi.json"}'
+```
+
+MCP registration:
+
+```console
+$ curl -X POST http://127.0.0.1:8787/api/connectors/mcp \
+  -H "Authorization: Bearer $KELPCLAW_ADMIN_TOKEN" \
+  -H "content-type: application/json" \
+  -d '{"name":"Internal Tools","endpointUrl":"https://tools.example.com/mcp"}'
+```
+
+OpenClaw's connector panel can import/register connectors, test them, inspect allowed hosts and auth readiness, and add connector operations to the current draft workflow as adapter-backed nodes.
+
+## Schedules And Ops Health
+
+`schedule.activation` deployments materialize durable `workflow_schedules` rows. The local scheduler ticks due schedules, enqueues one `run.workflow` job per fire time, and records schedule-derived idempotency metadata. Cron expressions are 5-field cron strings; UTC is the default timezone unless the schedule node specifies `timezone`.
+
+```console
+$ curl -H "Authorization: Bearer $KELPCLAW_ADMIN_TOKEN" \
+  http://127.0.0.1:8787/api/workflows/<workflow-id>/schedules
+
+$ curl -X POST -H "Authorization: Bearer $KELPCLAW_ADMIN_TOKEN" \
+  http://127.0.0.1:8787/api/workflows/<workflow-id>/schedules/<schedule-id>/pause
+```
+
+`GET /api/ops/health` reports SQLite availability, worker and scheduler state, queued/running/failed jobs, resumable runs, connector counts, and failed connector tests.
+
+## Backup, Restore, And Upgrades
+
+Back up SQLite, artifact storage, and the secret master key together. A SQLite-only backup without the artifact directory loses generated-node artifacts and run workspaces; a database backup without `KELPCLAW_SECRET_MASTER_KEY` cannot decrypt stored secrets.
+
+Recommended single-host backup:
+
+```console
+$ sqlite3 /data/kelpclaw.db ".backup '/backups/kelpclaw-$(date +%Y%m%d%H%M%S).db'"
+$ tar -czf /backups/kelpclaw-artifacts-$(date +%Y%m%d%H%M%S).tgz /data/artifacts /workspace
+```
+
+Restore by stopping the API, restoring the database and artifact/workspace directories, setting the same `KELPCLAW_SECRET_MASTER_KEY`, then starting the API. Startup recovery requeues interrupted jobs and marks interrupted runs resumable.
+
+Before upgrades:
+
+- Run `pnpm verify` against the target commit.
+- Back up SQLite and artifacts.
+- Review `pnpm-lock.yaml` and migration notes for connector/runtime dependency changes.
+- Start the API once and check `GET /api/ops/health`.
+- Re-test critical connectors with `POST /api/connectors/:id/test`.
 
 ## Dev And Test Mode
 

@@ -1,16 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import {
-  CallToolResultSchema,
-  ListToolsResultSchema
-} from "@modelcontextprotocol/sdk/types.js";
-import type {
-  Adapter,
-  AdapterInvocation,
-  AdapterMetadata,
-  AdapterResult
-} from "./types.js";
+import { CallToolResultSchema, ListToolsResultSchema } from "@modelcontextprotocol/sdk/types.js";
+import type { Adapter, AdapterInvocation, AdapterMetadata, AdapterResult } from "./types.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type {
   JsonRecord,
@@ -183,12 +175,19 @@ export function createMcpAdapter(connector: WorkflowConnectorRecord): Adapter {
   });
 }
 
-async function listMcpTools(
-  endpointUrl: string
-): Promise<readonly { readonly name: string; readonly description?: string; readonly inputSchema?: JsonRecord }[]> {
+async function listMcpTools(endpointUrl: string): Promise<
+  readonly {
+    readonly name: string;
+    readonly description?: string;
+    readonly inputSchema?: JsonRecord;
+  }[]
+> {
   const client = await connectMcp(endpointUrl);
   try {
-    const result = await client.request({ method: "tools/list", params: {} }, ListToolsResultSchema);
+    const result = await client.request(
+      { method: "tools/list", params: {} },
+      ListToolsResultSchema
+    );
     return result.tools.map((tool) => ({
       name: tool.name,
       ...(tool.description ? { description: tool.description } : {}),
@@ -242,7 +241,9 @@ function assertInvocation(metadata: AdapterMetadata, invocation: AdapterInvocati
 
 function assertAllowedHost(metadata: AdapterMetadata, endpointUrl: string): void {
   const host = new URL(endpointUrl).hostname.toLowerCase();
-  const allowed = new Set(metadata.networkPolicy.allowedHosts.map((candidate) => candidate.toLowerCase()));
+  const allowed = new Set(
+    metadata.networkPolicy.allowedHosts.map((candidate) => candidate.toLowerCase())
+  );
   if (!allowed.has(host)) {
     throw new Error(`Host '${host}' is not declared for adapter '${metadata.id}'.`);
   }
@@ -258,5 +259,8 @@ function isRecord(value: unknown): value is JsonRecord {
 }
 
 function slugify(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-+|-+$/gu, "");
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, "-")
+    .replace(/^-+|-+$/gu, "");
 }

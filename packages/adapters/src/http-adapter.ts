@@ -1,10 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type {
-  Adapter,
-  AdapterInvocation,
-  AdapterMetadata,
-  AdapterResult
-} from "./types.js";
+import type { Adapter, AdapterInvocation, AdapterMetadata, AdapterResult } from "./types.js";
 import type { JsonRecord, JsonValue } from "@kelpclaw/workflow-spec";
 
 export interface HttpAdapterRoute {
@@ -83,7 +78,8 @@ export class HttpAdapter implements Adapter {
             error: {
               code: "HTTP_REQUEST_FAILED",
               message: `HTTP ${response.status} ${response.statusText}`.trim(),
-              retryable: response.status === 408 || response.status === 429 || response.status >= 500
+              retryable:
+                response.status === 408 || response.status === 429 || response.status >= 500
             }
           }
         : {}),

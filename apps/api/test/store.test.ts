@@ -10,6 +10,8 @@ import { SqliteSecretStore, SqliteWorkflowStore } from "../src/index.js";
 import type {
   WorkflowArtifactManifestRecord,
   WorkflowAuditRecord,
+  WorkflowConnectorRecord,
+  WorkflowRunCheckpoint,
   WorkflowRunRecord
 } from "@kelpclaw/workflow-spec";
 
@@ -25,8 +27,25 @@ describe("sqlite workflow store", () => {
     store.saveWorkflow(validation.workflow, validation);
     const approved = store.approveWorkflow(validation.workflow.id, "owner@example.com");
     const run = store.saveRun(runRecord(approved.id));
+    const checkpoint = store.saveRunCheckpoint(runCheckpoint(approved.id, run.id));
     const audit = store.saveAuditRecord(auditRecord(approved.id, run.id));
     const manifest = store.saveArtifactManifest(artifactManifest(approved.id));
+    const connector = store.saveConnector(openApiConnector());
+    const schedule = store.saveSchedule({
+      id: "schedule.workflow.gmail-receipts-to-sheets.manual-trigger",
+      workflowId: validation.workflow.id,
+      deploymentId: "deployment.schedule.store",
+      approvedRevisionId: approved.id,
+      nodeId: "manual-trigger",
+      label: "Manual trigger",
+      cron: "0 8 * * *",
+      timezone: "UTC",
+      status: "paused",
+      createdAt: "2026-05-18T02:00:00.000Z",
+      updatedAt: "2026-05-18T02:00:00.000Z",
+      nextFireAt: "2026-05-19T08:00:00.000Z",
+      missedCount: 0
+    });
 
     const rehydrated = new SqliteWorkflowStore({ databasePath });
 
@@ -34,6 +53,9 @@ describe("sqlite workflow store", () => {
     expect(rehydrated.getApprovedRevision(approved.id)?.workflow.id).toBe(validation.workflow.id);
     expect(rehydrated.getRun(run.id)?.events[0]?.correlationId).toBe("corr.store-test");
     expect(rehydrated.listRunEvents(run.id)).toHaveLength(1);
+    expect(rehydrated.listRunCheckpoints(run.id)).toEqual([checkpoint]);
+    expect(rehydrated.listConnectors()).toEqual([connector]);
+    expect(rehydrated.listSchedules(validation.workflow.id)).toEqual([schedule]);
     expect(rehydrated.listAuditRecords(validation.workflow.id)).toEqual([audit]);
     expect(rehydrated.getArtifactManifest(manifest.id)).toEqual(manifest);
     expect(() =>
@@ -98,6 +120,55 @@ function runRecord(approvedRevisionId: string): WorkflowRunRecord {
       }
     ],
     result: null
+  };
+}
+
+function runCheckpoint(approvedRevisionId: string, runId: string): WorkflowRunCheckpoint {
+  return {
+    id: `${runId}.manual-trigger.sha256-input`,
+    runId,
+    workflowId: gmailReceiptsToSheetsWorkflowFixture.id,
+    approvedRevisionId,
+    nodeId: "manual-trigger",
+    attempt: 1,
+    status: "succeeded",
+    inputHash: "sha256:input",
+    output: { request: { fixture: true } },
+    idempotencyKey: `${runId}:manual-trigger:sha256-input`,
+    startedAt: "2026-05-18T02:00:00.000Z",
+    finishedAt: "2026-05-18T02:00:00.100Z"
+  };
+}
+
+function openApiConnector(): WorkflowConnectorRecord {
+  return {
+    id: "connector.openapi.status",
+    name: "Status API",
+    kind: "openapi",
+    adapterId: "adapter.connector.openapi.status",
+    sourceUrl: "https://status.example.test/openapi.json",
+    allowedHosts: ["status.example.test"],
+    auth: [],
+    operations: [
+      {
+        name: "getHealth",
+        version: "1.0.0",
+        description: "Get health.",
+        inputSchema: { type: "object", additionalProperties: true },
+        outputSchema: { type: "object", additionalProperties: true },
+        method: "GET",
+        path: "/health",
+        metadata: {
+          url: "https://status.example.test/health"
+        }
+      }
+    ],
+    secretRefs: {},
+    createdAt: "2026-05-18T02:00:00.000Z",
+    updatedAt: "2026-05-18T02:00:00.000Z",
+    lastTest: {
+      status: "untested"
+    }
   };
 }
 

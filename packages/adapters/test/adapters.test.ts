@@ -4,6 +4,8 @@ import {
   builtinAdapterMetadata,
   createDefaultLiveAdapters,
   createDefaultMockAdapters,
+  createOpenApiAdapter,
+  importOpenApiConnector,
   receiptExtractionToSheetsFixture,
   requireMockAdapter,
   validateAdapterCredentialRefs
@@ -285,6 +287,115 @@ describe("live adapter execution", () => {
       "https://graph.test/v20.0/phone-1/messages",
       "https://telegram.test/bottelegram-token/sendMessage"
     ]);
+  });
+});
+
+describe("connector adapters", () => {
+  it("imports OpenAPI operations and enforces declared hosts", async () => {
+    const connector = await importOpenApiConnector({
+      id: "connector.openapi.status",
+      name: "Status API",
+      document: {
+        openapi: "3.1.0",
+        info: { title: "Status API", version: "1.0.0" },
+        servers: [{ url: "https://status.example.test" }],
+        components: {
+          securitySchemes: {
+            bearerAuth: {
+              type: "http",
+              scheme: "bearer"
+            }
+          }
+        },
+        paths: {
+          "/checks/{checkId}": {
+            get: {
+              operationId: "getCheck",
+              parameters: [
+                {
+                  name: "checkId",
+                  in: "path",
+                  schema: { type: "string" }
+                }
+              ],
+              responses: {
+                "200": {
+                  description: "ok",
+                  content: {
+                    "application/json": {
+                      schema: { type: "object", properties: { status: { type: "string" } } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+    const calls: { readonly url: string; readonly authorization: string | null }[] = [];
+    const adapter = createOpenApiAdapter(connector, {
+      fetch: async (input, init) => {
+        const headers = new Headers(init?.headers);
+        calls.push({
+          url: String(input),
+          authorization: headers.get("authorization")
+        });
+        return jsonResponse({ status: "ok" });
+      }
+    });
+
+    const result = await adapter.invoke(
+      invocationFor({
+        adapterId: connector.adapterId,
+        operation: "getCheck",
+        payload: {
+          path: { checkId: "api" },
+          query: { verbose: true }
+        },
+        secrets: {
+          bearerAuth: "status-token"
+        },
+        secretRefs: {
+          bearerAuth: "secret:status-token"
+        }
+      })
+    );
+
+    expect(connector.operations[0]).toMatchObject({
+      name: "getCheck",
+      method: "GET",
+      path: "/checks/{checkId}"
+    });
+    expect(result.status).toBe("succeeded");
+    expect(calls).toEqual([
+      {
+        url: "https://status.example.test/checks/api?verbose=true",
+        authorization: "Bearer status-token"
+      }
+    ]);
+    await expect(
+      createOpenApiAdapter({
+        ...connector,
+        operations: [
+          {
+            ...connector.operations[0]!,
+            metadata: {
+              ...(connector.operations[0]!.metadata ?? {}),
+              url: "https://evil.example.test/checks/api"
+            }
+          }
+        ]
+      }).invoke(
+        invocationFor({
+          adapterId: connector.adapterId,
+          operation: "getCheck",
+          payload: {},
+          secrets: { bearerAuth: "status-token" },
+          secretRefs: { bearerAuth: "secret:status-token" }
+        })
+      )
+    ).rejects.toThrow("not declared");
   });
 });
 

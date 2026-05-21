@@ -17,6 +17,10 @@
 - Confirm `GET /api/runtime/providers` shows the intended planner, agentic, codegen, fixer, and evaluator providers as configured.
 - Confirm workflow budgets are set through `GET/PATCH /api/workflows/:id/budget` before live agent runs.
 - Confirm production runs use an active `runner.configuration` deployment, not merely the latest approved revision.
+- Confirm `GET /api/ops/health` is `ok` and shows an active worker and scheduler.
+- Test every OpenAPI/MCP connector with `POST /api/connectors/:id/test` before routing live workflows through it.
+- Confirm connector secrets are stored only through `/api/secrets`; connector records should contain secret refs, not token values.
+- Back up SQLite, artifacts/workspaces, and `KELPCLAW_SECRET_MASTER_KEY` as one recovery unit.
 
 ## Operational Smoke Tests
 
@@ -28,10 +32,30 @@
 - `GET /api/workflows/:id/audit` shows create/edit/approve/adapter/delivery/run records.
 - `GET /api/workflows/:id/audit/export` returns redacted JSONL including deployment, budget, provider, and decision trace records.
 - `GET /api/workflows/:id/runtime-truth` shows `runnable` only after an active runner deployment exists.
+- `GET /api/ops/health` reports database, worker, scheduler, run, job, and connector state.
+- OpenAPI import creates operations, allowed hosts, auth requirements, and test status.
+- MCP registration lists tool operations from a Streamable HTTP MCP server.
 - `GET /api/workflows/:id/runs/:runId/events` shows structured events with workflow, revision, run, severity, and correlation ids.
+- `GET /api/workflows/:id/runs/:runId` includes checkpoint records after worker execution.
+- Failed-run replay creates a new queued run from the original approved revision and deployment.
+- Schedule pause/resume survives API restart and `workflow_schedules` rows show next fire, last fire, and missed count.
 - Missing live secrets produce failed structured run output instead of falling back to mock adapters.
 - Generated artifact hash drift blocks approval or execution.
 - `KELPCLAW_LIVE_SMOKE=1 pnpm smoke:live` succeeds against explicit test recipients and sheet ids.
+
+## Retention And Recovery
+
+- Set per-workflow retention policy through `GET/PATCH /api/workflows/:id/retention`.
+- Keep failed-run artifacts longer than successful-run artifacts while debugging new workflows.
+- Preserve failed runs until replay or incident review is complete.
+- Verify backup restore by starting the API against a restored SQLite database and checking `/api/ops/health`.
+- After an unclean API stop, expect running jobs to requeue when retry attempts remain and running runs to become `resuming`.
+
+## Alert Policies
+
+- Configure per-workflow policies through `GET/PATCH /api/workflows/:id/alerts`.
+- V1 policies record alert lifecycle events for matched failures and use existing email or Telegram adapter delivery when those secrets are present. Webhook policies are stored and reported but require a deployment-specific webhook adapter before delivery succeeds.
+- Treat alert delivery as best-effort single-host notification, not a replacement for external monitoring.
 
 ## Known Boundaries
 
@@ -39,4 +63,6 @@
 - SQLite is the durable store for this phase; move to managed SQL before multi-host writes.
 - Local encrypted secrets are suitable for self-hosting; use a managed secret manager before multi-tenant SaaS.
 - Provider OAuth beyond Google is still configured by service tokens/secrets, not per-user OAuth.
-- Central log shipping, metrics dashboards, alerting, and incident retention are deployment responsibilities.
+- Retry and checkpoint recovery are sequential single-host mechanisms, not Temporal-style distributed orchestration.
+- Compensation emits `compensation.required` events for completed side-effect nodes; it does not auto-run compensation unless a workflow explicitly models that step.
+- Central log shipping and external incident management remain deployment responsibilities.

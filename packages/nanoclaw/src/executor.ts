@@ -167,7 +167,8 @@ async function executeNodeWithAttempts(
       id: checkpointId,
       runId: runWorkspace.runId,
       workflowId: dag.workflowId,
-      approvedRevisionId: options.approvedRevisionId ?? `approved.${dag.workflowId}.r${dag.revision}`,
+      approvedRevisionId:
+        options.approvedRevisionId ?? `approved.${dag.workflowId}.r${dag.revision}`,
       nodeId: node.id,
       attempt,
       status: "running",

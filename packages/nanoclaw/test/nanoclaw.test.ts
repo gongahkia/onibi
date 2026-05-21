@@ -37,6 +37,7 @@ import {
   replayCompletedRun
 } from "../src/index.js";
 import type { AdapterMetadata } from "@kelpclaw/adapters";
+import type { WorkflowRunCheckpoint } from "@kelpclaw/workflow-spec";
 import type {
   CompiledDagNode,
   NodeRunContext,
@@ -95,6 +96,121 @@ describe("nanoclaw dag runtime", () => {
       "skipped",
       "skipped"
     ]);
+  });
+
+  it("persists checkpoints and reuses matching completed nodes on resume", async () => {
+    const dag = compileWorkflowDag(approvedGmailReceiptsToSheetsWorkflowFixture);
+    const checkpoints = new Map<string, WorkflowRunCheckpoint>();
+    const firstRunner = new MockNodeRunner();
+    const first = await executeCompiledDag(dag, firstRunner, {
+      runId: "run.checkpoint.resume",
+      secretResolver: mockSecretResolver,
+      checkpointStore: {
+        getCheckpoint: () => undefined,
+        saveCheckpoint: (checkpoint) => {
+          checkpoints.set(checkpoint.id, checkpoint);
+          return checkpoint;
+        }
+      }
+    });
+    const secondRunner = new MockNodeRunner();
+    const events: string[] = [];
+    const second = await executeCompiledDag(dag, secondRunner, {
+      runId: "run.checkpoint.resume",
+      secretResolver: mockSecretResolver,
+      checkpointStore: {
+        getCheckpoint: (_input) =>
+          [...checkpoints.values()].find(
+            (checkpoint) =>
+              checkpoint.runId === _input.runId &&
+              checkpoint.nodeId === _input.nodeId &&
+              checkpoint.inputHash === _input.inputHash &&
+              checkpoint.status === "succeeded"
+          ),
+        saveCheckpoint: (checkpoint) => {
+          checkpoints.set(checkpoint.id, checkpoint);
+          return checkpoint;
+        }
+      },
+      onEvent: (event) => events.push(event.message)
+    });
+
+    expect(first.status).toBe("succeeded");
+    expect(firstRunner.visitedNodeIds).toEqual(dag.order);
+    expect(second.status).toBe("succeeded");
+    expect(secondRunner.visitedNodeIds).toEqual([]);
+    expect(events).toContain("Node 'manual-trigger' resumed from checkpoint.");
+  });
+
+  it("emits compensation-required events when downstream work fails", async () => {
+    const workflow = approveForNanoClaw(
+      createWorkflowSpec({
+        id: "workflow.compensation-required",
+        name: "Compensation Required",
+        prompt: "Deliver, then transform.",
+        createdAt: "2026-05-18T00:00:00.000Z",
+        nodes: [
+          createWorkflowNode({
+            id: "manual-trigger",
+            kind: "trigger",
+            outputs: { request: objectSchema }
+          }),
+          createWorkflowNode({
+            id: "notify-owner",
+            kind: "delivery",
+            inputs: { request: objectSchema },
+            outputs: { delivery: objectSchema },
+            compensation: {
+              strategy: "manual",
+              instructions: "Notify the owner that downstream processing failed."
+            },
+            config: {
+              channel: "email"
+            }
+          }),
+          createWorkflowNode({
+            id: "failing-transform",
+            kind: "transform",
+            inputs: { delivery: objectSchema },
+            outputs: { result: objectSchema }
+          })
+        ],
+        edges: [
+          createWorkflowEdge({
+            sourceNodeId: "manual-trigger",
+            sourcePort: "request",
+            targetNodeId: "notify-owner",
+            targetPort: "request"
+          }),
+          createWorkflowEdge({
+            sourceNodeId: "notify-owner",
+            sourcePort: "delivery",
+            targetNodeId: "failing-transform",
+            targetPort: "delivery"
+          })
+        ]
+      })
+    );
+    const events: { readonly message: string; readonly kind?: string }[] = [];
+    const result = await executeCompiledDag(
+      compileWorkflowDag(workflow),
+      new MockNodeRunner({ failingNodeIds: ["failing-transform"] }),
+      {
+        onEvent: (event) =>
+          events.push({
+            message: event.message,
+            ...(event.kind ? { kind: event.kind } : {})
+          })
+      }
+    );
+
+    expect(result.status).toBe("failed");
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        message: "Node 'notify-owner' completed before a downstream failure.",
+        kind: "compensation.required"
+      })
+    );
   });
 
   it("executes adapter-backed Gmail to Sheets to email delivery with deterministic mocks", async () => {

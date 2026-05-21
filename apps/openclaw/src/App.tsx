@@ -503,9 +503,7 @@ export function App() {
   const [agentTimeline, setAgentTimeline] = useState<readonly WorkflowAgentTimelineEvent[]>([]);
   const [connectors, setConnectors] = useState<readonly WorkflowConnectorRecord[]>([]);
   const [workflowRuns, setWorkflowRuns] = useState<readonly WorkflowRunRecord[]>([]);
-  const [workflowSchedules, setWorkflowSchedules] = useState<readonly WorkflowScheduleRecord[]>(
-    []
-  );
+  const [workflowSchedules, setWorkflowSchedules] = useState<readonly WorkflowScheduleRecord[]>([]);
   const [opsHealth, setOpsHealth] = useState<WorkflowOpsHealth | null>(null);
   const [auditExportNotice, setAuditExportNotice] = useState<string | null>(null);
   const [branches, setBranches] = useState<readonly WorkflowBranch[]>([]);
@@ -692,9 +690,9 @@ export function App() {
       try {
         const [truth, budget, timeline, active, runs, schedules, health, connectorList] =
           await Promise.all([
-          openClawApi.fetchRuntimeTruth(workflowId, branchId ?? undefined),
-          openClawApi.fetchBudget(workflowId, branchId ?? undefined),
-          openClawApi.fetchAgentTimeline(workflowId),
+            openClawApi.fetchRuntimeTruth(workflowId, branchId ?? undefined),
+            openClawApi.fetchBudget(workflowId, branchId ?? undefined),
+            openClawApi.fetchAgentTimeline(workflowId),
             openClawApi.fetchActiveDeployments(workflowId),
             openClawApi.fetchRuns(workflowId),
             openClawApi.fetchSchedules(workflowId),
@@ -3751,6 +3749,144 @@ function AgentTimelinePanel(props: { readonly events: readonly WorkflowAgentTime
   );
 }
 
+function OpsHealthPanel(props: { readonly health: WorkflowOpsHealth | null }) {
+  return (
+    <section className="run-panel" aria-label="Operations health">
+      <h2>Ops Health</h2>
+      <StatusRow
+        label="Status"
+        value={props.health?.status ?? "unknown"}
+        tone={props.health?.status === "ok" ? "valid" : "pending"}
+      />
+      <StatusRow
+        label="Jobs"
+        value={
+          props.health
+            ? `${props.health.worker.queuedJobs} queued / ${props.health.worker.failedJobs} failed`
+            : "none"
+        }
+        tone={props.health?.worker.failedJobs ? "error" : "idle"}
+      />
+      <StatusRow
+        label="Schedules"
+        value={
+          props.health
+            ? `${props.health.scheduler.activeSchedules} active / ${props.health.scheduler.dueSchedules} due`
+            : "none"
+        }
+        tone={props.health?.scheduler.dueSchedules ? "pending" : "idle"}
+      />
+      <StatusRow
+        label="Connectors"
+        value={
+          props.health
+            ? `${props.health.connectors.total} total / ${props.health.connectors.failedTests} failed`
+            : "none"
+        }
+        tone={props.health?.connectors.failedTests ? "error" : "idle"}
+      />
+    </section>
+  );
+}
+
+function ConnectorPanel(props: {
+  readonly connectors: readonly WorkflowConnectorRecord[];
+  readonly busyAction: string | null;
+  readonly onImportOpenApi: (input: { readonly name: string; readonly sourceUrl: string }) => void;
+  readonly onRegisterMcp: (input: { readonly name: string; readonly endpointUrl: string }) => void;
+  readonly onTest: (connectorId: string) => void;
+  readonly onDelete: (connectorId: string) => void;
+  readonly onAddOperation: (
+    connector: WorkflowConnectorRecord,
+    operation: WorkflowConnectorOperation
+  ) => void;
+}) {
+  const [openApiName, setOpenApiName] = useState("");
+  const [openApiUrl, setOpenApiUrl] = useState("");
+  const [mcpName, setMcpName] = useState("");
+  const [mcpUrl, setMcpUrl] = useState("");
+
+  return (
+    <section className="run-panel" aria-label="Connectors">
+      <h2>Connectors</h2>
+      <div className="inline-grid">
+        <label>
+          OpenAPI Name
+          <input value={openApiName} onChange={(event) => setOpenApiName(event.target.value)} />
+        </label>
+        <label>
+          OpenAPI URL
+          <input value={openApiUrl} onChange={(event) => setOpenApiUrl(event.target.value)} />
+        </label>
+      </div>
+      <button
+        type="button"
+        disabled={props.busyAction !== null}
+        onClick={() => props.onImportOpenApi({ name: openApiName, sourceUrl: openApiUrl })}
+      >
+        Import OpenAPI
+      </button>
+      <div className="inline-grid">
+        <label>
+          MCP Name
+          <input value={mcpName} onChange={(event) => setMcpName(event.target.value)} />
+        </label>
+        <label>
+          MCP Endpoint
+          <input value={mcpUrl} onChange={(event) => setMcpUrl(event.target.value)} />
+        </label>
+      </div>
+      <button
+        type="button"
+        disabled={props.busyAction !== null}
+        onClick={() => props.onRegisterMcp({ name: mcpName, endpointUrl: mcpUrl })}
+      >
+        Register MCP
+      </button>
+      {props.connectors.length > 0 ? (
+        <ul className="event-list">
+          {props.connectors.map((connector) => (
+            <li key={connector.id}>
+              <strong>{connector.name}</strong>
+              <span>
+                {connector.kind} · {connector.operations.length} ops · {connector.lastTest.status}
+              </span>
+              <div className="deployment-actions">
+                <button
+                  type="button"
+                  disabled={props.busyAction !== null}
+                  onClick={() => props.onTest(connector.id)}
+                >
+                  Test
+                </button>
+                <button
+                  type="button"
+                  disabled={props.busyAction !== null}
+                  onClick={() => props.onDelete(connector.id)}
+                >
+                  Delete
+                </button>
+              </div>
+              {connector.operations.slice(0, 6).map((operation) => (
+                <button
+                  key={`${connector.id}-${operation.name}`}
+                  type="button"
+                  disabled={props.busyAction !== null}
+                  onClick={() => props.onAddOperation(connector, operation)}
+                >
+                  Add {operation.name}
+                </button>
+              ))}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted-text">No connectors registered.</p>
+      )}
+    </section>
+  );
+}
+
 function DeploymentPanel(props: {
   readonly activations: DeploymentActivationSummaryResponse | null;
   readonly activeRunnerDeployment: WorkflowDeploymentRecord | null;
@@ -3955,6 +4091,18 @@ function formatUsd(value: number): string {
   return `$${value.toFixed(4)}`;
 }
 
+function formatDateTime(value: string): string {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "short",
+    timeStyle: "short"
+  }).format(new Date(timestamp));
+}
+
 function jsonObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -3976,7 +4124,59 @@ function deploymentActivationPreview(activations: DeploymentActivationSummaryRes
   };
 }
 
-function RunPanel(props: { readonly run: WorkflowRunRecord | null }) {
+function SchedulePanel(props: {
+  readonly schedules: readonly WorkflowScheduleRecord[];
+  readonly busyAction: string | null;
+  readonly onPause: (scheduleId: string) => void;
+  readonly onResume: (scheduleId: string) => void;
+}) {
+  return (
+    <section className="run-panel" aria-label="Schedules">
+      <h2>Schedules</h2>
+      <StatusRow
+        label="Active"
+        value={String(props.schedules.filter((schedule) => schedule.status === "active").length)}
+        tone={props.schedules.some((schedule) => schedule.status === "active") ? "valid" : "idle"}
+      />
+      {props.schedules.length > 0 ? (
+        <ul className="event-list">
+          {props.schedules.map((schedule) => (
+            <li key={schedule.id}>
+              <strong>{schedule.label}</strong>
+              <span>
+                {schedule.status} · {schedule.cron} · next {formatDateTime(schedule.nextFireAt)}
+              </span>
+              <div className="deployment-actions">
+                <button
+                  type="button"
+                  disabled={props.busyAction !== null || schedule.status !== "active"}
+                  onClick={() => props.onPause(schedule.id)}
+                >
+                  Pause
+                </button>
+                <button
+                  type="button"
+                  disabled={props.busyAction !== null || schedule.status === "active"}
+                  onClick={() => props.onResume(schedule.id)}
+                >
+                  Resume
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted-text">No deployed schedules.</p>
+      )}
+    </section>
+  );
+}
+
+function RunPanel(props: {
+  readonly run: WorkflowRunRecord | null;
+  readonly runs: readonly WorkflowRunRecord[];
+  readonly onReplay: (runId: string) => void;
+}) {
   return (
     <section className="run-panel" aria-label="Run status">
       <h2>Run</h2>
@@ -3997,6 +4197,23 @@ function RunPanel(props: { readonly run: WorkflowRunRecord | null }) {
           </ul>
           <pre className="result-view">{formatJson(props.run.result ?? {})}</pre>
         </>
+      ) : null}
+      {props.runs.length > 0 ? (
+        <ul className="event-list">
+          {props.runs.slice(0, 8).map((run) => (
+            <li key={run.id}>
+              <strong>{run.status}</strong>
+              <span>
+                {run.id} · {formatDateTime(run.finishedAt)}
+              </span>
+              {run.status === "failed" ? (
+                <button type="button" onClick={() => props.onReplay(run.id)}>
+                  Replay
+                </button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
       ) : null}
     </section>
   );

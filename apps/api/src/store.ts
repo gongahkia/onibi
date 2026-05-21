@@ -797,7 +797,8 @@ export class InMemoryWorkflowStore implements WorkflowStore {
       (record) =>
         record.status === "queued" &&
         (!allowedTypes || allowedTypes.has(record.type)) &&
-        (!record.retry.nextRunAt || Date.parse(record.retry.nextRunAt) <= nowMs)
+        (!record.retry.nextRunAt || Date.parse(record.retry.nextRunAt) <= nowMs) &&
+        (record.type !== "run.workflow" || typeof record.payload?.runId === "string")
     );
     if (!job) {
       return undefined;

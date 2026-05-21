@@ -257,11 +257,7 @@ function requestBodySchema(operation: JsonRecord): JsonSchemaShape {
   return isRecord(json) ? json : objectSchema;
 }
 
-function operationServerUrl(
-  operation: JsonRecord,
-  pathItem: JsonRecord,
-  fallback: string
-): string {
+function operationServerUrl(operation: JsonRecord, pathItem: JsonRecord, fallback: string): string {
   for (const candidate of [operation, pathItem]) {
     const servers = candidate.servers;
     if (!Array.isArray(servers)) {
@@ -289,9 +285,13 @@ function collectAuthRequirements(
     const record = isRecord(scheme) ? scheme : {};
     const type = typeof record.type === "string" ? record.type : "apiKey";
     const bearer =
-      type === "http" && typeof record.scheme === "string" && record.scheme.toLowerCase() === "bearer";
+      type === "http" &&
+      typeof record.scheme === "string" &&
+      record.scheme.toLowerCase() === "bearer";
     const basic =
-      type === "http" && typeof record.scheme === "string" && record.scheme.toLowerCase() === "basic";
+      type === "http" &&
+      typeof record.scheme === "string" &&
+      record.scheme.toLowerCase() === "basic";
     return {
       name,
       scheme: bearer ? "bearer" : basic ? "basic" : type === "oauth2" ? "oauth" : "apiKey",
@@ -327,9 +327,7 @@ function openApiRouteForOperation(
           secretName: authRequirement.name,
           scheme: authRequirement.scheme,
           ...(location ? { location } : {}),
-          ...(authRequirement.parameterName
-            ? { parameterName: authRequirement.parameterName }
-            : {})
+          ...(authRequirement.parameterName ? { parameterName: authRequirement.parameterName } : {})
         }
       : undefined;
 
@@ -390,5 +388,8 @@ function isString(value: unknown): value is string {
 }
 
 function slugify(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-+|-+$/gu, "");
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, "-")
+    .replace(/^-+|-+$/gu, "");
 }

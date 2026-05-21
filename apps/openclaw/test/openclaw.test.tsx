@@ -222,9 +222,13 @@ describe("OpenClaw planner shell", () => {
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /^Run$/i }));
-    expect(await screen.findByText("succeeded")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getAllByText("succeeded").length).toBeGreaterThan(0);
+    });
     expect(await screen.findByText("NanoClaw run finished.")).toBeInTheDocument();
-    const runCall = vi.mocked(fetch).mock.calls.find(([url]) => String(url).endsWith("/runs"));
+    const runCall = vi
+      .mocked(fetch)
+      .mock.calls.find(([url, init]) => String(url).endsWith("/runs") && init?.method === "POST");
     expect(JSON.parse(String(runCall?.[1]?.body))).toMatchObject({
       deploymentId: "deployment.runner"
     });
@@ -510,6 +514,60 @@ async function mockFetch(input: string | URL | Request, init?: RequestInit): Pro
         }
       ]
     });
+  }
+
+  if (url.endsWith("/api/ops/health")) {
+    return jsonResponse({
+      ok: true,
+      health: {
+        status: "ok",
+        databaseWritable: true,
+        worker: { active: true, queuedJobs: 0, runningJobs: 0, failedJobs: 0 },
+        scheduler: { active: true, activeSchedules: 0, dueSchedules: 0 },
+        runs: { running: 0, resumable: 0, failed: 0 },
+        connectors: { total: 1, failedTests: 0 },
+        checkedAt: "2026-05-18T01:00:00.000Z"
+      }
+    });
+  }
+
+  if (url.endsWith("/api/connectors") && (!init?.method || init.method === "GET")) {
+    return jsonResponse({
+      ok: true,
+      connectors: [mockConnector()]
+    });
+  }
+
+  if (url.endsWith("/api/connectors/openapi/import")) {
+    return jsonResponse({ ok: true, connector: mockConnector() }, 201);
+  }
+
+  if (url.endsWith("/api/connectors/mcp")) {
+    return jsonResponse(
+      {
+        ok: true,
+        connector: { ...mockConnector(), id: "connector.mcp.test", kind: "mcp", name: "MCP Test" }
+      },
+      201
+    );
+  }
+
+  if (url.includes("/api/connectors/") && url.endsWith("/test")) {
+    return jsonResponse({
+      ok: true,
+      connector: {
+        ...mockConnector(),
+        lastTest: {
+          status: "succeeded",
+          testedAt: "2026-05-18T01:00:00.000Z",
+          operationCount: 1
+        }
+      }
+    });
+  }
+
+  if (url.includes("/api/connectors/") && init?.method === "DELETE") {
+    return jsonResponse({ ok: true, deleted: true });
   }
 
   if (url.includes("/runtime-truth")) {
@@ -1133,13 +1191,41 @@ async function mockFetch(input: string | URL | Request, init?: RequestInit): Pro
     });
   }
 
-  if (url.endsWith("/runs")) {
+  if (url.endsWith("/runs") && (!init?.method || init.method === "GET")) {
+    return jsonResponse({
+      ok: true,
+      runs: [createRunRecord(`approved.${mockCurrentWorkflow?.id ?? "workflow"}.r1`)]
+    });
+  }
+
+  if (url.endsWith("/runs") && init?.method === "POST") {
     const run = createRunRecord(String(body.approvedRevisionId));
-    return jsonResponse({ ok: true, run }, 202);
+    return jsonResponse({ ok: true, run, job: mockJob("run.workflow", run.workflowId) }, 202);
+  }
+
+  if (url.includes("/schedules/") && url.endsWith("/pause")) {
+    return jsonResponse({ ok: true, schedule: { ...mockSchedule(), status: "paused" } });
+  }
+
+  if (url.includes("/schedules/") && url.endsWith("/resume")) {
+    return jsonResponse({ ok: true, schedule: { ...mockSchedule(), status: "active" } });
+  }
+
+  if (url.endsWith("/schedules")) {
+    return jsonResponse({ ok: true, schedules: [mockSchedule()] });
+  }
+
+  if (url.includes("/runs/") && url.endsWith("/replay")) {
+    const run = createRunRecord(`approved.${mockCurrentWorkflow?.id ?? "workflow"}.r1`);
+    return jsonResponse({ ok: true, run: { ...run, id: "run.replayed" } }, 202);
   }
 
   if (url.includes("/runs/")) {
-    return jsonResponse({ ok: true, run: createRunRecord("approved.workflow.r1") });
+    return jsonResponse({
+      ok: true,
+      run: createRunRecord("approved.workflow.r1"),
+      checkpoints: []
+    });
   }
 
   if (url.endsWith("/deployments/active")) {
@@ -1305,6 +1391,55 @@ function activeDeploymentSummary() {
         path: `deployments/${deployment.id}/workflow-bundle.json`
       })),
     generatedServices: []
+  };
+}
+
+function mockConnector() {
+  return {
+    id: "connector.openapi.status",
+    name: "Status API",
+    kind: "openapi",
+    adapterId: "adapter.connector.openapi.status",
+    allowedHosts: ["status.example.test"],
+    auth: [],
+    operations: [
+      {
+        name: "getHealth",
+        version: "1.0.0",
+        description: "Get service health.",
+        inputSchema: { type: "object", additionalProperties: true },
+        outputSchema: { type: "object", additionalProperties: true },
+        method: "GET",
+        path: "/health"
+      }
+    ],
+    secretRefs: {},
+    createdAt: "2026-05-18T01:00:00.000Z",
+    updatedAt: "2026-05-18T01:00:00.000Z",
+    lastTest: {
+      status: "succeeded",
+      testedAt: "2026-05-18T01:00:00.000Z",
+      operationCount: 1
+    }
+  };
+}
+
+function mockSchedule() {
+  const workflowId = mockCurrentWorkflow?.id ?? gmailReceiptsToSheetsWorkflowFixture.id;
+  return {
+    id: "schedule.deployment.test.manual-trigger",
+    workflowId,
+    deploymentId: "deployment.schedule.test",
+    approvedRevisionId: `approved.${workflowId}.r1`,
+    nodeId: "manual-trigger",
+    label: "Manual trigger",
+    cron: "0 8 * * *",
+    timezone: "UTC",
+    status: "active",
+    createdAt: "2026-05-18T01:00:00.000Z",
+    updatedAt: "2026-05-18T01:00:00.000Z",
+    nextFireAt: "2026-05-19T08:00:00.000Z",
+    missedCount: 0
   };
 }
 

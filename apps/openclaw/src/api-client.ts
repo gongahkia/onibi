@@ -487,10 +487,7 @@ export const openClawApi = {
     return getJson(`/api/workflows/${encodeURIComponent(workflowId)}/runs`);
   },
 
-  replayRun(
-    workflowId: string,
-    runId: string
-  ): Promise<WorkflowStartRunResponse> {
+  replayRun(workflowId: string, runId: string): Promise<WorkflowStartRunResponse> {
     return postJson(
       `/api/workflows/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(runId)}/replay`,
       {}

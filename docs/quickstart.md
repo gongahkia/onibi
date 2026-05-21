@@ -58,6 +58,14 @@ The Docker preflight blocks startup before the API server runs if the admin toke
 
 `Run` stays disabled until there is an active `runner.configuration` deployment for the approved revision. Local deployment means KelpClaw has created local activation/config/artifact records; it does not provision cloud infrastructure.
 
+Runs are queued. The API returns a run record immediately, then the local worker executes the `run.workflow` job, writes events/checkpoints, and updates run history in OpenClaw.
+
+## Connectors
+
+OpenClaw's connector panel can import an OpenAPI document or register a Streamable HTTP MCP endpoint. Imported operations appear as adapter-backed nodes you can add to the current draft. Connector records store allowed hosts and secret refs; tokens still go through encrypted `/api/secrets`.
+
+For OpenAPI OAuth flows in this version, create or refresh the token outside KelpClaw, store it as a secret, and reference that secret from the connector.
+
 ## Runtime Truth
 
 OpenClaw distinguishes these stages:
@@ -95,6 +103,7 @@ flowchart LR
   G --> R["Approve immutable revision"]
   R --> X["Deploy local native artifacts\nrunner config, bundle, schedules"]
   X --> N["Run only from active\nrunner.configuration deployment"]
+  N --> Q["Queued worker run\ncheckpoints + replay"]
   P -.-> O["Runtime truth,\nbudget ledger,\nagent timeline,\nnode decision traces"]
   C -.-> O
   D -.-> O
