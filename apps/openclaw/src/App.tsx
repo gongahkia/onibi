@@ -5181,7 +5181,7 @@ function mergeAllowedHosts(
 }
 
 function applyNodeSelection(
-  nodes: readonly WorkflowFlowNode[],
+  nodes: WorkflowFlowNode[],
   selectedNodeId: string | null
 ): WorkflowFlowNode[] {
   let changed = false;
@@ -5197,11 +5197,11 @@ function applyNodeSelection(
     };
   });
 
-  return changed ? nextNodes : [...nodes];
+  return changed ? nextNodes : nodes;
 }
 
 function applyEdgeSelection(
-  edges: readonly WorkflowFlowEdge[],
+  edges: WorkflowFlowEdge[],
   selectedEdgeId: string | null
 ): WorkflowFlowEdge[] {
   let changed = false;
@@ -5217,7 +5217,7 @@ function applyEdgeSelection(
     };
   });
 
-  return changed ? nextEdges : [...edges];
+  return changed ? nextEdges : edges;
 }
 
 function deliveryChannels(node: WorkflowNode): ReadonlySet<string> {
