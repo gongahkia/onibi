@@ -89,6 +89,21 @@ Default budgets:
 - Agentic research: `$2.00`
 - Expensive retry confirmation threshold: `$0.25`
 
+## Agent Runtime Diagnostics
+
+OpenClaw's Agent Runtime panel shows the deterministic router decision, classifier confidence, route scores, scoped memory records, router eval status, and runtime policy/memory trace events.
+
+Useful API checks:
+
+```console
+$ curl -X POST /api/router/evaluate -d '{"prompt":"research current API options"}'
+$ curl /api/router/evals
+$ curl -X POST /api/router/evals/run
+$ curl /api/workflows/:id/memory
+```
+
+`pnpm eval:router` runs the checked-in router eval corpus from the command line.
+
 ## Architecture
 
 ```mermaid

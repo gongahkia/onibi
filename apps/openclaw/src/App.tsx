@@ -44,6 +44,7 @@ import type {
   WorkflowDraftEvaluation,
   WorkflowAdapterOperationRef,
   WorkflowApprovedRevision,
+  WorkflowAgentMemoryRecord,
   WorkflowAgentTimelineEvent,
   WorkflowGeneratedModuleReuseDecision,
   WorkflowBudgetLedger,
@@ -63,6 +64,8 @@ import type {
   WorkflowPromptTurn,
   WorkflowRunRecord,
   WorkflowRuntimeTruthSnapshot,
+  WorkflowRouterEvalCase,
+  WorkflowRouterEvalRun,
   WorkflowScheduleRecord,
   WorkflowSpec,
   WorkflowSpecDiff,
@@ -505,6 +508,9 @@ export function App() {
   const [workflowRuns, setWorkflowRuns] = useState<readonly WorkflowRunRecord[]>([]);
   const [workflowSchedules, setWorkflowSchedules] = useState<readonly WorkflowScheduleRecord[]>([]);
   const [opsHealth, setOpsHealth] = useState<WorkflowOpsHealth | null>(null);
+  const [routerEvalCases, setRouterEvalCases] = useState<readonly WorkflowRouterEvalCase[]>([]);
+  const [routerEvalRun, setRouterEvalRun] = useState<WorkflowRouterEvalRun | null>(null);
+  const [agentMemory, setAgentMemory] = useState<readonly WorkflowAgentMemoryRecord[]>([]);
   const [auditExportNotice, setAuditExportNotice] = useState<string | null>(null);
   const [branches, setBranches] = useState<readonly WorkflowBranch[]>([]);
   const [activeBranchId, setActiveBranchId] = useState<string | null>(null);
@@ -684,21 +690,36 @@ export function App() {
         setWorkflowRuns([]);
         setWorkflowSchedules([]);
         setOpsHealth(null);
+        setRouterEvalCases([]);
+        setRouterEvalRun(null);
+        setAgentMemory([]);
         return;
       }
 
       try {
-        const [truth, budget, timeline, active, runs, schedules, health, connectorList] =
-          await Promise.all([
-            openClawApi.fetchRuntimeTruth(workflowId, branchId ?? undefined),
-            openClawApi.fetchBudget(workflowId, branchId ?? undefined),
-            openClawApi.fetchAgentTimeline(workflowId),
-            openClawApi.fetchActiveDeployments(workflowId),
-            openClawApi.fetchRuns(workflowId),
-            openClawApi.fetchSchedules(workflowId),
-            openClawApi.fetchOpsHealth(),
-            openClawApi.fetchConnectors()
-          ]);
+        const [
+          truth,
+          budget,
+          timeline,
+          active,
+          runs,
+          schedules,
+          health,
+          connectorList,
+          routerEvals,
+          memory
+        ] = await Promise.all([
+          openClawApi.fetchRuntimeTruth(workflowId, branchId ?? undefined),
+          openClawApi.fetchBudget(workflowId, branchId ?? undefined),
+          openClawApi.fetchAgentTimeline(workflowId),
+          openClawApi.fetchActiveDeployments(workflowId),
+          openClawApi.fetchRuns(workflowId),
+          openClawApi.fetchSchedules(workflowId),
+          openClawApi.fetchOpsHealth(),
+          openClawApi.fetchConnectors(),
+          openClawApi.fetchRouterEvals(),
+          openClawApi.fetchAgentMemory(workflowId)
+        ]);
         setRuntimeTruth(truth.truth);
         setBudgetPolicy(budget.policy);
         setBudgetLedgers(budget.ledgers);
@@ -708,6 +729,9 @@ export function App() {
         setWorkflowSchedules(schedules.schedules);
         setOpsHealth(health.health);
         setConnectors(connectorList.connectors);
+        setRouterEvalCases(routerEvals.cases);
+        setRouterEvalRun(routerEvals.latestRun ?? null);
+        setAgentMemory(memory.memories);
       } catch (error) {
         setApiError(error instanceof Error ? error.message : "Runtime status request failed.");
       }
@@ -1859,6 +1883,22 @@ export function App() {
     });
   }
 
+  function runRouterEvals() {
+    void executeApiAction("router-evals", async () => {
+      const response = await openClawApi.runRouterEvals();
+      setRouterEvalRun(response.run);
+      setRouterEvalCases(
+        response.run.results.map((result) => ({
+          id: result.id,
+          prompt: result.prompt,
+          expectedRoute: result.expectedRoute,
+          minConfidence: result.route.confidence,
+          expectedNodeKinds: result.route.expectedNodeKinds
+        }))
+      );
+    });
+  }
+
   function addConnectorOperationNode(
     connector: WorkflowConnectorRecord,
     operation: WorkflowConnectorOperation
@@ -2601,6 +2641,7 @@ export function App() {
             approvalDiff={approvalDiff}
             approvedRevision={approvedRevision}
             run={run}
+            taskRoute={taskRoute}
             activeJob={activeJob}
             workspace={workspace}
             agentRuns={agentRuns}
@@ -2613,6 +2654,9 @@ export function App() {
             workflowRuns={workflowRuns}
             workflowSchedules={workflowSchedules}
             opsHealth={opsHealth}
+            routerEvalCases={routerEvalCases}
+            routerEvalRun={routerEvalRun}
+            agentMemory={agentMemory}
             nodeDecisionTraces={nodeDecisionTraces}
             decisionTraceExportNotice={decisionTraceExportNotice}
             auditExportNotice={auditExportNotice}
@@ -2638,6 +2682,7 @@ export function App() {
             onTestConnector={testConnector}
             onDeleteConnector={deleteConnector}
             onAddConnectorOperation={addConnectorOperationNode}
+            onRunRouterEvals={runRouterEvals}
             onReplayRun={replayRun}
             onPauseSchedule={pauseSchedule}
             onResumeSchedule={resumeSchedule}
@@ -3010,6 +3055,7 @@ function Inspector(props: {
   readonly approvalDiff: WorkflowSpecDiff | null;
   readonly approvedRevision: WorkflowApprovedRevision | null;
   readonly run: WorkflowRunRecord | null;
+  readonly taskRoute: WorkflowTaskRoute | null;
   readonly activeJob: WorkflowJob | null;
   readonly workspace: WorkflowWorkspace | null;
   readonly agentRuns: readonly unknown[];
@@ -3022,6 +3068,9 @@ function Inspector(props: {
   readonly workflowRuns: readonly WorkflowRunRecord[];
   readonly workflowSchedules: readonly WorkflowScheduleRecord[];
   readonly opsHealth: WorkflowOpsHealth | null;
+  readonly routerEvalCases: readonly WorkflowRouterEvalCase[];
+  readonly routerEvalRun: WorkflowRouterEvalRun | null;
+  readonly agentMemory: readonly WorkflowAgentMemoryRecord[];
   readonly nodeDecisionTraces: readonly WorkflowNodeDecisionTrace[];
   readonly decisionTraceExportNotice: string | null;
   readonly auditExportNotice: string | null;
@@ -3057,6 +3106,7 @@ function Inspector(props: {
     connector: WorkflowConnectorRecord,
     operation: WorkflowConnectorOperation
   ) => void;
+  readonly onRunRouterEvals: () => void;
   readonly onReplayRun: (runId: string) => void;
   readonly onPauseSchedule: (scheduleId: string) => void;
   readonly onResumeSchedule: (scheduleId: string) => void;
@@ -3076,6 +3126,15 @@ function Inspector(props: {
       <ProviderStatusPanel providers={props.providerConfigs} />
       <BudgetPanel policy={props.budgetPolicy} ledgers={props.budgetLedgers} />
       <OpsHealthPanel health={props.opsHealth} />
+      <AgentRuntimePanel
+        route={props.taskRoute}
+        evalCases={props.routerEvalCases}
+        evalRun={props.routerEvalRun}
+        memories={props.agentMemory}
+        traces={props.nodeDecisionTraces}
+        busyAction={props.busyAction}
+        onRunEvals={props.onRunRouterEvals}
+      />
       <ConnectorPanel
         connectors={props.connectors}
         busyAction={props.busyAction}
@@ -3785,6 +3844,111 @@ function OpsHealthPanel(props: { readonly health: WorkflowOpsHealth | null }) {
         }
         tone={props.health?.connectors.failedTests ? "error" : "idle"}
       />
+      <StatusRow
+        label="Memory"
+        value={
+          props.health
+            ? `${props.health.memory.total} records / ${props.health.memory.expired} expired`
+            : "none"
+        }
+        tone={props.health?.memory.expired ? "pending" : "idle"}
+      />
+      <StatusRow
+        label="Router"
+        value={
+          props.health
+            ? `${props.health.router.classifierVersion} / ${props.health.router.evalCases} evals`
+            : "unknown"
+        }
+        tone={props.health?.router.lastEvalPassed === false ? "error" : "idle"}
+      />
+    </section>
+  );
+}
+
+function AgentRuntimePanel(props: {
+  readonly route: WorkflowTaskRoute | null;
+  readonly evalCases: readonly WorkflowRouterEvalCase[];
+  readonly evalRun: WorkflowRouterEvalRun | null;
+  readonly memories: readonly WorkflowAgentMemoryRecord[];
+  readonly traces: readonly WorkflowNodeDecisionTrace[];
+  readonly busyAction: string | null;
+  readonly onRunEvals: () => void;
+}) {
+  const runtimeEvents = props.traces
+    .flatMap((trace) => trace.events)
+    .filter((event) => event.kind.startsWith("runtime."))
+    .slice(-6)
+    .reverse();
+  const failedEvalCount = props.evalRun?.failed ?? 0;
+
+  return (
+    <section className="run-panel" aria-label="Agent runtime diagnostics">
+      <h2>Agent Runtime</h2>
+      <StatusRow
+        label="Route"
+        value={
+          props.route ? `${props.route.route} / ${formatPercent(props.route.confidence)}` : "none"
+        }
+        tone={props.route ? "valid" : "idle"}
+      />
+      <StatusRow
+        label="Classifier"
+        value={props.route?.classifierVersion ?? props.evalRun?.classifierVersion ?? "unknown"}
+        tone="idle"
+      />
+      <StatusRow
+        label="Router Evals"
+        value={
+          props.evalRun
+            ? `${props.evalRun.total - props.evalRun.failed}/${props.evalRun.total} passed`
+            : `${props.evalCases.length} cases`
+        }
+        tone={failedEvalCount > 0 ? "error" : props.evalRun ? "valid" : "pending"}
+      />
+      <StatusRow
+        label="Memory"
+        value={`${props.memories.length} scoped record${props.memories.length === 1 ? "" : "s"}`}
+        tone={props.memories.length > 0 ? "valid" : "idle"}
+      />
+      <button type="button" disabled={props.busyAction !== null} onClick={props.onRunEvals}>
+        <ListChecks size={18} />
+        Run Router Evals
+      </button>
+      {props.route?.scores.length ? (
+        <ul className="event-list">
+          {props.route.scores.slice(0, 5).map((score) => (
+            <li key={score.route}>
+              <strong>{score.route}</strong>
+              <span>
+                score {score.score} · {score.positiveSignals.join(", ") || "no signals"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {runtimeEvents.length > 0 ? (
+        <ul className="event-list">
+          {runtimeEvents.map((event) => (
+            <li key={event.id}>
+              <strong>{event.kind.replace("runtime.", "")}</strong>
+              <span>{event.selectedAction}</span>
+              <span>{event.rationale}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {props.memories.length > 0 ? (
+        <ul className="event-list">
+          {props.memories.slice(0, 4).map((memory) => (
+            <li key={memory.id}>
+              <strong>{memory.scope}</strong>
+              <span>{memory.tags.join(", ") || memory.namespace}</span>
+              <span>{formatJson(memory.content).slice(0, 160)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </section>
   );
 }
@@ -4089,6 +4253,10 @@ function formatTokenCount(value: number): string {
 
 function formatUsd(value: number): string {
   return `$${value.toFixed(4)}`;
+}
+
+function formatPercent(value: number): string {
+  return `${Math.round(value * 100)}%`;
 }
 
 function formatDateTime(value: string): string {

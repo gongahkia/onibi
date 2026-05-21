@@ -47,6 +47,41 @@ describe("kelpclaw api contracts", () => {
     expect(response.json()).toEqual({ status: "ok", service: "kelpclaw-api" });
   });
 
+  it("reports router diagnostics, eval runs, and scoped memory APIs", async () => {
+    app = buildTestApiApp();
+
+    const evaluated = await app.inject({
+      method: "POST",
+      url: "/api/router/evaluate",
+      payload: { prompt: "research current API options and prepare a sourced recommendation" }
+    });
+    const evals = await app.inject({ method: "GET", url: "/api/router/evals" });
+    const evalRun = await app.inject({ method: "POST", url: "/api/router/evals/run" });
+    const planned = await app.inject({
+      method: "POST",
+      url: "/api/workflows/plan",
+      payload: { prompt: "extract transaction details from Gmail receipts into Sheets" }
+    });
+    const memory = await app.inject({
+      method: "GET",
+      url: `/api/workflows/${planned.json().workflow.id}/memory`
+    });
+    const health = await app.inject({ method: "GET", url: "/api/ops/health" });
+
+    expect(evaluated.statusCode).toBe(200);
+    expect(evaluated.json().route).toMatchObject({
+      route: "agentic",
+      classifierVersion: "kelpclaw.router.scored-v1"
+    });
+    expect(evaluated.json().route.scores.length).toBeGreaterThan(0);
+    expect(evals.json().cases.length).toBeGreaterThan(0);
+    expect(evalRun.json().run.passed).toBe(true);
+    expect(memory.statusCode).toBe(200);
+    expect(memory.json().memories).toEqual([]);
+    expect(health.json().health.router.lastEvalPassed).toBe(true);
+    expect(health.json().health.memory.total).toBe(0);
+  });
+
   it("imports, tests, lists, and deletes OpenAPI connectors", async () => {
     app = buildTestApiApp();
 

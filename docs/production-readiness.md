@@ -18,6 +18,8 @@
 - Confirm workflow budgets are set through `GET/PATCH /api/workflows/:id/budget` before live agent runs.
 - Confirm production runs use an active `runner.configuration` deployment, not merely the latest approved revision.
 - Confirm `GET /api/ops/health` is `ok` and shows an active worker and scheduler.
+- Confirm `GET /api/ops/health` reports router eval status and scoped memory counts.
+- Run `pnpm eval:router` or `POST /api/router/evals/run` after classifier changes.
 - Test every OpenAPI/MCP connector with `POST /api/connectors/:id/test` before routing live workflows through it.
 - Confirm connector secrets are stored only through `/api/secrets`; connector records should contain secret refs, not token values.
 - Back up SQLite, artifacts/workspaces, and `KELPCLAW_SECRET_MASTER_KEY` as one recovery unit.
@@ -33,6 +35,9 @@
 - `GET /api/workflows/:id/audit/export` returns redacted JSONL including deployment, budget, provider, and decision trace records.
 - `GET /api/workflows/:id/runtime-truth` shows `runnable` only after an active runner deployment exists.
 - `GET /api/ops/health` reports database, worker, scheduler, run, job, and connector state.
+- `POST /api/router/evaluate` returns route scores, confidence, alternatives, matched signals, and model requirements.
+- `GET /api/router/evals` lists the checked-in router eval corpus; `POST /api/router/evals/run` must pass before release.
+- `GET /api/workflows/:id/memory` lists only redacted scoped agent memory records for the workflow.
 - OpenAPI import creates operations, allowed hosts, auth requirements, and test status.
 - MCP registration lists tool operations from a Streamable HTTP MCP server.
 - `GET /api/workflows/:id/runs/:runId/events` shows structured events with workflow, revision, run, severity, and correlation ids.
@@ -57,6 +62,15 @@
 - V1 policies record alert lifecycle events for matched failures and use existing email or Telegram adapter delivery when those secrets are present. Webhook policies are stored and reported but require a deployment-specific webhook adapter before delivery succeeds.
 - Treat alert delivery as best-effort single-host notification, not a replacement for external monitoring.
 
+## Agent Runtime Controls
+
+- Router classification is deterministic. Each route includes per-route scores, confidence, matched signals, alternatives, and classifier version.
+- Agentic nodes may use legacy `agentic.tools` for builtin tools and structured `toolGrants` for builtin, MCP, or adapter tools.
+- Policy denies undeclared hosts, undeclared secret refs, missing operation metadata, and write side-effect tool grants. Denials are recorded in runtime trace metadata.
+- Agent memory is structured SQLite memory, not vector search. Scopes are `none`, `node`, `workflow`, and `workspace`; workspace reads require shareable records in the same namespace.
+- Memory writes are redacted before persistence and must come from structured `memoryWrites` in agent output. Raw secrets, authorization headers, and provider transcripts are not stored as memory.
+- OpenClaw's Agent Runtime panel shows route scores, eval status, memory records, and runtime policy/memory trace events.
+
 ## Known Boundaries
 
 - This is single-host admin-token auth, not multi-user RBAC.
@@ -65,4 +79,5 @@
 - Provider OAuth beyond Google is still configured by service tokens/secrets, not per-user OAuth.
 - Retry and checkpoint recovery are sequential single-host mechanisms, not Temporal-style distributed orchestration.
 - Compensation emits `compensation.required` events for completed side-effect nodes; it does not auto-run compensation unless a workflow explicitly models that step.
+- Agent memory retrieval is deterministic scoped lookup; embeddings and external vector stores are not part of this tranche.
 - Central log shipping and external incident management remain deployment responsibilities.

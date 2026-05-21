@@ -3,6 +3,7 @@ import type {
   WorkflowAdapterOperationRef,
   WorkflowApprovalRecord,
   WorkflowAgenticNodePolicy,
+  WorkflowAgentMemoryRecord,
   WorkflowCodegenMetadata,
   WorkflowDeterminism,
   WorkflowEdge,
@@ -96,7 +97,23 @@ export interface NodeRunContext {
   readonly attempt: number;
   readonly workspace: NodeWorkspace;
   readonly resolvedSecrets: Readonly<Record<string, string>>;
+  readonly agentMemory?: AgentMemoryAccess | undefined;
   readonly signal?: AbortSignal | undefined;
+}
+
+export interface AgentMemoryAccess {
+  list(input: {
+    readonly workflowId: string;
+    readonly namespace: string;
+    readonly memoryScope: WorkflowAgenticNodePolicy["memoryScope"];
+    readonly branchId?: string | undefined;
+    readonly runId?: string | undefined;
+    readonly nodeId?: string | undefined;
+    readonly now?: string | undefined;
+  }): readonly WorkflowAgentMemoryRecord[] | Promise<readonly WorkflowAgentMemoryRecord[]>;
+  save(
+    record: WorkflowAgentMemoryRecord
+  ): WorkflowAgentMemoryRecord | Promise<WorkflowAgentMemoryRecord>;
 }
 
 export interface NodeRunnerResult {

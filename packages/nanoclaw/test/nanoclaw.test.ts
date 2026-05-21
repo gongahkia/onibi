@@ -22,7 +22,8 @@ import {
   cyclicWorkflowFixture,
   gmailReceiptsToSheetsWorkflowFixture,
   objectSchema,
-  timeSensitiveAlertDeliveryWorkflowFixture
+  timeSensitiveAlertDeliveryWorkflowFixture,
+  validateWorkflowSpec
 } from "@kelpclaw/workflow-spec";
 import {
   AdapterBackedNodeRunner,
@@ -39,6 +40,7 @@ import {
 import type { AdapterMetadata } from "@kelpclaw/adapters";
 import type { WorkflowRunCheckpoint } from "@kelpclaw/workflow-spec";
 import type {
+  AgentMemoryAccess,
   CompiledDagNode,
   NodeRunContext,
   NodeRunner,
@@ -487,22 +489,104 @@ describe("nanoclaw dag runtime", () => {
 
   it("executes agentic research nodes through an injected OpenAI web research runner", async () => {
     const workflow = approveForNanoClaw(createAgenticResearchWorkflowFixture());
+    const savedMemories: unknown[] = [];
+    const memory: AgentMemoryAccess = {
+      list: () => [
+        {
+          id: "memory.agentic.existing",
+          scope: "workspace",
+          namespace: "default",
+          workflowId: workflow.id,
+          nodeId: "research-task",
+          tags: ["source"],
+          contentHash: `sha256:${"d".repeat(64)}`,
+          content: { summary: "Previous source preference: cite primary docs." },
+          shareable: true,
+          createdAt: "2026-05-18T00:00:00.000Z",
+          updatedAt: "2026-05-18T00:00:00.000Z"
+        }
+      ],
+      save: (record) => {
+        savedMemories.push(record);
+        return record;
+      }
+    };
     const agenticRunner = new AgenticResearchNodeRunner({
       provider: "openai",
-      openAiRunner: async (request) => ({
-        model: request.model,
-        output_text: JSON.stringify({
-          summary: "Found two relevant sources and summarized the requested task.",
-          sources: [
-            {
-              title: "Example source",
-              url: "https://example.com/research",
-              snippet: "Relevant excerpt"
-            }
-          ],
-          limitations: ["Synthetic test response."]
-        })
+      openAiRunner: async (request) => {
+        expect(request.input).toContain("Previous source preference");
+        return {
+          model: request.model,
+          output_text: JSON.stringify({
+            summary: "Found two relevant sources and summarized the requested task.",
+            sources: [
+              {
+                title: "Example source",
+                url: "https://example.com/research",
+                snippet: "Relevant excerpt"
+              }
+            ],
+            limitations: ["Synthetic test response."],
+            memoryWrites: [
+              { summary: "Prefer production docs for this topic.", token: "raw:secret" }
+            ]
+          })
+        };
+      }
+    });
+    const fallback = new MockNodeRunner();
+    const runner = nodeRunner((node, context) =>
+      node.agentic ? agenticRunner.run(node, context) : fallback.run(node, context)
+    );
+
+    const result = await executeCompiledDag(compileWorkflowDag(workflow), runner, {
+      agentMemory: memory
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults[1]?.output.result).toMatchObject({
+      summary: expect.stringContaining("Found two relevant sources"),
+      sources: [expect.objectContaining({ url: "https://example.com/research" })]
+    });
+    expect(result.nodeResults[1]?.metadata).toEqual(
+      expect.objectContaining({
+        agentic: true,
+        provider: "openai",
+        sourceCount: 1,
+        memoryReadCount: 1,
+        memoryWriteCount: 1
       })
+    );
+    expect(savedMemories).toEqual([
+      expect.objectContaining({
+        content: expect.objectContaining({ token: "[REDACTED]" }),
+        scope: "workspace"
+      })
+    ]);
+  });
+
+  it("denies agentic tool grants outside declared policy", async () => {
+    const workflow = approveForNanoClaw(
+      createAgenticResearchWorkflowFixture({
+        toolGrants: [
+          {
+            kind: "mcp",
+            name: "sendSlack",
+            connectorId: "connector.mcp.slack",
+            operation: "sendSlack",
+            operationVersion: "1.0.0",
+            allowedHosts: ["slack.example.test"],
+            secretRefs: ["slack.bot"],
+            sideEffect: "write"
+          }
+        ]
+      })
+    );
+    const agenticRunner = new AgenticResearchNodeRunner({
+      provider: "openai",
+      openAiRunner: async () => {
+        throw new Error("policy-denied runs must not call the provider");
+      }
     });
     const fallback = new MockNodeRunner();
     const runner = nodeRunner((node, context) =>
@@ -511,13 +595,10 @@ describe("nanoclaw dag runtime", () => {
 
     const result = await executeCompiledDag(compileWorkflowDag(workflow), runner);
 
-    expect(result.status).toBe("succeeded");
-    expect(result.nodeResults[1]?.output.result).toMatchObject({
-      summary: expect.stringContaining("Found two relevant sources"),
-      sources: [expect.objectContaining({ url: "https://example.com/research" })]
-    });
+    expect(result.status).toBe("failed");
+    expect(result.nodeResults[1]?.error).toContain("Agentic policy denied");
     expect(result.nodeResults[1]?.metadata).toEqual(
-      expect.objectContaining({ agentic: true, provider: "openai", sourceCount: 1 })
+      expect.objectContaining({ policyDenied: true })
     );
   });
 
@@ -856,13 +937,21 @@ function approveForNanoClaw(
   workflow: ReturnType<typeof createWorkflowSpec>,
   override: Partial<NonNullable<ReturnType<typeof createWorkflowSpec>["approval"]>> = {}
 ) {
-  return createApprovedWorkflowFixture(workflow, {
-    frozenDagHash: hashWorkflowDag(workflow),
+  const validation = validateWorkflowSpec(workflow);
+  const hashableWorkflow = validation.ok ? validation.workflow : workflow;
+  return createApprovedWorkflowFixture(hashableWorkflow, {
+    frozenDagHash: hashWorkflowDag(hashableWorkflow),
     ...override
   });
 }
 
-function createAgenticResearchWorkflowFixture() {
+function createAgenticResearchWorkflowFixture(
+  options: {
+    readonly toolGrants?: NonNullable<
+      ReturnType<typeof createWorkflowNode>["agentic"]
+    >["toolGrants"];
+  } = {}
+) {
   return createWorkflowSpec({
     id: "workflow.agentic-research-test",
     name: "Agentic Research Test",
@@ -883,6 +972,7 @@ function createAgenticResearchWorkflowFixture() {
         },
         agentic: {
           tools: ["web-search"],
+          ...(options.toolGrants ? { toolGrants: options.toolGrants } : {}),
           memoryScope: "workspace",
           stopConditions: ["summary-ready"],
           humanApprovalBoundaries: ["Before delivery."],

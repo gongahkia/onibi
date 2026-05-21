@@ -860,7 +860,7 @@ export interface WorkflowNodeDecisionTrace {
   readonly nodeId: string;
   readonly revisionId?: string | undefined;
   readonly kind: WorkflowDecisionTraceKind;
-  readonly source: "planner" | "codegen";
+  readonly source: "planner" | "codegen" | "runtime";
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly status: "recorded" | "succeeded" | "failed" | "blocked";

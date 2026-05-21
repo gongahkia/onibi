@@ -15,6 +15,7 @@ import type {
   CompiledDagNode,
   DagExecutionResult,
   ExecutionWorkspace,
+  AgentMemoryAccess,
   NodeExecutionResult,
   NodeInputPayload,
   NodeWorkspace,
@@ -49,6 +50,7 @@ export interface ExecuteCompiledDagOptions {
   readonly secretResolver?: SecretResolver | undefined;
   readonly approvedRevisionId?: string | undefined;
   readonly checkpointStore?: WorkflowCheckpointStore | undefined;
+  readonly agentMemory?: AgentMemoryAccess | undefined;
   readonly onEvent?: ((event: WorkflowRunEvent) => void) | undefined;
   readonly signal?: AbortSignal | undefined;
 }
@@ -188,6 +190,7 @@ async function executeNodeWithAttempts(
         attempt,
         workspace: nodeWorkspace,
         resolvedSecrets: await resolveNodeSecrets(dag, node, nodeWorkspace.runId, options),
+        agentMemory: options.agentMemory,
         signal: attemptSignal.signal
       });
       const result: NodeExecutionResult = {

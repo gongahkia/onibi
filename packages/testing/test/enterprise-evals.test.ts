@@ -11,9 +11,21 @@ import {
   timeSensitiveAlertDeliveryWorkflowFixture,
   validateWorkflowSpec
 } from "@kelpclaw/workflow-spec";
-import { createDeterministicPlannerBackend } from "@kelpclaw/api";
+import { createDeterministicPlannerBackend, runRouterEvalCases } from "@kelpclaw/api";
 
 describe("enterprise deterministic evals", () => {
+  it("keeps router classification evals passing", () => {
+    const run = runRouterEvalCases({
+      now: "2026-05-18T00:00:00.000Z",
+      provider: "openai",
+      model: "gpt-test"
+    });
+
+    expect(run.passed).toBe(true);
+    expect(run.results.map((result) => result.actualRoute)).toContain("agentic");
+    expect(run.results.every((result) => result.route.classifierVersion)).toBe(true);
+  });
+
   it("plans common workflow prompts into valid workflow specs", async () => {
     const planner = createDeterministicPlannerBackend();
 

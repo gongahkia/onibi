@@ -2,6 +2,7 @@ import type {
   JsonRecord,
   WorkflowAcceptPlanRequest,
   WorkflowAcceptPlanResponse,
+  WorkflowAgentMemoryRecord,
   WorkflowAgentTimelineEvent,
   WorkflowApproveRequest,
   WorkflowApproveResponse,
@@ -46,6 +47,8 @@ import type {
   WorkflowProviderRuntimeConfig,
   WorkflowReuseCandidatesResponse,
   WorkflowRuntimeTruthSnapshot,
+  WorkflowRouterEvalCase,
+  WorkflowRouterEvalRun,
   WorkflowScheduleRecord,
   WorkflowStartRunRequest,
   WorkflowStartRunResponse,
@@ -80,6 +83,23 @@ export interface RuntimeTruthResponse {
 export interface OpsHealthResponse {
   readonly ok: true;
   readonly health: WorkflowOpsHealth;
+}
+
+export interface RouterEvalListResponse {
+  readonly ok: true;
+  readonly classifierVersion: string;
+  readonly cases: readonly WorkflowRouterEvalCase[];
+  readonly latestRun?: WorkflowRouterEvalRun | undefined;
+}
+
+export interface RouterEvalRunResponse {
+  readonly ok: true;
+  readonly run: WorkflowRouterEvalRun;
+}
+
+export interface AgentMemoryListResponse {
+  readonly ok: true;
+  readonly memories: readonly WorkflowAgentMemoryRecord[];
 }
 
 export interface BudgetResponse {
@@ -214,6 +234,18 @@ export const openClawApi = {
 
   fetchOpsHealth(): Promise<OpsHealthResponse> {
     return getJson("/api/ops/health");
+  },
+
+  fetchRouterEvals(): Promise<RouterEvalListResponse> {
+    return getJson("/api/router/evals");
+  },
+
+  runRouterEvals(): Promise<RouterEvalRunResponse> {
+    return postJson("/api/router/evals/run", {});
+  },
+
+  fetchAgentMemory(workflowId: string): Promise<AgentMemoryListResponse> {
+    return getJson(`/api/workflows/${encodeURIComponent(workflowId)}/memory`);
   },
 
   fetchBudget(workflowId: string, branchId?: string | undefined): Promise<BudgetResponse> {

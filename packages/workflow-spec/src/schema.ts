@@ -593,7 +593,7 @@ export const workflowNodeDecisionTraceSchema = z.object({
   nodeId: z.string().min(1),
   revisionId: z.string().min(1).optional(),
   kind: workflowDecisionTraceKindSchema,
-  source: z.enum(["planner", "codegen"]),
+  source: z.enum(["planner", "codegen", "runtime"]),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   status: z.enum(["recorded", "succeeded", "failed", "blocked"]),

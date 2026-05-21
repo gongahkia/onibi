@@ -19,6 +19,7 @@ import type {
   WorkflowApprovalRecord,
   WorkflowApprovedRevision,
   WorkflowAuditRecord,
+  WorkflowAgentMemoryRecord,
   WorkflowAgentTimelineEvent,
   WorkflowBudgetLedger,
   WorkflowBudgetPolicy,
@@ -215,6 +216,17 @@ export interface WorkflowStore {
     workflowId: string,
     nodeId?: string | undefined
   ): readonly WorkflowNodeDecisionTrace[];
+  saveAgentMemory(record: WorkflowAgentMemoryRecord): WorkflowAgentMemoryRecord;
+  listAgentMemory(
+    workflowId?: string | undefined,
+    options?: {
+      readonly namespace?: string | undefined;
+      readonly includeExpired?: boolean | undefined;
+      readonly now?: string | undefined;
+    }
+  ): readonly WorkflowAgentMemoryRecord[];
+  deleteAgentMemory(id: string): boolean;
+  expireAgentMemory(now?: string | undefined): readonly WorkflowAgentMemoryRecord[];
   requireWorkflow(id: string): StoredWorkflow;
 }
 
@@ -260,6 +272,7 @@ export class InMemoryWorkflowStore implements WorkflowStore {
   protected readonly budgetLedgers = new Map<string, WorkflowBudgetLedger>();
   protected readonly agentTimelineEvents = new Map<string, WorkflowAgentTimelineEvent>();
   protected readonly nodeDecisionTraces = new Map<string, WorkflowNodeDecisionTrace>();
+  protected readonly agentMemories = new Map<string, WorkflowAgentMemoryRecord>();
 
   public saveWorkflow(
     workflow: WorkflowSpec,
@@ -1114,6 +1127,50 @@ export class InMemoryWorkflowStore implements WorkflowStore {
       );
   }
 
+  public saveAgentMemory(record: WorkflowAgentMemoryRecord): WorkflowAgentMemoryRecord {
+    this.agentMemories.set(record.id, record);
+    return record;
+  }
+
+  public listAgentMemory(
+    workflowId?: string | undefined,
+    options: {
+      readonly namespace?: string | undefined;
+      readonly includeExpired?: boolean | undefined;
+      readonly now?: string | undefined;
+    } = {}
+  ): readonly WorkflowAgentMemoryRecord[] {
+    const nowMs = Date.parse(options.now ?? new Date().toISOString());
+    return [...this.agentMemories.values()]
+      .filter((record) => workflowId === undefined || record.workflowId === workflowId)
+      .filter((record) => options.namespace === undefined || record.namespace === options.namespace)
+      .filter(
+        (record) =>
+          options.includeExpired === true ||
+          record.expiresAt === undefined ||
+          Date.parse(record.expiresAt) > nowMs
+      )
+      .sort(
+        (left, right) =>
+          right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id)
+      );
+  }
+
+  public deleteAgentMemory(id: string): boolean {
+    return this.agentMemories.delete(id);
+  }
+
+  public expireAgentMemory(now = new Date().toISOString()): readonly WorkflowAgentMemoryRecord[] {
+    const nowMs = Date.parse(now);
+    const expired = [...this.agentMemories.values()].filter(
+      (record) => record.expiresAt !== undefined && Date.parse(record.expiresAt) <= nowMs
+    );
+    for (const record of expired) {
+      this.agentMemories.delete(record.id);
+    }
+    return expired;
+  }
+
   public requireWorkflow(id: string): StoredWorkflow {
     const aggregate = this.workflows.get(id);
     if (!aggregate) {
@@ -1556,6 +1613,39 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
     return saved;
   }
 
+  public override saveAgentMemory(record: WorkflowAgentMemoryRecord): WorkflowAgentMemoryRecord {
+    const saved = super.saveAgentMemory(record);
+    this.runSql(
+      [
+        "INSERT OR REPLACE INTO agent_memories (id, workflow_id, namespace, scope, updated_at, expires_at, record_json)",
+        `VALUES (${sqlValue(saved.id)}, ${sqlValue(saved.workflowId)}, ${sqlValue(saved.namespace)}, ${sqlValue(saved.scope)}, ${sqlValue(saved.updatedAt)}, ${sqlValue(saved.expiresAt ?? null)}, ${sqlValue(stableStringify(saved))});`
+      ].join(" ")
+    );
+    return saved;
+  }
+
+  public override deleteAgentMemory(id: string): boolean {
+    const deleted = super.deleteAgentMemory(id);
+    if (deleted) {
+      this.runSql(`DELETE FROM agent_memories WHERE id = ${sqlValue(id)};`);
+    }
+    return deleted;
+  }
+
+  public override expireAgentMemory(
+    now?: string | undefined
+  ): readonly WorkflowAgentMemoryRecord[] {
+    const expired = super.expireAgentMemory(now);
+    if (expired.length > 0) {
+      this.runSql(
+        expired
+          .map((record) => `DELETE FROM agent_memories WHERE id = ${sqlValue(record.id)};`)
+          .join("\n")
+      );
+    }
+    return expired;
+  }
+
   private persistAllWorkflowState(workflowId: string): void {
     const stored = this.requireWorkflow(workflowId);
     for (const draft of stored.draftRevisions) {
@@ -1854,6 +1944,12 @@ export class SqliteWorkflowStore extends InMemoryWorkflowStore {
       "SELECT * FROM node_decision_traces ORDER BY created_at, id;"
     )) {
       this.nodeDecisionTraces.set(row.id, parseJson(row.record_json));
+    }
+
+    for (const row of this.queryRows<RecordJsonRow>(
+      "SELECT * FROM agent_memories ORDER BY updated_at, id;"
+    )) {
+      this.agentMemories.set(row.id, parseJson(row.record_json));
     }
   }
 
@@ -2298,6 +2394,15 @@ const sqliteMigrations = [
     created_at TEXT NOT NULL,
     kind TEXT NOT NULL,
     source TEXT NOT NULL,
+    record_json TEXT NOT NULL
+  );`,
+  `CREATE TABLE IF NOT EXISTS agent_memories (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    namespace TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    expires_at TEXT,
     record_json TEXT NOT NULL
   );`,
   "INSERT OR IGNORE INTO schema_migrations (id) VALUES ('0001_phase7_enterprise_store');"

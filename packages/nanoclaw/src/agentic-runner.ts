@@ -1,5 +1,14 @@
+import { createHash, randomUUID } from "node:crypto";
 import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { JsonRecord, JsonValue, WorkflowAgenticNodePolicy } from "@kelpclaw/workflow-spec";
+import { redactJsonRecord, stableJsonStringify } from "@kelpclaw/workflow-spec";
+import type {
+  JsonRecord,
+  JsonValue,
+  WorkflowAgentMemoryRecord,
+  WorkflowAgentMemoryScope,
+  WorkflowAgenticNodePolicy,
+  WorkflowAgenticToolGrant
+} from "@kelpclaw/workflow-spec";
 import type { CompiledDagNode, NodeRunContext, NodeRunner, NodeRunnerResult } from "./types.js";
 
 export type AgenticProvider = "anthropic" | "openai";
@@ -56,6 +65,13 @@ interface ResearchOutput {
   readonly summary: string;
   readonly sources: readonly ResearchSource[];
   readonly limitations: readonly string[];
+  readonly memoryWrites?: readonly JsonRecord[] | undefined;
+}
+
+interface AgenticPolicyDecision {
+  readonly subject: string;
+  readonly allowed: boolean;
+  readonly reason: string;
 }
 
 export class AgenticResearchNodeRunner implements NodeRunner {
@@ -83,10 +99,29 @@ export class AgenticResearchNodeRunner implements NodeRunner {
     }
 
     try {
+      const policyDecisions = evaluateAgenticPolicy(node);
+      const denied = policyDecisions.filter((decision) => !decision.allowed);
+      if (denied.length > 0) {
+        return {
+          status: "failed",
+          output: {},
+          error: `Agentic policy denied: ${denied.map((decision) => decision.subject).join(", ")}.`,
+          metadata: {
+            agentic: true,
+            provider: this.provider,
+            model: this.model,
+            policyDenied: true,
+            policyDecisions: policyDecisions.map((decision) => ({ ...decision }))
+          }
+        };
+      }
+
+      const memory = await loadAgentMemory(node, context);
       const research =
         this.provider === "openai"
-          ? await this.runOpenAi(node, context)
-          : await this.runAnthropic(node, context);
+          ? await this.runOpenAi(node, context, memory.records)
+          : await this.runAnthropic(node, context, memory.records);
+      const memoryWrites = await persistAgentMemoryWrites(node, context, research);
       return {
         status: "succeeded",
         output: {
@@ -97,7 +132,38 @@ export class AgenticResearchNodeRunner implements NodeRunner {
           provider: this.provider,
           model: this.model,
           sourceCount: research.sources.length,
-          tools: [...(node.agentic?.tools ?? [])]
+          tools: [...(node.agentic?.tools ?? [])],
+          policyDecisions: policyDecisions.map((decision) => ({ ...decision })),
+          memoryReadCount: memory.records.length,
+          memoryWriteCount: memoryWrites.length,
+          memoryRecordIds: [
+            ...memory.records.map((record) => record.id),
+            ...memoryWrites.map((record) => record.id)
+          ],
+          runtimeDecisionTraceEvents: [
+            {
+              kind: "runtime.agent-policy",
+              summary: "Agent policy checked.",
+              selectedAction: denied.length === 0 ? "allow" : "deny",
+              rationale: policyDecisions.map((decision) => decision.reason).join(" ")
+            },
+            {
+              kind: "runtime.memory-read",
+              summary: "Agent memory read.",
+              selectedAction: `read ${memory.records.length} scoped record(s)`,
+              rationale: memory.rationale
+            },
+            ...(memoryWrites.length > 0
+              ? [
+                  {
+                    kind: "runtime.memory-write",
+                    summary: "Agent memory write.",
+                    selectedAction: `wrote ${memoryWrites.length} scoped record(s)`,
+                    rationale: "Structured memory writes were accepted by policy."
+                  }
+                ]
+              : [])
+          ]
         }
       };
     } catch (error) {
@@ -114,13 +180,17 @@ export class AgenticResearchNodeRunner implements NodeRunner {
     }
   }
 
-  private async runOpenAi(node: CompiledDagNode, context: NodeRunContext): Promise<ResearchOutput> {
+  private async runOpenAi(
+    node: CompiledDagNode,
+    context: NodeRunContext,
+    memories: readonly WorkflowAgentMemoryRecord[]
+  ): Promise<ResearchOutput> {
     const runner = await this.getOpenAiRunner();
     const response = await runner(
       {
         model: this.model,
         instructions: agenticInstructions(node.agentic),
-        input: researchPrompt(node, context),
+        input: researchPrompt(node, context, memories),
         tools: openAiToolsForPolicy(node.agentic),
         text: {
           format: {
@@ -139,15 +209,16 @@ export class AgenticResearchNodeRunner implements NodeRunner {
 
   private async runAnthropic(
     node: CompiledDagNode,
-    context: NodeRunContext
+    context: NodeRunContext,
+    memories: readonly WorkflowAgentMemoryRecord[]
   ): Promise<ResearchOutput> {
     const runner = await this.getAnthropicRunner();
     const abortController = abortControllerForSignal(context.signal);
     let result: unknown;
     const options: Options = {
       maxTurns: node.agentic?.budget.maxIterations ?? 3,
-      tools: ["WebSearch", "WebFetch"],
-      allowedTools: ["WebSearch", "WebFetch"],
+      tools: anthropicToolsForPolicy(node.agentic),
+      allowedTools: anthropicToolsForPolicy(node.agentic),
       env: {
         ...process.env,
         ...(this.apiKey ? { ANTHROPIC_API_KEY: this.apiKey } : {}),
@@ -160,7 +231,7 @@ export class AgenticResearchNodeRunner implements NodeRunner {
       ...(abortController ? { abortController } : {}),
       ...(this.model ? { model: this.model } : {})
     };
-    for await (const message of runner(researchPrompt(node, context), options)) {
+    for await (const message of runner(researchPrompt(node, context, memories), options)) {
       if (message.type === "result") {
         result = message.structured_output ?? message.result;
       }
@@ -243,14 +314,230 @@ function modelForProvider(provider: AgenticProvider): string {
   );
 }
 
+function evaluateAgenticPolicy(node: CompiledDagNode): readonly AgenticPolicyDecision[] {
+  const policy = node.agentic;
+  if (!policy) {
+    return [
+      {
+        subject: "agentic.policy",
+        allowed: false,
+        reason: "Agentic execution requires an explicit node policy."
+      }
+    ];
+  }
+
+  const grants = normalizedToolGrants(policy);
+  const decisions: AgenticPolicyDecision[] = [];
+  for (const grant of grants) {
+    const secretDenied = grant.secretRefs.filter(
+      (secretRef) => !policy.secretRefs.includes(secretRef)
+    );
+    const hostDenied =
+      policy.networkPolicy === "none"
+        ? grant.allowedHosts
+        : grant.allowedHosts.filter((host) => !hostAllowed(policy.allowedHosts, host));
+    const missingOperation =
+      (grant.kind === "mcp" || grant.kind === "adapter") &&
+      (!grant.operation || !grant.operationVersion);
+    const sideEffectDenied = grant.sideEffect === "write";
+    const allowed =
+      secretDenied.length === 0 &&
+      hostDenied.length === 0 &&
+      !missingOperation &&
+      !sideEffectDenied;
+    decisions.push({
+      subject: `${grant.kind}:${grant.name}`,
+      allowed,
+      reason: allowed
+        ? `Tool grant '${grant.name}' is within declared policy.`
+        : [
+            secretDenied.length ? `undeclared secrets ${secretDenied.join(", ")}` : "",
+            hostDenied.length ? `undeclared hosts ${hostDenied.join(", ")}` : "",
+            missingOperation ? "missing operation metadata" : "",
+            sideEffectDenied ? "write side effects require explicit non-agentic approval flow" : ""
+          ]
+            .filter(Boolean)
+            .join("; ")
+    });
+  }
+
+  if (decisions.length === 0) {
+    decisions.push({
+      subject: "agentic.no-tools",
+      allowed: true,
+      reason: "No external tool grants were requested."
+    });
+  }
+
+  return decisions;
+}
+
+function normalizedToolGrants(
+  policy: WorkflowAgenticNodePolicy | undefined
+): readonly WorkflowAgenticToolGrant[] {
+  if (!policy) {
+    return [];
+  }
+  const shorthand = policy.tools.map((tool) => ({
+    kind: "builtin" as const,
+    name: tool,
+    allowedHosts: [],
+    secretRefs: [],
+    sideEffect: tool === "web-search" ? ("read" as const) : ("none" as const)
+  }));
+  return [...shorthand, ...(policy.toolGrants ?? [])];
+}
+
+function isBuiltinToolAllowed(
+  policy: WorkflowAgenticNodePolicy | undefined,
+  toolName: string
+): boolean {
+  return normalizedToolGrants(policy).some(
+    (grant) => grant.kind === "builtin" && grant.name === toolName
+  );
+}
+
+function hostAllowed(allowedHosts: readonly string[], host: string): boolean {
+  return allowedHosts.includes("*") || allowedHosts.includes(host);
+}
+
+async function loadAgentMemory(
+  node: CompiledDagNode,
+  context: NodeRunContext
+): Promise<{
+  readonly records: readonly WorkflowAgentMemoryRecord[];
+  readonly rationale: string;
+}> {
+  const scope = node.agentic?.memoryScope ?? "none";
+  if (scope === "none") {
+    return {
+      records: [],
+      rationale: "Node memory scope is none."
+    };
+  }
+  if (!context.agentMemory) {
+    return {
+      records: [],
+      rationale: "No agent memory store was configured."
+    };
+  }
+
+  const namespace = memoryNamespace(node);
+  const records = await context.agentMemory.list({
+    workflowId: context.dag.workflowId,
+    namespace,
+    memoryScope: scope,
+    branchId: stringConfig(node, "branchId"),
+    runId: context.workspace.runId,
+    nodeId: node.id
+  });
+
+  return {
+    records: records.slice(0, 8),
+    rationale: `Loaded ${Math.min(records.length, 8)} ${scope} scoped memory record(s).`
+  };
+}
+
+async function persistAgentMemoryWrites(
+  node: CompiledDagNode,
+  context: NodeRunContext,
+  research: ResearchOutput
+): Promise<readonly WorkflowAgentMemoryRecord[]> {
+  const scope = node.agentic?.memoryScope ?? "none";
+  if (scope === "none" || !context.agentMemory || !research.memoryWrites?.length) {
+    return [];
+  }
+
+  const now = new Date().toISOString();
+  const namespace = memoryNamespace(node);
+  const writes = research.memoryWrites.slice(0, 4).map((write, index) => {
+    const content = redactJsonRecord(write, { secretRefs: node.agentic?.secretRefs ?? [] });
+    return {
+      id: `memory.${context.dag.workflowId}.${node.id}.${Date.now()}.${index}.${randomUUID()}`,
+      scope: scope as Exclude<WorkflowAgentMemoryScope, "none">,
+      namespace,
+      workflowId: context.dag.workflowId,
+      ...(stringConfig(node, "branchId") ? { branchId: stringConfig(node, "branchId") } : {}),
+      runId: context.workspace.runId,
+      nodeId: node.id,
+      tags: stringArrayConfig(node, "memoryTags"),
+      contentHash: sha256Json(content),
+      content,
+      shareable: scope === "workspace" || booleanConfig(node, "memoryShareable"),
+      createdAt: now,
+      updatedAt: now,
+      ...(numberConfig(node, "memoryTtlSeconds") !== undefined
+        ? {
+            expiresAt: new Date(
+              Date.now() + (numberConfig(node, "memoryTtlSeconds") ?? 0) * 1000
+            ).toISOString()
+          }
+        : {})
+    };
+  });
+
+  const saved: WorkflowAgentMemoryRecord[] = [];
+  for (const record of writes) {
+    saved.push(await context.agentMemory.save(record));
+  }
+  return saved;
+}
+
+function memoryPromptRecord(record: WorkflowAgentMemoryRecord): JsonRecord {
+  return {
+    id: record.id,
+    scope: record.scope,
+    tags: [...record.tags],
+    content: record.content,
+    updatedAt: record.updatedAt
+  };
+}
+
+function memoryNamespace(node: CompiledDagNode): string {
+  return (
+    stringConfig(node, "agentMemoryNamespace") ??
+    process.env.KELPCLAW_AGENT_MEMORY_NAMESPACE ??
+    "default"
+  );
+}
+
+function stringConfig(node: CompiledDagNode, key: string): string | undefined {
+  const value = node.config[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function booleanConfig(node: CompiledDagNode, key: string): boolean {
+  return node.config[key] === true;
+}
+
+function numberConfig(node: CompiledDagNode, key: string): number | undefined {
+  const value = node.config[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function stringArrayConfig(node: CompiledDagNode, key: string): readonly string[] {
+  const value = node.config[key];
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
+}
+
+function sha256Json(value: JsonRecord): string {
+  return `sha256:${createHash("sha256").update(stableJsonStringify(value), "utf8").digest("hex")}`;
+}
+
 function openAiToolsForPolicy(
   policy: WorkflowAgenticNodePolicy | undefined
 ): readonly JsonRecord[] {
-  if (!policy?.tools.includes("web-search")) {
+  if (!isBuiltinToolAllowed(policy, "web-search")) {
     return [];
   }
 
   return [{ type: "web_search_preview" }];
+}
+
+function anthropicToolsForPolicy(policy: WorkflowAgenticNodePolicy | undefined): string[] {
+  return isBuiltinToolAllowed(policy, "web-search") ? ["WebSearch", "WebFetch"] : [];
 }
 
 function agenticInstructions(policy: WorkflowAgenticNodePolicy | undefined): string {
@@ -258,13 +545,18 @@ function agenticInstructions(policy: WorkflowAgenticNodePolicy | undefined): str
     "You are KelpClaw's bounded research agent.",
     "Use web search when available and cite concrete sources.",
     "Return structured JSON only.",
+    "You may return optional memoryWrites as an array of concise JSON objects worth remembering.",
     "Do not resolve secrets, mutate workflow state, send messages, or deploy anything.",
     `Human approval boundaries: ${(policy?.humanApprovalBoundaries ?? []).join("; ") || "none"}.`,
     `Stop conditions: ${(policy?.stopConditions ?? []).join("; ") || "research complete"}.`
   ].join("\n");
 }
 
-function researchPrompt(node: CompiledDagNode, context: NodeRunContext): string {
+function researchPrompt(
+  node: CompiledDagNode,
+  context: NodeRunContext,
+  memories: readonly WorkflowAgentMemoryRecord[]
+): string {
   return [
     agenticInstructions(node.agentic),
     "",
@@ -273,8 +565,9 @@ function researchPrompt(node: CompiledDagNode, context: NodeRunContext): string 
     `Node description: ${node.description}`,
     `Node config: ${JSON.stringify(node.config)}`,
     `Input payload: ${JSON.stringify(context.input)}`,
+    `Scoped memory: ${JSON.stringify(memories.map(memoryPromptRecord))}`,
     "",
-    "Return JSON with summary, sources, and limitations."
+    "Return JSON with summary, sources, limitations, and optional memoryWrites."
   ].join("\n");
 }
 
@@ -298,6 +591,9 @@ function parseResearchOutput(output: unknown): ResearchOutput {
       ? record.limitations.filter(
           (limitation): limitation is string => typeof limitation === "string"
         )
+      : [],
+    memoryWrites: Array.isArray(record.memoryWrites)
+      ? record.memoryWrites.filter(isJsonRecord).slice(0, 4)
       : []
   };
 }
@@ -309,6 +605,10 @@ function normalizeSource(source: unknown): ResearchSource {
     url: typeof record.url === "string" ? record.url : "",
     ...(typeof record.snippet === "string" ? { snippet: record.snippet } : {})
   };
+}
+
+function isJsonRecord(value: unknown): value is JsonRecord {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function extractOpenAiOutputText(response: OpenAiAgenticResponsesResult): string {
@@ -397,6 +697,13 @@ const researchOutputSchema = {
     limitations: {
       type: "array",
       items: { type: "string" }
+    },
+    memoryWrites: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: true
+      }
     }
   }
 } as const satisfies JsonRecord;

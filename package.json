@@ -18,6 +18,7 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "validate:fixtures": "pnpm --filter @kelpclaw/workflow-spec build && node scripts/validate-workflow-fixtures.mjs",
     "check:codegen-policy": "pnpm --filter @kelpclaw/workflow-spec build && node scripts/check-codegen-policy.mjs",
+    "eval:router": "pnpm --filter @kelpclaw/api build && node scripts/router-eval.mjs",
     "smoke:live": "pnpm --filter @kelpclaw/workflow-spec build && node scripts/live-smoke.mjs",
     "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build && zig build test"
   },

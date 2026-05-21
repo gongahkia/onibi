@@ -47,6 +47,7 @@ export type { SecretResolutionContext, SecretResolver, SecretValueStore } from "
 export { createExecutionWorkspace, prepareNodeWorkspace } from "./workspace.js";
 export type { ExecutionWorkspaceOptions } from "./workspace.js";
 export type {
+  AgentMemoryAccess,
   CompiledDag,
   CompiledDagNode,
   CompiledNodeInputBinding,

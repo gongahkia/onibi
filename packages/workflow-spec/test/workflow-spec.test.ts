@@ -22,11 +22,15 @@ import {
   withConfig,
   workflowIdFromPrompt,
   workflowAuditRecordSchema,
+  workflowAgentMemoryRecordSchema,
+  workflowAgenticNodePolicySchema,
+  workflowAgenticToolGrantSchema,
   workflowBranchMergePreviewSchema,
   workflowBranchSchema,
   workflowGeneratedModuleReuseDecisionSchema,
   workflowObservabilityEventSchema,
   workflowJsonSchema,
+  workflowTaskRouteSchema,
   workflowSchemaVersion
 } from "../src/index.js";
 
@@ -339,6 +343,94 @@ describe("workflow migrations", () => {
 });
 
 describe("enterprise observability contracts", () => {
+  it("validates agent runtime route, tool grant, and memory contracts", () => {
+    expect(
+      workflowAgenticToolGrantSchema.parse({
+        kind: "mcp",
+        name: "searchIssues",
+        connectorId: "connector.mcp.linear",
+        operation: "searchIssues",
+        operationVersion: "1.0.0",
+        allowedHosts: ["mcp.example.test"],
+        secretRefs: ["linear.token"],
+        sideEffect: "read"
+      })
+    ).toMatchObject({ kind: "mcp" });
+    expect(
+      workflowAgenticNodePolicySchema.parse({
+        tools: ["web-search"],
+        toolGrants: [
+          {
+            kind: "builtin",
+            name: "web-search",
+            allowedHosts: [],
+            secretRefs: [],
+            sideEffect: "read"
+          }
+        ],
+        memoryScope: "workflow",
+        stopConditions: ["summary-ready"],
+        humanApprovalBoundaries: ["Before delivery."],
+        networkPolicy: "declared",
+        allowedHosts: ["*"],
+        secretRefs: [],
+        evalContract: { requiredFields: ["summary"] },
+        budget: {
+          maxIterations: 2,
+          maxWallClockSeconds: 120,
+          maxModelCostUsd: 1,
+          maxDockerRuntimeSeconds: 60,
+          maxRetries: 0
+        }
+      }).toolGrants
+    ).toHaveLength(1);
+    expect(
+      workflowTaskRouteSchema.parse({
+        route: "agentic",
+        rationale: "Prompt asks for research.",
+        requiredModel: {
+          mode: "live",
+          role: "agentic-node-designer",
+          provider: "openai",
+          model: "gpt-test",
+          retryBudget: { maxAttempts: 2, maxCostUsd: 2 }
+        },
+        expectedNodeKinds: ["trigger", "skill", "approval", "delivery"],
+        dockerSandboxRequired: true,
+        draftTestsRequired: true,
+        productionDeterministic: false,
+        modelInvocations: [],
+        classifierVersion: "kelpclaw.router.scored-v1",
+        confidence: 0.8,
+        scores: [
+          {
+            route: "agentic",
+            score: 8,
+            positiveSignals: ["research"],
+            negativeSignals: []
+          }
+        ],
+        alternatives: [],
+        matchedSignals: ["research"]
+      }).confidence
+    ).toBe(0.8);
+    expect(
+      workflowAgentMemoryRecordSchema.parse({
+        id: "memory.workflow.agentic.node",
+        scope: "workflow",
+        namespace: "default",
+        workflowId: "workflow.agentic",
+        nodeId: "research-task",
+        tags: ["research"],
+        contentHash: `sha256:${"c".repeat(64)}`,
+        content: { summary: "Use primary sources." },
+        shareable: false,
+        createdAt: "2026-05-18T00:00:00.000Z",
+        updatedAt: "2026-05-18T00:00:00.000Z"
+      }).scope
+    ).toBe("workflow");
+  });
+
   it("validates structured event and audit records with correlation context", () => {
     const context = {
       workflowId: "workflow.gmail-receipts-to-sheets",

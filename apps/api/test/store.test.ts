@@ -10,6 +10,7 @@ import { SqliteSecretStore, SqliteWorkflowStore } from "../src/index.js";
 import type {
   WorkflowArtifactManifestRecord,
   WorkflowAuditRecord,
+  WorkflowAgentMemoryRecord,
   WorkflowConnectorRecord,
   WorkflowRunCheckpoint,
   WorkflowRunRecord
@@ -31,6 +32,7 @@ describe("sqlite workflow store", () => {
     const audit = store.saveAuditRecord(auditRecord(approved.id, run.id));
     const manifest = store.saveArtifactManifest(artifactManifest(approved.id));
     const connector = store.saveConnector(openApiConnector());
+    const memory = store.saveAgentMemory(agentMemoryRecord());
     const schedule = store.saveSchedule({
       id: "schedule.workflow.gmail-receipts-to-sheets.manual-trigger",
       workflowId: validation.workflow.id,
@@ -55,6 +57,9 @@ describe("sqlite workflow store", () => {
     expect(rehydrated.listRunEvents(run.id)).toHaveLength(1);
     expect(rehydrated.listRunCheckpoints(run.id)).toEqual([checkpoint]);
     expect(rehydrated.listConnectors()).toEqual([connector]);
+    expect(rehydrated.listAgentMemory(validation.workflow.id)).toEqual([memory]);
+    expect(rehydrated.deleteAgentMemory(memory.id)).toBe(true);
+    expect(rehydrated.listAgentMemory(validation.workflow.id)).toEqual([]);
     expect(rehydrated.listSchedules(validation.workflow.id)).toEqual([schedule]);
     expect(rehydrated.listAuditRecords(validation.workflow.id)).toEqual([audit]);
     expect(rehydrated.getArtifactManifest(manifest.id)).toEqual(manifest);
@@ -169,6 +174,25 @@ function openApiConnector(): WorkflowConnectorRecord {
     lastTest: {
       status: "untested"
     }
+  };
+}
+
+function agentMemoryRecord(): WorkflowAgentMemoryRecord {
+  return {
+    id: "memory.workflow.gmail-receipts-to-sheets.read-gmail-receipts.store",
+    scope: "workflow",
+    namespace: "default",
+    workflowId: gmailReceiptsToSheetsWorkflowFixture.id,
+    nodeId: "read-gmail-receipts",
+    runId: "run.workflow.gmail-receipts-to-sheets.r1.store",
+    tags: ["receipt"],
+    contentHash: `sha256:${"c".repeat(64)}`,
+    content: {
+      summary: "Receipts sync emits normalized rows."
+    },
+    shareable: false,
+    createdAt: "2026-05-18T02:00:00.000Z",
+    updatedAt: "2026-05-18T02:00:00.000Z"
   };
 }
 

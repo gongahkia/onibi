@@ -54,13 +54,15 @@ import type {
   GeneratedNodeBuildRole,
   GeneratedNodeRoleRunner
 } from "@kelpclaw/codegen";
-import type { NodeRunner } from "@kelpclaw/nanoclaw";
+import type { AgentMemoryAccess, NodeRunner } from "@kelpclaw/nanoclaw";
 import type { SkillMetadata } from "@kelpclaw/skill-registry";
 import type {
   GeneratedNodeEvalReport,
   GeneratedNodeTestReport,
   JsonRecord,
   WorkflowArtifactManifestRecord,
+  WorkflowAgentMemoryListResponse,
+  WorkflowAgentRole,
   WorkflowAgentTimelineEvent,
   WorkflowAuditAdapterCallRecord,
   WorkflowAuditContainerRecord,
@@ -131,6 +133,10 @@ import type {
   WorkflowGraphChange,
   WorkflowRunEvent,
   WorkflowRunRecord,
+  WorkflowRouterEvalRun,
+  WorkflowRouterEvalListResponse,
+  WorkflowRouterEvalRunResponse,
+  WorkflowRouterEvaluateResponse,
   WorkflowReuseCandidatesResponse,
   WorkflowRuntimeTruthSnapshot,
   WorkflowRetentionPolicy,
@@ -154,7 +160,8 @@ import {
   planWorkflowDraft,
   repromptWorkflow
 } from "./planner.js";
-import { routeWorkflowTask } from "./router.js";
+import { routeWorkflowTask, routerClassifierVersion } from "./router.js";
+import { routerEvalCases, runRouterEvalCases } from "./router-evals.js";
 import {
   InMemorySecretStore,
   SqliteSecretStore,
@@ -186,6 +193,10 @@ interface CodegenRouteParams extends RouteParamsWithId {
 interface RunRouteParams {
   readonly id: string;
   readonly runId: string;
+}
+
+interface MemoryRouteParams extends RouteParamsWithId {
+  readonly memoryId: string;
 }
 
 interface DeploymentRouteParams extends RouteParamsWithId {
@@ -283,6 +294,11 @@ interface McpConnectorRequestBody {
   readonly name?: string | undefined;
   readonly endpointUrl: string;
   readonly secretRefs?: Readonly<Record<string, string>> | undefined;
+}
+
+interface RouterEvaluateRequestBody {
+  readonly prompt: string;
+  readonly forceDeterministic?: boolean | undefined;
 }
 
 interface AlertPolicyRequestBody {
@@ -417,6 +433,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
   const artifactStore = options.artifactStore ?? new LocalCodegenArtifactStore();
   const planner = options.planner ?? createPlannerBackendFromEnv({ artifactStore });
   const runner = options.runner;
+  let latestRouterEvalRun: WorkflowRouterEvalRun | undefined;
   recoverInterruptedJobs(store);
   recoverInterruptedRuns(store);
   const jobSupervisor = new ApiJobSupervisor(store);
@@ -481,8 +498,55 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
 
   app.get("/api/ops/health", async () => ({
     ok: true,
-    health: opsHealth(store, jobWorker, scheduleWorker)
+    health: opsHealth(store, jobWorker, scheduleWorker, latestRouterEvalRun)
   }));
+
+  app.post<{
+    Body: RouterEvaluateRequestBody;
+    Reply: WorkflowRouterEvaluateResponse | WorkflowApiError;
+  }>("/api/router/evaluate", async (request, reply) => {
+    const prompt = request.body.prompt?.trim();
+    if (!prompt) {
+      return reply.code(422).send({
+        ok: false,
+        error: "ROUTER_PROMPT_REQUIRED",
+        message: "Router evaluation requires a non-empty prompt."
+      } as never);
+    }
+
+    return {
+      ok: true,
+      route: routeWorkflowTask(
+        {
+          prompt,
+          ...(request.body.forceDeterministic ? { forceDeterministic: true } : {})
+        },
+        {
+          correlationId: correlationIdForRequest(request),
+          provider: process.env.KELPCLAW_PLANNER_PROVIDER ?? "anthropic",
+          model: process.env.KELPCLAW_PLANNER_MODEL
+        }
+      )
+    };
+  });
+
+  app.get<{ Reply: WorkflowRouterEvalListResponse }>("/api/router/evals", async () => ({
+    ok: true,
+    classifierVersion: routerClassifierVersion,
+    cases: routerEvalCases,
+    ...(latestRouterEvalRun ? { latestRun: latestRouterEvalRun } : {})
+  }));
+
+  app.post<{ Reply: WorkflowRouterEvalRunResponse }>("/api/router/evals/run", async () => {
+    latestRouterEvalRun = runRouterEvalCases({
+      provider: process.env.KELPCLAW_PLANNER_PROVIDER ?? "anthropic",
+      model: process.env.KELPCLAW_PLANNER_MODEL
+    });
+    return {
+      ok: true,
+      run: latestRouterEvalRun
+    };
+  });
 
   app.get("/api/secrets", async () => ({
     ok: true,
@@ -3465,6 +3529,46 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     }
   );
 
+  app.get<{ Params: RouteParamsWithId; Reply: WorkflowAgentMemoryListResponse | WorkflowApiError }>(
+    "/api/workflows/:id/memory",
+    async (request, reply) => {
+      if (!store.getWorkflow(request.params.id)) {
+        return reply.code(404).send({
+          ok: false,
+          error: "WORKFLOW_NOT_FOUND",
+          message: `Workflow '${request.params.id}' was not found.`
+        } as never);
+      }
+      store.expireAgentMemory();
+
+      return {
+        ok: true,
+        memories: store.listAgentMemory(request.params.id)
+      };
+    }
+  );
+
+  app.delete<{ Params: MemoryRouteParams }>(
+    "/api/workflows/:id/memory/:memoryId",
+    async (request, reply) => {
+      const memory = store
+        .listAgentMemory(request.params.id, { includeExpired: true })
+        .find((record) => record.id === request.params.memoryId);
+      if (!memory) {
+        return reply.code(404).send({
+          ok: false,
+          error: "AGENT_MEMORY_NOT_FOUND",
+          message: `Memory '${request.params.memoryId}' was not found for workflow '${request.params.id}'.`
+        });
+      }
+
+      return {
+        ok: true,
+        deleted: store.deleteAgentMemory(request.params.memoryId)
+      };
+    }
+  );
+
   app.get<{ Params: RouteParamsWithId }>("/api/workflows/:id/audit", async (request, reply) => {
     const stored = store.getWorkflow(request.params.id);
     if (!stored) {
@@ -4174,7 +4278,8 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         const dag = compileWorkflowDag(workflow);
         const result = await executeCompiledDag(dag, runner ?? createNanoClawRunner(store), {
           codegenArtifactStore: artifactStore,
-          secretResolver: new SecretStoreResolver(secretStore)
+          secretResolver: new SecretStoreResolver(secretStore),
+          agentMemory: createAgentMemoryAccess(store)
         });
         const execution = store.saveExecution({
           id: result.id,
@@ -5288,6 +5393,39 @@ function createRegisteredAdapters(store: WorkflowStore | undefined, mock: boolea
   return adapters;
 }
 
+function createAgentMemoryAccess(store: WorkflowStore): AgentMemoryAccess {
+  return {
+    list(input) {
+      const records = store.listAgentMemory(undefined, {
+        namespace: input.namespace
+      });
+      switch (input.memoryScope) {
+        case "none":
+          return [];
+        case "node":
+          return records.filter(
+            (record) =>
+              record.scope === "node" &&
+              record.workflowId === input.workflowId &&
+              record.nodeId === input.nodeId
+          );
+        case "workflow":
+          return records.filter(
+            (record) =>
+              (record.scope === "workflow" || record.scope === "node") &&
+              record.workflowId === input.workflowId &&
+              (record.branchId ?? "") === (input.branchId ?? "")
+          );
+        case "workspace":
+          return records.filter((record) => record.shareable);
+      }
+    },
+    save(record) {
+      return store.saveAgentMemory(record);
+    }
+  };
+}
+
 async function executeWorkflowRunJob(input: {
   readonly store: WorkflowStore;
   readonly secretStore: SecretStore;
@@ -5396,6 +5534,7 @@ async function executeWorkflowRunJob(input: {
         runId,
         approvedRevisionId: approvedRevision.id,
         secretResolver: new SecretStoreResolver(input.secretStore),
+        agentMemory: createAgentMemoryAccess(input.store),
         signal: input.signal,
         checkpointStore: {
           getCheckpoint: ({ runId: lookupRunId, nodeId, inputHash }) =>
@@ -5418,6 +5557,13 @@ async function executeWorkflowRunJob(input: {
       events,
       result: finalResult
     });
+    recordRuntimeNodeDecisionTraces(
+      input.store,
+      approvedRevision.workflow,
+      approvedRevision.id,
+      completed,
+      correlationId
+    );
     recordRunAuditRecords(
       input.store,
       approvedRevision.workflow,
@@ -7512,7 +7658,8 @@ class ApiRetentionCleanupWorker {
 function opsHealth(
   store: WorkflowStore,
   jobWorker: ApiJobWorker,
-  scheduleWorker: ApiScheduleWorker
+  scheduleWorker: ApiScheduleWorker,
+  latestRouterEvalRun?: WorkflowRouterEvalRun | undefined
 ): WorkflowOpsHealth {
   const checkedAt = new Date().toISOString();
   let databaseWritable = true;
@@ -7532,6 +7679,10 @@ function opsHealth(
   const failedConnectorTests = store
     .listConnectors()
     .filter((connector) => connector.lastTest.status === "failed").length;
+  const allMemories = store.listAgentMemory(undefined, { includeExpired: true });
+  const expiredMemories = allMemories.filter(
+    (memory) => memory.expiresAt !== undefined && Date.parse(memory.expiresAt) <= Date.now()
+  ).length;
 
   return {
     status: databaseWritable && failedJobs === 0 ? "ok" : "degraded",
@@ -7557,6 +7708,15 @@ function opsHealth(
     connectors: {
       total: store.listConnectors().length,
       failedTests: failedConnectorTests
+    },
+    memory: {
+      total: allMemories.length,
+      expired: expiredMemories
+    },
+    router: {
+      classifierVersion: routerClassifierVersion,
+      evalCases: routerEvalCases.length,
+      ...(latestRouterEvalRun ? { lastEvalPassed: latestRouterEvalRun.passed } : {})
     },
     checkedAt
   };
@@ -7962,6 +8122,85 @@ function recordCodegenNodeDecisionTraces(
   }
 
   return traces;
+}
+
+function recordRuntimeNodeDecisionTraces(
+  store: WorkflowStore,
+  workflow: WorkflowSpec,
+  approvedRevisionId: string,
+  run: WorkflowRunRecord,
+  correlationId: string
+): readonly WorkflowNodeDecisionTrace[] {
+  const traces: WorkflowNodeDecisionTrace[] = [];
+  for (const nodeResult of run.result?.nodeResults ?? []) {
+    const runtimeEvents = jsonArrayMetadata(nodeResult.metadata?.runtimeDecisionTraceEvents);
+    if (runtimeEvents.length === 0) {
+      continue;
+    }
+    const node = workflow.nodes.find((candidate) => candidate.id === nodeResult.nodeId);
+    const now = new Date().toISOString();
+    const traceId = `trace.${workflow.id}.${nodeResult.nodeId}.runtime.${Date.now()}.${randomUUID()}`;
+    const role: WorkflowAgentRole = node?.agentic ? "agentic-node-designer" : "runner";
+    const events: WorkflowNodeDecisionTraceEvent[] = runtimeEvents.map((runtimeEvent) => ({
+      id: `${traceId}.event.${randomUUID()}`,
+      traceId,
+      workflowId: workflow.id,
+      nodeId: nodeResult.nodeId,
+      revisionId: approvedRevisionId,
+      jobId: run.id,
+      kind: runtimeTraceKindFromJson(runtimeEvent.kind),
+      role,
+      createdAt: now,
+      summary: stringFromJson(runtimeEvent.summary) ?? "Runtime decision recorded.",
+      rationale: stringFromJson(runtimeEvent.rationale) ?? "Runtime policy decision recorded.",
+      alternativesConsidered: [],
+      selectedAction: stringFromJson(runtimeEvent.selectedAction) ?? "record runtime decision",
+      inputSummary: nodeResult.input ? stableJsonStringify(nodeResult.input).slice(0, 500) : "{}",
+      modelInvocationIds: [],
+      affectedNodeIds: [nodeResult.nodeId],
+      affectedEdgeIds: workflow.edges
+        .filter(
+          (edge) =>
+            edge.source.nodeId === nodeResult.nodeId || edge.target.nodeId === nodeResult.nodeId
+        )
+        .map((edge) => edge.id),
+      constraints: jsonRecord({
+        runId: run.id,
+        status: nodeResult.status,
+        metadata: nodeResult.metadata ?? {}
+      }),
+      outputArtifactRefs: [],
+      evalOutcome: nodeResult.status === "failed" ? ("failed" as const) : ("passed" as const),
+      metadata: jsonRecord({
+        correlationId
+      })
+    }));
+    const trace = store.saveNodeDecisionTrace({
+      id: traceId,
+      workflowId: workflow.id,
+      nodeId: nodeResult.nodeId,
+      revisionId: approvedRevisionId,
+      kind: events[0]?.kind ?? "runtime.agent-policy",
+      source: "runtime",
+      createdAt: now,
+      updatedAt: now,
+      status: nodeResult.status === "failed" ? "failed" : "recorded",
+      events
+    });
+    traces.push(trace);
+  }
+
+  return traces;
+}
+
+function runtimeTraceKindFromJson(value: unknown): WorkflowDecisionTraceKind {
+  return value === "runtime.router-classification" ||
+    value === "runtime.agent-policy" ||
+    value === "runtime.tool-call" ||
+    value === "runtime.memory-read" ||
+    value === "runtime.memory-write"
+    ? value
+    : "runtime.agent-policy";
 }
 
 function persistCodegenArtifactManifests(

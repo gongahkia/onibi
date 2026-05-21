@@ -131,6 +131,22 @@ describe("OpenClaw planner shell", () => {
     );
   });
 
+  it("renders agent runtime diagnostics and runs router evals", async () => {
+    render(<App />);
+    await planGmailWorkflow();
+
+    expect(await screen.findByLabelText("Agent runtime diagnostics")).toBeInTheDocument();
+    expect(screen.getByText("kelpclaw.router.scored-v1")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Run Router Evals/i }));
+
+    expect(await screen.findByText("1/1 passed")).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringMatching(/\/api\/router\/evals\/run$/u),
+      expect.any(Object)
+    );
+  });
+
   it("adds and deletes nodes on the canvas", async () => {
     render(<App />);
 
@@ -526,8 +542,78 @@ async function mockFetch(input: string | URL | Request, init?: RequestInit): Pro
         scheduler: { active: true, activeSchedules: 0, dueSchedules: 0 },
         runs: { running: 0, resumable: 0, failed: 0 },
         connectors: { total: 1, failedTests: 0 },
+        memory: { total: 1, expired: 0 },
+        router: {
+          classifierVersion: "kelpclaw.router.scored-v1",
+          evalCases: 2,
+          lastEvalPassed: true
+        },
         checkedAt: "2026-05-18T01:00:00.000Z"
       }
+    });
+  }
+
+  if (url.endsWith("/api/router/evals") && (!init?.method || init.method === "GET")) {
+    return jsonResponse({
+      ok: true,
+      classifierVersion: "kelpclaw.router.scored-v1",
+      cases: [
+        {
+          id: "adapter.gmail",
+          prompt: "extract Gmail receipts into Sheets",
+          expectedRoute: "adapter",
+          minConfidence: 0.6,
+          expectedNodeKinds: ["trigger", "skill", "transform", "delivery"]
+        }
+      ]
+    });
+  }
+
+  if (url.endsWith("/api/router/evals/run")) {
+    return jsonResponse({
+      ok: true,
+      run: {
+        id: "router-eval.test",
+        classifierVersion: "kelpclaw.router.scored-v1",
+        createdAt: "2026-05-18T01:00:00.000Z",
+        passed: true,
+        total: 1,
+        failed: 0,
+        results: [
+          {
+            id: "adapter.gmail",
+            prompt: "extract Gmail receipts into Sheets",
+            expectedRoute: "adapter",
+            actualRoute: "adapter",
+            confidence: 0.9,
+            passed: true,
+            route: taskRouteForWorkflow(gmailReceiptsToSheetsWorkflowFixture),
+            failures: []
+          }
+        ]
+      }
+    });
+  }
+
+  if (url.includes("/memory") && (!init?.method || init.method === "GET")) {
+    return jsonResponse({
+      ok: true,
+      memories: [
+        {
+          id: "memory.workflow.gmail-receipts-to-sheets.read-gmail-receipts",
+          scope: "workflow",
+          namespace: "default",
+          workflowId: gmailReceiptsToSheetsWorkflowFixture.id,
+          nodeId: "read-gmail-receipts",
+          runId: "run.workflow.gmail-receipts-to-sheets.r1.1",
+          tags: ["receipt"],
+          contentHash: `sha256:${"c".repeat(64)}`,
+          content: { summary: "Receipts sync usually emits normalized rows." },
+          shareable: false,
+          createdAt: "2026-05-18T01:00:00.000Z",
+          updatedAt: "2026-05-18T01:00:00.000Z"
+        }
+      ]
     });
   }
 
@@ -965,7 +1051,19 @@ async function mockFetch(input: string | URL | Request, init?: RequestInit): Pro
           dockerSandboxRequired: true,
           draftTestsRequired: true,
           productionDeterministic: false,
-          modelInvocations: []
+          modelInvocations: [],
+          classifierVersion: "kelpclaw.router.scored-v1",
+          confidence: 0.82,
+          scores: [
+            {
+              route: "agentic",
+              score: 8,
+              positiveSignals: ["research"],
+              negativeSignals: []
+            }
+          ],
+          alternatives: [],
+          matchedSignals: ["research"]
         }
       });
     }
@@ -1868,7 +1966,19 @@ function taskRouteForWorkflow(workflow: WorkflowSpec) {
     dockerSandboxRequired: codegen || agentic,
     draftTestsRequired: codegen || agentic,
     productionDeterministic: !agentic,
-    modelInvocations: []
+    modelInvocations: [],
+    classifierVersion: "kelpclaw.router.scored-v1",
+    confidence: codegen || agentic ? 0.82 : 0.9,
+    scores: [
+      {
+        route: codegen ? "codegen" : agentic ? "agentic" : "adapter",
+        score: 8,
+        positiveSignals: [codegen ? "scrape" : agentic ? "research" : "gmail"],
+        negativeSignals: []
+      }
+    ],
+    alternatives: [],
+    matchedSignals: [codegen ? "scrape" : agentic ? "research" : "gmail"]
   };
 }
 
