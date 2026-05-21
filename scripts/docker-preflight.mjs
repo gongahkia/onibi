@@ -67,11 +67,19 @@ async function validateApi(errors, warnings) {
     requireEnum(errors, "KELPCLAW_CODEGEN_PROVIDER", ["anthropic", "openai"]);
   }
   const codegenProvider = explicitCodegenProvider || plannerProvider;
+  const explicitAgenticProvider = optionalString("KELPCLAW_AGENTIC_PROVIDER");
+  if (explicitAgenticProvider) {
+    requireEnum(errors, "KELPCLAW_AGENTIC_PROVIDER", ["anthropic", "openai"]);
+  }
+  const agenticProvider = explicitAgenticProvider || plannerProvider;
 
   if (plannerMode === "live") {
     requireProviderKey(errors, plannerProvider, "KELPCLAW_PLANNER_PROVIDER");
     if (codegenProvider !== plannerProvider) {
       requireProviderKey(errors, codegenProvider, "KELPCLAW_CODEGEN_PROVIDER");
+    }
+    if (agenticProvider !== plannerProvider && agenticProvider !== codegenProvider) {
+      requireProviderKey(errors, agenticProvider, "KELPCLAW_AGENTIC_PROVIDER");
     }
   }
 
