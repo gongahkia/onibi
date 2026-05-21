@@ -95,6 +95,16 @@ $ KELPCLAW_PLANNER_PROVIDER=openai \
 
 To keep Anthropic-backed planning/codegen, leave `KELPCLAW_PLANNER_PROVIDER=anthropic` and set `ANTHROPIC_API_KEY`.
 
+## Runtime Truth, Budgets, And Runs
+
+OpenClaw and the API expose the authoritative lifecycle through `GET /api/workflows/:id/runtime-truth`. The visible stages are `planned`, `accepted`, `generated`, `evaluated`, `approved`, `deployed`, and `runnable`.
+
+Production runs require an active `runner.configuration` deployment for the approved revision. Creating a `workflow.bundle` export is useful for inspection and rollback artifacts, but it is not enough to run production traffic. OpenClaw's primary `Deploy` action creates a runner configuration; the deployment panel can also export a bundle, undeploy the active runner, rollback to the recorded target, and export redacted audit JSONL.
+
+Budget policy and ledgers are available through `GET/PATCH /api/workflows/:id/budget`. The local defaults are `$5.00` per workflow, `$2.00` per generated-node build, `$2.00` per agentic research run, and `$0.25` for expensive retry confirmation. Provider calls are stopped before the next agent step when projected cost would exceed the remaining budget.
+
+Agent role decisions, tokens, and costs are available through `GET /api/workflows/:id/agent-timeline`. Per-node planner and codegen rationale summaries are available through decision trace routes and are included in redacted audit exports. KelpClaw stores summaries and artifacts for eval-building, not raw hidden chain-of-thought.
+
 ## Dev And Test Mode
 
 Use deterministic mode only for tests, demos, and offline work:

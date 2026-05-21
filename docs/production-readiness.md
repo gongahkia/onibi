@@ -14,6 +14,9 @@
 - Configure Google OAuth web credentials with the exact `KELPCLAW_PUBLIC_BASE_URL` callback.
 - Use SMTP, WhatsApp Cloud API, and Telegram Bot credentials owned by testable service accounts or bots.
 - Run `pnpm verify` from a clean checkout before deployment.
+- Confirm `GET /api/runtime/providers` shows the intended planner, agentic, codegen, fixer, and evaluator providers as configured.
+- Confirm workflow budgets are set through `GET/PATCH /api/workflows/:id/budget` before live agent runs.
+- Confirm production runs use an active `runner.configuration` deployment, not merely the latest approved revision.
 
 ## Operational Smoke Tests
 
@@ -21,8 +24,10 @@
 - Unauthorized calls to `/api/secrets`, workflow audit, run events, and revision routes return 401.
 - `/api/secrets` lists only metadata and integration readiness, never raw secret values.
 - Google OAuth connect, callback, status, and revoke complete against a configured OAuth client.
-- A workflow can be planned, validated, approved, run, and inspected after API restart.
+- A workflow can be planned, validated, evaluated, approved, deployed as a runner configuration, run, and inspected after API restart.
 - `GET /api/workflows/:id/audit` shows create/edit/approve/adapter/delivery/run records.
+- `GET /api/workflows/:id/audit/export` returns redacted JSONL including deployment, budget, provider, and decision trace records.
+- `GET /api/workflows/:id/runtime-truth` shows `runnable` only after an active runner deployment exists.
 - `GET /api/workflows/:id/runs/:runId/events` shows structured events with workflow, revision, run, severity, and correlation ids.
 - Missing live secrets produce failed structured run output instead of falling back to mock adapters.
 - Generated artifact hash drift blocks approval or execution.

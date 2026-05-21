@@ -39,7 +39,8 @@ $ pnpm validate:fixtures
 $ pnpm check:codegen-policy
 ```
 
-Deployment notes for durable SQLite mode, Docker Compose, and production readiness live in
+Quickstart, deployment notes for durable SQLite mode, Docker Compose, and production readiness live in
+[`docs/quickstart.md`](docs/quickstart.md),
 [`docs/deployment.md`](docs/deployment.md) and
 [`docs/production-readiness.md`](docs/production-readiness.md).
 
