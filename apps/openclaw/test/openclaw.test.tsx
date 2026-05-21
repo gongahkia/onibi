@@ -98,13 +98,14 @@ describe("OpenClaw planner shell", () => {
   it("edits selected node labels and validates invalid port changes inline", async () => {
     render(<App />);
     await planGmailWorkflow();
-    await openNodeDetails("Read Gmail Receipts", "Config");
+    await selectNode("Read Gmail Receipts");
 
-    fireEvent.change(screen.getByLabelText("Label"), {
+    fireEvent.change(screen.getByLabelText("Node label"), {
       target: { value: "Read Gmail Orders" }
     });
     expect(screen.getByText("Read Gmail Orders")).toBeInTheDocument();
 
+    await openSelectedDetails("Config");
     fireEvent.change(screen.getByLabelText("Inputs"), {
       target: { value: "{}" }
     });
@@ -162,7 +163,7 @@ describe("OpenClaw planner shell", () => {
     });
     fireEvent.keyDown(screen.getByRole("textbox", { name: "Command palette" }), { key: "Enter" });
     expect(await screen.findByText("Generated Code")).toBeInTheDocument();
-    await screen.findByLabelText("Node label");
+    await selectNode("Generated Code");
 
     pressGlobalKey("Delete");
     await waitFor(() => {
@@ -177,12 +178,14 @@ describe("OpenClaw planner shell", () => {
     expect(screen.queryByLabelText("Available components")).not.toBeInTheDocument();
 
     await executeCommand("Add Gmail Receipts");
+    await selectNode("Gmail Receipts");
     expect(screen.getByLabelText("Node label")).toHaveValue("Gmail Receipts");
     await filterCommand("Workflow:");
     expect(screen.getByText(/1 nodes, 0 edges/u)).toBeInTheDocument();
     fireEvent.keyDown(screen.getByRole("textbox", { name: "Command palette" }), { key: "Escape" });
 
     await executeCommand("research");
+    await selectNode("Research Agent");
     expect(screen.getByLabelText("Node label")).toHaveValue("Research Agent");
     await filterCommand("Workflow:");
     expect(screen.getByText(/2 nodes, 0 edges/u)).toBeInTheDocument();
@@ -216,7 +219,7 @@ describe("OpenClaw planner shell", () => {
     render(<App />);
 
     await executeCommand("Add Email Delivery");
-    await openSelectedDetails("Node");
+    await openNodeDetails("Email Delivery", "Node");
     fireEvent.change(screen.getByLabelText("Adapter-backed skill"), {
       target: { value: "skill.email.results.deliver" }
     });
