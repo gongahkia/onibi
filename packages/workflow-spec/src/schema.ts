@@ -1036,6 +1036,140 @@ export const workflowDeploymentRollbackTargetSchema = z.object({
   createdAt: z.string().datetime()
 });
 
+export const workflowRunCheckpointSchema = z.object({
+  id: z.string().min(1),
+  runId: z.string().min(1),
+  workflowId: z.string().min(1),
+  approvedRevisionId: z.string().min(1),
+  nodeId: z.string().min(1),
+  attempt: z.number().int().min(0),
+  status: z.enum(["running", "succeeded", "failed", "skipped", "cancelled"]),
+  inputHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  idempotencyKey: z.string().min(1),
+  startedAt: z.string().datetime(),
+  finishedAt: z.string().datetime().optional(),
+  output: jsonRecordSchema.optional(),
+  error: z.string().min(1).optional(),
+  workspacePath: z.string().min(1).optional(),
+  metadata: jsonRecordSchema.optional()
+});
+
+export const workflowConnectorAuthRequirementSchema = z.object({
+  name: z.string().min(1),
+  scheme: z.enum(["none", "apiKey", "bearer", "basic", "oauth"]),
+  location: z.enum(["header", "query", "cookie", "body"]).optional(),
+  parameterName: z.string().min(1).optional(),
+  secretRef: z.string().min(1).optional(),
+  description: z.string().min(1).optional()
+});
+
+export const workflowConnectorOperationSchema = z.object({
+  name: z.string().min(1),
+  version: z.string().min(1),
+  description: z.string().min(1),
+  inputSchema: jsonSchemaShapeSchema,
+  outputSchema: jsonSchemaShapeSchema,
+  method: z.string().min(1).optional(),
+  path: z.string().min(1).optional(),
+  toolName: z.string().min(1).optional(),
+  metadata: jsonRecordSchema.optional()
+});
+
+export const workflowConnectorTestResultSchema = z.object({
+  status: z.enum(["untested", "succeeded", "failed"]),
+  testedAt: z.string().datetime().optional(),
+  message: z.string().min(1).optional(),
+  operationCount: z.number().int().min(0).optional(),
+  metadata: jsonRecordSchema.optional()
+});
+
+export const workflowConnectorRecordSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  kind: z.enum(["http", "openapi", "mcp"]),
+  adapterId: z.string().min(1),
+  sourceUrl: z.string().min(1).optional(),
+  endpointUrl: z.string().min(1).optional(),
+  transport: z.enum(["streamable-http", "stdio"]).optional(),
+  allowedHosts: z.array(z.string().min(1)),
+  auth: z.array(workflowConnectorAuthRequirementSchema),
+  operations: z.array(workflowConnectorOperationSchema),
+  secretRefs: z.record(z.string(), z.string().min(1)),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  lastTest: workflowConnectorTestResultSchema,
+  metadata: jsonRecordSchema.optional()
+});
+
+export const workflowScheduleRecordSchema = z.object({
+  id: z.string().min(1),
+  workflowId: z.string().min(1),
+  branchId: z.string().min(1).optional(),
+  deploymentId: z.string().min(1),
+  approvedRevisionId: z.string().min(1),
+  nodeId: z.string().min(1),
+  label: z.string().min(1),
+  cron: z.string().min(1),
+  timezone: z.string().min(1),
+  status: z.enum(["active", "paused", "disabled"]),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  nextFireAt: z.string().datetime(),
+  lastFireAt: z.string().datetime().optional(),
+  lastRunId: z.string().min(1).optional(),
+  lastJobId: z.string().min(1).optional(),
+  lastError: z.string().min(1).optional(),
+  missedCount: z.number().int().min(0)
+});
+
+export const workflowAlertPolicySchema = z.object({
+  workflowId: z.string().min(1),
+  branchId: z.string().min(1).optional(),
+  enabled: z.boolean(),
+  events: z.array(z.enum(["run.failed", "job.failed", "schedule.missed", "deployment.failed"])),
+  channels: z.array(z.enum(["email", "telegram", "webhook"])),
+  secretRefs: z.record(z.string(), z.string().min(1)),
+  updatedAt: z.string().datetime(),
+  updatedBy: z.string().min(1)
+});
+
+export const workflowRetentionPolicySchema = z.object({
+  workflowId: z.string().min(1),
+  branchId: z.string().min(1).optional(),
+  maxRunEventDays: z.number().int().min(1),
+  maxSuccessfulRunWorkspaceDays: z.number().int().min(0),
+  maxFailedRunWorkspaceDays: z.number().int().min(0),
+  maxJobEventDays: z.number().int().min(1),
+  updatedAt: z.string().datetime(),
+  updatedBy: z.string().min(1)
+});
+
+export const workflowOpsHealthSchema = z.object({
+  status: z.enum(["ok", "degraded"]),
+  databaseWritable: z.boolean(),
+  worker: z.object({
+    active: z.boolean(),
+    queuedJobs: z.number().int().min(0),
+    runningJobs: z.number().int().min(0),
+    failedJobs: z.number().int().min(0)
+  }),
+  scheduler: z.object({
+    active: z.boolean(),
+    activeSchedules: z.number().int().min(0),
+    dueSchedules: z.number().int().min(0)
+  }),
+  runs: z.object({
+    running: z.number().int().min(0),
+    resumable: z.number().int().min(0),
+    failed: z.number().int().min(0)
+  }),
+  connectors: z.object({
+    total: z.number().int().min(0),
+    failedTests: z.number().int().min(0)
+  }),
+  checkedAt: z.string().datetime()
+});
+
 export const workflowAuditExportRecordSchema = z.object({
   id: z.string().min(1),
   workflowId: z.string().min(1),
