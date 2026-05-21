@@ -176,6 +176,22 @@ textarea::placeholder {
   font-size: 1rem;
 }
 
+.topbar-brand {
+  align-items: center;
+  display: flex;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.app-logo-mark {
+  border-radius: 8px;
+  display: block;
+  flex: 0 0 auto;
+  height: 2.35rem;
+  object-fit: contain;
+  width: 2.35rem;
+}
+
 .topbar-workflow {
   color: #b2b6c0;
   font-size: 0.78rem;

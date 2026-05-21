@@ -42,6 +42,10 @@ describe("OpenClaw planner shell", () => {
     render(<App />);
 
     expect(screen.getByRole("heading", { name: "OpenClaw" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "OpenClaw logo" })).toHaveAttribute(
+      "src",
+      "/app-logo.png"
+    );
     expect(screen.getByText("workflow.openclaw-draft")).toBeInTheDocument();
     expect(screen.getByText("Selected Edge")).toBeInTheDocument();
     expect(screen.queryByLabelText("Label")).not.toBeInTheDocument();

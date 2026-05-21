@@ -2288,10 +2288,13 @@ export function App() {
       <section className="workspace">
         <section className="canvas-panel" aria-label="Workflow graph">
           <header className="topbar">
-            <div>
-              <p className="eyebrow">KelpClaw</p>
-              <h1>OpenClaw</h1>
-              <p className="topbar-workflow">Revision {workflow.revision}</p>
+            <div className="topbar-brand">
+              <img className="app-logo-mark" src="/app-logo.png" alt="OpenClaw logo" />
+              <div>
+                <p className="eyebrow">KelpClaw</p>
+                <h1>OpenClaw</h1>
+                <p className="topbar-workflow">Revision {workflow.revision}</p>
+              </div>
             </div>
             <div className="topbar-actions" aria-label="Workflow actions">
               <button type="button" title="Open command palette" onClick={() => openPalette()}>
