@@ -200,6 +200,15 @@ export interface WorkflowAdapterOperationRef {
   readonly operationVersion: string;
 }
 
+export type WorkflowNodeCompensationStrategy = "none" | "manual" | "adapter-operation";
+
+export interface WorkflowNodeCompensation {
+  readonly strategy: WorkflowNodeCompensationStrategy;
+  readonly adapterOperation?: WorkflowAdapterOperationRef | undefined;
+  readonly inputFrom?: "node-input" | "node-output" | "config" | undefined;
+  readonly instructions?: string | undefined;
+}
+
 export interface WorkflowNode {
   readonly id: string;
   readonly kind: WorkflowNodeKind;
@@ -217,6 +226,7 @@ export interface WorkflowNode {
   readonly secretRefs?: Readonly<Record<string, string>> | undefined;
   readonly codegen?: WorkflowCodegenMetadata | undefined;
   readonly agentic?: WorkflowAgenticNodePolicy | undefined;
+  readonly compensation?: WorkflowNodeCompensation | undefined;
 }
 
 export interface WorkflowPortRef {
@@ -411,8 +421,15 @@ export interface WorkflowApprovedRevision {
   readonly diff: WorkflowSpecDiff;
 }
 
-export type WorkflowRunStatus = "queued" | "running" | "succeeded" | "failed";
-export type WorkflowRunEventLevel = "info" | "error";
+export type WorkflowRunStatus =
+  | "queued"
+  | "running"
+  | "paused"
+  | "resuming"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+export type WorkflowRunEventLevel = "info" | "warn" | "error";
 export type WorkflowEventSeverity = "debug" | "info" | "warn" | "error" | "critical";
 export type WorkflowObservabilityEventKind =
   | "task.routing"
@@ -434,7 +451,13 @@ export type WorkflowObservabilityEventKind =
   | "codegen.artifact"
   | "delivery.event"
   | "run.lifecycle"
-  | "deployment.lifecycle";
+  | "deployment.lifecycle"
+  | "connector.lifecycle"
+  | "checkpoint.lifecycle"
+  | "schedule.lifecycle"
+  | "alert.lifecycle"
+  | "retention.lifecycle"
+  | "compensation.required";
 
 export interface WorkflowObservabilityContext {
   readonly workflowId: string;
@@ -484,6 +507,31 @@ export interface WorkflowRunRecord {
   readonly result: WorkflowExecutionResult | null;
 }
 
+export type WorkflowRunCheckpointStatus =
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "skipped"
+  | "cancelled";
+
+export interface WorkflowRunCheckpoint {
+  readonly id: string;
+  readonly runId: string;
+  readonly workflowId: string;
+  readonly approvedRevisionId: string;
+  readonly nodeId: string;
+  readonly attempt: number;
+  readonly status: WorkflowRunCheckpointStatus;
+  readonly inputHash: string;
+  readonly idempotencyKey: string;
+  readonly startedAt: string;
+  readonly finishedAt?: string | undefined;
+  readonly output?: JsonRecord | undefined;
+  readonly error?: string | undefined;
+  readonly workspacePath?: string | undefined;
+  readonly metadata?: JsonRecord | undefined;
+}
+
 export type WorkflowAuditAction =
   | "workflow.created"
   | "workflow.edited"
@@ -513,7 +561,11 @@ export type WorkflowAuditAction =
   | "container.ran"
   | "adapter.called"
   | "delivery.completed"
-  | "run.completed";
+  | "run.completed"
+  | "connector.created"
+  | "connector.deleted"
+  | "schedule.updated"
+  | "retention.cleaned";
 
 export interface WorkflowAuditContainerRecord {
   readonly image: string;
@@ -971,6 +1023,8 @@ export interface WorkflowJobRetryMetadata {
   readonly attempt: number;
   readonly maxAttempts: number;
   readonly retryable: boolean;
+  readonly nextRunAt?: string | undefined;
+  readonly backoffSeconds?: number | undefined;
 }
 
 export interface WorkflowJobEvent {
@@ -1161,6 +1215,132 @@ export interface WorkflowDeploymentRollbackTarget {
   readonly rollbackPlan: string;
   readonly artifactRefs: readonly WorkflowCodegenArtifactRef[];
   readonly createdAt: string;
+}
+
+export type WorkflowConnectorKind = "http" | "openapi" | "mcp";
+export type WorkflowConnectorAuthScheme = "none" | "apiKey" | "bearer" | "basic" | "oauth";
+
+export interface WorkflowConnectorAuthRequirement {
+  readonly name: string;
+  readonly scheme: WorkflowConnectorAuthScheme;
+  readonly location?: "header" | "query" | "cookie" | "body" | undefined;
+  readonly parameterName?: string | undefined;
+  readonly secretRef?: string | undefined;
+  readonly description?: string | undefined;
+}
+
+export interface WorkflowConnectorOperation {
+  readonly name: string;
+  readonly version: string;
+  readonly description: string;
+  readonly inputSchema: JsonSchemaShape;
+  readonly outputSchema: JsonSchemaShape;
+  readonly method?: string | undefined;
+  readonly path?: string | undefined;
+  readonly toolName?: string | undefined;
+  readonly metadata?: JsonRecord | undefined;
+}
+
+export interface WorkflowConnectorTestResult {
+  readonly status: "untested" | "succeeded" | "failed";
+  readonly testedAt?: string | undefined;
+  readonly message?: string | undefined;
+  readonly operationCount?: number | undefined;
+  readonly metadata?: JsonRecord | undefined;
+}
+
+export interface WorkflowConnectorRecord {
+  readonly id: string;
+  readonly name: string;
+  readonly kind: WorkflowConnectorKind;
+  readonly adapterId: string;
+  readonly sourceUrl?: string | undefined;
+  readonly endpointUrl?: string | undefined;
+  readonly transport?: "streamable-http" | "stdio" | undefined;
+  readonly allowedHosts: readonly string[];
+  readonly auth: readonly WorkflowConnectorAuthRequirement[];
+  readonly operations: readonly WorkflowConnectorOperation[];
+  readonly secretRefs: Readonly<Record<string, string>>;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly lastTest: WorkflowConnectorTestResult;
+  readonly metadata?: JsonRecord | undefined;
+}
+
+export type WorkflowScheduleStatus = "active" | "paused" | "disabled";
+
+export interface WorkflowScheduleRecord {
+  readonly id: string;
+  readonly workflowId: string;
+  readonly branchId?: string | undefined;
+  readonly deploymentId: string;
+  readonly approvedRevisionId: string;
+  readonly nodeId: string;
+  readonly label: string;
+  readonly cron: string;
+  readonly timezone: string;
+  readonly status: WorkflowScheduleStatus;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly nextFireAt: string;
+  readonly lastFireAt?: string | undefined;
+  readonly lastRunId?: string | undefined;
+  readonly lastJobId?: string | undefined;
+  readonly lastError?: string | undefined;
+  readonly missedCount: number;
+}
+
+export interface WorkflowAlertPolicy {
+  readonly workflowId: string;
+  readonly branchId?: string | undefined;
+  readonly enabled: boolean;
+  readonly events: readonly (
+    | "run.failed"
+    | "job.failed"
+    | "schedule.missed"
+    | "deployment.failed"
+  )[];
+  readonly channels: readonly ("email" | "telegram" | "webhook")[];
+  readonly secretRefs: Readonly<Record<string, string>>;
+  readonly updatedAt: string;
+  readonly updatedBy: string;
+}
+
+export interface WorkflowRetentionPolicy {
+  readonly workflowId: string;
+  readonly branchId?: string | undefined;
+  readonly maxRunEventDays: number;
+  readonly maxSuccessfulRunWorkspaceDays: number;
+  readonly maxFailedRunWorkspaceDays: number;
+  readonly maxJobEventDays: number;
+  readonly updatedAt: string;
+  readonly updatedBy: string;
+}
+
+export interface WorkflowOpsHealth {
+  readonly status: "ok" | "degraded";
+  readonly databaseWritable: boolean;
+  readonly worker: {
+    readonly active: boolean;
+    readonly queuedJobs: number;
+    readonly runningJobs: number;
+    readonly failedJobs: number;
+  };
+  readonly scheduler: {
+    readonly active: boolean;
+    readonly activeSchedules: number;
+    readonly dueSchedules: number;
+  };
+  readonly runs: {
+    readonly running: number;
+    readonly resumable: number;
+    readonly failed: number;
+  };
+  readonly connectors: {
+    readonly total: number;
+    readonly failedTests: number;
+  };
+  readonly checkedAt: string;
 }
 
 export interface WorkflowAuditExportRecord {
@@ -1371,11 +1551,33 @@ export interface WorkflowStartRunRequest {
 export interface WorkflowStartRunResponse {
   readonly ok: true;
   readonly run: WorkflowRunRecord;
+  readonly job?: WorkflowJob | undefined;
 }
 
 export interface WorkflowFetchRunResponse {
   readonly ok: true;
   readonly run: WorkflowRunRecord;
+  readonly checkpoints?: readonly WorkflowRunCheckpoint[] | undefined;
+}
+
+export interface WorkflowListRunsResponse {
+  readonly ok: true;
+  readonly runs: readonly WorkflowRunRecord[];
+}
+
+export interface WorkflowListSchedulesResponse {
+  readonly ok: true;
+  readonly schedules: readonly WorkflowScheduleRecord[];
+}
+
+export interface WorkflowConnectorListResponse {
+  readonly ok: true;
+  readonly connectors: readonly WorkflowConnectorRecord[];
+}
+
+export interface WorkflowConnectorResponse {
+  readonly ok: true;
+  readonly connector: WorkflowConnectorRecord;
 }
 
 export interface WorkflowApiError {

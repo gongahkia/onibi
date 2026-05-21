@@ -17,6 +17,8 @@
     "typecheck": "tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
-    "@kelpclaw/workflow-spec": "workspace:*"
+    "@apidevtools/swagger-parser": "^12.1.0",
+    "@kelpclaw/workflow-spec": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.29.0"
   }
 }

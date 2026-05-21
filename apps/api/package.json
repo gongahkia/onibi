@@ -23,6 +23,7 @@
     "@kelpclaw/nanoclaw": "workspace:*",
     "@kelpclaw/skill-registry": "workspace:*",
     "@kelpclaw/workflow-spec": "workspace:*",
+    "cron-parser": "^5.5.0",
     "fastify": "^5.6.2"
   }
 }

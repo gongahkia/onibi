@@ -130,6 +130,13 @@ export const workflowAdapterOperationRefSchema = z.object({
   operationVersion: z.string().min(1)
 });
 
+export const workflowNodeCompensationSchema = z.object({
+  strategy: z.enum(["none", "manual", "adapter-operation"]),
+  adapterOperation: workflowAdapterOperationRefSchema.optional(),
+  inputFrom: z.enum(["node-input", "node-output", "config"]).optional(),
+  instructions: z.string().min(1).optional()
+});
+
 export const workflowNodeSchema = z.object({
   id: z.string().min(1),
   kind: z.enum(["trigger", "skill", "codegen", "transform", "approval", "delivery"]),
@@ -146,7 +153,8 @@ export const workflowNodeSchema = z.object({
   adapterOperations: z.array(workflowAdapterOperationRefSchema).optional(),
   secretRefs: z.record(z.string(), z.string().min(1)).optional(),
   codegen: workflowCodegenMetadataSchema.optional(),
-  agentic: workflowAgenticNodePolicySchema.optional()
+  agentic: workflowAgenticNodePolicySchema.optional(),
+  compensation: workflowNodeCompensationSchema.optional()
 });
 
 export const workflowPortRefSchema = z.object({
@@ -204,7 +212,13 @@ export const workflowObservabilityEventKindSchema = z.enum([
   "codegen.artifact",
   "delivery.event",
   "run.lifecycle",
-  "deployment.lifecycle"
+  "deployment.lifecycle",
+  "connector.lifecycle",
+  "checkpoint.lifecycle",
+  "schedule.lifecycle",
+  "alert.lifecycle",
+  "retention.lifecycle",
+  "compensation.required"
 ]);
 
 export const workflowObservabilityContextSchema = z.object({
@@ -254,7 +268,11 @@ export const workflowAuditActionSchema = z.enum([
   "container.ran",
   "adapter.called",
   "delivery.completed",
-  "run.completed"
+  "run.completed",
+  "connector.created",
+  "connector.deleted",
+  "schedule.updated",
+  "retention.cleaned"
 ]);
 
 export const workflowSpecDiffLineSchema = z.object({
@@ -763,7 +781,7 @@ export const workflowJobEventSchema = z.object({
   id: z.string().min(1),
   jobId: z.string().min(1),
   timestamp: z.string().datetime(),
-  level: z.enum(["info", "error"]),
+  level: z.enum(["info", "warn", "error"]),
   message: z.string().min(1),
   kind: workflowObservabilityEventKindSchema,
   metadata: jsonRecordSchema.optional()
@@ -798,7 +816,9 @@ export const workflowJobSchema = z.object({
   retry: z.object({
     attempt: z.number().int().min(0),
     maxAttempts: z.number().int().min(0),
-    retryable: z.boolean()
+    retryable: z.boolean(),
+    nextRunAt: z.string().datetime().optional(),
+    backoffSeconds: z.number().min(0).optional()
   }),
   cancelledAt: z.string().datetime().optional(),
   cancellationReason: z.string().min(1).optional(),
@@ -911,7 +931,7 @@ export const workflowDraftEvaluationSchema = z.object({
     z.object({
       id: z.string().min(1),
       timestamp: z.string().datetime(),
-      level: z.enum(["info", "error"]),
+      level: z.enum(["info", "warn", "error"]),
       message: z.string().min(1),
       severity: workflowEventSeveritySchema.optional(),
       kind: workflowObservabilityEventKindSchema.optional(),
