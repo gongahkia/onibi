@@ -50,9 +50,9 @@ rules:
 
   it("rejects malformed YAML and unsupported expressions before runtime", () => {
     for (const yaml of [
-      "rules:\n  - id: missing-action\n    when: tool == \"Bash\"\n",
-      "rules:\n  - id: bad-action\n    when: tool == \"Bash\"\n    action: quarantine\n",
-      "rules:\n  - id: unsupported\n    when: process.env == \"prod\"\n    action: deny\n"
+      'rules:\n  - id: missing-action\n    when: tool == "Bash"\n',
+      'rules:\n  - id: bad-action\n    when: tool == "Bash"\n    action: quarantine\n',
+      'rules:\n  - id: unsupported\n    when: process.env == "prod"\n    action: deny\n'
     ]) {
       expect(() => parsePolicyYaml(yaml)).toThrow();
     }

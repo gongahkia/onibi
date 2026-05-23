@@ -55,7 +55,9 @@ export class OtlpExportAdapter implements Adapter {
 
   public async invoke(invocation: AdapterInvocation): Promise<AdapterResult> {
     if (invocation.adapterId !== this.metadata.id) {
-      throw new Error(`Invocation targeted adapter '${invocation.adapterId}' but adapter is '${this.metadata.id}'.`);
+      throw new Error(
+        `Invocation targeted adapter '${invocation.adapterId}' but adapter is '${this.metadata.id}'.`
+      );
     }
     if (invocation.operation !== "otlp.traces.export") {
       throw new Error(`OTLP adapter does not support operation '${invocation.operation}'.`);
@@ -102,7 +104,8 @@ export class OtlpExportAdapter implements Adapter {
             error: {
               code: "OTLP_EXPORT_FAILED",
               message: `OTLP export failed with HTTP ${result.statusCode}.`,
-              retryable: result.statusCode === 408 || result.statusCode === 429 || result.statusCode >= 500
+              retryable:
+                result.statusCode === 408 || result.statusCode === 429 || result.statusCode >= 500
             }
           }),
       auditEvents: [
@@ -180,10 +183,16 @@ export function createPromotedSkillOtlpTracePayload(
 ): OtlpJsonExportTraceServiceRequest {
   const traceId = hexDigest(`${input.runId}:${input.skillId}`, 32);
   const spans = input.events.map((event, index) => {
-    const spanId = hexDigest(`${input.runId}:${input.skillId}:${event.chainIndex}:${event.contentHash}`, 16);
+    const spanId = hexDigest(
+      `${input.runId}:${input.skillId}:${event.chainIndex}:${event.contentHash}`,
+      16
+    );
     const previous = input.events[index - 1];
     const parentSpanId = previous
-      ? hexDigest(`${input.runId}:${input.skillId}:${previous.chainIndex}:${previous.contentHash}`, 16)
+      ? hexDigest(
+          `${input.runId}:${input.skillId}:${previous.chainIndex}:${previous.contentHash}`,
+          16
+        )
       : undefined;
     const start = unixNano(event.startedAt, input.promotedAt);
     const end = unixNano(event.finishedAt ?? event.startedAt, input.promotedAt);
@@ -321,17 +330,22 @@ function unixNano(value: string, fallback: string): string {
 }
 
 function spanCount(payload: OtlpJsonExportTraceServiceRequest): number {
-  const resourceSpans: unknown[] = Array.isArray(payload.resourceSpans) ? payload.resourceSpans : [];
+  const resourceSpans: unknown[] = Array.isArray(payload.resourceSpans)
+    ? payload.resourceSpans
+    : [];
   return resourceSpans.reduce<number>((total, resourceSpan) => {
     if (!isJsonRecord(resourceSpan) || !Array.isArray(resourceSpan.scopeSpans)) {
       return total;
     }
-    return total + resourceSpan.scopeSpans.reduce<number>((scopeTotal, scopeSpan) => {
-      if (!isJsonRecord(scopeSpan) || !Array.isArray(scopeSpan.spans)) {
-        return scopeTotal;
-      }
-      return scopeTotal + scopeSpan.spans.length;
-    }, 0);
+    return (
+      total +
+      resourceSpan.scopeSpans.reduce<number>((scopeTotal, scopeSpan) => {
+        if (!isJsonRecord(scopeSpan) || !Array.isArray(scopeSpan.spans)) {
+          return scopeTotal;
+        }
+        return scopeTotal + scopeSpan.spans.length;
+      }, 0)
+    );
   }, 0);
 }
 

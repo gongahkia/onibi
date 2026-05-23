@@ -39,7 +39,8 @@ $ pnpm check:codegen-policy
 
 Quickstart, deployment notes for durable SQLite mode, Docker Compose, and production readiness live in
 [`docs/quickstart.md`](docs/quickstart.md),
-[`docs/deployment.md`](docs/deployment.md) and
+[`docs/deployment.md`](docs/deployment.md),
+[`docs/agent-runtime-demo.md`](docs/agent-runtime-demo.md), and
 [`docs/production-readiness.md`](docs/production-readiness.md).
 
 ## Workflow V1 Model

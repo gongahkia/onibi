@@ -1,6 +1,10 @@
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { createDefaultMockAdapters } from "@kelpclaw/adapters";
+import { LocalCodegenArtifactStore } from "@kelpclaw/codegen";
 import { AdapterBackedNodeRunner, MockNodeRunner } from "@kelpclaw/nanoclaw";
 import { chooseSkillOrCodegen, clearPromotedSkillsForTests } from "@kelpclaw/skill-registry";
 import { gmailReceiptsToSheetsWorkflowFixture } from "@kelpclaw/workflow-spec";
@@ -10,9 +14,11 @@ import {
   createDeterministicPlannerBackend,
   createPlannerBackendFromEnv,
   createRoleToken,
+  DisabledApiOtlpExporter,
   HttpJsonApiOtlpExporter,
   InMemoryAgentRunStore,
   InMemorySecretStore,
+  SqliteAgentRunStore,
   verifyAgentRunAuditChain
 } from "../src/index.js";
 
@@ -310,7 +316,10 @@ rules:
         serviceName: "kelpclaw-test",
         fetch: async (_input, init) => {
           otlpPayload = JSON.parse(String(init?.body ?? "{}"));
-          return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+          return new Response("{}", {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          });
         }
       })
     });
@@ -374,13 +383,117 @@ rules:
       endpoint: "https://otel.test/v1/traces"
     });
     expect(
-      (((otlpPayload as { resourceSpans?: { scopeSpans?: { spans?: unknown[] }[] }[] })
-        .resourceSpans?.[0]?.scopeSpans?.[0]?.spans ?? []) as unknown[])
+      ((otlpPayload as { resourceSpans?: { scopeSpans?: { spans?: unknown[] }[] }[] })
+        .resourceSpans?.[0]?.scopeSpans?.[0]?.spans ?? []) as unknown[]
     ).toHaveLength(1);
     expect(selection.kind).toBe("skill");
     if (selection.kind === "skill") {
       expect(selection.match.skill.id).toBe(promoted.json().skill.id);
     }
+  });
+
+  it("keeps agent-run audit verification and TBOM export working after SQLite restart", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "kelpclaw-agent-run-smoke-"));
+    const databasePath = join(tempRoot, "agent-runs.sqlite");
+    const artifactStore = new LocalCodegenArtifactStore(join(tempRoot, "artifacts"));
+    const operatorToken = createTestRoleToken(["operator"]);
+    const reviewerToken = createTestRoleToken(["reviewer"]);
+    const auditorToken = createTestRoleToken(["auditor"]);
+    const appOptions = {
+      adminToken: "legacy-admin-token",
+      authSigningSecret: "test-signing-secret",
+      planner: createDeterministicPlannerBackend(),
+      artifactStore,
+      otlpExporter: new DisabledApiOtlpExporter()
+    };
+    app = buildApiApp({
+      ...appOptions,
+      agentRunStore: new SqliteAgentRunStore({ databasePath })
+    });
+    const started = await app.inject({
+      method: "POST",
+      url: "/api/agent-runs",
+      headers: { authorization: `Bearer ${operatorToken}` },
+      payload: {
+        sourceAgent: "claude-code",
+        sessionId: "session.sqlite-smoke",
+        title: "SQLite persisted TBOM smoke"
+      }
+    });
+    const runId = started.json().run.id;
+    await app.inject({
+      method: "POST",
+      url: `/api/agent-runs/${runId}/events`,
+      headers: { authorization: `Bearer ${operatorToken}` },
+      payload: {
+        hookEvent: "PostToolUse",
+        toolName: "Bash",
+        toolUseId: "toolu.sqlite-smoke",
+        args: {
+          command: "curl https://api.example.com/issues",
+          endpoint: "https://api.example.com/issues",
+          tokenRef: "secret:github.token.default"
+        },
+        result: {
+          provider: "anthropic",
+          model: "claude-opus-4-7",
+          stdout: "2 issues\n"
+        },
+        status: "succeeded",
+        classification: "Confidential",
+        startedAt: "2026-05-23T00:00:00.000Z",
+        finishedAt: "2026-05-23T00:00:01.000Z"
+      }
+    });
+    const promoted = await app.inject({
+      method: "POST",
+      url: `/api/agent-runs/${runId}/promote`,
+      headers: { authorization: `Bearer ${reviewerToken}` },
+      payload: {
+        skillName: "SQLite Persisted TBOM Smoke",
+        capabilities: ["sqlite-persisted-tbom-smoke"]
+      }
+    });
+    expect(promoted.statusCode).toBe(200);
+    await expect(artifactStore.verifyArtifact(promoted.json().artifacts.tbom)).resolves.toBe(true);
+
+    await app.close();
+    app = buildApiApp({
+      ...appOptions,
+      agentRunStore: new SqliteAgentRunStore({ databasePath })
+    });
+    const stored = await app.inject({
+      method: "GET",
+      url: `/api/agent-runs/${runId}`,
+      headers: { authorization: `Bearer ${auditorToken}` }
+    });
+    const verified = await app.inject({
+      method: "GET",
+      url: `/api/agent-runs/${runId}/audit/verify`,
+      headers: { authorization: `Bearer ${auditorToken}` }
+    });
+    const tbom = await app.inject({
+      method: "GET",
+      url: `/api/agent-runs/${runId}/tbom`,
+      headers: { authorization: `Bearer ${auditorToken}` }
+    });
+
+    expect(stored.statusCode).toBe(200);
+    expect(stored.json().run.events).toHaveLength(1);
+    expect(stored.json().run.auditEvents).toEqual([
+      expect.objectContaining({ action: "trajectory.promoted" })
+    ]);
+    expect(verified.statusCode).toBe(200);
+    expect(verified.json().verification).toEqual({ valid: true });
+    expect(tbom.statusCode).toBe(200);
+    expect(tbom.json().tbom).toMatchObject({
+      kelpclawTbomVersion: "1.0.0",
+      sourceAgent: "claude-code",
+      tools: [{ name: "Bash", calls: 1 }],
+      externalDomains: ["api.example.com"],
+      secretsConsumed: ["secret:github.token.default"],
+      classifications: ["Confidential"]
+    });
   });
 
   it("requires reviewer approval before promoting gated agent steps", async () => {

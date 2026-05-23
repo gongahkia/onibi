@@ -1,12 +1,6 @@
 import type { TrajectoryBillOfMaterials, TrajectoryRun } from "@kelpclaw/codegen";
-import {
-  createPromotedSkillOtlpTracePayload,
-  exportOtlpTraces
-} from "@kelpclaw/adapters";
-import type {
-  OtlpJsonExportTraceServiceRequest,
-  OtlpTraceExportResult
-} from "@kelpclaw/adapters";
+import { createPromotedSkillOtlpTracePayload, exportOtlpTraces } from "@kelpclaw/adapters";
+import type { OtlpJsonExportTraceServiceRequest, OtlpTraceExportResult } from "@kelpclaw/adapters";
 import type { SkillMetadata } from "@kelpclaw/skill-registry";
 
 export interface ApiOtlpPromotionExportInput {
@@ -78,7 +72,9 @@ export class HttpJsonApiOtlpExporter implements ApiOtlpExporter {
       promotedAt: new Date().toISOString(),
       events: input.run.events.map((event) => {
         const policyDecision = (
-          event as { readonly policyDecision?: { readonly action?: string | undefined } | undefined }
+          event as {
+            readonly policyDecision?: { readonly action?: string | undefined } | undefined;
+          }
         ).policyDecision;
         return {
           sourceAgent: event.sourceAgent,
@@ -111,9 +107,7 @@ export class HttpJsonApiOtlpExporter implements ApiOtlpExporter {
         endpoint: result.endpoint,
         spanCount: result.spanCount,
         tracePayload: payload,
-        ...(result.accepted
-          ? {}
-          : { error: `OTLP export failed with HTTP ${result.statusCode}.` })
+        ...(result.accepted ? {} : { error: `OTLP export failed with HTTP ${result.statusCode}.` })
       };
     } catch (error) {
       return {
