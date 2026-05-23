@@ -73,6 +73,7 @@ import type {
 } from "@kelpclaw/workflow-spec";
 import { openClawApi, readOpenClawAdminToken, saveOpenClawAdminToken } from "./api-client.js";
 import type {
+  AgentRunRecord,
   DeploymentActivationSummaryResponse,
   IntegrationReadiness,
   SecretMetadata
@@ -87,6 +88,7 @@ import {
 } from "./workflow-elements.js";
 import type { WorkflowFlowEdge, WorkflowFlowNode, WorkflowNodeData } from "./workflow-elements.js";
 import { ProviderIcon, providerIconKeyForAdapter } from "./provider-icons.js";
+import { TrajectoryView } from "./trajectory-view.js";
 import "./styles.css";
 
 const defaultPrompt = "";
@@ -785,6 +787,7 @@ type CommandPaletteMode =
     };
 
 type DetailsTab = "node" | "config" | "trace" | "runtime" | "ops";
+type SurfaceMode = "edit" | "trajectory" | "policy";
 
 interface PendingNodeConnection {
   readonly sourceNodeId: string;
@@ -866,6 +869,11 @@ export function App() {
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [detailsTab, setDetailsTab] = useState<DetailsTab>("node");
+  const [surfaceMode, setSurfaceMode] = useState<SurfaceMode>("edit");
+  const [trajectoryRuns, setTrajectoryRuns] = useState<readonly AgentRunRecord[]>([]);
+  const [selectedTrajectoryRunId, setSelectedTrajectoryRunId] = useState<string | null>(null);
+  const [policyYaml, setPolicyYaml] = useState("rules:\n");
+  const [policyNotice, setPolicyNotice] = useState<string | null>(null);
   const [statusPopoverOpen, setStatusPopoverOpen] = useState(false);
   const [pendingNodeConnection, setPendingNodeConnection] = useState<PendingNodeConnection | null>(
     null
@@ -927,6 +935,12 @@ export function App() {
     () => workflow.edges.find((edge) => edge.id === selectedEdgeId) ?? null,
     [selectedEdgeId, workflow.edges]
   );
+  const selectedTrajectoryRun = useMemo(
+    () => trajectoryRuns.find((runRecord) => runRecord.id === selectedTrajectoryRunId) ?? null,
+    [selectedTrajectoryRunId, trajectoryRuns]
+  );
+  const selectedTrajectoryRunStreamId = selectedTrajectoryRun?.id;
+  const selectedTrajectoryRunStatus = selectedTrajectoryRun?.status;
   const flowNodes = nodes;
   const flowEdges = edges;
   const activeBranch = useMemo(
@@ -1099,6 +1113,43 @@ export function App() {
     []
   );
 
+  const refreshTrajectoryRuns = useCallback(async () => {
+    try {
+      const response = await openClawApi.fetchAgentRuns();
+      setTrajectoryRuns(response.runs);
+      setSelectedTrajectoryRunId((current) => current ?? response.runs[0]?.id ?? null);
+    } catch {
+      setTrajectoryRuns([]);
+    }
+  }, []);
+
+  const refreshPolicies = useCallback(async () => {
+    try {
+      const response = await openClawApi.fetchPolicies();
+      const rules = Array.isArray(response.ruleset.rules) ? response.ruleset.rules : [];
+      setPolicyYaml(
+        rules.length > 0
+          ? `rules:\n${rules
+              .map((rule) =>
+                [
+                  `  - id: ${String((rule as JsonRecord).id ?? "")}`,
+                  `    when: ${String((rule as JsonRecord).when ?? "")}`,
+                  `    action: ${String((rule as JsonRecord).action ?? "")}`,
+                  (rule as JsonRecord).approverRole
+                    ? `    approverRole: ${String((rule as JsonRecord).approverRole)}`
+                    : ""
+                ]
+                  .filter(Boolean)
+                  .join("\n")
+              )
+              .join("\n")}\n`
+          : "rules:\n"
+      );
+    } catch {
+      setPolicyYaml("rules:\n");
+    }
+  }, []);
+
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       void refreshIntegrations();
@@ -1138,6 +1189,49 @@ export function App() {
     }, 0);
     return () => window.clearTimeout(timeout);
   }, [activeBranchId, refreshRuntimeStatus, workflow.id, workflow.revision]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void refreshTrajectoryRuns();
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [adminToken, refreshTrajectoryRuns]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void refreshPolicies();
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [adminToken, refreshPolicies]);
+
+  useEffect(() => {
+    if (!selectedTrajectoryRunStreamId || selectedTrajectoryRunStatus !== "recording") {
+      return;
+    }
+    let cancelled = false;
+    void openClawApi.streamAgentRunEvents(selectedTrajectoryRunStreamId, (event) => {
+      if (cancelled) {
+        return;
+      }
+      setTrajectoryRuns((current) =>
+        current.map((candidate) => {
+          if (candidate.id !== selectedTrajectoryRunStreamId) {
+            return candidate;
+          }
+          if ("events" in event) {
+            return event;
+          }
+          if (candidate.events.some((existing) => existing.id === event.id)) {
+            return candidate;
+          }
+          return { ...candidate, events: [...candidate.events, event] };
+        })
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTrajectoryRunStatus, selectedTrajectoryRunStreamId]);
 
   useEffect(() => {
     if (!selectedNodeId || workflow.id === emptyWorkflowDraft.id) {
@@ -1341,6 +1435,16 @@ export function App() {
   function updateAdminToken(value: string) {
     setAdminToken(value);
     saveOpenClawAdminToken(value);
+  }
+
+  function savePolicyYaml() {
+    void executeApiAction("policy-save", async () => {
+      const response = await openClawApi.updatePolicyYaml(policyYaml);
+      setPolicyNotice(
+        `${Array.isArray(response.ruleset.rules) ? response.ruleset.rules.length : 0} rules saved.`
+      );
+      await refreshPolicies();
+    });
   }
 
   function saveSecret(secretName: string, valueOverride?: string | undefined) {
@@ -3098,6 +3202,18 @@ export function App() {
                 <p className="topbar-workflow">Revision {workflow.revision}</p>
               </div>
             </div>
+            <div className="mode-toggle" aria-label="Workspace mode">
+              {(["edit", "trajectory", "policy"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={surfaceMode === mode ? "mode-toggle-active" : ""}
+                  onClick={() => setSurfaceMode(mode)}
+                >
+                  {mode}
+                </button>
+              ))}
+            </div>
             <div className="canvas-command-cluster" aria-label="Workflow actions">
               <button
                 className="command-entry-button"
@@ -3244,55 +3360,85 @@ export function App() {
             </aside>
           ) : null}
 
-          <ReactFlow
-            nodes={flowNodes}
-            edges={flowEdges}
-            nodeTypes={workflowNodeTypes}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onNodeDragStop={onNodeDragStop}
-            onConnect={onConnect}
-            onNodesDelete={onNodesDelete}
-            onEdgesDelete={onEdgesDelete}
-            onNodeDoubleClick={(_, node) => openNodeDetails(node.id)}
-            onEdgeDoubleClick={(_, edge) => openEdgeDetails(edge.id)}
-            onPaneClick={() => {
-              setSelectedNodeId(null);
-              setSelectedEdgeId(null);
-              updateFlowSelection(null, null);
-              setNodePrompt("");
-              setJsonError(null);
-              setDetailsOpen(false);
-            }}
-            onSelectionChange={({ nodes: selectedNodes, edges: selectedEdges }) => {
-              if (selectedNodes[0]) {
-                setSelectedNodeId(selectedNodes[0].id);
-                setSelectedEdgeId(null);
-                setNodePrompt(
-                  workflow.nodes.find((node) => node.id === selectedNodes[0]?.id)?.description ?? ""
-                );
-                setJsonError(null);
-              } else if (selectedEdges[0]) {
+          {surfaceMode === "trajectory" ? (
+            <TrajectoryView
+              runs={trajectoryRuns}
+              selectedRunId={selectedTrajectoryRunId}
+              onSelectRun={setSelectedTrajectoryRunId}
+              onRefresh={refreshTrajectoryRuns}
+            />
+          ) : surfaceMode === "policy" ? (
+            <section className="policy-editor-panel" aria-label="Policy editor">
+              <textarea
+                value={policyYaml}
+                onChange={(event) => setPolicyYaml(event.target.value)}
+                spellCheck={false}
+              />
+              <div>
+                <button
+                  type="button"
+                  className="policy-save-button"
+                  disabled={busyAction !== null}
+                  onClick={savePolicyYaml}
+                >
+                  <CheckCircle2 size={16} />
+                  Save Policy
+                </button>
+                <span>{policyNotice ?? ""}</span>
+              </div>
+            </section>
+          ) : (
+            <ReactFlow
+              nodes={flowNodes}
+              edges={flowEdges}
+              nodeTypes={workflowNodeTypes}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onNodeDragStop={onNodeDragStop}
+              onConnect={onConnect}
+              onNodesDelete={onNodesDelete}
+              onEdgesDelete={onEdgesDelete}
+              onNodeDoubleClick={(_, node) => openNodeDetails(node.id)}
+              onEdgeDoubleClick={(_, edge) => openEdgeDetails(edge.id)}
+              onPaneClick={() => {
                 setSelectedNodeId(null);
-                setSelectedEdgeId(selectedEdges[0].id);
-                setNodePrompt("");
-                setJsonError(null);
-              } else {
-                setSelectedNodeId(null);
                 setSelectedEdgeId(null);
+                updateFlowSelection(null, null);
                 setNodePrompt("");
                 setJsonError(null);
                 setDetailsOpen(false);
-              }
-            }}
-            fitView
-            minZoom={0.5}
-            maxZoom={1.35}
-          >
-            <Background color="#272a32" gap={18} size={1.15} />
-            <MiniMap pannable zoomable />
-            <Controls showInteractive={false} />
-          </ReactFlow>
+              }}
+              onSelectionChange={({ nodes: selectedNodes, edges: selectedEdges }) => {
+                if (selectedNodes[0]) {
+                  setSelectedNodeId(selectedNodes[0].id);
+                  setSelectedEdgeId(null);
+                  setNodePrompt(
+                    workflow.nodes.find((node) => node.id === selectedNodes[0]?.id)?.description ??
+                      ""
+                  );
+                  setJsonError(null);
+                } else if (selectedEdges[0]) {
+                  setSelectedNodeId(null);
+                  setSelectedEdgeId(selectedEdges[0].id);
+                  setNodePrompt("");
+                  setJsonError(null);
+                } else {
+                  setSelectedNodeId(null);
+                  setSelectedEdgeId(null);
+                  setNodePrompt("");
+                  setJsonError(null);
+                  setDetailsOpen(false);
+                }
+              }}
+              fitView
+              minZoom={0.5}
+              maxZoom={1.35}
+            >
+              <Background color="#272a32" gap={18} size={1.15} />
+              <MiniMap pannable zoomable />
+              <Controls showInteractive={false} />
+            </ReactFlow>
+          )}
           <div className="canvas-footer" aria-label="Canvas status">
             <span>{workflow.nodes.length} nodes</span>
             <span>{workflow.edges.length} edges</span>

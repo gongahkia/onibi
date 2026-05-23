@@ -45,7 +45,10 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
       return toolContent(await postJson("/api/agent-runs", args));
     case "kelp.record_step":
       return toolContent(
-        await postJson(`/api/agent-runs/${encodeURIComponent(stringArg(args, "runId"))}/events`, args)
+        await postJson(
+          `/api/agent-runs/${encodeURIComponent(stringArg(args, "runId"))}/events`,
+          args
+        )
       );
     case "kelp.stop_recording":
       return toolContent(
@@ -155,7 +158,11 @@ async function postJson(path: string, body: Record<string, unknown>): Promise<un
   return requestJson("POST", path, body);
 }
 
-async function requestJson(method: string, path: string, body?: Record<string, unknown>): Promise<unknown> {
+async function requestJson(
+  method: string,
+  path: string,
+  body?: Record<string, unknown>
+): Promise<unknown> {
   const response = await fetch(new URL(path, apiBaseUrl), {
     method,
     headers: {
@@ -194,7 +201,9 @@ function toolContent(value: unknown): unknown {
 }
 
 function jsonObject(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function stringArg(args: Record<string, unknown>, key: string): string {

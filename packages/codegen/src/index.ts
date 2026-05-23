@@ -58,7 +58,11 @@ export { createGeneratedModuleSignature, generatedModuleSignaturesMatch } from "
 export { LocalCodegenArtifactStore, defaultCodegenArtifactStoreRoot } from "./storage.js";
 export type { CodegenArtifactStore } from "./storage.js";
 export { synthesizeWorkflowFromTrajectory } from "./trajectory-synth.js";
-export type { TrajectoryRun, TrajectoryStep, TrajectorySynthesisOptions } from "./trajectory-synth.js";
+export type {
+  TrajectoryRun,
+  TrajectoryStep,
+  TrajectorySynthesisOptions
+} from "./trajectory-synth.js";
 export { buildTbom, exportTbom } from "./tbom.js";
 export type { TrajectoryBillOfMaterials } from "./tbom.js";
 export type {

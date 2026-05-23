@@ -25,7 +25,9 @@ export interface TrajectoryBillOfMaterials {
 
 export function buildTbom(workflow: WorkflowSpec, run: TrajectoryRun): TrajectoryBillOfMaterials {
   const events = [...run.events].sort((left, right) => left.chainIndex - right.chainIndex);
-  const workflowClassifications = workflow.nodes.flatMap((node) => node.agentStep?.classification ?? []);
+  const workflowClassifications = workflow.nodes.flatMap(
+    (node) => node.agentStep?.classification ?? []
+  );
   return {
     kelpclawTbomVersion: "1.0.0",
     sourceAgent: run.sourceAgent,
@@ -41,8 +43,12 @@ export function buildTbom(workflow: WorkflowSpec, run: TrajectoryRun): Trajector
     adapters: countNamedRecords(
       events.map((event) => event.toolName).filter((toolName) => toolName.startsWith("adapter."))
     ).map((entry) => ({ id: entry.name, calls: entry.calls })),
-    externalDomains: uniqueSorted(events.flatMap((event) => extractDomains(event.args, event.result))),
-    secretsConsumed: uniqueSorted(events.flatMap((event) => extractSecrets(event.args, event.result))),
+    externalDomains: uniqueSorted(
+      events.flatMap((event) => extractDomains(event.args, event.result))
+    ),
+    secretsConsumed: uniqueSorted(
+      events.flatMap((event) => extractSecrets(event.args, event.result))
+    ),
     classifications: uniqueSorted([
       ...events.flatMap((event) => event.classification ?? []),
       ...workflowClassifications
@@ -58,7 +64,9 @@ export function exportTbom(tbom: TrajectoryBillOfMaterials, format: "json" | "pd
   return Buffer.from(JSON.stringify(tbom, null, 2), "utf8");
 }
 
-function countNamedRecords(values: readonly string[]): { readonly name: string; readonly calls: number }[] {
+function countNamedRecords(
+  values: readonly string[]
+): { readonly name: string; readonly calls: number }[] {
   const counts = new Map<string, number>();
   for (const value of values) {
     counts.set(value, (counts.get(value) ?? 0) + 1);
@@ -79,11 +87,15 @@ function extractModelIds(events: TrajectoryRun["events"]): readonly string[] {
 
 function extractDomains(...values: readonly (JsonValue | undefined)[]): readonly string[] {
   return extractStrings(values).flatMap((value) => {
-    try {
-      return [new URL(value).hostname];
-    } catch {
-      return [];
-    }
+    const matches = value.match(/https?:\/\/[^\s"')]+/gu) ?? [value];
+    return matches.flatMap((candidate) => {
+      try {
+        const hostname = new URL(candidate).hostname;
+        return hostname ? [hostname] : [];
+      } catch {
+        return [];
+      }
+    });
   });
 }
 

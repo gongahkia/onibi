@@ -367,6 +367,7 @@ export interface ApiAppOptions {
   readonly agentRunStore?: AgentRunStore | undefined;
   readonly policyEngine?: ApiPolicyEngine | undefined;
   readonly roleTokens?: Readonly<Record<string, readonly ApiRole[]>> | undefined;
+  readonly authSigningSecret?: string | null | undefined;
   readonly adminToken?: string | null | undefined;
   readonly runner?: NodeRunner | undefined;
 }
@@ -513,7 +514,8 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     options.adminToken === undefined ? process.env.KELPCLAW_ADMIN_TOKEN : options.adminToken;
   const auth = createApiAuthContext({
     adminToken,
-    roleTokens: options.roleTokens
+    roleTokens: options.roleTokens,
+    signingSecret: options.authSigningSecret
   });
 
   app.addHook("onClose", async () => {
@@ -675,13 +677,14 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     }
   );
 
-  app.get(
+  app.get<{ Querystring: { capability?: string | undefined; prompt?: string | undefined } }>(
     "/api/skills",
     { preHandler: auth.requireRole("auditor") },
-    async (request: FastifyRequest<{ Querystring: { capability?: string; prompt?: string } }>) => {
+    async (request) => {
       const query = request.query;
       const skills = listSkills().filter((skill) => {
-        const capabilityMatches = !query.capability || skill.capabilities.includes(query.capability);
+        const capabilityMatches =
+          !query.capability || skill.capabilities.includes(query.capability);
         const promptMatches =
           !query.prompt ||
           `${skill.name} ${skill.description} ${skill.metaprompt}`

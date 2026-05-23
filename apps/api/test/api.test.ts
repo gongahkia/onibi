@@ -40,6 +40,10 @@ function buildTestApiApp(): FastifyInstance {
   });
 }
 
+function createTestRoleToken(roles: Parameters<typeof createRoleToken>[0]["roles"]): string {
+  return createRoleToken({ roles, signingSecret: "test-signing-secret" });
+}
+
 describe("kelpclaw api contracts", () => {
   it("reports health", async () => {
     app = buildApiApp();
@@ -176,11 +180,16 @@ describe("kelpclaw api contracts", () => {
   it("enforces role-claimed tokens for agent-run routes", async () => {
     app = buildApiApp({
       adminToken: "legacy-admin-token",
+      authSigningSecret: "test-signing-secret",
       planner: createDeterministicPlannerBackend()
     });
-    const operatorToken = createRoleToken({ roles: ["operator"] });
-    const auditorToken = createRoleToken({ roles: ["auditor"] });
-    const adminRoleToken = createRoleToken({ roles: ["admin"] });
+    const operatorToken = createTestRoleToken(["operator"]);
+    const auditorToken = createTestRoleToken(["auditor"]);
+    const adminRoleToken = createTestRoleToken(["admin"]);
+    const unsignedToken = `kelp.${Buffer.from(
+      JSON.stringify({ sub: "unsigned", roles: ["admin"] }),
+      "utf8"
+    ).toString("base64url")}`;
 
     const started = await app.inject({
       method: "POST",
@@ -205,11 +214,18 @@ describe("kelpclaw api contracts", () => {
       headers: { authorization: `Bearer ${adminRoleToken}` },
       payload: { prompt: "extract transaction details from Gmail receipts into Sheets" }
     });
+    const rejectedUnsigned = await app.inject({
+      method: "POST",
+      url: "/api/workflows/plan",
+      headers: { authorization: `Bearer ${unsignedToken}` },
+      payload: { prompt: "extract transaction details from Gmail receipts into Sheets" }
+    });
 
     expect(started.statusCode).toBe(201);
     expect(audited.statusCode).toBe(200);
     expect(forbiddenAppend.statusCode).toBe(403);
     expect(planned.statusCode).toBe(200);
+    expect(rejectedUnsigned.statusCode).toBe(401);
   });
 
   it("records agent steps with a verifiable hash chain and policy denial audit", async () => {
@@ -285,10 +301,11 @@ rules:
   it("promotes a verified trajectory with reviewer role into content-addressed artifacts", async () => {
     app = buildApiApp({
       adminToken: "legacy-admin-token",
+      authSigningSecret: "test-signing-secret",
       planner: createDeterministicPlannerBackend()
     });
-    const operatorToken = createRoleToken({ roles: ["operator"] });
-    const reviewerToken = createRoleToken({ roles: ["reviewer"] });
+    const operatorToken = createTestRoleToken(["operator"]);
+    const reviewerToken = createTestRoleToken(["reviewer"]);
     const started = await app.inject({
       method: "POST",
       url: "/api/agent-runs",

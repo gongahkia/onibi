@@ -1318,3 +1318,191 @@ dd {
     grid-template-columns: 1fr;
   }
 }
+
+.mode-toggle {
+  align-items: center;
+  background: rgba(19, 21, 26, 0.84);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  display: flex;
+  gap: 0.2rem;
+  padding: 0.25rem;
+}
+
+.mode-toggle button {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: #aeb4c2;
+  cursor: pointer;
+  font: inherit;
+  padding: 0.45rem 0.65rem;
+}
+
+.mode-toggle .mode-toggle-active {
+  background: #e9eef8;
+  color: #151821;
+}
+
+.trajectory-view,
+.policy-editor-panel {
+  bottom: 4rem;
+  display: grid;
+  gap: 1rem;
+  left: 1.2rem;
+  overflow: hidden;
+  position: absolute;
+  right: 1.2rem;
+  top: 5.6rem;
+  z-index: 4;
+}
+
+.trajectory-view {
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+}
+
+.trajectory-run-list,
+.trajectory-steps,
+.policy-editor-panel {
+  background: rgba(17, 19, 24, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+}
+
+.trajectory-run-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  overflow: auto;
+  padding: 0.75rem;
+}
+
+.trajectory-panel-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.trajectory-run-list button {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  color: #e6e9ef;
+  cursor: pointer;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.65rem;
+  text-align: left;
+}
+
+.trajectory-run-list button span,
+.agent-step-meta,
+.agent-step-card footer {
+  color: #aeb4c2;
+  font-size: 0.78rem;
+}
+
+.trajectory-run-list .trajectory-run-active {
+  border-color: #8ab4ff;
+}
+
+.trajectory-steps {
+  display: grid;
+  gap: 0.75rem;
+  overflow: auto;
+  padding: 0.9rem;
+}
+
+.agent-step-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.85rem;
+}
+
+.agent-step-card-denied {
+  border-color: #ff827a;
+}
+
+.agent-step-card header,
+.agent-step-meta {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.agent-step-index {
+  align-items: center;
+  background: #e9eef8;
+  border-radius: 999px;
+  color: #151821;
+  display: inline-flex;
+  font-size: 0.72rem;
+  height: 1.35rem;
+  justify-content: center;
+  width: 1.35rem;
+}
+
+.agent-step-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.agent-step-grid pre,
+.policy-editor-panel textarea {
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  color: #e6e9ef;
+  font:
+    0.78rem/1.45 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  margin: 0;
+  overflow: auto;
+  padding: 0.75rem;
+}
+
+.policy-editor-panel {
+  grid-template-rows: minmax(0, 1fr) auto;
+  padding: 0.9rem;
+}
+
+.policy-editor-panel textarea {
+  resize: none;
+}
+
+.policy-editor-panel > div {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+}
+
+.policy-save-button {
+  align-items: center;
+  background: #e9eef8;
+  border-color: #e9eef8;
+  color: #151821;
+  display: inline-flex;
+  gap: 0.45rem;
+  min-height: 2.25rem;
+  min-width: 8.25rem;
+  padding: 0 0.85rem;
+}
+
+.policy-save-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.empty-state {
+  align-items: center;
+  color: #aeb4c2;
+  display: flex;
+  min-height: 10rem;
+  justify-content: center;
+}

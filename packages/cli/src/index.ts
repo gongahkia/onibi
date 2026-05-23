@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 
 type JsonRecord = Record<string, unknown>;
@@ -19,24 +20,39 @@ async function main(argv: readonly string[]): Promise<void> {
       );
     case "record-step":
       return printJson(
-        await postJson(`/api/agent-runs/${encodeURIComponent(requiredOption(args, "--run-id"))}/events`, {
-          hookEvent: requiredOption(args, "--hook-event"),
-          toolName: requiredOption(args, "--tool-name"),
-          args: jsonOption(args, "--args-json") ?? {},
-          ...(jsonOption(args, "--result-json") !== undefined
-            ? { result: jsonOption(args, "--result-json") }
-            : {}),
-          ...(option(args, "--status") ? { status: option(args, "--status") } : {})
-        })
+        await postJson(
+          `/api/agent-runs/${encodeURIComponent(requiredOption(args, "--run-id"))}/events`,
+          {
+            hookEvent: requiredOption(args, "--hook-event"),
+            toolName: requiredOption(args, "--tool-name"),
+            args: jsonOption(args, "--args-json") ?? {},
+            ...(jsonOption(args, "--result-json") !== undefined
+              ? { result: jsonOption(args, "--result-json") }
+              : {}),
+            ...(option(args, "--status") ? { status: option(args, "--status") } : {})
+          }
+        )
+      );
+    case "stop-recording":
+      return printJson(
+        await postJson(
+          `/api/agent-runs/${encodeURIComponent(requiredOption(args, "--run-id"))}/stop`,
+          {
+            status: option(args, "--status") ?? "stopped"
+          }
+        )
       );
     case "promote":
       return printJson(
-        await postJson(`/api/agent-runs/${encodeURIComponent(requiredOption(args, "--run-id"))}/promote`, {
-          skillName: requiredOption(args, "--skill-name"),
-          ...(option(args, "--capability")
-            ? { capabilities: [option(args, "--capability") as string] }
-            : {})
-        })
+        await postJson(
+          `/api/agent-runs/${encodeURIComponent(requiredOption(args, "--run-id"))}/promote`,
+          {
+            skillName: requiredOption(args, "--skill-name"),
+            ...(option(args, "--capability")
+              ? { capabilities: [option(args, "--capability") as string] }
+              : {})
+          }
+        )
       );
     case "policy":
       return printJson(
@@ -46,15 +62,39 @@ async function main(argv: readonly string[]): Promise<void> {
       );
     case "audit-verify":
       return printJson(
-        await getJson(`/api/agent-runs/${encodeURIComponent(requiredPositional(args, 0))}/audit/verify`)
+        await getJson(
+          `/api/agent-runs/${encodeURIComponent(requiredPositional(args, 0))}/audit/verify`
+        )
       );
     case "tbom-export":
-      return printJson(await getJson(`/api/agent-runs/${encodeURIComponent(requiredPositional(args, 0))}/tbom`));
+      return printJson(
+        await getJson(`/api/agent-runs/${encodeURIComponent(requiredPositional(args, 0))}/tbom`)
+      );
+    case "mcp":
+      return runMcp(args);
     default:
       throw new Error(
-        "Usage: kelp-claw <start-recording|record-step|promote|policy|audit-verify|tbom-export>"
+        "Usage: kelp-claw <start-recording|record-step|stop-recording|promote|mcp|policy|audit-verify|tbom-export>"
       );
   }
+}
+
+async function runMcp(args: readonly string[]): Promise<void> {
+  const command = process.env.KELPCLAW_MCP_COMMAND ?? "kelp-mcp";
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(command, [...args], {
+      stdio: "inherit",
+      env: process.env
+    });
+    child.on("error", reject);
+    child.on("exit", (code, signal) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`MCP sidecar exited with ${signal ?? code ?? "unknown status"}.`));
+      }
+    });
+  });
 }
 
 async function getJson(path: string): Promise<unknown> {

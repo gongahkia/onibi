@@ -1,5 +1,6 @@
 import type {
   JsonRecord,
+  JsonValue,
   WorkflowAcceptPlanRequest,
   WorkflowAcceptPlanResponse,
   WorkflowAgentMemoryRecord,
@@ -179,6 +180,48 @@ export interface CodegenEvalsResponse {
   readonly evalReports: readonly unknown[];
 }
 
+export interface AgentStepEvent {
+  readonly id: string;
+  readonly runId: string;
+  readonly recordedAt: string;
+  readonly sourceAgent: string;
+  readonly sessionId: string;
+  readonly hookEvent: string;
+  readonly toolName: string;
+  readonly toolUseId: string;
+  readonly args: JsonRecord;
+  readonly result?: JsonValue | undefined;
+  readonly status: string;
+  readonly contentHash: string;
+  readonly prevEventHash: string;
+  readonly chainIndex: number;
+  readonly classification?: string | undefined;
+  readonly startedAt: string;
+  readonly finishedAt?: string | undefined;
+  readonly policyDecision?: JsonRecord | undefined;
+}
+
+export interface AgentRunRecord {
+  readonly id: string;
+  readonly sourceAgent: string;
+  readonly sessionId: string;
+  readonly title?: string | undefined;
+  readonly status: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly events: readonly AgentStepEvent[];
+}
+
+export interface AgentRunListResponse {
+  readonly ok: true;
+  readonly runs: readonly AgentRunRecord[];
+}
+
+export interface PolicyRulesResponse {
+  readonly ok: true;
+  readonly ruleset: JsonRecord;
+}
+
 export interface SecretMetadata {
   readonly name: string;
   readonly createdAt: string;
@@ -266,6 +309,18 @@ export const openClawApi = {
 
   fetchAgentTimeline(workflowId: string): Promise<AgentTimelineResponse> {
     return getJson(`/api/workflows/${encodeURIComponent(workflowId)}/agent-timeline`);
+  },
+
+  fetchAgentRuns(): Promise<AgentRunListResponse> {
+    return getJson("/api/agent-runs");
+  },
+
+  fetchPolicies(): Promise<PolicyRulesResponse> {
+    return getJson("/api/policies");
+  },
+
+  updatePolicyYaml(yaml: string): Promise<PolicyRulesResponse> {
+    return putJson("/api/policies", { yaml });
   },
 
   plan(request: WorkflowPlanRequest, jobId?: string | undefined): Promise<WorkflowPlanResponse> {
@@ -717,6 +772,37 @@ export const openClawApi = {
         const line = chunk.split("\n").find((candidate) => candidate.startsWith("data: "));
         if (line) {
           onEvent(JSON.parse(line.slice("data: ".length)) as WorkflowJobEvent | WorkflowJob);
+        }
+      }
+    }
+  },
+
+  async streamAgentRunEvents(
+    runId: string,
+    onEvent: (event: AgentStepEvent | AgentRunRecord) => void
+  ): Promise<void> {
+    const response = await fetch(`/api/agent-runs/${encodeURIComponent(runId)}/events`, {
+      headers: authHeader()
+    });
+    if (!response.ok || !response.body) {
+      await parseJsonResponse(response);
+      return;
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      const chunks = buffer.split("\n\n");
+      buffer = chunks.pop() ?? "";
+      for (const chunk of chunks) {
+        const line = chunk.split("\n").find((candidate) => candidate.startsWith("data: "));
+        if (line) {
+          onEvent(JSON.parse(line.slice("data: ".length)) as AgentStepEvent | AgentRunRecord);
         }
       }
     }

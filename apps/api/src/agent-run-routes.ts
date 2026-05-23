@@ -71,35 +71,31 @@ export function registerAgentRunRoutes(app: FastifyInstance, options: AgentRunRo
     "/api/agent-runs",
     { preHandler: options.auth.requireRole("operator") },
     async (request, reply) => {
-    const sourceAgent = parseSourceAgent(request.body.sourceAgent);
-    const sessionId = stringValue(request.body.sessionId);
-    if (!sourceAgent || !sessionId) {
-      return reply.code(422).send({
-        ok: false,
-        error: "AGENT_RUN_INVALID",
-        message: "Agent run creation requires sourceAgent and sessionId."
-      });
-    }
+      const sourceAgent = parseSourceAgent(request.body.sourceAgent);
+      const sessionId = stringValue(request.body.sessionId);
+      if (!sourceAgent || !sessionId) {
+        return reply.code(422).send({
+          ok: false,
+          error: "AGENT_RUN_INVALID",
+          message: "Agent run creation requires sourceAgent and sessionId."
+        });
+      }
 
-    const run = options.store.startRun({
-      sourceAgent,
-      sessionId,
-      ...(typeof request.body.title === "string" && request.body.title.trim()
-        ? { title: request.body.title.trim() }
-        : {})
-    });
+      const run = options.store.startRun({
+        sourceAgent,
+        sessionId,
+        ...(typeof request.body.title === "string" && request.body.title.trim()
+          ? { title: request.body.title.trim() }
+          : {})
+      });
       return reply.code(201).send({ ok: true, run });
     }
   );
 
-  app.get(
-    "/api/agent-runs",
-    { preHandler: options.auth.requireRole("auditor") },
-    async () => ({
-      ok: true,
-      runs: options.store.listRuns()
-    })
-  );
+  app.get("/api/agent-runs", { preHandler: options.auth.requireRole("auditor") }, async () => ({
+    ok: true,
+    runs: options.store.listRuns()
+  }));
 
   app.get<{ Params: AgentRunParams }>(
     "/api/agent-runs/:id",
@@ -183,43 +179,43 @@ export function registerAgentRunRoutes(app: FastifyInstance, options: AgentRunRo
         return agentRunNotFound(reply, request.params.id);
       }
 
-    reply.raw.writeHead(200, {
-      "content-type": "text/event-stream; charset=utf-8",
-      "cache-control": "no-cache, no-transform",
-      connection: "keep-alive"
-    });
-    let sent = 0;
-    const writeAvailableEvents = () => {
-      const current = options.store.getRun(request.params.id);
-      if (!current) {
-        options.writeSseEvent(reply.raw, "error", {
-          message: `Agent run '${request.params.id}' was not found.`
-        });
-        reply.raw.end();
-        return true;
-      }
-      for (const event of current.events.slice(sent)) {
-        options.writeSseEvent(reply.raw, "agent-step", event);
-        sent += 1;
-      }
-      if (current.status !== "recording") {
-        options.writeSseEvent(reply.raw, "agent-run-complete", current);
-        reply.raw.end();
-        return true;
-      }
-      return false;
-    };
+      reply.raw.writeHead(200, {
+        "content-type": "text/event-stream; charset=utf-8",
+        "cache-control": "no-cache, no-transform",
+        connection: "keep-alive"
+      });
+      let sent = 0;
+      const writeAvailableEvents = () => {
+        const current = options.store.getRun(request.params.id);
+        if (!current) {
+          options.writeSseEvent(reply.raw, "error", {
+            message: `Agent run '${request.params.id}' was not found.`
+          });
+          reply.raw.end();
+          return true;
+        }
+        for (const event of current.events.slice(sent)) {
+          options.writeSseEvent(reply.raw, "agent-step", event);
+          sent += 1;
+        }
+        if (current.status !== "recording") {
+          options.writeSseEvent(reply.raw, "agent-run-complete", current);
+          reply.raw.end();
+          return true;
+        }
+        return false;
+      };
 
-    if (writeAvailableEvents()) {
-      return reply;
-    }
-
-    const interval = setInterval(() => {
       if (writeAvailableEvents()) {
-        clearInterval(interval);
+        return reply;
       }
-    }, 250);
-    request.raw.on("close", () => clearInterval(interval));
+
+      const interval = setInterval(() => {
+        if (writeAvailableEvents()) {
+          clearInterval(interval);
+        }
+      }, 250);
+      request.raw.on("close", () => clearInterval(interval));
       return reply;
     }
   );
@@ -250,32 +246,28 @@ export function registerAgentRunRoutes(app: FastifyInstance, options: AgentRunRo
     }
   );
 
-  app.get(
-    "/api/policies",
-    { preHandler: options.auth.requireRole("auditor") },
-    async () => ({
-      ok: true,
-      ruleset: options.policyEngine.currentRuleset()
-    })
-  );
+  app.get("/api/policies", { preHandler: options.auth.requireRole("auditor") }, async () => ({
+    ok: true,
+    ruleset: options.policyEngine.currentRuleset()
+  }));
 
   app.put<{ Body: PolicyRequestBody }>(
     "/api/policies",
     { preHandler: options.auth.requireRole("admin") },
     async (request, reply) => {
-    try {
-      const ruleset =
-        typeof request.body.yaml === "string"
-          ? options.policyEngine.replaceYaml(request.body.yaml)
-          : options.policyEngine.replaceRuleset({ rules: parseRules(request.body.rules) });
-      return { ok: true, ruleset };
-    } catch (error) {
-      return reply.code(422).send({
-        ok: false,
-        error: "POLICY_INVALID",
-        message: error instanceof Error ? error.message : "Policy configuration is invalid."
-      });
-    }
+      try {
+        const ruleset =
+          typeof request.body.yaml === "string"
+            ? options.policyEngine.replaceYaml(request.body.yaml)
+            : options.policyEngine.replaceRuleset({ rules: parseRules(request.body.rules) });
+        return { ok: true, ruleset };
+      } catch (error) {
+        return reply.code(422).send({
+          ok: false,
+          error: "POLICY_INVALID",
+          message: error instanceof Error ? error.message : "Policy configuration is invalid."
+        });
+      }
     }
   );
 
