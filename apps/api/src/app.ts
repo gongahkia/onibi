@@ -41,6 +41,7 @@ import {
   WorkflowValidationError,
   createWorkflowGraphDiff,
   createWorkflowPlannerFeedback,
+  createWorkflowRuntime,
   createWorkflowSpecDiff,
   gmailReceiptsToSheetsWorkflowFixture,
   redactJsonRecord,
@@ -54,7 +55,8 @@ import type {
   CodegenAgentRunRecord,
   CodegenArtifactStore,
   GeneratedNodeBuildRole,
-  GeneratedNodeRoleRunner
+  GeneratedNodeRoleRunner,
+  TrajectoryRun
 } from "@kelpclaw/codegen";
 import type { AgentMemoryAccess, NodeRunner } from "@kelpclaw/nanoclaw";
 import type { SkillMetadata } from "@kelpclaw/skill-registry";
@@ -4857,6 +4859,60 @@ function createPromotedSkill(workflow: WorkflowSpec, node: WorkflowNode): SkillM
   };
 }
 
+function createPromotedSkillFromTrajectory(
+  run: TrajectoryRun,
+  workflow: WorkflowSpec,
+  input: AgentRunPromoteRequestBody
+): SkillMetadata {
+  const firstStep = run.events[0];
+  const lastStep = run.events.at(-1);
+  const name = input.skillName?.trim() || run.title || `Promoted Trajectory ${run.id}`;
+  const capabilities =
+    input.capabilities && input.capabilities.length > 0
+      ? input.capabilities
+      : [trajectoryCapability(run)];
+
+  return {
+    id: `skill.promoted.${slugify(`${run.id}-${name}`)}`,
+    name,
+    version: "1.0.0",
+    description: `Replays ${run.events.length} recorded tool calls from ${run.sourceAgent}.`,
+    deterministic: true,
+    nodeKinds: ["skill"],
+    capabilities,
+    inputSchema: { request: { type: "object", additionalProperties: true } },
+    outputSchema: { result: { type: "object", additionalProperties: true } },
+    requiredSecrets: [],
+    adapterDependencies: [
+      ...new Set(
+        run.events.map((event) => event.toolName).filter((tool) => tool.startsWith("adapter."))
+      )
+    ].sort(),
+    adapterOperations: [],
+    runtimeTemplate: workflow.nodes[0]?.runtime ?? createWorkflowRuntime(),
+    metaprompt: `Select this promoted trajectory skill when a task asks to replay ${[
+      ...new Set(run.events.map((event) => event.toolName))
+    ].join(", ")} steps captured from ${run.sourceAgent}.`,
+    validationRules: [
+      "promoted from a verified hash-chained agent trajectory",
+      "recorded tool args and results must match content hashes before replay"
+    ],
+    examples: [
+      {
+        id: `example.${slugify(run.id)}`,
+        description: `Fixture for recorded run ${run.id}.`,
+        input: firstStep?.args ?? {},
+        output:
+          lastStep?.result && typeof lastStep.result === "object" && !Array.isArray(lastStep.result)
+            ? lastStep.result
+            : { result: lastStep?.result ?? null }
+      }
+    ],
+    source: "promoted",
+    promotedFromNodeId: workflow.nodes.find((node) => node.kind === "agent-step")?.id
+  };
+}
+
 function promotionCapability(node: WorkflowNode): string {
   const text =
     `${node.label} ${node.description} ${node.codegen?.latestPrompt ?? ""}`.toLowerCase();
@@ -4871,6 +4927,23 @@ function promotionCapability(node: WorkflowNode): string {
   }
 
   return `promoted-${slugify(node.id)}`;
+}
+
+function trajectoryCapability(run: TrajectoryRun): string {
+  const text = run.events
+    .map((event) => `${event.toolName} ${JSON.stringify(event.args)}`)
+    .join(" ")
+    .toLowerCase();
+  if (text.includes("bash")) {
+    return "terminal-tool-sequence";
+  }
+  if (text.includes("gmail")) {
+    return "gmail-tool-sequence";
+  }
+  if (text.includes("github")) {
+    return "github-tool-sequence";
+  }
+  return "agent-tool-sequence";
 }
 
 function createGeneratedModuleSignature(node: WorkflowNode): WorkflowGeneratedModuleSignature {

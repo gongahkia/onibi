@@ -33,6 +33,8 @@ export {
   type StopAgentRunInput
 } from "./agent-run-store.js";
 export { ApiPolicyEngine } from "./policy-engine.js";
+export { createApiAuthContext, createRoleToken, principalHasRole } from "./auth.js";
+export type { ApiPrincipal, ApiRole } from "./auth.js";
 export {
   InMemoryWorkflowStore,
   SqliteWorkflowStore,

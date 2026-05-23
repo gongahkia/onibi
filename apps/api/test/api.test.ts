@@ -2,13 +2,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { createDefaultMockAdapters } from "@kelpclaw/adapters";
 import { AdapterBackedNodeRunner, MockNodeRunner } from "@kelpclaw/nanoclaw";
-import { clearPromotedSkillsForTests } from "@kelpclaw/skill-registry";
+import { chooseSkillOrCodegen, clearPromotedSkillsForTests } from "@kelpclaw/skill-registry";
 import { gmailReceiptsToSheetsWorkflowFixture } from "@kelpclaw/workflow-spec";
 import type { WorkflowJob } from "@kelpclaw/workflow-spec";
 import {
   buildApiApp,
   createDeterministicPlannerBackend,
   createPlannerBackendFromEnv,
+  createRoleToken,
   InMemoryAgentRunStore,
   InMemorySecretStore,
   verifyAgentRunAuditChain
@@ -172,6 +173,45 @@ describe("kelpclaw api contracts", () => {
     expect(authorized.statusCode).toBe(200);
   });
 
+  it("enforces role-claimed tokens for agent-run routes", async () => {
+    app = buildApiApp({
+      adminToken: "legacy-admin-token",
+      planner: createDeterministicPlannerBackend()
+    });
+    const operatorToken = createRoleToken({ roles: ["operator"] });
+    const auditorToken = createRoleToken({ roles: ["auditor"] });
+    const adminRoleToken = createRoleToken({ roles: ["admin"] });
+
+    const started = await app.inject({
+      method: "POST",
+      url: "/api/agent-runs",
+      headers: { authorization: `Bearer ${operatorToken}` },
+      payload: { sourceAgent: "claude-code", sessionId: "session.rbac" }
+    });
+    const audited = await app.inject({
+      method: "GET",
+      url: `/api/agent-runs/${started.json().run.id}/audit/verify`,
+      headers: { authorization: `Bearer ${auditorToken}` }
+    });
+    const forbiddenAppend = await app.inject({
+      method: "POST",
+      url: `/api/agent-runs/${started.json().run.id}/events`,
+      headers: { authorization: `Bearer ${auditorToken}` },
+      payload: { hookEvent: "PostToolUse", toolName: "Bash", args: {} }
+    });
+    const planned = await app.inject({
+      method: "POST",
+      url: "/api/workflows/plan",
+      headers: { authorization: `Bearer ${adminRoleToken}` },
+      payload: { prompt: "extract transaction details from Gmail receipts into Sheets" }
+    });
+
+    expect(started.statusCode).toBe(201);
+    expect(audited.statusCode).toBe(200);
+    expect(forbiddenAppend.statusCode).toBe(403);
+    expect(planned.statusCode).toBe(200);
+  });
+
   it("records agent steps with a verifiable hash chain and policy denial audit", async () => {
     app = buildTestApiApp();
 
@@ -240,6 +280,70 @@ rules:
       expect.objectContaining({ action: "policy.denied" })
     ]);
     expect(verified.json().verification).toEqual({ valid: true });
+  });
+
+  it("promotes a verified trajectory with reviewer role into content-addressed artifacts", async () => {
+    app = buildApiApp({
+      adminToken: "legacy-admin-token",
+      planner: createDeterministicPlannerBackend()
+    });
+    const operatorToken = createRoleToken({ roles: ["operator"] });
+    const reviewerToken = createRoleToken({ roles: ["reviewer"] });
+    const started = await app.inject({
+      method: "POST",
+      url: "/api/agent-runs",
+      headers: { authorization: `Bearer ${operatorToken}` },
+      payload: {
+        sourceAgent: "claude-code",
+        sessionId: "session.promote",
+        title: "GitHub issue triage"
+      }
+    });
+    const runId = started.json().run.id;
+    await app.inject({
+      method: "POST",
+      url: `/api/agent-runs/${runId}/events`,
+      headers: { authorization: `Bearer ${operatorToken}` },
+      payload: {
+        hookEvent: "PostToolUse",
+        toolName: "Bash",
+        toolUseId: "toolu.promote",
+        args: { command: "gh issue list", endpoint: "https://api.github.com/repos/acme/app" },
+        result: { issues: 2 },
+        status: "succeeded",
+        classification: "Internal",
+        startedAt: "2026-05-23T00:00:00.000Z",
+        finishedAt: "2026-05-23T00:00:01.000Z"
+      }
+    });
+    const forbidden = await app.inject({
+      method: "POST",
+      url: `/api/agent-runs/${runId}/promote`,
+      headers: { authorization: `Bearer ${operatorToken}` },
+      payload: { skillName: "GitHub Issue Triage", capabilities: ["github-issue-triage"] }
+    });
+    const promoted = await app.inject({
+      method: "POST",
+      url: `/api/agent-runs/${runId}/promote`,
+      headers: { authorization: `Bearer ${reviewerToken}` },
+      payload: { skillName: "GitHub Issue Triage", capabilities: ["github-issue-triage"] }
+    });
+    const selection = chooseSkillOrCodegen({
+      capability: "github-issue-triage",
+      nodeKind: "skill",
+      prompt: "triage GitHub issues"
+    });
+
+    expect(forbidden.statusCode).toBe(403);
+    expect(promoted.statusCode).toBe(200);
+    expect(promoted.json().artifacts.skill.checksum).toMatch(/^sha256:/);
+    expect(promoted.json().artifacts.workflow.checksum).toMatch(/^sha256:/);
+    expect(promoted.json().artifacts.tbom.path).toContain(".bom.json");
+    expect(promoted.json().tbom.externalDomains).toEqual(["api.github.com"]);
+    expect(selection.kind).toBe("skill");
+    if (selection.kind === "skill") {
+      expect(selection.match.skill.id).toBe(promoted.json().skill.id);
+    }
   });
 
   it("streams completed agent-run events over SSE", async () => {

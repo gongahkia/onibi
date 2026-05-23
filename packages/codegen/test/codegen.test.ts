@@ -11,6 +11,7 @@ import {
   OpenAiCodeGenerator,
   OpenAiGeneratedNodeRoleRunner,
   assertSafeArtifactPath,
+  buildTbom,
   createDependencyManifestArtifact,
   createArtifactManifest,
   createCodegenMetadata,
@@ -19,7 +20,8 @@ import {
   decideReplay,
   generatedModuleSignaturesMatch,
   assertDependencyManifestPolicy,
-  resolveAzureOpenAiResponsesConfig
+  resolveAzureOpenAiResponsesConfig,
+  synthesizeWorkflowFromTrajectory
 } from "../src/index.js";
 import { scheduledScrapingWorkflowFixture } from "@kelpclaw/workflow-spec";
 import type {
@@ -874,6 +876,56 @@ describe("codegen artifact contracts", () => {
         workspaceRoot
       })
     ).rejects.toThrow("must stay inside workspace");
+  });
+
+  it("synthesizes trajectory workflows and TBOMs without an LLM", () => {
+    const run = {
+      id: "agent-run.test",
+      sourceAgent: "claude-code" as const,
+      sessionId: "session.test",
+      events: [
+        {
+          sourceAgent: "claude-code" as const,
+          sessionId: "session.test",
+          hookEvent: "PostToolUse",
+          toolName: "Bash",
+          toolUseId: "toolu.one",
+          args: { command: "curl https://api.example.com/status", secret: "secret:api.token" },
+          result: { provider: "anthropic", model: "claude-test" },
+          status: "succeeded" as const,
+          contentHash: `sha256:${"a".repeat(64)}`,
+          prevEventHash: `sha256:${"b".repeat(64)}`,
+          chainIndex: 0,
+          classification: "Internal" as const,
+          startedAt: "2026-05-23T00:00:00.000Z"
+        },
+        {
+          sourceAgent: "claude-code" as const,
+          sessionId: "session.test",
+          hookEvent: "PostToolUse",
+          toolName: "Bash",
+          toolUseId: "toolu.two",
+          args: { command: "cat output.json" },
+          status: "succeeded" as const,
+          contentHash: `sha256:${"c".repeat(64)}`,
+          prevEventHash: `sha256:${"d".repeat(64)}`,
+          chainIndex: 1,
+          classification: "Internal" as const,
+          startedAt: "2026-05-23T00:00:01.000Z"
+        }
+      ]
+    };
+    const workflow = synthesizeWorkflowFromTrajectory(run, {
+      createdAt: "2026-05-23T00:00:00.000Z"
+    });
+    const tbom = buildTbom(workflow, run);
+
+    expect(workflow.nodes.map((node) => node.kind)).toEqual(["trigger", "agent-step", "delivery"]);
+    expect(workflow.nodes[1]?.config.callCount).toBe(2);
+    expect(tbom.tools).toEqual([{ name: "Bash", calls: 2 }]);
+    expect(tbom.externalDomains).toEqual(["api.example.com"]);
+    expect(tbom.secretsConsumed).toEqual(["secret:api.token"]);
+    expect(tbom.classifications).toEqual(["Internal"]);
   });
 });
 
