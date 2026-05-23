@@ -69,6 +69,49 @@ describe("nanoclaw dag runtime", () => {
     expect(() => compileWorkflowDag(cyclicWorkflowFixture)).toThrow(WorkflowValidationError);
   });
 
+  it("rejects agent-step nodes at compile time", () => {
+    const workflow = approveForNanoClaw(
+      createWorkflowSpec({
+        id: "workflow.agent-step-runtime",
+        name: "Agent Step Runtime",
+        prompt: "capture one tool call",
+        createdAt: "2026-05-23T00:00:00.000Z",
+        nodes: [
+          createWorkflowNode({
+            id: "captured-bash",
+            kind: "agent-step",
+            agentStep: {
+              sourceAgent: "claude-code",
+              sessionId: "session.test",
+              hookEvent: "PostToolUse",
+              toolName: "Bash",
+              toolUseId: "toolu.test",
+              args: { command: "pwd" },
+              result: { stdout: "/tmp" },
+              status: "succeeded",
+              contentHash: `sha256:${"a".repeat(64)}`,
+              prevEventHash: `sha256:${"b".repeat(64)}`,
+              chainIndex: 0,
+              startedAt: "2026-05-23T00:00:00.000Z",
+              finishedAt: "2026-05-23T00:00:01.000Z"
+            }
+          })
+        ],
+        edges: []
+      })
+    );
+
+    expect(() => compileWorkflowDag(workflow)).toThrow(WorkflowValidationError);
+    try {
+      compileWorkflowDag(workflow);
+    } catch (error) {
+      expect(error).toBeInstanceOf(WorkflowValidationError);
+      expect((error as WorkflowValidationError).issues.map((issue) => issue.code)).toEqual([
+        "AGENT_STEP_EXECUTION_UNSUPPORTED"
+      ]);
+    }
+  });
+
   it("executes compiled dags through a mock runner in approved order", async () => {
     const dag = compileWorkflowDag(approvedGmailReceiptsToSheetsWorkflowFixture);
     const runner = new MockNodeRunner();

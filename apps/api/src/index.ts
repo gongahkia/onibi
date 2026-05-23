@@ -1,4 +1,9 @@
-export { buildApiApp, createConfiguredSecretStore, createConfiguredWorkflowStore } from "./app.js";
+export {
+  buildApiApp,
+  createConfiguredAgentRunStore,
+  createConfiguredSecretStore,
+  createConfiguredWorkflowStore
+} from "./app.js";
 export {
   createDeterministicPlannerBackend,
   createLivePlannerBackend,
@@ -13,6 +18,21 @@ export type {
   PlannerBackendProvider,
   WorkflowPlannerBackend
 } from "./planner.js";
+export {
+  InMemoryAgentRunStore,
+  SqliteAgentRunStore,
+  verifyAgentRunAuditChain,
+  type AgentRunAuditEvent,
+  type AgentRunAuditVerification,
+  type AgentRunRecord,
+  type AgentRunStatus,
+  type AgentRunStore,
+  type AgentStepEvent,
+  type AppendAgentStepEventInput,
+  type StartAgentRunInput,
+  type StopAgentRunInput
+} from "./agent-run-store.js";
+export { ApiPolicyEngine } from "./policy-engine.js";
 export {
   InMemoryWorkflowStore,
   SqliteWorkflowStore,

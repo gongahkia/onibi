@@ -169,8 +169,12 @@ import {
   createOAuthState,
   secretReadiness
 } from "./secrets.js";
+import { InMemoryAgentRunStore, SqliteAgentRunStore } from "./agent-run-store.js";
+import { registerAgentRunRoutes } from "./agent-run-routes.js";
+import { ApiPolicyEngine } from "./policy-engine.js";
 import { InMemoryWorkflowStore, SqliteWorkflowStore } from "./store.js";
 import type { SecretStore } from "./secrets.js";
+import type { AgentRunStore } from "./agent-run-store.js";
 import type { RevisionInput, WorkflowStore } from "./store.js";
 import type { WorkflowPlannerBackend } from "./planner.js";
 
@@ -335,6 +339,8 @@ export interface ApiAppOptions {
   readonly planner?: WorkflowPlannerBackend | undefined;
   readonly artifactStore?: CodegenArtifactStore | undefined;
   readonly secretStore?: SecretStore | undefined;
+  readonly agentRunStore?: AgentRunStore | undefined;
+  readonly policyEngine?: ApiPolicyEngine | undefined;
   readonly adminToken?: string | null | undefined;
   readonly runner?: NodeRunner | undefined;
 }
@@ -361,6 +367,19 @@ export function createConfiguredSecretStore(): SecretStore {
       process.env.KELPCLAW_WORKFLOW_DB ??
       join(process.cwd(), ".kelpclaw", "workflow.sqlite"),
     masterKey: process.env.KELPCLAW_SECRET_MASTER_KEY ?? ""
+  });
+}
+
+export function createConfiguredAgentRunStore(): AgentRunStore {
+  if (process.env.KELPCLAW_AGENT_RUN_STORE === "memory") {
+    return new InMemoryAgentRunStore();
+  }
+
+  return new SqliteAgentRunStore({
+    databasePath:
+      process.env.KELPCLAW_AGENT_RUN_DB ??
+      process.env.KELPCLAW_WORKFLOW_DB ??
+      join(process.cwd(), ".kelpclaw", "workflow.sqlite")
   });
 }
 
@@ -430,6 +449,8 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
   });
   const store = options.store ?? new InMemoryWorkflowStore();
   const secretStore = options.secretStore ?? new InMemorySecretStore();
+  const agentRunStore = options.agentRunStore ?? new InMemoryAgentRunStore();
+  const policyEngine = options.policyEngine ?? new ApiPolicyEngine();
   const artifactStore = options.artifactStore ?? new LocalCodegenArtifactStore();
   const planner = options.planner ?? createPlannerBackendFromEnv({ artifactStore });
   const runner = options.runner;
@@ -500,6 +521,12 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     ok: true,
     health: opsHealth(store, jobWorker, scheduleWorker, latestRouterEvalRun)
   }));
+
+  registerAgentRunRoutes(app, {
+    store: agentRunStore,
+    policyEngine,
+    writeSseEvent
+  });
 
   app.post<{
     Body: RouterEvaluateRequestBody;

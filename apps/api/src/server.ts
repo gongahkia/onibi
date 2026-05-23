@@ -1,4 +1,9 @@
-import { buildApiApp, createConfiguredSecretStore, createConfiguredWorkflowStore } from "./app.js";
+import {
+  buildApiApp,
+  createConfiguredAgentRunStore,
+  createConfiguredSecretStore,
+  createConfiguredWorkflowStore
+} from "./app.js";
 
 const adminToken = process.env.KELPCLAW_ADMIN_TOKEN;
 if (!adminToken) {
@@ -8,6 +13,7 @@ if (!adminToken) {
 const app = buildApiApp({
   store: createConfiguredWorkflowStore(),
   secretStore: createConfiguredSecretStore(),
+  agentRunStore: createConfiguredAgentRunStore(),
   adminToken
 });
 const port = Number(process.env.PORT ?? 8787);

@@ -21,6 +21,7 @@
     "@kelpclaw/adapters": "workspace:*",
     "@kelpclaw/codegen": "workspace:*",
     "@kelpclaw/nanoclaw": "workspace:*",
+    "@kelpclaw/policy": "workspace:*",
     "@kelpclaw/skill-registry": "workspace:*",
     "@kelpclaw/workflow-spec": "workspace:*",
     "cron-parser": "^5.5.0",

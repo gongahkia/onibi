@@ -15,6 +15,7 @@ import {
   scheduledScrapingWorkflowFixture,
   stableWorkflowStringify,
   timeSensitiveAlertDeliveryWorkflowFixture,
+  redactAgentStepMetadata,
   redactJsonRecord,
   redactedValue,
   validateWorkflowForExecution,
@@ -144,6 +145,92 @@ describe("workflow spec validation", () => {
     if (!result.ok) {
       expect(result.errors.map((error) => error.code)).toEqual([
         "WORKFLOW_CODEGEN_METADATA_MISSING"
+      ]);
+    }
+  });
+
+  it("accepts agent-step nodes with captured metadata", () => {
+    const workflow = createWorkflowSpec({
+      id: "workflow.agent-step-capture",
+      name: "Agent Step Capture",
+      prompt: "capture one tool call",
+      createdAt: "2026-05-23T00:00:00.000Z",
+      nodes: [
+        createWorkflowNode({
+          id: "bash-step",
+          kind: "agent-step",
+          agentStep: {
+            sourceAgent: "claude-code",
+            sessionId: "session.test",
+            hookEvent: "PostToolUse",
+            toolName: "Bash",
+            toolUseId: "toolu.test",
+            args: { command: "pwd" },
+            result: { stdout: "/tmp" },
+            status: "succeeded",
+            contentHash: `sha256:${"a".repeat(64)}`,
+            prevEventHash: `sha256:${"b".repeat(64)}`,
+            chainIndex: 0,
+            classification: "Internal",
+            startedAt: "2026-05-23T00:00:00.000Z",
+            finishedAt: "2026-05-23T00:00:01.000Z"
+          }
+        })
+      ],
+      edges: []
+    });
+
+    expect(validateWorkflowSpec(workflow).ok).toBe(true);
+  });
+
+  it("rejects missing or misplaced agent-step metadata", () => {
+    const missing = validateWorkflowSpec(
+      createWorkflowSpec({
+        id: "workflow.agent-step-missing",
+        name: "Agent Step Missing",
+        prompt: "capture one tool call",
+        createdAt: "2026-05-23T00:00:00.000Z",
+        nodes: [
+          createWorkflowNode({
+            id: "bash-step",
+            kind: "agent-step"
+          })
+        ],
+        edges: []
+      })
+    );
+    const misplaced = validateWorkflowSpec({
+      ...gmailReceiptsToSheetsWorkflowFixture,
+      nodes: gmailReceiptsToSheetsWorkflowFixture.nodes.map((node) =>
+        node.id === "manual-trigger"
+          ? {
+              ...node,
+              agentStep: {
+                sourceAgent: "claude-code",
+                sessionId: "session.test",
+                hookEvent: "PostToolUse",
+                toolName: "Bash",
+                toolUseId: "toolu.test",
+                args: { command: "pwd" },
+                status: "succeeded",
+                contentHash: `sha256:${"a".repeat(64)}`,
+                prevEventHash: `sha256:${"b".repeat(64)}`,
+                chainIndex: 0,
+                startedAt: "2026-05-23T00:00:00.000Z"
+              }
+            }
+          : node
+      )
+    });
+
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) {
+      expect(missing.errors.map((error) => error.code)).toEqual(["AGENT_STEP_METADATA_MISSING"]);
+    }
+    expect(misplaced.ok).toBe(false);
+    if (!misplaced.ok) {
+      expect(misplaced.errors.map((error) => error.code)).toEqual([
+        "AGENT_STEP_METADATA_FORBIDDEN"
       ]);
     }
   });
@@ -495,6 +582,29 @@ describe("enterprise observability contracts", () => {
         raw: redactedValue
       }
     });
+  });
+
+  it("redacts agent-step args and results", () => {
+    const metadata = redactAgentStepMetadata(
+      {
+        sourceAgent: "claude-code",
+        sessionId: "session.test",
+        hookEvent: "PostToolUse",
+        toolName: "Bash",
+        toolUseId: "toolu.test",
+        args: { authorization: "Bearer provider-token" },
+        result: { apiKey: "sk-test" },
+        status: "succeeded",
+        contentHash: `sha256:${"a".repeat(64)}`,
+        prevEventHash: `sha256:${"b".repeat(64)}`,
+        chainIndex: 0,
+        startedAt: "2026-05-23T00:00:00.000Z"
+      },
+      {}
+    );
+
+    expect(metadata.args.authorization).toBe(redactedValue);
+    expect(metadata.result).toEqual({ apiKey: redactedValue });
   });
 });
 

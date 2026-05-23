@@ -315,6 +315,8 @@ function nodeGlyph(kind: WorkflowNodeKind): string {
       return "ok";
     case "delivery":
       return "->";
+    case "agent-step":
+      return "[]";
   }
 }
 

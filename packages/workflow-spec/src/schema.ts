@@ -696,7 +696,9 @@ export const workflowRouterEvalCaseSchema = z.object({
   minConfidence: z.number().min(0).max(1),
   forceDeterministic: z.boolean().optional(),
   expectedNodeKinds: z
-    .array(z.enum(["trigger", "skill", "codegen", "transform", "approval", "delivery", "agent-step"]))
+    .array(
+      z.enum(["trigger", "skill", "codegen", "transform", "approval", "delivery", "agent-step"])
+    )
     .optional()
 });
 

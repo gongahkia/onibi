@@ -9,7 +9,9 @@ import {
   buildApiApp,
   createDeterministicPlannerBackend,
   createPlannerBackendFromEnv,
-  InMemorySecretStore
+  InMemoryAgentRunStore,
+  InMemorySecretStore,
+  verifyAgentRunAuditChain
 } from "../src/index.js";
 
 let app: FastifyInstance | undefined;
@@ -168,6 +170,153 @@ describe("kelpclaw api contracts", () => {
 
     expect(unauthorized.statusCode).toBe(401);
     expect(authorized.statusCode).toBe(200);
+  });
+
+  it("records agent steps with a verifiable hash chain and policy denial audit", async () => {
+    app = buildTestApiApp();
+
+    const policy = await app.inject({
+      method: "PUT",
+      url: "/api/policies",
+      payload: {
+        yaml: `
+rules:
+  - id: deny-rm-rf
+    when: tool == "Bash" && args.command =~ "^rm -rf"
+    action: deny
+`
+      }
+    });
+    const started = await app.inject({
+      method: "POST",
+      url: "/api/agent-runs",
+      payload: {
+        sourceAgent: "claude-code",
+        sessionId: "session.test",
+        title: "policy denial"
+      }
+    });
+    const runId = started.json().run.id;
+    const allowed = await app.inject({
+      method: "POST",
+      url: `/api/agent-runs/${runId}/events`,
+      payload: {
+        hookEvent: "PostToolUse",
+        toolName: "Bash",
+        toolUseId: "toolu.allowed",
+        args: { command: "pwd" },
+        result: { stdout: "/tmp" },
+        status: "succeeded",
+        startedAt: "2026-05-23T00:00:00.000Z",
+        finishedAt: "2026-05-23T00:00:01.000Z"
+      }
+    });
+    const denied = await app.inject({
+      method: "POST",
+      url: `/api/agent-runs/${runId}/events`,
+      payload: {
+        hookEvent: "PreToolUse",
+        toolName: "Bash",
+        toolUseId: "toolu.denied",
+        args: { command: "rm -rf /tmp/demo" },
+        status: "running",
+        startedAt: "2026-05-23T00:00:02.000Z"
+      }
+    });
+    const stored = await app.inject({ method: "GET", url: `/api/agent-runs/${runId}` });
+    const verified = await app.inject({
+      method: "GET",
+      url: `/api/agent-runs/${runId}/audit/verify`
+    });
+
+    expect(policy.statusCode).toBe(200);
+    expect(started.statusCode).toBe(201);
+    expect(allowed.statusCode).toBe(201);
+    expect(allowed.json().event.chainIndex).toBe(0);
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json().event.status).toBe("denied");
+    expect(stored.json().run.events).toHaveLength(2);
+    expect(stored.json().run.auditEvents).toEqual([
+      expect.objectContaining({ action: "policy.denied" })
+    ]);
+    expect(verified.json().verification).toEqual({ valid: true });
+  });
+
+  it("streams completed agent-run events over SSE", async () => {
+    app = buildTestApiApp();
+
+    const started = await app.inject({
+      method: "POST",
+      url: "/api/agent-runs",
+      payload: {
+        sourceAgent: "codex-cli",
+        sessionId: "session.sse"
+      }
+    });
+    const runId = started.json().run.id;
+    await app.inject({
+      method: "POST",
+      url: `/api/agent-runs/${runId}/events`,
+      payload: {
+        hookEvent: "PostToolUse",
+        toolName: "Bash",
+        args: { command: "pwd" }
+      }
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/agent-runs/${runId}/stop`,
+      payload: { status: "stopped" }
+    });
+    const events = await app.inject({
+      method: "GET",
+      url: `/api/agent-runs/${runId}/events`
+    });
+
+    expect(events.statusCode).toBe(200);
+    expect(events.body).toContain("event: agent-step");
+    expect(events.body).toContain("event: agent-run-complete");
+  });
+
+  it("detects agent-run hash-chain tampering", () => {
+    const store = new InMemoryAgentRunStore();
+    const run = store.startRun({ sourceAgent: "claude-code", sessionId: "session.tamper" });
+    store.appendEvent(run.id, {
+      sourceAgent: "claude-code",
+      sessionId: "session.tamper",
+      hookEvent: "PostToolUse",
+      toolName: "Bash",
+      toolUseId: "toolu.one",
+      args: { command: "pwd" },
+      status: "succeeded",
+      startedAt: "2026-05-23T00:00:00.000Z"
+    });
+    store.appendEvent(run.id, {
+      sourceAgent: "claude-code",
+      sessionId: "session.tamper",
+      hookEvent: "PostToolUse",
+      toolName: "Bash",
+      toolUseId: "toolu.two",
+      args: { command: "ls" },
+      status: "succeeded",
+      startedAt: "2026-05-23T00:00:01.000Z"
+    });
+    const stored = store.getRun(run.id);
+    if (!stored) {
+      throw new Error("expected recorded agent run");
+    }
+    const tampered = {
+      ...stored,
+      events: stored.events.map((event) =>
+        event.chainIndex === 1 ? { ...event, args: { command: "rm -rf /tmp/demo" } } : event
+      )
+    };
+
+    expect(store.verifyAuditChain(run.id)).toEqual({ valid: true });
+    expect(verifyAgentRunAuditChain(tampered)).toEqual({
+      valid: false,
+      brokenAt: 1
+    });
   });
 
   it("stores secret metadata without returning raw values", async () => {
