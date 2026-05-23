@@ -8,13 +8,15 @@ import {
   GeneratedNodeBuildLoop,
   LocalCodegenArtifactStore,
   OpenAiCodeGenerator,
+  buildTbom,
   checksumArtifactContent,
   createArtifactManifest,
   createAgentSdkGeneratedNodeRoleRunners,
   createOpenAiGeneratedNodeRoleRunners,
-  createGeneratedArtifact
+  createGeneratedArtifact,
+  synthesizeWorkflowFromTrajectory
 } from "@kelpclaw/codegen";
-import { registerPromotedSkill } from "@kelpclaw/skill-registry";
+import { getSkill, listSkills, registerPromotedSkill } from "@kelpclaw/skill-registry";
 import {
   createDefaultLiveAdapters,
   createDefaultMockAdapters,
@@ -204,6 +206,20 @@ interface CodegenRouteParams extends RouteParamsWithId {
 interface RunRouteParams {
   readonly id: string;
   readonly runId: string;
+}
+
+interface AgentRunRouteParams {
+  readonly id: string;
+}
+
+interface AgentRunPromoteRequestBody {
+  readonly skillName?: string | undefined;
+  readonly capabilities?: readonly string[] | undefined;
+  readonly promotedBy?: string | undefined;
+}
+
+interface SkillRouteParams {
+  readonly skillId: string;
 }
 
 interface MemoryRouteParams extends RouteParamsWithId {
@@ -525,7 +541,8 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       !auth.enabled ||
       isPublicRoute(request.method, request.url) ||
       request.url.startsWith("/api/agent-runs") ||
-      request.url.startsWith("/api/policies")
+      request.url.startsWith("/api/policies") ||
+      request.url.startsWith("/api/skills")
     ) {
       return;
     }
@@ -560,6 +577,140 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     auth,
     writeSseEvent
   });
+
+  app.post<{ Params: AgentRunRouteParams; Body: AgentRunPromoteRequestBody }>(
+    "/api/agent-runs/:id/promote",
+    { preHandler: auth.requireRole("reviewer") },
+    async (request, reply) => {
+      const run = agentRunStore.getRun(request.params.id);
+      if (!run) {
+        return reply.code(404).send({
+          ok: false,
+          error: "AGENT_RUN_NOT_FOUND",
+          message: `Agent run '${request.params.id}' was not found.`
+        });
+      }
+      const verification = agentRunStore.verifyAuditChain(run.id);
+      if (!verification.valid) {
+        return reply.code(409).send({
+          ok: false,
+          error: "AUDIT_CHAIN_INVALID",
+          message: `Agent run '${run.id}' audit chain is invalid.`,
+          verification
+        });
+      }
+
+      const workflow = synthesizeWorkflowFromTrajectory(run, {
+        name: request.body.skillName ?? run.title ?? `Promoted ${run.id}`
+      });
+      const skill = createPromotedSkillFromTrajectory(run, workflow, request.body);
+      const tbom = buildTbom(workflow, run);
+      const skillArtifact = createGeneratedArtifact({
+        path: `promoted-skills/${skill.id}.json`,
+        content: JSON.stringify(skill, null, 2),
+        contentType: "application/json"
+      });
+      const workflowArtifact = createGeneratedArtifact({
+        path: `promoted-trajectories/${run.id}.workflow.json`,
+        content: JSON.stringify(workflow, null, 2),
+        contentType: "application/json"
+      });
+      const tbomArtifact = createGeneratedArtifact({
+        path: `promoted-trajectories/${run.id}.bom.json`,
+        content: JSON.stringify(tbom, null, 2),
+        contentType: "application/json"
+      });
+      const [storedSkillArtifact, storedWorkflowArtifact, storedTbomArtifact] = await Promise.all([
+        artifactStore.putArtifact(skillArtifact),
+        artifactStore.putArtifact(workflowArtifact),
+        artifactStore.putArtifact(tbomArtifact)
+      ]);
+      const loadedSkill = JSON.parse(
+        await artifactStore.readArtifact(storedSkillArtifact.ref)
+      ) as SkillMetadata;
+      const promotedSkill = registerPromotedSkill(loadedSkill);
+      agentRunStore.appendAuditEvent(run.id, {
+        action: "trajectory.promoted",
+        summary: `Promoted agent run '${run.id}' to skill '${promotedSkill.id}'.`,
+        metadata: {
+          promotedBy: request.body.promotedBy ?? "reviewer",
+          skillId: promotedSkill.id,
+          artifactChecksum: storedSkillArtifact.ref.checksum
+        }
+      });
+
+      return {
+        ok: true,
+        skill: promotedSkill,
+        workflow,
+        tbom,
+        artifacts: {
+          skill: storedSkillArtifact.ref,
+          workflow: storedWorkflowArtifact.ref,
+          tbom: storedTbomArtifact.ref
+        }
+      };
+    }
+  );
+
+  app.get<{ Params: AgentRunRouteParams }>(
+    "/api/agent-runs/:id/tbom",
+    { preHandler: auth.requireRole("auditor") },
+    async (request, reply) => {
+      const run = agentRunStore.getRun(request.params.id);
+      if (!run) {
+        return reply.code(404).send({
+          ok: false,
+          error: "AGENT_RUN_NOT_FOUND",
+          message: `Agent run '${request.params.id}' was not found.`
+        });
+      }
+      const workflow = synthesizeWorkflowFromTrajectory(run);
+      return {
+        ok: true,
+        tbom: buildTbom(workflow, run)
+      };
+    }
+  );
+
+  app.get(
+    "/api/skills",
+    { preHandler: auth.requireRole("auditor") },
+    async (request: FastifyRequest<{ Querystring: { capability?: string; prompt?: string } }>) => {
+      const query = request.query;
+      const skills = listSkills().filter((skill) => {
+        const capabilityMatches = !query.capability || skill.capabilities.includes(query.capability);
+        const promptMatches =
+          !query.prompt ||
+          `${skill.name} ${skill.description} ${skill.metaprompt}`
+            .toLowerCase()
+            .includes(query.prompt.toLowerCase());
+        return capabilityMatches && promptMatches;
+      });
+      return { ok: true, skills };
+    }
+  );
+
+  app.post<{ Params: SkillRouteParams; Body: { readonly input?: JsonRecord | undefined } }>(
+    "/api/skills/:skillId/invoke",
+    { preHandler: auth.requireRole("operator") },
+    async (request, reply) => {
+      const skill = getSkill(request.params.skillId);
+      if (!skill) {
+        return reply.code(404).send({
+          ok: false,
+          error: "SKILL_NOT_FOUND",
+          message: `Skill '${request.params.skillId}' was not found.`
+        });
+      }
+      return {
+        ok: true,
+        skillId: skill.id,
+        input: request.body.input ?? {},
+        output: skill.examples[0]?.output ?? {}
+      };
+    }
+  );
 
   app.post<{
     Body: RouterEvaluateRequestBody;

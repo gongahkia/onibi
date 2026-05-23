@@ -279,20 +279,24 @@ export function registerAgentRunRoutes(app: FastifyInstance, options: AgentRunRo
     }
   );
 
-  app.post<{ Body: AppendAgentStepBody }>("/api/policies/check", async (request, reply) => {
-    const input = appendInputFromBody("custom", `policy-check.${Date.now()}`, request.body);
-    if (!input) {
-      return reply.code(422).send({
-        ok: false,
-        error: "POLICY_CHECK_INVALID",
-        message: "Policy checks require hookEvent, toolName, and object args."
-      });
+  app.post<{ Body: AppendAgentStepBody }>(
+    "/api/policies/check",
+    { preHandler: options.auth.requireRole("operator") },
+    async (request, reply) => {
+      const input = appendInputFromBody("custom", `policy-check.${Date.now()}`, request.body);
+      if (!input) {
+        return reply.code(422).send({
+          ok: false,
+          error: "POLICY_CHECK_INVALID",
+          message: "Policy checks require hookEvent, toolName, and object args."
+        });
+      }
+      return {
+        ok: true,
+        decision: options.policyEngine.evaluateStep(input)
+      };
     }
-    return {
-      ok: true,
-      decision: options.policyEngine.evaluateStep(input)
-    };
-  });
+  );
 }
 
 function appendInputFromBody(
