@@ -12,7 +12,7 @@
 - NanoClaw itself does not require Anthropic or OpenAI credentials. Model subscriptions are only used by the selected planner/codegen provider before approval.
 - Store provider credentials through encrypted `secret:<name>` refs. Do not place raw tokens in workflow specs.
 - Configure Google OAuth web credentials with the exact `KELPCLAW_PUBLIC_BASE_URL` callback.
-- Use SMTP, WhatsApp Cloud API, Telegram Bot, GitHub, Slack, Discord, Notion, Linear, Jira, Airtable, and webhook credentials owned by testable service accounts or bots.
+- Use SMTP, WhatsApp Cloud API, Telegram Bot, GitHub, Slack, Discord, Notion, Linear, Jira, Airtable, webhook, and database credentials owned by testable service accounts or bots.
 - Run `pnpm verify` from a clean checkout before deployment.
 - Confirm `GET /api/runtime/providers` shows the intended planner, agentic, codegen, fixer, and evaluator providers as configured.
 - Confirm workflow budgets are set through `GET/PATCH /api/workflows/:id/budget` before live agent runs.
@@ -45,6 +45,7 @@
 - Failed-run replay creates a new queued run from the original approved revision and deployment.
 - Schedule pause/resume survives API restart and `workflow_schedules` rows show next fire, last fire, and missed count.
 - Missing live secrets produce failed structured run output instead of falling back to mock adapters.
+- Database Query is read-only; Database Execute requires the connection secret to opt in with `allowWrites=true`.
 - Generated artifact hash drift blocks approval or execution.
 - `KELPCLAW_LIVE_SMOKE=1 pnpm smoke:live` succeeds against explicit test recipients and sheet ids.
 

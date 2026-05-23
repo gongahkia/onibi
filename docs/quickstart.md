@@ -66,7 +66,7 @@ OpenClaw's connector panel can import an OpenAPI document or register a Streamab
 
 For OpenAPI OAuth flows in this version, create or refresh the token outside KelpClaw, store it as a secret, and reference that secret from the connector.
 
-Built-in live adapters are available for Google, SMTP email, WhatsApp, Telegram, GitHub, Slack, Discord, Notion, Linear, Jira Cloud, Airtable, and generic webhooks. Store their credentials in OpenClaw's setup panel or through `PUT /api/secrets` using these default secret names:
+Built-in live adapters are available for Google, SMTP email, WhatsApp, Telegram, GitHub, Slack, Discord, Notion, Linear, Jira Cloud, Airtable, generic webhooks, and databases. Store their credentials in OpenClaw's setup panel or through `PUT /api/secrets` using these default secret names:
 
 - `google.oauth.default`
 - `email.smtp.default`
@@ -80,6 +80,9 @@ Built-in live adapters are available for Google, SMTP email, WhatsApp, Telegram,
 - `jira.basic.default`
 - `airtable.api.default`
 - `webhook.token.default`
+- `database.connection.default`
+
+SQLite works without adding a package when the database secret is JSON like `{"engine":"sqlite","databasePath":"/absolute/path/app.db"}`. Set `"allowWrites":true` in that secret only for workflows that may use the DB Execute adapter. Other engines use the exported `DatabaseClient` runtime contract.
 
 ## Runtime Truth
 

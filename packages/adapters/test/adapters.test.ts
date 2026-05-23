@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   AdapterCredentialError,
@@ -11,6 +15,7 @@ import {
   validateAdapterCredentialRefs
 } from "../src/index.js";
 import type { AdapterInvocation } from "../src/index.js";
+import type { DatabaseQueryInput } from "../src/index.js";
 
 const context = {
   workflowId: "workflow.gmail-receipts-to-sheets",
@@ -34,7 +39,8 @@ describe("adapter metadata", () => {
       "linear",
       "jira",
       "airtable",
-      "webhook"
+      "webhook",
+      "database"
     ]);
     expect(builtinAdapterMetadata.map((adapter) => adapter.id)).toEqual([
       "adapter.gmail",
@@ -49,7 +55,8 @@ describe("adapter metadata", () => {
       "adapter.linear",
       "adapter.jira",
       "adapter.airtable",
-      "adapter.webhook"
+      "adapter.webhook",
+      "adapter.database"
     ]);
     expect(builtinAdapterMetadata.every((adapter) => adapter.live)).toBe(true);
     expect(builtinAdapterMetadata.every((adapter) => adapter.version === "1.0.0")).toBe(true);
@@ -410,6 +417,109 @@ describe("live adapter execution", () => {
 
     expect(result?.status).toBe("succeeded");
     expect(calls).toEqual(["https://hooks.example.test/kelpclaw"]);
+  });
+
+  it("passes external database engines through the runtime DatabaseClient contract", async () => {
+    const calls: DatabaseQueryInput[] = [];
+    const adapters = createDefaultLiveAdapters({
+      database: {
+        async query(input) {
+          calls.push(input);
+          return {
+            rows: [{ id: "evt-1", status: "processed" }],
+            rowCount: 1,
+            fields: ["id", "status"]
+          };
+        }
+      }
+    });
+
+    const result = await adapters.get("adapter.database")?.invoke(
+      invocationFor({
+        adapterId: "adapter.database",
+        operation: "database.execute",
+        payload: {
+          statement: "INSERT INTO events (id, status) VALUES ($1, $2) RETURNING id, status",
+          parameters: ["evt-1", "processed"],
+          maxRows: 10
+        },
+        secretRefs: { "database.connection": "secret:database.connection.default" },
+        secrets: {
+          "database.connection": JSON.stringify({
+            engine: "postgres",
+            connectionString: "postgres://user:pass@db.example.test/app",
+            allowWrites: true
+          })
+        }
+      })
+    );
+
+    expect(result?.output.rows).toEqual([{ id: "evt-1", status: "processed" }]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      operation: "database.execute",
+      statement: "INSERT INTO events (id, status) VALUES ($1, $2) RETURNING id, status",
+      parameters: ["evt-1", "processed"],
+      readonly: false,
+      connection: {
+        engine: "postgres",
+        connectionString: "postgres://user:pass@db.example.test/app",
+        allowWrites: true
+      }
+    });
+  });
+
+  it("runs SQLite database queries and writes with the built-in client", async () => {
+    const databasePath = join(
+      mkdtempSync(join(tmpdir(), "kelpclaw-adapter-db-")),
+      "runtime.sqlite"
+    );
+    execFileSync("sqlite3", [databasePath], {
+      input:
+        "CREATE TABLE receipts (id TEXT PRIMARY KEY, total REAL);\nINSERT INTO receipts VALUES ('r1', 12.34);\n",
+      encoding: "utf8"
+    });
+    const adapters = createDefaultLiveAdapters();
+
+    const query = await adapters.get("adapter.database")?.invoke(
+      invocationFor({
+        adapterId: "adapter.database",
+        operation: "database.query",
+        payload: {
+          statement: "SELECT id, total FROM receipts WHERE total > ?1",
+          parameters: [10]
+        },
+        secretRefs: { "database.connection": "secret:database.connection.default" },
+        secrets: {
+          "database.connection": JSON.stringify({
+            engine: "sqlite",
+            databasePath
+          })
+        }
+      })
+    );
+    const execute = await adapters.get("adapter.database")?.invoke(
+      invocationFor({
+        adapterId: "adapter.database",
+        operation: "database.execute",
+        payload: {
+          statement: "INSERT INTO receipts (id, total) VALUES (?1, ?2)",
+          parameters: ["r2", 99.5]
+        },
+        secretRefs: { "database.connection": "secret:database.connection.default" },
+        secrets: {
+          "database.connection": JSON.stringify({
+            engine: "sqlite",
+            databasePath,
+            allowWrites: true
+          })
+        }
+      })
+    );
+
+    expect(query?.output.rows).toEqual([{ id: "r1", total: 12.34 }]);
+    expect(query?.output.rowCount).toBe(1);
+    expect(execute?.output.rowCount).toBe(1);
   });
 });
 

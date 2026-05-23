@@ -9,6 +9,7 @@ import type {
   WorkflowSpec,
   WorkflowValidationIssue
 } from "@kelpclaw/workflow-spec";
+import { ProviderIcon, providerIconKeyForAdapterIds } from "./provider-icons.js";
 
 export interface WorkflowNodeData extends Record<string, unknown> {
   readonly workflowNode: WorkflowNode;
@@ -137,6 +138,9 @@ function WorkflowNodeCard(props: NodeProps<WorkflowFlowNode>) {
   const inputPorts = Object.keys(node.inputs);
   const outputPorts = Object.keys(node.outputs);
   const selected = Boolean(props.selected);
+  const providerIconKey = providerIconKeyForAdapterIds(
+    node.adapterIds ?? (node.adapterId ? [node.adapterId] : undefined)
+  );
 
   return (
     <div
@@ -162,7 +166,11 @@ function WorkflowNodeCard(props: NodeProps<WorkflowFlowNode>) {
       ))}
       <div className="workflow-card-header">
         <div className="node-title">
-          <span className="node-glyph">{nodeGlyph(node.kind)}</span>
+          {providerIconKey ? (
+            <ProviderIcon className="node-provider-icon" provider={providerIconKey} size={18} />
+          ) : (
+            <span className="node-glyph">{nodeGlyph(node.kind)}</span>
+          )}
           <div className="node-title-copy">
             {selected ? (
               <input

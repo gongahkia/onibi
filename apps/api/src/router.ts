@@ -328,7 +328,12 @@ const routeDefinitions: readonly RouteDefinition[] = [
     positive: [
       signal("gmail", /\bgmail\b/u, 4),
       signal("sheets", /\b(sheets|spreadsheet|google sheet)\b/u, 4),
-      signal("delivery adapter", /\b(email|telegram|whatsapp|slack|smtp)\b/u, 3),
+      signal(
+        "delivery adapter",
+        /\b(email|telegram|whatsapp|slack|discord|github|notion|linear|jira|airtable|webhook|smtp)\b/u,
+        3
+      ),
+      signal("database", /\b(database|db|sql|sqlite|postgres|postgresql|mysql)\b/u, 4),
       signal("connector", /\b(adapter|integration|connector|openapi|mcp endpoint)\b/u, 3),
       signal("sync", /\b(sync|append|send|notify|extract transaction|receipt)\b/u, 2)
     ],
@@ -345,7 +350,11 @@ const routeDefinitions: readonly RouteDefinition[] = [
       signal("fixed graph", /\b(deterministic|fixed|local|offline)\b/u, 3)
     ],
     negative: [
-      signal("live integration", /\b(gmail|sheets|telegram|whatsapp|openapi|mcp)\b/u, 1),
+      signal(
+        "live integration",
+        /\b(gmail|sheets|telegram|whatsapp|slack|discord|github|notion|linear|jira|airtable|webhook|database|db|sql|openapi|mcp)\b/u,
+        1
+      ),
       signal("live model", /\b(research|agent|custom code|scrape)\b/u, 1)
     ]
   }

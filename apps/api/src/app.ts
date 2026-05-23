@@ -7225,6 +7225,9 @@ function requiredIntegrationsForWorkflow(workflow: WorkflowSpec): readonly strin
         case "adapter.webhook":
           integrations.add("webhook");
           break;
+        case "adapter.database":
+          integrations.add("database");
+          break;
       }
     }
   }

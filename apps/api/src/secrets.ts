@@ -148,7 +148,8 @@ export function secretReadiness(secretStore: SecretStore): readonly {
     readiness("linear", names, ["linear.api.default"]),
     readiness("jira", names, ["jira.basic.default"]),
     readiness("airtable", names, ["airtable.api.default"]),
-    readiness("webhook", names, ["webhook.token.default"])
+    readiness("webhook", names, ["webhook.token.default"]),
+    readiness("database", names, ["database.connection.default"])
   ];
 }
 

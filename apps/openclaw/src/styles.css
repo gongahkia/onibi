@@ -296,6 +296,45 @@ textarea::placeholder {
   width: 2.25rem;
 }
 
+.provider-icon {
+  align-items: center;
+  background: #24262d;
+  border: 1px solid #3d414d;
+  border-radius: 6px;
+  color: #f2f4f8;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 2rem;
+  justify-content: center;
+  overflow: hidden;
+  width: 2rem;
+}
+
+.provider-icon svg {
+  display: block;
+  flex: 0 0 auto;
+}
+
+.provider-icon-github {
+  background: #f6f8fa;
+  border-color: #d0d7de;
+  color: #24292f;
+}
+
+.provider-icon-notion {
+  background: #ffffff;
+  border-color: #d8dadd;
+  color: #111111;
+}
+
+.provider-icon-database,
+.provider-icon-webhook,
+.provider-icon-openapi,
+.provider-icon-mcp,
+.provider-icon-connector {
+  color: #d7e2ff;
+}
+
 .command-palette-backdrop {
   align-items: flex-start;
   background: rgba(5, 5, 7, 0.68);
@@ -375,7 +414,20 @@ textarea::placeholder {
   border-color: #4b5160;
 }
 
-.command-palette-command span {
+.command-palette-command-main {
+  align-items: center;
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: auto minmax(0, 1fr);
+  min-width: 0;
+}
+
+.command-palette-command-icon {
+  height: 2.15rem;
+  width: 2.15rem;
+}
+
+.command-palette-command-copy {
   display: grid;
   gap: 0.16rem;
   min-width: 0;
@@ -908,6 +960,11 @@ dd {
   height: 1.4rem;
   justify-content: center;
   width: 1.4rem;
+}
+
+.node-provider-icon {
+  height: 1.65rem;
+  width: 1.65rem;
 }
 
 .node-inline-editor {

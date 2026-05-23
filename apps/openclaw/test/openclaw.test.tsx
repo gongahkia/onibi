@@ -215,6 +215,16 @@ describe("OpenClaw planner shell", () => {
     );
   });
 
+  it("shows provider icons for plugin commands and adapter-backed nodes", async () => {
+    render(<App />);
+
+    const input = await filterCommand("GitHub Issue");
+    expect(screen.getByRole("img", { name: "GitHub" })).toBeInTheDocument();
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(await screen.findByText("GitHub Issue")).toBeInTheDocument();
+  });
+
   it("configures adapter-backed delivery skills and opt-in push channels", async () => {
     render(<App />);
 

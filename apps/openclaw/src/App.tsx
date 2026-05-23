@@ -86,6 +86,7 @@ import {
   workflowToNodes
 } from "./workflow-elements.js";
 import type { WorkflowFlowEdge, WorkflowFlowNode, WorkflowNodeData } from "./workflow-elements.js";
+import { ProviderIcon, providerIconKeyForAdapter } from "./provider-icons.js";
 import "./styles.css";
 
 const defaultPrompt = "";
@@ -245,6 +246,7 @@ interface ComponentPaletteItem {
   readonly adapterOperations?: readonly WorkflowAdapterOperationRef[] | undefined;
   readonly secretRefs?: Readonly<Record<string, string>> | undefined;
   readonly agentic?: WorkflowNode["agentic"] | undefined;
+  readonly iconKey?: string | undefined;
 }
 
 const objectPort = { type: "object" as const, additionalProperties: true };
@@ -541,6 +543,58 @@ const componentPaletteItems: readonly ComponentPaletteItem[] = [
     }
   },
   {
+    id: "database-query",
+    category: "data-sources",
+    label: "DB Query",
+    description: "Reads rows through the configured database runtime client.",
+    kind: "skill",
+    inputs: { request: objectPort },
+    outputs: { rows: arrayPort },
+    skillId: "skill.database.query",
+    adapterId: "adapter.database",
+    adapterIds: ["adapter.database"],
+    adapterOperations: [
+      {
+        adapterId: "adapter.database",
+        operation: "database.query",
+        operationVersion: "1.0.0"
+      }
+    ],
+    secretRefs: { "database.connection": "secret:database.connection.default" },
+    config: {
+      statement: "SELECT * FROM receipts LIMIT 100",
+      parameters: [],
+      maxRows: 100,
+      allowedHosts: ["database"]
+    }
+  },
+  {
+    id: "database-execute",
+    category: "processing",
+    label: "DB Execute",
+    description: "Writes rows through the configured database runtime client.",
+    kind: "skill",
+    inputs: { payload: objectPort },
+    outputs: { result: objectPort },
+    skillId: "skill.database.execute",
+    adapterId: "adapter.database",
+    adapterIds: ["adapter.database"],
+    adapterOperations: [
+      {
+        adapterId: "adapter.database",
+        operation: "database.execute",
+        operationVersion: "1.0.0"
+      }
+    ],
+    secretRefs: { "database.connection": "secret:database.connection.default" },
+    config: {
+      statement: "INSERT INTO workflow_events (id, status) VALUES (?1, ?2)",
+      parameters: ["event-id", "processed"],
+      maxRows: 100,
+      allowedHosts: ["database"]
+    }
+  },
+  {
     id: "research-agent",
     category: "models-agents",
     label: "Research Agent",
@@ -695,6 +749,12 @@ const integrationSetups = [
     label: "Webhook",
     secretName: "webhook.token.default",
     placeholder: "Bearer token sent to the webhook"
+  },
+  {
+    id: "database",
+    label: "Database",
+    secretName: "database.connection.default",
+    placeholder: '{"engine":"sqlite","databasePath":"/absolute/path/app.db","allowWrites":false}'
   }
 ] as const;
 
@@ -704,6 +764,7 @@ interface PaletteCommand {
   readonly label: string;
   readonly detail?: string | undefined;
   readonly keywords?: readonly string[] | undefined;
+  readonly iconKey?: string | undefined;
   readonly disabled?: boolean | undefined;
   readonly closeOnSelect?: boolean | undefined;
   readonly onSelect: () => void;
@@ -2607,6 +2668,7 @@ export function App() {
       label: `Add ${item.label}`,
       detail: item.description,
       keywords: [item.kind, categoryLabel(item.category)],
+      iconKey: item.iconKey ?? providerIconKeyForAdapter(item.adapterId),
       disabled: branchLifecycleLocked,
       onSelect: () => addComponentNode(item)
     })),
@@ -2911,6 +2973,7 @@ export function App() {
       group: "Integrations",
       label: "Connect Google",
       detail: "Start Google OAuth for Gmail and Sheets.",
+      iconKey: "google",
       disabled: busyAction !== null,
       onSelect: connectGoogle
     },
@@ -2919,6 +2982,7 @@ export function App() {
       group: "Integrations",
       label: "Revoke Google",
       detail: "Remove the stored Google OAuth secret.",
+      iconKey: "google",
       disabled: busyAction !== null || !storedSecretNames.has("google.oauth.default"),
       onSelect: revokeGoogle
     },
@@ -2928,6 +2992,7 @@ export function App() {
         group: "Integrations",
         label: `${setup.label} Integration`,
         detail: `${setup.secretName} is ${storedSecretNames.has(setup.secretName) ? "stored" : "missing"}; ${integrationStatus(setup.id, integrationReadiness, googleConnected).label}.`,
+        iconKey: setup.id,
         disabled: true,
         onSelect: () => {}
       },
@@ -2936,6 +3001,7 @@ export function App() {
         group: "Integrations",
         label: `Save ${setup.label} Secret`,
         detail: setup.secretName,
+        iconKey: setup.id,
         disabled: busyAction !== null,
         closeOnSelect: false,
         onSelect: () =>
@@ -2951,6 +3017,7 @@ export function App() {
         group: "Integrations",
         label: `Delete ${setup.label} Secret`,
         detail: setup.secretName,
+        iconKey: setup.id,
         disabled: busyAction !== null || !storedSecretNames.has(setup.secretName),
         onSelect: () => deleteSecret(setup.secretName)
       }
@@ -3390,9 +3457,18 @@ function CommandPalette(props: {
                     onMouseEnter={() => props.onSelectionChange(index)}
                     onClick={() => props.onExecuteCommand(command)}
                   >
-                    <span>
-                      <strong>{command.label}</strong>
-                      {command.detail ? <small>{command.detail}</small> : null}
+                    <span className="command-palette-command-main">
+                      {command.iconKey ? (
+                        <ProviderIcon
+                          className="command-palette-command-icon"
+                          provider={command.iconKey}
+                          size={20}
+                        />
+                      ) : null}
+                      <span className="command-palette-command-copy">
+                        <strong>{command.label}</strong>
+                        {command.detail ? <small>{command.detail}</small> : null}
+                      </span>
                     </span>
                     <em>{command.group}</em>
                   </button>

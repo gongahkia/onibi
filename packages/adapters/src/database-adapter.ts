@@ -66,7 +66,9 @@ export class DatabaseAdapter implements Adapter {
 
   public async invoke(invocation: AdapterInvocation): Promise<AdapterResult> {
     assertInvocation(this.metadata, invocation);
-    const statement = normalizedStatement(requiredString(invocation.payload.statement, "statement"));
+    const statement = normalizedStatement(
+      requiredString(invocation.payload.statement, "statement")
+    );
     const isQuery = invocation.operation === "database.query";
     const readonly = isQuery || booleanValue(invocation.payload.readonly, false);
     if (readonly) {
@@ -104,7 +106,7 @@ export class DatabaseAdapter implements Adapter {
         engine: connection.engine,
         rows,
         rowCount: result.rowCount,
-        fields: result.fields ?? fieldsForRows(rows),
+        fields: [...(result.fields ?? fieldsForRows(rows))],
         truncated: result.rows.length > rows.length,
         ...(result.metadata ? { metadata: result.metadata } : {})
       },
@@ -225,7 +227,10 @@ function engineFromConnection(
   if (databasePath) {
     return "sqlite";
   }
-  if (connectionString?.startsWith("postgres://") || connectionString?.startsWith("postgresql://")) {
+  if (
+    connectionString?.startsWith("postgres://") ||
+    connectionString?.startsWith("postgresql://")
+  ) {
     return "postgres";
   }
   if (connectionString?.startsWith("mysql://")) {
@@ -241,7 +246,9 @@ function engineFromConnection(
 function sqliteScript(input: DatabaseQueryInput): string {
   const commands = [
     ".parameter init",
-    ...input.parameters.map((parameter, index) => `.parameter set ?${index + 1} ${sqliteLiteral(parameter)}`)
+    ...input.parameters.map(
+      (parameter, index) => `.parameter set ?${index + 1} ${sqliteLiteral(parameter)}`
+    )
   ];
   const queryOnly = input.readonly ? ["PRAGMA query_only = ON;"] : [];
   const statement = `${input.statement};`;
@@ -281,12 +288,11 @@ function normalizedStatement(statement: string): string {
 }
 
 function assertReadOnlyStatement(statement: string): void {
-  const lowered = statement.replace(/^\s*--.*$/gmu, "").trim().toLowerCase();
-  if (
-    !lowered.startsWith("select ") &&
-    !lowered.startsWith("with ") &&
-    !lowered.startsWith("pragma ")
-  ) {
+  const lowered = statement
+    .replace(/^\s*--.*$/gmu, "")
+    .trim()
+    .toLowerCase();
+  if (!/^(select|with|pragma)\b/u.test(lowered)) {
     throw new Error("database.query only accepts read-only SQL statements.");
   }
 }
