@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   AdapterCredentialError,
+  OtlpExportAdapter,
   builtinAdapterMetadata,
   createDefaultLiveAdapters,
   createDefaultMockAdapters,
@@ -520,6 +521,80 @@ describe("live adapter execution", () => {
     expect(query?.output.rows).toEqual([{ id: "r1", total: 12.34 }]);
     expect(query?.output.rowCount).toBe(1);
     expect(execute?.output.rowCount).toBe(1);
+  });
+});
+
+describe("OTLP export adapter", () => {
+  it("exports one OTLP JSON trace with one span per tool call", async () => {
+    let request: { readonly input: string; readonly body: string } | undefined;
+    const adapter = new OtlpExportAdapter({
+      fetch: async (input, init) => {
+        request = {
+          input: String(input),
+          body: String(init?.body ?? "")
+        };
+        return jsonResponse({});
+      }
+    });
+
+    const result = await adapter.invoke(
+      invocationFor({
+        adapterId: "adapter.otlp.export",
+        operation: "otlp.traces.export",
+        payload: {
+          endpoint: "https://otel.test/v1/traces",
+          headers: { "x-api-key": "test" },
+          serviceName: "kelpclaw-test",
+          runId: "agent-run.otlp",
+          skillId: "skill.promoted.otlp",
+          sourceAgent: "claude-code",
+          promotedAt: "2026-05-23T00:00:00.000Z",
+          events: [
+            {
+              sourceAgent: "claude-code",
+              hookEvent: "PostToolUse",
+              toolName: "Bash",
+              toolUseId: "toolu.one",
+              args: { command: "pwd" },
+              result: { stdout: "/tmp" },
+              status: "succeeded",
+              contentHash: `sha256:${"a".repeat(64)}`,
+              prevEventHash: `sha256:${"0".repeat(64)}`,
+              chainIndex: 0,
+              startedAt: "2026-05-23T00:00:00.000Z",
+              finishedAt: "2026-05-23T00:00:01.000Z"
+            },
+            {
+              sourceAgent: "claude-code",
+              hookEvent: "PostToolUse",
+              toolName: "Read",
+              toolUseId: "toolu.two",
+              args: { filePath: "out.txt" },
+              result: { content: "ok" },
+              status: "succeeded",
+              contentHash: `sha256:${"b".repeat(64)}`,
+              prevEventHash: `sha256:${"a".repeat(64)}`,
+              chainIndex: 1,
+              startedAt: "2026-05-23T00:00:02.000Z",
+              finishedAt: "2026-05-23T00:00:03.000Z"
+            }
+          ]
+        },
+        secretRefs: {}
+      })
+    );
+    const body = JSON.parse(request?.body ?? "{}");
+    const spans = body.resourceSpans[0].scopeSpans[0].spans;
+
+    expect(request?.input).toBe("https://otel.test/v1/traces");
+    expect(result.status).toBe("succeeded");
+    expect(result.output).toMatchObject({ accepted: true, spanCount: 2 });
+    expect(spans).toHaveLength(2);
+    expect(spans[1].parentSpanId).toBe(spans[0].spanId);
+    expect(spans.map((span: { readonly name: string }) => span.name)).toEqual([
+      "Bash PostToolUse",
+      "Read PostToolUse"
+    ]);
   });
 });
 

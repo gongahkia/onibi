@@ -23,6 +23,13 @@ export function evaluatePolicyExpression(expression: string, context: PolicyCont
   return evaluateAtom(trimmed, context);
 }
 
+export function validatePolicyExpression(expression: string): void {
+  evaluatePolicyExpression(expression, {
+    tool: "",
+    args: {}
+  });
+}
+
 function evaluateAtom(atom: string, context: PolicyContext): boolean {
   const toolEquals = /^tool\s*==\s*"([^"]+)"$/u.exec(atom);
   if (toolEquals?.[1]) {
@@ -52,8 +59,9 @@ function evaluateAtom(atom: string, context: PolicyContext): boolean {
 
   const regex = /^(args(?:\.[a-zA-Z0-9_-]+)+)\s*=~\s*"([^"]+)"$/u.exec(atom);
   if (regex?.[1] && regex[2]) {
+    const pattern = createPolicyRegex(regex[2]);
     const value = readPath(regex[1], context);
-    return typeof value === "string" && new RegExp(regex[2], "u").test(value);
+    return typeof value === "string" && pattern.test(value);
   }
 
   const pathEquals = /^((?:args|skill)(?:\.[a-zA-Z0-9_-]+)+)\s*==\s*"([^"]*)"$/u.exec(atom);
@@ -62,6 +70,16 @@ function evaluateAtom(atom: string, context: PolicyContext): boolean {
   }
 
   throw new PolicyExpressionError(`Unsupported policy expression: ${atom}`);
+}
+
+function createPolicyRegex(pattern: string): RegExp {
+  try {
+    return new RegExp(pattern, "u");
+  } catch (error) {
+    throw new PolicyExpressionError(
+      `Invalid policy regex '${pattern}': ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
 }
 
 function splitOperator(expression: string, operator: "&&" | "||"): readonly string[] {

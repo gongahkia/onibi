@@ -13,6 +13,7 @@ import {
   assertSafeArtifactPath,
   buildTbom,
   createDependencyManifestArtifact,
+  createCrossAgentReplayRuns,
   createArtifactManifest,
   createCodegenMetadata,
   createGeneratedArtifact,
@@ -21,7 +22,9 @@ import {
   generatedModuleSignaturesMatch,
   assertDependencyManifestPolicy,
   resolveAzureOpenAiResponsesConfig,
-  synthesizeWorkflowFromTrajectory
+  synthesizeWorkflowFromTrajectory,
+  trajectoryReplayShape,
+  crossAgentReplaySkillMdFixture
 } from "../src/index.js";
 import { scheduledScrapingWorkflowFixture } from "@kelpclaw/workflow-spec";
 import type {
@@ -926,6 +929,34 @@ describe("codegen artifact contracts", () => {
     expect(tbom.externalDomains).toEqual(["api.example.com"]);
     expect(tbom.secretsConsumed).toEqual(["secret:api.token"]);
     expect(tbom.classifications).toEqual(["Internal"]);
+  });
+
+  it("keeps replay shape stable across Claude Code, Codex CLI, and Goose fixtures", () => {
+    const runs = createCrossAgentReplayRuns();
+    const shapes = runs.map(trajectoryReplayShape);
+    const workflows = runs.map((run) =>
+      synthesizeWorkflowFromTrajectory(run, { createdAt: "2026-05-23T00:00:00.000Z" })
+    );
+
+    expect(crossAgentReplaySkillMdFixture).toContain("KelpClaw Replay Smoke");
+    expect(runs.map((run) => run.sourceAgent)).toEqual(["claude-code", "codex-cli", "goose"]);
+    expect(new Set(shapes.map((shape) => JSON.stringify(shape))).size).toBe(1);
+    expect(workflows.map((workflow) => workflow.nodes.map((node) => node.kind))).toEqual([
+      ["trigger", "agent-step", "agent-step", "delivery"],
+      ["trigger", "agent-step", "agent-step", "delivery"],
+      ["trigger", "agent-step", "agent-step", "delivery"]
+    ]);
+    expect(
+      workflows.map((workflow) =>
+        workflow.nodes
+          .filter((node) => node.kind === "agent-step")
+          .map((node) => node.agentStep?.sourceAgent)
+      )
+    ).toEqual([
+      ["claude-code", "claude-code"],
+      ["codex-cli", "codex-cli"],
+      ["goose", "goose"]
+    ]);
   });
 });
 

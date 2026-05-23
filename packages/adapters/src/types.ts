@@ -17,7 +17,8 @@ export type AdapterKind =
   | "database"
   | "http"
   | "openapi"
-  | "mcp";
+  | "mcp"
+  | "otlp";
 export type AdapterNetworkMode = "none" | "declared";
 export type AdapterOperationStatus = "succeeded" | "failed";
 export type AdapterAuditEventLevel = "info" | "error";

@@ -25,6 +25,12 @@ export { DatabaseAdapter, SqliteDatabaseClient } from "./database-adapter.js";
 export { createMcpAdapter, importMcpConnector, testMcpConnector } from "./mcp-adapter.js";
 export { FakeAdapter, MockAdapter, createFakeAdapter, createMockAdapter } from "./mock-adapter.js";
 export { createOpenApiAdapter, importOpenApiConnector, testOpenApiConnector } from "./openapi.js";
+export {
+  OtlpExportAdapter,
+  createOtlpExportAdapterMetadata,
+  createPromotedSkillOtlpTracePayload,
+  exportOtlpTraces
+} from "./otlp-export-adapter.js";
 export type {
   AdapterCredentialValidationCode,
   AdapterCredentialValidationIssue
@@ -66,3 +72,10 @@ export type {
 } from "./database-adapter.js";
 export type { ImportMcpConnectorInput } from "./mcp-adapter.js";
 export type { ImportOpenApiConnectorInput } from "./openapi.js";
+export type {
+  OtlpJsonExportTraceServiceRequest,
+  OtlpTraceEvent,
+  OtlpTraceExportOptions,
+  OtlpTraceExportResult,
+  PromotedSkillOtlpTraceInput
+} from "./otlp-export-adapter.js";

@@ -10,6 +10,7 @@ import {
   createDeterministicPlannerBackend,
   createPlannerBackendFromEnv,
   createRoleToken,
+  HttpJsonApiOtlpExporter,
   InMemoryAgentRunStore,
   InMemorySecretStore,
   verifyAgentRunAuditChain
@@ -299,10 +300,19 @@ rules:
   });
 
   it("promotes a verified trajectory with reviewer role into content-addressed artifacts", async () => {
+    let otlpPayload: unknown;
     app = buildApiApp({
       adminToken: "legacy-admin-token",
       authSigningSecret: "test-signing-secret",
-      planner: createDeterministicPlannerBackend()
+      planner: createDeterministicPlannerBackend(),
+      otlpExporter: new HttpJsonApiOtlpExporter({
+        endpoint: "https://otel.test/v1/traces",
+        serviceName: "kelpclaw-test",
+        fetch: async (_input, init) => {
+          otlpPayload = JSON.parse(String(init?.body ?? "{}"));
+          return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+        }
+      })
     });
     const operatorToken = createTestRoleToken(["operator"]);
     const reviewerToken = createTestRoleToken(["reviewer"]);
@@ -357,6 +367,16 @@ rules:
     expect(promoted.json().artifacts.workflow.checksum).toMatch(/^sha256:/);
     expect(promoted.json().artifacts.tbom.path).toContain(".bom.json");
     expect(promoted.json().tbom.externalDomains).toEqual(["api.github.com"]);
+    expect(promoted.json().otlp).toMatchObject({
+      enabled: true,
+      status: "succeeded",
+      spanCount: 1,
+      endpoint: "https://otel.test/v1/traces"
+    });
+    expect(
+      (((otlpPayload as { resourceSpans?: { scopeSpans?: { spans?: unknown[] }[] }[] })
+        .resourceSpans?.[0]?.scopeSpans?.[0]?.spans ?? []) as unknown[])
+    ).toHaveLength(1);
     expect(selection.kind).toBe("skill");
     if (selection.kind === "skill") {
       expect(selection.match.skill.id).toBe(promoted.json().skill.id);

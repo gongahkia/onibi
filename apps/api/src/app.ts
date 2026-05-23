@@ -182,10 +182,12 @@ import {
   principalHasRole
 } from "./auth.js";
 import { ApiPolicyEngine } from "./policy-engine.js";
+import { createConfiguredApiOtlpExporter } from "./otlp-exporter.js";
 import { InMemoryWorkflowStore, SqliteWorkflowStore } from "./store.js";
 import type { SecretStore } from "./secrets.js";
 import type { AgentRunRecord, AgentRunStore } from "./agent-run-store.js";
 import type { ApiRole } from "./auth.js";
+import type { ApiOtlpExporter } from "./otlp-exporter.js";
 import type { RevisionInput, WorkflowStore } from "./store.js";
 import type { WorkflowPlannerBackend } from "./planner.js";
 
@@ -366,6 +368,7 @@ export interface ApiAppOptions {
   readonly secretStore?: SecretStore | undefined;
   readonly agentRunStore?: AgentRunStore | undefined;
   readonly policyEngine?: ApiPolicyEngine | undefined;
+  readonly otlpExporter?: ApiOtlpExporter | undefined;
   readonly roleTokens?: Readonly<Record<string, readonly ApiRole[]>> | undefined;
   readonly authSigningSecret?: string | null | undefined;
   readonly adminToken?: string | null | undefined;
@@ -478,6 +481,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
   const secretStore = options.secretStore ?? new InMemorySecretStore();
   const agentRunStore = options.agentRunStore ?? new InMemoryAgentRunStore();
   const policyEngine = options.policyEngine ?? new ApiPolicyEngine();
+  const otlpExporter = options.otlpExporter ?? createConfiguredApiOtlpExporter();
   const artifactStore = options.artifactStore ?? new LocalCodegenArtifactStore();
   const planner = options.planner ?? createPlannerBackendFromEnv({ artifactStore });
   const runner = options.runner;
@@ -642,6 +646,11 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         await artifactStore.readArtifact(storedSkillArtifact.ref)
       ) as SkillMetadata;
       const promotedSkill = registerPromotedSkill(loadedSkill);
+      const otlpExport = await otlpExporter.exportPromotion({
+        run,
+        skill: promotedSkill,
+        tbom
+      });
       agentRunStore.appendAuditEvent(run.id, {
         action: "trajectory.promoted",
         summary: `Promoted agent run '${run.id}' to skill '${promotedSkill.id}'.`,
@@ -657,6 +666,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         skill: promotedSkill,
         workflow,
         tbom,
+        otlp: otlpExport,
         artifacts: {
           skill: storedSkillArtifact.ref,
           workflow: storedWorkflowArtifact.ref,

@@ -1,5 +1,5 @@
 export { evaluatePolicy } from "./evaluator.js";
-export { evaluatePolicyExpression } from "./expressions.js";
+export { evaluatePolicyExpression, validatePolicyExpression } from "./expressions.js";
 export { parsePolicyYaml } from "./parser.js";
 export type {
   PolicyAction,

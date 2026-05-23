@@ -63,6 +63,12 @@ export type {
   TrajectoryStep,
   TrajectorySynthesisOptions
 } from "./trajectory-synth.js";
+export {
+  createCrossAgentReplayRun,
+  createCrossAgentReplayRuns,
+  crossAgentReplaySkillMdFixture,
+  trajectoryReplayShape
+} from "./cross-agent-replay-fixtures.js";
 export { buildTbom, exportTbom } from "./tbom.js";
 export type { TrajectoryBillOfMaterials } from "./tbom.js";
 export type {

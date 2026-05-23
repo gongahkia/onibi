@@ -33,6 +33,17 @@ export {
   type StopAgentRunInput
 } from "./agent-run-store.js";
 export { ApiPolicyEngine } from "./policy-engine.js";
+export {
+  DisabledApiOtlpExporter,
+  HttpJsonApiOtlpExporter,
+  createConfiguredApiOtlpExporter
+} from "./otlp-exporter.js";
+export type {
+  ApiOtlpExporter,
+  ApiOtlpPromotionExportInput,
+  ApiOtlpPromotionExportResult,
+  ConfiguredApiOtlpExporterOptions
+} from "./otlp-exporter.js";
 export { createApiAuthContext, createRoleToken, principalHasRole } from "./auth.js";
 export type { ApiPrincipal, ApiRole } from "./auth.js";
 export {

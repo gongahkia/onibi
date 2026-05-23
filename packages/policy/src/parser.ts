@@ -1,4 +1,5 @@
 import type { PolicyAction, PolicyRule, PolicyRuleSet } from "./types.js";
+import { validatePolicyExpression } from "./expressions.js";
 
 const policyActions = new Set<PolicyAction>(["allow", "require-approval", "deny", "log-only"]);
 
@@ -71,6 +72,7 @@ function requireRule(input: MutablePolicyRule): PolicyRule {
   if (!input.id || !input.when || !input.action) {
     throw new Error("Policy rules require id, when, and action.");
   }
+  validatePolicyExpression(input.when);
   return {
     id: input.id,
     when: input.when,
