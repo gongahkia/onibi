@@ -6715,9 +6715,9 @@ function providerRuntimeConfig(input: {
         ? "OPENAI_API_KEY"
         : input.provider === "openweight" && !process.env.KELPCLAW_OPENWEIGHT_BASE_URL
           ? "KELPCLAW_OPENWEIGHT_BASE_URL"
-        : input.provider === "anthropic" && !process.env.ANTHROPIC_API_KEY
-          ? "ANTHROPIC_API_KEY"
-          : undefined;
+          : input.provider === "anthropic" && !process.env.ANTHROPIC_API_KEY
+            ? "ANTHROPIC_API_KEY"
+            : undefined;
 
   return {
     role: input.role,
@@ -6743,12 +6743,10 @@ function providerFromEnv(
   fallback: WorkflowProviderRuntimeConfig["provider"] = "anthropic"
 ): WorkflowProviderRuntimeConfig["provider"] {
   const value = process.env[key] ?? fallback;
-  return (
-    value === "openai" ||
-      value === "anthropic" ||
-      value === "openweight" ||
-      value === "deterministic"
-  )
+  return value === "openai" ||
+    value === "anthropic" ||
+    value === "openweight" ||
+    value === "deterministic"
     ? value
     : fallback;
 }

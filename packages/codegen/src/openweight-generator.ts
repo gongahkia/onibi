@@ -227,8 +227,7 @@ export function extractOpenWeightOutputText(response: OpenWeightChatCompletionRe
 export function usageRecordFromOpenWeightChatResponse(response: OpenWeightChatCompletionResult) {
   const usage = recordValue(response.usage);
   const inputTokens = numberValue(usage.prompt_tokens) || numberValue(usage.input_tokens);
-  const outputTokens =
-    numberValue(usage.completion_tokens) || numberValue(usage.output_tokens);
+  const outputTokens = numberValue(usage.completion_tokens) || numberValue(usage.output_tokens);
   const totalTokens =
     numberValue(usage.total_tokens) || numberValue(usage.totalTokens) || inputTokens + outputTokens;
   const costUsd =

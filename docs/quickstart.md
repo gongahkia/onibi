@@ -34,6 +34,17 @@ KELPCLAW_CODEGEN_PROVIDER=anthropic
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
+Open-weight OpenAI-compatible live mode:
+
+```dotenv
+KELPCLAW_PLANNER_MODE=live
+KELPCLAW_PLANNER_PROVIDER=openweight
+KELPCLAW_AGENTIC_PROVIDER=openweight
+KELPCLAW_CODEGEN_PROVIDER=openweight
+KELPCLAW_OPENWEIGHT_BASE_URL=http://127.0.0.1:11434/v1
+KELPCLAW_OPENWEIGHT_MODEL=qwen2.5-coder
+```
+
 ## 2. Start With Docker
 
 ```console

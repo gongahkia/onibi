@@ -9,7 +9,7 @@
 - Mount the Docker socket only on the API host that is allowed to execute NanoClaw containers.
 - Keep generated/codegen runtime images pinned to explicit tags or digests.
 - Keep Docker network default-deny; adapter and codegen nodes must declare provider hosts.
-- NanoClaw itself does not require Anthropic or OpenAI credentials. Model subscriptions are only used by the selected planner/codegen provider before approval.
+- NanoClaw itself does not require Anthropic, OpenAI, or open-weight endpoint credentials. Model credentials are only used by the selected planner/codegen provider before approval.
 - Store provider credentials through encrypted `secret:<name>` refs. Do not place raw tokens in workflow specs.
 - Configure Google OAuth web credentials with the exact `KELPCLAW_PUBLIC_BASE_URL` callback.
 - Use SMTP, WhatsApp Cloud API, Telegram Bot, GitHub, Slack, Discord, Notion, Linear, Jira, Airtable, webhook, and database credentials owned by testable service accounts or bots.

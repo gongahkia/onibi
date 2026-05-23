@@ -10,6 +10,8 @@ import {
   LocalCodegenArtifactStore,
   OpenAiCodeGenerator,
   OpenAiGeneratedNodeRoleRunner,
+  OpenWeightCodeGenerator,
+  OpenWeightGeneratedNodeRoleRunner,
   assertSafeArtifactPath,
   buildTbom,
   createDependencyManifestArtifact,
@@ -37,6 +39,7 @@ import type {
   GeneratedNodeBuildLoopRequest,
   GeneratedNodeRoleRunner,
   GeneratedNodeTestExecutor,
+  OpenWeightChatRunner,
   OpenAiResponsesRunner
 } from "../src/index.js";
 
@@ -376,6 +379,67 @@ describe("codegen artifact contracts", () => {
     );
   });
 
+  it("uses open-weight chat completions structured output and bounded repair", async () => {
+    let calls = 0;
+    const chatRunner: OpenWeightChatRunner = async (request) => {
+      calls += 1;
+      expect(request.model).toBe("qwen-test-codegen");
+      expect(request.response_format.type).toBe("json_object");
+      return {
+        id: `chatcmpl_${calls}`,
+        model: request.model,
+        choices: [
+          {
+            message: {
+              content: JSON.stringify(
+                calls === 1
+                  ? {
+                      sourceCode: "export {};",
+                      packageManager: "npm",
+                      dependencies: ["left-pad"],
+                      devDependencies: [],
+                      installCommand: ["npm", "install"]
+                    }
+                  : {
+                      sourceCode:
+                        'import { writeFileSync } from "node:fs";\nwriteFileSync(process.env.NANOCLAW_NODE_OUTPUT!, JSON.stringify({ artifact: { ok: true } }));',
+                      packageManager: "none",
+                      dependencies: [],
+                      devDependencies: [],
+                      installCommand: []
+                    }
+              )
+            }
+          }
+        ]
+      };
+    };
+    const generator = new OpenWeightCodeGenerator({
+      baseUrl: "http://127.0.0.1:11434/v1",
+      model: "qwen-test-codegen",
+      chatRunner,
+      maxRepairAttempts: 1
+    });
+
+    const result = await generator.generate(codegenRequestFixture());
+
+    expect(calls).toBe(2);
+    expect(result.sourceArtifact.path).toBe("generated/scrape-status-page.ts");
+    expect(result.dependencyManifest.packageManager).toBe("none");
+    expect(result.metadata.provenance.generator).toBe("openweight.chat-completions");
+    expect(result.metadata.llmBacked).toBe(true);
+  });
+
+  it("fails clearly when open-weight base URL is missing", async () => {
+    const generator = new OpenWeightCodeGenerator({
+      baseUrl: ""
+    });
+
+    await expect(generator.generate(codegenRequestFixture())).rejects.toThrow(
+      "KELPCLAW_OPENWEIGHT_BASE_URL is required"
+    );
+  });
+
   it("resolves Azure OpenAI Responses config from GPT5 deployment env", () => {
     const previous = snapshotEnv([
       "GPT5_MINI_ENDPOINT",
@@ -640,6 +704,100 @@ describe("codegen artifact contracts", () => {
       cacheReadInputTokens: 2
     });
     expect(rolePrompts.some((prompt) => prompt.startsWith("gpt-fixer:"))).toBe(true);
+  });
+
+  it("runs role-specific open-weight agents through the generated-node loop", async () => {
+    const rolePrompts: string[] = [];
+    const chatRunner: OpenWeightChatRunner = async (request) => {
+      const userPrompt = request.messages.find((message) => message.role === "user")?.content ?? "";
+      if (userPrompt.includes("Required JSON schema") && userPrompt.includes("sourceCode")) {
+        return {
+          id: "chatcmpl_codegen",
+          model: request.model,
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  sourceCode:
+                    'import { writeFileSync } from "node:fs";\nwriteFileSync(process.env.NANOCLAW_NODE_OUTPUT!, JSON.stringify({ artifact: { ok: true } }));',
+                  packageManager: "none",
+                  dependencies: [],
+                  devDependencies: [],
+                  installCommand: []
+                })
+              }
+            }
+          ]
+        };
+      }
+
+      rolePrompts.push(`${request.model}:${userPrompt.split("\n")[0] ?? ""}`);
+      return {
+        id: `chatcmpl_${rolePrompts.length}`,
+        model: request.model,
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                summary: `completed ${userPrompt.match(/You are the ([^ ]+) agent/u)?.[1] ?? "role"}`,
+                status: "succeeded",
+                outputArtifactRefs: []
+              })
+            }
+          }
+        ],
+        total_cost_usd: 0.01,
+        usage: {
+          prompt_tokens: 11,
+          completion_tokens: 4,
+          total_tokens: 15
+        }
+      };
+    };
+    const roles = [
+      "workflow-architect",
+      "coder",
+      "tester",
+      "runner",
+      "fixer",
+      "evaluator"
+    ] as const;
+    const loop = new GeneratedNodeBuildLoop({
+      codeGenerator: new OpenWeightCodeGenerator({
+        baseUrl: "http://127.0.0.1:11434/v1",
+        model: "qwen-test-codegen",
+        chatRunner
+      }),
+      roleRunners: Object.fromEntries(
+        roles.map((role) => [
+          role,
+          new OpenWeightGeneratedNodeRoleRunner({
+            role,
+            baseUrl: "http://127.0.0.1:11434/v1",
+            model: `qwen-${role}`,
+            chatRunner
+          })
+        ])
+      ),
+      testExecutor: failOnceThenPassExecutor("schema mismatch")
+    });
+
+    const result = await loop.build(buildLoopRequestFixture());
+
+    expect(result.status).toBe("passed");
+    expect(result.generation.metadata.provenance.generator).toBe("openweight.chat-completions");
+    expect(result.agentRuns.map((run) => run.role)).toContain("fixer");
+    expect(result.agentRuns.every((run) => run.modelProvider === "openweight")).toBe(true);
+    expect(
+      result.agentRuns.flatMap((run) => run.modelInvocations ?? []).map((record) => record.provider)
+    ).toEqual(rolePrompts.map(() => "openweight"));
+    expect(result.agentRuns[0]?.modelInvocations?.[0]).toMatchObject({
+      costUsd: 0.01,
+      inputTokens: 11,
+      outputTokens: 4,
+      totalTokens: 15
+    });
+    expect(rolePrompts.some((prompt) => prompt.startsWith("qwen-fixer:"))).toBe(true);
   });
 
   it("runs generated-node evals through Docker when requested", async () => {

@@ -135,8 +135,7 @@ export class OpenWeightGeneratedNodeRoleRunner implements GeneratedNodeRoleRunne
         outputArtifactRefs: [],
         modelProvider: "openweight",
         model: this.model,
-        error:
-          error instanceof Error ? error.message : `${input.role} open-weight role failed.`
+        error: error instanceof Error ? error.message : `${input.role} open-weight role failed.`
       };
     }
   }
@@ -170,11 +169,9 @@ export class OpenWeightGeneratedNodeRoleRunner implements GeneratedNodeRoleRunne
         },
         {
           role: "user",
-          content: [
-            prompt,
-            "",
-            `Required JSON schema: ${JSON.stringify(roleOutputSchema)}`
-          ].join("\n")
+          content: [prompt, "", `Required JSON schema: ${JSON.stringify(roleOutputSchema)}`].join(
+            "\n"
+          )
         }
       ],
       temperature: 0,

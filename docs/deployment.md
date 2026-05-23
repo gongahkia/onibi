@@ -15,11 +15,13 @@ Edit `.env` before starting the API:
 - `KELPCLAW_ADMIN_TOKEN`: required Bearer token for OpenClaw and API calls.
 - `KELPCLAW_SECRET_MASTER_KEY`: required AES-256-GCM master key for encrypted local secrets.
 - `KELPCLAW_PUBLIC_BASE_URL`: externally reachable API base URL for OAuth callbacks.
-- `KELPCLAW_PLANNER_PROVIDER`: `anthropic` or `openai` for live planning/codegen during planning.
+- `KELPCLAW_PLANNER_PROVIDER`: `anthropic`, `openai`, or `openweight` for live planning/codegen during planning.
 - `KELPCLAW_CODEGEN_PROVIDER`: optional override for generated-node build roles; defaults to `KELPCLAW_PLANNER_PROVIDER`.
 - `ANTHROPIC_API_KEY`: required when the selected live provider is `anthropic`.
 - `OPENAI_API_KEY`: required when the selected live provider is `openai`.
-- `KELPCLAW_PLANNER_MODEL` and `KELPCLAW_CODEGEN_MODEL`: optional provider model overrides. OpenAI-specific overrides are `KELPCLAW_OPENAI_PLANNER_MODEL` and `KELPCLAW_OPENAI_CODEGEN_MODEL`.
+- `KELPCLAW_OPENWEIGHT_BASE_URL`: required when the selected live provider is `openweight`; point it at an OpenAI-compatible `/v1` endpoint.
+- `KELPCLAW_OPENWEIGHT_API_KEY`: optional bearer token for open-weight gateways that require auth.
+- `KELPCLAW_PLANNER_MODEL` and `KELPCLAW_CODEGEN_MODEL`: optional provider model overrides. Provider-specific overrides include `KELPCLAW_OPENAI_PLANNER_MODEL`, `KELPCLAW_OPENAI_CODEGEN_MODEL`, `KELPCLAW_OPENWEIGHT_PLANNER_MODEL`, and `KELPCLAW_OPENWEIGHT_CODEGEN_MODEL`.
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`: OAuth web client credentials.
 - SMTP, WhatsApp, Telegram, GitHub, Slack, Discord, Notion, Linear, Jira, Airtable, webhook, and database defaults as needed for your providers.
 
@@ -94,6 +96,16 @@ $ KELPCLAW_PLANNER_PROVIDER=openai \
 ```
 
 To keep Anthropic-backed planning/codegen, leave `KELPCLAW_PLANNER_PROVIDER=anthropic` and set `ANTHROPIC_API_KEY`.
+
+To run against an OpenAI-compatible open-weight endpoint such as Ollama, vLLM, LM Studio, or a hosted gateway:
+
+```console
+$ KELPCLAW_PLANNER_PROVIDER=openweight \
+  KELPCLAW_CODEGEN_PROVIDER=openweight \
+  KELPCLAW_OPENWEIGHT_BASE_URL=http://127.0.0.1:11434/v1 \
+  KELPCLAW_OPENWEIGHT_MODEL=qwen2.5-coder \
+  docker compose up --build
+```
 
 ## Runtime Truth, Budgets, And Runs
 

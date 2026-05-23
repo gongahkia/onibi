@@ -31,6 +31,7 @@ import {
   workflowGeneratedModuleReuseDecisionSchema,
   workflowObservabilityEventSchema,
   workflowJsonSchema,
+  workflowProviderRuntimeConfigSchema,
   workflowTaskRouteSchema,
   workflowSchemaVersion
 } from "../src/index.js";
@@ -501,6 +502,18 @@ describe("enterprise observability contracts", () => {
         matchedSignals: ["research"]
       }).confidence
     ).toBe(0.8);
+    expect(
+      workflowProviderRuntimeConfigSchema.parse({
+        role: "planner",
+        provider: "openweight",
+        model: "qwen-test",
+        configured: true,
+        tokenAccounting: true,
+        costAccounting: true,
+        retryBudget: { maxAttempts: 1, maxCostUsd: 1 },
+        runtimeLimits: {}
+      }).provider
+    ).toBe("openweight");
     expect(
       workflowAgentMemoryRecordSchema.parse({
         id: "memory.workflow.agentic.node",

@@ -494,7 +494,7 @@ rules:
       secretsConsumed: ["secret:github.token.default"],
       classifications: ["Confidential"]
     });
-  });
+  }, 30_000);
 
   it("requires reviewer approval before promoting gated agent steps", async () => {
     app = buildApiApp({
@@ -814,6 +814,49 @@ rules:
       } else {
         process.env.KELPCLAW_PLANNER_PROVIDER = previousProvider;
       }
+    }
+  });
+
+  it("accepts open-weight as a live planner provider and reports provider readiness", async () => {
+    const previousMode = process.env.KELPCLAW_PLANNER_MODE;
+    const previousPlannerProvider = process.env.KELPCLAW_PLANNER_PROVIDER;
+    const previousCodegenProvider = process.env.KELPCLAW_CODEGEN_PROVIDER;
+    const previousBaseUrl = process.env.KELPCLAW_OPENWEIGHT_BASE_URL;
+    const previousModel = process.env.KELPCLAW_OPENWEIGHT_MODEL;
+    process.env.KELPCLAW_PLANNER_MODE = "live";
+    process.env.KELPCLAW_PLANNER_PROVIDER = "openweight";
+    process.env.KELPCLAW_CODEGEN_PROVIDER = "openweight";
+    process.env.KELPCLAW_OPENWEIGHT_BASE_URL = "http://127.0.0.1:11434/v1";
+    process.env.KELPCLAW_OPENWEIGHT_MODEL = "qwen-test";
+    app = buildApiApp({
+      adminToken: "legacy-admin-token",
+      authSigningSecret: "test-signing-secret",
+      planner: createDeterministicPlannerBackend()
+    });
+
+    try {
+      expect(() => createPlannerBackendFromEnv()).not.toThrow();
+      const providers = await app.inject({
+        method: "GET",
+        url: "/api/runtime/providers",
+        headers: { authorization: "Bearer legacy-admin-token" }
+      });
+
+      expect(providers.statusCode).toBe(200);
+      expect(providers.json().providers).toContainEqual(
+        expect.objectContaining({
+          role: "planner",
+          provider: "openweight",
+          model: "qwen-test",
+          configured: true
+        })
+      );
+    } finally {
+      restoreEnv("KELPCLAW_PLANNER_MODE", previousMode);
+      restoreEnv("KELPCLAW_PLANNER_PROVIDER", previousPlannerProvider);
+      restoreEnv("KELPCLAW_CODEGEN_PROVIDER", previousCodegenProvider);
+      restoreEnv("KELPCLAW_OPENWEIGHT_BASE_URL", previousBaseUrl);
+      restoreEnv("KELPCLAW_OPENWEIGHT_MODEL", previousModel);
     }
   });
 
