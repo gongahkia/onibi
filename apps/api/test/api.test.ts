@@ -363,6 +363,98 @@ rules:
     }
   });
 
+  it("requires reviewer approval before promoting gated agent steps", async () => {
+    app = buildApiApp({
+      adminToken: "legacy-admin-token",
+      authSigningSecret: "test-signing-secret",
+      planner: createDeterministicPlannerBackend()
+    });
+    const operatorToken = createTestRoleToken(["operator"]);
+    const reviewerToken = createTestRoleToken(["reviewer"]);
+    await app.inject({
+      method: "PUT",
+      url: "/api/policies",
+      headers: { authorization: "Bearer legacy-admin-token" },
+      payload: {
+        yaml: `
+rules:
+  - id: gate-gmail-send
+    when: tool startsWith "adapter.gmail.send"
+    action: require-approval
+    approverRole: reviewer
+`
+      }
+    });
+    const started = await app.inject({
+      method: "POST",
+      url: "/api/agent-runs",
+      headers: { authorization: `Bearer ${operatorToken}` },
+      payload: {
+        sourceAgent: "claude-code",
+        sessionId: "session.approval",
+        title: "Gated Gmail send"
+      }
+    });
+    const runId = started.json().run.id;
+    const gated = await app.inject({
+      method: "POST",
+      url: `/api/agent-runs/${runId}/events`,
+      headers: { authorization: `Bearer ${operatorToken}` },
+      payload: {
+        hookEvent: "PreToolUse",
+        toolName: "adapter.gmail.send.message",
+        toolUseId: "toolu.gated",
+        args: { to: "review@example.test", subject: "approval" },
+        status: "running",
+        startedAt: "2026-05-23T00:00:00.000Z"
+      }
+    });
+    const blockedPromotion = await app.inject({
+      method: "POST",
+      url: `/api/agent-runs/${runId}/promote`,
+      headers: { authorization: `Bearer ${reviewerToken}` },
+      payload: { skillName: "Gated Gmail Send", capabilities: ["gated-gmail-send"] }
+    });
+    const forbiddenApproval = await app.inject({
+      method: "POST",
+      url: `/api/agent-runs/${runId}/events/${gated.json().event.id}/approve`,
+      headers: { authorization: `Bearer ${operatorToken}` },
+      payload: { reviewedBy: "operator" }
+    });
+    const approved = await app.inject({
+      method: "POST",
+      url: `/api/agent-runs/${runId}/events/${gated.json().event.id}/approve`,
+      headers: { authorization: `Bearer ${reviewerToken}` },
+      payload: { reviewedBy: "reviewer", reason: "demo approval" }
+    });
+    const duplicateApproval = await app.inject({
+      method: "POST",
+      url: `/api/agent-runs/${runId}/events/${gated.json().event.id}/approve`,
+      headers: { authorization: `Bearer ${reviewerToken}` },
+      payload: { reviewedBy: "reviewer" }
+    });
+    const promoted = await app.inject({
+      method: "POST",
+      url: `/api/agent-runs/${runId}/promote`,
+      headers: { authorization: `Bearer ${reviewerToken}` },
+      payload: { skillName: "Gated Gmail Send", capabilities: ["gated-gmail-send"] }
+    });
+
+    expect(gated.statusCode).toBe(202);
+    expect(gated.json().event.status).toBe("pending");
+    expect(blockedPromotion.statusCode).toBe(409);
+    expect(blockedPromotion.json()).toMatchObject({ error: "POLICY_APPROVAL_REQUIRED" });
+    expect(forbiddenApproval.statusCode).toBe(403);
+    expect(approved.statusCode).toBe(200);
+    expect(approved.json().auditEvent).toMatchObject({
+      action: "policy.approved",
+      eventId: gated.json().event.id,
+      metadata: { approvalStatus: "approved", reviewedBy: "reviewer" }
+    });
+    expect(duplicateApproval.statusCode).toBe(409);
+    expect(promoted.statusCode).toBe(200);
+  });
+
   it("streams completed agent-run events over SSE", async () => {
     app = buildTestApiApp();
 

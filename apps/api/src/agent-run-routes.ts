@@ -14,6 +14,7 @@ import type {
   JsonValue
 } from "@kelpclaw/workflow-spec";
 import type {
+  AgentRunRecord,
   AgentRunStore,
   AppendAgentStepEventInput,
   StopAgentRunInput
@@ -30,6 +31,10 @@ interface AgentRunRouteOptions {
 
 interface AgentRunParams {
   readonly id: string;
+}
+
+interface AgentRunEventParams extends AgentRunParams {
+  readonly eventId: string;
 }
 
 interface StartAgentRunBody {
@@ -55,6 +60,11 @@ interface AppendAgentStepBody {
 
 interface StopAgentRunBody {
   readonly status?: unknown;
+}
+
+interface ReviewAgentStepBody {
+  readonly reviewedBy?: unknown;
+  readonly reason?: unknown;
 }
 
 interface PolicyRequestBody {
@@ -234,6 +244,34 @@ export function registerAgentRunRoutes(app: FastifyInstance, options: AgentRunRo
     }
   );
 
+  app.post<{ Params: AgentRunEventParams; Body: ReviewAgentStepBody }>(
+    "/api/agent-runs/:id/events/:eventId/approve",
+    { preHandler: options.auth.requireRole("reviewer") },
+    async (request, reply) =>
+      reviewPolicyApproval(
+        options,
+        request.params.id,
+        request.params.eventId,
+        "approved",
+        request.body,
+        reply
+      )
+  );
+
+  app.post<{ Params: AgentRunEventParams; Body: ReviewAgentStepBody }>(
+    "/api/agent-runs/:id/events/:eventId/deny",
+    { preHandler: options.auth.requireRole("reviewer") },
+    async (request, reply) =>
+      reviewPolicyApproval(
+        options,
+        request.params.id,
+        request.params.eventId,
+        "denied",
+        request.body,
+        reply
+      )
+  );
+
   app.get<{ Params: AgentRunParams }>(
     "/api/agent-runs/:id/audit/verify",
     { preHandler: options.auth.requireRole("auditor") },
@@ -289,6 +327,87 @@ export function registerAgentRunRoutes(app: FastifyInstance, options: AgentRunRo
       };
     }
   );
+}
+
+function reviewPolicyApproval(
+  options: AgentRunRouteOptions,
+  runId: string,
+  eventId: string,
+  status: "approved" | "denied",
+  body: ReviewAgentStepBody,
+  reply: {
+    code: (statusCode: number) => { send: (body: unknown) => unknown };
+  }
+) {
+  const run = options.store.getRun(runId);
+  if (!run) {
+    return agentRunNotFound(reply, runId);
+  }
+  const event = run.events.find((candidate) => candidate.id === eventId);
+  if (!event) {
+    return reply.code(404).send({
+      ok: false,
+      error: "AGENT_STEP_NOT_FOUND",
+      message: `Agent-step event '${eventId}' was not found.`
+    });
+  }
+  if (event.status !== "pending" || event.policyDecision?.action !== "require-approval") {
+    return reply.code(409).send({
+      ok: false,
+      error: "POLICY_APPROVAL_NOT_REQUIRED",
+      message: `Agent-step event '${eventId}' does not require reviewer approval.`
+    });
+  }
+  const currentStatus = policyApprovalStatus(run, eventId);
+  if (currentStatus) {
+    return reply.code(409).send({
+      ok: false,
+      error: "POLICY_APPROVAL_ALREADY_REVIEWED",
+      message: `Agent-step event '${eventId}' was already ${currentStatus}.`
+    });
+  }
+  const reason = stringValue(body.reason);
+  const metadata: JsonRecord = {
+    approvalStatus: status,
+    reviewedBy: stringValue(body.reviewedBy) ?? "reviewer",
+    decision: event.policyDecision as unknown as JsonValue
+  };
+  if (reason) {
+    metadata.reason = reason;
+  }
+  const auditEvent = options.store.appendAuditEvent(runId, {
+    action: status === "approved" ? "policy.approved" : "policy.denied",
+    eventId,
+    summary: `Reviewer ${status} '${event.toolName}' policy gate.`,
+    metadata
+  });
+  return {
+    ok: true,
+    approval: {
+      eventId,
+      status
+    },
+    auditEvent,
+    run: options.store.getRun(runId)
+  };
+}
+
+function policyApprovalStatus(
+  run: AgentRunRecord,
+  eventId: string
+): "approved" | "denied" | undefined {
+  for (const auditEvent of run.auditEvents) {
+    if (auditEvent.eventId !== eventId) {
+      continue;
+    }
+    if (auditEvent.action === "policy.approved") {
+      return "approved";
+    }
+    if (auditEvent.metadata?.approvalStatus === "denied") {
+      return "denied";
+    }
+  }
+  return undefined;
 }
 
 function appendInputFromBody(

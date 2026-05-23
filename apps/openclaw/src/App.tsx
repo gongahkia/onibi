@@ -74,6 +74,7 @@ import type {
 import { openClawApi, readOpenClawAdminToken, saveOpenClawAdminToken } from "./api-client.js";
 import type {
   AgentRunRecord,
+  AgentStepEvent,
   DeploymentActivationSummaryResponse,
   IntegrationReadiness,
   SecretMetadata
@@ -1445,6 +1446,32 @@ export function App() {
       );
       await refreshPolicies();
     });
+  }
+
+  function approveTrajectoryEvent(runId: string, event: AgentStepEvent) {
+    void executeApiAction(`agent-approve-${event.id}`, async () => {
+      const response = await openClawApi.approveAgentRunEvent(runId, event.id, {
+        reviewedBy: "openclaw"
+      });
+      replaceTrajectoryRun(response.run);
+    });
+  }
+
+  function denyTrajectoryEvent(runId: string, event: AgentStepEvent) {
+    void executeApiAction(`agent-deny-${event.id}`, async () => {
+      const response = await openClawApi.denyAgentRunEvent(runId, event.id, {
+        reviewedBy: "openclaw"
+      });
+      replaceTrajectoryRun(response.run);
+    });
+  }
+
+  function replaceTrajectoryRun(runRecord: AgentRunRecord) {
+    setTrajectoryRuns((current) =>
+      current.some((candidate) => candidate.id === runRecord.id)
+        ? current.map((candidate) => (candidate.id === runRecord.id ? runRecord : candidate))
+        : [runRecord, ...current]
+    );
   }
 
   function saveSecret(secretName: string, valueOverride?: string | undefined) {
@@ -3366,6 +3393,8 @@ export function App() {
               selectedRunId={selectedTrajectoryRunId}
               onSelectRun={setSelectedTrajectoryRunId}
               onRefresh={refreshTrajectoryRuns}
+              onApproveEvent={approveTrajectoryEvent}
+              onDenyEvent={denyTrajectoryEvent}
             />
           ) : surfaceMode === "policy" ? (
             <section className="policy-editor-panel" aria-label="Policy editor">

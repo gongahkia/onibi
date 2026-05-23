@@ -1427,10 +1427,16 @@ dd {
 }
 
 .agent-step-card header,
-.agent-step-meta {
+.agent-step-meta,
+.agent-step-approval-actions {
   align-items: center;
   display: flex;
   gap: 0.5rem;
+}
+
+.agent-step-approval-actions button {
+  min-height: 2rem;
+  padding: 0 0.75rem;
 }
 
 .agent-step-index {

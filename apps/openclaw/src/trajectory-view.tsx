@@ -1,5 +1,5 @@
 import { RefreshCw } from "lucide-react";
-import type { AgentRunRecord } from "./api-client.js";
+import type { AgentRunAuditEvent, AgentRunRecord, AgentStepEvent } from "./api-client.js";
 import { AgentStepCard } from "./agent-step-card.js";
 
 export function TrajectoryView(props: {
@@ -7,6 +7,8 @@ export function TrajectoryView(props: {
   readonly selectedRunId: string | null;
   readonly onSelectRun: (runId: string) => void;
   readonly onRefresh: () => void;
+  readonly onApproveEvent: (runId: string, event: AgentStepEvent) => void;
+  readonly onDenyEvent: (runId: string, event: AgentStepEvent) => void;
 }) {
   const selectedRun = props.runs.find((run) => run.id === props.selectedRunId) ?? props.runs[0];
   return (
@@ -35,7 +37,15 @@ export function TrajectoryView(props: {
       <div className="trajectory-steps">
         {selectedRun ? (
           selectedRun.events.length > 0 ? (
-            selectedRun.events.map((event) => <AgentStepCard key={event.id} event={event} />)
+            selectedRun.events.map((event) => (
+              <AgentStepCard
+                key={event.id}
+                event={event}
+                approvalStatus={approvalStatus(selectedRun.auditEvents, event.id)}
+                onApprove={(candidate) => props.onApproveEvent(selectedRun.id, candidate)}
+                onDeny={(candidate) => props.onDenyEvent(selectedRun.id, candidate)}
+              />
+            ))
           ) : (
             <div className="empty-state">No recorded steps.</div>
           )
@@ -45,4 +55,22 @@ export function TrajectoryView(props: {
       </div>
     </section>
   );
+}
+
+function approvalStatus(
+  auditEvents: readonly AgentRunAuditEvent[],
+  eventId: string
+): "approved" | "denied" | undefined {
+  for (const auditEvent of auditEvents) {
+    if (auditEvent.eventId !== eventId) {
+      continue;
+    }
+    if (auditEvent.action === "policy.approved") {
+      return "approved";
+    }
+    if (auditEvent.metadata?.approvalStatus === "denied") {
+      return "denied";
+    }
+  }
+  return undefined;
 }

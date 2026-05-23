@@ -201,6 +201,16 @@ export interface AgentStepEvent {
   readonly policyDecision?: JsonRecord | undefined;
 }
 
+export interface AgentRunAuditEvent {
+  readonly id: string;
+  readonly runId: string;
+  readonly action: string;
+  readonly createdAt: string;
+  readonly summary: string;
+  readonly eventId?: string | undefined;
+  readonly metadata?: JsonRecord | undefined;
+}
+
 export interface AgentRunRecord {
   readonly id: string;
   readonly sourceAgent: string;
@@ -210,11 +220,22 @@ export interface AgentRunRecord {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly events: readonly AgentStepEvent[];
+  readonly auditEvents: readonly AgentRunAuditEvent[];
 }
 
 export interface AgentRunListResponse {
   readonly ok: true;
   readonly runs: readonly AgentRunRecord[];
+}
+
+export interface AgentRunPolicyApprovalResponse {
+  readonly ok: true;
+  readonly approval: {
+    readonly eventId: string;
+    readonly status: "approved" | "denied";
+  };
+  readonly auditEvent: AgentRunAuditEvent;
+  readonly run: AgentRunRecord;
 }
 
 export interface PolicyRulesResponse {
@@ -321,6 +342,28 @@ export const openClawApi = {
 
   updatePolicyYaml(yaml: string): Promise<PolicyRulesResponse> {
     return putJson("/api/policies", { yaml });
+  },
+
+  approveAgentRunEvent(
+    runId: string,
+    eventId: string,
+    body: { readonly reviewedBy?: string; readonly reason?: string } = {}
+  ): Promise<AgentRunPolicyApprovalResponse> {
+    return postJson(
+      `/api/agent-runs/${encodeURIComponent(runId)}/events/${encodeURIComponent(eventId)}/approve`,
+      body
+    );
+  },
+
+  denyAgentRunEvent(
+    runId: string,
+    eventId: string,
+    body: { readonly reviewedBy?: string; readonly reason?: string } = {}
+  ): Promise<AgentRunPolicyApprovalResponse> {
+    return postJson(
+      `/api/agent-runs/${encodeURIComponent(runId)}/events/${encodeURIComponent(eventId)}/deny`,
+      body
+    );
   },
 
   plan(request: WorkflowPlanRequest, jobId?: string | undefined): Promise<WorkflowPlanResponse> {

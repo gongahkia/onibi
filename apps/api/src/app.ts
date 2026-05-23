@@ -184,7 +184,7 @@ import {
 import { ApiPolicyEngine } from "./policy-engine.js";
 import { InMemoryWorkflowStore, SqliteWorkflowStore } from "./store.js";
 import type { SecretStore } from "./secrets.js";
-import type { AgentRunStore } from "./agent-run-store.js";
+import type { AgentRunRecord, AgentRunStore } from "./agent-run-store.js";
 import type { ApiRole } from "./auth.js";
 import type { RevisionInput, WorkflowStore } from "./store.js";
 import type { WorkflowPlannerBackend } from "./planner.js";
@@ -592,6 +592,15 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
           ok: false,
           error: "AGENT_RUN_NOT_FOUND",
           message: `Agent run '${request.params.id}' was not found.`
+        });
+      }
+      const unresolvedApproval = firstUnresolvedPolicyApproval(run);
+      if (unresolvedApproval) {
+        return reply.code(409).send({
+          ok: false,
+          error: "POLICY_APPROVAL_REQUIRED",
+          message: `Agent run '${run.id}' has an unresolved policy approval for event '${unresolvedApproval.id}'.`,
+          eventId: unresolvedApproval.id
         });
       }
       const verification = agentRunStore.verifyAuditChain(run.id);
@@ -4914,6 +4923,33 @@ function createPromotedSkillFromTrajectory(
     source: "promoted",
     promotedFromNodeId: workflow.nodes.find((node) => node.kind === "agent-step")?.id
   };
+}
+
+function firstUnresolvedPolicyApproval(run: AgentRunRecord) {
+  return run.events.find(
+    (event) =>
+      event.status === "pending" &&
+      event.policyDecision?.action === "require-approval" &&
+      policyApprovalStatus(run, event.id) !== "approved"
+  );
+}
+
+function policyApprovalStatus(
+  run: AgentRunRecord,
+  eventId: string
+): "approved" | "denied" | undefined {
+  for (const auditEvent of run.auditEvents) {
+    if (auditEvent.eventId !== eventId) {
+      continue;
+    }
+    if (auditEvent.action === "policy.approved") {
+      return "approved";
+    }
+    if (auditEvent.metadata?.approvalStatus === "denied") {
+      return "denied";
+    }
+  }
+  return undefined;
 }
 
 function promotionCapability(node: WorkflowNode): string {

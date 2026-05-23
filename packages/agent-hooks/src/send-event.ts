@@ -178,7 +178,8 @@ export async function installClaudeCodeHooks(
   options: ClaudeHookInstallOptions = {}
 ): Promise<{ readonly settingsPath: string; readonly events: readonly string[] }> {
   const settingsPath = resolve(options.settingsPath ?? ".claude/settings.local.json");
-  const command = options.command ?? "kelp-agent-hook send-event";
+  const command =
+    options.command ?? 'node "$CLAUDE_PROJECT_DIR/packages/agent-hooks/dist/index.js" send-event';
   const existing = await readJsonFile(settingsPath);
   const settings = isJsonRecord(existing) ? { ...existing } : {};
   const hooks = isJsonRecord(settings.hooks) ? { ...settings.hooks } : {};

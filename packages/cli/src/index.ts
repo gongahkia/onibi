@@ -42,6 +42,26 @@ async function main(argv: readonly string[]): Promise<void> {
           }
         )
       );
+    case "approve-step":
+      return printJson(
+        await postJson(
+          `/api/agent-runs/${encodeURIComponent(requiredOption(args, "--run-id"))}/events/${encodeURIComponent(requiredOption(args, "--event-id"))}/approve`,
+          {
+            ...(option(args, "--reviewed-by") ? { reviewedBy: option(args, "--reviewed-by") } : {}),
+            ...(option(args, "--reason") ? { reason: option(args, "--reason") } : {})
+          }
+        )
+      );
+    case "deny-step":
+      return printJson(
+        await postJson(
+          `/api/agent-runs/${encodeURIComponent(requiredOption(args, "--run-id"))}/events/${encodeURIComponent(requiredOption(args, "--event-id"))}/deny`,
+          {
+            ...(option(args, "--reviewed-by") ? { reviewedBy: option(args, "--reviewed-by") } : {}),
+            ...(option(args, "--reason") ? { reason: option(args, "--reason") } : {})
+          }
+        )
+      );
     case "promote":
       return printJson(
         await postJson(
@@ -74,7 +94,7 @@ async function main(argv: readonly string[]): Promise<void> {
       return runMcp(args);
     default:
       throw new Error(
-        "Usage: kelp-claw <start-recording|record-step|stop-recording|promote|mcp|policy|audit-verify|tbom-export>"
+        "Usage: kelp-claw <start-recording|record-step|stop-recording|approve-step|deny-step|promote|mcp|policy|audit-verify|tbom-export>"
       );
   }
 }
