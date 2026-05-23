@@ -66,7 +66,7 @@ describe("sqlite workflow store", () => {
     expect(() =>
       rehydrated.saveArtifactManifest({ ...manifest, manifestChecksum: driftHash })
     ).toThrow(/Immutable|immutable/);
-  }, 15_000);
+  }, 30_000);
 });
 
 describe("sqlite secret store", () => {

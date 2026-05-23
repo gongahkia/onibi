@@ -1,5 +1,10 @@
 import type { JsonRecord } from "@kelpclaw/workflow-spec";
-import { extractOutputText, usageRecordFromOpenAiResponse } from "./openai-generator.js";
+import {
+  createAzureOpenAiResponsesRunner,
+  extractOutputText,
+  resolveAzureOpenAiResponsesConfig,
+  usageRecordFromOpenAiResponse
+} from "./openai-generator.js";
 import type {
   OpenAiResponsesCreateRequest,
   OpenAiResponsesResult,
@@ -137,8 +142,14 @@ export class OpenAiGeneratedNodeRoleRunner implements GeneratedNodeRoleRunner {
     if (this.responsesRunner) {
       return this.responsesRunner;
     }
+    const azure = resolveAzureOpenAiResponsesConfig(this.apiKey);
+    if (azure) {
+      return createAzureOpenAiResponsesRunner(azure);
+    }
     if (!this.apiKey) {
-      throw new Error("OPENAI_API_KEY is required for OpenAI generated-node role runners.");
+      throw new Error(
+        "OPENAI_API_KEY or GPT5_MINI_API_KEY/GPT5_PRO_API_KEY is required for OpenAI generated-node role runners."
+      );
     }
 
     const { default: OpenAI } = await import("openai");
@@ -248,6 +259,8 @@ function sharedModelFallback(): string {
     process.env.KELPCLAW_CODEGEN_MODEL ??
     process.env.KELPCLAW_OPENAI_PLANNER_MODEL ??
     process.env.KELPCLAW_PLANNER_MODEL ??
+    process.env.GPT5_MINI_DEPLOYMENT ??
+    process.env.GPT5_PRO_DEPLOYMENT ??
     "gpt-5.4"
   );
 }

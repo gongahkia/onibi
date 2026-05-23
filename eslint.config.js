@@ -5,14 +5,7 @@ import tseslint from "typescript-eslint";
 
 export default [
   {
-    ignores: [
-      "**/node_modules/**",
-      "**/dist/**",
-      "**/coverage/**",
-      ".zig-cache/**",
-      "target/**",
-      "zig-out/**"
-    ]
+    ignores: ["**/node_modules/**", "**/dist/**", "**/coverage/**", "target/**"]
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

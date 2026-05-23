@@ -4,8 +4,6 @@ KelpClaw is a TypeScript monorepo for deterministic AI workflow design and execu
 
 OpenClaw is the editable workflow planner. NanoClaw is the deterministic runtime that compiles approved workflow revisions and executes nodes through a Docker-per-node contract.
 
-The previous Zig CLI/TUI task planner is preserved in this repository as legacy reference material during the rewrite. The TypeScript rewrite does not delete Zig source, installer scripts, or package-release paths.
-
 ## Workspace Layout
 
 | Workspace                 | Ownership                                                                                |
@@ -112,19 +110,4 @@ NanoClaw is the deterministic workflow runtime, not a model provider. It verifie
 - OpenClaw renders the shared v1 fixtures with schema version, revision, prompt, node kind, port-aware edges, and approval state.
 - NanoClaw execution is covered through an approved-workflow mock runner and Docker command-construction tests.
 - Integration adapters are production-capable; missing live secrets fail as structured run output.
-- CI runs TypeScript format, lint, typecheck, tests, builds, and the legacy Zig test suite.
-
-## Legacy Zig CLI
-
-The legacy `kelp` CLI still builds and tests with Zig:
-
-```console
-$ zig build test
-$ ./scripts/package-release.sh
-```
-
-Legacy storage paths remain unchanged while the KelpClaw replacement entrypoints mature:
-
-- data: `$XDG_DATA_HOME/kelp/data.json` or `$HOME/.local/share/kelp/data.json`
-- config: `$XDG_CONFIG_HOME/kelp/config.json` or `$HOME/.config/kelp/config.json`
-- `--data-dir` colocates data and config for tests or isolated workspaces
+- CI runs TypeScript format, lint, typecheck, tests, and builds.

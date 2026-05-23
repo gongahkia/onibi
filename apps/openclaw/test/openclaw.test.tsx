@@ -442,7 +442,10 @@ async function selectNode(label: string) {
   await screen.findByLabelText("Node label");
 }
 
-async function openNodeDetails(label: string, tab: "Node" | "Config" | "Trace" | "Runtime" | "Ops") {
+async function openNodeDetails(
+  label: string,
+  tab: "Node" | "Config" | "Trace" | "Runtime" | "Ops"
+) {
   await selectNode(label);
   await openSelectedDetails(tab);
 }

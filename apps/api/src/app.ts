@@ -2345,7 +2345,8 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
             branchId: branch?.id,
             jobId: requestJobId(request),
             codegenArtifactStore: artifactStore,
-            runGeneratedNodesInDocker: process.env.NANOCLAW_DRAFT_DOCKER !== "0",
+            runGeneratedNodesInDocker:
+              request.body.mockOnly === true ? false : process.env.NANOCLAW_DRAFT_DOCKER !== "0",
             dockerBin: process.env.NANOCLAW_DOCKER_BIN,
             hostWorkspace: process.env.NANOCLAW_HOST_WORKSPACE ?? process.cwd()
           })

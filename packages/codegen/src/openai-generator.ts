@@ -48,6 +48,13 @@ export type OpenAiResponsesRunner = (
   options?: OpenAiResponsesRunOptions | undefined
 ) => Promise<OpenAiResponsesResult>;
 
+export interface AzureOpenAiResponsesConfig {
+  readonly apiKey: string;
+  readonly endpoint: string;
+  readonly deployment: string;
+  readonly apiVersion: string;
+}
+
 interface OpenAiStructuredOutput {
   readonly sourceCode: string;
   readonly packageManager: DependencyManifestInput["packageManager"];
@@ -64,13 +71,7 @@ export class OpenAiCodeGenerator implements CodeGenerator {
 
   public constructor(options: OpenAiCodeGeneratorOptions = {}) {
     this.apiKey = options.apiKey ?? process.env.OPENAI_API_KEY;
-    this.model =
-      options.model ??
-      process.env.KELPCLAW_OPENAI_CODEGEN_MODEL ??
-      process.env.KELPCLAW_CODEGEN_MODEL ??
-      process.env.KELPCLAW_OPENAI_PLANNER_MODEL ??
-      process.env.KELPCLAW_PLANNER_MODEL ??
-      "gpt-5.4";
+    this.model = options.model ?? openAiModelFromEnv("gpt-5.4");
     this.maxRepairAttempts = options.maxRepairAttempts ?? 1;
     this.responsesRunner = options.responsesRunner;
   }
@@ -139,8 +140,15 @@ export class OpenAiCodeGenerator implements CodeGenerator {
     if (this.responsesRunner) {
       return this.responsesRunner;
     }
+    const azure = resolveAzureOpenAiResponsesConfig(this.apiKey);
+    if (azure) {
+      return createAzureOpenAiResponsesRunner(azure);
+    }
+
     if (!this.apiKey) {
-      throw new Error("OPENAI_API_KEY is required for OpenAI live code generation.");
+      throw new Error(
+        "OPENAI_API_KEY or GPT5_MINI_API_KEY/GPT5_PRO_API_KEY is required for OpenAI live code generation."
+      );
     }
 
     const { default: OpenAI } = await import("openai");
@@ -173,6 +181,83 @@ export class OpenAiCodeGenerator implements CodeGenerator {
       tools: []
     };
   }
+}
+
+export function openAiModelFromEnv(fallback: string): string {
+  return (
+    process.env.KELPCLAW_OPENAI_CODEGEN_MODEL ??
+    process.env.KELPCLAW_CODEGEN_MODEL ??
+    process.env.KELPCLAW_OPENAI_PLANNER_MODEL ??
+    process.env.KELPCLAW_PLANNER_MODEL ??
+    process.env.GPT5_MINI_DEPLOYMENT ??
+    process.env.GPT5_PRO_DEPLOYMENT ??
+    fallback
+  );
+}
+
+export function resolveAzureOpenAiResponsesConfig(
+  apiKeyOverride?: string | undefined
+): AzureOpenAiResponsesConfig | undefined {
+  const endpoint =
+    readEnv("KELPCLAW_AZURE_OPENAI_ENDPOINT") ??
+    readEnv("GPT5_MINI_ENDPOINT") ??
+    readEnv("GPT5_PRO_ENDPOINT") ??
+    readEnv("AZURE_ENDPOINT");
+  const deployment =
+    readEnv("KELPCLAW_AZURE_OPENAI_DEPLOYMENT") ??
+    readEnv("GPT5_MINI_DEPLOYMENT") ??
+    readEnv("GPT5_PRO_DEPLOYMENT");
+  const apiVersion =
+    readEnv("KELPCLAW_AZURE_OPENAI_API_VERSION") ??
+    readEnv("GPT5_MINI_API_VERSION") ??
+    readEnv("GPT5_PRO_API_VERSION") ??
+    readEnv("API_VERSION");
+  const apiKey =
+    apiKeyOverride ||
+    readEnv("KELPCLAW_AZURE_OPENAI_API_KEY") ||
+    readEnv("GPT5_MINI_API_KEY") ||
+    readEnv("GPT5_PRO_API_KEY") ||
+    readEnv("OPENAI_API_KEY");
+
+  if (!endpoint || !deployment || !apiVersion || !apiKey) {
+    return undefined;
+  }
+
+  return {
+    apiKey,
+    endpoint: endpoint.replace(/\/+$/u, ""),
+    deployment,
+    apiVersion
+  };
+}
+
+export function createAzureOpenAiResponsesRunner(
+  config: AzureOpenAiResponsesConfig
+): OpenAiResponsesRunner {
+  return async (request, options) => {
+    const url = new URL(
+      `${config.endpoint}/openai/deployments/${encodeURIComponent(config.deployment)}/responses`
+    );
+    url.searchParams.set("api-version", config.apiVersion);
+    const response = await fetch(url, {
+      body: JSON.stringify({ ...request, model: config.deployment }),
+      headers: {
+        "Content-Type": "application/json",
+        "api-key": config.apiKey
+      },
+      method: "POST",
+      ...(options?.signal ? { signal: options.signal } : {})
+    });
+    if (!response.ok) {
+      throw new Error(`Azure OpenAI Responses request failed: ${response.status}`);
+    }
+    return (await response.json()) as OpenAiResponsesResult;
+  };
+}
+
+function readEnv(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
 }
 
 async function runStructuredResponse(

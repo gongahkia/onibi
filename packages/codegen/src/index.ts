@@ -8,7 +8,11 @@ export type {
   AgentRoleQueryRunner,
   AgentSdkGeneratedNodeRoleRunnerOptions
 } from "./agent-sdk-role-runner.js";
-export { OpenAiCodeGenerator } from "./openai-generator.js";
+export {
+  OpenAiCodeGenerator,
+  openAiModelFromEnv,
+  resolveAzureOpenAiResponsesConfig
+} from "./openai-generator.js";
 export type {
   OpenAiCodeGeneratorOptions,
   OpenAiResponsesCreateRequest,

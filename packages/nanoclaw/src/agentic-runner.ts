@@ -42,6 +42,13 @@ export type OpenAiAgenticResponsesRunner = (
   options?: { readonly signal?: AbortSignal | undefined } | undefined
 ) => Promise<OpenAiAgenticResponsesResult>;
 
+interface AzureOpenAiResponsesConfig {
+  readonly apiKey: string;
+  readonly endpoint: string;
+  readonly deployment: string;
+  readonly apiVersion: string;
+}
+
 export type AgenticQueryRunner = (
   prompt: string,
   options: Options
@@ -248,8 +255,14 @@ export class AgenticResearchNodeRunner implements NodeRunner {
     if (this.openAiRunner) {
       return this.openAiRunner;
     }
+    const azure = resolveAzureOpenAiResponsesConfig(this.apiKey);
+    if (azure) {
+      return createAzureOpenAiResponsesRunner(azure);
+    }
     if (!this.apiKey) {
-      throw new Error("OPENAI_API_KEY is required for OpenAI agentic research.");
+      throw new Error(
+        "OPENAI_API_KEY or GPT5_MINI_API_KEY/GPT5_PRO_API_KEY is required for OpenAI agentic research."
+      );
     }
 
     const { default: OpenAI } = await import("openai");
@@ -292,7 +305,9 @@ function agenticProviderFromEnv(): AgenticProvider {
 }
 
 function apiKeyForProvider(provider: AgenticProvider): string | undefined {
-  return provider === "openai" ? process.env.OPENAI_API_KEY : process.env.ANTHROPIC_API_KEY;
+  return provider === "openai"
+    ? (process.env.OPENAI_API_KEY ?? process.env.GPT5_MINI_API_KEY ?? process.env.GPT5_PRO_API_KEY)
+    : process.env.ANTHROPIC_API_KEY;
 }
 
 function modelForProvider(provider: AgenticProvider): string {
@@ -302,6 +317,8 @@ function modelForProvider(provider: AgenticProvider): string {
       process.env.KELPCLAW_AGENTIC_MODEL ??
       process.env.KELPCLAW_OPENAI_PLANNER_MODEL ??
       process.env.KELPCLAW_PLANNER_MODEL ??
+      process.env.GPT5_MINI_DEPLOYMENT ??
+      process.env.GPT5_PRO_DEPLOYMENT ??
       "gpt-5.4"
     );
   }
@@ -312,6 +329,71 @@ function modelForProvider(provider: AgenticProvider): string {
     process.env.KELPCLAW_PLANNER_MODEL ??
     "claude-sonnet-4-5-20250929"
   );
+}
+
+function resolveAzureOpenAiResponsesConfig(
+  apiKeyOverride?: string | undefined
+): AzureOpenAiResponsesConfig | undefined {
+  const endpoint =
+    readEnv("KELPCLAW_AZURE_OPENAI_ENDPOINT") ??
+    readEnv("GPT5_MINI_ENDPOINT") ??
+    readEnv("GPT5_PRO_ENDPOINT") ??
+    readEnv("AZURE_ENDPOINT");
+  const deployment =
+    readEnv("KELPCLAW_AZURE_OPENAI_DEPLOYMENT") ??
+    readEnv("GPT5_MINI_DEPLOYMENT") ??
+    readEnv("GPT5_PRO_DEPLOYMENT");
+  const apiVersion =
+    readEnv("KELPCLAW_AZURE_OPENAI_API_VERSION") ??
+    readEnv("GPT5_MINI_API_VERSION") ??
+    readEnv("GPT5_PRO_API_VERSION") ??
+    readEnv("API_VERSION");
+  const apiKey =
+    apiKeyOverride ||
+    readEnv("KELPCLAW_AZURE_OPENAI_API_KEY") ||
+    readEnv("GPT5_MINI_API_KEY") ||
+    readEnv("GPT5_PRO_API_KEY") ||
+    readEnv("OPENAI_API_KEY");
+
+  if (!endpoint || !deployment || !apiVersion || !apiKey) {
+    return undefined;
+  }
+
+  return {
+    apiKey,
+    endpoint: endpoint.replace(/\/+$/u, ""),
+    deployment,
+    apiVersion
+  };
+}
+
+function createAzureOpenAiResponsesRunner(
+  config: AzureOpenAiResponsesConfig
+): OpenAiAgenticResponsesRunner {
+  return async (request, options) => {
+    const url = new URL(
+      `${config.endpoint}/openai/deployments/${encodeURIComponent(config.deployment)}/responses`
+    );
+    url.searchParams.set("api-version", config.apiVersion);
+    const response = await fetch(url, {
+      body: JSON.stringify({ ...request, model: config.deployment }),
+      headers: {
+        "Content-Type": "application/json",
+        "api-key": config.apiKey
+      },
+      method: "POST",
+      ...(options?.signal ? { signal: options.signal } : {})
+    });
+    if (!response.ok) {
+      throw new Error(`Azure OpenAI Responses request failed: ${response.status}`);
+    }
+    return (await response.json()) as OpenAiAgenticResponsesResult;
+  };
+}
+
+function readEnv(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
 }
 
 function evaluateAgenticPolicy(node: CompiledDagNode): readonly AgenticPolicyDecision[] {

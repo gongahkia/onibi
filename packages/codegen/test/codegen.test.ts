@@ -18,7 +18,8 @@ import {
   createGeneratedModuleSignature,
   decideReplay,
   generatedModuleSignaturesMatch,
-  assertDependencyManifestPolicy
+  assertDependencyManifestPolicy,
+  resolveAzureOpenAiResponsesConfig
 } from "../src/index.js";
 import { scheduledScrapingWorkflowFixture } from "@kelpclaw/workflow-spec";
 import type {
@@ -366,8 +367,32 @@ describe("codegen artifact contracts", () => {
     });
 
     await expect(generator.generate(codegenRequestFixture())).rejects.toThrow(
-      "OPENAI_API_KEY is required"
+      "OPENAI_API_KEY or GPT5_MINI_API_KEY/GPT5_PRO_API_KEY is required"
     );
+  });
+
+  it("resolves Azure OpenAI Responses config from GPT5 deployment env", () => {
+    const previous = snapshotEnv([
+      "GPT5_MINI_ENDPOINT",
+      "GPT5_MINI_DEPLOYMENT",
+      "GPT5_MINI_API_KEY",
+      "GPT5_MINI_API_VERSION"
+    ]);
+    try {
+      process.env.GPT5_MINI_ENDPOINT = "https://example.openai.azure.com/";
+      process.env.GPT5_MINI_DEPLOYMENT = "gpt-mini";
+      process.env.GPT5_MINI_API_KEY = "azure-key";
+      process.env.GPT5_MINI_API_VERSION = "2025-04-01-preview";
+
+      expect(resolveAzureOpenAiResponsesConfig()).toEqual({
+        apiKey: "azure-key",
+        endpoint: "https://example.openai.azure.com",
+        deployment: "gpt-mini",
+        apiVersion: "2025-04-01-preview"
+      });
+    } finally {
+      restoreEnv(previous);
+    }
   });
 
   it("creates design, source, test, and eval agent artifacts through the build loop", async () => {
@@ -971,4 +996,18 @@ function codegenRequestFixture(): CodegenGenerationRequest {
     },
     generatedAt: "2026-05-18T00:00:00.000Z"
   };
+}
+
+function snapshotEnv(keys: readonly string[]): Record<string, string | undefined> {
+  return Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+}
+
+function restoreEnv(snapshot: Record<string, string | undefined>): void {
+  for (const [key, value] of Object.entries(snapshot)) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
 }

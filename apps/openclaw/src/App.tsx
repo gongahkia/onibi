@@ -11,21 +11,16 @@ import type { Connection, Edge, EdgeChange, NodeChange } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
   CheckCircle2,
-  Clock3,
   FileStack,
   Info,
   ListChecks,
   PanelRightOpen,
   Play,
   Plus,
-  RefreshCw,
   Search,
-  Send,
-  ShieldCheck,
   Trash2,
   WandSparkles,
-  X,
-  XCircle
+  X
 } from "lucide-react";
 import {
   createWorkflowEdge,
@@ -86,26 +81,12 @@ import {
   firstInputPort,
   firstOutputPort,
   nextNodePosition,
-  nodeKindLabel,
   workflowNodeTypes,
   workflowToEdges,
   workflowToNodes
 } from "./workflow-elements.js";
-import type {
-  WorkflowFlowEdge,
-  WorkflowFlowNode,
-  WorkflowNodeData
-} from "./workflow-elements.js";
+import type { WorkflowFlowEdge, WorkflowFlowNode, WorkflowNodeData } from "./workflow-elements.js";
 import "./styles.css";
-
-const nodeKinds: readonly WorkflowNodeKind[] = [
-  "trigger",
-  "skill",
-  "codegen",
-  "transform",
-  "approval",
-  "delivery"
-];
 
 const defaultPrompt = "";
 const defaultBranchName = "Experiment";
@@ -591,6 +572,7 @@ export function App() {
   const commandPaletteInputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
   const selectedNodeIdRef = useRef<string | null>(null);
   const selectedEdgeIdRef = useRef<string | null>(null);
+  const deleteSelectionRef = useRef<() => void>(() => undefined);
   const nodeActionHandlersRef = useRef<NodeActionHandlers>({
     onInlineEdit: () => undefined,
     onSelectNode: () => undefined,
@@ -608,6 +590,7 @@ export function App() {
     onRepromptNode: repromptSelectedNode,
     onAddNextNode: openConnectedNodePalette
   };
+  deleteSelectionRef.current = deleteSelection;
   selectedNodeIdRef.current = selectedNodeId;
   selectedEdgeIdRef.current = selectedEdgeId;
 
@@ -883,9 +866,12 @@ export function App() {
         return;
       }
 
-      if ((event.key === "Delete" || event.key === "Backspace") && (selectedNodeId || selectedEdgeId)) {
+      if (
+        (event.key === "Delete" || event.key === "Backspace") &&
+        (selectedNodeId || selectedEdgeId)
+      ) {
         event.preventDefault();
-        deleteSelection();
+        deleteSelectionRef.current();
       }
     };
 
@@ -898,19 +884,28 @@ export function App() {
       !selectedNodeId || workflow.nodes.some((node) => node.id === selectedNodeId);
     const selectedEdgeStillExists =
       !selectedEdgeId || workflow.edges.some((edge) => edge.id === selectedEdgeId);
-
-    if (!selectedNodeStillExists) {
-      setSelectedNodeId(null);
-      setNodePrompt("");
+    if (selectedNodeStillExists && selectedEdgeStillExists) {
+      return;
     }
 
-    if (!selectedEdgeStillExists) {
-      setSelectedEdgeId(null);
-    }
+    const timeout = window.setTimeout(() => {
+      if (!selectedNodeStillExists) {
+        setSelectedNodeId(null);
+        setNodePrompt("");
+      }
 
-    if ((!selectedNodeStillExists && selectedNodeId) || (!selectedEdgeStillExists && selectedEdgeId)) {
-      setDetailsOpen(false);
-    }
+      if (!selectedEdgeStillExists) {
+        setSelectedEdgeId(null);
+      }
+
+      if (
+        (!selectedNodeStillExists && selectedNodeId) ||
+        (!selectedEdgeStillExists && selectedEdgeId)
+      ) {
+        setDetailsOpen(false);
+      }
+    }, 0);
+    return () => window.clearTimeout(timeout);
   }, [selectedEdgeId, selectedNodeId, workflow.edges, workflow.nodes]);
 
   useEffect(() => {
@@ -939,7 +934,9 @@ export function App() {
           selectedNodeIdRef.current
         )
       );
-      setEdges(applyEdgeSelection(workflowToEdges(nextWorkflow, issues), selectedEdgeIdRef.current));
+      setEdges(
+        applyEdgeSelection(workflowToEdges(nextWorkflow, issues), selectedEdgeIdRef.current)
+      );
     },
     [setEdges, setNodes]
   );
@@ -1290,8 +1287,7 @@ export function App() {
       ...node,
       data: {
         ...node.data,
-        onInlineEdit: (nodeId, patch) =>
-          nodeActionHandlersRef.current.onInlineEdit(nodeId, patch),
+        onInlineEdit: (nodeId, patch) => nodeActionHandlersRef.current.onInlineEdit(nodeId, patch),
         onSelectNode: (nodeId) => nodeActionHandlersRef.current.onSelectNode(nodeId),
         onOpenDetails: (nodeId) => nodeActionHandlersRef.current.onOpenDetails(nodeId),
         onDeleteNode: (nodeId) => nodeActionHandlersRef.current.onDeleteNode(nodeId),
@@ -1307,10 +1303,7 @@ export function App() {
     setEdges((currentEdges) => applyEdgeSelection(currentEdges, edgeId));
   }
 
-  function updateNodeInline(
-    nodeId: string,
-    patch: Pick<WorkflowNode, "label" | "description">
-  ) {
+  function updateNodeInline(nodeId: string, patch: Pick<WorkflowNode, "label" | "description">) {
     updateNode(nodeId, (node) => ({
       ...node,
       label: patch.label,
@@ -1433,7 +1426,8 @@ export function App() {
     const sourceNode = workflow.nodes.find(
       (candidate) => candidate.id === pendingNodeConnection.sourceNodeId
     );
-    const sourcePort = pendingNodeConnection.outputPort ?? (sourceNode ? firstOutputPort(sourceNode) : undefined);
+    const sourcePort =
+      pendingNodeConnection.outputPort ?? (sourceNode ? firstOutputPort(sourceNode) : undefined);
     const targetPort = firstInputPort(node);
     if (!sourceNode || !sourcePort || !targetPort) {
       return null;
@@ -1446,30 +1440,6 @@ export function App() {
       targetPort,
       id: uniqueEdgeId(sourceNode.id, node.id, workflow.edges)
     });
-  }
-
-  function addNode(kind: WorkflowNodeKind) {
-    const id = uniqueNodeId(kind, workflow.nodes);
-    const position = nextNodePosition(nodes);
-    const node = createWorkflowNode({
-      id,
-      kind,
-      config: {
-        canvas: position
-      }
-    });
-    const pendingEdge = pendingEdgeForNewNode(node);
-    updateLocalWorkflow({
-      ...workflow,
-      approval: null,
-      nodes: [...workflow.nodes, node],
-      edges: pendingEdge ? [...workflow.edges, pendingEdge] : workflow.edges
-    });
-    setSelectedNodeId(id);
-    setSelectedEdgeId(null);
-    setNodePrompt(node.description);
-    setJsonError(null);
-    markDirty(id);
   }
 
   function addComponentNode(item: ComponentPaletteItem) {
@@ -2783,8 +2753,7 @@ export function App() {
   ];
   const filteredPaletteCommands =
     paletteMode.kind === "commands"
-      ? // eslint-disable-next-line react-hooks/refs -- Command callbacks only touch refs when executed.
-        paletteCommands
+      ? paletteCommands
           .filter((command) =>
             paletteMode.scope === "node-create" ? command.group === "Components" : true
           )
@@ -2828,7 +2797,7 @@ export function App() {
                   ? `${validationIssues.length} issues`
                   : activeJob
                     ? activeJob.status
-                    : run?.status ?? "ready"}
+                    : (run?.status ?? "ready")}
               </button>
               <button
                 className="run-control-button"
@@ -2844,12 +2813,19 @@ export function App() {
 
           {selectedEdge ? (
             <div className="edge-selection-bar" aria-label="Selected edge actions">
-              <span>Edge {selectedEdge.source.nodeId} → {selectedEdge.target.nodeId}</span>
+              <span>
+                Edge {selectedEdge.source.nodeId} → {selectedEdge.target.nodeId}
+              </span>
               <button type="button" onClick={() => openSelectedDetails("node")}>
                 <PanelRightOpen size={16} />
                 Details
               </button>
-              <button className="icon-button" type="button" title="Delete edge" onClick={deleteSelection}>
+              <button
+                className="icon-button"
+                type="button"
+                title="Delete edge"
+                onClick={deleteSelection}
+              >
                 <Trash2 size={16} />
               </button>
             </div>
@@ -2997,7 +2973,9 @@ export function App() {
           <div className="canvas-footer" aria-label="Canvas status">
             <span>{workflow.nodes.length} nodes</span>
             <span>{workflow.edges.length} edges</span>
-            <span>{validationIssues.length > 0 ? `${validationIssues.length} issues` : "valid"}</span>
+            <span>
+              {validationIssues.length > 0 ? `${validationIssues.length} issues` : "valid"}
+            </span>
           </div>
         </section>
       </section>
@@ -3131,7 +3109,9 @@ function CommandPalette(props: {
                 aria-label="Command palette"
                 value={props.query}
                 placeholder={
-                  props.mode.scope === "node-create" ? "Search nodes to add" : "Type a command or component"
+                  props.mode.scope === "node-create"
+                    ? "Search nodes to add"
+                    : "Type a command or component"
                 }
                 onChange={(event) => props.onQueryChange(event.target.value)}
               />
@@ -3392,11 +3372,17 @@ function StatusPopover(props: {
         <StatusRow label="Branch" value={props.activeBranch?.name ?? "none"} tone="idle" />
         <StatusRow
           label="Validation"
-          value={props.validationIssues.length > 0 ? `${props.validationIssues.length} issues` : "valid"}
+          value={
+            props.validationIssues.length > 0 ? `${props.validationIssues.length} issues` : "valid"
+          }
           tone={props.validationIssues.length > 0 ? "blocked" : "valid"}
         />
         <StatusRow label="Runtime" value={props.runtimeTruth?.stage ?? "empty"} tone="pending" />
-        <StatusRow label="Run" value={props.run?.status ?? props.activeJob?.status ?? "idle"} tone={props.run?.status ?? props.activeJob?.status ?? "idle"} />
+        <StatusRow
+          label="Run"
+          value={props.run?.status ?? props.activeJob?.status ?? "idle"}
+          tone={props.run?.status ?? props.activeJob?.status ?? "idle"}
+        />
       </dl>
       {props.validationIssues.length > 0 ? (
         <ul className="issue-list compact-issue-list">
@@ -3447,7 +3433,12 @@ function ToastStack(props: {
       {props.apiError ? (
         <div className="toast-message toast-message-error">
           <p className="error-text">{props.apiError}</p>
-          <button className="icon-button" type="button" title="Dismiss error" onClick={props.onDismissApiError}>
+          <button
+            className="icon-button"
+            type="button"
+            title="Dismiss error"
+            onClick={props.onDismissApiError}
+          >
             <X size={14} />
           </button>
         </div>
@@ -3455,7 +3446,12 @@ function ToastStack(props: {
       {props.branchNotice ? (
         <div className="toast-message">
           <p className="success-text">{props.branchNotice}</p>
-          <button className="icon-button" type="button" title="Dismiss notice" onClick={props.onDismissBranchNotice}>
+          <button
+            className="icon-button"
+            type="button"
+            title="Dismiss notice"
+            onClick={props.onDismissBranchNotice}
+          >
             <X size={14} />
           </button>
         </div>
@@ -3563,7 +3559,9 @@ function Inspector(props: {
             type="button"
             role="tab"
             aria-selected={props.activeTab === tab.id}
-            className={props.activeTab === tab.id ? "details-tab details-tab-active" : "details-tab"}
+            className={
+              props.activeTab === tab.id ? "details-tab details-tab-active" : "details-tab"
+            }
             onClick={() => props.onTabChange(tab.id)}
           >
             {tab.label}
@@ -3601,8 +3599,16 @@ function Inspector(props: {
                 />
               </label>
               <StatusRow label="Kind" value={node.kind} tone="pending" />
-              <StatusRow label="Inputs" value={String(Object.keys(node.inputs).length)} tone="idle" />
-              <StatusRow label="Outputs" value={String(Object.keys(node.outputs).length)} tone="idle" />
+              <StatusRow
+                label="Inputs"
+                value={String(Object.keys(node.inputs).length)}
+                tone="idle"
+              />
+              <StatusRow
+                label="Outputs"
+                value={String(Object.keys(node.outputs).length)}
+                tone="idle"
+              />
               {node.kind === "skill" || node.kind === "delivery" ? (
                 <label>
                   Adapter-backed skill
@@ -3678,7 +3684,9 @@ function Inspector(props: {
                   <label>
                     Adapter
                     <input
-                      value={(node.adapterIds ?? (node.adapterId ? [node.adapterId] : [])).join(", ")}
+                      value={(node.adapterIds ?? (node.adapterId ? [node.adapterId] : [])).join(
+                        ", "
+                      )}
                       onChange={(event) =>
                         props.onUpdateNode(node.id, (current) =>
                           updateAdapterIds(current, event.target.value)
@@ -3717,7 +3725,11 @@ function Inspector(props: {
                     tone="pending"
                   />
                   {typeof node.config.reusedFromBranchId === "string" ? (
-                    <StatusRow label="Reuse" value={node.config.reusedFromBranchId} tone="pending" />
+                    <StatusRow
+                      label="Reuse"
+                      value={node.config.reusedFromBranchId}
+                      tone="pending"
+                    />
                   ) : null}
                   <button
                     type="button"
@@ -5259,19 +5271,6 @@ function uniqueComponentNodeId(baseId: string, nodes: readonly WorkflowNode[]): 
   while (existing.has(id)) {
     index += 1;
     id = `${baseId}-${index}`;
-  }
-
-  return id;
-}
-
-function uniqueNodeId(kind: WorkflowNodeKind, nodes: readonly WorkflowNode[]): string {
-  const prefix = `${kind}-node`;
-  const existing = new Set(nodes.map((node) => node.id));
-  let index = nodes.length + 1;
-  let id = `${prefix}-${index}`;
-  while (existing.has(id)) {
-    index += 1;
-    id = `${prefix}-${index}`;
   }
 
   return id;
