@@ -171,10 +171,17 @@ import {
 } from "./secrets.js";
 import { InMemoryAgentRunStore, SqliteAgentRunStore } from "./agent-run-store.js";
 import { registerAgentRunRoutes } from "./agent-run-routes.js";
+import {
+  attachAuthPrincipal,
+  authPrincipalForRequest,
+  createApiAuthContext,
+  principalHasRole
+} from "./auth.js";
 import { ApiPolicyEngine } from "./policy-engine.js";
 import { InMemoryWorkflowStore, SqliteWorkflowStore } from "./store.js";
 import type { SecretStore } from "./secrets.js";
 import type { AgentRunStore } from "./agent-run-store.js";
+import type { ApiRole } from "./auth.js";
 import type { RevisionInput, WorkflowStore } from "./store.js";
 import type { WorkflowPlannerBackend } from "./planner.js";
 
@@ -341,6 +348,7 @@ export interface ApiAppOptions {
   readonly secretStore?: SecretStore | undefined;
   readonly agentRunStore?: AgentRunStore | undefined;
   readonly policyEngine?: ApiPolicyEngine | undefined;
+  readonly roleTokens?: Readonly<Record<string, readonly ApiRole[]>> | undefined;
   readonly adminToken?: string | null | undefined;
   readonly runner?: NodeRunner | undefined;
 }
@@ -485,6 +493,10 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
   cleanupWorker.start();
   const adminToken =
     options.adminToken === undefined ? process.env.KELPCLAW_ADMIN_TOKEN : options.adminToken;
+  const auth = createApiAuthContext({
+    adminToken,
+    roleTokens: options.roleTokens
+  });
 
   app.addHook("onClose", async () => {
     jobWorker.stop();
@@ -493,16 +505,36 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
   });
 
   app.addHook("preHandler", async (request, reply) => {
-    if (!adminToken || isPublicRoute(request.method, request.url)) {
+    if (isPublicRoute(request.method, request.url)) {
       return;
     }
-    const header = request.headers.authorization;
-    const expected = `Bearer ${adminToken}`;
-    if (header !== expected) {
-      return reply.code(401).send({
+    const principal = auth.authenticate(request);
+    attachAuthPrincipal(request, principal);
+    if (!auth.enabled || principal) {
+      return;
+    }
+    return reply.code(401).send({
+      ok: false,
+      error: "UNAUTHORIZED",
+      message: "A valid KelpClaw bearer token is required."
+    });
+  });
+
+  app.addHook("preHandler", async (request, reply) => {
+    if (
+      !auth.enabled ||
+      isPublicRoute(request.method, request.url) ||
+      request.url.startsWith("/api/agent-runs") ||
+      request.url.startsWith("/api/policies")
+    ) {
+      return;
+    }
+    const principal = authPrincipalForRequest(request);
+    if (!principal || !principalHasRole(principal, "admin")) {
+      return reply.code(403).send({
         ok: false,
-        error: "UNAUTHORIZED",
-        message: "A valid KelpClaw admin bearer token is required."
+        error: "FORBIDDEN",
+        message: "Role 'admin' is required."
       });
     }
   });
@@ -525,6 +557,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
   registerAgentRunRoutes(app, {
     store: agentRunStore,
     policyEngine,
+    auth,
     writeSseEvent
   });
 

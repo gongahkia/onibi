@@ -18,11 +18,13 @@ import type {
   AppendAgentStepEventInput,
   StopAgentRunInput
 } from "./agent-run-store.js";
+import type { ApiAuthContext } from "./auth.js";
 import type { ApiPolicyEngine } from "./policy-engine.js";
 
 interface AgentRunRouteOptions {
   readonly store: AgentRunStore;
   readonly policyEngine: ApiPolicyEngine;
+  readonly auth: ApiAuthContext;
   readonly writeSseEvent: (response: ServerResponse, event: string, data: unknown) => void;
 }
 
@@ -65,7 +67,10 @@ const classifications = new Set<string>(agentStepClassifications);
 const statuses = new Set<string>(agentStepStatuses);
 
 export function registerAgentRunRoutes(app: FastifyInstance, options: AgentRunRouteOptions): void {
-  app.post<{ Body: StartAgentRunBody }>("/api/agent-runs", async (request, reply) => {
+  app.post<{ Body: StartAgentRunBody }>(
+    "/api/agent-runs",
+    { preHandler: options.auth.requireRole("operator") },
+    async (request, reply) => {
     const sourceAgent = parseSourceAgent(request.body.sourceAgent);
     const sessionId = stringValue(request.body.sessionId);
     if (!sourceAgent || !sessionId) {
@@ -83,24 +88,34 @@ export function registerAgentRunRoutes(app: FastifyInstance, options: AgentRunRo
         ? { title: request.body.title.trim() }
         : {})
     });
-    return reply.code(201).send({ ok: true, run });
-  });
-
-  app.get("/api/agent-runs", async () => ({
-    ok: true,
-    runs: options.store.listRuns()
-  }));
-
-  app.get<{ Params: AgentRunParams }>("/api/agent-runs/:id", async (request, reply) => {
-    const run = options.store.getRun(request.params.id);
-    if (!run) {
-      return agentRunNotFound(reply, request.params.id);
+      return reply.code(201).send({ ok: true, run });
     }
-    return { ok: true, run };
-  });
+  );
+
+  app.get(
+    "/api/agent-runs",
+    { preHandler: options.auth.requireRole("auditor") },
+    async () => ({
+      ok: true,
+      runs: options.store.listRuns()
+    })
+  );
+
+  app.get<{ Params: AgentRunParams }>(
+    "/api/agent-runs/:id",
+    { preHandler: options.auth.requireRole("auditor") },
+    async (request, reply) => {
+      const run = options.store.getRun(request.params.id);
+      if (!run) {
+        return agentRunNotFound(reply, request.params.id);
+      }
+      return { ok: true, run };
+    }
+  );
 
   app.post<{ Params: AgentRunParams; Body: AppendAgentStepBody }>(
     "/api/agent-runs/:id/events",
+    { preHandler: options.auth.requireRole("operator") },
     async (request, reply) => {
       const run = options.store.getRun(request.params.id);
       if (!run) {
@@ -159,11 +174,14 @@ export function registerAgentRunRoutes(app: FastifyInstance, options: AgentRunRo
     }
   );
 
-  app.get<{ Params: AgentRunParams }>("/api/agent-runs/:id/events", async (request, reply) => {
-    const run = options.store.getRun(request.params.id);
-    if (!run) {
-      return agentRunNotFound(reply, request.params.id);
-    }
+  app.get<{ Params: AgentRunParams }>(
+    "/api/agent-runs/:id/events",
+    { preHandler: options.auth.requireRole("auditor") },
+    async (request, reply) => {
+      const run = options.store.getRun(request.params.id);
+      if (!run) {
+        return agentRunNotFound(reply, request.params.id);
+      }
 
     reply.raw.writeHead(200, {
       "content-type": "text/event-stream; charset=utf-8",
@@ -202,11 +220,13 @@ export function registerAgentRunRoutes(app: FastifyInstance, options: AgentRunRo
       }
     }, 250);
     request.raw.on("close", () => clearInterval(interval));
-    return reply;
-  });
+      return reply;
+    }
+  );
 
   app.post<{ Params: AgentRunParams; Body: StopAgentRunBody }>(
     "/api/agent-runs/:id/stop",
+    { preHandler: options.auth.requireRole("operator") },
     async (request, reply) => {
       const status = request.body.status === "failed" ? "failed" : "stopped";
       const input: StopAgentRunInput = { status };
@@ -220,6 +240,7 @@ export function registerAgentRunRoutes(app: FastifyInstance, options: AgentRunRo
 
   app.get<{ Params: AgentRunParams }>(
     "/api/agent-runs/:id/audit/verify",
+    { preHandler: options.auth.requireRole("auditor") },
     async (request, reply) => {
       try {
         return { ok: true, verification: options.store.verifyAuditChain(request.params.id) };
@@ -229,12 +250,19 @@ export function registerAgentRunRoutes(app: FastifyInstance, options: AgentRunRo
     }
   );
 
-  app.get("/api/policies", async () => ({
-    ok: true,
-    ruleset: options.policyEngine.currentRuleset()
-  }));
+  app.get(
+    "/api/policies",
+    { preHandler: options.auth.requireRole("auditor") },
+    async () => ({
+      ok: true,
+      ruleset: options.policyEngine.currentRuleset()
+    })
+  );
 
-  app.put<{ Body: PolicyRequestBody }>("/api/policies", async (request, reply) => {
+  app.put<{ Body: PolicyRequestBody }>(
+    "/api/policies",
+    { preHandler: options.auth.requireRole("admin") },
+    async (request, reply) => {
     try {
       const ruleset =
         typeof request.body.yaml === "string"
@@ -248,6 +276,22 @@ export function registerAgentRunRoutes(app: FastifyInstance, options: AgentRunRo
         message: error instanceof Error ? error.message : "Policy configuration is invalid."
       });
     }
+    }
+  );
+
+  app.post<{ Body: AppendAgentStepBody }>("/api/policies/check", async (request, reply) => {
+    const input = appendInputFromBody("custom", `policy-check.${Date.now()}`, request.body);
+    if (!input) {
+      return reply.code(422).send({
+        ok: false,
+        error: "POLICY_CHECK_INVALID",
+        message: "Policy checks require hookEvent, toolName, and object args."
+      });
+    }
+    return {
+      ok: true,
+      decision: options.policyEngine.evaluateStep(input)
+    };
   });
 }
 
