@@ -1,6 +1,16 @@
 {
   "cli": {
     "groups": {
+      "agent": [
+        "add",
+        "check",
+        "context",
+        "import-run",
+        "list",
+        "login",
+        "run",
+        "validate-run"
+      ],
       "ci": [
         "validate-delivery",
         "validate-pff",
@@ -55,6 +65,7 @@
       ]
     },
     "root_commands": [
+      "agent",
       "ci",
       "detections",
       "engagement",
@@ -75,6 +86,9 @@
   "snapshot_version": 2,
   "workspace_contract": {
     "public_schemas": [
+      "agent-config",
+      "agent-context",
+      "agent-run",
       "chain-of-custody",
       "detections",
       "evidence",
@@ -95,6 +109,7 @@
       "procedures/procedures.json",
       "detections/detections.json",
       "audit-log.jsonl",
+      "agent/",
       "raw/",
       "timeline/",
       "objectives/",

@@ -29,6 +29,7 @@ Current product boundaries are tracked in [`docs/non-goals.md`](non-goals.md).
 | GitHub Issues handoff | Alpha | One-way selected finding export with dry-run preview, redacted assets by default, and no bidirectional status sync. |
 | Slack notifications | Alpha | Summary-only workflow notifications with dry-run default, redacted engagement labels, and no raw evidence. |
 | Email handoff drafts | Alpha | Local `.eml` draft generation for report delivery without sending mail. |
+| External pentest agent bridge | Alpha | `piranesi agent add/check/login/run` manages named local agent profiles, invokes operator-approved agents with scoped context, captures logs, and imports run manifests containing PFF findings and local evidence artifacts. |
 | Chain of custody | Alpha | Local manifest creation and verification for workspace artifacts and audit chain. |
 | Piranesi Finding Format v0 | Alpha | Public finding interchange with JSON Schema, validation, workspace export/import, fixture validation, and versioning rules. |
 | Python adapter SDK v0 | Alpha | Helpers for third-party adapters to emit valid PFF documents without mutating workspaces directly. |
@@ -48,7 +49,9 @@ features until their own acceptance criteria are complete:
   Phase 1.2 evidence gate.
 - Live C2 operation, implant management, payload execution, and active exploitation.
 - Autonomous scanning, scheduled scanning, AI-driven target interaction, payload
-  generation, and replay beyond original ingested scope.
+  generation, and replay beyond original ingested scope inside Piranesi core. Use
+  [`agent-pentest-bridge.md`](agent-pentest-bridge.md) when an operator-managed
+  external agent performs authorized testing and returns local PFF/evidence output.
 - Vendor-specific C2 adapters beyond the neutral local JSONL format.
 - OS/runtime-enforced network egress allowlisting for replay containers. Current
   rescan derives and validates baseline scope, then requires explicit acknowledgement

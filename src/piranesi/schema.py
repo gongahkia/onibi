@@ -7,6 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel
 
 from piranesi import __version__
+from piranesi.agent_bridge import AgentConfigDocument, AgentContextDocument, AgentRunManifest
 from piranesi.detections import DetectionsDocument
 from piranesi.evidence import EvidenceIndexDocument
 from piranesi.objectives import ObjectivesDocument, ProceduresDocument
@@ -27,9 +28,15 @@ SchemaName = Literal[
     "red-team-report",
     "chain-of-custody",
     "retest",
+    "agent-context",
+    "agent-config",
+    "agent-run",
 ]
 
 _SCHEMA_MODELS: dict[str, type[BaseModel]] = {
+    "agent-context": AgentContextDocument,
+    "agent-config": AgentConfigDocument,
+    "agent-run": AgentRunManifest,
     "workspace": WorkspaceDocument,
     "detections": DetectionsDocument,
     "evidence": EvidenceIndexDocument,

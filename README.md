@@ -30,6 +30,7 @@ small, with scanner imports retained as one evidence source:
 
 ```text
 piranesi evidence
+piranesi agent
 piranesi ingest
 piranesi report
 piranesi rescan
@@ -53,6 +54,9 @@ Piranesi focuses on that artifact layer:
 
 - **Import-only by default:** normal workflows do not run active scans or payloads;
   `rescan` is an explicit replay path for already ingested scanner evidence.
+- **Agent-pluggable:** external pentest or triage agents can be invoked through
+  `piranesi agent run`, receive scoped context, and return validated PFF findings
+  plus local evidence.
 - **Operator-evidence aware:** screenshots, transcripts, logs, and other artifacts can
   be preserved in the local evidence vault from the CLI or browser UI.
 - **Evidence-bound:** findings cite raw tool exports, source digests, and locators.
@@ -134,6 +138,30 @@ uv run piranesi sign --workspace ./workspace
 uv run piranesi serve --workspace ./workspace
 ```
 
+Connect an existing external pentest or triage agent once, then invoke it through
+Piranesi:
+
+```bash
+uv run piranesi agent add \
+  --workspace ./workspace \
+  --name team-agent \
+  --command 'team-agent triage --context {context} --manifest {manifest}' \
+  --check-command 'team-agent --version' \
+  --login-command 'team-agent login'
+uv run piranesi agent check --workspace ./workspace --agent team-agent
+uv run piranesi agent login --workspace ./workspace --agent team-agent
+uv run piranesi agent run \
+  --workspace ./workspace \
+  --agent team-agent \
+  --approved-by operator@example.test \
+  --approval-reference ROE-1234 \
+  --live
+```
+
+If the agent ran outside the wrapper, import its local manifest directly with
+`uv run piranesi agent validate-run --manifest agent-run.json` and
+`uv run piranesi agent import-run --workspace ./workspace --manifest agent-run.json`.
+
 Generate a PDF with the deterministic fallback renderer:
 
 ```bash
@@ -213,6 +241,9 @@ Implemented Phase 1 pieces:
   `ambiguous` statuses.
 - Local loopback web app via `piranesi serve`, including empty-workspace setup and
   typed note capture plus browser file upload for evidence artifacts.
+- External pentest agent bridge via `piranesi agent`, allowing operator-managed
+  testing agents to consume scoped context and return validated local PFF/evidence
+  run manifests.
 
 See [docs/capabilities.md](docs/capabilities.md) for the detailed Phase 1 matrix and
 [docs/known-limitations.json](docs/known-limitations.json) for tracked limitations.
@@ -270,6 +301,7 @@ added with `piranesi evidence add` are also copied under `raw/<kind>/` and index
 - [Piranesi Finding Format v0](docs/pff-v0.md)
 - [Python adapter SDK](docs/python-adapter-sdk.md)
 - [Plugin API security model](docs/plugin-api-security-model.md)
+- [External pentest agent bridge](docs/agent-pentest-bridge.md)
 - [Phase 4 PFF platform closeout](docs/phase4-pff-platform-closeout.md)
 - [C2 log import](docs/c2-log-import.md)
 - [Nuclei ingestion](docs/nuclei-ingest.md)

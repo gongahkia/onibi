@@ -10,6 +10,12 @@ Piranesi may use AI only as a local-first drafting and suggestion aid. AI output
 must never be treated as confirmed evidence, must never create findings by itself,
 and must never interact with targets, tools, scanners, payloads, or infrastructure.
 
+Operator-managed external pentest agents are handled by the separate
+[`agent-pentest-bridge.md`](agent-pentest-bridge.md) contract. They may perform
+authorized testing through `piranesi agent run` or an equivalent external wrapper,
+but Piranesi treats their output as untrusted local evidence until manifest, PFF,
+provenance, and review checks pass.
+
 ## Allowed Uses
 
 - Draft remediation wording for existing findings.

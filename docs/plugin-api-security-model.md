@@ -23,6 +23,13 @@ implementation issues must preserve.
 Plugins may not become autonomous scanners, exploitation modules, C2 controllers,
 credential harvesters, or report approval authorities.
 
+External pentest agents are a separate integration class, not general-purpose
+plugins. If a team wants to plug in an automated testing or triage agent, it must
+use the file-based agent bridge documented in
+[`agent-pentest-bridge.md`](agent-pentest-bridge.md): Piranesi exports scoped
+context, invokes only operator-supplied local commands with explicit live approval,
+and imports only validated local manifests, PFF findings, and evidence.
+
 ## Trust Model
 
 - Plugins are untrusted by default.

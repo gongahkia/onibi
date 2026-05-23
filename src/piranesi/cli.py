@@ -32,6 +32,23 @@ from piranesi.adapters import (
     parse_sqlmap_file,
     parse_zap_json_file,
 )
+from piranesi.agent_bridge import (
+    AGENT_CONFIG_FILE,
+    DEFAULT_AGENT_CHECK_TIMEOUT_SECONDS,
+    DEFAULT_AGENT_TIMEOUT_SECONDS,
+    AgentBridgeError,
+    AgentProfile,
+    AgentRunMode,
+    check_agent_profile,
+    get_agent_profile,
+    import_agent_run_manifest,
+    load_agent_config,
+    load_agent_run_manifest,
+    login_agent_profile,
+    run_agent_command,
+    upsert_agent_profile,
+    write_agent_context,
+)
 from piranesi.ci_validation import (
     CiValidationError,
     validate_pff_artifact,
@@ -222,6 +239,11 @@ integrations_app = typer.Typer(
     help="One-way external handoff integrations.",
     no_args_is_help=True,
 )
+agent_app = typer.Typer(
+    add_completion=False,
+    help="Bridge external pentest agents through scoped execution manifests.",
+    no_args_is_help=True,
+)
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(engagement_app, name="engagement")
 app.add_typer(evidence_app, name="evidence")
@@ -232,6 +254,7 @@ app.add_typer(detections_app, name="detections")
 app.add_typer(pff_app, name="pff")
 app.add_typer(ci_app, name="ci")
 app.add_typer(integrations_app, name="integrations")
+app.add_typer(agent_app, name="agent")
 
 
 def _load_local_llm_env(env_path: Path | None = None) -> None:
@@ -635,6 +658,502 @@ def integrations_slack_notify_command(
         payload,
         json_output=json_output,
         text=f"Slack notification {'dry-run' if dry_run else 'sent'}: {event}",
+    )
+
+
+@agent_app.command("context", help="Write scoped context for an external pentest agent.")
+def agent_context_command(
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to describe.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            dir_okay=False,
+            file_okay=True,
+            help="Output context JSON. Defaults to workspace/agent/context.json.",
+        ),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print context metadata as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    try:
+        state = load_workspace(workspace)
+        context_path = write_agent_context(state, output)
+        digest = file_sha256(context_path)
+        append_workspace_audit_event(
+            state,
+            AuditEvent(
+                timestamp=utc_now(),
+                command="agent context",
+                output_path=str(context_path),
+                output_sha256=digest,
+                summary={"scope": state.workspace.engagement.scope},
+            ),
+        )
+    except (WorkspaceError, EvidenceError, OSError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    payload = {
+        "path": str(context_path),
+        "sha256": digest,
+        "scope": state.workspace.engagement.scope,
+    }
+    _emit(
+        payload,
+        json_output=json_output,
+        text=f"Agent context written: {context_path}",
+    )
+
+
+@agent_app.command("add", help="Save a named external pentest agent profile.")
+def agent_add_command(
+    name: Annotated[
+        str,
+        typer.Option("--name", help="Profile name, for example 'openclaw' or 'team-agent'."),
+    ],
+    command: Annotated[
+        str,
+        typer.Option(
+            "--command",
+            "-c",
+            help=(
+                "Agent run command. Supports placeholders: "
+                "{context}, {manifest}, {run_dir}, {workspace}, {scope}, {run_id}."
+            ),
+        ),
+    ],
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to store the profile in.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    check_command: Annotated[
+        str | None,
+        typer.Option("--check-command", help="Optional local command used by agent check."),
+    ] = None,
+    login_command: Annotated[
+        str | None,
+        typer.Option("--login-command", help="Optional local command used by agent login."),
+    ] = None,
+    required_env: Annotated[
+        list[str] | None,
+        typer.Option("--required-env", help="Environment variable required by the agent."),
+    ] = None,
+    mode: Annotated[
+        AgentRunMode,
+        typer.Option("--mode", help="Default agent execution mode."),
+    ] = "triage",
+    timeout_seconds: Annotated[
+        int,
+        typer.Option("--timeout-seconds", help="Default live agent execution timeout."),
+    ] = DEFAULT_AGENT_TIMEOUT_SECONDS,
+    notes: Annotated[
+        str | None,
+        typer.Option("--notes", help="Short operator note for this agent profile."),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print profile metadata as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    try:
+        state = create_workspace(workspace)
+        profile = AgentProfile(
+            name=name,
+            command=command,
+            check_command=check_command,
+            login_command=login_command,
+            default_mode=mode,
+            timeout_seconds=timeout_seconds,
+            required_env=required_env or [],
+            notes=notes,
+        )
+        config = upsert_agent_profile(state, profile)
+    except (AgentBridgeError, WorkspaceError, ValueError, OSError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    payload = {
+        "path": str(state.root / AGENT_CONFIG_FILE),
+        "profile": profile.model_dump(mode="json"),
+        "profiles": len(config.profiles),
+    }
+    _emit(
+        payload,
+        json_output=json_output,
+        text=f"Agent profile saved: {profile.name}",
+    )
+
+
+@agent_app.command("list", help="List configured external pentest agent profiles.")
+def agent_list_command(
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to inspect.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print profiles as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    try:
+        state = load_workspace(workspace)
+        config = load_agent_config(state.root)
+    except (AgentBridgeError, WorkspaceError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    payload = {
+        "workspace": str(state.root),
+        "count": len(config.profiles),
+        "profiles": [profile.model_dump(mode="json") for profile in config.profiles],
+    }
+    if json_output:
+        _emit(payload, json_output=True, text="")
+        return
+    if not config.profiles:
+        typer.echo("No agent profiles configured.")
+        return
+    for profile in config.profiles:
+        typer.echo(f"{profile.name}\t{profile.default_mode}\t{profile.command}")
+
+
+@agent_app.command("check", help="Check whether a configured agent profile is ready.")
+def agent_check_command(
+    agent: Annotated[
+        str,
+        typer.Option("--agent", help="Configured agent profile name."),
+    ],
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to inspect.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    timeout_seconds: Annotated[
+        int,
+        typer.Option("--timeout-seconds", help="Maximum check command execution time."),
+    ] = DEFAULT_AGENT_CHECK_TIMEOUT_SECONDS,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print check result as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    try:
+        state = load_workspace(workspace)
+        result = check_agent_profile(state.root, agent, timeout_seconds=timeout_seconds)
+    except (AgentBridgeError, WorkspaceError, OSError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    payload = result.as_payload()
+    ready = not payload["issues"]
+    _emit(
+        payload,
+        json_output=json_output,
+        text=f"Agent profile {'ready' if ready else 'not ready'}: {agent}",
+    )
+    if not ready:
+        raise typer.Exit(code=EXIT_OPERATION_FAILED)
+
+
+@agent_app.command("login", help="Run the login command for a configured agent profile.")
+def agent_login_command(
+    agent: Annotated[
+        str,
+        typer.Option("--agent", help="Configured agent profile name."),
+    ],
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to use.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    timeout_seconds: Annotated[
+        int,
+        typer.Option("--timeout-seconds", help="Maximum login command execution time."),
+    ] = DEFAULT_AGENT_TIMEOUT_SECONDS,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print login result as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    try:
+        result = login_agent_profile(workspace, agent, timeout_seconds=timeout_seconds)
+    except (AgentBridgeError, WorkspaceError, OSError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    payload = result.as_payload()
+    _emit(
+        payload,
+        json_output=json_output,
+        text=f"Agent login complete: {agent} -> {payload['stdout_path']}",
+    )
+
+
+@agent_app.command("run", help="Run a configured external pentest agent and import its manifest.")
+def agent_run_command(
+    command: Annotated[
+        str | None,
+        typer.Option(
+            "--command",
+            "-c",
+            help=(
+                "Agent command to execute. Supports placeholders: "
+                "{context}, {manifest}, {run_dir}, {workspace}, {scope}, {run_id}."
+            ),
+        ),
+    ] = None,
+    agent: Annotated[
+        str | None,
+        typer.Option("--agent", help="Configured agent profile name to run."),
+    ] = None,
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to use.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    run_id: Annotated[
+        str | None,
+        typer.Option("--run-id", help="Run ID to expose to the external agent."),
+    ] = None,
+    mode: Annotated[
+        AgentRunMode,
+        typer.Option("--mode", help="Agent execution mode."),
+    ] = "triage",
+    approved_by: Annotated[
+        str | None,
+        typer.Option("--approved-by", help="Operator approving live agent execution."),
+    ] = None,
+    approval_reference: Annotated[
+        str | None,
+        typer.Option("--approval-reference", help="Rules-of-engagement or approval reference."),
+    ] = None,
+    live: Annotated[
+        bool,
+        typer.Option(
+            "--live/--dry-run",
+            help="Execute the command, or only prepare context and preview argv.",
+        ),
+    ] = False,
+    import_manifest: Annotated[
+        bool,
+        typer.Option(
+            "--import/--no-import",
+            help="Import the manifest emitted by the agent after successful execution.",
+        ),
+    ] = True,
+    timeout_seconds: Annotated[
+        int,
+        typer.Option("--timeout-seconds", help="Maximum live agent execution time."),
+    ] = DEFAULT_AGENT_TIMEOUT_SECONDS,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print run metadata as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    try:
+        resolved_command = command
+        resolved_mode = mode
+        resolved_timeout = timeout_seconds
+        if agent is not None:
+            profile = get_agent_profile(workspace, agent)
+            resolved_command = resolved_command or profile.command
+            resolved_mode = profile.default_mode if mode == "triage" else mode
+            resolved_timeout = (
+                profile.timeout_seconds
+                if timeout_seconds == DEFAULT_AGENT_TIMEOUT_SECONDS
+                else timeout_seconds
+            )
+            check = check_agent_profile(workspace, agent)
+            if check.issues:
+                joined = "; ".join(check.issues)
+                raise AgentBridgeError(f"agent profile {agent!r} is not ready: {joined}")
+        if resolved_command is None:
+            raise AgentBridgeError("--command is required unless --agent is provided")
+        result = run_agent_command(
+            workspace=workspace,
+            command=resolved_command,
+            run_id=run_id,
+            mode=resolved_mode,
+            approved_by=approved_by,
+            approval_reference=approval_reference,
+            live=live,
+            import_manifest=import_manifest,
+            timeout_seconds=resolved_timeout,
+        )
+    except (AgentBridgeError, PffValidationError, WorkspaceError, EvidenceError, OSError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    payload = result.as_payload()
+    imported = payload.get("imported")
+    if isinstance(imported, dict):
+        suffix = (
+            f"; imported {imported['findings']} findings "
+            f"and {imported['evidence']} evidence artifacts"
+        )
+    else:
+        suffix = ""
+    _emit(
+        payload,
+        json_output=json_output,
+        text=(
+            f"Agent {'run' if live else 'dry-run'} prepared: "
+            f"{payload['run_id']} -> {payload['run_dir']}{suffix}"
+        ),
+    )
+
+
+@agent_app.command("validate-run", help="Validate an external pentest agent run manifest.")
+def agent_validate_run_command(
+    manifest: Annotated[
+        Path,
+        typer.Option(
+            "--manifest",
+            "-m",
+            exists=False,
+            dir_okay=False,
+            file_okay=True,
+            help="Agent run manifest JSON to validate.",
+        ),
+    ],
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print validation summary as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    if not manifest.is_file():
+        _fail(f"agent run manifest does not exist: {manifest}", json_errors=json_errors)
+    try:
+        document = load_agent_run_manifest(manifest)
+    except AgentBridgeError as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    payload = {
+        "valid": True,
+        "run_id": document.run_id,
+        "agent": document.agent.model_dump(mode="json"),
+        "mode": document.mode,
+        "scope": document.scope,
+        "artifacts": len(document.artifacts),
+        "has_pff": document.pff_path is not None,
+    }
+    _emit(
+        payload,
+        json_output=json_output,
+        text=f"Valid agent run manifest: {document.run_id}",
+    )
+
+
+@agent_app.command("import-run", help="Import an external pentest agent run manifest.")
+def agent_import_run_command(
+    manifest: Annotated[
+        Path,
+        typer.Option(
+            "--manifest",
+            "-m",
+            exists=False,
+            dir_okay=False,
+            file_okay=True,
+            help="Agent run manifest JSON to import.",
+        ),
+    ],
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            "-w",
+            dir_okay=True,
+            file_okay=False,
+            help="Workspace directory to create or update.",
+        ),
+    ] = DEFAULT_WORKSPACE,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print import summary as JSON."),
+    ] = False,
+    json_errors: Annotated[
+        bool,
+        typer.Option("--json-errors", help="Print command errors as JSON."),
+    ] = False,
+) -> None:
+    if not manifest.is_file():
+        _fail(f"agent run manifest does not exist: {manifest}", json_errors=json_errors)
+    try:
+        result = import_agent_run_manifest(manifest, workspace=workspace)
+    except (AgentBridgeError, PffValidationError, WorkspaceError, EvidenceError, OSError) as exc:
+        _fail(str(exc), json_errors=json_errors)
+
+    payload = result.as_payload()
+    _emit(
+        payload,
+        json_output=json_output,
+        text=(
+            "Imported agent run: "
+            f"{payload['run_id']} "
+            f"({payload['findings']} findings, {payload['evidence']} evidence artifacts)"
+        ),
     )
 
 

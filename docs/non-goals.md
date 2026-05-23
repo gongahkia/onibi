@@ -5,12 +5,19 @@ normalizing findings, producing reports, comparing retests, and signing local
 deliverables. It is not positioned as a scanner, scheduler, C2 platform, hosted
 portal, or autonomous compliance engine.
 
+Piranesi can still fit a holistic workflow through the external pentest agent
+bridge: operator-managed agents may perform authorized testing through
+`piranesi agent run`, then return local manifests, PFF findings, and evidence for
+validation and custody. That bridge is a local command wrapper and handoff
+contract, not a built-in scanner runtime.
+
 ## Phase 1 Boundary
 
 The current Phase 1 command surface is intentionally small:
 
 ```text
 piranesi evidence
+piranesi agent
 piranesi ingest
 piranesi report
 piranesi rescan
