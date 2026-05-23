@@ -16,6 +16,7 @@ import type {
 const objectSchema = { type: "object", additionalProperties: true } as const;
 const arraySchema = { type: "array", items: objectSchema } as const;
 const stringSchema = { type: "string" } as const;
+const booleanSchema = { type: "boolean" } as const;
 
 const defaultRateLimit = {
   maxRequests: 60,
@@ -58,11 +59,59 @@ const telegramNetworkPolicy = {
   allowedHosts: ["api.telegram.org"]
 } as const;
 
+const githubNetworkPolicy = {
+  mode: "declared",
+  allowedHosts: ["api.github.com"]
+} as const;
+
+const slackNetworkPolicy = {
+  mode: "declared",
+  allowedHosts: ["slack.com"]
+} as const;
+
+const discordNetworkPolicy = {
+  mode: "declared",
+  allowedHosts: ["discord.com"]
+} as const;
+
+const notionNetworkPolicy = {
+  mode: "declared",
+  allowedHosts: ["api.notion.com"]
+} as const;
+
+const linearNetworkPolicy = {
+  mode: "declared",
+  allowedHosts: ["api.linear.app"]
+} as const;
+
+const jiraNetworkPolicy = {
+  mode: "declared",
+  allowedHosts: ["*.atlassian.net"]
+} as const;
+
+const airtableNetworkPolicy = {
+  mode: "declared",
+  allowedHosts: ["api.airtable.com"]
+} as const;
+
+const webhookNetworkPolicy = {
+  mode: "declared",
+  allowedHosts: ["*"]
+} as const;
+
 const gmailSecret = secret("gmail.oauth", "OAuth token reference for Gmail scopes.");
 const sheetsSecret = secret("sheets.oauth", "OAuth token reference for Google Sheets scopes.");
 const emailSecret = secret("email.delivery", "Provider key or SMTP credential reference.");
 const whatsappSecret = secret("whatsapp.apiKey", "WhatsApp Business API key reference.");
 const telegramSecret = secret("telegram.botToken", "Telegram bot token reference.");
+const githubSecret = secret("github.token", "GitHub fine-grained or classic token reference.");
+const slackSecret = secret("slack.botToken", "Slack bot token reference.");
+const discordSecret = secret("discord.botToken", "Discord bot token reference.");
+const notionSecret = secret("notion.apiKey", "Notion integration token reference.");
+const linearSecret = secret("linear.apiKey", "Linear API key reference.");
+const jiraSecret = secret("jira.basicAuth", "Jira email:api-token credential reference.");
+const airtableSecret = secret("airtable.apiKey", "Airtable personal access token reference.");
+const webhookSecret = secret("webhook.token", "Generic webhook bearer token reference.");
 
 export const builtinAdapterMetadata = [
   adapter({
@@ -218,6 +267,238 @@ export const builtinAdapterMetadata = [
         "telegram.alert.send",
         { chatId: "ops-telegram", text: "Urgent incident", severity: "high" },
         { delivered: true, channel: "telegram" }
+      )
+    ]
+  }),
+  adapter({
+    id: "adapter.github",
+    kind: "github",
+    displayName: "GitHub",
+    networkPolicy: githubNetworkPolicy,
+    capabilities: ["github.issue.create", "github.issue.comment"],
+    requiredSecrets: [githubSecret],
+    operations: [
+      operation(
+        "github.issue.create",
+        "Creates a GitHub issue in a repository.",
+        {
+          owner: stringSchema,
+          repo: stringSchema,
+          title: stringSchema,
+          body: stringSchema,
+          labels: arraySchema
+        },
+        { response: objectSchema }
+      ),
+      operation(
+        "github.issue.comment",
+        "Adds a comment to an existing GitHub issue.",
+        {
+          owner: stringSchema,
+          repo: stringSchema,
+          issueNumber: { type: "integer" },
+          body: stringSchema
+        },
+        { response: objectSchema }
+      )
+    ],
+    fixtures: [
+      fixture(
+        "fixture.github.issue.create",
+        "Create a GitHub issue fixture.",
+        "github.issue.create",
+        { owner: "acme", repo: "ops", title: "Workflow alert", body: "Investigate." },
+        { response: { status: 201, body: { number: 42 } } }
+      )
+    ]
+  }),
+  adapter({
+    id: "adapter.slack",
+    kind: "slack",
+    displayName: "Slack",
+    networkPolicy: slackNetworkPolicy,
+    capabilities: ["slack.message.send"],
+    requiredSecrets: [slackSecret],
+    operations: [
+      operation(
+        "slack.message.send",
+        "Sends a Slack message with a bot token.",
+        { channel: stringSchema, text: stringSchema, blocks: arraySchema },
+        { response: objectSchema }
+      )
+    ],
+    fixtures: [
+      fixture(
+        "fixture.slack.message.send",
+        "Send a Slack message fixture.",
+        "slack.message.send",
+        { channel: "C123", text: "Workflow completed." },
+        { response: { status: 200, body: { ok: true } } }
+      )
+    ]
+  }),
+  adapter({
+    id: "adapter.discord",
+    kind: "discord",
+    displayName: "Discord",
+    networkPolicy: discordNetworkPolicy,
+    capabilities: ["discord.message.send"],
+    requiredSecrets: [discordSecret],
+    operations: [
+      operation(
+        "discord.message.send",
+        "Sends a Discord channel message with a bot token.",
+        { channelId: stringSchema, content: stringSchema, embeds: arraySchema },
+        { response: objectSchema }
+      )
+    ],
+    fixtures: [
+      fixture(
+        "fixture.discord.message.send",
+        "Send a Discord message fixture.",
+        "discord.message.send",
+        { channelId: "123", content: "Workflow completed." },
+        { response: { status: 200, body: { id: "message-1" } } }
+      )
+    ]
+  }),
+  adapter({
+    id: "adapter.notion",
+    kind: "notion",
+    displayName: "Notion",
+    networkPolicy: notionNetworkPolicy,
+    capabilities: ["notion.page.create"],
+    requiredSecrets: [notionSecret],
+    operations: [
+      operation(
+        "notion.page.create",
+        "Creates a Notion page.",
+        { parent: objectSchema, properties: objectSchema, children: arraySchema },
+        { response: objectSchema }
+      )
+    ],
+    fixtures: [
+      fixture(
+        "fixture.notion.page.create",
+        "Create a Notion page fixture.",
+        "notion.page.create",
+        { parent: { database_id: "db" }, properties: { Name: { title: [] } } },
+        { response: { status: 200, body: { id: "page-1" } } }
+      )
+    ]
+  }),
+  adapter({
+    id: "adapter.linear",
+    kind: "linear",
+    displayName: "Linear",
+    networkPolicy: linearNetworkPolicy,
+    capabilities: ["linear.issue.create"],
+    requiredSecrets: [linearSecret],
+    operations: [
+      operation(
+        "linear.issue.create",
+        "Creates a Linear issue through GraphQL.",
+        { query: stringSchema, variables: objectSchema },
+        { response: objectSchema }
+      )
+    ],
+    fixtures: [
+      fixture(
+        "fixture.linear.issue.create",
+        "Create a Linear issue fixture.",
+        "linear.issue.create",
+        {
+          query:
+            "mutation IssueCreate($input: IssueCreateInput!) { issueCreate(input: $input) { success } }"
+        },
+        { response: { status: 200, body: { data: { issueCreate: { success: true } } } } }
+      )
+    ]
+  }),
+  adapter({
+    id: "adapter.jira",
+    kind: "jira",
+    displayName: "Jira Cloud",
+    networkPolicy: jiraNetworkPolicy,
+    capabilities: ["jira.issue.create"],
+    requiredSecrets: [jiraSecret],
+    operations: [
+      operation(
+        "jira.issue.create",
+        "Creates a Jira Cloud issue.",
+        {
+          siteHost: stringSchema,
+          fields: objectSchema
+        },
+        { response: objectSchema }
+      )
+    ],
+    fixtures: [
+      fixture(
+        "fixture.jira.issue.create",
+        "Create a Jira issue fixture.",
+        "jira.issue.create",
+        { path: { siteHost: "acme.atlassian.net" }, fields: { summary: "Workflow alert" } },
+        { response: { status: 201, body: { key: "OPS-42" } } }
+      )
+    ]
+  }),
+  adapter({
+    id: "adapter.airtable",
+    kind: "airtable",
+    displayName: "Airtable",
+    networkPolicy: airtableNetworkPolicy,
+    capabilities: ["airtable.record.create"],
+    requiredSecrets: [airtableSecret],
+    operations: [
+      operation(
+        "airtable.record.create",
+        "Creates an Airtable record.",
+        {
+          baseId: stringSchema,
+          tableName: stringSchema,
+          fields: objectSchema,
+          typecast: booleanSchema
+        },
+        { response: objectSchema }
+      )
+    ],
+    fixtures: [
+      fixture(
+        "fixture.airtable.record.create",
+        "Create an Airtable record fixture.",
+        "airtable.record.create",
+        { path: { baseId: "app123", tableName: "Tasks" }, fields: { Name: "Workflow alert" } },
+        { response: { status: 200, body: { id: "rec123" } } }
+      )
+    ]
+  }),
+  adapter({
+    id: "adapter.webhook",
+    kind: "webhook",
+    displayName: "Generic Webhook",
+    networkPolicy: webhookNetworkPolicy,
+    capabilities: ["webhook.post"],
+    requiredSecrets: [webhookSecret],
+    operations: [
+      operation(
+        "webhook.post",
+        "Posts a JSON payload to a runtime-configured HTTPS webhook URL.",
+        { url: stringSchema, body: objectSchema, headers: objectSchema, allowedHosts: arraySchema },
+        { response: objectSchema }
+      )
+    ],
+    fixtures: [
+      fixture(
+        "fixture.webhook.post",
+        "Post a generic webhook fixture.",
+        "webhook.post",
+        {
+          url: "https://hooks.example.test/kelpclaw",
+          body: { ok: true },
+          allowedHosts: ["hooks.example.test"]
+        },
+        { response: { status: 200, body: { accepted: true } } }
       )
     ]
   })

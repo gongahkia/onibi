@@ -8,6 +8,10 @@ export interface HttpAdapterRoute {
   readonly method: string;
   readonly url: string;
   readonly auth?: HttpAdapterAuth | undefined;
+  readonly headers?: Readonly<Record<string, string>> | undefined;
+  readonly bodyPayloadKey?: string | undefined;
+  readonly pathKeys?: readonly string[] | undefined;
+  readonly urlPayloadKey?: string | undefined;
 }
 
 export interface HttpAdapterAuth {
@@ -43,11 +47,14 @@ export class HttpAdapter implements Adapter {
       );
     }
 
-    const url = buildUrl(route.url, invocation.payload);
+    const url = buildUrl(route, invocation.payload);
     assertAllowedHost(this.metadata, url);
-    const headers = headersFromRecord(recordValue(invocation.payload.headers));
+    const headers = headersFromRecord({
+      ...(route.headers ?? {}),
+      ...recordValue(invocation.payload.headers)
+    });
     applyHttpAuth(headers, url, route.auth, invocation);
-    const body = bodyFor(route.method, invocation.payload.body);
+    const body = bodyFor(route.method, invocation.payload, route);
     const response = await this.fetchImpl(url, {
       method: route.method.toUpperCase(),
       headers,
@@ -155,8 +162,25 @@ function headersFromRecord(record: JsonRecord): Headers {
   return headers;
 }
 
-function buildUrl(template: string, payload: JsonRecord): URL {
-  const pathValues = recordValue(payload.path);
+function buildUrl(route: HttpAdapterRoute, payload: JsonRecord): URL {
+  if (route.urlPayloadKey) {
+    const value = payload[route.urlPayloadKey];
+    if (typeof value !== "string" || value.trim().length === 0) {
+      throw new Error(`Payload field '${route.urlPayloadKey}' must contain a URL.`);
+    }
+    return new URL(value);
+  }
+
+  const template = route.url;
+  const directPathValues = Object.fromEntries(
+    (route.pathKeys ?? [])
+      .map((key) => [key, payload[key]] as const)
+      .filter((entry): entry is readonly [string, JsonValue] => entry[1] !== undefined)
+  );
+  const pathValues = {
+    ...directPathValues,
+    ...recordValue(payload.path)
+  };
   let urlText = template;
   for (const [name, value] of Object.entries(pathValues)) {
     urlText = urlText.replaceAll(`{${name}}`, encodeURIComponent(String(value)));
@@ -185,7 +209,14 @@ function assertAllowedHost(metadata: AdapterMetadata, url: URL): void {
     return;
   }
   const allowed = new Set(metadata.networkPolicy.allowedHosts.map((host) => host.toLowerCase()));
-  if (!allowed.has(url.hostname.toLowerCase())) {
+  const hostname = url.hostname.toLowerCase();
+  const matched = [...allowed].some(
+    (host) =>
+      host === "*" ||
+      host === hostname ||
+      (host.startsWith("*.") && hostname.endsWith(host.slice(1)))
+  );
+  if (!matched) {
     throw new Error(`Host '${url.hostname}' is not declared for adapter '${metadata.id}'.`);
   }
 }
@@ -223,15 +254,35 @@ function applyHttpAuth(
   }
 }
 
-function bodyFor(method: string, body: JsonValue | undefined): BodyInit | undefined {
-  if (["GET", "HEAD"].includes(method.toUpperCase()) || body === undefined) {
+function bodyFor(
+  method: string,
+  payload: JsonRecord,
+  route: HttpAdapterRoute
+): BodyInit | undefined {
+  if (["GET", "HEAD"].includes(method.toUpperCase())) {
     return undefined;
   }
+  const body = route.bodyPayloadKey ? payload[route.bodyPayloadKey] : implicitBody(payload, route);
+  if (body === undefined) return undefined;
   if (typeof body === "string") {
     return body;
   }
 
   return JSON.stringify(body);
+}
+
+function implicitBody(payload: JsonRecord, route: HttpAdapterRoute): JsonRecord | undefined {
+  const reserved = new Set([
+    "allowedHosts",
+    "headers",
+    "path",
+    "query",
+    "url",
+    ...(route.bodyPayloadKey ? [route.bodyPayloadKey] : []),
+    ...(route.pathKeys ?? [])
+  ]);
+  const entries = Object.entries(payload).filter(([key]) => !reserved.has(key));
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 async function readHttpOutput(response: Response): Promise<JsonRecord> {

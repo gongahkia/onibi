@@ -14,7 +14,7 @@ OpenClaw is the editable workflow planner. NanoClaw is the deterministic runtime
 | `packages/skill-registry` | Built-in deterministic skills, metadata, metaprompts, and lookup rules                   |
 | `packages/nanoclaw`       | DAG compiler, production runner, Docker command runner, and deterministic test runner    |
 | `packages/codegen`        | Generated artifact contracts, checksums, and replay policy helpers                       |
-| `packages/adapters`       | Live Gmail, Sheets, SMTP email, WhatsApp, and Telegram adapters plus test mocks          |
+| `packages/adapters`       | Live provider adapters, generic connectors, and deterministic test mocks                 |
 | `packages/testing`        | Shared fixtures, mock providers, and deterministic execution harnesses                   |
 
 ## Development
@@ -60,7 +60,7 @@ Editing an approved workflow creates a new draft revision. Execution remains blo
 
 ## NanoClaw Runtime Controls
 
-API runs use the production runner by default. Adapter nodes invoke canonical live adapters (`adapter.gmail`, `adapter.sheets`, `adapter.email`, `adapter.whatsapp`, `adapter.telegram`), deterministic built-in nodes run in-process, and custom/codegen nodes fall back to Docker. Set `NANOCLAW_RUNNER=mock` only for tests and offline demos. Optional controls are `NANOCLAW_DOCKER_BIN` for a non-default Docker binary and `NANOCLAW_HOST_WORKSPACE` for command-construction compatibility.
+API runs use the production runner by default. Adapter nodes invoke canonical live adapters (`adapter.gmail`, `adapter.sheets`, `adapter.email`, `adapter.whatsapp`, `adapter.telegram`, `adapter.github`, `adapter.slack`, `adapter.discord`, `adapter.notion`, `adapter.linear`, `adapter.jira`, `adapter.airtable`, `adapter.webhook`), deterministic built-in nodes run in-process, and custom/codegen nodes fall back to Docker. Set `NANOCLAW_RUNNER=mock` only for tests and offline demos. Optional controls are `NANOCLAW_DOCKER_BIN` for a non-default Docker binary and `NANOCLAW_HOST_WORKSPACE` for command-construction compatibility.
 
 NanoClaw writes each run under a preserved workspace in the OS temp directory unless callers pass `workspaceRoot`. The workspace contains `workflow.json`, per-node `input.json` and `output.json`, `stdout.log`, `stderr.log`, an `artifacts/` directory, and `run-manifest.json` for replay.
 
@@ -85,7 +85,7 @@ The API server requires `KELPCLAW_ADMIN_TOKEN` outside test construction. OpenCl
 
 Production secrets use encrypted local SQLite storage with `KELPCLAW_SECRET_MASTER_KEY`. Workflow specs store only `secret:<name>` refs; raw values are written through `/api/secrets` or the OpenClaw setup panel and are never returned by list APIs.
 
-Google uses OAuth web flow endpoints under `/api/integrations/google/*`. SMTP email, WhatsApp Cloud API, and Telegram Bot API use encrypted provider secrets. Mock adapters and `.fake` ids remain test helpers only.
+Google uses OAuth web flow endpoints under `/api/integrations/google/*`. SMTP email, WhatsApp Cloud API, Telegram Bot API, GitHub, Slack, Discord, Notion, Linear, Jira Cloud, Airtable, and generic webhook delivery use encrypted provider secrets. Mock adapters and `.fake` ids remain test helpers only.
 
 ## Phase 5 Codegen
 

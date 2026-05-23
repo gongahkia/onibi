@@ -12,7 +12,7 @@
 - NanoClaw itself does not require Anthropic or OpenAI credentials. Model subscriptions are only used by the selected planner/codegen provider before approval.
 - Store provider credentials through encrypted `secret:<name>` refs. Do not place raw tokens in workflow specs.
 - Configure Google OAuth web credentials with the exact `KELPCLAW_PUBLIC_BASE_URL` callback.
-- Use SMTP, WhatsApp Cloud API, and Telegram Bot credentials owned by testable service accounts or bots.
+- Use SMTP, WhatsApp Cloud API, Telegram Bot, GitHub, Slack, Discord, Notion, Linear, Jira, Airtable, and webhook credentials owned by testable service accounts or bots.
 - Run `pnpm verify` from a clean checkout before deployment.
 - Confirm `GET /api/runtime/providers` shows the intended planner, agentic, codegen, fixer, and evaluator providers as configured.
 - Confirm workflow budgets are set through `GET/PATCH /api/workflows/:id/budget` before live agent runs.
@@ -59,7 +59,7 @@
 ## Alert Policies
 
 - Configure per-workflow policies through `GET/PATCH /api/workflows/:id/alerts`.
-- V1 policies record alert lifecycle events for matched failures and use existing email or Telegram adapter delivery when those secrets are present. Webhook policies are stored and reported but require a deployment-specific webhook adapter before delivery succeeds.
+- V1 policies record alert lifecycle events for matched failures and use existing email, Telegram, or webhook adapter delivery when those secrets are present.
 - Treat alert delivery as best-effort single-host notification, not a replacement for external monitoring.
 
 ## Agent Runtime Controls

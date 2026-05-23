@@ -336,6 +336,7 @@ function openApiRouteForOperation(
     version: operation.version,
     method: operation.method ?? "GET",
     url,
+    bodyPayloadKey: "body",
     ...(auth ? { auth } : {})
   };
 }

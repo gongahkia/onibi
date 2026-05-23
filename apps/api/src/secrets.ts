@@ -140,7 +140,15 @@ export function secretReadiness(secretStore: SecretStore): readonly {
     readiness("google", names, ["google.oauth.default"]),
     readiness("smtp", names, ["email.smtp.default"]),
     readiness("whatsapp", names, ["whatsapp.cloud.default"]),
-    readiness("telegram", names, ["telegram.bot.default"])
+    readiness("telegram", names, ["telegram.bot.default"]),
+    readiness("github", names, ["github.token.default"]),
+    readiness("slack", names, ["slack.bot.default"]),
+    readiness("discord", names, ["discord.bot.default"]),
+    readiness("notion", names, ["notion.api.default"]),
+    readiness("linear", names, ["linear.api.default"]),
+    readiness("jira", names, ["jira.basic.default"]),
+    readiness("airtable", names, ["airtable.api.default"]),
+    readiness("webhook", names, ["webhook.token.default"])
   ];
 }
 

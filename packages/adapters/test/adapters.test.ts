@@ -26,14 +26,30 @@ describe("adapter metadata", () => {
       "sheets",
       "email",
       "whatsapp",
-      "telegram"
+      "telegram",
+      "github",
+      "slack",
+      "discord",
+      "notion",
+      "linear",
+      "jira",
+      "airtable",
+      "webhook"
     ]);
     expect(builtinAdapterMetadata.map((adapter) => adapter.id)).toEqual([
       "adapter.gmail",
       "adapter.sheets",
       "adapter.email",
       "adapter.whatsapp",
-      "adapter.telegram"
+      "adapter.telegram",
+      "adapter.github",
+      "adapter.slack",
+      "adapter.discord",
+      "adapter.notion",
+      "adapter.linear",
+      "adapter.jira",
+      "adapter.airtable",
+      "adapter.webhook"
     ]);
     expect(builtinAdapterMetadata.every((adapter) => adapter.live)).toBe(true);
     expect(builtinAdapterMetadata.every((adapter) => adapter.version === "1.0.0")).toBe(true);
@@ -287,6 +303,113 @@ describe("live adapter execution", () => {
       "https://graph.test/v20.0/phone-1/messages",
       "https://telegram.test/bottelegram-token/sendMessage"
     ]);
+  });
+
+  it("calls first-class HTTP SaaS adapters with auth and declared host policy", async () => {
+    const calls: {
+      readonly url: string;
+      readonly method: string;
+      readonly authorization: string | null;
+      readonly body: unknown;
+    }[] = [];
+    const adapters = createDefaultLiveAdapters({
+      fetch: async (input, init) => {
+        calls.push({
+          url: String(input),
+          method: init?.method ?? "GET",
+          authorization: new Headers(init?.headers).get("authorization"),
+          body: init?.body ? JSON.parse(String(init.body)) : null
+        });
+        return jsonResponse({ ok: true, id: "provider-id" }, 201);
+      }
+    });
+
+    const github = await adapters.get("adapter.github")?.invoke(
+      invocationFor({
+        adapterId: "adapter.github",
+        operation: "github.issue.create",
+        payload: {
+          owner: "acme",
+          repo: "ops",
+          title: "Workflow alert",
+          body: "Investigate.",
+          labels: ["ops"]
+        },
+        secretRefs: { "github.token": "secret:github.token.default" },
+        secrets: { "github.token": "github-token" }
+      })
+    );
+    const slack = await adapters.get("adapter.slack")?.invoke(
+      invocationFor({
+        adapterId: "adapter.slack",
+        operation: "slack.message.send",
+        payload: { channel: "C123", text: "ready" },
+        secretRefs: { "slack.botToken": "secret:slack.bot.default" },
+        secrets: { "slack.botToken": "slack-token" }
+      })
+    );
+    const jira = await adapters.get("adapter.jira")?.invoke(
+      invocationFor({
+        adapterId: "adapter.jira",
+        operation: "jira.issue.create",
+        payload: {
+          siteHost: "acme.atlassian.net",
+          fields: { summary: "Workflow alert" }
+        },
+        secretRefs: { "jira.basicAuth": "secret:jira.basic.default" },
+        secrets: { "jira.basicAuth": "me@example.com:jira-token" }
+      })
+    );
+
+    expect(github?.status).toBe("succeeded");
+    expect(slack?.status).toBe("succeeded");
+    expect(jira?.status).toBe("succeeded");
+    expect(calls).toEqual([
+      {
+        url: "https://api.github.com/repos/acme/ops/issues",
+        method: "POST",
+        authorization: "Bearer github-token",
+        body: { title: "Workflow alert", body: "Investigate.", labels: ["ops"] }
+      },
+      {
+        url: "https://slack.com/api/chat.postMessage",
+        method: "POST",
+        authorization: "Bearer slack-token",
+        body: { channel: "C123", text: "ready" }
+      },
+      {
+        url: "https://acme.atlassian.net/rest/api/3/issue",
+        method: "POST",
+        authorization: `Basic ${Buffer.from("me@example.com:jira-token", "utf8").toString("base64")}`,
+        body: { fields: { summary: "Workflow alert" } }
+      }
+    ]);
+  });
+
+  it("posts generic webhooks to runtime URLs", async () => {
+    const calls: string[] = [];
+    const adapters = createDefaultLiveAdapters({
+      fetch: async (input) => {
+        calls.push(String(input));
+        return jsonResponse({ accepted: true });
+      }
+    });
+
+    const result = await adapters.get("adapter.webhook")?.invoke(
+      invocationFor({
+        adapterId: "adapter.webhook",
+        operation: "webhook.post",
+        payload: {
+          url: "https://hooks.example.test/kelpclaw",
+          body: { event: "workflow.completed" }
+        },
+        secretRefs: { "webhook.token": "secret:webhook.token.default" },
+        secrets: { "webhook.token": "webhook-token" }
+      })
+    );
+
+    expect(result?.status).toBe("succeeded");
+    expect(calls).toEqual(["https://hooks.example.test/kelpclaw"]);
   });
 });
 

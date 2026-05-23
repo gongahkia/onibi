@@ -3,8 +3,10 @@ import { connect as connectTcp } from "node:net";
 import { connect as connectTls } from "node:tls";
 import { assertAdapterCredentialRefs } from "./credentials.js";
 import { builtinAdapterMetadata } from "./builtins.js";
+import { HttpAdapter } from "./http-adapter.js";
 import type { Socket } from "node:net";
 import type { TLSSocket } from "node:tls";
+import type { HttpAdapterRoute } from "./http-adapter.js";
 import type {
   Adapter,
   AdapterAuditEvent,
@@ -62,8 +64,202 @@ export function createDefaultLiveAdapters(options: LiveAdapterOptions = {}): Map
     [
       "adapter.telegram",
       new TelegramLiveAdapter(requireMetadata(metadata, "adapter.telegram"), options)
+    ],
+    [
+      "adapter.github",
+      new HttpAdapter(requireMetadata(metadata, "adapter.github"), githubRoutes(), {
+        fetch: options.fetch
+      })
+    ],
+    [
+      "adapter.slack",
+      new HttpAdapter(requireMetadata(metadata, "adapter.slack"), slackRoutes(), {
+        fetch: options.fetch
+      })
+    ],
+    [
+      "adapter.discord",
+      new HttpAdapter(requireMetadata(metadata, "adapter.discord"), discordRoutes(), {
+        fetch: options.fetch
+      })
+    ],
+    [
+      "adapter.notion",
+      new HttpAdapter(requireMetadata(metadata, "adapter.notion"), notionRoutes(), {
+        fetch: options.fetch
+      })
+    ],
+    [
+      "adapter.linear",
+      new HttpAdapter(requireMetadata(metadata, "adapter.linear"), linearRoutes(), {
+        fetch: options.fetch
+      })
+    ],
+    [
+      "adapter.jira",
+      new HttpAdapter(requireMetadata(metadata, "adapter.jira"), jiraRoutes(), {
+        fetch: options.fetch
+      })
+    ],
+    [
+      "adapter.airtable",
+      new HttpAdapter(requireMetadata(metadata, "adapter.airtable"), airtableRoutes(), {
+        fetch: options.fetch
+      })
+    ],
+    [
+      "adapter.webhook",
+      new HttpAdapter(requireMetadata(metadata, "adapter.webhook"), webhookRoutes(), {
+        fetch: options.fetch
+      })
     ]
   ]);
+}
+
+function githubRoutes(): readonly HttpAdapterRoute[] {
+  return [
+    httpRoute(
+      "github.issue.create",
+      "POST",
+      "https://api.github.com/repos/{owner}/{repo}/issues",
+      {
+        secretName: "github.token",
+        scheme: "bearer"
+      },
+      {},
+      ["owner", "repo"]
+    ),
+    httpRoute(
+      "github.issue.comment",
+      "POST",
+      "https://api.github.com/repos/{owner}/{repo}/issues/{issueNumber}/comments",
+      {
+        secretName: "github.token",
+        scheme: "bearer"
+      },
+      {},
+      ["owner", "repo", "issueNumber"]
+    )
+  ];
+}
+
+function slackRoutes(): readonly HttpAdapterRoute[] {
+  return [
+    httpRoute("slack.message.send", "POST", "https://slack.com/api/chat.postMessage", {
+      secretName: "slack.botToken",
+      scheme: "bearer"
+    })
+  ];
+}
+
+function discordRoutes(): readonly HttpAdapterRoute[] {
+  return [
+    httpRoute(
+      "discord.message.send",
+      "POST",
+      "https://discord.com/api/channels/{channelId}/messages",
+      {
+        secretName: "discord.botToken",
+        scheme: "bearer"
+      },
+      {},
+      ["channelId"]
+    )
+  ];
+}
+
+function notionRoutes(): readonly HttpAdapterRoute[] {
+  return [
+    httpRoute(
+      "notion.page.create",
+      "POST",
+      "https://api.notion.com/v1/pages",
+      {
+        secretName: "notion.apiKey",
+        scheme: "bearer"
+      },
+      {
+        "Notion-Version": "2022-06-28"
+      }
+    )
+  ];
+}
+
+function linearRoutes(): readonly HttpAdapterRoute[] {
+  return [
+    httpRoute("linear.issue.create", "POST", "https://api.linear.app/graphql", {
+      secretName: "linear.apiKey",
+      scheme: "bearer"
+    })
+  ];
+}
+
+function jiraRoutes(): readonly HttpAdapterRoute[] {
+  return [
+    httpRoute(
+      "jira.issue.create",
+      "POST",
+      "https://{siteHost}/rest/api/3/issue",
+      {
+        secretName: "jira.basicAuth",
+        scheme: "basic"
+      },
+      {},
+      ["siteHost"]
+    )
+  ];
+}
+
+function airtableRoutes(): readonly HttpAdapterRoute[] {
+  return [
+    httpRoute(
+      "airtable.record.create",
+      "POST",
+      "https://api.airtable.com/v0/{baseId}/{tableName}",
+      {
+        secretName: "airtable.apiKey",
+        scheme: "bearer"
+      },
+      {},
+      ["baseId", "tableName"]
+    )
+  ];
+}
+
+function webhookRoutes(): readonly HttpAdapterRoute[] {
+  return [
+    {
+      ...httpRoute("webhook.post", "POST", "", {
+        secretName: "webhook.token",
+        scheme: "bearer"
+      }),
+      bodyPayloadKey: "body",
+      urlPayloadKey: "url"
+    }
+  ];
+}
+
+function httpRoute(
+  operation: string,
+  method: string,
+  url: string,
+  auth: HttpAdapterRoute["auth"],
+  headers: Readonly<Record<string, string>> = {},
+  pathKeys: readonly string[] = []
+): HttpAdapterRoute {
+  return {
+    operation,
+    version: "1.0.0",
+    method,
+    url,
+    auth,
+    pathKeys,
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+      ...headers
+    }
+  };
 }
 
 class GmailLiveAdapter implements Adapter {

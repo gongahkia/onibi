@@ -21,7 +21,7 @@ Edit `.env` before starting the API:
 - `OPENAI_API_KEY`: required when the selected live provider is `openai`.
 - `KELPCLAW_PLANNER_MODEL` and `KELPCLAW_CODEGEN_MODEL`: optional provider model overrides. OpenAI-specific overrides are `KELPCLAW_OPENAI_PLANNER_MODEL` and `KELPCLAW_OPENAI_CODEGEN_MODEL`.
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`: OAuth web client credentials.
-- SMTP, WhatsApp, and Telegram defaults as needed for your providers.
+- SMTP, WhatsApp, Telegram, GitHub, Slack, Discord, Notion, Linear, Jira, Airtable, and webhook defaults as needed for your providers.
 
 Start the API:
 
@@ -119,7 +119,7 @@ Agent role decisions, tokens, and costs are available through `GET /api/workflow
 
 ## Connectors
 
-Built-in adapters remain available for Gmail, Sheets, email, WhatsApp, and Telegram. To avoid hand-building hundreds of adapters, KelpClaw also supports stored connector records:
+Built-in adapters remain available for Gmail, Sheets, email, WhatsApp, Telegram, GitHub, Slack, Discord, Notion, Linear, Jira Cloud, Airtable, and generic webhook delivery. To avoid hand-building hundreds of adapters, KelpClaw also supports stored connector records:
 
 - OpenAPI connectors import operations from `operationId`, falling back to `METHOD /path`.
 - Generic HTTP execution enforces the connector's declared allowed hosts.

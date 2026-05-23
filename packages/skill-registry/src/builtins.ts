@@ -274,5 +274,237 @@ export const builtinSkills: readonly SkillMetadata[] = [
         output: { delivery: { status: "recorded" } }
       }
     ]
+  },
+  {
+    id: "skill.github.issue.create",
+    name: "Create GitHub Issue",
+    version: "1.0.0",
+    description: "Creates a GitHub issue in a configured repository.",
+    deterministic: true,
+    nodeKinds: ["delivery"],
+    capabilities: ["github-issue-create"],
+    inputSchema: {
+      payload: objectSchema
+    },
+    outputSchema: {
+      delivery: objectSchema
+    },
+    requiredSecrets: ["github.token"],
+    adapterDependencies: ["adapter.github"],
+    adapterOperations: [adapterOperation("adapter.github", "github.issue.create")],
+    runtimeTemplate,
+    metaprompt: "Select this skill when a workflow should file a GitHub issue or bug report.",
+    validationRules: ["owner and repo must be configured", "title must be configured"],
+    examples: [
+      {
+        id: "example.github.issue.create",
+        description: "Open an issue for an operational alert.",
+        input: { payload: { title: "Workflow alert" } },
+        output: { delivery: { channel: "github", created: true } }
+      }
+    ]
+  },
+  {
+    id: "skill.slack.message.send",
+    name: "Send Slack Message",
+    version: "1.0.0",
+    description: "Sends a message to a Slack channel.",
+    deterministic: true,
+    nodeKinds: ["delivery"],
+    capabilities: ["slack-message-send"],
+    inputSchema: {
+      payload: objectSchema
+    },
+    outputSchema: {
+      delivery: objectSchema
+    },
+    requiredSecrets: ["slack.botToken"],
+    adapterDependencies: ["adapter.slack"],
+    adapterOperations: [adapterOperation("adapter.slack", "slack.message.send")],
+    runtimeTemplate,
+    metaprompt: "Select this skill when a workflow asks to notify Slack.",
+    validationRules: ["channel must be configured", "text must be configured"],
+    examples: [
+      {
+        id: "example.slack.message.send",
+        description: "Post a completion notice.",
+        input: { payload: { text: "Workflow completed." } },
+        output: { delivery: { channel: "slack", delivered: true } }
+      }
+    ]
+  },
+  {
+    id: "skill.discord.message.send",
+    name: "Send Discord Message",
+    version: "1.0.0",
+    description: "Sends a message to a Discord channel.",
+    deterministic: true,
+    nodeKinds: ["delivery"],
+    capabilities: ["discord-message-send"],
+    inputSchema: {
+      payload: objectSchema
+    },
+    outputSchema: {
+      delivery: objectSchema
+    },
+    requiredSecrets: ["discord.botToken"],
+    adapterDependencies: ["adapter.discord"],
+    adapterOperations: [adapterOperation("adapter.discord", "discord.message.send")],
+    runtimeTemplate,
+    metaprompt: "Select this skill when a workflow asks to notify Discord.",
+    validationRules: ["channelId must be configured", "content must be configured"],
+    examples: [
+      {
+        id: "example.discord.message.send",
+        description: "Post a Discord notice.",
+        input: { payload: { content: "Workflow completed." } },
+        output: { delivery: { channel: "discord", delivered: true } }
+      }
+    ]
+  },
+  {
+    id: "skill.notion.page.create",
+    name: "Create Notion Page",
+    version: "1.0.0",
+    description: "Creates a Notion page with configured properties.",
+    deterministic: true,
+    nodeKinds: ["delivery"],
+    capabilities: ["notion-page-create"],
+    inputSchema: {
+      payload: objectSchema
+    },
+    outputSchema: {
+      delivery: objectSchema
+    },
+    requiredSecrets: ["notion.apiKey"],
+    adapterDependencies: ["adapter.notion"],
+    adapterOperations: [adapterOperation("adapter.notion", "notion.page.create")],
+    runtimeTemplate,
+    metaprompt: "Select this skill when a workflow should create a Notion page or database row.",
+    validationRules: ["parent and properties must be configured"],
+    examples: [
+      {
+        id: "example.notion.page.create",
+        description: "Create a Notion task page.",
+        input: { payload: { properties: { Name: "Workflow alert" } } },
+        output: { delivery: { channel: "notion", created: true } }
+      }
+    ]
+  },
+  {
+    id: "skill.linear.issue.create",
+    name: "Create Linear Issue",
+    version: "1.0.0",
+    description: "Creates a Linear issue through the Linear GraphQL API.",
+    deterministic: true,
+    nodeKinds: ["delivery"],
+    capabilities: ["linear-issue-create"],
+    inputSchema: {
+      payload: objectSchema
+    },
+    outputSchema: {
+      delivery: objectSchema
+    },
+    requiredSecrets: ["linear.apiKey"],
+    adapterDependencies: ["adapter.linear"],
+    adapterOperations: [adapterOperation("adapter.linear", "linear.issue.create")],
+    runtimeTemplate,
+    metaprompt: "Select this skill when a workflow should create a Linear issue.",
+    validationRules: ["GraphQL query and variables must be configured"],
+    examples: [
+      {
+        id: "example.linear.issue.create",
+        description: "Create a Linear issue.",
+        input: { payload: { variables: { input: { title: "Workflow alert" } } } },
+        output: { delivery: { channel: "linear", created: true } }
+      }
+    ]
+  },
+  {
+    id: "skill.jira.issue.create",
+    name: "Create Jira Issue",
+    version: "1.0.0",
+    description: "Creates a Jira Cloud issue.",
+    deterministic: true,
+    nodeKinds: ["delivery"],
+    capabilities: ["jira-issue-create"],
+    inputSchema: {
+      payload: objectSchema
+    },
+    outputSchema: {
+      delivery: objectSchema
+    },
+    requiredSecrets: ["jira.basicAuth"],
+    adapterDependencies: ["adapter.jira"],
+    adapterOperations: [adapterOperation("adapter.jira", "jira.issue.create")],
+    runtimeTemplate,
+    metaprompt: "Select this skill when a workflow should create a Jira ticket or issue.",
+    validationRules: ["siteHost and fields must be configured"],
+    examples: [
+      {
+        id: "example.jira.issue.create",
+        description: "Create a Jira issue.",
+        input: { payload: { fields: { summary: "Workflow alert" } } },
+        output: { delivery: { channel: "jira", created: true } }
+      }
+    ]
+  },
+  {
+    id: "skill.airtable.record.create",
+    name: "Create Airtable Record",
+    version: "1.0.0",
+    description: "Creates an Airtable record.",
+    deterministic: true,
+    nodeKinds: ["delivery"],
+    capabilities: ["airtable-record-create"],
+    inputSchema: {
+      payload: objectSchema
+    },
+    outputSchema: {
+      delivery: objectSchema
+    },
+    requiredSecrets: ["airtable.apiKey"],
+    adapterDependencies: ["adapter.airtable"],
+    adapterOperations: [adapterOperation("adapter.airtable", "airtable.record.create")],
+    runtimeTemplate,
+    metaprompt: "Select this skill when a workflow should create an Airtable record.",
+    validationRules: ["baseId, tableName, and fields must be configured"],
+    examples: [
+      {
+        id: "example.airtable.record.create",
+        description: "Create an Airtable task record.",
+        input: { payload: { fields: { Name: "Workflow alert" } } },
+        output: { delivery: { channel: "airtable", created: true } }
+      }
+    ]
+  },
+  {
+    id: "skill.webhook.post",
+    name: "Post Webhook",
+    version: "1.0.0",
+    description: "Posts a JSON payload to a configured HTTPS webhook.",
+    deterministic: true,
+    nodeKinds: ["delivery"],
+    capabilities: ["webhook-post"],
+    inputSchema: {
+      payload: objectSchema
+    },
+    outputSchema: {
+      delivery: objectSchema
+    },
+    requiredSecrets: ["webhook.token"],
+    adapterDependencies: ["adapter.webhook"],
+    adapterOperations: [adapterOperation("adapter.webhook", "webhook.post")],
+    runtimeTemplate,
+    metaprompt: "Select this skill when a workflow should call a generic webhook URL.",
+    validationRules: ["url and allowedHosts must be configured"],
+    examples: [
+      {
+        id: "example.webhook.post",
+        description: "Post a workflow event to a webhook.",
+        input: { payload: { body: { event: "workflow.completed" } } },
+        output: { delivery: { channel: "webhook", delivered: true } }
+      }
+    ]
   }
 ];

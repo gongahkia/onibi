@@ -66,6 +66,21 @@ OpenClaw's connector panel can import an OpenAPI document or register a Streamab
 
 For OpenAPI OAuth flows in this version, create or refresh the token outside KelpClaw, store it as a secret, and reference that secret from the connector.
 
+Built-in live adapters are available for Google, SMTP email, WhatsApp, Telegram, GitHub, Slack, Discord, Notion, Linear, Jira Cloud, Airtable, and generic webhooks. Store their credentials in OpenClaw's setup panel or through `PUT /api/secrets` using these default secret names:
+
+- `google.oauth.default`
+- `email.smtp.default`
+- `whatsapp.cloud.default`
+- `telegram.bot.default`
+- `github.token.default`
+- `slack.bot.default`
+- `discord.bot.default`
+- `notion.api.default`
+- `linear.api.default`
+- `jira.basic.default`
+- `airtable.api.default`
+- `webhook.token.default`
+
 ## Runtime Truth
 
 OpenClaw distinguishes these stages:

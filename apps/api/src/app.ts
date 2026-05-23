@@ -7201,6 +7201,30 @@ function requiredIntegrationsForWorkflow(workflow: WorkflowSpec): readonly strin
         case "adapter.telegram":
           integrations.add("telegram");
           break;
+        case "adapter.github":
+          integrations.add("github");
+          break;
+        case "adapter.slack":
+          integrations.add("slack");
+          break;
+        case "adapter.discord":
+          integrations.add("discord");
+          break;
+        case "adapter.notion":
+          integrations.add("notion");
+          break;
+        case "adapter.linear":
+          integrations.add("linear");
+          break;
+        case "adapter.jira":
+          integrations.add("jira");
+          break;
+        case "adapter.airtable":
+          integrations.add("airtable");
+          break;
+        case "adapter.webhook":
+          integrations.add("webhook");
+          break;
       }
     }
   }
