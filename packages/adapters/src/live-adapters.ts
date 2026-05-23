@@ -3,9 +3,11 @@ import { connect as connectTcp } from "node:net";
 import { connect as connectTls } from "node:tls";
 import { assertAdapterCredentialRefs } from "./credentials.js";
 import { builtinAdapterMetadata } from "./builtins.js";
+import { DatabaseAdapter } from "./database-adapter.js";
 import { HttpAdapter } from "./http-adapter.js";
 import type { Socket } from "node:net";
 import type { TLSSocket } from "node:tls";
+import type { DatabaseClient } from "./database-adapter.js";
 import type { HttpAdapterRoute } from "./http-adapter.js";
 import type {
   Adapter,
@@ -46,6 +48,8 @@ interface ResolvedSmtpTransportOptions {
 
 export interface LiveAdapterOptions extends LiveAdapterHttpOptions {
   readonly smtp?: SmtpTransportOptions | undefined;
+  readonly database?: DatabaseClient | undefined;
+  readonly sqliteBin?: string | undefined;
 }
 
 export function createDefaultLiveAdapters(options: LiveAdapterOptions = {}): Map<string, Adapter> {
@@ -111,6 +115,13 @@ export function createDefaultLiveAdapters(options: LiveAdapterOptions = {}): Map
       "adapter.webhook",
       new HttpAdapter(requireMetadata(metadata, "adapter.webhook"), webhookRoutes(), {
         fetch: options.fetch
+      })
+    ],
+    [
+      "adapter.database",
+      new DatabaseAdapter(requireMetadata(metadata, "adapter.database"), {
+        client: options.database,
+        sqliteBin: options.sqliteBin
       })
     ]
   ]);

@@ -14,6 +14,7 @@ export type AdapterKind =
   | "jira"
   | "airtable"
   | "webhook"
+  | "database"
   | "http"
   | "openapi"
   | "mcp";
