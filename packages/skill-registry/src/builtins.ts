@@ -506,5 +506,74 @@ export const builtinSkills: readonly SkillMetadata[] = [
         output: { delivery: { channel: "webhook", delivered: true } }
       }
     ]
+  },
+  {
+    id: "skill.database.query",
+    name: "Query Database",
+    version: "1.0.0",
+    description: "Runs a read-only SQL query through the configured database runtime client.",
+    deterministic: true,
+    nodeKinds: ["skill"],
+    capabilities: ["database-query"],
+    inputSchema: {
+      payload: objectSchema
+    },
+    outputSchema: {
+      rows: arraySchema
+    },
+    requiredSecrets: ["database.connection"],
+    adapterDependencies: ["adapter.database"],
+    adapterOperations: [adapterOperation("adapter.database", "database.query")],
+    runtimeTemplate,
+    metaprompt: "Select this skill when a workflow should read rows from a database.",
+    validationRules: [
+      "statement must be a single read-only SQL statement",
+      "database connection secret must be configured"
+    ],
+    examples: [
+      {
+        id: "example.database.query",
+        description: "Read recent receipt rows.",
+        input: { payload: { statement: "SELECT * FROM receipts LIMIT 100" } },
+        output: { rows: [{ id: "receipt-1" }] }
+      }
+    ]
+  },
+  {
+    id: "skill.database.execute",
+    name: "Execute Database Statement",
+    version: "1.0.0",
+    description: "Runs a write SQL statement through the configured database runtime client.",
+    deterministic: true,
+    nodeKinds: ["skill"],
+    capabilities: ["database-execute"],
+    inputSchema: {
+      payload: objectSchema
+    },
+    outputSchema: {
+      result: objectSchema
+    },
+    requiredSecrets: ["database.connection"],
+    adapterDependencies: ["adapter.database"],
+    adapterOperations: [adapterOperation("adapter.database", "database.execute")],
+    runtimeTemplate,
+    metaprompt: "Select this skill when a workflow should insert or update database rows.",
+    validationRules: [
+      "statement must be a single SQL statement",
+      "database.connection secret must explicitly set allowWrites=true"
+    ],
+    examples: [
+      {
+        id: "example.database.execute",
+        description: "Insert a processed workflow event.",
+        input: {
+          payload: {
+            statement: "INSERT INTO workflow_events (id, status) VALUES (?1, ?2)",
+            parameters: ["evt-1", "processed"]
+          }
+        },
+        output: { result: { rowCount: 1 } }
+      }
+    ]
   }
 ];

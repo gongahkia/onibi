@@ -15,8 +15,10 @@ import type {
 
 const objectSchema = { type: "object", additionalProperties: true } as const;
 const arraySchema = { type: "array", items: objectSchema } as const;
+const jsonArraySchema = { type: "array", items: {} } as const;
 const stringSchema = { type: "string" } as const;
 const booleanSchema = { type: "boolean" } as const;
+const integerSchema = { type: "integer" } as const;
 
 const defaultRateLimit = {
   maxRequests: 60,
@@ -99,6 +101,11 @@ const webhookNetworkPolicy = {
   allowedHosts: ["*"]
 } as const;
 
+const databaseNetworkPolicy = {
+  mode: "declared",
+  allowedHosts: ["database"]
+} as const;
+
 const gmailSecret = secret("gmail.oauth", "OAuth token reference for Gmail scopes.");
 const sheetsSecret = secret("sheets.oauth", "OAuth token reference for Google Sheets scopes.");
 const emailSecret = secret("email.delivery", "Provider key or SMTP credential reference.");
@@ -112,6 +119,10 @@ const linearSecret = secret("linear.apiKey", "Linear API key reference.");
 const jiraSecret = secret("jira.basicAuth", "Jira email:api-token credential reference.");
 const airtableSecret = secret("airtable.apiKey", "Airtable personal access token reference.");
 const webhookSecret = secret("webhook.token", "Generic webhook bearer token reference.");
+const databaseSecret = secret(
+  "database.connection",
+  "Database connection secret or runtime client reference."
+);
 
 export const builtinAdapterMetadata = [
   adapter({
@@ -499,6 +510,56 @@ export const builtinAdapterMetadata = [
           allowedHosts: ["hooks.example.test"]
         },
         { response: { status: 200, body: { accepted: true } } }
+      )
+    ]
+  }),
+  adapter({
+    id: "adapter.database",
+    kind: "database",
+    displayName: "Database",
+    networkPolicy: databaseNetworkPolicy,
+    capabilities: ["database.query", "database.execute"],
+    requiredSecrets: [databaseSecret],
+    operations: [
+      operation(
+        "database.query",
+        "Runs one read-only SQL statement through the configured database runtime client.",
+        {
+          statement: stringSchema,
+          parameters: jsonArraySchema,
+          maxRows: integerSchema,
+          timeoutMs: integerSchema
+        },
+        {
+          rows: arraySchema,
+          rowCount: integerSchema,
+          fields: { type: "array", items: stringSchema }
+        }
+      ),
+      operation(
+        "database.execute",
+        "Runs one write SQL statement through the configured database runtime client.",
+        {
+          statement: stringSchema,
+          parameters: jsonArraySchema,
+          readonly: booleanSchema,
+          maxRows: integerSchema,
+          timeoutMs: integerSchema
+        },
+        {
+          rows: arraySchema,
+          rowCount: integerSchema,
+          fields: { type: "array", items: stringSchema }
+        }
+      )
+    ],
+    fixtures: [
+      fixture(
+        "fixture.database.query",
+        "Read rows from a configured database fixture.",
+        "database.query",
+        { statement: "SELECT id, total FROM receipts LIMIT 100", parameters: [] },
+        { rows: [{ id: "receipt-1", total: 12.34 }], rowCount: 1 }
       )
     ]
   })
