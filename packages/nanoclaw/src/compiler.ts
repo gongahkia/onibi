@@ -80,6 +80,18 @@ export function compileDraftWorkflowDag(
 }
 
 function compileDagShape(workflow: WorkflowSpec): Omit<CompiledDag, "approval"> {
+  const agentStepIndex = workflow.nodes.findIndex((node) => node.kind === "agent-step");
+  if (agentStepIndex >= 0) {
+    const node = workflow.nodes[agentStepIndex];
+    throw new WorkflowValidationError([
+      {
+        code: "AGENT_STEP_EXECUTION_UNSUPPORTED",
+        message: `Agent-step node '${node?.id ?? agentStepIndex}' is audit input and cannot be executed by NanoClaw.`,
+        path: ["nodes", agentStepIndex, "kind"]
+      }
+    ]);
+  }
+
   const dependencies = new Map(workflow.nodes.map((node) => [node.id, new Set<string>()]));
   const dependents = new Map(workflow.nodes.map((node) => [node.id, new Set<string>()]));
   const inputBindings = new Map(

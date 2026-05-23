@@ -35,6 +35,7 @@ export {
   migrateWorkflowToLatest
 } from "./migrations.js";
 export {
+  redactAgentStepMetadata,
   redactJsonRecord,
   redactJsonValue,
   redactSecretString,
@@ -45,6 +46,7 @@ export {
   jsonRecordSchema,
   jsonSchemaShapeSchema,
   jsonValueSchema,
+  agentStepMetadataSchema,
   generatedNodeEvalReportSchema,
   generatedNodeTestReportSchema,
   workflowAdapterOperationRefSchema,
@@ -144,6 +146,10 @@ export type {
   JsonRecord,
   JsonSchemaShape,
   JsonValue,
+  AgentStepClassification,
+  AgentStepMetadata,
+  AgentStepSourceAgent,
+  AgentStepStatus,
   GeneratedNodeEvalReport,
   GeneratedNodeTestReport,
   WorkflowAdapterOperationRef,
@@ -324,4 +330,10 @@ export type {
   WorkflowWorkspaceMount,
   WorkflowWorkspaceMountRole
 } from "./types.js";
-export { workflowSchemaVersion, workflowValidationErrorCodes } from "./types.js";
+export {
+  agentStepClassifications,
+  agentStepSourceAgents,
+  agentStepStatuses,
+  workflowSchemaVersion,
+  workflowValidationErrorCodes
+} from "./types.js";

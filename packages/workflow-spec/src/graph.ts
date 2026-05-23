@@ -58,6 +58,7 @@ export interface WorkflowNodeFactoryInput {
   readonly secretRefs?: Readonly<Record<string, string>> | undefined;
   readonly codegen?: WorkflowCodegenMetadata | undefined;
   readonly agentic?: WorkflowAgenticNodePolicy | undefined;
+  readonly agentStep?: WorkflowNode["agentStep"] | undefined;
   readonly compensation?: WorkflowNode["compensation"] | undefined;
 }
 
@@ -139,6 +140,7 @@ export function createWorkflowNode(input: WorkflowNodeFactoryInput): WorkflowNod
     ...(input.secretRefs ? { secretRefs: input.secretRefs } : {}),
     ...((input.codegen ?? defaults.codegen) ? { codegen: input.codegen ?? defaults.codegen } : {}),
     ...(input.agentic ? { agentic: input.agentic } : {}),
+    ...(input.agentStep ? { agentStep: input.agentStep } : {}),
     ...(input.compensation ? { compensation: input.compensation } : {})
   };
 
@@ -308,6 +310,14 @@ function nodeKindDefaults(kind: WorkflowNodeKind): {
         inputs: { rows: arraySchema },
         outputs: { delivery: objectSchema },
         config: { channel: "email", channels: ["email"], destination: "owner@example.com" }
+      };
+    case "agent-step":
+      return {
+        label: "Agent Step",
+        description: "Represents a captured coding-agent tool call for audit and replay.",
+        inputs: { previous: objectSchema },
+        outputs: { result: objectSchema },
+        config: { recorded: true }
       };
   }
 }

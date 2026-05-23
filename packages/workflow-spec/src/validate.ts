@@ -93,6 +93,20 @@ function validateWorkflowSemantics(workflow: WorkflowSpec): WorkflowValidationIs
     if (node.kind === "codegen" && node.codegen) {
       errors.push(...validateCodegenMetadata(workflow, index));
     }
+    if (node.kind === "agent-step" && !node.agentStep) {
+      errors.push({
+        code: "AGENT_STEP_METADATA_MISSING",
+        message: `Agent-step node '${node.id}' must include captured tool-call metadata.`,
+        path: ["nodes", index, "agentStep"]
+      });
+    }
+    if (node.kind !== "agent-step" && node.agentStep) {
+      errors.push({
+        code: "AGENT_STEP_METADATA_FORBIDDEN",
+        message: `Node '${node.id}' cannot include agent-step metadata unless kind is 'agent-step'.`,
+        path: ["nodes", index, "agentStep"]
+      });
+    }
     if (node.kind === "delivery") {
       errors.push(...validateDeliveryChannelPolicy(node, index));
     }

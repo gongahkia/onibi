@@ -1,4 +1,4 @@
-import type { JsonRecord, JsonValue } from "./types.js";
+import type { AgentStepMetadata, JsonRecord, JsonValue } from "./types.js";
 
 export const redactedValue = "[REDACTED]" as const;
 
@@ -33,6 +33,17 @@ export function redactJsonRecord(record: JsonRecord, options: RedactionOptions =
 
 export function redactSecretString(value: string, options: RedactionOptions = {}): string {
   return shouldRedactString(value, new Set(options.secretRefs ?? [])) ? redactedValue : value;
+}
+
+export function redactAgentStepMetadata(
+  metadata: AgentStepMetadata,
+  options: RedactionOptions = {}
+): AgentStepMetadata {
+  return {
+    ...metadata,
+    args: redactJsonRecord(metadata.args, options),
+    ...(metadata.result !== undefined ? { result: redactJsonValue(metadata.result, options) } : {})
+  };
 }
 
 function redactValue(

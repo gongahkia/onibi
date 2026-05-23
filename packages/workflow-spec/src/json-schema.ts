@@ -78,7 +78,7 @@ export const workflowJsonSchema = {
       properties: {
         id: { type: "string", minLength: 1 },
         kind: {
-          enum: ["trigger", "skill", "codegen", "transform", "approval", "delivery"]
+          enum: ["trigger", "skill", "codegen", "transform", "approval", "delivery", "agent-step"]
         },
         label: { type: "string", minLength: 1 },
         description: { type: "string", minLength: 1 },
@@ -107,7 +107,56 @@ export const workflowJsonSchema = {
           type: "object",
           additionalProperties: { type: "string", minLength: 1 }
         },
-        codegen: { $ref: "#/$defs/codegen" }
+        codegen: { $ref: "#/$defs/codegen" },
+        agentStep: { $ref: "#/$defs/agentStepMetadata" }
+      }
+    },
+    agentStepMetadata: {
+      type: "object",
+      required: [
+        "sourceAgent",
+        "sessionId",
+        "hookEvent",
+        "toolName",
+        "toolUseId",
+        "args",
+        "status",
+        "contentHash",
+        "prevEventHash",
+        "chainIndex",
+        "startedAt"
+      ],
+      additionalProperties: false,
+      properties: {
+        sourceAgent: {
+          enum: [
+            "claude-code",
+            "codex-cli",
+            "cursor",
+            "aider",
+            "gemini-cli",
+            "opencode",
+            "goose",
+            "cline",
+            "continue-dev",
+            "copilot",
+            "custom"
+          ]
+        },
+        sessionId: { type: "string", minLength: 1 },
+        hookEvent: { type: "string", minLength: 1 },
+        toolName: { type: "string", minLength: 1 },
+        toolUseId: { type: "string", minLength: 1 },
+        parentToolUseId: { type: "string", minLength: 1 },
+        args: { $ref: "#/$defs/jsonRecord" },
+        result: { $ref: "#/$defs/jsonValue" },
+        status: { enum: ["pending", "running", "succeeded", "failed", "denied", "cancelled"] },
+        contentHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
+        prevEventHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
+        chainIndex: { type: "integer", minimum: 0 },
+        classification: { enum: ["Public", "Internal", "Confidential", "Restricted"] },
+        startedAt: { type: "string", format: "date-time" },
+        finishedAt: { type: "string", format: "date-time" }
       }
     },
     adapterOperation: {

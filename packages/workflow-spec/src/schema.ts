@@ -662,7 +662,7 @@ export const workflowTaskRouteSchema = z.object({
   rationale: z.string().min(1),
   requiredModel: workflowModelRequirementSchema,
   expectedNodeKinds: z.array(
-    z.enum(["trigger", "skill", "codegen", "transform", "approval", "delivery"])
+    z.enum(["trigger", "skill", "codegen", "transform", "approval", "delivery", "agent-step"])
   ),
   dockerSandboxRequired: z.boolean(),
   draftTestsRequired: z.boolean(),
@@ -696,7 +696,7 @@ export const workflowRouterEvalCaseSchema = z.object({
   minConfidence: z.number().min(0).max(1),
   forceDeterministic: z.boolean().optional(),
   expectedNodeKinds: z
-    .array(z.enum(["trigger", "skill", "codegen", "transform", "approval", "delivery"]))
+    .array(z.enum(["trigger", "skill", "codegen", "transform", "approval", "delivery", "agent-step"]))
     .optional()
 });
 
