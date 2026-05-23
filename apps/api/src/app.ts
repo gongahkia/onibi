@@ -8,11 +8,13 @@ import {
   GeneratedNodeBuildLoop,
   LocalCodegenArtifactStore,
   OpenAiCodeGenerator,
+  OpenWeightCodeGenerator,
   buildTbom,
   checksumArtifactContent,
   createArtifactManifest,
   createAgentSdkGeneratedNodeRoleRunners,
   createOpenAiGeneratedNodeRoleRunners,
+  createOpenWeightGeneratedNodeRoleRunners,
   createGeneratedArtifact,
   synthesizeWorkflowFromTrajectory
 } from "@kelpclaw/codegen";
@@ -242,7 +244,7 @@ interface ScheduleRouteParams extends RouteParamsWithId {
   readonly scheduleId: string;
 }
 
-type CodegenProvider = "anthropic" | "openai";
+type CodegenProvider = "anthropic" | "openai" | "openweight";
 
 interface LiveGeneratedNodeProviders {
   readonly codeGenerator?: CodeGenerator | undefined;
@@ -442,17 +444,32 @@ function createLiveGeneratedNodeProvidersFromEnv(): LiveGeneratedNodeProviders {
           apiKey: process.env.OPENAI_API_KEY
         })
       };
+    case "openweight":
+      if (!process.env.KELPCLAW_OPENWEIGHT_BASE_URL) {
+        return {};
+      }
+      return {
+        codeGenerator: new OpenWeightCodeGenerator({
+          apiKey: process.env.KELPCLAW_OPENWEIGHT_API_KEY,
+          baseUrl: process.env.KELPCLAW_OPENWEIGHT_BASE_URL,
+          model: codegenModelForProvider(provider)
+        }),
+        roleRunners: createOpenWeightGeneratedNodeRoleRunners({
+          apiKey: process.env.KELPCLAW_OPENWEIGHT_API_KEY,
+          baseUrl: process.env.KELPCLAW_OPENWEIGHT_BASE_URL
+        })
+      };
   }
 }
 
 function codegenProviderFromEnv(): CodegenProvider {
   const provider =
     process.env.KELPCLAW_CODEGEN_PROVIDER ?? process.env.KELPCLAW_PLANNER_PROVIDER ?? "anthropic";
-  if (provider === "anthropic" || provider === "openai") {
+  if (provider === "anthropic" || provider === "openai" || provider === "openweight") {
     return provider;
   }
 
-  throw new Error("KELPCLAW_CODEGEN_PROVIDER must be 'anthropic' or 'openai'.");
+  throw new Error("KELPCLAW_CODEGEN_PROVIDER must be 'anthropic', 'openai', or 'openweight'.");
 }
 
 function codegenModelForProvider(provider: CodegenProvider): string | undefined {
@@ -466,6 +483,15 @@ function codegenModelForProvider(provider: CodegenProvider): string | undefined 
         process.env.KELPCLAW_OPENAI_PLANNER_MODEL ??
         process.env.KELPCLAW_PLANNER_MODEL ??
         "gpt-5.4"
+      );
+    case "openweight":
+      return (
+        process.env.KELPCLAW_OPENWEIGHT_CODEGEN_MODEL ??
+        process.env.KELPCLAW_CODEGEN_MODEL ??
+        process.env.KELPCLAW_OPENWEIGHT_PLANNER_MODEL ??
+        process.env.KELPCLAW_PLANNER_MODEL ??
+        process.env.KELPCLAW_OPENWEIGHT_MODEL ??
+        "qwen2.5-coder"
       );
   }
 }
@@ -6687,6 +6713,8 @@ function providerRuntimeConfig(input: {
       ? undefined
       : input.provider === "openai" && !process.env.OPENAI_API_KEY
         ? "OPENAI_API_KEY"
+        : input.provider === "openweight" && !process.env.KELPCLAW_OPENWEIGHT_BASE_URL
+          ? "KELPCLAW_OPENWEIGHT_BASE_URL"
         : input.provider === "anthropic" && !process.env.ANTHROPIC_API_KEY
           ? "ANTHROPIC_API_KEY"
           : undefined;
@@ -6715,7 +6743,12 @@ function providerFromEnv(
   fallback: WorkflowProviderRuntimeConfig["provider"] = "anthropic"
 ): WorkflowProviderRuntimeConfig["provider"] {
   const value = process.env[key] ?? fallback;
-  return value === "openai" || value === "anthropic" || value === "deterministic"
+  return (
+    value === "openai" ||
+      value === "anthropic" ||
+      value === "openweight" ||
+      value === "deterministic"
+  )
     ? value
     : fallback;
 }
@@ -6735,6 +6768,17 @@ function modelForProviderRole(
       process.env.KELPCLAW_OPENAI_PLANNER_MODEL ??
       process.env.KELPCLAW_PLANNER_MODEL ??
       "gpt-5.4"
+    );
+  }
+  if (provider === "openweight") {
+    return (
+      openWeightRoleModel(role) ??
+      process.env.KELPCLAW_OPENWEIGHT_CODEGEN_MODEL ??
+      process.env.KELPCLAW_CODEGEN_MODEL ??
+      process.env.KELPCLAW_OPENWEIGHT_PLANNER_MODEL ??
+      process.env.KELPCLAW_PLANNER_MODEL ??
+      process.env.KELPCLAW_OPENWEIGHT_MODEL ??
+      "qwen2.5-coder"
     );
   }
 
@@ -6766,6 +6810,29 @@ function openAiRoleModel(role: WorkflowProviderRuntimeConfig["role"]): string | 
       return process.env.KELPCLAW_OPENAI_EVALUATOR_MODEL;
     case "codegen":
       return process.env.KELPCLAW_OPENAI_CODEGEN_MODEL;
+  }
+}
+
+function openWeightRoleModel(role: WorkflowProviderRuntimeConfig["role"]): string | undefined {
+  switch (role) {
+    case "planner":
+      return process.env.KELPCLAW_OPENWEIGHT_PLANNER_MODEL;
+    case "agentic-research":
+      return process.env.KELPCLAW_OPENWEIGHT_AGENTIC_MODEL ?? process.env.KELPCLAW_AGENTIC_MODEL;
+    case "workflow-architect":
+      return process.env.KELPCLAW_OPENWEIGHT_WORKFLOW_ARCHITECT_MODEL;
+    case "coder":
+      return process.env.KELPCLAW_OPENWEIGHT_CODER_MODEL;
+    case "tester":
+      return process.env.KELPCLAW_OPENWEIGHT_TESTER_MODEL;
+    case "runner":
+      return process.env.KELPCLAW_OPENWEIGHT_RUNNER_MODEL;
+    case "fixer":
+      return process.env.KELPCLAW_OPENWEIGHT_FIXER_MODEL;
+    case "evaluator":
+      return process.env.KELPCLAW_OPENWEIGHT_EVALUATOR_MODEL;
+    case "codegen":
+      return process.env.KELPCLAW_OPENWEIGHT_CODEGEN_MODEL;
   }
 }
 

@@ -25,6 +25,27 @@ export {
 } from "./openai-role-runner.js";
 export type { OpenAiGeneratedNodeRoleRunnerOptions } from "./openai-role-runner.js";
 export {
+  OpenWeightCodeGenerator,
+  createOpenWeightChatCompletionsRunner,
+  extractOpenWeightOutputText,
+  openWeightModelFromEnv,
+  usageRecordFromOpenWeightChatResponse
+} from "./openweight-generator.js";
+export type {
+  OpenWeightChatCompletionRequest,
+  OpenWeightChatCompletionResult,
+  OpenWeightChatCompletionsConfig,
+  OpenWeightChatMessage,
+  OpenWeightChatRunOptions,
+  OpenWeightChatRunner,
+  OpenWeightCodeGeneratorOptions
+} from "./openweight-generator.js";
+export {
+  OpenWeightGeneratedNodeRoleRunner,
+  createOpenWeightGeneratedNodeRoleRunners
+} from "./openweight-role-runner.js";
+export type { OpenWeightGeneratedNodeRoleRunnerOptions } from "./openweight-role-runner.js";
+export {
   assertSafeArtifactPath,
   checksumArtifactContent,
   createArtifactManifest,

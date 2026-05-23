@@ -791,7 +791,7 @@ export interface WorkflowProviderRuntimeConfig {
     | "runner"
     | "fixer"
     | "evaluator";
-  readonly provider: "anthropic" | "openai" | "deterministic";
+  readonly provider: "anthropic" | "openai" | "openweight" | "deterministic";
   readonly model: string;
   readonly configured: boolean;
   readonly missingCredential?: string | undefined;

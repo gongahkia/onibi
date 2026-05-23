@@ -496,7 +496,7 @@ export const workflowProviderRuntimeConfigSchema = z.object({
     "fixer",
     "evaluator"
   ]),
-  provider: z.enum(["anthropic", "openai", "deterministic"]),
+  provider: z.enum(["anthropic", "openai", "openweight", "deterministic"]),
   model: z.string().min(1),
   configured: z.boolean(),
   missingCredential: z.string().min(1).optional(),

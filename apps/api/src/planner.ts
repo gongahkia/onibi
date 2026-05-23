@@ -2,6 +2,7 @@ import {
   AgentSdkCodeGenerator,
   LocalCodegenArtifactStore,
   OpenAiCodeGenerator,
+  OpenWeightCodeGenerator,
   createArtifactManifest,
   createDependencyManifestArtifact,
   createGeneratedArtifact
@@ -41,10 +42,11 @@ export interface RegistryPlannerBackendOptions {
 }
 
 export type PlannerBackendMode = "deterministic" | "live";
-export type PlannerBackendProvider = "anthropic" | "openai";
+export type PlannerBackendProvider = "anthropic" | "openai" | "openweight";
 
 export interface LivePlannerBackendOptions extends Partial<RegistryPlannerBackendOptions> {
   readonly apiKey?: string | undefined;
+  readonly baseUrl?: string | undefined;
   readonly model?: string | undefined;
   readonly provider?: PlannerBackendProvider | undefined;
 }
@@ -81,6 +83,7 @@ export function createPlannerBackendFromEnv(
     ...options,
     provider,
     apiKey: apiKeyForPlannerProvider(provider),
+    baseUrl: baseUrlForPlannerProvider(provider),
     model: plannerModelForProvider(provider)
   });
 }
@@ -103,11 +106,11 @@ function plannerModeFromEnv(): PlannerBackendMode {
 
 function plannerProviderFromEnv(): PlannerBackendProvider {
   const provider = process.env.KELPCLAW_PLANNER_PROVIDER ?? "anthropic";
-  if (provider === "anthropic" || provider === "openai") {
+  if (provider === "anthropic" || provider === "openai" || provider === "openweight") {
     return provider;
   }
 
-  throw new Error("KELPCLAW_PLANNER_PROVIDER must be 'anthropic' or 'openai'.");
+  throw new Error("KELPCLAW_PLANNER_PROVIDER must be 'anthropic', 'openai', or 'openweight'.");
 }
 
 function createLivePlannerCodeGenerator(
@@ -125,6 +128,12 @@ function createLivePlannerCodeGenerator(
         apiKey: options.apiKey,
         model: options.model
       });
+    case "openweight":
+      return new OpenWeightCodeGenerator({
+        apiKey: options.apiKey,
+        baseUrl: options.baseUrl,
+        model: options.model
+      });
   }
 }
 
@@ -134,6 +143,18 @@ function apiKeyForPlannerProvider(provider: PlannerBackendProvider): string | un
       return process.env.ANTHROPIC_API_KEY;
     case "openai":
       return process.env.OPENAI_API_KEY;
+    case "openweight":
+      return process.env.KELPCLAW_OPENWEIGHT_API_KEY;
+  }
+}
+
+function baseUrlForPlannerProvider(provider: PlannerBackendProvider): string | undefined {
+  switch (provider) {
+    case "anthropic":
+    case "openai":
+      return undefined;
+    case "openweight":
+      return process.env.KELPCLAW_OPENWEIGHT_BASE_URL;
   }
 }
 
@@ -144,6 +165,13 @@ function plannerModelForProvider(provider: PlannerBackendProvider): string | und
     case "openai":
       return (
         process.env.KELPCLAW_OPENAI_PLANNER_MODEL ?? process.env.KELPCLAW_PLANNER_MODEL ?? "gpt-5.4"
+      );
+    case "openweight":
+      return (
+        process.env.KELPCLAW_OPENWEIGHT_PLANNER_MODEL ??
+        process.env.KELPCLAW_PLANNER_MODEL ??
+        process.env.KELPCLAW_OPENWEIGHT_MODEL ??
+        "qwen2.5-coder"
       );
   }
 }
