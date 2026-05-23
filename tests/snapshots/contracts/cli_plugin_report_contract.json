@@ -8,6 +8,7 @@
         "import-run",
         "list",
         "login",
+        "presets",
         "run",
         "validate-run"
       ],

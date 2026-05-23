@@ -142,12 +142,20 @@ Connect an existing external pentest or triage agent once, then invoke it throug
 Piranesi:
 
 ```bash
+uv run piranesi agent presets
+uv run piranesi agent add --workspace ./workspace --preset codex
 uv run piranesi agent add \
   --workspace ./workspace \
   --name team-agent \
   --command 'team-agent triage --context {context} --manifest {manifest}' \
   --check-command 'team-agent --version' \
   --login-command 'team-agent login'
+uv run piranesi agent add \
+  --workspace ./workspace \
+  --preset cloud-http \
+  --name cloud-triage \
+  --remote-url https://agent.example.test/run \
+  --remote-auth-env TEAM_AGENT_TOKEN
 uv run piranesi agent check --workspace ./workspace --agent team-agent
 uv run piranesi agent login --workspace ./workspace --agent team-agent
 uv run piranesi agent run \
@@ -157,6 +165,12 @@ uv run piranesi agent run \
   --approval-reference ROE-1234 \
   --live
 ```
+
+Built-in presets cover OpenClaw, Claude Code, Codex CLI, and generic HTTPS
+cloud agents. `agent login` runs OAuth-capable CLI login commands or verifies an
+API-key environment variable without storing the secret. If an agent can only
+print prose, run with `--prose-fallback` to preserve stdout/stderr as evidence
+without inventing structured findings.
 
 If the agent ran outside the wrapper, import its local manifest directly with
 `uv run piranesi agent validate-run --manifest agent-run.json` and

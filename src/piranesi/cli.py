@@ -36,9 +36,14 @@ from piranesi.agent_bridge import (
     AGENT_CONFIG_FILE,
     DEFAULT_AGENT_CHECK_TIMEOUT_SECONDS,
     DEFAULT_AGENT_TIMEOUT_SECONDS,
+    AgentAuthType,
     AgentBridgeError,
+    AgentExecutionType,
+    AgentPresetName,
     AgentProfile,
     AgentRunMode,
+    available_agent_presets,
+    build_agent_preset,
     check_agent_profile,
     get_agent_profile,
     import_agent_run_manifest,
@@ -46,6 +51,7 @@ from piranesi.agent_bridge import (
     load_agent_run_manifest,
     login_agent_profile,
     run_agent_command,
+    run_agent_profile,
     upsert_agent_profile,
     write_agent_context,
 )
@@ -721,14 +727,30 @@ def agent_context_command(
     )
 
 
+@agent_app.command("presets", help="List built-in external agent presets.")
+def agent_presets_command(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print presets as JSON."),
+    ] = False,
+) -> None:
+    presets = available_agent_presets()
+    payload = {"count": len(presets), "presets": presets}
+    if json_output:
+        _emit(payload, json_output=True, text="")
+        return
+    for preset in presets:
+        typer.echo(f"{preset['name']}\t{preset['type']}\t{preset['summary']}")
+
+
 @agent_app.command("add", help="Save a named external pentest agent profile.")
 def agent_add_command(
     name: Annotated[
-        str,
+        str | None,
         typer.Option("--name", help="Profile name, for example 'openclaw' or 'team-agent'."),
-    ],
+    ] = None,
     command: Annotated[
-        str,
+        str | None,
         typer.Option(
             "--command",
             "-c",
@@ -737,7 +759,11 @@ def agent_add_command(
                 "{context}, {manifest}, {run_dir}, {workspace}, {scope}, {run_id}."
             ),
         ),
-    ],
+    ] = None,
+    preset: Annotated[
+        AgentPresetName | None,
+        typer.Option("--preset", help="Built-in preset to add."),
+    ] = None,
     workspace: Annotated[
         Path,
         typer.Option(
@@ -760,6 +786,33 @@ def agent_add_command(
         list[str] | None,
         typer.Option("--required-env", help="Environment variable required by the agent."),
     ] = None,
+    api_key_env: Annotated[
+        str | None,
+        typer.Option("--api-key-env", help="Environment variable containing an API key."),
+    ] = None,
+    execution_type: Annotated[
+        AgentExecutionType,
+        typer.Option("--execution-type", help="Agent execution type."),
+    ] = "local",
+    remote_url: Annotated[
+        str | None,
+        typer.Option("--remote-url", help="HTTPS endpoint for cloud-http agents."),
+    ] = None,
+    remote_auth_env: Annotated[
+        str | None,
+        typer.Option("--remote-auth-env", help="Bearer token env var for cloud-http agents."),
+    ] = None,
+    openclaw_agent: Annotated[
+        str,
+        typer.Option("--openclaw-agent", help="OpenClaw agent id used by the openclaw preset."),
+    ] = "piranesi",
+    openclaw_provider: Annotated[
+        str,
+        typer.Option(
+            "--openclaw-provider",
+            help="OpenClaw model auth provider used by the openclaw preset login command.",
+        ),
+    ] = "openai-codex",
     mode: Annotated[
         AgentRunMode,
         typer.Option("--mode", help="Default agent execution mode."),
@@ -783,16 +836,57 @@ def agent_add_command(
 ) -> None:
     try:
         state = create_workspace(workspace)
-        profile = AgentProfile(
-            name=name,
-            command=command,
-            check_command=check_command,
-            login_command=login_command,
-            default_mode=mode,
-            timeout_seconds=timeout_seconds,
-            required_env=required_env or [],
-            notes=notes,
-        )
+        if preset is not None:
+            profile = build_agent_preset(
+                preset,
+                name=name,
+                openclaw_agent=openclaw_agent,
+                openclaw_provider=openclaw_provider,
+                remote_url=remote_url,
+                remote_auth_env=remote_auth_env,
+            )
+            updates: dict[str, Any] = {}
+            if command is not None:
+                updates["command"] = command
+            if check_command is not None:
+                updates["check_command"] = check_command
+            if login_command is not None:
+                updates["login_command"] = login_command
+            if required_env:
+                updates["required_env"] = sorted(set(profile.required_env) | set(required_env))
+            if api_key_env is not None:
+                updates["api_key_env"] = api_key_env
+                updates["auth_type"] = "api-key-env"
+            if notes is not None:
+                updates["notes"] = notes
+            profile = profile.model_copy(update=updates)
+        else:
+            if name is None:
+                raise AgentBridgeError("--name is required unless --preset is provided")
+            if command is None and execution_type == "local":
+                raise AgentBridgeError("--command is required for local agent profiles")
+            auth_type: AgentAuthType
+            if api_key_env:
+                auth_type = "api-key-env"
+            elif login_command:
+                auth_type = "custom-login"
+            else:
+                auth_type = "none"
+            profile = AgentProfile(
+                name=name,
+                command=command,
+                execution_type=execution_type,
+                check_command=check_command,
+                login_command=login_command,
+                auth_type=auth_type,
+                api_key_env=api_key_env,
+                remote_url=remote_url,
+                remote_auth_env=remote_auth_env,
+                default_mode=mode,
+                timeout_seconds=timeout_seconds,
+                required_env=required_env or [],
+                notes=notes,
+            )
         config = upsert_agent_profile(state, profile)
     except (AgentBridgeError, WorkspaceError, ValueError, OSError) as exc:
         _fail(str(exc), json_errors=json_errors)
@@ -996,6 +1090,13 @@ def agent_run_command(
             help="Import the manifest emitted by the agent after successful execution.",
         ),
     ] = True,
+    prose_fallback: Annotated[
+        bool,
+        typer.Option(
+            "--prose-fallback/--require-structured",
+            help="Preserve stdout/stderr as evidence if the agent cannot emit a manifest.",
+        ),
+    ] = False,
     timeout_seconds: Annotated[
         int,
         typer.Option("--timeout-seconds", help="Maximum live agent execution time."),
@@ -1013,6 +1114,7 @@ def agent_run_command(
         resolved_command = command
         resolved_mode = mode
         resolved_timeout = timeout_seconds
+        profile: AgentProfile | None = None
         if agent is not None:
             profile = get_agent_profile(workspace, agent)
             resolved_command = resolved_command or profile.command
@@ -1026,19 +1128,36 @@ def agent_run_command(
             if check.issues:
                 joined = "; ".join(check.issues)
                 raise AgentBridgeError(f"agent profile {agent!r} is not ready: {joined}")
-        if resolved_command is None:
-            raise AgentBridgeError("--command is required unless --agent is provided")
-        result = run_agent_command(
-            workspace=workspace,
-            command=resolved_command,
-            run_id=run_id,
-            mode=resolved_mode,
-            approved_by=approved_by,
-            approval_reference=approval_reference,
-            live=live,
-            import_manifest=import_manifest,
-            timeout_seconds=resolved_timeout,
-        )
+        if profile is not None:
+            if command is not None:
+                profile = profile.model_copy(update={"command": command})
+            result = run_agent_profile(
+                workspace=workspace,
+                profile=profile,
+                run_id=run_id,
+                mode=resolved_mode,
+                approved_by=approved_by,
+                approval_reference=approval_reference,
+                live=live,
+                import_manifest=import_manifest,
+                timeout_seconds=resolved_timeout,
+                prose_fallback=prose_fallback,
+            )
+        else:
+            if resolved_command is None:
+                raise AgentBridgeError("--command is required unless --agent is provided")
+            result = run_agent_command(
+                workspace=workspace,
+                command=resolved_command,
+                run_id=run_id,
+                mode=resolved_mode,
+                approved_by=approved_by,
+                approval_reference=approval_reference,
+                live=live,
+                import_manifest=import_manifest,
+                timeout_seconds=resolved_timeout,
+                prose_fallback=prose_fallback,
+            )
     except (AgentBridgeError, PffValidationError, WorkspaceError, EvidenceError, OSError) as exc:
         _fail(str(exc), json_errors=json_errors)
 

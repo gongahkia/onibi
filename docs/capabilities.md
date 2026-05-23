@@ -29,7 +29,7 @@ Current product boundaries are tracked in [`docs/non-goals.md`](non-goals.md).
 | GitHub Issues handoff | Alpha | One-way selected finding export with dry-run preview, redacted assets by default, and no bidirectional status sync. |
 | Slack notifications | Alpha | Summary-only workflow notifications with dry-run default, redacted engagement labels, and no raw evidence. |
 | Email handoff drafts | Alpha | Local `.eml` draft generation for report delivery without sending mail. |
-| External pentest agent bridge | Alpha | `piranesi agent add/check/login/run` manages named local agent profiles, invokes operator-approved agents with scoped context, captures logs, and imports run manifests containing PFF findings and local evidence artifacts. |
+| External pentest agent bridge | Alpha | `piranesi agent add/check/login/run` manages named local or HTTPS cloud agent profiles, includes OpenClaw/Claude/Codex/cloud presets, verifies OAuth-style CLI or API-key env auth, captures logs, and imports PFF manifests or prose fallback evidence. |
 | Chain of custody | Alpha | Local manifest creation and verification for workspace artifacts and audit chain. |
 | Piranesi Finding Format v0 | Alpha | Public finding interchange with JSON Schema, validation, workspace export/import, fixture validation, and versioning rules. |
 | Python adapter SDK v0 | Alpha | Helpers for third-party adapters to emit valid PFF documents without mutating workspaces directly. |

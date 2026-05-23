@@ -7,9 +7,10 @@ portal, or autonomous compliance engine.
 
 Piranesi can still fit a holistic workflow through the external pentest agent
 bridge: operator-managed agents may perform authorized testing through
-`piranesi agent run`, then return local manifests, PFF findings, and evidence for
-validation and custody. That bridge is a local command wrapper and handoff
-contract, not a built-in scanner runtime.
+`piranesi agent run`, then return manifests, PFF findings, artifacts, or prose
+transcripts for validation and custody. That bridge is an invocation and handoff
+contract for local CLIs and HTTPS agent endpoints, not a built-in scanner runtime
+or Piranesi-hosted execution service.
 
 ## Phase 1 Boundary
 
