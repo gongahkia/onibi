@@ -11,7 +11,41 @@ export type WorkflowNodeKind =
   | "codegen"
   | "transform"
   | "approval"
-  | "delivery";
+  | "delivery"
+  | "agent-step";
+
+export const agentStepSourceAgents = [
+  "claude-code",
+  "codex-cli",
+  "cursor",
+  "aider",
+  "gemini-cli",
+  "opencode",
+  "goose",
+  "cline",
+  "continue-dev",
+  "copilot",
+  "custom"
+] as const;
+export type AgentStepSourceAgent = (typeof agentStepSourceAgents)[number];
+
+export const agentStepClassifications = [
+  "Public",
+  "Internal",
+  "Confidential",
+  "Restricted"
+] as const;
+export type AgentStepClassification = (typeof agentStepClassifications)[number];
+
+export const agentStepStatuses = [
+  "pending",
+  "running",
+  "succeeded",
+  "failed",
+  "denied",
+  "cancelled"
+] as const;
+export type AgentStepStatus = (typeof agentStepStatuses)[number];
 
 export type JsonSchemaShape = JsonRecord;
 export type WorkflowReplayBehavior =
@@ -227,6 +261,24 @@ export interface WorkflowNodeCompensation {
   readonly instructions?: string | undefined;
 }
 
+export interface AgentStepMetadata {
+  readonly sourceAgent: AgentStepSourceAgent;
+  readonly sessionId: string;
+  readonly hookEvent: string;
+  readonly toolName: string;
+  readonly toolUseId: string;
+  readonly parentToolUseId?: string | undefined;
+  readonly args: JsonRecord;
+  readonly result?: JsonValue | undefined;
+  readonly status: AgentStepStatus;
+  readonly contentHash: string;
+  readonly prevEventHash: string;
+  readonly chainIndex: number;
+  readonly classification?: AgentStepClassification | undefined;
+  readonly startedAt: string;
+  readonly finishedAt?: string | undefined;
+}
+
 export interface WorkflowNode {
   readonly id: string;
   readonly kind: WorkflowNodeKind;
@@ -244,6 +296,7 @@ export interface WorkflowNode {
   readonly secretRefs?: Readonly<Record<string, string>> | undefined;
   readonly codegen?: WorkflowCodegenMetadata | undefined;
   readonly agentic?: WorkflowAgenticNodePolicy | undefined;
+  readonly agentStep?: AgentStepMetadata | undefined;
   readonly compensation?: WorkflowNodeCompensation | undefined;
 }
 
@@ -337,6 +390,12 @@ export const workflowValidationErrorCodes = [
   "WORKFLOW_CODEGEN_EVAL_REQUIRED",
   "WORKFLOW_DRAFT_EVALUATION_REQUIRED",
   "WORKFLOW_DEPLOYMENT_BLOCKED",
+  "AGENT_STEP_METADATA_MISSING",
+  "AGENT_STEP_METADATA_FORBIDDEN",
+  "AGENT_STEP_EXECUTION_UNSUPPORTED",
+  "POLICY_DENIED",
+  "POLICY_APPROVAL_REQUIRED",
+  "AUDIT_CHAIN_INVALID",
   "WORKFLOW_RUNTIME_IMAGE_POLICY_INVALID",
   "WORKFLOW_ADAPTER_DECLARATION_INVALID",
   "WORKFLOW_ADAPTER_SECRET_MISSING",
@@ -575,6 +634,10 @@ export type WorkflowAuditAction =
   | "deployment.undeployed"
   | "deployment.rolled-back"
   | "audit.exported"
+  | "trajectory.promoted"
+  | "policy.denied"
+  | "policy.approved"
+  | "tbom.exported"
   | "secret.referenced"
   | "container.ran"
   | "adapter.called"

@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { workflowSchemaVersion, workflowValidationErrorCodes } from "./types.js";
+import {
+  agentStepClassifications,
+  agentStepSourceAgents,
+  agentStepStatuses,
+  workflowSchemaVersion,
+  workflowValidationErrorCodes
+} from "./types.js";
 import type { JsonRecord, JsonValue } from "./types.js";
 
 export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(
@@ -150,9 +156,27 @@ export const workflowNodeCompensationSchema = z.object({
   instructions: z.string().min(1).optional()
 });
 
+export const agentStepMetadataSchema = z.object({
+  sourceAgent: z.enum(agentStepSourceAgents),
+  sessionId: z.string().min(1),
+  hookEvent: z.string().min(1),
+  toolName: z.string().min(1),
+  toolUseId: z.string().min(1),
+  parentToolUseId: z.string().min(1).optional(),
+  args: jsonRecordSchema,
+  result: jsonValueSchema.optional(),
+  status: z.enum(agentStepStatuses),
+  contentHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  prevEventHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  chainIndex: z.number().int().min(0),
+  classification: z.enum(agentStepClassifications).optional(),
+  startedAt: z.string().datetime(),
+  finishedAt: z.string().datetime().optional()
+});
+
 export const workflowNodeSchema = z.object({
   id: z.string().min(1),
-  kind: z.enum(["trigger", "skill", "codegen", "transform", "approval", "delivery"]),
+  kind: z.enum(["trigger", "skill", "codegen", "transform", "approval", "delivery", "agent-step"]),
   label: z.string().min(1),
   description: z.string().min(1),
   inputs: z.record(z.string(), jsonSchemaShapeSchema),
@@ -167,6 +191,7 @@ export const workflowNodeSchema = z.object({
   secretRefs: z.record(z.string(), z.string().min(1)).optional(),
   codegen: workflowCodegenMetadataSchema.optional(),
   agentic: workflowAgenticNodePolicySchema.optional(),
+  agentStep: agentStepMetadataSchema.optional(),
   compensation: workflowNodeCompensationSchema.optional()
 });
 
@@ -277,6 +302,10 @@ export const workflowAuditActionSchema = z.enum([
   "deployment.undeployed",
   "deployment.rolled-back",
   "audit.exported",
+  "trajectory.promoted",
+  "policy.denied",
+  "policy.approved",
+  "tbom.exported",
   "secret.referenced",
   "container.ran",
   "adapter.called",
