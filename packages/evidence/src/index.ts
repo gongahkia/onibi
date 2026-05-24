@@ -1084,6 +1084,314 @@ function parseSarifFile(
   });
 }
 
+async function parseNucleiJsonlFile(
+  path: string,
+  input: PassiveScannerParseInput
+): Promise<ParsedEvidenceFindings> {
+  const content = await readFile(path, "utf8");
+  const findings: NormalizedEvidenceFinding[] = [];
+  const warnings: string[] = [];
+  let records = 0;
+  for (const [index, rawLine] of content.split(/\r?\n/u).entries()) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+    records += 1;
+    const lineNumber = index + 1;
+    try {
+      const record = jsonRecord(JSON.parse(line) as unknown, `nuclei line ${lineNumber}`);
+      const info = jsonRecord(record.info);
+      const templateId =
+        stringField(record, "template-id") ??
+        stringField(record, "templateID") ??
+        `line-${lineNumber}`;
+      const title = stringField(info, "name") ?? templateId;
+      const asset =
+        stringField(record, "matched-at") ??
+        stringField(record, "host") ??
+        stringField(record, "url");
+      findings.push(
+        scannerFinding({
+          tool: input.format,
+          idParts: [templateId, asset ?? "", stringField(record, "matcher-name") ?? ""],
+          title,
+          severity: scannerSeverity(stringField(info, "severity")),
+          ...(asset ? { asset } : {}),
+          description: stringField(info, "description"),
+          remediation: stringField(info, "remediation"),
+          weaknessIds: cweIds(...stringArrayOrCsvField(info, "classification")),
+          references: stringArrayOrCsvField(info, "reference"),
+          tags: ["nuclei", templateId, ...stringArrayOrCsvField(info, "tags")],
+          evidenceKind: "nuclei-result",
+          evidenceValue: `${title}${asset ? ` on ${asset}` : ""}`,
+          locator: `line ${lineNumber}`,
+          source: {
+            templateId,
+            ...(stringField(record, "matcher-name")
+              ? { matcherName: stringField(record, "matcher-name") }
+              : {}),
+            ...(stringField(record, "type") ? { type: stringField(record, "type") } : {})
+          },
+          inputSha256: input.inputSha256,
+          rawPath: input.rawPath
+        })
+      );
+    } catch (error) {
+      warnings.push(`line ${lineNumber}: ${errorMessage(error)}`);
+    }
+  }
+  if (records === 0 || findings.length === 0) {
+    throw new EvidenceWorkspaceError("nuclei JSONL contained no supported result records");
+  }
+  return {
+    findings,
+    warnings,
+    metadata: {
+      format: input.format,
+      records,
+      validRecords: findings.length,
+      malformedRecords: warnings.length
+    }
+  };
+}
+
+async function parseNmapFile(
+  path: string,
+  input: PassiveScannerParseInput
+): Promise<ParsedEvidenceFindings> {
+  const content = await readFile(path, "utf8");
+  const findings: NormalizedEvidenceFinding[] = [];
+  const warnings: string[] = [];
+  let hosts = 0;
+  let openPorts = 0;
+  for (const hostMatch of content.matchAll(/<host\b[\s\S]*?<\/host>/gu)) {
+    const hostBlock = hostMatch[0];
+    hosts += 1;
+    const addressTag = hostBlock.match(/<address\b[^>]*>/u)?.[0] ?? "";
+    const hostAddress = xmlAttr(addressTag, "addr") ?? `host-${hosts}`;
+    for (const portMatch of hostBlock.matchAll(/<port\b([^>]*)>([\s\S]*?)<\/port>/gu)) {
+      const portAttrs = portMatch[1] ?? "";
+      const portBody = portMatch[2] ?? "";
+      const stateTag = portBody.match(/<state\b[^>]*>/u)?.[0] ?? "";
+      if (xmlAttr(stateTag, "state") !== "open") {
+        continue;
+      }
+      const protocol = xmlAttr(portAttrs, "protocol") ?? "tcp";
+      const portId = xmlAttr(portAttrs, "portid") ?? "unknown";
+      const serviceTag = portBody.match(/<service\b[^>]*>/u)?.[0] ?? "";
+      const serviceName = xmlAttr(serviceTag, "name");
+      const product = xmlAttr(serviceTag, "product");
+      const version = xmlAttr(serviceTag, "version");
+      const serviceLabel = [serviceName, product, version].filter(Boolean).join(" ");
+      openPorts += 1;
+      findings.push(
+        scannerFinding({
+          tool: input.format,
+          idParts: [hostAddress, protocol, portId, serviceLabel],
+          title: `Open ${protocol}/${portId} on ${hostAddress}`,
+          severity: "info",
+          asset: hostAddress,
+          location: `${protocol}/${portId}`,
+          tags: ["nmap", "open-port", protocol, portId],
+          evidenceKind: "nmap-open-port",
+          evidenceValue: serviceLabel
+            ? `${protocol}/${portId} open (${serviceLabel})`
+            : `${protocol}/${portId} open`,
+          locator: `host ${hosts} port ${openPorts}`,
+          source: {
+            protocol,
+            port: portId,
+            ...(serviceName ? { service: serviceName } : {}),
+            ...(product ? { product } : {}),
+            ...(version ? { version } : {})
+          },
+          inputSha256: input.inputSha256,
+          rawPath: input.rawPath
+        })
+      );
+    }
+  }
+  if (hosts === 0 || findings.length === 0) {
+    throw new EvidenceWorkspaceError("nmap XML contained no open port records");
+  }
+  return {
+    findings,
+    warnings,
+    metadata: {
+      format: input.format,
+      hosts,
+      records: openPorts,
+      validRecords: findings.length,
+      malformedRecords: warnings.length
+    }
+  };
+}
+
+async function parseBurpXmlFile(
+  path: string,
+  input: PassiveScannerParseInput
+): Promise<ParsedEvidenceFindings> {
+  const content = await readFile(path, "utf8");
+  const findings: NormalizedEvidenceFinding[] = [];
+  const issueBlocks = [...content.matchAll(/<issue\b[\s\S]*?<\/issue>/gu)].map((match) => match[0]);
+  for (const [index, issueBlock] of issueBlocks.entries()) {
+    const title = xmlTagText(issueBlock, "name") ?? `Burp issue ${index + 1}`;
+    const host = xmlTagText(issueBlock, "host");
+    const pathText = xmlTagText(issueBlock, "path");
+    const location = [host, pathText].filter(Boolean).join("");
+    const issueType = xmlTagText(issueBlock, "type");
+    findings.push(
+      scannerFinding({
+        tool: input.format,
+        idParts: [issueType ?? title, host ?? "", pathText ?? ""],
+        title,
+        severity: scannerSeverity(xmlTagText(issueBlock, "severity")),
+        ...(host ? { asset: host } : {}),
+        ...(location ? { location } : {}),
+        description: xmlTagText(issueBlock, "issueBackground") ?? xmlTagText(issueBlock, "detail"),
+        remediation: xmlTagText(issueBlock, "remediationBackground"),
+        tags: ["burp", ...(issueType ? [issueType] : [])],
+        evidenceKind: "burp-issue",
+        evidenceValue: location ? `${title} at ${location}` : title,
+        locator: `issue ${index + 1}`,
+        source: {
+          ...(issueType ? { issueType } : {})
+        },
+        inputSha256: input.inputSha256,
+        rawPath: input.rawPath
+      })
+    );
+  }
+  if (findings.length === 0) {
+    throw new EvidenceWorkspaceError("Burp XML contained no issue records");
+  }
+  return scannerParseResult(input.format, findings, [], issueBlocks.length);
+}
+
+async function parseZapJsonFile(
+  path: string,
+  input: PassiveScannerParseInput
+): Promise<ParsedEvidenceFindings> {
+  const payload = jsonRecord(JSON.parse(await readFile(path, "utf8")) as unknown, "ZAP JSON");
+  const siteValues = Array.isArray(payload.site)
+    ? payload.site
+    : Array.isArray(payload.sites)
+      ? payload.sites
+      : [];
+  const findings: NormalizedEvidenceFinding[] = [];
+  let alertCount = 0;
+  for (const [siteIndex, siteValue] of siteValues.entries()) {
+    const site = jsonRecord(siteValue, `ZAP site ${siteIndex + 1}`);
+    const siteName = stringField(site, "name") ?? stringField(site, "@name");
+    const alerts = Array.isArray(site.alerts) ? site.alerts : [];
+    for (const [alertIndex, alertValue] of alerts.entries()) {
+      const alert = jsonRecord(alertValue, `ZAP alert ${alertIndex + 1}`);
+      const title = stringField(alert, "name") ?? `ZAP alert ${alertIndex + 1}`;
+      const instances = Array.isArray(alert.instances) && alert.instances.length > 0
+        ? alert.instances
+        : [{}];
+      alertCount += 1;
+      for (const [instanceIndex, instanceValue] of instances.entries()) {
+        const instance = jsonRecord(instanceValue);
+        const asset =
+          stringField(instance, "uri") ??
+          stringField(instance, "url") ??
+          stringField(alert, "url") ??
+          siteName;
+        const cwe = stringField(alert, "cweid") ?? stringField(alert, "cweId");
+        findings.push(
+          scannerFinding({
+            tool: input.format,
+            idParts: [
+              stringField(alert, "pluginid") ?? stringField(alert, "pluginId") ?? title,
+              asset ?? "",
+              stringField(instance, "param") ?? ""
+            ],
+            title,
+            severity: scannerSeverity(
+              stringField(alert, "riskdesc") ??
+                stringField(alert, "risk") ??
+                stringField(alert, "riskcode")
+            ),
+            ...(asset ? { asset } : {}),
+            description: stringField(alert, "desc"),
+            remediation: stringField(alert, "solution"),
+            weaknessIds: cweIds(cwe),
+            references: stringArrayOrCsvField(alert, "reference"),
+            tags: ["zap", ...(stringField(alert, "alertRef") ? [stringField(alert, "alertRef") as string] : [])],
+            evidenceKind: "zap-alert",
+            evidenceValue: asset ? `${title} at ${asset}` : title,
+            locator: `site ${siteIndex + 1} alert ${alertIndex + 1} instance ${instanceIndex + 1}`,
+            source: {
+              ...(stringField(alert, "pluginid") ? { pluginId: stringField(alert, "pluginid") } : {}),
+              ...(stringField(alert, "alertRef") ? { alertRef: stringField(alert, "alertRef") } : {})
+            },
+            inputSha256: input.inputSha256,
+            rawPath: input.rawPath
+          })
+        );
+      }
+    }
+  }
+  if (findings.length === 0) {
+    throw new EvidenceWorkspaceError("ZAP JSON contained no alert records");
+  }
+  return scannerParseResult(input.format, findings, [], alertCount);
+}
+
+async function parseNessusXmlFile(
+  path: string,
+  input: PassiveScannerParseInput
+): Promise<ParsedEvidenceFindings> {
+  const content = await readFile(path, "utf8");
+  const findings: NormalizedEvidenceFinding[] = [];
+  let reportItems = 0;
+  for (const hostMatch of content.matchAll(/<ReportHost\b([^>]*)>([\s\S]*?)<\/ReportHost>/gu)) {
+    const hostAttrs = hostMatch[1] ?? "";
+    const hostBody = hostMatch[2] ?? "";
+    const hostName = xmlAttr(hostAttrs, "name") ?? "unknown";
+    for (const itemMatch of hostBody.matchAll(/<ReportItem\b([^>]*)>([\s\S]*?)<\/ReportItem>/gu)) {
+      const itemAttrs = itemMatch[1] ?? "";
+      const itemBody = itemMatch[2] ?? "";
+      const pluginId = xmlAttr(itemAttrs, "pluginID") ?? xmlAttr(itemAttrs, "plugin_id") ?? "";
+      const pluginName = xmlAttr(itemAttrs, "pluginName") ?? `Nessus plugin ${pluginId}`;
+      const port = xmlAttr(itemAttrs, "port") ?? "0";
+      const protocol = xmlAttr(itemAttrs, "protocol") ?? "tcp";
+      reportItems += 1;
+      findings.push(
+        scannerFinding({
+          tool: input.format,
+          idParts: [pluginId, hostName, protocol, port],
+          title: pluginName,
+          severity: nessusSeverity(xmlAttr(itemAttrs, "severity")),
+          asset: hostName,
+          location: `${protocol}/${port}`,
+          description: xmlTagText(itemBody, "description"),
+          remediation: xmlTagText(itemBody, "solution"),
+          weaknessIds: cweIds(xmlTagText(itemBody, "cwe")),
+          references: stringArrayFromText(xmlTagText(itemBody, "see_also")),
+          tags: ["nessus", ...(pluginId ? [`plugin-${pluginId}`] : [])],
+          evidenceKind: "nessus-report-item",
+          evidenceValue: `${pluginName} on ${hostName}:${port}`,
+          locator: `host ${hostName} report item ${reportItems}`,
+          source: {
+            ...(pluginId ? { pluginId } : {}),
+            protocol,
+            port
+          },
+          inputSha256: input.inputSha256,
+          rawPath: input.rawPath
+        })
+      );
+    }
+  }
+  if (findings.length === 0) {
+    throw new EvidenceWorkspaceError("Nessus XML contained no report item records");
+  }
+  return scannerParseResult(input.format, findings, [], reportItems);
+}
+
 function sarifFindingFromResult(
   result: JsonRecord,
   input: {
@@ -1177,6 +1485,98 @@ function sarifFindingFromResult(
       type: "result",
       ...(input.toolName ? { sarifTool: input.toolName } : {}),
       ruleId
+    }
+  };
+}
+
+function scannerFinding(input: {
+  readonly tool: PassiveScannerFormat;
+  readonly idParts: readonly string[];
+  readonly title: string;
+  readonly severity: EvidenceSeverity;
+  readonly asset?: string | undefined;
+  readonly location?: string | undefined;
+  readonly description?: string | undefined;
+  readonly remediation?: string | undefined;
+  readonly weaknessIds?: readonly string[] | undefined;
+  readonly references?: readonly string[] | undefined;
+  readonly tags?: readonly string[] | undefined;
+  readonly evidenceKind: string;
+  readonly evidenceValue: string;
+  readonly locator: string;
+  readonly source: JsonRecord;
+  readonly inputSha256: string;
+  readonly rawPath: string;
+}): NormalizedEvidenceFinding {
+  const now = utcNow();
+  const weaknessIds = [...new Set(input.weaknessIds ?? [])].sort();
+  const references = [...new Set(input.references ?? [])].sort();
+  const tags = [
+    ...new Set(
+      [input.tool, ...(input.tags ?? [])].filter(
+        (tag): tag is string => typeof tag === "string" && tag.length > 0
+      )
+    )
+  ].sort();
+  return {
+    id: deterministicEvidenceId(input.tool, ...input.idParts),
+    title: input.title,
+    severity: input.severity,
+    confidence: "tool-observed",
+    status: "open",
+    ...(input.description ? { description: input.description } : {}),
+    ...(input.remediation ? { remediation: input.remediation } : {}),
+    ...(input.asset ? { asset: input.asset } : {}),
+    weaknessIds,
+    references,
+    tags,
+    evidence: [
+      {
+        kind: input.evidenceKind,
+        value: input.evidenceValue,
+        redacted: false,
+        locator: input.locator
+      }
+    ],
+    sourceReferences: [
+      {
+        tool: input.tool,
+        inputSha256: input.inputSha256,
+        rawPath: input.rawPath,
+        locator: input.locator,
+        metadata: input.source
+      }
+    ],
+    affectedInstances: [
+      {
+        asset: input.asset ?? "unknown",
+        ...(input.location ? { location: input.location } : {}),
+        metadata: input.source
+      }
+    ],
+    firstSeen: now,
+    lastSeen: now,
+    provenance: {
+      tool: input.tool,
+      ...input.source
+    }
+  };
+}
+
+function scannerParseResult(
+  format: PassiveScannerFormat,
+  findings: readonly NormalizedEvidenceFinding[],
+  warnings: readonly string[],
+  records: number
+): ParsedEvidenceFindings {
+  return {
+    findings,
+    warnings,
+    metadata: {
+      format,
+      records,
+      validRecords: findings.length,
+      malformedRecords: warnings.length
     }
   };
 }
