@@ -366,6 +366,150 @@ process.stdin.on("end", () => {
     }
   });
 
+  it("blocks planned policy denials before invoking a live agent", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-planned-block-"));
+    const skillPath = join(tempDir, "SKILL.md");
+    const inputPath = join(tempDir, "input.json");
+    const fakeAgentPath = join(tempDir, "fake-agent.mjs");
+    const runsDir = join(tempDir, "runs");
+    await writeFile(
+      skillPath,
+      `---
+name: planned-block
+tools: [Bash]
+---
+
+# Planned Block
+
+\`\`\`bash
+rm -rf /tmp/kelpclaw-planned-block
+\`\`\`
+`,
+      "utf8"
+    );
+    await writeFile(inputPath, "{}\n", "utf8");
+    await writeFile(
+      fakeAgentPath,
+      `import { writeFileSync } from "node:fs";
+writeFileSync("should-not-run.txt", "ran");
+`,
+      "utf8"
+    );
+
+    try {
+      const run = await runSkill([
+        skillPath,
+        "--input",
+        inputPath,
+        "--agent",
+        "codex-cli",
+        "--agent-command",
+        process.execPath,
+        "--agent-arg",
+        fakeAgentPath,
+        "--run-id",
+        "skill-run.planned-block",
+        "--runs-dir",
+        runsDir,
+        "--enforce-policy"
+      ]);
+      expect(run).toMatchObject({
+        ok: false,
+        status: "blocked",
+        mode: "live"
+      });
+      await expect(
+        readFile(join(runsDir, "skill-run.planned-block", "agent-run.json"), "utf8")
+      ).rejects.toThrow();
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.exitCode = undefined;
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("blocks live execution when a PreToolUse hook is denied", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-hook-block-"));
+    const skillPath = join(tempDir, "SKILL.md");
+    const inputPath = join(tempDir, "input.json");
+    const fakeAgentPath = join(tempDir, "fake-agent.mjs");
+    const runsDir = join(tempDir, "runs");
+    await writeFile(
+      skillPath,
+      `---
+name: hook-block
+tools: [Bash]
+---
+
+# Hook Block
+
+Run a shell command chosen at runtime.
+`,
+      "utf8"
+    );
+    await writeFile(inputPath, "{}\n", "utf8");
+    await writeFile(
+      fakeAgentPath,
+      `import { mkdirSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+const hook = process.env.KELPCLAW_SKILL_HOOK_COMMAND;
+const pre = spawnSync(hook, {
+  input: JSON.stringify({ hookEvent: "PreToolUse", toolName: "Bash", args: { command: "rm -rf /tmp/unsafe" } }),
+  shell: true,
+  encoding: "utf8"
+});
+if (pre.status !== 0) {
+  process.exit(pre.status ?? 1);
+}
+mkdirSync("artifacts", { recursive: true });
+writeFileSync("artifacts/unsafe.txt", "should not exist");
+`,
+      "utf8"
+    );
+
+    try {
+      const run = await runSkill([
+        skillPath,
+        "--input",
+        inputPath,
+        "--agent",
+        "codex-cli",
+        "--agent-command",
+        process.execPath,
+        "--agent-arg",
+        fakeAgentPath,
+        "--run-id",
+        "skill-run.hook-block",
+        "--runs-dir",
+        runsDir,
+        "--enforce-policy"
+      ]);
+      expect(run).toMatchObject({
+        ok: false,
+        status: "blocked",
+        mode: "live"
+      });
+      const agentRun = JSON.parse(
+        await readFile(join(runsDir, "skill-run.hook-block", "agent-run.json"), "utf8")
+      ) as {
+        readonly hookEvents?: readonly { readonly status?: string; readonly hookEvent?: string }[];
+        readonly enforcement?: { readonly hookBlocked?: boolean; readonly source?: string };
+        readonly generatedArtifacts?: readonly string[];
+      };
+      expect(agentRun.enforcement).toMatchObject({
+        hookBlocked: true,
+        source: "hook-pretool"
+      });
+      expect(agentRun.hookEvents).toEqual([
+        expect.objectContaining({ hookEvent: "PreToolUse", status: "denied" })
+      ]);
+      expect(agentRun.generatedArtifacts).toEqual([]);
+    } finally {
+      process.exitCode = undefined;
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("records replay-diff by running configured agent commands", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-recorded-replay-"));
     const skillPath = join(tempDir, "SKILL.md");
@@ -425,6 +569,68 @@ process.stdin.on("end", () => {
       });
       expect(result.runs.map((run) => run.tools)).toEqual([["Bash"], ["Bash"]]);
       expect(result.runs.every((run) => run.runId?.startsWith("replay-diff."))).toBe(true);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("uses hook events as recorded replay canonical tool sequence", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-hook-replay-"));
+    const skillPath = join(tempDir, "SKILL.md");
+    const inputPath = join(tempDir, "input.json");
+    const fakeAgentPath = join(tempDir, "fake-agent.mjs");
+    const runsDir = join(tempDir, "runs");
+    await writeFile(
+      skillPath,
+      `---
+name: hook-replay
+tools: [Read]
+---
+
+# Hook Replay
+
+Read a runtime-selected file.
+`,
+      "utf8"
+    );
+    await writeFile(inputPath, "{}\n", "utf8");
+    await writeFile(
+      fakeAgentPath,
+      `import { spawnSync } from "node:child_process";
+const hook = process.env.KELPCLAW_SKILL_HOOK_COMMAND;
+spawnSync(hook, {
+  input: JSON.stringify({ hookEvent: "PreToolUse", toolName: "Read", args: { filePath: "input.json" } }),
+  shell: true,
+  encoding: "utf8"
+});
+spawnSync(hook, {
+  input: JSON.stringify({ hookEvent: "PostToolUse", toolName: "Read", args: { filePath: "input.json" }, result: { content: "{}" } }),
+  shell: true,
+  encoding: "utf8"
+});
+console.log(JSON.stringify({ toolName: "Bash", args: { command: "printf ignored" } }));
+`,
+      "utf8"
+    );
+
+    try {
+      const result = await replayDiff([
+        "--recorded",
+        "--skill",
+        skillPath,
+        "--input",
+        inputPath,
+        "--agents",
+        "codex-cli,custom-agent",
+        "--agent-command",
+        process.execPath,
+        "--agent-arg",
+        fakeAgentPath,
+        "--runs-dir",
+        runsDir
+      ]);
+      expect(result.ok).toBe(true);
+      expect(result.runs.map((run) => run.tools)).toEqual([["Read"], ["Read"]]);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
