@@ -17,6 +17,7 @@
     "@kelpclaw/adapters": "workspace:*",
     "@kelpclaw/agent-hooks": "workspace:*",
     "@kelpclaw/codegen": "workspace:*",
+    "@kelpclaw/evidence": "workspace:*",
     "@kelpclaw/policy": "workspace:*",
     "@kelpclaw/web-intel": "workspace:*",
     "@kelpclaw/workflow-spec": "workspace:*"

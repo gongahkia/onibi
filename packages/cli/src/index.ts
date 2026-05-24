@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import {
   createPromotedSkillOtlpTracePayload,
   exportOtlpTraces,
@@ -13,6 +14,20 @@ import {
   synthesizeWorkflowFromTrajectory,
   trajectoryReplayShape
 } from "@kelpclaw/codegen";
+import {
+  addEvidenceFile,
+  compareEvidenceWorkspaces,
+  createEvidenceWorkspace,
+  importSarifEvidence,
+  loadEvidenceWorkspace,
+  qaEvidenceWorkspace,
+  renderEvidenceQaMarkdown,
+  renderEvidenceRetestMarkdown,
+  signEvidenceWorkspace,
+  verifyEvidenceWorkspace,
+  type EvidenceKind,
+  type EvidenceSensitivity
+} from "@kelpclaw/evidence";
 import { evaluatePolicy, requirePolicyPack } from "@kelpclaw/policy";
 import {
   createWebIntelClient,
@@ -145,6 +160,8 @@ async function main(argv: readonly string[]): Promise<void> {
       );
     case "web":
       return printJson(await runWebCommand(args));
+    case "evidence":
+      return printJson(await runEvidenceCommand(args));
     case "inventory":
       if (args[0] === "scan") {
         return printJson(await inventoryScan(args.slice(1)));
@@ -213,7 +230,7 @@ async function main(argv: readonly string[]): Promise<void> {
       return runMcp(args);
     default:
       throw new Error(
-        "Usage: kelp-claw <run-skill|compat|compat-report|policy|governance|inventory|audit-key|export-audit-bundle|export-sarif|verify-audit-bundle|replay-diff|start-recording|record-step|stop-recording|approve-step|deny-step|promote|mcp|audit-verify|audit-anchor|tbom-export|mint-role-token|inspect-role-token|verify-claude-code|otlp-smoke|cross-agent-replay-smoke>"
+        "Usage: kelp-claw <run-skill|compat|compat-report|policy|governance|web|evidence|inventory|audit-key|export-audit-bundle|export-sarif|verify-audit-bundle|replay-diff|start-recording|record-step|stop-recording|approve-step|deny-step|promote|mcp|audit-verify|audit-anchor|tbom-export|mint-role-token|inspect-role-token|verify-claude-code|otlp-smoke|cross-agent-replay-smoke>"
       );
   }
 }
@@ -277,6 +294,108 @@ export async function runWebCommand(args: readonly string[]): Promise<JsonRecord
     ...(outDir ? { outDir, files } : {}),
     evidence
   };
+}
+
+export async function runEvidenceCommand(args: readonly string[]): Promise<JsonRecord> {
+  const [command, ...commandArgs] = args;
+  const workspace = resolve(option(commandArgs, "--workspace") ?? ".kelpclaw/evidence");
+  switch (command) {
+    case "init": {
+      const created = await createEvidenceWorkspace(workspace, {
+        ...(option(commandArgs, "--client") ? { client: option(commandArgs, "--client") } : {}),
+        ...(option(commandArgs, "--project") ? { project: option(commandArgs, "--project") } : {}),
+        ...(options(commandArgs, "--scope").length
+          ? { scope: options(commandArgs, "--scope") }
+          : {})
+      });
+      return {
+        ok: true,
+        workspace: created.root,
+        evidenceCount: created.index.evidence.length,
+        findingCount: created.findings.findings.length
+      };
+    }
+    case "add": {
+      const result = await addEvidenceFile(workspace, {
+        filePath: requiredOption(commandArgs, "--file"),
+        kind: evidenceKind(option(commandArgs, "--kind") ?? "other"),
+        ...(option(commandArgs, "--title") ? { title: option(commandArgs, "--title") } : {}),
+        ...(option(commandArgs, "--observed-at")
+          ? { observedAt: option(commandArgs, "--observed-at") }
+          : {}),
+        ...(option(commandArgs, "--source") ? { source: option(commandArgs, "--source") } : {}),
+        ...(option(commandArgs, "--sensitivity")
+          ? { sensitivity: evidenceSensitivity(option(commandArgs, "--sensitivity")) }
+          : {}),
+        ...(options(commandArgs, "--tag").length ? { tags: options(commandArgs, "--tag") } : {}),
+        ...(option(commandArgs, "--notes") ? { notes: option(commandArgs, "--notes") } : {})
+      });
+      return { ok: true, ...result };
+    }
+    case "list": {
+      const state = await loadEvidenceWorkspace(workspace);
+      return {
+        ok: true,
+        workspace: state.root,
+        evidence: state.index.evidence,
+        findings: state.findings.findings
+      };
+    }
+    case "import-sarif": {
+      const input = option(commandArgs, "--input") ?? requiredPositional(commandArgs, 0);
+      const result = await importSarifEvidence(workspace, input);
+      return { ok: true, ...result };
+    }
+    case "sign":
+      return signEvidenceWorkspace(workspace);
+    case "verify": {
+      const result = await verifyEvidenceWorkspace(workspace, option(commandArgs, "--manifest"));
+      if (!result.ok) {
+        process.exitCode = 1;
+      }
+      return result as unknown as JsonRecord;
+    }
+    case "qa": {
+      const result = await qaEvidenceWorkspace(workspace);
+      if (!result.valid) {
+        process.exitCode = 1;
+      }
+      const format = option(commandArgs, "--format") ?? "json";
+      const markdown = format === "markdown" ? renderEvidenceQaMarkdown(result) : undefined;
+      const out = option(commandArgs, "--out");
+      if (out) {
+        await writeTextWithParents(resolve(out), markdown ?? JSON.stringify(result, null, 2));
+      }
+      return {
+        ok: result.valid,
+        ...(out ? { out: resolve(out) } : {}),
+        ...(markdown ? { markdown } : {}),
+        ...result
+      };
+    }
+    case "retest": {
+      const result = await compareEvidenceWorkspaces(
+        requiredOption(commandArgs, "--baseline"),
+        requiredOption(commandArgs, "--current")
+      );
+      const format = option(commandArgs, "--format") ?? "json";
+      const markdown = format === "markdown" ? renderEvidenceRetestMarkdown(result) : undefined;
+      const out = option(commandArgs, "--out");
+      if (out) {
+        await writeTextWithParents(resolve(out), markdown ?? JSON.stringify(result, null, 2));
+      }
+      return {
+        ok: true,
+        ...(out ? { out: resolve(out) } : {}),
+        ...(markdown ? { markdown } : {}),
+        ...result
+      };
+    }
+    default:
+      throw new Error(
+        "Usage: kelp-claw evidence <init|add|list|import-sarif|sign|verify|qa|retest> [--workspace .kelpclaw/evidence]"
+      );
+  }
 }
 
 export async function verifyClaudeCode(args: readonly string[]): Promise<JsonRecord> {
@@ -505,6 +624,34 @@ function providerFromString(value: string | undefined): WebIntelProvider | undef
   throw new Error(`Unsupported web provider '${value}'. Expected exa or tinyfish.`);
 }
 
+function evidenceKind(value: string): EvidenceKind {
+  const kinds = new Set([
+    "screenshot",
+    "agent-run",
+    "web-evidence",
+    "scanner",
+    "sarif",
+    "transcript",
+    "note",
+    "other"
+  ]);
+  if (kinds.has(value)) {
+    return value as EvidenceKind;
+  }
+  throw new Error(`Unsupported evidence kind '${value}'.`);
+}
+
+function evidenceSensitivity(value: string | undefined): EvidenceSensitivity | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const sensitivities = new Set(["public", "internal", "sensitive", "secret"]);
+  if (sensitivities.has(value)) {
+    return value as EvidenceSensitivity;
+  }
+  throw new Error(`Unsupported evidence sensitivity '${value}'.`);
+}
+
 async function usePolicyPack(args: readonly string[]): Promise<JsonRecord> {
   const name = requiredPositional(args, 0);
   const output = policyPackCliOutput(name);
@@ -697,6 +844,11 @@ function numberOption(args: readonly string[], name: string): number | undefined
 
 function hasFlag(args: readonly string[], name: string): boolean {
   return args.includes(name);
+}
+
+async function writeTextWithParents(path: string, content: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${content}${content.endsWith("\n") ? "" : "\n"}`, "utf8");
 }
 
 function otlpEndpointFromEnv(): string | undefined {

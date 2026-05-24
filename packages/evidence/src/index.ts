@@ -1276,11 +1276,7 @@ async function appendEvidenceAuditEvent(root: string, event: EvidenceAuditEvent)
   const logPath = join(root, EVIDENCE_AUDIT_LOG_FILE);
   await mkdir(dirname(logPath), { recursive: true });
   const existing = (await readFile(logPath, "utf8").catch(() => "")) || "";
-  await writeFile(
-    logPath,
-    `${existing}${stableJsonStringify(event as unknown as JsonValue)}\n`,
-    "utf8"
-  );
+  await writeFile(logPath, `${existing}${stableJsonLine(event)}\n`, "utf8");
 }
 
 async function saveWorkspaceDocument(root: string, workspace: EvidenceWorkspaceDocument): Promise<void> {
@@ -1357,6 +1353,10 @@ function hashJson(value: unknown): string {
   return `sha256:${createHash("sha256")
     .update(stableJsonStringify(value as JsonValue))
     .digest("hex")}`;
+}
+
+function stableJsonLine(value: unknown): string {
+  return JSON.stringify(JSON.parse(stableJsonStringify(value as JsonValue)));
 }
 
 function safeFilename(name: string): string {

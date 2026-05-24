@@ -18,6 +18,11 @@ import {
   type PolicyRuleSet
 } from "@kelpclaw/policy";
 import {
+  copyEvidenceWorkspaceBundle,
+  evidenceWorkspaceSummary,
+  type EvidenceWorkspaceSummary
+} from "@kelpclaw/evidence";
+import {
   readWebEvidenceBundle,
   writeWebEvidenceFiles,
   type WebEvidenceBundle
