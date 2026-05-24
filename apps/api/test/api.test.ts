@@ -11,6 +11,7 @@ import { gmailReceiptsToSheetsWorkflowFixture } from "@kelpclaw/workflow-spec";
 import type { WorkflowJob } from "@kelpclaw/workflow-spec";
 import {
   buildApiApp,
+  createConfiguredSecretStore,
   createDeterministicPlannerBackend,
   createPlannerBackendFromEnv,
   createRoleToken,
@@ -60,6 +61,19 @@ describe("kelpclaw api contracts", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ status: "ok", service: "kelpclaw-api" });
+  });
+
+  it("seeds configured secret metadata from environment values", () => {
+    vi.stubEnv("KELPCLAW_SECRET_STORE", "memory");
+    vi.stubEnv("KELPCLAW_SECRET_GOOGLE_OAUTH_DEFAULT", "test-google");
+    vi.stubEnv("KELPCLAW_SECRET_EMAIL_SMTP_DEFAULT", "test-smtp");
+
+    const store = createConfiguredSecretStore();
+
+    expect(store.listSecrets().map((secret) => secret.name)).toEqual([
+      "email.smtp.default",
+      "google.oauth.default"
+    ]);
   });
 
   it("reports router diagnostics, eval runs, and scoped memory APIs", async () => {

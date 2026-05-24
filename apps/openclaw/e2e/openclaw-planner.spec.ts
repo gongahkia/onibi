@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-test("plans, edits, validates, evaluates, and approves a workflow", async ({ page }) => {
+test("plans, edits, validates, deploys, and runs a workflow", async ({ page }) => {
   await page.goto("/");
 
   await page.getByRole("button", { name: /Commands/ }).click();
@@ -22,6 +22,11 @@ test("plans, edits, validates, evaluates, and approves a workflow", async ({ pag
   await runCommand(page, "Evaluate Draft");
   await runCommand(page, "Approve Workflow");
   await runCommand(page, "Deploy Workflow");
+  await expect(page.getByText("Deployment deployed: runner.configuration")).toBeVisible();
+
+  await runCommand(page, "Run Workflow");
+  await expect(page.getByText("Workflow run queued.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "succeeded" })).toBeVisible();
 });
 
 async function runCommand(page: Page, name: string): Promise<void> {

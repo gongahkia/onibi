@@ -428,17 +428,18 @@ export function createConfiguredWorkflowStore(): WorkflowStore {
 }
 
 export function createConfiguredSecretStore(): SecretStore {
-  if (process.env.KELPCLAW_SECRET_STORE === "memory") {
-    return new InMemorySecretStore();
-  }
-
-  return new SqliteSecretStore({
-    databasePath:
-      process.env.KELPCLAW_SECRET_DB ??
-      process.env.KELPCLAW_WORKFLOW_DB ??
-      join(process.cwd(), ".kelpclaw", "workflow.sqlite"),
-    masterKey: process.env.KELPCLAW_SECRET_MASTER_KEY ?? ""
-  });
+  const store =
+    process.env.KELPCLAW_SECRET_STORE === "memory"
+      ? new InMemorySecretStore()
+      : new SqliteSecretStore({
+          databasePath:
+            process.env.KELPCLAW_SECRET_DB ??
+            process.env.KELPCLAW_WORKFLOW_DB ??
+            join(process.cwd(), ".kelpclaw", "workflow.sqlite"),
+          masterKey: process.env.KELPCLAW_SECRET_MASTER_KEY ?? ""
+        });
+  seedConfiguredSecrets(store);
+  return store;
 }
 
 export function createConfiguredAgentRunStore(): AgentRunStore {
@@ -534,6 +535,33 @@ function codegenModelForProvider(provider: CodegenProvider): string | undefined 
       );
   }
 }
+
+function seedConfiguredSecrets(secretStore: SecretStore): void {
+  const existing = new Set(secretStore.listSecrets().map((secret) => secret.name));
+  for (const seed of configuredSecretEnvSeeds) {
+    const value = process.env[seed.env];
+    if (value && !existing.has(seed.name)) {
+      secretStore.putSecret(seed.name, value);
+      existing.add(seed.name);
+    }
+  }
+}
+
+const configuredSecretEnvSeeds = [
+  { env: "KELPCLAW_SECRET_GOOGLE_OAUTH_DEFAULT", name: "google.oauth.default" },
+  { env: "KELPCLAW_SECRET_EMAIL_SMTP_DEFAULT", name: "email.smtp.default" },
+  { env: "KELPCLAW_SECRET_WHATSAPP_CLOUD_DEFAULT", name: "whatsapp.cloud.default" },
+  { env: "KELPCLAW_SECRET_TELEGRAM_BOT_DEFAULT", name: "telegram.bot.default" },
+  { env: "KELPCLAW_SECRET_GITHUB_TOKEN_DEFAULT", name: "github.token.default" },
+  { env: "KELPCLAW_SECRET_SLACK_BOT_DEFAULT", name: "slack.bot.default" },
+  { env: "KELPCLAW_SECRET_DISCORD_BOT_DEFAULT", name: "discord.bot.default" },
+  { env: "KELPCLAW_SECRET_NOTION_API_DEFAULT", name: "notion.api.default" },
+  { env: "KELPCLAW_SECRET_LINEAR_API_DEFAULT", name: "linear.api.default" },
+  { env: "KELPCLAW_SECRET_JIRA_BASIC_DEFAULT", name: "jira.basic.default" },
+  { env: "KELPCLAW_SECRET_AIRTABLE_API_DEFAULT", name: "airtable.api.default" },
+  { env: "KELPCLAW_SECRET_WEBHOOK_TOKEN_DEFAULT", name: "webhook.token.default" },
+  { env: "KELPCLAW_SECRET_DATABASE_CONNECTION_DEFAULT", name: "database.connection.default" }
+] as const;
 
 export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
   const app = Fastify({
