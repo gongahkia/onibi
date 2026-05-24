@@ -1,4 +1,4 @@
-import { appendFile, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +9,9 @@ import {
   governanceControls,
   governanceReport,
   initAuditKey,
+  inventoryCoverage,
+  inventoryGraph,
+  inventoryScan,
   policyExplain,
   replayDiff,
   runWebCommand,
@@ -659,6 +662,272 @@ Read local inputs and cite web evidence.
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
+  });
+
+  it("scans agent inventory, renders permission graphs, and checks evidence coverage", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-inventory-"));
+    const skillDir = join(tempDir, "skills", "network");
+    const githubDir = join(tempDir, ".github", "workflows");
+    const docsDir = join(tempDir, "docs");
+    const skillPath = join(skillDir, "SKILL.md");
+    const inputPath = join(tempDir, "input.json");
+    const runsDir = join(tempDir, ".kelpclaw", "runs");
+    const bundlesRoot = join(tempDir, ".kelpclaw", "audit-bundles");
+    const bundleDir = join(bundlesRoot, "skill-run.inventory");
+    const webDir = join(tempDir, ".kelpclaw", "web-evidence", "sg");
+    const graphPath = join(tempDir, "permissions.md");
+    const coveragePath = join(tempDir, "coverage.md");
+    vi.stubEnv("EXA_API_KEY", "exa-test-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(
+          {
+            results: [
+              {
+                title: "SG AI evidence",
+                url: "https://example.test/sg-ai",
+                text: "Governed web evidence."
+              }
+            ]
+          },
+          200
+        )
+      )
+    );
+    await mkdir(skillDir, { recursive: true });
+    await mkdir(githubDir, { recursive: true });
+    await mkdir(docsDir, { recursive: true });
+    await writeFile(
+      skillPath,
+      `---
+name: inventory-network-skill
+tools: [Read, WebFetch]
+---
+
+# Inventory Network Skill
+
+Read local inputs and fetch https://example.test/sg-ai as governed evidence.
+`,
+      "utf8"
+    );
+    await writeFile(inputPath, "{}\n", "utf8");
+    await writeFile(
+      join(githubDir, "kelpclaw.yml"),
+      `name: KelpClaw
+on: [pull_request]
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: gongahkia/kelp-claw/.github/actions/audit-skill@main
+        with:
+          mode: inventory
+          upload-sarif: true
+`,
+      "utf8"
+    );
+    await writeFile(
+      join(docsDir, "mcp.md"),
+      "Run `kelp-claw mcp web-gateway --policy sg-web-research --allow-browser-tools` for governed web tools.\n",
+      "utf8"
+    );
+
+    try {
+      await runWebCommand([
+        "search",
+        "Singapore agentic AI governance",
+        "--provider",
+        "exa",
+        "--out",
+        webDir
+      ]);
+      await runSkill([
+        skillPath,
+        "--input",
+        inputPath,
+        "--run-id",
+        "skill-run.inventory",
+        "--runs-dir",
+        runsDir,
+        "--policy",
+        "sg-agentic-ai-baseline"
+      ]);
+      await exportAuditBundle([
+        "skill-run.inventory",
+        "--runs-dir",
+        runsDir,
+        "--out",
+        bundleDir,
+        "--key-dir",
+        join(tempDir, "keys"),
+        "--include-controls",
+        "--include-sarif"
+      ]);
+
+      const inventory = await inventoryScan([
+        "--root",
+        tempDir,
+        "--policy",
+        "sg-agentic-ai-baseline"
+      ]);
+      expect(inventory).toMatchObject({
+        ok: true,
+        policyPack: "sg-agentic-ai-baseline",
+        skills: [
+          expect.objectContaining({
+            path: "skills/network/SKILL.md",
+            toolsDetected: ["Read", "WebFetch"],
+            network: "declared",
+            runnable: true
+          })
+        ],
+        runs: [expect.objectContaining({ runId: "skill-run.inventory" })],
+        bundles: [
+          expect.objectContaining({
+            runId: "skill-run.inventory",
+            hasSignature: true,
+            hasAttestation: true,
+            hasSarif: true,
+            hasControls: true
+          })
+        ],
+        webEvidence: [expect.objectContaining({ provider: "exa", sourceCount: 1 })],
+        githubActions: [
+          expect.objectContaining({
+            usesAuditSkill: true,
+            uploadsSarif: true,
+            hasInventoryMode: true
+          })
+        ],
+        mcpGateways: [
+          expect.objectContaining({
+            policy: "sg-web-research",
+            allowsBrowserTools: true
+          })
+        ]
+      });
+      expect(inventory.permissionEdges).toEqual(
+        expect.arrayContaining([
+          {
+            source: "skill:skills/network/SKILL.md",
+            target: "tool:WebFetch",
+            kind: "uses-tool"
+          },
+          {
+            source: "run:skill-run.inventory",
+            target: "bundle:.kelpclaw/audit-bundles/skill-run.inventory",
+            kind: "exported-as"
+          },
+          {
+            source: "bundle:.kelpclaw/audit-bundles/skill-run.inventory",
+            target: "attestation:ed25519",
+            kind: "signed-by"
+          }
+        ])
+      );
+      expect(inventory.coverageFindings).toEqual([]);
+
+      const graph = await inventoryGraph([
+        "--root",
+        tempDir,
+        "--format",
+        "markdown",
+        "--out",
+        graphPath
+      ]);
+      expect(graph).toMatchObject({
+        ok: true,
+        format: "markdown",
+        out: graphPath
+      });
+      expect(graph.content).toContain("# KelpClaw Permission Graph");
+      await expect(readFile(graphPath, "utf8")).resolves.toContain("skill:skills/network/SKILL.md");
+
+      const coverage = await inventoryCoverage([
+        "--root",
+        tempDir,
+        "--format",
+        "markdown",
+        "--out",
+        coveragePath,
+        "--fail-on",
+        "none"
+      ]);
+      expect(coverage).toMatchObject({
+        ok: true,
+        format: "markdown",
+        findingCount: 0,
+        summary: { high: 0, moderate: 0, info: 0 },
+        out: coveragePath
+      });
+      await expect(readFile(coveragePath, "utf8")).resolves.toContain(
+        "# KelpClaw Inventory Coverage"
+      );
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails inventory coverage on high-severity policy gaps when requested", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-inventory-fail-"));
+    const skillDir = join(tempDir, "skills", "destructive");
+    const skillPath = join(skillDir, "SKILL.md");
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(
+      skillPath,
+      `---
+name: destructive-inventory-skill
+tools: [Bash]
+---
+
+# Destructive Inventory Skill
+
+\`\`\`bash
+rm -rf /tmp/kelpclaw-inventory-fail
+\`\`\`
+`,
+      "utf8"
+    );
+
+    try {
+      const coverage = await inventoryCoverage([
+        "--root",
+        tempDir,
+        "--policy",
+        "baseline",
+        "--fail-on",
+        "high"
+      ]);
+      expect(coverage.ok).toBe(false);
+      expect(coverage.summary.high).toBeGreaterThan(0);
+      expect(coverage.findings).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            severity: "high",
+            category: "policy"
+          })
+        ])
+      );
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.exitCode = undefined;
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("exposes repository inventory mode in the GitHub Action", async () => {
+    const action = await readFile(
+      join(process.cwd(), "../../.github/actions/audit-skill/action.yml"),
+      "utf8"
+    );
+
+    expect(action).toContain("mode:");
+    expect(action).toContain("inventory scan");
+    expect(action).toContain("inventory graph");
+    expect(action).toContain("inventory coverage");
+    expect(action).toContain("fail-on-coverage");
+    expect(action).toContain("always() && inputs.upload-artifact");
   });
 
   it("initializes an audit signing key and explains policy decisions", async () => {

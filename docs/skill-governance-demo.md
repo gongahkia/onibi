@@ -78,6 +78,16 @@ $ kelp-claw replay-diff --recorded --skill ./SKILL.md --input input.json --agent
 
 Expected result: KelpClaw stores one run per agent, compares normalized tool sequence, step hashes, output hashes, and policy decisions, then reports whether the agents behaved equivalently.
 
+## Agent Inventory
+
+```console
+$ kelp-claw inventory scan --root . --policy sg-agentic-ai-baseline --out .kelpclaw/inventory/agent-inventory.json
+$ kelp-claw inventory graph --root . --format markdown --out .kelpclaw/inventory/permissions.md
+$ kelp-claw inventory coverage --root . --format markdown --fail-on high --out .kelpclaw/inventory/coverage.md
+```
+
+Expected result: the inventory links SKILL.md files to detected tools, policies, runs, signed bundles, attestations, web evidence, GitHub workflows, and MCP gateways. Coverage fails when high-risk evidence is missing, such as an unrunnable skill or a run without a signed audit bundle.
+
 ## PR Workflow
 
 ```yaml
@@ -92,3 +102,14 @@ Expected result: KelpClaw stores one run per agent, compares normalized tool seq
 ```
 
 The action writes annotations for policy/governance findings, adds a PR summary, exports SARIF, exports a static signed audit bundle, strict-verifies the bundle attestation, uploads SARIF to code scanning, and uploads the bundle as an artifact.
+
+For repository-level checks, switch the same action to inventory mode:
+
+```yaml
+- uses: gongahkia/kelp-claw/.github/actions/audit-skill@main
+  with:
+    mode: inventory
+    inventory-root: .
+    policy: sg-agentic-ai-baseline
+    fail-on-coverage: high
+```

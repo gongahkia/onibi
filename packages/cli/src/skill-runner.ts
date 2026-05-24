@@ -132,6 +132,46 @@ export interface GovernanceControlsOutput {
   readonly markdown: string;
 }
 
+export type InventoryCoverageSeverity = "info" | "moderate" | "high";
+
+export interface InventoryScanOutput {
+  readonly ok: true;
+  readonly schemaVersion: "1.0.0";
+  readonly generatedAt: string;
+  readonly root: string;
+  readonly policyPack: string;
+  readonly skills: readonly InventorySkillRecord[];
+  readonly runs: readonly InventoryRunRecord[];
+  readonly bundles: readonly InventoryBundleRecord[];
+  readonly webEvidence: readonly InventoryWebEvidenceRecord[];
+  readonly githubActions: readonly InventoryGitHubActionRecord[];
+  readonly mcpGateways: readonly InventoryMcpGatewayRecord[];
+  readonly permissionEdges: readonly InventoryPermissionEdge[];
+  readonly coverageFindings: readonly InventoryCoverageFinding[];
+}
+
+export interface InventoryGraphOutput {
+  readonly ok: true;
+  readonly format: "markdown" | "mermaid";
+  readonly edgeCount: number;
+  readonly out?: string | undefined;
+  readonly content: string;
+}
+
+export interface InventoryCoverageOutput {
+  readonly ok: boolean;
+  readonly format: "json" | "markdown";
+  readonly findingCount: number;
+  readonly summary: {
+    readonly high: number;
+    readonly moderate: number;
+    readonly info: number;
+  };
+  readonly findings: readonly InventoryCoverageFinding[];
+  readonly out?: string | undefined;
+  readonly markdown?: string | undefined;
+}
+
 export type GovernanceAutonomyTier = "low" | "moderate" | "high";
 export type GovernanceFindingSeverity = "info" | "moderate" | "high";
 export type GovernanceSubjectKind = "skill" | "run";
@@ -204,6 +244,90 @@ interface GovernanceFrameworkMapping {
   readonly controlArea: string;
   readonly evidence: readonly string[];
   readonly status: "covered" | "partial" | "gap";
+}
+
+interface InventorySkillRecord {
+  readonly path: string;
+  readonly name: string;
+  readonly toolsDetected: readonly string[];
+  readonly requiredSecrets: readonly string[];
+  readonly network: SkillNetworkMode;
+  readonly sandboxProfile: SkillSandboxProfile;
+  readonly runnable: boolean;
+  readonly policyFindings: readonly SkillPolicyFinding[];
+  readonly error?: string | undefined;
+}
+
+interface InventoryRunRecord {
+  readonly runId: string;
+  readonly runDir: string;
+  readonly status?: string | undefined;
+  readonly skillRef?: string | undefined;
+  readonly policyPack?: string | undefined;
+  readonly hasAuditJsonl: boolean;
+  readonly hasHookEvents: boolean;
+}
+
+interface InventoryBundleRecord {
+  readonly bundleDir: string;
+  readonly runId?: string | undefined;
+  readonly hasManifest: boolean;
+  readonly hasSignature: boolean;
+  readonly hasPublicKey: boolean;
+  readonly hasAttestation: boolean;
+  readonly hasSarif: boolean;
+  readonly hasControls: boolean;
+  readonly hasGovernanceReport: boolean;
+}
+
+interface InventoryWebEvidenceRecord {
+  readonly path: string;
+  readonly provider: string;
+  readonly sourceCount: number;
+  readonly storedFullContent: boolean;
+  readonly redacted: boolean;
+}
+
+interface InventoryGitHubActionRecord {
+  readonly path: string;
+  readonly usesAuditSkill: boolean;
+  readonly uploadsSarif: boolean;
+  readonly hasInventoryMode: boolean;
+}
+
+interface InventoryMcpGatewayRecord {
+  readonly path: string;
+  readonly command: string;
+  readonly policy?: string | undefined;
+  readonly allowsBrowserTools: boolean;
+}
+
+interface InventoryPermissionEdge {
+  readonly source: string;
+  readonly target: string;
+  readonly kind:
+    | "uses-tool"
+    | "requires-secret"
+    | "declares-network"
+    | "protected-by"
+    | "exported-as"
+    | "signed-by"
+    | "has-web-evidence"
+    | "configured-in";
+}
+
+interface InventoryCoverageFinding {
+  readonly severity: InventoryCoverageSeverity;
+  readonly category:
+    | "policy"
+    | "runtime-evidence"
+    | "bundle-evidence"
+    | "network-evidence"
+    | "automation"
+    | "coverage";
+  readonly title: string;
+  readonly evidence: string;
+  readonly recommendation: string;
 }
 
 export interface ReplayDiffOutput {
@@ -941,6 +1065,68 @@ export async function policyExplain(args: readonly string[]): Promise<PolicyExpl
   };
 }
 
+export async function inventoryScan(args: readonly string[]): Promise<InventoryScanOutput> {
+  const inventory = await buildInventory(args);
+  const out = option(args, "--out");
+  if (out) {
+    await writeJsonWithParents(resolve(out), inventory);
+  }
+  return inventory;
+}
+
+export async function inventoryGraph(args: readonly string[]): Promise<InventoryGraphOutput> {
+  const inventory = await buildInventory(args);
+  const format = inventoryFormat(args);
+  const content =
+    format === "mermaid" ? inventoryMermaid(inventory) : inventoryGraphMarkdown(inventory);
+  const out = option(args, "--out");
+  if (out) {
+    await writeTextWithParents(resolve(out), content);
+  }
+  return {
+    ok: true,
+    format,
+    edgeCount: inventory.permissionEdges.length,
+    ...(out ? { out: resolve(out) } : {}),
+    content
+  };
+}
+
+export async function inventoryCoverage(args: readonly string[]): Promise<InventoryCoverageOutput> {
+  const inventory = await buildInventory(args);
+  const format = coverageFormat(args);
+  const findings = inventory.coverageFindings;
+  const summary = coverageSummary(findings);
+  const markdown = format === "markdown" ? inventoryCoverageMarkdown(inventory) : undefined;
+  const out = option(args, "--out");
+  if (out) {
+    if (format === "markdown") {
+      await writeTextWithParents(resolve(out), markdown ?? inventoryCoverageMarkdown(inventory));
+    } else {
+      await writeJsonWithParents(resolve(out), {
+        ok: findings.length === 0,
+        format,
+        findingCount: findings.length,
+        summary,
+        findings
+      });
+    }
+  }
+  const failOn = option(args, "--fail-on") ?? "none";
+  if (coverageShouldFail(findings, failOn)) {
+    process.exitCode = 1;
+  }
+  return {
+    ok: !coverageShouldFail(findings, failOn),
+    format,
+    findingCount: findings.length,
+    summary,
+    findings,
+    ...(out ? { out: resolve(out) } : {}),
+    ...(markdown ? { markdown } : {})
+  };
+}
+
 export async function governanceReport(args: readonly string[]): Promise<GovernanceReportOutput> {
   const subject = requiredPositional(args, 0);
   const region = option(args, "--region") ?? "sg";
@@ -1148,6 +1334,425 @@ async function readWebEvidenceArgument(args: readonly string[]): Promise<WebEvid
     );
   }
   return readWebEvidenceBundle(resolve(evidencePath));
+}
+
+async function buildInventory(args: readonly string[]): Promise<InventoryScanOutput> {
+  const root = resolve(option(args, "--root") ?? ".");
+  const policyPack = requirePolicyPack(option(args, "--policy") ?? "sg-agentic-ai-baseline");
+  const runsRoot = resolvePath(root, option(args, "--runs-dir") ?? ".kelpclaw/runs");
+  const bundlesRoot = resolvePath(root, option(args, "--bundles-dir") ?? ".kelpclaw/audit-bundles");
+  const webEvidenceRoot = resolvePath(
+    root,
+    option(args, "--web-evidence-dir") ?? ".kelpclaw/web-evidence"
+  );
+
+  const [skills, runs, bundles, webEvidence, githubActions, mcpGateways] = await Promise.all([
+    inventorySkills(root, policyPack.ruleset),
+    inventoryRuns(root, runsRoot),
+    inventoryBundles(root, bundlesRoot),
+    inventoryWebEvidence(root, webEvidenceRoot),
+    inventoryGitHubActions(root),
+    inventoryMcpGateways(root)
+  ]);
+  const permissionEdges = inventoryPermissionEdges({
+    policyPack: policyPack.name,
+    skills,
+    runs,
+    bundles,
+    webEvidence,
+    githubActions,
+    mcpGateways
+  });
+  const coverageFindings = inventoryCoverageFindings({
+    policyPack: policyPack.name,
+    skills,
+    runs,
+    bundles,
+    webEvidence,
+    githubActions,
+    mcpGateways
+  });
+  return {
+    ok: true,
+    schemaVersion: "1.0.0",
+    generatedAt: new Date().toISOString(),
+    root,
+    policyPack: policyPack.name,
+    skills,
+    runs,
+    bundles,
+    webEvidence,
+    githubActions,
+    mcpGateways,
+    permissionEdges,
+    coverageFindings
+  };
+}
+
+async function inventorySkills(
+  root: string,
+  ruleset: PolicyRuleSet
+): Promise<readonly InventorySkillRecord[]> {
+  const skillPaths = await scanFiles(root, (file) => basename(file) === "SKILL.md");
+  const skills = await Promise.all(
+    skillPaths.map(async (skillPath) => {
+      try {
+        const analysis = await analyzeSkillReference(skillPath, ruleset);
+        const compatibility = compatibilityFromAnalysis(analysis, ruleset);
+        return {
+          path: relativePath(root, skillPath),
+          name: analysis.name,
+          toolsDetected: compatibility.toolsDetected,
+          requiredSecrets: compatibility.requiredSecrets,
+          network: compatibility.network,
+          sandboxProfile: compatibility.sandboxProfile,
+          runnable: compatibility.runnable,
+          policyFindings: compatibility.policyFindings
+        };
+      } catch (error) {
+        return {
+          path: relativePath(root, skillPath),
+          name: basename(dirname(skillPath)) || "unknown-skill",
+          toolsDetected: [],
+          requiredSecrets: [],
+          network: "none" as const,
+          sandboxProfile: "safe-local" as const,
+          runnable: false,
+          policyFindings: [],
+          error: errorMessage(error)
+        };
+      }
+    })
+  );
+  return skills.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+async function inventoryRuns(
+  root: string,
+  runsRoot: string
+): Promise<readonly InventoryRunRecord[]> {
+  const runDirs = await childDirectories(runsRoot);
+  const runs = await Promise.all(
+    runDirs.map(async (runDir) => {
+      const result = (await readJsonIfExists(join(runDir, "result.json"))) as
+        | JsonRecord
+        | undefined;
+      const skill = (await readJsonIfExists(join(runDir, "skill.json"))) as JsonRecord | undefined;
+      const policy = (await readJsonIfExists(join(runDir, "policy-decisions.json"))) as
+        | JsonRecord
+        | undefined;
+      const agentRun = (await readJsonIfExists(join(runDir, "agent-run.json"))) as
+        | AgentRunRecord
+        | undefined;
+      const runId = stringField(result ?? {}, "runId") ?? basename(runDir);
+      return {
+        runId,
+        runDir: relativePath(root, runDir),
+        ...(stringField(result ?? {}, "status")
+          ? { status: stringField(result ?? {}, "status") }
+          : {}),
+        ...(stringField(skill ?? {}, "ref") ? { skillRef: stringField(skill ?? {}, "ref") } : {}),
+        ...(stringField(policy ?? {}, "policyPack") || stringField(result ?? {}, "policyPack")
+          ? {
+              policyPack:
+                stringField(policy ?? {}, "policyPack") ?? stringField(result ?? {}, "policyPack")
+            }
+          : {}),
+        hasAuditJsonl: await fileExists(join(runDir, "audit.jsonl")),
+        hasHookEvents: Boolean(
+          agentRun?.hookEvents.length ||
+          agentRun?.wrapperEvents.length ||
+          (await fileExists(join(runDir, "hook-events.jsonl")))
+        )
+      };
+    })
+  );
+  return runs.sort((left, right) => left.runId.localeCompare(right.runId));
+}
+
+async function inventoryBundles(
+  root: string,
+  bundlesRoot: string
+): Promise<readonly InventoryBundleRecord[]> {
+  const bundleDirs = await childDirectories(bundlesRoot);
+  const bundles = await Promise.all(
+    bundleDirs.map(async (bundleDir) => {
+      const manifest = (await readJsonIfExists(join(bundleDir, "manifest.json"))) as
+        | Partial<AuditBundleManifest>
+        | undefined;
+      return {
+        bundleDir: relativePath(root, bundleDir),
+        ...(manifest?.runId ? { runId: manifest.runId } : {}),
+        hasManifest: Boolean(manifest),
+        hasSignature: await fileExists(join(bundleDir, "manifest.sig")),
+        hasPublicKey: await fileExists(join(bundleDir, "manifest.pub.json")),
+        hasAttestation: Boolean(
+          (await fileExists(join(bundleDir, "attestation.json"))) &&
+          (await fileExists(join(bundleDir, "attestation.sig")))
+        ),
+        hasSarif: await fileExists(join(bundleDir, "findings.sarif")),
+        hasControls: await fileExists(join(bundleDir, "controls.md")),
+        hasGovernanceReport: await fileExists(join(bundleDir, "governance-report.json"))
+      };
+    })
+  );
+  return bundles.sort((left, right) => left.bundleDir.localeCompare(right.bundleDir));
+}
+
+async function inventoryWebEvidence(
+  root: string,
+  webEvidenceRoot: string
+): Promise<readonly InventoryWebEvidenceRecord[]> {
+  const evidenceFiles = await scanFiles(
+    webEvidenceRoot,
+    (file) => basename(file) === "web-evidence.json"
+  );
+  const evidence = await Promise.all(
+    evidenceFiles.map(async (evidenceFile) => {
+      const bundle = await readWebEvidenceBundle(evidenceFile);
+      return {
+        path: relativePath(root, evidenceFile),
+        provider: bundle.selectedProvider,
+        sourceCount: bundle.summary.sourceCount,
+        storedFullContent: bundle.summary.storedFullContent,
+        redacted: bundle.summary.redacted
+      };
+    })
+  );
+  return evidence.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+async function inventoryGitHubActions(
+  root: string
+): Promise<readonly InventoryGitHubActionRecord[]> {
+  const githubRoot = join(root, ".github");
+  const actionFiles = await scanFiles(githubRoot, (file) => /\.(?:ya?ml)$/iu.test(file));
+  const actions = await Promise.all(
+    actionFiles.map(async (actionFile) => {
+      const content = await readFile(actionFile, "utf8");
+      return {
+        path: relativePath(root, actionFile),
+        usesAuditSkill: /audit-skill/iu.test(content),
+        uploadsSarif: /upload-sarif|findings\.sarif|upload-sarif@/iu.test(content),
+        hasInventoryMode: /mode:\s*(?:audit\|inventory|inventory)|inventory\s+scan/iu.test(content)
+      };
+    })
+  );
+  return actions
+    .filter((action) => action.usesAuditSkill || action.hasInventoryMode)
+    .sort((left, right) => left.path.localeCompare(right.path));
+}
+
+async function inventoryMcpGateways(root: string): Promise<readonly InventoryMcpGatewayRecord[]> {
+  const candidates = await scanFiles(root, (file) => likelyTextFile(file));
+  const gateways: InventoryMcpGatewayRecord[] = [];
+  for (const file of candidates) {
+    const content = await readFile(file, "utf8").catch(() => "");
+    if (!/mcp\s+web-gateway/iu.test(content)) {
+      continue;
+    }
+    for (const match of content.matchAll(/kelp-claw\s+mcp\s+web-gateway[^\n`"']*/giu)) {
+      const command = match[0].trim();
+      gateways.push({
+        path: relativePath(root, file),
+        command,
+        ...(policyFromCommand(command) ? { policy: policyFromCommand(command) } : {}),
+        allowsBrowserTools: /--allow-browser-tools/u.test(command)
+      });
+    }
+  }
+  return gateways.sort(
+    (left, right) =>
+      left.path.localeCompare(right.path) || left.command.localeCompare(right.command)
+  );
+}
+
+function inventoryPermissionEdges(input: {
+  readonly policyPack: string;
+  readonly skills: readonly InventorySkillRecord[];
+  readonly runs: readonly InventoryRunRecord[];
+  readonly bundles: readonly InventoryBundleRecord[];
+  readonly webEvidence: readonly InventoryWebEvidenceRecord[];
+  readonly githubActions: readonly InventoryGitHubActionRecord[];
+  readonly mcpGateways: readonly InventoryMcpGatewayRecord[];
+}): readonly InventoryPermissionEdge[] {
+  const edges: InventoryPermissionEdge[] = [];
+  for (const skill of input.skills) {
+    const skillNode = `skill:${skill.path}`;
+    edges.push({ source: skillNode, target: `policy:${input.policyPack}`, kind: "protected-by" });
+    for (const tool of skill.toolsDetected) {
+      edges.push({ source: skillNode, target: `tool:${tool}`, kind: "uses-tool" });
+    }
+    for (const secret of skill.requiredSecrets) {
+      edges.push({ source: skillNode, target: `secret:${secret}`, kind: "requires-secret" });
+    }
+    if (skill.network === "declared") {
+      edges.push({ source: skillNode, target: "network:declared", kind: "declares-network" });
+      for (const evidence of input.webEvidence) {
+        edges.push({
+          source: skillNode,
+          target: `web-evidence:${evidence.path}`,
+          kind: "has-web-evidence"
+        });
+      }
+    }
+  }
+  for (const run of input.runs) {
+    const bundle = input.bundles.find((candidate) => candidate.runId === run.runId);
+    if (bundle) {
+      edges.push({
+        source: `run:${run.runId}`,
+        target: `bundle:${bundle.bundleDir}`,
+        kind: "exported-as"
+      });
+    }
+  }
+  for (const bundle of input.bundles) {
+    if (bundle.hasAttestation) {
+      edges.push({
+        source: `bundle:${bundle.bundleDir}`,
+        target: "attestation:ed25519",
+        kind: "signed-by"
+      });
+    }
+  }
+  for (const action of input.githubActions) {
+    edges.push({
+      source: `github-action:${action.path}`,
+      target: "kelpclaw:audit-skill",
+      kind: "configured-in"
+    });
+  }
+  for (const gateway of input.mcpGateways) {
+    edges.push({
+      source: `mcp-gateway:${gateway.path}`,
+      target: gateway.policy ? `policy:${gateway.policy}` : `policy:${input.policyPack}`,
+      kind: "protected-by"
+    });
+  }
+  return dedupeInventoryEdges(edges);
+}
+
+function inventoryCoverageFindings(input: {
+  readonly policyPack: string;
+  readonly skills: readonly InventorySkillRecord[];
+  readonly runs: readonly InventoryRunRecord[];
+  readonly bundles: readonly InventoryBundleRecord[];
+  readonly webEvidence: readonly InventoryWebEvidenceRecord[];
+  readonly githubActions: readonly InventoryGitHubActionRecord[];
+  readonly mcpGateways: readonly InventoryMcpGatewayRecord[];
+}): readonly InventoryCoverageFinding[] {
+  const findings: InventoryCoverageFinding[] = [];
+  for (const skill of input.skills) {
+    if (!skill.runnable || skill.error) {
+      findings.push({
+        severity: "high",
+        category: "policy",
+        title: "Skill is not runnable",
+        evidence: skill.error ?? `${skill.path} has deny-level policy findings.`,
+        recommendation: "Fix the skill or select a stricter review workflow before production use."
+      });
+    }
+    for (const finding of skill.policyFindings.filter((finding) => finding.action === "deny")) {
+      findings.push({
+        severity: "high",
+        category: "policy",
+        title: `Denied policy finding for ${skill.path}`,
+        evidence: `${finding.tool}: ${finding.reason}`,
+        recommendation: "Keep fail-closed behavior enabled and revise the skill."
+      });
+    }
+    if (skill.toolsDetected.includes("Task") && input.policyPack !== "browser-automation-strict") {
+      findings.push({
+        severity: "high",
+        category: "automation",
+        title: "Agentic task capability without strict browser policy",
+        evidence: `${skill.path} declares Task while inventory policy is ${input.policyPack}.`,
+        recommendation: "Use browser-automation-strict for browser/web-agent automation."
+      });
+    }
+    if (skill.network === "declared" && input.webEvidence.length === 0) {
+      findings.push({
+        severity: "moderate",
+        category: "network-evidence",
+        title: "Networked skill has no web evidence",
+        evidence: `${skill.path} declares network access but no web-evidence.json files were found.`,
+        recommendation: "Attach governed web evidence or document why none is required."
+      });
+    }
+    if (input.policyPack === "baseline") {
+      findings.push({
+        severity: "moderate",
+        category: "policy",
+        title: "Baseline policy used for inventory",
+        evidence: `${skill.path} was assessed with baseline policy.`,
+        recommendation:
+          "Use sg-agentic-ai-baseline or another SG/APAC policy pack for governance inventory."
+      });
+    }
+  }
+  for (const run of input.runs) {
+    const bundle = input.bundles.find((candidate) => candidate.runId === run.runId);
+    if (!bundle?.hasManifest || !bundle.hasSignature) {
+      findings.push({
+        severity: "high",
+        category: "runtime-evidence",
+        title: "Run has no signed audit bundle",
+        evidence: `${run.runId} has no matching signed bundle.`,
+        recommendation: "Export and strict-verify an audit bundle for this run."
+      });
+    }
+  }
+  for (const bundle of input.bundles) {
+    if (bundle.hasManifest && !bundle.hasAttestation) {
+      findings.push({
+        severity: "moderate",
+        category: "bundle-evidence",
+        title: "Bundle lacks strict attestation",
+        evidence: `${bundle.bundleDir} has a manifest but no attestation.json/attestation.sig pair.`,
+        recommendation: "Re-export the bundle with current KelpClaw signing."
+      });
+    }
+    if (bundle.hasManifest && !bundle.hasControls) {
+      findings.push({
+        severity: "info",
+        category: "coverage",
+        title: "Bundle has no controls matrix",
+        evidence: `${bundle.bundleDir} does not include controls.md.`,
+        recommendation: "Export with --include-controls for reviewer handoff."
+      });
+    }
+  }
+  for (const action of input.githubActions) {
+    if (action.usesAuditSkill && !action.uploadsSarif) {
+      findings.push({
+        severity: "moderate",
+        category: "coverage",
+        title: "GitHub Action does not upload SARIF",
+        evidence: `${action.path} uses audit-skill without SARIF upload evidence.`,
+        recommendation: "Enable upload-sarif in the KelpClaw GitHub Action."
+      });
+    }
+  }
+  if (input.skills.length > 0 && input.runs.length === 0) {
+    findings.push({
+      severity: "info",
+      category: "runtime-evidence",
+      title: "No skill runs found",
+      evidence: "Inventory did not find .kelpclaw/runs entries.",
+      recommendation: "Run representative skills to collect runtime evidence."
+    });
+  }
+  if (input.skills.length > 0 && input.bundles.length === 0) {
+    findings.push({
+      severity: "info",
+      category: "bundle-evidence",
+      title: "No audit bundles found",
+      evidence: "Inventory did not find .kelpclaw/audit-bundles entries.",
+      recommendation: "Export signed audit bundles for externally reviewable evidence."
+    });
+  }
+  return dedupeInventoryFindings(findings);
 }
 
 function buildGovernanceReport(input: {
@@ -3607,6 +4212,16 @@ function writeJson(path: string, value: unknown): Promise<void> {
   return writeFile(path, `${stableJsonStringify(value as JsonValue)}\n`, "utf8");
 }
 
+async function writeJsonWithParents(path: string, value: unknown): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await writeJson(path, value);
+}
+
+async function writeTextWithParents(path: string, value: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, value, "utf8");
+}
+
 async function fileExists(path: string): Promise<boolean> {
   try {
     await stat(path);
@@ -3635,6 +4250,233 @@ async function listFiles(rootDir: string, currentDir: string): Promise<readonly 
     }
   }
   return files.sort((left, right) => left.localeCompare(right));
+}
+
+async function childDirectories(rootDir: string): Promise<readonly string[]> {
+  if (!(await fileExists(rootDir))) {
+    return [];
+  }
+  const entries = await readdir(rootDir, { withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => join(rootDir, entry.name))
+    .sort((left, right) => left.localeCompare(right));
+}
+
+async function scanFiles(
+  rootDir: string,
+  predicate: (file: string) => boolean
+): Promise<readonly string[]> {
+  if (!(await fileExists(rootDir))) {
+    return [];
+  }
+  const files: string[] = [];
+  await scanFilesInto(rootDir, files, predicate);
+  return files.sort((left, right) => left.localeCompare(right));
+}
+
+async function scanFilesInto(
+  currentDir: string,
+  files: string[],
+  predicate: (file: string) => boolean
+): Promise<void> {
+  const entries = await readdir(currentDir, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      if (!inventoryExcludedDirs.has(entry.name)) {
+        await scanFilesInto(join(currentDir, entry.name), files, predicate);
+      }
+      continue;
+    }
+    if (entry.isFile()) {
+      const file = join(currentDir, entry.name);
+      if (predicate(file)) {
+        files.push(file);
+      }
+    }
+  }
+}
+
+const inventoryExcludedDirs = new Set([
+  ".git",
+  "node_modules",
+  "dist",
+  "build",
+  "coverage",
+  ".next",
+  ".turbo",
+  ".pnpm-store"
+]);
+
+function inventoryFormat(args: readonly string[]): "markdown" | "mermaid" {
+  const format = option(args, "--format") ?? "markdown";
+  if (format !== "markdown" && format !== "mermaid") {
+    throw new Error("Inventory graph --format must be markdown or mermaid.");
+  }
+  return format;
+}
+
+function coverageFormat(args: readonly string[]): "json" | "markdown" {
+  const format = option(args, "--format") ?? "json";
+  if (format !== "json" && format !== "markdown") {
+    throw new Error("Inventory coverage --format must be json or markdown.");
+  }
+  return format;
+}
+
+function inventoryGraphMarkdown(inventory: InventoryScanOutput): string {
+  const rows = inventory.permissionEdges
+    .map(
+      (edge) =>
+        `| ${markdownCell(edge.source)} | ${markdownCell(edge.kind)} | ${markdownCell(edge.target)} |`
+    )
+    .join("\n");
+  return `# KelpClaw Permission Graph
+
+Root: ${inventory.root}
+
+Policy: ${inventory.policyPack}
+
+| Source | Relationship | Target |
+| --- | --- | --- |
+${rows || "| none | none | none |"}
+`;
+}
+
+function inventoryMermaid(inventory: InventoryScanOutput): string {
+  const lines = ["flowchart LR"];
+  for (const edge of inventory.permissionEdges) {
+    lines.push(
+      `  ${mermaidNodeId(edge.source)}["${escapeMermaid(edge.source)}"] -->|${escapeMermaid(edge.kind)}| ${mermaidNodeId(edge.target)}["${escapeMermaid(edge.target)}"]`
+    );
+  }
+  if (lines.length === 1) {
+    lines.push('  empty["No permission edges found"]');
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+function inventoryCoverageMarkdown(inventory: InventoryScanOutput): string {
+  const summary = coverageSummary(inventory.coverageFindings);
+  const rows = inventory.coverageFindings
+    .map(
+      (finding) =>
+        `| ${finding.severity} | ${finding.category} | ${markdownCell(finding.title)} | ${markdownCell(finding.evidence)} | ${markdownCell(finding.recommendation)} |`
+    )
+    .join("\n");
+  return `# KelpClaw Inventory Coverage
+
+Root: ${inventory.root}
+
+Policy: ${inventory.policyPack}
+
+Summary: ${summary.high} high, ${summary.moderate} moderate, ${summary.info} info
+
+| Severity | Category | Finding | Evidence | Recommendation |
+| --- | --- | --- | --- | --- |
+${rows || "| info | coverage | No findings | Inventory coverage is complete for scanned evidence. | Keep evidence current. |"}
+`;
+}
+
+function coverageSummary(findings: readonly InventoryCoverageFinding[]): {
+  readonly high: number;
+  readonly moderate: number;
+  readonly info: number;
+} {
+  return {
+    high: findings.filter((finding) => finding.severity === "high").length,
+    moderate: findings.filter((finding) => finding.severity === "moderate").length,
+    info: findings.filter((finding) => finding.severity === "info").length
+  };
+}
+
+function coverageShouldFail(
+  findings: readonly InventoryCoverageFinding[],
+  failOn: string
+): boolean {
+  if (failOn === "none") {
+    return false;
+  }
+  if (failOn === "high") {
+    return findings.some((finding) => finding.severity === "high");
+  }
+  if (failOn === "moderate") {
+    return findings.some(
+      (finding) => finding.severity === "high" || finding.severity === "moderate"
+    );
+  }
+  throw new Error("Inventory coverage --fail-on must be high, moderate, or none.");
+}
+
+function dedupeInventoryEdges(
+  edges: readonly InventoryPermissionEdge[]
+): readonly InventoryPermissionEdge[] {
+  const seen = new Set<string>();
+  return edges
+    .filter((edge) => {
+      const key = `${edge.source}\0${edge.kind}\0${edge.target}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    })
+    .sort(
+      (left, right) =>
+        left.source.localeCompare(right.source) ||
+        left.kind.localeCompare(right.kind) ||
+        left.target.localeCompare(right.target)
+    );
+}
+
+function dedupeInventoryFindings(
+  findings: readonly InventoryCoverageFinding[]
+): readonly InventoryCoverageFinding[] {
+  const seen = new Set<string>();
+  return findings
+    .filter((finding) => {
+      const key = `${finding.severity}\0${finding.category}\0${finding.title}\0${finding.evidence}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    })
+    .sort(
+      (left, right) =>
+        severityRank(right.severity) - severityRank(left.severity) ||
+        left.category.localeCompare(right.category) ||
+        left.title.localeCompare(right.title)
+    );
+}
+
+function severityRank(severity: InventoryCoverageSeverity): number {
+  return severity === "high" ? 3 : severity === "moderate" ? 2 : 1;
+}
+
+function resolvePath(root: string, value: string): string {
+  return value.startsWith("/") ? value : resolve(root, value);
+}
+
+function relativePath(root: string, path: string): string {
+  const relativePathValue = relative(root, path);
+  return relativePathValue && !relativePathValue.startsWith("..") ? relativePathValue : path;
+}
+
+function likelyTextFile(path: string): boolean {
+  return /\.(?:md|mdx|ya?ml|json|toml|sh|bash|zsh|ts|tsx|js|mjs|cjs)$/iu.test(path);
+}
+
+function policyFromCommand(command: string): string | undefined {
+  return /--policy\s+([^\s]+)/u.exec(command)?.[1];
+}
+
+function mermaidNodeId(value: string): string {
+  return `n${createHash("sha256").update(value).digest("hex").slice(0, 12)}`;
+}
+
+function escapeMermaid(value: string): string {
+  return value.replace(/"/gu, '\\"');
 }
 
 function jsonRecord(value: unknown, label: string): JsonRecord {

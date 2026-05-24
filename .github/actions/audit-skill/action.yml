@@ -2,14 +2,26 @@ name: Audit KelpClaw Skill
 description: Analyze, policy-check, run, and export an audit bundle for a SKILL.md.
 
 inputs:
+  mode:
+    description: Run a single SKILL.md audit or repository inventory.
+    required: false
+    default: audit
   skill:
     description: Path to the SKILL.md to audit.
     required: false
     default: ./SKILL.md
+  inventory-root:
+    description: Repository path to scan when mode is inventory.
+    required: false
+    default: .
+  fail-on-coverage:
+    description: "Inventory coverage failure threshold: high, moderate, or none."
+    required: false
+    default: high
   policy:
     description: Built-in KelpClaw policy pack to apply.
     required: false
-    default: baseline
+    default: sg-agentic-ai-baseline
   input:
     description: Optional JSON input file for the audit-first skill run.
     required: false
@@ -59,6 +71,39 @@ runs:
       shell: bash
       run: |
         mkdir -p .kelpclaw
+        if [ "${{ inputs.mode }}" = "inventory" ]; then
+          mkdir -p .kelpclaw/inventory-output
+          node packages/cli/dist/index.js inventory scan --root "${{ inputs.inventory-root }}" --policy "${{ inputs.policy }}" --out .kelpclaw/inventory-output/agent-inventory.json > .kelpclaw/inventory-output/scan-output.json
+          node packages/cli/dist/index.js inventory graph --root "${{ inputs.inventory-root }}" --policy "${{ inputs.policy }}" --format markdown --out .kelpclaw/inventory-output/permissions.md > .kelpclaw/inventory-output/graph-output.json
+          set +e
+          node packages/cli/dist/index.js inventory coverage --root "${{ inputs.inventory-root }}" --policy "${{ inputs.policy }}" --format markdown --out .kelpclaw/inventory-output/coverage.md --fail-on "${{ inputs.fail-on-coverage }}" > .kelpclaw/inventory-output/coverage-output.json
+          COVERAGE_EXIT=$?
+          set -e
+          echo "run-id=inventory" >> "$GITHUB_OUTPUT"
+          echo "artifact-path=.kelpclaw/inventory-output" >> "$GITHUB_OUTPUT"
+          node <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          const fs = require("node:fs");
+          const inventory = JSON.parse(fs.readFileSync(".kelpclaw/inventory-output/agent-inventory.json", "utf8"));
+          const coverage = JSON.parse(fs.readFileSync(".kelpclaw/inventory-output/coverage-output.json", "utf8"));
+          console.log("## KelpClaw Agent Inventory");
+          console.log("");
+          console.log(`- Root: \`${inventory.root}\``);
+          console.log(`- Policy: \`${inventory.policyPack}\``);
+          console.log(`- Skills: \`${inventory.skills.length}\``);
+          console.log(`- Runs: \`${inventory.runs.length}\``);
+          console.log(`- Bundles: \`${inventory.bundles.length}\``);
+          console.log(`- Web evidence: \`${inventory.webEvidence.length}\``);
+          console.log(`- Findings: \`${coverage.findingCount}\` (${coverage.summary.high} high, ${coverage.summary.moderate} moderate, ${coverage.summary.info} info)`);
+          console.log("");
+          console.log("| Severity | Category | Finding | Evidence |");
+          console.log("| --- | --- | --- | --- |");
+          for (const finding of (coverage.findings || []).slice(0, 12)) {
+            console.log(`| ${finding.severity} | ${finding.category} | ${finding.title} | ${finding.evidence} |`);
+          }
+          NODE
+          exit "$COVERAGE_EXIT"
+        fi
+
         INPUT_PATH="${{ inputs.input }}"
         if [ -z "$INPUT_PATH" ]; then
           INPUT_PATH=".kelpclaw/action-input.json"
@@ -108,6 +153,7 @@ runs:
         node packages/cli/dist/index.js verify-audit-bundle ".kelpclaw/audit-bundle-$RUN_ID" --strict > .kelpclaw/bundle-verify.json
         echo "run-id=$RUN_ID" >> "$GITHUB_OUTPUT"
         echo "bundle-path=.kelpclaw/audit-bundle-$RUN_ID" >> "$GITHUB_OUTPUT"
+        echo "artifact-path=.kelpclaw/audit-bundle-$RUN_ID" >> "$GITHUB_OUTPUT"
         node <<'NODE' >> "$GITHUB_STEP_SUMMARY"
         const fs = require("node:fs");
         const compat = JSON.parse(fs.readFileSync(".kelpclaw/compatibility.json", "utf8"));
@@ -165,9 +211,9 @@ runs:
       uses: github/codeql-action/upload-sarif@v3
       with:
         sarif_file: ${{ steps.audit.outputs.sarif-path }}
-    - name: Upload audit bundle
-      if: ${{ inputs.upload-artifact == 'true' }}
+    - name: Upload KelpClaw artifact
+      if: ${{ always() && inputs.upload-artifact == 'true' && steps.audit.outputs.artifact-path != '' }}
       uses: actions/upload-artifact@v4
       with:
-        name: kelpclaw-audit-${{ steps.audit.outputs.run-id }}
-        path: ${{ steps.audit.outputs.bundle-path }}
+        name: kelpclaw-${{ inputs.mode }}-${{ steps.audit.outputs.run-id }}
+        path: ${{ steps.audit.outputs.artifact-path }}

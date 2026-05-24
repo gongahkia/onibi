@@ -30,6 +30,9 @@ import {
   exportAuditBundle,
   governanceControls,
   governanceReport,
+  inventoryCoverage,
+  inventoryGraph,
+  inventoryScan,
   policyExplain,
   policyPackCliOutput,
   replayDiff,
@@ -142,6 +145,17 @@ async function main(argv: readonly string[]): Promise<void> {
       );
     case "web":
       return printJson(await runWebCommand(args));
+    case "inventory":
+      if (args[0] === "scan") {
+        return printJson(await inventoryScan(args.slice(1)));
+      }
+      if (args[0] === "graph") {
+        return printJson(await inventoryGraph(args.slice(1)));
+      }
+      if (args[0] === "coverage") {
+        return printJson(await inventoryCoverage(args.slice(1)));
+      }
+      throw new Error("Usage: kelp-claw inventory <scan|graph|coverage> [--root DIR]");
     case "verify-audit-bundle":
       return printJson(await verifyAuditBundle(args));
     case "audit-key":
@@ -199,7 +213,7 @@ async function main(argv: readonly string[]): Promise<void> {
       return runMcp(args);
     default:
       throw new Error(
-        "Usage: kelp-claw <run-skill|compat|compat-report|policy|governance|audit-key|export-audit-bundle|export-sarif|verify-audit-bundle|replay-diff|start-recording|record-step|stop-recording|approve-step|deny-step|promote|mcp|audit-verify|audit-anchor|tbom-export|mint-role-token|inspect-role-token|verify-claude-code|otlp-smoke|cross-agent-replay-smoke>"
+        "Usage: kelp-claw <run-skill|compat|compat-report|policy|governance|inventory|audit-key|export-audit-bundle|export-sarif|verify-audit-bundle|replay-diff|start-recording|record-step|stop-recording|approve-step|deny-step|promote|mcp|audit-verify|audit-anchor|tbom-export|mint-role-token|inspect-role-token|verify-claude-code|otlp-smoke|cross-agent-replay-smoke>"
       );
   }
 }
@@ -211,6 +225,9 @@ export {
   exportAuditBundle,
   governanceControls,
   governanceReport,
+  inventoryCoverage,
+  inventoryGraph,
+  inventoryScan,
   policyExplain,
   policyPackCliOutput,
   replayDiff,

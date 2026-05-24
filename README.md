@@ -44,6 +44,7 @@ Quickstart, deployment notes for durable SQLite mode, Docker Compose, and produc
 [`docs/agent-runtime-demo.md`](docs/agent-runtime-demo.md),
 [`docs/skill-governance-demo.md`](docs/skill-governance-demo.md),
 [`docs/security-review-demo.md`](docs/security-review-demo.md),
+[`docs/agent-inventory.md`](docs/agent-inventory.md),
 [`docs/web-intel.md`](docs/web-intel.md), and
 [`docs/production-readiness.md`](docs/production-readiness.md).
 
@@ -105,6 +106,9 @@ $ kelp-claw replay-diff --recorded --skill ./SKILL.md --input input.json --agent
 $ kelp-claw web search "Singapore agentic AI governance" --provider exa --policy sg-web-research --out .kelpclaw/web-evidence/sg-ai
 $ kelp-claw web fetch https://example.com/source --provider tinyfish --out .kelpclaw/web-evidence/source
 $ kelp-claw export-audit-bundle <runId> --include-web-evidence .kelpclaw/web-evidence/sg-ai --include-governance
+$ kelp-claw inventory scan --root . --policy sg-agentic-ai-baseline --out .kelpclaw/inventory/agent-inventory.json
+$ kelp-claw inventory graph --root . --format markdown --out .kelpclaw/inventory/permissions.md
+$ kelp-claw inventory coverage --root . --format markdown --fail-on high --out .kelpclaw/inventory/coverage.md
 ```
 
 `compat` reports detected tools, required secrets, network posture, sandbox profile, and policy findings. `run-skill` writes deterministic local artifacts under `.kelpclaw/runs/<runId>/`, including `skill.json`, `workflow.json`, `bom.json`, `audit.jsonl`, and `policy-decisions.json`. With `--agent codex-cli`, KelpClaw materializes a temporary workspace, invokes `codex exec`, captures stdout/stderr, installs a local hook command for compatible agents, records hook-derived `PreToolUse`/`PostToolUse` events when available, evaluates policy, and stores generated artifact metadata. Planned policy denials block before launch; hook-denied pre-tool events block the run under `--enforce-policy`. `export-audit-bundle` creates a static bundle with an offline `index.html`.
@@ -112,6 +116,8 @@ $ kelp-claw export-audit-bundle <runId> --include-web-evidence .kelpclaw/web-evi
 `policy explain` shows the exact planned tool steps and policy decisions for a skill. `governance report` emits SG/APAC-oriented evidence for autonomy tier, tool/data/network risk, human approval points, auditability, replay evidence, residual risks, and framework mappings. `governance controls` produces a reviewer-facing controls matrix, and `export-sarif` converts policy/governance/web findings into SARIF 2.1.0 for GitHub code scanning and security review. `--wrapper` adds stricter Codex CLI handling by normalizing Codex JSONL tool events into KelpClaw hook events and failing closed on unclassified enforced tool events. `export-audit-bundle` signs a manifest and attestation with a local Ed25519 key by default; use `kelp-claw audit-key init` to create the key explicitly and `verify-audit-bundle --strict` before forwarding the static bundle.
 
 `kelp-claw web` adds governed Exa/TinyFish web intelligence. `search`, `fetch`, `answer`, and `research` evaluate a policy pack before the provider call, normalize sources into KelpClaw web evidence, hash source content, redact obvious secrets and emails, and optionally write `web-evidence.json`, `web-events.jsonl`, `web-bom.json`, and `web-evidence.html`. Set `EXA_API_KEY` and/or `TINYFISH_API_KEY` for live calls. Attach the evidence to `governance report` or `export-audit-bundle` with `--include-web-evidence <dir-or-json>`.
+
+`kelp-claw inventory` scans a repository for SKILL.md files, recorded runs, signed audit bundles, governed web evidence, KelpClaw GitHub Action workflows, and MCP web gateways. `inventory graph` renders a permission graph of skills, tools, secrets, policies, bundles, attestations, and web evidence; `inventory coverage` reports missing signed bundles, missing attestations, networked skills without web evidence, and CI coverage gaps.
 
 Built-in policy packs are available without writing YAML on day one:
 
@@ -149,6 +155,17 @@ Use the bundled GitHub Action in PR workflows:
     framework: agentic-ai
     fail-on-unrunnable: "true"
     upload-sarif: "true"
+```
+
+Use repository inventory mode for periodic or PR-level agent estate checks:
+
+```yaml
+- uses: gongahkia/kelp-claw/.github/actions/audit-skill@main
+  with:
+    mode: inventory
+    inventory-root: .
+    policy: sg-agentic-ai-baseline
+    fail-on-coverage: high
 ```
 
 The compatibility corpus in `fixtures/skills-corpus` contains representative public-style skills and expected reports for regression tests.
