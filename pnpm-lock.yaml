@@ -144,6 +144,9 @@ importers:
       '@kelpclaw/codegen':
         specifier: workspace:*
         version: link:../codegen
+      '@kelpclaw/evidence':
+        specifier: workspace:*
+        version: link:../evidence
       '@kelpclaw/policy':
         specifier: workspace:*
         version: link:../policy

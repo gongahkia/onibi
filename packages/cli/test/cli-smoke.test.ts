@@ -14,6 +14,7 @@ import {
   inventoryScan,
   policyExplain,
   replayDiff,
+  runEvidenceCommand,
   runWebCommand,
   runCrossAgentReplaySmoke,
   runOtlpSmoke,
@@ -659,6 +660,135 @@ Read local inputs and cite web evidence.
         ok: true,
         signature: { valid: true }
       });
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("includes Piranesi-derived evidence workspaces in governance, bundles, and inventory", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-evidence-cli-"));
+    const skillPath = join(tempDir, "SKILL.md");
+    const inputPath = join(tempDir, "input.json");
+    const runsDir = join(tempDir, ".kelpclaw", "runs");
+    const evidenceDir = join(tempDir, ".kelpclaw", "evidence");
+    const bundleDir = join(tempDir, ".kelpclaw", "audit-bundles", "skill-run.evidence");
+    const sarifPath = join(tempDir, "findings.sarif");
+    await writeFile(
+      skillPath,
+      `---
+name: evidence-governance
+tools: [Read]
+---
+
+# Evidence Governance
+
+Read local evidence and summarize findings.
+`,
+      "utf8"
+    );
+    await writeFile(inputPath, "{}\n", "utf8");
+    await writeFile(sarifPath, `${JSON.stringify(cliSarifFixture(), null, 2)}\n`, "utf8");
+
+    try {
+      await expect(
+        runEvidenceCommand([
+          "init",
+          "--workspace",
+          evidenceDir,
+          "--client",
+          "Example Client",
+          "--project",
+          "Agent Governance"
+        ])
+      ).resolves.toMatchObject({ ok: true, workspace: evidenceDir });
+      await expect(
+        runEvidenceCommand(["import-sarif", sarifPath, "--workspace", evidenceDir])
+      ).resolves.toMatchObject({
+        ok: true,
+        importedFindings: 1
+      });
+      await expect(runEvidenceCommand(["sign", "--workspace", evidenceDir])).resolves.toMatchObject(
+        {
+          ok: true,
+          manifest: { manifestId: expect.stringMatching(/^sha256:/u) }
+        }
+      );
+      await expect(runEvidenceCommand(["verify", "--workspace", evidenceDir])).resolves.toMatchObject(
+        {
+          ok: true,
+          failures: []
+        }
+      );
+
+      await runSkill([
+        skillPath,
+        "--input",
+        inputPath,
+        "--run-id",
+        "skill-run.evidence",
+        "--runs-dir",
+        runsDir
+      ]);
+      const report = await governanceReport([
+        "skill-run.evidence",
+        "--runs-dir",
+        runsDir,
+        "--include-evidence",
+        evidenceDir
+      ]);
+      expect(report).toMatchObject({
+        controls: { evidenceWorkspace: true },
+        evidenceWorkspace: {
+          findingCount: 1,
+          signed: true,
+          verified: true,
+          sourceReferenceGaps: 0
+        }
+      });
+
+      const bundle = await exportAuditBundle([
+        "skill-run.evidence",
+        "--runs-dir",
+        runsDir,
+        "--out",
+        bundleDir,
+        "--include-evidence",
+        evidenceDir,
+        "--include-governance"
+      ]);
+      expect(bundle.files).toEqual(
+        expect.arrayContaining([
+          "evidence-summary.json",
+          "evidence-workspace/workspace.json",
+          "evidence-workspace/evidence/index.json",
+          "evidence-workspace/normalized/findings.json"
+        ])
+      );
+      await expect(verifyAuditBundle([bundleDir, "--strict"])).resolves.toMatchObject({
+        ok: true,
+        attestation: {
+          referencedFiles: expect.arrayContaining(["evidence-summary.json"])
+        }
+      });
+
+      const inventory = await inventoryScan(["--root", tempDir]);
+      expect(inventory.evidenceWorkspaces).toEqual([
+        expect.objectContaining({
+          path: ".kelpclaw/evidence",
+          findingCount: 1,
+          signed: true,
+          verified: true
+        })
+      ]);
+      expect(inventory.permissionEdges).toEqual(
+        expect.arrayContaining([
+          {
+            source: "skill:SKILL.md",
+            target: "evidence-workspace:.kelpclaw/evidence",
+            kind: "has-evidence-workspace"
+          }
+        ])
+      );
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -1726,6 +1856,45 @@ console.log(JSON.stringify({ toolName: "Bash", args: { command: "printf ignored"
     }
   });
 });
+
+function cliSarifFixture() {
+  return {
+    version: "2.1.0",
+    runs: [
+      {
+        tool: {
+          driver: {
+            name: "KelpClaw Evidence Fixture",
+            rules: [
+              {
+                id: "KC001",
+                name: "Evidence-backed governance finding",
+                fullDescription: { text: "Finding imported from SARIF evidence." },
+                help: { text: "Review the evidence workspace." },
+                properties: { tags: ["CWE-693"] }
+              }
+            ]
+          }
+        },
+        results: [
+          {
+            ruleId: "KC001",
+            level: "warning",
+            message: { text: "Evidence finding observed" },
+            locations: [
+              {
+                physicalLocation: {
+                  artifactLocation: { uri: "SKILL.md" },
+                  region: { startLine: 6 }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  };
+}
 
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {

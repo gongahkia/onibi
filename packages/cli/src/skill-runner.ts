@@ -1183,13 +1183,17 @@ export async function governanceReport(args: readonly string[]): Promise<Governa
   const webEvidence = hasFlag(args, "--include-web-evidence")
     ? await readWebEvidenceArgument(args)
     : undefined;
+  const evidenceSummary = hasFlag(args, "--include-evidence")
+    ? await readEvidenceSummaryArgument(args)
+    : undefined;
   const report = (await isSkillSubject(subject))
     ? await governanceReportForSkill({
         skillRef: subject,
         policyPackName: option(args, "--policy") ?? "baseline",
         region,
         framework,
-        webEvidence
+        webEvidence,
+        evidenceSummary
       })
     : await governanceReportForRun({
         runId: subject,
@@ -1197,7 +1201,8 @@ export async function governanceReport(args: readonly string[]): Promise<Governa
         region,
         framework,
         bundleDir: option(args, "--bundle-dir"),
-        webEvidence
+        webEvidence,
+        evidenceSummary
       });
   const outDir = option(args, "--out");
   if (!outDir) {
@@ -1280,6 +1285,7 @@ async function governanceReportForSkill(input: {
   readonly region: string;
   readonly framework: string;
   readonly webEvidence?: WebEvidenceBundle | undefined;
+  readonly evidenceSummary?: EvidenceWorkspaceSummary | undefined;
 }): Promise<GovernanceReportOutput> {
   const policyPack = requirePolicyPack(input.policyPackName);
   const analysis = await analyzeSkillReference(input.skillRef, policyPack.ruleset);
@@ -1303,6 +1309,7 @@ async function governanceReportForSkill(input: {
     hookEvents: false,
     failClosed: false,
     webEvidence: input.webEvidence,
+    evidenceSummary: input.evidenceSummary,
     sourceText: analysis.document.content
   });
 }
@@ -1314,6 +1321,7 @@ async function governanceReportForRun(input: {
   readonly framework: string;
   readonly bundleDir?: string | undefined;
   readonly webEvidence?: WebEvidenceBundle | undefined;
+  readonly evidenceSummary?: EvidenceWorkspaceSummary | undefined;
   readonly signedBundle?: boolean | undefined;
 }): Promise<GovernanceReportOutput> {
   const runDir = join(input.runsRoot, input.runId);
@@ -1371,7 +1379,8 @@ async function governanceReportForRun(input: {
         agentRun.enforcement.unclassifiedBlocked ||
         agentRun.enforcement.source === "unclassified-event")
     ),
-    webEvidence: input.webEvidence
+    webEvidence: input.webEvidence,
+    evidenceSummary: input.evidenceSummary
   });
 }
 
@@ -1385,6 +1394,16 @@ async function readWebEvidenceArgument(args: readonly string[]): Promise<WebEvid
   return readWebEvidenceBundle(resolve(evidencePath));
 }
 
+async function readEvidenceSummaryArgument(
+  args: readonly string[]
+): Promise<EvidenceWorkspaceSummary> {
+  const evidencePath = option(args, "--include-evidence");
+  if (!evidencePath) {
+    throw new Error("Option --include-evidence requires an evidence workspace directory.");
+  }
+  return evidenceWorkspaceSummary(resolve(evidencePath));
+}
+
 async function buildInventory(args: readonly string[]): Promise<InventoryScanOutput> {
   const root = resolve(option(args, "--root") ?? ".");
   const policyPack = requirePolicyPack(option(args, "--policy") ?? "sg-agentic-ai-baseline");
@@ -1394,21 +1413,25 @@ async function buildInventory(args: readonly string[]): Promise<InventoryScanOut
     root,
     option(args, "--web-evidence-dir") ?? ".kelpclaw/web-evidence"
   );
+  const evidenceRoot = resolvePath(root, option(args, "--evidence-dir") ?? ".kelpclaw/evidence");
 
-  const [skills, runs, bundles, webEvidence, githubActions, mcpGateways] = await Promise.all([
-    inventorySkills(root, policyPack.ruleset),
-    inventoryRuns(root, runsRoot),
-    inventoryBundles(root, bundlesRoot),
-    inventoryWebEvidence(root, webEvidenceRoot),
-    inventoryGitHubActions(root),
-    inventoryMcpGateways(root)
-  ]);
+  const [skills, runs, bundles, webEvidence, evidenceWorkspaces, githubActions, mcpGateways] =
+    await Promise.all([
+      inventorySkills(root, policyPack.ruleset),
+      inventoryRuns(root, runsRoot),
+      inventoryBundles(root, bundlesRoot),
+      inventoryWebEvidence(root, webEvidenceRoot),
+      inventoryEvidenceWorkspaces(root, evidenceRoot),
+      inventoryGitHubActions(root),
+      inventoryMcpGateways(root)
+    ]);
   const permissionEdges = inventoryPermissionEdges({
     policyPack: policyPack.name,
     skills,
     runs,
     bundles,
     webEvidence,
+    evidenceWorkspaces,
     githubActions,
     mcpGateways
   });
@@ -1418,6 +1441,7 @@ async function buildInventory(args: readonly string[]): Promise<InventoryScanOut
     runs,
     bundles,
     webEvidence,
+    evidenceWorkspaces,
     githubActions,
     mcpGateways
   });
@@ -1431,6 +1455,7 @@ async function buildInventory(args: readonly string[]): Promise<InventoryScanOut
     runs,
     bundles,
     webEvidence,
+    evidenceWorkspaces,
     githubActions,
     mcpGateways,
     permissionEdges,
@@ -1571,6 +1596,35 @@ async function inventoryWebEvidence(
   return evidence.sort((left, right) => left.path.localeCompare(right.path));
 }
 
+async function inventoryEvidenceWorkspaces(
+  root: string,
+  evidenceRoot: string
+): Promise<readonly InventoryEvidenceWorkspaceRecord[]> {
+  const workspaceFiles = await scanFiles(
+    evidenceRoot,
+    (file) => basename(file) === "workspace.json"
+  );
+  const workspaces = await Promise.all(
+    workspaceFiles.map(async (workspaceFile) => {
+      const summary = await evidenceWorkspaceSummary(dirname(workspaceFile));
+      return {
+        path: relativePath(root, dirname(workspaceFile)),
+        evidenceCount: summary.evidenceCount,
+        findingCount: summary.findingCount,
+        signed: summary.signed,
+        verified: summary.verified,
+        highOrCriticalFindings: summary.highOrCriticalFindings,
+        sourceReferenceGaps: summary.sourceReferenceGaps,
+        ...(summary.latestManifest
+          ? { latestManifest: relativePath(root, summary.latestManifest) }
+          : {}),
+        verificationFailures: summary.verificationFailures
+      };
+    })
+  );
+  return workspaces.sort((left, right) => left.path.localeCompare(right.path));
+}
+
 async function inventoryGitHubActions(
   root: string
 ): Promise<readonly InventoryGitHubActionRecord[]> {
@@ -1622,6 +1676,7 @@ function inventoryPermissionEdges(input: {
   readonly runs: readonly InventoryRunRecord[];
   readonly bundles: readonly InventoryBundleRecord[];
   readonly webEvidence: readonly InventoryWebEvidenceRecord[];
+  readonly evidenceWorkspaces: readonly InventoryEvidenceWorkspaceRecord[];
   readonly githubActions: readonly InventoryGitHubActionRecord[];
   readonly mcpGateways: readonly InventoryMcpGatewayRecord[];
 }): readonly InventoryPermissionEdge[] {
@@ -1665,6 +1720,27 @@ function inventoryPermissionEdges(input: {
       });
     }
   }
+  for (const workspace of input.evidenceWorkspaces) {
+    edges.push({
+      source: `evidence-workspace:${workspace.path}`,
+      target: `policy:${input.policyPack}`,
+      kind: "protected-by"
+    });
+    if (workspace.verified) {
+      edges.push({
+        source: `evidence-workspace:${workspace.path}`,
+        target: "evidence-manifest:sha256",
+        kind: "signed-by"
+      });
+    }
+    for (const skill of input.skills) {
+      edges.push({
+        source: `skill:${skill.path}`,
+        target: `evidence-workspace:${workspace.path}`,
+        kind: "has-evidence-workspace"
+      });
+    }
+  }
   for (const action of input.githubActions) {
     edges.push({
       source: `github-action:${action.path}`,
@@ -1688,6 +1764,7 @@ function inventoryCoverageFindings(input: {
   readonly runs: readonly InventoryRunRecord[];
   readonly bundles: readonly InventoryBundleRecord[];
   readonly webEvidence: readonly InventoryWebEvidenceRecord[];
+  readonly evidenceWorkspaces: readonly InventoryEvidenceWorkspaceRecord[];
   readonly githubActions: readonly InventoryGitHubActionRecord[];
   readonly mcpGateways: readonly InventoryMcpGatewayRecord[];
 }): readonly InventoryCoverageFinding[] {
@@ -1772,6 +1849,35 @@ function inventoryCoverageFindings(input: {
       });
     }
   }
+  for (const workspace of input.evidenceWorkspaces) {
+    if (!workspace.signed || !workspace.verified) {
+      findings.push({
+        severity: "moderate",
+        category: "evidence",
+        title: "Evidence workspace is not verified",
+        evidence: `${workspace.path} signed=${workspace.signed} verified=${workspace.verified}.`,
+        recommendation: "Run kelp-claw evidence sign and kelp-claw evidence verify before handoff."
+      });
+    }
+    if (workspace.sourceReferenceGaps > 0) {
+      findings.push({
+        severity: "moderate",
+        category: "evidence",
+        title: "Evidence findings lack source references",
+        evidence: `${workspace.path} has ${workspace.sourceReferenceGaps} findings without source references.`,
+        recommendation: "Import findings through governed adapters or attach source references."
+      });
+    }
+    if (workspace.highOrCriticalFindings > 0) {
+      findings.push({
+        severity: "info",
+        category: "evidence",
+        title: "High-risk evidence findings present",
+        evidence: `${workspace.path} has ${workspace.highOrCriticalFindings} high or critical findings.`,
+        recommendation: "Route these findings through reviewer triage and remediation tracking."
+      });
+    }
+  }
   for (const action of input.githubActions) {
     if (action.usesAuditSkill && !action.uploadsSarif) {
       findings.push({
@@ -1817,6 +1923,7 @@ function buildGovernanceReport(input: {
   readonly hookEvents: boolean;
   readonly failClosed: boolean;
   readonly webEvidence?: WebEvidenceBundle | undefined;
+  readonly evidenceSummary?: EvidenceWorkspaceSummary | undefined;
   readonly sourceText?: string | undefined;
 }): GovernanceReportOutput {
   const denied = hasAction(input.compatibility, input.decisions, "deny");
@@ -1834,6 +1941,7 @@ function buildGovernanceReport(input: {
   const hasMutatingTool = tools.some((tool) => ["Write", "Edit", "MultiEdit"].includes(tool));
   const hasNetwork = input.compatibility.network === "declared";
   const hasWebEvidence = Boolean(input.webEvidence);
+  const hasEvidenceWorkspace = Boolean(input.evidenceSummary);
   const hasSecrets = input.compatibility.requiredSecrets.length > 0;
   const hasPii = /(email|phone|passport|nric|ssn|dob|address|customer|user|personal data)/iu.test(
     serializedEvidence
@@ -1869,10 +1977,14 @@ function buildGovernanceReport(input: {
     signedBundle: input.signedBundle,
     hookEvents: input.hookEvents,
     failClosed: input.failClosed,
-    webEvidence: hasWebEvidence
+    webEvidence: hasWebEvidence,
+    evidenceWorkspace: hasEvidenceWorkspace
   };
   const webEvidenceSummary = input.webEvidence
     ? webEvidenceGovernanceSummary(input.webEvidence)
+    : undefined;
+  const evidenceWorkspaceSummary = input.evidenceSummary
+    ? evidenceGovernanceSummary(input.evidenceSummary)
     : undefined;
   const findings = governanceFindings({
     compatibility: input.compatibility,
@@ -1888,7 +2000,8 @@ function buildGovernanceReport(input: {
     auditTrail: input.auditTrail,
     hookEvents: input.hookEvents,
     failClosed: input.failClosed,
-    webEvidence: input.webEvidence
+    webEvidence: input.webEvidence,
+    evidenceSummary: input.evidenceSummary
   });
   return {
     ok: input.compatibility.runnable && !denied,
@@ -1903,6 +2016,7 @@ function buildGovernanceReport(input: {
     riskSummary,
     controls,
     ...(webEvidenceSummary ? { webEvidence: webEvidenceSummary } : {}),
+    ...(evidenceWorkspaceSummary ? { evidenceWorkspace: evidenceWorkspaceSummary } : {}),
     findings,
     frameworkMapping: governanceFrameworkMapping(controls, input.compatibility, findings),
     residualRisks: governanceResidualRisks(input.subject.kind, controls)
@@ -1931,6 +2045,19 @@ function webEvidenceGovernanceSummary(
     storedFullContent: bundle.summary.storedFullContent,
     redacted: bundle.summary.redacted,
     errorCount: bundle.summary.errorCount
+  };
+}
+
+function evidenceGovernanceSummary(
+  summary: EvidenceWorkspaceSummary
+): NonNullable<GovernanceReportOutput["evidenceWorkspace"]> {
+  return {
+    evidenceCount: summary.evidenceCount,
+    findingCount: summary.findingCount,
+    signed: summary.signed,
+    verified: summary.verified,
+    highOrCriticalFindings: summary.highOrCriticalFindings,
+    sourceReferenceGaps: summary.sourceReferenceGaps
   };
 }
 
@@ -1984,14 +2111,20 @@ function controlEvidenceFiles(
       "audit.jsonl",
       ...(report.controls.hookEvents ? ["hook-events.jsonl"] : []),
       ...(report.controls.signedBundle ? ["manifest.json", "manifest.sig"] : []),
-      ...(report.controls.webEvidence ? ["web-evidence.json", "web-events.jsonl"] : [])
+      ...(report.controls.webEvidence ? ["web-evidence.json", "web-events.jsonl"] : []),
+      ...(report.controls.evidenceWorkspace
+        ? ["evidence-summary.json", "evidence-workspace/audit-log.jsonl"]
+        : [])
     ];
   }
   if (/data|third-party/iu.test(controlArea)) {
     return [
       "compatibility.json",
       "bom.json",
-      ...(report.controls.webEvidence ? ["web-bom.json", "web-evidence.json"] : [])
+      ...(report.controls.webEvidence ? ["web-bom.json", "web-evidence.json"] : []),
+      ...(report.controls.evidenceWorkspace
+        ? ["evidence-workspace/evidence/index.json", "evidence-workspace/normalized/findings.json"]
+        : [])
     ];
   }
   return ["governance-report.json", "controls.md"];
@@ -2391,6 +2524,7 @@ function governanceFindings(input: {
   readonly hookEvents: boolean;
   readonly failClosed: boolean;
   readonly webEvidence?: WebEvidenceBundle | undefined;
+  readonly evidenceSummary?: EvidenceWorkspaceSummary | undefined;
 }): readonly GovernanceFinding[] {
   const findings: GovernanceFinding[] = [];
   for (const finding of input.compatibility.policyFindings) {
@@ -2458,6 +2592,25 @@ function governanceFindings(input: {
         "Review source domains, provider terms, and retention before forwarding externally."
     });
   }
+  if (input.evidenceSummary) {
+    findings.push({
+      severity: input.evidenceSummary.verified ? "info" : "moderate",
+      category: "auditability",
+      title: "Evidence workspace attached",
+      evidence: `Evidence records: ${input.evidenceSummary.evidenceCount}; findings: ${input.evidenceSummary.findingCount}; verified: ${input.evidenceSummary.verified}.`,
+      recommendation:
+        "Review normalized findings, raw evidence digests, and chain-of-custody status before handoff."
+    });
+    if (input.evidenceSummary.sourceReferenceGaps > 0) {
+      findings.push({
+        severity: "moderate",
+        category: "auditability",
+        title: "Evidence findings without source references",
+        evidence: `${input.evidenceSummary.sourceReferenceGaps} normalized findings lack source references.`,
+        recommendation: "Attach adapter provenance or reviewer notes before relying on these findings."
+      });
+    }
+  }
   if (input.hasPii || input.hasSecrets) {
     findings.push({
       severity: input.hasNetwork && input.hasSecrets ? "high" : "moderate",
@@ -2518,6 +2671,7 @@ function governanceFrameworkMapping(
         `Audit trail: ${controls.auditTrail}`,
         `Hook events: ${controls.hookEvents}`,
         `Web evidence: ${controls.webEvidence}`,
+        `Evidence workspace: ${controls.evidenceWorkspace}`,
         `Signed bundle: ${controls.signedBundle}`
       ]
     },
@@ -2532,7 +2686,8 @@ function governanceFrameworkMapping(
       evidence: [
         `Network: ${compatibility.network}`,
         `Required secrets: ${compatibility.requiredSecrets.join(", ") || "none"}`,
-        `Web evidence attached: ${controls.webEvidence}`
+        `Web evidence attached: ${controls.webEvidence}`,
+        `Evidence workspace attached: ${controls.evidenceWorkspace}`
       ]
     },
     {
@@ -2567,6 +2722,11 @@ function governanceResidualRisks(
     ...(controls.webEvidence
       ? [
           "Web search and browser evidence may include third-party content, crawler gaps, and provider-specific ranking bias."
+        ]
+      : []),
+    ...(controls.evidenceWorkspace
+      ? [
+          "Evidence workspace custody proves local file integrity, not independent legal admissibility or external timestamping."
         ]
       : []),
     "External WORM storage, retention policy, and independent reviewer workflow remain deployment responsibilities."
@@ -4033,6 +4193,7 @@ async function writeAuditAttestation(input: {
       controls: input.files.includes("controls.md"),
       sarif: input.files.includes("findings.sarif"),
       webEvidence: input.files.includes("web-evidence.json"),
+      evidenceWorkspace: input.files.includes("evidence-summary.json"),
       hookEvents: input.files.includes("hook-events.jsonl"),
       agentRun: input.files.includes("agent-run.json")
     }
