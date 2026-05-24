@@ -74,14 +74,9 @@ runs:
           cat .kelpclaw/run-error.log
         fi
         if [ "$RUN_EXIT" -ne 0 ]; then
-          node <<'NODE'
-          const fs = require("node:fs");
-          const report = JSON.parse(fs.readFileSync(".kelpclaw/compatibility.json", "utf8"));
-          const failOnUnrunnable = "${{ inputs.fail-on-unrunnable }}" === "true";
-          if (report.runnable || failOnUnrunnable) {
-            process.exit(1);
-          }
-          NODE
+          if node -e 'const fs = require("node:fs"); const report = JSON.parse(fs.readFileSync(".kelpclaw/compatibility.json", "utf8")); const failOnUnrunnable = "${{ inputs.fail-on-unrunnable }}" === "true"; process.exit(report.runnable || failOnUnrunnable ? 0 : 1);'; then
+            exit "$RUN_EXIT"
+          fi
         fi
         printf '%s\n' "$RUN_OUTPUT"
         printf '%s\n' "$RUN_OUTPUT" > .kelpclaw/run-output.json
