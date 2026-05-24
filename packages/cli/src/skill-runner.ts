@@ -149,6 +149,7 @@ export interface InventoryScanOutput {
   readonly runs: readonly InventoryRunRecord[];
   readonly bundles: readonly InventoryBundleRecord[];
   readonly webEvidence: readonly InventoryWebEvidenceRecord[];
+  readonly evidenceWorkspaces: readonly InventoryEvidenceWorkspaceRecord[];
   readonly githubActions: readonly InventoryGitHubActionRecord[];
   readonly mcpGateways: readonly InventoryMcpGatewayRecord[];
   readonly permissionEdges: readonly InventoryPermissionEdge[];
@@ -214,6 +215,7 @@ export interface GovernanceReportOutput {
     readonly hookEvents: boolean;
     readonly failClosed: boolean;
     readonly webEvidence: boolean;
+    readonly evidenceWorkspace: boolean;
   };
   readonly webEvidence?:
     | {
@@ -223,6 +225,16 @@ export interface GovernanceReportOutput {
         readonly storedFullContent: boolean;
         readonly redacted: boolean;
         readonly errorCount: number;
+      }
+    | undefined;
+  readonly evidenceWorkspace?:
+    | {
+        readonly evidenceCount: number;
+        readonly findingCount: number;
+        readonly signed: boolean;
+        readonly verified: boolean;
+        readonly highOrCriticalFindings: number;
+        readonly sourceReferenceGaps: number;
       }
     | undefined;
   readonly findings: readonly GovernanceFinding[];
@@ -293,6 +305,18 @@ interface InventoryWebEvidenceRecord {
   readonly redacted: boolean;
 }
 
+interface InventoryEvidenceWorkspaceRecord {
+  readonly path: string;
+  readonly evidenceCount: number;
+  readonly findingCount: number;
+  readonly signed: boolean;
+  readonly verified: boolean;
+  readonly highOrCriticalFindings: number;
+  readonly sourceReferenceGaps: number;
+  readonly latestManifest?: string | undefined;
+  readonly verificationFailures: readonly string[];
+}
+
 interface InventoryGitHubActionRecord {
   readonly path: string;
   readonly usesAuditSkill: boolean;
@@ -318,6 +342,7 @@ interface InventoryPermissionEdge {
     | "exported-as"
     | "signed-by"
     | "has-web-evidence"
+    | "has-evidence-workspace"
     | "configured-in";
 }
 
@@ -328,6 +353,7 @@ interface InventoryCoverageFinding {
     | "runtime-evidence"
     | "bundle-evidence"
     | "network-evidence"
+    | "evidence"
     | "automation"
     | "coverage";
   readonly title: string;
@@ -512,6 +538,7 @@ interface AuditBundleAttestation {
     readonly controls: boolean;
     readonly sarif: boolean;
     readonly webEvidence: boolean;
+    readonly evidenceWorkspace: boolean;
     readonly hookEvents: boolean;
     readonly agentRun: boolean;
   };
@@ -731,6 +758,22 @@ export async function exportAuditBundle(args: readonly string[]): Promise<AuditB
     const webFiles = await writeWebEvidenceFiles(bundleDir, webEvidence);
     copied.push(...webFiles);
   }
+  let evidenceSummary: EvidenceWorkspaceSummary | undefined;
+  if (hasFlag(args, "--include-evidence")) {
+    const evidencePath = option(args, "--include-evidence");
+    if (!evidencePath) {
+      throw new Error("Option --include-evidence requires an evidence workspace directory.");
+    }
+    const evidenceRoot = resolve(evidencePath);
+    const evidenceCopy = await copyEvidenceWorkspaceBundle(
+      evidenceRoot,
+      join(bundleDir, "evidence-workspace")
+    );
+    copied.push(...evidenceCopy.files.map((file) => `evidence-workspace/${file}`));
+    evidenceSummary = await evidenceWorkspaceSummary(evidenceRoot);
+    await writeJson(join(bundleDir, "evidence-summary.json"), evidenceSummary);
+    copied.push("evidence-summary.json");
+  }
   let governance: GovernanceReportOutput | undefined;
   if (
     hasFlag(args, "--include-governance") ||
@@ -743,6 +786,7 @@ export async function exportAuditBundle(args: readonly string[]): Promise<AuditB
       region: option(args, "--region") ?? "sg",
       framework: option(args, "--framework") ?? "agentic-ai",
       webEvidence,
+      evidenceSummary,
       signedBundle: signed
     });
   }
