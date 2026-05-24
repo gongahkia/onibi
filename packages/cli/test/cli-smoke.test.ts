@@ -1,5 +1,8 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runCrossAgentReplaySmoke, runOtlpSmoke } from "../src/index.js";
+import { runCrossAgentReplaySmoke, runOtlpSmoke, verifyClaudeCode } from "../src/index.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -74,7 +77,50 @@ describe("kelp-claw smoke commands", () => {
     });
     expect(spanNames(requests[0]?.body)).toEqual(["Bash PostToolUse", "Read PostToolUse"]);
   });
+
+  it("verifies installed Claude Code hook settings and audit chain", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-cli-"));
+    const settingsPath = join(tempDir, "settings.local.json");
+    const requests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        requests.push(String(url));
+        if (String(url).endsWith("/api/agent-runs")) {
+          return jsonResponse({ ok: true, run: { id: "agent-run.verify" } }, 201);
+        }
+        if (String(url).endsWith("/events")) {
+          return jsonResponse({ ok: true, event: { id: `agent-step.${requests.length}` } }, 201);
+        }
+        if (String(url).endsWith("/audit/verify")) {
+          return jsonResponse({ ok: true, verification: { valid: true } }, 200);
+        }
+        return jsonResponse({ ok: false }, 404);
+      })
+    );
+
+    try {
+      const result = await verifyClaudeCode(["--settings", settingsPath]);
+      const settings = JSON.parse(await readFile(settingsPath, "utf8")) as {
+        readonly hooks?: Record<string, unknown>;
+      };
+
+      expect(result.ok).toBe(true);
+      expect(result.settings).toMatchObject({ installed: true, eventCount: 12 });
+      expect(Object.keys(settings.hooks ?? {})).toContain("PreToolUse");
+      expect(requests).toHaveLength(4);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
 });
+
+function jsonResponse(body: unknown, status: number): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" }
+  });
+}
 
 function spanNames(body: Record<string, unknown> | undefined): readonly string[] {
   const resourceSpans = Array.isArray(body?.resourceSpans) ? body.resourceSpans : [];

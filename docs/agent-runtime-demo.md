@@ -18,6 +18,14 @@ Say this exactly in the demo: KelpClaw is evidence-ready for governance review. 
 
 ## Preflight Commands
 
+For a local end-to-end governance smoke:
+
+```console
+$ pnpm demo:governance
+```
+
+The command starts a memory-backed API, verifies Claude Code hook wiring, proves a policy denial, promotes the verified trajectory, exports TBOM, and runs the cross-agent replay smoke.
+
 Install the Claude Code hook, create a run, then run Claude Code with the run id and API settings in the hook environment:
 
 ```console

@@ -308,11 +308,8 @@ function claudeEventHasCommand(value: unknown, command: string): boolean {
   return (
     Array.isArray(value) &&
     value.some((entry) => {
-      const hooks = jsonRecordField(jsonRecord(entry), "hooks");
-      return (
-        Array.isArray(hooks) &&
-        hooks.some((hook) => stringField(jsonRecord(hook), "command") === command)
-      );
+      const hooks = jsonArrayField(jsonRecord(entry), "hooks");
+      return hooks.some((hook) => stringField(jsonRecord(hook), "command") === command);
     })
   );
 }
@@ -505,9 +502,7 @@ function parseHeaderEnv(value: string | undefined): Readonly<Record<string, stri
 }
 
 function jsonRecord(value: unknown): JsonRecord {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as JsonRecord)
-    : {};
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : {};
 }
 
 function jsonRecordField(value: JsonRecord | undefined, field: string): JsonRecord | undefined {
@@ -515,6 +510,11 @@ function jsonRecordField(value: JsonRecord | undefined, field: string): JsonReco
   return candidate && typeof candidate === "object" && !Array.isArray(candidate)
     ? (candidate as JsonRecord)
     : undefined;
+}
+
+function jsonArrayField(value: JsonRecord | undefined, field: string): readonly unknown[] {
+  const candidate = value?.[field];
+  return Array.isArray(candidate) ? candidate : [];
 }
 
 function stringField(value: JsonRecord | undefined, field: string): string | undefined {
