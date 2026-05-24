@@ -140,6 +140,9 @@ interface LocalHookEvent {
   readonly decision: PolicyDecision;
   readonly status: "allowed" | "denied" | "approval-required";
   readonly recordedAt: string;
+  readonly contentHash: string;
+  readonly prevEventHash: string;
+  readonly chainIndex: number;
 }
 
 interface LiveRunEnforcement {
@@ -698,7 +701,7 @@ function plannedStepsFromHookEvents(events: readonly LocalHookEvent[]): readonly
 }
 
 function localHookScript(): string {
-  return `import { appendFileSync } from "node:fs";
+  return `import { appendFileSync, readFileSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 
 const eventPath = process.env.KELPCLAW_SKILL_HOOK_EVENTS;
@@ -719,7 +722,9 @@ process.stdin.on("end", () => {
   const result = jsonValue(raw.result) ?? jsonValue(raw.tool_response);
   const decision = evaluatePolicy({ tool: toolName, args, skill }, ruleset);
   const status = decision.action === "deny" ? "denied" : decision.action === "require-approval" ? "approval-required" : "allowed";
-  const event = {
+  const existingEvents = readExistingEvents(eventPath);
+  const chainIndex = existingEvents.length;
+  const base = {
     id: "hook-event." + randomUUID(),
     hookEvent,
     toolName,
@@ -728,6 +733,17 @@ process.stdin.on("end", () => {
     decision,
     status,
     recordedAt: new Date().toISOString()
+  };
+  const contentHash = hashJson(base);
+  const event = {
+    ...base,
+    contentHash,
+    prevEventHash: hashJson({
+      chainIndex,
+      previousContentHash: existingEvents.at(-1)?.contentHash || "sha256:" + "0".repeat(64),
+      contentHash
+    }),
+    chainIndex
   };
   if (eventPath) {
     appendFileSync(eventPath, stableJson(event) + "\\n", "utf8");
@@ -757,6 +773,19 @@ function evaluatePolicy(context, ruleset) {
     reason: "matched policy rule '" + selected.id + "'",
     ...(selected.approverRole ? { approverRole: selected.approverRole } : {})
   };
+}
+
+function readExistingEvents(path) {
+  if (!path) return [];
+  try {
+    return readFileSync(path, "utf8").split(/\\r?\\n/u).map((line) => line.trim()).filter(Boolean).map((line) => JSON.parse(line));
+  } catch {
+    return [];
+  }
+}
+
+function hashJson(value) {
+  return "sha256:" + createHash("sha256").update(stableJson(value), "utf8").digest("hex");
 }
 
 function evaluateExpression(expression, context) {
