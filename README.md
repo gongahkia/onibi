@@ -8,22 +8,22 @@ KelpClaw is an Agent Skill Governance Framework with policy, sandboxing, replay,
 
 Its core adoption path is simple: run any `SKILL.md`, evaluate it against policy packs, capture replayable execution evidence, and export a static audit bundle that security, compliance, and platform teams can review without running KelpClaw.
 
-KelpClaw remains the editable workflow planner. NanoClaw remains the deterministic runtime that compiles approved workflow revisions and executes nodes through a Docker-per-node contract. The Piranesi-derived code is used as KelpClaw's local evidence subsystem, not as a separate product direction.
+KelpClaw remains the editable workflow planner. The frontend now opens on Skill Governance for `SKILL.md` compatibility, policy, replay, and audit-bundle handoff; the Workflow Graph mode is still available for drag-and-drop workflow composition. NanoClaw remains the deterministic runtime that compiles approved workflow revisions and executes nodes through a Docker-per-node contract. The Piranesi-derived code is used as KelpClaw's local evidence subsystem, not as a separate product direction.
 
 ## Workspace Layout
 
-| Workspace                 | Ownership                                                                                |
-| ------------------------- | ---------------------------------------------------------------------------------------- |
-| `apps/kelpclaw`           | React + React Flow workflow planning UI                                                  |
-| `apps/api`                | HTTP API for planning, workflow persistence, validation, approval, and execution control |
-| `packages/workflow-spec`  | Shared workflow IR types, Zod schemas, JSON Schema, fixtures, and validation errors      |
-| `packages/skill-registry` | Built-in deterministic skills, metadata, metaprompts, and lookup rules                   |
-| `packages/nanoclaw`       | DAG compiler, production runner, Docker command runner, and deterministic test runner    |
-| `packages/codegen`        | Generated artifact contracts, checksums, and replay policy helpers                       |
-| `packages/adapters`       | Live provider adapters, generic connectors, and deterministic test mocks                 |
-| `packages/web-intel`      | Governed Exa/TinyFish web search, fetch, answer, browser, and evidence normalization     |
-| `packages/evidence`       | Piranesi-derived local evidence vault, normalized findings, custody, QA, and retest diff |
-| `packages/testing`        | Shared fixtures, mock providers, and deterministic execution harnesses                   |
+| Workspace                 | Ownership                                                                                 |
+| ------------------------- | ----------------------------------------------------------------------------------------- |
+| `apps/kelpclaw`           | React UI for Skill Governance, replay review, policy editing, and workflow graph planning |
+| `apps/api`                | HTTP API for planning, workflow persistence, validation, approval, and execution control  |
+| `packages/workflow-spec`  | Shared workflow IR types, Zod schemas, JSON Schema, fixtures, and validation errors       |
+| `packages/skill-registry` | Built-in deterministic skills, metadata, metaprompts, and lookup rules                    |
+| `packages/nanoclaw`       | DAG compiler, production runner, Docker command runner, and deterministic test runner     |
+| `packages/codegen`        | Generated artifact contracts, checksums, and replay policy helpers                        |
+| `packages/adapters`       | Live provider adapters, generic connectors, and deterministic test mocks                  |
+| `packages/web-intel`      | Governed Exa/TinyFish web search, fetch, answer, browser, and evidence normalization      |
+| `packages/evidence`       | Piranesi-derived local evidence vault, normalized findings, custody, QA, and retest diff  |
+| `packages/testing`        | Shared fixtures, mock providers, and deterministic execution harnesses                    |
 
 ## Development
 

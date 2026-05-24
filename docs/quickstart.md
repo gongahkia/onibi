@@ -67,17 +67,26 @@ KelpClaw runs at `http://127.0.0.1:5173`. The API runs at `http://127.0.0.1:8787
 
 The Docker preflight blocks startup before the API server runs if the admin token, secret master key, selected provider key, Docker socket, or workspace mounts are invalid. Fix `.env`, then run Compose again.
 
-## 3. First Deployed Workflow
+## 3. First SKILL.md Audit
 
 1. Open KelpClaw.
-2. Press `Cmd+P` on macOS or `Ctrl+P` elsewhere.
-3. Run `Plan Workflow`, enter a prompt, and answer clarification questions if prompted.
-4. Edit the graph if needed.
-5. Click `Accept Plan`.
-6. Click `Evaluate`.
-7. Click `Approve`.
-8. Click `Deploy`.
-9. Click `Run`.
+2. Stay on the default `Skill` surface.
+3. Enter the `SKILL.md` path, input JSON path, policy pack, run ID, and agent mode.
+4. Run the generated commands in order to produce compatibility, policy, replay, governance, and audit-bundle artifacts.
+5. Send the exported static audit bundle to a reviewer, or verify it locally with the generated `verify-audit-bundle` command.
+
+## 4. First Deployed Workflow
+
+1. Open KelpClaw.
+2. Switch to `Graph`, or run `Plan Workflow` from the command palette to switch there after planning succeeds.
+3. Press `Cmd+P` on macOS or `Ctrl+P` elsewhere.
+4. Run `Plan Workflow`, enter a prompt, and answer clarification questions if prompted.
+5. Edit the graph if needed.
+6. Click `Accept Plan`.
+7. Click `Evaluate`.
+8. Click `Approve`.
+9. Click `Deploy`.
+10. Click `Run`.
 
 `Run` stays disabled until there is an active `runner.configuration` deployment for the approved revision. Local deployment means KelpClaw has created local activation/config/artifact records; it does not provision cloud infrastructure.
 

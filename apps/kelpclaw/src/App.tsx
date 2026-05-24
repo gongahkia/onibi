@@ -882,8 +882,9 @@ export function App() {
   const [governancePolicy, setGovernancePolicy] = useState("sg-agentic-ai-baseline");
   const [governanceRunId, setGovernanceRunId] = useState("skill-run.local-review");
   const [governanceAgent, setGovernanceAgent] = useState("audit-only");
-  const [governanceReplayAgents, setGovernanceReplayAgents] =
-    useState("codex-cli,claude-code,goose");
+  const [governanceReplayAgents, setGovernanceReplayAgents] = useState(
+    "codex-cli,claude-code,goose"
+  );
   const [trajectoryRuns, setTrajectoryRuns] = useState<readonly AgentRunRecord[]>([]);
   const [selectedTrajectoryRunId, setSelectedTrajectoryRunId] = useState<string | null>(null);
   const [policyYaml, setPolicyYaml] = useState("rules:\n");
@@ -3682,7 +3683,10 @@ function SkillGovernancePanel(props: {
             </label>
             <label>
               Agent
-              <select value={props.agent} onChange={(event) => props.onAgentChange(event.target.value)}>
+              <select
+                value={props.agent}
+                onChange={(event) => props.onAgentChange(event.target.value)}
+              >
                 <option value="audit-only">audit-only</option>
                 <option value="codex-cli">codex-cli</option>
                 <option value="claude-code">claude-code</option>
@@ -3717,14 +3721,17 @@ function SkillGovernancePanel(props: {
             </button>
           </div>
           <p className="skill-governance-note">
-            Use the graph when you need drag-and-drop workflow composition. Use this screen when
-            you need SKILL.md compatibility, policy decisions, replay, and reviewable evidence.
+            Use the graph when you need drag-and-drop workflow composition. Use this screen when you
+            need SKILL.md compatibility, policy decisions, replay, and reviewable evidence.
           </p>
         </section>
       </div>
 
       <div className="skill-governance-main">
-        <section className="skill-governance-section skill-command-section" aria-label="Command sequence">
+        <section
+          className="skill-governance-section skill-command-section"
+          aria-label="Command sequence"
+        >
           <header className="skill-governance-section-header">
             <div>
               <p className="eyebrow">CLI Handoff</p>
@@ -4962,7 +4969,9 @@ function buildSkillGovernanceCommands(input: {
 
 function quoteCli(value: string): string {
   const trimmed = value.trim() || ".";
-  return /^[A-Za-z0-9_./:@,+-]+$/u.test(trimmed) ? trimmed : `'${trimmed.replace(/'/gu, "'\"'\"'")}'`;
+  return /^[A-Za-z0-9_./:@,+-]+$/u.test(trimmed)
+    ? trimmed
+    : `'${trimmed.replace(/'/gu, "'\"'\"'")}'`;
 }
 
 function integrationStatus(
