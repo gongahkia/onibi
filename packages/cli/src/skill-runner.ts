@@ -508,7 +508,9 @@ async function runLiveAgent(input: {
   const finishedAt = new Date().toISOString();
   const hookEvents = await readHookEvents(hookEventsPath);
   const observedSteps =
-    hookEvents.length > 0 ? plannedStepsFromHookEvents(hookEvents) : parseObservedToolSteps(result.stdout, result.stderr);
+    hookEvents.length > 0
+      ? plannedStepsFromHookEvents(hookEvents)
+      : parseObservedToolSteps(result.stdout, result.stderr);
   const generatedArtifacts = await listFilesIfPresent(artifactsDir);
   const workspaceFiles = await listFilesIfPresent(workspaceDir);
   const hookBlocked = hookEvents.some(

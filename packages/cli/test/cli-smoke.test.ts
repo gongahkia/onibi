@@ -492,7 +492,13 @@ writeFileSync("artifacts/unsafe.txt", "should not exist");
       const agentRun = JSON.parse(
         await readFile(join(runsDir, "skill-run.hook-block", "agent-run.json"), "utf8")
       ) as {
-        readonly hookEvents?: readonly { readonly status?: string; readonly hookEvent?: string }[];
+        readonly hookEvents?: readonly {
+          readonly status?: string;
+          readonly hookEvent?: string;
+          readonly contentHash?: string;
+          readonly prevEventHash?: string;
+          readonly chainIndex?: number;
+        }[];
         readonly enforcement?: { readonly hookBlocked?: boolean; readonly source?: string };
         readonly generatedArtifacts?: readonly string[];
       };
@@ -501,7 +507,13 @@ writeFileSync("artifacts/unsafe.txt", "should not exist");
         source: "hook-pretool"
       });
       expect(agentRun.hookEvents).toEqual([
-        expect.objectContaining({ hookEvent: "PreToolUse", status: "denied" })
+        expect.objectContaining({
+          hookEvent: "PreToolUse",
+          status: "denied",
+          chainIndex: 0,
+          contentHash: expect.stringMatching(/^sha256:/u),
+          prevEventHash: expect.stringMatching(/^sha256:/u)
+        })
       ]);
       expect(agentRun.generatedArtifacts).toEqual([]);
     } finally {
