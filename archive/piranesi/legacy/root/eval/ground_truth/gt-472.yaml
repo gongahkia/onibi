@@ -1,0 +1,25 @@
+id: gt-472
+source_project: synthetic-phase31
+commit_hash: synthetic-no-commit
+cwe_id: CWE-79
+cwe_name: Cross-Site Scripting
+label: true_positive
+field_sensitive_label: true_positive
+affected_files:
+- eval/synthetic/field-body-html-xss.ts
+line_numbers:
+- 6
+taint_source: req.body
+taint_sink: res.send()
+taint_field_path: body.html
+taint_path:
+- req.body.html flows directly to res.send()
+complexity: simple
+exploitable: true
+reference_exploit: POST /field-html with html=<script>alert(1)</script> reflects script content.
+reference_fix_commit: null
+notes: No sanitizer is applied to the html field.
+discovery_method: synthetic
+language: typescript
+framework: express
+taint_step_count: 1

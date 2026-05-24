@@ -1,0 +1,24 @@
+id: gt-109
+source_project: synthetic-go-gin
+commit_hash: "0000000000000000000000000000000000000000"
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting (XSS)
+label: true_positive
+affected_files:
+  - handlers/comment.go
+line_numbers: [22, 30]
+taint_source: c.GetHeader("X-User-Comment")
+taint_sink: "template.HTML(comment)"
+taint_path:
+  - "c.GetHeader(\"X-User-Comment\") (handlers/comment.go:22)"
+  - "template.HTML(comment) (handlers/comment.go:30)"
+complexity: simple
+exploitable: true
+reference_exploit: "Header X-User-Comment: <img src=x onerror=alert(1)> — XSS via header source"
+reference_fix_commit: null
+notes: "Gin header source cast to template.HTML. Unusual attack vector via custom header, but exploitable if header is set by upstream proxy or user-controlled input."
+language: go
+framework: gin
+taint_step_count: 2
+taint_field_path: headers.x_user_comment
+field_sensitive_label: true_positive

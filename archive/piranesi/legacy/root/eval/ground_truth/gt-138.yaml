@@ -1,0 +1,25 @@
+id: gt-138
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+  - eval/synthetic/interproc-promise-await-sqli.ts
+line_numbers: [12, 13]
+taint_source: req.body.sql
+taint_sink: db.query()
+taint_path:
+  - "identity(req.body.sql) preserves the tainted request value"
+  - "await unwraps the tainted promise result into data"
+  - "db.query(data) executes the attacker-controlled SQL"
+complexity: inter
+exploitable: true
+reference_exploit: "Send a body like {\"sql\":\"' OR 1=1 --\"} so the awaited value reaches db.query()."
+reference_fix_commit: null
+notes: "Synthetic async/await SQLi case."
+language: typescript
+framework: general
+taint_step_count: 3
+taint_field_path: body.sql
+field_sensitive_label: true_positive

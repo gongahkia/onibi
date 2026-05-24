@@ -1,0 +1,26 @@
+id: gt-001
+source_project: owasp-nodegoat
+commit_hash: "c5cb68a7084e4ae7dcc60e6a98768720a81841e8"
+cwe_id: CWE-89
+cwe_name: SQL Injection (NoSQL variant)
+label: true_positive
+affected_files:
+  - app/data/allocations-dao.js
+  - app/routes/allocations.js
+line_numbers: [51, 53]
+taint_source: req.query.threshold
+taint_sink: "MongoDB $where clause with string interpolation"
+taint_path:
+  - "req.query.threshold (app/routes/allocations.js:16)"
+  - "allocationsDAO.getByUserIdAndThreshold(userId, threshold)"
+  - "$where: `this.userId == ${parsedUserId} && this.stocks > '${threshold}'` (allocations-dao.js:51)"
+complexity: inter
+exploitable: true
+reference_exploit: "GET /allocations/1?threshold=0';while(true){} causes DoS via $where JS evaluation"
+reference_fix_commit: null
+notes: "NoSQL injection via MongoDB $where operator. Threshold param interpolated into JS string evaluated server-side by MongoDB. CWE-943 is the precise classification but grouped under injection/SQLi family."
+language: javascript
+framework: express
+taint_step_count: 3
+taint_field_path: query.threshold
+field_sensitive_label: true_positive

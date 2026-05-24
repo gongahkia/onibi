@@ -1,0 +1,27 @@
+id: gt-352
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-94
+cwe_name: Code Injection
+label: true_positive
+affected_files:
+- eval/fixtures/python/general/gt-352/script.py
+line_numbers:
+- 3
+taint_source: function argument expr
+taint_sink: eval()
+taint_path:
+- attacker-controlled code reaches evaluate()
+- strip() removes whitespace but does not constrain the program text
+- eval() executes the tainted expression
+complexity: inter
+exploitable: true
+reference_exploit: Pass __import__("subprocess").check_output("id") to reach code
+  execution after strip().
+reference_fix_commit: null
+notes: General Python code injection where cosmetic preprocessing is mistaken for
+  sanitization before eval().
+discovery_method: synthetic
+language: python
+framework: general
+taint_step_count: 3

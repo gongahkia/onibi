@@ -1,0 +1,25 @@
+id: gt-067
+source_project: owasp-juice-shop
+commit_hash: "7380ce7120e289fc6bea861efd3fcba89261a6a8"
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+affected_files:
+  - routes/logfileServer.ts
+line_numbers: [13, 14]
+taint_source: req.params.file
+taint_sink: "res.sendFile(path.resolve('logs/', file))"
+taint_path:
+  - "req.params.file (routes/logfileServer.ts:11)"
+  - "the route rejects only '/' and leaves backslash-based traversal intact (routes/logfileServer.ts:13)"
+  - "res.sendFile(path.resolve('logs/', file)) serves the resolved path (routes/logfileServer.ts:14)"
+complexity: simple
+exploitable: true
+reference_exploit: "GET /support/logs/..%5C..%5Cpackage.json escapes the logs directory on Windows-style path semantics."
+reference_fix_commit: null
+notes: "Limited path traversal in the support log download route. This is the same flawed separator handling pattern as the quarantine and key file routes."
+language: typescript
+framework: express
+taint_step_count: 3
+taint_field_path: params.file
+field_sensitive_label: true_positive

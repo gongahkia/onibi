@@ -1,0 +1,24 @@
+id: gt-070
+source_project: owasp-juice-shop
+commit_hash: "7380ce7120e289fc6bea861efd3fcba89261a6a8"
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: false_positive
+affected_files:
+  - routes/payment.ts
+line_numbers: [41]
+taint_source: req.params.id
+taint_sink: "CardModel.findOne() Sequelize model method"
+taint_path:
+  - "req.params.id (routes/payment.ts:41)"
+  - "CardModel.findOne({ where: { id: req.params.id, UserId: req.body.UserId } })"
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "False positive for SQLi. The card lookup uses Sequelize's structured where clause, which binds values safely rather than interpolating them into SQL."
+language: typescript
+framework: express
+taint_step_count: 2
+taint_field_path: params.id
+field_sensitive_label: false_positive

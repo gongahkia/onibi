@@ -1,0 +1,24 @@
+id: gt-125
+source_project: piranesi-owasp-fixture
+commit_hash: "0000000000000000000000000000000000000000"
+cwe_id: CWE-601
+cwe_name: Open Redirect (res.redirect from query param)
+label: true_positive
+affected_files:
+  - redirect.ts
+line_numbers: [7, 8]
+taint_source: "req.query.returnUrl"
+taint_sink: "res.redirect(returnUrl)"
+taint_path:
+  - "req.query.returnUrl (redirect.ts:7)"
+  - "res.redirect(returnUrl) (redirect.ts:8)"
+complexity: simple
+exploitable: true
+reference_exploit: "GET /login/callback?returnUrl=https://evil.com/phish for credential phishing"
+reference_fix_commit: null
+notes: "Classic open redirect from query parameter. Attacker can redirect user to phishing page after login."
+language: typescript
+framework: general
+taint_step_count: 2
+taint_field_path: query.returnUrl
+field_sensitive_label: true_positive

@@ -1,0 +1,161 @@
+{
+  "gt_dir": "eval/ground_truth",
+  "total_entries": 612,
+  "audited_entries": 612,
+  "audit_fields": [
+    "line_numbers",
+    "taint_step_count",
+    "taint_field_path",
+    "field_sensitive_label"
+  ],
+  "required_fields": [],
+  "field_coverage": {
+    "line_numbers": {
+      "present": 610,
+      "missing": 2,
+      "missing_ids": [
+        "gt-004",
+        "gt-012"
+      ]
+    },
+    "taint_step_count": {
+      "present": 612,
+      "missing": 0,
+      "missing_ids": []
+    },
+    "taint_field_path": {
+      "present": 442,
+      "missing": 170,
+      "missing_ids": [
+        "gt-004",
+        "gt-005",
+        "gt-009",
+        "gt-012",
+        "gt-078",
+        "gt-079",
+        "gt-080",
+        "gt-081",
+        "gt-086",
+        "gt-156"
+      ]
+    },
+    "field_sensitive_label": {
+      "present": 436,
+      "missing": 176,
+      "missing_ids": [
+        "gt-004",
+        "gt-005",
+        "gt-009",
+        "gt-012",
+        "gt-078",
+        "gt-079",
+        "gt-080",
+        "gt-081",
+        "gt-086",
+        "gt-145"
+      ]
+    }
+  },
+  "distributions": {
+    "label": {
+      "true_positive": 467,
+      "false_positive": 145
+    },
+    "cwe_id": {
+      "CWE-89": 114,
+      "CWE-79": 91,
+      "CWE-94": 11,
+      "CWE-77": 1,
+      "CWE-78": 46,
+      "CWE-22": 47,
+      "CWE-918": 41,
+      "CWE-601": 15,
+      "CWE-444": 1,
+      "CWE-502": 29,
+      "CWE-611": 1,
+      "CWE-434": 7,
+      "CWE-943": 16,
+      "CWE-1336": 21,
+      "CWE-1333": 8,
+      "CWE-90": 6,
+      "CWE-113": 6,
+      "CWE-917": 9,
+      "CWE-643": 6,
+      "CWE-352": 12,
+      "CWE-327": 14,
+      "CWE-287": 6,
+      "CWE-338": 15,
+      "CWE-295": 13,
+      "CWE-915": 9,
+      "CWE-215": 3,
+      "CWE-306": 10,
+      "CWE-285": 1,
+      "CWE-362": 5,
+      "CWE-472": 3,
+      "CWE-840": 1,
+      "CWE-807": 1,
+      "CWE-384": 1,
+      "CWE-1321": 5,
+      "CWE-208": 5,
+      "CWE-1289": 1,
+      "CWE-328": 8,
+      "CWE-319": 7,
+      "CWE-326": 7,
+      "CWE-347": 8,
+      "CWE-269": 1
+    },
+    "language": {
+      "javascript": 67,
+      "typescript": 249,
+      "go": 70,
+      "java": 91,
+      "mixed": 6,
+      "python": 100,
+      "ruby": 1,
+      "php": 28
+    },
+    "framework": {
+      "express": 94,
+      "node": 66,
+      "general": 201,
+      "koa": 6,
+      "fastify": 4,
+      "gin": 16,
+      "spring-boot": 29,
+      "chi": 10,
+      "go-stdlib": 12,
+      "servlet": 14,
+      "flask": 21,
+      "gorilla": 4,
+      "feathers": 4,
+      "spring": 10,
+      "java": 16,
+      "django": 27,
+      "go": 7,
+      "python": 7,
+      "ratpack": 4,
+      "nestjs": 10,
+      "fastapi": 10,
+      "echo": 11,
+      "rails": 1,
+      "php": 14,
+      "laravel": 6,
+      "wordpress": 4,
+      "symfony": 4
+    },
+    "complexity": {
+      "inter": 101,
+      "simple": 364,
+      "ctx": 98,
+      "cross_module": 18,
+      "multi_step": 31
+    },
+    "discovery_method": {
+      "manual": 277,
+      "cve_mining": 96,
+      "synthetic": 239
+    }
+  },
+  "missing_required_count": 0,
+  "has_required_missing": false
+}

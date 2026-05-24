@@ -1,0 +1,25 @@
+id: gt-383
+source_project: synthetic-phase30-go
+commit_hash: synthetic-no-commit
+cwe_id: CWE-352
+cwe_name: Cross-Site Request Forgery
+label: true_positive
+affected_files:
+- eval/fixtures/go/chi/gt-383/main.go
+line_numbers:
+- 22
+taint_source: cross-site POST request carrying the victim session cookie
+taint_sink: r.Post("/profile/email", updateEmail)
+taint_path:
+- The browser sends the victim's authenticated cookie on a cross-site POST.
+- The router installs authMiddleware but no CSRF protection.
+- /profile/email performs a state change without validating an anti-CSRF token.
+complexity: ctx
+exploitable: true
+reference_exploit: Submit a forged cross-site POST to /profile/email from an attacker-controlled origin.
+reference_fix_commit: null
+notes: Chi protects the route with authentication only, not CSRF defenses.
+discovery_method: synthetic
+language: go
+framework: chi
+taint_step_count: 3

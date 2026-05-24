@@ -1,0 +1,28 @@
+id: gt-064
+source_project: owasp-juice-shop
+commit_hash: "7380ce7120e289fc6bea861efd3fcba89261a6a8"
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting (Stored)
+label: true_positive
+affected_files:
+  - routes/fileUpload.ts
+  - routes/videoHandler.ts
+line_numbers: [41, 45, 56, 71, 72]
+taint_source: "ZIP entry filename and contents inside req.file.buffer"
+taint_sink: "res.send() of subtitle script block containing attacker-controlled file contents"
+taint_path:
+  - "an uploaded ZIP member named ../../frontend/dist/frontend/assets/public/videos/owasp_promo.vtt escapes the complaint upload directory (routes/fileUpload.ts:41-45)"
+  - "the ZIP member contents </script><script>alert(`xss`)</script> are written into the subtitle file"
+  - "promotionVideo() loads subs = getSubsFromFile() from the overwritten subtitle path (routes/videoHandler.ts:56 and 82)"
+  - "compiledTemplate.replace(... '<script id=\"subtitle\" ...>' + subs + '</script>') injects the subtitle file verbatim into HTML (routes/videoHandler.ts:71)"
+  - "res.send(compiledTemplate) serves the executable payload (routes/videoHandler.ts:72)"
+complexity: inter
+exploitable: true
+reference_exploit: "Uploading test/files/videoExploit.zip plants </script><script>alert(`xss`)</script> into owasp_promo.vtt and triggers XSS on GET /promotion."
+reference_fix_commit: null
+notes: "Stored XSS chained off the Zip Slip write primitive. The backend later embeds the attacker-controlled subtitle file directly into a script element."
+language: typescript
+framework: express
+taint_step_count: 5
+taint_field_path: files.file.buffer
+field_sensitive_label: true_positive

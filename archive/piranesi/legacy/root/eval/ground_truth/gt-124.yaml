@@ -1,0 +1,24 @@
+id: gt-124
+source_project: piranesi-owasp-fixture
+commit_hash: "0000000000000000000000000000000000000000"
+cwe_id: CWE-502
+cwe_name: Unsafe Deserialization (yaml.load JS unsafe loader)
+label: true_positive
+affected_files:
+  - deserialization.ts
+line_numbers: [17, 18]
+taint_source: "req.body.data"
+taint_sink: "yaml.load(yamlData)"
+taint_path:
+  - "req.body.data (deserialization.ts:17)"
+  - "yaml.load(yamlData) (deserialization.ts:18)"
+complexity: simple
+exploitable: true
+reference_exploit: "POST /api/import with YAML containing JS-specific type coercion payload"
+reference_fix_commit: null
+notes: "js-yaml load() with default loader allows custom type instantiation. Use safeLoad() or safe schema."
+language: typescript
+framework: general
+taint_step_count: 2
+taint_field_path: body.data
+field_sensitive_label: true_positive

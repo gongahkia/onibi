@@ -1,0 +1,25 @@
+id: gt-507
+source_project: synthetic-phase39
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: false_positive
+affected_files:
+- eval/fixtures/php/symfony/controller_param_safe.php
+line_numbers:
+- 2
+taint_source: $request->get('id')
+taint_sink: executeQuery()
+taint_path:
+- $request->get('id') is attacker-controlled input.
+- executeQuery() receives the SQL text with a placeholder and a separate bind array.
+- Doctrine binds the value instead of concatenating it into SQL.
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: Symfony executeQuery() with placeholders should not be flagged.
+discovery_method: synthetic
+language: php
+framework: symfony
+taint_step_count: 3

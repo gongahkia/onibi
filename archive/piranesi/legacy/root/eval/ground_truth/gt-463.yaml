@@ -1,0 +1,26 @@
+id: gt-463
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-208
+cwe_name: Observable Timing Discrepancy
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-463.go
+line_numbers:
+- 9
+taint_source: r.Header.Get("X-API-Key")
+taint_sink: string equality with ==
+taint_path:
+- r.Header.Get("X-API-Key") provides an attacker-controlled secret guess
+- the handler reads the expected API key from process configuration
+- the == comparison short-circuits on the first mismatch and leaks timing information
+complexity: ctx
+exploitable: true
+reference_exploit: Probe the endpoint with progressively refined X-API-Key guesses
+  and compare response times.
+reference_fix_commit: null
+notes: Go timing attack caused by direct string equality on API keys.
+discovery_method: synthetic
+language: go
+framework: go
+taint_step_count: 3

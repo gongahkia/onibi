@@ -1,0 +1,32 @@
+## {{ finding.title }} (`{{ finding.finding_id }}`)
+
+### Summary
+
+- CWE: `{{ finding.cwe }}`
+- Severity: `{{ finding.severity|upper }}`
+- Composite risk: `{{ "%.1f"|format(finding.composite_risk_score) }}/100 ({{ finding.composite_risk_band }})`
+- Evidence: `{{ finding.evidence_status }}`
+- Verification: `{{ finding.verification_method }}`
+- Source: `{{ finding.source_location.file }}:{{ finding.source_location.line }}`
+- Sink: `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}`
+- Ownership: `team={{ finding.ownership.team or "n/a" }}, owner={{ finding.ownership.owner or "n/a" }}, control_owner={{ finding.ownership.control_owner or "n/a" }}`
+
+### Exploit Payload
+
+`{{ finding.exploit_payload or "n/a" }}`
+
+### Regulatory Impact
+
+{% if finding.regulatory_obligations %}
+{% for obligation in finding.regulatory_obligations -%}
+- {{ obligation.framework }} {{ obligation.section }}: {{ obligation.obligation_text }}{% if obligation.notification_timeline %} (deadline: {{ obligation.notification_timeline }}){% endif %}
+{% endfor %}
+{% else %}
+- No regulatory obligations attached.
+{% endif %}
+
+### Patch
+
+```diff
+{{ finding.patch_diff or "No patch generated." }}
+```

@@ -1,0 +1,30 @@
+id: gt-517
+source_project: koa
+commit_hash: 979f5e448082b16ac5efa7a101e869e8bed357db
+cwe_id: CWE-601
+cwe_name: Open Redirect
+label: false_positive
+affected_files:
+- eval/cve_fixtures/cwe601-CVE-2025-8129-koa-back-redirect-safe.js
+line_numbers:
+- 3
+- 10
+taint_source: Referrer header consumed by ctx.redirect('back')
+taint_sink: Location header via ctx.set("Location", ...)
+taint_path:
+- request carries attacker-controlled Referrer header
+- helper rejects protocol-relative and absolute external referrers
+- redirect target is constrained to a safe in-app path
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: 979f5e448082b16ac5efa7a101e869e8bed357db
+notes: CVE-2025-8129 safe variant for replayable false-positive coverage.
+cve_id: CVE-2025-8129
+discovery_method: cve_mining
+language: javascript
+framework: koa
+taint_step_count: 3
+taint_field_path: headers.referrer
+field_sensitive_label: false_positive
+

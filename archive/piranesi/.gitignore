@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.pyc
+dist/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+.piranesi-trace*.jsonl
+.env
+piranesi-output/
+.piranesi-cache/
+.piranesi-out/
+workspace/
+private-validation/
+.DS_Store
+.claude/
+CLAUDE.md
+node_modules
+VM Vulnerability Sandbox Proposal.pdf
+vm-vuln.pdf

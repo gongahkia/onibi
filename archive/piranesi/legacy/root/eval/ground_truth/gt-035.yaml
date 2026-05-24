@@ -1,0 +1,24 @@
+id: gt-035
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting (Reflected)
+label: true_positive
+affected_files:
+  - eval/synthetic/xss-res-send.ts
+line_numbers: [8, 11]
+taint_source: req.query.q
+taint_sink: "res.send() with string interpolation"
+taint_path:
+  - "req.query.q (Express GET handler)"
+  - "res.send(`<h1>Results for: ${req.query.q}</h1>`) reflects unsanitized input in HTML"
+complexity: simple
+exploitable: true
+reference_exploit: "GET /search?q=<script>alert(1)</script> executes reflected XSS"
+reference_fix_commit: null
+notes: "Hand-crafted synthetic. Direct reflected XSS via res.send() with template literal. Most basic XSS pattern in Express."
+language: typescript
+framework: general
+taint_step_count: 2
+taint_field_path: query.q
+field_sensitive_label: true_positive

@@ -1,0 +1,24 @@
+id: gt-112
+source_project: spring-petclinic
+commit_hash: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+cwe_id: CWE-22
+cwe_name: Path Traversal via @CookieValue
+label: true_positive
+affected_files:
+  - src/main/java/org/example/controller/ThemeController.java
+line_numbers: [21, 26]
+taint_source: "@CookieValue(\"theme\") String theme"
+taint_sink: "new File(\"templates/themes/\" + theme + \"/layout.html\")"
+taint_path:
+  - "@CookieValue theme (ThemeController.java:21)"
+  - "new File(basePath + theme) (ThemeController.java:26)"
+complexity: simple
+exploitable: true
+reference_exploit: "Set cookie theme=../../etc/passwd to read arbitrary files"
+reference_fix_commit: null
+notes: "Path traversal via cookie value. Cookies are attacker-controlled. Fix: validate theme against known set, canonicalize path."
+language: java
+framework: spring-boot
+taint_step_count: 2
+taint_field_path: cookies.theme
+field_sensitive_label: true_positive

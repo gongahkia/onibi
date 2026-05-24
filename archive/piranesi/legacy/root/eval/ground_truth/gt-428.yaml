@@ -1,0 +1,25 @@
+id: gt-428
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-78
+cwe_name: OS Command Injection
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/java/gt-428.java
+line_numbers:
+- 8
+taint_source: BufferedReader.readLine()
+taint_sink: Runtime.getRuntime().exec()
+taint_path:
+- readLine() reads attacker-controlled console data
+- the program concatenates host into a shell command string
+- Runtime.exec(...) executes the attacker-controlled command suffix
+complexity: simple
+exploitable: true
+reference_exploit: Provide 127.0.0.1; id on stdin to inject an extra shell command
+reference_fix_commit: null
+notes: General Java command injection via Runtime.exec() from stdin.
+discovery_method: synthetic
+language: java
+framework: java
+taint_step_count: 3

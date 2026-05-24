@@ -1,0 +1,24 @@
+id: gt-106
+source_project: synthetic-go-stdlib
+commit_hash: "0000000000000000000000000000000000000000"
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery (SSRF)
+label: true_positive
+affected_files:
+  - handlers/proxy.go
+line_numbers: [14, 18]
+taint_source: r.URL.Query().Get("url")
+taint_sink: "http.Get(targetURL)"
+taint_path:
+  - "r.URL.Query().Get(\"url\") (handlers/proxy.go:14)"
+  - "http.Get(targetURL) (handlers/proxy.go:18)"
+complexity: simple
+exploitable: true
+reference_exploit: "GET /proxy?url=http://169.254.169.254/latest/meta-data/ — SSRF to cloud metadata"
+reference_fix_commit: null
+notes: "stdlib net/http handler passes user-supplied URL directly to http.Get. Classic SSRF. Fix: validate URL scheme and hostname against allowlist."
+language: go
+framework: go-stdlib
+taint_step_count: 2
+taint_field_path: query.url
+field_sensitive_label: true_positive

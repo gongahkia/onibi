@@ -1,0 +1,31 @@
+id: gt-050
+source_project: dvna
+commit_hash: 9ba473add536f66ac9007966acb2a775dd31277a
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting (Stored DOM)
+label: true_positive
+affected_files:
+- core/passport.js
+- core/appHandler.js
+- views/app/adminusers.ejs
+line_numbers:
+- 68
+- 210
+- 41
+taint_source: req.body.name
+taint_sink: innerHTML assignment in views/app/adminusers.ejs
+taint_path:
+- req.body.name (POST /register handled by the passport signup strategy)
+- db.User.create(...) stores the attacker-controlled name (core/passport.js:68)
+- listUsersAPI serializes stored User rows to JSON for /app/admin/usersapi (core/appHandler.js:206-211)
+- views/app/adminusers.ejs:41 assigns users[i].name into innerHTML, creating a DOM XSS sink
+complexity: ctx
+exploitable: true
+reference_exploit: Register with name=<img src=x onerror=alert(document.domain)> and then visit /app/admin/users as an authenticated user
+reference_fix_commit: null
+notes: Stored DOM XSS via user registration. The admin user list populates the name column with innerHTML.
+language: javascript
+framework: express
+taint_step_count: 4
+taint_field_path: body.name
+field_sensitive_label: true_positive

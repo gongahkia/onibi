@@ -1,0 +1,161 @@
+[[rules]]
+rule_id = "iso27001_a8_3_auth_bypass"
+framework = "ISO_27001"
+section = "A.8.3 Information Access Restriction"
+vuln_classes = ["CWE-287", "CWE-306"]
+obligation_text = "ISO 27001 Annex A control A.8.3 requires restricting access to information and supporting assets in line with business and information security requirements. Authentication bypass findings show that application-layer access restriction controls are ineffective."
+consequences = ["remediate", "document", "review"]
+penalty_range = "ISO 27001 Annex A control gap; corrective action and audit evidence required."
+
+[[rules]]
+rule_id = "iso27001_a8_3_idor"
+framework = "ISO_27001"
+section = "A.8.3 Information Access Restriction"
+vuln_classes = ["CWE-639", "CWE-862"]
+obligation_text = "ISO 27001 Annex A control A.8.3 requires restricting access to information and supporting assets in line with business and information security requirements. Object-level authorization failures show that access restriction controls are incomplete or ineffective."
+consequences = ["remediate", "document", "review"]
+penalty_range = "ISO 27001 Annex A control gap; corrective action and audit evidence required."
+
+[[rules]]
+rule_id = "iso27001_a8_3_access_control"
+framework = "ISO_27001"
+section = "A.8.3 Information Access Restriction"
+vuln_classes = ["CWE-284"]
+obligation_text = "ISO 27001 Annex A control A.8.3 requires restricting access to information and supporting assets in line with business and information security requirements. Broad or improper access control weaknesses show that access restriction decisions are not enforced consistently."
+consequences = ["remediate", "document", "review"]
+penalty_range = "ISO 27001 Annex A control gap; corrective action and audit evidence required."
+
+[[rules]]
+rule_id = "iso27001_a8_4_hardcoded_secrets"
+framework = "ISO_27001"
+section = "A.8.4 Access to Source Code"
+vuln_classes = ["CWE-798"]
+obligation_text = "ISO 27001 Annex A control A.8.4 requires restricting access to source code and associated secrets. Hardcoded credentials show that sensitive authentication material is embedded in source artifacts instead of being access controlled and rotated through secure channels."
+consequences = ["remediate", "document", "review"]
+penalty_range = "ISO 27001 Annex A control gap; corrective action and audit evidence required."
+
+[[rules]]
+rule_id = "iso27001_a8_4_source_exposure"
+framework = "ISO_27001"
+section = "A.8.4 Access to Source Code"
+vuln_classes = ["CWE-540", "CWE-615"]
+obligation_text = "ISO 27001 Annex A control A.8.4 requires restricting access to source code and associated sensitive implementation detail. Findings that expose source code or secrets in comments and artifacts show that source protection controls are not operating effectively."
+consequences = ["remediate", "document", "review"]
+penalty_range = "ISO 27001 Annex A control gap; corrective action and audit evidence required."
+
+[[rules]]
+rule_id = "iso27001_a8_7_deserialization"
+framework = "ISO_27001"
+section = "A.8.7 Protection Against Malware"
+vuln_classes = ["CWE-502"]
+obligation_text = "ISO 27001 Annex A control A.8.7 requires protection against malware and malicious code execution. Unsafe deserialization findings show that untrusted input can trigger arbitrary code paths or payload execution."
+consequences = ["remediate", "document", "review"]
+penalty_range = "ISO 27001 Annex A control gap; corrective action and audit evidence required."
+
+[[rules]]
+rule_id = "iso27001_a8_7_code_injection"
+framework = "ISO_27001"
+section = "A.8.7 Protection Against Malware"
+vuln_classes = ["CWE-94", "CWE-95", "CWE-829"]
+obligation_text = "ISO 27001 Annex A control A.8.7 requires protection against malware and malicious code execution. Code injection or untrusted functionality findings show that the application can execute attacker-controlled logic."
+consequences = ["remediate", "document", "review"]
+penalty_range = "ISO 27001 Annex A control gap; corrective action and audit evidence required."
+
+[[rules]]
+rule_id = "iso27001_a8_8_known_cve"
+framework = "ISO_27001"
+section = "A.8.8 Management of Technical Vulnerabilities"
+requires_boolean_facts = ["has_cve"]
+obligation_text = "ISO 27001 Annex A control A.8.8 requires identifying and addressing known technical vulnerabilities in a timely manner. Findings tied to a published CVE show that known vulnerable components remain deployed."
+consequences = ["remediate", "document", "review"]
+penalty_range = "ISO 27001 Annex A control gap; corrective action and audit evidence required."
+
+[[rules]]
+rule_id = "iso27001_a8_8_high_severity"
+framework = "ISO_27001"
+section = "A.8.8 Management of Technical Vulnerabilities"
+requires_boolean_facts = ["severity_high_or_above"]
+obligation_text = "ISO 27001 Annex A control A.8.8 requires identifying, assessing, and remediating significant technical vulnerabilities. High-severity findings show that serious exposure remains unresolved."
+consequences = ["remediate", "document", "review"]
+penalty_range = "ISO 27001 Annex A control gap; corrective action and audit evidence required."
+
+[[rules]]
+rule_id = "iso27001_a8_9_misconfig"
+framework = "ISO_27001"
+section = "A.8.9 Configuration Management"
+vuln_classes = ["CWE-16", "CWE-942", "CWE-693"]
+obligation_text = "ISO 27001 Annex A control A.8.9 requires managing secure configurations throughout the system lifecycle. Security misconfiguration findings show that hardened defaults and configuration governance are not consistently enforced."
+consequences = ["remediate", "document", "review"]
+penalty_range = "ISO 27001 Annex A control gap; corrective action and audit evidence required."
+
+[[rules]]
+rule_id = "iso27001_a8_9_cookie_flags"
+framework = "ISO_27001"
+section = "A.8.9 Configuration Management"
+vuln_classes = ["CWE-1004"]
+obligation_text = "ISO 27001 Annex A control A.8.9 requires managing secure configurations throughout the system lifecycle. Missing secure cookie flags show that session protection settings are not configured to an acceptable baseline."
+consequences = ["remediate", "document", "review"]
+penalty_range = "ISO 27001 Annex A control gap; corrective action and audit evidence required."
+
+[[rules]]
+rule_id = "iso27001_a8_12_cleartext"
+framework = "ISO_27001"
+section = "A.8.12 Data Leakage Prevention"
+vuln_classes = ["CWE-319"]
+obligation_text = "ISO 27001 Annex A control A.8.12 requires reducing the risk of unauthorized disclosure of information. Cleartext transmission findings show that sensitive data can leak over insecure channels."
+consequences = ["remediate", "document", "review"]
+penalty_range = "ISO 27001 Annex A control gap; corrective action and audit evidence required."
+
+[[rules]]
+rule_id = "iso27001_a8_12_path_traversal"
+framework = "ISO_27001"
+section = "A.8.12 Data Leakage Prevention"
+vuln_classes = ["CWE-22"]
+obligation_text = "ISO 27001 Annex A control A.8.12 requires reducing the risk of unauthorized disclosure of information. Path traversal findings show that unauthorized users can reach data outside the intended access boundary."
+consequences = ["remediate", "document", "review"]
+penalty_range = "ISO 27001 Annex A control gap; corrective action and audit evidence required."
+
+[[rules]]
+rule_id = "iso27001_a8_12_info_exposure"
+framework = "ISO_27001"
+section = "A.8.12 Data Leakage Prevention"
+vuln_classes = ["CWE-200", "CWE-532"]
+obligation_text = "ISO 27001 Annex A control A.8.12 requires reducing the risk of unauthorized disclosure of information. Information exposure findings show that sensitive content is being returned or logged in a way that increases leakage risk."
+consequences = ["remediate", "document", "review"]
+penalty_range = "ISO 27001 Annex A control gap; corrective action and audit evidence required."
+
+[[rules]]
+rule_id = "iso27001_a8_24_weak_crypto"
+framework = "ISO_27001"
+section = "A.8.24 Use of Cryptography"
+vuln_classes = ["CWE-327", "CWE-326"]
+obligation_text = "ISO 27001 Annex A control A.8.24 requires the effective use of cryptography and associated key management. Weak or broken cryptographic algorithm findings show that cryptographic protections are inadequate for the intended risk."
+consequences = ["remediate", "document", "review"]
+penalty_range = "ISO 27001 Annex A control gap; corrective action and audit evidence required."
+
+[[rules]]
+rule_id = "iso27001_a8_24_weak_prng"
+framework = "ISO_27001"
+section = "A.8.24 Use of Cryptography"
+vuln_classes = ["CWE-338", "CWE-328"]
+obligation_text = "ISO 27001 Annex A control A.8.24 requires the effective use of cryptography and associated key management. Weak randomness or reversible hashing findings show that cryptographic primitives are not suitable for secure use."
+consequences = ["remediate", "document", "review"]
+penalty_range = "ISO 27001 Annex A control gap; corrective action and audit evidence required."
+
+[[rules]]
+rule_id = "iso27001_a8_25_secure_sdl"
+framework = "ISO_27001"
+section = "A.8.25 Secure Development Lifecycle"
+requires_boolean_facts = ["secure_sdl_gap"]
+obligation_text = "ISO 27001 Annex A control A.8.25 requires defining and applying secure development lifecycle practices. Evidence of an SDL gap shows that security activities are not being embedded consistently into development and release workflows."
+consequences = ["document", "review"]
+penalty_range = "ISO 27001 Annex A control gap; corrective action and audit evidence required."
+
+[[rules]]
+rule_id = "iso27001_a8_28_injection"
+framework = "ISO_27001"
+section = "A.8.28 Secure Coding"
+vuln_classes = ["CWE-89", "CWE-79", "CWE-78", "CWE-20"]
+obligation_text = "ISO 27001 Annex A control A.8.28 requires applying secure coding principles across software development. Injection and input-validation findings show that secure coding practices are not operating effectively in the affected code path."
+consequences = ["remediate", "document", "review"]
+penalty_range = "ISO 27001 Annex A control gap; corrective action and audit evidence required."

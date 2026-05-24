@@ -1,0 +1,24 @@
+id: gt-021
+source_project: dvna
+commit_hash: "4ebb28abcab1f1b35dc40dde7d1a3fe5e3a8b2"
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery
+label: true_positive
+affected_files:
+  - core/appHandler.js
+line_numbers: [168]
+taint_source: req.body.url
+taint_sink: "axios.get()"
+taint_path:
+  - "req.body.url (POST /ssrf handler)"
+  - "axios.get(req.body.url) fetches attacker-controlled URL from server"
+complexity: simple
+exploitable: true
+reference_exploit: "POST /ssrf with url=http://169.254.169.254/latest/meta-data/ reads AWS instance metadata"
+reference_fix_commit: null
+notes: "DVNA SSRF via axios. Server makes outbound request to user-controlled URL without allowlisting or validation."
+language: javascript
+framework: express
+taint_step_count: 2
+taint_field_path: body.url
+field_sensitive_label: true_positive

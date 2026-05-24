@@ -1,0 +1,136 @@
+[project]
+name = "piranesi"
+version = "0.2.0"
+description = "Local-first red-team engagement workspace"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.12"
+authors = [{ name = "piranesi contributors" }]
+maintainers = [{ name = "piranesi contributors" }]
+keywords = [
+    "security",
+    "pentest",
+    "red-team",
+    "reporting",
+    "chain-of-custody",
+    "nmap",
+    "nuclei",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: Software Development :: Quality Assurance",
+    "Operating System :: POSIX :: Linux",
+]
+dependencies = [
+    "typer>=0.12.0",
+    "rich>=13.7.0",
+    "pydantic>=2.6.0",
+    "defusedxml>=0.7.1",
+    "jsonschema>=4.23.0",
+    "reportlab>=4.2.0",
+    "weasyprint>=62.0",
+]
+
+[project.optional-dependencies]
+rescan = [
+    "docker>=7.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/gongahkia/piranesi"
+Repository = "https://github.com/gongahkia/piranesi"
+Issues = "https://github.com/gongahkia/piranesi/issues"
+Documentation = "https://github.com/gongahkia/piranesi/tree/main/docs"
+Changelog = "https://github.com/gongahkia/piranesi/blob/main/CHANGELOG.md"
+Security = "https://github.com/gongahkia/piranesi/blob/main/SECURITY.md"
+
+[project.scripts]
+piranesi = "piranesi.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build]
+exclude = [
+    ".claude/**",
+    ".venv/**",
+    ".mypy_cache/**",
+    ".pytest_cache/**",
+    ".ruff_cache/**",
+    ".piranesi-out/**",
+    "piranesi-output/**",
+    "workspace/**",
+    "CLAUDE.md",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/piranesi"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/piranesi/**",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "SECURITY.md",
+    "pyproject.toml",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
+    "pytest-asyncio>=0.23.0",
+    "mypy>=1.9.0",
+    "ruff>=0.3.0",
+    "types-jsonschema>=4.23.0",
+    "xmlschema>=3.3.2",
+    "types-defusedxml>=0.7.0.20260504",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-v --tb=short --strict-markers"
+markers = [
+    "docker: marks tests covering Docker sandbox lifecycle and hardening",
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks integration tests requiring external services",
+    "joern: marks tests requiring a local Joern installation",
+    "e2e: marks live end-to-end tests requiring Joern and Docker",
+]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_any_generics = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+show_error_codes = true
+namespace_packages = true
+explicit_package_bases = true
+mypy_path = "src"
+exclude = ["tests/fixtures/python/"]
+
+[tool.coverage.run]
+source = ["piranesi"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+fail_under = 60
+show_missing = true

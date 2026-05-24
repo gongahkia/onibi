@@ -1,0 +1,54 @@
+{
+  "tool": "llm_only",
+  "metadata": {
+    "tool": "llm_only",
+    "model": "openai/gpt-4o-mini",
+    "project_root": "/fixture/project",
+    "files_audited": 2
+  },
+  "files_audited": [
+    "src/app.ts",
+    "src/safe.ts"
+  ],
+  "per_file_results": [],
+  "pipeline_findings": 2,
+  "findings": [
+    {
+      "id": "llm-001",
+      "tool": "llm_only",
+      "cwe_id": "CWE-89",
+      "description": "Unsanitized request input reaches a SQL query sink.",
+      "severity": "high",
+      "affected_files": [
+        "src/app.ts"
+      ],
+      "line_numbers": [
+        12
+      ],
+      "taint_source": "",
+      "taint_sink": ""
+    },
+    {
+      "id": "llm-002",
+      "tool": "llm_only",
+      "cwe_id": "CWE-79",
+      "description": "User input is written directly into an HTML response.",
+      "severity": "medium",
+      "affected_files": [
+        "src/ui.ts"
+      ],
+      "line_numbers": [
+        27
+      ],
+      "taint_source": "",
+      "taint_sink": ""
+    }
+  ],
+  "trace_summary": {
+    "entry_count": 2,
+    "prompt_tokens": 500,
+    "response_tokens": 120,
+    "total_cost_usd": 2.4
+  },
+  "total_cost_usd": 2.4
+}

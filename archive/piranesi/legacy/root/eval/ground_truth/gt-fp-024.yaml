@@ -1,0 +1,25 @@
+id: gt-fp-024
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: false_positive
+affected_files:
+  - eval/synthetic/fp-number-coercion-total.ts
+line_numbers: [14]
+taint_source: req.query.minimum
+taint_sink: "client.query() with Number()-coerced value"
+taint_path:
+  - "req.query.minimum (Express GET handler)"
+  - "const minimum = Number(req.query.minimum)"
+  - "client.query(`SELECT * FROM invoices WHERE total > ${minimum}`)"
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "Hand-crafted false positive. Number() coercion combined with a finite check eliminates string SQL syntax injection."
+language: typescript
+framework: general
+taint_step_count: 3
+taint_field_path: query.minimum
+field_sensitive_label: false_positive

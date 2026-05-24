@@ -1,0 +1,37 @@
+[
+  {
+    "Id": "0123456789abcdef",
+    "Name": "/risky-web",
+    "Image": "sha256:image123",
+    "Config": {
+      "Image": "registry.example/app:vulnerable",
+      "User": "",
+      "Env": [
+        "APP_ENV=prod"
+      ]
+    },
+    "HostConfig": {
+      "Privileged": true,
+      "NetworkMode": "host"
+    },
+    "Mounts": [
+      {
+        "Type": "bind",
+        "Source": "/var/run/docker.sock",
+        "Destination": "/var/run/docker.sock",
+        "Mode": "rw",
+        "RW": true
+      }
+    ],
+    "NetworkSettings": {
+      "Ports": {
+        "8080/tcp": [
+          {
+            "HostIp": "0.0.0.0",
+            "HostPort": "8080"
+          }
+        ]
+      }
+    }
+  }
+]

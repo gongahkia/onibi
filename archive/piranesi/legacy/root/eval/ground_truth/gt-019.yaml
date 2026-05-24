@@ -1,0 +1,25 @@
+id: gt-019
+source_project: dvna
+commit_hash: "4ebb28abcab1f1b35dc40dde7d1a3fe5e3a8b2"
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting (Reflected)
+label: true_positive
+affected_files:
+  - core/appHandler.js
+line_numbers: [52]
+taint_source: req.body.name
+taint_sink: "res.render() with unescaped user input"
+taint_path:
+  - "req.body.name (POST /user handler)"
+  - "res.render('app/usersearch', { result: user, searchOutput: req.body.name })"
+  - "template renders searchOutput without escaping using {{{searchOutput}}} (triple-brace unescaped in Handlebars)"
+complexity: simple
+exploitable: true
+reference_exploit: "POST /user with name=<script>alert(document.cookie)</script> executes JS in reflected response"
+reference_fix_commit: null
+notes: "DVNA reflected XSS via Handlebars unescaped interpolation. Triple-brace syntax in Handlebars disables autoescaping."
+language: javascript
+framework: express
+taint_step_count: 3
+taint_field_path: body.name
+field_sensitive_label: true_positive

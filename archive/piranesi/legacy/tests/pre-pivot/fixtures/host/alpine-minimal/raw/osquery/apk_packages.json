@@ -1,0 +1,4 @@
+[
+  {"name": "busybox", "version": "1.36.1-r15", "arch": "x86_64"},
+  {"name": "openssl", "version": "3.1.4-r6", "arch": "x86_64"}
+]

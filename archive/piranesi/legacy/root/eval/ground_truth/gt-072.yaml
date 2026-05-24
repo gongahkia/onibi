@@ -1,0 +1,24 @@
+id: gt-072
+source_project: owasp-juice-shop
+commit_hash: "7380ce7120e289fc6bea861efd3fcba89261a6a8"
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: false_positive
+affected_files:
+  - routes/wallet.ts
+line_numbers: [12]
+taint_source: req.body.UserId
+taint_sink: "WalletModel.findOne() Sequelize model method"
+taint_path:
+  - "req.body.UserId (routes/wallet.ts:12)"
+  - "WalletModel.findOne({ where: { UserId: req.body.UserId } })"
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "False positive for SQLi. The query is parameterized through Sequelize, and UserId is normally appended by authenticated middleware rather than being interpolated into raw SQL."
+language: typescript
+framework: express
+taint_step_count: 2
+taint_field_path: body.UserId
+field_sensitive_label: false_positive

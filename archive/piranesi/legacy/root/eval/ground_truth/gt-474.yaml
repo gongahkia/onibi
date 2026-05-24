@@ -1,0 +1,26 @@
+id: gt-474
+source_project: synthetic-phase31
+commit_hash: synthetic-no-commit
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+field_sensitive_label: true_positive
+affected_files:
+- eval/synthetic/field-body-path-readfile.ts
+line_numbers:
+- 7
+taint_source: req.body
+taint_sink: fs.readFile()
+taint_field_path: body.path
+taint_path:
+- req.body.path is attacker-controlled
+- fs.readFile() consumes the path directly
+complexity: simple
+exploitable: true
+reference_exploit: POST /field-path with path=../../etc/passwd reads arbitrary files.
+reference_fix_commit: null
+notes: The path field remains tainted at the sink.
+discovery_method: synthetic
+language: typescript
+framework: express
+taint_step_count: 2

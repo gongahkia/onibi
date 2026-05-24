@@ -1,0 +1,24 @@
+id: gt-075
+source_project: owasp-juice-shop
+commit_hash: "7380ce7120e289fc6bea861efd3fcba89261a6a8"
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: false_positive
+affected_files:
+  - routes/basket.ts
+line_numbers: [18, 19]
+taint_source: req.params.id
+taint_sink: "BasketModel.findOne() Sequelize model method"
+taint_path:
+  - "req.params.id (routes/basket.ts:18)"
+  - "BasketModel.findOne({ where: { id }, include: [...] }) (routes/basket.ts:19)"
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "False positive for SQLi. The route is intentionally vulnerable to broken access control, but the database access itself is a parameterized ORM lookup rather than a raw SQL string."
+language: typescript
+framework: express
+taint_step_count: 2
+taint_field_path: params.id
+field_sensitive_label: false_positive

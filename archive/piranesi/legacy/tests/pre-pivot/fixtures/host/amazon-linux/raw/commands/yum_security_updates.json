@@ -1,0 +1,5 @@
+{
+  "command": ["yum", "updateinfo", "list", "security"],
+  "stdout": "ALAS2023-2026-001 Important/Sec. openssl.x86_64\n",
+  "stderr": ""
+}

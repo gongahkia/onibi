@@ -1,0 +1,16 @@
+[
+  {
+    "protocol": "tcp",
+    "address": "0.0.0.0",
+    "port": "22",
+    "pid": "781",
+    "process_name": "sshd"
+  },
+  {
+    "protocol": "tcp",
+    "address": "0.0.0.0",
+    "port": "6379",
+    "pid": "944",
+    "process_name": "redis-server"
+  }
+]

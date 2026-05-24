@@ -1,0 +1,92 @@
+[[rules]]
+rule_id = "nis2_art21_risk_management"
+framework = "NIS2"
+section = "Article 21 (Risk-Management Measures)"
+requires_any_boolean_facts = ["is_essential_entity", "is_important_entity"]
+obligation_text = "Article 21 requires essential and important entities to take appropriate and proportionate technical, operational, and organisational measures to manage risks posed to the security of network and information systems. A confirmed exploitable vulnerability indicates that the entity must remediate the weakness, assess its control environment, and document the risk-management response."
+consequences = ["remediate", "document", "review"]
+penalty_range = "Article 34 exposure applies: essential entities up to EUR 10,000,000 or 2% of total worldwide annual turnover; important entities up to EUR 7,000,000 or 1.4%."
+enforcement_precedents = []
+cross_references = []
+severity_modifier = "standard"
+
+[[rules]]
+rule_id = "nis2_art21_supply_chain"
+framework = "NIS2"
+section = "Article 21(2)(d) (Supply Chain Security)"
+requires_rule_ids = ["nis2_art21_risk_management"]
+requires_boolean_facts = ["third_party_processor"]
+obligation_text = "Article 21(2)(d) requires entities to address supply-chain security, including security-related aspects concerning relationships between each entity and its direct suppliers or service providers. Where a confirmed vulnerability involves a third-party processor or service provider, the entity must assess and remediate the supplier-side risk and review contractual and technical safeguards."
+consequences = ["remediate", "review", "document"]
+penalty_range = "Article 34 exposure applies based on entity classification."
+enforcement_precedents = []
+cross_references = ["nis2_art21_risk_management"]
+severity_modifier = "aggravated"
+
+[[rules]]
+rule_id = "nis2_art23_early_warning"
+framework = "NIS2"
+section = "Article 23 (24h Early Warning)"
+requires_rule_ids = ["nis2_art21_risk_management"]
+affected_individuals_gte = 500
+obligation_text = "Article 23 requires an essential or important entity that experiences a significant incident to submit an early warning to the competent authority or CSIRT without undue delay and, in any event, within 24 hours of becoming aware of the significant incident."
+consequences = ["notify_regulator", "document"]
+penalty_range = "Article 34 exposure applies based on entity classification."
+notification_timeline = "24 hours from awareness of the significant incident"
+enforcement_precedents = []
+cross_references = ["nis2_art21_risk_management"]
+severity_modifier = "aggravated"
+
+[[rules]]
+rule_id = "nis2_art23_incident_notification"
+framework = "NIS2"
+section = "Article 23 (72h Incident Notification)"
+requires_rule_ids = ["nis2_art21_risk_management"]
+affected_individuals_gte = 500
+obligation_text = "Article 23 further requires the entity to provide an incident notification without undue delay and, in any event, within 72 hours of becoming aware of the significant incident, including an initial assessment of severity, impact, and indicators of compromise. A final report remains due within one month."
+consequences = ["notify_regulator", "document", "review"]
+penalty_range = "Article 34 exposure applies based on entity classification."
+notification_timeline = "72 hours from awareness of the significant incident"
+enforcement_precedents = []
+cross_references = ["nis2_art21_risk_management", "nis2_art23_early_warning"]
+severity_modifier = "aggravated"
+
+[[rules]]
+rule_id = "nis2_art23_cross_border"
+framework = "NIS2"
+section = "Article 23 (Cross-Border Coordination)"
+requires_rule_ids = ["nis2_art23_incident_notification"]
+requires_boolean_facts = ["cross_border"]
+obligation_text = "Where a significant incident has a cross-border impact, Article 23 requires coordination with the relevant CSIRTs and competent authorities in the affected Member States. The entity must support multi-state notification, coordination, and incident-handling measures."
+consequences = ["notify_regulator", "document", "review"]
+penalty_range = "Article 34 exposure applies based on entity classification."
+notification_timeline = "Without undue delay to affected Member States alongside Article 23 reporting"
+enforcement_precedents = []
+cross_references = ["nis2_art23_early_warning", "nis2_art23_incident_notification"]
+severity_modifier = "aggravated"
+
+[[rules]]
+rule_id = "nis2_art34_essential_penalties"
+framework = "NIS2"
+section = "Article 34 (Essential Entity Penalties)"
+requires_rule_ids = ["nis2_art21_risk_management"]
+requires_boolean_facts = ["is_essential_entity"]
+obligation_text = "Article 34 permits Member States to provide for administrative fines for essential entities that infringe Articles 21 or 23. For an essential entity with a confirmed cybersecurity control failure, the administrative fine exposure reaches the higher essential-entity tier."
+consequences = ["document", "review"]
+penalty_range = "Up to EUR 10,000,000 or 2% of total worldwide annual turnover, whichever is higher"
+enforcement_precedents = []
+cross_references = ["nis2_art21_risk_management", "nis2_art23_early_warning", "nis2_art23_incident_notification"]
+severity_modifier = "aggravated"
+
+[[rules]]
+rule_id = "nis2_art34_important_penalties"
+framework = "NIS2"
+section = "Article 34 (Important Entity Penalties)"
+requires_rule_ids = ["nis2_art21_risk_management"]
+requires_boolean_facts = ["is_important_entity"]
+obligation_text = "Article 34 permits Member States to provide for administrative fines for important entities that infringe Articles 21 or 23. For an important entity with a confirmed cybersecurity control failure, the administrative fine exposure reaches the important-entity tier."
+consequences = ["document", "review"]
+penalty_range = "Up to EUR 7,000,000 or 1.4% of total worldwide annual turnover, whichever is higher"
+enforcement_precedents = []
+cross_references = ["nis2_art21_risk_management", "nis2_art23_early_warning", "nis2_art23_incident_notification"]
+severity_modifier = "aggravated"

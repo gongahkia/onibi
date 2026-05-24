@@ -1,0 +1,24 @@
+id: gt-fp-003
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-78
+cwe_name: OS Command Injection
+label: false_positive
+affected_files:
+  - eval/synthetic/fp-dead-code-exec.ts
+line_numbers: [25, 30]
+taint_source: req.query.cmd
+taint_sink: "child_process.exec() in unreachable branch"
+taint_path:
+  - "req.query.cmd (Express route handler)"
+  - "if (false) { exec(req.query.cmd) } -- dead code branch"
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "Hand-crafted false positive. Apparent command injection exists in dead code behind an always-false condition (feature flag permanently disabled). The exec() call is syntactically present but never reachable. Tests that Piranesi's analysis respects control flow rather than pattern-matching on sink calls."
+language: typescript
+framework: general
+taint_step_count: 2
+taint_field_path: query.cmd
+field_sensitive_label: false_positive

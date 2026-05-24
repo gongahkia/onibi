@@ -1,0 +1,26 @@
+id: gt-fp-025
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: false_positive
+affected_files:
+  - eval/synthetic/fp-path-containment-sendfile.ts
+line_numbers: [18]
+taint_source: req.params.file
+taint_sink: "res.sendFile() behind path containment guard"
+taint_path:
+  - "req.params.file (Express route parameter)"
+  - "const resolved = path.resolve(PUBLIC_DIR, file)"
+  - "if (!resolved.startsWith(PUBLIC_DIR + '/')) return 403"
+  - "res.sendFile(resolved)"
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "Hand-crafted false positive. path.resolve() plus a startsWith() containment check prevents traversal outside the public directory."
+language: typescript
+framework: general
+taint_step_count: 4
+taint_field_path: params.file
+field_sensitive_label: false_positive

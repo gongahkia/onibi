@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-05-14T00:00:00+00:00",
+  "entries": [
+    {
+      "rule_id": "community.ssh.password-authentication-enabled",
+      "path": "rules/community/host/ssh-password-authentication.toml",
+      "maintainer": "piranesi-maintainers",
+      "platform_support": [
+        "debian",
+        "ubuntu",
+        "rhel",
+        "amazon-linux"
+      ],
+      "fixture_coverage": [
+        "tests/fixtures/host/debian-vulnerable"
+      ],
+      "last_validation_date": "2026-05-14"
+    }
+  ]
+}

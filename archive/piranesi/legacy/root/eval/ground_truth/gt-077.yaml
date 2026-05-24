@@ -1,0 +1,24 @@
+id: gt-077
+source_project: owasp-juice-shop
+commit_hash: "7380ce7120e289fc6bea861efd3fcba89261a6a8"
+cwe_id: CWE-89
+cwe_name: SQL Injection (NoSQL variant)
+label: false_positive
+affected_files:
+  - routes/orderHistory.ts
+line_numbers: [36]
+taint_source: req.params.id
+taint_sink: "ordersCollection.update() with exact scalar _id match"
+taint_path:
+  - "req.params.id (routes/orderHistory.ts:36)"
+  - "ordersCollection.update({ _id: req.params.id }, { $set: { delivered: deliveryStatus, eta } })"
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "False positive for NoSQL injection. Unlike the $where-based routes, this update uses a literal string _id equality check from a path parameter and does not interpret JavaScript or operator objects."
+language: typescript
+framework: express
+taint_step_count: 2
+taint_field_path: params.id
+field_sensitive_label: false_positive

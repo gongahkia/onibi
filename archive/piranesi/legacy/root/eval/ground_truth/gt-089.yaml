@@ -1,0 +1,27 @@
+id: gt-089
+source_project: dvna
+commit_hash: 9ba473add536f66ac9007966acb2a775dd31277a
+cwe_id: CWE-502
+cwe_name: Deserialization of Untrusted Data
+label: true_positive
+affected_files:
+- core/appHandler.js
+line_numbers:
+- 217
+- 218
+taint_source: req.files.products.data
+taint_sink: node-serialize.unserialize()
+taint_path:
+- req.files.products.data uploaded to POST /app/bulkproductslegacy
+- req.files.products.data.toString("utf8") converts attacker-controlled bytes into a serialized string payload
+- serialize.unserialize(...) deserializes attacker-controlled content (core/appHandler.js:218)
+complexity: simple
+exploitable: true
+reference_exploit: Upload a legacy import file containing a node-serialize _$$ND_FUNC$$_ gadget so code executes during unserialize()
+reference_fix_commit: null
+notes: Direct unsafe-deserialization sink in node-serialize 0.0.4. Public gadget chains exist for arbitrary code execution.
+language: javascript
+framework: express
+taint_step_count: 3
+taint_field_path: files.products.data
+field_sensitive_label: true_positive

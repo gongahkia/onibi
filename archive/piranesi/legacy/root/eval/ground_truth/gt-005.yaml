@@ -1,0 +1,24 @@
+id: gt-005
+source_project: sequelize
+commit_hash: "5b7c8015c907b0dfd878ca4a9f28343a3392c307"
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+  - src/dialects/abstract/query-generator.js
+line_numbers: [1892, 1925, 1692]
+taint_source: "user-controlled JSON object key in where clause"
+taint_sink: "raw interpolation into CAST() SQL expression via handleSequelizeMethod()"
+taint_path:
+  - "user-controlled JSON key with :: delimiter in where clause"
+  - "_traverseJSON() splits key on '::' to extract cast type (line ~1892)"
+  - "_castKey() interpolates raw cast type into CAST(... AS <type>) (line ~1925)"
+  - "handleSequelizeMethod() emits unsanitized SQL (line ~1692)"
+complexity: ctx
+exploitable: true
+reference_exploit: "UNION-based and boolean-blind SQLi via crafted JSON key containing '::' followed by SQL payload to exfiltrate data"
+reference_fix_commit: "cb7f99ad05de56137672ab95586359ff6ceba004"
+notes: "CVE-2026-30951 (GHSA-6457-6jrx-69cr). CVSS 7.5. Sequelize <= 6.37.7. Fix: whitelist allowed SQL cast types. Context-sensitive: requires understanding JSON path splitting and cast type interpolation chain."
+language: javascript
+framework: node
+taint_step_count: 4

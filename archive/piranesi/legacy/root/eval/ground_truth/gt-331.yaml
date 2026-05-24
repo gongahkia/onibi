@@ -1,0 +1,26 @@
+id: gt-331
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-352
+cwe_name: Cross-Site Request Forgery
+label: true_positive
+affected_files:
+- eval/fixtures/python/django/gt-331/views.py
+line_numbers:
+- 4
+taint_source: cross-site POST request to transfer()
+taint_sink: '@csrf_exempt'
+taint_path:
+- the browser automatically includes the victim session on a cross-site POST
+- '@csrf_exempt disables Django''s CSRF verification for transfer()'
+- transfer() performs a state-changing action without a CSRF check
+complexity: ctx
+exploitable: true
+reference_exploit: Host a form that auto-submits POST /transfer from the victim browser.
+reference_fix_commit: null
+notes: Django CSRF bypass through a state-changing view explicitly decorated with
+  @csrf_exempt.
+discovery_method: synthetic
+language: python
+framework: django
+taint_step_count: 3

@@ -1,0 +1,32 @@
+[rule]
+id = "custom-nosql-001"
+name = "NoSQL Injection via MongoDB $where"
+cwe_id = "CWE-943"
+severity = "high"
+description = "User input reaches a MongoDB $where clause."
+author = "security-team"
+version = "1.0.0"
+tags = ["nosql", "mongodb", "injection"]
+
+[rule.source]
+pattern = "const userInput = String\\(req\\.query\\.threshold\\)"
+type = "regex"
+
+[rule.sink]
+pattern = "\\$where\\s*:"
+type = "regex"
+
+[rule.message]
+template = "User input from `{source}` reaches `{sink}`."
+
+[[tests]]
+fixture = "tests/fixtures/nosql_injection.ts"
+expect_finding = true
+expect_cwe = "CWE-943"
+expect_source_line = 10
+expect_sink_line = 16
+
+[[tests]]
+fixture = "tests/fixtures/nosql_safe.ts"
+expect_finding = false
+description = "Structured query without $where should not trigger."

@@ -1,0 +1,21 @@
+stages:
+  - report
+
+piranesi:
+  stage: report
+  image: ghcr.io/gongahkia/piranesi:latest
+  script:
+    - piranesi ingest init --workspace workspace --client CI --project fixture-smoke
+    - piranesi ingest nmap --input tests/fixtures/pentest/nmap/localhost-http.xml --workspace workspace
+    - piranesi ingest nuclei --input tests/fixtures/pentest/nuclei/localhost-http.jsonl --workspace workspace
+    - piranesi report --workspace workspace --format json
+    - piranesi report --workspace workspace --format md
+    - piranesi pff export --workspace workspace
+    - piranesi ci validate-pff --input workspace/reports/findings.pff.json
+    - piranesi ci validate-report-bundle --path workspace/reports
+    - piranesi sign --workspace workspace
+    - piranesi sign --workspace workspace --verify
+  artifacts:
+    when: always
+    paths:
+      - workspace/

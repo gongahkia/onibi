@@ -1,0 +1,29 @@
+# Example rule pack: Python/Flask server-side template injection
+# This is a learning scaffold, not a production-complete policy.
+
+[rule]
+id = "example-python-flask-ssti"
+name = "Flask render_template_string injection"
+schema_version = "1"
+category = "injection"
+cwe_id = "CWE-94"
+severity = "high"
+description = "Example rule showing request input flowing into Flask template rendering APIs that execute template expressions."
+author = "piranesi-example-packs"
+version = "0.1.0"
+tags = ["example", "python", "flask", "ssti", "template-injection"]
+
+[rule.source]
+pattern = 'request\.(?:args|form|values|get_json\(\))'
+type = "regex"
+
+[rule.sink]
+pattern = '\brender_template_string\s*\('
+type = "regex"
+
+[rule.sanitizers]
+patterns = ['markupsafe\.escape\(', 'jinja2\.escape\(']
+type = "regex"
+
+[rule.message]
+template = "Example pack: request-controlled template input from `{source}` reaches `{sink}`."

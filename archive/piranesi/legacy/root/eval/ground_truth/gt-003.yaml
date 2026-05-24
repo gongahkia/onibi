@@ -1,0 +1,24 @@
+id: gt-003
+source_project: owasp-juice-shop
+commit_hash: "7380ce7120e289fc6bea861efd3fcba89261a6a8"
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+  - routes/login.ts
+line_numbers: [36]
+taint_source: req.body.email
+taint_sink: models.sequelize.query()
+taint_path:
+  - "req.body.email (routes/login.ts:36)"
+  - "models.sequelize.query(`SELECT * FROM Users WHERE email = '${req.body.email || ''}' AND password = '${security.hash(req.body.password || '')}' ...`)"
+complexity: simple
+exploitable: true
+reference_exploit: "POST /rest/user/login with email=' OR 1=1-- bypasses authentication, logs in as admin"
+reference_fix_commit: null
+notes: "Authentication bypass via SQLi. Password is hashed before interpolation but email is completely unsanitized. Juice Shop challenges: loginAdminChallenge, loginBenderChallenge, loginJimChallenge."
+language: typescript
+framework: express
+taint_step_count: 2
+taint_field_path: body.email
+field_sensitive_label: true_positive

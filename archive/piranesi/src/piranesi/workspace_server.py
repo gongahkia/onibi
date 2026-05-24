@@ -1,0 +1,1175 @@
+# ruff: noqa: E501
+
+from __future__ import annotations
+
+import json
+import tempfile
+import threading
+import webbrowser
+from dataclasses import dataclass
+from email.parser import BytesParser
+from email.policy import default as email_default_policy
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from ipaddress import ip_address
+from pathlib import Path
+from typing import Any, cast
+from urllib.parse import parse_qs, urlparse
+
+from piranesi.detections import (
+    DetectionConfidence,
+    DetectionError,
+    DetectionSensitivity,
+    IOCType,
+    add_detection_note,
+    add_ioc,
+    load_detections,
+)
+from piranesi.evidence import (
+    EvidenceError,
+    EvidenceKind,
+    EvidenceSensitivity,
+    add_evidence_file,
+    load_evidence_index,
+)
+from piranesi.objectives import (
+    ObjectiveError,
+    ObjectiveStatus,
+    add_objective,
+    add_procedure,
+    load_objectives,
+    load_procedures,
+)
+from piranesi.report.pentest import (
+    PdfBackend,
+    PentestReport,
+    build_pentest_report,
+    render_markdown,
+    render_report_artifact,
+)
+from piranesi.timeline import (
+    TimelineConfidence,
+    TimelineError,
+    append_timeline_event,
+    load_timeline_events,
+)
+from piranesi.workspace import (
+    DETECTIONS_FILE,
+    EVIDENCE_FILE,
+    OBJECTIVES_FILE,
+    PROCEDURES_FILE,
+    TIMELINE_FILE,
+    AuditEvent,
+    EngagementMetadata,
+    WorkspaceError,
+    append_audit_event,
+    create_workspace,
+    file_sha256,
+    load_workspace,
+    utc_now,
+)
+
+
+class WorkspaceServerError(RuntimeError):
+    """Raised when the local workspace preview server cannot start safely."""
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceServeOptions:
+    workspace: Path
+    host: str = "127.0.0.1"
+    port: int = 8765
+    open_browser: bool = False
+
+
+@dataclass(slots=True)
+class WorkspaceServerState:
+    workspace_root: Path
+
+
+@dataclass(frozen=True, slots=True)
+class _UploadedEvidenceFile:
+    filename: str
+    body: bytes
+
+
+def is_loopback_host(host: str) -> bool:
+    normalized = host.strip().lower()
+    if normalized in {"localhost", "ip6-localhost"}:
+        return True
+    try:
+        return ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
+def create_workspace_server(
+    workspace: str | Path,
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8765,
+) -> ThreadingHTTPServer:
+    try:
+        state = create_workspace(workspace)
+    except WorkspaceError as exc:
+        raise WorkspaceServerError(str(exc)) from exc
+    server_state = WorkspaceServerState(workspace_root=state.root)
+
+    class PiranesiWorkspaceHandler(_WorkspaceRequestHandler):
+        workspace_state = server_state
+
+    server = ThreadingHTTPServer((host, port), PiranesiWorkspaceHandler)
+    server.workspace_state = server_state  # type: ignore[attr-defined]
+    return server
+
+
+def run_workspace_server(
+    options: WorkspaceServeOptions,
+    *,
+    block: bool = True,
+) -> ThreadingHTTPServer:
+    server = create_workspace_server(options.workspace, host=options.host, port=options.port)
+    address = server.server_address[0]
+    host_name = address.decode() if isinstance(address, bytes) else str(address)
+    url = f"http://{host_name}:{server.server_address[1]}"
+    if options.open_browser:
+        webbrowser.open(url)
+    if block:
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            server.server_close()
+    else:
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+    return server
+
+
+class _WorkspaceRequestHandler(BaseHTTPRequestHandler):
+    workspace_state: WorkspaceServerState
+
+    def log_message(self, _format: str, *_args: object) -> None:
+        return
+
+    def do_GET(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path in {"/", "/index.html"}:
+            self._send_text(_INDEX_HTML, content_type="text/html; charset=utf-8")
+            return
+        if parsed.path == "/app.css":
+            self._send_text(_APP_CSS, content_type="text/css; charset=utf-8")
+            return
+        if parsed.path == "/app.js":
+            self._send_text(_APP_JS, content_type="application/javascript; charset=utf-8")
+            return
+        if parsed.path == "/api/health":
+            try:
+                self._send_json(_health_payload(self.workspace_state.workspace_root))
+            except WorkspaceError as exc:
+                self._send_json({"status": "error", "error": str(exc)}, status=HTTPStatus.CONFLICT)
+            return
+        if parsed.path == "/api/workspace":
+            try:
+                self._send_json(_workspace_payload(self.workspace_state.workspace_root))
+            except WorkspaceError as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.CONFLICT)
+            return
+        if parsed.path == "/api/report/json":
+            try:
+                payload = _report_payload(self.workspace_state.workspace_root)
+            except WorkspaceError as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.CONFLICT)
+                return
+            self._send_bytes(
+                json.dumps(payload, indent=2, sort_keys=True).encode("utf-8") + b"\n",
+                content_type="application/json; charset=utf-8",
+                filename="pentest-report.json",
+            )
+            return
+        if parsed.path == "/api/report/markdown":
+            try:
+                report = _report_model(self.workspace_state.workspace_root)
+            except WorkspaceError as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.CONFLICT)
+                return
+            self._send_text(
+                render_markdown(report),
+                content_type="text/markdown; charset=utf-8",
+                filename="pentest-report.md",
+            )
+            return
+        if parsed.path == "/api/report/pdf":
+            backend = _pdf_backend(parse_qs(parsed.query))
+            try:
+                report = _report_model(self.workspace_state.workspace_root)
+                with tempfile.TemporaryDirectory(prefix="piranesi-report-") as tmp:
+                    path = render_report_artifact(
+                        report,
+                        output_dir=Path(tmp),
+                        output_format="pdf",
+                        pdf_backend=backend,
+                    )
+                    body = path.read_bytes()
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.CONFLICT)
+                return
+            self._send_bytes(
+                body,
+                content_type="application/pdf",
+                filename=f"pentest-report-{backend}.pdf",
+            )
+            return
+        self._send_json({"error": "not found"}, status=HTTPStatus.NOT_FOUND)
+
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/workspace/init":
+            try:
+                payload = self._read_json_body()
+                engagement = EngagementMetadata(
+                    client=_optional_string(payload.get("client")),
+                    project=_optional_string(payload.get("project")),
+                    scope=_string_list(payload.get("scope")),
+                    assessment_type=_optional_string(payload.get("assessment_type")),
+                    owner=_optional_string(payload.get("owner")),
+                )
+                create_workspace(self.workspace_state.workspace_root, engagement=engagement)
+                self._send_json(_workspace_payload(self.workspace_state.workspace_root))
+            except (WorkspaceError, WorkspaceServerError, ValueError) as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/evidence/note":
+            try:
+                payload = self._read_json_body()
+                state = create_workspace(self.workspace_state.workspace_root)
+                title = _optional_string(payload.get("title")) or "Operator note"
+                content = _required_string(payload.get("content"), "content")
+                with tempfile.TemporaryDirectory(prefix="piranesi-note-") as tmp:
+                    note_path = Path(tmp) / "operator-note.md"
+                    note_path.write_text(content.rstrip() + "\n", encoding="utf-8")
+                    _index, record = add_evidence_file(
+                        state.root,
+                        file_path=note_path,
+                        kind="note",
+                        title=title,
+                        source=_optional_string(payload.get("source")) or "piranesi-ui",
+                        sensitivity=_evidence_sensitivity(payload.get("sensitivity")),
+                        tags=_string_list(payload.get("tags")),
+                        notes=_optional_string(payload.get("notes")) or content,
+                    )
+                output_digest = file_sha256(state.root / EVIDENCE_FILE)
+                append_audit_event(
+                    state,
+                    AuditEvent(
+                        timestamp=utc_now(),
+                        command="web evidence note",
+                        input_path=record.raw_path,
+                        input_sha256=record.sha256,
+                        output_path=EVIDENCE_FILE,
+                        output_sha256=output_digest,
+                        summary={
+                            "evidence_id": record.id,
+                            "kind": record.kind,
+                            "title": record.title,
+                        },
+                    ),
+                )
+                self._send_json(_workspace_payload(self.workspace_state.workspace_root))
+            except (EvidenceError, WorkspaceError, WorkspaceServerError, ValueError) as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/evidence/file":
+            try:
+                payload, uploaded = self._read_multipart_body()
+                state = create_workspace(self.workspace_state.workspace_root)
+                kind = _evidence_kind(payload.get("kind"))
+                title = _optional_string(payload.get("title")) or uploaded.filename
+                with tempfile.TemporaryDirectory(prefix="piranesi-upload-") as tmp:
+                    upload_path = Path(tmp) / _safe_upload_filename(uploaded.filename)
+                    upload_path.write_bytes(uploaded.body)
+                    _index, record = add_evidence_file(
+                        state.root,
+                        file_path=upload_path,
+                        kind=kind,
+                        title=title,
+                        observed_at=_optional_string(payload.get("observed_at")),
+                        source=_optional_string(payload.get("source")) or "piranesi-ui",
+                        sensitivity=_evidence_sensitivity(payload.get("sensitivity")),
+                        tags=_string_list(payload.get("tags")),
+                        notes=_optional_string(payload.get("notes")),
+                    )
+                output_digest = file_sha256(state.root / EVIDENCE_FILE)
+                append_audit_event(
+                    state,
+                    AuditEvent(
+                        timestamp=utc_now(),
+                        command="web evidence file",
+                        input_path=record.raw_path,
+                        input_sha256=record.sha256,
+                        output_path=EVIDENCE_FILE,
+                        output_sha256=output_digest,
+                        summary={
+                            "evidence_id": record.id,
+                            "kind": record.kind,
+                            "title": record.title,
+                        },
+                    ),
+                )
+                self._send_json(_workspace_payload(self.workspace_state.workspace_root))
+            except (EvidenceError, WorkspaceError, WorkspaceServerError, ValueError) as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/timeline/event":
+            try:
+                payload = self._read_json_body()
+                state = create_workspace(self.workspace_state.workspace_root)
+                event = append_timeline_event(
+                    state,
+                    summary=_required_string(payload.get("summary"), "summary"),
+                    timestamp=_optional_string(payload.get("timestamp")),
+                    phase=_optional_string(payload.get("phase")),
+                    actor=_optional_string(payload.get("actor")),
+                    details=_optional_string(payload.get("details")),
+                    evidence_ids=_string_list(payload.get("evidence_ids")),
+                    finding_ids=_string_list(payload.get("finding_ids")),
+                    objective_ids=_string_list(payload.get("objective_ids")),
+                    tags=_string_list(payload.get("tags")),
+                    confidence=_timeline_confidence(payload.get("confidence")),
+                )
+                append_audit_event(
+                    state,
+                    AuditEvent(
+                        timestamp=utc_now(),
+                        command="web timeline event",
+                        output_path=TIMELINE_FILE,
+                        output_sha256=file_sha256(state.root / TIMELINE_FILE),
+                        summary={"event_id": event.id, "summary": event.summary},
+                    ),
+                )
+                self._send_json(_workspace_payload(self.workspace_state.workspace_root))
+            except (TimelineError, WorkspaceError, WorkspaceServerError, ValueError) as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/objectives/objective":
+            try:
+                payload = self._read_json_body()
+                state = create_workspace(self.workspace_state.workspace_root)
+                _objectives_document, objective = add_objective(
+                    state,
+                    title=_required_string(payload.get("title"), "title"),
+                    status=_objective_status(payload.get("status")),
+                    owner=_optional_string(payload.get("owner")),
+                    target_assets=_string_list(payload.get("target_assets")),
+                    success_criteria=_string_list(payload.get("success_criteria")),
+                    evidence_ids=_string_list(payload.get("evidence_ids")),
+                    timeline_event_ids=_string_list(payload.get("timeline_event_ids")),
+                    tags=_string_list(payload.get("tags")),
+                    notes=_optional_string(payload.get("notes")),
+                )
+                append_audit_event(
+                    state,
+                    AuditEvent(
+                        timestamp=utc_now(),
+                        command="web objective add",
+                        output_path=OBJECTIVES_FILE,
+                        output_sha256=file_sha256(state.root / OBJECTIVES_FILE),
+                        summary={"objective_id": objective.id, "title": objective.title},
+                    ),
+                )
+                self._send_json(_workspace_payload(self.workspace_state.workspace_root))
+            except (ObjectiveError, WorkspaceError, WorkspaceServerError, ValueError) as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/objectives/procedure":
+            try:
+                payload = self._read_json_body()
+                state = create_workspace(self.workspace_state.workspace_root)
+                _procedures_document, procedure = add_procedure(
+                    state,
+                    summary=_required_string(payload.get("summary"), "summary"),
+                    tactic=_optional_string(payload.get("tactic")),
+                    technique_id=_optional_string(payload.get("technique_id")),
+                    technique_name=_optional_string(payload.get("technique_name")),
+                    command=_optional_string(payload.get("command")),
+                    evidence_ids=_string_list(payload.get("evidence_ids")),
+                    timeline_event_ids=_string_list(payload.get("timeline_event_ids")),
+                    finding_ids=_string_list(payload.get("finding_ids")),
+                    objective_ids=_string_list(payload.get("objective_ids")),
+                    tags=_string_list(payload.get("tags")),
+                    notes=_optional_string(payload.get("notes")),
+                )
+                append_audit_event(
+                    state,
+                    AuditEvent(
+                        timestamp=utc_now(),
+                        command="web procedure add",
+                        output_path=PROCEDURES_FILE,
+                        output_sha256=file_sha256(state.root / PROCEDURES_FILE),
+                        summary={"procedure_id": procedure.id, "summary": procedure.summary},
+                    ),
+                )
+                self._send_json(_workspace_payload(self.workspace_state.workspace_root))
+            except (ObjectiveError, WorkspaceError, WorkspaceServerError, ValueError) as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/detections/ioc":
+            try:
+                payload = self._read_json_body()
+                state = create_workspace(self.workspace_state.workspace_root)
+                _ioc_document, ioc = add_ioc(
+                    state,
+                    ioc_type=_ioc_type(payload.get("type")),
+                    value=_required_string(payload.get("value"), "value"),
+                    first_observed=_optional_string(payload.get("first_observed")),
+                    last_observed=_optional_string(payload.get("last_observed")),
+                    evidence_ids=_string_list(payload.get("evidence_ids")),
+                    timeline_event_ids=_string_list(payload.get("timeline_event_ids")),
+                    procedure_ids=_string_list(payload.get("procedure_ids")),
+                    sensitivity=_detection_sensitivity(payload.get("sensitivity")),
+                    confidence=_detection_confidence(payload.get("confidence")),
+                    tags=_string_list(payload.get("tags")),
+                    notes=_optional_string(payload.get("notes")),
+                )
+                append_audit_event(
+                    state,
+                    AuditEvent(
+                        timestamp=utc_now(),
+                        command="web detection ioc",
+                        output_path=DETECTIONS_FILE,
+                        output_sha256=file_sha256(state.root / DETECTIONS_FILE),
+                        summary={"ioc_id": ioc.id, "type": ioc.type, "value": ioc.value},
+                    ),
+                )
+                self._send_json(_workspace_payload(self.workspace_state.workspace_root))
+            except (DetectionError, WorkspaceError, WorkspaceServerError, ValueError) as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/detections/note":
+            try:
+                payload = self._read_json_body()
+                state = create_workspace(self.workspace_state.workspace_root)
+                _detection_note_document, note = add_detection_note(
+                    state,
+                    title=_required_string(payload.get("title"), "title"),
+                    body=_required_string(payload.get("body"), "body"),
+                    evidence_ids=_string_list(payload.get("evidence_ids")),
+                    timeline_event_ids=_string_list(payload.get("timeline_event_ids")),
+                    procedure_ids=_string_list(payload.get("procedure_ids")),
+                    finding_ids=_string_list(payload.get("finding_ids")),
+                    sensitivity=_detection_sensitivity(payload.get("sensitivity")),
+                    tags=_string_list(payload.get("tags")),
+                )
+                append_audit_event(
+                    state,
+                    AuditEvent(
+                        timestamp=utc_now(),
+                        command="web detection note",
+                        output_path=DETECTIONS_FILE,
+                        output_sha256=file_sha256(state.root / DETECTIONS_FILE),
+                        summary={"note_id": note.id, "title": note.title},
+                    ),
+                )
+                self._send_json(_workspace_payload(self.workspace_state.workspace_root))
+            except (DetectionError, WorkspaceError, WorkspaceServerError, ValueError) as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        self._send_json({"error": "not found"}, status=HTTPStatus.NOT_FOUND)
+
+    def _read_json_body(self) -> dict[str, Any]:
+        raw_length = self.headers.get("Content-Length") or "0"
+        try:
+            length = int(raw_length)
+        except ValueError as exc:
+            raise WorkspaceServerError("invalid Content-Length") from exc
+        body = self.rfile.read(length)
+        if not body:
+            return {}
+        payload = json.loads(body.decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise WorkspaceServerError("expected JSON object")
+        return payload
+
+    def _read_multipart_body(self) -> tuple[dict[str, object], _UploadedEvidenceFile]:
+        content_type = self.headers.get("Content-Type", "")
+        if not content_type.startswith("multipart/form-data"):
+            raise WorkspaceServerError("expected multipart/form-data upload")
+        raw_length = self.headers.get("Content-Length") or "0"
+        try:
+            length = int(raw_length)
+        except ValueError as exc:
+            raise WorkspaceServerError("invalid Content-Length") from exc
+        if length <= 0:
+            raise WorkspaceServerError("empty upload body")
+        body = self.rfile.read(length)
+        message = BytesParser(policy=email_default_policy).parsebytes(
+            f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode() + body
+        )
+        if not message.is_multipart():
+            raise WorkspaceServerError("expected multipart/form-data upload")
+        fields: dict[str, object] = {}
+        uploaded: _UploadedEvidenceFile | None = None
+        for part in message.iter_parts():
+            name = part.get_param("name", header="content-disposition")
+            if not isinstance(name, str) or not name:
+                continue
+            filename = part.get_filename()
+            raw_payload = cast(bytes, part.get_payload(decode=True) or b"")
+            if filename:
+                safe_name = _safe_upload_filename(filename)
+                if not raw_payload:
+                    raise WorkspaceServerError("uploaded evidence file is empty")
+                uploaded = _UploadedEvidenceFile(filename=safe_name, body=raw_payload)
+            else:
+                charset = part.get_content_charset() or "utf-8"
+                fields[name] = raw_payload.decode(charset, errors="replace")
+        if uploaded is None:
+            raise WorkspaceServerError("file is required")
+        return fields, uploaded
+
+    def _send_json(self, payload: dict[str, Any], *, status: HTTPStatus = HTTPStatus.OK) -> None:
+        body = json.dumps(payload, sort_keys=True).encode("utf-8")
+        self._send_bytes(body, content_type="application/json; charset=utf-8", status=status)
+
+    def _send_text(
+        self,
+        body: str,
+        *,
+        content_type: str,
+        filename: str | None = None,
+        status: HTTPStatus = HTTPStatus.OK,
+    ) -> None:
+        self._send_bytes(
+            body.encode("utf-8"),
+            content_type=content_type,
+            filename=filename,
+            status=status,
+        )
+
+    def _send_bytes(
+        self,
+        body: bytes,
+        *,
+        content_type: str,
+        filename: str | None = None,
+        status: HTTPStatus = HTTPStatus.OK,
+    ) -> None:
+        self.send_response(status.value)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        if filename is not None:
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.end_headers()
+        self.wfile.write(body)
+
+
+def _workspace_payload(workspace_root: Path) -> dict[str, Any]:
+    state = load_workspace(workspace_root)
+    report = _report_model(workspace_root)
+    payload = report.model_dump(mode="json")
+    evidence = load_evidence_index(workspace_root)
+    timeline = load_timeline_events(workspace_root)
+    objectives = load_objectives(workspace_root)
+    procedures = load_procedures(workspace_root)
+    detections = load_detections(workspace_root)
+    report_artifacts = _report_artifacts(workspace_root)
+    return {
+        "type": "workspace",
+        "workspace": str(workspace_root),
+        "initialized": True,
+        "generated_at": report.generated_at,
+        "engagement": payload["engagement"],
+        "executive_summary": payload["executive_summary"],
+        "severity_summary": payload["severity_summary"],
+        "affected_assets": payload["affected_assets"],
+        "findings": payload["findings"],
+        "evidence": [record.model_dump(mode="json") for record in evidence.evidence],
+        "timeline": [event.model_dump(mode="json") for event in timeline],
+        "objectives": [objective.model_dump(mode="json") for objective in objectives.objectives],
+        "procedures": [procedure.model_dump(mode="json") for procedure in procedures.procedures],
+        "detections": {
+            "iocs": [ioc.model_dump(mode="json") for ioc in detections.iocs],
+            "notes": [note.model_dump(mode="json") for note in detections.notes],
+        },
+        "report_artifacts": report_artifacts,
+        "empty_states": {
+            "evidence": len(evidence.evidence) == 0,
+            "timeline": len(timeline) == 0,
+            "objectives": len(objectives.objectives) == 0,
+            "procedures": len(procedures.procedures) == 0,
+            "detections": not detections.iocs and not detections.notes,
+            "findings": len(state.findings.findings) == 0,
+            "reports": len(report_artifacts) == 0,
+            "signing": payload["chain_of_custody"]["manifest_status"] != "available",
+            "signed": payload["chain_of_custody"]["manifest_status"] != "available",
+        },
+        "chain_of_custody": payload["chain_of_custody"],
+        "artifacts": {
+            "report_json": "/api/report/json",
+            "report_markdown": "/api/report/markdown",
+            "report_pdf": "/api/report/pdf?backend=reportlab",
+        },
+    }
+
+
+def _health_payload(workspace_root: Path) -> dict[str, Any]:
+    state = load_workspace(workspace_root)
+    return {
+        "status": "ok",
+        "type": "workspace-health",
+        "workspace": str(workspace_root),
+        "schema_version": state.workspace.schema_version,
+        "finding_count": len(state.findings.findings),
+        "report_artifact_count": len(_report_artifacts(workspace_root)),
+    }
+
+
+def _report_payload(workspace_root: Path) -> dict[str, Any]:
+    payload = _report_model(workspace_root).model_dump(mode="json")
+    return dict(payload)
+
+
+def _report_model(workspace_root: Path) -> PentestReport:
+    state = load_workspace(workspace_root)
+    return build_pentest_report(
+        state,
+        redact_sensitive_evidence=state.workspace.report_settings.redact_sensitive_evidence,
+    )
+
+
+def _pdf_backend(query: dict[str, list[str]]) -> PdfBackend:
+    raw = (query.get("backend") or ["reportlab"])[0]
+    if raw == "weasyprint":
+        return "weasyprint"
+    return "reportlab"
+
+
+def _report_artifacts(workspace_root: Path) -> list[dict[str, str]]:
+    reports_root = workspace_root / "reports"
+    if not reports_root.is_dir():
+        return []
+    artifacts: list[dict[str, str]] = []
+    for path in sorted(item for item in reports_root.rglob("*") if item.is_file()):
+        artifacts.append(
+            {
+                "path": path.relative_to(workspace_root).as_posix(),
+                "sha256": file_sha256(path),
+            }
+        )
+    return artifacts
+
+
+def _optional_string(value: object) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _required_string(value: object, field_name: str) -> str:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    raise WorkspaceServerError(f"{field_name} is required")
+
+
+def _string_list(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    if isinstance(value, list):
+        return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+    raise WorkspaceServerError("scope must be a string or string list")
+
+
+def _evidence_sensitivity(value: object) -> EvidenceSensitivity:
+    if value in {"public", "internal", "sensitive", "secret"}:
+        return cast(EvidenceSensitivity, value)
+    return "sensitive"
+
+
+def _evidence_kind(value: object) -> EvidenceKind:
+    if value in {
+        "screenshot",
+        "c2-log",
+        "transcript",
+        "payload",
+        "detection",
+        "scanner",
+        "note",
+        "other",
+    }:
+        return cast(EvidenceKind, value)
+    return "other"
+
+
+def _timeline_confidence(value: object) -> TimelineConfidence:
+    if value in {"low", "medium", "high", "confirmed"}:
+        return cast(TimelineConfidence, value)
+    return "medium"
+
+
+def _objective_status(value: object) -> ObjectiveStatus:
+    if value in {"planned", "in-progress", "achieved", "blocked", "deferred"}:
+        return cast(ObjectiveStatus, value)
+    return "planned"
+
+
+def _ioc_type(value: object) -> IOCType:
+    if value in {
+        "ip",
+        "domain",
+        "url",
+        "hash",
+        "email",
+        "username",
+        "file-path",
+        "registry-key",
+        "process",
+        "other",
+    }:
+        return cast(IOCType, value)
+    return "other"
+
+
+def _detection_confidence(value: object) -> DetectionConfidence:
+    if value in {"low", "medium", "high", "confirmed"}:
+        return cast(DetectionConfidence, value)
+    return "medium"
+
+
+def _detection_sensitivity(value: object) -> DetectionSensitivity:
+    if value in {"public", "internal", "sensitive", "secret"}:
+        return cast(DetectionSensitivity, value)
+    return "sensitive"
+
+
+def _safe_upload_filename(name: str) -> str:
+    basename = Path(name).name
+    cleaned = "".join(
+        character if character.isalnum() or character in {".", "-", "_"} else "-"
+        for character in basename
+    )
+    cleaned = cleaned.strip(".-")
+    return cleaned or "evidence-upload"
+
+
+_INDEX_HTML = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Piranesi Workspace Review</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header>
+    <h1>Piranesi Workspace Review</h1>
+    <p id="project"></p>
+  </header>
+  <main>
+    <section class="setup">
+      <div>
+        <h2>Engagement</h2>
+        <p id="workspace-path"></p>
+      </div>
+      <form id="setup-form">
+        <input name="client" placeholder="Client">
+        <input name="project" placeholder="Project">
+        <input name="scope" placeholder="Scope, comma separated">
+        <button type="submit">Save</button>
+      </form>
+    </section>
+    <section class="entry">
+      <div>
+        <h2>Add Evidence</h2>
+        <p id="evidence-status">No note queued.</p>
+      </div>
+      <form id="evidence-form" class="note-form">
+        <input name="title" placeholder="Title">
+        <input name="tags" placeholder="Tags, comma separated">
+        <textarea name="content" placeholder="Operator note or transcript excerpt" required></textarea>
+        <button type="submit">Add Note</button>
+      </form>
+      <form id="file-evidence-form" class="file-form">
+        <input name="title" placeholder="Title">
+        <select name="kind">
+          <option value="screenshot">Screenshot</option>
+          <option value="transcript">Transcript</option>
+          <option value="c2-log">C2 log</option>
+          <option value="payload">Payload metadata</option>
+          <option value="detection">Detection artifact</option>
+          <option value="scanner">Scanner export</option>
+          <option value="other">Other</option>
+        </select>
+        <select name="sensitivity">
+          <option value="sensitive">Sensitive</option>
+          <option value="internal">Internal</option>
+          <option value="public">Public</option>
+          <option value="secret">Secret</option>
+        </select>
+        <input name="tags" placeholder="Tags, comma separated">
+        <input name="source" placeholder="Source">
+        <input name="notes" placeholder="Notes">
+        <input name="file" type="file" required>
+        <button type="submit">Upload File</button>
+      </form>
+    </section>
+    <section class="summary" id="summary"></section>
+    <section>
+      <div class="section-title">
+        <h2>Engagement Flow</h2>
+      </div>
+      <div class="flow" id="flow"></div>
+    </section>
+    <section class="entry">
+      <div>
+        <h2>Timeline</h2>
+        <p id="timeline-status">No event queued.</p>
+      </div>
+      <form id="timeline-form">
+        <input name="summary" placeholder="Event summary" required>
+        <input name="phase" placeholder="Phase">
+        <input name="actor" placeholder="Actor">
+        <input name="tags" placeholder="Tags, comma separated">
+        <textarea name="details" placeholder="Details"></textarea>
+        <button type="submit">Add Event</button>
+      </form>
+    </section>
+    <section class="entry">
+      <div>
+        <h2>Objectives</h2>
+        <p id="objective-status">No objective queued.</p>
+      </div>
+      <form id="objective-form">
+        <input name="title" placeholder="Objective title" required>
+        <select name="status">
+          <option value="planned">Planned</option>
+          <option value="in-progress">In progress</option>
+          <option value="achieved">Achieved</option>
+          <option value="blocked">Blocked</option>
+          <option value="deferred">Deferred</option>
+        </select>
+        <input name="owner" placeholder="Owner">
+        <input name="target_assets" placeholder="Target assets, comma separated">
+        <textarea name="success_criteria" placeholder="Success criteria, comma separated"></textarea>
+        <button type="submit">Add Objective</button>
+      </form>
+      <form id="procedure-form" class="file-form">
+        <input name="summary" placeholder="Procedure summary" required>
+        <input name="technique_id" placeholder="ATT&CK technique ID">
+        <input name="technique_name" placeholder="Technique name">
+        <input name="tactic" placeholder="Tactic">
+        <input name="tags" placeholder="Tags, comma separated">
+        <button type="submit">Add Procedure</button>
+      </form>
+    </section>
+    <section class="entry">
+      <div>
+        <h2>Detection Handoff</h2>
+        <p id="detection-status">No handoff record queued.</p>
+      </div>
+      <form id="ioc-form">
+        <select name="type">
+          <option value="ip">IP</option>
+          <option value="domain">Domain</option>
+          <option value="url">URL</option>
+          <option value="hash">Hash</option>
+          <option value="email">Email</option>
+          <option value="username">Username</option>
+          <option value="file-path">File path</option>
+          <option value="process">Process</option>
+          <option value="other">Other</option>
+        </select>
+        <input name="value" placeholder="IOC value" required>
+        <select name="confidence">
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+          <option value="high">High</option>
+          <option value="confirmed">Confirmed</option>
+        </select>
+        <input name="tags" placeholder="Tags, comma separated">
+        <button type="submit">Add IOC</button>
+      </form>
+      <form id="detection-note-form" class="file-form">
+        <input name="title" placeholder="Detection note title" required>
+        <input name="tags" placeholder="Tags, comma separated">
+        <textarea name="body" placeholder="Blue-team handoff note" required></textarea>
+        <button type="submit">Add Note</button>
+      </form>
+    </section>
+    <section>
+      <div class="section-title">
+        <h2>Findings</h2>
+        <nav>
+          <a href="/api/report/markdown">Markdown</a>
+          <a href="/api/report/json">JSON</a>
+          <a href="/api/report/pdf?backend=reportlab">PDF</a>
+        </nav>
+      </div>
+      <div id="findings"></div>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
+"""
+
+_APP_CSS = """
+:root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+body { margin: 0; color: #17202a; background: #f7f8fa; }
+header { padding: 28px 32px 20px; border-bottom: 1px solid #d8dee7; background: #ffffff; }
+h1 { margin: 0 0 6px; font-size: 26px; line-height: 1.2; font-weight: 720; letter-spacing: 0; }
+h2 { margin: 0; font-size: 18px; letter-spacing: 0; }
+p { margin: 0; color: #5b6676; }
+main { max-width: 1120px; margin: 0 auto; padding: 24px 20px 48px; }
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 24px; }
+.setup, .entry, .metric, .finding, .step { background: #ffffff; border: 1px solid #d8dee7; border-radius: 8px; padding: 14px; }
+.setup, .entry { display: grid; grid-template-columns: minmax(220px, 1fr) 2fr; gap: 16px; align-items: start; margin-bottom: 16px; }
+form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+input, select, textarea { min-width: 0; border: 1px solid #b7c2d0; border-radius: 6px; padding: 8px 10px; font: inherit; background: #ffffff; }
+textarea { min-height: 84px; resize: vertical; }
+button { border: 1px solid #075985; border-radius: 6px; padding: 8px 10px; color: #ffffff; background: #075985; font-weight: 650; }
+.note-form { grid-template-columns: 1fr 1fr auto; }
+.note-form textarea { grid-column: 1 / -1; }
+.file-form { grid-column: 2; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid #d8dee7; padding-top: 12px; }
+.file-form input[type="file"] { grid-column: span 2; }
+.metric b { display: block; font-size: 24px; margin-top: 4px; }
+.section-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+nav { display: flex; gap: 8px; flex-wrap: wrap; }
+a { color: #075985; font-weight: 650; text-decoration: none; }
+.flow { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px; }
+.step h3 { margin: 0 0 8px; font-size: 15px; letter-spacing: 0; }
+.step p { font-size: 13px; line-height: 1.45; }
+#findings { display: grid; gap: 12px; }
+.finding h3 { margin: 0 0 8px; font-size: 16px; letter-spacing: 0; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.pill { border: 1px solid #b7c2d0; border-radius: 999px; padding: 3px 8px; font-size: 12px; color: #334155; background: #f8fafc; }
+.evidence { color: #334155; font-size: 13px; line-height: 1.45; white-space: pre-wrap; }
+@media (max-width: 720px) {
+  .setup, .entry, form, .note-form, .file-form { grid-template-columns: 1fr; }
+  .note-form textarea { grid-column: auto; }
+  .file-form { grid-column: auto; }
+  .file-form input[type="file"] { grid-column: auto; }
+}
+"""
+
+_APP_JS = """
+function display(value) {
+  return value === null || value === undefined || value === "" ? "not specified" : String(value);
+}
+
+function html(value) {
+  return display(value).replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[character]);
+}
+
+function metric(label, value) {
+  return `<div class="metric"><span>${html(label)}</span><b>${html(value)}</b></div>`;
+}
+
+function step(label, count, emptyText) {
+  const state = count > 0 ? `${count} recorded` : emptyText;
+  return `<article class="step"><h3>${html(label)}</h3><p>${html(state)}</p></article>`;
+}
+
+function findingCard(finding) {
+  const evidence = (finding.evidence || []).slice(0, 3).map((item) => {
+    return `<div class="evidence">${html(item.kind)}: ${html(item.value)}</div>`;
+  }).join("");
+  const service = finding.service ? `${display(finding.service.protocol)}/${display(finding.service.port)}` : "not specified";
+  return `<article class="finding">
+    <h3>${html(finding.title)}</h3>
+    <div class="meta">
+      <span class="pill">${html(finding.severity)}</span>
+      <span class="pill">${html(finding.status)}</span>
+      <span class="pill">retest: ${html(finding.retest_status)}</span>
+      <span class="pill">${html(finding.asset)}</span>
+      <span class="pill">${html(service)}</span>
+    </div>
+    ${evidence}
+  </article>`;
+}
+
+fetch("/api/workspace")
+  .then((response) => response.json())
+  .then(renderWorkspace);
+
+document.getElementById("setup-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  fetch("/api/workspace/init", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      client: form.get("client"),
+      project: form.get("project"),
+      scope: form.get("scope")
+    })
+  })
+    .then((response) => response.json())
+    .then(renderWorkspace);
+});
+
+document.getElementById("evidence-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  fetch("/api/evidence/note", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      title: form.get("title"),
+      tags: form.get("tags"),
+      content: form.get("content")
+    })
+  })
+    .then((response) => response.json())
+    .then((data) => {
+      if (data.error) {
+        document.getElementById("evidence-status").textContent = data.error;
+        return;
+      }
+      event.currentTarget.reset();
+      document.getElementById("evidence-status").textContent = "Evidence saved.";
+      renderWorkspace(data);
+    });
+});
+
+document.getElementById("file-evidence-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  fetch("/api/evidence/file", {
+    method: "POST",
+    body: form
+  })
+    .then((response) => response.json())
+    .then((data) => {
+      if (data.error) {
+        document.getElementById("evidence-status").textContent = data.error;
+        return;
+      }
+      event.currentTarget.reset();
+      document.getElementById("evidence-status").textContent = "Evidence file uploaded.";
+      renderWorkspace(data);
+    });
+});
+
+function postJson(path, form, statusId, successMessage, bodyBuilder) {
+  fetch(path, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(bodyBuilder(form))
+  })
+    .then((response) => response.json())
+    .then((data) => {
+      const status = document.getElementById(statusId);
+      if (data.error) {
+        status.textContent = data.error;
+        return;
+      }
+      form.reset();
+      status.textContent = successMessage;
+      renderWorkspace(data);
+    });
+}
+
+document.getElementById("timeline-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  postJson("/api/timeline/event", event.currentTarget, "timeline-status", "Timeline event saved.", () => ({
+    summary: form.get("summary"),
+    phase: form.get("phase"),
+    actor: form.get("actor"),
+    tags: form.get("tags"),
+    details: form.get("details")
+  }));
+});
+
+document.getElementById("objective-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  postJson("/api/objectives/objective", event.currentTarget, "objective-status", "Objective saved.", () => ({
+    title: form.get("title"),
+    status: form.get("status"),
+    owner: form.get("owner"),
+    target_assets: form.get("target_assets"),
+    success_criteria: form.get("success_criteria")
+  }));
+});
+
+document.getElementById("procedure-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  postJson("/api/objectives/procedure", event.currentTarget, "objective-status", "Procedure saved.", () => ({
+    summary: form.get("summary"),
+    tactic: form.get("tactic"),
+    technique_id: form.get("technique_id"),
+    technique_name: form.get("technique_name"),
+    tags: form.get("tags")
+  }));
+});
+
+document.getElementById("ioc-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  postJson("/api/detections/ioc", event.currentTarget, "detection-status", "IOC saved.", () => ({
+    type: form.get("type"),
+    value: form.get("value"),
+    confidence: form.get("confidence"),
+    tags: form.get("tags")
+  }));
+});
+
+document.getElementById("detection-note-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  postJson("/api/detections/note", event.currentTarget, "detection-status", "Detection note saved.", () => ({
+    title: form.get("title"),
+    tags: form.get("tags"),
+    body: form.get("body")
+  }));
+});
+
+function renderWorkspace(data) {
+  const engagement = data.engagement || {};
+  document.getElementById("project").textContent = `${display(engagement.client)} / ${display(engagement.project)}`;
+  document.getElementById("workspace-path").textContent = display(data.workspace);
+  const summary = data.executive_summary || {};
+  const chain = data.chain_of_custody || {};
+  document.getElementById("summary").innerHTML = [
+    metric("Evidence", (data.evidence || []).length),
+    metric("Timeline", (data.timeline || []).length),
+    metric("Objectives", (data.objectives || []).length),
+    metric("Findings", summary.finding_count || 0),
+    metric("IOCs", ((data.detections || {}).iocs || []).length),
+    metric("Reports", (data.report_artifacts || []).length),
+    metric("Manifest", display(chain.manifest_status))
+  ].join("");
+  document.getElementById("flow").innerHTML = [
+    step("1. Scope", (engagement.scope || []).length, "Define scope and rules."),
+    step("2. Evidence", (data.evidence || []).length, "Add notes, screenshots, logs, and transcripts."),
+    step("3. Timeline", (data.timeline || []).length, "Record operator activity."),
+    step("4. Objectives", (data.objectives || []).length, "Track goals and outcomes."),
+    step("5. Findings", (data.findings || []).length, "Import scanner or manual findings."),
+    step("6. Handoff", ((data.detections || {}).iocs || []).length + ((data.detections || {}).notes || []).length, "Prepare detection notes and IOCs."),
+    step("7. Report", (data.report_artifacts || []).length, "Generate handoff artifacts."),
+    step("8. Sign", chain.manifest_status === "available" ? 1 : 0, "Create a custody manifest.")
+  ].join("");
+  document.getElementById("findings").innerHTML = (data.findings || []).map(findingCard).join("") || "<p>No findings imported.</p>";
+}
+"""
+
+
+__all__ = [
+    "WorkspaceServeOptions",
+    "WorkspaceServerError",
+    "create_workspace_server",
+    "is_loopback_host",
+    "run_workspace_server",
+]

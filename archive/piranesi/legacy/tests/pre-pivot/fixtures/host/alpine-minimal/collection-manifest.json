@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "output_dir": "tests/fixtures/host/alpine-minimal",
+  "raw_dir": "tests/fixtures/host/alpine-minimal/raw",
+  "commands": [
+    {"tool": "osquery", "name": "system_info", "command": ["osqueryi", "--json", "select ..."], "status": "ok"},
+    {"tool": "osquery", "name": "apk_packages", "command": ["osqueryi", "--json", "select ..."], "status": "ok"},
+    {"tool": "osquery", "name": "listening_ports", "command": ["osqueryi", "--json", "select ..."], "status": "ok"},
+    {"tool": "osquery", "name": "users", "command": ["osqueryi", "--json", "select ..."], "status": "ok"},
+    {"tool": "system", "name": "apk_version_outdated", "command": ["apk", "version", "-l", "<"], "status": "ok", "output_file": "raw/commands/apk_version_outdated.json"},
+    {"tool": "system", "name": "apt_upgradable", "command": ["apt", "list", "--upgradable"], "status": "skipped", "stderr": "unsupported on apk platform"},
+    {"tool": "trivy", "name": "filesystem_scan", "command": ["trivy", "fs", "/"], "status": "skipped", "stderr": "not collected for fixture"}
+  ]
+}

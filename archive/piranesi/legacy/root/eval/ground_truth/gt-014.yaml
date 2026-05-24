@@ -1,0 +1,27 @@
+id: gt-014
+source_project: owasp-juice-shop
+commit_hash: "7380ce7120e289fc6bea861efd3fcba89261a6a8"
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+affected_files:
+  - routes/fileServer.ts
+line_numbers: [19, 27, 29, 33]
+taint_source: params.file
+taint_sink: "res.sendFile(path.resolve('ftp/', file))"
+taint_path:
+  - "params.file from URL route parameter"
+  - "forward slash check (line ~19) blocks '/' but NOT '..' or encoded variants"
+  - "endsWithAllowlistedFileType() checks only .md/.pdf suffix (line ~27)"
+  - "security.cutOffPoisonNullByte(file) strips %00 and everything after (line ~29)"
+  - "res.sendFile(path.resolve('ftp/', file)) serves arbitrary file (line ~33)"
+complexity: ctx
+exploitable: true
+reference_exploit: "GET /ftp/package.json.bak%2500.md passes .md extension check, null byte is stripped, serves package.json.bak bypassing allowlist"
+reference_fix_commit: null
+notes: "Null byte poisoning to bypass file type allowlist. Context-sensitive: requires understanding interaction between extension check, null byte stripping, and path resolution. Juice Shop challenges: easterEggLevelOneChallenge, nullByteChallenge."
+language: typescript
+framework: express
+taint_step_count: 5
+taint_field_path: params.file
+field_sensitive_label: true_positive

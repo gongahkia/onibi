@@ -1,0 +1,2 @@
+{"timestamp":"2026-05-20T00:03:00Z","operator":"lab-operator","event":"session-created","target":"lab-workstation-01","source":"mock-local-lab"}
+{"timestamp":"2026-05-20T00:05:00Z","operator":"lab-operator","event":"beacon-checkin","target":"lab-workstation-01","source":"mock-local-lab"}

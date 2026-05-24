@@ -1,0 +1,26 @@
+id: gt-065
+source_project: owasp-juice-shop
+commit_hash: "7380ce7120e289fc6bea861efd3fcba89261a6a8"
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery
+label: true_positive
+affected_files:
+  - routes/profileImageUrlUpload.ts
+line_numbers: [18, 24, 29, 32]
+taint_source: req.body.imageUrl
+taint_sink: "fetch(url)"
+taint_path:
+  - "req.body.imageUrl (routes/profileImageUrlUpload.ts:18-19)"
+  - "const url = req.body.imageUrl is accepted without origin or protocol validation"
+  - "fetch(url) issues a server-side request to the attacker-chosen destination (routes/profileImageUrlUpload.ts:24)"
+  - "the response body is streamed into a file and persisted as the profile image (routes/profileImageUrlUpload.ts:29-32)"
+complexity: simple
+exploitable: true
+reference_exploit: "POST /profile/image/url with imageUrl=http://127.0.0.1:3000/solve/challenges/server-side?key=tRy_H4rd3r_n0thIng_iS_Imp0ssibl3 forces Juice Shop to request its own hidden endpoint."
+reference_fix_commit: null
+notes: "Direct SSRF in the profile image URL upload route. No destination allowlist, protocol filter, or loopback/private-network blocking exists."
+language: typescript
+framework: express
+taint_step_count: 4
+taint_field_path: body.imageUrl
+field_sensitive_label: true_positive

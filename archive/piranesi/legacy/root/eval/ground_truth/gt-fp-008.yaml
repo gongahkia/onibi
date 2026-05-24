@@ -1,0 +1,26 @@
+id: gt-fp-008
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: false_positive
+affected_files:
+  - eval/synthetic/fp-path-startswith.ts
+line_numbers: [10, 14, 16]
+taint_source: req.params.filename
+taint_sink: "fs.readFile() behind path containment check"
+taint_path:
+  - "req.params.filename (Express GET handler)"
+  - "const resolved = path.resolve('/app/uploads', req.params.filename)"
+  - "if (!resolved.startsWith('/app/uploads/')) return 403"
+  - "fs.readFile(resolved, callback)"
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "Hand-crafted false positive. Path traversal prevented by resolve+startsWith containment check. path.resolve() canonicalizes '..' and startsWith() ensures result stays within allowed directory."
+language: typescript
+framework: general
+taint_step_count: 4
+taint_field_path: params.filename
+field_sensitive_label: false_positive

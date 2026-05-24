@@ -1,0 +1,25 @@
+id: gt-058
+source_project: owasp-juice-shop
+commit_hash: "7380ce7120e289fc6bea861efd3fcba89261a6a8"
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting (JSONP)
+label: true_positive
+affected_files:
+  - routes/currentUser.ts
+line_numbers: [54, 58]
+taint_source: req.query.callback
+taint_sink: "res.jsonp() with attacker-controlled callback name"
+taint_path:
+  - "req.query.callback (routes/currentUser.ts:54)"
+  - "the callback parameter is accepted without an allowlist"
+  - "res.jsonp(response) wraps authenticated user data in attacker-chosen JavaScript (routes/currentUser.ts:58)"
+complexity: simple
+exploitable: true
+reference_exploit: "An attacker page can include <script src=\"https://target/rest/user/whoami?callback=alert\"></script> and execute the returned JSONP in the victim's browser."
+reference_fix_commit: null
+notes: "Legacy JSONP endpoint leaks authenticated data and executes in a script context. This is backend-relevant reflected XSS rather than a safe JSON response."
+language: typescript
+framework: express
+taint_step_count: 3
+taint_field_path: query.callback
+field_sensitive_label: true_positive

@@ -1,0 +1,28 @@
+id: gt-328
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-915
+cwe_name: Improperly Controlled Modification of Dynamically-Determined Object Attributes
+  (Mass Assignment)
+label: true_positive
+affected_files:
+- eval/fixtures/python/django/gt-328/views.py
+line_numbers:
+- 12
+taint_source: request.POST
+taint_sink: form.save()
+taint_path:
+- request.POST carries attacker-supplied model attributes
+- AccountForm binds the POST body to a ModelForm with no field allowlist
+- form.save() persists protected attributes such as is_admin or role
+complexity: ctx
+exploitable: true
+reference_exploit: Submit is_admin=true or role=owner in the profile form to overwrite
+  protected fields.
+reference_fix_commit: null
+notes: Django mass assignment through a ModelForm whose Meta class omits any field
+  allowlist.
+discovery_method: synthetic
+language: python
+framework: django
+taint_step_count: 3

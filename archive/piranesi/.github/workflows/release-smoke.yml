@@ -1,0 +1,39 @@
+name: Release Smoke Tests
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  packaged-smoke:
+    name: Build artifact and run packaged smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: latest
+      - run: uv sync --frozen
+      - name: Build wheel, sdist, schemas, and checksums
+        run: |
+          uv build
+          uv run piranesi schema host-report --output dist/host-report.schema.json
+          uv run piranesi schema host-snapshot --output dist/host-snapshot.schema.json
+          uv run piranesi schema fleet-report --output dist/fleet-report.schema.json
+          shasum -a 256 dist/* > dist/SHA256SUMS
+          shasum -a 256 -c dist/SHA256SUMS
+      - name: Install built wheel and run core product flows
+        run: |
+          python -m pip install --user pipx
+          python -m pipx ensurepath
+          python -m pipx install --force dist/*.whl
+          ~/.local/bin/piranesi --version
+          ~/.local/bin/piranesi quickstart
+          ~/.local/bin/piranesi demo --output /tmp/piranesi-packaged-demo
+          test -f /tmp/piranesi-packaged-demo/host-report.json
+          ~/.local/bin/piranesi schema host-report --output /tmp/host-report.schema.json
+

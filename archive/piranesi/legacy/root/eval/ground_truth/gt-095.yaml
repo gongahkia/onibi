@@ -1,0 +1,25 @@
+id: gt-095
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting (Reflected)
+label: true_positive
+affected_files:
+  - eval/synthetic/nextjs-ssr-xss.tsx
+line_numbers: [8, 10]
+taint_source: searchParams.preview
+taint_sink: dangerouslySetInnerHTML in a Next.js SSR page
+taint_path:
+  - "searchParams.preview passed into the server-rendered page component"
+  - "const preview = searchParams.preview ?? ''"
+  - "dangerouslySetInnerHTML={{ __html: preview }}"
+complexity: simple
+exploitable: true
+reference_exploit: "Open /?preview=<img src=x onerror=alert(1)> to execute attacker-controlled HTML during SSR."
+reference_fix_commit: null
+notes: "Hand-crafted synthetic. Demonstrates SSR XSS in a server-rendered Next.js page via unsafe HTML rendering."
+language: typescript
+framework: general
+taint_step_count: 3
+taint_field_path: query.preview
+field_sensitive_label: true_positive

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "expected_findings": [
+    {
+      "id": "amazon-security-updates",
+      "rule_id": "host.updates.security_pending",
+      "instance_key": "security",
+      "severity": "high",
+      "title_contains": "Security package updates"
+    },
+    {
+      "id": "amazon-privileged-ec2-user",
+      "rule_id": "host.identity.privileged_user",
+      "instance_key": "ec2-user",
+      "severity": "medium",
+      "title_contains": "ec2-user"
+    }
+  ],
+  "expected_absent": [
+    {
+      "id": "absent-public-high-risk-listener",
+      "rule_id": "host.listener.high_risk_service"
+    },
+    {
+      "id": "absent-public-ssh",
+      "rule_id": "host.listener.ssh_public"
+    }
+  ],
+  "allowed_extra": [],
+  "notes": "Amazon Linux fixture covers yum security update parsing and privileged wheel user handling."
+}
+

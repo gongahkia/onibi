@@ -1,0 +1,102 @@
+[[rules]]
+rule_id = "eu_ai_act_art9_risk_management"
+framework = "EU_AI_ACT"
+section = "Article 9 (Risk Management System)"
+vuln_classes = ["CWE-89", "CWE-79", "CWE-78", "CWE-22"]
+data_categories = [
+  "biometric",
+  "health",
+  "genetic",
+  "criminal",
+  "name",
+  "nric",
+  "fin",
+  "dob",
+  "nationality",
+  "race",
+  "religion",
+]
+requires_boolean_facts = ["is_high_risk_ai"]
+obligation_text = "Article 9(1) requires providers of high-risk AI systems to establish, implement, document, and maintain a risk management system. A confirmed exploitable vulnerability in a high-risk AI system processing personal data constitutes a failure to identify and mitigate known risks, violating the continuous iterative risk management requirement."
+consequences = ["remediate", "document", "review"]
+penalty_range = "Up to EUR 15,000,000 or 3% of total worldwide annual turnover"
+enforcement_precedents = []
+cross_references = []
+severity_modifier = "standard"
+
+[[rules]]
+rule_id = "eu_ai_act_art9_aggravated"
+framework = "EU_AI_ACT"
+section = "Article 9 (Risk Management System)"
+vuln_classes = ["CWE-89", "CWE-78"]
+data_categories = ["biometric", "health", "genetic", "criminal"]
+requires_boolean_facts = ["is_high_risk_ai"]
+obligation_text = "Article 9(2)(a) requires identification and analysis of known and reasonably foreseeable risks. Injection vulnerabilities (SQL injection, command injection) in systems processing special category biometric, health, genetic, or criminal data represent foreseeable risks that should have been identified. Failure to do so with high-sensitivity data may attract penalties at the upper end of the statutory range."
+consequences = ["remediate", "document", "review", "notify_regulator"]
+penalty_range = "Up to EUR 15,000,000 or 3% of total worldwide annual turnover (upper end expected)"
+enforcement_precedents = []
+cross_references = ["eu_ai_act_art9_risk_management"]
+severity_modifier = "aggravated"
+
+[[rules]]
+rule_id = "eu_ai_act_art15_accuracy"
+framework = "EU_AI_ACT"
+section = "Article 15 (Accuracy, Robustness, Cybersecurity)"
+vuln_classes = ["CWE-89", "CWE-79", "CWE-78", "CWE-22", "CWE-918"]
+data_categories = [
+  "biometric",
+  "health",
+  "genetic",
+  "criminal",
+  "financial",
+  "financial_bank",
+  "financial_credit_card",
+  "name",
+  "nric",
+  "fin",
+]
+requires_boolean_facts = ["is_high_risk_ai"]
+obligation_text = "Article 15(4) requires high-risk AI systems to be resilient against attempts by unauthorised third parties to alter their use, outputs, or performance by exploiting system vulnerabilities. A confirmed exploitable vulnerability directly violates this cybersecurity resilience requirement."
+consequences = ["remediate", "document"]
+penalty_range = "Up to EUR 15,000,000 or 3% of total worldwide annual turnover"
+enforcement_precedents = []
+cross_references = ["eu_ai_act_art9_risk_management"]
+severity_modifier = "standard"
+
+[[rules]]
+rule_id = "eu_ai_act_art62_incident_reporting"
+framework = "EU_AI_ACT"
+section = "Article 62 (Reporting of Serious Incidents)"
+vuln_classes = ["CWE-89", "CWE-78"]
+data_categories = ["biometric", "health", "genetic", "criminal"]
+requires_rule_ids = ["eu_ai_act_art9_risk_management"]
+requires_boolean_facts = ["is_high_risk_ai"]
+affected_individuals_gte = 500
+obligation_text = "Article 62(1) requires providers of high-risk AI systems to report any serious incident to the market surveillance authorities of the Member States in which that incident occurred. A confirmed exploitable vulnerability affecting 500 or more individuals involving high-sensitivity data constitutes a serious incident requiring reporting."
+consequences = ["notify_regulator", "document"]
+penalty_range = "Up to EUR 15,000,000 or 3% of total worldwide annual turnover"
+notification_timeline = "15 days from awareness of serious incident"
+enforcement_precedents = []
+cross_references = ["eu_ai_act_art9_risk_management", "eu_ai_act_art15_accuracy"]
+
+[[rules]]
+rule_id = "eu_ai_act_art10_data_governance"
+framework = "EU_AI_ACT"
+section = "Article 10 (Data and Data Governance)"
+vuln_classes = ["CWE-89", "CWE-22"]
+data_categories = [
+  "biometric",
+  "health",
+  "genetic",
+  "criminal",
+  "financial",
+  "financial_bank",
+  "financial_credit_card",
+]
+requires_boolean_facts = ["is_high_risk_ai"]
+obligation_text = "Article 10(2) requires training, validation, and testing datasets to be subject to appropriate data governance and management practices. SQL injection and path traversal vulnerabilities that expose training data or model artifacts compromise data governance requirements by enabling unauthorised access to or modification of datasets."
+consequences = ["remediate", "document", "review"]
+penalty_range = "Up to EUR 15,000,000 or 3% of total worldwide annual turnover"
+enforcement_precedents = []
+cross_references = ["eu_ai_act_art9_risk_management"]
+severity_modifier = "standard"

@@ -1,0 +1,25 @@
+id: gt-131
+source_project: piranesi-owasp-fixture
+commit_hash: "0000000000000000000000000000000000000000"
+cwe_id: CWE-434
+cwe_name: Unrestricted File Upload (filename in template string)
+label: true_positive
+affected_files:
+  - file_upload.ts
+line_numbers: [20, 21]
+taint_source: "req.file.originalname"
+taint_sink: "public/avatars/${filename}"
+taint_path:
+  - "req.file.originalname (file_upload.ts:20)"
+  - "public/avatars/${filename} template concat (file_upload.ts:21)"
+  - "fs.renameSync(req.file.path, dest) (file_upload.ts:22)"
+complexity: simple
+exploitable: true
+reference_exploit: "Upload avatar named '../../index.html' to overwrite app files via path traversal + upload"
+reference_fix_commit: null
+notes: "User-controlled filename in template string path. Combines CWE-434 with path traversal risk."
+language: typescript
+framework: general
+taint_step_count: 3
+taint_field_path: files.file.originalname
+field_sensitive_label: true_positive

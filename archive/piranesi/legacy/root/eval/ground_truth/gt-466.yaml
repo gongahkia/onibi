@@ -1,0 +1,27 @@
+id: gt-466
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-208
+cwe_name: Observable Timing Discrepancy
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-466.java
+line_numbers:
+- 4
+taint_source: authenticate(user, password) arguments
+taint_sink: early return on String.equals()
+taint_path:
+- authenticate() receives attacker-controlled username and password guesses
+- the function compares the username first and returns immediately on mismatch
+- the early return leaks whether the guessed username prefix and existence are correct
+  before any password check
+complexity: ctx
+exploitable: true
+reference_exploit: Measure response times for different usernames to discover valid
+  accounts before attacking passwords.
+reference_fix_commit: null
+notes: Java timing leak caused by an early return on username comparison.
+discovery_method: synthetic
+language: java
+framework: java
+taint_step_count: 3

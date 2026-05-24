@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Benchmark xmlns="http://checklists.nist.gov/xccdf/1.2" id="xccdf_org.example_benchmark_test">
+  <title>Example XCCDF Benchmark</title>
+  <TestResult id="xccdf_org.example_testresult_1">
+    <rule-result idref="xccdf_org.example_rule_sshd_protocol">
+      <result>pass</result>
+    </rule-result>
+    <rule-result idref="xccdf_org.example_rule_password_max_age">
+      <result>fail</result>
+    </rule-result>
+    <rule-result idref="xccdf_org.example_rule_audit_log_storage">
+      <result>fail</result>
+    </rule-result>
+    <rule-result idref="xccdf_org.example_rule_firewall_enabled">
+      <result>pass</result>
+    </rule-result>
+    <rule-result idref="xccdf_org.example_rule_syslog_installed">
+      <result>notapplicable</result>
+    </rule-result>
+  </TestResult>
+  <Group id="xccdf_org.example_group_ssh">
+    <Rule id="xccdf_org.example_rule_sshd_protocol" severity="high">
+      <title>Ensure SSH Protocol is set to 2</title>
+      <description>SSH protocol 2 is more secure than protocol 1.</description>
+      <ident system="https://nist.gov/cce">CCE-27320-1</ident>
+      <fixtext>Set Protocol 2 in /etc/ssh/sshd_config and restart sshd.</fixtext>
+    </Rule>
+  </Group>
+  <Group id="xccdf_org.example_group_auth">
+    <Rule id="xccdf_org.example_rule_password_max_age" severity="medium">
+      <title>Ensure password expiration is 365 days or less</title>
+      <description>Set PASS_MAX_DAYS to 365 or less in /etc/login.defs.</description>
+      <ident system="https://nvd.nist.gov/cce">CCE-27051-2</ident>
+      <ident system="https://cis.org">CIS-5.4.1.1</ident>
+      <fixtext>Edit /etc/login.defs and set PASS_MAX_DAYS to 365.</fixtext>
+    </Rule>
+  </Group>
+  <Group id="xccdf_org.example_group_logging">
+    <Rule id="xccdf_org.example_rule_audit_log_storage" severity="high">
+      <title>Ensure audit log storage size is configured</title>
+      <description>Configure max_log_file in /etc/audit/auditd.conf.</description>
+      <fixtext>Set max_log_file in /etc/audit/auditd.conf to an appropriate value.</fixtext>
+    </Rule>
+  </Group>
+  <Group id="xccdf_org.example_group_network">
+    <Rule id="xccdf_org.example_rule_firewall_enabled" severity="medium">
+      <title>Ensure firewall is enabled</title>
+      <description>Enable the host firewall to restrict incoming connections.</description>
+      <fixtext>Enable ufw or iptables and configure appropriate rules.</fixtext>
+    </Rule>
+  </Group>
+  <Group id="xccdf_org.example_group_syslog">
+    <Rule id="xccdf_org.example_rule_syslog_installed" severity="low">
+      <title>Ensure rsyslog is installed</title>
+      <description>rsyslog provides reliable syslog message delivery.</description>
+      <fixtext>Install rsyslog with apt install rsyslog.</fixtext>
+    </Rule>
+  </Group>
+</Benchmark>

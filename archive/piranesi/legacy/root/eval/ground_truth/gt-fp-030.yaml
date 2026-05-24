@@ -1,0 +1,25 @@
+id: gt-fp-030
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: false_positive
+affected_files:
+  - eval/synthetic/fp-joi-number-schema.ts
+line_numbers: [16]
+taint_source: req.query.id
+taint_sink: "client.query() with Joi-validated integer"
+taint_path:
+  - "req.query.id (Express GET handler)"
+  - "schema.validate({ id: req.query.id })"
+  - "client.query(`SELECT * FROM ledger WHERE id = ${value.id}`)"
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "Hand-crafted false positive. Joi validates and coerces the input to an integer before it reaches the SQL sink."
+language: typescript
+framework: general
+taint_step_count: 3
+taint_field_path: query.id
+field_sensitive_label: false_positive

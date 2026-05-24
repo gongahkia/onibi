@@ -1,0 +1,457 @@
+from __future__ import annotations
+
+from collections.abc import Iterable
+from dataclasses import dataclass
+from pathlib import Path
+
+from piranesi.config import PiranesiConfig
+from piranesi.scan.framework import detect_frameworks
+
+_CONFIG_FILENAME = "piranesi.toml"
+_IGNORE_FILENAME = ".piranesi-ignore"
+
+_FRAMEWORK_LABELS: dict[str, str] = {
+    "chi": "Chi",
+    "django": "Django",
+    "echo": "Echo",
+    "express": "Express",
+    "fastapi": "FastAPI",
+    "fastify": "Fastify",
+    "flask": "Flask",
+    "gin": "Gin",
+    "go-stdlib": "Go",
+    "koa": "Koa",
+    "laravel": "Laravel",
+    "nestjs": "NestJS",
+    "nextjs": "Next.js",
+    "php": "PHP",
+    "rails": "Rails",
+    "ruby": "Ruby",
+    "sinatra": "Sinatra",
+    "springboot": "Spring Boot",
+    "symfony": "Symfony",
+    "wordpress": "WordPress",
+}
+_FRAMEWORK_LANGUAGES: dict[str, str] = {
+    "chi": "go",
+    "django": "python",
+    "echo": "go",
+    "express": "javascript",
+    "fastapi": "python",
+    "fastify": "javascript",
+    "flask": "python",
+    "gin": "go",
+    "go-stdlib": "go",
+    "koa": "javascript",
+    "laravel": "php",
+    "nestjs": "javascript",
+    "nextjs": "javascript",
+    "php": "php",
+    "rails": "ruby",
+    "ruby": "ruby",
+    "sinatra": "ruby",
+    "springboot": "java",
+    "symfony": "php",
+    "wordpress": "php",
+}
+_LANGUAGE_INCLUDE_PATTERNS: dict[str, tuple[str, ...]] = {
+    "go": ("**/*.go",),
+    "javascript": ("**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"),
+    "python": ("**/*.py",),
+    "java": ("**/*.java",),
+    "php": ("**/*.php", "**/*.blade.php"),
+    "ruby": ("**/*.rb",),
+}
+_LANGUAGE_EXCLUDE_PATTERNS: dict[str, tuple[str, ...]] = {
+    "go": ("**/vendor/**",),
+    "javascript": ("**/node_modules/**", "**/dist/**", "**/*.d.ts"),
+    "python": ("**/__pycache__/**", "**/.venv/**", "**/venv/**", "**/.pytest_cache/**"),
+    "java": ("**/target/**", "**/build/**"),
+    "php": ("**/vendor/**", "**/storage/framework/**"),
+    "ruby": ("**/vendor/bundle/**", "**/tmp/**"),
+}
+_PIRANESI_OUTPUT_EXCLUDE_PATTERNS = (
+    # piranesi output dirs
+    "**/piranesi-output/**",
+    "**/.piranesi-cache/**",
+    "**/.piranesi-out/**",
+    "**/.piranesi-trace*",
+)
+_FRAMEWORK_EXCLUDE_PATTERNS: dict[str, tuple[str, ...]] = {
+    "django": ("**/migrations/**",),
+    "nextjs": ("**/.next/**",),
+}
+_LANGUAGE_LABELS: dict[str, str] = {
+    "go": "Go",
+    "javascript": "TypeScript/JavaScript",
+    "python": "Python",
+    "java": "Java",
+    "php": "PHP",
+    "ruby": "Ruby",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class InitScaffold:
+    project_root: Path
+    frameworks: tuple[str, ...]
+    languages: tuple[str, ...]
+    config_path: Path
+    ignore_path: Path
+    detection_message: str
+    next_steps: tuple[str, ...]
+
+
+def scaffold_project(
+    project_root: str | Path,
+    *,
+    requested_framework: str | None = None,
+    workflow: str = "sast",
+) -> InitScaffold:
+    root = Path(project_root).resolve(strict=False)
+    if not root.exists():
+        raise ValueError(f"project root not found: {root}")
+    if not root.is_dir():
+        raise ValueError(f"project root is not a directory: {root}")
+
+    normalized_workflow = workflow.strip().lower()
+    if normalized_workflow not in {"sast", "host"}:
+        raise ValueError("workflow must be one of: sast, host")
+    frameworks, detection_message = (
+        ((), "Host workflow selected; skipping application framework detection.")
+        if normalized_workflow == "host"
+        else _resolve_frameworks(root, requested_framework)
+    )
+    languages = _resolve_languages(root, frameworks)
+    config_path = root / _CONFIG_FILENAME
+    ignore_path = root / _IGNORE_FILENAME
+
+    _ensure_scaffold_targets_available((config_path, ignore_path))
+    config_path.write_text(
+        render_config_template(frameworks=frameworks, languages=languages),
+        encoding="utf-8",
+    )
+    ignore_path.write_text(
+        render_host_ignore_template()
+        if normalized_workflow == "host"
+        else render_ignore_template(),
+        encoding="utf-8",
+    )
+
+    return InitScaffold(
+        project_root=root,
+        frameworks=frameworks,
+        languages=languages,
+        config_path=config_path,
+        ignore_path=ignore_path,
+        detection_message=detection_message,
+        next_steps=(
+            _host_next_steps()
+            if normalized_workflow == "host"
+            else _next_steps(frameworks=frameworks, languages=languages)
+        ),
+    )
+
+
+def render_config_template(
+    *,
+    frameworks: tuple[str, ...],
+    languages: tuple[str, ...],
+) -> str:
+    defaults = PiranesiConfig()
+    include_patterns = _merge_patterns(
+        *(_LANGUAGE_INCLUDE_PATTERNS[language] for language in languages)
+    )
+    exclude_patterns = _merge_patterns(
+        *(_LANGUAGE_EXCLUDE_PATTERNS[language] for language in languages),
+        *(_FRAMEWORK_EXCLUDE_PATTERNS.get(framework, ()) for framework in frameworks),
+        _PIRANESI_OUTPUT_EXCLUDE_PATTERNS,
+    )
+
+    lines = [
+        "# Generated by `piranesi init`.",
+        "# Review these defaults before your first scan.",
+        "",
+        "[models]",
+        f'scanner = "{defaults.models.scanner}"',
+        f'detector = "{defaults.models.detector}"',
+        f'triage = "{defaults.models.triage}"',
+        f'patcher = "{defaults.models.patcher}"',
+        "",
+        "[budget]",
+        f"max_cost_usd = {defaults.budget.max_cost_usd!r}",
+        f"max_tokens = {defaults.budget.max_tokens}",
+        "",
+        "[sandbox]",
+        f'docker_image = "{defaults.sandbox.docker_image}"',
+        f"timeout_seconds = {defaults.sandbox.timeout_seconds}",
+        f"network_enabled = {_toml_bool(defaults.sandbox.network_enabled)}",
+        "",
+        "[output]",
+        f'format = "{defaults.output.format}"',
+        f'output_dir = "{defaults.output.output_dir}"',
+        "",
+        "[trace]",
+        f"enabled = {_toml_bool(defaults.trace.enabled)}",
+        f'file_path = "{defaults.trace.file_path}"',
+        f"log_prompts = {_toml_bool(defaults.trace.log_prompts)}",
+        "",
+        "[joern]",
+        f'binary_path = "{defaults.joern.binary_path}"',
+        f"server_port = {defaults.joern.server_port}",
+        f"startup_timeout_seconds = {defaults.joern.startup_timeout_seconds}",
+        f"query_timeout_seconds = {defaults.joern.query_timeout_seconds}",
+        f'jvm_memory = "{defaults.joern.jvm_memory}"',
+        "",
+        "[scan]",
+        f"include_patterns = {_toml_list(include_patterns)}",
+        f"exclude_patterns = {_toml_list(exclude_patterns)}",
+        f"max_file_size = {defaults.scan.max_file_size}",
+        f"include_tests = {_toml_bool(defaults.scan.include_tests)}",
+        f"frameworks = {_toml_list(frameworks)}",
+        f"incremental = {_toml_bool(defaults.scan.incremental)}",
+        "",
+        "[verify]",
+        f'proof_mode = "{defaults.verify.proof_mode}"',
+        "",
+        "[suppression]",
+        f"fail_on_invalid = {_toml_bool(defaults.suppression.fail_on_invalid)}",
+        f"fail_on_expired = {_toml_bool(defaults.suppression.fail_on_expired)}",
+        f"fail_on_stale = {_toml_bool(defaults.suppression.fail_on_stale)}",
+        "",
+        "[baseline]",
+        f"fail_on_new = {_toml_bool(defaults.baseline.fail_on_new)}",
+        f'fail_on_new_severity = "{defaults.baseline.fail_on_new_severity}"',
+        "",
+        "[lsp]",
+        f"enabled = {_toml_bool(defaults.lsp.enabled)}",
+        f"scan_on_save = {_toml_bool(defaults.lsp.scan_on_save)}",
+        f"debounce_ms = {defaults.lsp.debounce_ms}",
+        f"max_findings_per_file = {defaults.lsp.max_findings_per_file}",
+        f'severity_filter = "{defaults.lsp.severity_filter}"',
+        "",
+        "[scan.custom_sources]",
+        "patterns = []",
+        f'source_type = "{defaults.scan.custom_sources.source_type}"',
+        "",
+        "[scan.custom_sinks]",
+        "patterns = []",
+        f'sink_type = "{defaults.scan.custom_sinks.sink_type}"',
+        "",
+        "[ownership]",
+        '# service = "checkout-api"',
+        '# system = "payments-platform"',
+        '# team = "payments-eng"',
+        '# owner = "payments-oncall"',
+        '# repository = "acme/checkout"',
+        '# environment = "production"',
+        '# control_owner = "grc-core"',
+        "",
+        "# [[ownership.path_mappings]]",
+        '# path = "src/routes/payments/**"',
+        '# team = "payments-routing"',
+        '# owner = "payments-route-owner"',
+        "",
+        "# [[ownership.package_mappings]]",
+        '# package = "@acme/identity"',
+        '# owner = "identity-oncall"',
+        '# control_owner = "identity-grc"',
+        "",
+        "# [[ownership.control_mappings]]",
+        '# framework = "SOC2"',
+        '# control = "CC6.6"',
+        '# owner = "soc-controls-team"',
+        "",
+        "[hooks]",
+        f"pre_commit = {_toml_bool(defaults.hooks.pre_commit)}",
+        f'fail_severity = "{defaults.hooks.fail_severity}"',
+        f"timeout = {defaults.hooks.timeout}",
+        f"staged_only = {_toml_bool(defaults.hooks.staged_only)}",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def render_ignore_template() -> str:
+    return "\n".join(
+        [
+            "# Project-level Piranesi suppressions.",
+            "# Suppress by finding id:",
+            "# suppressions:",
+            '#   - id: "finding-123"',
+            '#     reason: "accepted risk"',
+            '#     reason_code: "risk_accepted"',
+            '#     owner: "appsec-team"',
+            '#     ticket: "SEC-123"',
+            '#     reference: "jira://SEC-123"',
+            '#     created: "2026-04-16"',
+            '#     expires: "2026-07-16"',
+            '#     scope: "id"',
+            "# Suppress by CWE and path:",
+            "#   - cwe: CWE-79",
+            '#     path: "src/admin/**"',
+            '#     reason: "admin-only surface"',
+            "suppressions: []",
+            "",
+        ]
+    )
+
+
+def render_host_ignore_template() -> str:
+    return "\n".join(
+        [
+            "# Host-level Piranesi suppressions.",
+            "# Suppress by host finding id after review:",
+            "# suppressions:",
+            '#   - id: "host-finding-id"',
+            '#     reason: "accepted risk for isolated lab host"',
+            '#     owner: "platform-security"',
+            '#     ticket: "SEC-123"',
+            '#     expires: "2026-06-30"',
+            "suppressions: []",
+            "",
+        ]
+    )
+
+
+def _resolve_frameworks(
+    project_root: Path,
+    requested_framework: str | None,
+) -> tuple[tuple[str, ...], str]:
+    if requested_framework is not None:
+        framework = requested_framework.strip().lower()
+        if framework not in _FRAMEWORK_LABELS:
+            supported = ", ".join(sorted(_FRAMEWORK_LABELS))
+            raise ValueError(
+                f"unsupported framework '{requested_framework}'. Supported values: {supported}"
+            )
+        label = _format_frameworks((framework,))
+        return (framework,), f"Using explicit framework: {label}"
+
+    detected = tuple(detect_frameworks(project_root))
+    if detected:
+        return detected, f"Detected: {_format_frameworks(detected)}"
+
+    languages = _detect_languages_from_files(project_root)
+    if languages:
+        return ("auto",), f"No framework detected. Using {_format_languages(languages)} defaults."
+    return ("auto",), "No framework detected. Using generic TypeScript/JavaScript defaults."
+
+
+def _resolve_languages(project_root: Path, frameworks: tuple[str, ...]) -> tuple[str, ...]:
+    languages = _dedupe(
+        _FRAMEWORK_LANGUAGES[framework]
+        for framework in frameworks
+        if framework in _FRAMEWORK_LANGUAGES
+    )
+    if languages:
+        return languages
+    detected = _detect_languages_from_files(project_root)
+    if detected:
+        return detected
+    return ("javascript",)
+
+
+def _detect_languages_from_files(project_root: Path) -> tuple[str, ...]:
+    languages: list[str] = []
+    if any(path.is_file() and "vendor" not in path.parts for path in project_root.rglob("*.go")):
+        languages.append("go")
+    if (
+        any(project_root.rglob("*.ts"))
+        or any(project_root.rglob("*.tsx"))
+        or any(project_root.rglob("*.js"))
+        or any(project_root.rglob("*.jsx"))
+    ):
+        languages.append("javascript")
+    if any(project_root.rglob("*.py")):
+        languages.append("python")
+    if any(project_root.rglob("*.java")):
+        languages.append("java")
+    if any(project_root.rglob("*.php")):
+        languages.append("php")
+    if any(project_root.rglob("*.rb")):
+        languages.append("ruby")
+    return tuple(languages)
+
+
+def _ensure_scaffold_targets_available(paths: tuple[Path, ...]) -> None:
+    existing = [path.name for path in paths if path.exists()]
+    if existing:
+        joined = ", ".join(existing)
+        raise ValueError(f"refusing to overwrite existing scaffold files: {joined}")
+
+
+def _merge_patterns(*groups: tuple[str, ...]) -> tuple[str, ...]:
+    return _dedupe(pattern for group in groups for pattern in group)
+
+
+def _dedupe(values: Iterable[str]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for value in values:
+        if not isinstance(value, str) or value in seen:
+            continue
+        seen.add(value)
+        ordered.append(value)
+    return tuple(ordered)
+
+
+def _format_frameworks(frameworks: tuple[str, ...]) -> str:
+    labels = [_FRAMEWORK_LABELS.get(framework, framework) for framework in frameworks]
+    return " + ".join(labels)
+
+
+def _format_languages(languages: tuple[str, ...]) -> str:
+    labels = [_LANGUAGE_LABELS.get(language, language.title()) for language in languages]
+    return " + ".join(labels)
+
+
+def _next_steps(*, frameworks: tuple[str, ...], languages: tuple[str, ...]) -> tuple[str, ...]:
+    steps: list[str] = []
+    if "javascript" in languages:
+        steps.append("Install target dependencies first if needed, for example `npm install`.")
+    if "python" in languages:
+        steps.append("Install target Python dependencies first if the project imports app modules.")
+    if "java" in languages:
+        steps.append("Build or restore Java dependencies before scanning Spring Boot projects.")
+    if "php" in languages:
+        steps.append("Install Composer dependencies first if the project has composer.json.")
+    if "ruby" in languages:
+        steps.append("Install Bundler dependencies first if the project has a Gemfile.")
+    steps.extend(
+        [
+            "Run `piranesi doctor .` to verify host posture readiness.",
+            "Run `piranesi collect --output piranesi-evidence` on the VM or host.",
+            "Run `piranesi assess piranesi-evidence --output piranesi-output`.",
+        ]
+    )
+    if frameworks == ("auto",):
+        steps.append("Edit [scan].frameworks if auto-detection missed your framework.")
+    return tuple(steps)
+
+
+def _host_next_steps() -> tuple[str, ...]:
+    return (
+        "Run `piranesi doctor .` to verify host posture readiness.",
+        "Run `piranesi collect --output piranesi-evidence` on the VM or host.",
+        "Run `piranesi assess piranesi-evidence --output piranesi-output`.",
+        "Use `piranesi suppress <host-finding-id>` only for reviewed, time-bound host exceptions.",
+    )
+
+
+def _toml_bool(value: bool) -> str:
+    return "true" if value else "false"
+
+
+def _toml_list(values: tuple[str, ...]) -> str:
+    rendered = ", ".join(f'"{value}"' for value in values)
+    return f"[{rendered}]"
+
+
+__all__ = [
+    "InitScaffold",
+    "render_config_template",
+    "render_host_ignore_template",
+    "render_ignore_template",
+    "scaffold_project",
+]

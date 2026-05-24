@@ -1,0 +1,9 @@
+[
+  {
+    "ID": "abcdef012345",
+    "Image": "registry.example/app:vulnerable",
+    "Names": "risky-web",
+    "Ports": "0.0.0.0:8080->8080/tcp",
+    "Networks": "bridge"
+  }
+]

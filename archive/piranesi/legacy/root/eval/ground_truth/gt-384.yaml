@@ -1,0 +1,25 @@
+id: gt-384
+source_project: synthetic-phase30-go
+commit_hash: synthetic-no-commit
+cwe_id: CWE-306
+cwe_name: Missing Authentication for Critical Function
+label: true_positive
+affected_files:
+- eval/fixtures/go/chi/gt-384/main.go
+line_numbers:
+- 27
+taint_source: unauthenticated POST request to /admin/public/export
+taint_sink: r.Post("/admin/public/export", exportHandler)
+taint_path:
+- The attacker targets a path under /admin/public.
+- authMiddleware() returns early for paths with the /admin/public prefix.
+- exportHandler runs on a sensitive route without any effective authentication check.
+complexity: ctx
+exploitable: true
+reference_exploit: Send POST /admin/public/export without authentication.
+reference_fix_commit: null
+notes: Custom chi middleware skips authentication for a sensitive admin-prefixed path.
+discovery_method: synthetic
+language: go
+framework: chi
+taint_step_count: 3

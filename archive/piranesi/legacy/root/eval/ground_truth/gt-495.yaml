@@ -1,0 +1,25 @@
+id: gt-495
+source_project: synthetic-phase39
+commit_hash: synthetic-no-commit
+cwe_id: CWE-502
+cwe_name: Insecure Deserialization
+label: true_positive
+affected_files:
+- eval/fixtures/php/raw/gadget_chain.php
+line_numbers:
+- 8
+taint_source: $_COOKIE['payload']
+taint_sink: unserialize()
+taint_path:
+- $_COOKIE['payload'] is attacker-controlled serialized data.
+- unserialize() can instantiate a DeleteCache object from the payload.
+- __destruct() runs unlink() when the object leaves scope.
+complexity: multi_step
+exploitable: true
+reference_exploit: Send a DeleteCache gadget payload in the cookie to trigger the destructor side effect.
+reference_fix_commit: null
+notes: Gadget-aware insecure deserialization with a dangerous __destruct method in scope.
+discovery_method: synthetic
+language: php
+framework: php
+taint_step_count: 3

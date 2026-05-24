@@ -1,0 +1,27 @@
+id: gt-fp-014
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery
+label: false_positive
+affected_files:
+  - eval/synthetic/fp-ssrf-protocol-check.ts
+line_numbers: [9, 13, 17]
+taint_source: req.query.url
+taint_sink: "fetch() behind protocol and hostname validation"
+taint_path:
+  - "req.query.url (Express GET handler)"
+  - "const parsed = new URL(req.query.url)"
+  - "if (parsed.protocol !== 'https:') return 403"
+  - "if (parsed.hostname === 'localhost' || parsed.hostname.startsWith('127.') || parsed.hostname.startsWith('169.254.')) return 403"
+  - "fetch(req.query.url)"
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "Hand-crafted false positive. URL validation blocks non-HTTPS protocols and common internal/metadata IP ranges. While not a complete SSRF defense (DNS rebinding still possible), it represents a common safe pattern that should not be flagged."
+language: typescript
+framework: general
+taint_step_count: 5
+taint_field_path: query.url
+field_sensitive_label: false_positive

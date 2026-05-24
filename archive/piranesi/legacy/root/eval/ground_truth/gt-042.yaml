@@ -1,0 +1,30 @@
+id: gt-042
+source_project: dvna
+commit_hash: 9ba473add536f66ac9007966acb2a775dd31277a
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting (Stored)
+label: true_positive
+affected_files:
+- core/appHandler.js
+- views/app/products.ejs
+line_numbers:
+- 118
+- 119
+- 52
+taint_source: req.body.tags
+taint_sink: EJS raw product table cell in views/app/products.ejs
+taint_path:
+- req.body.tags (POST /app/modifyproduct)
+- product.tags = req.body.tags (core/appHandler.js:118)
+- product.save() persists attacker-controlled tags to the Products table (core/appHandler.js:119)
+- views/app/products.ejs:52 renders <%- output.products[i].tags %> without escaping
+complexity: inter
+exploitable: true
+reference_exploit: POST /app/modifyproduct with tags=<img src=x onerror=alert(document.domain)> stores the payload; visiting /app/products executes it
+reference_fix_commit: null
+notes: Second-order stored XSS through the product edit form. The tags column is rendered with raw EJS output.
+language: javascript
+framework: express
+taint_step_count: 4
+taint_field_path: body.tags
+field_sensitive_label: true_positive

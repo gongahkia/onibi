@@ -1,0 +1,27 @@
+id: gt-456
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-643
+cwe_name: Improper Neutralization of Data within XPath Expressions
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/advanced/gt-456.java
+line_numbers:
+- 16
+taint_source: filter passed to save()
+taint_sink: XPath.evaluate()
+taint_path:
+- the attacker stores a crafted XPath expression through save()
+- the application persists the attacker-controlled filter for later reporting
+- run(doc) loads the stored filter from the list
+- XPath.evaluate(...) executes the stored attacker-controlled XPath expression
+complexity: multi_step
+exploitable: true
+reference_exploit: Save //users/user[1]/password/text() as the stored filter and later
+  trigger run(doc).
+reference_fix_commit: null
+notes: Second-order XPath injection where a stored expression is evaluated later.
+discovery_method: synthetic
+language: java
+framework: java
+taint_step_count: 4

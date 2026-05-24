@@ -1,0 +1,27 @@
+id: gt-fp-016
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery
+label: false_positive
+affected_files:
+  - eval/synthetic/fp-ssrf-protocol-check-axios.ts
+line_numbers: [31]
+taint_source: req.query.url
+taint_sink: "axios.get() behind protocol and hostname validation"
+taint_path:
+  - "req.query.url (Express GET handler)"
+  - "const parsed = new URL(url)"
+  - "if (parsed.protocol !== 'https:') return 403"
+  - "if (parsed.hostname === 'localhost' || parsed.hostname.startsWith('127.') || parsed.hostname.startsWith('169.254.')) return 403"
+  - "axios.get(parsed.toString())"
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "Hand-crafted false positive. The request is constrained to validated HTTPS destinations and blocks common local or metadata endpoints before axios.get() is reached."
+language: typescript
+framework: general
+taint_step_count: 5
+taint_field_path: query.url
+field_sensitive_label: false_positive

@@ -1,0 +1,29 @@
+# Example rule pack: Go net/http header injection
+# This is a learning scaffold, not a production-complete policy.
+
+[rule]
+id = "example-go-nethttp-header-injection"
+name = "net/http header write from request data"
+schema_version = "1"
+category = "injection"
+cwe_id = "CWE-113"
+severity = "medium"
+description = "Example rule showing request-controlled values reaching ResponseWriter header setters; sink pattern constrains receiver names."
+author = "piranesi-example-packs"
+version = "0.1.0"
+tags = ["example", "go", "net/http", "response-splitting", "receiver-constrained"]
+
+[rule.source]
+pattern = '\br\.(?:FormValue|PostFormValue|URL\.Query\(\)\.Get|Header\.Get)\s*\('
+type = "regex"
+
+[rule.sink]
+pattern = '\b(?:w|rw|writer)\.Header\s*\(\)\.Set\s*\('
+type = "regex"
+
+[rule.sanitizers]
+patterns = ['url\.QueryEscape\(', 'http\.CanonicalHeaderKey\(']
+type = "regex"
+
+[rule.message]
+template = "Example pack: request-derived header value from `{source}` reaches header sink `{sink}`."

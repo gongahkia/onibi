@@ -1,0 +1,369 @@
+# Piranesi Security Analysis Report
+
+**Target:** `{{ report.target }}`
+**Date:** {{ report.generated_at }}
+**Version:** piranesi v{{ report.appendix.piranesi_version }}
+
+## Ownership Context
+
+- **Service:** `{{ report.ownership_context.service or "n/a" }}`
+- **System:** `{{ report.ownership_context.system or "n/a" }}`
+- **Team:** `{{ report.ownership_context.team or "n/a" }}`
+- **Owner:** `{{ report.ownership_context.owner or "n/a" }}`
+- **Repository:** `{{ report.ownership_context.repository or "n/a" }}`
+- **Environment:** `{{ report.ownership_context.environment or "n/a" }}`
+- **Control Owner:** `{{ report.ownership_context.control_owner or "n/a" }}`
+{% if report.ownership_context.control_mappings %}
+- **Control owner mappings:**
+{% for mapping in report.ownership_context.control_mappings %}
+  - `{{ mapping.framework }} {{ mapping.control }}` -> `{{ mapping.owner }}`
+{% endfor %}
+{% endif %}
+
+{% if report.advisory_db %}
+## Advisory DB Freshness
+
+- **Path:** `{{ report.advisory_db.path }}`
+- **Freshness:** `{{ report.advisory_db.freshness }}`
+- **Schema version:** `{{ report.advisory_db.schema_version if report.advisory_db.schema_version is not none else "n/a" }}`
+- **Advisories:** {{ report.advisory_db.advisory_count }}
+- **Affected packages:** {{ report.advisory_db.affected_package_count }}
+- **Sources:** {% if report.advisory_db.sources %}{{ report.advisory_db.sources|join(", ") }}{% else %}none{% endif %}
+- **Last updated:** {{ report.advisory_db.last_updated or "unknown" }}
+- **Checksum:** `{{ report.advisory_db.checksum_sha256 or "n/a" }}`
+{% if report.advisory_db.warnings %}
+- **Warnings:** {{ report.advisory_db.warnings|join(" | ") }}
+{% endif %}
+{% endif %}
+
+{% if report.known_limitations %}
+## Known Limitations
+
+{% for limitation in report.known_limitations %}
+- `{{ limitation.id }}` **{{ limitation.title }}**
+  - Feature: {{ limitation.affected_feature }}
+  - Severity: {{ limitation.severity }}
+  - Status: {{ limitation.status }}
+  - Workaround: {{ limitation.workaround }}
+{% endfor %}
+{% endif %}
+
+{% include "executive_summary.j2" %}
+
+## Evidence Status Legend
+
+- `confirmed`: Dynamically verified issue.
+- `triaged_active_candidate`: Candidate retained after model-assisted triage.
+- `static_candidate`: Static candidate without dynamic proof.
+- `unreachable_candidate`: Static candidate not reachable from entry points.
+- `suppressed`: Finding suppressed by policy/risk acceptance.
+
+## Compliance Mapping Boundary
+
+Compliance mappings in this report are supporting technical evidence only. They do not certify compliance, replace a formal audit, or constitute legal advice.
+
+## Suppression Lifecycle
+
+- **Rules:** {{ report.executive_summary.suppression_rules_total }} total, {{ report.executive_summary.suppression_rules_active }} active
+- **Expired rules:** {{ report.executive_summary.suppression_rules_expired }}
+- **Stale rules:** {{ report.executive_summary.suppression_rules_stale }}
+- **Invalid rules:** {{ report.executive_summary.suppression_rules_invalid }}
+{% if report.suppression_lifecycle and report.suppression_lifecycle.expired_selectors %}
+- **Expired selectors:** {{ report.suppression_lifecycle.expired_selectors|join(" | ") }}
+{% endif %}
+{% if report.suppression_lifecycle and report.suppression_lifecycle.stale_selectors %}
+- **Stale selectors:** {{ report.suppression_lifecycle.stale_selectors|join(" | ") }}
+{% endif %}
+{% if report.suppression_lifecycle and report.suppression_lifecycle.invalid_entries %}
+- **Invalid suppression entries:** {{ report.suppression_lifecycle.invalid_entries|join(" | ") }}
+{% endif %}
+
+## Active Candidate Findings
+
+{% if report.active_findings %}
+{% for finding in report.active_findings %}
+### {{ finding.title }} (`{{ finding.finding_id }}`)
+
+- **Evidence:** `{{ finding.evidence_status }}` ({{ report.status_legend.get(finding.evidence_status, finding.evidence_status) }})
+- **CWE:** {{ finding.cwe }}
+- **Severity:** {{ finding.severity|upper }}
+- **Composite Risk:** {{ "%.1f"|format(finding.composite_risk_score) }} / 100 ({{ finding.composite_risk_band|upper }})
+{% if finding.original_severity and finding.original_severity != finding.severity %}
+- **Original Severity:** {{ finding.original_severity|upper }}
+{% endif %}
+- **Reachability:** {{ finding.reachability }}
+{% if finding.triage_verdict %}
+- **Triage verdict:** {{ finding.triage_verdict }}{% if finding.triage_mode %} (mode: {{ finding.triage_mode }}){% endif %}
+{% elif finding.triage_mode %}
+- **Triage mode:** {{ finding.triage_mode }}
+{% endif %}
+{% if finding.source_function_id %}
+- **Source function:** `{{ finding.source_function_id }}`
+{% endif %}
+- **Source:** `{{ finding.source_location.file }}:{{ finding.source_location.line }}` ({{ finding.taint_source }})
+- **Sink:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}` ({{ finding.taint_sink }})
+- **Ownership:** service=`{{ finding.ownership.service or "n/a" }}`, system=`{{ finding.ownership.system or "n/a" }}`, team=`{{ finding.ownership.team or "n/a" }}`, owner=`{{ finding.ownership.owner or "n/a" }}`, control_owner=`{{ finding.ownership.control_owner or "n/a" }}`, repository=`{{ finding.ownership.repository or "n/a" }}`, environment=`{{ finding.ownership.environment or "n/a" }}`
+{% if finding.explanation %}
+- **Matched source spec:** `{{ finding.explanation.matched_source_spec.spec_id or finding.explanation.matched_source_spec.name or "n/a" }}`
+- **Matched sink spec:** `{{ finding.explanation.matched_sink_spec.spec_id or finding.explanation.matched_sink_spec.name or "n/a" }}`
+- **Sanitizers observed:** {% if finding.explanation.sanitizers_observed %}{{ finding.explanation.sanitizers_observed|join(", ") }}{% else %}none{% endif %}
+- **Propagation summary:** {{ finding.explanation.propagation_path.source_to_sink }} ({{ finding.explanation.propagation_path.path_node_count }} nodes)
+- **Confidence model:** {{ finding.explanation.confidence.model_version }} (contextual {{ "%.3f"|format(finding.explanation.confidence.contextual_confidence) }})
+- **Verification outcome:** `{{ finding.explanation.verification_state.outcome or "not_attempted" }}`
+- **Proof mode:** `{{ finding.explanation.verification_state.proof_mode or "n/a" }}`
+{% if finding.explanation.verification_state.target_profile %}
+- **Target profile:** `{{ finding.explanation.verification_state.target_profile }}`
+{% endif %}
+- **Verification reason:** {{ finding.explanation.verification_state.reason or "n/a" }}
+{% if finding.explanation.verification_state.startup_error %}
+- **Startup error:** {{ finding.explanation.verification_state.startup_error }}
+{% endif %}
+{% if finding.explanation.verification_state.launch_log_path %}
+- **Launch logs:** `{{ finding.explanation.verification_state.launch_log_path }}`
+{% endif %}
+- **Verification evidence:** {% if finding.explanation.verification_state.evidence %}{{ finding.explanation.verification_state.evidence|join(" | ") }}{% else %}none{% endif %}
+{% if finding.explanation.verification_state.rich_evidence %}
+- **Verification request:** `{{ finding.explanation.verification_state.rich_evidence.method or "n/a" }} {{ finding.explanation.verification_state.rich_evidence.attempted_route or finding.explanation.verification_state.rich_evidence.attempted_url or "n/a" }}`{% if finding.explanation.verification_state.rich_evidence.status_code is not none %} (status={{ finding.explanation.verification_state.rich_evidence.status_code }}){% endif %}
+{% if finding.explanation.verification_state.rich_evidence.response_diff_summary and finding.explanation.verification_state.rich_evidence.response_diff_summary.summary %}
+- **Response diff summary:** {{ finding.explanation.verification_state.rich_evidence.response_diff_summary.summary }}
+{% endif %}
+{% if finding.explanation.verification_state.rich_evidence.body_excerpt.sha256 %}
+- **Body excerpt hash:** `{{ finding.explanation.verification_state.rich_evidence.body_excerpt.sha256 }}`
+{% endif %}
+- **Redaction applied:** {% if finding.explanation.verification_state.rich_evidence.redaction_status.applied %}yes ({{ finding.explanation.verification_state.rich_evidence.redaction_status.redacted_value_count }} values){% else %}no{% endif %}
+{% endif %}
+{% if finding.explanation.verification_state.evidence_artifact_path %}
+- **Verification artifact:** `{{ finding.explanation.verification_state.evidence_artifact_path }}`
+{% endif %}
+- **Missing preconditions:** {% if finding.explanation.verification_state.missing_preconditions %}{{ finding.explanation.verification_state.missing_preconditions|join(", ") }}{% else %}none{% endif %}
+{% if finding.explanation.verification_state.actionable_next_steps %}
+- **Verification next steps:** {{ finding.explanation.verification_state.actionable_next_steps|join(" | ") }}
+{% endif %}
+{% endif %}
+{% if finding.cluster_id %}
+- **Cluster:** `{{ finding.cluster_id }}`{% if finding.cluster_size > 1 %} ({{ finding.cluster_size }} related findings{% if finding.cluster_representative %}, representative{% endif %}){% endif %}
+{% endif %}
+
+{% endfor %}
+{% else %}
+No active candidate findings remain after triage and reachability pruning.
+{% endif %}
+
+## Finding Clusters
+
+{% if report.finding_clusters %}
+{% for cluster in report.finding_clusters %}
+### {{ cluster.title }} (`{{ cluster.cluster_id }}`)
+
+- **CWE:** {{ cluster.cwe }}
+- **Severity:** {{ cluster.severity|upper }}
+- **Representative finding:** `{{ cluster.representative_finding_id }}`
+- **Related findings:** {{ cluster.count }}
+- **Sink:** `{{ cluster.sink_location.file }}:{{ cluster.sink_location.line }}` ({{ cluster.taint_sink }})
+{% if cluster.package_name %}
+- **Package:** `{{ cluster.package_name }}`
+{% endif %}
+{% if cluster.source_locations %}
+- **Sources:** {% for location in cluster.source_locations %}`{{ location.file }}:{{ location.line }}`{% if not loop.last %}, {% endif %}{% endfor %}
+{% endif %}
+
+{% endfor %}
+{% else %}
+No finding clusters were produced.
+{% endif %}
+
+## Unreachable Candidate Findings
+
+{% if report.unreachable_findings %}
+{% for finding in report.unreachable_findings %}
+### {{ finding.title }} (`{{ finding.finding_id }}`)
+
+- **Evidence:** `{{ finding.evidence_status }}` ({{ report.status_legend.get(finding.evidence_status, finding.evidence_status) }})
+- **CWE:** {{ finding.cwe }}
+- **Severity:** {{ finding.severity|upper }}
+- **Composite Risk:** {{ "%.1f"|format(finding.composite_risk_score) }} / 100 ({{ finding.composite_risk_band|upper }})
+{% if finding.original_severity and finding.original_severity != finding.severity %}
+- **Original Severity:** {{ finding.original_severity|upper }}
+{% endif %}
+{% if finding.source_function_id %}
+- **Source function:** `{{ finding.source_function_id }}`
+{% endif %}
+- **Source:** `{{ finding.source_location.file }}:{{ finding.source_location.line }}` ({{ finding.taint_source }})
+- **Sink:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}` ({{ finding.taint_sink }})
+- **Ownership:** service=`{{ finding.ownership.service or "n/a" }}`, system=`{{ finding.ownership.system or "n/a" }}`, team=`{{ finding.ownership.team or "n/a" }}`, owner=`{{ finding.ownership.owner or "n/a" }}`, control_owner=`{{ finding.ownership.control_owner or "n/a" }}`, repository=`{{ finding.ownership.repository or "n/a" }}`, environment=`{{ finding.ownership.environment or "n/a" }}`
+{% if finding.explanation %}
+- **Matched source spec:** `{{ finding.explanation.matched_source_spec.spec_id or finding.explanation.matched_source_spec.name or "n/a" }}`
+- **Matched sink spec:** `{{ finding.explanation.matched_sink_spec.spec_id or finding.explanation.matched_sink_spec.name or "n/a" }}`
+- **Sanitizers observed:** {% if finding.explanation.sanitizers_observed %}{{ finding.explanation.sanitizers_observed|join(", ") }}{% else %}none{% endif %}
+- **Propagation summary:** {{ finding.explanation.propagation_path.source_to_sink }} ({{ finding.explanation.propagation_path.path_node_count }} nodes)
+- **Confidence model:** {{ finding.explanation.confidence.model_version }} (contextual {{ "%.3f"|format(finding.explanation.confidence.contextual_confidence) }})
+- **Verification outcome:** `{{ finding.explanation.verification_state.outcome or "not_attempted" }}`
+- **Proof mode:** `{{ finding.explanation.verification_state.proof_mode or "n/a" }}`
+{% if finding.explanation.verification_state.target_profile %}
+- **Target profile:** `{{ finding.explanation.verification_state.target_profile }}`
+{% endif %}
+- **Verification reason:** {{ finding.explanation.verification_state.reason or "n/a" }}
+{% if finding.explanation.verification_state.startup_error %}
+- **Startup error:** {{ finding.explanation.verification_state.startup_error }}
+{% endif %}
+{% if finding.explanation.verification_state.launch_log_path %}
+- **Launch logs:** `{{ finding.explanation.verification_state.launch_log_path }}`
+{% endif %}
+- **Verification evidence:** {% if finding.explanation.verification_state.evidence %}{{ finding.explanation.verification_state.evidence|join(" | ") }}{% else %}none{% endif %}
+{% if finding.explanation.verification_state.rich_evidence %}
+- **Verification request:** `{{ finding.explanation.verification_state.rich_evidence.method or "n/a" }} {{ finding.explanation.verification_state.rich_evidence.attempted_route or finding.explanation.verification_state.rich_evidence.attempted_url or "n/a" }}`{% if finding.explanation.verification_state.rich_evidence.status_code is not none %} (status={{ finding.explanation.verification_state.rich_evidence.status_code }}){% endif %}
+{% if finding.explanation.verification_state.rich_evidence.response_diff_summary and finding.explanation.verification_state.rich_evidence.response_diff_summary.summary %}
+- **Response diff summary:** {{ finding.explanation.verification_state.rich_evidence.response_diff_summary.summary }}
+{% endif %}
+{% if finding.explanation.verification_state.rich_evidence.body_excerpt.sha256 %}
+- **Body excerpt hash:** `{{ finding.explanation.verification_state.rich_evidence.body_excerpt.sha256 }}`
+{% endif %}
+- **Redaction applied:** {% if finding.explanation.verification_state.rich_evidence.redaction_status.applied %}yes ({{ finding.explanation.verification_state.rich_evidence.redaction_status.redacted_value_count }} values){% else %}no{% endif %}
+{% endif %}
+{% if finding.explanation.verification_state.evidence_artifact_path %}
+- **Verification artifact:** `{{ finding.explanation.verification_state.evidence_artifact_path }}`
+{% endif %}
+- **Missing preconditions:** {% if finding.explanation.verification_state.missing_preconditions %}{{ finding.explanation.verification_state.missing_preconditions|join(", ") }}{% else %}none{% endif %}
+{% if finding.explanation.verification_state.actionable_next_steps %}
+- **Verification next steps:** {{ finding.explanation.verification_state.actionable_next_steps|join(" | ") }}
+{% endif %}
+{% endif %}
+
+{% endfor %}
+{% else %}
+No unreachable findings were identified.
+{% endif %}
+
+## Confirmed Findings
+
+{% if report.findings %}
+{% if report.package_findings %}
+{% for package_name, findings in report.package_findings.items() %}
+### Package: `{{ package_name }}`
+
+{% for finding in findings %}
+{% include "finding.md.j2" %}
+
+{% endfor %}
+{% endfor %}
+{% else %}
+{% for finding in report.findings if not finding.cross_package %}
+{% include "finding.md.j2" %}
+
+{% endfor %}
+{% endif %}
+{% else %}
+No confirmed findings were produced by the pipeline.
+{% endif %}
+
+## Cross-Package Findings
+
+{% if report.cross_package_findings %}
+{% for finding in report.cross_package_findings %}
+### `{{ finding.source_package or finding.package_name or "unknown" }}` -> `{{ finding.sink_package or "unknown" }}`
+
+{% include "finding.md.j2" %}
+
+{% endfor %}
+{% else %}
+No cross-package findings were produced by the pipeline.
+{% endif %}
+
+## Suppressed Findings
+
+{% if report.suppressed_findings %}
+{% if report.suppressed_findings_by_package %}
+{% for package_name, findings in report.suppressed_findings_by_package.items() %}
+### Package: `{{ package_name }}`
+
+{% for finding in findings %}
+### {{ finding.title }} (`{{ finding.finding_id }}`)
+
+- **Evidence:** `{{ finding.evidence_status }}` ({{ report.status_legend.get(finding.evidence_status, finding.evidence_status) }})
+- **CWE:** {{ finding.cwe }}
+- **Severity:** {{ finding.severity|upper }}
+- **Composite Risk:** {{ "%.1f"|format(finding.composite_risk_score) }} / 100 ({{ finding.composite_risk_band|upper }})
+- **Location:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}`
+- **Reason:** {{ finding.suppression_reason or "n/a" }}
+- **Ownership:** service=`{{ finding.ownership.service or "n/a" }}`, system=`{{ finding.ownership.system or "n/a" }}`, team=`{{ finding.ownership.team or "n/a" }}`, owner=`{{ finding.ownership.owner or "n/a" }}`, control_owner=`{{ finding.ownership.control_owner or "n/a" }}`, repository=`{{ finding.ownership.repository or "n/a" }}`, environment=`{{ finding.ownership.environment or "n/a" }}`
+{% if finding.explanation %}
+- **Matched source spec:** `{{ finding.explanation.matched_source_spec.spec_id or finding.explanation.matched_source_spec.name or "n/a" }}`
+- **Matched sink spec:** `{{ finding.explanation.matched_sink_spec.spec_id or finding.explanation.matched_sink_spec.name or "n/a" }}`
+- **Sanitizers observed:** {% if finding.explanation.sanitizers_observed %}{{ finding.explanation.sanitizers_observed|join(", ") }}{% else %}none{% endif %}
+- **Propagation summary:** {{ finding.explanation.propagation_path.source_to_sink }} ({{ finding.explanation.propagation_path.path_node_count }} nodes)
+- **Confidence model:** {{ finding.explanation.confidence.model_version }} (contextual {{ "%.3f"|format(finding.explanation.confidence.contextual_confidence) }})
+{% endif %}
+
+{% endfor %}
+{% endfor %}
+{% for finding in report.suppressed_findings if finding.cross_package %}
+### {{ finding.title }} (`{{ finding.finding_id }}`)
+
+- **Evidence:** `{{ finding.evidence_status }}` ({{ report.status_legend.get(finding.evidence_status, finding.evidence_status) }})
+- **CWE:** {{ finding.cwe }}
+- **Severity:** {{ finding.severity|upper }}
+- **Composite Risk:** {{ "%.1f"|format(finding.composite_risk_score) }} / 100 ({{ finding.composite_risk_band|upper }})
+- **Location:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}`
+- **Reason:** {{ finding.suppression_reason or "n/a" }}
+- **Ownership:** service=`{{ finding.ownership.service or "n/a" }}`, system=`{{ finding.ownership.system or "n/a" }}`, team=`{{ finding.ownership.team or "n/a" }}`, owner=`{{ finding.ownership.owner or "n/a" }}`, control_owner=`{{ finding.ownership.control_owner or "n/a" }}`, repository=`{{ finding.ownership.repository or "n/a" }}`, environment=`{{ finding.ownership.environment or "n/a" }}`
+{% if finding.explanation %}
+- **Matched source spec:** `{{ finding.explanation.matched_source_spec.spec_id or finding.explanation.matched_source_spec.name or "n/a" }}`
+- **Matched sink spec:** `{{ finding.explanation.matched_sink_spec.spec_id or finding.explanation.matched_sink_spec.name or "n/a" }}`
+- **Sanitizers observed:** {% if finding.explanation.sanitizers_observed %}{{ finding.explanation.sanitizers_observed|join(", ") }}{% else %}none{% endif %}
+- **Propagation summary:** {{ finding.explanation.propagation_path.source_to_sink }} ({{ finding.explanation.propagation_path.path_node_count }} nodes)
+- **Confidence model:** {{ finding.explanation.confidence.model_version }} (contextual {{ "%.3f"|format(finding.explanation.confidence.contextual_confidence) }})
+{% endif %}
+
+{% endfor %}
+{% else %}
+{% for finding in report.suppressed_findings %}
+### {{ finding.title }} (`{{ finding.finding_id }}`)
+
+- **Evidence:** `{{ finding.evidence_status }}` ({{ report.status_legend.get(finding.evidence_status, finding.evidence_status) }})
+- **CWE:** {{ finding.cwe }}
+- **Severity:** {{ finding.severity|upper }}
+- **Composite Risk:** {{ "%.1f"|format(finding.composite_risk_score) }} / 100 ({{ finding.composite_risk_band|upper }})
+- **Location:** `{{ finding.sink_location.file }}:{{ finding.sink_location.line }}`
+- **Reason:** {{ finding.suppression_reason or "n/a" }}
+- **Ownership:** service=`{{ finding.ownership.service or "n/a" }}`, system=`{{ finding.ownership.system or "n/a" }}`, team=`{{ finding.ownership.team or "n/a" }}`, owner=`{{ finding.ownership.owner or "n/a" }}`, control_owner=`{{ finding.ownership.control_owner or "n/a" }}`, repository=`{{ finding.ownership.repository or "n/a" }}`, environment=`{{ finding.ownership.environment or "n/a" }}`
+{% if finding.explanation %}
+- **Matched source spec:** `{{ finding.explanation.matched_source_spec.spec_id or finding.explanation.matched_source_spec.name or "n/a" }}`
+- **Matched sink spec:** `{{ finding.explanation.matched_sink_spec.spec_id or finding.explanation.matched_sink_spec.name or "n/a" }}`
+- **Sanitizers observed:** {% if finding.explanation.sanitizers_observed %}{{ finding.explanation.sanitizers_observed|join(", ") }}{% else %}none{% endif %}
+- **Propagation summary:** {{ finding.explanation.propagation_path.source_to_sink }} ({{ finding.explanation.propagation_path.path_node_count }} nodes)
+- **Confidence model:** {{ finding.explanation.confidence.model_version }} (contextual {{ "%.3f"|format(finding.explanation.confidence.contextual_confidence) }})
+{% endif %}
+
+{% endfor %}
+{% endif %}
+{% else %}
+No suppressed findings were recorded.
+{% endif %}
+
+## Dead Code Report
+
+{% if report.dead_code_by_file %}
+{{ report.dead_code_functions|length }} functions unreachable from any entry point:
+
+{% for file_name, functions in report.dead_code_by_file.items() %}
+### `{{ file_name }}`
+
+{% for function in functions %}
+- `{{ function.name }}` (line {{ function.location.line }})
+{% endfor %}
+{% endfor %}
+{% else %}
+Dead code reporting was not requested or no unreachable functions were found.
+{% endif %}
+
+## Appendix
+
+- **Scan duration:** {{ "%.1f"|format(report.appendix.stage_timings_s.get("scan", 0.0)) }}s
+- **Detect duration:** {{ "%.1f"|format(report.appendix.stage_timings_s.get("detect", 0.0)) }}s
+- **Triage duration:** {{ "%.1f"|format(report.appendix.stage_timings_s.get("triage", 0.0)) }}s
+- **Verify duration:** {{ "%.1f"|format(report.appendix.stage_timings_s.get("verify", 0.0)) }}s
+- **Legal duration:** {{ "%.1f"|format(report.appendix.stage_timings_s.get("legal", 0.0)) }}s
+- **Patch duration:** {{ "%.1f"|format(report.appendix.stage_timings_s.get("patch", 0.0)) }}s
+- **Report duration:** {{ "%.1f"|format(report.appendix.stage_timings_s.get("report", 0.0)) }}s
+- **Total LLM cost:** ${{ "%.2f"|format(report.appendix.total_llm_cost_usd) }}
+- **Total duration:** {{ "%.1f"|format(report.appendix.duration_s) }}s

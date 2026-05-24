@@ -1,0 +1,25 @@
+id: gt-fp-006
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-78
+cwe_name: OS Command Injection
+label: false_positive
+affected_files:
+  - eval/synthetic/fp-allowlist-cmd.ts
+line_numbers: [10, 16]
+taint_source: req.query.action
+taint_sink: "child_process.exec() behind allowlist"
+taint_path:
+  - "req.query.action (Express GET handler)"
+  - "allowlist check: if (!['status', 'health', 'version'].includes(action)) return 403"
+  - "exec(action, callback) only reached with allowlisted value"
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "Hand-crafted false positive. User input reaches exec() but only after strict allowlist check. Only three hardcoded safe values can pass through. No injection possible."
+language: typescript
+framework: general
+taint_step_count: 3
+taint_field_path: query.action
+field_sensitive_label: false_positive

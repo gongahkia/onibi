@@ -1,0 +1,25 @@
+id: gt-022
+source_project: goof
+commit_hash: "6b7a5e0d2b56af35f0e7a3c4d1b9f6e8c2a40d15"
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+  - routes/index.js
+line_numbers: [47]
+taint_source: req.body.content
+taint_sink: "db.exec() with string concatenation"
+taint_path:
+  - "req.body.content (POST /create handler)"
+  - "const query = \"INSERT INTO todo (content, completed) VALUES ('\" + req.body.content + \"', 'false')\""
+  - "db.exec(query) executes unsanitized SQL via sqlite3"
+complexity: simple
+exploitable: true
+reference_exploit: "POST /create with content=test','false'); DROP TABLE todo;-- destroys table via SQLi"
+reference_fix_commit: null
+notes: "Snyk Goof demo app. Classic SQLi via string concatenation in sqlite3 db.exec(). Intended to demonstrate SQLi vulnerability for Snyk scanning."
+language: javascript
+framework: express
+taint_step_count: 3
+taint_field_path: body.content
+field_sensitive_label: true_positive

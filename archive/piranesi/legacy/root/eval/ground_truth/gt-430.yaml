@@ -1,0 +1,25 @@
+id: gt-430
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-78
+cwe_name: OS Command Injection
+label: true_positive
+affected_files:
+- eval/synthetic/phase30/java/gt-430.java
+line_numbers:
+- 4
+taint_source: args[0]
+taint_sink: ProcessBuilder.start()
+taint_path:
+- args[0] carries attacker-controlled command text into main()
+- the program constructs ProcessBuilder with a shell and the attacker-controlled command
+- ProcessBuilder.start() launches the attacker-controlled shell command
+complexity: simple
+exploitable: true
+reference_exploit: Run with args[0] set to id
+reference_fix_commit: null
+notes: General Java command injection via ProcessBuilder and sh -c.
+discovery_method: synthetic
+language: java
+framework: java
+taint_step_count: 3

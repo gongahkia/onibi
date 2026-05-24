@@ -1,0 +1,26 @@
+id: gt-fp-015
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery
+label: false_positive
+affected_files:
+  - eval/synthetic/fp-ssrf-allowlist-http.ts
+line_numbers: [18]
+taint_source: req.query.service
+taint_sink: "http.get() behind URL allowlist"
+taint_path:
+  - "req.query.service (Express GET handler)"
+  - "const target = ALLOWED_TARGETS[service]"
+  - "if (!target) return 403"
+  - "http.get(target, callback) only reaches allowlisted URLs"
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "Hand-crafted false positive. User input selects a key into a constant allowlist map; the actual URL passed to http.get() is fixed by the application."
+language: typescript
+framework: general
+taint_step_count: 4
+taint_field_path: query.service
+field_sensitive_label: false_positive

@@ -1,0 +1,22 @@
+{
+  "SchemaVersion": 2,
+  "ArtifactName": "debian-vm-01",
+  "ArtifactType": "filesystem",
+  "Results": [
+    {
+      "Target": "debian-vm-01",
+      "Class": "os-pkgs",
+      "Type": "ubuntu",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2023-0464",
+          "PkgName": "openssl",
+          "InstalledVersion": "1.1.1f-1ubuntu2.16",
+          "FixedVersion": "1.1.1f-1ubuntu2.17",
+          "Severity": "HIGH",
+          "Title": "OpenSSL policy checks are vulnerable to invalid certificate policy handling"
+        }
+      ]
+    }
+  ]
+}

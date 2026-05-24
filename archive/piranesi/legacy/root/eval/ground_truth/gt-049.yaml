@@ -1,0 +1,32 @@
+id: gt-049
+source_project: dvna
+commit_hash: 9ba473add536f66ac9007966acb2a775dd31277a
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting (Stored)
+label: true_positive
+affected_files:
+- core/appHandler.js
+- views/app/products.ejs
+line_numbers:
+- 235
+- 241
+- 242
+- 53
+taint_source: req.files.products.data
+taint_sink: EJS raw product table cell in views/app/products.ejs
+taint_path:
+- req.files.products.data uploaded to POST /app/bulkproducts
+- 'libxmljs.parseXmlString(req.files.products.data.toString("utf8"), { noent: true, noblanks: true }) parses attacker-controlled XML (core/appHandler.js:235)'
+- newProduct.description = product.childNodes()[3].text() copies attacker-controlled XML content into the Product model (core/appHandler.js:241)
+- newProduct.save() persists the imported record (core/appHandler.js:242)
+- views/app/products.ejs:53 renders the stored field with <%- ... %> and no escaping
+complexity: inter
+exploitable: true
+reference_exploit: Upload an XML product import whose <description> element contains <img src=x onerror=alert(1)> and then browse /app/products
+reference_fix_commit: null
+notes: Second-order stored XSS introduced through the XML bulk import path for product description.
+language: javascript
+framework: express
+taint_step_count: 5
+taint_field_path: files.products.data
+field_sensitive_label: true_positive

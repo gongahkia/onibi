@@ -1,0 +1,156 @@
+{
+  "cves": {
+    "CVE-2018-16487": {
+      "package": "lodash",
+      "functions": [
+        "merge",
+        "mergeWith"
+      ],
+      "source": "manual"
+    },
+    "CVE-2018-3728": {
+      "package": "hoek",
+      "functions": [
+        "setPath",
+        "mixin"
+      ],
+      "source": "manual"
+    },
+    "CVE-2019-10744": {
+      "package": "lodash",
+      "functions": [
+        "defaultsDeep"
+      ],
+      "source": "manual"
+    },
+    "CVE-2020-28500": {
+      "package": "lodash",
+      "functions": [
+        "toNumber",
+        "trim",
+        "trimEnd",
+        "trimStart"
+      ],
+      "source": "manual"
+    },
+    "CVE-2020-7598": {
+      "package": "minimist",
+      "functions": [
+        "parse"
+      ],
+      "source": "manual"
+    },
+    "CVE-2020-7788": {
+      "package": "ini",
+      "functions": [
+        "parse"
+      ],
+      "source": "manual"
+    },
+    "CVE-2020-8203": {
+      "package": "lodash",
+      "functions": [
+        "zipObjectDeep",
+        "set",
+        "setWith"
+      ],
+      "source": "manual"
+    },
+    "CVE-2021-23337": {
+      "package": "lodash",
+      "functions": [
+        "template"
+      ],
+      "source": "manual"
+    },
+    "CVE-2021-3918": {
+      "package": "json-schema",
+      "functions": [
+        "validate"
+      ],
+      "source": "manual"
+    },
+    "CVE-2021-44906": {
+      "package": "minimist",
+      "functions": [
+        "_"
+      ],
+      "source": "manual"
+    },
+    "CVE-2022-0536": {
+      "package": "follow-redirects",
+      "functions": [
+        "resolve"
+      ],
+      "source": "manual"
+    },
+    "CVE-2022-24999": {
+      "package": "qs",
+      "functions": [
+        "parse"
+      ],
+      "source": "manual"
+    },
+    "CVE-2022-25883": {
+      "package": "semver",
+      "functions": [
+        "validRange",
+        "satisfies"
+      ],
+      "source": "manual"
+    },
+    "CVE-2022-46175": {
+      "package": "json5",
+      "functions": [
+        "parse"
+      ],
+      "source": "manual"
+    }
+  },
+  "packages": {
+    "follow-redirects": [
+      "resolve"
+    ],
+    "handlebars": [
+      "compile",
+      "precompile",
+      "template"
+    ],
+    "ini": [
+      "parse"
+    ],
+    "json5": [
+      "parse"
+    ],
+    "jsonwebtoken": [
+      "verify",
+      "sign",
+      "decode"
+    ],
+    "lodash": [
+      "template",
+      "merge",
+      "mergeWith",
+      "defaultsDeep",
+      "set",
+      "setWith",
+      "zipObjectDeep"
+    ],
+    "minimist": [
+      "parse",
+      "_"
+    ],
+    "node-fetch": [
+      "fetch"
+    ],
+    "qs": [
+      "parse"
+    ],
+    "semver": [
+      "validRange",
+      "satisfies"
+    ]
+  },
+  "generated_at": "2026-04-15",
+  "source": "manual"
+}

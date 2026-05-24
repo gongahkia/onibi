@@ -1,0 +1,43 @@
+{
+  "matrix_path": "eval/benchmarks/mapping_matrix.yaml",
+  "total_entries": 13,
+  "by_status": {
+    "mapped": 5,
+    "planned": 8
+  },
+  "by_benchmark": {
+    "internal_seed": 5,
+    "nist_juliet": 4,
+    "owasp_benchmark": 4
+  },
+  "by_cwe": {
+    "CWE-338": 1,
+    "CWE-352": 2,
+    "CWE-601": 2,
+    "CWE-643": 1,
+    "CWE-78": 1,
+    "CWE-79": 1,
+    "CWE-89": 3,
+    "CWE-90": 1,
+    "CWE-943": 1
+  },
+  "by_language": {
+    "go": 1,
+    "java": 9,
+    "javascript": 2,
+    "php": 1
+  },
+  "mapped_ground_truth_ids": [
+    "gt-508",
+    "gt-509",
+    "gt-510",
+    "gt-511",
+    "gt-512",
+    "gt-513",
+    "gt-514",
+    "gt-515",
+    "gt-516",
+    "gt-517"
+  ],
+  "mapped_ground_truth_id_count": 10
+}

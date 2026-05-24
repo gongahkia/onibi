@@ -1,0 +1,134 @@
+[[rules]]
+rule_id = "nist_csf_pr_aa_1_auth"
+framework = "NIST_CSF"
+section = "PR.AA-1 Identities and Credentials Managed"
+vuln_classes = ["CWE-287", "CWE-306"]
+obligation_text = "NIST CSF 2.0 outcome PR.AA-1 expects identities and credentials to be managed, issued, and revoked appropriately. Authentication weaknesses show that identity controls are not adequately enforced."
+consequences = ["remediate", "document", "review"]
+penalty_range = "NIST CSF outcome gap; remediation and program evidence required."
+
+[[rules]]
+rule_id = "nist_csf_pr_aa_1_secrets"
+framework = "NIST_CSF"
+section = "PR.AA-1 Identities and Credentials Managed"
+vuln_classes = ["CWE-798"]
+obligation_text = "NIST CSF 2.0 outcome PR.AA-1 expects identities and credentials to be managed, issued, and revoked appropriately. Hardcoded credential findings show that credential lifecycle controls are not being applied."
+consequences = ["remediate", "document", "review"]
+penalty_range = "NIST CSF outcome gap; remediation and program evidence required."
+
+[[rules]]
+rule_id = "nist_csf_pr_aa_1_password"
+framework = "NIST_CSF"
+section = "PR.AA-1 Identities and Credentials Managed"
+vuln_classes = ["CWE-521"]
+obligation_text = "NIST CSF 2.0 outcome PR.AA-1 expects identities and credentials to be managed, issued, and revoked appropriately. Weak password policy findings show that credential strength requirements are not enforced."
+consequences = ["remediate", "document", "review"]
+penalty_range = "NIST CSF outcome gap; remediation and program evidence required."
+
+[[rules]]
+rule_id = "nist_csf_pr_aa_2_session"
+framework = "NIST_CSF"
+section = "PR.AA-2 Identities Bound to Credentials"
+vuln_classes = ["CWE-384"]
+obligation_text = "NIST CSF 2.0 outcome PR.AA-2 expects identities to be proofed and bound to credentials and interactions. Session fixation findings show that authenticated sessions can be rebound or reused improperly."
+consequences = ["remediate", "document", "review"]
+penalty_range = "NIST CSF outcome gap; remediation and program evidence required."
+
+[[rules]]
+rule_id = "nist_csf_pr_ds_1_storage"
+framework = "NIST_CSF"
+section = "PR.DS-1 Data-at-Rest Protected"
+vuln_classes = ["CWE-312", "CWE-327", "CWE-326"]
+obligation_text = "NIST CSF 2.0 outcome PR.DS-1 expects data at rest to be protected. Cleartext storage and weak cryptographic findings show that stored data is not being protected with appropriate cryptographic controls."
+consequences = ["remediate", "document", "review"]
+penalty_range = "NIST CSF outcome gap; remediation and program evidence required."
+
+[[rules]]
+rule_id = "nist_csf_pr_ds_2_transit"
+framework = "NIST_CSF"
+section = "PR.DS-2 Data-in-Transit Protected"
+vuln_classes = ["CWE-319", "CWE-295", "CWE-523"]
+obligation_text = "NIST CSF 2.0 outcome PR.DS-2 expects data in transit to be protected. Cleartext transport or certificate-validation findings show that transport protections are not effective."
+consequences = ["remediate", "document", "review"]
+penalty_range = "NIST CSF outcome gap; remediation and program evidence required."
+
+[[rules]]
+rule_id = "nist_csf_pr_ds_10_in_use"
+framework = "NIST_CSF"
+section = "PR.DS-10 Data-in-Use Protected"
+vuln_classes = ["CWE-200", "CWE-532"]
+obligation_text = "NIST CSF 2.0 outcome PR.DS-10 expects data in use to be protected from unauthorized disclosure. Information exposure and sensitive logging findings show that active data handling controls are ineffective."
+consequences = ["remediate", "document", "review"]
+penalty_range = "NIST CSF outcome gap; remediation and program evidence required."
+
+[[rules]]
+rule_id = "nist_csf_pr_ps_1_config"
+framework = "NIST_CSF"
+section = "PR.PS-1 Configuration Management"
+vuln_classes = ["CWE-16", "CWE-942", "CWE-693"]
+obligation_text = "NIST CSF 2.0 outcome PR.PS-1 expects secure configuration management practices to be established and maintained. Security misconfiguration findings show that secure baselines are not enforced consistently."
+consequences = ["remediate", "document", "review"]
+penalty_range = "NIST CSF outcome gap; remediation and program evidence required."
+
+[[rules]]
+rule_id = "nist_csf_id_ra_1_vuln"
+framework = "NIST_CSF"
+section = "ID.RA-1 Vulnerabilities Identified"
+requires_boolean_facts = ["severity_high_or_above"]
+obligation_text = "NIST CSF 2.0 outcome ID.RA-1 expects vulnerabilities to be identified and analyzed. High-severity findings show that meaningful exposure has been identified and requires prioritization and follow-through."
+consequences = ["document", "review", "remediate"]
+penalty_range = "NIST CSF outcome gap; remediation and program evidence required."
+
+[[rules]]
+rule_id = "nist_csf_id_ra_2_cve"
+framework = "NIST_CSF"
+section = "ID.RA-2 Threat Intelligence Received and Used"
+requires_boolean_facts = ["has_cve"]
+obligation_text = "NIST CSF 2.0 outcome ID.RA-2 expects threat intelligence and vulnerability information to be received and acted on. CVE-backed findings show that known external intelligence has identified an exposed weakness."
+consequences = ["document", "review", "remediate"]
+penalty_range = "NIST CSF outcome gap; remediation and program evidence required."
+
+[[rules]]
+rule_id = "nist_csf_de_cm_6_deps"
+framework = "NIST_CSF"
+section = "DE.CM-6 External Service Provider Activity Monitored"
+requires_boolean_facts = ["outdated_dependency"]
+obligation_text = "NIST CSF 2.0 outcome DE.CM-6 expects third-party and external service activity to be monitored. Outdated dependency findings show that externally sourced components are not being monitored and refreshed effectively."
+consequences = ["document", "review", "remediate"]
+penalty_range = "NIST CSF outcome gap; remediation and program evidence required."
+
+[[rules]]
+rule_id = "nist_csf_pr_ip_injection"
+framework = "NIST_CSF"
+section = "PR.IP Information Protection - Injection"
+vuln_classes = ["CWE-89", "CWE-79", "CWE-78"]
+obligation_text = "NIST CSF 2.0 protect outcomes require information protection processes to prevent unauthorized manipulation of systems and data. Injection findings show that application-layer protection practices are not effective."
+consequences = ["remediate", "document", "review"]
+penalty_range = "NIST CSF outcome gap; remediation and program evidence required."
+
+[[rules]]
+rule_id = "nist_csf_pr_ip_input_val"
+framework = "NIST_CSF"
+section = "PR.IP Information Protection - Input Validation"
+vuln_classes = ["CWE-20"]
+obligation_text = "NIST CSF 2.0 protect outcomes require information protection processes to prevent unauthorized manipulation of systems and data. Improper input validation findings show that application inputs are not being constrained to safe expectations."
+consequences = ["remediate", "document", "review"]
+penalty_range = "NIST CSF outcome gap; remediation and program evidence required."
+
+[[rules]]
+rule_id = "nist_csf_pr_ac_idor"
+framework = "NIST_CSF"
+section = "PR.AC Access Control - Object Authorization"
+vuln_classes = ["CWE-639", "CWE-862"]
+obligation_text = "NIST CSF 2.0 access-control outcomes require logical access to assets and associated facilities to be limited to authorized users and transactions. Object-level authorization failures show that access control decisions are not enforced reliably."
+consequences = ["remediate", "document", "review"]
+penalty_range = "NIST CSF outcome gap; remediation and program evidence required."
+
+[[rules]]
+rule_id = "nist_csf_pr_ac_escalation"
+framework = "NIST_CSF"
+section = "PR.AC Access Control - Privilege Management"
+vuln_classes = ["CWE-269"]
+obligation_text = "NIST CSF 2.0 access-control outcomes require privileged capabilities to be limited and managed. Privilege escalation findings show that authorization boundaries can be bypassed or expanded improperly."
+consequences = ["remediate", "document", "review"]
+penalty_range = "NIST CSF outcome gap; remediation and program evidence required."

@@ -1,0 +1,4 @@
+[
+  {"name": "sshd.service", "active_state": "active", "unit_file_state": "enabled"},
+  {"name": "redis.service", "active_state": "active", "unit_file_state": "enabled"}
+]

@@ -1,0 +1,27 @@
+id: gt-081
+source_project: express
+commit_hash: dfe72bebb550e64402ff6f18697d731e3b56ba8f
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting (Reflected)
+label: true_positive
+affected_files:
+- lib/response.js
+line_numbers:
+- 961
+- 970
+- 981
+taint_source: user-supplied url argument to res.redirect()
+taint_sink: HTML anchor body returned by res.redirect()
+taint_path:
+- An application passes an attacker-controlled redirect target into res.redirect(target)
+- res.redirect() resolves the Location header through this.location(address) (lib/response.js:961-962)
+- the html formatter builds `<a href="${u}">${u}</a>` from the attacker-controlled target (lib/response.js:970-981)
+- the browser renders a clickable attacker-controlled href in the redirect body
+complexity: simple
+exploitable: true
+reference_exploit: Call res.redirect('javascript:alert(document.domain)') in an app that reflects user input into redirect targets; clicking the generated link executes attacker-controlled JavaScript
+reference_fix_commit: 21df421ebc7a5249bb31101da666bbf22adc3f18
+notes: CVE-2024-43796. Vulnerable release 4.19.1, fixed in 4.20.0 by removing the attacker-controlled href anchor from the HTML redirect body.
+language: javascript
+framework: express
+taint_step_count: 4

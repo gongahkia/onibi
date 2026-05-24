@@ -1,0 +1,25 @@
+id: gt-fp-037
+source_project: piranesi-owasp-fixture
+commit_hash: "0000000000000000000000000000000000000000"
+cwe_id: CWE-502
+cwe_name: Deserialization with schema validation (false positive)
+label: false_positive
+affected_files:
+  - deserialization.ts
+line_numbers: [24, 26]
+taint_source: "req.body.config"
+taint_sink: "JSON.parse(rawBody) followed by schema.validate()"
+taint_path:
+  - "req.body.config (deserialization.ts:24)"
+  - "JSON.parse(rawBody) (deserialization.ts:25)"
+  - "schema.validate(parsed) (deserialization.ts:26)"
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "JSON.parse followed by Joi schema validation. Schema rejects unexpected properties, mitigating prototype pollution."
+language: typescript
+framework: general
+taint_step_count: 3
+taint_field_path: body.config
+field_sensitive_label: false_positive

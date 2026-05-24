@@ -1,0 +1,55 @@
+## Executive Summary
+
+{% set severity_summary -%}
+{%- if report.executive_summary.severity_breakdown -%}
+{%- for severity, count in report.executive_summary.severity_breakdown.items() -%}
+{{ count }} {{ severity }}{% if not loop.last %}, {% endif %}
+{%- endfor -%}
+{%- else -%}
+none
+{%- endif -%}
+{%- endset %}
+{% set regulatory_summary -%}
+{%- if report.executive_summary.top_regulatory_concerns -%}
+{%- for concern in report.executive_summary.top_regulatory_concerns -%}
+{{ concern }}{% if not loop.last %}; {% endif %}
+{%- endfor -%}
+{%- else -%}
+none
+{%- endif -%}
+{%- endset %}
+{% set evidence_summary -%}
+{%- if report.executive_summary.status_breakdown -%}
+{%- for status, count in report.executive_summary.status_breakdown.items() -%}
+{{ count }} {{ report.status_legend.get(status, status) }}{% if not loop.last %}, {% endif %}
+{%- endfor -%}
+{%- else -%}
+none
+{%- endif -%}
+{%- endset %}
+{% set risk_summary -%}
+{%- if report.executive_summary.composite_risk_breakdown -%}
+{%- for band, count in report.executive_summary.composite_risk_breakdown.items() -%}
+{{ count }} {{ band }}{% if not loop.last %}, {% endif %}
+{%- endfor -%}
+{%- else -%}
+none
+{%- endif -%}
+{%- endset %}
+- **Findings detected:** {{ report.executive_summary.findings_detected }} findings{% if report.executive_summary.suppressed_findings %} ({{ report.executive_summary.suppressed_findings }} suppressed){% endif %}
+- **Suppression rules:** {{ report.executive_summary.suppression_rules_total }} total, {{ report.executive_summary.suppression_rules_active }} active{% if report.executive_summary.suppression_rules_expired %}, {{ report.executive_summary.suppression_rules_expired }} expired{% endif %}{% if report.executive_summary.suppression_rules_stale %}, {{ report.executive_summary.suppression_rules_stale }} stale{% endif %}{% if report.executive_summary.suppression_rules_invalid %}, {{ report.executive_summary.suppression_rules_invalid }} invalid{% endif %}
+- **Evidence status breakdown:** {{ evidence_summary }}
+- **Reachability:** {{ report.executive_summary.reachable_findings }} reachable{% if report.executive_summary.unreachable_findings %}, {{ report.executive_summary.unreachable_findings }} unreachable{% endif %}
+- **Finding clusters:** {{ report.executive_summary.finding_clusters }}
+- **Findings confirmed:** {{ report.executive_summary.findings_confirmed }}
+{% if report.cross_package_findings %}
+- **Cross-package findings:** {{ report.cross_package_findings|length }}
+{% endif %}
+- **Severity breakdown:** {{ severity_summary }}
+- **Composite risk breakdown:** {{ risk_summary }}
+{% if report.executive_summary.highest_composite_risk_finding_id %}
+- **Highest composite risk finding:** `{{ report.executive_summary.highest_composite_risk_finding_id }}` (score {{ "%.1f"|format(report.executive_summary.highest_composite_risk_score) }}, band={{ report.executive_summary.highest_composite_risk_band }})
+{% endif %}
+- **Top regulatory concerns:** {{ regulatory_summary }}
+- **Total LLM cost:** ${{ "%.2f"|format(report.executive_summary.total_llm_cost_usd) }}
+- **Duration:** {{ "%.1f"|format(report.executive_summary.duration_s) }}s

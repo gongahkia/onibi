@@ -1,0 +1,26 @@
+id: gt-fp-002
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-79
+cwe_name: Cross-site Scripting
+label: false_positive
+affected_files:
+  - eval/synthetic/fp-sanitized-input.ts
+line_numbers: [10, 14, 20]
+taint_source: req.body.comment
+taint_sink: "res.send() rendering sanitized HTML"
+taint_path:
+  - "req.body.comment (Express route handler)"
+  - "const clean = DOMPurify.sanitize(req.body.comment)"
+  - "stored in DB as sanitized value"
+  - "retrieved and rendered via res.send(`<div>${clean}</div>`)"
+complexity: inter
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "Hand-crafted false positive. Input passes through DOMPurify.sanitize() before storage and rendering. Taint-tracked path exists from req.body to res.send(), but sanitizer breaks the exploitability chain. Tests that Piranesi's triage correctly recognizes sanitization."
+language: typescript
+framework: general
+taint_step_count: 4
+taint_field_path: body.comment
+field_sensitive_label: false_positive

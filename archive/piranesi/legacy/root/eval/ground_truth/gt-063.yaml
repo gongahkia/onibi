@@ -1,0 +1,26 @@
+id: gt-063
+source_project: owasp-juice-shop
+commit_hash: "7380ce7120e289fc6bea861efd3fcba89261a6a8"
+cwe_id: CWE-22
+cwe_name: Path Traversal
+label: true_positive
+affected_files:
+  - routes/fileUpload.ts
+line_numbers: [41, 42, 44, 45]
+taint_source: "ZIP entry filename inside req.file.buffer"
+taint_sink: "fs.createWriteStream('uploads/complaints/' + fileName)"
+taint_path:
+  - "attacker uploads a ZIP file through /file-upload"
+  - "entry.path becomes fileName for each extracted archive member (routes/fileUpload.ts:41)"
+  - "absolutePath = path.resolve('uploads/complaints/' + fileName) is computed but validated with a broken includes() check (routes/fileUpload.ts:42-44)"
+  - "entry.pipe(fs.createWriteStream('uploads/complaints/' + fileName)) writes to the traversed path (routes/fileUpload.ts:45)"
+complexity: ctx
+exploitable: true
+reference_exploit: "Uploading a ZIP containing ../../ftp/legal.md overwrites ftp/legal.md outside uploads/complaints, exactly as in test/files/arbitraryFileWrite.zip."
+reference_fix_commit: null
+notes: "Classic Zip Slip arbitrary file write. The containment check is wrong because traversed absolute paths still include the workspace root."
+language: typescript
+framework: express
+taint_step_count: 4
+taint_field_path: files.file.buffer
+field_sensitive_label: true_positive

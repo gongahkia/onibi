@@ -1,0 +1,25 @@
+id: gt-501
+source_project: synthetic-phase39
+commit_hash: synthetic-no-commit
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery
+label: true_positive
+affected_files:
+- eval/fixtures/php/laravel/http_ssrf.php
+line_numbers:
+- 4
+taint_source: $request->input('url')
+taint_sink: Http::get()
+taint_path:
+- $request->input('url') is attacker-controlled.
+- Laravel's HTTP client accepts the unvalidated URL directly.
+- Http::get() sends a server-side request to the attacker-selected destination.
+complexity: simple
+exploitable: true
+reference_exploit: Request url=http://127.0.0.1:8000/admin causes an internal fetch.
+reference_fix_commit: null
+notes: Laravel HTTP client SSRF via user-controlled destination URL.
+discovery_method: synthetic
+language: php
+framework: laravel
+taint_step_count: 3

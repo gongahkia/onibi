@@ -1,0 +1,24 @@
+id: gt-120
+source_project: piranesi-owasp-fixture
+commit_hash: "0000000000000000000000000000000000000000"
+cwe_id: CWE-502
+cwe_name: Unsafe Deserialization (JSON.parse without validation)
+label: true_positive
+affected_files:
+  - deserialization.ts
+line_numbers: [9, 10]
+taint_source: "req.body.config"
+taint_sink: "JSON.parse(rawBody)"
+taint_path:
+  - "req.body.config (deserialization.ts:9)"
+  - "JSON.parse(rawBody) (deserialization.ts:10)"
+complexity: simple
+exploitable: true
+reference_exploit: "POST /api/config with config={\"__proto__\":{\"isAdmin\":true}} for prototype pollution"
+reference_fix_commit: null
+notes: "JSON.parse on raw user input without schema validation enables prototype pollution and arbitrary object instantiation."
+language: typescript
+framework: general
+taint_step_count: 2
+taint_field_path: body.config
+field_sensitive_label: true_positive

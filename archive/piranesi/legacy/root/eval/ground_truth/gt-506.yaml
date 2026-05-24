@@ -1,0 +1,25 @@
+id: gt-506
+source_project: synthetic-phase39
+commit_hash: synthetic-no-commit
+cwe_id: CWE-89
+cwe_name: SQL Injection
+label: true_positive
+affected_files:
+- eval/fixtures/php/symfony/controller_dql_inject.php
+line_numbers:
+- 3
+taint_source: $request->get('id')
+taint_sink: executeQuery()
+taint_path:
+- $request->get('id') is attacker-controlled input.
+- The SQL string concatenates the tainted id directly into the predicate.
+- executeQuery() runs the attacker-controlled statement.
+complexity: simple
+exploitable: true
+reference_exploit: GET /?id=0 OR 1=1 injects raw SQL into the Doctrine DBAL query.
+reference_fix_commit: null
+notes: Symfony DBAL query built with string concatenation.
+discovery_method: synthetic
+language: php
+framework: symfony
+taint_step_count: 3

@@ -1,0 +1,10 @@
+[
+  {
+    "key": "PermitRootLogin",
+    "value": "yes"
+  },
+  {
+    "key": "PasswordAuthentication",
+    "value": "yes"
+  }
+]

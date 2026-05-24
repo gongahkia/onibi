@@ -1,0 +1,26 @@
+id: gt-330
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-915
+cwe_name: Improperly Controlled Modification of Dynamically-Determined Object Attributes
+  (Mass Assignment)
+label: true_positive
+affected_files:
+- eval/fixtures/python/django/gt-330/views.py
+line_numbers:
+- 13
+taint_source: request.POST
+taint_sink: form.save()
+taint_path:
+- request.POST carries attacker-provided account attributes
+- AdminForm applies no meaningful field restriction because exclude is empty
+- form.save() persists security-sensitive fields from the request body
+complexity: ctx
+exploitable: true
+reference_exploit: POST is_superuser=true or groups=1 promotes the current account.
+reference_fix_commit: null
+notes: Django mass assignment through an effectively unbounded ModelForm configuration.
+discovery_method: synthetic
+language: python
+framework: django
+taint_step_count: 3

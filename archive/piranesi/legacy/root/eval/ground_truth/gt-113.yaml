@@ -1,0 +1,24 @@
+id: gt-113
+source_project: spring-petclinic
+commit_hash: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+cwe_id: CWE-89
+cwe_name: SQL Injection mitigated by @Valid annotation (false positive)
+label: false_positive
+affected_files:
+  - src/main/java/org/example/controller/ProductController.java
+line_numbers: [30, 38]
+taint_source: "@Valid @RequestBody ProductQuery query"
+taint_sink: "jdbcTemplate.query(\"SELECT * FROM products WHERE category = '\" + query.getCategory() + \"'\")"
+taint_path:
+  - "@Valid @RequestBody ProductQuery (ProductController.java:30)"
+  - "jdbcTemplate.query(sql + category) (ProductController.java:38)"
+complexity: simple
+exploitable: false
+reference_exploit: null
+reference_fix_commit: null
+notes: "Bean validation (@Valid) with @Pattern constraint on category field limits input to alphanumeric. SQLi not exploitable in practice despite string concat pattern. Confidence should be reduced by @Valid sanitizer."
+language: java
+framework: spring-boot
+taint_step_count: 2
+taint_field_path: body.payload
+field_sensitive_label: false_positive

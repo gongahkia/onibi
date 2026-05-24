@@ -1,0 +1,123 @@
+{
+  "cli": {
+    "groups": {
+      "agent": [
+        "add",
+        "check",
+        "context",
+        "import-run",
+        "list",
+        "login",
+        "presets",
+        "run",
+        "validate-run"
+      ],
+      "ci": [
+        "validate-delivery",
+        "validate-pff",
+        "validate-report-bundle"
+      ],
+      "detections": [
+        "add-ioc",
+        "add-note",
+        "list"
+      ],
+      "engagement": [
+        "delivery"
+      ],
+      "evidence": [
+        "add",
+        "list"
+      ],
+      "ingest": [
+        "burp",
+        "c2",
+        "ffuf",
+        "init",
+        "metasploit",
+        "nessus",
+        "nmap",
+        "nuclei",
+        "sarif",
+        "sqlmap",
+        "zap"
+      ],
+      "integrations": [
+        "email-handoff",
+        "github-issues",
+        "slack-notify"
+      ],
+      "objectives": [
+        "add",
+        "list"
+      ],
+      "pff": [
+        "export",
+        "import",
+        "validate"
+      ],
+      "procedures": [
+        "add",
+        "list"
+      ],
+      "timeline": [
+        "add",
+        "list"
+      ]
+    },
+    "root_commands": [
+      "agent",
+      "ci",
+      "detections",
+      "engagement",
+      "evidence",
+      "ingest",
+      "integrations",
+      "objectives",
+      "pff",
+      "procedures",
+      "report",
+      "rescan",
+      "retest",
+      "serve",
+      "sign",
+      "timeline"
+    ]
+  },
+  "snapshot_version": 2,
+  "workspace_contract": {
+    "public_schemas": [
+      "agent-config",
+      "agent-context",
+      "agent-run",
+      "chain-of-custody",
+      "detections",
+      "evidence",
+      "findings",
+      "objectives",
+      "pentest-report",
+      "procedures",
+      "red-team-report",
+      "retest",
+      "workspace"
+    ],
+    "workspace_layout": [
+      "workspace.json",
+      "normalized/findings.json",
+      "evidence/index.json",
+      "timeline/events.jsonl",
+      "objectives/objectives.json",
+      "procedures/procedures.json",
+      "detections/detections.json",
+      "audit-log.jsonl",
+      "agent/",
+      "raw/",
+      "timeline/",
+      "objectives/",
+      "procedures/",
+      "detections/",
+      "reports/",
+      "signatures/"
+    ]
+  }
+}

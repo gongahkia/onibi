@@ -1,0 +1,25 @@
+id: gt-057
+source_project: owasp-juice-shop
+commit_hash: "7380ce7120e289fc6bea861efd3fcba89261a6a8"
+cwe_id: CWE-89
+cwe_name: SQL Injection (NoSQL variant)
+label: true_positive
+affected_files:
+  - routes/updateProductReviews.ts
+line_numbers: [18, 20]
+taint_source: req.body.id
+taint_sink: "db.reviewsCollection.update() selector object with multi:true"
+taint_path:
+  - "req.body.id (routes/updateProductReviews.ts:18)"
+  - "db.reviewsCollection.update({ _id: req.body.id }, { $set: { message: req.body.message } }, { multi: true })"
+  - "query-operator objects supplied in req.body.id are interpreted as selector logic instead of a literal review ID"
+complexity: simple
+exploitable: true
+reference_exploit: "PATCH /rest/products/reviews with {\"id\":{\"$ne\":null},\"message\":\"pwned\"} matches multiple review documents and overwrites their messages."
+reference_fix_commit: null
+notes: "NoSQL manipulation via operator injection in the update selector. The multi-document update makes the impact broader than a single forged review edit."
+language: typescript
+framework: express
+taint_step_count: 3
+taint_field_path: body.id
+field_sensitive_label: true_positive

@@ -1,0 +1,29 @@
+id: gt-085
+source_project: koa-remove-trailing-slashes
+commit_hash: b7da3627de262c01b20f1583324d265098a2d09c
+cwe_id: CWE-601
+cwe_name: Open Redirect
+label: true_positive
+affected_files:
+- eval/cve_fixtures/cwe601-CVE-2021-23384-koa-remove-trailing-slashes-vuln.js
+line_numbers:
+- 2
+- 4
+- 11
+taint_source: ctx.originalUrl
+taint_sink: ctx.redirect()
+taint_path:
+- The middleware derives path = getPath(ctx.originalUrl, ctx.querystring) from an attacker-controlled incoming URL (index.js:36-37)
+- If the path ends with a slash, it trims one character (index.js:40-41)
+- The vulnerable version directly calls ctx.redirect(path + query) with no origin validation (index.js:45)
+complexity: simple
+exploitable: true
+reference_exploit: Request //evil.example/ through an app using the middleware; the plugin redirects to the protocol-relative attacker host after trimming the trailing slash
+reference_fix_commit: 2500e4232ee8e5746ad0e8d1e83a9af22acd7d30
+notes: CVE-2021-23384. Fixed in 2.0.2 by verifying that the redirect target remains on ctx.origin before redirecting.
+discovery_method: cve_mining
+language: javascript
+framework: koa
+taint_step_count: 3
+taint_field_path: query.originalUrl
+field_sensitive_label: true_positive

@@ -1,0 +1,27 @@
+id: gt-118
+source_project: piranesi-cross-language-fixture
+commit_hash: "0000000000000000000000000000000000000000"
+cwe_id: CWE-918
+cwe_name: Server-Side Request Forgery (Cross-Language TS→Flask)
+label: true_positive
+affected_files:
+  - frontend/app.tsx
+  - backend/app.py
+line_numbers: [37, 47]
+taint_source: "document.getElementById('proxy-url').value via fetch('/api/proxy')"
+taint_sink: "requests.get(url).text"
+taint_path:
+  - "document.getElementById('proxy-url').value (frontend/app.tsx:36)"
+  - "fetch('/api/proxy', {body: JSON.stringify({url})}) (frontend/app.tsx:37)"
+  - "cross-language API call: typescript → python via /api/proxy"
+  - "requests.get(url).text (backend/app.py:47)"
+complexity: inter
+exploitable: true
+reference_exploit: "POST /api/proxy with url=http://169.254.169.254/latest/meta-data/ for cloud metadata exfil"
+reference_fix_commit: null
+notes: "Cross-language SSRF: TS frontend sends user-controlled URL to Flask proxy endpoint that fetches it server-side."
+language: mixed
+framework: general
+taint_step_count: 4
+taint_field_path: body.proxy_url
+field_sensitive_label: true_positive

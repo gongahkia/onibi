@@ -1,0 +1,24 @@
+id: gt-099
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-79
+cwe_name: Cross-Site Scripting
+label: true_positive
+affected_files:
+  - eval/synthetic/nestjs-headers-res-send-xss.ts
+line_numbers: [15]
+taint_source: "@Headers('auth') auth"
+taint_sink: res.send()
+taint_path:
+  - "@Headers('auth') binds attacker-controlled header data to the controller parameter"
+  - "auth flows directly into res.send(auth)"
+complexity: simple
+exploitable: true
+reference_exploit: "Send Auth: <script>alert(1)</script> to the route and the value is reflected through res.send()"
+reference_fix_commit: null
+notes: "Synthetic NestJS reflected XSS example sourced from a decorator-bound header parameter."
+language: typescript
+framework: general
+taint_step_count: 2
+taint_field_path: headers.auth
+field_sensitive_label: true_positive

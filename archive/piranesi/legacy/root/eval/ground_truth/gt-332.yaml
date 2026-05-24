@@ -1,0 +1,26 @@
+id: gt-332
+source_project: synthetic-phase30
+commit_hash: synthetic-no-commit
+cwe_id: CWE-352
+cwe_name: Cross-Site Request Forgery
+label: true_positive
+affected_files:
+- eval/fixtures/python/django/gt-332/views.py
+line_numbers:
+- 6
+taint_source: cross-site POST request to BillingWebhook.post()
+taint_sink: '@method_decorator(csrf_exempt)'
+taint_path:
+- the victim browser can be induced to issue a cross-site POST request
+- method_decorator(csrf_exempt) disables CSRF checks for the class-based view
+- BillingWebhook.post() accepts the request without verifying intent
+complexity: ctx
+exploitable: true
+reference_exploit: Embed a hidden form that posts invoice data to the webhook endpoint
+  from another origin.
+reference_fix_commit: null
+notes: Django CSRF bypass on a class-based view exempted from CSRF middleware.
+discovery_method: synthetic
+language: python
+framework: django
+taint_step_count: 3

@@ -1,0 +1,10 @@
+{
+  "name": "piranesi-xss-app",
+  "private": true,
+  "scripts": {
+    "start": "node app.js"
+  },
+  "dependencies": {
+    "express": "^4.19.0"
+  }
+}

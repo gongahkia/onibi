@@ -1,0 +1,26 @@
+id: gt-476
+source_project: synthetic-phase31
+commit_hash: synthetic-no-commit
+cwe_id: CWE-79
+cwe_name: Cross-Site Scripting
+label: true_positive
+field_sensitive_label: true_positive
+affected_files:
+- eval/synthetic/field-body-title-render.ts
+line_numbers:
+- 6
+taint_source: req.body
+taint_sink: res.render()
+taint_field_path: body.title
+taint_path:
+- req.body.title is attacker-controlled
+- res.render() receives the tainted title field
+complexity: simple
+exploitable: true
+reference_exploit: POST /field-title with title=<img src=x onerror=alert(1)> renders tainted HTML.
+reference_fix_commit: null
+notes: The title field is still unsafe under field-sensitive analysis.
+discovery_method: synthetic
+language: typescript
+framework: express
+taint_step_count: 2

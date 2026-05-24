@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "clean_fixture": true,
+  "expected_findings": [],
+  "expected_absent": [
+    {
+      "id": "absent-public-high-risk-listener",
+      "rule_id": "host.listener.high_risk_service"
+    },
+    {
+      "id": "absent-public-ssh",
+      "rule_id": "host.listener.ssh_public"
+    },
+    {
+      "id": "absent-ssh-password-auth",
+      "rule_id": "host.ssh.password_authentication"
+    }
+  ],
+  "allowed_extra": [],
+  "notes": "Minimal Alpine fixture validates apk package normalization and skipped optional tooling without non-coverage findings."
+}
+

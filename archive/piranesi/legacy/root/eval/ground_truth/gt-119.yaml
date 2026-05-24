@@ -1,0 +1,27 @@
+id: gt-119
+source_project: piranesi-cross-language-fixture
+commit_hash: "0000000000000000000000000000000000000000"
+cwe_id: CWE-94
+cwe_name: Code Injection (Cross-Language TS→Flask)
+label: true_positive
+affected_files:
+  - frontend/app.tsx
+  - backend/app.py
+line_numbers: [44, 53]
+taint_source: "document.getElementById('expr-input').value via fetch('/api/eval')"
+taint_sink: "eval(expr)"
+taint_path:
+  - "document.getElementById('expr-input').value (frontend/app.tsx:43)"
+  - "fetch('/api/eval', {body: JSON.stringify({expr})}) (frontend/app.tsx:44)"
+  - "cross-language API call: typescript → python via /api/eval"
+  - "eval(expr) (backend/app.py:53)"
+complexity: inter
+exploitable: true
+reference_exploit: "POST /api/eval with expr=__import__('os').system('id') for RCE"
+reference_fix_commit: null
+notes: "Cross-language code injection: TS frontend sends user expression to Flask route that passes it directly to Python eval()."
+language: mixed
+framework: general
+taint_step_count: 4
+taint_field_path: body.expr_input
+field_sensitive_label: true_positive

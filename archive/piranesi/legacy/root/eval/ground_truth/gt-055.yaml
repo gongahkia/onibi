@@ -1,0 +1,25 @@
+id: gt-055
+source_project: owasp-juice-shop
+commit_hash: "7380ce7120e289fc6bea861efd3fcba89261a6a8"
+cwe_id: CWE-89
+cwe_name: SQL Injection (NoSQL variant)
+label: true_positive
+affected_files:
+  - routes/trackOrder.ts
+line_numbers: [15, 18]
+taint_source: req.params.id
+taint_sink: "db.ordersCollection.find() with $where JavaScript interpolation"
+taint_path:
+  - "req.params.id (routes/trackOrder.ts:15)"
+  - "id = utils.trunc(req.params.id, 60) limits length but preserves quotes and operators"
+  - "db.ordersCollection.find({ $where: `this.orderId === '${id}'` }) (routes/trackOrder.ts:18)"
+complexity: simple
+exploitable: true
+reference_exploit: "GET /rest/track-order/'||true||' turns the $where clause into this.orderId === ''||true||'' and returns orders that do not belong to the caller."
+reference_fix_commit: null
+notes: "NoSQL exfiltration in the order-tracking endpoint. User-controlled path data is embedded into JavaScript executed by the Mongo-style $where operator."
+language: typescript
+framework: express
+taint_step_count: 3
+taint_field_path: params.id
+field_sensitive_label: true_positive

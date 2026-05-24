@@ -1,0 +1,1 @@
+File.read(params[:path])

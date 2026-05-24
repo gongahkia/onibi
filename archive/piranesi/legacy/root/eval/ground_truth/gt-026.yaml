@@ -1,0 +1,25 @@
+id: gt-026
+source_project: synthetic
+commit_hash: "synthetic-no-commit"
+cwe_id: CWE-78
+cwe_name: OS Command Injection
+label: true_positive
+affected_files:
+  - eval/synthetic/cmd-injection-spawn.ts
+line_numbers: [10, 13]
+taint_source: req.query.host
+taint_sink: "child_process.spawn() with shell: true"
+taint_path:
+  - "req.query.host (Express route handler)"
+  - "const proc = spawn('nslookup ' + req.query.host, { shell: true })"
+  - "spawn with shell:true and string concatenation allows injection"
+complexity: simple
+exploitable: true
+reference_exploit: "GET /dns?host=example.com;id executes arbitrary command via shell metacharacter"
+reference_fix_commit: null
+notes: "Hand-crafted synthetic. spawn() with shell:true and concatenated user input is equivalent to exec() for injection purposes. Fix: use spawn('nslookup', [host]) without shell:true."
+language: typescript
+framework: general
+taint_step_count: 3
+taint_field_path: query.host
+field_sensitive_label: true_positive
