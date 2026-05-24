@@ -43,10 +43,12 @@
 - `GET /api/workflows/:id/runs/:runId/events` shows structured events with workflow, revision, run, severity, and correlation ids.
 - `GET /api/workflows/:id/runs/:runId` includes checkpoint records after worker execution.
 - Failed-run replay creates a new queued run from the original approved revision and deployment.
+- `kelp-claw cross-agent-replay-smoke` returns `ok: true` with the same replay shape for `claude-code`, `codex-cli`, and `goose`.
 - Schedule pause/resume survives API restart and `workflow_schedules` rows show next fire, last fire, and missed count.
 - Missing live secrets produce failed structured run output instead of falling back to mock adapters.
 - Database Query is read-only; Database Execute requires the connection secret to opt in with `allowWrites=true`.
 - Generated artifact hash drift blocks approval or execution.
+- `kelp-claw otlp-smoke` succeeds against the deployment OTLP endpoint and reports one trace with one span per smoke tool call.
 - `KELPCLAW_LIVE_SMOKE=1 pnpm smoke:live` succeeds against explicit test recipients and sheet ids.
 
 ## Retention And Recovery
@@ -84,4 +86,5 @@
 - Central log shipping and external incident management remain deployment responsibilities.
 - Agent-run hash chains are tamper-evident, not tamper-proof.
 - `kelp-claw audit-anchor <runId>` writes a local JSONL anchor of the current chain head and can also POST the same anchor to `KELPCLAW_AUDIT_ANCHOR_ENDPOINT`. External TSA, WORM, or object-lock storage is still a deployment responsibility.
+- OTLP/Datadog export depends on a configured OTLP endpoint. Without `KELPCLAW_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, or an OTLP base endpoint, KelpClaw cannot verify external trace intake.
 - KelpClaw produces evidence-ready records for governance review; it does not certify regulatory compliance.

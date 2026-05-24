@@ -21,6 +21,7 @@ import {
   createCodegenMetadata,
   createGeneratedArtifact,
   createGeneratedModuleSignature,
+  createAzureOpenAiResponsesRunner,
   decideReplay,
   generatedModuleSignaturesMatch,
   assertDependencyManifestPolicy,
@@ -514,6 +515,86 @@ describe("codegen artifact contracts", () => {
       );
     } finally {
       restoreEnv(previous);
+    }
+  });
+
+  it("falls back to Azure Chat Completions when Responses is unavailable", async () => {
+    const fetchMock = vi.fn(async (url: unknown, init: unknown) => {
+      const requestUrl = String(url);
+      if (requestUrl.includes("/responses")) {
+        return new Response(JSON.stringify({ error: { code: "404" } }), {
+          headers: { "content-type": "application/json" },
+          status: 404
+        });
+      }
+
+      const body = JSON.parse(String((init as { readonly body?: unknown }).body));
+      expect(requestUrl).toBe(
+        "https://example.openai.azure.com/openai/deployments/gpt-mini/chat/completions?api-version=2025-04-01-preview"
+      );
+      expect(body.messages).toEqual([
+        { role: "system", content: "return structured json" },
+        { role: "user", content: "generate code" }
+      ]);
+      expect(body.response_format).toEqual({
+        type: "json_schema",
+        json_schema: {
+          name: "kelpclaw_generated_node",
+          strict: true,
+          schema: { type: "object", additionalProperties: false }
+        }
+      });
+      return new Response(
+        JSON.stringify({
+          id: "chatcmpl.test",
+          model: "gpt-mini",
+          choices: [
+            {
+              message: {
+                content:
+                  '{"sourceCode":"export {};","packageManager":"none","dependencies":[],"devDependencies":[],"installCommand":[]}'
+              }
+            }
+          ],
+          usage: { total_tokens: 42 }
+        }),
+        { headers: { "content-type": "application/json" }, status: 200 }
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const runner = createAzureOpenAiResponsesRunner({
+        apiKey: "azure-key",
+        endpoint: "https://example.openai.azure.com",
+        deployment: "gpt-mini",
+        apiVersion: "2025-04-01-preview"
+      });
+      const result = await runner({
+        model: "ignored",
+        instructions: "return structured json",
+        input: "generate code",
+        store: false,
+        tools: [],
+        text: {
+          format: {
+            type: "json_schema",
+            name: "kelpclaw_generated_node",
+            strict: true,
+            schema: { type: "object", additionalProperties: false }
+          }
+        }
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(result).toEqual({
+        id: "chatcmpl.test",
+        model: "gpt-mini",
+        output_text:
+          '{"sourceCode":"export {};","packageManager":"none","dependencies":[],"devDependencies":[],"installCommand":[]}',
+        usage: { total_tokens: 42 }
+      });
+    } finally {
+      vi.unstubAllGlobals();
     }
   });
 

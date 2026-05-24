@@ -249,10 +249,84 @@ export function createAzureOpenAiResponsesRunner(
       ...(options?.signal ? { signal: options.signal } : {})
     });
     if (!response.ok) {
-      throw new Error(`Azure OpenAI Responses request failed: ${response.status}`);
+      if (response.status === 404) {
+        return await runAzureOpenAiChatCompletionsFallback(config, request, options);
+      }
+      throw await createAzureOpenAiRequestError("Responses", response);
     }
     return (await response.json()) as OpenAiResponsesResult;
   };
+}
+
+async function runAzureOpenAiChatCompletionsFallback(
+  config: AzureOpenAiResponsesConfig,
+  request: OpenAiResponsesCreateRequest,
+  options?: OpenAiResponsesRunOptions | undefined
+): Promise<OpenAiResponsesResult> {
+  const url = new URL(
+    `${config.endpoint}/openai/deployments/${encodeURIComponent(config.deployment)}/chat/completions`
+  );
+  url.searchParams.set("api-version", config.apiVersion);
+  const responseFormat = request.text.format;
+  const response = await fetch(url, {
+    body: JSON.stringify({
+      messages: [
+        { role: "system", content: request.instructions },
+        { role: "user", content: request.input }
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: responseFormat.name,
+          strict: responseFormat.strict,
+          schema: responseFormat.schema
+        }
+      }
+    }),
+    headers: {
+      "Content-Type": "application/json",
+      "api-key": config.apiKey
+    },
+    method: "POST",
+    ...(options?.signal ? { signal: options.signal } : {})
+  });
+  if (!response.ok) {
+    throw await createAzureOpenAiRequestError("Chat Completions", response);
+  }
+  const chatResponse = (await response.json()) as Record<string, unknown>;
+  return {
+    id: stringValue(chatResponse.id),
+    model: stringValue(chatResponse.model),
+    output_text: azureChatMessageContent(chatResponse),
+    usage: chatResponse.usage
+  };
+}
+
+async function createAzureOpenAiRequestError(api: string, response: Response): Promise<Error> {
+  const body = await safeReadJson(response);
+  const error = recordValue(recordValue(body).error);
+  const code = stringValue(error.code);
+  const suffix = code ? ` (${code})` : "";
+  return new Error(`Azure OpenAI ${api} request failed: ${response.status}${suffix}`);
+}
+
+async function safeReadJson(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return undefined;
+  }
+}
+
+function azureChatMessageContent(response: Record<string, unknown>): string {
+  const choices = Array.isArray(response.choices) ? response.choices : [];
+  for (const choice of choices) {
+    const content = recordValue(recordValue(choice).message).content;
+    if (typeof content === "string") {
+      return content.trim();
+    }
+  }
+  return "";
 }
 
 function readEnv(name: string): string | undefined {
@@ -408,6 +482,10 @@ function createRepairPrompt(request: CodegenGenerationRequest, error: string): s
 
 function numberValue(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function recordValue(value: unknown): Record<string, unknown> {

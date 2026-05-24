@@ -19,6 +19,8 @@ Edit `.env` before starting the API:
 - `KELPCLAW_CODEGEN_PROVIDER`: optional override for generated-node build roles; defaults to `KELPCLAW_PLANNER_PROVIDER`.
 - `ANTHROPIC_API_KEY`: required when the selected live provider is `anthropic`.
 - `OPENAI_API_KEY`: required when the selected live provider is `openai`.
+- `KELPCLAW_AZURE_OPENAI_ENDPOINT`, `KELPCLAW_AZURE_OPENAI_DEPLOYMENT`, `KELPCLAW_AZURE_OPENAI_API_VERSION`, and `KELPCLAW_AZURE_OPENAI_API_KEY`: optional Azure OpenAI configuration for the `openai` provider.
+- `GPT5_MINI_ENDPOINT`, `GPT5_MINI_DEPLOYMENT`, `GPT5_MINI_API_VERSION`, `GPT5_MINI_API_KEY`, `GPT5_PRO_ENDPOINT`, `GPT5_PRO_DEPLOYMENT`, `GPT5_PRO_API_VERSION`, and `GPT5_PRO_API_KEY`: supported Azure OpenAI deployment aliases.
 - `KELPCLAW_OPENWEIGHT_BASE_URL`: required when the selected live provider is `openweight`; point it at an OpenAI-compatible `/v1` endpoint.
 - `KELPCLAW_OPENWEIGHT_API_KEY`: optional bearer token for open-weight gateways that require auth.
 - `KELPCLAW_OPENWEIGHT_TIMEOUT_MS`: optional request timeout for open-weight chat completions; defaults to `60000`.
@@ -27,6 +29,10 @@ Edit `.env` before starting the API:
 - `KELPCLAW_AUDIT_ANCHOR_ENDPOINT`: optional external HTTP endpoint that receives audit anchor JSON.
 - `KELPCLAW_AUDIT_ANCHOR_TOKEN`: optional bearer token for the external audit anchor endpoint.
 - `KELPCLAW_AUDIT_ANCHOR_TIMEOUT_MS`: optional external audit anchor timeout; defaults to `5000`.
+- `KELPCLAW_OTLP_TRACES_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`: optional OTLP/HTTP JSON traces endpoint.
+- `KELPCLAW_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_ENDPOINT`: optional OTLP base endpoint; KelpClaw appends `/v1/traces`.
+- `KELPCLAW_OTLP_HEADERS` or `OTEL_EXPORTER_OTLP_HEADERS`: optional comma-separated or JSON headers for OTLP export.
+- `DD_API_KEY`: optional Datadog API key header for Datadog-backed OTLP endpoints.
 - `KELPCLAW_PLANNER_MODEL` and `KELPCLAW_CODEGEN_MODEL`: optional provider model overrides. Provider-specific overrides include `KELPCLAW_OPENAI_PLANNER_MODEL`, `KELPCLAW_OPENAI_CODEGEN_MODEL`, `KELPCLAW_OPENWEIGHT_PLANNER_MODEL`, and `KELPCLAW_OPENWEIGHT_CODEGEN_MODEL`.
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`: OAuth web client credentials.
 - SMTP, WhatsApp, Telegram, GitHub, Slack, Discord, Notion, Linear, Jira, Airtable, webhook, and database defaults as needed for your providers.
@@ -102,6 +108,20 @@ $ KELPCLAW_PLANNER_PROVIDER=openai \
 ```
 
 To keep Anthropic-backed planning/codegen, leave `KELPCLAW_PLANNER_PROVIDER=anthropic` and set `ANTHROPIC_API_KEY`.
+
+To run OpenAI-backed planning/codegen against Azure OpenAI:
+
+```console
+$ KELPCLAW_PLANNER_PROVIDER=openai \
+  KELPCLAW_CODEGEN_PROVIDER=openai \
+  KELPCLAW_AZURE_OPENAI_ENDPOINT=https://<resource>.cognitiveservices.azure.com \
+  KELPCLAW_AZURE_OPENAI_DEPLOYMENT=<deployment> \
+  KELPCLAW_AZURE_OPENAI_API_VERSION=<api-version> \
+  KELPCLAW_AZURE_OPENAI_API_KEY=<key> \
+  docker compose up --build
+```
+
+KelpClaw prefers Azure-specific keys over a generic `OPENAI_API_KEY` when an Azure endpoint is configured. The Azure runner first calls the Azure Responses route. If that deployment returns `404` for `/responses`, it retries the same structured-output request through Azure Chat Completions with `response_format.json_schema`.
 
 To run against an OpenAI-compatible open-weight endpoint such as Ollama, vLLM, LM Studio, or a hosted gateway:
 
@@ -217,6 +237,16 @@ Mock adapters remain available through `createDefaultMockAdapters()` and `.fake`
 ## Live Smoke
 
 `pnpm smoke:live` is opt-in and exits without provider calls unless `KELPCLAW_LIVE_SMOKE=1` is set.
+
+Agent-runtime smokes:
+
+```console
+$ kelp-claw cross-agent-replay-smoke
+$ KELPCLAW_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces \
+  kelp-claw otlp-smoke
+```
+
+For Datadog, enable OTLP HTTP ingestion in the Datadog Agent or point `KELPCLAW_OTLP_TRACES_ENDPOINT` at an OTLP collector that exports to Datadog. Datadog's Agent OTLP HTTP receiver uses port `4318` by default, and traces usually use the `/v1/traces` path.
 
 Required inputs:
 

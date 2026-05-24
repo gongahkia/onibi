@@ -12,5 +12,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.test.json --noEmit"
   },
-  "dependencies": {}
+  "dependencies": {
+    "@kelpclaw/adapters": "workspace:*",
+    "@kelpclaw/codegen": "workspace:*"
+  }
 }
