@@ -1413,6 +1413,42 @@ dd {
   padding: 0.9rem;
 }
 
+.trajectory-action-bar,
+.trajectory-audit-strip,
+.trajectory-notice {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.75rem;
+}
+
+.trajectory-action-bar {
+  justify-content: space-between;
+}
+
+.trajectory-action-bar > div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.trajectory-action-bar span,
+.trajectory-audit-strip span,
+.trajectory-notice {
+  color: #aeb4c2;
+  font-size: 0.78rem;
+}
+
+.trajectory-action-bar button {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.35rem;
+  min-height: 2rem;
+  padding: 0 0.75rem;
+}
+
 .agent-step-card {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);

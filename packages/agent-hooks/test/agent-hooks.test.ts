@@ -1,8 +1,17 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
-import { installClaudeCodeHooks, normalizeClaudeCodeHook, redactJson } from "../src/index.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  installClaudeCodeHooks,
+  normalizeClaudeCodeHook,
+  redactJson,
+  smokeClaudeCodeHookEvents
+} from "../src/index.js";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("agent hooks", () => {
   it("normalizes and redacts Claude Code hook payloads", () => {
@@ -70,5 +79,45 @@ describe("agent hooks", () => {
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
+  });
+
+  it("smokes Claude Code PreToolUse and PostToolUse hook posts", async () => {
+    const bodies: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: unknown, init: unknown) => {
+        bodies.push(JSON.parse(String((init as { readonly body?: unknown }).body)));
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            event: {
+              id: `agent-step.${bodies.length}`,
+              hookEvent: (bodies.at(-1) as { readonly hookEvent?: string }).hookEvent
+            }
+          }),
+          { status: 201, headers: { "content-type": "application/json" } }
+        );
+      })
+    );
+
+    const smoke = await smokeClaudeCodeHookEvents({
+      runId: "agent-run.smoke",
+      apiBaseUrl: "http://127.0.0.1:8787",
+      apiToken: "operator-token"
+    });
+
+    expect(smoke.events.map((event) => event.hookEvent)).toEqual(["PreToolUse", "PostToolUse"]);
+    expect(bodies).toEqual([
+      expect.objectContaining({
+        sourceAgent: "claude-code",
+        hookEvent: "PreToolUse",
+        status: "pending"
+      }),
+      expect.objectContaining({
+        sourceAgent: "claude-code",
+        hookEvent: "PostToolUse",
+        status: "succeeded"
+      })
+    ]);
   });
 });

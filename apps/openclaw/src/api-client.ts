@@ -238,6 +238,34 @@ export interface AgentRunPolicyApprovalResponse {
   readonly run: AgentRunRecord;
 }
 
+export interface AgentRunAuditAnchor {
+  readonly kelpclawAuditAnchorVersion: "1.0.0";
+  readonly runId: string;
+  readonly method: "local-file" | "external-http";
+  readonly chainHead: string;
+  readonly eventCount: number;
+  readonly anchoredAt: string;
+  readonly anchorId: string;
+  readonly verification: {
+    readonly valid: boolean;
+    readonly brokenAt?: number | undefined;
+  };
+}
+
+export interface AgentRunAuditAnchorResponse {
+  readonly ok: true;
+  readonly anchor: AgentRunAuditAnchor;
+  readonly anchorPath: string;
+  readonly externalAnchor: {
+    readonly enabled: boolean;
+    readonly status: "skipped" | "succeeded" | "failed";
+    readonly endpoint?: string | undefined;
+    readonly remoteStatus?: number | undefined;
+    readonly message?: string | undefined;
+  };
+  readonly run: AgentRunRecord;
+}
+
 export interface PolicyRulesResponse {
   readonly ok: true;
   readonly ruleset: JsonRecord;
@@ -364,6 +392,10 @@ export const openClawApi = {
       `/api/agent-runs/${encodeURIComponent(runId)}/events/${encodeURIComponent(eventId)}/deny`,
       body
     );
+  },
+
+  anchorAgentRun(runId: string): Promise<AgentRunAuditAnchorResponse> {
+    return postJson(`/api/agent-runs/${encodeURIComponent(runId)}/audit/anchor`, {});
   },
 
   plan(request: WorkflowPlanRequest, jobId?: string | undefined): Promise<WorkflowPlanResponse> {

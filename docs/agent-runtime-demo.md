@@ -18,19 +18,19 @@ Say this exactly in the demo: KelpClaw is evidence-ready for governance review. 
 
 ## Acceptance Matrix
 
-| #   | Criterion                                                     | Local Evidence                                                                                                                      |
-| --- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Claude Code hook records agent steps with hash links.         | `packages/agent-hooks/test/agent-hooks.test.ts`; real local install must be re-run on each demo machine.                            |
-| 2   | OpenClaw streams trajectory cards.                            | `apps/openclaw/test/openclaw.test.tsx` plus local `http://127.0.0.1:5173` smoke.                                                    |
-| 3   | Deny policy blocks `rm -rf` and records audit.                | `apps/api/test/api.test.ts` policy denial test.                                                                                     |
-| 4   | Reviewer token can promote; operator cannot.                  | `apps/api/test/api.test.ts` promotion RBAC test.                                                                                    |
-| 5   | Promotion creates skill JSON, workflow JSON, and `bom.json`.  | `apps/api/test/api.test.ts` promotion artifact assertions.                                                                          |
-| 6   | Promoted skill is selectable by registry lookup.              | `apps/api/test/api.test.ts` and `packages/skill-registry/test/skill-registry.test.ts`.                                              |
-| 7   | MCP sidecar exposes `kelp.*` tools.                           | `apps/mcp-server/src/index.ts`; run a local stdio smoke before recording.                                                           |
-| 8   | CLI audit verify returns valid or broken index.               | `packages/cli/src/index.ts`; API test covers the backing endpoint.                                                                  |
-| 9   | OTLP export emits one trace and one span per tool call.       | `packages/adapters/test/adapters.test.ts` and `apps/api/test/api.test.ts`; Datadog requires `DD_API_KEY` and an OTLP test endpoint. |
-| 10  | Cross-agent replay has same shape with different source tags. | `packages/codegen/test/codegen.test.ts` cross-agent fixture test.                                                                   |
-| 11  | Full verification is green.                                   | `pnpm verify`.                                                                                                                      |
+| #   | Criterion                                                     | Local Evidence                                                                                                                                                 |
+| --- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Claude Code hook records agent steps with hash links.         | `packages/agent-hooks/test/agent-hooks.test.ts`; `kelp-agent-hook smoke-claude-code --run-id <runId>`; real local install must be re-run on each demo machine. |
+| 2   | OpenClaw streams trajectory cards.                            | `apps/openclaw/test/openclaw.test.tsx` plus local `http://127.0.0.1:5173` smoke.                                                                               |
+| 3   | Deny policy blocks `rm -rf` and records audit.                | `apps/api/test/api.test.ts` policy denial test.                                                                                                                |
+| 4   | Reviewer token can promote; operator cannot.                  | `apps/api/test/api.test.ts` promotion RBAC test.                                                                                                               |
+| 5   | Promotion creates skill JSON, workflow JSON, and `bom.json`.  | `apps/api/test/api.test.ts` promotion artifact assertions.                                                                                                     |
+| 6   | Promoted skill is selectable by registry lookup.              | `apps/api/test/api.test.ts` and `packages/skill-registry/test/skill-registry.test.ts`.                                                                         |
+| 7   | MCP sidecar exposes `kelp.*` tools.                           | `apps/mcp-server/src/index.ts`; run a local stdio smoke before recording.                                                                                      |
+| 8   | CLI audit verify returns valid or broken index.               | `packages/cli/src/index.ts`; API test covers the backing endpoint.                                                                                             |
+| 9   | OTLP export emits one trace and one span per tool call.       | `packages/adapters/test/adapters.test.ts` and `apps/api/test/api.test.ts`; Datadog requires `DD_API_KEY` and an OTLP test endpoint.                            |
+| 10  | Cross-agent replay has same shape with different source tags. | `packages/codegen/test/codegen.test.ts` cross-agent fixture test.                                                                                              |
+| 11  | Full verification is green.                                   | `pnpm verify`.                                                                                                                                                 |
 
 ## SQLite Restart Smoke
 

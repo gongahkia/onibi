@@ -100,7 +100,7 @@ export interface AgentRunAuditVerification {
 export interface AgentRunAuditAnchor {
   readonly kelpclawAuditAnchorVersion: "1.0.0";
   readonly runId: string;
-  readonly method: "local-file";
+  readonly method: "local-file" | "external-http";
   readonly chainHead: string;
   readonly eventCount: number;
   readonly anchoredAt: string;
@@ -345,11 +345,14 @@ export function agentRunAuditChainHead(run: AgentRunRecord): string {
   return run.events.at(-1)?.prevEventHash ?? genesisContentHash;
 }
 
-export function createAgentRunAuditAnchor(run: AgentRunRecord): AgentRunAuditAnchor {
+export function createAgentRunAuditAnchor(
+  run: AgentRunRecord,
+  method: AgentRunAuditAnchor["method"] = "local-file"
+): AgentRunAuditAnchor {
   const anchorBase = {
     kelpclawAuditAnchorVersion: "1.0.0" as const,
     runId: run.id,
-    method: "local-file" as const,
+    method,
     chainHead: agentRunAuditChainHead(run),
     eventCount: run.events.length,
     anchoredAt: new Date().toISOString(),

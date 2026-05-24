@@ -2,7 +2,8 @@
 import {
   claudeHookOutputForResult,
   installClaudeCodeHooks,
-  sendClaudeCodeHookEventFromStdin
+  sendClaudeCodeHookEventFromStdin,
+  smokeClaudeCodeHookEvents
 } from "./send-event.js";
 import type { AgentStepSourceAgent } from "@kelpclaw/workflow-spec";
 
@@ -13,7 +14,8 @@ export {
   normalizeClaudeCodeHook,
   postHookEvent,
   redactJson,
-  sendClaudeCodeHookEventFromStdin
+  sendClaudeCodeHookEventFromStdin,
+  smokeClaudeCodeHookEvents
 } from "./send-event.js";
 
 async function main(argv: readonly string[]): Promise<void> {
@@ -51,9 +53,26 @@ async function main(argv: readonly string[]): Promise<void> {
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
       return;
     }
+    case "smoke-claude-code": {
+      const runId = requiredOption(args, "--run-id", process.env.KELPCLAW_AGENT_RUN_ID);
+      const result = await smokeClaudeCodeHookEvents({
+        runId,
+        apiBaseUrl: option(args, "--api-url") ?? process.env.KELPCLAW_API_URL,
+        apiToken:
+          option(args, "--token") ??
+          process.env.KELPCLAW_API_TOKEN ??
+          process.env.KELPCLAW_ADMIN_TOKEN,
+        sourceAgent: sourceAgentOption(args)
+      });
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      if (result.events.some((event) => !event.ok)) {
+        process.exitCode = 1;
+      }
+      return;
+    }
     default:
       throw new Error(
-        "Usage: kelp-agent-hook <send-event|install-claude-code> [--run-id id] [--settings path]"
+        "Usage: kelp-agent-hook <send-event|install-claude-code|smoke-claude-code> [--run-id id] [--settings path]"
       );
   }
 }

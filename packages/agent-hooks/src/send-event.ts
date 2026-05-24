@@ -49,6 +49,16 @@ export interface HookPostResult {
   readonly payload: JsonValue;
 }
 
+export interface ClaudeCodeHookSmokeResult {
+  readonly runId: string;
+  readonly events: readonly {
+    readonly hookEvent: string;
+    readonly statusCode: number;
+    readonly ok: boolean;
+    readonly payload: JsonValue;
+  }[];
+}
+
 export interface ClaudeHookInstallOptions {
   readonly settingsPath?: string | undefined;
   readonly command?: string | undefined;
@@ -139,6 +149,43 @@ export async function postHookEvent(
     statusCode: response.status,
     ok: response.ok,
     payload
+  };
+}
+
+export async function smokeClaudeCodeHookEvents(
+  options: KelpClawHookPostOptions
+): Promise<ClaudeCodeHookSmokeResult> {
+  const payloads: readonly ClaudeCodeHookInput[] = [
+    {
+      session_id: "kelpclaw.claude-code-smoke",
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      tool_use_id: "toolu.kelpclaw-smoke.pre",
+      tool_input: { command: "printf kelpclaw-smoke" }
+    },
+    {
+      session_id: "kelpclaw.claude-code-smoke",
+      hook_event_name: "PostToolUse",
+      tool_name: "Bash",
+      tool_use_id: "toolu.kelpclaw-smoke.post",
+      tool_input: { command: "printf kelpclaw-smoke" },
+      tool_response: { stdout: "kelpclaw-smoke", exitCode: 0 }
+    }
+  ];
+  const events = [];
+  for (const payload of payloads) {
+    const body = normalizeClaudeCodeHook(payload, options);
+    const result = await postHookEvent(body, options);
+    events.push({
+      hookEvent: body.hookEvent,
+      statusCode: result.statusCode,
+      ok: result.ok,
+      payload: result.payload
+    });
+  }
+  return {
+    runId: options.runId,
+    events
   };
 }
 

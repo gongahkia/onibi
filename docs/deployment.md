@@ -24,6 +24,9 @@ Edit `.env` before starting the API:
 - `KELPCLAW_OPENWEIGHT_TIMEOUT_MS`: optional request timeout for open-weight chat completions; defaults to `60000`.
 - `KELPCLAW_AUTH_SIGNING_SECRET`: required to mint HMAC-signed RBAC role tokens from the API or CLI.
 - `KELPCLAW_AUDIT_ANCHOR_DIR`: optional local directory for `audit-anchor` JSONL records; defaults to `.kelpclaw/audit-anchors`.
+- `KELPCLAW_AUDIT_ANCHOR_ENDPOINT`: optional external HTTP endpoint that receives audit anchor JSON.
+- `KELPCLAW_AUDIT_ANCHOR_TOKEN`: optional bearer token for the external audit anchor endpoint.
+- `KELPCLAW_AUDIT_ANCHOR_TIMEOUT_MS`: optional external audit anchor timeout; defaults to `5000`.
 - `KELPCLAW_PLANNER_MODEL` and `KELPCLAW_CODEGEN_MODEL`: optional provider model overrides. Provider-specific overrides include `KELPCLAW_OPENAI_PLANNER_MODEL`, `KELPCLAW_OPENAI_CODEGEN_MODEL`, `KELPCLAW_OPENWEIGHT_PLANNER_MODEL`, and `KELPCLAW_OPENWEIGHT_CODEGEN_MODEL`.
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`: OAuth web client credentials.
 - SMTP, WhatsApp, Telegram, GitHub, Slack, Discord, Notion, Linear, Jira, Airtable, webhook, and database defaults as needed for your providers.

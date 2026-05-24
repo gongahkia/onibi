@@ -429,6 +429,18 @@ rules:
     const databasePath = join(tempRoot, "agent-runs.sqlite");
     const artifactStore = new LocalCodegenArtifactStore(join(tempRoot, "artifacts"));
     vi.stubEnv("KELPCLAW_AUDIT_ANCHOR_DIR", join(tempRoot, "anchors"));
+    vi.stubEnv("KELPCLAW_AUDIT_ANCHOR_ENDPOINT", "https://anchor.test/ingest");
+    vi.stubEnv("KELPCLAW_AUDIT_ANCHOR_TOKEN", "anchor-token");
+    let anchorAuthorization: string | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: unknown, init: unknown) => {
+        anchorAuthorization = String(
+          (init as { readonly headers?: Record<string, string> }).headers?.authorization ?? ""
+        );
+        return new Response("{}", { status: 202, headers: { "content-type": "application/json" } });
+      })
+    );
     const operatorToken = createTestRoleToken(["operator"]);
     const reviewerToken = createTestRoleToken(["reviewer"]);
     const auditorToken = createTestRoleToken(["auditor"]);
@@ -497,6 +509,16 @@ rules:
     });
     expect(anchored.statusCode).toBe(200);
     expect(anchored.json().anchor.chainHead).toMatch(/^sha256:/u);
+    expect(anchored.json().externalAnchor).toMatchObject({
+      enabled: true,
+      status: "succeeded",
+      remoteStatus: 202,
+      endpoint: "https://anchor.test/ingest"
+    });
+    expect(anchorAuthorization).toBe("Bearer anchor-token");
+    expect(anchored.json().run.auditEvents).toEqual(
+      expect.arrayContaining([expect.objectContaining({ action: "audit.anchored" })])
+    );
     await expect(readFile(anchored.json().anchorPath, "utf8")).resolves.toContain(
       anchored.json().anchor.anchorId
     );

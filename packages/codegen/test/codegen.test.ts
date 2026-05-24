@@ -494,6 +494,29 @@ describe("codegen artifact contracts", () => {
     }
   });
 
+  it("prefers Azure OpenAI keys over a generic OpenAI override for Azure endpoints", () => {
+    const previous = snapshotEnv([
+      "GPT5_MINI_ENDPOINT",
+      "GPT5_MINI_DEPLOYMENT",
+      "GPT5_MINI_API_KEY",
+      "GPT5_MINI_API_VERSION",
+      "OPENAI_API_KEY"
+    ]);
+    try {
+      process.env.GPT5_MINI_ENDPOINT = "https://example.openai.azure.com/";
+      process.env.GPT5_MINI_DEPLOYMENT = "gpt-mini";
+      process.env.GPT5_MINI_API_KEY = "azure-key";
+      process.env.GPT5_MINI_API_VERSION = "2025-04-01-preview";
+      process.env.OPENAI_API_KEY = "generic-openai-key";
+
+      expect(resolveAzureOpenAiResponsesConfig(process.env.OPENAI_API_KEY)?.apiKey).toBe(
+        "azure-key"
+      );
+    } finally {
+      restoreEnv(previous);
+    }
+  });
+
   it("creates design, source, test, and eval agent artifacts through the build loop", async () => {
     const loop = new GeneratedNodeBuildLoop();
     const result = await loop.build(buildLoopRequestFixture());

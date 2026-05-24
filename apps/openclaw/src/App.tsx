@@ -875,6 +875,7 @@ export function App() {
   const [selectedTrajectoryRunId, setSelectedTrajectoryRunId] = useState<string | null>(null);
   const [policyYaml, setPolicyYaml] = useState("rules:\n");
   const [policyNotice, setPolicyNotice] = useState<string | null>(null);
+  const [trajectoryNotice, setTrajectoryNotice] = useState<string | null>(null);
   const [statusPopoverOpen, setStatusPopoverOpen] = useState(false);
   const [pendingNodeConnection, setPendingNodeConnection] = useState<PendingNodeConnection | null>(
     null
@@ -1463,6 +1464,18 @@ export function App() {
         reviewedBy: "openclaw"
       });
       replaceTrajectoryRun(response.run);
+    });
+  }
+
+  function anchorTrajectoryRun(runId: string) {
+    void executeApiAction(`agent-anchor-${runId}`, async () => {
+      const response = await openClawApi.anchorAgentRun(runId);
+      replaceTrajectoryRun(response.run);
+      setTrajectoryNotice(
+        response.externalAnchor.enabled
+          ? `Anchored ${response.anchor.chainHead.slice(0, 24)} · ${response.externalAnchor.status}`
+          : `Anchored ${response.anchor.chainHead.slice(0, 24)}`
+      );
     });
   }
 
@@ -3393,8 +3406,10 @@ export function App() {
               selectedRunId={selectedTrajectoryRunId}
               onSelectRun={setSelectedTrajectoryRunId}
               onRefresh={refreshTrajectoryRuns}
+              onAnchorRun={anchorTrajectoryRun}
               onApproveEvent={approveTrajectoryEvent}
               onDenyEvent={denyTrajectoryEvent}
+              notice={trajectoryNotice}
             />
           ) : surfaceMode === "policy" ? (
             <section className="policy-editor-panel" aria-label="Policy editor">

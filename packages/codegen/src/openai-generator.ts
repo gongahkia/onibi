@@ -213,10 +213,10 @@ export function resolveAzureOpenAiResponsesConfig(
     readEnv("GPT5_PRO_API_VERSION") ??
     readEnv("API_VERSION");
   const apiKey =
-    apiKeyOverride ||
     readEnv("KELPCLAW_AZURE_OPENAI_API_KEY") ||
     readEnv("GPT5_MINI_API_KEY") ||
     readEnv("GPT5_PRO_API_KEY") ||
+    apiKeyOverride ||
     readEnv("OPENAI_API_KEY");
 
   if (!endpoint || !deployment || !apiVersion || !apiKey) {

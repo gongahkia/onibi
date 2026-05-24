@@ -154,6 +154,21 @@ describe("OpenClaw planner shell", () => {
     );
   });
 
+  it("anchors agent-run audit chains from trajectory mode", async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "trajectory" }));
+    expect((await screen.findAllByText("Claude Code Smoke")).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Anchor" }));
+
+    expect(await screen.findByText(/Anchored sha256:/u)).toBeInTheDocument();
+    expect(screen.getByText("audit.anchored")).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringMatching(/\/api\/agent-runs\/agent-run\.openclaw-smoke\/audit\/anchor$/u),
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
   it("adds and deletes nodes on the canvas", async () => {
     render(<App />);
 
@@ -559,6 +574,51 @@ async function mockFetch(input: string | URL | Request, init?: RequestInit): Pro
     return new Response(`event: job-complete\ndata: ${JSON.stringify(job)}\n\n`, {
       status: 200,
       headers: { "content-type": "text/event-stream" }
+    });
+  }
+
+  if (url.endsWith("/api/agent-runs") && (!init?.method || init.method === "GET")) {
+    return jsonResponse({ ok: true, runs: [mockTrajectoryRun()] });
+  }
+
+  if (url.endsWith("/api/agent-runs/agent-run.openclaw-smoke/audit/anchor")) {
+    const run = {
+      ...mockTrajectoryRun(),
+      auditEvents: [
+        ...mockTrajectoryRun().auditEvents,
+        {
+          id: "agent-run-audit.anchor",
+          runId: "agent-run.openclaw-smoke",
+          action: "audit.anchored",
+          createdAt: "2026-05-18T01:00:02.000Z",
+          summary: "Anchored audit chain.",
+          metadata: {
+            chainHead: `sha256:${"b".repeat(64)}`,
+            externalAnchorStatus: "succeeded"
+          }
+        }
+      ]
+    };
+    return jsonResponse({
+      ok: true,
+      anchor: {
+        kelpclawAuditAnchorVersion: "1.0.0",
+        runId: "agent-run.openclaw-smoke",
+        method: "local-file",
+        chainHead: `sha256:${"b".repeat(64)}`,
+        eventCount: 1,
+        anchoredAt: "2026-05-18T01:00:02.000Z",
+        anchorId: `sha256:${"c".repeat(64)}`,
+        verification: { valid: true }
+      },
+      anchorPath: ".kelpclaw/audit-anchors/agent-run.openclaw-smoke.jsonl",
+      externalAnchor: {
+        enabled: true,
+        status: "succeeded",
+        endpoint: "https://anchor.test/ingest",
+        remoteStatus: 202
+      },
+      run
     });
   }
 
@@ -1903,6 +1963,39 @@ function mockWorkspace(workflowId: string, jobId: string) {
     testReports: ["test-report.codegen.scrape-status-page"],
     retentionPolicy: "ephemeral",
     retentionStatus: "active"
+  };
+}
+
+function mockTrajectoryRun() {
+  return {
+    id: "agent-run.openclaw-smoke",
+    sourceAgent: "claude-code",
+    sessionId: "session.openclaw-smoke",
+    title: "Claude Code Smoke",
+    status: "stopped",
+    createdAt: "2026-05-18T01:00:00.000Z",
+    updatedAt: "2026-05-18T01:00:01.000Z",
+    events: [
+      {
+        id: "agent-step.openclaw-smoke",
+        runId: "agent-run.openclaw-smoke",
+        recordedAt: "2026-05-18T01:00:01.000Z",
+        sourceAgent: "claude-code",
+        sessionId: "session.openclaw-smoke",
+        hookEvent: "PostToolUse",
+        toolName: "Bash",
+        toolUseId: "toolu.openclaw-smoke",
+        args: { command: "printf kelpclaw" },
+        result: { stdout: "kelpclaw" },
+        status: "succeeded",
+        contentHash: `sha256:${"a".repeat(64)}`,
+        prevEventHash: `sha256:${"b".repeat(64)}`,
+        chainIndex: 0,
+        startedAt: "2026-05-18T01:00:00.000Z",
+        finishedAt: "2026-05-18T01:00:01.000Z"
+      }
+    ],
+    auditEvents: []
   };
 }
 

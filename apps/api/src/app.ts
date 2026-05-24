@@ -17,6 +17,7 @@ import {
   createOpenAiGeneratedNodeRoleRunners,
   createOpenWeightGeneratedNodeRoleRunners,
   createGeneratedArtifact,
+  resolveAzureOpenAiResponsesConfig,
   synthesizeWorkflowFromTrajectory
 } from "@kelpclaw/codegen";
 import {
@@ -253,6 +254,14 @@ interface PromotedSkillIndex {
   readonly artifacts: readonly WorkflowCodegenArtifactRef[];
 }
 
+interface AuditAnchorPublicationResult {
+  readonly enabled: boolean;
+  readonly status: "skipped" | "succeeded" | "failed";
+  readonly endpoint?: string | undefined;
+  readonly remoteStatus?: number | undefined;
+  readonly message?: string | undefined;
+}
+
 interface SkillRouteParams {
   readonly skillId: string;
 }
@@ -462,7 +471,7 @@ function createLiveGeneratedNodeProvidersFromEnv(): LiveGeneratedNodeProviders {
         })
       };
     case "openai":
-      if (!process.env.OPENAI_API_KEY) {
+      if (!hasOpenAiResponsesCredential()) {
         return {};
       }
       return {
@@ -752,6 +761,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         encoding: "utf8",
         flag: "a"
       });
+      const externalAnchor = await publishAuditAnchorFromEnv(anchor);
       agentRunStore.appendAuditEvent(run.id, {
         action: "audit.anchored",
         summary: `Anchored audit chain for agent run '${run.id}'.`,
@@ -759,13 +769,17 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
           anchorId: anchor.anchorId,
           chainHead: anchor.chainHead,
           method: anchor.method,
-          anchorPath
+          anchorPath,
+          externalAnchorStatus: externalAnchor.status,
+          ...(externalAnchor.endpoint ? { externalAnchorEndpoint: externalAnchor.endpoint } : {})
         }
       });
       return {
         ok: true,
         anchor,
-        anchorPath
+        anchorPath,
+        externalAnchor,
+        run: agentRunStore.getRun(run.id)
       };
     }
   );
@@ -5134,6 +5148,49 @@ function agentRunAuditAnchorPath(runId: string): string {
   );
 }
 
+async function publishAuditAnchorFromEnv(anchor: unknown): Promise<AuditAnchorPublicationResult> {
+  const endpoint = process.env.KELPCLAW_AUDIT_ANCHOR_ENDPOINT?.trim();
+  if (!endpoint) {
+    return { enabled: false, status: "skipped" };
+  }
+  const timeoutMs = positiveNumberFromEnv("KELPCLAW_AUDIT_ANCHOR_TIMEOUT_MS", 5000);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(process.env.KELPCLAW_AUDIT_ANCHOR_TOKEN
+          ? { authorization: `Bearer ${process.env.KELPCLAW_AUDIT_ANCHOR_TOKEN}` }
+          : {})
+      },
+      body: JSON.stringify(anchor),
+      signal: controller.signal
+    });
+    return {
+      enabled: true,
+      endpoint,
+      status: response.ok ? "succeeded" : "failed",
+      remoteStatus: response.status
+    };
+  } catch (error) {
+    return {
+      enabled: true,
+      endpoint,
+      status: "failed",
+      message: error instanceof Error ? error.message : "Audit anchor publication failed."
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function positiveNumberFromEnv(name: string, fallback: number): number {
+  const parsed = Number(process.env[name]);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function parseApiRoleList(value: unknown): readonly ApiRole[] | undefined {
   const rawRoles =
     typeof value === "string"
@@ -7002,8 +7059,8 @@ function providerRuntimeConfig(input: {
   const missingCredential =
     input.provider === "deterministic"
       ? undefined
-      : input.provider === "openai" && !process.env.OPENAI_API_KEY
-        ? "OPENAI_API_KEY"
+      : input.provider === "openai" && !hasOpenAiResponsesCredential()
+        ? "OPENAI_API_KEY or KELPCLAW_AZURE_OPENAI_API_KEY"
         : input.provider === "openweight" && !process.env.KELPCLAW_OPENWEIGHT_BASE_URL
           ? "KELPCLAW_OPENWEIGHT_BASE_URL"
           : input.provider === "anthropic" && !process.env.ANTHROPIC_API_KEY
@@ -7027,6 +7084,10 @@ function providerRuntimeConfig(input: {
       maxDockerRuntimeSeconds: input.role === "runner" ? 120 : 0
     }
   };
+}
+
+function hasOpenAiResponsesCredential(): boolean {
+  return Boolean(process.env.OPENAI_API_KEY || resolveAzureOpenAiResponsesConfig());
 }
 
 function providerFromEnv(
