@@ -1,5 +1,0 @@
-{
-  "command": ["dnf", "updateinfo", "list", "security"],
-  "stdout": "RHSA-2026:0001 Important/Sec. openssl.x86_64\nRHSA-2026:0002 Moderate/Sec. kernel.x86_64\n",
-  "stderr": ""
-}

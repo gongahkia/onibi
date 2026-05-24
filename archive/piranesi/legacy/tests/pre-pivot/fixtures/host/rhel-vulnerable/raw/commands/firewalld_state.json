@@ -1,5 +1,0 @@
-{
-  "command": ["firewall-cmd", "--state"],
-  "stdout": "not running\n",
-  "stderr": ""
-}

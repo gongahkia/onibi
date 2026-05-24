@@ -1,1 +1,0 @@
-const sessionToken = Math.random();

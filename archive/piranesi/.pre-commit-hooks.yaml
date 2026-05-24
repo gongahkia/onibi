@@ -1,7 +1,0 @@
-- id: piranesi
-  name: Piranesi Security Scan
-  entry: piranesi run . --incremental --staged-only --fail-severity high
-  language: python
-  pass_filenames: false
-  types_or: [typescript, javascript, python, go, java]
-  require_serial: true

@@ -1,4 +1,0 @@
-[
-  {"protocol": "tcp", "address": "0.0.0.0", "port": "6379", "pid": "101", "process_name": "redis-server"},
-  {"protocol": "tcp", "address": "0.0.0.0", "port": "22", "pid": "102", "process_name": "sshd"}
-]

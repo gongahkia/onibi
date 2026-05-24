@@ -1,9 +1,0 @@
-{
-  "name": "@test/api",
-  "version": "1.0.0",
-  "main": "src/index.js",
-  "dependencies": {
-    "@test/shared-lib": "workspace:*",
-    "express": "^5.0.0"
-  }
-}

@@ -1,6 +1,0 @@
-{
-  "name": "reachability-app",
-  "bin": {
-    "reachability-cli": "./src/cli.ts"
-  }
-}

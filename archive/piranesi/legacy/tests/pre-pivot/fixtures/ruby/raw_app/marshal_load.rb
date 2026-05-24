@@ -1,1 +1,0 @@
-Marshal.load(cookies[:payload])
