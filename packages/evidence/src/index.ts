@@ -1,4 +1,11 @@
-import { createHash } from "node:crypto";
+import {
+  createHash,
+  createPrivateKey,
+  createPublicKey,
+  generateKeyPairSync,
+  sign as signBytes,
+  verify as verifyBytes
+} from "node:crypto";
 import { copyFile, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { stableJsonStringify, type JsonRecord, type JsonValue } from "@kelpclaw/workflow-spec";
@@ -10,6 +17,7 @@ export const EVIDENCE_AUDIT_EVENT_SCHEMA_VERSION = "kelpclaw.evidence.audit-even
 export const EVIDENCE_MANIFEST_SCHEMA_VERSION = "kelpclaw.evidence.manifest.v1";
 export const EVIDENCE_QA_SCHEMA_VERSION = "kelpclaw.evidence.qa.v1";
 export const EVIDENCE_RETEST_SCHEMA_VERSION = "kelpclaw.evidence.retest.v1";
+export const EVIDENCE_SIGNATURE_ALGORITHM = "ed25519";
 
 export const EVIDENCE_WORKSPACE_FILE = "workspace.json";
 export const EVIDENCE_INDEX_FILE = "evidence/index.json";
@@ -174,6 +182,23 @@ export interface EvidenceManifest {
   readonly limitations: readonly string[];
 }
 
+export interface EvidenceSigningKeyFile {
+  readonly schemaVersion: "1.0.0";
+  readonly algorithm: typeof EVIDENCE_SIGNATURE_ALGORITHM;
+  readonly keyId: string;
+  readonly publicKeyPem: string;
+  readonly privateKeyPem: string;
+}
+
+export interface EvidenceManifestSignature {
+  readonly signed: boolean;
+  readonly valid: boolean;
+  readonly algorithm?: typeof EVIDENCE_SIGNATURE_ALGORITHM | undefined;
+  readonly keyId?: string | undefined;
+  readonly signaturePath?: string | undefined;
+  readonly publicKeyPath?: string | undefined;
+}
+
 export interface EvidenceVerificationFailure {
   readonly path: string;
   readonly message: string;
@@ -185,6 +210,7 @@ export interface EvidenceVerificationResult {
   readonly ok: boolean;
   readonly manifestPath?: string | undefined;
   readonly manifestId?: string | undefined;
+  readonly signature: EvidenceManifestSignature;
   readonly failures: readonly EvidenceVerificationFailure[];
 }
 
@@ -463,19 +489,65 @@ export async function importSarifEvidence(
   };
 }
 
-export async function signEvidenceWorkspace(root: string): Promise<{
+export async function importNmapEvidence(
+  root: string,
+  inputPath: string
+): Promise<EvidenceImportResult> {
+  return importPassiveScannerEvidence(root, inputPath, "nmap", parseNmapFile);
+}
+
+export async function importNucleiEvidence(
+  root: string,
+  inputPath: string
+): Promise<EvidenceImportResult> {
+  return importPassiveScannerEvidence(root, inputPath, "nuclei", parseNucleiJsonlFile);
+}
+
+export async function importBurpEvidence(
+  root: string,
+  inputPath: string
+): Promise<EvidenceImportResult> {
+  return importPassiveScannerEvidence(root, inputPath, "burp", parseBurpXmlFile);
+}
+
+export async function importZapEvidence(
+  root: string,
+  inputPath: string
+): Promise<EvidenceImportResult> {
+  return importPassiveScannerEvidence(root, inputPath, "zap", parseZapJsonFile);
+}
+
+export async function importNessusEvidence(
+  root: string,
+  inputPath: string
+): Promise<EvidenceImportResult> {
+  return importPassiveScannerEvidence(root, inputPath, "nessus", parseNessusXmlFile);
+}
+
+export async function signEvidenceWorkspace(
+  root: string,
+  options: { readonly keyDir?: string | undefined } = {}
+): Promise<{
   readonly ok: true;
   readonly workspace: string;
   readonly manifestPath: string;
+  readonly signaturePath: string;
+  readonly publicKeyPath: string;
+  readonly keyId: string;
   readonly manifest: EvidenceManifest;
 }> {
   const state = await loadEvidenceWorkspace(root);
+  const key = await ensureEvidenceSigningKey(
+    resolve(options.keyDir ?? defaultEvidenceSigningKeyDir(state.root))
+  );
   await appendEvidenceAuditEvent(state.root, {
     schemaVersion: EVIDENCE_AUDIT_EVENT_SCHEMA_VERSION,
     timestamp: utcNow(),
     command: "evidence sign",
     summary: {
-      requested: true
+      requested: true,
+      algorithm: EVIDENCE_SIGNATURE_ALGORITHM,
+      keyId: key.keyId
     }
   });
   const manifest = await buildEvidenceManifest(state.root, state.workspace, state.findings);
@@ -484,15 +556,32 @@ export async function signEvidenceWorkspace(root: string): Promise<{
     `signatures/manifest-${manifest.manifestId}.json`,
     ["signatures"]
   );
+  const signaturePath = evidenceSignaturePath(manifestPath);
+  const publicKeyPath = evidencePublicKeyPath(manifestPath);
+  const payload = stableJsonStringify(manifest as unknown as JsonValue);
+  const signature = signBytes(
+    null,
+    Buffer.from(payload, "utf8"),
+    createPrivateKey(key.privateKeyPem)
+  ).toString("base64");
   await writeFile(
     manifestPath,
-    `${stableJsonStringify(manifest as unknown as JsonValue)}\n`,
+    `${payload}\n`,
     "utf8"
   );
+  await writeFile(signaturePath, `${signature}\n`, "utf8");
+  await writeJson(publicKeyPath, {
+    keyId: key.keyId,
+    algorithm: key.algorithm,
+    publicKeyPem: key.publicKeyPem
+  });
   return {
     ok: true,
     workspace: state.root,
     manifestPath,
+    signaturePath,
+    publicKeyPath,
+    keyId: key.keyId,
     manifest
   };
 }
@@ -508,6 +597,7 @@ export async function verifyEvidenceWorkspace(
   if (!selectedManifest) {
     return {
       ok: false,
+      signature: { signed: false, valid: false },
       failures: [{ path: "signatures/", message: "no evidence manifest found" }]
     };
   }
@@ -547,10 +637,13 @@ export async function verifyEvidenceWorkspace(
       actualSha256: audit.head
     });
   }
+  const signature = await verifyEvidenceManifestSignature(state.root, selectedManifest, manifest);
+  failures.push(...signature.failures);
   return {
     ok: failures.length === 0,
     manifestPath: selectedManifest,
     manifestId: manifest.manifestId,
+    signature: signature.signature,
     failures
   };
 }
@@ -735,7 +828,7 @@ export async function evidenceWorkspaceSummary(root: string): Promise<EvidenceWo
     path: state.root,
     evidenceCount: state.index.evidence.length,
     findingCount: state.findings.findings.length,
-    signed: Boolean(manifest),
+    signed: verification.signature.signed,
     verified: verification.ok,
     highOrCriticalFindings: state.findings.findings.filter((finding) =>
       ["high", "critical"].includes(finding.severity)
@@ -768,6 +861,54 @@ export async function copyEvidenceWorkspaceBundle(
     targetRoot: target,
     files
   };
+}
+
+export async function renderEvidenceWorkspaceHtml(root: string): Promise<string> {
+  const state = await loadEvidenceWorkspace(root);
+  const summary = await evidenceWorkspaceSummary(root);
+  const evidenceRows = state.index.evidence
+    .map(
+      (record) =>
+        `<tr><td>${escapeHtml(record.kind)}</td><td>${escapeHtml(record.title)}</td><td>${escapeHtml(record.sensitivity)}</td><td>${escapeHtml(record.rawPath)}</td><td>${escapeHtml(record.sha256)}</td></tr>`
+    )
+    .join("\n");
+  const findingRows = state.findings.findings
+    .map(
+      (finding) =>
+        `<tr><td>${escapeHtml(finding.severity)}</td><td>${escapeHtml(finding.status)}</td><td>${escapeHtml(finding.title)}</td><td>${escapeHtml(finding.asset ?? "")}</td><td>${escapeHtml(finding.sourceReferences.map((reference) => reference.tool).join(", "))}</td></tr>`
+    )
+    .join("\n");
+  const verificationRows = summary.verificationFailures
+    .map((failure) => `<li>${escapeHtml(failure)}</li>`)
+    .join("\n");
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>KelpClaw Evidence Workspace</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 32px; color: #1f2937; }
+    h1 { font-size: 24px; margin-bottom: 8px; }
+    h2 { font-size: 16px; margin-top: 24px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 8px; }
+    th, td { border: 1px solid #d9e2ec; padding: 8px; text-align: left; vertical-align: top; }
+    th { background: #f8fafc; }
+    code { background: #f8fafc; border: 1px solid #d9e2ec; border-radius: 4px; padding: 1px 4px; }
+  </style>
+</head>
+<body>
+  <h1>KelpClaw Evidence Workspace</h1>
+  <p><strong>Workspace:</strong> <code>${escapeHtml(summary.path)}</code></p>
+  <p><strong>Evidence:</strong> ${summary.evidenceCount} / <strong>Findings:</strong> ${summary.findingCount} / <strong>Signed:</strong> ${summary.signed ? "yes" : "no"} / <strong>Verified:</strong> ${summary.verified ? "yes" : "no"}</p>
+  <h2>Evidence</h2>
+  <table><thead><tr><th>Kind</th><th>Title</th><th>Sensitivity</th><th>Path</th><th>SHA-256</th></tr></thead><tbody>${evidenceRows || "<tr><td colspan=\"5\">No evidence records.</td></tr>"}</tbody></table>
+  <h2>Findings</h2>
+  <table><thead><tr><th>Severity</th><th>Status</th><th>Title</th><th>Asset</th><th>Source Tools</th></tr></thead><tbody>${findingRows || "<tr><td colspan=\"5\">No normalized findings.</td></tr>"}</tbody></table>
+  <h2>Verification</h2>
+  <ul>${verificationRows || "<li>No verification failures.</li>"}</ul>
+</body>
+</html>
+`;
 }
 
 export function renderEvidenceQaMarkdown(result: EvidenceQaResult): string {
@@ -816,6 +957,65 @@ Summary: ${Object.entries(result.summary)
 | --- | --- | --- | --- | --- |
 ${rows || "| open | No findings |  |  | none |"}
 `;
+}
+
+type PassiveScannerFormat = "nmap" | "nuclei" | "burp" | "zap" | "nessus";
+
+interface ParsedEvidenceFindings {
+  readonly findings: readonly NormalizedEvidenceFinding[];
+  readonly warnings: readonly string[];
+  readonly metadata: JsonRecord;
+}
+
+interface PassiveScannerParseInput {
+  readonly inputSha256: string;
+  readonly rawPath: string;
+  readonly format: PassiveScannerFormat;
+}
+
+async function importPassiveScannerEvidence(
+  root: string,
+  inputPath: string,
+  format: PassiveScannerFormat,
+  parse: (path: string, input: PassiveScannerParseInput) => Promise<ParsedEvidenceFindings>
+): Promise<EvidenceImportResult> {
+  const state = await createEvidenceWorkspace(root);
+  const sourcePath = resolve(inputPath);
+  const digest = await sha256File(sourcePath);
+  const rawPath = `raw/${format}/${digest.slice(0, 16)}-${safeFilename(basename(sourcePath))}`;
+  const destination = evidenceWorkspacePath(state.root, rawPath, ["raw"]);
+  await mkdir(dirname(destination), { recursive: true });
+  await copyFile(sourcePath, destination);
+  const parsed = await parse(destination, { inputSha256: digest, rawPath, format });
+  const merged = upsertEvidenceFindings(state.findings.findings, parsed.findings);
+  await writeJson(join(state.root, EVIDENCE_FINDINGS_FILE), {
+    schemaVersion: EVIDENCE_FINDINGS_SCHEMA_VERSION,
+    findings: merged
+  } satisfies EvidenceFindingsDocument);
+  await appendEvidenceAuditEvent(state.root, {
+    schemaVersion: EVIDENCE_AUDIT_EVENT_SCHEMA_VERSION,
+    timestamp: utcNow(),
+    command: `evidence import-${format}`,
+    inputPath: sourcePath,
+    inputSha256: digest,
+    outputPath: EVIDENCE_FINDINGS_FILE,
+    outputSha256: await sha256File(join(state.root, EVIDENCE_FINDINGS_FILE)),
+    summary: {
+      importedFindings: parsed.findings.length,
+      warnings: parsed.warnings.length,
+      ...parsed.metadata
+    }
+  });
+  await touchWorkspaceUpdatedAt(state.root);
+  return {
+    workspace: state.root,
+    inputPath: sourcePath,
+    rawPath,
+    inputSha256: digest,
+    importedFindings: parsed.findings.length,
+    warnings: parsed.warnings,
+    metadata: parsed.metadata
+  };
 }
 
 function parseSarifFile(
