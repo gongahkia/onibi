@@ -62,6 +62,19 @@ $ kelp-claw export-audit-bundle skill-run.local-demo \
 
 Expected result: the web command evaluates policy before calling Exa/TinyFish, writes `web-evidence.json`, `web-events.jsonl`, `web-bom.json`, and `web-evidence.html`, and the governance report marks third-party web evidence as attached.
 
+## Evidence Workspace
+
+```console
+$ kelp-claw evidence init --workspace .kelpclaw/evidence --client "Example Client" --project "Agent Review"
+$ kelp-claw evidence add --workspace .kelpclaw/evidence --file operator-note.txt --kind note --title "Operator note"
+$ kelp-claw evidence import-sarif --workspace .kelpclaw/evidence findings.sarif
+$ kelp-claw evidence sign --workspace .kelpclaw/evidence
+$ kelp-claw evidence verify --workspace .kelpclaw/evidence
+$ kelp-claw governance report skill-run.local-demo --include-evidence .kelpclaw/evidence
+```
+
+Expected result: KelpClaw preserves local evidence, imports normalized findings with source references, signs a chain-of-custody manifest, and marks the evidence workspace as attached in the governance report.
+
 ## Enforced Codex Wrapper
 
 ```console

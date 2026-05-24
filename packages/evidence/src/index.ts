@@ -35,7 +35,13 @@ export type EvidenceFindingStatus =
   | "changed"
   | "regressed"
   | "accepted-risk";
-export type EvidenceRetestStatus = "new" | "open" | "closed" | "changed" | "regressed" | "ambiguous";
+export type EvidenceRetestStatus =
+  | "new"
+  | "open"
+  | "closed"
+  | "changed"
+  | "regressed"
+  | "ambiguous";
 export type EvidenceQaIssueLevel = "error" | "warning";
 
 export interface EvidenceWorkspaceDocument {
@@ -294,10 +300,10 @@ export async function createEvidenceWorkspace(
       ...state.workspace,
       updatedAt: now,
       engagement: {
-        ...(options.client ?? state.workspace.engagement.client
+        ...((options.client ?? state.workspace.engagement.client)
           ? { client: options.client ?? state.workspace.engagement.client }
           : {}),
-        ...(options.project ?? state.workspace.engagement.project
+        ...((options.project ?? state.workspace.engagement.project)
           ? { project: options.project ?? state.workspace.engagement.project }
           : {}),
         scope: options.scope ? [...options.scope] : state.workspace.engagement.scope
@@ -319,7 +325,9 @@ export async function loadEvidenceWorkspace(root: string): Promise<EvidenceWorks
   }
   const index = await readJsonFile<EvidenceIndexDocument>(join(workspaceRoot, EVIDENCE_INDEX_FILE));
   if (index.schemaVersion !== EVIDENCE_INDEX_SCHEMA_VERSION) {
-    throw new EvidenceWorkspaceError(`unsupported evidence index schema ${String(index.schemaVersion)}`);
+    throw new EvidenceWorkspaceError(
+      `unsupported evidence index schema ${String(index.schemaVersion)}`
+    );
   }
   const findings = await readJsonFile<EvidenceFindingsDocument>(
     join(workspaceRoot, EVIDENCE_FINDINGS_FILE)
@@ -349,7 +357,11 @@ export async function addEvidenceFile(
     readonly tags?: readonly string[] | undefined;
     readonly notes?: string | undefined;
   }
-): Promise<{ readonly workspace: string; readonly record: EvidenceRecord; readonly evidenceCount: number }> {
+): Promise<{
+  readonly workspace: string;
+  readonly record: EvidenceRecord;
+  readonly evidenceCount: number;
+}> {
   const state = await createEvidenceWorkspace(root);
   const sourcePath = resolve(input.filePath);
   const sourceStat = await stat(sourcePath);
@@ -472,7 +484,11 @@ export async function signEvidenceWorkspace(root: string): Promise<{
     `signatures/manifest-${manifest.manifestId}.json`,
     ["signatures"]
   );
-  await writeFile(manifestPath, `${stableJsonStringify(manifest as unknown as JsonValue)}\n`, "utf8");
+  await writeFile(
+    manifestPath,
+    `${stableJsonStringify(manifest as unknown as JsonValue)}\n`,
+    "utf8"
+  );
   return {
     ok: true,
     workspace: state.root,
@@ -486,7 +502,9 @@ export async function verifyEvidenceWorkspace(
   manifestPath?: string
 ): Promise<EvidenceVerificationResult> {
   const state = await loadEvidenceWorkspace(root);
-  const selectedManifest = manifestPath ? resolve(manifestPath) : await latestEvidenceManifestPath(state.root);
+  const selectedManifest = manifestPath
+    ? resolve(manifestPath)
+    : await latestEvidenceManifestPath(state.root);
   if (!selectedManifest) {
     return {
       ok: false,
@@ -628,7 +646,8 @@ export async function compareEvidenceWorkspaces(
       continue;
     }
     const candidates = baseline.findings.findings.filter(
-      (candidate) => !usedBaseline.has(candidate.id) && fallbackKey(candidate) === fallbackKey(currentFinding)
+      (candidate) =>
+        !usedBaseline.has(candidate.id) && fallbackKey(candidate) === fallbackKey(currentFinding)
     );
     if (candidates.length === 1 && candidates[0]) {
       usedBaseline.add(candidates[0].id);
@@ -687,7 +706,10 @@ export async function compareEvidenceWorkspaces(
     "ambiguous"
   ];
   const summary = Object.fromEntries(
-    statuses.map((status) => [status, findings.filter((finding) => finding.status === status).length])
+    statuses.map((status) => [
+      status,
+      findings.filter((finding) => finding.status === status).length
+    ])
   ) as Readonly<Record<EvidenceRetestStatus, number>>;
   return {
     schemaVersion: EVIDENCE_RETEST_SCHEMA_VERSION,
@@ -697,7 +719,10 @@ export async function compareEvidenceWorkspaces(
     baselineDigest: await evidenceWorkspaceDigest(baseline.root),
     currentDigest: await evidenceWorkspaceDigest(current.root),
     summary,
-    findings: findings.sort((left, right) => left.status.localeCompare(right.status) || left.findingId.localeCompare(right.findingId)),
+    findings: findings.sort(
+      (left, right) =>
+        left.status.localeCompare(right.status) || left.findingId.localeCompare(right.findingId)
+    ),
     ambiguousMatches
   };
 }
@@ -719,7 +744,9 @@ export async function evidenceWorkspaceSummary(root: string): Promise<EvidenceWo
       (finding) => finding.sourceReferences.length === 0
     ).length,
     ...(manifest ? { latestManifest: manifest } : {}),
-    verificationFailures: verification.failures.map((failure) => `${failure.path}: ${failure.message}`)
+    verificationFailures: verification.failures.map(
+      (failure) => `${failure.path}: ${failure.message}`
+    )
   };
 }
 
@@ -849,7 +876,9 @@ function parseSarifFile(
         records: resultCount,
         validRecords: findings.length,
         malformedRecords: resultCount - findings.length,
-        rules: [...new Set(findings.map((finding) => String(finding.provenance.ruleId ?? "")))].filter(Boolean).sort()
+        rules: [...new Set(findings.map((finding) => String(finding.provenance.ruleId ?? "")))]
+          .filter(Boolean)
+          .sort()
       }
     };
   });
@@ -894,7 +923,7 @@ function sarifFindingFromResult(
     severity: sarifSeverity(result, rule),
     confidence: "tool-observed",
     status: "open",
-    ...(sarifMessageText(rule.fullDescription) ?? message
+    ...((sarifMessageText(rule.fullDescription) ?? message)
       ? { description: sarifMessageText(rule.fullDescription) ?? message }
       : {}),
     ...(sarifMessageText(rule.help) ? { remediation: sarifMessageText(rule.help) } : {}),
@@ -1006,7 +1035,9 @@ async function buildEvidenceManifest(
   return { ...payload, manifestId: evidenceManifestId(payload) };
 }
 
-async function collectManifestArtifacts(root: string): Promise<readonly EvidenceManifestArtifact[]> {
+async function collectManifestArtifacts(
+  root: string
+): Promise<readonly EvidenceManifestArtifact[]> {
   const files = await collectEvidenceBundleRelativeFiles(root);
   const artifacts = await Promise.all(
     files.map(async (file): Promise<EvidenceManifestArtifact> => {
@@ -1181,7 +1212,9 @@ function sarifToolName(run: JsonRecord): string | undefined {
   return stringField(driver, "name");
 }
 
-function sarifPrimaryLocation(result: JsonRecord): { readonly uri?: string; readonly startLine?: number } | undefined {
+function sarifPrimaryLocation(
+  result: JsonRecord
+): { readonly uri?: string; readonly startLine?: number } | undefined {
   const locations = Array.isArray(result.locations) ? result.locations : [];
   for (const locationValue of locations) {
     const location = jsonRecord(locationValue);
@@ -1209,7 +1242,8 @@ function sarifMessageText(value: unknown): string | undefined {
 }
 
 function sarifSeverity(result: JsonRecord, rule: JsonRecord): EvidenceSeverity {
-  const level = stringField(result, "level") ?? stringField(jsonRecord(rule.defaultConfiguration), "level");
+  const level =
+    stringField(result, "level") ?? stringField(jsonRecord(rule.defaultConfiguration), "level");
   if (level === "error") {
     return "high";
   }
@@ -1227,7 +1261,9 @@ function sarifWeaknessIds(rule: JsonRecord, result: JsonRecord): readonly string
     ...stringArrayField(jsonRecord(rule.properties), "tags"),
     ...stringArrayField(jsonRecord(result.properties), "tags")
   ];
-  return [...new Set(tags.filter((tag) => /^CWE-\d+$/iu.test(tag)).map((tag) => tag.toUpperCase()))].sort();
+  return [
+    ...new Set(tags.filter((tag) => /^CWE-\d+$/iu.test(tag)).map((tag) => tag.toUpperCase()))
+  ].sort();
 }
 
 function sarifReferences(rule: JsonRecord): readonly string[] {
@@ -1240,7 +1276,9 @@ function sarifReferences(rule: JsonRecord): readonly string[] {
   return [...new Set(refs)].sort();
 }
 
-function locationLabel(location: { readonly uri?: string; readonly startLine?: number } | undefined): string | undefined {
+function locationLabel(
+  location: { readonly uri?: string; readonly startLine?: number } | undefined
+): string | undefined {
   if (!location?.uri) {
     return undefined;
   }
@@ -1253,16 +1291,24 @@ async function ensureEvidenceWorkspaceDirectories(root: string): Promise<void> {
   }
 }
 
-function evidenceWorkspacePath(root: string, relativePath: string, allowedRoots?: readonly string[]): string {
+function evidenceWorkspacePath(
+  root: string,
+  relativePath: string,
+  allowedRoots?: readonly string[]
+): string {
   if (relativePath.startsWith("/")) {
     throw new EvidenceWorkspaceError(`evidence workspace path must be relative: ${relativePath}`);
   }
   const parts = relativePath.split(/[\\/]+/u);
   if (parts.some((part) => !part || part === "." || part === "..")) {
-    throw new EvidenceWorkspaceError(`evidence workspace path cannot contain traversal: ${relativePath}`);
+    throw new EvidenceWorkspaceError(
+      `evidence workspace path cannot contain traversal: ${relativePath}`
+    );
   }
   if (allowedRoots && !allowedRoots.includes(parts[0] ?? "")) {
-    throw new EvidenceWorkspaceError(`evidence workspace path must be under: ${allowedRoots.join(", ")}`);
+    throw new EvidenceWorkspaceError(
+      `evidence workspace path must be under: ${allowedRoots.join(", ")}`
+    );
   }
   const workspaceRoot = resolve(root);
   const candidate = resolve(workspaceRoot, relativePath);
@@ -1279,7 +1325,10 @@ async function appendEvidenceAuditEvent(root: string, event: EvidenceAuditEvent)
   await writeFile(logPath, `${existing}${stableJsonLine(event)}\n`, "utf8");
 }
 
-async function saveWorkspaceDocument(root: string, workspace: EvidenceWorkspaceDocument): Promise<void> {
+async function saveWorkspaceDocument(
+  root: string,
+  workspace: EvidenceWorkspaceDocument
+): Promise<void> {
   await writeJson(join(root, EVIDENCE_WORKSPACE_FILE), workspace);
 }
 
@@ -1385,7 +1434,9 @@ function stringField(record: JsonRecord, field: string): string | undefined {
 
 function stringArrayField(record: JsonRecord, field: string): readonly string[] {
   const value = record[field];
-  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
 }
 
 function dedupeJson<T>(items: readonly T[]): readonly T[] {

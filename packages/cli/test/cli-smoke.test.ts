@@ -713,12 +713,12 @@ Read local evidence and summarize findings.
           manifest: { manifestId: expect.stringMatching(/^sha256:/u) }
         }
       );
-      await expect(runEvidenceCommand(["verify", "--workspace", evidenceDir])).resolves.toMatchObject(
-        {
-          ok: true,
-          failures: []
-        }
-      );
+      await expect(
+        runEvidenceCommand(["verify", "--workspace", evidenceDir])
+      ).resolves.toMatchObject({
+        ok: true,
+        failures: []
+      });
 
       await runSkill([
         skillPath,

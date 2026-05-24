@@ -2607,7 +2607,8 @@ function governanceFindings(input: {
         category: "auditability",
         title: "Evidence findings without source references",
         evidence: `${input.evidenceSummary.sourceReferenceGaps} normalized findings lack source references.`,
-        recommendation: "Attach adapter provenance or reviewer notes before relying on these findings."
+        recommendation:
+          "Attach adapter provenance or reviewer notes before relying on these findings."
       });
     }
   }

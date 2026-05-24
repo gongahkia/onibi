@@ -22,9 +22,9 @@ $ kelp-claw inventory coverage \
   --out .kelpclaw/inventory/coverage.md
 ```
 
-`inventory scan` detects SKILL.md files, recorded `.kelpclaw/runs`, signed audit bundles, governed web evidence, KelpClaw GitHub Action workflows, and MCP web gateway commands. The JSON output includes normalized permission edges such as skill-to-tool, skill-to-policy, run-to-bundle, bundle-to-attestation, and skill-to-web-evidence.
+`inventory scan` detects SKILL.md files, recorded `.kelpclaw/runs`, signed audit bundles, governed web evidence, evidence workspaces, KelpClaw GitHub Action workflows, and MCP web gateway commands. The JSON output includes normalized permission edges such as skill-to-tool, skill-to-policy, run-to-bundle, bundle-to-attestation, skill-to-web-evidence, and skill-to-evidence-workspace.
 
-`inventory graph` writes either a Markdown table or Mermaid flowchart. `inventory coverage` flags the main operational gaps: unrunnable skills, deny-level policy findings, runs without signed bundles, bundles without attestations, networked skills without web evidence, and workflows that use KelpClaw without SARIF upload evidence.
+`inventory graph` writes either a Markdown table or Mermaid flowchart. `inventory coverage` flags the main operational gaps: unrunnable skills, deny-level policy findings, runs without signed bundles, bundles without attestations, networked skills without web evidence, unsigned evidence workspaces, findings without source references, and workflows that use KelpClaw without SARIF upload evidence.
 
 ## CI Mode
 
@@ -44,4 +44,5 @@ The action writes a PR summary, uploads the inventory output folder as an artifa
 - `--runs-dir`: override the run artifact directory when runs are not under `.kelpclaw/runs`.
 - `--bundles-dir`: override the audit bundle directory when bundles are not under `.kelpclaw/audit-bundles`.
 - `--web-evidence-dir`: override the governed web evidence directory.
+- `--evidence-dir`: override the local evidence workspace directory.
 - `--format mermaid`: generate a graph that can be pasted into GitHub Markdown or docs.

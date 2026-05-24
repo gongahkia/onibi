@@ -264,107 +264,18 @@ See [docs/capabilities.md](docs/capabilities.md) for the detailed Phase 1 matrix
 
 ## Workspace Layout
 
-```text
-workspace/
-  workspace.json
-  audit-log.jsonl
-  evidence/
-    index.json
-  raw/
-    nmap/
-    nuclei/
-    screenshot/
-    transcript/
-    c2-log/
-  normalized/
-    findings.json
-  timeline/
-  objectives/
-  procedures/
-  detections/
-  reports/
-  signatures/
-```
-
-Piranesi copies imported files under `raw/<tool>/`, records the original digest, and
-normalizes report-ready findings under `normalized/findings.json`. Operator artifacts
-added with `piranesi evidence add` are also copied under `raw/<kind>/` and indexed in
-`evidence/index.json`.
-
-## Documentation
-
-- [Architecture](docs/ARCHITECTURE.md)
-- [Higher-level goals](HIGHER-LEVEL-GOALS.md)
-- [Workspace contract](docs/pentest-workspace.md)
-- [Solo engagement management](docs/engagement-management.md)
-- [Phase 3 workflow closeout](docs/phase3-workflow-closeout.md)
-- [Report schema](docs/pentest-report-schema.md)
-- [Local report template library](docs/report-template-library.md)
-- [Burp ingestion](docs/burp-ingest.md)
-- [OWASP ZAP ingestion](docs/zap-ingest.md)
-- [Nessus ingestion](docs/nessus-ingest.md)
-- [SARIF ingestion](docs/sarif-ingest.md)
-- [ffuf ingestion](docs/ffuf-ingest.md)
-- [sqlmap ingestion](docs/sqlmap-ingest.md)
-- [Metasploit ingestion](docs/metasploit-ingest.md)
-- [Phase 1.1 adapter expansion](docs/adapter-expansion.md)
-- [Adapter intake gate](docs/adapter-intake.md)
-- [BloodHound import gate](docs/bloodhound-import-gate.md)
-- [NetExec and CrackMapExec import gate](docs/netexec-crackmapexec-import-gate.md)
-- [Trivy import gate](docs/trivy-import-gate.md)
-- [Piranesi Finding Format v0](docs/pff-v0.md)
-- [Python adapter SDK](docs/python-adapter-sdk.md)
-- [Plugin API security model](docs/plugin-api-security-model.md)
-- [External pentest agent bridge](docs/agent-pentest-bridge.md)
-- [Phase 4 PFF platform closeout](docs/phase4-pff-platform-closeout.md)
-- [C2 log import](docs/c2-log-import.md)
-- [Nuclei ingestion](docs/nuclei-ingest.md)
-- [Retest workflow](docs/retest-workflow.md)
-- [Chain of custody](docs/chain-of-custody.md)
-- [Local preview UI](docs/local-ui.md)
-- [Product interface decision](docs/product-interface-decision.md)
-- [Detection opportunity matrix](docs/detection-opportunity-matrix.md)
-- [Measurable events mode](docs/measurable-events-mode.md)
-- [Purple-team handoff pack](docs/purple-team-handoff-pack.md)
-- [Attack-path evidence import](docs/attack-path-evidence-import.md)
-- [Operator debrief workflow](docs/operator-debrief-workflow.md)
-- [Report QA before delivery](docs/report-qa-before-delivery.md)
-- [Client outcome view](docs/client-outcome-view.md)
-- [Enterprise demand gate](docs/enterprise-demand-gate.md)
-- [Enterprise demand intake template](docs/enterprise-demand-intake-template.md)
-- [Enterprise SSO and RBAC requirements](docs/enterprise-sso-rbac-requirements.md)
-- [Enterprise deployment and data-control requirements](docs/enterprise-deployment-data-control-requirements.md)
-- [Enterprise SIEM and support bundle requirements](docs/enterprise-siem-support-requirements.md)
-- [Phase 5 enterprise parked closeout](docs/phase5-enterprise-parked.md)
-- [AI operator-control policy](docs/ai-operator-control-policy.md)
-- [AI suggestions](docs/ai-suggestions.md)
-- [Phase 6 AI co-pilot closeout](docs/phase6-ai-copilot.md)
-- [Roadmap next-ten closeout](docs/roadmap-next-ten-closeout.md)
-- [Release install validation](docs/release-install-validation.md)
-- [Rescan CLI](docs/rescan-cli.md)
-- [Rescan execution RFC](docs/rfcs/rescan-execution-layer.md)
-- [Rescan image policy](docs/rescan-image-policy.md)
-- [Rescan replay extractors](docs/rescan-extractors.md)
-- [Replay test harness](docs/replay-test-harness.md)
-- [Rescan runtime support](docs/rescan-runtime.md)
-- [Privacy and data handling](docs/privacy-data-handling.md)
-- [Non-goals](docs/non-goals.md)
-- [CI examples](docs/ci-integration.md)
-
-## Non-Goals In Phase 1
-
-- No hosted SaaS, auth, teams, or client portal.
-- No new scanner engine, autonomous scan selection, scheduled scanning, or
-  unsupervised target interaction.
-- No replay that expands beyond the original ingested engagement scope.
-- No C2 operation, implant management, or payload execution.
-- No autonomous exploitation, payload generation, AI-driven target interaction, or
-  AI-driven report changes without explicit human approval.
-- No fleet management or live SSH probing.
-- No compliance certification claims.
-
-Future work is tracked in GitHub roadmap issues and must be implemented behind
-separate acceptance criteria before it becomes public guidance.
+| Workspace                 | Ownership                                                                                |
+| ------------------------- | ---------------------------------------------------------------------------------------- |
+| `apps/openclaw`           | React + React Flow workflow planning UI                                                  |
+| `apps/api`                | HTTP API for planning, workflow persistence, validation, approval, and execution control |
+| `packages/workflow-spec`  | Shared workflow IR types, Zod schemas, JSON Schema, fixtures, and validation errors      |
+| `packages/skill-registry` | Built-in deterministic skills, metadata, metaprompts, and lookup rules                   |
+| `packages/nanoclaw`       | DAG compiler, production runner, Docker command runner, and deterministic test runner    |
+| `packages/codegen`        | Generated artifact contracts, checksums, and replay policy helpers                       |
+| `packages/adapters`       | Live provider adapters, generic connectors, and deterministic test mocks                 |
+| `packages/web-intel`      | Governed Exa/TinyFish web search, fetch, answer, browser, and evidence normalization     |
+| `packages/evidence`       | Piranesi-derived local evidence vault, normalized findings, custody, QA, and retest diff |
+| `packages/testing`        | Shared fixtures, mock providers, and deterministic execution harnesses                   |
 
 ## Development
 
@@ -385,6 +296,176 @@ uv run python scripts/update_contract_snapshots.py
 uv run pytest -q tests/test_contract_snapshots.py
 ```
 
-## License
+Quickstart, deployment notes for durable SQLite mode, Docker Compose, and production readiness live in
+[`docs/quickstart.md`](docs/quickstart.md),
+[`docs/deployment.md`](docs/deployment.md),
+[`docs/agent-runtime-demo.md`](docs/agent-runtime-demo.md),
+[`docs/skill-governance-demo.md`](docs/skill-governance-demo.md),
+[`docs/security-review-demo.md`](docs/security-review-demo.md),
+[`docs/agent-inventory.md`](docs/agent-inventory.md),
+[`docs/piranesi-integration.md`](docs/piranesi-integration.md),
+[`docs/web-intel.md`](docs/web-intel.md), and
+[`docs/production-readiness.md`](docs/production-readiness.md).
 
-Apache-2.0. See [LICENSE](LICENSE).
+## Workflow V1 Model
+
+KelpClaw uses the canonical workflow JSON IR with `schemaVersion: "1.0.0"`. The top-level workflow fields are `id`, `schemaVersion`, `name`, `prompt`, `revision`, `nodes`, `edges`, `approval`, `createdAt`, and `updatedAt`.
+
+Workflow nodes use `kind` instead of the earlier planner `type` shape. Supported node kinds are `trigger`, `skill`, `codegen`, `transform`, `approval`, and `delivery`. Each node declares a human description, JSON-Schema-compatible input and output ports, config, runtime settings, and determinism metadata.
+
+Edges are port-aware: each edge connects `source.nodeId/source.port` to `target.nodeId/target.port`. Validation reports stable error codes for duplicate nodes, missing node references, invalid ports, DAG cycles, unapproved execution, unsupported schema versions, and missing codegen provenance or replay metadata.
+
+Canonical serialization keeps object keys and collections stable for snapshots, review diffs, and DAG hashing. The migration harness currently passes through v1 workflows and rejects unsupported schema versions so future IR upgrades can be added without changing callers.
+
+## Approval And Execution
+
+Approving a workflow freezes the current revision into `workflow.approval`, including the approver, approval timestamp, frozen DAG hash, and compiled node order. NanoClaw compiles only approved workflow revisions and emits a v1 `execution_result` envelope for both mock and Docker-backed runners.
+
+Editing an approved workflow creates a new draft revision. Execution remains blocked until that current revision is approved.
+
+## NanoClaw Runtime Controls
+
+API runs use the production runner by default. Adapter nodes invoke canonical live adapters (`adapter.gmail`, `adapter.sheets`, `adapter.email`, `adapter.whatsapp`, `adapter.telegram`, `adapter.github`, `adapter.slack`, `adapter.discord`, `adapter.notion`, `adapter.linear`, `adapter.jira`, `adapter.airtable`, `adapter.webhook`), deterministic built-in nodes run in-process, and custom/codegen nodes fall back to Docker. Set `NANOCLAW_RUNNER=mock` only for tests and offline demos. Optional controls are `NANOCLAW_DOCKER_BIN` for a non-default Docker binary and `NANOCLAW_HOST_WORKSPACE` for command-construction compatibility.
+
+NanoClaw writes each run under a preserved workspace in the OS temp directory unless callers pass `workspaceRoot`. The workspace contains `workflow.json`, per-node `input.json` and `output.json`, `stdout.log`, `stderr.log`, an `artifacts/` directory, and `run-manifest.json` for replay.
+
+Docker nodes receive only declared runtime environment variables plus NanoClaw paths:
+
+- `NANOCLAW_WORKFLOW_SPEC`
+- `NANOCLAW_NODE_INPUT`
+- `NANOCLAW_NODE_OUTPUT`
+- `NANOCLAW_ARTIFACTS_DIR`
+- `NANOCLAW_NODE_ID`
+- `NANOCLAW_ATTEMPT`
+
+Containers mount the frozen workflow spec read-only and the node attempt workspace read-write. Network mode is `none` unless the node declares adapter or external API access. CPU, memory, timeout, retry count, backoff, logs, artifacts, attempts, skipped downstream nodes, and replay metadata are captured in the execution result.
+
+## Skill Registry
+
+The built-in skill registry records input and output schemas, required secrets, live adapter dependencies, runtime templates, metaprompts, validation rules, and example fixtures. Deterministic matching returns scored `SkillMatch` results with explainable reasons. Registry skills are preferred over codegen when the top match reaches the fixed reuse threshold.
+
+## SKILL.md Audit Runner
+
+KelpClaw can analyze and run agent skills in an audit-first mode:
+
+```console
+$ kelp-claw compat ./SKILL.md --policy baseline
+$ kelp-claw policy explain ./SKILL.md --policy baseline
+$ kelp-claw governance report ./SKILL.md --region sg --framework agentic-ai --policy sg-agentic-ai-baseline
+$ kelp-claw governance controls ./SKILL.md --region sg --framework agentic-ai --out controls.md
+$ kelp-claw export-sarif ./SKILL.md --policy baseline --out findings.sarif
+$ kelp-claw run-skill ./SKILL.md --input input.json
+$ kelp-claw run-skill ./SKILL.md --input input.json --agent codex-cli --wrapper --enforce-policy
+$ kelp-claw run-skill github:owner/repo/path/SKILL.md --input input.json
+$ kelp-claw governance report <runId> --region sg --framework agentic-ai
+$ kelp-claw export-audit-bundle <runId> --include-governance --include-controls --include-sarif --region sg --framework agentic-ai
+$ kelp-claw verify-audit-bundle .kelpclaw/audit-bundles/<runId> --strict
+$ kelp-claw replay-diff --skill ./SKILL.md --agents claude-code,codex-cli,goose
+$ kelp-claw replay-diff --recorded --skill ./SKILL.md --input input.json --agents codex-cli,custom-agent
+$ kelp-claw web search "Singapore agentic AI governance" --provider exa --policy sg-web-research --out .kelpclaw/web-evidence/sg-ai
+$ kelp-claw web fetch https://example.com/source --provider tinyfish --out .kelpclaw/web-evidence/source
+$ kelp-claw export-audit-bundle <runId> --include-web-evidence .kelpclaw/web-evidence/sg-ai --include-governance
+$ kelp-claw evidence init --workspace .kelpclaw/evidence --client "Example Client" --project "Agent Review"
+$ kelp-claw evidence add --workspace .kelpclaw/evidence --file operator-note.txt --kind note --title "Operator note"
+$ kelp-claw evidence import-sarif --workspace .kelpclaw/evidence findings.sarif
+$ kelp-claw evidence sign --workspace .kelpclaw/evidence
+$ kelp-claw evidence verify --workspace .kelpclaw/evidence
+$ kelp-claw export-audit-bundle <runId> --include-evidence .kelpclaw/evidence --include-governance
+$ kelp-claw inventory scan --root . --policy sg-agentic-ai-baseline --out .kelpclaw/inventory/agent-inventory.json
+$ kelp-claw inventory graph --root . --format markdown --out .kelpclaw/inventory/permissions.md
+$ kelp-claw inventory coverage --root . --format markdown --fail-on high --out .kelpclaw/inventory/coverage.md
+```
+
+`compat` reports detected tools, required secrets, network posture, sandbox profile, and policy findings. `run-skill` writes deterministic local artifacts under `.kelpclaw/runs/<runId>/`, including `skill.json`, `workflow.json`, `bom.json`, `audit.jsonl`, and `policy-decisions.json`. With `--agent codex-cli`, KelpClaw materializes a temporary workspace, invokes `codex exec`, captures stdout/stderr, installs a local hook command for compatible agents, records hook-derived `PreToolUse`/`PostToolUse` events when available, evaluates policy, and stores generated artifact metadata. Planned policy denials block before launch; hook-denied pre-tool events block the run under `--enforce-policy`. `export-audit-bundle` creates a static bundle with an offline `index.html`.
+
+`policy explain` shows the exact planned tool steps and policy decisions for a skill. `governance report` emits SG/APAC-oriented evidence for autonomy tier, tool/data/network risk, human approval points, auditability, replay evidence, residual risks, and framework mappings. `governance controls` produces a reviewer-facing controls matrix, and `export-sarif` converts policy/governance/web findings into SARIF 2.1.0 for GitHub code scanning and security review. `--wrapper` adds stricter Codex CLI handling by normalizing Codex JSONL tool events into KelpClaw hook events and failing closed on unclassified enforced tool events. `export-audit-bundle` signs a manifest and attestation with a local Ed25519 key by default; use `kelp-claw audit-key init` to create the key explicitly and `verify-audit-bundle --strict` before forwarding the static bundle.
+
+`kelp-claw web` adds governed Exa/TinyFish web intelligence. `search`, `fetch`, `answer`, and `research` evaluate a policy pack before the provider call, normalize sources into KelpClaw web evidence, hash source content, redact obvious secrets and emails, and optionally write `web-evidence.json`, `web-events.jsonl`, `web-bom.json`, and `web-evidence.html`. Set `EXA_API_KEY` and/or `TINYFISH_API_KEY` for live calls. Attach the evidence to `governance report` or `export-audit-bundle` with `--include-web-evidence <dir-or-json>`.
+
+`kelp-claw evidence` ports the useful Piranesi concepts into KelpClaw: a local evidence vault, normalized findings, SARIF import, append-only audit log, chain-of-custody manifest, delivery QA, and retest diff. Attach it to governance reports or audit bundles with `--include-evidence <workspace>`.
+
+`kelp-claw inventory` scans a repository for SKILL.md files, recorded runs, signed audit bundles, governed web evidence, evidence workspaces, KelpClaw GitHub Action workflows, and MCP web gateways. `inventory graph` renders a permission graph of skills, tools, secrets, policies, bundles, attestations, web evidence, and evidence workspaces; `inventory coverage` reports missing signed bundles, missing attestations, networked skills without web evidence, unsigned evidence workspaces, and CI coverage gaps.
+
+Built-in policy packs are available without writing YAML on day one:
+
+```console
+$ kelp-claw policy use baseline
+$ kelp-claw policy use finance-sg
+$ kelp-claw policy use pii-strict
+$ kelp-claw policy use no-destructive-shell
+$ kelp-claw policy use github-pr-safe
+$ kelp-claw policy use sg-agentic-ai-baseline
+$ kelp-claw policy use sg-pdpa-strict
+$ kelp-claw policy use sg-financial-ai
+$ kelp-claw policy use asean-genai-baseline
+$ kelp-claw policy use web-search-safe
+$ kelp-claw policy use sg-web-research
+$ kelp-claw policy use browser-automation-strict
+```
+
+Expose the same governed web gateway to MCP clients with:
+
+```console
+$ kelp-claw mcp web-gateway --policy sg-web-research
+$ kelp-claw mcp web-gateway --policy browser-automation-strict --allow-browser-tools
+```
+
+Use the bundled GitHub Action in PR workflows:
+
+```yaml
+- uses: gongahkia/kelp-claw/.github/actions/audit-skill@main
+  with:
+    skill: ./SKILL.md
+    policy: sg-agentic-ai-baseline
+    governance: "true"
+    region: sg
+    framework: agentic-ai
+    fail-on-unrunnable: "true"
+    upload-sarif: "true"
+```
+
+Use repository inventory mode for periodic or PR-level agent estate checks:
+
+```yaml
+- uses: gongahkia/kelp-claw/.github/actions/audit-skill@main
+  with:
+    mode: inventory
+    inventory-root: .
+    policy: sg-agentic-ai-baseline
+    fail-on-coverage: high
+```
+
+The compatibility corpus in `fixtures/skills-corpus` contains representative public-style skills and expected reports for regression tests.
+
+## Auth, Secrets, And Integrations
+
+The API server requires `KELPCLAW_ADMIN_TOKEN` outside test construction. OpenClaw sends it as a Bearer token from its integration panel or `VITE_OPENCLAW_ADMIN_TOKEN`.
+
+Production secrets use encrypted local SQLite storage with `KELPCLAW_SECRET_MASTER_KEY`. Workflow specs store only `secret:<name>` refs; raw values are written through `/api/secrets` or the OpenClaw setup panel and are never returned by list APIs.
+
+Google uses OAuth web flow endpoints under `/api/integrations/google/*`. SMTP email, WhatsApp Cloud API, Telegram Bot API, GitHub, Slack, Discord, Notion, Linear, Jira Cloud, Airtable, generic webhook delivery, and database adapters use encrypted provider secrets. The built-in database runtime supports SQLite directly and exposes a `DatabaseClient` contract for Postgres, MySQL, and other engines. Mock adapters and `.fake` ids remain test helpers only.
+
+## Phase 5 Codegen
+
+`POST /api/workflows/plan` now uses the registry-backed draft planner instead of the legacy fixture mock. The planner checks built-in and promoted skill metadata first. When no deterministic skill reaches the reuse threshold, it creates an explicit codegen node with planner rationale, generated source and dependency artifact references, sandbox policy, review state, and replay metadata.
+
+Live code generation can use the Anthropic Agent SDK, OpenAI Responses API, or an OpenAI-compatible open-weight chat-completions endpoint. Set `KELPCLAW_PLANNER_PROVIDER=anthropic` with `ANTHROPIC_API_KEY`, `KELPCLAW_PLANNER_PROVIDER=openai` with `OPENAI_API_KEY`, or `KELPCLAW_PLANNER_PROVIDER=openweight` with `KELPCLAW_OPENWEIGHT_BASE_URL`. `KELPCLAW_CODEGEN_PROVIDER` can override the planner provider for generated-node build roles. Tests and local deterministic harnesses inject fake generators, so CI does not need live provider credentials.
+
+Generated artifacts are written to a content-addressed local store. Set `KELPCLAW_ARTIFACT_STORE` to override the default `.kelpclaw/artifacts` path. Runtime-generated artifacts are ignored by git.
+
+Codegen nodes must be reviewed before approval:
+
+```console
+$ curl -X POST /api/workflows/:id/codegen/:nodeId/review
+$ curl -X POST /api/workflows/:id/codegen/:nodeId/promote
+```
+
+NanoClaw is the deterministic workflow runtime, not a model provider. It verifies stored artifact hashes before execution, materializes reviewed generated source into the isolated node workspace, and never regenerates code during approved runs. Promotion writes a reusable skill record to the artifact store and registers it so future matching can reuse the promoted skill instead of creating another codegen node.
+
+## Validation Guarantees
+
+- Workflow specs are diffable and validated with stable error codes.
+- OpenClaw renders the shared v1 fixtures with schema version, revision, prompt, node kind, port-aware edges, and approval state.
+- NanoClaw execution is covered through an approved-workflow mock runner and Docker command-construction tests.
+- Integration adapters are production-capable; missing live secrets fail as structured run output.
+- CI runs TypeScript format, lint, typecheck, tests, and builds.

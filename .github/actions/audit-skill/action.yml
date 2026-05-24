@@ -93,6 +93,7 @@ runs:
           console.log(`- Runs: \`${inventory.runs.length}\``);
           console.log(`- Bundles: \`${inventory.bundles.length}\``);
           console.log(`- Web evidence: \`${inventory.webEvidence.length}\``);
+          console.log(`- Evidence workspaces: \`${inventory.evidenceWorkspaces.length}\``);
           console.log(`- Findings: \`${coverage.findingCount}\` (${coverage.summary.high} high, ${coverage.summary.moderate} moderate, ${coverage.summary.info} info)`);
           console.log("");
           console.log("| Severity | Category | Finding | Evidence |");
