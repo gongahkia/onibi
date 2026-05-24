@@ -87,14 +87,14 @@ KelpClaw can analyze and run agent skills in an audit-first mode:
 ```console
 $ kelp-claw compat ./SKILL.md --policy baseline
 $ kelp-claw run-skill ./SKILL.md --input input.json
-$ kelp-claw run-skill ./SKILL.md --input input.json --agent codex-cli
+$ kelp-claw run-skill ./SKILL.md --input input.json --agent codex-cli --enforce-policy
 $ kelp-claw run-skill github:owner/repo/path/SKILL.md --input input.json
 $ kelp-claw export-audit-bundle <runId>
 $ kelp-claw replay-diff --skill ./SKILL.md --agents claude-code,codex-cli,goose
 $ kelp-claw replay-diff --recorded --skill ./SKILL.md --input input.json --agents codex-cli,custom-agent
 ```
 
-`compat` reports detected tools, required secrets, network posture, sandbox profile, and policy findings. `run-skill` writes deterministic local artifacts under `.kelpclaw/runs/<runId>/`, including `skill.json`, `workflow.json`, `bom.json`, `audit.jsonl`, and `policy-decisions.json`. With `--agent codex-cli`, KelpClaw materializes a temporary workspace, invokes `codex exec`, captures stdout/stderr, records observed tool events when JSONL is available, evaluates policy, and stores generated artifact metadata. `export-audit-bundle` creates a static bundle with an offline `index.html`.
+`compat` reports detected tools, required secrets, network posture, sandbox profile, and policy findings. `run-skill` writes deterministic local artifacts under `.kelpclaw/runs/<runId>/`, including `skill.json`, `workflow.json`, `bom.json`, `audit.jsonl`, and `policy-decisions.json`. With `--agent codex-cli`, KelpClaw materializes a temporary workspace, invokes `codex exec`, captures stdout/stderr, installs a local hook command for compatible agents, records hook-derived `PreToolUse`/`PostToolUse` events when available, evaluates policy, and stores generated artifact metadata. Planned policy denials block before launch; hook-denied pre-tool events block the run under `--enforce-policy`. `export-audit-bundle` creates a static bundle with an offline `index.html`.
 
 Built-in policy packs are available without writing YAML on day one:
 
