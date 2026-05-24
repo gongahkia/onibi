@@ -1,0 +1,47 @@
+name: Audit KelpClaw Skill
+description: Analyze, policy-check, run, and export an audit bundle for a SKILL.md.
+
+inputs:
+  skill:
+    description: Path to the SKILL.md to audit.
+    required: false
+    default: ./SKILL.md
+  policy:
+    description: Built-in KelpClaw policy pack to apply.
+    required: false
+    default: baseline
+  input:
+    description: Optional JSON input file for the audit-first skill run.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 10.33.0
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile
+    - name: Build KelpClaw CLI
+      shell: bash
+      run: pnpm --filter @kelpclaw/cli build
+    - name: Audit skill
+      shell: bash
+      run: |
+        mkdir -p .kelpclaw
+        INPUT_PATH="${{ inputs.input }}"
+        if [ -z "$INPUT_PATH" ]; then
+          INPUT_PATH=".kelpclaw/action-input.json"
+          printf '{}\n' > "$INPUT_PATH"
+        fi
+
+        node packages/cli/dist/index.js compat "${{ inputs.skill }}" --policy "${{ inputs.policy }}"
+        RUN_OUTPUT="$(node packages/cli/dist/index.js run-skill "${{ inputs.skill }}" --input "$INPUT_PATH" --policy "${{ inputs.policy }}")"
+        printf '%s\n' "$RUN_OUTPUT"
+        RUN_ID="$(printf '%s\n' "$RUN_OUTPUT" | node -e 'let input=""; process.stdin.on("data", c => input += c); process.stdin.on("end", () => console.log(JSON.parse(input).runId));')"
+        node packages/cli/dist/index.js export-audit-bundle "$RUN_ID"

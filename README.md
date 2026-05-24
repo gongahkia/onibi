@@ -80,6 +80,39 @@ Containers mount the frozen workflow spec read-only and the node attempt workspa
 
 The built-in skill registry records input and output schemas, required secrets, live adapter dependencies, runtime templates, metaprompts, validation rules, and example fixtures. Deterministic matching returns scored `SkillMatch` results with explainable reasons. Registry skills are preferred over codegen when the top match reaches the fixed reuse threshold.
 
+## SKILL.md Audit Runner
+
+KelpClaw can analyze and run agent skills in an audit-first mode:
+
+```console
+$ kelp-claw compat ./SKILL.md --policy baseline
+$ kelp-claw run-skill ./SKILL.md --input input.json
+$ kelp-claw run-skill github:owner/repo/path/SKILL.md --input input.json
+$ kelp-claw export-audit-bundle <runId>
+$ kelp-claw replay-diff --skill ./SKILL.md --agents claude-code,codex-cli,goose
+```
+
+`compat` reports detected tools, required secrets, network posture, sandbox profile, and policy findings. `run-skill` writes deterministic local artifacts under `.kelpclaw/runs/<runId>/`, including `skill.json`, `workflow.json`, `bom.json`, `audit.jsonl`, and `policy-decisions.json`. `export-audit-bundle` creates a static bundle with an offline `index.html`.
+
+Built-in policy packs are available without writing YAML on day one:
+
+```console
+$ kelp-claw policy use baseline
+$ kelp-claw policy use finance-sg
+$ kelp-claw policy use pii-strict
+$ kelp-claw policy use no-destructive-shell
+$ kelp-claw policy use github-pr-safe
+```
+
+Use the bundled GitHub Action in PR workflows:
+
+```yaml
+- uses: gongahkia/kelp-claw/.github/actions/audit-skill@main
+  with:
+    skill: ./SKILL.md
+    policy: baseline
+```
+
 ## Auth, Secrets, And Integrations
 
 The API server requires `KELPCLAW_ADMIN_TOKEN` outside test construction. OpenClaw sends it as a Bearer token from its integration panel or `VITE_OPENCLAW_ADMIN_TOKEN`.

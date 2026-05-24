@@ -137,6 +137,12 @@ importers:
       '@kelpclaw/codegen':
         specifier: workspace:*
         version: link:../codegen
+      '@kelpclaw/policy':
+        specifier: workspace:*
+        version: link:../policy
+      '@kelpclaw/workflow-spec':
+        specifier: workspace:*
+        version: link:../workflow-spec
 
   packages/codegen:
     dependencies:

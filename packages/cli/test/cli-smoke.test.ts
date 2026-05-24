@@ -1,8 +1,16 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runCrossAgentReplaySmoke, runOtlpSmoke, verifyClaudeCode } from "../src/index.js";
+import {
+  compatibilityReport,
+  exportAuditBundle,
+  replayDiff,
+  runCrossAgentReplaySmoke,
+  runOtlpSmoke,
+  runSkill,
+  verifyClaudeCode
+} from "../src/index.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -109,6 +117,314 @@ describe("kelp-claw smoke commands", () => {
       expect(result.settings).toMatchObject({ installed: true, eventCount: 12 });
       expect(Object.keys(settings.hooks ?? {})).toContain("PreToolUse");
       expect(requests).toHaveLength(4);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports SKILL.md compatibility with detected tools and baseline policy", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-skill-"));
+    const skillPath = join(tempDir, "SKILL.md");
+    await writeFile(
+      skillPath,
+      `---
+name: local-audit-skill
+tools: [Bash, Read, Write]
+---
+
+# Local Audit Skill
+
+Use Bash, Read, and Write to inspect and create files.
+`,
+      "utf8"
+    );
+
+    try {
+      await expect(compatibilityReport([skillPath])).resolves.toEqual({
+        runnable: true,
+        toolsDetected: ["Bash", "Read", "Write"],
+        requiredSecrets: [],
+        network: "none",
+        sandboxProfile: "safe-local",
+        policyFindings: []
+      });
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("fetches GitHub shorthand skill references from raw GitHub", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        expect(String(url)).toBe(
+          "https://raw.githubusercontent.com/acme/skills/main/security/SKILL.md"
+        );
+        return new Response(
+          `---
+name: github-skill
+tools:
+  - WebFetch
+---
+
+# GitHub Skill
+
+Fetch https://example.com/status.
+`,
+          { status: 200 }
+        );
+      })
+    );
+
+    await expect(
+      compatibilityReport(["github:acme/skills/security/SKILL.md"])
+    ).resolves.toMatchObject({
+      runnable: true,
+      toolsDetected: ["WebFetch"],
+      network: "declared",
+      sandboxProfile: "networked"
+    });
+  });
+
+  it("runs a SKILL.md into local audit artifacts and exports a static bundle", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-run-skill-"));
+    const skillPath = join(tempDir, "SKILL.md");
+    const inputPath = join(tempDir, "input.json");
+    const runsDir = join(tempDir, "runs");
+    const bundleDir = join(tempDir, "bundle");
+    await writeFile(
+      skillPath,
+      `---
+name: bundle-skill
+tools: [Read]
+---
+
+# Bundle Skill
+
+Read a file and report a deterministic audit result.
+`,
+      "utf8"
+    );
+    await writeFile(inputPath, '{"path":"README.md"}\n', "utf8");
+
+    try {
+      const run = await runSkill([
+        skillPath,
+        "--input",
+        inputPath,
+        "--run-id",
+        "skill-run.test",
+        "--runs-dir",
+        runsDir
+      ]);
+      expect(run).toMatchObject({
+        ok: true,
+        runId: "skill-run.test",
+        status: "succeeded"
+      });
+      await expect(
+        readFile(join(runsDir, "skill-run.test", "audit.jsonl"), "utf8")
+      ).resolves.toContain("skill.run.completed");
+
+      const bundle = await exportAuditBundle([
+        "skill-run.test",
+        "--runs-dir",
+        runsDir,
+        "--out",
+        bundleDir
+      ]);
+      expect(bundle.files).toEqual([
+        "skill.json",
+        "workflow.json",
+        "bom.json",
+        "audit.jsonl",
+        "policy-decisions.json",
+        "compatibility.json",
+        "result.json",
+        "index.html"
+      ]);
+      await expect(readFile(join(bundleDir, "index.html"), "utf8")).resolves.toContain(
+        "KelpClaw Audit Bundle"
+      );
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("diffs deterministic replay shape across requested agents", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-replay-diff-"));
+    const skillPath = join(tempDir, "SKILL.md");
+    await writeFile(
+      skillPath,
+      `---
+name: replay-skill
+tools: [Bash, Read]
+---
+
+# Replay Skill
+
+\`\`\`bash
+printf "kelpclaw\\n"
+\`\`\`
+`,
+      "utf8"
+    );
+
+    try {
+      const result = await replayDiff([
+        "--skill",
+        skillPath,
+        "--agents",
+        "claude-code,codex-cli,goose"
+      ]);
+      expect(result).toMatchObject({
+        ok: true,
+        agents: ["claude-code", "codex-cli", "goose"],
+        same: {
+          toolSequence: true,
+          normalizedHashes: true,
+          outputs: true,
+          policyDecisions: true
+        },
+        differences: []
+      });
+      expect(result.runs[0]?.tools).toEqual(["Bash", "Read"]);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("runs a SKILL.md through a configured live agent command", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-live-skill-"));
+    const skillPath = join(tempDir, "SKILL.md");
+    const inputPath = join(tempDir, "input.json");
+    const fakeAgentPath = join(tempDir, "fake-agent.mjs");
+    const runsDir = join(tempDir, "runs");
+    await writeFile(
+      skillPath,
+      `---
+name: live-skill
+tools: [Bash, Write]
+---
+
+# Live Skill
+
+Create a generated artifact from input.
+`,
+      "utf8"
+    );
+    await writeFile(inputPath, '{"message":"hello"}\n', "utf8");
+    await writeFile(
+      fakeAgentPath,
+      `import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+let stdin = "";
+process.stdin.on("data", chunk => stdin += chunk);
+process.stdin.on("end", () => {
+  mkdirSync("artifacts", { recursive: true });
+  writeFileSync(join("artifacts", "result.txt"), stdin.includes("hello") ? "hello" : "missing");
+  console.log(JSON.stringify({ toolName: "Bash", args: { command: "printf hello" }, result: { exitCode: 0 } }));
+  console.log(JSON.stringify({ toolName: "Write", args: { filePath: "artifacts/result.txt" }, result: { bytes: 5 } }));
+});
+`,
+      "utf8"
+    );
+
+    try {
+      const run = await runSkill([
+        skillPath,
+        "--input",
+        inputPath,
+        "--agent",
+        "codex-cli",
+        "--agent-command",
+        process.execPath,
+        "--agent-arg",
+        fakeAgentPath,
+        "--run-id",
+        "skill-run.live",
+        "--runs-dir",
+        runsDir
+      ]);
+      expect(run).toMatchObject({
+        ok: true,
+        runId: "skill-run.live",
+        status: "succeeded",
+        mode: "live",
+        agent: "codex-cli"
+      });
+      const agentRun = JSON.parse(
+        await readFile(join(runsDir, "skill-run.live", "agent-run.json"), "utf8")
+      ) as {
+        readonly observedSteps?: readonly { readonly tool?: string }[];
+        readonly generatedArtifacts?: readonly string[];
+      };
+      expect(agentRun.observedSteps?.map((step) => step.tool)).toEqual(["Bash", "Write"]);
+      expect(agentRun.generatedArtifacts).toEqual(["result.txt"]);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("records replay-diff by running configured agent commands", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-recorded-replay-"));
+    const skillPath = join(tempDir, "SKILL.md");
+    const inputPath = join(tempDir, "input.json");
+    const fakeAgentPath = join(tempDir, "fake-agent.mjs");
+    const runsDir = join(tempDir, "runs");
+    await writeFile(
+      skillPath,
+      `---
+name: recorded-replay-skill
+tools: [Bash]
+---
+
+# Recorded Replay Skill
+
+Run a deterministic shell-shaped operation.
+`,
+      "utf8"
+    );
+    await writeFile(inputPath, "{}\n", "utf8");
+    await writeFile(
+      fakeAgentPath,
+      `process.stdin.resume();
+process.stdin.on("end", () => {
+  console.log(JSON.stringify({ toolName: "Bash", args: { command: "printf replay" }, result: { stdout: "replay" } }));
+});
+`,
+      "utf8"
+    );
+
+    try {
+      const result = await replayDiff([
+        "--recorded",
+        "--skill",
+        skillPath,
+        "--input",
+        inputPath,
+        "--agents",
+        "codex-cli,custom-agent",
+        "--agent-command",
+        process.execPath,
+        "--agent-arg",
+        fakeAgentPath,
+        "--runs-dir",
+        runsDir
+      ]);
+      expect(result).toMatchObject({
+        ok: true,
+        agents: ["codex-cli", "custom-agent"],
+        same: {
+          toolSequence: true,
+          normalizedHashes: true,
+          outputs: true,
+          policyDecisions: true
+        },
+        differences: []
+      });
+      expect(result.runs.map((run) => run.tools)).toEqual([["Bash"], ["Bash"]]);
+      expect(result.runs.every((run) => run.runId?.startsWith("replay-diff."))).toBe(true);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

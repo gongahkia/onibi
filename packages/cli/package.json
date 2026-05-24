@@ -16,6 +16,8 @@
   "dependencies": {
     "@kelpclaw/adapters": "workspace:*",
     "@kelpclaw/agent-hooks": "workspace:*",
-    "@kelpclaw/codegen": "workspace:*"
+    "@kelpclaw/codegen": "workspace:*",
+    "@kelpclaw/policy": "workspace:*",
+    "@kelpclaw/workflow-spec": "workspace:*"
   }
 }

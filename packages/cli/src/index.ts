@@ -13,6 +13,13 @@ import {
   synthesizeWorkflowFromTrajectory,
   trajectoryReplayShape
 } from "@kelpclaw/codegen";
+import {
+  compatibilityReport,
+  exportAuditBundle,
+  policyPackCliOutput,
+  replayDiff,
+  runSkill
+} from "./skill-runner.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -87,11 +94,23 @@ async function main(argv: readonly string[]): Promise<void> {
         )
       );
     case "policy":
+      if (args[0] === "use") {
+        return printJson(await usePolicyPack(args.slice(1)));
+      }
       return printJson(
         await putJson("/api/policies", {
           yaml: await readFile(requiredOption(args, "--file"), "utf8")
         })
       );
+    case "compat":
+    case "compat-report":
+      return printJson(await compatibilityReport(args));
+    case "run-skill":
+      return printJson(await runSkill(args));
+    case "export-audit-bundle":
+      return printJson(await exportAuditBundle(args));
+    case "replay-diff":
+      return printJson(await replayDiff(args));
     case "audit-verify":
       return printJson(
         await getJson(
@@ -140,10 +159,18 @@ async function main(argv: readonly string[]): Promise<void> {
       return runMcp(args);
     default:
       throw new Error(
-        "Usage: kelp-claw <start-recording|record-step|stop-recording|approve-step|deny-step|promote|mcp|policy|audit-verify|audit-anchor|tbom-export|mint-role-token|inspect-role-token|verify-claude-code|otlp-smoke|cross-agent-replay-smoke>"
+        "Usage: kelp-claw <run-skill|compat|compat-report|policy|export-audit-bundle|replay-diff|start-recording|record-step|stop-recording|approve-step|deny-step|promote|mcp|audit-verify|audit-anchor|tbom-export|mint-role-token|inspect-role-token|verify-claude-code|otlp-smoke|cross-agent-replay-smoke>"
       );
   }
 }
+
+export {
+  compatibilityReport,
+  exportAuditBundle,
+  policyPackCliOutput,
+  replayDiff,
+  runSkill
+} from "./skill-runner.js";
 
 export async function verifyClaudeCode(args: readonly string[]): Promise<JsonRecord> {
   const command =
@@ -269,6 +296,23 @@ export function runCrossAgentReplaySmoke(): JsonRecord {
     outputs: shapes[0]?.outputs ?? [],
     workflowKinds,
     agentTags
+  };
+}
+
+async function usePolicyPack(args: readonly string[]): Promise<JsonRecord> {
+  const name = requiredPositional(args, 0);
+  const output = policyPackCliOutput(name);
+  if (process.env.KELPCLAW_API_URL) {
+    await putJson("/api/policies", { rules: output.ruleset.rules });
+    return {
+      ...output,
+      installedToApi: true,
+      apiBaseUrl
+    };
+  }
+  return {
+    ...output,
+    installedToApi: false
   };
 }
 

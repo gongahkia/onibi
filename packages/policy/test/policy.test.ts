@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { evaluatePolicy, parsePolicyYaml, validatePolicyExpression } from "../src/index.js";
+import {
+  evaluatePolicy,
+  parsePolicyYaml,
+  policyPackNames,
+  requirePolicyPack,
+  validatePolicyExpression
+} from "../src/index.js";
 
 describe("policy evaluator", () => {
   it("denies Bash rm -rf with a parsed yaml rule", () => {
@@ -112,6 +118,65 @@ rules:
     expect(decision).toMatchObject({
       action: "deny",
       matchedRuleIds: ["allow-bash", "deny-rm", "log-bash"]
+    });
+  });
+
+  it("ships built-in policy packs with evaluable rules", () => {
+    expect(policyPackNames).toEqual([
+      "baseline",
+      "finance-sg",
+      "pii-strict",
+      "no-destructive-shell",
+      "github-pr-safe"
+    ]);
+
+    for (const packName of policyPackNames) {
+      const pack = requirePolicyPack(packName);
+      expect(pack.ruleset.rules.length).toBeGreaterThan(0);
+      for (const rule of pack.ruleset.rules) {
+        expect(() => validatePolicyExpression(rule.when)).not.toThrow();
+      }
+    }
+  });
+
+  it("applies policy pack decisions to representative commands", () => {
+    expect(
+      evaluatePolicy(
+        {
+          tool: "Bash",
+          args: { command: "rm -rf /tmp/demo" }
+        },
+        requirePolicyPack("no-destructive-shell").ruleset
+      )
+    ).toMatchObject({
+      action: "deny",
+      matchedRuleIds: ["no-destructive-shell-deny-rm-rf"]
+    });
+
+    expect(
+      evaluatePolicy(
+        {
+          tool: "Bash",
+          args: { command: "gh pr merge 1" }
+        },
+        requirePolicyPack("github-pr-safe").ruleset
+      )
+    ).toMatchObject({
+      action: "deny",
+      matchedRuleIds: ["github-pr-safe-deny-merge"]
+    });
+
+    expect(
+      evaluatePolicy(
+        {
+          tool: "Write",
+          args: { filePath: "report.csv" }
+        },
+        requirePolicyPack("pii-strict").ruleset
+      )
+    ).toMatchObject({
+      action: "require-approval",
+      matchedRuleIds: ["pii-strict-review-file-writes"]
     });
   });
 });
