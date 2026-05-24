@@ -332,6 +332,7 @@ export async function exportAuditBundle(args: readonly string[]): Promise<AuditB
     "compatibility.json",
     "result.json",
     "agent-run.json",
+    "hook-events.jsonl",
     "stdout.log",
     "stderr.log"
   ]) {
@@ -672,6 +673,180 @@ function parseObservedToolSteps(stdout: string, stderr: string): readonly Planne
     seen.add(key);
     return true;
   });
+}
+
+async function readHookEvents(path: string): Promise<readonly LocalHookEvent[]> {
+  if (!(await fileExists(path))) {
+    return [];
+  }
+  const content = await readFile(path, "utf8");
+  return content
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as LocalHookEvent);
+}
+
+function plannedStepsFromHookEvents(events: readonly LocalHookEvent[]): readonly PlannedToolStep[] {
+  const postEvents = events.filter((event) => event.hookEvent === "PostToolUse");
+  const source = postEvents.length > 0 ? postEvents : events;
+  return source.map((event) => ({
+    tool: event.toolName,
+    args: event.args,
+    ...(event.result !== undefined ? { result: event.result } : {})
+  }));
+}
+
+function localHookScript(): string {
+  return `import { appendFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+
+const eventPath = process.env.KELPCLAW_SKILL_HOOK_EVENTS;
+const ruleset = JSON.parse(process.env.KELPCLAW_SKILL_HOOK_POLICY || '{"rules":[]}');
+const enforce = process.env.KELPCLAW_SKILL_HOOK_ENFORCE === "1";
+const skill = {
+  id: process.env.KELPCLAW_SKILL_ID,
+  tags: (process.env.KELPCLAW_SKILL_TAGS || "").split(",").map((tag) => tag.trim()).filter(Boolean)
+};
+
+let input = "";
+process.stdin.on("data", (chunk) => { input += chunk; });
+process.stdin.on("end", () => {
+  const raw = input.trim() ? JSON.parse(input) : {};
+  const hookEvent = stringValue(raw.hookEvent) || stringValue(raw.hook_event_name) || "PreToolUse";
+  const toolName = stringValue(raw.toolName) || stringValue(raw.tool_name) || stringValue(raw.name) || "Unknown";
+  const args = objectValue(raw.args) || objectValue(raw.tool_input) || objectValue(raw.input) || {};
+  const result = jsonValue(raw.result) ?? jsonValue(raw.tool_response);
+  const decision = evaluatePolicy({ tool: toolName, args, skill }, ruleset);
+  const status = decision.action === "deny" ? "denied" : decision.action === "require-approval" ? "approval-required" : "allowed";
+  const event = {
+    id: "hook-event." + randomUUID(),
+    hookEvent,
+    toolName,
+    args,
+    ...(result !== undefined ? { result } : {}),
+    decision,
+    status,
+    recordedAt: new Date().toISOString()
+  };
+  if (eventPath) {
+    appendFileSync(eventPath, stableJson(event) + "\\n", "utf8");
+  }
+  if (hookEvent === "PreToolUse" && status !== "allowed" && enforce) {
+    console.log(JSON.stringify({
+      continue: false,
+      permissionDecision: "deny",
+      permissionDecisionReason: decision.reason,
+      decision
+    }));
+    process.exit(status === "approval-required" ? 3 : 2);
+  }
+  console.log(JSON.stringify({ continue: true, decision }));
+});
+
+function evaluatePolicy(context, ruleset) {
+  const matches = (ruleset.rules || []).filter((rule) => evaluateExpression(rule.when, context));
+  if (matches.length === 0) {
+    return { action: "allow", matchedRuleIds: [], reason: "no policy rules matched" };
+  }
+  const ranks = { allow: 0, "log-only": 1, "require-approval": 2, deny: 3 };
+  const selected = [...matches].sort((left, right) => (ranks[right.action] - ranks[left.action]) || left.id.localeCompare(right.id))[0];
+  return {
+    action: selected.action,
+    matchedRuleIds: matches.map((rule) => rule.id).sort(),
+    reason: "matched policy rule '" + selected.id + "'",
+    ...(selected.approverRole ? { approverRole: selected.approverRole } : {})
+  };
+}
+
+function evaluateExpression(expression, context) {
+  const trimmed = String(expression || "").trim();
+  const orParts = splitOperator(trimmed, "||");
+  if (orParts.length > 1) return orParts.some((part) => evaluateExpression(part, context));
+  const andParts = splitOperator(trimmed, "&&");
+  if (andParts.length > 1) return andParts.every((part) => evaluateExpression(part, context));
+  return evaluateAtom(trimmed, context);
+}
+
+function evaluateAtom(atom, context) {
+  let match = /^tool\\s*==\\s*"([^"]+)"$/u.exec(atom);
+  if (match) return context.tool === match[1];
+  match = /^tool\\s+startsWith\\s+"([^"]+)"$/u.exec(atom);
+  if (match) return context.tool.startsWith(match[1]);
+  match = /^(skill(?:\\.[a-zA-Z0-9_-]+)+)\\s+includes\\s+"([^"]+)"$/u.exec(atom);
+  if (match) {
+    const value = readPath(match[1], context);
+    return Array.isArray(value) && value.includes(match[2]);
+  }
+  match = /^(args(?:\\.[a-zA-Z0-9_-]+)+)\\s*=~\\s*"([^"]+)"$/u.exec(atom);
+  if (match) {
+    const value = readPath(match[1], context);
+    return typeof value === "string" && new RegExp(match[2], "u").test(value);
+  }
+  match = /^((?:args|skill)(?:\\.[a-zA-Z0-9_-]+)+)\\s*==\\s*"([^"]*)"$/u.exec(atom);
+  if (match) return readPath(match[1], context) === match[2];
+  return false;
+}
+
+function splitOperator(expression, operator) {
+  const parts = [];
+  let quoteOpen = false;
+  let start = 0;
+  for (let index = 0; index < expression.length; index += 1) {
+    const char = expression[index];
+    if (char === '"' && expression[index - 1] !== "\\\\") quoteOpen = !quoteOpen;
+    if (!quoteOpen && expression.slice(index, index + operator.length) === operator) {
+      parts.push(expression.slice(start, index).trim());
+      start = index + operator.length;
+      index += operator.length - 1;
+    }
+  }
+  if (parts.length === 0) return [expression];
+  parts.push(expression.slice(start).trim());
+  return parts;
+}
+
+function readPath(path, context) {
+  const [root, ...segments] = path.split(".");
+  let value = context[root];
+  for (const segment of segments) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+    value = value[segment];
+  }
+  return value;
+}
+
+function stableJson(value) {
+  return JSON.stringify(sortJson(value));
+}
+
+function sortJson(value) {
+  if (Array.isArray(value)) return value.map(sortJson);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined).sort(([left], [right]) => left.localeCompare(right)).map(([key, entry]) => [key, sortJson(entry)]));
+  }
+  return value;
+}
+
+function stringValue(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function objectValue(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : undefined;
+}
+
+function jsonValue(value) {
+  return isJsonValue(value) ? value : undefined;
+}
+
+function isJsonValue(value) {
+  if (value === null || ["string", "number", "boolean"].includes(typeof value)) return true;
+  if (Array.isArray(value)) return value.every(isJsonValue);
+  if (value && typeof value === "object") return Object.values(value).every(isJsonValue);
+  return false;
+}
+`;
 }
 
 function collectToolSteps(value: unknown, steps: PlannedToolStep[]): void {
