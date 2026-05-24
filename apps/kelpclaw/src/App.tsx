@@ -1973,6 +1973,7 @@ export function App() {
     setNodePrompt(node.description);
     setJsonError(null);
     markDirty(id);
+    setSurfaceMode("edit");
   }
 
   function deleteSelection() {
@@ -2153,6 +2154,7 @@ export function App() {
       setPromotionNotice(null);
       setNodePrompt("");
       setDetailsOpen(false);
+      setSurfaceMode("edit");
     });
   }
 
@@ -2734,6 +2736,7 @@ export function App() {
 
   function openNodeCreatePalette() {
     setPendingNodeConnection(null);
+    setSurfaceMode("edit");
     openPalette({ kind: "commands", scope: "node-create" });
   }
 
@@ -2742,6 +2745,7 @@ export function App() {
     setSelectedEdgeId(null);
     updateFlowSelection(nodeId, null);
     setPendingNodeConnection({ sourceNodeId: nodeId, outputPort });
+    setSurfaceMode("edit");
     openPalette({ kind: "commands", scope: "node-create" });
   }
 
@@ -2838,6 +2842,20 @@ export function App() {
   const mergeConflictsResolved =
     mergePreview?.conflicts.every((conflict) => mergeResolutionModes[conflict.id]) ?? true;
   const paletteCommands: PaletteCommand[] = [
+    {
+      id: "surface-governance",
+      group: "KelpClaw",
+      label: "Open Skill Governance",
+      detail: "SKILL.md policy, replay, audit bundle, and reviewer handoff.",
+      onSelect: () => setSurfaceMode("governance")
+    },
+    {
+      id: "surface-workflow-graph",
+      group: "KelpClaw",
+      label: "Open Workflow Graph",
+      detail: "Visual graph planner for workflows and connectors.",
+      onSelect: () => setSurfaceMode("edit")
+    },
     ...componentPaletteItems.map((item) => ({
       id: `component-${item.id}`,
       group: "Components",
@@ -3275,14 +3293,14 @@ export function App() {
               </div>
             </div>
             <div className="mode-toggle" aria-label="Workspace mode">
-              {(["edit", "trajectory", "policy"] as const).map((mode) => (
+              {(["governance", "edit", "trajectory", "policy"] as const).map((mode) => (
                 <button
                   key={mode}
                   type="button"
                   className={surfaceMode === mode ? "mode-toggle-active" : ""}
                   onClick={() => setSurfaceMode(mode)}
                 >
-                  {mode}
+                  {surfaceModeLabel(mode)}
                 </button>
               ))}
             </div>
@@ -3432,7 +3450,25 @@ export function App() {
             </aside>
           ) : null}
 
-          {surfaceMode === "trajectory" ? (
+          {surfaceMode === "governance" ? (
+            <SkillGovernancePanel
+              skillPath={governanceSkillPath}
+              inputPath={governanceInputPath}
+              policy={governancePolicy}
+              runId={governanceRunId}
+              agent={governanceAgent}
+              replayAgents={governanceReplayAgents}
+              commands={skillGovernanceCommands}
+              onSkillPathChange={setGovernanceSkillPath}
+              onInputPathChange={setGovernanceInputPath}
+              onPolicyChange={setGovernancePolicy}
+              onRunIdChange={setGovernanceRunId}
+              onAgentChange={setGovernanceAgent}
+              onReplayAgentsChange={setGovernanceReplayAgents}
+              onOpenWorkflowGraph={() => setSurfaceMode("edit")}
+              onOpenPolicyEditor={() => setSurfaceMode("policy")}
+            />
+          ) : surfaceMode === "trajectory" ? (
             <TrajectoryView
               runs={trajectoryRuns}
               selectedRunId={selectedTrajectoryRunId}
@@ -3564,6 +3600,162 @@ export function App() {
         onDismissBranchNotice={() => setBranchNotice(null)}
       />
     </main>
+  );
+}
+
+function SkillGovernancePanel(props: {
+  readonly skillPath: string;
+  readonly inputPath: string;
+  readonly policy: string;
+  readonly runId: string;
+  readonly agent: string;
+  readonly replayAgents: string;
+  readonly commands: readonly SkillGovernanceCommand[];
+  readonly onSkillPathChange: (value: string) => void;
+  readonly onInputPathChange: (value: string) => void;
+  readonly onPolicyChange: (value: string) => void;
+  readonly onRunIdChange: (value: string) => void;
+  readonly onAgentChange: (value: string) => void;
+  readonly onReplayAgentsChange: (value: string) => void;
+  readonly onOpenWorkflowGraph: () => void;
+  readonly onOpenPolicyEditor: () => void;
+}) {
+  const handoffArtifacts = [
+    "compatibility.json",
+    "policy-decisions.json",
+    "audit.jsonl",
+    "governance-report.json",
+    "manifest.json",
+    "attestation.json",
+    "index.html"
+  ];
+
+  return (
+    <section className="skill-governance-panel" aria-label="Skill governance">
+      <div className="skill-governance-sidebar">
+        <section className="skill-governance-section" aria-label="Skill audit inputs">
+          <header className="skill-governance-section-header">
+            <div>
+              <p className="eyebrow">Primary Surface</p>
+              <h2>Skill Audit</h2>
+            </div>
+            <ListChecks size={18} />
+          </header>
+          <div className="skill-governance-form">
+            <label>
+              SKILL.md path
+              <input
+                value={props.skillPath}
+                onChange={(event) => props.onSkillPathChange(event.target.value)}
+                placeholder="./SKILL.md"
+              />
+            </label>
+            <label>
+              Input JSON
+              <input
+                value={props.inputPath}
+                onChange={(event) => props.onInputPathChange(event.target.value)}
+                placeholder="input.json"
+              />
+            </label>
+            <label>
+              Policy pack
+              <select
+                value={props.policy}
+                onChange={(event) => props.onPolicyChange(event.target.value)}
+              >
+                <option value="sg-agentic-ai-baseline">sg-agentic-ai-baseline</option>
+                <option value="baseline">baseline</option>
+                <option value="finance-sg">finance-sg</option>
+                <option value="pii-strict">pii-strict</option>
+                <option value="no-destructive-shell">no-destructive-shell</option>
+                <option value="github-pr-safe">github-pr-safe</option>
+              </select>
+            </label>
+            <label>
+              Run ID
+              <input
+                value={props.runId}
+                onChange={(event) => props.onRunIdChange(event.target.value)}
+                placeholder="skill-run.local-review"
+              />
+            </label>
+            <label>
+              Agent
+              <select value={props.agent} onChange={(event) => props.onAgentChange(event.target.value)}>
+                <option value="audit-only">audit-only</option>
+                <option value="codex-cli">codex-cli</option>
+                <option value="claude-code">claude-code</option>
+                <option value="goose">goose</option>
+              </select>
+            </label>
+            <label>
+              Replay agents
+              <input
+                value={props.replayAgents}
+                onChange={(event) => props.onReplayAgentsChange(event.target.value)}
+                placeholder="codex-cli,claude-code,goose"
+              />
+            </label>
+          </div>
+        </section>
+
+        <section className="skill-governance-section" aria-label="Workflow surfaces">
+          <header className="skill-governance-section-header">
+            <div>
+              <p className="eyebrow">Secondary Surfaces</p>
+              <h2>Builder And Policy</h2>
+            </div>
+            <FileStack size={18} />
+          </header>
+          <div className="skill-surface-actions">
+            <button type="button" onClick={props.onOpenWorkflowGraph}>
+              Workflow Graph
+            </button>
+            <button type="button" onClick={props.onOpenPolicyEditor}>
+              Policy Editor
+            </button>
+          </div>
+          <p className="skill-governance-note">
+            Use the graph when you need drag-and-drop workflow composition. Use this screen when
+            you need SKILL.md compatibility, policy decisions, replay, and reviewable evidence.
+          </p>
+        </section>
+      </div>
+
+      <div className="skill-governance-main">
+        <section className="skill-governance-section skill-command-section" aria-label="Command sequence">
+          <header className="skill-governance-section-header">
+            <div>
+              <p className="eyebrow">CLI Handoff</p>
+              <h2>Command Sequence</h2>
+            </div>
+          </header>
+          <ol className="skill-command-list">
+            {props.commands.map((command) => (
+              <li key={command.id} className="skill-command-row">
+                <span>{command.label}</span>
+                <pre>{command.command}</pre>
+              </li>
+            ))}
+          </ol>
+        </section>
+
+        <section className="skill-governance-section" aria-label="Audit bundle contents">
+          <header className="skill-governance-section-header">
+            <div>
+              <p className="eyebrow">Reviewer Handoff</p>
+              <h2>Static Audit Bundle</h2>
+            </div>
+          </header>
+          <div className="skill-handoff-grid">
+            {handoffArtifacts.map((artifact) => (
+              <code key={artifact}>{artifact}</code>
+            ))}
+          </div>
+        </section>
+      </div>
+    </section>
   );
 }
 
@@ -4688,6 +4880,89 @@ function isBranchPlanSuccessResponse(
   response: WorkflowPlanResponse | WorkflowBranchPlanResponse
 ): response is WorkflowBranchPlanSuccessResponse {
   return "branch" in response && "promptTurn" in response;
+}
+
+function surfaceModeLabel(mode: SurfaceMode): string {
+  switch (mode) {
+    case "governance":
+      return "Skill";
+    case "edit":
+      return "Graph";
+    case "trajectory":
+      return "Replay";
+    case "policy":
+      return "Policy";
+  }
+}
+
+function buildSkillGovernanceCommands(input: {
+  readonly skillPath: string;
+  readonly inputPath: string;
+  readonly policy: string;
+  readonly runId: string;
+  readonly agent: string;
+  readonly replayAgents: string;
+}): readonly SkillGovernanceCommand[] {
+  const skillPath = quoteCli(input.skillPath || "./SKILL.md");
+  const inputPath = quoteCli(input.inputPath || "input.json");
+  const policy = quoteCli(input.policy || "baseline");
+  const runId = quoteCli(input.runId || "skill-run.local-review");
+  const auditBundlePath = quoteCli(
+    `.kelpclaw/audit-bundles/${input.runId || "skill-run.local-review"}`
+  );
+  const replayAgents = quoteCli(input.replayAgents || "codex-cli,claude-code,goose");
+  const agentFlags =
+    input.agent === "audit-only"
+      ? ""
+      : ` --agent ${quoteCli(input.agent)} --wrapper --enforce-policy`;
+
+  return [
+    {
+      id: "doctor",
+      label: "Check local setup",
+      command: "kelp-claw doctor"
+    },
+    {
+      id: "compat",
+      label: "Generate compatibility report",
+      command: `kelp-claw compat ${skillPath} --policy ${policy}`
+    },
+    {
+      id: "policy-explain",
+      label: "Explain applied policy",
+      command: `kelp-claw policy explain ${skillPath} --policy ${policy}`
+    },
+    {
+      id: "run-skill",
+      label: input.agent === "audit-only" ? "Dry-run skill governance" : "Run skill with agent",
+      command: `kelp-claw run-skill ${skillPath} --input ${inputPath} --run-id ${runId} --policy ${policy}${agentFlags}`
+    },
+    {
+      id: "governance-report",
+      label: "Map controls for SG review",
+      command: `kelp-claw governance report ${runId} --region sg --framework agentic-ai`
+    },
+    {
+      id: "audit-bundle",
+      label: "Export static audit bundle",
+      command: `kelp-claw export-audit-bundle ${runId} --include-governance --include-controls --include-sarif --region sg --framework agentic-ai`
+    },
+    {
+      id: "verify-bundle",
+      label: "Verify reviewer bundle",
+      command: `kelp-claw verify-audit-bundle ${auditBundlePath} --profile reviewer`
+    },
+    {
+      id: "replay-diff",
+      label: "Compare agent replay",
+      command: `kelp-claw replay-diff --skill ${skillPath} --input ${inputPath} --agents ${replayAgents} --wrapper --enforce-policy`
+    }
+  ];
+}
+
+function quoteCli(value: string): string {
+  const trimmed = value.trim() || ".";
+  return /^[A-Za-z0-9_./:@,+-]+$/u.test(trimmed) ? trimmed : `'${trimmed.replace(/'/gu, "'\"'\"'")}'`;
 }
 
 function integrationStatus(

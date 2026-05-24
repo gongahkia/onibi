@@ -1345,7 +1345,8 @@ dd {
 }
 
 .trajectory-view,
-.policy-editor-panel {
+.policy-editor-panel,
+.skill-governance-panel {
   bottom: 4rem;
   display: grid;
   gap: 1rem;
@@ -1361,12 +1362,154 @@ dd {
   grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
 }
 
+.skill-governance-panel {
+  grid-template-columns: minmax(270px, 360px) minmax(0, 1fr);
+}
+
 .trajectory-run-list,
 .trajectory-steps,
-.policy-editor-panel {
+.policy-editor-panel,
+.skill-governance-section {
   background: rgba(17, 19, 24, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
+}
+
+.skill-governance-sidebar,
+.skill-governance-main,
+.skill-governance-section,
+.skill-governance-form,
+.skill-command-section,
+.skill-command-list {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.skill-governance-sidebar,
+.skill-governance-main,
+.skill-command-section {
+  min-height: 0;
+}
+
+.skill-governance-main {
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.skill-governance-section {
+  align-content: start;
+  overflow: hidden;
+  padding: 0.9rem;
+}
+
+.skill-command-section {
+  align-content: stretch;
+}
+
+.skill-governance-section-header {
+  align-items: center;
+  color: #e6e9ef;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.skill-governance-section-header h2 {
+  font-size: 0.98rem;
+  letter-spacing: 0;
+  margin: 0;
+}
+
+.skill-surface-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.skill-surface-actions button:first-child {
+  background: #e9eef8;
+  border-color: #e9eef8;
+  color: #151821;
+}
+
+.skill-governance-note {
+  color: #aeb4c2;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.skill-command-list {
+  counter-reset: skill-command;
+  list-style: none;
+  margin: 0;
+  overflow: auto;
+  padding: 0;
+}
+
+.skill-command-row {
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  counter-increment: skill-command;
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+}
+
+.skill-command-row > span {
+  align-items: center;
+  color: #d8dce5;
+  display: flex;
+  font-size: 0.78rem;
+  font-weight: 760;
+  gap: 0.45rem;
+}
+
+.skill-command-row > span::before {
+  align-items: center;
+  background: #e9eef8;
+  border-radius: 999px;
+  color: #151821;
+  content: counter(skill-command);
+  display: inline-flex;
+  font-size: 0.68rem;
+  height: 1.35rem;
+  justify-content: center;
+  width: 1.35rem;
+}
+
+.skill-command-row pre {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 7px;
+  color: #d7e2ff;
+  font:
+    0.78rem/1.45 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  margin: 0;
+  overflow: auto;
+  padding: 0.72rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.skill-handoff-grid {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.skill-handoff-grid code {
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 7px;
+  color: #d7e2ff;
+  font-size: 0.76rem;
+  padding: 0.55rem;
 }
 
 .trajectory-run-list {
@@ -1539,6 +1682,31 @@ dd {
 .policy-save-button:disabled {
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+@media (max-width: 900px) {
+  .trajectory-view,
+  .skill-governance-panel {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .skill-governance-main {
+    grid-template-rows: auto;
+  }
+}
+
+@media (max-width: 680px) {
+  .skill-governance-panel,
+  .trajectory-view,
+  .policy-editor-panel {
+    top: 10.6rem;
+  }
+
+  .mode-toggle {
+    justify-content: space-between;
+    overflow-x: auto;
+  }
 }
 
 .empty-state {

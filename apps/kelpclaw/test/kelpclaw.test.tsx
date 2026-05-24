@@ -55,6 +55,8 @@ describe("KelpClaw planner shell", () => {
     expect(screen.queryByLabelText("Component categories")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Workflow Prompt")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Plan$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Skill Audit" })).toBeInTheDocument();
+    expect(screen.getByLabelText("SKILL.md path")).toHaveValue("./SKILL.md");
     expect(screen.getByRole("button", { name: "Add node" })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Commands/i })).toBeEnabled();
     expect(screen.queryByRole("button", { name: /Accept Plan/i })).not.toBeInTheDocument();
@@ -157,7 +159,7 @@ describe("KelpClaw planner shell", () => {
   it("anchors agent-run audit chains from trajectory mode", async () => {
     render(<App />);
 
-    fireEvent.click(screen.getByRole("button", { name: "trajectory" }));
+    fireEvent.click(screen.getByRole("button", { name: "Replay" }));
     expect((await screen.findAllByText("Claude Code Smoke")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Anchor" }));
 
