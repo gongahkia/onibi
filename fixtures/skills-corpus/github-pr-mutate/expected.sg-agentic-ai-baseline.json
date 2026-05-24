@@ -1,0 +1,16 @@
+{
+  "network": "none",
+  "policyFindings": [
+    {
+      "action": "require-approval",
+      "approverRole": "agentic-ai-reviewer",
+      "matchedRuleIds": ["sg-agentic-review-mutating-github"],
+      "reason": "matched policy rule 'sg-agentic-review-mutating-github'",
+      "tool": "Bash"
+    }
+  ],
+  "requiredSecrets": [],
+  "runnable": true,
+  "sandboxProfile": "safe-local",
+  "toolsDetected": ["Bash"]
+}

@@ -40,7 +40,8 @@ $ pnpm check:codegen-policy
 Quickstart, deployment notes for durable SQLite mode, Docker Compose, and production readiness live in
 [`docs/quickstart.md`](docs/quickstart.md),
 [`docs/deployment.md`](docs/deployment.md),
-[`docs/agent-runtime-demo.md`](docs/agent-runtime-demo.md), and
+[`docs/agent-runtime-demo.md`](docs/agent-runtime-demo.md),
+[`docs/skill-governance-demo.md`](docs/skill-governance-demo.md), and
 [`docs/production-readiness.md`](docs/production-readiness.md).
 
 ## Workflow V1 Model
@@ -86,15 +87,21 @@ KelpClaw can analyze and run agent skills in an audit-first mode:
 
 ```console
 $ kelp-claw compat ./SKILL.md --policy baseline
+$ kelp-claw policy explain ./SKILL.md --policy baseline
+$ kelp-claw governance report ./SKILL.md --region sg --framework agentic-ai --policy sg-agentic-ai-baseline
 $ kelp-claw run-skill ./SKILL.md --input input.json
-$ kelp-claw run-skill ./SKILL.md --input input.json --agent codex-cli --enforce-policy
+$ kelp-claw run-skill ./SKILL.md --input input.json --agent codex-cli --wrapper --enforce-policy
 $ kelp-claw run-skill github:owner/repo/path/SKILL.md --input input.json
-$ kelp-claw export-audit-bundle <runId>
+$ kelp-claw governance report <runId> --region sg --framework agentic-ai
+$ kelp-claw export-audit-bundle <runId> --include-governance --region sg --framework agentic-ai
+$ kelp-claw verify-audit-bundle .kelpclaw/audit-bundles/<runId>
 $ kelp-claw replay-diff --skill ./SKILL.md --agents claude-code,codex-cli,goose
 $ kelp-claw replay-diff --recorded --skill ./SKILL.md --input input.json --agents codex-cli,custom-agent
 ```
 
 `compat` reports detected tools, required secrets, network posture, sandbox profile, and policy findings. `run-skill` writes deterministic local artifacts under `.kelpclaw/runs/<runId>/`, including `skill.json`, `workflow.json`, `bom.json`, `audit.jsonl`, and `policy-decisions.json`. With `--agent codex-cli`, KelpClaw materializes a temporary workspace, invokes `codex exec`, captures stdout/stderr, installs a local hook command for compatible agents, records hook-derived `PreToolUse`/`PostToolUse` events when available, evaluates policy, and stores generated artifact metadata. Planned policy denials block before launch; hook-denied pre-tool events block the run under `--enforce-policy`. `export-audit-bundle` creates a static bundle with an offline `index.html`.
+
+`policy explain` shows the exact planned tool steps and policy decisions for a skill. `governance report` emits SG/APAC-oriented evidence for autonomy tier, tool/data/network risk, human approval points, auditability, replay evidence, residual risks, and framework mappings. `--wrapper` adds stricter Codex CLI handling by normalizing Codex JSONL tool events into KelpClaw hook events and failing closed on unclassified enforced tool events. `export-audit-bundle` signs a manifest with a local Ed25519 key by default; use `kelp-claw audit-key init` to create the key explicitly and `verify-audit-bundle` before forwarding the static bundle.
 
 Built-in policy packs are available without writing YAML on day one:
 
@@ -104,6 +111,10 @@ $ kelp-claw policy use finance-sg
 $ kelp-claw policy use pii-strict
 $ kelp-claw policy use no-destructive-shell
 $ kelp-claw policy use github-pr-safe
+$ kelp-claw policy use sg-agentic-ai-baseline
+$ kelp-claw policy use sg-pdpa-strict
+$ kelp-claw policy use sg-financial-ai
+$ kelp-claw policy use asean-genai-baseline
 ```
 
 Use the bundled GitHub Action in PR workflows:
@@ -112,7 +123,10 @@ Use the bundled GitHub Action in PR workflows:
 - uses: gongahkia/kelp-claw/.github/actions/audit-skill@main
   with:
     skill: ./SKILL.md
-    policy: baseline
+    policy: sg-agentic-ai-baseline
+    governance: "true"
+    region: sg
+    framework: agentic-ai
     fail-on-unrunnable: "true"
 ```
 

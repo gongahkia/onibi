@@ -1,4 +1,12 @@
-import { createHash, randomUUID } from "node:crypto";
+import {
+  createHash,
+  createPrivateKey,
+  createPublicKey,
+  generateKeyPairSync,
+  randomUUID,
+  sign as signBytes,
+  verify as verifyBytes
+} from "node:crypto";
 import { spawn } from "node:child_process";
 import { copyFile, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
@@ -40,6 +48,7 @@ export interface SkillRunOutput {
   readonly policyPack: string;
   readonly mode: "audit" | "live";
   readonly agent?: string | undefined;
+  readonly wrapper?: boolean | undefined;
 }
 
 export interface AuditBundleOutput {
@@ -47,6 +56,115 @@ export interface AuditBundleOutput {
   readonly runId: string;
   readonly bundleDir: string;
   readonly files: readonly string[];
+  readonly signed: boolean;
+  readonly manifest?: string | undefined;
+}
+
+export interface AuditBundleVerificationOutput {
+  readonly ok: boolean;
+  readonly bundleDir: string;
+  readonly runId?: string | undefined;
+  readonly signature: {
+    readonly valid: boolean;
+    readonly keyId?: string | undefined;
+    readonly algorithm?: string | undefined;
+  };
+  readonly files: {
+    readonly checked: number;
+    readonly failed: readonly string[];
+  };
+  readonly failures: readonly string[];
+}
+
+export interface AuditKeyOutput {
+  readonly ok: true;
+  readonly keyDir: string;
+  readonly keyPath: string;
+  readonly keyId: string;
+  readonly algorithm: "ed25519";
+  readonly publicKeyPem: string;
+}
+
+export interface PolicyExplainOutput {
+  readonly ok: boolean;
+  readonly skill: {
+    readonly ref: string;
+    readonly name: string;
+    readonly contentHash: string;
+  };
+  readonly policyPack: string;
+  readonly compatibility: SkillCompatibilityReport;
+  readonly plannedSteps: readonly PolicyExplainStep[];
+  readonly summary: {
+    readonly totalSteps: number;
+    readonly allowed: number;
+    readonly logOnly: number;
+    readonly requireApproval: number;
+    readonly denied: number;
+  };
+}
+
+export type GovernanceAutonomyTier = "low" | "moderate" | "high";
+export type GovernanceFindingSeverity = "info" | "moderate" | "high";
+export type GovernanceSubjectKind = "skill" | "run";
+
+export interface GovernanceReportOutput {
+  readonly ok: boolean;
+  readonly schemaVersion: "1.0.0";
+  readonly region: string;
+  readonly framework: string;
+  readonly generatedAt: string;
+  readonly subject: {
+    readonly kind: GovernanceSubjectKind;
+    readonly ref?: string | undefined;
+    readonly runId?: string | undefined;
+    readonly name?: string | undefined;
+    readonly contentHash?: string | undefined;
+  };
+  readonly policyPack: string;
+  readonly runnable: boolean;
+  readonly autonomyTier: GovernanceAutonomyTier;
+  readonly riskSummary: {
+    readonly toolRisk: GovernanceAutonomyTier;
+    readonly dataRisk: GovernanceAutonomyTier;
+    readonly networkRisk: GovernanceAutonomyTier;
+    readonly reversibilityRisk: GovernanceAutonomyTier;
+  };
+  readonly controls: {
+    readonly policyPack: string;
+    readonly sandboxProfile: SkillSandboxProfile;
+    readonly approvalRequired: boolean;
+    readonly denied: boolean;
+    readonly auditTrail: boolean;
+    readonly replayEvidence: boolean;
+    readonly signedBundle: boolean;
+    readonly hookEvents: boolean;
+    readonly failClosed: boolean;
+  };
+  readonly findings: readonly GovernanceFinding[];
+  readonly frameworkMapping: readonly GovernanceFrameworkMapping[];
+  readonly residualRisks: readonly string[];
+  readonly files?: readonly string[] | undefined;
+}
+
+interface GovernanceFinding {
+  readonly severity: GovernanceFindingSeverity;
+  readonly category:
+    | "policy"
+    | "tool-risk"
+    | "data-risk"
+    | "network-risk"
+    | "reversibility"
+    | "auditability";
+  readonly title: string;
+  readonly evidence: string;
+  readonly recommendation: string;
+}
+
+interface GovernanceFrameworkMapping {
+  readonly controlArea: string;
+  readonly evidence: readonly string[];
+  readonly status: "covered" | "partial" | "gap";
 }
 
 export interface ReplayDiffOutput {
@@ -109,6 +227,10 @@ interface PolicyDecisionRecord {
   readonly decision: PolicyDecision;
 }
 
+interface PolicyExplainStep extends PolicyDecisionRecord {
+  readonly index: number;
+}
+
 interface AgentRunRecord {
   readonly agent: string;
   readonly command: readonly string[];
@@ -119,10 +241,12 @@ interface AgentRunRecord {
   readonly stdoutPath: string;
   readonly stderrPath: string;
   readonly lastMessagePath?: string | undefined;
+  readonly wrapper: boolean;
   readonly exitCode: number;
   readonly stdout: string;
   readonly stderr: string;
   readonly hookEvents: readonly LocalHookEvent[];
+  readonly wrapperEvents: readonly LocalHookEvent[];
   readonly enforcement: LiveRunEnforcement;
   readonly observedSteps: readonly PlannedToolStep[];
   readonly generatedArtifacts: readonly string[];
@@ -149,8 +273,53 @@ interface LiveRunEnforcement {
   readonly enabled: boolean;
   readonly plannedBlocked: boolean;
   readonly hookBlocked: boolean;
+  readonly wrapperBlocked: boolean;
+  readonly unclassifiedBlocked: boolean;
   readonly observedBlocked: boolean;
-  readonly source: "planned-policy" | "hook-pretool" | "observed-policy" | "none";
+  readonly source:
+    | "planned-policy"
+    | "hook-pretool"
+    | "wrapper-observed"
+    | "unclassified-event"
+    | "observed-policy"
+    | "none";
+  readonly terminatedByPolicy?: boolean | undefined;
+}
+
+interface RunCommandResult {
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly terminatedByPolicy: boolean;
+}
+
+interface WrapperObservation {
+  readonly event?: LocalHookEvent | undefined;
+  readonly blocked: boolean;
+  readonly unclassified: boolean;
+}
+
+interface AuditKeyFile {
+  readonly schemaVersion: "1.0.0";
+  readonly algorithm: "ed25519";
+  readonly keyId: string;
+  readonly publicKeyPem: string;
+  readonly privateKeyPem: string;
+}
+
+interface AuditBundleManifest {
+  readonly schemaVersion: "1.0.0";
+  readonly runId: string;
+  readonly generatedAt: string;
+  readonly algorithm: "ed25519";
+  readonly publicKeyId: string;
+  readonly files: readonly AuditBundleManifestFile[];
+}
+
+interface AuditBundleManifestFile {
+  readonly path: string;
+  readonly size: number;
+  readonly sha256: string;
 }
 
 interface SkillRunInternalResult extends SkillRunOutput {
@@ -205,7 +374,8 @@ export async function runSkill(args: readonly string[]): Promise<SkillRunOutput>
     compatibility: result.compatibility,
     policyPack: result.policyPack,
     mode: result.mode,
-    ...(result.agent ? { agent: result.agent } : {})
+    ...(result.agent ? { agent: result.agent } : {}),
+    ...(result.wrapper !== undefined ? { wrapper: result.wrapper } : {})
   };
 }
 
@@ -214,6 +384,7 @@ async function runSkillInternal(args: readonly string[]): Promise<SkillRunIntern
   const inputPath = requiredOption(args, "--input");
   const policyPackName = option(args, "--policy") ?? "baseline";
   const agent = option(args, "--agent");
+  const wrapper = hasFlag(args, "--wrapper");
   const runId = option(args, "--run-id") ?? `skill-run.${Date.now()}.${randomUUID()}`;
   const runsRoot = resolve(option(args, "--runs-dir") ?? ".kelpclaw/runs");
   const runDir = join(runsRoot, runId);
@@ -250,7 +421,10 @@ async function runSkillInternal(args: readonly string[]): Promise<SkillRunIntern
       (record) => record.decision.action === "deny" || record.decision.action === "require-approval"
     );
     status =
-      agentRun.enforcement.hookBlocked || observedBlocked
+      agentRun.enforcement.hookBlocked ||
+      agentRun.enforcement.wrapperBlocked ||
+      agentRun.enforcement.unclassifiedBlocked ||
+      observedBlocked
         ? "blocked"
         : agentRun.exitCode === 0
           ? "succeeded"
@@ -300,6 +474,7 @@ async function runSkillInternal(args: readonly string[]): Promise<SkillRunIntern
     policyPack: policyPack.name,
     mode: agent ? "live" : "audit",
     ...(agent ? { agent } : {}),
+    ...(agent ? { wrapper } : {}),
     ...(agentRun ? { exitCode: agentRun.exitCode } : {})
   });
 
@@ -312,6 +487,7 @@ async function runSkillInternal(args: readonly string[]): Promise<SkillRunIntern
     policyPack: policyPack.name,
     mode: agent ? "live" : "audit",
     ...(agent ? { agent } : {}),
+    ...(agent ? { wrapper } : {}),
     analysis,
     plannedDecisions,
     observedDecisions,
@@ -336,6 +512,7 @@ export async function exportAuditBundle(args: readonly string[]): Promise<AuditB
     "result.json",
     "agent-run.json",
     "hook-events.jsonl",
+    "wrapper-events.jsonl",
     "stdout.log",
     "stderr.log"
   ]) {
@@ -346,12 +523,135 @@ export async function exportAuditBundle(args: readonly string[]): Promise<AuditB
   }
   await writeFile(join(bundleDir, "index.html"), await auditIndexHtml(runDir), "utf8");
   copied.push("index.html");
+  if (hasFlag(args, "--include-governance")) {
+    const governance = await governanceReportForRun({
+      runId,
+      runsRoot,
+      region: option(args, "--region") ?? "sg",
+      framework: option(args, "--framework") ?? "agentic-ai"
+    });
+    const governanceFiles = await writeGovernanceReportFiles(bundleDir, governance);
+    copied.push(...governanceFiles);
+  }
+  const signed = !hasFlag(args, "--no-sign");
+  let manifest: string | undefined;
+  if (signed) {
+    const key = await ensureAuditSigningKey(resolve(option(args, "--key-dir") ?? ".kelpclaw/keys"));
+    manifest = await signAuditBundle({
+      bundleDir,
+      runId,
+      files: copied,
+      key
+    });
+    copied.push("manifest.json", "manifest.sig", "manifest.pub.json");
+  }
 
   return {
     ok: true,
     runId,
     bundleDir,
-    files: copied
+    files: copied,
+    signed,
+    ...(manifest ? { manifest } : {})
+  };
+}
+
+export async function initAuditKey(args: readonly string[]): Promise<AuditKeyOutput> {
+  const keyDir = resolve(option(args, "--key-dir") ?? ".kelpclaw/keys");
+  const key = await ensureAuditSigningKey(keyDir);
+  return {
+    ok: true,
+    keyDir,
+    keyPath: join(keyDir, "audit-ed25519.json"),
+    keyId: key.keyId,
+    algorithm: key.algorithm,
+    publicKeyPem: key.publicKeyPem
+  };
+}
+
+export async function verifyAuditBundle(
+  args: readonly string[]
+): Promise<AuditBundleVerificationOutput> {
+  const bundleDir = resolve(requiredPositional(args, 0));
+  const failures: string[] = [];
+  let manifest: Partial<AuditBundleManifest>;
+  let signatureValid = false;
+  try {
+    manifest = JSON.parse(
+      await readFile(join(bundleDir, "manifest.json"), "utf8")
+    ) as Partial<AuditBundleManifest>;
+  } catch (error) {
+    process.exitCode = 1;
+    return {
+      ok: false,
+      bundleDir,
+      signature: { valid: false },
+      files: { checked: 0, failed: [] },
+      failures: [`unable to read manifest.json: ${errorMessage(error)}`]
+    };
+  }
+  try {
+    const signature = Buffer.from(
+      (await readFile(join(bundleDir, "manifest.sig"), "utf8")).trim(),
+      "base64"
+    );
+    const publicKey = JSON.parse(await readFile(join(bundleDir, "manifest.pub.json"), "utf8")) as {
+      readonly publicKeyPem?: string | undefined;
+    };
+    if (!publicKey.publicKeyPem) {
+      failures.push("manifest.pub.json does not contain publicKeyPem.");
+    } else {
+      signatureValid = verifyBytes(
+        null,
+        Buffer.from(stableJsonStringify(manifest as JsonValue), "utf8"),
+        createPublicKey(publicKey.publicKeyPem),
+        signature
+      );
+      if (!signatureValid) {
+        failures.push("manifest signature is invalid.");
+      }
+    }
+  } catch (error) {
+    failures.push(`unable to verify manifest signature: ${errorMessage(error)}`);
+  }
+  const fileFailures: string[] = [];
+  for (const entry of manifest.files ?? []) {
+    if (!isSafeBundlePath(entry.path)) {
+      fileFailures.push(entry.path);
+      failures.push(`unsafe bundle path in manifest: ${entry.path}`);
+      continue;
+    }
+    try {
+      const actualHash = createHash("sha256")
+        .update(await readFile(join(bundleDir, entry.path)))
+        .digest("hex");
+      if (actualHash !== entry.sha256) {
+        fileFailures.push(entry.path);
+        failures.push(`hash mismatch for ${entry.path}.`);
+      }
+    } catch (error) {
+      fileFailures.push(entry.path);
+      failures.push(`unable to read ${entry.path}: ${errorMessage(error)}`);
+    }
+  }
+  const ok = signatureValid && failures.length === 0;
+  if (!ok) {
+    process.exitCode = 1;
+  }
+  return {
+    ok,
+    bundleDir,
+    ...(manifest.runId ? { runId: manifest.runId } : {}),
+    signature: {
+      valid: signatureValid,
+      ...(manifest.publicKeyId ? { keyId: manifest.publicKeyId } : {}),
+      ...(manifest.algorithm ? { algorithm: manifest.algorithm } : {})
+    },
+    files: {
+      checked: manifest.files?.length ?? 0,
+      failed: fileFailures
+    },
+    failures
   };
 }
 
@@ -467,6 +767,575 @@ export function policyPackCliOutput(name: string) {
   };
 }
 
+export async function policyExplain(args: readonly string[]): Promise<PolicyExplainOutput> {
+  const skillRef = requiredPositional(args, 0);
+  const policyPack = requirePolicyPack(option(args, "--policy") ?? "baseline");
+  const analysis = await analyzeSkillReference(skillRef, policyPack.ruleset);
+  const compatibility = compatibilityFromAnalysis(analysis, policyPack.ruleset);
+  const decisions = evaluatePlannedSteps(analysis, policyPack.ruleset);
+  const plannedSteps = analysis.plannedSteps.map((step, index) => ({
+    index,
+    tool: step.tool,
+    args: step.args,
+    decision: decisions[index]?.decision ?? {
+      action: "allow" as const,
+      matchedRuleIds: [],
+      reason: "no policy rules matched"
+    }
+  }));
+  return {
+    ok: compatibility.runnable,
+    skill: {
+      ref: analysis.document.ref,
+      name: analysis.name,
+      contentHash: analysis.document.contentHash
+    },
+    policyPack: policyPack.name,
+    compatibility,
+    plannedSteps,
+    summary: {
+      totalSteps: plannedSteps.length,
+      allowed: plannedSteps.filter((step) => step.decision.action === "allow").length,
+      logOnly: plannedSteps.filter((step) => step.decision.action === "log-only").length,
+      requireApproval: plannedSteps.filter((step) => step.decision.action === "require-approval")
+        .length,
+      denied: plannedSteps.filter((step) => step.decision.action === "deny").length
+    }
+  };
+}
+
+export async function governanceReport(args: readonly string[]): Promise<GovernanceReportOutput> {
+  const subject = requiredPositional(args, 0);
+  const region = option(args, "--region") ?? "sg";
+  const framework = option(args, "--framework") ?? "agentic-ai";
+  const report = (await isSkillSubject(subject))
+    ? await governanceReportForSkill({
+        skillRef: subject,
+        policyPackName: option(args, "--policy") ?? "baseline",
+        region,
+        framework
+      })
+    : await governanceReportForRun({
+        runId: subject,
+        runsRoot: resolve(option(args, "--runs-dir") ?? ".kelpclaw/runs"),
+        region,
+        framework,
+        bundleDir: option(args, "--bundle-dir")
+      });
+  const outDir = option(args, "--out");
+  if (!outDir) {
+    return report;
+  }
+  const files = await writeGovernanceReportFiles(resolve(outDir), report);
+  return {
+    ...report,
+    files
+  };
+}
+
+async function governanceReportForSkill(input: {
+  readonly skillRef: string;
+  readonly policyPackName: string;
+  readonly region: string;
+  readonly framework: string;
+}): Promise<GovernanceReportOutput> {
+  const policyPack = requirePolicyPack(input.policyPackName);
+  const analysis = await analyzeSkillReference(input.skillRef, policyPack.ruleset);
+  const compatibility = compatibilityFromAnalysis(analysis, policyPack.ruleset);
+  const decisions = evaluatePlannedSteps(analysis, policyPack.ruleset);
+  return buildGovernanceReport({
+    region: input.region,
+    framework: input.framework,
+    subject: {
+      kind: "skill",
+      ref: analysis.document.ref,
+      name: analysis.name,
+      contentHash: analysis.document.contentHash
+    },
+    compatibility,
+    policyPackName: policyPack.name,
+    decisions,
+    auditTrail: false,
+    replayEvidence: false,
+    signedBundle: false,
+    hookEvents: false,
+    failClosed: false,
+    sourceText: analysis.document.content
+  });
+}
+
+async function governanceReportForRun(input: {
+  readonly runId: string;
+  readonly runsRoot: string;
+  readonly region: string;
+  readonly framework: string;
+  readonly bundleDir?: string | undefined;
+}): Promise<GovernanceReportOutput> {
+  const runDir = join(input.runsRoot, input.runId);
+  const skill = jsonRecord(
+    JSON.parse(await readFile(join(runDir, "skill.json"), "utf8")),
+    "skill.json"
+  );
+  const compatibility = JSON.parse(
+    await readFile(join(runDir, "compatibility.json"), "utf8")
+  ) as SkillCompatibilityReport;
+  const policy = jsonRecord(
+    JSON.parse(await readFile(join(runDir, "policy-decisions.json"), "utf8")),
+    "policy-decisions.json"
+  );
+  const result = (await readJsonIfExists(join(runDir, "result.json"))) as JsonRecord | undefined;
+  const agentRun = (await readJsonIfExists(join(runDir, "agent-run.json"))) as
+    | AgentRunRecord
+    | undefined;
+  const policyPackName =
+    stringField(policy, "policyPack") ?? stringField(result ?? {}, "policyPack") ?? "unknown";
+  const decisions = policyDecisionRecords(policy.decisions);
+  const defaultBundleDir = join(resolve(input.runsRoot), "..", "audit-bundles", input.runId);
+  const bundleDir = input.bundleDir ? resolve(input.bundleDir) : defaultBundleDir;
+  return buildGovernanceReport({
+    region: input.region,
+    framework: input.framework,
+    subject: {
+      kind: "run",
+      runId: input.runId,
+      ...(stringField(skill, "ref") ? { ref: stringField(skill, "ref") } : {}),
+      ...(stringField(skill, "name") ? { name: stringField(skill, "name") } : {}),
+      ...(stringField(skill, "contentHash")
+        ? { contentHash: stringField(skill, "contentHash") }
+        : {})
+    },
+    compatibility,
+    policyPackName,
+    decisions,
+    auditTrail: await fileExists(join(runDir, "audit.jsonl")),
+    replayEvidence: Boolean(
+      agentRun?.observedSteps.length ||
+      agentRun?.hookEvents.length ||
+      (await fileExists(join(runDir, "hook-events.jsonl")))
+    ),
+    signedBundle: await fileExists(join(bundleDir, "manifest.json")),
+    hookEvents: Boolean(
+      agentRun?.hookEvents.length ||
+      agentRun?.wrapperEvents.length ||
+      (await fileExists(join(runDir, "hook-events.jsonl")))
+    ),
+    failClosed: Boolean(
+      agentRun?.enforcement.enabled &&
+      (agentRun.enforcement.hookBlocked ||
+        agentRun.enforcement.wrapperBlocked ||
+        agentRun.enforcement.unclassifiedBlocked ||
+        agentRun.enforcement.source === "unclassified-event")
+    )
+  });
+}
+
+function buildGovernanceReport(input: {
+  readonly region: string;
+  readonly framework: string;
+  readonly subject: GovernanceReportOutput["subject"];
+  readonly compatibility: SkillCompatibilityReport;
+  readonly policyPackName: string;
+  readonly decisions: readonly PolicyDecisionRecord[];
+  readonly auditTrail: boolean;
+  readonly replayEvidence: boolean;
+  readonly signedBundle: boolean;
+  readonly hookEvents: boolean;
+  readonly failClosed: boolean;
+  readonly sourceText?: string | undefined;
+}): GovernanceReportOutput {
+  const denied = hasAction(input.compatibility, input.decisions, "deny");
+  const approvalRequired = hasAction(input.compatibility, input.decisions, "require-approval");
+  const tools = input.compatibility.toolsDetected;
+  const serializedEvidence = stableJsonStringify({
+    compatibility: input.compatibility,
+    decisions: input.decisions.map((decision) => ({
+      tool: decision.tool,
+      args: decision.args,
+      action: decision.decision.action
+    })),
+    sourceText: input.sourceText ?? ""
+  } as unknown as JsonValue).toLowerCase();
+  const hasMutatingTool = tools.some((tool) => ["Write", "Edit", "MultiEdit"].includes(tool));
+  const hasNetwork = input.compatibility.network === "declared";
+  const hasSecrets = input.compatibility.requiredSecrets.length > 0;
+  const hasPii = /(email|phone|passport|nric|ssn|dob|address|customer|user|personal data)/iu.test(
+    serializedEvidence
+  );
+  const hasDestructive = input.compatibility.sandboxProfile === "destructive-risk";
+  const mutatingShell = input.decisions.some(
+    (decision) => decision.tool === "Bash" && mutationPattern().test(jsonText(decision.args))
+  );
+  const riskSummary = {
+    toolRisk: tier([
+      hasDestructive || denied,
+      tools.includes("Bash") || hasMutatingTool || mutatingShell || tools.includes("Task")
+    ]),
+    dataRisk: tier([hasNetwork && hasSecrets, hasSecrets || hasPii || hasMutatingTool]),
+    networkRisk: tier([hasNetwork && hasSecrets, hasNetwork]),
+    reversibilityRisk: tier([hasDestructive || denied, hasMutatingTool || mutatingShell])
+  };
+  const autonomyTier = maxTier([
+    riskSummary.toolRisk,
+    riskSummary.dataRisk,
+    riskSummary.networkRisk,
+    riskSummary.reversibilityRisk,
+    approvalRequired ? "moderate" : "low",
+    input.failClosed ? "high" : "low"
+  ]);
+  const controls = {
+    policyPack: input.policyPackName,
+    sandboxProfile: input.compatibility.sandboxProfile,
+    approvalRequired,
+    denied,
+    auditTrail: input.auditTrail,
+    replayEvidence: input.replayEvidence,
+    signedBundle: input.signedBundle,
+    hookEvents: input.hookEvents,
+    failClosed: input.failClosed
+  };
+  const findings = governanceFindings({
+    compatibility: input.compatibility,
+    decisions: input.decisions,
+    denied,
+    approvalRequired,
+    hasMutatingTool,
+    hasNetwork,
+    hasSecrets,
+    hasPii,
+    hasDestructive,
+    mutatingShell,
+    auditTrail: input.auditTrail,
+    hookEvents: input.hookEvents,
+    failClosed: input.failClosed
+  });
+  return {
+    ok: input.compatibility.runnable && !denied,
+    schemaVersion: "1.0.0",
+    region: input.region,
+    framework: input.framework,
+    generatedAt: new Date().toISOString(),
+    subject: input.subject,
+    policyPack: input.policyPackName,
+    runnable: input.compatibility.runnable,
+    autonomyTier,
+    riskSummary,
+    controls,
+    findings,
+    frameworkMapping: governanceFrameworkMapping(controls, input.compatibility, findings),
+    residualRisks: governanceResidualRisks(input.subject.kind, controls)
+  };
+}
+
+async function writeGovernanceReportFiles(
+  outDir: string,
+  report: GovernanceReportOutput
+): Promise<readonly string[]> {
+  await mkdir(outDir, { recursive: true });
+  await writeJson(join(outDir, "governance-report.json"), report);
+  await writeFile(join(outDir, "governance-report.html"), governanceReportHtml(report), "utf8");
+  return ["governance-report.json", "governance-report.html"];
+}
+
+function governanceReportHtml(report: GovernanceReportOutput): string {
+  const findingsRows = report.findings
+    .map(
+      (finding) =>
+        `<tr><td>${escapeHtml(finding.severity)}</td><td>${escapeHtml(finding.category)}</td><td>${escapeHtml(finding.title)}</td><td>${escapeHtml(finding.recommendation)}</td></tr>`
+    )
+    .join("\n");
+  const mappingRows = report.frameworkMapping
+    .map(
+      (mapping) =>
+        `<tr><td>${escapeHtml(mapping.controlArea)}</td><td>${escapeHtml(mapping.status)}</td><td>${escapeHtml(mapping.evidence.join("; "))}</td></tr>`
+    )
+    .join("\n");
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>KelpClaw Governance Report</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 32px; color: #1f2937; }
+    h1 { font-size: 24px; }
+    h2 { font-size: 16px; margin-top: 24px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 8px; }
+    th, td { border: 1px solid #d9e2ec; padding: 8px; text-align: left; vertical-align: top; }
+    th { background: #f8fafc; }
+    pre { background: #f8fafc; border: 1px solid #d9e2ec; border-radius: 6px; padding: 12px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>KelpClaw Governance Report</h1>
+  <p><strong>Region:</strong> ${escapeHtml(report.region)} &middot; <strong>Framework:</strong> ${escapeHtml(report.framework)} &middot; <strong>Autonomy tier:</strong> ${escapeHtml(report.autonomyTier)}</p>
+  <h2>Controls</h2>
+  <pre>${escapeHtml(stableJsonStringify(report.controls as unknown as JsonValue))}</pre>
+  <h2>Findings</h2>
+  <table><thead><tr><th>Severity</th><th>Category</th><th>Finding</th><th>Recommendation</th></tr></thead><tbody>${findingsRows}</tbody></table>
+  <h2>Framework Mapping</h2>
+  <table><thead><tr><th>Control Area</th><th>Status</th><th>Evidence</th></tr></thead><tbody>${mappingRows}</tbody></table>
+  <h2>Residual Risks</h2>
+  <pre>${escapeHtml(report.residualRisks.join("\n"))}</pre>
+</body>
+</html>
+`;
+}
+
+function governanceFindings(input: {
+  readonly compatibility: SkillCompatibilityReport;
+  readonly decisions: readonly PolicyDecisionRecord[];
+  readonly denied: boolean;
+  readonly approvalRequired: boolean;
+  readonly hasMutatingTool: boolean;
+  readonly hasNetwork: boolean;
+  readonly hasSecrets: boolean;
+  readonly hasPii: boolean;
+  readonly hasDestructive: boolean;
+  readonly mutatingShell: boolean;
+  readonly auditTrail: boolean;
+  readonly hookEvents: boolean;
+  readonly failClosed: boolean;
+}): readonly GovernanceFinding[] {
+  const findings: GovernanceFinding[] = [];
+  for (const finding of input.compatibility.policyFindings) {
+    findings.push({
+      severity: finding.action === "deny" ? "high" : "moderate",
+      category: "policy",
+      title: `${finding.action} policy finding for ${finding.tool}`,
+      evidence: `${finding.reason}; rules=${finding.matchedRuleIds.join(",") || "none"}`,
+      recommendation:
+        finding.action === "deny"
+          ? "Do not run until the skill or policy exception is reviewed."
+          : "Route this step through an accountable reviewer before execution."
+    });
+  }
+  for (const decision of input.decisions) {
+    if (decision.decision.action !== "deny" && decision.decision.action !== "require-approval") {
+      continue;
+    }
+    findings.push({
+      severity: decision.decision.action === "deny" ? "high" : "moderate",
+      category: "policy",
+      title: `${decision.decision.action} decision for ${decision.tool}`,
+      evidence: `${decision.decision.reason}; args=${jsonText(decision.args)}`,
+      recommendation:
+        decision.decision.action === "deny"
+          ? "Keep fail-closed behavior enabled and revise the skill before production use."
+          : "Capture reviewer approval and rationale before executing this action."
+    });
+  }
+  if (input.hasDestructive) {
+    findings.push({
+      severity: "high",
+      category: "reversibility",
+      title: "Destructive shell behavior detected",
+      evidence: "The sandbox profile is destructive-risk.",
+      recommendation: "Block by default or require a break-glass workflow with separate approval."
+    });
+  }
+  if (input.hasMutatingTool || input.mutatingShell) {
+    findings.push({
+      severity: "moderate",
+      category: "tool-risk",
+      title: "Mutating tool capability detected",
+      evidence: "The skill can write files, edit files, or mutate external developer systems.",
+      recommendation: "Require approval for irreversible or externally visible actions."
+    });
+  }
+  if (input.hasNetwork) {
+    findings.push({
+      severity: input.hasSecrets ? "high" : "moderate",
+      category: "network-risk",
+      title: "External network access declared",
+      evidence: `Required secrets: ${input.compatibility.requiredSecrets.join(", ") || "none"}.`,
+      recommendation:
+        "Restrict outbound destinations and include network evidence in the audit bundle."
+    });
+  }
+  if (input.hasPii || input.hasSecrets) {
+    findings.push({
+      severity: input.hasNetwork && input.hasSecrets ? "high" : "moderate",
+      category: "data-risk",
+      title: "Personal data or secret-like material may be handled",
+      evidence: `PII terms detected: ${input.hasPii}; required secrets: ${input.compatibility.requiredSecrets.join(", ") || "none"}.`,
+      recommendation:
+        "Use the SG PDPA strict pack and avoid storing raw personal data in audit outputs."
+    });
+  }
+  if (!input.auditTrail) {
+    findings.push({
+      severity: "info",
+      category: "auditability",
+      title: "Runtime audit trail not present",
+      evidence: "This report is static or audit.jsonl was not found.",
+      recommendation: "Run the skill and export a signed audit bundle for production evidence."
+    });
+  }
+  if (input.failClosed) {
+    findings.push({
+      severity: "high",
+      category: "tool-risk",
+      title: "Fail-closed enforcement was triggered",
+      evidence: "A hook, wrapper, or unclassified tool event caused the run to block.",
+      recommendation: "Inspect wrapper-events.jsonl and policy-decisions.json before retrying."
+    });
+  }
+  return dedupeFindings(findings);
+}
+
+function governanceFrameworkMapping(
+  controls: GovernanceReportOutput["controls"],
+  compatibility: SkillCompatibilityReport,
+  findings: readonly GovernanceFinding[]
+): readonly GovernanceFrameworkMapping[] {
+  return [
+    {
+      controlArea: "Human accountability and approval",
+      status: controls.approvalRequired ? "covered" : "partial",
+      evidence: controls.approvalRequired
+        ? ["Policy requires approval for at least one action."]
+        : ["No approval-required action was detected for this skill/run."]
+    },
+    {
+      controlArea: "Bounded autonomy and technical controls",
+      status: controls.denied || controls.failClosed || controls.policyPack ? "covered" : "partial",
+      evidence: [
+        `Policy pack: ${controls.policyPack}`,
+        `Sandbox profile: ${controls.sandboxProfile}`,
+        `Fail-closed triggered: ${controls.failClosed}`
+      ]
+    },
+    {
+      controlArea: "Traceability and audit evidence",
+      status: controls.auditTrail && controls.signedBundle ? "covered" : "partial",
+      evidence: [
+        `Audit trail: ${controls.auditTrail}`,
+        `Hook events: ${controls.hookEvents}`,
+        `Signed bundle: ${controls.signedBundle}`
+      ]
+    },
+    {
+      controlArea: "Data and third-party risk",
+      status:
+        compatibility.network === "none" && compatibility.requiredSecrets.length === 0
+          ? "covered"
+          : "partial",
+      evidence: [
+        `Network: ${compatibility.network}`,
+        `Required secrets: ${compatibility.requiredSecrets.join(", ") || "none"}`
+      ]
+    },
+    {
+      controlArea: "Residual risk review",
+      status: findings.some((finding) => finding.severity === "high") ? "gap" : "partial",
+      evidence: findings.length
+        ? findings.map((finding) => `${finding.severity}: ${finding.title}`)
+        : ["No governance findings were emitted."]
+    }
+  ];
+}
+
+function governanceResidualRisks(
+  subjectKind: GovernanceSubjectKind,
+  controls: GovernanceReportOutput["controls"]
+): readonly string[] {
+  return [
+    "KelpClaw assembles evidence for governance review; it does not certify legal or regulatory compliance.",
+    ...(subjectKind === "skill"
+      ? [
+          "Static SKILL.md analysis cannot prove runtime behavior; run the skill to collect audit evidence."
+        ]
+      : []),
+    ...(controls.hookEvents
+      ? []
+      : ["Tool-level enforcement depends on agent hook or JSONL event coverage."]),
+    ...(controls.signedBundle
+      ? []
+      : [
+          "Forwardable evidence should be exported as a signed audit bundle before external review."
+        ]),
+    "External WORM storage, retention policy, and independent reviewer workflow remain deployment responsibilities."
+  ];
+}
+
+function hasAction(
+  compatibility: SkillCompatibilityReport,
+  decisions: readonly PolicyDecisionRecord[],
+  action: PolicyDecision["action"]
+): boolean {
+  return (
+    compatibility.policyFindings.some((finding) => finding.action === action) ||
+    decisions.some((decision) => decision.decision.action === action)
+  );
+}
+
+function tier([high, moderate]: readonly [boolean, boolean]): GovernanceAutonomyTier {
+  if (high) {
+    return "high";
+  }
+  return moderate ? "moderate" : "low";
+}
+
+function maxTier(tiers: readonly GovernanceAutonomyTier[]): GovernanceAutonomyTier {
+  if (tiers.includes("high")) {
+    return "high";
+  }
+  return tiers.includes("moderate") ? "moderate" : "low";
+}
+
+function mutationPattern(): RegExp {
+  return /\b(gh\s+(issue|pr|label|release)\s+(create|edit|delete|reopen|comment|merge|close)|git\s+push|curl\s+(-X\s+)?(POST|PUT|PATCH|DELETE)|rm\s+-rf|write|create|delete|update)\b/iu;
+}
+
+function jsonText(value: unknown): string {
+  return stableJsonStringify(value as JsonValue);
+}
+
+function dedupeFindings(findings: readonly GovernanceFinding[]): readonly GovernanceFinding[] {
+  const seen = new Set<string>();
+  return findings.filter((finding) => {
+    const key = `${finding.severity}:${finding.category}:${finding.title}:${finding.evidence}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function policyDecisionRecords(value: unknown): readonly PolicyDecisionRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter(isPolicyDecisionRecord);
+}
+
+function isPolicyDecisionRecord(value: unknown): value is PolicyDecisionRecord {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.tool === "string" &&
+    Boolean(record.args && typeof record.args === "object" && !Array.isArray(record.args)) &&
+    Boolean(
+      record.decision && typeof record.decision === "object" && !Array.isArray(record.decision)
+    )
+  );
+}
+
+async function readJsonIfExists(path: string): Promise<unknown | undefined> {
+  if (!(await fileExists(path))) {
+    return undefined;
+  }
+  return JSON.parse(await readFile(path, "utf8")) as unknown;
+}
+
+async function isSkillSubject(subject: string): Promise<boolean> {
+  return (
+    subject.startsWith("github:") || /\.md$/iu.test(subject) || (await fileExists(resolve(subject)))
+  );
+}
+
 async function runLiveAgent(input: {
   readonly args: readonly string[];
   readonly agent: string;
@@ -484,8 +1353,10 @@ async function runLiveAgent(input: {
   const hookScriptPath = join(hookDir, "kelpclaw-skill-hook.mjs");
   const stdoutPath = join(input.runDir, "stdout.log");
   const stderrPath = join(input.runDir, "stderr.log");
+  const wrapperEventsPath = join(input.runDir, "wrapper-events.jsonl");
   const lastMessagePath = join(input.runDir, "last-message.md");
   const promptPath = join(workspaceDir, "prompt.md");
+  const wrapper = hasFlag(input.args, "--wrapper");
   await mkdir(artifactsDir, { recursive: true });
   await mkdir(hookDir, { recursive: true });
   await writeFile(join(workspaceDir, "SKILL.md"), input.analysis.document.content, "utf8");
@@ -495,18 +1366,47 @@ async function runLiveAgent(input: {
   const prompt = liveAgentPrompt(input.analysis, input.input, artifactsDir, hookCommand);
   await writeFile(promptPath, prompt, "utf8");
   const command = liveAgentCommand(input.args, input.agent, workspaceDir, lastMessagePath);
+  const wrapperObserver = wrapper
+    ? createCodexWrapperObserver({
+        analysis: input.analysis,
+        ruleset: input.ruleset,
+        enforcePolicy: input.enforcePolicy
+      })
+    : undefined;
   const startedAt = new Date().toISOString();
-  const result = await runCommand(command, prompt, workspaceDir, {
-    KELPCLAW_SKILL_HOOK_COMMAND: hookCommand,
-    KELPCLAW_SKILL_HOOK_EVENTS: hookEventsPath,
-    KELPCLAW_SKILL_HOOK_POLICY: stableJsonStringify(input.ruleset as unknown as JsonValue),
-    KELPCLAW_SKILL_HOOK_ENFORCE: input.enforcePolicy ? "1" : "0",
-    KELPCLAW_SKILL_HOOK_POLICY_PACK: input.policyPackName,
-    KELPCLAW_SKILL_ID: input.analysis.name,
-    KELPCLAW_SKILL_TAGS: input.analysis.tags.join(",")
-  });
+  const result = await runCommand(
+    command,
+    prompt,
+    workspaceDir,
+    {
+      KELPCLAW_SKILL_HOOK_COMMAND: hookCommand,
+      KELPCLAW_SKILL_HOOK_EVENTS: hookEventsPath,
+      KELPCLAW_SKILL_HOOK_POLICY: stableJsonStringify(input.ruleset as unknown as JsonValue),
+      KELPCLAW_SKILL_HOOK_ENFORCE: input.enforcePolicy ? "1" : "0",
+      KELPCLAW_SKILL_HOOK_POLICY_PACK: input.policyPackName,
+      KELPCLAW_SKILL_ID: input.analysis.name,
+      KELPCLAW_SKILL_TAGS: input.analysis.tags.join(",")
+    },
+    wrapperObserver?.handleLine
+  );
   const finishedAt = new Date().toISOString();
-  const hookEvents = await readHookEvents(hookEventsPath);
+  const wrapperEvents = wrapperObserver?.events ?? [];
+  if (wrapperEvents.length > 0) {
+    await writeFile(
+      wrapperEventsPath,
+      `${wrapperEvents.map((event) => stableJsonStringify(event as unknown as JsonValue)).join("\n")}\n`,
+      "utf8"
+    );
+  }
+  let hookEvents = await readHookEvents(hookEventsPath);
+  if (hookEvents.length === 0 && wrapperEvents.length > 0) {
+    await writeFile(
+      hookEventsPath,
+      `${wrapperEvents.map((event) => stableJsonStringify(event as unknown as JsonValue)).join("\n")}\n`,
+      "utf8"
+    );
+    hookEvents = wrapperEvents;
+  }
   const observedSteps =
     hookEvents.length > 0
       ? plannedStepsFromHookEvents(hookEvents)
@@ -517,6 +1417,15 @@ async function runLiveAgent(input: {
     (event) =>
       event.hookEvent === "PreToolUse" &&
       (event.status === "denied" || event.status === "approval-required")
+  );
+  const wrapperBlocked = wrapperEvents.some(
+    (event) => event.status === "denied" || event.status === "approval-required"
+  );
+  const unclassifiedBlocked = wrapperEvents.some(
+    (event) =>
+      event.status === "denied" &&
+      event.toolName === "Unknown" &&
+      event.decision.reason.includes("unclassified")
   );
   const observedDecisions = evaluatePlannedSteps(
     { ...input.analysis, plannedSteps: observedSteps },
@@ -535,16 +1444,29 @@ async function runLiveAgent(input: {
     stdoutPath,
     stderrPath,
     lastMessagePath,
+    wrapper,
     exitCode: result.exitCode,
     stdout: result.stdout,
     stderr: result.stderr,
     hookEvents,
+    wrapperEvents,
     enforcement: {
       enabled: input.enforcePolicy,
       plannedBlocked: false,
       hookBlocked,
+      wrapperBlocked,
+      unclassifiedBlocked,
       observedBlocked,
-      source: hookBlocked ? "hook-pretool" : observedBlocked ? "observed-policy" : "none"
+      source: hookBlocked
+        ? "hook-pretool"
+        : unclassifiedBlocked
+          ? "unclassified-event"
+          : wrapperBlocked
+            ? "wrapper-observed"
+            : observedBlocked
+              ? "observed-policy"
+              : "none",
+      terminatedByPolicy: result.terminatedByPolicy
     },
     observedSteps,
     generatedArtifacts,
@@ -607,6 +1529,7 @@ Rules:
 - Before each tool action, pipe a JSON object to this hook command and do not execute the action if it exits nonzero:
   ${hookCommand}
 - After each tool action, pipe a PostToolUse JSON object to the same hook command.
+- If your runtime emits JSONL tool events, include tool name and args so KelpClaw can normalize them for replay and policy.
 - Print or return a concise final result.
 
 ## Skill Reference
@@ -624,8 +1547,9 @@ async function runCommand(
   command: readonly string[],
   stdin: string,
   cwd: string,
-  extraEnv: Readonly<Record<string, string>> = {}
-): Promise<{ readonly exitCode: number; readonly stdout: string; readonly stderr: string }> {
+  extraEnv: Readonly<Record<string, string>> = {},
+  onStdoutLine?: ((line: string) => "terminate" | undefined) | undefined
+): Promise<RunCommandResult> {
   const [executable, ...args] = command;
   if (!executable) {
     throw new Error("Agent command is empty.");
@@ -642,18 +1566,208 @@ async function runCommand(
     });
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
-    child.stdout.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
+    let pendingStdout = "";
+    let terminatedByPolicy = false;
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdoutChunks.push(chunk);
+      if (!onStdoutLine) {
+        return;
+      }
+      pendingStdout += chunk.toString("utf8");
+      const lines = pendingStdout.split(/\r?\n/u);
+      pendingStdout = lines.pop() ?? "";
+      for (const line of lines) {
+        if (onStdoutLine(line) === "terminate" && !child.killed) {
+          terminatedByPolicy = true;
+          child.kill("SIGTERM");
+          break;
+        }
+      }
+    });
     child.stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
     child.on("error", reject);
-    child.on("close", (code) =>
+    child.on("close", (code) => {
+      if (onStdoutLine && pendingStdout.trim()) {
+        if (onStdoutLine(pendingStdout) === "terminate") {
+          terminatedByPolicy = true;
+        }
+      }
       resolve({
         exitCode: code ?? 1,
         stdout: Buffer.concat(stdoutChunks).toString("utf8"),
-        stderr: Buffer.concat(stderrChunks).toString("utf8")
-      })
-    );
+        stderr: Buffer.concat(stderrChunks).toString("utf8"),
+        terminatedByPolicy
+      });
+    });
     child.stdin.end(stdin);
   });
+}
+
+function createCodexWrapperObserver(input: {
+  readonly analysis: SkillAnalysis;
+  readonly ruleset: PolicyRuleSet;
+  readonly enforcePolicy: boolean;
+}): {
+  readonly events: readonly LocalHookEvent[];
+  readonly handleLine: (line: string) => "terminate" | undefined;
+} {
+  const events: LocalHookEvent[] = [];
+  return {
+    events,
+    handleLine(line: string): "terminate" | undefined {
+      const observation = codexWrapperObservation(line, input, events);
+      if (!observation.event) {
+        return undefined;
+      }
+      events.push(observation.event);
+      return input.enforcePolicy && observation.blocked ? "terminate" : undefined;
+    }
+  };
+}
+
+function codexWrapperObservation(
+  line: string,
+  input: {
+    readonly analysis: SkillAnalysis;
+    readonly ruleset: PolicyRuleSet;
+    readonly enforcePolicy: boolean;
+  },
+  previousEvents: readonly LocalHookEvent[]
+): WrapperObservation {
+  const trimmed = line.trim();
+  if (!trimmed || !trimmed.startsWith("{")) {
+    return { blocked: false, unclassified: false };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed) as unknown;
+  } catch {
+    return { blocked: false, unclassified: false };
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { blocked: false, unclassified: false };
+  }
+  const record = parsed as JsonRecord;
+  const step = wrapperToolStep(record);
+  if (!step) {
+    if (!isToolLikeJson(record)) {
+      return { blocked: false, unclassified: false };
+    }
+    const decision: PolicyDecision = input.enforcePolicy
+      ? {
+          action: "deny",
+          matchedRuleIds: [],
+          reason: "unclassified Codex JSONL tool event under enforced policy"
+        }
+      : {
+          action: "log-only",
+          matchedRuleIds: [],
+          reason: "unclassified Codex JSONL tool event observed in advisory mode"
+        };
+    const event = buildLocalHookEvent({
+      hookEvent: "ObservedToolUse",
+      toolName: "Unknown",
+      args: { raw: record },
+      decision,
+      previousEvents
+    });
+    return {
+      event,
+      blocked: input.enforcePolicy,
+      unclassified: true
+    };
+  }
+  const decision = evaluatePolicy(
+    {
+      tool: step.tool,
+      args: step.args,
+      skill: {
+        id: input.analysis.name,
+        tags: input.analysis.tags
+      }
+    },
+    input.ruleset
+  );
+  const event = buildLocalHookEvent({
+    hookEvent: "ObservedToolUse",
+    toolName: step.tool,
+    args: step.args,
+    ...(step.result !== undefined ? { result: step.result } : {}),
+    decision,
+    previousEvents
+  });
+  return {
+    event,
+    blocked: decision.action === "deny" || decision.action === "require-approval",
+    unclassified: false
+  };
+}
+
+function wrapperToolStep(record: JsonRecord): PlannedToolStep | undefined {
+  const direct = directToolStep(record);
+  if (direct) {
+    return direct;
+  }
+  const steps: PlannedToolStep[] = [];
+  for (const entry of Object.values(record)) {
+    collectToolSteps(entry, steps);
+  }
+  return steps[0];
+}
+
+function buildLocalHookEvent(input: {
+  readonly hookEvent: string;
+  readonly toolName: string;
+  readonly args: JsonRecord;
+  readonly result?: JsonValue | undefined;
+  readonly decision: PolicyDecision;
+  readonly previousEvents: readonly LocalHookEvent[];
+}): LocalHookEvent {
+  const status: LocalHookEvent["status"] =
+    input.decision.action === "deny"
+      ? "denied"
+      : input.decision.action === "require-approval"
+        ? "approval-required"
+        : "allowed";
+  const chainIndex = input.previousEvents.length;
+  const base = {
+    id: `hook-event.${randomUUID()}`,
+    hookEvent: input.hookEvent,
+    toolName: input.toolName,
+    args: input.args,
+    ...(input.result !== undefined ? { result: input.result } : {}),
+    decision: input.decision,
+    status,
+    recordedAt: new Date().toISOString()
+  };
+  const contentHash = hashJson(base);
+  return {
+    ...base,
+    contentHash,
+    prevEventHash: hashJson({
+      chainIndex,
+      previousContentHash: input.previousEvents.at(-1)?.contentHash ?? `sha256:${"0".repeat(64)}`,
+      contentHash
+    }),
+    chainIndex
+  };
+}
+
+function isToolLikeJson(record: JsonRecord): boolean {
+  const type = stringFromUnknown(record.type)?.toLowerCase();
+  if (
+    type &&
+    (type.includes("tool") ||
+      type.includes("call") ||
+      type.includes("exec") ||
+      type === "local_shell_call" ||
+      type === "shell_command")
+  ) {
+    return true;
+  }
+  return ["toolName", "tool_name", "tool", "function_call", "tool_call"].some(
+    (key) => key in record
+  );
 }
 
 function parseObservedToolSteps(stdout: string, stderr: string): readonly PlannedToolStep[] {
@@ -901,7 +2015,7 @@ function collectToolSteps(value: unknown, steps: PlannedToolStep[]): void {
 }
 
 function directToolStep(record: Record<string, unknown>): PlannedToolStep | undefined {
-  const type = stringFromUnknown(record.type);
+  const type = stringFromUnknown(record.type)?.toLowerCase();
   const name =
     stringFromUnknown(record.toolName) ??
     stringFromUnknown(record.tool_name) ??
@@ -913,6 +2027,14 @@ function directToolStep(record: Record<string, unknown>): PlannedToolStep | unde
       ...(jsonValueField(record, "result") ? { result: jsonValueField(record, "result") } : {})
     };
   }
+  const command = commandFromRecord(record);
+  if (type && (type.includes("exec") || type.includes("shell")) && command) {
+    return {
+      tool: "Bash",
+      args: { command },
+      ...(jsonValueField(record, "result") ? { result: jsonValueField(record, "result") } : {})
+    };
+  }
   if (name && knownTools.includes(name as (typeof knownTools)[number])) {
     return {
       tool: name,
@@ -920,7 +2042,7 @@ function directToolStep(record: Record<string, unknown>): PlannedToolStep | unde
       ...(jsonValueField(record, "result") ? { result: jsonValueField(record, "result") } : {})
     };
   }
-  if (type?.includes("tool") && name) {
+  if ((type?.includes("tool") || type?.includes("call")) && name) {
     return {
       tool: normalizeObservedToolName(name),
       args: argsFromRecord(record),
@@ -948,7 +2070,7 @@ function normalizeObservedToolName(name: string): string {
 }
 
 function argsFromRecord(record: Record<string, unknown>): JsonRecord {
-  for (const key of ["args", "arguments", "input", "parameters"]) {
+  for (const key of ["args", "arguments", "input", "parameters", "tool_input", "toolInput"]) {
     const value = record[key];
     if (value && typeof value === "object" && !Array.isArray(value)) {
       return value as JsonRecord;
@@ -1493,6 +2615,87 @@ async function auditIndexHtml(runDir: string): Promise<string> {
 `;
 }
 
+async function ensureAuditSigningKey(keyDir: string): Promise<AuditKeyFile> {
+  await mkdir(keyDir, { recursive: true });
+  const keyPath = join(keyDir, "audit-ed25519.json");
+  if (await fileExists(keyPath)) {
+    const existing = JSON.parse(await readFile(keyPath, "utf8")) as AuditKeyFile;
+    if (existing.algorithm !== "ed25519" || !existing.privateKeyPem || !existing.publicKeyPem) {
+      throw new Error(`${keyPath} is not a valid KelpClaw Ed25519 audit key.`);
+    }
+    return existing;
+  }
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519", {
+    publicKeyEncoding: { type: "spki", format: "pem" },
+    privateKeyEncoding: { type: "pkcs8", format: "pem" }
+  });
+  const key: AuditKeyFile = {
+    schemaVersion: "1.0.0",
+    algorithm: "ed25519",
+    keyId: `sha256:${createHash("sha256").update(publicKey, "utf8").digest("hex")}`,
+    publicKeyPem: publicKey,
+    privateKeyPem: privateKey
+  };
+  await writeJson(keyPath, key);
+  return key;
+}
+
+async function signAuditBundle(input: {
+  readonly bundleDir: string;
+  readonly runId: string;
+  readonly files: readonly string[];
+  readonly key: AuditKeyFile;
+}): Promise<string> {
+  const manifest: AuditBundleManifest = {
+    schemaVersion: "1.0.0",
+    runId: input.runId,
+    generatedAt: new Date().toISOString(),
+    algorithm: "ed25519",
+    publicKeyId: input.key.keyId,
+    files: await Promise.all(
+      input.files
+        .slice()
+        .sort((left, right) => left.localeCompare(right))
+        .map((file) => auditManifestFile(input.bundleDir, file))
+    )
+  };
+  const payload = stableJsonStringify(manifest as unknown as JsonValue);
+  const signature = signBytes(
+    null,
+    Buffer.from(payload, "utf8"),
+    createPrivateKey(input.key.privateKeyPem)
+  ).toString("base64");
+  await writeJson(join(input.bundleDir, "manifest.json"), manifest);
+  await writeFile(join(input.bundleDir, "manifest.sig"), `${signature}\n`, "utf8");
+  await writeJson(join(input.bundleDir, "manifest.pub.json"), {
+    keyId: input.key.keyId,
+    algorithm: input.key.algorithm,
+    publicKeyPem: input.key.publicKeyPem
+  });
+  return "manifest.json";
+}
+
+async function auditManifestFile(
+  bundleDir: string,
+  file: string
+): Promise<AuditBundleManifestFile> {
+  const absolute = join(bundleDir, file);
+  const [fileStat, content] = await Promise.all([stat(absolute), readFile(absolute)]);
+  return {
+    path: file,
+    size: fileStat.size,
+    sha256: createHash("sha256").update(content).digest("hex")
+  };
+}
+
+function isSafeBundlePath(path: string): boolean {
+  return !path.startsWith("/") && !path.split(/[\\/]/u).includes("..") && path.trim().length > 0;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function recordedReplaySummary(
   agent: string,
   steps: readonly PlannedToolStep[],
@@ -1640,6 +2843,12 @@ function hasFlag(args: readonly string[], name: string): boolean {
 
 function forwardedAgentArgs(args: readonly string[]): readonly string[] {
   const forwarded: string[] = [];
+  if (hasFlag(args, "--wrapper")) {
+    forwarded.push("--wrapper");
+  }
+  if (hasFlag(args, "--enforce-policy")) {
+    forwarded.push("--enforce-policy");
+  }
   const agentCommand = option(args, "--agent-command");
   if (agentCommand) {
     forwarded.push("--agent-command", agentCommand);

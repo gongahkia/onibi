@@ -5,7 +5,11 @@ export const policyPackNames = [
   "finance-sg",
   "pii-strict",
   "no-destructive-shell",
-  "github-pr-safe"
+  "github-pr-safe",
+  "sg-agentic-ai-baseline",
+  "sg-pdpa-strict",
+  "sg-financial-ai",
+  "asean-genai-baseline"
 ] as const;
 
 export type PolicyPackName = (typeof policyPackNames)[number];
@@ -128,6 +132,142 @@ const packs: readonly PolicyPack[] = [
           id: "github-pr-safe-log-readonly-gh",
           when: 'tool == "Bash" && args.command =~ "gh (pr|issue|run) (view|list|checks|status)"',
           action: "log-only"
+        }
+      ]
+    }
+  },
+  {
+    name: "sg-agentic-ai-baseline",
+    description:
+      "Singapore agentic AI defaults for bounded autonomy, approvals, and fail-closed tool governance.",
+    ruleset: {
+      rules: [
+        {
+          id: "sg-agentic-deny-destructive-shell",
+          when: 'tool == "Bash" && args.command =~ "(rm -rf|sudo rm|mkfs|diskutil erase|git reset --hard|git clean -fd)"',
+          action: "deny"
+        },
+        {
+          id: "sg-agentic-deny-unclassified-tool",
+          when: 'tool == "Unknown"',
+          action: "deny"
+        },
+        {
+          id: "sg-agentic-deny-secret-exfil",
+          when: 'tool == "Bash" && args.command =~ "(curl|wget|nc|scp).*(TOKEN|SECRET|PASSWORD|PRIVATE_KEY)"',
+          action: "deny"
+        },
+        {
+          id: "sg-agentic-review-file-mutation",
+          when: 'tool == "Write" || tool == "Edit" || tool == "MultiEdit"',
+          action: "require-approval",
+          approverRole: "agentic-ai-reviewer"
+        },
+        {
+          id: "sg-agentic-review-mutating-github",
+          when: 'tool == "Bash" && args.command =~ "gh (issue|pr|label|release) (create|edit|delete|reopen|comment|merge|close)|git push"',
+          action: "require-approval",
+          approverRole: "agentic-ai-reviewer"
+        },
+        {
+          id: "sg-agentic-review-networked-shell",
+          when: 'tool == "Bash" && args.command =~ "(curl|wget|http|https)"',
+          action: "require-approval",
+          approverRole: "agentic-ai-reviewer"
+        }
+      ]
+    }
+  },
+  {
+    name: "sg-pdpa-strict",
+    description:
+      "Singapore PDPA-oriented personal-data guardrails for agent skills and audit-first runs.",
+    ruleset: {
+      rules: [
+        {
+          id: "sg-pdpa-review-personal-data-shell",
+          when: 'tool == "Bash" && args.command =~ "(email|phone|passport|nric|ssn|dob|address|customer|user|personal data)"',
+          action: "require-approval",
+          approverRole: "privacy-reviewer"
+        },
+        {
+          id: "sg-pdpa-review-personal-data-write",
+          when: 'tool == "Write" || tool == "Edit" || tool == "MultiEdit"',
+          action: "require-approval",
+          approverRole: "privacy-reviewer"
+        },
+        {
+          id: "sg-pdpa-deny-secret-exfil",
+          when: 'tool == "Bash" && args.command =~ "(curl|wget|nc|scp).*(TOKEN|SECRET|PASSWORD|PRIVATE_KEY)"',
+          action: "deny"
+        },
+        {
+          id: "sg-pdpa-deny-env-dump",
+          when: 'tool == "Bash" && args.command =~ "(printenv|env|cat).*(_KEY|TOKEN|SECRET|PASSWORD)"',
+          action: "deny"
+        }
+      ]
+    }
+  },
+  {
+    name: "sg-financial-ai",
+    description:
+      "Singapore financial AI guardrails for payments, banking, tax, customer data, and regulated workflows.",
+    ruleset: {
+      rules: [
+        {
+          id: "sg-financial-ai-review-financial-shell",
+          when: 'tool == "Bash" && args.command =~ "(paynow|cpf|iras|mas|bank|payment|transaction|invoice|customer|account)"',
+          action: "require-approval",
+          approverRole: "finance-reviewer"
+        },
+        {
+          id: "sg-financial-ai-review-financial-skill",
+          when: 'skill.tags includes "finance-sg"',
+          action: "require-approval",
+          approverRole: "finance-reviewer"
+        },
+        {
+          id: "sg-financial-ai-review-financial-write",
+          when: 'tool == "Write" || tool == "Edit" || tool == "MultiEdit"',
+          action: "require-approval",
+          approverRole: "finance-reviewer"
+        },
+        {
+          id: "sg-financial-ai-deny-secret-exfil",
+          when: 'tool == "Bash" && args.command =~ "(curl|wget|nc|scp|printenv|env|cat).*(TOKEN|SECRET|PASSWORD|PRIVATE_KEY)"',
+          action: "deny"
+        }
+      ]
+    }
+  },
+  {
+    name: "asean-genai-baseline",
+    description:
+      "Region-neutral ASEAN/APAC generative and agentic AI defaults for safe local automation.",
+    ruleset: {
+      rules: [
+        {
+          id: "asean-genai-deny-destructive-shell",
+          when: 'tool == "Bash" && args.command =~ "(rm -rf|sudo rm|mkfs|diskutil erase|git reset --hard|git clean -fd)"',
+          action: "deny"
+        },
+        {
+          id: "asean-genai-deny-unclassified-tool",
+          when: 'tool == "Unknown"',
+          action: "deny"
+        },
+        {
+          id: "asean-genai-review-file-mutation",
+          when: 'tool == "Write" || tool == "Edit" || tool == "MultiEdit"',
+          action: "require-approval",
+          approverRole: "ai-governance-reviewer"
+        },
+        {
+          id: "asean-genai-review-mutating-shell",
+          when: 'tool == "Bash" && args.command =~ "(gh (issue|pr|label|release) (create|edit|delete|reopen|comment|merge|close)|git push|curl -X (POST|PUT|PATCH|DELETE))"',
+          action: "require-approval",
+          approverRole: "ai-governance-reviewer"
         }
       ]
     }

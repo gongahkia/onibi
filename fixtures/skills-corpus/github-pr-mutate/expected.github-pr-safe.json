@@ -1,0 +1,16 @@
+{
+  "network": "none",
+  "policyFindings": [
+    {
+      "action": "require-approval",
+      "approverRole": "reviewer",
+      "matchedRuleIds": ["github-pr-safe-review-mutating-gh"],
+      "reason": "matched policy rule 'github-pr-safe-review-mutating-gh'",
+      "tool": "Bash"
+    }
+  ],
+  "requiredSecrets": [],
+  "runnable": true,
+  "sandboxProfile": "safe-local",
+  "toolsDetected": ["Bash"]
+}

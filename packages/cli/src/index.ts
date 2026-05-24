@@ -14,11 +14,15 @@ import {
   trajectoryReplayShape
 } from "@kelpclaw/codegen";
 import {
+  initAuditKey,
   compatibilityReport,
   exportAuditBundle,
+  governanceReport,
+  policyExplain,
   policyPackCliOutput,
   replayDiff,
-  runSkill
+  runSkill,
+  verifyAuditBundle
 } from "./skill-runner.js";
 
 type JsonRecord = Record<string, unknown>;
@@ -97,6 +101,9 @@ async function main(argv: readonly string[]): Promise<void> {
       if (args[0] === "use") {
         return printJson(await usePolicyPack(args.slice(1)));
       }
+      if (args[0] === "explain") {
+        return printJson(await policyExplain(args.slice(1)));
+      }
       return printJson(
         await putJson("/api/policies", {
           yaml: await readFile(requiredOption(args, "--file"), "utf8")
@@ -109,6 +116,18 @@ async function main(argv: readonly string[]): Promise<void> {
       return printJson(await runSkill(args));
     case "export-audit-bundle":
       return printJson(await exportAuditBundle(args));
+    case "governance":
+      if (args[0] === "report") {
+        return printJson(await governanceReport(args.slice(1)));
+      }
+      throw new Error("Usage: kelp-claw governance report <SKILL.md|runId> [--region sg]");
+    case "verify-audit-bundle":
+      return printJson(await verifyAuditBundle(args));
+    case "audit-key":
+      if (args[0] === "init") {
+        return printJson(await initAuditKey(args.slice(1)));
+      }
+      throw new Error("Usage: kelp-claw audit-key init [--key-dir .kelpclaw/keys]");
     case "replay-diff":
       return printJson(await replayDiff(args));
     case "audit-verify":
@@ -159,17 +178,21 @@ async function main(argv: readonly string[]): Promise<void> {
       return runMcp(args);
     default:
       throw new Error(
-        "Usage: kelp-claw <run-skill|compat|compat-report|policy|export-audit-bundle|replay-diff|start-recording|record-step|stop-recording|approve-step|deny-step|promote|mcp|audit-verify|audit-anchor|tbom-export|mint-role-token|inspect-role-token|verify-claude-code|otlp-smoke|cross-agent-replay-smoke>"
+        "Usage: kelp-claw <run-skill|compat|compat-report|policy|governance|audit-key|export-audit-bundle|verify-audit-bundle|replay-diff|start-recording|record-step|stop-recording|approve-step|deny-step|promote|mcp|audit-verify|audit-anchor|tbom-export|mint-role-token|inspect-role-token|verify-claude-code|otlp-smoke|cross-agent-replay-smoke>"
       );
   }
 }
 
 export {
+  initAuditKey,
   compatibilityReport,
   exportAuditBundle,
+  governanceReport,
+  policyExplain,
   policyPackCliOutput,
   replayDiff,
-  runSkill
+  runSkill,
+  verifyAuditBundle
 } from "./skill-runner.js";
 
 export async function verifyClaudeCode(args: readonly string[]): Promise<JsonRecord> {

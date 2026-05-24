@@ -1,0 +1,16 @@
+{
+  "network": "none",
+  "policyFindings": [
+    {
+      "action": "require-approval",
+      "approverRole": "privacy-reviewer",
+      "matchedRuleIds": ["sg-pdpa-review-personal-data-write"],
+      "reason": "matched policy rule 'sg-pdpa-review-personal-data-write'",
+      "tool": "Write"
+    }
+  ],
+  "requiredSecrets": [],
+  "runnable": true,
+  "sandboxProfile": "safe-local",
+  "toolsDetected": ["Write"]
+}

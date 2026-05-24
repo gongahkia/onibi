@@ -127,7 +127,11 @@ rules:
       "finance-sg",
       "pii-strict",
       "no-destructive-shell",
-      "github-pr-safe"
+      "github-pr-safe",
+      "sg-agentic-ai-baseline",
+      "sg-pdpa-strict",
+      "sg-financial-ai",
+      "asean-genai-baseline"
     ]);
 
     for (const packName of policyPackNames) {
@@ -177,6 +181,32 @@ rules:
     ).toMatchObject({
       action: "require-approval",
       matchedRuleIds: ["pii-strict-review-file-writes"]
+    });
+
+    expect(
+      evaluatePolicy(
+        {
+          tool: "Unknown",
+          args: {}
+        },
+        requirePolicyPack("sg-agentic-ai-baseline").ruleset
+      )
+    ).toMatchObject({
+      action: "deny",
+      matchedRuleIds: ["sg-agentic-deny-unclassified-tool"]
+    });
+
+    expect(
+      evaluatePolicy(
+        {
+          tool: "Bash",
+          args: { command: "printf customer invoice" }
+        },
+        requirePolicyPack("sg-financial-ai").ruleset
+      )
+    ).toMatchObject({
+      action: "require-approval",
+      matchedRuleIds: ["sg-financial-ai-review-financial-shell"]
     });
   });
 });

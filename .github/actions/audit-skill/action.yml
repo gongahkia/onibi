@@ -22,6 +22,18 @@ inputs:
     description: Upload the exported audit bundle as a workflow artifact.
     required: false
     default: "true"
+  governance:
+    description: Include an SG/APAC governance report in the audit bundle.
+    required: false
+    default: "false"
+  region:
+    description: Governance report region.
+    required: false
+    default: sg
+  framework:
+    description: Governance report framework.
+    required: false
+    default: agentic-ai
 
 runs:
   using: composite
@@ -81,7 +93,12 @@ runs:
         printf '%s\n' "$RUN_OUTPUT"
         printf '%s\n' "$RUN_OUTPUT" > .kelpclaw/run-output.json
         RUN_ID="$(printf '%s\n' "$RUN_OUTPUT" | node -e 'let input=""; process.stdin.on("data", c => input += c); process.stdin.on("end", () => console.log(JSON.parse(input).runId));')"
-        node packages/cli/dist/index.js export-audit-bundle "$RUN_ID" --out ".kelpclaw/audit-bundle-$RUN_ID" > .kelpclaw/bundle-output.json
+        EXPORT_ARGS=(export-audit-bundle "$RUN_ID" --out ".kelpclaw/audit-bundle-$RUN_ID")
+        if [ "${{ inputs.governance }}" = "true" ]; then
+          EXPORT_ARGS+=(--include-governance --region "${{ inputs.region }}" --framework "${{ inputs.framework }}")
+        fi
+        node packages/cli/dist/index.js "${EXPORT_ARGS[@]}" > .kelpclaw/bundle-output.json
+        node packages/cli/dist/index.js verify-audit-bundle ".kelpclaw/audit-bundle-$RUN_ID" > .kelpclaw/bundle-verify.json
         echo "run-id=$RUN_ID" >> "$GITHUB_OUTPUT"
         echo "bundle-path=.kelpclaw/audit-bundle-$RUN_ID" >> "$GITHUB_OUTPUT"
         node <<'NODE' >> "$GITHUB_STEP_SUMMARY"
@@ -89,6 +106,9 @@ runs:
         const compat = JSON.parse(fs.readFileSync(".kelpclaw/compatibility.json", "utf8"));
         const run = JSON.parse(fs.readFileSync(".kelpclaw/run-output.json", "utf8"));
         const bundle = JSON.parse(fs.readFileSync(".kelpclaw/bundle-output.json", "utf8"));
+        const verify = JSON.parse(fs.readFileSync(".kelpclaw/bundle-verify.json", "utf8"));
+        const governancePath = `${bundle.bundleDir}/governance-report.json`;
+        const governance = fs.existsSync(governancePath) ? JSON.parse(fs.readFileSync(governancePath, "utf8")) : undefined;
         console.log("## KelpClaw Skill Audit");
         console.log("");
         console.log(`- Skill: \`${"${{ inputs.skill }}"}\``);
@@ -97,6 +117,11 @@ runs:
         console.log(`- Run ID: \`${run.runId}\``);
         console.log(`- Status: \`${run.status}\``);
         console.log(`- Bundle: \`${bundle.bundleDir}\``);
+        console.log(`- Bundle signature: \`${verify.signature.valid ? "valid" : "invalid"}\``);
+        if (governance) {
+          console.log(`- Governance tier: \`${governance.autonomyTier}\``);
+          console.log(`- Governance findings: \`${(governance.findings || []).length}\``);
+        }
         console.log(`- Tools: \`${(compat.toolsDetected || []).join(", ") || "none"}\``);
         console.log(`- Network: \`${compat.network}\``);
         console.log(`- Sandbox: \`${compat.sandboxProfile}\``);
