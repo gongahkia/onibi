@@ -788,7 +788,13 @@ type CommandPaletteMode =
     };
 
 type DetailsTab = "node" | "config" | "trace" | "runtime" | "ops";
-type SurfaceMode = "edit" | "trajectory" | "policy";
+type SurfaceMode = "governance" | "edit" | "trajectory" | "policy";
+
+interface SkillGovernanceCommand {
+  readonly id: string;
+  readonly label: string;
+  readonly command: string;
+}
 
 interface PendingNodeConnection {
   readonly sourceNodeId: string;
@@ -870,7 +876,14 @@ export function App() {
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [detailsTab, setDetailsTab] = useState<DetailsTab>("node");
-  const [surfaceMode, setSurfaceMode] = useState<SurfaceMode>("edit");
+  const [surfaceMode, setSurfaceMode] = useState<SurfaceMode>("governance");
+  const [governanceSkillPath, setGovernanceSkillPath] = useState("./SKILL.md");
+  const [governanceInputPath, setGovernanceInputPath] = useState("input.json");
+  const [governancePolicy, setGovernancePolicy] = useState("sg-agentic-ai-baseline");
+  const [governanceRunId, setGovernanceRunId] = useState("skill-run.local-review");
+  const [governanceAgent, setGovernanceAgent] = useState("audit-only");
+  const [governanceReplayAgents, setGovernanceReplayAgents] =
+    useState("codex-cli,claude-code,goose");
   const [trajectoryRuns, setTrajectoryRuns] = useState<readonly AgentRunRecord[]>([]);
   const [selectedTrajectoryRunId, setSelectedTrajectoryRunId] = useState<string | null>(null);
   const [policyYaml, setPolicyYaml] = useState("rules:\n");
@@ -940,6 +953,25 @@ export function App() {
   const selectedTrajectoryRun = useMemo(
     () => trajectoryRuns.find((runRecord) => runRecord.id === selectedTrajectoryRunId) ?? null,
     [selectedTrajectoryRunId, trajectoryRuns]
+  );
+  const skillGovernanceCommands = useMemo(
+    () =>
+      buildSkillGovernanceCommands({
+        skillPath: governanceSkillPath,
+        inputPath: governanceInputPath,
+        policy: governancePolicy,
+        runId: governanceRunId,
+        agent: governanceAgent,
+        replayAgents: governanceReplayAgents
+      }),
+    [
+      governanceAgent,
+      governanceInputPath,
+      governancePolicy,
+      governanceReplayAgents,
+      governanceRunId,
+      governanceSkillPath
+    ]
   );
   const selectedTrajectoryRunStreamId = selectedTrajectoryRun?.id;
   const selectedTrajectoryRunStatus = selectedTrajectoryRun?.status;
