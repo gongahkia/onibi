@@ -1111,10 +1111,12 @@ async function parseNucleiJsonlFile(
         stringField(record, "matched-at") ??
         stringField(record, "host") ??
         stringField(record, "url");
+      const matcherName = stringField(record, "matcher-name");
+      const resultType = stringField(record, "type");
       findings.push(
         scannerFinding({
           tool: input.format,
-          idParts: [templateId, asset ?? "", stringField(record, "matcher-name") ?? ""],
+          idParts: [templateId, asset ?? "", matcherName ?? ""],
           title,
           severity: scannerSeverity(stringField(info, "severity")),
           ...(asset ? { asset } : {}),
@@ -1128,10 +1130,8 @@ async function parseNucleiJsonlFile(
           locator: `line ${lineNumber}`,
           source: {
             templateId,
-            ...(stringField(record, "matcher-name")
-              ? { matcherName: stringField(record, "matcher-name") }
-              : {}),
-            ...(stringField(record, "type") ? { type: stringField(record, "type") } : {})
+            ...(matcherName ? { matcherName } : {}),
+            ...(resultType ? { type: resultType } : {})
           },
           inputSha256: input.inputSha256,
           rawPath: input.rawPath
@@ -1300,14 +1300,13 @@ async function parseZapJsonFile(
           stringField(alert, "url") ??
           siteName;
         const cwe = stringField(alert, "cweid") ?? stringField(alert, "cweId");
+        const pluginId = stringField(alert, "pluginid") ?? stringField(alert, "pluginId");
+        const alertRef = stringField(alert, "alertRef");
+        const instanceParam = stringField(instance, "param");
         findings.push(
           scannerFinding({
             tool: input.format,
-            idParts: [
-              stringField(alert, "pluginid") ?? stringField(alert, "pluginId") ?? title,
-              asset ?? "",
-              stringField(instance, "param") ?? ""
-            ],
+            idParts: [pluginId ?? title, asset ?? "", instanceParam ?? ""],
             title,
             severity: scannerSeverity(
               stringField(alert, "riskdesc") ??
@@ -1319,13 +1318,13 @@ async function parseZapJsonFile(
             remediation: stringField(alert, "solution"),
             weaknessIds: cweIds(cwe),
             references: stringArrayOrCsvField(alert, "reference"),
-            tags: ["zap", ...(stringField(alert, "alertRef") ? [stringField(alert, "alertRef") as string] : [])],
+            tags: ["zap", ...(alertRef ? [alertRef] : [])],
             evidenceKind: "zap-alert",
             evidenceValue: asset ? `${title} at ${asset}` : title,
             locator: `site ${siteIndex + 1} alert ${alertIndex + 1} instance ${instanceIndex + 1}`,
             source: {
-              ...(stringField(alert, "pluginid") ? { pluginId: stringField(alert, "pluginid") } : {}),
-              ...(stringField(alert, "alertRef") ? { alertRef: stringField(alert, "alertRef") } : {})
+              ...(pluginId ? { pluginId } : {}),
+              ...(alertRef ? { alertRef } : {})
             },
             inputSha256: input.inputSha256,
             rawPath: input.rawPath
@@ -1628,8 +1627,8 @@ async function buildEvidenceManifest(
     auditChain: audit.entries,
     auditChainHead: audit.head,
     limitations: [
-      "This evidence manifest uses local SHA-256 digests.",
-      "It proves local artifact integrity, not external identity or timestamping."
+      "This evidence manifest uses local SHA-256 digests and an Ed25519 signature.",
+      "It proves local artifact integrity and key custody, not external timestamping."
     ]
   };
   return { ...payload, manifestId: evidenceManifestId(payload) };
@@ -1669,11 +1668,23 @@ async function collectEvidenceBundleRelativeFiles(root: string): Promise<readonl
   const rawFiles = await listFilesRecursive(join(root, "raw"), root);
   const reportFiles = await listFilesRecursive(join(root, "reports"), root);
   const latestManifest = await latestEvidenceManifestPath(root);
+  const latestManifestFiles = latestManifest
+    ? [
+        latestManifest,
+        ...(
+          await Promise.all(
+            [evidenceSignaturePath(latestManifest), evidencePublicKeyPath(latestManifest)].map(
+              async (file) => ((await fileExists(file)) ? file : undefined)
+            )
+          )
+        ).filter((file): file is string => Boolean(file))
+      ].map((file) => relative(root, file))
+    : [];
   return [
     ...fixed,
     ...rawFiles,
     ...reportFiles,
-    ...(latestManifest ? [relative(root, latestManifest)] : [])
+    ...latestManifestFiles
   ].sort((left, right) => left.localeCompare(right));
 }
 
@@ -1703,6 +1714,159 @@ function evidenceManifestId(manifest: EvidenceManifest): string {
   return `sha256:${createHash("sha256")
     .update(stableJsonStringify({ ...manifest, manifestId: "" } as unknown as JsonValue))
     .digest("hex")}`;
+}
+
+function defaultEvidenceSigningKeyDir(root: string): string {
+  return join(root, "signatures", ".keys");
+}
+
+async function ensureEvidenceSigningKey(keyDir: string): Promise<EvidenceSigningKeyFile> {
+  await mkdir(keyDir, { recursive: true });
+  const keyPath = join(keyDir, "evidence-ed25519.json");
+  if (await fileExists(keyPath)) {
+    const existing = await readJsonFile<EvidenceSigningKeyFile>(keyPath);
+    if (
+      existing.algorithm !== EVIDENCE_SIGNATURE_ALGORITHM ||
+      !existing.privateKeyPem ||
+      !existing.publicKeyPem
+    ) {
+      throw new EvidenceWorkspaceError(`${keyPath} is not a valid KelpClaw evidence Ed25519 key`);
+    }
+    return existing;
+  }
+  const { publicKey, privateKey } = generateKeyPairSync(EVIDENCE_SIGNATURE_ALGORITHM, {
+    publicKeyEncoding: { type: "spki", format: "pem" },
+    privateKeyEncoding: { type: "pkcs8", format: "pem" }
+  });
+  const key: EvidenceSigningKeyFile = {
+    schemaVersion: "1.0.0",
+    algorithm: EVIDENCE_SIGNATURE_ALGORITHM,
+    keyId: `sha256:${createHash("sha256").update(publicKey, "utf8").digest("hex")}`,
+    publicKeyPem: publicKey,
+    privateKeyPem: privateKey
+  };
+  await writeJson(keyPath, key);
+  return key;
+}
+
+async function verifyEvidenceManifestSignature(
+  root: string,
+  manifestPath: string,
+  manifest: EvidenceManifest
+): Promise<{
+  readonly signature: EvidenceManifestSignature;
+  readonly failures: readonly EvidenceVerificationFailure[];
+}> {
+  const signaturePath = evidenceSignaturePath(manifestPath);
+  const publicKeyPath = evidencePublicKeyPath(manifestPath);
+  const signatureRelativePath = relative(root, signaturePath);
+  const publicKeyRelativePath = relative(root, publicKeyPath);
+  const failures: EvidenceVerificationFailure[] = [];
+  const hasSignature = await fileExists(signaturePath);
+  const hasPublicKey = await fileExists(publicKeyPath);
+  if (!hasSignature) {
+    failures.push({
+      path: signatureRelativePath,
+      message: "manifest signature file missing"
+    });
+  }
+  if (!hasPublicKey) {
+    failures.push({
+      path: publicKeyRelativePath,
+      message: "manifest public key file missing"
+    });
+  }
+  if (!hasSignature || !hasPublicKey) {
+    return {
+      signature: {
+        signed: false,
+        valid: false,
+        ...(hasSignature ? { signaturePath: signatureRelativePath } : {}),
+        ...(hasPublicKey ? { publicKeyPath: publicKeyRelativePath } : {})
+      },
+      failures
+    };
+  }
+  try {
+    const signature = Buffer.from((await readFile(signaturePath, "utf8")).trim(), "base64");
+    const publicKey = jsonRecord(
+      JSON.parse(await readFile(publicKeyPath, "utf8")) as unknown,
+      publicKeyRelativePath
+    );
+    const publicKeyPem = stringField(publicKey, "publicKeyPem");
+    const keyId = stringField(publicKey, "keyId");
+    const algorithm = stringField(publicKey, "algorithm");
+    if (!publicKeyPem) {
+      failures.push({
+        path: publicKeyRelativePath,
+        message: "manifest public key file does not contain publicKeyPem"
+      });
+    }
+    if (algorithm !== EVIDENCE_SIGNATURE_ALGORITHM) {
+      failures.push({
+        path: publicKeyRelativePath,
+        message: `manifest public key algorithm must be ${EVIDENCE_SIGNATURE_ALGORITHM}`
+      });
+    }
+    const expectedKeyId = publicKeyPem
+      ? `sha256:${createHash("sha256").update(publicKeyPem, "utf8").digest("hex")}`
+      : undefined;
+    if (keyId && expectedKeyId && keyId !== expectedKeyId) {
+      failures.push({
+        path: publicKeyRelativePath,
+        message: "manifest public key id does not match publicKeyPem",
+        expectedSha256: keyId,
+        actualSha256: expectedKeyId
+      });
+    }
+    const valid =
+      Boolean(publicKeyPem) &&
+      verifyBytes(
+        null,
+        Buffer.from(stableJsonStringify(manifest as unknown as JsonValue), "utf8"),
+        createPublicKey(publicKeyPem as string),
+        signature
+      );
+    if (!valid) {
+      failures.push({
+        path: signatureRelativePath,
+        message: "manifest Ed25519 signature is invalid"
+      });
+    }
+    return {
+      signature: {
+        signed: true,
+        valid,
+        algorithm: EVIDENCE_SIGNATURE_ALGORITHM,
+        ...(keyId ? { keyId } : {}),
+        signaturePath: signatureRelativePath,
+        publicKeyPath: publicKeyRelativePath
+      },
+      failures
+    };
+  } catch (error) {
+    failures.push({
+      path: signatureRelativePath,
+      message: `unable to verify manifest signature: ${errorMessage(error)}`
+    });
+    return {
+      signature: {
+        signed: true,
+        valid: false,
+        signaturePath: signatureRelativePath,
+        publicKeyPath: publicKeyRelativePath
+      },
+      failures
+    };
+  }
+}
+
+function evidenceSignaturePath(manifestPath: string): string {
+  return `${manifestPath}.sig`;
+}
+
+function evidencePublicKeyPath(manifestPath: string): string {
+  return `${manifestPath}.pub.json`;
 }
 
 async function auditChain(path: string): Promise<{
@@ -2039,6 +2203,105 @@ function stringArrayField(record: JsonRecord, field: string): readonly string[] 
     : [];
 }
 
+function stringArrayOrCsvField(record: JsonRecord, field: string): readonly string[] {
+  const value = record[field];
+  if (Array.isArray(value)) {
+    return value
+      .filter((entry): entry is string | number => typeof entry === "string" || typeof entry === "number")
+      .flatMap((entry) => String(entry).split(/[,;\n]/u))
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+  if (typeof value === "string" || typeof value === "number") {
+    return String(value)
+      .split(/[,;\n]/u)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+  if (value && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>)
+      .filter((entry): entry is string | number => typeof entry === "string" || typeof entry === "number")
+      .flatMap((entry) => String(entry).split(/[,;\n]/u))
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function stringArrayFromText(value: string | undefined): readonly string[] {
+  return value
+    ? value
+        .split(/[\r\n,;]/u)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    : [];
+}
+
+function cweIds(...values: readonly (string | undefined)[]): readonly string[] {
+  return [
+    ...new Set(
+      values
+        .filter((value): value is string => Boolean(value))
+        .flatMap((value) => [...value.matchAll(/CWE[-\s]?(\d+)/giu)].map((match) => match[1]))
+        .filter((id): id is string => Boolean(id))
+        .map((id) => `CWE-${id}`)
+    )
+  ].sort();
+}
+
+function scannerSeverity(value: unknown): EvidenceSeverity {
+  const normalized = String(value ?? "").toLowerCase();
+  if (normalized.includes("critical") || normalized === "4") {
+    return "critical";
+  }
+  if (normalized.includes("high") || normalized === "3") {
+    return "high";
+  }
+  if (normalized.includes("medium") || normalized.includes("moderate") || normalized === "2") {
+    return "medium";
+  }
+  if (normalized.includes("low") || normalized === "1") {
+    return "low";
+  }
+  return "info";
+}
+
+function nessusSeverity(value: string | undefined): EvidenceSeverity {
+  return scannerSeverity(value);
+}
+
+function xmlAttr(tagOrAttrs: string, name: string): string | undefined {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const match = tagOrAttrs.match(new RegExp(`\\b${escapedName}=(?:"([^"]*)"|'([^']*)')`, "u"));
+  const value = match?.[1] ?? match?.[2];
+  return value ? decodeXml(value) : undefined;
+}
+
+function xmlTagText(xml: string, tag: string): string | undefined {
+  const escapedTag = tag.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const match = xml.match(new RegExp(`<${escapedTag}\\b[^>]*>([\\s\\S]*?)</${escapedTag}>`, "u"));
+  const text = match?.[1];
+  if (!text) {
+    return undefined;
+  }
+  const cleaned = text
+    .replace(/^<!\[CDATA\[/u, "")
+    .replace(/\]\]>$/u, "")
+    .replace(/<[^>]+>/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+  return cleaned ? decodeXml(cleaned) : undefined;
+}
+
+function decodeXml(value: string): string {
+  return value
+    .replace(/&quot;/gu, '"')
+    .replace(/&apos;/gu, "'")
+    .replace(/&lt;/gu, "<")
+    .replace(/&gt;/gu, ">")
+    .replace(/&amp;/gu, "&");
+}
+
 function dedupeJson<T>(items: readonly T[]): readonly T[] {
   const seen = new Set<string>();
   const deduped: T[] = [];
@@ -2070,4 +2333,17 @@ function confidenceRank(confidence: EvidenceConfidence): number {
 
 function markdownCell(value: string): string {
   return value.replace(/\|/gu, "\\|").replace(/\r?\n/gu, "<br>");
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/gu, "&amp;")
+    .replace(/</gu, "&lt;")
+    .replace(/>/gu, "&gt;")
+    .replace(/"/gu, "&quot;")
+    .replace(/'/gu, "&#39;");
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

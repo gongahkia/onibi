@@ -20,6 +20,7 @@ import {
 import {
   copyEvidenceWorkspaceBundle,
   evidenceWorkspaceSummary,
+  renderEvidenceWorkspaceHtml,
   type EvidenceWorkspaceSummary
 } from "@kelpclaw/evidence";
 import {
@@ -770,6 +771,12 @@ export async function exportAuditBundle(args: readonly string[]): Promise<AuditB
       join(bundleDir, "evidence-workspace")
     );
     copied.push(...evidenceCopy.files.map((file) => `evidence-workspace/${file}`));
+    await writeFile(
+      join(bundleDir, "evidence-workspace", "index.html"),
+      await renderEvidenceWorkspaceHtml(evidenceRoot),
+      "utf8"
+    );
+    copied.push("evidence-workspace/index.html");
     evidenceSummary = await evidenceWorkspaceSummary(evidenceRoot);
     await writeJson(join(bundleDir, "evidence-summary.json"), evidenceSummary);
     copied.push("evidence-summary.json");

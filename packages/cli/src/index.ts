@@ -18,7 +18,12 @@ import {
   addEvidenceFile,
   compareEvidenceWorkspaces,
   createEvidenceWorkspace,
+  importBurpEvidence,
+  importNessusEvidence,
+  importNmapEvidence,
+  importNucleiEvidence,
   importSarifEvidence,
+  importZapEvidence,
   loadEvidenceWorkspace,
   qaEvidenceWorkspace,
   renderEvidenceQaMarkdown,
@@ -346,8 +351,35 @@ export async function runEvidenceCommand(args: readonly string[]): Promise<JsonR
       const result = await importSarifEvidence(workspace, input);
       return { ok: true, ...result };
     }
+    case "import-nmap": {
+      const input = option(commandArgs, "--input") ?? requiredPositional(commandArgs, 0);
+      const result = await importNmapEvidence(workspace, input);
+      return { ok: true, ...result };
+    }
+    case "import-nuclei": {
+      const input = option(commandArgs, "--input") ?? requiredPositional(commandArgs, 0);
+      const result = await importNucleiEvidence(workspace, input);
+      return { ok: true, ...result };
+    }
+    case "import-burp": {
+      const input = option(commandArgs, "--input") ?? requiredPositional(commandArgs, 0);
+      const result = await importBurpEvidence(workspace, input);
+      return { ok: true, ...result };
+    }
+    case "import-zap": {
+      const input = option(commandArgs, "--input") ?? requiredPositional(commandArgs, 0);
+      const result = await importZapEvidence(workspace, input);
+      return { ok: true, ...result };
+    }
+    case "import-nessus": {
+      const input = option(commandArgs, "--input") ?? requiredPositional(commandArgs, 0);
+      const result = await importNessusEvidence(workspace, input);
+      return { ok: true, ...result };
+    }
     case "sign":
-      return signEvidenceWorkspace(workspace);
+      return signEvidenceWorkspace(workspace, {
+        ...(option(commandArgs, "--key-dir") ? { keyDir: option(commandArgs, "--key-dir") } : {})
+      });
     case "verify": {
       const result = await verifyEvidenceWorkspace(workspace, option(commandArgs, "--manifest"));
       if (!result.ok) {
@@ -393,7 +425,7 @@ export async function runEvidenceCommand(args: readonly string[]): Promise<JsonR
     }
     default:
       throw new Error(
-        "Usage: kelp-claw evidence <init|add|list|import-sarif|sign|verify|qa|retest> [--workspace .kelpclaw/evidence]"
+        "Usage: kelp-claw evidence <init|add|list|import-sarif|import-nmap|import-nuclei|import-burp|import-zap|import-nessus|sign|verify|qa|retest> [--workspace .kelpclaw/evidence]"
       );
   }
 }

@@ -7,8 +7,14 @@ import {
   compareEvidenceWorkspaces,
   createEvidenceWorkspace,
   evidenceWorkspaceSummary,
+  importBurpEvidence,
+  importNessusEvidence,
+  importNmapEvidence,
+  importNucleiEvidence,
   importSarifEvidence,
+  importZapEvidence,
   qaEvidenceWorkspace,
+  renderEvidenceWorkspaceHtml,
   signEvidenceWorkspace,
   verifyEvidenceWorkspace
 } from "../src/index.js";
@@ -53,6 +59,11 @@ describe("KelpClaw evidence workspace", () => {
       });
 
       const signed = await signEvidenceWorkspace(tempDir);
+      expect(signed).toMatchObject({
+        signaturePath: expect.stringContaining(".sig"),
+        publicKeyPath: expect.stringContaining(".pub.json"),
+        keyId: expect.stringMatching(/^sha256:/u)
+      });
       expect(signed.manifest.artifacts.map((artifact) => artifact.path)).toEqual(
         expect.arrayContaining([
           "workspace.json",
@@ -64,6 +75,12 @@ describe("KelpClaw evidence workspace", () => {
       await expect(verifyEvidenceWorkspace(tempDir)).resolves.toMatchObject({
         ok: true,
         manifestId: signed.manifest.manifestId,
+        signature: {
+          signed: true,
+          valid: true,
+          algorithm: "ed25519",
+          keyId: signed.keyId
+        },
         failures: []
       });
       await expect(evidenceWorkspaceSummary(tempDir)).resolves.toMatchObject({
@@ -77,6 +94,7 @@ describe("KelpClaw evidence workspace", () => {
       await appendFile(join(tempDir, "normalized", "findings.json"), "\n", "utf8");
       await expect(verifyEvidenceWorkspace(tempDir)).resolves.toMatchObject({
         ok: false,
+        signature: { signed: true, valid: true },
         failures: expect.arrayContaining([
           expect.objectContaining({
             path: "normalized/findings.json",
@@ -84,6 +102,52 @@ describe("KelpClaw evidence workspace", () => {
           })
         ])
       });
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("imports passive scanner outputs into normalized evidence findings", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-evidence-scanners-"));
+    const nmapPath = join(tempDir, "nmap.xml");
+    const nucleiPath = join(tempDir, "nuclei.jsonl");
+    const burpPath = join(tempDir, "burp.xml");
+    const zapPath = join(tempDir, "zap.json");
+    const nessusPath = join(tempDir, "nessus.xml");
+    await writeFile(nmapPath, nmapFixture(), "utf8");
+    await writeFile(nucleiPath, `${JSON.stringify(nucleiFixture())}\n`, "utf8");
+    await writeFile(burpPath, burpFixture(), "utf8");
+    await writeFile(zapPath, `${JSON.stringify(zapFixture(), null, 2)}\n`, "utf8");
+    await writeFile(nessusPath, nessusFixture(), "utf8");
+
+    try {
+      await createEvidenceWorkspace(tempDir);
+      await expect(importNmapEvidence(tempDir, nmapPath)).resolves.toMatchObject({
+        importedFindings: 1,
+        metadata: { format: "nmap" }
+      });
+      await expect(importNucleiEvidence(tempDir, nucleiPath)).resolves.toMatchObject({
+        importedFindings: 1,
+        metadata: { format: "nuclei" }
+      });
+      await expect(importBurpEvidence(tempDir, burpPath)).resolves.toMatchObject({
+        importedFindings: 1,
+        metadata: { format: "burp" }
+      });
+      await expect(importZapEvidence(tempDir, zapPath)).resolves.toMatchObject({
+        importedFindings: 1,
+        metadata: { format: "zap" }
+      });
+      await expect(importNessusEvidence(tempDir, nessusPath)).resolves.toMatchObject({
+        importedFindings: 1,
+        metadata: { format: "nessus" }
+      });
+
+      const summary = await evidenceWorkspaceSummary(tempDir);
+      expect(summary.findingCount).toBe(5);
+      const html = await renderEvidenceWorkspaceHtml(tempDir);
+      expect(html).toContain("KelpClaw Evidence Workspace");
+      expect(html).toContain("Open tcp/443 on 203.0.113.10");
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
