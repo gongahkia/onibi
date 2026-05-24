@@ -3283,7 +3283,7 @@ export function App() {
       <section className="workspace">
         <section
           className={detailsOpen ? "canvas-panel canvas-panel-details-open" : "canvas-panel"}
-          aria-label="Workflow graph"
+          aria-label="KelpClaw workspace"
         >
           <header className="canvas-header">
             <div className="workflow-header-card">
@@ -3316,32 +3316,36 @@ export function App() {
                 Commands
                 <kbd>⌘P</kbd>
               </button>
-              <button
-                className="status-popover-button"
-                type="button"
-                title="Show workflow status"
-                onClick={() => setStatusPopoverOpen((open) => !open)}
-              >
-                <Info size={18} />
-                {validationIssues.length > 0
-                  ? `${validationIssues.length} issues`
-                  : activeJob
-                    ? activeJob.status
-                    : (run?.status ?? "ready")}
-              </button>
-              <button
-                className="run-control-button"
-                title={runDisabledReason ?? "Run workflow"}
-                onClick={runWorkflow}
-                disabled={Boolean(runDisabledReason)}
-              >
-                <Play size={18} />
-                Run
-              </button>
+              {surfaceMode === "edit" ? (
+                <>
+                  <button
+                    className="status-popover-button"
+                    type="button"
+                    title="Show workflow status"
+                    onClick={() => setStatusPopoverOpen((open) => !open)}
+                  >
+                    <Info size={18} />
+                    {validationIssues.length > 0
+                      ? `${validationIssues.length} issues`
+                      : activeJob
+                        ? activeJob.status
+                        : (run?.status ?? "ready")}
+                  </button>
+                  <button
+                    className="run-control-button"
+                    title={runDisabledReason ?? "Run workflow"}
+                    onClick={runWorkflow}
+                    disabled={Boolean(runDisabledReason)}
+                  >
+                    <Play size={18} />
+                    Run
+                  </button>
+                </>
+              ) : null}
             </div>
           </header>
 
-          {selectedEdge ? (
+          {surfaceMode === "edit" && selectedEdge ? (
             <div className="edge-selection-bar" aria-label="Selected edge actions">
               <span>
                 Edge {selectedEdge.source.nodeId} → {selectedEdge.target.nodeId}
@@ -3361,7 +3365,7 @@ export function App() {
             </div>
           ) : null}
 
-          {statusPopoverOpen ? (
+          {surfaceMode === "edit" && statusPopoverOpen ? (
             <StatusPopover
               workflow={workflow}
               activeBranch={activeBranch}
@@ -3377,17 +3381,19 @@ export function App() {
             />
           ) : null}
 
-          <button
-            className="floating-add-button"
-            type="button"
-            aria-label="Add node"
-            title="Add node"
-            onClick={openNodeCreatePalette}
-          >
-            <Plus size={26} />
-          </button>
+          {surfaceMode === "edit" ? (
+            <button
+              className="floating-add-button"
+              type="button"
+              aria-label="Add node"
+              title="Add node"
+              onClick={openNodeCreatePalette}
+            >
+              <Plus size={26} />
+            </button>
+          ) : null}
 
-          {detailsOpen && (selectedNode || selectedEdge) ? (
+          {surfaceMode === "edit" && detailsOpen && (selectedNode || selectedEdge) ? (
             <aside className="details-drawer" aria-label="Details drawer">
               <Inspector
                 workflow={workflow}
@@ -3552,13 +3558,15 @@ export function App() {
               <Controls showInteractive={false} />
             </ReactFlow>
           )}
-          <div className="canvas-footer" aria-label="Canvas status">
-            <span>{workflow.nodes.length} nodes</span>
-            <span>{workflow.edges.length} edges</span>
-            <span>
-              {validationIssues.length > 0 ? `${validationIssues.length} issues` : "valid"}
-            </span>
-          </div>
+          {surfaceMode === "edit" ? (
+            <div className="canvas-footer" aria-label="Canvas status">
+              <span>{workflow.nodes.length} nodes</span>
+              <span>{workflow.edges.length} edges</span>
+              <span>
+                {validationIssues.length > 0 ? `${validationIssues.length} issues` : "valid"}
+              </span>
+            </div>
+          ) : null}
         </section>
       </section>
       <CommandPalette
@@ -3630,35 +3638,45 @@ function SkillGovernancePanel(props: {
     "attestation.json",
     "index.html"
   ];
+  const primaryCommand =
+    props.commands.find((command) => command.id === "run-skill") ?? props.commands[0];
+  const secondaryCommands = props.commands.filter((command) => command.id !== primaryCommand?.id);
 
   return (
     <section className="skill-governance-panel" aria-label="Skill governance">
-      <div className="skill-governance-sidebar">
-        <section className="skill-governance-section" aria-label="Skill audit inputs">
-          <header className="skill-governance-section-header">
-            <div>
-              <p className="eyebrow">Primary Surface</p>
-              <h2>Skill Audit</h2>
-            </div>
-            <ListChecks size={18} />
-          </header>
+      <section
+        className="skill-governance-section skill-governance-target"
+        aria-label="Skill audit inputs"
+      >
+        <header className="skill-governance-section-header">
+          <div>
+            <p className="eyebrow">Primary Surface</p>
+            <h2>Skill Audit</h2>
+          </div>
+          <ListChecks size={18} />
+        </header>
+        <div className="skill-governance-form">
+          <label>
+            SKILL.md path
+            <input
+              value={props.skillPath}
+              onChange={(event) => props.onSkillPathChange(event.target.value)}
+              placeholder="./SKILL.md"
+            />
+          </label>
+          <label>
+            Input JSON
+            <input
+              value={props.inputPath}
+              onChange={(event) => props.onInputPathChange(event.target.value)}
+              placeholder="input.json"
+            />
+          </label>
+        </div>
+
+        <details className="skill-settings-disclosure">
+          <summary>Run settings</summary>
           <div className="skill-governance-form">
-            <label>
-              SKILL.md path
-              <input
-                value={props.skillPath}
-                onChange={(event) => props.onSkillPathChange(event.target.value)}
-                placeholder="./SKILL.md"
-              />
-            </label>
-            <label>
-              Input JSON
-              <input
-                value={props.inputPath}
-                onChange={(event) => props.onInputPathChange(event.target.value)}
-                placeholder="input.json"
-              />
-            </label>
             <label>
               Policy pack
               <select
@@ -3702,65 +3720,71 @@ function SkillGovernancePanel(props: {
               />
             </label>
           </div>
-        </section>
+        </details>
 
-        <section className="skill-governance-section" aria-label="Workflow surfaces">
-          <header className="skill-governance-section-header">
-            <div>
-              <p className="eyebrow">Secondary Surfaces</p>
-              <h2>Builder And Policy</h2>
-            </div>
-            <FileStack size={18} />
-          </header>
-          <div className="skill-surface-actions">
-            <button type="button" onClick={props.onOpenWorkflowGraph}>
-              Workflow Graph
-            </button>
-            <button type="button" onClick={props.onOpenPolicyEditor}>
-              Policy Editor
-            </button>
-          </div>
-          <p className="skill-governance-note">
-            Use the graph when you need drag-and-drop workflow composition. Use this screen when you
-            need SKILL.md compatibility, policy decisions, replay, and reviewable evidence.
-          </p>
-        </section>
-      </div>
+        <div className="skill-surface-actions" aria-label="Related surfaces">
+          <button type="button" onClick={props.onOpenWorkflowGraph}>
+            <FileStack size={16} />
+            Open Graph
+          </button>
+          <button type="button" onClick={props.onOpenPolicyEditor}>
+            Open Policy
+          </button>
+        </div>
+      </section>
 
       <div className="skill-governance-main">
         <section
-          className="skill-governance-section skill-command-section"
-          aria-label="Command sequence"
+          className="skill-governance-section skill-primary-command"
+          aria-label="Primary skill command"
         >
           <header className="skill-governance-section-header">
             <div>
-              <p className="eyebrow">CLI Handoff</p>
-              <h2>Command Sequence</h2>
+              <p className="eyebrow">Next Step</p>
+              <h2>{primaryCommand?.label ?? "Run Skill"}</h2>
             </div>
           </header>
+          <pre>
+            {primaryCommand?.command ?? "kelp-claw run-skill ./SKILL.md --input input.json"}
+          </pre>
+          <p className="skill-governance-note">
+            This is the primary path for local review. Expand the sections below when you need setup
+            checks, policy explanation, replay diff, or reviewer bundle details.
+          </p>
+        </section>
+
+        <details className="skill-governance-section skill-command-disclosure">
+          <summary>
+            <span>
+              <span className="eyebrow">CLI Handoff</span>
+              <strong>Review Commands</strong>
+            </span>
+            <span>{secondaryCommands.length} commands</span>
+          </summary>
           <ol className="skill-command-list">
-            {props.commands.map((command) => (
+            {secondaryCommands.map((command) => (
               <li key={command.id} className="skill-command-row">
                 <span>{command.label}</span>
                 <pre>{command.command}</pre>
               </li>
             ))}
           </ol>
-        </section>
+        </details>
 
-        <section className="skill-governance-section" aria-label="Audit bundle contents">
-          <header className="skill-governance-section-header">
-            <div>
-              <p className="eyebrow">Reviewer Handoff</p>
-              <h2>Static Audit Bundle</h2>
-            </div>
-          </header>
+        <details className="skill-governance-section skill-handoff-disclosure">
+          <summary>
+            <span>
+              <span className="eyebrow">Reviewer Handoff</span>
+              <strong>Audit Bundle Files</strong>
+            </span>
+            <span>{handoffArtifacts.length} files</span>
+          </summary>
           <div className="skill-handoff-grid">
             {handoffArtifacts.map((artifact) => (
               <code key={artifact}>{artifact}</code>
             ))}
           </div>
-        </section>
+        </details>
       </div>
     </section>
   );

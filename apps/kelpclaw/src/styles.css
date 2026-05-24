@@ -1363,7 +1363,7 @@ dd {
 }
 
 .skill-governance-panel {
-  grid-template-columns: minmax(270px, 360px) minmax(0, 1fr);
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
 }
 
 .trajectory-run-list,
@@ -1375,7 +1375,6 @@ dd {
   border-radius: 8px;
 }
 
-.skill-governance-sidebar,
 .skill-governance-main,
 .skill-governance-section,
 .skill-governance-form,
@@ -1386,20 +1385,24 @@ dd {
   min-width: 0;
 }
 
-.skill-governance-sidebar,
 .skill-governance-main,
 .skill-command-section {
   min-height: 0;
 }
 
 .skill-governance-main {
-  grid-template-rows: minmax(0, 1fr) auto;
+  align-content: start;
+  grid-template-rows: auto auto auto;
 }
 
 .skill-governance-section {
   align-content: start;
   overflow: hidden;
   padding: 0.9rem;
+}
+
+.skill-governance-target {
+  align-self: start;
 }
 
 .skill-command-section {
@@ -1425,6 +1428,7 @@ dd {
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem;
+  padding-top: 0.1rem;
 }
 
 .skill-surface-actions button:first-child {
@@ -1440,10 +1444,93 @@ dd {
   margin: 0;
 }
 
+.skill-settings-disclosure,
+.skill-command-disclosure,
+.skill-handoff-disclosure {
+  min-width: 0;
+}
+
+.skill-settings-disclosure summary,
+.skill-command-disclosure summary,
+.skill-handoff-disclosure summary {
+  align-items: center;
+  color: #d8dce5;
+  cursor: pointer;
+  display: flex;
+  font-size: 0.8rem;
+  font-weight: 760;
+  gap: 0.75rem;
+  justify-content: space-between;
+  list-style: none;
+  min-height: 2.25rem;
+}
+
+.skill-settings-disclosure summary::-webkit-details-marker,
+.skill-command-disclosure summary::-webkit-details-marker,
+.skill-handoff-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.skill-settings-disclosure summary::after,
+.skill-command-disclosure summary::after,
+.skill-handoff-disclosure summary::after {
+  color: #aeb4c2;
+  content: "+";
+  font-size: 1.1rem;
+  font-weight: 640;
+}
+
+.skill-settings-disclosure[open] summary::after,
+.skill-command-disclosure[open] summary::after,
+.skill-handoff-disclosure[open] summary::after {
+  content: "−";
+}
+
+.skill-settings-disclosure .skill-governance-form,
+.skill-command-disclosure .skill-command-list,
+.skill-handoff-disclosure .skill-handoff-grid {
+  margin-top: 0.7rem;
+}
+
+.skill-command-disclosure summary > span:first-child,
+.skill-handoff-disclosure summary > span:first-child {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.skill-command-disclosure summary > span:last-child,
+.skill-handoff-disclosure summary > span:last-child {
+  color: #aeb4c2;
+  font-size: 0.74rem;
+  font-weight: 720;
+}
+
+.skill-primary-command {
+  gap: 0.75rem;
+}
+
+.skill-primary-command pre {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 7px;
+  color: #d7e2ff;
+  font:
+    0.84rem/1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  margin: 0;
+  overflow: auto;
+  padding: 0.85rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .skill-command-list {
   counter-reset: skill-command;
   list-style: none;
   margin: 0;
+  max-height: min(420px, 48vh);
   overflow: auto;
   padding: 0;
 }

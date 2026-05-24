@@ -57,7 +57,9 @@ describe("KelpClaw planner shell", () => {
     expect(screen.queryByRole("button", { name: /^Plan$/i })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Skill Audit" })).toBeInTheDocument();
     expect(screen.getByLabelText("SKILL.md path")).toHaveValue("./SKILL.md");
-    expect(screen.getByRole("button", { name: "Add node" })).toBeEnabled();
+    expect(screen.getByText("Review Commands")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add node" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Canvas status")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Commands/i })).toBeEnabled();
     expect(screen.queryByRole("button", { name: /Accept Plan/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Evaluate/i })).not.toBeInTheDocument();
@@ -174,6 +176,7 @@ describe("KelpClaw planner shell", () => {
   it("adds and deletes nodes on the canvas", async () => {
     render(<App />);
 
+    fireEvent.click(screen.getByRole("button", { name: "Graph" }));
     fireEvent.click(screen.getByRole("button", { name: "Add node" }));
     fireEvent.change(await screen.findByRole("textbox", { name: "Command palette" }), {
       target: { value: "Generated Code" }
