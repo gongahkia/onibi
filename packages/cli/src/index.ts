@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { constants as fsConstants } from "node:fs";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import {
   createPromotedSkillOtlpTracePayload,
   exportOtlpTraces,
@@ -61,6 +62,15 @@ import {
 } from "./skill-runner.js";
 
 type JsonRecord = Record<string, unknown>;
+type DoctorStatus = "pass" | "warn" | "fail";
+
+interface DoctorCheck {
+  readonly id: string;
+  readonly status: DoctorStatus;
+  readonly required: boolean;
+  readonly message: string;
+  readonly details?: JsonRecord | undefined;
+}
 
 const apiBaseUrl = process.env.KELPCLAW_API_URL ?? "http://127.0.0.1:8787";
 const apiToken = process.env.KELPCLAW_API_TOKEN ?? process.env.KELPCLAW_ADMIN_TOKEN;
@@ -68,6 +78,15 @@ const apiToken = process.env.KELPCLAW_API_TOKEN ?? process.env.KELPCLAW_ADMIN_TO
 async function main(argv: readonly string[]): Promise<void> {
   const [command, ...args] = argv;
   switch (command) {
+    case undefined:
+    case "help":
+    case "--help":
+    case "-h":
+      return printJson(runHelpCommand());
+    case "doctor":
+      return printJson(await runDoctorCommand(args));
+    case "demo":
+      return printJson(await runDemoCommand(args));
     case "start-recording":
       return printJson(
         await postJson("/api/agent-runs", {
@@ -235,7 +254,7 @@ async function main(argv: readonly string[]): Promise<void> {
       return runMcp(args);
     default:
       throw new Error(
-        "Usage: kelp-claw <run-skill|compat|compat-report|policy|governance|web|evidence|inventory|audit-key|export-audit-bundle|export-sarif|verify-audit-bundle|replay-diff|start-recording|record-step|stop-recording|approve-step|deny-step|promote|mcp|audit-verify|audit-anchor|tbom-export|mint-role-token|inspect-role-token|verify-claude-code|otlp-smoke|cross-agent-replay-smoke>"
+        "Usage: kelp-claw <help|doctor|demo|run-skill|compat|compat-report|policy|governance|web|evidence|inventory|audit-key|export-audit-bundle|export-sarif|verify-audit-bundle|replay-diff|start-recording|record-step|stop-recording|approve-step|deny-step|promote|mcp|audit-verify|audit-anchor|tbom-export|mint-role-token|inspect-role-token|verify-claude-code|otlp-smoke|cross-agent-replay-smoke>"
       );
   }
 }
@@ -256,6 +275,432 @@ export {
   runSkill,
   verifyAuditBundle
 } from "./skill-runner.js";
+
+export function runHelpCommand(): JsonRecord {
+  return {
+    ok: true,
+    name: "kelp-claw",
+    description:
+      "Agent Skill Governance Framework with policy, sandboxing, replay, evidence, and audit.",
+    usage: "kelp-claw <command> [options]",
+    workflows: [
+      {
+        name: "Assess a skill",
+        commands: [
+          "kelp-claw compat ./SKILL.md --policy baseline",
+          "kelp-claw policy explain ./SKILL.md --policy baseline",
+          "kelp-claw governance report ./SKILL.md --region sg --framework agentic-ai"
+        ]
+      },
+      {
+        name: "Run and export evidence",
+        commands: [
+          "kelp-claw run-skill ./SKILL.md --input input.json --policy baseline",
+          "kelp-claw export-audit-bundle <runId> --include-governance --include-controls --include-sarif",
+          "kelp-claw verify-audit-bundle .kelpclaw/audit-bundles/<runId> --strict"
+        ]
+      },
+      {
+        name: "One-command demo",
+        commands: ["kelp-claw demo governance --out .kelpclaw/demo/governance"]
+      }
+    ],
+    commands: [
+      {
+        group: "adoption",
+        entries: ["help", "doctor", "demo governance", "compat", "policy explain"]
+      },
+      {
+        group: "runtime",
+        entries: ["run-skill", "replay-diff", "verify-claude-code", "cross-agent-replay-smoke"]
+      },
+      {
+        group: "governance",
+        entries: ["governance report", "governance controls", "export-sarif", "inventory coverage"]
+      },
+      {
+        group: "evidence",
+        entries: ["web search", "web fetch", "evidence import-sarif", "evidence sign"]
+      },
+      {
+        group: "handoff",
+        entries: ["export-audit-bundle", "verify-audit-bundle", "audit-key init"]
+      }
+    ]
+  };
+}
+
+export async function runDoctorCommand(args: readonly string[] = []): Promise<JsonRecord> {
+  const root = resolve(option(args, "--root") ?? ".");
+  const checks = [
+    nodeVersionCheck(),
+    await writableDirectoryCheck(root),
+    policyPackCheck("baseline"),
+    policyPackCheck("sg-agentic-ai-baseline"),
+    policyPackCheck("sg-pdpa-strict"),
+    policyPackCheck("web-search-safe"),
+    await commandCheck("git", ["--version"], { required: true }),
+    await commandCheck(option(args, "--codex-bin") ?? "codex", ["--version"], {
+      required: false,
+      id: "codex-cli"
+    }),
+    envCheck("EXA_API_KEY", { required: false }),
+    envCheck("TINYFISH_API_KEY", { required: false }),
+    envCheck("KELPCLAW_API_URL", { required: false })
+  ];
+  const ok = checks.every((check) => check.status !== "fail");
+  return {
+    ok,
+    root,
+    checks,
+    recommendations: doctorRecommendations(checks)
+  };
+}
+
+export async function runDemoCommand(args: readonly string[]): Promise<JsonRecord> {
+  const [command, ...commandArgs] = args;
+  if (command !== "governance") {
+    throw new Error("Usage: kelp-claw demo governance [--out .kelpclaw/demo/governance]");
+  }
+  const outDir = resolve(option(commandArgs, "--out") ?? ".kelpclaw/demo/governance");
+  const runId = option(commandArgs, "--run-id") ?? "skill-run.demo-governance";
+  const policy = option(commandArgs, "--policy") ?? "sg-agentic-ai-baseline";
+  const region = option(commandArgs, "--region") ?? "sg";
+  const framework = option(commandArgs, "--framework") ?? "agentic-ai";
+  const skillDir = join(outDir, "skill");
+  const skillPath = join(skillDir, "SKILL.md");
+  const inputPath = join(outDir, "input.json");
+  const runsDir = join(outDir, "runs");
+  const bundleDir = join(outDir, "audit-bundle");
+  const evidenceDir = join(outDir, "evidence");
+  const notePath = join(outDir, "operator-note.txt");
+  const sarifPath = join(outDir, "findings.sarif");
+
+  await writeTextWithParents(skillPath, demoGovernanceSkillMd());
+  await writeTextWithParents(
+    inputPath,
+    JSON.stringify({ repository: "demo", requestedBy: "kelp-claw demo governance" }, null, 2)
+  );
+  await writeTextWithParents(notePath, "Demo operator note for governance evidence.");
+  await writeTextWithParents(sarifPath, JSON.stringify(demoSarifFixture(), null, 2));
+
+  await createEvidenceWorkspace(evidenceDir, {
+    client: "KelpClaw Demo",
+    project: "Agent Skill Governance",
+    scope: ["demo:governance"]
+  });
+  await addEvidenceFile(evidenceDir, {
+    filePath: notePath,
+    kind: "note",
+    title: "Demo operator note",
+    sensitivity: "internal",
+    tags: ["demo", "governance"]
+  });
+  const imported = await importSarifEvidence(evidenceDir, sarifPath);
+  const evidenceSignature = await signEvidenceWorkspace(evidenceDir);
+  const evidenceVerification = await verifyEvidenceWorkspace(evidenceDir);
+  const run = await runSkill([
+    skillPath,
+    "--input",
+    inputPath,
+    "--run-id",
+    runId,
+    "--runs-dir",
+    runsDir,
+    "--policy",
+    policy
+  ]);
+  const governance = await governanceReport([
+    runId,
+    "--runs-dir",
+    runsDir,
+    "--include-evidence",
+    evidenceDir,
+    "--region",
+    region,
+    "--framework",
+    framework
+  ]);
+  const bundle = await exportAuditBundle([
+    runId,
+    "--runs-dir",
+    runsDir,
+    "--out",
+    bundleDir,
+    "--include-evidence",
+    evidenceDir,
+    "--include-governance",
+    "--include-controls",
+    "--include-sarif",
+    "--region",
+    region,
+    "--framework",
+    framework
+  ]);
+  const verification = await verifyAuditBundle([bundleDir, "--strict"]);
+  const ok = run.ok && evidenceVerification.ok && verification.ok;
+  if (!ok) {
+    process.exitCode = 1;
+  }
+  return {
+    ok,
+    outDir,
+    runId,
+    policy,
+    region,
+    framework,
+    files: {
+      skill: skillPath,
+      input: inputPath,
+      evidenceWorkspace: evidenceDir,
+      auditBundle: bundleDir,
+      bundleIndex: join(bundleDir, "index.html"),
+      governanceReport: join(bundleDir, "governance-report.json"),
+      controls: join(bundleDir, "controls.md"),
+      sarif: join(bundleDir, "findings.sarif")
+    },
+    evidence: {
+      importedFindings: imported.importedFindings,
+      manifest: evidenceSignature.manifestPath,
+      verified: evidenceVerification.ok
+    },
+    run,
+    governance: {
+      autonomyTier: governance.autonomyTier,
+      findingCount: governance.findings.length,
+      controls: governance.controls
+    },
+    bundle,
+    verification
+  };
+}
+
+function nodeVersionCheck(): DoctorCheck {
+  const minimum = "20.19.0";
+  const actual = process.versions.node;
+  const ok = versionAtLeast(actual, minimum);
+  return {
+    id: "node-version",
+    status: ok ? "pass" : "fail",
+    required: true,
+    message: ok
+      ? `Node.js ${actual} satisfies >=${minimum}.`
+      : `Node.js ${actual} is below the required >=${minimum}.`,
+    details: { actual, minimum }
+  };
+}
+
+async function writableDirectoryCheck(root: string): Promise<DoctorCheck> {
+  try {
+    await mkdir(root, { recursive: true });
+    await access(root, fsConstants.W_OK);
+    return {
+      id: "workspace-writable",
+      status: "pass",
+      required: true,
+      message: `Workspace root is writable: ${root}.`,
+      details: { root }
+    };
+  } catch (error) {
+    return {
+      id: "workspace-writable",
+      status: "fail",
+      required: true,
+      message: `Workspace root is not writable: ${root}.`,
+      details: { root, error: error instanceof Error ? error.message : String(error) }
+    };
+  }
+}
+
+function policyPackCheck(name: string): DoctorCheck {
+  try {
+    const pack = requirePolicyPack(name);
+    return {
+      id: `policy-pack:${name}`,
+      status: "pass",
+      required: true,
+      message: `Policy pack '${name}' is available.`,
+      details: { name: pack.name, ruleCount: pack.ruleset.rules.length }
+    };
+  } catch (error) {
+    return {
+      id: `policy-pack:${name}`,
+      status: "fail",
+      required: true,
+      message: `Policy pack '${name}' is not available.`,
+      details: { error: error instanceof Error ? error.message : String(error) }
+    };
+  }
+}
+
+async function commandCheck(
+  command: string,
+  args: readonly string[],
+  options: { readonly required: boolean; readonly id?: string | undefined }
+): Promise<DoctorCheck> {
+  const id = options.id ?? `command:${command}`;
+  return new Promise<DoctorCheck>((resolveCheck) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const finish = (check: DoctorCheck): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      resolveCheck(check);
+    };
+    const child = spawn(command, [...args], { stdio: "ignore" });
+    timer = setTimeout(() => {
+      child.kill();
+      finish({
+        id,
+        status: options.required ? "fail" : "warn",
+        required: options.required,
+        message: `Command '${command}' timed out.`,
+        details: { command, args }
+      });
+    }, 2500);
+
+    child.on("error", (error) => {
+      finish({
+        id,
+        status: options.required ? "fail" : "warn",
+        required: options.required,
+        message: options.required
+          ? `Required command '${command}' is unavailable.`
+          : `Optional command '${command}' is unavailable.`,
+        details: { command, args, error: error.message }
+      });
+    });
+    child.on("exit", (code, signal) => {
+      const ok = code === 0;
+      finish({
+        id,
+        status: ok ? "pass" : options.required ? "fail" : "warn",
+        required: options.required,
+        message: ok
+          ? `Command '${command}' is available.`
+          : `Command '${command}' exited with ${signal ?? code ?? "unknown status"}.`,
+        details: { command, args, exitCode: code, signal }
+      });
+    });
+  });
+}
+
+function envCheck(name: string, options: { readonly required: boolean }): DoctorCheck {
+  const present = Boolean(process.env[name]);
+  return {
+    id: `env:${name}`,
+    status: present ? "pass" : options.required ? "fail" : "warn",
+    required: options.required,
+    message: present
+      ? `${name} is configured.`
+      : options.required
+        ? `${name} is required but not configured.`
+        : `${name} is not configured; related live integrations will use mocks or be skipped.`,
+    details: { name, present }
+  };
+}
+
+function doctorRecommendations(checks: readonly DoctorCheck[]): readonly string[] {
+  const recommendations = new Set<string>();
+  if (checks.some((check) => check.id === "codex-cli" && check.status !== "pass")) {
+    recommendations.add("Install or pass --codex-bin for live Codex CLI wrapper demos.");
+  }
+  if (checks.some((check) => check.id === "env:EXA_API_KEY" && check.status !== "pass")) {
+    recommendations.add("Set EXA_API_KEY to run governed Exa search/fetch evidence live.");
+  }
+  if (checks.some((check) => check.id === "env:TINYFISH_API_KEY" && check.status !== "pass")) {
+    recommendations.add("Set TINYFISH_API_KEY to run governed TinyFish browser evidence live.");
+  }
+  if (checks.some((check) => check.id === "env:KELPCLAW_API_URL" && check.status !== "pass")) {
+    recommendations.add("Set KELPCLAW_API_URL only when recording against a running API server.");
+  }
+  for (const check of checks) {
+    if (check.status === "fail") {
+      recommendations.add(`Resolve failed readiness check: ${check.id}.`);
+    }
+  }
+  return [...recommendations];
+}
+
+function versionAtLeast(actual: string, minimum: string): boolean {
+  const actualParts = actual.split(".").map((part) => Number.parseInt(part, 10));
+  const minimumParts = minimum.split(".").map((part) => Number.parseInt(part, 10));
+  for (let index = 0; index < Math.max(actualParts.length, minimumParts.length); index += 1) {
+    const actualPart = actualParts[index] ?? 0;
+    const minimumPart = minimumParts[index] ?? 0;
+    if (actualPart > minimumPart) {
+      return true;
+    }
+    if (actualPart < minimumPart) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function demoGovernanceSkillMd(): string {
+  return `---
+name: demo-governance-skill
+description: Reads local input and writes a governance summary.
+tools: [Read]
+---
+
+# Demo Governance Skill
+
+Read the provided input JSON and summarize governance-relevant facts for audit review.
+`;
+}
+
+function demoSarifFixture(): JsonRecord {
+  return {
+    version: "2.1.0",
+    $schema: "https://json.schemastore.org/sarif-2.1.0.json",
+    runs: [
+      {
+        tool: {
+          driver: {
+            name: "KelpClaw Demo Scanner",
+            informationUri: "https://github.com/gongahkia/kelp-claw",
+            rules: [
+              {
+                id: "KC-DEMO-001",
+                name: "demo-review-note",
+                shortDescription: { text: "Demo review note" },
+                fullDescription: {
+                  text: "A low-severity sample finding used to demonstrate portable audit bundles."
+                },
+                defaultConfiguration: { level: "note" }
+              }
+            ]
+          }
+        },
+        results: [
+          {
+            ruleId: "KC-DEMO-001",
+            level: "note",
+            message: {
+              text: "Demo finding imported into the evidence workspace."
+            },
+            locations: [
+              {
+                physicalLocation: {
+                  artifactLocation: { uri: "skill/SKILL.md" },
+                  region: { startLine: 1 }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  };
+}
 
 export async function runWebCommand(args: readonly string[]): Promise<JsonRecord> {
   const [command, ...commandArgs] = args;

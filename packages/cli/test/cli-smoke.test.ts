@@ -14,7 +14,10 @@ import {
   inventoryScan,
   policyExplain,
   replayDiff,
+  runDemoCommand,
   runEvidenceCommand,
+  runDoctorCommand,
+  runHelpCommand,
   runWebCommand,
   runCrossAgentReplaySmoke,
   runOtlpSmoke,
@@ -30,6 +33,49 @@ afterEach(() => {
 });
 
 describe("kelp-claw smoke commands", () => {
+  it("reports CLI help and local readiness checks for product demos", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-doctor-"));
+
+    try {
+      const help = runHelpCommand();
+      expect(help).toMatchObject({
+        ok: true,
+        name: "kelp-claw",
+        usage: "kelp-claw <command> [options]"
+      });
+      expect(help.commands).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            group: "adoption",
+            entries: expect.arrayContaining(["doctor", "demo governance"])
+          })
+        ])
+      );
+
+      const doctor = await runDoctorCommand([
+        "--root",
+        tempDir,
+        "--codex-bin",
+        join(tempDir, "missing-codex")
+      ]);
+      expect(doctor).toMatchObject({
+        ok: true,
+        root: tempDir,
+        checks: expect.arrayContaining([
+          expect.objectContaining({ id: "node-version", status: "pass" }),
+          expect.objectContaining({ id: "workspace-writable", status: "pass" }),
+          expect.objectContaining({ id: "policy-pack:sg-agentic-ai-baseline", status: "pass" }),
+          expect.objectContaining({ id: "codex-cli", status: "warn", required: false })
+        ])
+      });
+      expect(doctor.recommendations).toEqual(
+        expect.arrayContaining(["Install or pass --codex-bin for live Codex CLI wrapper demos."])
+      );
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("summarizes equivalent replay shapes across agent sources", () => {
     const result = runCrossAgentReplaySmoke();
 
@@ -790,6 +836,46 @@ Read local evidence and summarize findings.
           }
         ])
       );
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("runs the one-command governance demo into a portable audit handoff", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-demo-governance-"));
+    const outDir = join(tempDir, "demo");
+
+    try {
+      const demo = await runDemoCommand([
+        "governance",
+        "--out",
+        outDir,
+        "--run-id",
+        "skill-run.demo-test"
+      ]);
+      expect(demo).toMatchObject({
+        ok: true,
+        outDir,
+        runId: "skill-run.demo-test",
+        policy: "sg-agentic-ai-baseline",
+        evidence: {
+          importedFindings: 1,
+          verified: true
+        },
+        verification: {
+          ok: true,
+          strict: true
+        }
+      });
+      await expect(readFile(join(outDir, "audit-bundle", "index.html"), "utf8")).resolves.toContain(
+        "KelpClaw Audit Bundle"
+      );
+      await expect(
+        readFile(join(outDir, "audit-bundle", "evidence-workspace", "index.html"), "utf8")
+      ).resolves.toContain("KelpClaw Evidence Workspace");
+      await expect(
+        readFile(join(outDir, "audit-bundle", "governance-report.json"), "utf8")
+      ).resolves.toContain("demo-governance-skill");
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

@@ -4,263 +4,11 @@
   </a>
 </p>
 
-<h1 align="center">Piranesi</h1>
+KelpClaw is an Agent Skill Governance Framework with policy, sandboxing, replay, evidence, and audit.
 
-<p align="center">
-  <strong>Local-first red-team engagement workspace.</strong>
-</p>
+Its core adoption path is simple: run any `SKILL.md`, evaluate it against policy packs, capture replayable execution evidence, and export a static audit bundle that security, compliance, and platform teams can review without running KelpClaw.
 
-<p align="center">
-  <a href="https://github.com/gongahkia/piranesi/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/gongahkia/piranesi/actions/workflows/ci.yml/badge.svg" /></a>
-  <a href="https://github.com/gongahkia/piranesi/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" /></a>
-  <a href="https://github.com/gongahkia/piranesi"><img alt="Status" src="https://img.shields.io/badge/status-alpha-orange?style=flat-square" /></a>
-</p>
-
----
-
-Piranesi turns authorized red-team engagement artifacts into local, reviewable
-deliverables: preserved evidence, normalized findings, report artifacts, retest diffs,
-and signed chain-of-custody manifests. It is not a scanner, C2 platform, SaaS portal,
-fleet manager, or automated compliance engine. You bring operator artifacts and tool
-output; Piranesi keeps the evidence local and produces artifacts a team can inspect,
-sign, preview, and hand off.
-
-`v0.2.0` is the pivot release. The documented Phase 1 workflow is intentionally
-small, with scanner imports retained as one evidence source:
-
-```text
-piranesi evidence
-piranesi agent
-piranesi ingest
-piranesi report
-piranesi rescan
-piranesi retest
-piranesi sign
-piranesi serve
-```
-
-Historical host-posture, source-code scanning, infrastructure, and workflow docs are
-retained only as legacy context. They are not current product guidance unless a
-future roadmap issue explicitly reintroduces them.
-
-## Why Piranesi
-
-Consultants already run tools such as nmap, nuclei, Burp, ZAP, Nessus, ffuf, and
-sqlmap. The slow work comes later: preserving evidence, deduplicating findings,
-writing reports, tracking retests, proving provenance, and handing off artifacts
-without leaking client data.
-
-Piranesi focuses on that artifact layer:
-
-- **Import-only by default:** normal workflows do not run active scans or payloads;
-  `rescan` is an explicit replay path for already ingested scanner evidence.
-- **Agent-pluggable:** external pentest or triage agents can be invoked through
-  `piranesi agent run`, receive scoped context, and return validated PFF findings
-  plus local evidence.
-- **Operator-evidence aware:** screenshots, transcripts, logs, and other artifacts can
-  be preserved in the local evidence vault from the CLI or browser UI.
-- **Evidence-bound:** findings cite raw tool exports, source digests, and locators.
-- **Local-first:** workspaces, reports, signatures, and previews stay on disk.
-- **Deterministic:** normalized IDs and contract snapshots make reports reproducible.
-- **Reviewable:** Markdown, JSON, PDF, handoff archives, retest output, and signatures
-  are inspectable.
-
-## Red-Team Workspace Flow
-
-```mermaid
-flowchart LR
-  A["Operator evidence"] --> B["Evidence vault"]
-  C["Scanner exports"] --> D["Normalized findings"]
-  B --> E["Timeline, objectives, procedures"]
-  D --> F["Report and handoff archive"]
-  E --> F
-  F --> G["Signed local deliverable"]
-```
-
-Scanner imports are one evidence source. The broader workspace also tracks operator
-notes, screenshots, transcripts, C2-style logs, objectives, procedures, detection
-handoff notes, report artifacts, and custody manifests.
-
-## Quick Start
-
-From a source checkout:
-
-```bash
-uv sync
-uv run piranesi ingest init --workspace ./workspace \
-  --client "Example Client" \
-  --project "Loopback Lab" \
-  --scope 127.0.0.1
-printf "Initial operator note\n" > operator-note.txt
-uv run piranesi evidence add \
-  --file operator-note.txt \
-  --kind note \
-  --workspace ./workspace \
-  --title "Initial operator note"
-uv run piranesi ingest nmap \
-  --input tests/fixtures/pentest/nmap/localhost-http.xml \
-  --workspace ./workspace
-uv run piranesi ingest nuclei \
-  --input tests/fixtures/pentest/nuclei/localhost-http.jsonl \
-  --workspace ./workspace
-uv run piranesi ingest burp \
-  --input tests/fixtures/pentest/burp/lab-issues.xml \
-  --workspace ./workspace
-uv run piranesi ingest zap \
-  --input tests/fixtures/pentest/zap/localhost-alerts.json \
-  --workspace ./workspace
-uv run piranesi ingest nessus \
-  --input tests/fixtures/pentest/nessus/localhost-web.nessus \
-  --workspace ./workspace
-uv run piranesi ingest sarif \
-  --input tests/fixtures/pentest/sarif/local-sast.sarif.json \
-  --workspace ./workspace
-uv run piranesi ingest ffuf \
-  --input tests/fixtures/pentest/ffuf/localhost-discovery.json \
-  --workspace ./workspace
-uv run piranesi ingest sqlmap \
-  --input tests/fixtures/pentest/sqlmap/localhost-sqli.json \
-  --workspace ./workspace
-uv run piranesi ingest metasploit \
-  --input tests/fixtures/pentest/metasploit/local-evidence.json \
-  --workspace ./workspace
-uv run piranesi ingest c2 \
-  --input tests/fixtures/redteam/c2/mock-c2-events.jsonl \
-  --workspace ./workspace \
-  --title "Mock C2 event log"
-uv run piranesi report --workspace ./workspace --format md
-uv run piranesi report \
-  --workspace ./workspace \
-  --type red-team \
-  --format archive \
-  --include-raw-evidence
-uv run piranesi sign --workspace ./workspace
-uv run piranesi serve --workspace ./workspace
-```
-
-Connect an existing external pentest or triage agent once, then invoke it through
-Piranesi:
-
-```bash
-uv run piranesi agent presets
-uv run piranesi agent add --workspace ./workspace --preset codex
-uv run piranesi agent add \
-  --workspace ./workspace \
-  --name team-agent \
-  --command 'team-agent triage --context {context} --manifest {manifest}' \
-  --check-command 'team-agent --version' \
-  --login-command 'team-agent login'
-uv run piranesi agent add \
-  --workspace ./workspace \
-  --preset cloud-http \
-  --name cloud-triage \
-  --remote-url https://agent.example.test/run \
-  --remote-auth-env TEAM_AGENT_TOKEN
-uv run piranesi agent check --workspace ./workspace --agent team-agent
-uv run piranesi agent login --workspace ./workspace --agent team-agent
-uv run piranesi agent run \
-  --workspace ./workspace \
-  --agent team-agent \
-  --approved-by operator@example.test \
-  --approval-reference ROE-1234 \
-  --live
-```
-
-Built-in presets cover OpenClaw, Claude Code, Codex CLI, and generic HTTPS
-cloud agents. `agent login` runs OAuth-capable CLI login commands or verifies an
-API-key environment variable without storing the secret. If an agent can only
-print prose, run with `--prose-fallback` to preserve stdout/stderr as evidence
-without inventing structured findings.
-
-If the agent ran outside the wrapper, import its local manifest directly with
-`uv run piranesi agent validate-run --manifest agent-run.json` and
-`uv run piranesi agent import-run --workspace ./workspace --manifest agent-run.json`.
-
-Generate a PDF with the deterministic fallback renderer:
-
-```bash
-uv run piranesi report \
-  --workspace ./workspace \
-  --format pdf \
-  --pdf-backend reportlab
-```
-
-Compare two workspace snapshots after a retest:
-
-```bash
-uv run piranesi retest \
-  --baseline ./workspace-before \
-  --current ./workspace-after \
-  --output retest.json
-```
-
-Verify a signed workspace manifest:
-
-```bash
-uv run piranesi sign --workspace ./workspace --verify
-```
-
-Optional rescan/runtime support is intentionally separate from the default install:
-
-```bash
-uv sync --extra rescan
-```
-
-Replay previously ingested nmap or nuclei evidence into a new workspace:
-
-```bash
-uv run piranesi rescan \
-  --from-baseline ./workspace-before \
-  --output-workspace ./workspace-after \
-  --dry-run
-```
-
-Execution requires digest-pinned images and an explicit network-policy
-acknowledgement until scoped egress enforcement lands:
-
-```bash
-uv run piranesi rescan \
-  --from-baseline ./workspace-before \
-  --output-workspace ./workspace-after \
-  --image nmap=ghcr.io/example/nmap:v1@sha256:<digest> \
-  --allow-unenforced-network
-```
-
-## Current Capabilities
-
-Implemented Phase 1 pieces:
-
-- Pentest workspace contract with raw evidence, normalized findings, reports,
-  signatures, and append-only audit log.
-- Red-team evidence inventory for operator artifacts such as screenshots, notes,
-  transcripts, payload metadata, detection artifacts, and C2 logs.
-- Real fixture policy and provenance validation for parser fixtures.
-- nmap XML ingestion.
-- nuclei JSONL ingestion.
-- Burp Suite Pro Issues XML ingestion.
-- OWASP ZAP JSON alert ingestion.
-- Nessus `.nessus` XML ingestion.
-- SARIF 2.1.0 findings ingestion.
-- ffuf JSON discovery output ingestion.
-- sqlmap JSON/text artifact ingestion.
-- Metasploit JSON evidence ingestion for vulnerability, loot, and session records.
-- Neutral C2 JSONL import into evidence and timeline.
-- Pentest report rendering to JSON, Markdown, and PDF.
-- Red-team handoff rendering to JSON, Markdown, PDF, and archive ZIP.
-- Chain-of-custody manifest creation and verification.
-- Opt-in `rescan --from-baseline` replay for supported nmap and nuclei baseline
-  evidence, with optional runtime checks, digest-pinned images, and raw outputs
-  shaped for existing ingest commands.
-- Retest lifecycle diff with `new`, `open`, `closed`, `changed`, `regressed`, and
-  `ambiguous` statuses.
-- Local loopback web app via `piranesi serve`, including empty-workspace setup and
-  typed note capture plus browser file upload for evidence artifacts.
-- External pentest agent bridge via `piranesi agent`, allowing operator-managed
-  testing agents to consume scoped context and return validated local PFF/evidence
-  run manifests.
-
-See [docs/capabilities.md](docs/capabilities.md) for the detailed Phase 1 matrix and
-[docs/known-limitations.json](docs/known-limitations.json) for tracked limitations.
+OpenClaw remains the editable workflow planner. NanoClaw remains the deterministic runtime that compiles approved workflow revisions and executes nodes through a Docker-per-node contract. The Piranesi-derived code is used as KelpClaw's local evidence subsystem, not as a separate product direction.
 
 ## Workspace Layout
 
@@ -304,7 +52,8 @@ Quickstart, deployment notes for durable SQLite mode, Docker Compose, and produc
 [`docs/security-review-demo.md`](docs/security-review-demo.md),
 [`docs/agent-inventory.md`](docs/agent-inventory.md),
 [`docs/piranesi-integration.md`](docs/piranesi-integration.md),
-[`docs/web-intel.md`](docs/web-intel.md), and
+[`docs/web-intel.md`](docs/web-intel.md),
+[`docs/product-hardening-roadmap.md`](docs/product-hardening-roadmap.md), and
 [`docs/production-readiness.md`](docs/production-readiness.md).
 
 ## Workflow V1 Model
@@ -349,6 +98,9 @@ The built-in skill registry records input and output schemas, required secrets, 
 KelpClaw can analyze and run agent skills in an audit-first mode:
 
 ```console
+$ kelp-claw help
+$ kelp-claw doctor
+$ kelp-claw demo governance --out .kelpclaw/demo/governance
 $ kelp-claw compat ./SKILL.md --policy baseline
 $ kelp-claw policy explain ./SKILL.md --policy baseline
 $ kelp-claw governance report ./SKILL.md --region sg --framework agentic-ai --policy sg-agentic-ai-baseline
@@ -377,6 +129,8 @@ $ kelp-claw inventory scan --root . --policy sg-agentic-ai-baseline --out .kelpc
 $ kelp-claw inventory graph --root . --format markdown --out .kelpclaw/inventory/permissions.md
 $ kelp-claw inventory coverage --root . --format markdown --fail-on high --out .kelpclaw/inventory/coverage.md
 ```
+
+`help` returns the major workflows and command groups as JSON for CLI, docs, and wrappers. `doctor` checks local readiness for demos and live integrations, including Node.js, writable workspace access, built-in policy packs, Git, optional Codex CLI, and Exa/TinyFish environment configuration. `demo governance` creates a complete local handoff in one command: demo skill, input, evidence workspace, imported SARIF finding, signed governance audit bundle, and strict verification result.
 
 `compat` reports detected tools, required secrets, network posture, sandbox profile, and policy findings. `run-skill` writes deterministic local artifacts under `.kelpclaw/runs/<runId>/`, including `skill.json`, `workflow.json`, `bom.json`, `audit.jsonl`, and `policy-decisions.json`. With `--agent codex-cli`, KelpClaw materializes a temporary workspace, invokes `codex exec`, captures stdout/stderr, installs a local hook command for compatible agents, records hook-derived `PreToolUse`/`PostToolUse` events when available, evaluates policy, and stores generated artifact metadata. Planned policy denials block before launch; hook-denied pre-tool events block the run under `--enforce-policy`. `export-audit-bundle` creates a static bundle with an offline `index.html`.
 

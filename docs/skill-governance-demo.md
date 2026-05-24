@@ -4,6 +4,15 @@ This demo shows the adoption path for KelpClaw as an agent skill governance fram
 
 The SG/APAC governance layer is evidence-oriented. It maps KelpClaw controls to practical governance review areas such as bounded autonomy, human accountability, traceability, data and third-party risk, and residual risk. It does not certify legal or regulatory compliance.
 
+## One-Command Demo
+
+```console
+$ kelp-claw doctor
+$ kelp-claw demo governance --out .kelpclaw/demo/governance
+```
+
+Expected result: `doctor` reports local readiness and optional live integration gaps. `demo governance` creates a runnable sample skill, input file, signed evidence workspace, SG-oriented governance report, controls matrix, SARIF export, static audit bundle, and strict verification result under `.kelpclaw/demo/governance`.
+
 ## Passing Skill
 
 ```console

@@ -2,6 +2,17 @@
 
 This guide starts the local KelpClaw stack and walks through the runtime stages OpenClaw now shows explicitly.
 
+For the fastest agent-skill governance demo, use the CLI path first:
+
+```console
+$ pnpm install
+$ pnpm --filter @kelpclaw/cli build
+$ pnpm --filter @kelpclaw/cli exec kelp-claw doctor
+$ pnpm --filter @kelpclaw/cli exec kelp-claw demo governance --out .kelpclaw/demo/governance
+```
+
+The demo writes a static audit bundle at `.kelpclaw/demo/governance/audit-bundle/index.html` and strict-verifies it before returning.
+
 ## 1. Configure
 
 ```console

@@ -12,6 +12,7 @@ import { copyFile, mkdir, readdir, readFile, stat, writeFile } from "node:fs/pro
 import { basename, dirname, join, relative, resolve } from "node:path";
 import {
   evaluatePolicy,
+  listPolicyPacks,
   policyPackToYaml,
   requirePolicyPack,
   type PolicyDecision,
@@ -76,6 +77,7 @@ export interface AuditBundleVerificationOutput {
   readonly bundleDir: string;
   readonly runId?: string | undefined;
   readonly strict: boolean;
+  readonly profile?: AuditBundleVerificationProfile | undefined;
   readonly signature: {
     readonly valid: boolean;
     readonly keyId?: string | undefined;
@@ -89,6 +91,49 @@ export interface AuditBundleVerificationOutput {
         readonly referencedFiles: readonly string[];
       }
     | undefined;
+  readonly files: {
+    readonly checked: number;
+    readonly failed: readonly string[];
+  };
+  readonly failures: readonly string[];
+}
+
+export type AuditBundleVerificationProfile = "reviewer" | "regulator" | "ci";
+
+export interface VersionInfoOutput {
+  readonly ok: true;
+  readonly name: "kelp-claw";
+  readonly version: string;
+  readonly node: string;
+  readonly schemaVersion: "1.0.0";
+  readonly git?: {
+    readonly commit?: string | undefined;
+    readonly branch?: string | undefined;
+  };
+  readonly policyPacks: readonly {
+    readonly name: string;
+    readonly version: string;
+    readonly region: string;
+    readonly maturity: string;
+    readonly ruleCount: number;
+  }[];
+}
+
+export interface ReleaseManifestOutput {
+  readonly ok: true;
+  readonly outDir: string;
+  readonly files: readonly string[];
+  readonly signed: boolean;
+  readonly manifest: string;
+}
+
+export interface ReleaseVerificationOutput {
+  readonly ok: boolean;
+  readonly releaseDir: string;
+  readonly signature: {
+    readonly valid: boolean;
+    readonly keyId?: string | undefined;
+  };
   readonly files: {
     readonly checked: number;
     readonly failed: readonly string[];
@@ -744,9 +789,8 @@ export async function exportAuditBundle(args: readonly string[]): Promise<AuditB
       copied.push(file);
     }
   }
-  await writeFile(join(bundleDir, "index.html"), await auditIndexHtml(runDir), "utf8");
-  copied.push("index.html");
   const signed = !hasFlag(args, "--no-sign");
+  const redact = !hasFlag(args, "--no-redact");
   let webEvidence: WebEvidenceBundle | undefined;
   if (hasFlag(args, "--include-web-evidence")) {
     const evidencePath = option(args, "--include-web-evidence");
@@ -818,6 +862,17 @@ export async function exportAuditBundle(args: readonly string[]): Promise<AuditB
     await writeJson(join(bundleDir, "findings.sarif"), sarif);
     copied.push("findings.sarif");
   }
+  if (redact) {
+    const redaction = await redactBundleFiles(bundleDir, copied);
+    await writeJson(join(bundleDir, "redaction-report.json"), redaction);
+    copied.push("redaction-report.json");
+  }
+  await writeFile(
+    join(bundleDir, "index.html"),
+    await auditIndexHtml({ runDir, bundleDir, files: copied }),
+    "utf8"
+  );
+  copied.push("index.html");
   let manifest: string | undefined;
   if (signed) {
     const key = await ensureAuditSigningKey(resolve(option(args, "--key-dir") ?? ".kelpclaw/keys"));
@@ -861,11 +916,193 @@ export async function initAuditKey(args: readonly string[]): Promise<AuditKeyOut
   };
 }
 
+export async function versionInfo(_args: readonly string[] = []): Promise<VersionInfoOutput> {
+  return {
+    ok: true,
+    name: "kelp-claw",
+    version: await readPackageVersion(),
+    node: process.versions.node,
+    schemaVersion: "1.0.0",
+    git: await gitInfo(),
+    policyPacks: listPolicyPacks().map((pack) => ({
+      name: pack.name,
+      version: pack.metadata.version,
+      region: pack.metadata.region,
+      maturity: pack.metadata.maturity,
+      ruleCount: pack.ruleset.rules.length
+    }))
+  };
+}
+
+export async function releaseManifest(args: readonly string[]): Promise<ReleaseManifestOutput> {
+  const outDir = resolve(option(args, "--out") ?? ".kelpclaw/release");
+  const keyDir = resolve(option(args, "--key-dir") ?? ".kelpclaw/keys");
+  await mkdir(outDir, { recursive: true });
+  const version = await versionInfo([]);
+  const sourceRoot = resolve(option(args, "--root") ?? ".");
+  const sbom = await releaseSbom(sourceRoot);
+  const provenance = {
+    schemaVersion: "1.0.0",
+    predicateType: "https://slsa.dev/provenance/v1",
+    buildType: "https://github.com/gongahkia/kelp-claw/release-manifest",
+    generatedAt: new Date().toISOString(),
+    invocation: {
+      command: "kelp-claw release manifest",
+      sourceRoot
+    },
+    materials: [
+      ...(await releaseMaterial("package.json")),
+      ...(await releaseMaterial("pnpm-lock.yaml")),
+      ...(await releaseMaterial("README.md"))
+    ],
+    git: version.git
+  };
+  await writeJson(join(outDir, "release-sbom.json"), sbom);
+  await writeJson(join(outDir, "release-provenance.json"), provenance);
+  const manifestFiles = ["release-sbom.json", "release-provenance.json"];
+  const manifest = {
+    schemaVersion: "1.0.0",
+    name: "kelp-claw",
+    version: version.version,
+    generatedAt: new Date().toISOString(),
+    files: await Promise.all(manifestFiles.map((file) => auditManifestFile(outDir, file))),
+    policyPacks: version.policyPacks,
+    provenance: {
+      format: "slsa-provenance-inspired",
+      path: "release-provenance.json"
+    }
+  };
+  await writeJson(join(outDir, "release-manifest.json"), manifest);
+  const key = await ensureAuditSigningKey(keyDir);
+  const payload = stableJsonStringify(manifest as unknown as JsonValue);
+  const signature = signBytes(
+    null,
+    Buffer.from(payload, "utf8"),
+    createPrivateKey(key.privateKeyPem)
+  ).toString("base64");
+  await writeFile(join(outDir, "release-manifest.sig"), `${signature}\n`, "utf8");
+  await writeJson(join(outDir, "release-manifest.pub.json"), {
+    keyId: key.keyId,
+    algorithm: key.algorithm,
+    publicKeyPem: key.publicKeyPem
+  });
+  return {
+    ok: true,
+    outDir,
+    files: [
+      "release-sbom.json",
+      "release-provenance.json",
+      "release-manifest.json",
+      "release-manifest.sig",
+      "release-manifest.pub.json"
+    ],
+    signed: true,
+    manifest: "release-manifest.json"
+  };
+}
+
+export async function verifyRelease(args: readonly string[]): Promise<ReleaseVerificationOutput> {
+  const releaseDir = resolve(requiredPositional(args, 0));
+  const failures: string[] = [];
+  let manifest: JsonRecord;
+  let signatureValid = false;
+  let keyId: string | undefined;
+  try {
+    manifest = jsonRecord(
+      JSON.parse(await readFile(join(releaseDir, "release-manifest.json"), "utf8")),
+      "release-manifest.json"
+    );
+  } catch (error) {
+    process.exitCode = 1;
+    return {
+      ok: false,
+      releaseDir,
+      signature: { valid: false },
+      files: { checked: 0, failed: [] },
+      failures: [`unable to read release-manifest.json: ${errorMessage(error)}`]
+    };
+  }
+  try {
+    const publicKey = jsonRecord(
+      JSON.parse(await readFile(join(releaseDir, "release-manifest.pub.json"), "utf8")),
+      "release-manifest.pub.json"
+    );
+    const publicKeyPem = stringField(publicKey, "publicKeyPem");
+    keyId = stringField(publicKey, "keyId");
+    if (!publicKeyPem) {
+      failures.push("release-manifest.pub.json does not contain publicKeyPem.");
+    } else {
+      const signature = Buffer.from(
+        (await readFile(join(releaseDir, "release-manifest.sig"), "utf8")).trim(),
+        "base64"
+      );
+      signatureValid = verifyBytes(
+        null,
+        Buffer.from(stableJsonStringify(manifest as JsonValue), "utf8"),
+        createPublicKey(publicKeyPem),
+        signature
+      );
+      if (!signatureValid) {
+        failures.push("release manifest signature is invalid.");
+      }
+    }
+  } catch (error) {
+    failures.push(`unable to verify release signature: ${errorMessage(error)}`);
+  }
+  const fileFailures: string[] = [];
+  const manifestFiles = Array.isArray(manifest.files) ? manifest.files : [];
+  for (const entry of manifestFiles) {
+    const file = jsonRecord(entry, "release manifest file");
+    const path = stringField(file, "path");
+    const expectedHash = stringField(file, "sha256");
+    if (!path || !expectedHash || !isSafeBundlePath(path)) {
+      failures.push(`invalid release manifest file entry: ${jsonText(file)}`);
+      if (path) {
+        fileFailures.push(path);
+      }
+      continue;
+    }
+    try {
+      const actualHash = await sha256File(join(releaseDir, path));
+      if (actualHash !== expectedHash) {
+        fileFailures.push(path);
+        failures.push(`hash mismatch for ${path}.`);
+      }
+    } catch (error) {
+      fileFailures.push(path);
+      failures.push(`unable to read ${path}: ${errorMessage(error)}`);
+    }
+  }
+  for (const required of ["release-sbom.json", "release-provenance.json"]) {
+    if (!manifestFiles.some((entry) => jsonRecord(entry, "release file").path === required)) {
+      failures.push(`release manifest does not reference ${required}.`);
+    }
+  }
+  const ok = signatureValid && failures.length === 0;
+  if (!ok) {
+    process.exitCode = 1;
+  }
+  return {
+    ok,
+    releaseDir,
+    signature: {
+      valid: signatureValid,
+      ...(keyId ? { keyId } : {})
+    },
+    files: {
+      checked: manifestFiles.length,
+      failed: fileFailures
+    },
+    failures
+  };
+}
+
 export async function verifyAuditBundle(
   args: readonly string[]
 ): Promise<AuditBundleVerificationOutput> {
   const bundleDir = resolve(requiredPositional(args, 0));
-  const strict = hasFlag(args, "--strict");
+  const profile = verificationProfile(option(args, "--profile"));
+  const strict = hasFlag(args, "--strict") || profile !== undefined;
   const failures: string[] = [];
   let manifest: Partial<AuditBundleManifest>;
   let signatureValid = false;
@@ -940,6 +1177,7 @@ export async function verifyAuditBundle(
   if (attestation) {
     failures.push(...attestation.failures);
   }
+  failures.push(...(await verificationProfileFailures(bundleDir, manifest, profile)));
   const ok = signatureValid && failures.length === 0;
   if (!ok) {
     process.exitCode = 1;
@@ -949,6 +1187,7 @@ export async function verifyAuditBundle(
     bundleDir,
     ...(manifest.runId ? { runId: manifest.runId } : {}),
     strict,
+    ...(profile ? { profile } : {}),
     signature: {
       valid: signatureValid,
       ...(manifest.publicKeyId ? { keyId: manifest.publicKeyId } : {}),
@@ -4316,6 +4555,80 @@ async function verifyAuditAttestation(input: {
     referencedFiles: sortedReferencedFiles,
     failures
   };
+}
+
+function verificationProfile(value: string | undefined): AuditBundleVerificationProfile | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === "reviewer" || value === "regulator" || value === "ci") {
+    return value;
+  }
+  throw new Error("Unsupported audit bundle verification profile. Expected reviewer, regulator, or ci.");
+}
+
+async function verificationProfileFailures(
+  bundleDir: string,
+  manifest: Partial<AuditBundleManifest>,
+  profile: AuditBundleVerificationProfile | undefined
+): Promise<readonly string[]> {
+  if (!profile) {
+    return [];
+  }
+  const failures: string[] = [];
+  const manifestFiles = new Set((manifest.files ?? []).map((file) => file.path));
+  const requiredFiles = profileRequiredFiles(profile);
+  for (const file of requiredFiles) {
+    if (!manifestFiles.has(file)) {
+      failures.push(`${profile} profile requires ${file} in the signed manifest.`);
+      continue;
+    }
+    if (!(await fileExists(join(bundleDir, file)))) {
+      failures.push(`${profile} profile requires ${file} to exist.`);
+    }
+  }
+  if (profile === "ci") {
+    const result = (await readJsonIfExists(join(bundleDir, "result.json"))) as
+      | JsonRecord
+      | undefined;
+    if (result && result.ok !== true) {
+      failures.push("ci profile requires result.json ok=true.");
+    }
+  }
+  return failures;
+}
+
+function profileRequiredFiles(profile: AuditBundleVerificationProfile): readonly string[] {
+  if (profile === "ci") {
+    return [
+      "result.json",
+      "compatibility.json",
+      "policy-decisions.json",
+      "redaction-report.json",
+      "manifest.json",
+      "attestation.json"
+    ];
+  }
+  if (profile === "regulator") {
+    return [
+      "result.json",
+      "governance-report.json",
+      "controls.md",
+      "findings.sarif",
+      "redaction-report.json",
+      "manifest.json",
+      "attestation.json"
+    ];
+  }
+  return [
+    "index.html",
+    "result.json",
+    "compatibility.json",
+    "policy-decisions.json",
+    "redaction-report.json",
+    "manifest.json",
+    "attestation.json"
+  ];
 }
 
 async function auditManifestFile(
