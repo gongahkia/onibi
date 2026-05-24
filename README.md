@@ -368,6 +368,8 @@ $ kelp-claw export-audit-bundle <runId> --include-web-evidence .kelpclaw/web-evi
 $ kelp-claw evidence init --workspace .kelpclaw/evidence --client "Example Client" --project "Agent Review"
 $ kelp-claw evidence add --workspace .kelpclaw/evidence --file operator-note.txt --kind note --title "Operator note"
 $ kelp-claw evidence import-sarif --workspace .kelpclaw/evidence findings.sarif
+$ kelp-claw evidence import-nmap --workspace .kelpclaw/evidence nmap.xml
+$ kelp-claw evidence import-nuclei --workspace .kelpclaw/evidence nuclei.jsonl
 $ kelp-claw evidence sign --workspace .kelpclaw/evidence
 $ kelp-claw evidence verify --workspace .kelpclaw/evidence
 $ kelp-claw export-audit-bundle <runId> --include-evidence .kelpclaw/evidence --include-governance
@@ -382,7 +384,7 @@ $ kelp-claw inventory coverage --root . --format markdown --fail-on high --out .
 
 `kelp-claw web` adds governed Exa/TinyFish web intelligence. `search`, `fetch`, `answer`, and `research` evaluate a policy pack before the provider call, normalize sources into KelpClaw web evidence, hash source content, redact obvious secrets and emails, and optionally write `web-evidence.json`, `web-events.jsonl`, `web-bom.json`, and `web-evidence.html`. Set `EXA_API_KEY` and/or `TINYFISH_API_KEY` for live calls. Attach the evidence to `governance report` or `export-audit-bundle` with `--include-web-evidence <dir-or-json>`.
 
-`kelp-claw evidence` ports the useful Piranesi concepts into KelpClaw: a local evidence vault, normalized findings, SARIF import, append-only audit log, chain-of-custody manifest, delivery QA, and retest diff. Attach it to governance reports or audit bundles with `--include-evidence <workspace>`.
+`kelp-claw evidence` ports the useful Piranesi concepts into KelpClaw: a local evidence vault, normalized findings, SARIF/Nmap/Nuclei/Burp/ZAP/Nessus passive imports, append-only audit log, Ed25519-signed chain-of-custody manifest, delivery QA, retest diff, and a static evidence viewer inside audit bundles. Attach it to governance reports or audit bundles with `--include-evidence <workspace>`.
 
 `kelp-claw inventory` scans a repository for SKILL.md files, recorded runs, signed audit bundles, governed web evidence, evidence workspaces, KelpClaw GitHub Action workflows, and MCP web gateways. `inventory graph` renders a permission graph of skills, tools, secrets, policies, bundles, attestations, web evidence, and evidence workspaces; `inventory coverage` reports missing signed bundles, missing attestations, networked skills without web evidence, unsigned evidence workspaces, and CI coverage gaps.
 

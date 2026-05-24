@@ -229,3 +229,92 @@ function sarifFixture(level: "warning" | "error") {
     ]
   };
 }
+
+function nmapFixture(): string {
+  return `<?xml version="1.0"?>
+<nmaprun>
+  <host>
+    <address addr="203.0.113.10" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="443">
+        <state state="open"/>
+        <service name="https" product="nginx" version="1.25"/>
+      </port>
+    </ports>
+  </host>
+</nmaprun>
+`;
+}
+
+function nucleiFixture() {
+  return {
+    "template-id": "http-missing-security-headers",
+    "matched-at": "https://app.example.test",
+    "matcher-name": "header",
+    type: "http",
+    info: {
+      name: "Missing security header",
+      severity: "medium",
+      description: "The response is missing a security header.",
+      remediation: "Set the missing header.",
+      tags: "http,headers",
+      reference: ["https://example.test/header-hardening"]
+    }
+  };
+}
+
+function burpFixture(): string {
+  return `<?xml version="1.0"?>
+<issues>
+  <issue>
+    <type>1049088</type>
+    <name>Cross-site scripting</name>
+    <host>https://app.example.test</host>
+    <path>/search</path>
+    <severity>High</severity>
+    <issueBackground>Reflected input is rendered unsafely.</issueBackground>
+    <remediationBackground>Encode untrusted output.</remediationBackground>
+  </issue>
+</issues>
+`;
+}
+
+function zapFixture() {
+  return {
+    site: [
+      {
+        name: "https://app.example.test",
+        alerts: [
+          {
+            pluginid: "10016",
+            alertRef: "10016",
+            name: "Web Browser XSS Protection Not Enabled",
+            riskdesc: "Low (Medium)",
+            desc: "The response does not enable browser XSS protections.",
+            solution: "Set defensive response headers.",
+            cweid: "CWE-693",
+            reference: "https://example.test/zap-reference",
+            instances: [{ uri: "https://app.example.test/login", param: "X-XSS-Protection" }]
+          }
+        ]
+      }
+    ]
+  };
+}
+
+function nessusFixture(): string {
+  return `<?xml version="1.0"?>
+<NessusClientData_v2>
+  <Report name="example">
+    <ReportHost name="203.0.113.20">
+      <ReportItem port="22" protocol="tcp" severity="2" pluginID="10881" pluginName="SSH Protocol Versions Supported">
+        <description>The SSH service supports a legacy protocol configuration.</description>
+        <solution>Disable legacy protocol support.</solution>
+        <cwe>CWE-327</cwe>
+        <see_also>https://example.test/ssh-hardening</see_also>
+      </ReportItem>
+    </ReportHost>
+  </Report>
+</NessusClientData_v2>
+`;
+}

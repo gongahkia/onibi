@@ -761,7 +761,8 @@ Read local evidence and summarize findings.
           "evidence-summary.json",
           "evidence-workspace/workspace.json",
           "evidence-workspace/evidence/index.json",
-          "evidence-workspace/normalized/findings.json"
+          "evidence-workspace/normalized/findings.json",
+          "evidence-workspace/index.html"
         ])
       );
       await expect(verifyAuditBundle([bundleDir, "--strict"])).resolves.toMatchObject({
