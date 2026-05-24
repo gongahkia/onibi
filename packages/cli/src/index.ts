@@ -6,6 +6,7 @@ import {
   exportOtlpTraces,
   type OtlpTraceEvent
 } from "@kelpclaw/adapters";
+import { installClaudeCodeHooks, smokeClaudeCodeHookEvents } from "@kelpclaw/agent-hooks";
 import {
   createCrossAgentReplayRuns,
   crossAgentReplaySkillMdFixture,
@@ -128,6 +129,8 @@ async function main(argv: readonly string[]): Promise<void> {
           token: requiredOption(args, "--token")
         })
       );
+    case "verify-claude-code":
+      return printJson(await verifyClaudeCode(args));
     case "otlp-smoke":
     case "datadog-otlp-smoke":
       return printJson(await runOtlpSmoke(args));
@@ -137,12 +140,64 @@ async function main(argv: readonly string[]): Promise<void> {
       return runMcp(args);
     default:
       throw new Error(
-        "Usage: kelp-claw <start-recording|record-step|stop-recording|approve-step|deny-step|promote|mcp|policy|audit-verify|audit-anchor|tbom-export|mint-role-token|inspect-role-token|otlp-smoke|cross-agent-replay-smoke>"
+        "Usage: kelp-claw <start-recording|record-step|stop-recording|approve-step|deny-step|promote|mcp|policy|audit-verify|audit-anchor|tbom-export|mint-role-token|inspect-role-token|verify-claude-code|otlp-smoke|cross-agent-replay-smoke>"
       );
   }
 }
 
-async function runOtlpSmoke(args: readonly string[]): Promise<JsonRecord> {
+export async function verifyClaudeCode(args: readonly string[]): Promise<JsonRecord> {
+  const command =
+    option(args, "--command") ??
+    'node "$CLAUDE_PROJECT_DIR/packages/agent-hooks/dist/index.js" send-event';
+  const install = await installClaudeCodeHooks({
+    settingsPath: option(args, "--settings"),
+    command
+  });
+  const coverage = await readClaudeSettingsCoverage(install.settingsPath, install.events, command);
+  const existingRunId = option(args, "--run-id");
+  const run =
+    existingRunId === undefined
+      ? await createClaudeVerificationRun(args)
+      : { id: existingRunId, created: false };
+  const smoke = await smokeClaudeCodeHookEvents({
+    runId: run.id,
+    apiBaseUrl,
+    apiToken,
+    sourceAgent: "claude-code"
+  });
+  const audit = await getJson(`/api/agent-runs/${encodeURIComponent(run.id)}/audit/verify`);
+  const auditVerification = jsonRecordField(jsonRecord(audit), "verification");
+  const ok =
+    coverage.every((event) => event.installed) &&
+    smoke.events.every((event) => event.ok) &&
+    auditVerification?.valid === true;
+  if (!ok) {
+    process.exitCode = 1;
+  }
+  return {
+    ok,
+    runId: run.id,
+    createdRun: run.created,
+    apiBaseUrl,
+    settingsPath: install.settingsPath,
+    command,
+    env: {
+      KELPCLAW_AGENT_RUN_ID: Boolean(process.env.KELPCLAW_AGENT_RUN_ID),
+      KELPCLAW_API_URL: Boolean(process.env.KELPCLAW_API_URL),
+      KELPCLAW_API_TOKEN: Boolean(process.env.KELPCLAW_API_TOKEN),
+      KELPCLAW_ADMIN_TOKEN: Boolean(process.env.KELPCLAW_ADMIN_TOKEN)
+    },
+    settings: {
+      eventCount: coverage.length,
+      installed: coverage.every((event) => event.installed),
+      events: coverage
+    },
+    smoke,
+    audit
+  };
+}
+
+export async function runOtlpSmoke(args: readonly string[]): Promise<JsonRecord> {
   const endpoint = requiredOption(args, "--endpoint", otlpEndpointFromEnv());
   const runId = option(args, "--run-id") ?? `agent-run.otlp-smoke.${Date.now()}`;
   const skillId = option(args, "--skill-id") ?? "skill.promoted.otlp-smoke";
@@ -182,7 +237,7 @@ async function runOtlpSmoke(args: readonly string[]): Promise<JsonRecord> {
   return output;
 }
 
-function runCrossAgentReplaySmoke(): JsonRecord {
+export function runCrossAgentReplaySmoke(): JsonRecord {
   const runs = createCrossAgentReplayRuns();
   const shapes = runs.map(trajectoryReplayShape);
   const workflows = runs.map((run) =>
@@ -215,6 +270,51 @@ function runCrossAgentReplaySmoke(): JsonRecord {
     workflowKinds,
     agentTags
   };
+}
+
+async function createClaudeVerificationRun(
+  args: readonly string[]
+): Promise<{ readonly id: string; readonly created: boolean }> {
+  const sessionId = option(args, "--session-id") ?? `claude-code.verify.${Date.now()}`;
+  const response = jsonRecord(
+    await postJson("/api/agent-runs", {
+      sourceAgent: "claude-code",
+      sessionId,
+      title: option(args, "--title") ?? "Claude Code Hook Verification"
+    })
+  );
+  const run = jsonRecordField(response, "run");
+  const id = stringField(run, "id");
+  if (!id) {
+    throw new Error("Claude Code verification could not read created run id.");
+  }
+  return { id, created: true };
+}
+
+async function readClaudeSettingsCoverage(
+  settingsPath: string,
+  events: readonly string[],
+  command: string
+): Promise<readonly JsonRecord[]> {
+  const settings = jsonRecord(JSON.parse(await readFile(settingsPath, "utf8")) as unknown);
+  const hooks = jsonRecordField(settings, "hooks");
+  return events.map((event) => ({
+    event,
+    installed: claudeEventHasCommand(hooks?.[event], command)
+  }));
+}
+
+function claudeEventHasCommand(value: unknown, command: string): boolean {
+  return (
+    Array.isArray(value) &&
+    value.some((entry) => {
+      const hooks = jsonRecordField(jsonRecord(entry), "hooks");
+      return (
+        Array.isArray(hooks) &&
+        hooks.some((hook) => stringField(jsonRecord(hook), "command") === command)
+      );
+    })
+  );
 }
 
 function smokeOtlpEvents(timestamp: string): readonly OtlpTraceEvent[] {
@@ -404,11 +504,31 @@ function parseHeaderEnv(value: string | undefined): Readonly<Record<string, stri
   );
 }
 
+function jsonRecord(value: unknown): JsonRecord {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as JsonRecord)
+    : {};
+}
+
+function jsonRecordField(value: JsonRecord | undefined, field: string): JsonRecord | undefined {
+  const candidate = value?.[field];
+  return candidate && typeof candidate === "object" && !Array.isArray(candidate)
+    ? (candidate as JsonRecord)
+    : undefined;
+}
+
+function stringField(value: JsonRecord | undefined, field: string): string | undefined {
+  const candidate = value?.[field];
+  return typeof candidate === "string" ? candidate : undefined;
+}
+
 function printJson(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 }
 
-main(process.argv.slice(2)).catch((error: unknown) => {
-  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
-});
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main(process.argv.slice(2)).catch((error: unknown) => {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  });
+}

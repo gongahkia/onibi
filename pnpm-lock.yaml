@@ -131,6 +131,9 @@ importers:
       '@kelpclaw/adapters':
         specifier: workspace:*
         version: link:../adapters
+      '@kelpclaw/agent-hooks':
+        specifier: workspace:*
+        version: link:../agent-hooks
       '@kelpclaw/codegen':
         specifier: workspace:*
         version: link:../codegen
