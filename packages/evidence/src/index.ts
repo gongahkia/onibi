@@ -564,11 +564,7 @@ export async function signEvidenceWorkspace(
     Buffer.from(payload, "utf8"),
     createPrivateKey(key.privateKeyPem)
   ).toString("base64");
-  await writeFile(
-    manifestPath,
-    `${payload}\n`,
-    "utf8"
-  );
+  await writeFile(manifestPath, `${payload}\n`, "utf8");
   await writeFile(signaturePath, `${signature}\n`, "utf8");
   await writeJson(publicKeyPath, {
     keyId: key.keyId,
@@ -901,9 +897,9 @@ export async function renderEvidenceWorkspaceHtml(root: string): Promise<string>
   <p><strong>Workspace:</strong> <code>${escapeHtml(summary.path)}</code></p>
   <p><strong>Evidence:</strong> ${summary.evidenceCount} / <strong>Findings:</strong> ${summary.findingCount} / <strong>Signed:</strong> ${summary.signed ? "yes" : "no"} / <strong>Verified:</strong> ${summary.verified ? "yes" : "no"}</p>
   <h2>Evidence</h2>
-  <table><thead><tr><th>Kind</th><th>Title</th><th>Sensitivity</th><th>Path</th><th>SHA-256</th></tr></thead><tbody>${evidenceRows || "<tr><td colspan=\"5\">No evidence records.</td></tr>"}</tbody></table>
+  <table><thead><tr><th>Kind</th><th>Title</th><th>Sensitivity</th><th>Path</th><th>SHA-256</th></tr></thead><tbody>${evidenceRows || '<tr><td colspan="5">No evidence records.</td></tr>'}</tbody></table>
   <h2>Findings</h2>
-  <table><thead><tr><th>Severity</th><th>Status</th><th>Title</th><th>Asset</th><th>Source Tools</th></tr></thead><tbody>${findingRows || "<tr><td colspan=\"5\">No normalized findings.</td></tr>"}</tbody></table>
+  <table><thead><tr><th>Severity</th><th>Status</th><th>Title</th><th>Asset</th><th>Source Tools</th></tr></thead><tbody>${findingRows || '<tr><td colspan="5">No normalized findings.</td></tr>'}</tbody></table>
   <h2>Verification</h2>
   <ul>${verificationRows || "<li>No verification failures.</li>"}</ul>
 </body>
@@ -1288,9 +1284,8 @@ async function parseZapJsonFile(
     for (const [alertIndex, alertValue] of alerts.entries()) {
       const alert = jsonRecord(alertValue, `ZAP alert ${alertIndex + 1}`);
       const title = stringField(alert, "name") ?? `ZAP alert ${alertIndex + 1}`;
-      const instances = Array.isArray(alert.instances) && alert.instances.length > 0
-        ? alert.instances
-        : [{}];
+      const instances =
+        Array.isArray(alert.instances) && alert.instances.length > 0 ? alert.instances : [{}];
       alertCount += 1;
       for (const [instanceIndex, instanceValue] of instances.entries()) {
         const instance = jsonRecord(instanceValue);
@@ -1680,12 +1675,9 @@ async function collectEvidenceBundleRelativeFiles(root: string): Promise<readonl
         ).filter((file): file is string => Boolean(file))
       ].map((file) => relative(root, file))
     : [];
-  return [
-    ...fixed,
-    ...rawFiles,
-    ...reportFiles,
-    ...latestManifestFiles
-  ].sort((left, right) => left.localeCompare(right));
+  return [...fixed, ...rawFiles, ...reportFiles, ...latestManifestFiles].sort((left, right) =>
+    left.localeCompare(right)
+  );
 }
 
 function evidenceArtifactRole(path: string): EvidenceManifestArtifact["role"] {
@@ -2207,7 +2199,9 @@ function stringArrayOrCsvField(record: JsonRecord, field: string): readonly stri
   const value = record[field];
   if (Array.isArray(value)) {
     return value
-      .filter((entry): entry is string | number => typeof entry === "string" || typeof entry === "number")
+      .filter(
+        (entry): entry is string | number => typeof entry === "string" || typeof entry === "number"
+      )
       .flatMap((entry) => String(entry).split(/[,;\n]/u))
       .map((entry) => entry.trim())
       .filter(Boolean);
@@ -2220,7 +2214,9 @@ function stringArrayOrCsvField(record: JsonRecord, field: string): readonly stri
   }
   if (value && typeof value === "object") {
     return Object.values(value as Record<string, unknown>)
-      .filter((entry): entry is string | number => typeof entry === "string" || typeof entry === "number")
+      .filter(
+        (entry): entry is string | number => typeof entry === "string" || typeof entry === "number"
+      )
       .flatMap((entry) => String(entry).split(/[,;\n]/u))
       .map((entry) => entry.trim())
       .filter(Boolean);
