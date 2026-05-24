@@ -1,7 +1,7 @@
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   AgentSdkCodeGenerator,
   AgentSdkGeneratedNodeRoleRunner,
@@ -14,6 +14,7 @@ import {
   OpenWeightGeneratedNodeRoleRunner,
   assertSafeArtifactPath,
   buildTbom,
+  createOpenWeightChatCompletionsRunner,
   createDependencyManifestArtifact,
   createCrossAgentReplayRuns,
   createArtifactManifest,
@@ -391,24 +392,23 @@ describe("codegen artifact contracts", () => {
         choices: [
           {
             message: {
-              content: JSON.stringify(
+              content:
                 calls === 1
-                  ? {
+                  ? JSON.stringify({
                       sourceCode: "export {};",
                       packageManager: "npm",
                       dependencies: ["left-pad"],
                       devDependencies: [],
                       installCommand: ["npm", "install"]
-                    }
-                  : {
+                    })
+                  : `Here is the JSON:\n\`\`\`json\n${JSON.stringify({
                       sourceCode:
                         'import { writeFileSync } from "node:fs";\nwriteFileSync(process.env.NANOCLAW_NODE_OUTPUT!, JSON.stringify({ artifact: { ok: true } }));',
                       packageManager: "none",
                       dependencies: [],
                       devDependencies: [],
                       installCommand: []
-                    }
-              )
+                    })}\n\`\`\``
             }
           }
         ]
@@ -438,6 +438,36 @@ describe("codegen artifact contracts", () => {
     await expect(generator.generate(codegenRequestFixture())).rejects.toThrow(
       "KELPCLAW_OPENWEIGHT_BASE_URL is required"
     );
+  });
+
+  it("times out open-weight chat completions requests", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async (_url: unknown, init: unknown) =>
+          await new Promise((_resolve, reject) => {
+            const signal = (init as { readonly signal?: AbortSignal }).signal;
+            signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+          })
+      )
+    );
+    try {
+      const runner = createOpenWeightChatCompletionsRunner({
+        baseUrl: "http://127.0.0.1:11434/v1",
+        timeoutMs: 1
+      });
+      await expect(
+        runner({
+          model: "qwen-timeout",
+          messages: [{ role: "user", content: "return json" }],
+          temperature: 0,
+          stream: false,
+          response_format: { type: "json_object" }
+        })
+      ).rejects.toThrow("timed out after 1ms");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("resolves Azure OpenAI Responses config from GPT5 deployment env", () => {
@@ -738,11 +768,11 @@ describe("codegen artifact contracts", () => {
         choices: [
           {
             message: {
-              content: JSON.stringify({
+              content: `\`\`\`json\n${JSON.stringify({
                 summary: `completed ${userPrompt.match(/You are the ([^ ]+) agent/u)?.[1] ?? "role"}`,
                 status: "succeeded",
                 outputArtifactRefs: []
-              })
+              })}\n\`\`\``
             }
           }
         ],

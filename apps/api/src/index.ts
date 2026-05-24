@@ -19,9 +19,12 @@ export type {
   WorkflowPlannerBackend
 } from "./planner.js";
 export {
+  agentRunAuditChainHead,
+  createAgentRunAuditAnchor,
   InMemoryAgentRunStore,
   SqliteAgentRunStore,
   verifyAgentRunAuditChain,
+  type AgentRunAuditAnchor,
   type AgentRunAuditEvent,
   type AgentRunAuditVerification,
   type AgentRunRecord,
@@ -44,7 +47,13 @@ export type {
   ApiOtlpPromotionExportResult,
   ConfiguredApiOtlpExporterOptions
 } from "./otlp-exporter.js";
-export { createApiAuthContext, createRoleToken, principalHasRole } from "./auth.js";
+export {
+  createApiAuthContext,
+  createRoleToken,
+  inspectApiToken,
+  isApiRole,
+  principalHasRole
+} from "./auth.js";
 export type { ApiPrincipal, ApiRole } from "./auth.js";
 export {
   InMemoryWorkflowStore,

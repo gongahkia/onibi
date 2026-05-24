@@ -86,15 +86,42 @@ async function main(argv: readonly string[]): Promise<void> {
           `/api/agent-runs/${encodeURIComponent(requiredPositional(args, 0))}/audit/verify`
         )
       );
+    case "audit-anchor":
+      return printJson(
+        await postJson(
+          `/api/agent-runs/${encodeURIComponent(requiredPositional(args, 0))}/audit/anchor`,
+          {}
+        )
+      );
     case "tbom-export":
       return printJson(
         await getJson(`/api/agent-runs/${encodeURIComponent(requiredPositional(args, 0))}/tbom`)
+      );
+    case "mint-role-token":
+      return printJson(
+        await postJson("/api/auth/role-tokens", {
+          roles: requiredOption(args, "--roles")
+            .split(",")
+            .map((role) => role.trim())
+            .filter((role) => role.length > 0),
+          ...(option(args, "--subject") ? { subject: option(args, "--subject") } : {}),
+          ...(option(args, "--expires-at") ? { expiresAt: option(args, "--expires-at") } : {}),
+          ...(numberOption(args, "--ttl-seconds") !== undefined
+            ? { ttlSeconds: numberOption(args, "--ttl-seconds") }
+            : {})
+        })
+      );
+    case "inspect-role-token":
+      return printJson(
+        await postJson("/api/auth/role-tokens/inspect", {
+          token: requiredOption(args, "--token")
+        })
       );
     case "mcp":
       return runMcp(args);
     default:
       throw new Error(
-        "Usage: kelp-claw <start-recording|record-step|stop-recording|approve-step|deny-step|promote|mcp|policy|audit-verify|tbom-export>"
+        "Usage: kelp-claw <start-recording|record-step|stop-recording|approve-step|deny-step|promote|mcp|policy|audit-verify|audit-anchor|tbom-export|mint-role-token|inspect-role-token>"
       );
   }
 }
@@ -170,6 +197,18 @@ function requiredPositional(args: readonly string[], index: number): string {
 function jsonOption(args: readonly string[], name: string): unknown {
   const value = option(args, name);
   return value ? JSON.parse(value) : undefined;
+}
+
+function numberOption(args: readonly string[], name: string): number | undefined {
+  const value = option(args, name);
+  if (!value) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`Option ${name} must be a number.`);
+  }
+  return parsed;
 }
 
 function printJson(value: unknown): void {

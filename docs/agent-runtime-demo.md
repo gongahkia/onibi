@@ -4,15 +4,15 @@ Use this script for the v0.1 governance demo: Claude Code records a tool call, K
 
 ## Three-Minute Script
 
-| Time | Action                                                                                                                    | Proof To Show                                                                                                                 |
-| ---- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| 0:00 | Start OpenClaw in trajectory mode and run Claude Code with the KelpClaw hook installed.                                   | A live `claude-code` run appears with `PreToolUse` and `PostToolUse` agent-step cards.                                        |
-| 0:30 | Trigger a safe `Bash` command.                                                                                            | The card shows tool name, args/result, `chainIndex`, `contentHash`, and `prevEventHash`.                                      |
-| 1:00 | Trigger `Bash` with `rm -rf /tmp/demo` under the deny policy.                                                             | API returns `POLICY_DENIED`; OpenClaw shows a denied event and `policy.denied` audit record.                                  |
-| 1:30 | Trigger an email-send policy with `require-approval`.                                                                     | The event is pending; operator promotion returns `POLICY_APPROVAL_REQUIRED`.                                                  |
-| 2:00 | Switch to a reviewer token and approve the pending step.                                                                  | OpenClaw shows `policy.approved`; promotion becomes available.                                                                |
-| 2:30 | Promote the trajectory.                                                                                                   | Response includes promoted skill JSON, draft workflow, `bom.json`, artifact checksums, and OTLP export status.                |
-| 2:50 | Restart the API against the same SQLite DB and run `kelp-claw audit-verify <runId>` plus `kelp-claw tbom-export <runId>`. | Verification returns `{ "valid": true }`; TBOM still includes tools, domains, secrets, classifications, and audit chain head. |
+| Time | Action                                                                                                                                                            | Proof To Show                                                                                                                 |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| 0:00 | Start OpenClaw in trajectory mode and run Claude Code with the KelpClaw hook installed.                                                                           | A live `claude-code` run appears with `PreToolUse` and `PostToolUse` agent-step cards.                                        |
+| 0:30 | Trigger a safe `Bash` command.                                                                                                                                    | The card shows tool name, args/result, `chainIndex`, `contentHash`, and `prevEventHash`.                                      |
+| 1:00 | Trigger `Bash` with `rm -rf /tmp/demo` under the deny policy.                                                                                                     | API returns `POLICY_DENIED`; OpenClaw shows a denied event and `policy.denied` audit record.                                  |
+| 1:30 | Trigger an email-send policy with `require-approval`.                                                                                                             | The event is pending; operator promotion returns `POLICY_APPROVAL_REQUIRED`.                                                  |
+| 2:00 | Switch to a reviewer token and approve the pending step.                                                                                                          | OpenClaw shows `policy.approved`; promotion becomes available.                                                                |
+| 2:30 | Promote the trajectory.                                                                                                                                           | Response includes promoted skill JSON, draft workflow, `bom.json`, artifact checksums, and OTLP export status.                |
+| 2:50 | Run `kelp-claw audit-anchor <runId>`, restart the API against the same SQLite DB, then run `kelp-claw audit-verify <runId>` plus `kelp-claw tbom-export <runId>`. | Verification returns `{ "valid": true }`; TBOM still includes tools, domains, secrets, classifications, and audit chain head. |
 
 Say this exactly in the demo: KelpClaw is evidence-ready for governance review. Its hash chain is tamper-evident, not tamper-proof. It helps assemble audit evidence; it does not certify compliance.
 
@@ -37,6 +37,8 @@ Say this exactly in the demo: KelpClaw is evidence-ready for governance review. 
 The API test `keeps agent-run audit verification and TBOM export working after SQLite restart` records an agent run with `SqliteAgentRunStore`, promotes it into content-addressed artifacts, closes the API, reopens against the same database, then verifies:
 
 - the run and `trajectory.promoted` audit event rehydrate;
+- the promoted skill rehydrates into registry lookup after restart;
+- the local audit anchor JSONL contains the recorded chain head;
 - `/api/agent-runs/:id/audit/verify` returns `{ "valid": true }`;
 - `/api/agent-runs/:id/tbom` still returns tools, external domains, consumed secret refs, classifications, and source agent;
 - the stored `bom.json` artifact checksum still verifies.

@@ -83,4 +83,5 @@
 - Agent memory retrieval is deterministic scoped lookup; embeddings and external vector stores are not part of this tranche.
 - Central log shipping and external incident management remain deployment responsibilities.
 - Agent-run hash chains are tamper-evident, not tamper-proof.
+- `kelp-claw audit-anchor <runId>` writes a local JSONL anchor of the current chain head. External TSA, WORM, or object-lock storage is still a deployment responsibility.
 - KelpClaw produces evidence-ready records for governance review; it does not certify regulatory compliance.

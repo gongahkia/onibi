@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -29,6 +29,7 @@ afterEach(async () => {
   app = undefined;
   clearPromotedSkillsForTests();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 function buildTestApiApp(): FastifyInstance {
@@ -227,12 +228,43 @@ describe("kelpclaw api contracts", () => {
       headers: { authorization: `Bearer ${unsignedToken}` },
       payload: { prompt: "extract transaction details from Gmail receipts into Sheets" }
     });
+    const minted = await app.inject({
+      method: "POST",
+      url: "/api/auth/role-tokens",
+      headers: { authorization: `Bearer ${adminRoleToken}` },
+      payload: {
+        roles: ["reviewer", "auditor"],
+        subject: "reviewer.console",
+        ttlSeconds: 60
+      }
+    });
+    const inspected = await app.inject({
+      method: "POST",
+      url: "/api/auth/role-tokens/inspect",
+      headers: { authorization: `Bearer ${adminRoleToken}` },
+      payload: { token: minted.json().token }
+    });
+    const forbiddenMint = await app.inject({
+      method: "POST",
+      url: "/api/auth/role-tokens",
+      headers: { authorization: `Bearer ${operatorToken}` },
+      payload: { roles: ["reviewer"], ttlSeconds: 60 }
+    });
 
     expect(started.statusCode).toBe(201);
     expect(audited.statusCode).toBe(200);
     expect(forbiddenAppend.statusCode).toBe(403);
     expect(planned.statusCode).toBe(200);
     expect(rejectedUnsigned.statusCode).toBe(401);
+    expect(minted.statusCode).toBe(200);
+    expect(minted.json().token).toMatch(/^kelp\.v1\./u);
+    expect(inspected.statusCode).toBe(200);
+    expect(inspected.json().principal).toMatchObject({
+      subject: "reviewer.console",
+      roles: ["reviewer", "auditor"],
+      tokenKind: "signed-role-token"
+    });
+    expect(forbiddenMint.statusCode).toBe(403);
   });
 
   it("records agent steps with a verifiable hash chain and policy denial audit", async () => {
@@ -396,6 +428,7 @@ rules:
     const tempRoot = await mkdtemp(join(tmpdir(), "kelpclaw-agent-run-smoke-"));
     const databasePath = join(tempRoot, "agent-runs.sqlite");
     const artifactStore = new LocalCodegenArtifactStore(join(tempRoot, "artifacts"));
+    vi.stubEnv("KELPCLAW_AUDIT_ANCHOR_DIR", join(tempRoot, "anchors"));
     const operatorToken = createTestRoleToken(["operator"]);
     const reviewerToken = createTestRoleToken(["reviewer"]);
     const auditorToken = createTestRoleToken(["auditor"]);
@@ -404,6 +437,7 @@ rules:
       authSigningSecret: "test-signing-secret",
       planner: createDeterministicPlannerBackend(),
       artifactStore,
+      rehydratePromotedSkills: true,
       otlpExporter: new DisabledApiOtlpExporter()
     };
     app = buildApiApp({
@@ -456,8 +490,19 @@ rules:
     });
     expect(promoted.statusCode).toBe(200);
     await expect(artifactStore.verifyArtifact(promoted.json().artifacts.tbom)).resolves.toBe(true);
+    const anchored = await app.inject({
+      method: "POST",
+      url: `/api/agent-runs/${runId}/audit/anchor`,
+      headers: { authorization: "Bearer legacy-admin-token" }
+    });
+    expect(anchored.statusCode).toBe(200);
+    expect(anchored.json().anchor.chainHead).toMatch(/^sha256:/u);
+    await expect(readFile(anchored.json().anchorPath, "utf8")).resolves.toContain(
+      anchored.json().anchor.anchorId
+    );
 
     await app.close();
+    clearPromotedSkillsForTests();
     app = buildApiApp({
       ...appOptions,
       agentRunStore: new SqliteAgentRunStore({ databasePath })
@@ -477,12 +522,20 @@ rules:
       url: `/api/agent-runs/${runId}/tbom`,
       headers: { authorization: `Bearer ${auditorToken}` }
     });
+    const selection = chooseSkillOrCodegen({
+      capability: "sqlite-persisted-tbom-smoke",
+      nodeKind: "skill",
+      prompt: "replay sqlite persisted tbom smoke"
+    });
 
     expect(stored.statusCode).toBe(200);
     expect(stored.json().run.events).toHaveLength(1);
-    expect(stored.json().run.auditEvents).toEqual([
-      expect.objectContaining({ action: "trajectory.promoted" })
-    ]);
+    expect(stored.json().run.auditEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: "trajectory.promoted" }),
+        expect.objectContaining({ action: "audit.anchored" })
+      ])
+    );
     expect(verified.statusCode).toBe(200);
     expect(verified.json().verification).toEqual({ valid: true });
     expect(tbom.statusCode).toBe(200);
@@ -494,6 +547,10 @@ rules:
       secretsConsumed: ["secret:github.token.default"],
       classifications: ["Confidential"]
     });
+    expect(selection.kind).toBe("skill");
+    if (selection.kind === "skill") {
+      expect(selection.match.skill.id).toBe(promoted.json().skill.id);
+    }
   }, 30_000);
 
   it("requires reviewer approval before promoting gated agent steps", async () => {

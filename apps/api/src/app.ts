@@ -9,6 +9,7 @@ import {
   LocalCodegenArtifactStore,
   OpenAiCodeGenerator,
   OpenWeightCodeGenerator,
+  assertSafeArtifactPath,
   buildTbom,
   checksumArtifactContent,
   createArtifactManifest,
@@ -18,7 +19,12 @@ import {
   createGeneratedArtifact,
   synthesizeWorkflowFromTrajectory
 } from "@kelpclaw/codegen";
-import { getSkill, listSkills, registerPromotedSkill } from "@kelpclaw/skill-registry";
+import {
+  getSkill,
+  listSkills,
+  loadPromotedSkills,
+  registerPromotedSkill
+} from "@kelpclaw/skill-registry";
 import {
   createDefaultLiveAdapters,
   createDefaultMockAdapters,
@@ -175,12 +181,19 @@ import {
   createOAuthState,
   secretReadiness
 } from "./secrets.js";
-import { InMemoryAgentRunStore, SqliteAgentRunStore } from "./agent-run-store.js";
+import {
+  InMemoryAgentRunStore,
+  SqliteAgentRunStore,
+  createAgentRunAuditAnchor
+} from "./agent-run-store.js";
 import { registerAgentRunRoutes } from "./agent-run-routes.js";
 import {
   attachAuthPrincipal,
   authPrincipalForRequest,
+  createRoleToken,
   createApiAuthContext,
+  inspectApiToken,
+  isApiRole,
   principalHasRole
 } from "./auth.js";
 import { ApiPolicyEngine } from "./policy-engine.js";
@@ -222,6 +235,22 @@ interface AgentRunPromoteRequestBody {
   readonly skillName?: string | undefined;
   readonly capabilities?: readonly string[] | undefined;
   readonly promotedBy?: string | undefined;
+}
+
+interface CreateRoleTokenRequestBody {
+  readonly roles?: unknown;
+  readonly subject?: unknown;
+  readonly expiresAt?: unknown;
+  readonly ttlSeconds?: unknown;
+}
+
+interface InspectRoleTokenRequestBody {
+  readonly token?: unknown;
+}
+
+interface PromotedSkillIndex {
+  readonly kelpclawPromotedSkillIndexVersion: "1.0.0";
+  readonly artifacts: readonly WorkflowCodegenArtifactRef[];
 }
 
 interface SkillRouteParams {
@@ -374,6 +403,7 @@ export interface ApiAppOptions {
   readonly roleTokens?: Readonly<Record<string, readonly ApiRole[]>> | undefined;
   readonly authSigningSecret?: string | null | undefined;
   readonly adminToken?: string | null | undefined;
+  readonly rehydratePromotedSkills?: boolean | undefined;
   readonly runner?: NodeRunner | undefined;
 }
 
@@ -509,6 +539,11 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
   const policyEngine = options.policyEngine ?? new ApiPolicyEngine();
   const otlpExporter = options.otlpExporter ?? createConfiguredApiOtlpExporter();
   const artifactStore = options.artifactStore ?? new LocalCodegenArtifactStore();
+  const shouldRehydratePromotedSkills =
+    options.rehydratePromotedSkills ?? process.env.NODE_ENV !== "test";
+  if (shouldRehydratePromotedSkills) {
+    rehydratePromotedSkills(artifactStore);
+  }
   const planner = options.planner ?? createPlannerBackendFromEnv({ artifactStore });
   const runner = options.runner;
   let latestRouterEvalRun: WorkflowRouterEvalRun | undefined;
@@ -600,6 +635,83 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     providers: providerRuntimeConfigsFromEnv()
   }));
 
+  app.post<{ Body: CreateRoleTokenRequestBody }>(
+    "/api/auth/role-tokens",
+    { preHandler: auth.requireRole("admin") },
+    async (request, reply) => {
+      const roles = parseApiRoleList(request.body.roles);
+      if (!roles) {
+        return reply.code(422).send({
+          ok: false,
+          error: "ROLE_TOKEN_INVALID",
+          message: "Role token creation requires one or more valid roles."
+        });
+      }
+      const expiresAt = parseRoleTokenExpiry(request.body.expiresAt, request.body.ttlSeconds);
+      if (expiresAt === false) {
+        return reply.code(422).send({
+          ok: false,
+          error: "ROLE_TOKEN_INVALID",
+          message: "Role token expiry must be a future ISO timestamp or positive ttlSeconds."
+        });
+      }
+      const signingSecret =
+        options.authSigningSecret === undefined
+          ? process.env.KELPCLAW_AUTH_SIGNING_SECRET
+          : options.authSigningSecret;
+      if (!signingSecret) {
+        return reply.code(409).send({
+          ok: false,
+          error: "ROLE_TOKEN_SIGNING_SECRET_REQUIRED",
+          message: "KELPCLAW_AUTH_SIGNING_SECRET is required to mint signed role tokens."
+        });
+      }
+      const subject =
+        typeof request.body.subject === "string" && request.body.subject.trim()
+          ? request.body.subject.trim()
+          : "api";
+      const token = createRoleToken({
+        roles,
+        subject,
+        ...(expiresAt ? { expiresAt } : {}),
+        signingSecret
+      });
+      return {
+        ok: true,
+        token,
+        principal: {
+          subject,
+          roles,
+          tokenKind: "signed-role-token" as const
+        },
+        ...(expiresAt ? { expiresAt } : {})
+      };
+    }
+  );
+
+  app.post<{ Body: InspectRoleTokenRequestBody }>(
+    "/api/auth/role-tokens/inspect",
+    { preHandler: auth.requireRole("admin") },
+    async (request, reply) => {
+      const token = typeof request.body.token === "string" ? request.body.token.trim() : "";
+      const principal = token
+        ? inspectApiToken(token, {
+            adminToken,
+            roleTokens: options.roleTokens,
+            signingSecret: options.authSigningSecret
+          })
+        : null;
+      if (!principal) {
+        return reply.code(422).send({
+          ok: false,
+          error: "ROLE_TOKEN_INVALID",
+          message: "Role token could not be authenticated."
+        });
+      }
+      return { ok: true, principal };
+    }
+  );
+
   app.get("/api/ops/health", async () => ({
     ok: true,
     health: opsHealth(store, jobWorker, scheduleWorker, latestRouterEvalRun)
@@ -611,6 +723,52 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     auth,
     writeSseEvent
   });
+
+  app.post<{ Params: AgentRunRouteParams }>(
+    "/api/agent-runs/:id/audit/anchor",
+    { preHandler: auth.requireRole("admin") },
+    async (request, reply) => {
+      const run = agentRunStore.getRun(request.params.id);
+      if (!run) {
+        return reply.code(404).send({
+          ok: false,
+          error: "AGENT_RUN_NOT_FOUND",
+          message: `Agent run '${request.params.id}' was not found.`
+        });
+      }
+      const verification = agentRunStore.verifyAuditChain(run.id);
+      if (!verification.valid) {
+        return reply.code(409).send({
+          ok: false,
+          error: "AUDIT_CHAIN_INVALID",
+          message: `Agent run '${run.id}' audit chain is invalid.`,
+          verification
+        });
+      }
+      const anchor = createAgentRunAuditAnchor(run);
+      const anchorPath = agentRunAuditAnchorPath(run.id);
+      mkdirSync(dirname(anchorPath), { recursive: true });
+      writeFileSync(anchorPath, `${JSON.stringify(anchor)}\n`, {
+        encoding: "utf8",
+        flag: "a"
+      });
+      agentRunStore.appendAuditEvent(run.id, {
+        action: "audit.anchored",
+        summary: `Anchored audit chain for agent run '${run.id}'.`,
+        metadata: {
+          anchorId: anchor.anchorId,
+          chainHead: anchor.chainHead,
+          method: anchor.method,
+          anchorPath
+        }
+      });
+      return {
+        ok: true,
+        anchor,
+        anchorPath
+      };
+    }
+  );
 
   app.post<{ Params: AgentRunRouteParams; Body: AgentRunPromoteRequestBody }>(
     "/api/agent-runs/:id/promote",
@@ -671,6 +829,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
       const loadedSkill = JSON.parse(
         await artifactStore.readArtifact(storedSkillArtifact.ref)
       ) as SkillMetadata;
+      recordPromotedSkillArtifact(artifactStore, storedSkillArtifact.ref);
       const promotedSkill = registerPromotedSkill(loadedSkill);
       const otlpExport = await otlpExporter.exportPromotion({
         run,
@@ -3440,6 +3599,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
     const loadedSkill = JSON.parse(
       await artifactStore.readArtifact(storedArtifact.ref)
     ) as SkillMetadata;
+    recordPromotedSkillArtifact(artifactStore, storedArtifact.ref);
     const promotedSkill = registerPromotedSkill(loadedSkill);
 
     return {
@@ -4870,6 +5030,137 @@ async function validateApprovalReadiness(
   }
 
   return issues;
+}
+
+function rehydratePromotedSkills(artifactStore: CodegenArtifactStore): void {
+  if (!(artifactStore instanceof LocalCodegenArtifactStore)) {
+    return;
+  }
+  const indexPath = promotedSkillIndexPath(artifactStore);
+  if (!existsSync(indexPath)) {
+    return;
+  }
+  const index = parsePromotedSkillIndex(readFileSync(indexPath, "utf8"));
+  const skills = index.artifacts.map(
+    (ref) => JSON.parse(readLocalCodegenArtifact(artifactStore.root, ref)) as SkillMetadata
+  );
+  loadPromotedSkills(skills);
+}
+
+function recordPromotedSkillArtifact(
+  artifactStore: CodegenArtifactStore,
+  ref: WorkflowCodegenArtifactRef
+): void {
+  if (!(artifactStore instanceof LocalCodegenArtifactStore)) {
+    return;
+  }
+  const indexPath = promotedSkillIndexPath(artifactStore);
+  const existing = existsSync(indexPath)
+    ? parsePromotedSkillIndex(readFileSync(indexPath, "utf8")).artifacts
+    : [];
+  const artifacts = [...existing, ref].filter(
+    (artifact, index, values) =>
+      values.findIndex(
+        (candidate) => candidate.path === artifact.path && candidate.checksum === artifact.checksum
+      ) === index
+  );
+  mkdirSync(dirname(indexPath), { recursive: true });
+  writeFileSync(
+    indexPath,
+    `${JSON.stringify(
+      {
+        kelpclawPromotedSkillIndexVersion: "1.0.0",
+        artifacts
+      } satisfies PromotedSkillIndex,
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+}
+
+function promotedSkillIndexPath(artifactStore: LocalCodegenArtifactStore): string {
+  return join(artifactStore.root, "promoted-skills", "index.json");
+}
+
+function parsePromotedSkillIndex(content: string): PromotedSkillIndex {
+  const parsed = JSON.parse(content) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Promoted skill index must be a JSON object.");
+  }
+  const record = parsed as Partial<PromotedSkillIndex>;
+  if (
+    record.kelpclawPromotedSkillIndexVersion !== "1.0.0" ||
+    !Array.isArray(record.artifacts) ||
+    !record.artifacts.every(isWorkflowCodegenArtifactRef)
+  ) {
+    throw new Error("Promoted skill index is invalid.");
+  }
+  return {
+    kelpclawPromotedSkillIndexVersion: "1.0.0",
+    artifacts: record.artifacts
+  };
+}
+
+function readLocalCodegenArtifact(root: string, ref: WorkflowCodegenArtifactRef): string {
+  assertSafeArtifactPath(ref.path);
+  const hash = ref.checksum.replace(/^sha256:/u, "");
+  if (!/^[a-f0-9]{64}$/u.test(hash)) {
+    throw new Error(`Generated artifact checksum '${ref.checksum}' is invalid.`);
+  }
+  const content = readFileSync(join(root, "objects", "sha256", hash.slice(0, 2), hash), "utf8");
+  if (checksumArtifactContent(content) !== ref.checksum) {
+    throw new Error(`Generated artifact '${ref.path}' content hash drifted.`);
+  }
+  return content;
+}
+
+function isWorkflowCodegenArtifactRef(value: unknown): value is WorkflowCodegenArtifactRef {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Partial<WorkflowCodegenArtifactRef>;
+  return (
+    typeof record.path === "string" &&
+    typeof record.checksum === "string" &&
+    typeof record.contentType === "string"
+  );
+}
+
+function agentRunAuditAnchorPath(runId: string): string {
+  return join(
+    process.env.KELPCLAW_AUDIT_ANCHOR_DIR ?? join(process.cwd(), ".kelpclaw", "audit-anchors"),
+    `${slugify(runId)}.jsonl`
+  );
+}
+
+function parseApiRoleList(value: unknown): readonly ApiRole[] | undefined {
+  const rawRoles =
+    typeof value === "string"
+      ? value
+          .split(",")
+          .map((role) => role.trim())
+          .filter((role) => role.length > 0)
+      : value;
+  if (!Array.isArray(rawRoles) || rawRoles.length === 0 || !rawRoles.every(isApiRole)) {
+    return undefined;
+  }
+  return [...new Set(rawRoles)];
+}
+
+function parseRoleTokenExpiry(expiresAt: unknown, ttlSeconds: unknown): string | false | undefined {
+  if (typeof expiresAt === "string" && expiresAt.trim()) {
+    const parsed = Date.parse(expiresAt);
+    return Number.isFinite(parsed) && parsed > Date.now() ? new Date(parsed).toISOString() : false;
+  }
+  if (ttlSeconds !== undefined) {
+    const ttl = typeof ttlSeconds === "number" ? ttlSeconds : Number(ttlSeconds);
+    if (!Number.isFinite(ttl) || ttl <= 0) {
+      return false;
+    }
+    return new Date(Date.now() + ttl * 1000).toISOString();
+  }
+  return undefined;
 }
 
 function createPromotedSkill(workflow: WorkflowSpec, node: WorkflowNode): SkillMetadata {

@@ -27,8 +27,11 @@ export type { OpenAiGeneratedNodeRoleRunnerOptions } from "./openai-role-runner.
 export {
   OpenWeightCodeGenerator,
   createOpenWeightChatCompletionsRunner,
+  extractOpenWeightJsonText,
   extractOpenWeightOutputText,
   openWeightModelFromEnv,
+  openWeightTimeoutMsFromEnv,
+  parseOpenWeightJsonObject,
   usageRecordFromOpenWeightChatResponse
 } from "./openweight-generator.js";
 export type {

@@ -11,6 +11,7 @@ export interface OpenWeightCodeGeneratorOptions {
   readonly apiKey?: string | undefined;
   readonly baseUrl?: string | undefined;
   readonly model?: string | undefined;
+  readonly timeoutMs?: number | undefined;
   readonly maxRepairAttempts?: number | undefined;
   readonly chatRunner?: OpenWeightChatRunner | undefined;
 }
@@ -32,6 +33,7 @@ export interface OpenWeightChatCompletionRequest {
 
 export interface OpenWeightChatRunOptions {
   readonly signal?: AbortSignal | undefined;
+  readonly timeoutMs?: number | undefined;
 }
 
 export interface OpenWeightChatCompletionResult {
@@ -54,6 +56,7 @@ export type OpenWeightChatRunner = (
 export interface OpenWeightChatCompletionsConfig {
   readonly baseUrl: string;
   readonly apiKey?: string | undefined;
+  readonly timeoutMs?: number | undefined;
 }
 
 interface OpenWeightStructuredOutput {
@@ -68,6 +71,7 @@ export class OpenWeightCodeGenerator implements CodeGenerator {
   private readonly apiKey: string | undefined;
   private readonly baseUrl: string | undefined;
   private readonly model: string;
+  private readonly timeoutMs: number | undefined;
   private readonly maxRepairAttempts: number;
   private readonly chatRunner: OpenWeightChatRunner | undefined;
 
@@ -75,6 +79,7 @@ export class OpenWeightCodeGenerator implements CodeGenerator {
     this.apiKey = options.apiKey ?? process.env.KELPCLAW_OPENWEIGHT_API_KEY;
     this.baseUrl = options.baseUrl ?? process.env.KELPCLAW_OPENWEIGHT_BASE_URL;
     this.model = options.model ?? openWeightModelFromEnv("qwen2.5-coder");
+    this.timeoutMs = options.timeoutMs;
     this.maxRepairAttempts = options.maxRepairAttempts ?? 1;
     this.chatRunner = options.chatRunner;
   }
@@ -149,7 +154,8 @@ export class OpenWeightCodeGenerator implements CodeGenerator {
     }
     return createOpenWeightChatCompletionsRunner({
       baseUrl: this.baseUrl,
-      apiKey: this.apiKey
+      apiKey: this.apiKey,
+      timeoutMs: this.timeoutMs
     });
   }
 
@@ -162,6 +168,7 @@ export class OpenWeightCodeGenerator implements CodeGenerator {
           content: [
             "You are KelpClaw's generated-node code author.",
             "Return one JSON object only.",
+            "Do not wrap JSON in markdown fences.",
             "Do not call external providers, read secrets, mutate workflows, or use undeclared network access."
           ].join("\n")
         },
@@ -186,22 +193,50 @@ export function createOpenWeightChatCompletionsRunner(
 ): OpenWeightChatRunner {
   const baseUrl = config.baseUrl.replace(/\/+$/u, "");
   return async (request, options) => {
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {})
-      },
-      body: JSON.stringify(request),
-      ...(options?.signal ? { signal: options.signal } : {})
-    });
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(
-        `Open-weight chat completions request failed: ${response.status}${body ? ` ${body}` : ""}`
-      );
+    const timeoutMs = options?.timeoutMs ?? config.timeoutMs ?? openWeightTimeoutMsFromEnv();
+    const controller = new AbortController();
+    let timedOut = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const abortFromCaller = () => controller.abort(options?.signal?.reason);
+    if (options?.signal?.aborted) {
+      controller.abort(options.signal.reason);
+    } else {
+      options?.signal?.addEventListener("abort", abortFromCaller, { once: true });
     }
-    return (await response.json()) as OpenWeightChatCompletionResult;
+    if (timeoutMs > 0) {
+      timeout = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs);
+    }
+    try {
+      const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {})
+        },
+        body: JSON.stringify(request),
+        signal: controller.signal
+      });
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(
+          `Open-weight chat completions request failed: ${response.status}${body ? ` ${body}` : ""}`
+        );
+      }
+      return (await response.json()) as OpenWeightChatCompletionResult;
+    } catch (error) {
+      if (timedOut) {
+        throw new Error(`Open-weight chat completions request timed out after ${timeoutMs}ms.`);
+      }
+      throw error;
+    } finally {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      options?.signal?.removeEventListener("abort", abortFromCaller);
+    }
   };
 }
 
@@ -214,6 +249,34 @@ export function openWeightModelFromEnv(fallback: string): string {
     process.env.KELPCLAW_OPENWEIGHT_MODEL ??
     fallback
   );
+}
+
+export function openWeightTimeoutMsFromEnv(fallback = 60_000): number {
+  const raw = process.env.KELPCLAW_OPENWEIGHT_TIMEOUT_MS;
+  const parsed = raw ? Number(raw) : fallback;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+export function parseOpenWeightJsonObject(value: string): unknown {
+  const extracted = extractOpenWeightJsonText(value);
+  try {
+    return JSON.parse(extracted);
+  } catch {
+    throw new Error("Open-weight model output was not valid JSON.");
+  }
+}
+
+export function extractOpenWeightJsonText(value: string): string {
+  const trimmed = value.trim();
+  const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/iu.exec(trimmed);
+  if (fenced?.[1]) {
+    return fenced[1].trim();
+  }
+  const extracted = firstBalancedJsonObject(trimmed);
+  if (extracted) {
+    return extracted;
+  }
+  return trimmed;
 }
 
 export function extractOpenWeightOutputText(response: OpenWeightChatCompletionResult): string {
@@ -277,11 +340,48 @@ function parseStructuredOutput(output: unknown): OpenWeightStructuredOutput {
 }
 
 function safeParseJson(value: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch {
-    throw new Error("Generated code output was not valid JSON.");
+  return parseOpenWeightJsonObject(value);
+}
+
+function firstBalancedJsonObject(value: string): string | undefined {
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (start === -1) {
+      if (char === "{") {
+        start = index;
+        depth = 1;
+      }
+      continue;
+    }
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = inString;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) {
+      continue;
+    }
+    if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return value.slice(start, index + 1);
+      }
+    }
   }
+  return undefined;
 }
 
 function createGenerationPrompt(request: CodegenGenerationRequest): string {

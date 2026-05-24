@@ -13,7 +13,11 @@ import type {
 import type { PolicyDecision } from "@kelpclaw/policy";
 
 export type AgentRunStatus = "recording" | "stopped" | "failed";
-export type AgentRunAuditAction = "policy.denied" | "policy.approved" | "trajectory.promoted";
+export type AgentRunAuditAction =
+  | "policy.denied"
+  | "policy.approved"
+  | "trajectory.promoted"
+  | "audit.anchored";
 
 export interface AgentRunRecord {
   readonly id: string;
@@ -91,6 +95,17 @@ export interface AgentRunStore {
 export interface AgentRunAuditVerification {
   readonly valid: boolean;
   readonly brokenAt?: number | undefined;
+}
+
+export interface AgentRunAuditAnchor {
+  readonly kelpclawAuditAnchorVersion: "1.0.0";
+  readonly runId: string;
+  readonly method: "local-file";
+  readonly chainHead: string;
+  readonly eventCount: number;
+  readonly anchoredAt: string;
+  readonly anchorId: string;
+  readonly verification: AgentRunAuditVerification;
 }
 
 const genesisContentHash = `sha256:${"0".repeat(64)}`;
@@ -324,6 +339,26 @@ export function verifyAgentRunAuditChain(run: AgentRunRecord): AgentRunAuditVeri
     }
   }
   return { valid: true };
+}
+
+export function agentRunAuditChainHead(run: AgentRunRecord): string {
+  return run.events.at(-1)?.prevEventHash ?? genesisContentHash;
+}
+
+export function createAgentRunAuditAnchor(run: AgentRunRecord): AgentRunAuditAnchor {
+  const anchorBase = {
+    kelpclawAuditAnchorVersion: "1.0.0" as const,
+    runId: run.id,
+    method: "local-file" as const,
+    chainHead: agentRunAuditChainHead(run),
+    eventCount: run.events.length,
+    anchoredAt: new Date().toISOString(),
+    verification: verifyAgentRunAuditChain(run)
+  };
+  return {
+    ...anchorBase,
+    anchorId: hashJson(anchorBase as unknown as JsonValue)
+  };
 }
 
 function createChainedAgentStepEvent(

@@ -102,6 +102,26 @@ export function createRoleToken(input: {
   return `kelp.v1.${payload}.${signTokenPayload(payload, signingSecret)}`;
 }
 
+export function inspectApiToken(token: string, options: ApiAuthOptions): ApiPrincipal | null {
+  const configuredTokens = {
+    ...parseRoleTokensEnv(process.env.KELPCLAW_ROLE_TOKENS),
+    ...(options.roleTokens ?? {})
+  };
+  const signingSecret =
+    options.signingSecret === undefined
+      ? process.env.KELPCLAW_AUTH_SIGNING_SECRET
+      : options.signingSecret;
+  return authenticateBearer(`Bearer ${token}`, {
+    adminToken: options.adminToken,
+    roleTokens: configuredTokens,
+    signingSecret
+  });
+}
+
+export function isApiRole(value: unknown): value is ApiRole {
+  return typeof value === "string" && roleSet.has(value);
+}
+
 export function principalHasRole(principal: ApiPrincipal, role: ApiRole): boolean {
   return principal.roles.includes("admin") || principal.roles.includes(role);
 }

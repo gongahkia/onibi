@@ -21,6 +21,9 @@ Edit `.env` before starting the API:
 - `OPENAI_API_KEY`: required when the selected live provider is `openai`.
 - `KELPCLAW_OPENWEIGHT_BASE_URL`: required when the selected live provider is `openweight`; point it at an OpenAI-compatible `/v1` endpoint.
 - `KELPCLAW_OPENWEIGHT_API_KEY`: optional bearer token for open-weight gateways that require auth.
+- `KELPCLAW_OPENWEIGHT_TIMEOUT_MS`: optional request timeout for open-weight chat completions; defaults to `60000`.
+- `KELPCLAW_AUTH_SIGNING_SECRET`: required to mint HMAC-signed RBAC role tokens from the API or CLI.
+- `KELPCLAW_AUDIT_ANCHOR_DIR`: optional local directory for `audit-anchor` JSONL records; defaults to `.kelpclaw/audit-anchors`.
 - `KELPCLAW_PLANNER_MODEL` and `KELPCLAW_CODEGEN_MODEL`: optional provider model overrides. Provider-specific overrides include `KELPCLAW_OPENAI_PLANNER_MODEL`, `KELPCLAW_OPENAI_CODEGEN_MODEL`, `KELPCLAW_OPENWEIGHT_PLANNER_MODEL`, and `KELPCLAW_OPENWEIGHT_CODEGEN_MODEL`.
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`: OAuth web client credentials.
 - SMTP, WhatsApp, Telegram, GitHub, Slack, Discord, Notion, Linear, Jira, Airtable, webhook, and database defaults as needed for your providers.
@@ -104,6 +107,7 @@ $ KELPCLAW_PLANNER_PROVIDER=openweight \
   KELPCLAW_CODEGEN_PROVIDER=openweight \
   KELPCLAW_OPENWEIGHT_BASE_URL=http://127.0.0.1:11434/v1 \
   KELPCLAW_OPENWEIGHT_MODEL=qwen2.5-coder \
+  KELPCLAW_OPENWEIGHT_TIMEOUT_MS=60000 \
   docker compose up --build
 ```
 

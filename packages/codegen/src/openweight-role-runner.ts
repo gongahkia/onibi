@@ -2,6 +2,7 @@ import type { JsonRecord } from "@kelpclaw/workflow-spec";
 import {
   createOpenWeightChatCompletionsRunner,
   extractOpenWeightOutputText,
+  parseOpenWeightJsonObject,
   usageRecordFromOpenWeightChatResponse
 } from "./openweight-generator.js";
 import type {
@@ -23,6 +24,7 @@ export interface OpenWeightGeneratedNodeRoleRunnerOptions {
   readonly apiKey?: string | undefined;
   readonly baseUrl?: string | undefined;
   readonly model?: string | undefined;
+  readonly timeoutMs?: number | undefined;
   readonly chatRunner?: OpenWeightChatRunner | undefined;
 }
 
@@ -39,6 +41,7 @@ export class OpenWeightGeneratedNodeRoleRunner implements GeneratedNodeRoleRunne
   private readonly apiKey: string | undefined;
   private readonly baseUrl: string | undefined;
   private readonly model: string;
+  private readonly timeoutMs: number | undefined;
   private readonly chatRunner: OpenWeightChatRunner | undefined;
 
   public constructor(options: OpenWeightGeneratedNodeRoleRunnerOptions) {
@@ -46,6 +49,7 @@ export class OpenWeightGeneratedNodeRoleRunner implements GeneratedNodeRoleRunne
     this.apiKey = options.apiKey ?? process.env.KELPCLAW_OPENWEIGHT_API_KEY;
     this.baseUrl = options.baseUrl ?? process.env.KELPCLAW_OPENWEIGHT_BASE_URL;
     this.model = options.model ?? modelForRole(options.role);
+    this.timeoutMs = options.timeoutMs;
     this.chatRunner = options.chatRunner;
   }
 
@@ -151,7 +155,8 @@ export class OpenWeightGeneratedNodeRoleRunner implements GeneratedNodeRoleRunne
     }
     return createOpenWeightChatCompletionsRunner({
       baseUrl: this.baseUrl,
-      apiKey: this.apiKey
+      apiKey: this.apiKey,
+      timeoutMs: this.timeoutMs
     });
   }
 
@@ -164,6 +169,7 @@ export class OpenWeightGeneratedNodeRoleRunner implements GeneratedNodeRoleRunne
           content: [
             `You are the ${this.role} agent for a KelpClaw generated-node build.`,
             "Return one JSON object only.",
+            "Do not wrap JSON in markdown fences.",
             "Do not mutate workflow state, resolve secrets, or call external providers."
           ].join("\n")
         },
@@ -185,6 +191,7 @@ export function createOpenWeightGeneratedNodeRoleRunners(
   options: {
     readonly apiKey?: string | undefined;
     readonly baseUrl?: string | undefined;
+    readonly timeoutMs?: number | undefined;
     readonly chatRunner?: OpenWeightChatRunner | undefined;
   } = {}
 ): Partial<Record<GeneratedNodeBuildRole, GeneratedNodeRoleRunner>> {
@@ -205,6 +212,7 @@ export function createOpenWeightGeneratedNodeRoleRunners(
         apiKey: options.apiKey,
         baseUrl: options.baseUrl,
         model: modelForRole(role),
+        timeoutMs: options.timeoutMs,
         chatRunner: options.chatRunner
       })
     ])
@@ -355,11 +363,7 @@ function isArtifactRef(value: unknown): value is WorkflowCodegenArtifactRef {
 }
 
 function safeParseJson(value: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch {
-    throw new Error("Open-weight generated-node role output was not valid JSON.");
-  }
+  return parseOpenWeightJsonObject(value);
 }
 
 function createRolePrompt(input: GeneratedNodeRoleRunInput): string {
