@@ -166,6 +166,12 @@ importers:
         specifier: ^6.38.0
         version: 6.38.0(zod@4.4.3)
 
+  packages/evidence:
+    dependencies:
+      '@kelpclaw/workflow-spec':
+        specifier: workspace:*
+        version: link:../workflow-spec
+
   packages/nanoclaw:
     dependencies:
       '@anthropic-ai/claude-agent-sdk':
