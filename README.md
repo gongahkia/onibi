@@ -99,8 +99,11 @@ KelpClaw can analyze and run agent skills in an audit-first mode:
 
 ```console
 $ kelp-claw help
+$ kelp-claw version --json
 $ kelp-claw doctor
 $ kelp-claw demo governance --out .kelpclaw/demo/governance
+$ kelp-claw release manifest --out .kelpclaw/release
+$ kelp-claw verify-release .kelpclaw/release
 $ kelp-claw compat ./SKILL.md --policy baseline
 $ kelp-claw policy explain ./SKILL.md --policy baseline
 $ kelp-claw governance report ./SKILL.md --region sg --framework agentic-ai --policy sg-agentic-ai-baseline
@@ -112,6 +115,7 @@ $ kelp-claw run-skill github:owner/repo/path/SKILL.md --input input.json
 $ kelp-claw governance report <runId> --region sg --framework agentic-ai
 $ kelp-claw export-audit-bundle <runId> --include-governance --include-controls --include-sarif --region sg --framework agentic-ai
 $ kelp-claw verify-audit-bundle .kelpclaw/audit-bundles/<runId> --strict
+$ kelp-claw verify-audit-bundle .kelpclaw/audit-bundles/<runId> --profile reviewer
 $ kelp-claw replay-diff --skill ./SKILL.md --agents claude-code,codex-cli,goose
 $ kelp-claw replay-diff --recorded --skill ./SKILL.md --input input.json --agents codex-cli,custom-agent
 $ kelp-claw web search "Singapore agentic AI governance" --provider exa --policy sg-web-research --out .kelpclaw/web-evidence/sg-ai
@@ -130,11 +134,11 @@ $ kelp-claw inventory graph --root . --format markdown --out .kelpclaw/inventory
 $ kelp-claw inventory coverage --root . --format markdown --fail-on high --out .kelpclaw/inventory/coverage.md
 ```
 
-`help` returns the major workflows and command groups as JSON for CLI, docs, and wrappers. `doctor` checks local readiness for demos and live integrations, including Node.js, writable workspace access, built-in policy packs, Git, optional Codex CLI, and Exa/TinyFish environment configuration. `demo governance` creates a complete local handoff in one command: demo skill, input, evidence workspace, imported SARIF finding, signed governance audit bundle, and strict verification result.
+`help` returns the major workflows and command groups as JSON for CLI, docs, and wrappers. `version --json` reports build/runtime metadata plus policy pack versions. `doctor` checks local readiness for demos and live integrations, including Node.js, writable workspace access, built-in policy packs, Git, optional Codex CLI, and Exa/TinyFish environment configuration. `demo governance` creates a complete local handoff in one command: demo skill, input, evidence workspace, imported SARIF finding, signed governance audit bundle, and strict verification result. `release manifest` writes signed release metadata, a CycloneDX-style SBOM, and SLSA-inspired provenance; `verify-release` checks those hashes and signatures.
 
-`compat` reports detected tools, required secrets, network posture, sandbox profile, and policy findings. `run-skill` writes deterministic local artifacts under `.kelpclaw/runs/<runId>/`, including `skill.json`, `workflow.json`, `bom.json`, `audit.jsonl`, and `policy-decisions.json`. With `--agent codex-cli`, KelpClaw materializes a temporary workspace, invokes `codex exec`, captures stdout/stderr, installs a local hook command for compatible agents, records hook-derived `PreToolUse`/`PostToolUse` events when available, evaluates policy, and stores generated artifact metadata. Planned policy denials block before launch; hook-denied pre-tool events block the run under `--enforce-policy`. `export-audit-bundle` creates a static bundle with an offline `index.html`.
+`compat` reports detected tools, required secrets, network posture, sandbox profile, and policy findings. `run-skill` writes deterministic local artifacts under `.kelpclaw/runs/<runId>/`, including `skill.json`, `workflow.json`, `bom.json`, `audit.jsonl`, and `policy-decisions.json`. With `--agent codex-cli`, `--agent claude-code`, or `--agent goose`, KelpClaw materializes a temporary workspace, captures stdout/stderr, installs a local hook command for compatible agents, records hook-derived `PreToolUse`/`PostToolUse` events when available, evaluates policy, and stores generated artifact metadata. Planned policy denials block before launch; hook-denied pre-tool events block the run under `--enforce-policy`. `export-audit-bundle` creates a static bundle with an offline reviewer `index.html`, redacts secret-like and email-like content before signing by default, and writes `redaction-report.json`.
 
-`policy explain` shows the exact planned tool steps and policy decisions for a skill. `governance report` emits SG/APAC-oriented evidence for autonomy tier, tool/data/network risk, human approval points, auditability, replay evidence, residual risks, and framework mappings. `governance controls` produces a reviewer-facing controls matrix, and `export-sarif` converts policy/governance/web findings into SARIF 2.1.0 for GitHub code scanning and security review. `--wrapper` adds stricter Codex CLI handling by normalizing Codex JSONL tool events into KelpClaw hook events and failing closed on unclassified enforced tool events. `export-audit-bundle` signs a manifest and attestation with a local Ed25519 key by default; use `kelp-claw audit-key init` to create the key explicitly and `verify-audit-bundle --strict` before forwarding the static bundle.
+`policy explain` shows the exact planned tool steps and policy decisions for a skill. `governance report` emits SG/APAC-oriented evidence for autonomy tier, tool/data/network risk, human approval points, auditability, replay evidence, residual risks, and IMDA Agentic AI-oriented framework mappings. `governance controls` produces a reviewer-facing controls matrix, and `export-sarif` converts policy/governance/web findings into SARIF 2.1.0 for GitHub code scanning and security review. `--wrapper` adds stricter JSONL handling by normalizing Codex/Claude/Goose-style tool events into KelpClaw hook events and failing closed on unclassified enforced tool events. `export-audit-bundle` signs a manifest and attestation with a local Ed25519 key by default; use `kelp-claw audit-key init` to create the key explicitly and `verify-audit-bundle --profile reviewer|regulator|ci` before forwarding the static bundle.
 
 `kelp-claw web` adds governed Exa/TinyFish web intelligence. `search`, `fetch`, `answer`, and `research` evaluate a policy pack before the provider call, normalize sources into KelpClaw web evidence, hash source content, redact obvious secrets and emails, and optionally write `web-evidence.json`, `web-events.jsonl`, `web-bom.json`, and `web-evidence.html`. Set `EXA_API_KEY` and/or `TINYFISH_API_KEY` for live calls. Attach the evidence to `governance report` or `export-audit-bundle` with `--include-web-evidence <dir-or-json>`.
 
@@ -192,6 +196,8 @@ Use repository inventory mode for periodic or PR-level agent estate checks:
 ```
 
 The compatibility corpus in `fixtures/skills-corpus` contains representative public-style skills and expected reports for regression tests.
+
+The golden demo in `examples/agentic-ai-governance-demo` contains a passing skill, blocked skill, web-evidence skill, replay-diff skill, and sample input for public walkthroughs.
 
 ## Auth, Secrets, And Integrations
 

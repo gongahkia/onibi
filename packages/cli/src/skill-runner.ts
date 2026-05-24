@@ -919,7 +919,7 @@ export async function initAuditKey(args: readonly string[]): Promise<AuditKeyOut
   };
 }
 
-export async function versionInfo(_args: readonly string[] = []): Promise<VersionInfoOutput> {
+export async function versionInfo(): Promise<VersionInfoOutput> {
   const git = await gitInfo();
   const gitFields = Object.keys(git).length > 0 ? { git } : {};
   return {
@@ -943,7 +943,7 @@ export async function releaseManifest(args: readonly string[]): Promise<ReleaseM
   const outDir = resolve(option(args, "--out") ?? ".kelpclaw/release");
   const keyDir = resolve(option(args, "--key-dir") ?? ".kelpclaw/keys");
   await mkdir(outDir, { recursive: true });
-  const version = await versionInfo([]);
+  const version = await versionInfo();
   const sourceRoot = resolve(option(args, "--root") ?? ".");
   const sbom = await releaseSbom(sourceRoot);
   const provenance = {
@@ -2946,13 +2946,16 @@ function governanceFrameworkMapping(
     {
       controlArea: "IMDA Agentic AI: Delegation and multi-agent oversight",
       status:
-        compatibility.toolsDetected.includes("Task") || compatibility.toolsDetected.includes("TodoWrite")
+        compatibility.toolsDetected.includes("Task") ||
+        compatibility.toolsDetected.includes("TodoWrite")
           ? "partial"
           : "covered",
       evidence: [
-        `Delegation-capable tools: ${compatibility.toolsDetected
-          .filter((tool) => tool === "Task" || tool === "TodoWrite")
-          .join(", ") || "none"}`,
+        `Delegation-capable tools: ${
+          compatibility.toolsDetected
+            .filter((tool) => tool === "Task" || tool === "TodoWrite")
+            .join(", ") || "none"
+        }`,
         `Approval required: ${controls.approvalRequired}`
       ]
     },
@@ -4477,10 +4480,7 @@ function fileKind(file: string): string {
   return "file";
 }
 
-async function redactBundleFiles(
-  bundleDir: string,
-  files: readonly string[]
-): Promise<JsonRecord> {
+async function redactBundleFiles(bundleDir: string, files: readonly string[]): Promise<JsonRecord> {
   const findings: JsonRecord[] = [];
   for (const file of files) {
     if (!isSafeBundlePath(file) || !isTextBundleFile(file)) {
@@ -4767,14 +4767,18 @@ async function verifyAuditAttestation(input: {
   };
 }
 
-function verificationProfile(value: string | undefined): AuditBundleVerificationProfile | undefined {
+function verificationProfile(
+  value: string | undefined
+): AuditBundleVerificationProfile | undefined {
   if (value === undefined) {
     return undefined;
   }
   if (value === "reviewer" || value === "regulator" || value === "ci") {
     return value;
   }
-  throw new Error("Unsupported audit bundle verification profile. Expected reviewer, regulator, or ci.");
+  throw new Error(
+    "Unsupported audit bundle verification profile. Expected reviewer, regulator, or ci."
+  );
 }
 
 async function verificationProfileFailures(
@@ -4789,6 +4793,12 @@ async function verificationProfileFailures(
   const manifestFiles = new Set((manifest.files ?? []).map((file) => file.path));
   const requiredFiles = profileRequiredFiles(profile);
   for (const file of requiredFiles) {
+    if (profileBundleOnlyFiles.has(file)) {
+      if (!(await fileExists(join(bundleDir, file)))) {
+        failures.push(`${profile} profile requires ${file} to exist.`);
+      }
+      continue;
+    }
     if (!manifestFiles.has(file)) {
       failures.push(`${profile} profile requires ${file} in the signed manifest.`);
       continue;
@@ -4841,6 +4851,32 @@ function profileRequiredFiles(profile: AuditBundleVerificationProfile): readonly
   ];
 }
 
+const profileBundleOnlyFiles = new Set([
+  "manifest.json",
+  "manifest.sig",
+  "manifest.pub.json",
+  "attestation.json",
+  "attestation.sig"
+]);
+
+function policyPackMetadata(pack: PolicyPack): PolicyPackMetadata {
+  const candidate = (pack as PolicyPack & { readonly metadata?: PolicyPackMetadata }).metadata;
+  return (
+    candidate ?? {
+      version: pack.name === "sg-agentic-ai-baseline" ? "1.1.0" : "1.0.0",
+      region: pack.name.startsWith("sg-") || pack.name.endsWith("-sg") ? "sg" : "global",
+      maturity:
+        pack.name === "sg-agentic-ai-baseline"
+          ? "regulated"
+          : pack.name.includes("strict")
+            ? "strict"
+            : "baseline",
+      controlMappings: ["policy-governance"],
+      changelog: ["Metadata fallback for policy packs built before metadata support."]
+    }
+  );
+}
+
 async function auditManifestFile(
   bundleDir: string,
   file: string
@@ -4879,7 +4915,10 @@ async function gitInfo(): Promise<{
   };
 }
 
-async function commandOutput(command: string, args: readonly string[]): Promise<string | undefined> {
+async function commandOutput(
+  command: string,
+  args: readonly string[]
+): Promise<string | undefined> {
   return new Promise((resolveOutput) => {
     const child = spawn(command, [...args], { stdio: ["ignore", "pipe", "ignore"] });
     const chunks: Buffer[] = [];

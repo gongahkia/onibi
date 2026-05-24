@@ -299,7 +299,11 @@ const packs: readonly PolicyPack[] = [
       version: "1.0.0",
       region: "sg",
       maturity: "regulated",
-      controlMappings: ["financial-review", "customer-data-protection", "regulated-workflow-approval"],
+      controlMappings: [
+        "financial-review",
+        "customer-data-protection",
+        "regulated-workflow-approval"
+      ],
       changelog: ["Initial Singapore financial AI policy pack."]
     },
     ruleset: {
@@ -420,7 +424,11 @@ const packs: readonly PolicyPack[] = [
       version: "1.0.0",
       region: "sg",
       maturity: "regulated",
-      controlMappings: ["sg-pdpa:query-review", "financial-research-review", "web-evidence-retention"],
+      controlMappings: [
+        "sg-pdpa:query-review",
+        "financial-research-review",
+        "web-evidence-retention"
+      ],
       changelog: ["Initial Singapore governed web research policy pack."]
     },
     ruleset: {
@@ -465,7 +473,11 @@ const packs: readonly PolicyPack[] = [
       version: "1.0.0",
       region: "global",
       maturity: "strict",
-      controlMappings: ["browser-automation-approval", "credential-flow-prevention", "account-safety"],
+      controlMappings: [
+        "browser-automation-approval",
+        "credential-flow-prevention",
+        "account-safety"
+      ],
       changelog: ["Initial strict browser automation policy pack."]
     },
     ruleset: {

@@ -9,6 +9,7 @@ $ pnpm install
 $ pnpm --filter @kelpclaw/cli build
 $ pnpm --filter @kelpclaw/cli exec kelp-claw doctor
 $ pnpm --filter @kelpclaw/cli exec kelp-claw demo governance --out .kelpclaw/demo/governance
+$ pnpm --filter @kelpclaw/cli exec kelp-claw verify-audit-bundle .kelpclaw/demo/governance/audit-bundle --profile reviewer
 ```
 
 The demo writes a static audit bundle at `.kelpclaw/demo/governance/audit-bundle/index.html` and strict-verifies it before returning.

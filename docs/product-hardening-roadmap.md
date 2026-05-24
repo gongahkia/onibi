@@ -15,6 +15,13 @@ KelpClaw remains focused on agent skill governance: policy decisions before and 
 - `kelp-claw help` returns adoption workflows and command groups as structured JSON.
 - `kelp-claw doctor` checks local demo readiness: Node.js, workspace writes, policy packs, Git, optional Codex CLI, Exa, TinyFish, and API environment.
 - `kelp-claw demo governance` generates a complete local handoff with a sample skill, input, evidence workspace, imported SARIF finding, signed bundle, governance report, controls, SARIF, and strict verification.
+- `kelp-claw version --json`, `kelp-claw release manifest`, and `kelp-claw verify-release` provide local release metadata, SBOM, provenance, and signature verification.
+- `verify-audit-bundle --profile reviewer|regulator|ci` applies audience-specific bundle requirements on top of signature/hash checks.
+- Static audit bundles include a searchable reviewer `index.html` and a default redaction pass for secret-like and email-like content before signing.
+- Policy packs now carry versioned metadata, maturity, region, control mappings, and changelog notes.
+- The SG agentic AI baseline maps directly to IMDA Agentic AI control areas and includes delegation, networked shell, irreversible action, and unclassified-tool rules.
+- Live wrapper coverage now treats Codex CLI, Claude Code, and Goose as first-class agent names, with shared JSONL normalization and fail-closed handling under enforcement.
+- `examples/agentic-ai-governance-demo` provides a passing skill, blocked skill, web-evidence skill, replay-diff skill, and sample input.
 - Signed audit bundles and evidence workspaces are portable enough for security and compliance review without running KelpClaw.
 - SG/APAC policy packs and governance reports are first-class, with US/UK/EU expansion left as later coverage.
 
@@ -22,12 +29,12 @@ KelpClaw remains focused on agent skill governance: policy decisions before and 
 
 1. Release and install hardening
    - Publish a stable npm package and Homebrew tap.
-   - Add signed release artifacts, provenance, SBOMs, and a release verification command.
-   - Add `kelp-claw version --json` with build metadata and policy pack versions.
+   - Wire `release manifest` into GitHub Releases with artifact upload and external provenance.
+   - Add external key support for signing release manifests.
 
 2. Live enforcement depth
-   - Expand Codex wrapper enforcement from JSONL classification to stronger command/file/network mediation where the agent runtime exposes hooks.
-   - Add comparable wrappers for Claude Code and Goose.
+   - Expand wrapper enforcement from JSONL classification to stronger command/file/network mediation where each agent runtime exposes hooks.
+   - Add agent-specific event parsers as Claude Code and Goose JSONL schemas evolve.
    - Track unsupported agent actions as explicit fail-closed findings under `--enforce-policy`.
 
 3. Reviewer portal

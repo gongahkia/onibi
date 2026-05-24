@@ -91,7 +91,7 @@ async function main(argv: readonly string[]): Promise<void> {
     case "demo":
       return printJson(await runDemoCommand(args));
     case "version":
-      return printJson(await versionInfo(args));
+      return printJson(await versionInfo());
     case "release":
       if (args[0] === "manifest") {
         return printJson(await releaseManifest(args.slice(1)));
