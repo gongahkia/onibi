@@ -20,13 +20,29 @@ export type PolicyPackName = (typeof policyPackNames)[number];
 export interface PolicyPack {
   readonly name: PolicyPackName;
   readonly description: string;
+  readonly metadata: PolicyPackMetadata;
   readonly ruleset: PolicyRuleSet;
+}
+
+export interface PolicyPackMetadata {
+  readonly version: string;
+  readonly region: "global" | "sg" | "asean";
+  readonly maturity: "baseline" | "strict" | "regulated" | "experimental";
+  readonly controlMappings: readonly string[];
+  readonly changelog: readonly string[];
 }
 
 const packs: readonly PolicyPack[] = [
   {
     name: "baseline",
     description: "General local development defaults for auditable skill runs.",
+    metadata: {
+      version: "1.0.0",
+      region: "global",
+      maturity: "baseline",
+      controlMappings: ["tool-risk", "destructive-action-prevention", "audit-logging"],
+      changelog: ["Initial local-development baseline policy pack."]
+    },
     ruleset: {
       rules: [
         {
@@ -45,6 +61,13 @@ const packs: readonly PolicyPack[] = [
   {
     name: "finance-sg",
     description: "Singapore finance workflow guardrails for payments, banking, tax, and CPF data.",
+    metadata: {
+      version: "1.0.0",
+      region: "sg",
+      maturity: "regulated",
+      controlMappings: ["financial-review", "secret-exfiltration-prevention", "human-approval"],
+      changelog: ["Initial Singapore finance guardrails for agent skills."]
+    },
     ruleset: {
       rules: [
         {
@@ -70,6 +93,13 @@ const packs: readonly PolicyPack[] = [
   {
     name: "pii-strict",
     description: "Strict handling rules for personal data and credential-like material.",
+    metadata: {
+      version: "1.0.0",
+      region: "global",
+      maturity: "strict",
+      controlMappings: ["privacy-review", "secret-exfiltration-prevention", "data-minimisation"],
+      changelog: ["Initial strict PII and credential handling policy pack."]
+    },
     ruleset: {
       rules: [
         {
@@ -95,6 +125,13 @@ const packs: readonly PolicyPack[] = [
   {
     name: "no-destructive-shell",
     description: "Blocks common destructive shell and git cleanup commands.",
+    metadata: {
+      version: "1.0.0",
+      region: "global",
+      maturity: "strict",
+      controlMappings: ["destructive-action-prevention", "reversibility", "change-control"],
+      changelog: ["Initial destructive shell prevention policy pack."]
+    },
     ruleset: {
       rules: [
         {
@@ -118,6 +155,13 @@ const packs: readonly PolicyPack[] = [
   {
     name: "github-pr-safe",
     description: "Safe defaults for PR-oriented GitHub automation.",
+    metadata: {
+      version: "1.0.0",
+      region: "global",
+      maturity: "baseline",
+      controlMappings: ["source-control-change-control", "human-approval", "audit-logging"],
+      changelog: ["Initial GitHub pull-request safety policy pack."]
+    },
     ruleset: {
       rules: [
         {
@@ -143,6 +187,22 @@ const packs: readonly PolicyPack[] = [
     name: "sg-agentic-ai-baseline",
     description:
       "Singapore agentic AI defaults for bounded autonomy, approvals, and fail-closed tool governance.",
+    metadata: {
+      version: "1.1.0",
+      region: "sg",
+      maturity: "regulated",
+      controlMappings: [
+        "imda-agentic-ai:human-accountability",
+        "imda-agentic-ai:bounded-autonomy",
+        "imda-agentic-ai:traceability",
+        "imda-agentic-ai:distributed-safeguards",
+        "imda-agentic-ai:incident-readiness"
+      ],
+      changelog: [
+        "Mapped policy metadata to Singapore IMDA Agentic AI governance control areas.",
+        "Added explicit delegation, tool access, network, and irreversible-action review rules."
+      ]
+    },
     ruleset: {
       rules: [
         {
@@ -177,6 +237,18 @@ const packs: readonly PolicyPack[] = [
           when: 'tool == "Bash" && args.command =~ "(curl|wget|http|https)"',
           action: "require-approval",
           approverRole: "agentic-ai-reviewer"
+        },
+        {
+          id: "sg-agentic-review-agent-delegation",
+          when: 'tool == "Task" || tool == "TodoWrite"',
+          action: "require-approval",
+          approverRole: "agentic-ai-reviewer"
+        },
+        {
+          id: "sg-agentic-review-irreversible-actions",
+          when: 'tool == "Bash" && args.command =~ "(deploy|release|publish|terraform apply|kubectl apply|docker push)"',
+          action: "require-approval",
+          approverRole: "agentic-ai-reviewer"
         }
       ]
     }
@@ -185,6 +257,13 @@ const packs: readonly PolicyPack[] = [
     name: "sg-pdpa-strict",
     description:
       "Singapore PDPA-oriented personal-data guardrails for agent skills and audit-first runs.",
+    metadata: {
+      version: "1.0.0",
+      region: "sg",
+      maturity: "strict",
+      controlMappings: ["sg-pdpa:personal-data-review", "data-minimisation", "privacy-approval"],
+      changelog: ["Initial Singapore PDPA-oriented strict policy pack."]
+    },
     ruleset: {
       rules: [
         {
@@ -216,6 +295,13 @@ const packs: readonly PolicyPack[] = [
     name: "sg-financial-ai",
     description:
       "Singapore financial AI guardrails for payments, banking, tax, customer data, and regulated workflows.",
+    metadata: {
+      version: "1.0.0",
+      region: "sg",
+      maturity: "regulated",
+      controlMappings: ["financial-review", "customer-data-protection", "regulated-workflow-approval"],
+      changelog: ["Initial Singapore financial AI policy pack."]
+    },
     ruleset: {
       rules: [
         {
@@ -248,6 +334,13 @@ const packs: readonly PolicyPack[] = [
     name: "asean-genai-baseline",
     description:
       "Region-neutral ASEAN/APAC generative and agentic AI defaults for safe local automation.",
+    metadata: {
+      version: "1.0.0",
+      region: "asean",
+      maturity: "baseline",
+      controlMappings: ["bounded-autonomy", "human-approval", "destructive-action-prevention"],
+      changelog: ["Initial ASEAN/APAC baseline policy pack."]
+    },
     ruleset: {
       rules: [
         {
@@ -279,6 +372,13 @@ const packs: readonly PolicyPack[] = [
     name: "web-search-safe",
     description:
       "Safe defaults for governed web search, answer, and fetch operations with approval gates for stored content and browser automation.",
+    metadata: {
+      version: "1.0.0",
+      region: "global",
+      maturity: "baseline",
+      controlMappings: ["web-evidence-review", "content-retention", "browser-automation-approval"],
+      changelog: ["Initial governed web intelligence policy pack."]
+    },
     ruleset: {
       rules: [
         {
@@ -316,6 +416,13 @@ const packs: readonly PolicyPack[] = [
     name: "sg-web-research",
     description:
       "Singapore-oriented web research guardrails for PDPA, financial services, government, and regulated-domain evidence collection.",
+    metadata: {
+      version: "1.0.0",
+      region: "sg",
+      maturity: "regulated",
+      controlMappings: ["sg-pdpa:query-review", "financial-research-review", "web-evidence-retention"],
+      changelog: ["Initial Singapore governed web research policy pack."]
+    },
     ruleset: {
       rules: [
         {
@@ -354,6 +461,13 @@ const packs: readonly PolicyPack[] = [
     name: "browser-automation-strict",
     description:
       "Strict web automation rules that force human approval for browser and web-agent actions and block account, payment, and credential flows.",
+    metadata: {
+      version: "1.0.0",
+      region: "global",
+      maturity: "strict",
+      controlMappings: ["browser-automation-approval", "credential-flow-prevention", "account-safety"],
+      changelog: ["Initial strict browser automation policy pack."]
+    },
     ruleset: {
       rules: [
         {

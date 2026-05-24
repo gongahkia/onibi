@@ -8,7 +8,7 @@ export {
   requirePolicyPack
 } from "./packs.js";
 export { parsePolicyYaml } from "./parser.js";
-export type { PolicyPack, PolicyPackName } from "./packs.js";
+export type { PolicyPack, PolicyPackMetadata, PolicyPackName } from "./packs.js";
 export type {
   PolicyAction,
   PolicyContext,

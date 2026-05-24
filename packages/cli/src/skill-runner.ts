@@ -16,6 +16,8 @@ import {
   policyPackToYaml,
   requirePolicyPack,
   type PolicyDecision,
+  type PolicyPack,
+  type PolicyPackMetadata,
   type PolicyRuleSet
 } from "@kelpclaw/policy";
 import {
@@ -709,6 +711,7 @@ async function runSkillInternal(args: readonly string[]): Promise<SkillRunIntern
   await writeJson(join(runDir, "policy-decisions.json"), {
     policyPack: policyPack.name,
     policyPackDescription: policyPack.description,
+    policyPackMetadata: policyPackMetadata(policyPack),
     ruleset: policyPack.ruleset,
     plannedDecisions,
     observedDecisions,
@@ -917,18 +920,20 @@ export async function initAuditKey(args: readonly string[]): Promise<AuditKeyOut
 }
 
 export async function versionInfo(_args: readonly string[] = []): Promise<VersionInfoOutput> {
+  const git = await gitInfo();
+  const gitFields = Object.keys(git).length > 0 ? { git } : {};
   return {
     ok: true,
     name: "kelp-claw",
     version: await readPackageVersion(),
     node: process.versions.node,
     schemaVersion: "1.0.0",
-    git: await gitInfo(),
+    ...gitFields,
     policyPacks: listPolicyPacks().map((pack) => ({
       name: pack.name,
-      version: pack.metadata.version,
-      region: pack.metadata.region,
-      maturity: pack.metadata.maturity,
+      version: policyPackMetadata(pack).version,
+      region: policyPackMetadata(pack).region,
+      maturity: policyPackMetadata(pack).maturity,
       ruleCount: pack.ruleset.rules.length
     }))
   };
@@ -1318,6 +1323,7 @@ export function policyPackCliOutput(name: string) {
     ok: true,
     pack: pack.name,
     description: pack.description,
+    metadata: policyPackMetadata(pack),
     ruleset: pack.ruleset,
     yaml: policyPackToYaml(pack)
   };
@@ -2896,14 +2902,14 @@ function governanceFrameworkMapping(
 ): readonly GovernanceFrameworkMapping[] {
   return [
     {
-      controlArea: "Human accountability and approval",
+      controlArea: "IMDA Agentic AI: Human accountability and approval",
       status: controls.approvalRequired ? "covered" : "partial",
       evidence: controls.approvalRequired
         ? ["Policy requires approval for at least one action."]
         : ["No approval-required action was detected for this skill/run."]
     },
     {
-      controlArea: "Bounded autonomy and technical controls",
+      controlArea: "IMDA Agentic AI: Bounded autonomy and technical controls",
       status: controls.denied || controls.failClosed || controls.policyPack ? "covered" : "partial",
       evidence: [
         `Policy pack: ${controls.policyPack}`,
@@ -2912,7 +2918,7 @@ function governanceFrameworkMapping(
       ]
     },
     {
-      controlArea: "Traceability and audit evidence",
+      controlArea: "IMDA Agentic AI: Traceability and audit evidence",
       status: controls.auditTrail && controls.signedBundle ? "covered" : "partial",
       evidence: [
         `Audit trail: ${controls.auditTrail}`,
@@ -2923,7 +2929,7 @@ function governanceFrameworkMapping(
       ]
     },
     {
-      controlArea: "Data and third-party risk",
+      controlArea: "IMDA Agentic AI: Data and third-party risk",
       status:
         compatibility.network === "none" &&
         compatibility.requiredSecrets.length === 0 &&
@@ -2935,6 +2941,37 @@ function governanceFrameworkMapping(
         `Required secrets: ${compatibility.requiredSecrets.join(", ") || "none"}`,
         `Web evidence attached: ${controls.webEvidence}`,
         `Evidence workspace attached: ${controls.evidenceWorkspace}`
+      ]
+    },
+    {
+      controlArea: "IMDA Agentic AI: Delegation and multi-agent oversight",
+      status:
+        compatibility.toolsDetected.includes("Task") || compatibility.toolsDetected.includes("TodoWrite")
+          ? "partial"
+          : "covered",
+      evidence: [
+        `Delegation-capable tools: ${compatibility.toolsDetected
+          .filter((tool) => tool === "Task" || tool === "TodoWrite")
+          .join(", ") || "none"}`,
+        `Approval required: ${controls.approvalRequired}`
+      ]
+    },
+    {
+      controlArea: "IMDA Agentic AI: Distributed safeguards and fail-closed runtime",
+      status: controls.failClosed || controls.hookEvents ? "covered" : "partial",
+      evidence: [
+        `Hook events: ${controls.hookEvents}`,
+        `Fail-closed triggered: ${controls.failClosed}`,
+        `Sandbox profile: ${controls.sandboxProfile}`
+      ]
+    },
+    {
+      controlArea: "IMDA Agentic AI: Incident readiness and handoff",
+      status: controls.signedBundle && controls.auditTrail ? "covered" : "partial",
+      evidence: [
+        `Signed bundle: ${controls.signedBundle}`,
+        `Audit trail: ${controls.auditTrail}`,
+        `Evidence workspace: ${controls.evidenceWorkspace}`
       ]
     },
     {
@@ -3213,8 +3250,17 @@ function liveAgentCommand(
     return [customCommand, ...customArgs];
   }
   if (agent !== "codex-cli") {
+    if (agent === "claude-code") {
+      const claudeBin =
+        option(args, "--claude-bin") ?? process.env.KELPCLAW_CLAUDE_CODE_BIN ?? "claude";
+      return [claudeBin, "-p", "-", "--output-format", "stream-json"];
+    }
+    if (agent === "goose") {
+      const gooseBin = option(args, "--goose-bin") ?? process.env.KELPCLAW_GOOSE_BIN ?? "goose";
+      return [gooseBin, "run", "--text", "-"];
+    }
     throw new Error(
-      `Live runner for '${agent}' requires --agent-command. Built-in live execution currently supports codex-cli.`
+      `Live runner for '${agent}' requires --agent-command. Built-in live execution supports codex-cli, claude-code, and goose.`
     );
   }
   const codexBin = option(args, "--codex-bin") ?? process.env.KELPCLAW_CODEX_BIN ?? "codex";
@@ -4304,39 +4350,203 @@ function auditJsonl(input: {
   return `${events.map((event) => stableJsonStringify(event as JsonValue)).join("\n")}\n`;
 }
 
-async function auditIndexHtml(runDir: string): Promise<string> {
-  const [skill, bom, compatibility, decisions] = await Promise.all([
-    readFile(join(runDir, "skill.json"), "utf8"),
-    readFile(join(runDir, "bom.json"), "utf8"),
-    readFile(join(runDir, "compatibility.json"), "utf8").catch(() => "{}"),
-    readFile(join(runDir, "policy-decisions.json"), "utf8")
-  ]);
+async function auditIndexHtml(input: {
+  readonly runDir: string;
+  readonly bundleDir: string;
+  readonly files: readonly string[];
+}): Promise<string> {
+  const [skill, bom, compatibility, decisions, result, governance, redaction, controls, sarif] =
+    await Promise.all([
+      readFile(join(input.bundleDir, "skill.json"), "utf8"),
+      readFile(join(input.bundleDir, "bom.json"), "utf8"),
+      readFile(join(input.bundleDir, "compatibility.json"), "utf8").catch(() => "{}"),
+      readFile(join(input.bundleDir, "policy-decisions.json"), "utf8"),
+      readFile(join(input.bundleDir, "result.json"), "utf8").catch(() => "{}"),
+      readFile(join(input.bundleDir, "governance-report.json"), "utf8").catch(() => "{}"),
+      readFile(join(input.bundleDir, "redaction-report.json"), "utf8").catch(() => "{}"),
+      readFile(join(input.bundleDir, "controls.md"), "utf8").catch(() => ""),
+      readFile(join(input.bundleDir, "findings.sarif"), "utf8").catch(() => "{}")
+    ]);
+  const resultJson = jsonRecord(JSON.parse(result) as unknown, "result.json");
+  const fileRows = input.files
+    .slice()
+    .sort((left, right) => left.localeCompare(right))
+    .map(
+      (file) =>
+        `<tr data-search="${escapeHtml(file.toLowerCase())}"><td><a href="${escapeHtml(file)}">${escapeHtml(file)}</a></td><td>${escapeHtml(fileKind(file))}</td></tr>`
+    )
+    .join("\n");
+  const sectionContent: readonly [string, string][] = [
+    ["Result", result],
+    ["Skill", skill],
+    ["Compatibility", compatibility],
+    ["Policy Decisions", decisions],
+    ["Governance", governance],
+    ["Controls", controls],
+    ["SARIF", sarif],
+    ["Redaction", redaction],
+    ["BOM", bom]
+  ];
+  const sections = sectionContent
+    .map(
+      ([title, content]) => `<section class="panel" data-search="${escapeHtml(
+        `${title} ${content}`.toLowerCase()
+      )}">
+  <h2>${escapeHtml(title)}</h2>
+  <pre>${escapeHtml(content)}</pre>
+</section>`
+    )
+    .join("\n");
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <title>KelpClaw Audit Bundle</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 32px; color: #1f2937; }
-    h1 { font-size: 24px; }
-    h2 { font-size: 16px; margin-top: 24px; }
-    pre { background: #f8fafc; border: 1px solid #d9e2ec; border-radius: 6px; padding: 12px; overflow: auto; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; color: #1f2937; background: #f8fafc; }
+    header { background: #102a43; color: white; padding: 28px 32px; }
+    main { padding: 24px 32px 40px; max-width: 1180px; margin: 0 auto; }
+    h1 { font-size: 24px; margin: 0 0 8px; }
+    h2 { font-size: 16px; margin: 0 0 12px; }
+    .meta { color: #bcccdc; margin: 0; }
+    .toolbar { margin: 0 0 18px; }
+    input { width: 100%; max-width: 520px; border: 1px solid #bcccdc; border-radius: 6px; padding: 10px 12px; font: inherit; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 18px 0; }
+    .stat, .panel { background: white; border: 1px solid #d9e2ec; border-radius: 8px; padding: 14px; }
+    .stat strong { display: block; font-size: 12px; color: #52606d; margin-bottom: 4px; }
+    table { border-collapse: collapse; width: 100%; background: white; border: 1px solid #d9e2ec; margin-bottom: 18px; }
+    th, td { border-bottom: 1px solid #d9e2ec; padding: 8px; text-align: left; vertical-align: top; }
+    th { background: #f0f4f8; }
+    pre { background: #f8fafc; border: 1px solid #d9e2ec; border-radius: 6px; padding: 12px; overflow: auto; max-height: 360px; }
+    a { color: #0b69a3; }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
-  <h1>KelpClaw Audit Bundle</h1>
-  <h2>Skill</h2>
-  <pre>${escapeHtml(skill)}</pre>
-  <h2>Compatibility</h2>
-  <pre>${escapeHtml(compatibility)}</pre>
-  <h2>Policy Decisions</h2>
-  <pre>${escapeHtml(decisions)}</pre>
-  <h2>BOM</h2>
-  <pre>${escapeHtml(bom)}</pre>
+  <header>
+    <h1>KelpClaw Audit Bundle</h1>
+    <p class="meta">Run ${escapeHtml(String(resultJson.runId ?? "unknown"))} from ${escapeHtml(input.runDir)}</p>
+  </header>
+  <main>
+    <div class="toolbar"><input id="search" type="search" placeholder="Filter files, findings, controls, hashes"></div>
+    <div class="grid">
+      <div class="stat"><strong>Status</strong>${escapeHtml(String(resultJson.status ?? "unknown"))}</div>
+      <div class="stat"><strong>Policy</strong>${escapeHtml(String(resultJson.policyPack ?? "unknown"))}</div>
+      <div class="stat"><strong>Mode</strong>${escapeHtml(String(resultJson.mode ?? "unknown"))}</div>
+      <div class="stat"><strong>Files</strong>${input.files.length}</div>
+    </div>
+    <section class="panel" data-search="files manifest evidence audit">
+      <h2>Bundle Files</h2>
+      <table><thead><tr><th>File</th><th>Kind</th></tr></thead><tbody>${fileRows}</tbody></table>
+    </section>
+    ${sections}
+  </main>
+  <script>
+    const search = document.getElementById("search");
+    search.addEventListener("input", () => {
+      const query = search.value.trim().toLowerCase();
+      for (const node of document.querySelectorAll("[data-search]")) {
+        node.classList.toggle("hidden", query.length > 0 && !node.dataset.search.includes(query));
+      }
+    });
+  </script>
 </body>
 </html>
 `;
 }
+
+function fileKind(file: string): string {
+  if (file.endsWith(".json")) {
+    return "json";
+  }
+  if (file.endsWith(".jsonl")) {
+    return "event log";
+  }
+  if (file.endsWith(".sarif")) {
+    return "sarif";
+  }
+  if (file.endsWith(".html")) {
+    return "html";
+  }
+  if (file.endsWith(".md")) {
+    return "markdown";
+  }
+  if (file.endsWith(".log")) {
+    return "log";
+  }
+  return "file";
+}
+
+async function redactBundleFiles(
+  bundleDir: string,
+  files: readonly string[]
+): Promise<JsonRecord> {
+  const findings: JsonRecord[] = [];
+  for (const file of files) {
+    if (!isSafeBundlePath(file) || !isTextBundleFile(file)) {
+      continue;
+    }
+    const absolute = join(bundleDir, file);
+    if (!(await fileExists(absolute))) {
+      continue;
+    }
+    const original = await readFile(absolute, "utf8");
+    const { text, matches } = redactText(original);
+    if (matches.length === 0) {
+      continue;
+    }
+    await writeFile(absolute, text, "utf8");
+    findings.push({
+      file,
+      replacements: matches.length,
+      kinds: [...uniqueSorted(matches.map((match) => match.kind))]
+    });
+  }
+  return {
+    schemaVersion: "1.0.0",
+    generatedAt: new Date().toISOString(),
+    redacted: findings.length > 0,
+    filesScanned: files.filter(isTextBundleFile).length,
+    findingCount: findings.length,
+    findings
+  };
+}
+
+function redactText(value: string): {
+  readonly text: string;
+  readonly matches: readonly { readonly kind: string }[];
+} {
+  const matches: { kind: string }[] = [];
+  let text = value;
+  for (const rule of redactionRules) {
+    text = text.replace(rule.pattern, () => {
+      matches.push({ kind: rule.kind });
+      return `[REDACTED:${rule.kind}]`;
+    });
+  }
+  return { text, matches };
+}
+
+function isTextBundleFile(file: string): boolean {
+  return /\.(json|jsonl|sarif|html|md|txt|log)$/iu.test(file);
+}
+
+const redactionRules: readonly { readonly kind: string; readonly pattern: RegExp }[] = [
+  { kind: "stripe-key", pattern: /\b(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{16,}\b/gu },
+  { kind: "github-token", pattern: /\bgh[pousr]_[A-Za-z0-9_]{20,}\b/gu },
+  { kind: "slack-token", pattern: /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/gu },
+  { kind: "aws-access-key", pattern: /\bAKIA[0-9A-Z]{16}\b/gu },
+  {
+    kind: "private-key",
+    pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/gu
+  },
+  {
+    kind: "credential-assignment",
+    pattern:
+      /\b(?:api[_-]?key|token|secret|password|private[_-]?key)\b\s*[:=]\s*["']?[A-Za-z0-9_./+=-]{12,}["']?/giu
+  },
+  { kind: "email", pattern: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/giu }
+];
 
 async function ensureAuditSigningKey(keyDir: string): Promise<AuditKeyFile> {
   await mkdir(keyDir, { recursive: true });
@@ -4648,6 +4858,98 @@ async function sha256File(path: string): Promise<string> {
   return createHash("sha256")
     .update(await readFile(path))
     .digest("hex");
+}
+
+async function readPackageVersion(): Promise<string> {
+  const packageJson = (await readJsonIfExists(resolve("package.json"))) as JsonRecord | undefined;
+  return stringField(packageJson ?? {}, "version") ?? "0.1.0";
+}
+
+async function gitInfo(): Promise<{
+  readonly commit?: string | undefined;
+  readonly branch?: string | undefined;
+}> {
+  const [commit, branch] = await Promise.all([
+    commandOutput("git", ["rev-parse", "HEAD"]),
+    commandOutput("git", ["branch", "--show-current"])
+  ]);
+  return {
+    ...(commit ? { commit } : {}),
+    ...(branch ? { branch } : {})
+  };
+}
+
+async function commandOutput(command: string, args: readonly string[]): Promise<string | undefined> {
+  return new Promise((resolveOutput) => {
+    const child = spawn(command, [...args], { stdio: ["ignore", "pipe", "ignore"] });
+    const chunks: Buffer[] = [];
+    child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+    child.on("error", () => resolveOutput(undefined));
+    child.on("close", (code) => {
+      if (code !== 0) {
+        resolveOutput(undefined);
+        return;
+      }
+      const value = Buffer.concat(chunks).toString("utf8").trim();
+      resolveOutput(value || undefined);
+    });
+  });
+}
+
+async function releaseSbom(root: string): Promise<JsonRecord> {
+  const packageFiles = await scanFiles(root, (file) => basename(file) === "package.json");
+  const packages = await Promise.all(
+    packageFiles.map(async (file) => {
+      const json = jsonRecord(JSON.parse(await readFile(file, "utf8")) as unknown, file);
+      return {
+        path: relative(root, file),
+        name: stringField(json, "name") ?? basename(dirname(file)),
+        version: stringField(json, "version") ?? "0.0.0",
+        private: json.private === true,
+        sha256: await sha256File(file)
+      };
+    })
+  );
+  return {
+    bomFormat: "CycloneDX",
+    specVersion: "1.6",
+    serialNumber: `urn:uuid:${randomUUID()}`,
+    version: 1,
+    metadata: {
+      timestamp: new Date().toISOString(),
+      component: {
+        type: "application",
+        name: "kelp-claw",
+        version: await readPackageVersion()
+      }
+    },
+    components: packages.map((entry) => ({
+      type: "library",
+      name: entry.name,
+      version: entry.version,
+      purl: `pkg:npm/${encodeURIComponent(entry.name)}@${encodeURIComponent(entry.version)}`,
+      properties: [
+        { name: "kelpclaw:path", value: entry.path },
+        { name: "kelpclaw:private", value: String(entry.private) },
+        { name: "kelpclaw:sha256", value: entry.sha256 }
+      ]
+    }))
+  };
+}
+
+async function releaseMaterial(path: string): Promise<readonly JsonRecord[]> {
+  const absolute = resolve(path);
+  if (!(await fileExists(absolute))) {
+    return [];
+  }
+  return [
+    {
+      uri: path,
+      digest: {
+        sha256: await sha256File(absolute)
+      }
+    }
+  ];
 }
 
 function isSafeBundlePath(path: string): boolean {
@@ -5073,6 +5375,14 @@ function forwardedAgentArgs(args: readonly string[]): readonly string[] {
   const codexBin = option(args, "--codex-bin");
   if (codexBin) {
     forwarded.push("--codex-bin", codexBin);
+  }
+  const claudeBin = option(args, "--claude-bin");
+  if (claudeBin) {
+    forwarded.push("--claude-bin", claudeBin);
+  }
+  const gooseBin = option(args, "--goose-bin");
+  if (gooseBin) {
+    forwarded.push("--goose-bin", gooseBin);
   }
   return forwarded;
 }

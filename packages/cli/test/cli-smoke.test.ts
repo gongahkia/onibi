@@ -13,6 +13,7 @@ import {
   inventoryGraph,
   inventoryScan,
   policyExplain,
+  releaseManifest,
   replayDiff,
   runDemoCommand,
   runEvidenceCommand,
@@ -22,6 +23,8 @@ import {
   runCrossAgentReplaySmoke,
   runOtlpSmoke,
   runSkill,
+  verifyRelease,
+  versionInfo,
   verifyAuditBundle,
   verifyClaudeCode
 } from "../src/index.js";
@@ -71,6 +74,56 @@ describe("kelp-claw smoke commands", () => {
       expect(doctor.recommendations).toEqual(
         expect.arrayContaining(["Install or pass --codex-bin for live Codex CLI wrapper demos."])
       );
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports release metadata and verifies signed release manifests", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-release-"));
+    const outDir = join(tempDir, "release");
+
+    try {
+      const version = await versionInfo([]);
+      expect(version).toMatchObject({
+        ok: true,
+        name: "kelp-claw",
+        schemaVersion: "1.0.0",
+        policyPacks: expect.arrayContaining([
+          expect.objectContaining({
+            name: "sg-agentic-ai-baseline",
+            version: "1.1.0",
+            region: "sg",
+            maturity: "regulated"
+          })
+        ])
+      });
+
+      const manifest = await releaseManifest([
+        "--out",
+        outDir,
+        "--key-dir",
+        join(tempDir, "keys")
+      ]);
+      expect(manifest).toMatchObject({
+        ok: true,
+        outDir,
+        signed: true,
+        manifest: "release-manifest.json",
+        files: expect.arrayContaining([
+          "release-sbom.json",
+          "release-provenance.json",
+          "release-manifest.json",
+          "release-manifest.sig",
+          "release-manifest.pub.json"
+        ])
+      });
+      await expect(verifyRelease([outDir])).resolves.toMatchObject({
+        ok: true,
+        signature: { valid: true },
+        files: { failed: [] },
+        failures: []
+      });
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -301,6 +354,7 @@ Read a file and report a deterministic audit result.
         "policy-decisions.json",
         "compatibility.json",
         "result.json",
+        "redaction-report.json",
         "index.html",
         "manifest.json",
         "manifest.sig",
@@ -317,7 +371,7 @@ Read a file and report a deterministic audit result.
         runId: "skill-run.test",
         strict: false,
         signature: { valid: true, algorithm: "ed25519" },
-        files: { checked: 8, failed: [] },
+        files: { checked: 9, failed: [] },
         failures: []
       });
       await expect(verifyAuditBundle([bundleDir, "--strict"])).resolves.toMatchObject({
@@ -330,6 +384,14 @@ Read a file and report a deterministic audit result.
           referencedFiles: expect.arrayContaining(["audit.jsonl", "policy-decisions.json"])
         }
       });
+      await expect(verifyAuditBundle([bundleDir, "--profile", "reviewer"])).resolves.toMatchObject(
+        {
+          ok: true,
+          strict: true,
+          profile: "reviewer",
+          failures: []
+        }
+      );
       await appendFile(join(bundleDir, "audit.jsonl"), '{"tampered":true}\n', "utf8");
       await expect(verifyAuditBundle([bundleDir])).resolves.toMatchObject({
         ok: false,
@@ -507,6 +569,13 @@ rm -rf /tmp/kelpclaw-security-review
           referencedFiles: expect.arrayContaining(["findings.sarif", "controls.md"])
         }
       });
+      await expect(verifyAuditBundle([bundleDir, "--profile", "regulator"])).resolves.toMatchObject(
+        {
+          ok: true,
+          strict: true,
+          profile: "regulator"
+        }
+      );
 
       const attestation = JSON.parse(
         await readFile(join(bundleDir, "attestation.json"), "utf8")
@@ -1392,6 +1461,81 @@ process.stdin.on("end", () => {
     }
   });
 
+  it("redacts secret-like stdout before signing audit bundles", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-redaction-"));
+    const skillPath = join(tempDir, "SKILL.md");
+    const inputPath = join(tempDir, "input.json");
+    const fakeAgentPath = join(tempDir, "fake-agent.mjs");
+    const runsDir = join(tempDir, "runs");
+    const bundleDir = join(tempDir, "bundle");
+    const fakeStripeKey = `sk_${"test"}_${"A".repeat(24)}`;
+    await writeFile(
+      skillPath,
+      `---
+name: redaction-skill
+tools: [Read]
+---
+
+# Redaction Skill
+
+Read local input and return a summary.
+`,
+      "utf8"
+    );
+    await writeFile(inputPath, "{}\n", "utf8");
+    await writeFile(
+      fakeAgentPath,
+      `process.stdin.resume();
+process.stdin.on("end", () => {
+  console.log(${JSON.stringify(fakeStripeKey)});
+});
+`,
+      "utf8"
+    );
+
+    try {
+      await runSkill([
+        skillPath,
+        "--input",
+        inputPath,
+        "--agent",
+        "codex-cli",
+        "--agent-command",
+        process.execPath,
+        "--agent-arg",
+        fakeAgentPath,
+        "--run-id",
+        "skill-run.redaction",
+        "--runs-dir",
+        runsDir
+      ]);
+      await exportAuditBundle([
+        "skill-run.redaction",
+        "--runs-dir",
+        runsDir,
+        "--out",
+        bundleDir
+      ]);
+      await expect(readFile(join(bundleDir, "stdout.log"), "utf8")).resolves.not.toContain(
+        fakeStripeKey
+      );
+      await expect(readFile(join(bundleDir, "stdout.log"), "utf8")).resolves.toContain(
+        "[REDACTED:stripe-key]"
+      );
+      const report = JSON.parse(await readFile(join(bundleDir, "redaction-report.json"), "utf8")) as {
+        readonly redacted?: boolean;
+        readonly findingCount?: number;
+      };
+      expect(report).toMatchObject({ redacted: true, findingCount: 1 });
+      await expect(verifyAuditBundle([bundleDir, "--profile", "ci"])).resolves.toMatchObject({
+        ok: true,
+        profile: "ci"
+      });
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("normalizes Codex-style JSONL events in wrapper mode", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-wrapper-skill-"));
     const skillPath = join(tempDir, "SKILL.md");
@@ -1540,7 +1684,7 @@ process.stdin.on("end", () => {
         }
       });
       expect(report.frameworkMapping.map((mapping) => mapping.controlArea)).toContain(
-        "Traceability and audit evidence"
+        "IMDA Agentic AI: Traceability and audit evidence"
       );
     } finally {
       await rm(tempDir, { recursive: true, force: true });
@@ -1845,6 +1989,66 @@ process.stdin.on("end", () => {
       });
       expect(result.runs.map((run) => run.tools)).toEqual([["Bash"], ["Bash"]]);
       expect(result.runs.every((run) => run.runId?.startsWith("replay-diff."))).toBe(true);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("records replay-diff across Claude Code and Goose wrapper aliases", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-wrapper-aliases-"));
+    const skillPath = join(tempDir, "SKILL.md");
+    const inputPath = join(tempDir, "input.json");
+    const fakeAgentPath = join(tempDir, "fake-agent.mjs");
+    const runsDir = join(tempDir, "runs");
+    await writeFile(
+      skillPath,
+      `---
+name: wrapper-alias-replay
+tools: [Bash]
+---
+
+# Wrapper Alias Replay
+
+Run a deterministic command.
+`,
+      "utf8"
+    );
+    await writeFile(inputPath, "{}\n", "utf8");
+    await writeFile(
+      fakeAgentPath,
+      `process.stdin.resume();
+process.stdin.on("end", () => {
+  console.log(JSON.stringify({ type: "local_shell_call", command: "printf alias", result: { stdout: "alias" } }));
+});
+`,
+      "utf8"
+    );
+
+    try {
+      const result = await replayDiff([
+        "--recorded",
+        "--skill",
+        skillPath,
+        "--input",
+        inputPath,
+        "--agents",
+        "claude-code,goose",
+        "--wrapper",
+        "--enforce-policy",
+        "--agent-command",
+        process.execPath,
+        "--agent-arg",
+        fakeAgentPath,
+        "--runs-dir",
+        runsDir
+      ]);
+      expect(result).toMatchObject({
+        ok: true,
+        agents: ["claude-code", "goose"],
+        differences: []
+      });
+      expect(result.runs.map((run) => run.agent)).toEqual(["claude-code", "goose"]);
+      expect(result.runs.map((run) => run.tools)).toEqual([["Bash"], ["Bash"]]);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

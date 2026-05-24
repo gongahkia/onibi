@@ -139,6 +139,12 @@ rules:
 
     for (const packName of policyPackNames) {
       const pack = requirePolicyPack(packName);
+      expect(pack.metadata).toMatchObject({
+        version: expect.stringMatching(/^\d+\.\d+\.\d+$/u),
+        region: expect.any(String),
+        maturity: expect.any(String)
+      });
+      expect(pack.metadata.controlMappings.length).toBeGreaterThan(0);
       expect(pack.ruleset.rules.length).toBeGreaterThan(0);
       for (const rule of pack.ruleset.rules) {
         expect(() => validatePolicyExpression(rule.when)).not.toThrow();

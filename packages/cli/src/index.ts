@@ -56,8 +56,11 @@ import {
   inventoryScan,
   policyExplain,
   policyPackCliOutput,
+  releaseManifest,
   replayDiff,
   runSkill,
+  verifyRelease,
+  versionInfo,
   verifyAuditBundle
 } from "./skill-runner.js";
 
@@ -87,6 +90,15 @@ async function main(argv: readonly string[]): Promise<void> {
       return printJson(await runDoctorCommand(args));
     case "demo":
       return printJson(await runDemoCommand(args));
+    case "version":
+      return printJson(await versionInfo(args));
+    case "release":
+      if (args[0] === "manifest") {
+        return printJson(await releaseManifest(args.slice(1)));
+      }
+      throw new Error("Usage: kelp-claw release manifest [--out .kelpclaw/release]");
+    case "verify-release":
+      return printJson(await verifyRelease(args));
     case "start-recording":
       return printJson(
         await postJson("/api/agent-runs", {
@@ -254,7 +266,7 @@ async function main(argv: readonly string[]): Promise<void> {
       return runMcp(args);
     default:
       throw new Error(
-        "Usage: kelp-claw <help|doctor|demo|run-skill|compat|compat-report|policy|governance|web|evidence|inventory|audit-key|export-audit-bundle|export-sarif|verify-audit-bundle|replay-diff|start-recording|record-step|stop-recording|approve-step|deny-step|promote|mcp|audit-verify|audit-anchor|tbom-export|mint-role-token|inspect-role-token|verify-claude-code|otlp-smoke|cross-agent-replay-smoke>"
+        "Usage: kelp-claw <help|version|doctor|demo|release|verify-release|run-skill|compat|compat-report|policy|governance|web|evidence|inventory|audit-key|export-audit-bundle|export-sarif|verify-audit-bundle|replay-diff|start-recording|record-step|stop-recording|approve-step|deny-step|promote|mcp|audit-verify|audit-anchor|tbom-export|mint-role-token|inspect-role-token|verify-claude-code|otlp-smoke|cross-agent-replay-smoke>"
       );
   }
 }
@@ -271,8 +283,11 @@ export {
   inventoryScan,
   policyExplain,
   policyPackCliOutput,
+  releaseManifest,
   replayDiff,
   runSkill,
+  verifyRelease,
+  versionInfo,
   verifyAuditBundle
 } from "./skill-runner.js";
 
@@ -308,7 +323,7 @@ export function runHelpCommand(): JsonRecord {
     commands: [
       {
         group: "adoption",
-        entries: ["help", "doctor", "demo governance", "compat", "policy explain"]
+        entries: ["help", "version", "doctor", "demo governance", "compat", "policy explain"]
       },
       {
         group: "runtime",
@@ -324,7 +339,13 @@ export function runHelpCommand(): JsonRecord {
       },
       {
         group: "handoff",
-        entries: ["export-audit-bundle", "verify-audit-bundle", "audit-key init"]
+        entries: [
+          "export-audit-bundle",
+          "verify-audit-bundle",
+          "release manifest",
+          "verify-release",
+          "audit-key init"
+        ]
       }
     ]
   };
