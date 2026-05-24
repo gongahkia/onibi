@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -427,6 +427,26 @@ process.stdin.on("end", () => {
       expect(result.runs.every((run) => run.runId?.startsWith("replay-diff."))).toBe(true);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the public SKILL.md compatibility corpus stable", async () => {
+    const corpusRoot = join(process.cwd(), "../../fixtures/skills-corpus");
+    const entries = await readdir(corpusRoot, { withFileTypes: true });
+    const skillDirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+    expect(skillDirs.sort()).toEqual([
+      "destructive-shell",
+      "github-pr-review",
+      "local-file-audit",
+      "network-health-check"
+    ]);
+
+    for (const skillDir of skillDirs) {
+      const report = await compatibilityReport([join(corpusRoot, skillDir, "SKILL.md")]);
+      const expected = JSON.parse(
+        await readFile(join(corpusRoot, skillDir, "expected.baseline.json"), "utf8")
+      ) as unknown;
+      expect(report).toEqual(expected);
     }
   });
 });

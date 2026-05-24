@@ -14,6 +14,14 @@ inputs:
     description: Optional JSON input file for the audit-first skill run.
     required: false
     default: ""
+  fail-on-unrunnable:
+    description: Fail the action when the compatibility report marks the skill as not runnable.
+    required: false
+    default: "true"
+  upload-artifact:
+    description: Upload the exported audit bundle as a workflow artifact.
+    required: false
+    default: "true"
 
 runs:
   using: composite
@@ -31,6 +39,7 @@ runs:
       shell: bash
       run: pnpm --filter @kelpclaw/cli build
     - name: Audit skill
+      id: audit
       shell: bash
       run: |
         mkdir -p .kelpclaw
@@ -40,8 +49,74 @@ runs:
           printf '{}\n' > "$INPUT_PATH"
         fi
 
-        node packages/cli/dist/index.js compat "${{ inputs.skill }}" --policy "${{ inputs.policy }}"
-        RUN_OUTPUT="$(node packages/cli/dist/index.js run-skill "${{ inputs.skill }}" --input "$INPUT_PATH" --policy "${{ inputs.policy }}")"
+        node packages/cli/dist/index.js compat "${{ inputs.skill }}" --policy "${{ inputs.policy }}" > .kelpclaw/compatibility.json
+        cat .kelpclaw/compatibility.json
+        node <<'NODE'
+        const fs = require("node:fs");
+        const report = JSON.parse(fs.readFileSync(".kelpclaw/compatibility.json", "utf8"));
+        const failOnUnrunnable = "${{ inputs.fail-on-unrunnable }}" === "true";
+        for (const finding of report.policyFindings || []) {
+          const level = finding.action === "deny" ? "error" : "warning";
+          const title = encodeURIComponent(`KelpClaw ${finding.action}: ${finding.tool}`);
+          const message = encodeURIComponent(`${finding.reason}; rules=${(finding.matchedRuleIds || []).join(",")}`);
+          console.log(`::${level} title=${title}::${message}`);
+        }
+        if (!report.runnable && failOnUnrunnable) {
+          console.log("::error title=KelpClaw compatibility::Skill is not runnable under the selected policy.");
+          process.exit(1);
+        }
+        NODE
+        set +e
+        RUN_OUTPUT="$(node packages/cli/dist/index.js run-skill "${{ inputs.skill }}" --input "$INPUT_PATH" --policy "${{ inputs.policy }}" 2> .kelpclaw/run-error.log)"
+        RUN_EXIT=$?
+        set -e
+        if [ -s .kelpclaw/run-error.log ]; then
+          cat .kelpclaw/run-error.log
+        fi
+        if [ "$RUN_EXIT" -ne 0 ]; then
+          node <<'NODE'
+          const fs = require("node:fs");
+          const report = JSON.parse(fs.readFileSync(".kelpclaw/compatibility.json", "utf8"));
+          const failOnUnrunnable = "${{ inputs.fail-on-unrunnable }}" === "true";
+          if (report.runnable || failOnUnrunnable) {
+            process.exit(1);
+          }
+          NODE
+        fi
         printf '%s\n' "$RUN_OUTPUT"
+        printf '%s\n' "$RUN_OUTPUT" > .kelpclaw/run-output.json
         RUN_ID="$(printf '%s\n' "$RUN_OUTPUT" | node -e 'let input=""; process.stdin.on("data", c => input += c); process.stdin.on("end", () => console.log(JSON.parse(input).runId));')"
-        node packages/cli/dist/index.js export-audit-bundle "$RUN_ID"
+        node packages/cli/dist/index.js export-audit-bundle "$RUN_ID" --out ".kelpclaw/audit-bundle-$RUN_ID" > .kelpclaw/bundle-output.json
+        echo "run-id=$RUN_ID" >> "$GITHUB_OUTPUT"
+        echo "bundle-path=.kelpclaw/audit-bundle-$RUN_ID" >> "$GITHUB_OUTPUT"
+        node <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+        const fs = require("node:fs");
+        const compat = JSON.parse(fs.readFileSync(".kelpclaw/compatibility.json", "utf8"));
+        const run = JSON.parse(fs.readFileSync(".kelpclaw/run-output.json", "utf8"));
+        const bundle = JSON.parse(fs.readFileSync(".kelpclaw/bundle-output.json", "utf8"));
+        console.log("## KelpClaw Skill Audit");
+        console.log("");
+        console.log(`- Skill: \`${"${{ inputs.skill }}"}\``);
+        console.log(`- Policy: \`${"${{ inputs.policy }}"}\``);
+        console.log(`- Runnable: \`${compat.runnable}\``);
+        console.log(`- Run ID: \`${run.runId}\``);
+        console.log(`- Status: \`${run.status}\``);
+        console.log(`- Bundle: \`${bundle.bundleDir}\``);
+        console.log(`- Tools: \`${(compat.toolsDetected || []).join(", ") || "none"}\``);
+        console.log(`- Network: \`${compat.network}\``);
+        console.log(`- Sandbox: \`${compat.sandboxProfile}\``);
+        if ((compat.policyFindings || []).length > 0) {
+          console.log("");
+          console.log("| Action | Tool | Rules | Reason |");
+          console.log("| --- | --- | --- | --- |");
+          for (const finding of compat.policyFindings) {
+            console.log(`| ${finding.action} | ${finding.tool} | ${(finding.matchedRuleIds || []).join(", ")} | ${finding.reason} |`);
+          }
+        }
+        NODE
+    - name: Upload audit bundle
+      if: ${{ inputs.upload-artifact == 'true' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: kelpclaw-audit-${{ steps.audit.outputs.run-id }}
+        path: ${{ steps.audit.outputs.bundle-path }}

@@ -1,0 +1,15 @@
+{
+  "network": "none",
+  "policyFindings": [
+    {
+      "action": "deny",
+      "matchedRuleIds": ["baseline-deny-destructive-shell", "baseline-log-shell"],
+      "reason": "matched policy rule 'baseline-deny-destructive-shell'",
+      "tool": "Bash"
+    }
+  ],
+  "requiredSecrets": [],
+  "runnable": false,
+  "sandboxProfile": "destructive-risk",
+  "toolsDetected": ["Bash"]
+}

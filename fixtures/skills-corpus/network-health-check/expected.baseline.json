@@ -1,0 +1,8 @@
+{
+  "network": "declared",
+  "policyFindings": [],
+  "requiredSecrets": ["STATUS_API_TOKEN"],
+  "runnable": true,
+  "sandboxProfile": "networked",
+  "toolsDetected": ["WebFetch"]
+}

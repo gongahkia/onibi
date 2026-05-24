@@ -87,12 +87,14 @@ KelpClaw can analyze and run agent skills in an audit-first mode:
 ```console
 $ kelp-claw compat ./SKILL.md --policy baseline
 $ kelp-claw run-skill ./SKILL.md --input input.json
+$ kelp-claw run-skill ./SKILL.md --input input.json --agent codex-cli
 $ kelp-claw run-skill github:owner/repo/path/SKILL.md --input input.json
 $ kelp-claw export-audit-bundle <runId>
 $ kelp-claw replay-diff --skill ./SKILL.md --agents claude-code,codex-cli,goose
+$ kelp-claw replay-diff --recorded --skill ./SKILL.md --input input.json --agents codex-cli,custom-agent
 ```
 
-`compat` reports detected tools, required secrets, network posture, sandbox profile, and policy findings. `run-skill` writes deterministic local artifacts under `.kelpclaw/runs/<runId>/`, including `skill.json`, `workflow.json`, `bom.json`, `audit.jsonl`, and `policy-decisions.json`. `export-audit-bundle` creates a static bundle with an offline `index.html`.
+`compat` reports detected tools, required secrets, network posture, sandbox profile, and policy findings. `run-skill` writes deterministic local artifacts under `.kelpclaw/runs/<runId>/`, including `skill.json`, `workflow.json`, `bom.json`, `audit.jsonl`, and `policy-decisions.json`. With `--agent codex-cli`, KelpClaw materializes a temporary workspace, invokes `codex exec`, captures stdout/stderr, records observed tool events when JSONL is available, evaluates policy, and stores generated artifact metadata. `export-audit-bundle` creates a static bundle with an offline `index.html`.
 
 Built-in policy packs are available without writing YAML on day one:
 
@@ -111,7 +113,10 @@ Use the bundled GitHub Action in PR workflows:
   with:
     skill: ./SKILL.md
     policy: baseline
+    fail-on-unrunnable: "true"
 ```
+
+The compatibility corpus in `fixtures/skills-corpus` contains representative public-style skills and expected reports for regression tests.
 
 ## Auth, Secrets, And Integrations
 

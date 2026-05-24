@@ -197,8 +197,7 @@ async function runSkillInternal(args: readonly string[]): Promise<SkillRunIntern
   const compatibility = compatibilityFromAnalysis(analysis, policyPack.ruleset);
   const plannedDecisions = evaluatePlannedSteps(analysis, policyPack.ruleset);
   const plannedBlocked =
-    !compatibility.runnable ||
-    plannedDecisions.some((record) => record.decision.action === "deny");
+    !compatibility.runnable || plannedDecisions.some((record) => record.decision.action === "deny");
   const createdAt = new Date().toISOString();
 
   await mkdir(runDir, { recursive: true });
@@ -388,11 +387,14 @@ async function recordedReplayDiff(
       ])
     );
   }
-  const analysis = runResults[0]?.analysis ?? (await analyzeSkillReference(skillRef, policyPack.ruleset));
+  const analysis =
+    runResults[0]?.analysis ?? (await analyzeSkillReference(skillRef, policyPack.ruleset));
   const runs = runResults.map((result) =>
     recordedReplaySummary(
       result.agent ?? "unknown",
-      result.agentRun?.observedSteps.length ? result.agentRun.observedSteps : result.analysis.plannedSteps,
+      result.agentRun?.observedSteps.length
+        ? result.agentRun.observedSteps
+        : result.analysis.plannedSteps,
       result.observedDecisions.length ? result.observedDecisions : result.plannedDecisions,
       result
     )
@@ -508,11 +510,7 @@ function liveAgentCommand(
   ];
 }
 
-function liveAgentPrompt(
-  analysis: SkillAnalysis,
-  input: JsonRecord,
-  artifactsDir: string
-): string {
+function liveAgentPrompt(analysis: SkillAnalysis, input: JsonRecord, artifactsDir: string): string {
   return `You are running a KelpClaw SKILL.md in a temporary workspace.
 
 Rules:
@@ -952,7 +950,7 @@ function extractBashCommands(content: string): readonly string[] {
     commands.push(match[1] ?? "");
   }
   const destructive = content.match(destructiveShellPattern());
-  if (destructive?.[0]) {
+  if (destructive?.[0] && !commands.some((command) => command.includes(destructive[0] ?? ""))) {
     commands.push(destructive[0]);
   }
   return uniqueSorted(commands.filter(Boolean)).slice(0, 20);

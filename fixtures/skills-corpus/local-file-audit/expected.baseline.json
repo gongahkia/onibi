@@ -1,0 +1,8 @@
+{
+  "network": "none",
+  "policyFindings": [],
+  "requiredSecrets": [],
+  "runnable": true,
+  "sandboxProfile": "safe-local",
+  "toolsDetected": ["Read", "Write"]
+}
