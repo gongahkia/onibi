@@ -5,10 +5,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   compatibilityReport,
   exportAuditBundle,
+  exportSarif,
+  governanceControls,
   governanceReport,
   initAuditKey,
   policyExplain,
   replayDiff,
+  runWebCommand,
   runCrossAgentReplaySmoke,
   runOtlpSmoke,
   runSkill,
@@ -251,7 +254,9 @@ Read a file and report a deterministic audit result.
         "index.html",
         "manifest.json",
         "manifest.sig",
-        "manifest.pub.json"
+        "manifest.pub.json",
+        "attestation.json",
+        "attestation.sig"
       ]);
       expect(bundle).toMatchObject({ signed: true, manifest: "manifest.json" });
       await expect(readFile(join(bundleDir, "index.html"), "utf8")).resolves.toContain(
@@ -260,13 +265,25 @@ Read a file and report a deterministic audit result.
       await expect(verifyAuditBundle([bundleDir])).resolves.toMatchObject({
         ok: true,
         runId: "skill-run.test",
+        strict: false,
         signature: { valid: true, algorithm: "ed25519" },
         files: { checked: 8, failed: [] },
         failures: []
       });
+      await expect(verifyAuditBundle([bundleDir, "--strict"])).resolves.toMatchObject({
+        ok: true,
+        strict: true,
+        attestation: {
+          valid: true,
+          signed: true,
+          manifestHash: expect.stringMatching(/^sha256:/u),
+          referencedFiles: expect.arrayContaining(["audit.jsonl", "policy-decisions.json"])
+        }
+      });
       await appendFile(join(bundleDir, "audit.jsonl"), '{"tampered":true}\n', "utf8");
       await expect(verifyAuditBundle([bundleDir])).resolves.toMatchObject({
         ok: false,
+        strict: false,
         signature: { valid: true },
         files: { failed: ["audit.jsonl"] }
       });
@@ -332,6 +349,313 @@ Read a local file and summarize it.
         readonly files?: readonly { readonly path?: string }[];
       };
       expect(manifest.files?.map((file) => file.path)).toContain("governance-report.json");
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("exports SARIF, controls, and strict bundle attestations for security review", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-security-review-"));
+    const skillPath = join(tempDir, "SKILL.md");
+    const inputPath = join(tempDir, "input.json");
+    const runsDir = join(tempDir, "runs");
+    const bundleDir = join(tempDir, "bundle");
+    const controlsPath = join(tempDir, "controls.md");
+    const sarifPath = join(tempDir, "findings.sarif");
+    await writeFile(
+      skillPath,
+      `---
+name: security-review
+tools: [Bash]
+---
+
+# Security Review
+
+\`\`\`bash
+rm -rf /tmp/kelpclaw-security-review
+\`\`\`
+`,
+      "utf8"
+    );
+    await writeFile(inputPath, "{}\n", "utf8");
+
+    try {
+      const sarif = await exportSarif([skillPath, "--policy", "baseline", "--out", sarifPath]);
+      expect(sarif).toMatchObject({
+        ok: true,
+        out: sarifPath,
+        resultCount: expect.any(Number)
+      });
+      expect(sarif.resultCount).toBeGreaterThan(0);
+      expect(sarif.sarif).toMatchObject({
+        version: "2.1.0",
+        runs: [
+          {
+            results: expect.arrayContaining([
+              expect.objectContaining({
+                ruleId: "kelp.policy.baseline-deny-destructive-shell",
+                level: "error"
+              })
+            ])
+          }
+        ]
+      });
+      await expect(readFile(sarifPath, "utf8")).resolves.toContain(
+        "baseline-deny-destructive-shell"
+      );
+
+      const controls = await governanceControls([
+        skillPath,
+        "--policy",
+        "baseline",
+        "--out",
+        controlsPath
+      ]);
+      expect(controls).toMatchObject({
+        ok: false,
+        out: controlsPath,
+        controlCount: expect.any(Number)
+      });
+      await expect(readFile(controlsPath, "utf8")).resolves.toContain(
+        "| Control Area | Status | Evidence Files | Residual Risk | Reviewer Action |"
+      );
+
+      await runSkill([
+        skillPath,
+        "--input",
+        inputPath,
+        "--run-id",
+        "skill-run.security-review",
+        "--runs-dir",
+        runsDir,
+        "--policy",
+        "no-destructive-shell"
+      ]);
+      const bundle = await exportAuditBundle([
+        "skill-run.security-review",
+        "--runs-dir",
+        runsDir,
+        "--out",
+        bundleDir,
+        "--include-governance",
+        "--include-sarif",
+        "--include-controls"
+      ]);
+      expect(bundle.files).toEqual(
+        expect.arrayContaining([
+          "governance-report.json",
+          "findings.sarif",
+          "controls.md",
+          "attestation.json",
+          "attestation.sig"
+        ])
+      );
+      await expect(verifyAuditBundle([bundleDir, "--strict"])).resolves.toMatchObject({
+        ok: true,
+        attestation: {
+          valid: true,
+          referencedFiles: expect.arrayContaining(["findings.sarif", "controls.md"])
+        }
+      });
+
+      const attestation = JSON.parse(
+        await readFile(join(bundleDir, "attestation.json"), "utf8")
+      ) as Record<string, unknown>;
+      await writeFile(
+        join(bundleDir, "attestation.json"),
+        `${JSON.stringify({ ...attestation, runId: "tampered" }, null, 2)}\n`,
+        "utf8"
+      );
+      await expect(verifyAuditBundle([bundleDir, "--strict"])).resolves.toMatchObject({
+        ok: false,
+        attestation: { valid: false },
+        failures: expect.arrayContaining([
+          "attestation signature is invalid.",
+          "attestation runId does not match manifest runId."
+        ])
+      });
+    } finally {
+      process.exitCode = undefined;
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("runs governed web search and writes portable evidence", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-web-command-"));
+    const outDir = join(tempDir, "web-evidence");
+    const requests: string[] = [];
+    vi.stubEnv("EXA_API_KEY", "exa-test-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        requests.push(String(url));
+        return jsonResponse(
+          {
+            results: [
+              {
+                title: "Singapore AI governance",
+                url: "https://example.test/sg-ai",
+                text: "Evidence for governed search."
+              }
+            ]
+          },
+          200
+        );
+      })
+    );
+
+    try {
+      const result = await runWebCommand([
+        "search",
+        "Singapore AI governance",
+        "--provider",
+        "exa",
+        "--domain",
+        "example.test",
+        "--out",
+        outDir
+      ]);
+
+      expect(result).toMatchObject({
+        ok: true,
+        status: "succeeded",
+        policyPack: "web-search-safe",
+        toolName: "exa.search",
+        files: ["web-evidence.json", "web-events.jsonl", "web-bom.json", "web-evidence.html"]
+      });
+      expect(requests).toEqual(["https://api.exa.ai/search"]);
+      await expect(readFile(join(outDir, "web-evidence.json"), "utf8")).resolves.toContain(
+        "Singapore AI governance"
+      );
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("blocks governed web work when policy requires approval", async () => {
+    const fetchImpl = vi.fn();
+    vi.stubGlobal("fetch", fetchImpl);
+
+    const result = await runWebCommand([
+      "search",
+      "agentic ai governance",
+      "--provider",
+      "exa",
+      "--store-full-content"
+    ]);
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: "blocked",
+      policyPack: "web-search-safe",
+      toolName: "exa.search",
+      decision: {
+        action: "require-approval",
+        matchedRuleIds: ["web-search-safe-review-full-content-storage"]
+      }
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("includes web evidence in governance reports and audit bundles", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-web-evidence-bundle-"));
+    const skillPath = join(tempDir, "SKILL.md");
+    const inputPath = join(tempDir, "input.json");
+    const runsDir = join(tempDir, "runs");
+    const webDir = join(tempDir, "web");
+    const bundleDir = join(tempDir, "bundle");
+    vi.stubEnv("EXA_API_KEY", "exa-test-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(
+          {
+            results: [
+              {
+                title: "MAS source",
+                url: "https://mas.gov.sg/example",
+                text: "Regulatory evidence."
+              }
+            ]
+          },
+          200
+        )
+      )
+    );
+    await writeFile(
+      skillPath,
+      `---
+name: web-governance
+tools: [Read]
+---
+
+# Web Governance
+
+Read local inputs and cite web evidence.
+`,
+      "utf8"
+    );
+    await writeFile(inputPath, "{}\n", "utf8");
+
+    try {
+      await runWebCommand([
+        "search",
+        "Singapore AI governance",
+        "--provider",
+        "exa",
+        "--out",
+        webDir
+      ]);
+      await runSkill([
+        skillPath,
+        "--input",
+        inputPath,
+        "--run-id",
+        "skill-run.web-evidence",
+        "--runs-dir",
+        runsDir
+      ]);
+      const report = await governanceReport([
+        skillPath,
+        "--include-web-evidence",
+        webDir,
+        "--region",
+        "sg"
+      ]);
+      expect(report).toMatchObject({
+        controls: { webEvidence: true },
+        webEvidence: {
+          sourceCount: 1,
+          providers: ["exa"],
+          domains: ["mas.gov.sg"]
+        }
+      });
+
+      const bundle = await exportAuditBundle([
+        "skill-run.web-evidence",
+        "--runs-dir",
+        runsDir,
+        "--out",
+        bundleDir,
+        "--include-web-evidence",
+        webDir,
+        "--include-governance"
+      ]);
+      expect(bundle.files).toEqual(
+        expect.arrayContaining([
+          "web-evidence.json",
+          "web-events.jsonl",
+          "web-bom.json",
+          "web-evidence.html",
+          "governance-report.json",
+          "governance-report.html"
+        ])
+      );
+      await expect(verifyAuditBundle([bundleDir])).resolves.toMatchObject({
+        ok: true,
+        signature: { valid: true }
+      });
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

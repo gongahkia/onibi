@@ -22,6 +22,10 @@ inputs:
     description: Upload the exported audit bundle as a workflow artifact.
     required: false
     default: "true"
+  upload-sarif:
+    description: Upload KelpClaw SARIF findings to GitHub code scanning.
+    required: false
+    default: "true"
   governance:
     description: Include an SG/APAC governance report in the audit bundle.
     required: false
@@ -62,6 +66,8 @@ runs:
         fi
 
         node packages/cli/dist/index.js compat "${{ inputs.skill }}" --policy "${{ inputs.policy }}" > .kelpclaw/compatibility.json
+        node packages/cli/dist/index.js export-sarif "${{ inputs.skill }}" --policy "${{ inputs.policy }}" --out .kelpclaw/findings.sarif > .kelpclaw/sarif-output.json
+        echo "sarif-path=.kelpclaw/findings.sarif" >> "$GITHUB_OUTPUT"
         cat .kelpclaw/compatibility.json
         node <<'NODE'
         const fs = require("node:fs");
@@ -93,12 +99,13 @@ runs:
         printf '%s\n' "$RUN_OUTPUT"
         printf '%s\n' "$RUN_OUTPUT" > .kelpclaw/run-output.json
         RUN_ID="$(printf '%s\n' "$RUN_OUTPUT" | node -e 'let input=""; process.stdin.on("data", c => input += c); process.stdin.on("end", () => console.log(JSON.parse(input).runId));')"
-        EXPORT_ARGS=(export-audit-bundle "$RUN_ID" --out ".kelpclaw/audit-bundle-$RUN_ID")
+        EXPORT_ARGS=(export-audit-bundle "$RUN_ID" --out ".kelpclaw/audit-bundle-$RUN_ID" --include-sarif --include-controls)
         if [ "${{ inputs.governance }}" = "true" ]; then
           EXPORT_ARGS+=(--include-governance --region "${{ inputs.region }}" --framework "${{ inputs.framework }}")
         fi
         node packages/cli/dist/index.js "${EXPORT_ARGS[@]}" > .kelpclaw/bundle-output.json
-        node packages/cli/dist/index.js verify-audit-bundle ".kelpclaw/audit-bundle-$RUN_ID" > .kelpclaw/bundle-verify.json
+        cp ".kelpclaw/audit-bundle-$RUN_ID/findings.sarif" .kelpclaw/findings.sarif
+        node packages/cli/dist/index.js verify-audit-bundle ".kelpclaw/audit-bundle-$RUN_ID" --strict > .kelpclaw/bundle-verify.json
         echo "run-id=$RUN_ID" >> "$GITHUB_OUTPUT"
         echo "bundle-path=.kelpclaw/audit-bundle-$RUN_ID" >> "$GITHUB_OUTPUT"
         node <<'NODE' >> "$GITHUB_STEP_SUMMARY"
@@ -108,7 +115,17 @@ runs:
         const bundle = JSON.parse(fs.readFileSync(".kelpclaw/bundle-output.json", "utf8"));
         const verify = JSON.parse(fs.readFileSync(".kelpclaw/bundle-verify.json", "utf8"));
         const governancePath = `${bundle.bundleDir}/governance-report.json`;
+        const controlsPath = `${bundle.bundleDir}/controls.md`;
+        const sarifPath = `${bundle.bundleDir}/findings.sarif`;
         const governance = fs.existsSync(governancePath) ? JSON.parse(fs.readFileSync(governancePath, "utf8")) : undefined;
+        const sarif = fs.existsSync(sarifPath) ? JSON.parse(fs.readFileSync(sarifPath, "utf8")) : undefined;
+        const results = sarif?.runs?.[0]?.results || [];
+        for (const result of results) {
+          const level = result.level === "error" ? "error" : result.level === "warning" ? "warning" : "notice";
+          const title = encodeURIComponent(result.properties?.title || result.ruleId || "KelpClaw finding");
+          const message = encodeURIComponent(result.message?.text || "KelpClaw finding");
+          console.error(`::${level} title=${title}::${message}`);
+        }
         console.log("## KelpClaw Skill Audit");
         console.log("");
         console.log(`- Skill: \`${"${{ inputs.skill }}"}\``);
@@ -118,9 +135,18 @@ runs:
         console.log(`- Status: \`${run.status}\``);
         console.log(`- Bundle: \`${bundle.bundleDir}\``);
         console.log(`- Bundle signature: \`${verify.signature.valid ? "valid" : "invalid"}\``);
+        console.log(`- Bundle attestation: \`${verify.attestation?.valid ? "valid" : "invalid"}\``);
+        console.log(`- SARIF findings: \`${results.length}\``);
+        console.log(`- Controls matrix: \`${fs.existsSync(controlsPath) ? controlsPath : "not generated"}\``);
         if (governance) {
           console.log(`- Governance tier: \`${governance.autonomyTier}\``);
           console.log(`- Governance findings: \`${(governance.findings || []).length}\``);
+          console.log("");
+          console.log("| Control Area | Status | Evidence |");
+          console.log("| --- | --- | --- |");
+          for (const mapping of governance.frameworkMapping || []) {
+            console.log(`| ${mapping.controlArea} | ${mapping.status} | ${(mapping.evidence || []).join("<br>")} |`);
+          }
         }
         console.log(`- Tools: \`${(compat.toolsDetected || []).join(", ") || "none"}\``);
         console.log(`- Network: \`${compat.network}\``);
@@ -134,6 +160,11 @@ runs:
           }
         }
         NODE
+    - name: Upload SARIF
+      if: ${{ always() && inputs.upload-sarif == 'true' && steps.audit.outputs.sarif-path != '' }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ steps.audit.outputs.sarif-path }}
     - name: Upload audit bundle
       if: ${{ inputs.upload-artifact == 'true' }}
       uses: actions/upload-artifact@v4

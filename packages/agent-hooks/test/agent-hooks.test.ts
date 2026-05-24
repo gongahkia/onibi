@@ -22,7 +22,7 @@ describe("agent hooks", () => {
         tool_name: "Bash",
         tool_input: {
           command: "echo user@example.com && echo sk-testtesttesttesttest",
-          env: { GITHUB_TOKEN: "ghp_aaaaaaaaaaaaaaaaaaaa" }
+          env: { GITHUB_TOKEN: "GITHUB_TOKEN_REDACTED" }
         },
         tool_response: { ok: true }
       },

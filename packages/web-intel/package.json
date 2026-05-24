@@ -1,12 +1,15 @@
 {
-  "name": "@kelpclaw/cli",
+  "name": "@kelpclaw/web-intel",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./src/index.ts",
-  "bin": {
-    "kelp-claw": "./dist/index.js"
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -14,11 +17,6 @@
     "typecheck": "tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
-    "@kelpclaw/adapters": "workspace:*",
-    "@kelpclaw/agent-hooks": "workspace:*",
-    "@kelpclaw/codegen": "workspace:*",
-    "@kelpclaw/policy": "workspace:*",
-    "@kelpclaw/web-intel": "workspace:*",
     "@kelpclaw/workflow-spec": "workspace:*"
   }
 }

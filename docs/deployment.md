@@ -24,6 +24,8 @@ Edit `.env` before starting the API:
 - `KELPCLAW_OPENWEIGHT_BASE_URL`: required when the selected live provider is `openweight`; point it at an OpenAI-compatible `/v1` endpoint.
 - `KELPCLAW_OPENWEIGHT_API_KEY`: optional bearer token for open-weight gateways that require auth.
 - `KELPCLAW_OPENWEIGHT_TIMEOUT_MS`: optional request timeout for open-weight chat completions; defaults to `60000`.
+- `EXA_API_KEY`: optional live key for governed Exa web search, answer, and content evidence through `kelp-claw web` or the MCP web gateway.
+- `TINYFISH_API_KEY`: optional live key for governed TinyFish fetch, browser automation, and web-agent evidence through `kelp-claw web` or the MCP web gateway.
 - `KELPCLAW_AUTH_SIGNING_SECRET`: required to mint HMAC-signed RBAC role tokens from the API or CLI.
 - `KELPCLAW_AUDIT_ANCHOR_DIR`: optional local directory for `audit-anchor` JSONL records; defaults to `.kelpclaw/audit-anchors`.
 - `KELPCLAW_AUDIT_ANCHOR_ENDPOINT`: optional external HTTP endpoint that receives audit anchor JSON.

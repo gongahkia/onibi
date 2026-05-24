@@ -1,6 +1,15 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
 import { stdin, stdout } from "node:process";
+import { evaluatePolicy, requirePolicyPack } from "@kelpclaw/policy";
+import {
+  createWebIntelClient,
+  defaultProviderForOperation,
+  policyArgsForWebRequest,
+  toolNameForWebRequest,
+  type WebIntelProvider,
+  type WebIntelRequest
+} from "@kelpclaw/web-intel";
 
 type JsonRpcRequest = {
   readonly jsonrpc: "2.0";
@@ -11,6 +20,9 @@ type JsonRpcRequest = {
 
 const apiBaseUrl = process.env.KELPCLAW_API_URL ?? "http://127.0.0.1:8787";
 const apiToken = process.env.KELPCLAW_API_TOKEN ?? process.env.KELPCLAW_ADMIN_TOKEN;
+const webGatewayEnabled = process.argv.includes("web-gateway");
+const browserToolsEnabled = process.argv.includes("--allow-browser-tools");
+const webPolicyPackName = option(process.argv, "--policy") ?? "web-search-safe";
 
 const tools = [
   tool("kelp.start_recording", "Start recording a coding-agent session."),
@@ -19,8 +31,23 @@ const tools = [
   tool("kelp.list_skills", "List registered KelpClaw skills."),
   tool("kelp.invoke_skill", "Invoke a registered KelpClaw skill."),
   tool("kelp.promote_trajectory", "Promote a verified trajectory into a skill."),
-  tool("kelp.check_policy", "Evaluate a tool call against loaded policy rules.")
-] as const;
+  tool("kelp.check_policy", "Evaluate a tool call against loaded policy rules."),
+  ...(webGatewayEnabled
+    ? [
+        tool("kelp.web_search", "Run governed web search through Exa or TinyFish."),
+        tool("kelp.web_fetch", "Fetch governed web evidence for a URL."),
+        tool("kelp.web_answer", "Answer a question with governed web evidence."),
+        tool("kelp.web_research", "Run a governed web research query.")
+      ]
+    : []),
+  ...(webGatewayEnabled && browserToolsEnabled
+    ? [
+        tool("kelp.web_browser_session", "Start a governed TinyFish browser session."),
+        tool("kelp.web_browser_action", "Run a governed action in a TinyFish browser session."),
+        tool("kelp.web_agent_task", "Run a governed TinyFish web-agent task.")
+      ]
+    : [])
+];
 
 async function handleRequest(request: JsonRpcRequest): Promise<unknown> {
   switch (request.method) {
@@ -78,8 +105,187 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
           classification: args.classification
         })
       );
+    case "kelp.web_search":
+      return toolContent(
+        await runWebTool({
+          operation: "web.search",
+          query: stringArg(args, "query"),
+          ...webCommonArgs(args)
+        })
+      );
+    case "kelp.web_fetch":
+      return toolContent(
+        await runWebTool({
+          operation: "web.fetch",
+          url: stringArg(args, "url"),
+          ...webCommonArgs(args)
+        })
+      );
+    case "kelp.web_answer":
+      return toolContent(
+        await runWebTool({
+          operation: "web.answer",
+          question: stringArg(args, "question"),
+          ...webCommonArgs(args)
+        })
+      );
+    case "kelp.web_research":
+      return toolContent(
+        await runWebTool({
+          operation: "web.search",
+          query: stringArg(args, "goal"),
+          goal: stringArg(args, "goal"),
+          ...webCommonArgs(args)
+        })
+      );
+    case "kelp.web_browser_session":
+      requireBrowserTools();
+      return toolContent(
+        await runWebTool({
+          operation: "web.browser.session",
+          goal: stringArg(args, "goal"),
+          ...webCommonArgs(args),
+          provider: "tinyfish"
+        })
+      );
+    case "kelp.web_browser_action":
+      requireBrowserTools();
+      return toolContent(
+        await runWebTool({
+          operation: "web.browser.action",
+          browserSessionId: stringArg(args, "sessionId"),
+          action: stringArg(args, "action"),
+          ...webCommonArgs(args),
+          provider: "tinyfish"
+        })
+      );
+    case "kelp.web_agent_task":
+      requireBrowserTools();
+      return toolContent(
+        await runWebTool({
+          operation: "web.agent.task",
+          goal: stringArg(args, "goal"),
+          ...webCommonArgs(args),
+          provider: "tinyfish"
+        })
+      );
     default:
       throw new Error(`Unknown KelpClaw tool '${name}'.`);
+  }
+}
+
+async function runWebTool(request: WebIntelRequest): Promise<unknown> {
+  const provider = request.provider ?? defaultProviderForOperation(request.operation);
+  const pack = requirePolicyPack(webPolicyPackName);
+  const toolName = toolNameForWebRequest(request, provider);
+  const decision = evaluatePolicy(
+    {
+      tool: toolName,
+      args: policyArgsForWebRequest(request, provider),
+      skill: {
+        id: "kelpclaw.mcp.web",
+        tags: ["web", provider, request.operation]
+      }
+    },
+    pack.ruleset
+  );
+  if (decision.action === "deny" || decision.action === "require-approval") {
+    return {
+      ok: false,
+      status: "blocked",
+      policyPack: pack.name,
+      toolName,
+      decision
+    };
+  }
+  const evidence = await createWebIntelClient().run({ ...request, provider });
+  return {
+    ok: true,
+    status: "succeeded",
+    policyPack: pack.name,
+    toolName,
+    decision,
+    evidence
+  };
+}
+
+function webCommonArgs(args: Record<string, unknown>): Partial<WebIntelRequest> {
+  const provider = optionalProviderArg(args.provider);
+  const domains = stringArrayArg(args.domains);
+  const numResults = numberArg(args.numResults);
+  const common: {
+    provider?: WebIntelProvider;
+    domains?: readonly string[];
+    numResults?: number;
+    storeFullContent?: boolean;
+  } = {};
+  if (provider) {
+    common.provider = provider;
+  }
+  if (domains.length) {
+    common.domains = domains;
+  }
+  if (numResults !== undefined) {
+    common.numResults = numResults;
+  }
+  if (args.storeFullContent !== undefined) {
+    common.storeFullContent = booleanArg(args.storeFullContent);
+  }
+  return common;
+}
+
+function optionalProviderArg(value: unknown): WebIntelProvider | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === "exa" || value === "tinyfish") {
+    return value;
+  }
+  throw new Error("Web provider must be 'exa' or 'tinyfish'.");
+}
+
+function stringArrayArg(value: unknown): readonly string[] {
+  if (Array.isArray(value)) {
+    return value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
+  }
+  if (typeof value === "string" && value.trim()) {
+    return value
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function numberArg(value: unknown): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) {
+    return Number(value);
+  }
+  throw new Error("Numeric web option must be a finite number.");
+}
+
+function booleanArg(value: unknown): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (value === "true") {
+    return true;
+  }
+  if (value === "false") {
+    return false;
+  }
+  throw new Error("Boolean web option must be true or false.");
+}
+
+function requireBrowserTools(): void {
+  if (!browserToolsEnabled) {
+    throw new Error("Start the MCP server with --allow-browser-tools to expose browser tools.");
   }
 }
 
@@ -224,6 +430,12 @@ function query(args: Record<string, unknown>): string {
   }
   const text = params.toString();
   return text ? `?${text}` : "";
+}
+
+function option(args: readonly string[], name: string): string | undefined {
+  const index = args.indexOf(name);
+  const value = index >= 0 ? args[index + 1] : undefined;
+  return value && !value.startsWith("--") ? value : undefined;
 }
 
 const httpIndex = process.argv.indexOf("--http");

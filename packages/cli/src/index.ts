@@ -13,10 +13,22 @@ import {
   synthesizeWorkflowFromTrajectory,
   trajectoryReplayShape
 } from "@kelpclaw/codegen";
+import { evaluatePolicy, requirePolicyPack } from "@kelpclaw/policy";
+import {
+  createWebIntelClient,
+  defaultProviderForOperation,
+  policyArgsForWebRequest,
+  toolNameForWebRequest,
+  writeWebEvidenceFiles,
+  type WebIntelProvider,
+  type WebIntelRequest
+} from "@kelpclaw/web-intel";
 import {
   initAuditKey,
   compatibilityReport,
+  exportSarif,
   exportAuditBundle,
+  governanceControls,
   governanceReport,
   policyExplain,
   policyPackCliOutput,
@@ -116,11 +128,20 @@ async function main(argv: readonly string[]): Promise<void> {
       return printJson(await runSkill(args));
     case "export-audit-bundle":
       return printJson(await exportAuditBundle(args));
+    case "export-sarif":
+      return printJson(await exportSarif(args));
     case "governance":
       if (args[0] === "report") {
         return printJson(await governanceReport(args.slice(1)));
       }
-      throw new Error("Usage: kelp-claw governance report <SKILL.md|runId> [--region sg]");
+      if (args[0] === "controls") {
+        return printJson(await governanceControls(args.slice(1)));
+      }
+      throw new Error(
+        "Usage: kelp-claw governance <report|controls> <SKILL.md|runId> [--region sg]"
+      );
+    case "web":
+      return printJson(await runWebCommand(args));
     case "verify-audit-bundle":
       return printJson(await verifyAuditBundle(args));
     case "audit-key":
@@ -178,7 +199,7 @@ async function main(argv: readonly string[]): Promise<void> {
       return runMcp(args);
     default:
       throw new Error(
-        "Usage: kelp-claw <run-skill|compat|compat-report|policy|governance|audit-key|export-audit-bundle|verify-audit-bundle|replay-diff|start-recording|record-step|stop-recording|approve-step|deny-step|promote|mcp|audit-verify|audit-anchor|tbom-export|mint-role-token|inspect-role-token|verify-claude-code|otlp-smoke|cross-agent-replay-smoke>"
+        "Usage: kelp-claw <run-skill|compat|compat-report|policy|governance|audit-key|export-audit-bundle|export-sarif|verify-audit-bundle|replay-diff|start-recording|record-step|stop-recording|approve-step|deny-step|promote|mcp|audit-verify|audit-anchor|tbom-export|mint-role-token|inspect-role-token|verify-claude-code|otlp-smoke|cross-agent-replay-smoke>"
       );
   }
 }
@@ -186,7 +207,9 @@ async function main(argv: readonly string[]): Promise<void> {
 export {
   initAuditKey,
   compatibilityReport,
+  exportSarif,
   exportAuditBundle,
+  governanceControls,
   governanceReport,
   policyExplain,
   policyPackCliOutput,
@@ -194,6 +217,50 @@ export {
   runSkill,
   verifyAuditBundle
 } from "./skill-runner.js";
+
+export async function runWebCommand(args: readonly string[]): Promise<JsonRecord> {
+  const [command, ...commandArgs] = args;
+  const request = webRequestFromArgs(command, commandArgs);
+  const provider = request.provider ?? defaultProviderForOperation(request.operation);
+  const policyName = option(commandArgs, "--policy") ?? "web-search-safe";
+  const pack = requirePolicyPack(policyName);
+  const toolName = toolNameForWebRequest(request, provider);
+  const decision = evaluatePolicy(
+    {
+      tool: toolName,
+      args: policyArgsForWebRequest(request, provider),
+      skill: {
+        id: "kelpclaw.web",
+        tags: ["web", provider, request.operation]
+      }
+    },
+    pack.ruleset
+  );
+  if (decision.action === "deny" || decision.action === "require-approval") {
+    process.exitCode = 1;
+    return {
+      ok: false,
+      status: "blocked",
+      policyPack: pack.name,
+      toolName,
+      decision
+    };
+  }
+
+  const client = createWebIntelClient();
+  const evidence = await client.run({ ...request, provider });
+  const outDir = option(commandArgs, "--out");
+  const files = outDir ? await writeWebEvidenceFiles(outDir, evidence) : undefined;
+  return {
+    ok: true,
+    status: "succeeded",
+    policyPack: pack.name,
+    toolName,
+    decision,
+    ...(outDir ? { outDir, files } : {}),
+    evidence
+  };
+}
 
 export async function verifyClaudeCode(args: readonly string[]): Promise<JsonRecord> {
   const command =
@@ -320,6 +387,105 @@ export function runCrossAgentReplaySmoke(): JsonRecord {
     workflowKinds,
     agentTags
   };
+}
+
+function webRequestFromArgs(command: string | undefined, args: readonly string[]): WebIntelRequest {
+  const provider = providerOption(args);
+  const domains = options(args, "--domain");
+  const numResults = numberOption(args, "--num-results");
+  const common: {
+    provider?: WebIntelProvider;
+    domains?: readonly string[];
+    numResults?: number;
+    storeFullContent?: boolean;
+  } = {};
+  if (provider) {
+    common.provider = provider;
+  }
+  if (domains.length) {
+    common.domains = domains;
+  }
+  if (numResults !== undefined) {
+    common.numResults = numResults;
+  }
+  if (hasFlag(args, "--store-full-content")) {
+    common.storeFullContent = true;
+  }
+  switch (command) {
+    case "search":
+      return {
+        operation: "web.search",
+        query: requiredPositional(args, 0),
+        ...common
+      };
+    case "fetch":
+      return {
+        operation: "web.fetch",
+        url: requiredPositional(args, 0),
+        ...common
+      };
+    case "answer":
+      return {
+        operation: "web.answer",
+        question: requiredPositional(args, 0),
+        ...common
+      };
+    case "research": {
+      const providers = option(args, "--providers")
+        ?.split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+      const selectedProvider = provider ?? providerFromString(providers?.[0]);
+      return {
+        operation: "web.search",
+        query: requiredPositional(args, 0),
+        goal: requiredPositional(args, 0),
+        ...(selectedProvider ? { provider: selectedProvider } : {}),
+        ...common,
+        metadata: {
+          command: "research",
+          providers: providers ?? []
+        }
+      };
+    }
+    case "browser-session":
+      return {
+        operation: "web.browser.session",
+        goal: requiredPositional(args, 0),
+        ...common
+      };
+    case "browser-action":
+      return {
+        operation: "web.browser.action",
+        browserSessionId: requiredOption(args, "--session-id"),
+        action: requiredPositional(args, 0),
+        ...common
+      };
+    case "agent-task":
+      return {
+        operation: "web.agent.task",
+        goal: requiredPositional(args, 0),
+        ...common
+      };
+    default:
+      throw new Error(
+        "Usage: kelp-claw web <search|fetch|answer|research> <query|url|question> [--provider exa|tinyfish] [--policy web-search-safe] [--out DIR]"
+      );
+  }
+}
+
+function providerOption(args: readonly string[]): WebIntelProvider | undefined {
+  return providerFromString(option(args, "--provider"));
+}
+
+function providerFromString(value: string | undefined): WebIntelProvider | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === "exa" || value === "tinyfish") {
+    return value;
+  }
+  throw new Error(`Unsupported web provider '${value}'. Expected exa or tinyfish.`);
 }
 
 async function usePolicyPack(args: readonly string[]): Promise<JsonRecord> {
@@ -510,6 +676,10 @@ function numberOption(args: readonly string[], name: string): number | undefined
     throw new Error(`Option ${name} must be a number.`);
   }
   return parsed;
+}
+
+function hasFlag(args: readonly string[], name: string): boolean {
+  return args.includes(name);
 }
 
 function otlpEndpointFromEnv(): string | undefined {

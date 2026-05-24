@@ -9,7 +9,10 @@ export const policyPackNames = [
   "sg-agentic-ai-baseline",
   "sg-pdpa-strict",
   "sg-financial-ai",
-  "asean-genai-baseline"
+  "asean-genai-baseline",
+  "web-search-safe",
+  "sg-web-research",
+  "browser-automation-strict"
 ] as const;
 
 export type PolicyPackName = (typeof policyPackNames)[number];
@@ -268,6 +271,118 @@ const packs: readonly PolicyPack[] = [
           when: 'tool == "Bash" && args.command =~ "(gh (issue|pr|label|release) (create|edit|delete|reopen|comment|merge|close)|git push|curl -X (POST|PUT|PATCH|DELETE))"',
           action: "require-approval",
           approverRole: "ai-governance-reviewer"
+        }
+      ]
+    }
+  },
+  {
+    name: "web-search-safe",
+    description:
+      "Safe defaults for governed web search, answer, and fetch operations with approval gates for stored content and browser automation.",
+    ruleset: {
+      rules: [
+        {
+          id: "web-search-safe-review-full-content-storage",
+          when: 'args.storeFullContent == "true"',
+          action: "require-approval",
+          approverRole: "web-research-reviewer"
+        },
+        {
+          id: "web-search-safe-review-browser-session",
+          when: 'tool startsWith "tinyfish.browser"',
+          action: "require-approval",
+          approverRole: "web-automation-reviewer"
+        },
+        {
+          id: "web-search-safe-review-web-agent",
+          when: 'tool == "tinyfish.agent.run"',
+          action: "require-approval",
+          approverRole: "web-automation-reviewer"
+        },
+        {
+          id: "web-search-safe-deny-sensitive-browser-goals",
+          when: 'tool startsWith "tinyfish.browser" && args.goal =~ "(login|password|checkout|payment|bank|credential|delete account)"',
+          action: "deny"
+        },
+        {
+          id: "web-search-safe-deny-secret-harvest",
+          when: 'args.query =~ "(TOKEN|SECRET|PASSWORD|PRIVATE_KEY|API_KEY)" || args.goal =~ "(TOKEN|SECRET|PASSWORD|PRIVATE_KEY|API_KEY)"',
+          action: "deny"
+        }
+      ]
+    }
+  },
+  {
+    name: "sg-web-research",
+    description:
+      "Singapore-oriented web research guardrails for PDPA, financial services, government, and regulated-domain evidence collection.",
+    ruleset: {
+      rules: [
+        {
+          id: "sg-web-research-review-personal-data-query",
+          when: 'args.query =~ "(nric|passport|phone|email|customer|personal data|pdpa|cpf|iras)" || args.question =~ "(nric|passport|phone|email|customer|personal data|pdpa|cpf|iras)"',
+          action: "require-approval",
+          approverRole: "privacy-reviewer"
+        },
+        {
+          id: "sg-web-research-review-financial-regulatory-query",
+          when: 'args.query =~ "(mas|bank|payment|paynow|transaction|investment|insurance|financial advice)" || args.question =~ "(mas|bank|payment|paynow|transaction|investment|insurance|financial advice)"',
+          action: "require-approval",
+          approverRole: "finance-reviewer"
+        },
+        {
+          id: "sg-web-research-review-full-content-storage",
+          when: 'args.storeFullContent == "true"',
+          action: "require-approval",
+          approverRole: "privacy-reviewer"
+        },
+        {
+          id: "sg-web-research-review-browser-or-agent",
+          when: 'tool startsWith "tinyfish.browser" || tool == "tinyfish.agent.run"',
+          action: "require-approval",
+          approverRole: "ai-governance-reviewer"
+        },
+        {
+          id: "sg-web-research-deny-secret-harvest",
+          when: 'args.query =~ "(TOKEN|SECRET|PASSWORD|PRIVATE_KEY|API_KEY)" || args.goal =~ "(TOKEN|SECRET|PASSWORD|PRIVATE_KEY|API_KEY)"',
+          action: "deny"
+        }
+      ]
+    }
+  },
+  {
+    name: "browser-automation-strict",
+    description:
+      "Strict web automation rules that force human approval for browser and web-agent actions and block account, payment, and credential flows.",
+    ruleset: {
+      rules: [
+        {
+          id: "browser-automation-strict-deny-login-payment",
+          when: 'tool startsWith "tinyfish.browser" && args.goal =~ "(login|password|checkout|payment|bank|credential|account settings|delete account)"',
+          action: "deny"
+        },
+        {
+          id: "browser-automation-strict-deny-agent-login-payment",
+          when: 'tool == "tinyfish.agent.run" && args.goal =~ "(login|password|checkout|payment|bank|credential|account settings|delete account)"',
+          action: "deny"
+        },
+        {
+          id: "browser-automation-strict-review-browser",
+          when: 'tool startsWith "tinyfish.browser"',
+          action: "require-approval",
+          approverRole: "web-automation-reviewer"
+        },
+        {
+          id: "browser-automation-strict-review-agent",
+          when: 'tool == "tinyfish.agent.run"',
+          action: "require-approval",
+          approverRole: "web-automation-reviewer"
+        },
+        {
+          id: "browser-automation-strict-review-content-storage",
+          when: 'args.storeFullContent == "true"',
+          action: "require-approval",
+          approverRole: "web-automation-reviewer"
         }
       ]
     }

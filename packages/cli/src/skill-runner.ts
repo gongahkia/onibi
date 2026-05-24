@@ -9,7 +9,7 @@ import {
 } from "node:crypto";
 import { spawn } from "node:child_process";
 import { copyFile, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { basename, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import {
   evaluatePolicy,
   policyPackToYaml,
@@ -17,6 +17,11 @@ import {
   type PolicyDecision,
   type PolicyRuleSet
 } from "@kelpclaw/policy";
+import {
+  readWebEvidenceBundle,
+  writeWebEvidenceFiles,
+  type WebEvidenceBundle
+} from "@kelpclaw/web-intel";
 import { stableJsonStringify, type JsonRecord, type JsonValue } from "@kelpclaw/workflow-spec";
 
 export type SkillNetworkMode = "none" | "declared";
@@ -64,11 +69,20 @@ export interface AuditBundleVerificationOutput {
   readonly ok: boolean;
   readonly bundleDir: string;
   readonly runId?: string | undefined;
+  readonly strict: boolean;
   readonly signature: {
     readonly valid: boolean;
     readonly keyId?: string | undefined;
     readonly algorithm?: string | undefined;
   };
+  readonly attestation?:
+    | {
+        readonly valid: boolean;
+        readonly signed: boolean;
+        readonly manifestHash?: string | undefined;
+        readonly referencedFiles: readonly string[];
+      }
+    | undefined;
   readonly files: {
     readonly checked: number;
     readonly failed: readonly string[];
@@ -102,6 +116,20 @@ export interface PolicyExplainOutput {
     readonly requireApproval: number;
     readonly denied: number;
   };
+}
+
+export interface SarifExportOutput {
+  readonly ok: boolean;
+  readonly out?: string | undefined;
+  readonly resultCount: number;
+  readonly sarif: JsonRecord;
+}
+
+export interface GovernanceControlsOutput {
+  readonly ok: boolean;
+  readonly out?: string | undefined;
+  readonly controlCount: number;
+  readonly markdown: string;
 }
 
 export type GovernanceAutonomyTier = "low" | "moderate" | "high";
@@ -140,7 +168,18 @@ export interface GovernanceReportOutput {
     readonly signedBundle: boolean;
     readonly hookEvents: boolean;
     readonly failClosed: boolean;
+    readonly webEvidence: boolean;
   };
+  readonly webEvidence?:
+    | {
+        readonly sourceCount: number;
+        readonly providers: readonly string[];
+        readonly domains: readonly string[];
+        readonly storedFullContent: boolean;
+        readonly redacted: boolean;
+        readonly errorCount: number;
+      }
+    | undefined;
   readonly findings: readonly GovernanceFinding[];
   readonly frameworkMapping: readonly GovernanceFrameworkMapping[];
   readonly residualRisks: readonly string[];
@@ -320,6 +359,33 @@ interface AuditBundleManifestFile {
   readonly path: string;
   readonly size: number;
   readonly sha256: string;
+}
+
+interface AuditBundleAttestation {
+  readonly schemaVersion: "1.0.0";
+  readonly runId: string;
+  readonly generatedAt: string;
+  readonly skillHash?: string | undefined;
+  readonly policyPack?: string | undefined;
+  readonly signer: {
+    readonly keyId: string;
+    readonly algorithm: "ed25519";
+  };
+  readonly manifest: {
+    readonly path: "manifest.json";
+    readonly sha256: string;
+    readonly signaturePath: "manifest.sig";
+    readonly publicKeyPath: "manifest.pub.json";
+  };
+  readonly files: readonly string[];
+  readonly evidence: {
+    readonly governanceReport: boolean;
+    readonly controls: boolean;
+    readonly sarif: boolean;
+    readonly webEvidence: boolean;
+    readonly hookEvents: boolean;
+    readonly agentRun: boolean;
+  };
 }
 
 interface SkillRunInternalResult extends SkillRunOutput {
@@ -523,20 +589,59 @@ export async function exportAuditBundle(args: readonly string[]): Promise<AuditB
   }
   await writeFile(join(bundleDir, "index.html"), await auditIndexHtml(runDir), "utf8");
   copied.push("index.html");
-  if (hasFlag(args, "--include-governance")) {
-    const governance = await governanceReportForRun({
+  const signed = !hasFlag(args, "--no-sign");
+  let webEvidence: WebEvidenceBundle | undefined;
+  if (hasFlag(args, "--include-web-evidence")) {
+    const evidencePath = option(args, "--include-web-evidence");
+    if (!evidencePath) {
+      throw new Error(
+        "Option --include-web-evidence requires a web-evidence.json file or directory."
+      );
+    }
+    webEvidence = await readWebEvidenceBundle(resolve(evidencePath));
+    const webFiles = await writeWebEvidenceFiles(bundleDir, webEvidence);
+    copied.push(...webFiles);
+  }
+  let governance: GovernanceReportOutput | undefined;
+  if (
+    hasFlag(args, "--include-governance") ||
+    hasFlag(args, "--include-controls") ||
+    hasFlag(args, "--include-sarif")
+  ) {
+    governance = await governanceReportForRun({
       runId,
       runsRoot,
       region: option(args, "--region") ?? "sg",
-      framework: option(args, "--framework") ?? "agentic-ai"
+      framework: option(args, "--framework") ?? "agentic-ai",
+      webEvidence,
+      signedBundle: signed
     });
+  }
+  if (hasFlag(args, "--include-governance") && governance) {
     const governanceFiles = await writeGovernanceReportFiles(bundleDir, governance);
     copied.push(...governanceFiles);
   }
-  const signed = !hasFlag(args, "--no-sign");
+  if (hasFlag(args, "--include-controls") && governance) {
+    await writeFile(join(bundleDir, "controls.md"), governanceControlsMarkdown(governance), "utf8");
+    copied.push("controls.md");
+  }
+  if (hasFlag(args, "--include-sarif")) {
+    const sarif = await sarifForRun({
+      runId,
+      runsRoot,
+      region: option(args, "--region") ?? "sg",
+      framework: option(args, "--framework") ?? "agentic-ai",
+      bundleDir,
+      webEvidence,
+      governance
+    });
+    await writeJson(join(bundleDir, "findings.sarif"), sarif);
+    copied.push("findings.sarif");
+  }
   let manifest: string | undefined;
   if (signed) {
     const key = await ensureAuditSigningKey(resolve(option(args, "--key-dir") ?? ".kelpclaw/keys"));
+    const attestedFiles = [...copied];
     manifest = await signAuditBundle({
       bundleDir,
       runId,
@@ -544,6 +649,13 @@ export async function exportAuditBundle(args: readonly string[]): Promise<AuditB
       key
     });
     copied.push("manifest.json", "manifest.sig", "manifest.pub.json");
+    const attestationFiles = await writeAuditAttestation({
+      bundleDir,
+      runId,
+      files: attestedFiles,
+      key
+    });
+    copied.push(...attestationFiles);
   }
 
   return {
@@ -573,9 +685,11 @@ export async function verifyAuditBundle(
   args: readonly string[]
 ): Promise<AuditBundleVerificationOutput> {
   const bundleDir = resolve(requiredPositional(args, 0));
+  const strict = hasFlag(args, "--strict");
   const failures: string[] = [];
   let manifest: Partial<AuditBundleManifest>;
   let signatureValid = false;
+  let manifestPublicKeyPem: string | undefined;
   try {
     manifest = JSON.parse(
       await readFile(join(bundleDir, "manifest.json"), "utf8")
@@ -585,6 +699,7 @@ export async function verifyAuditBundle(
     return {
       ok: false,
       bundleDir,
+      strict,
       signature: { valid: false },
       files: { checked: 0, failed: [] },
       failures: [`unable to read manifest.json: ${errorMessage(error)}`]
@@ -601,6 +716,7 @@ export async function verifyAuditBundle(
     if (!publicKey.publicKeyPem) {
       failures.push("manifest.pub.json does not contain publicKeyPem.");
     } else {
+      manifestPublicKeyPem = publicKey.publicKeyPem;
       signatureValid = verifyBytes(
         null,
         Buffer.from(stableJsonStringify(manifest as JsonValue), "utf8"),
@@ -634,6 +750,16 @@ export async function verifyAuditBundle(
       failures.push(`unable to read ${entry.path}: ${errorMessage(error)}`);
     }
   }
+  const attestation = strict
+    ? await verifyAuditAttestation({
+        bundleDir,
+        manifest,
+        publicKeyPem: manifestPublicKeyPem
+      })
+    : undefined;
+  if (attestation) {
+    failures.push(...attestation.failures);
+  }
   const ok = signatureValid && failures.length === 0;
   if (!ok) {
     process.exitCode = 1;
@@ -642,11 +768,22 @@ export async function verifyAuditBundle(
     ok,
     bundleDir,
     ...(manifest.runId ? { runId: manifest.runId } : {}),
+    strict,
     signature: {
       valid: signatureValid,
       ...(manifest.publicKeyId ? { keyId: manifest.publicKeyId } : {}),
       ...(manifest.algorithm ? { algorithm: manifest.algorithm } : {})
     },
+    ...(attestation
+      ? {
+          attestation: {
+            valid: attestation.valid,
+            signed: attestation.signed,
+            ...(attestation.manifestHash ? { manifestHash: attestation.manifestHash } : {}),
+            referencedFiles: attestation.referencedFiles
+          }
+        }
+      : {}),
     files: {
       checked: manifest.files?.length ?? 0,
       failed: fileFailures
@@ -808,19 +945,24 @@ export async function governanceReport(args: readonly string[]): Promise<Governa
   const subject = requiredPositional(args, 0);
   const region = option(args, "--region") ?? "sg";
   const framework = option(args, "--framework") ?? "agentic-ai";
+  const webEvidence = hasFlag(args, "--include-web-evidence")
+    ? await readWebEvidenceArgument(args)
+    : undefined;
   const report = (await isSkillSubject(subject))
     ? await governanceReportForSkill({
         skillRef: subject,
         policyPackName: option(args, "--policy") ?? "baseline",
         region,
-        framework
+        framework,
+        webEvidence
       })
     : await governanceReportForRun({
         runId: subject,
         runsRoot: resolve(option(args, "--runs-dir") ?? ".kelpclaw/runs"),
         region,
         framework,
-        bundleDir: option(args, "--bundle-dir")
+        bundleDir: option(args, "--bundle-dir"),
+        webEvidence
       });
   const outDir = option(args, "--out");
   if (!outDir) {
@@ -833,11 +975,76 @@ export async function governanceReport(args: readonly string[]): Promise<Governa
   };
 }
 
+export async function governanceControls(
+  args: readonly string[]
+): Promise<GovernanceControlsOutput> {
+  const out = option(args, "--out");
+  const report = await governanceReport(stripOption(args, "--out"));
+  const markdown = governanceControlsMarkdown(report);
+  if (out) {
+    const resolved = resolve(out);
+    await mkdir(dirname(resolved), { recursive: true });
+    await writeFile(resolved, markdown, "utf8");
+    return {
+      ok: report.ok,
+      out: resolved,
+      controlCount: report.frameworkMapping.length,
+      markdown
+    };
+  }
+  return {
+    ok: report.ok,
+    controlCount: report.frameworkMapping.length,
+    markdown
+  };
+}
+
+export async function exportSarif(args: readonly string[]): Promise<SarifExportOutput> {
+  const subject = requiredPositional(args, 0);
+  const out = option(args, "--out");
+  const webEvidence = hasFlag(args, "--include-web-evidence")
+    ? await readWebEvidenceArgument(args)
+    : undefined;
+  const sarif = (await isSkillSubject(subject))
+    ? await sarifForSkill({
+        skillRef: subject,
+        policyPackName: option(args, "--policy") ?? "baseline",
+        region: option(args, "--region") ?? "sg",
+        framework: option(args, "--framework") ?? "agentic-ai",
+        webEvidence
+      })
+    : await sarifForRun({
+        runId: subject,
+        runsRoot: resolve(option(args, "--runs-dir") ?? ".kelpclaw/runs"),
+        region: option(args, "--region") ?? "sg",
+        framework: option(args, "--framework") ?? "agentic-ai",
+        bundleDir: option(args, "--bundle-dir"),
+        webEvidence
+      });
+  if (out) {
+    const resolved = resolve(out);
+    await mkdir(dirname(resolved), { recursive: true });
+    await writeJson(resolved, sarif);
+    return {
+      ok: true,
+      out: resolved,
+      resultCount: sarifResultCount(sarif),
+      sarif
+    };
+  }
+  return {
+    ok: true,
+    resultCount: sarifResultCount(sarif),
+    sarif
+  };
+}
+
 async function governanceReportForSkill(input: {
   readonly skillRef: string;
   readonly policyPackName: string;
   readonly region: string;
   readonly framework: string;
+  readonly webEvidence?: WebEvidenceBundle | undefined;
 }): Promise<GovernanceReportOutput> {
   const policyPack = requirePolicyPack(input.policyPackName);
   const analysis = await analyzeSkillReference(input.skillRef, policyPack.ruleset);
@@ -860,6 +1067,7 @@ async function governanceReportForSkill(input: {
     signedBundle: false,
     hookEvents: false,
     failClosed: false,
+    webEvidence: input.webEvidence,
     sourceText: analysis.document.content
   });
 }
@@ -870,6 +1078,8 @@ async function governanceReportForRun(input: {
   readonly region: string;
   readonly framework: string;
   readonly bundleDir?: string | undefined;
+  readonly webEvidence?: WebEvidenceBundle | undefined;
+  readonly signedBundle?: boolean | undefined;
 }): Promise<GovernanceReportOutput> {
   const runDir = join(input.runsRoot, input.runId);
   const skill = jsonRecord(
@@ -913,7 +1123,7 @@ async function governanceReportForRun(input: {
       agentRun?.hookEvents.length ||
       (await fileExists(join(runDir, "hook-events.jsonl")))
     ),
-    signedBundle: await fileExists(join(bundleDir, "manifest.json")),
+    signedBundle: input.signedBundle ?? (await fileExists(join(bundleDir, "manifest.json"))),
     hookEvents: Boolean(
       agentRun?.hookEvents.length ||
       agentRun?.wrapperEvents.length ||
@@ -925,8 +1135,19 @@ async function governanceReportForRun(input: {
         agentRun.enforcement.wrapperBlocked ||
         agentRun.enforcement.unclassifiedBlocked ||
         agentRun.enforcement.source === "unclassified-event")
-    )
+    ),
+    webEvidence: input.webEvidence
   });
+}
+
+async function readWebEvidenceArgument(args: readonly string[]): Promise<WebEvidenceBundle> {
+  const evidencePath = option(args, "--include-web-evidence");
+  if (!evidencePath) {
+    throw new Error(
+      "Option --include-web-evidence requires a web-evidence.json file or directory."
+    );
+  }
+  return readWebEvidenceBundle(resolve(evidencePath));
 }
 
 function buildGovernanceReport(input: {
@@ -941,6 +1162,7 @@ function buildGovernanceReport(input: {
   readonly signedBundle: boolean;
   readonly hookEvents: boolean;
   readonly failClosed: boolean;
+  readonly webEvidence?: WebEvidenceBundle | undefined;
   readonly sourceText?: string | undefined;
 }): GovernanceReportOutput {
   const denied = hasAction(input.compatibility, input.decisions, "deny");
@@ -957,6 +1179,7 @@ function buildGovernanceReport(input: {
   } as unknown as JsonValue).toLowerCase();
   const hasMutatingTool = tools.some((tool) => ["Write", "Edit", "MultiEdit"].includes(tool));
   const hasNetwork = input.compatibility.network === "declared";
+  const hasWebEvidence = Boolean(input.webEvidence);
   const hasSecrets = input.compatibility.requiredSecrets.length > 0;
   const hasPii = /(email|phone|passport|nric|ssn|dob|address|customer|user|personal data)/iu.test(
     serializedEvidence
@@ -971,7 +1194,7 @@ function buildGovernanceReport(input: {
       tools.includes("Bash") || hasMutatingTool || mutatingShell || tools.includes("Task")
     ]),
     dataRisk: tier([hasNetwork && hasSecrets, hasSecrets || hasPii || hasMutatingTool]),
-    networkRisk: tier([hasNetwork && hasSecrets, hasNetwork]),
+    networkRisk: tier([hasNetwork && hasSecrets, hasNetwork || hasWebEvidence]),
     reversibilityRisk: tier([hasDestructive || denied, hasMutatingTool || mutatingShell])
   };
   const autonomyTier = maxTier([
@@ -991,8 +1214,12 @@ function buildGovernanceReport(input: {
     replayEvidence: input.replayEvidence,
     signedBundle: input.signedBundle,
     hookEvents: input.hookEvents,
-    failClosed: input.failClosed
+    failClosed: input.failClosed,
+    webEvidence: hasWebEvidence
   };
+  const webEvidenceSummary = input.webEvidence
+    ? webEvidenceGovernanceSummary(input.webEvidence)
+    : undefined;
   const findings = governanceFindings({
     compatibility: input.compatibility,
     decisions: input.decisions,
@@ -1006,7 +1233,8 @@ function buildGovernanceReport(input: {
     mutatingShell,
     auditTrail: input.auditTrail,
     hookEvents: input.hookEvents,
-    failClosed: input.failClosed
+    failClosed: input.failClosed,
+    webEvidence: input.webEvidence
   });
   return {
     ok: input.compatibility.runnable && !denied,
@@ -1020,10 +1248,113 @@ function buildGovernanceReport(input: {
     autonomyTier,
     riskSummary,
     controls,
+    ...(webEvidenceSummary ? { webEvidence: webEvidenceSummary } : {}),
     findings,
     frameworkMapping: governanceFrameworkMapping(controls, input.compatibility, findings),
     residualRisks: governanceResidualRisks(input.subject.kind, controls)
   };
+}
+
+function webEvidenceGovernanceSummary(
+  bundle: WebEvidenceBundle
+): NonNullable<GovernanceReportOutput["webEvidence"]> {
+  const providers = uniqueSorted([
+    bundle.selectedProvider,
+    ...bundle.events.map((event) => event.provider),
+    ...bundle.sources.map((source) => source.provider)
+  ]);
+  const domains = uniqueSorted(
+    bundle.sources
+      .map((source) => source.url)
+      .filter((url): url is string => Boolean(url))
+      .map((url) => hostnameFromUrl(url))
+      .filter((hostname): hostname is string => Boolean(hostname))
+  );
+  return {
+    sourceCount: bundle.summary.sourceCount,
+    providers,
+    domains,
+    storedFullContent: bundle.summary.storedFullContent,
+    redacted: bundle.summary.redacted,
+    errorCount: bundle.summary.errorCount
+  };
+}
+
+function governanceControlsMarkdown(report: GovernanceReportOutput): string {
+  const subject =
+    report.subject.kind === "run"
+      ? `run ${report.subject.runId ?? "unknown"}`
+      : `skill ${report.subject.name ?? report.subject.ref ?? "unknown"}`;
+  const rows = report.frameworkMapping
+    .map((mapping) =>
+      [
+        mapping.controlArea,
+        mapping.status,
+        controlEvidenceFiles(mapping.controlArea, report).join(", ") || "governance-report.json",
+        report.residualRisks.join("<br>"),
+        reviewerAction(mapping.status)
+      ]
+        .map(markdownCell)
+        .join(" | ")
+    )
+    .map((row) => `| ${row} |`)
+    .join("\n");
+  return `# KelpClaw Governance Controls
+
+Subject: ${subject}
+
+Region: ${report.region}
+
+Framework: ${report.framework}
+
+Autonomy tier: ${report.autonomyTier}
+
+| Control Area | Status | Evidence Files | Residual Risk | Reviewer Action |
+| --- | --- | --- | --- | --- |
+${rows}
+`;
+}
+
+function controlEvidenceFiles(
+  controlArea: string,
+  report: GovernanceReportOutput
+): readonly string[] {
+  if (/accountability|approval/iu.test(controlArea)) {
+    return ["policy-decisions.json", "governance-report.json"];
+  }
+  if (/autonomy|technical/iu.test(controlArea)) {
+    return ["compatibility.json", "policy-decisions.json", "result.json"];
+  }
+  if (/traceability|audit/iu.test(controlArea)) {
+    return [
+      "audit.jsonl",
+      ...(report.controls.hookEvents ? ["hook-events.jsonl"] : []),
+      ...(report.controls.signedBundle ? ["manifest.json", "manifest.sig"] : []),
+      ...(report.controls.webEvidence ? ["web-evidence.json", "web-events.jsonl"] : [])
+    ];
+  }
+  if (/data|third-party/iu.test(controlArea)) {
+    return [
+      "compatibility.json",
+      "bom.json",
+      ...(report.controls.webEvidence ? ["web-bom.json", "web-evidence.json"] : [])
+    ];
+  }
+  return ["governance-report.json", "controls.md"];
+}
+
+function reviewerAction(status: GovernanceFrameworkMapping["status"]): string {
+  if (status === "covered") {
+    return "Verify evidence and sign off.";
+  }
+  if (status === "gap") {
+    return "Block or document an explicit exception.";
+  }
+  return "Collect missing evidence or reviewer approval.";
+}
+
+function markdownCell(value: string): string {
+  return value.replace(/\|/gu, "\\|").replace(/\n/gu, "<br>");
 }
 
 async function writeGovernanceReportFiles(
@@ -1080,6 +1411,317 @@ function governanceReportHtml(report: GovernanceReportOutput): string {
 `;
 }
 
+async function sarifForSkill(input: {
+  readonly skillRef: string;
+  readonly policyPackName: string;
+  readonly region: string;
+  readonly framework: string;
+  readonly webEvidence?: WebEvidenceBundle | undefined;
+}): Promise<JsonRecord> {
+  const policyPack = requirePolicyPack(input.policyPackName);
+  const analysis = await analyzeSkillReference(input.skillRef, policyPack.ruleset);
+  const compatibility = compatibilityFromAnalysis(analysis, policyPack.ruleset);
+  const decisions = evaluatePlannedSteps(analysis, policyPack.ruleset);
+  const governance = buildGovernanceReport({
+    region: input.region,
+    framework: input.framework,
+    subject: {
+      kind: "skill",
+      ref: analysis.document.ref,
+      name: analysis.name,
+      contentHash: analysis.document.contentHash
+    },
+    compatibility,
+    policyPackName: policyPack.name,
+    decisions,
+    auditTrail: false,
+    replayEvidence: false,
+    signedBundle: false,
+    hookEvents: false,
+    failClosed: false,
+    webEvidence: input.webEvidence,
+    sourceText: analysis.document.content
+  });
+  return buildSarif({
+    subjectKind: "skill",
+    locationUri: analysis.document.ref,
+    compatibility,
+    decisions,
+    governance,
+    webEvidence: input.webEvidence
+  });
+}
+
+async function sarifForRun(input: {
+  readonly runId: string;
+  readonly runsRoot: string;
+  readonly region: string;
+  readonly framework: string;
+  readonly bundleDir?: string | undefined;
+  readonly webEvidence?: WebEvidenceBundle | undefined;
+  readonly governance?: GovernanceReportOutput | undefined;
+}): Promise<JsonRecord> {
+  const runDir = join(input.runsRoot, input.runId);
+  const compatibility = JSON.parse(
+    await readFile(join(runDir, "compatibility.json"), "utf8")
+  ) as SkillCompatibilityReport;
+  const policy = jsonRecord(
+    JSON.parse(await readFile(join(runDir, "policy-decisions.json"), "utf8")),
+    "policy-decisions.json"
+  );
+  const decisions = policyDecisionRecords(policy.decisions);
+  const governance =
+    input.governance ??
+    (await governanceReportForRun({
+      runId: input.runId,
+      runsRoot: input.runsRoot,
+      region: input.region,
+      framework: input.framework,
+      bundleDir: input.bundleDir,
+      webEvidence: input.webEvidence
+    }));
+  return buildSarif({
+    subjectKind: "run",
+    locationUri: runDir,
+    compatibility,
+    decisions,
+    governance,
+    webEvidence: input.webEvidence
+  });
+}
+
+function buildSarif(input: {
+  readonly subjectKind: GovernanceSubjectKind;
+  readonly locationUri: string;
+  readonly compatibility: SkillCompatibilityReport;
+  readonly decisions: readonly PolicyDecisionRecord[];
+  readonly governance: GovernanceReportOutput;
+  readonly webEvidence?: WebEvidenceBundle | undefined;
+}): JsonRecord {
+  const results = [
+    ...input.compatibility.policyFindings.map((finding) =>
+      sarifResult({
+        ruleId: sarifPolicyRuleId(finding),
+        level: policyActionLevel(finding.action),
+        title: `${finding.action} policy finding for ${finding.tool}`,
+        message: `${finding.reason}; rules=${finding.matchedRuleIds.join(",") || "none"}`,
+        locationUri: input.locationUri,
+        properties: {
+          source: "compatibility",
+          subjectKind: input.subjectKind,
+          tool: finding.tool,
+          action: finding.action,
+          matchedRuleIds: [...finding.matchedRuleIds]
+        }
+      })
+    ),
+    ...input.decisions
+      .filter(
+        (record) =>
+          record.decision.action === "deny" || record.decision.action === "require-approval"
+      )
+      .map((record) =>
+        sarifResult({
+          ruleId: sarifDecisionRuleId(record),
+          level: policyActionLevel(record.decision.action),
+          title: `${record.decision.action} decision for ${record.tool}`,
+          message: `${record.decision.reason}; args=${jsonText(record.args)}`,
+          locationUri: input.locationUri,
+          properties: {
+            source: "policy-decision",
+            subjectKind: input.subjectKind,
+            tool: record.tool,
+            action: record.decision.action,
+            matchedRuleIds: [...record.decision.matchedRuleIds]
+          }
+        })
+      ),
+    ...input.governance.findings.map((finding) =>
+      sarifResult({
+        ruleId: `kelp.governance.${finding.category}`,
+        level: governanceSeverityLevel(finding.severity),
+        title: finding.title,
+        message: `${finding.evidence} Recommendation: ${finding.recommendation}`,
+        locationUri: input.locationUri,
+        properties: {
+          source: "governance",
+          subjectKind: input.subjectKind,
+          category: finding.category,
+          severity: finding.severity
+        }
+      })
+    ),
+    ...(input.webEvidence
+      ? webEvidenceSarifResults(input.webEvidence, input.locationUri, input.subjectKind)
+      : [])
+  ];
+  const rules = uniqueSarifRules(results);
+  return {
+    version: "2.1.0",
+    $schema: "https://json.schemastore.org/sarif-2.1.0.json",
+    runs: [
+      {
+        tool: {
+          driver: {
+            name: "KelpClaw",
+            informationUri: "https://github.com/gongahkia/kelp-claw",
+            semanticVersion: "0.1.0",
+            rules
+          }
+        },
+        results
+      }
+    ]
+  } as unknown as JsonRecord;
+}
+
+function webEvidenceSarifResults(
+  evidence: WebEvidenceBundle,
+  locationUri: string,
+  subjectKind: GovernanceSubjectKind
+): readonly JsonRecord[] {
+  const results: JsonRecord[] = [
+    sarifResult({
+      ruleId: "kelp.web.evidence",
+      level: "note",
+      title: "Web evidence attached",
+      message: `Web evidence contains ${evidence.summary.sourceCount} source(s) from ${evidence.selectedProvider}.`,
+      locationUri,
+      properties: {
+        source: "web-evidence",
+        subjectKind,
+        provider: evidence.selectedProvider,
+        sourceCount: evidence.summary.sourceCount
+      }
+    })
+  ];
+  if (evidence.summary.storedFullContent) {
+    results.push(
+      sarifResult({
+        ruleId: "kelp.web.full-content-stored",
+        level: "warning",
+        title: "Full web content stored",
+        message: "Web evidence stores full source content; confirm retention and sharing controls.",
+        locationUri,
+        properties: { source: "web-evidence", subjectKind }
+      })
+    );
+  }
+  if (evidence.summary.redacted) {
+    results.push(
+      sarifResult({
+        ruleId: "kelp.web.redacted-content",
+        level: "note",
+        title: "Web evidence was redacted",
+        message: "KelpClaw redacted secret-like or personal-data-like content from web evidence.",
+        locationUri,
+        properties: { source: "web-evidence", subjectKind }
+      })
+    );
+  }
+  if (evidence.summary.errorCount > 0) {
+    results.push(
+      sarifResult({
+        ruleId: "kelp.web.provider-errors",
+        level: "warning",
+        title: "Web provider errors recorded",
+        message: `Web evidence recorded ${evidence.summary.errorCount} provider error(s).`,
+        locationUri,
+        properties: { source: "web-evidence", subjectKind }
+      })
+    );
+  }
+  return results;
+}
+
+function sarifResult(input: {
+  readonly ruleId: string;
+  readonly level: "error" | "warning" | "note";
+  readonly title: string;
+  readonly message: string;
+  readonly locationUri: string;
+  readonly properties: JsonRecord;
+}): JsonRecord {
+  return {
+    ruleId: input.ruleId,
+    level: input.level,
+    message: { text: input.message },
+    locations: [
+      {
+        physicalLocation: {
+          artifactLocation: { uri: input.locationUri },
+          region: { startLine: 1 }
+        }
+      }
+    ],
+    properties: {
+      title: input.title,
+      ...input.properties
+    }
+  };
+}
+
+function uniqueSarifRules(results: readonly JsonRecord[]): readonly JsonRecord[] {
+  const ruleIds = uniqueSorted(
+    results
+      .map((result) => stringField(result, "ruleId"))
+      .filter((ruleId): ruleId is string => Boolean(ruleId))
+  );
+  return ruleIds.map((id) => ({
+    id,
+    name: id,
+    shortDescription: { text: sarifRuleTitle(id) },
+    help: { text: "Generated by KelpClaw policy, governance, and audit evidence." }
+  }));
+}
+
+function sarifRuleTitle(ruleId: string): string {
+  return ruleId
+    .replace(/^kelp\./u, "")
+    .replace(/[._-]+/gu, " ")
+    .replace(/\b\w/gu, (match) => match.toUpperCase());
+}
+
+function sarifPolicyRuleId(finding: SkillPolicyFinding): string {
+  return finding.matchedRuleIds[0]
+    ? `kelp.policy.${finding.matchedRuleIds[0]}`
+    : `kelp.policy.${finding.action}`;
+}
+
+function sarifDecisionRuleId(record: PolicyDecisionRecord): string {
+  return record.decision.matchedRuleIds[0]
+    ? `kelp.policy.${record.decision.matchedRuleIds[0]}`
+    : `kelp.policy.${record.decision.action}`;
+}
+
+function policyActionLevel(action: PolicyDecision["action"]): "error" | "warning" | "note" {
+  if (action === "deny") {
+    return "error";
+  }
+  if (action === "require-approval") {
+    return "warning";
+  }
+  return "note";
+}
+
+function governanceSeverityLevel(
+  severity: GovernanceFindingSeverity
+): "error" | "warning" | "note" {
+  if (severity === "high") {
+    return "error";
+  }
+  if (severity === "moderate") {
+    return "warning";
+  }
+  return "note";
+}
+
+function sarifResultCount(sarif: JsonRecord): number {
+  const runs = Array.isArray(sarif.runs) ? sarif.runs : [];
+  const firstRun = runs[0] as JsonRecord | undefined;
+  return Array.isArray(firstRun?.results) ? firstRun.results.length : 0;
+}
+
 function governanceFindings(input: {
   readonly compatibility: SkillCompatibilityReport;
   readonly decisions: readonly PolicyDecisionRecord[];
@@ -1094,6 +1736,7 @@ function governanceFindings(input: {
   readonly auditTrail: boolean;
   readonly hookEvents: boolean;
   readonly failClosed: boolean;
+  readonly webEvidence?: WebEvidenceBundle | undefined;
 }): readonly GovernanceFinding[] {
   const findings: GovernanceFinding[] = [];
   for (const finding of input.compatibility.policyFindings) {
@@ -1149,6 +1792,16 @@ function governanceFindings(input: {
       evidence: `Required secrets: ${input.compatibility.requiredSecrets.join(", ") || "none"}.`,
       recommendation:
         "Restrict outbound destinations and include network evidence in the audit bundle."
+    });
+  }
+  if (input.webEvidence) {
+    findings.push({
+      severity: input.webEvidence.summary.storedFullContent ? "moderate" : "info",
+      category: "network-risk",
+      title: "Web evidence attached",
+      evidence: `Sources: ${input.webEvidence.summary.sourceCount}; provider: ${input.webEvidence.selectedProvider}; stored full content: ${input.webEvidence.summary.storedFullContent}.`,
+      recommendation:
+        "Review source domains, provider terms, and retention before forwarding externally."
     });
   }
   if (input.hasPii || input.hasSecrets) {
@@ -1210,18 +1863,22 @@ function governanceFrameworkMapping(
       evidence: [
         `Audit trail: ${controls.auditTrail}`,
         `Hook events: ${controls.hookEvents}`,
+        `Web evidence: ${controls.webEvidence}`,
         `Signed bundle: ${controls.signedBundle}`
       ]
     },
     {
       controlArea: "Data and third-party risk",
       status:
-        compatibility.network === "none" && compatibility.requiredSecrets.length === 0
+        compatibility.network === "none" &&
+        compatibility.requiredSecrets.length === 0 &&
+        !controls.webEvidence
           ? "covered"
           : "partial",
       evidence: [
         `Network: ${compatibility.network}`,
-        `Required secrets: ${compatibility.requiredSecrets.join(", ") || "none"}`
+        `Required secrets: ${compatibility.requiredSecrets.join(", ") || "none"}`,
+        `Web evidence attached: ${controls.webEvidence}`
       ]
     },
     {
@@ -1253,6 +1910,11 @@ function governanceResidualRisks(
       : [
           "Forwardable evidence should be exported as a signed audit bundle before external review."
         ]),
+    ...(controls.webEvidence
+      ? [
+          "Web search and browser evidence may include third-party content, crawler gaps, and provider-specific ranking bias."
+        ]
+      : []),
     "External WORM storage, retention policy, and independent reviewer workflow remain deployment responsibilities."
   ];
 }
@@ -2675,6 +3337,164 @@ async function signAuditBundle(input: {
   return "manifest.json";
 }
 
+async function writeAuditAttestation(input: {
+  readonly bundleDir: string;
+  readonly runId: string;
+  readonly files: readonly string[];
+  readonly key: AuditKeyFile;
+}): Promise<readonly string[]> {
+  const [skill, policy, result] = await Promise.all([
+    readJsonIfExists(join(input.bundleDir, "skill.json")) as Promise<JsonRecord | undefined>,
+    readJsonIfExists(join(input.bundleDir, "policy-decisions.json")) as Promise<
+      JsonRecord | undefined
+    >,
+    readJsonIfExists(join(input.bundleDir, "result.json")) as Promise<JsonRecord | undefined>
+  ]);
+  const attestation: AuditBundleAttestation = {
+    schemaVersion: "1.0.0",
+    runId: input.runId,
+    generatedAt: new Date().toISOString(),
+    ...(stringField(skill ?? {}, "contentHash")
+      ? { skillHash: stringField(skill ?? {}, "contentHash") }
+      : {}),
+    ...(stringField(policy ?? {}, "policyPack") || stringField(result ?? {}, "policyPack")
+      ? {
+          policyPack:
+            stringField(policy ?? {}, "policyPack") ?? stringField(result ?? {}, "policyPack")
+        }
+      : {}),
+    signer: {
+      keyId: input.key.keyId,
+      algorithm: input.key.algorithm
+    },
+    manifest: {
+      path: "manifest.json",
+      sha256: await sha256File(join(input.bundleDir, "manifest.json")),
+      signaturePath: "manifest.sig",
+      publicKeyPath: "manifest.pub.json"
+    },
+    files: input.files.slice().sort((left, right) => left.localeCompare(right)),
+    evidence: {
+      governanceReport: input.files.includes("governance-report.json"),
+      controls: input.files.includes("controls.md"),
+      sarif: input.files.includes("findings.sarif"),
+      webEvidence: input.files.includes("web-evidence.json"),
+      hookEvents: input.files.includes("hook-events.jsonl"),
+      agentRun: input.files.includes("agent-run.json")
+    }
+  };
+  const payload = stableJsonStringify(attestation as unknown as JsonValue);
+  const signature = signBytes(
+    null,
+    Buffer.from(payload, "utf8"),
+    createPrivateKey(input.key.privateKeyPem)
+  ).toString("base64");
+  await writeJson(join(input.bundleDir, "attestation.json"), attestation);
+  await writeFile(join(input.bundleDir, "attestation.sig"), `${signature}\n`, "utf8");
+  return ["attestation.json", "attestation.sig"];
+}
+
+async function verifyAuditAttestation(input: {
+  readonly bundleDir: string;
+  readonly manifest: Partial<AuditBundleManifest>;
+  readonly publicKeyPem?: string | undefined;
+}): Promise<{
+  readonly valid: boolean;
+  readonly signed: boolean;
+  readonly manifestHash?: string | undefined;
+  readonly referencedFiles: readonly string[];
+  readonly failures: readonly string[];
+}> {
+  const failures: string[] = [];
+  let attestation: Partial<AuditBundleAttestation>;
+  let signatureValid = false;
+  try {
+    attestation = JSON.parse(
+      await readFile(join(input.bundleDir, "attestation.json"), "utf8")
+    ) as Partial<AuditBundleAttestation>;
+  } catch (error) {
+    return {
+      valid: false,
+      signed: false,
+      referencedFiles: [],
+      failures: [`unable to read attestation.json: ${errorMessage(error)}`]
+    };
+  }
+
+  try {
+    if (!input.publicKeyPem) {
+      failures.push("cannot verify attestation without manifest public key.");
+    } else {
+      const signature = Buffer.from(
+        (await readFile(join(input.bundleDir, "attestation.sig"), "utf8")).trim(),
+        "base64"
+      );
+      signatureValid = verifyBytes(
+        null,
+        Buffer.from(stableJsonStringify(attestation as JsonValue), "utf8"),
+        createPublicKey(input.publicKeyPem),
+        signature
+      );
+      if (!signatureValid) {
+        failures.push("attestation signature is invalid.");
+      }
+    }
+  } catch (error) {
+    failures.push(`unable to verify attestation signature: ${errorMessage(error)}`);
+  }
+
+  const manifestHash = await sha256File(join(input.bundleDir, "manifest.json")).catch((error) => {
+    failures.push(`unable to hash manifest.json: ${errorMessage(error)}`);
+    return undefined;
+  });
+  if (attestation.schemaVersion !== "1.0.0") {
+    failures.push("attestation schemaVersion must be 1.0.0.");
+  }
+  if (attestation.runId !== input.manifest.runId) {
+    failures.push("attestation runId does not match manifest runId.");
+  }
+  if (attestation.manifest?.path !== "manifest.json") {
+    failures.push("attestation manifest path must be manifest.json.");
+  }
+  if (manifestHash && attestation.manifest?.sha256 !== manifestHash) {
+    failures.push("attestation manifest hash does not match manifest.json.");
+  }
+  if (attestation.manifest?.signaturePath !== "manifest.sig") {
+    failures.push("attestation signaturePath must be manifest.sig.");
+  }
+  if (attestation.manifest?.publicKeyPath !== "manifest.pub.json") {
+    failures.push("attestation publicKeyPath must be manifest.pub.json.");
+  }
+  const referencedFiles = Array.isArray(attestation.files)
+    ? attestation.files.filter((file): file is string => typeof file === "string")
+    : [];
+  const manifestFiles = (input.manifest.files ?? [])
+    .map((file) => file.path)
+    .sort((left, right) => left.localeCompare(right));
+  const sortedReferencedFiles = referencedFiles
+    .slice()
+    .sort((left, right) => left.localeCompare(right));
+  if (stableJsonStringify(sortedReferencedFiles) !== stableJsonStringify(manifestFiles)) {
+    failures.push("attestation files do not exactly match manifest files.");
+  }
+  for (const file of referencedFiles) {
+    if (!isSafeBundlePath(file)) {
+      failures.push(`unsafe bundle path in attestation: ${file}`);
+      continue;
+    }
+    if (!(await fileExists(join(input.bundleDir, file)))) {
+      failures.push(`attestation references missing file: ${file}`);
+    }
+  }
+  return {
+    valid: signatureValid && failures.length === 0,
+    signed: signatureValid,
+    ...(manifestHash ? { manifestHash: `sha256:${manifestHash}` } : {}),
+    referencedFiles: sortedReferencedFiles,
+    failures
+  };
+}
+
 async function auditManifestFile(
   bundleDir: string,
   file: string
@@ -2686,6 +3506,12 @@ async function auditManifestFile(
     size: fileStat.size,
     sha256: createHash("sha256").update(content).digest("hex")
   };
+}
+
+async function sha256File(path: string): Promise<string> {
+  return createHash("sha256")
+    .update(await readFile(path))
+    .digest("hex");
 }
 
 function isSafeBundlePath(path: string): boolean {
@@ -2837,6 +3663,21 @@ function options(args: readonly string[], name: string): readonly string[] {
   return values;
 }
 
+function stripOption(args: readonly string[], name: string): readonly string[] {
+  const stripped: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] !== name) {
+      stripped.push(args[index] ?? "");
+      continue;
+    }
+    const value = args[index + 1];
+    if (value && !value.startsWith("--")) {
+      index += 1;
+    }
+  }
+  return stripped;
+}
+
 function hasFlag(args: readonly string[], name: string): boolean {
   return args.includes(name);
 }
@@ -2918,6 +3759,14 @@ function stringArrayField(
 
 function firstUrl(content: string): string | undefined {
   return /https?:\/\/[^\s)]+/iu.exec(content)?.[0];
+}
+
+function hostnameFromUrl(value: string): string | undefined {
+  try {
+    return new URL(value).hostname;
+  } catch {
+    return undefined;
+  }
 }
 
 function uniqueSorted(values: readonly string[]): readonly string[] {

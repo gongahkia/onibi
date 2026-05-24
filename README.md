@@ -15,6 +15,7 @@ OpenClaw is the editable workflow planner. NanoClaw is the deterministic runtime
 | `packages/nanoclaw`       | DAG compiler, production runner, Docker command runner, and deterministic test runner    |
 | `packages/codegen`        | Generated artifact contracts, checksums, and replay policy helpers                       |
 | `packages/adapters`       | Live provider adapters, generic connectors, and deterministic test mocks                 |
+| `packages/web-intel`      | Governed Exa/TinyFish web search, fetch, answer, browser, and evidence normalization     |
 | `packages/testing`        | Shared fixtures, mock providers, and deterministic execution harnesses                   |
 
 ## Development
@@ -41,7 +42,9 @@ Quickstart, deployment notes for durable SQLite mode, Docker Compose, and produc
 [`docs/quickstart.md`](docs/quickstart.md),
 [`docs/deployment.md`](docs/deployment.md),
 [`docs/agent-runtime-demo.md`](docs/agent-runtime-demo.md),
-[`docs/skill-governance-demo.md`](docs/skill-governance-demo.md), and
+[`docs/skill-governance-demo.md`](docs/skill-governance-demo.md),
+[`docs/security-review-demo.md`](docs/security-review-demo.md),
+[`docs/web-intel.md`](docs/web-intel.md), and
 [`docs/production-readiness.md`](docs/production-readiness.md).
 
 ## Workflow V1 Model
@@ -89,19 +92,26 @@ KelpClaw can analyze and run agent skills in an audit-first mode:
 $ kelp-claw compat ./SKILL.md --policy baseline
 $ kelp-claw policy explain ./SKILL.md --policy baseline
 $ kelp-claw governance report ./SKILL.md --region sg --framework agentic-ai --policy sg-agentic-ai-baseline
+$ kelp-claw governance controls ./SKILL.md --region sg --framework agentic-ai --out controls.md
+$ kelp-claw export-sarif ./SKILL.md --policy baseline --out findings.sarif
 $ kelp-claw run-skill ./SKILL.md --input input.json
 $ kelp-claw run-skill ./SKILL.md --input input.json --agent codex-cli --wrapper --enforce-policy
 $ kelp-claw run-skill github:owner/repo/path/SKILL.md --input input.json
 $ kelp-claw governance report <runId> --region sg --framework agentic-ai
-$ kelp-claw export-audit-bundle <runId> --include-governance --region sg --framework agentic-ai
-$ kelp-claw verify-audit-bundle .kelpclaw/audit-bundles/<runId>
+$ kelp-claw export-audit-bundle <runId> --include-governance --include-controls --include-sarif --region sg --framework agentic-ai
+$ kelp-claw verify-audit-bundle .kelpclaw/audit-bundles/<runId> --strict
 $ kelp-claw replay-diff --skill ./SKILL.md --agents claude-code,codex-cli,goose
 $ kelp-claw replay-diff --recorded --skill ./SKILL.md --input input.json --agents codex-cli,custom-agent
+$ kelp-claw web search "Singapore agentic AI governance" --provider exa --policy sg-web-research --out .kelpclaw/web-evidence/sg-ai
+$ kelp-claw web fetch https://example.com/source --provider tinyfish --out .kelpclaw/web-evidence/source
+$ kelp-claw export-audit-bundle <runId> --include-web-evidence .kelpclaw/web-evidence/sg-ai --include-governance
 ```
 
 `compat` reports detected tools, required secrets, network posture, sandbox profile, and policy findings. `run-skill` writes deterministic local artifacts under `.kelpclaw/runs/<runId>/`, including `skill.json`, `workflow.json`, `bom.json`, `audit.jsonl`, and `policy-decisions.json`. With `--agent codex-cli`, KelpClaw materializes a temporary workspace, invokes `codex exec`, captures stdout/stderr, installs a local hook command for compatible agents, records hook-derived `PreToolUse`/`PostToolUse` events when available, evaluates policy, and stores generated artifact metadata. Planned policy denials block before launch; hook-denied pre-tool events block the run under `--enforce-policy`. `export-audit-bundle` creates a static bundle with an offline `index.html`.
 
-`policy explain` shows the exact planned tool steps and policy decisions for a skill. `governance report` emits SG/APAC-oriented evidence for autonomy tier, tool/data/network risk, human approval points, auditability, replay evidence, residual risks, and framework mappings. `--wrapper` adds stricter Codex CLI handling by normalizing Codex JSONL tool events into KelpClaw hook events and failing closed on unclassified enforced tool events. `export-audit-bundle` signs a manifest with a local Ed25519 key by default; use `kelp-claw audit-key init` to create the key explicitly and `verify-audit-bundle` before forwarding the static bundle.
+`policy explain` shows the exact planned tool steps and policy decisions for a skill. `governance report` emits SG/APAC-oriented evidence for autonomy tier, tool/data/network risk, human approval points, auditability, replay evidence, residual risks, and framework mappings. `governance controls` produces a reviewer-facing controls matrix, and `export-sarif` converts policy/governance/web findings into SARIF 2.1.0 for GitHub code scanning and security review. `--wrapper` adds stricter Codex CLI handling by normalizing Codex JSONL tool events into KelpClaw hook events and failing closed on unclassified enforced tool events. `export-audit-bundle` signs a manifest and attestation with a local Ed25519 key by default; use `kelp-claw audit-key init` to create the key explicitly and `verify-audit-bundle --strict` before forwarding the static bundle.
+
+`kelp-claw web` adds governed Exa/TinyFish web intelligence. `search`, `fetch`, `answer`, and `research` evaluate a policy pack before the provider call, normalize sources into KelpClaw web evidence, hash source content, redact obvious secrets and emails, and optionally write `web-evidence.json`, `web-events.jsonl`, `web-bom.json`, and `web-evidence.html`. Set `EXA_API_KEY` and/or `TINYFISH_API_KEY` for live calls. Attach the evidence to `governance report` or `export-audit-bundle` with `--include-web-evidence <dir-or-json>`.
 
 Built-in policy packs are available without writing YAML on day one:
 
@@ -115,6 +125,16 @@ $ kelp-claw policy use sg-agentic-ai-baseline
 $ kelp-claw policy use sg-pdpa-strict
 $ kelp-claw policy use sg-financial-ai
 $ kelp-claw policy use asean-genai-baseline
+$ kelp-claw policy use web-search-safe
+$ kelp-claw policy use sg-web-research
+$ kelp-claw policy use browser-automation-strict
+```
+
+Expose the same governed web gateway to MCP clients with:
+
+```console
+$ kelp-claw mcp web-gateway --policy sg-web-research
+$ kelp-claw mcp web-gateway --policy browser-automation-strict --allow-browser-tools
 ```
 
 Use the bundled GitHub Action in PR workflows:
@@ -128,6 +148,7 @@ Use the bundled GitHub Action in PR workflows:
     region: sg
     framework: agentic-ai
     fail-on-unrunnable: "true"
+    upload-sarif: "true"
 ```
 
 The compatibility corpus in `fixtures/skills-corpus` contains representative public-style skills and expected reports for regression tests.

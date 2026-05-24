@@ -131,7 +131,10 @@ rules:
       "sg-agentic-ai-baseline",
       "sg-pdpa-strict",
       "sg-financial-ai",
-      "asean-genai-baseline"
+      "asean-genai-baseline",
+      "web-search-safe",
+      "sg-web-research",
+      "browser-automation-strict"
     ]);
 
     for (const packName of policyPackNames) {
@@ -207,6 +210,48 @@ rules:
     ).toMatchObject({
       action: "require-approval",
       matchedRuleIds: ["sg-financial-ai-review-financial-shell"]
+    });
+
+    expect(
+      evaluatePolicy(
+        {
+          tool: "exa.search",
+          args: { query: "agentic ai", storeFullContent: "true" }
+        },
+        requirePolicyPack("web-search-safe").ruleset
+      )
+    ).toMatchObject({
+      action: "require-approval",
+      matchedRuleIds: ["web-search-safe-review-full-content-storage"]
+    });
+
+    expect(
+      evaluatePolicy(
+        {
+          tool: "exa.search",
+          args: { query: "Singapore customer nric validation", storeFullContent: "false" }
+        },
+        requirePolicyPack("sg-web-research").ruleset
+      )
+    ).toMatchObject({
+      action: "require-approval",
+      matchedRuleIds: ["sg-web-research-review-personal-data-query"]
+    });
+
+    expect(
+      evaluatePolicy(
+        {
+          tool: "tinyfish.browser.session",
+          args: { goal: "login and make payment", storeFullContent: "false" }
+        },
+        requirePolicyPack("browser-automation-strict").ruleset
+      )
+    ).toMatchObject({
+      action: "deny",
+      matchedRuleIds: [
+        "browser-automation-strict-deny-login-payment",
+        "browser-automation-strict-review-browser"
+      ]
     });
   });
 });

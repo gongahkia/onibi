@@ -12,11 +12,12 @@ $ kelp-claw policy explain fixtures/skills-corpus/local-file-audit/SKILL.md --po
 $ kelp-claw governance report fixtures/skills-corpus/local-file-audit/SKILL.md --region sg --framework agentic-ai --policy sg-agentic-ai-baseline
 $ kelp-claw run-skill fixtures/skills-corpus/local-file-audit/SKILL.md --input input.json --run-id skill-run.local-demo
 $ kelp-claw governance report skill-run.local-demo --region sg --framework agentic-ai
-$ kelp-claw export-audit-bundle skill-run.local-demo --include-governance --region sg --framework agentic-ai
-$ kelp-claw verify-audit-bundle .kelpclaw/audit-bundles/skill-run.local-demo
+$ kelp-claw governance controls skill-run.local-demo --region sg --framework agentic-ai --out controls.md
+$ kelp-claw export-audit-bundle skill-run.local-demo --include-governance --include-controls --include-sarif --region sg --framework agentic-ai
+$ kelp-claw verify-audit-bundle .kelpclaw/audit-bundles/skill-run.local-demo --strict
 ```
 
-Expected result: compatibility is runnable, the governance tier is low or moderate depending on tools, the run succeeds, and the audit bundle verifies with a valid Ed25519 signature that covers the governance report.
+Expected result: compatibility is runnable, the governance tier is low or moderate depending on tools, the run succeeds, and the audit bundle verifies with valid Ed25519 manifest and attestation signatures.
 
 ## Blocked Skill
 
@@ -36,6 +37,30 @@ $ kelp-claw governance report fixtures/skills-corpus/pii-file-write/SKILL.md --r
 ```
 
 Expected result: the skill remains runnable but requires privacy-reviewer approval and appears as moderate governance risk because it writes customer data.
+
+## Web Evidence
+
+```console
+$ EXA_API_KEY=... kelp-claw web search "Singapore agentic AI governance" \
+  --provider exa \
+  --policy sg-web-research \
+  --domain mas.gov.sg \
+  --out .kelpclaw/web-evidence/sg-agentic-ai
+
+$ kelp-claw governance report ./SKILL.md \
+  --region sg \
+  --framework agentic-ai \
+  --policy sg-web-research \
+  --include-web-evidence .kelpclaw/web-evidence/sg-agentic-ai
+
+$ kelp-claw export-audit-bundle skill-run.local-demo \
+  --include-web-evidence .kelpclaw/web-evidence/sg-agentic-ai \
+  --include-governance \
+  --region sg \
+  --framework agentic-ai
+```
+
+Expected result: the web command evaluates policy before calling Exa/TinyFish, writes `web-evidence.json`, `web-events.jsonl`, `web-bom.json`, and `web-evidence.html`, and the governance report marks third-party web evidence as attached.
 
 ## Enforced Codex Wrapper
 
@@ -66,4 +91,4 @@ Expected result: KelpClaw stores one run per agent, compares normalized tool seq
     fail-on-unrunnable: "true"
 ```
 
-The action writes annotations for policy findings, adds a PR summary, exports a static signed audit bundle, verifies the bundle signature, and uploads the bundle as an artifact.
+The action writes annotations for policy/governance findings, adds a PR summary, exports SARIF, exports a static signed audit bundle, strict-verifies the bundle attestation, uploads SARIF to code scanning, and uploads the bundle as an artifact.
