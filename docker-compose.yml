@@ -44,15 +44,15 @@ services:
       - kelpclaw-workspaces:/workspace
       - /var/run/docker.sock:/var/run/docker.sock
 
-  openclaw:
+  kelpclaw:
     build:
       context: .
-      dockerfile: Dockerfile.openclaw
+      dockerfile: Dockerfile.kelpclaw
     environment:
-      OPENCLAW_API_TARGET: http://api:8787
+      KELPCLAW_API_TARGET: http://api:8787
       KELPCLAW_PREFLIGHT: ${KELPCLAW_PREFLIGHT:-1}
       KELPCLAW_ADMIN_TOKEN: ${KELPCLAW_ADMIN_TOKEN:-}
-      VITE_OPENCLAW_ADMIN_TOKEN: ${KELPCLAW_ADMIN_TOKEN:-}
+      VITE_KELPCLAW_ADMIN_TOKEN: ${KELPCLAW_ADMIN_TOKEN:-}
     ports:
       - "5173:5173"
     depends_on:

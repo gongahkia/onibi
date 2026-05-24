@@ -2,7 +2,7 @@
 
 ## Required For Single-Host Production
 
-- Set `KELPCLAW_ADMIN_TOKEN` and require it for OpenClaw and all API inspection/mutation routes.
+- Set `KELPCLAW_ADMIN_TOKEN` and require it for KelpClaw and all API inspection/mutation routes.
 - Set `KELPCLAW_SECRET_MASTER_KEY` before API startup; back it up separately from SQLite.
 - Use SQLite on durable storage and back up the database plus artifact store together.
 - Keep `NANOCLAW_RUNNER=production` so adapter nodes use live adapters and custom/codegen nodes use Docker fallback.
@@ -72,7 +72,7 @@
 - Policy denies undeclared hosts, undeclared secret refs, missing operation metadata, and write side-effect tool grants. Denials are recorded in runtime trace metadata.
 - Agent memory is structured SQLite memory, not vector search. Scopes are `none`, `node`, `workflow`, and `workspace`; workspace reads require shareable records in the same namespace.
 - Memory writes are redacted before persistence and must come from structured `memoryWrites` in agent output. Raw secrets, authorization headers, and provider transcripts are not stored as memory.
-- OpenClaw's Agent Runtime panel shows route scores, eval status, memory records, and runtime policy/memory trace events.
+- KelpClaw's Agent Runtime panel shows route scores, eval status, memory records, and runtime policy/memory trace events.
 
 ## Known Boundaries
 

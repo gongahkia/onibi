@@ -37,16 +37,16 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("OpenClaw planner shell", () => {
+describe("KelpClaw planner shell", () => {
   it("renders a blank planner workspace for a fresh session", () => {
     render(<App />);
 
-    expect(screen.getByRole("heading", { name: "OpenClaw" })).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "OpenClaw logo" })).toHaveAttribute(
+    expect(screen.getByRole("heading", { name: "KelpClaw" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "KelpClaw logo" })).toHaveAttribute(
       "src",
       "/app-logo.png"
     );
-    expect(screen.queryByText("workflow.openclaw-draft")).not.toBeInTheDocument();
+    expect(screen.queryByText("workflow.kelpclaw-draft")).not.toBeInTheDocument();
     expect(screen.queryByRole("complementary", { name: "Details drawer" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Label")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Workflow planner")).not.toBeInTheDocument();
@@ -164,7 +164,7 @@ describe("OpenClaw planner shell", () => {
     expect(await screen.findByText(/Anchored sha256:/u)).toBeInTheDocument();
     expect(screen.getByText("audit.anchored")).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledWith(
-      expect.stringMatching(/\/api\/agent-runs\/agent-run\.openclaw-smoke\/audit\/anchor$/u),
+      expect.stringMatching(/\/api\/agent-runs\/agent-run\.kelpclaw-smoke\/audit\/anchor$/u),
       expect.objectContaining({ method: "POST" })
     );
   });
@@ -389,7 +389,7 @@ describe("OpenClaw planner shell", () => {
     expect(screen.getByRole("heading", { name: "Budget" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "Ops" }));
     expect(screen.getByRole("heading", { name: "Agent Timeline" })).toBeInTheDocument();
-    expect(screen.getByText("worker.openclaw-test")).toBeInTheDocument();
+    expect(screen.getByText("worker.kelpclaw-test")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Export Audit JSONL/i }));
     expect(await screen.findByText(/Audit export/u)).toBeInTheDocument();
@@ -581,14 +581,14 @@ async function mockFetch(input: string | URL | Request, init?: RequestInit): Pro
     return jsonResponse({ ok: true, runs: [mockTrajectoryRun()] });
   }
 
-  if (url.endsWith("/api/agent-runs/agent-run.openclaw-smoke/audit/anchor")) {
+  if (url.endsWith("/api/agent-runs/agent-run.kelpclaw-smoke/audit/anchor")) {
     const run = {
       ...mockTrajectoryRun(),
       auditEvents: [
         ...mockTrajectoryRun().auditEvents,
         {
           id: "agent-run-audit.anchor",
-          runId: "agent-run.openclaw-smoke",
+          runId: "agent-run.kelpclaw-smoke",
           action: "audit.anchored",
           createdAt: "2026-05-18T01:00:02.000Z",
           summary: "Anchored audit chain.",
@@ -603,7 +603,7 @@ async function mockFetch(input: string | URL | Request, init?: RequestInit): Pro
       ok: true,
       anchor: {
         kelpclawAuditAnchorVersion: "1.0.0",
-        runId: "agent-run.openclaw-smoke",
+        runId: "agent-run.kelpclaw-smoke",
         method: "local-file",
         chainHead: `sha256:${"b".repeat(64)}`,
         eventCount: 1,
@@ -611,7 +611,7 @@ async function mockFetch(input: string | URL | Request, init?: RequestInit): Pro
         anchorId: `sha256:${"c".repeat(64)}`,
         verification: { valid: true }
       },
-      anchorPath: ".kelpclaw/audit-anchors/agent-run.openclaw-smoke.jsonl",
+      anchorPath: ".kelpclaw/audit-anchors/agent-run.kelpclaw-smoke.jsonl",
       externalAnchor: {
         enabled: true,
         status: "succeeded",
@@ -1564,11 +1564,11 @@ function mockJob(
     type,
     status,
     workflowId,
-    correlationId: "corr.openclaw-test",
+    correlationId: "corr.kelpclaw-test",
     createdAt: "2026-05-18T01:00:00.000Z",
     updatedAt: "2026-05-18T01:00:00.000Z",
     claimedAt: status === "queued" ? undefined : "2026-05-18T01:00:00.000Z",
-    workerId: status === "queued" ? undefined : "worker.openclaw-test",
+    workerId: status === "queued" ? undefined : "worker.kelpclaw-test",
     retry: { attempt: 0, maxAttempts: 1, retryable: true },
     events: [
       {
@@ -1968,23 +1968,23 @@ function mockWorkspace(workflowId: string, jobId: string) {
 
 function mockTrajectoryRun() {
   return {
-    id: "agent-run.openclaw-smoke",
+    id: "agent-run.kelpclaw-smoke",
     sourceAgent: "claude-code",
-    sessionId: "session.openclaw-smoke",
+    sessionId: "session.kelpclaw-smoke",
     title: "Claude Code Smoke",
     status: "stopped",
     createdAt: "2026-05-18T01:00:00.000Z",
     updatedAt: "2026-05-18T01:00:01.000Z",
     events: [
       {
-        id: "agent-step.openclaw-smoke",
-        runId: "agent-run.openclaw-smoke",
+        id: "agent-step.kelpclaw-smoke",
+        runId: "agent-run.kelpclaw-smoke",
         recordedAt: "2026-05-18T01:00:01.000Z",
         sourceAgent: "claude-code",
-        sessionId: "session.openclaw-smoke",
+        sessionId: "session.kelpclaw-smoke",
         hookEvent: "PostToolUse",
         toolName: "Bash",
-        toolUseId: "toolu.openclaw-smoke",
+        toolUseId: "toolu.kelpclaw-smoke",
         args: { command: "printf kelpclaw" },
         result: { stdout: "kelpclaw" },
         status: "succeeded",

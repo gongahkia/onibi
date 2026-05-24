@@ -9,13 +9,13 @@ COPY apps ./apps
 COPY packages ./packages
 
 RUN pnpm install --frozen-lockfile \
-  && pnpm --filter @kelpclaw/openclaw... build
+  && pnpm --filter @kelpclaw/kelpclaw... build
 
 COPY scripts ./scripts
 
-ENV OPENCLAW_API_TARGET=http://api:8787
+ENV KELPCLAW_API_TARGET=http://api:8787
 
 EXPOSE 5173
 
-ENTRYPOINT ["node", "scripts/docker-preflight.mjs", "openclaw", "--"]
-CMD ["pnpm", "--filter", "@kelpclaw/openclaw", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
+ENTRYPOINT ["node", "scripts/docker-preflight.mjs", "kelpclaw", "--"]
+CMD ["pnpm", "--filter", "@kelpclaw/kelpclaw", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]

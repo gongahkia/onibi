@@ -8,7 +8,7 @@ Code-gen nodes must be auditable, replayable, and promotable into reusable skill
 
 ## Code-Gen Policy
 
-OpenClaw creates a code-gen node only after skill registry lookup fails to find a suitable skill.
+KelpClaw creates a code-gen node only after skill registry lookup fails to find a suitable skill.
 
 Generated nodes must include:
 
@@ -43,7 +43,7 @@ Disallowed SDK roles:
 
 ## Planner Backend Upgrade
 
-Phase 3 uses a deterministic mocked planner so OpenClaw can ship the visual planning workflow before live planner infrastructure exists.
+Phase 3 uses a deterministic mocked planner so KelpClaw can ship the visual planning workflow before live planner infrastructure exists.
 
 Phase 5 replaces that mock planner path with a real draft-time planner backend. The planner must:
 
@@ -108,4 +108,4 @@ Promotion adds a new skill registry record and replaces future matching code-gen
 - Generated code runs in a container with declared limits.
 - Code-gen nodes can be promoted to skills through a tested path.
 - NanoClaw never uses code generation to mutate an approved workflow mid-run.
-- OpenClaw planning no longer depends on the Phase 3 deterministic mock planner.
+- KelpClaw planning no longer depends on the Phase 3 deterministic mock planner.

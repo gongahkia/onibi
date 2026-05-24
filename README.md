@@ -8,13 +8,13 @@ KelpClaw is an Agent Skill Governance Framework with policy, sandboxing, replay,
 
 Its core adoption path is simple: run any `SKILL.md`, evaluate it against policy packs, capture replayable execution evidence, and export a static audit bundle that security, compliance, and platform teams can review without running KelpClaw.
 
-OpenClaw remains the editable workflow planner. NanoClaw remains the deterministic runtime that compiles approved workflow revisions and executes nodes through a Docker-per-node contract. The Piranesi-derived code is used as KelpClaw's local evidence subsystem, not as a separate product direction.
+KelpClaw remains the editable workflow planner. NanoClaw remains the deterministic runtime that compiles approved workflow revisions and executes nodes through a Docker-per-node contract. The Piranesi-derived code is used as KelpClaw's local evidence subsystem, not as a separate product direction.
 
 ## Workspace Layout
 
 | Workspace                 | Ownership                                                                                |
 | ------------------------- | ---------------------------------------------------------------------------------------- |
-| `apps/openclaw`           | React + React Flow workflow planning UI                                                  |
+| `apps/kelpclaw`           | React + React Flow workflow planning UI                                                  |
 | `apps/api`                | HTTP API for planning, workflow persistence, validation, approval, and execution control |
 | `packages/workflow-spec`  | Shared workflow IR types, Zod schemas, JSON Schema, fixtures, and validation errors      |
 | `packages/skill-registry` | Built-in deterministic skills, metadata, metaprompts, and lookup rules                   |
@@ -39,9 +39,12 @@ uv run pytest -q -m "not integration and not joern and not docker and not e2e an
 
 When CLI help changes, update and review the contract snapshot:
 
-```bash
-uv run python scripts/update_contract_snapshots.py
-uv run pytest -q tests/test_contract_snapshots.py
+```console
+$ pnpm --filter @kelpclaw/api test
+$ pnpm --filter @kelpclaw/kelpclaw dev
+$ pnpm --filter @kelpclaw/workflow-spec test
+$ pnpm validate:fixtures
+$ pnpm check:codegen-policy
 ```
 
 Quickstart, deployment notes for durable SQLite mode, Docker Compose, and production readiness live in
@@ -201,9 +204,9 @@ The golden demo in `examples/agentic-ai-governance-demo` contains a passing skil
 
 ## Auth, Secrets, And Integrations
 
-The API server requires `KELPCLAW_ADMIN_TOKEN` outside test construction. OpenClaw sends it as a Bearer token from its integration panel or `VITE_OPENCLAW_ADMIN_TOKEN`.
+The API server requires `KELPCLAW_ADMIN_TOKEN` outside test construction. KelpClaw sends it as a Bearer token from its integration panel or `VITE_KELPCLAW_ADMIN_TOKEN`.
 
-Production secrets use encrypted local SQLite storage with `KELPCLAW_SECRET_MASTER_KEY`. Workflow specs store only `secret:<name>` refs; raw values are written through `/api/secrets` or the OpenClaw setup panel and are never returned by list APIs.
+Production secrets use encrypted local SQLite storage with `KELPCLAW_SECRET_MASTER_KEY`. Workflow specs store only `secret:<name>` refs; raw values are written through `/api/secrets` or the KelpClaw setup panel and are never returned by list APIs.
 
 Google uses OAuth web flow endpoints under `/api/integrations/google/*`. SMTP email, WhatsApp Cloud API, Telegram Bot API, GitHub, Slack, Discord, Notion, Linear, Jira Cloud, Airtable, generic webhook delivery, and database adapters use encrypted provider secrets. The built-in database runtime supports SQLite directly and exposes a `DatabaseClient` contract for Postgres, MySQL, and other engines. Mock adapters and `.fake` ids remain test helpers only.
 
@@ -227,7 +230,7 @@ NanoClaw is the deterministic workflow runtime, not a model provider. It verifie
 ## Validation Guarantees
 
 - Workflow specs are diffable and validated with stable error codes.
-- OpenClaw renders the shared v1 fixtures with schema version, revision, prompt, node kind, port-aware edges, and approval state.
+- KelpClaw renders the shared v1 fixtures with schema version, revision, prompt, node kind, port-aware edges, and approval state.
 - NanoClaw execution is covered through an approved-workflow mock runner and Docker command-construction tests.
 - Integration adapters are production-capable; missing live secrets fail as structured run output.
 - CI runs TypeScript format, lint, typecheck, tests, and builds.

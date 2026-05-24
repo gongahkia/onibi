@@ -194,7 +194,7 @@ export function workflowIdFromPrompt(prompt: string): string {
     .replace(/^-+|-+$/gu, "")
     .slice(0, 48);
 
-  return `workflow.${slug || "openclaw-draft"}`;
+  return `workflow.${slug || "kelpclaw-draft"}`;
 }
 
 export function nodeIdFromLabel(label: string, kind: WorkflowNodeKind): string {
@@ -248,12 +248,12 @@ function nodeKindDefaults(kind: WorkflowNodeKind): {
             generator: "kelpclaw.codegen.typescript",
             generatedAt: "2026-05-18T00:00:00.000Z",
             sourcePrompt: "Generate deterministic workflow code.",
-            artifactPath: "generated/openclaw-node.ts",
+            artifactPath: "generated/kelpclaw-node.ts",
             artifactChecksum: placeholderChecksum
           },
           artifacts: [
             {
-              path: "generated/openclaw-node.ts",
+              path: "generated/kelpclaw-node.ts",
               checksum: placeholderChecksum,
               contentType: "text/typescript"
             },
@@ -282,7 +282,7 @@ function nodeKindDefaults(kind: WorkflowNodeKind): {
           },
           replay: {
             mode: "reuse-if-unchanged",
-            seed: "openclaw-default"
+            seed: "kelpclaw-default"
           },
           llmBacked: false
         }

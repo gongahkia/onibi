@@ -300,17 +300,17 @@ export interface GoogleConnectResponse {
   readonly state: string;
 }
 
-export class OpenClawApiError extends Error {
+export class KelpClawApiError extends Error {
   public readonly status: number;
 
   public constructor(status: number, message: string) {
     super(message);
-    this.name = "OpenClawApiError";
+    this.name = "KelpClawApiError";
     this.status = status;
   }
 }
 
-export const openClawApi = {
+export const kelpClawApi = {
   fetchRuntimeProviders(): Promise<RuntimeProviderStatusResponse> {
     return getJson("/api/runtime/providers");
   },
@@ -958,28 +958,28 @@ async function getJson<TResponse>(url: string): Promise<TResponse> {
 async function parseJsonResponse<TResponse>(response: Response): Promise<TResponse> {
   const payload = (await response.json()) as { readonly message?: string; readonly error?: string };
   if (!response.ok) {
-    throw new OpenClawApiError(
+    throw new KelpClawApiError(
       response.status,
-      payload.message ?? payload.error ?? `OpenClaw API request failed with ${response.status}.`
+      payload.message ?? payload.error ?? `KelpClaw API request failed with ${response.status}.`
     );
   }
 
   return payload as TResponse;
 }
 
-export function readOpenClawAdminToken(): string {
+export function readKelpClawAdminToken(): string {
   const stored = readLocalStorage("kelpclaw.adminToken");
   const env = (import.meta as ImportMeta & { readonly env?: Record<string, string | undefined> })
     .env;
-  return stored || env?.VITE_OPENCLAW_ADMIN_TOKEN || "";
+  return stored || env?.VITE_KELPCLAW_ADMIN_TOKEN || "";
 }
 
-export function saveOpenClawAdminToken(token: string): void {
+export function saveKelpClawAdminToken(token: string): void {
   writeLocalStorage("kelpclaw.adminToken", token.trim());
 }
 
 function authHeader(): Record<string, string> {
-  const token = readOpenClawAdminToken();
+  const token = readKelpClawAdminToken();
   return token ? { authorization: `Bearer ${token}` } : {};
 }
 

@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      "/api": process.env.OPENCLAW_API_TARGET ?? "http://127.0.0.1:8787"
+      "/api": process.env.KELPCLAW_API_TARGET ?? "http://127.0.0.1:8787"
     }
   },
   test: {

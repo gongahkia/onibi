@@ -72,7 +72,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/web-intel
 
-  apps/openclaw:
+  apps/kelpclaw:
     dependencies:
       '@kelpclaw/workflow-spec':
         specifier: workspace:*

@@ -71,7 +71,7 @@ import type {
   WorkflowValidationIssue,
   WorkflowValidationResult
 } from "@kelpclaw/workflow-spec";
-import { openClawApi, readOpenClawAdminToken, saveOpenClawAdminToken } from "./api-client.js";
+import { kelpClawApi, readKelpClawAdminToken, saveKelpClawAdminToken } from "./api-client.js";
 import type {
   AgentRunRecord,
   AgentStepEvent,
@@ -95,7 +95,7 @@ import "./styles.css";
 const defaultPrompt = "";
 const defaultBranchName = "Experiment";
 const emptyWorkflowDraft = createWorkflowSpec({
-  id: "workflow.openclaw-draft",
+  id: "workflow.kelpclaw-draft",
   name: "Untitled Workflow",
   prompt: defaultPrompt,
   nodes: [],
@@ -274,7 +274,7 @@ const componentPaletteItems: readonly ComponentPaletteItem[] = [
     description: "Starts the workflow from an incoming HTTP payload.",
     kind: "trigger",
     outputs: { request: objectPort },
-    config: { trigger: "webhook", path: "/webhooks/openclaw" }
+    config: { trigger: "webhook", path: "/webhooks/kelpclaw" }
   },
   {
     id: "email-delivery",
@@ -885,7 +885,7 @@ export function App() {
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
   const [promotionNotice, setPromotionNotice] = useState<string | null>(null);
-  const [adminToken, setAdminToken] = useState(readOpenClawAdminToken);
+  const [adminToken, setAdminToken] = useState(readKelpClawAdminToken);
   const [integrationReadiness, setIntegrationReadiness] = useState<readonly IntegrationReadiness[]>(
     []
   );
@@ -1012,8 +1012,8 @@ export function App() {
   const refreshIntegrations = useCallback(async () => {
     try {
       const [secrets, google] = await Promise.all([
-        openClawApi.listSecrets(),
-        openClawApi.googleStatus()
+        kelpClawApi.listSecrets(),
+        kelpClawApi.googleStatus()
       ]);
       setSecretMetadata(secrets.secrets);
       setIntegrationReadiness(secrets.integrations);
@@ -1033,7 +1033,7 @@ export function App() {
       }
 
       try {
-        const response = await openClawApi.listBranches(workflowId);
+        const response = await kelpClawApi.listBranches(workflowId);
         setBranches(response.branches);
         const nextActive =
           response.branches.find((branch) => branch.id === preferredBranchId) ??
@@ -1043,7 +1043,7 @@ export function App() {
         setActiveBranchId(nextActive?.id ?? null);
         setBranchRenameDraft(nextActive?.name ?? "");
         if (nextActive) {
-          const branchResponse = await openClawApi.fetchBranch(workflowId, nextActive.id);
+          const branchResponse = await kelpClawApi.fetchBranch(workflowId, nextActive.id);
           setPromptTurns(branchResponse.promptTurns);
         }
       } catch {
@@ -1085,16 +1085,16 @@ export function App() {
           routerEvals,
           memory
         ] = await Promise.all([
-          openClawApi.fetchRuntimeTruth(workflowId, branchId ?? undefined),
-          openClawApi.fetchBudget(workflowId, branchId ?? undefined),
-          openClawApi.fetchAgentTimeline(workflowId),
-          openClawApi.fetchActiveDeployments(workflowId),
-          openClawApi.fetchRuns(workflowId),
-          openClawApi.fetchSchedules(workflowId),
-          openClawApi.fetchOpsHealth(),
-          openClawApi.fetchConnectors(),
-          openClawApi.fetchRouterEvals(),
-          openClawApi.fetchAgentMemory(workflowId)
+          kelpClawApi.fetchRuntimeTruth(workflowId, branchId ?? undefined),
+          kelpClawApi.fetchBudget(workflowId, branchId ?? undefined),
+          kelpClawApi.fetchAgentTimeline(workflowId),
+          kelpClawApi.fetchActiveDeployments(workflowId),
+          kelpClawApi.fetchRuns(workflowId),
+          kelpClawApi.fetchSchedules(workflowId),
+          kelpClawApi.fetchOpsHealth(),
+          kelpClawApi.fetchConnectors(),
+          kelpClawApi.fetchRouterEvals(),
+          kelpClawApi.fetchAgentMemory(workflowId)
         ]);
         setRuntimeTruth(truth.truth);
         setBudgetPolicy(budget.policy);
@@ -1117,7 +1117,7 @@ export function App() {
 
   const refreshTrajectoryRuns = useCallback(async () => {
     try {
-      const response = await openClawApi.fetchAgentRuns();
+      const response = await kelpClawApi.fetchAgentRuns();
       setTrajectoryRuns(response.runs);
       setSelectedTrajectoryRunId((current) => current ?? response.runs[0]?.id ?? null);
     } catch {
@@ -1127,7 +1127,7 @@ export function App() {
 
   const refreshPolicies = useCallback(async () => {
     try {
-      const response = await openClawApi.fetchPolicies();
+      const response = await kelpClawApi.fetchPolicies();
       const rules = Array.isArray(response.ruleset.rules) ? response.ruleset.rules : [];
       setPolicyYaml(
         rules.length > 0
@@ -1161,7 +1161,7 @@ export function App() {
 
   useEffect(() => {
     let cancelled = false;
-    void openClawApi
+    void kelpClawApi
       .fetchRuntimeProviders()
       .then((response) => {
         if (!cancelled) {
@@ -1211,7 +1211,7 @@ export function App() {
       return;
     }
     let cancelled = false;
-    void openClawApi.streamAgentRunEvents(selectedTrajectoryRunStreamId, (event) => {
+    void kelpClawApi.streamAgentRunEvents(selectedTrajectoryRunStreamId, (event) => {
       if (cancelled) {
         return;
       }
@@ -1242,7 +1242,7 @@ export function App() {
     }
 
     let cancelled = false;
-    void openClawApi
+    void kelpClawApi
       .fetchNodeDecisionTraces(workflow.id, selectedNodeId)
       .then((response) => {
         if (!cancelled) {
@@ -1362,9 +1362,9 @@ export function App() {
       readonly nodeId?: string;
       readonly maxAttempts?: number;
     }) => {
-      const response = await openClawApi.createJob(request);
+      const response = await kelpClawApi.createJob(request);
       setActiveJob(response.job);
-      void openClawApi.streamJobEvents(response.job.id, (event) => {
+      void kelpClawApi.streamJobEvents(response.job.id, (event) => {
         if ("status" in event) {
           setActiveJob(event);
         } else {
@@ -1389,7 +1389,7 @@ export function App() {
           type: "feedback.graph",
           workflowId: editedWorkflow.id
         });
-        const response = await openClawApi.feedback(
+        const response = await kelpClawApi.feedback(
           editedWorkflow.id,
           {
             baseWorkflow,
@@ -1428,7 +1428,7 @@ export function App() {
     try {
       await work();
     } catch (error) {
-      setApiError(error instanceof Error ? error.message : "OpenClaw request failed.");
+      setApiError(error instanceof Error ? error.message : "KelpClaw request failed.");
     } finally {
       setBusyAction(null);
     }
@@ -1436,12 +1436,12 @@ export function App() {
 
   function updateAdminToken(value: string) {
     setAdminToken(value);
-    saveOpenClawAdminToken(value);
+    saveKelpClawAdminToken(value);
   }
 
   function savePolicyYaml() {
     void executeApiAction("policy-save", async () => {
-      const response = await openClawApi.updatePolicyYaml(policyYaml);
+      const response = await kelpClawApi.updatePolicyYaml(policyYaml);
       setPolicyNotice(
         `${Array.isArray(response.ruleset.rules) ? response.ruleset.rules.length : 0} rules saved.`
       );
@@ -1451,8 +1451,8 @@ export function App() {
 
   function approveTrajectoryEvent(runId: string, event: AgentStepEvent) {
     void executeApiAction(`agent-approve-${event.id}`, async () => {
-      const response = await openClawApi.approveAgentRunEvent(runId, event.id, {
-        reviewedBy: "openclaw"
+      const response = await kelpClawApi.approveAgentRunEvent(runId, event.id, {
+        reviewedBy: "kelpclaw"
       });
       replaceTrajectoryRun(response.run);
     });
@@ -1460,8 +1460,8 @@ export function App() {
 
   function denyTrajectoryEvent(runId: string, event: AgentStepEvent) {
     void executeApiAction(`agent-deny-${event.id}`, async () => {
-      const response = await openClawApi.denyAgentRunEvent(runId, event.id, {
-        reviewedBy: "openclaw"
+      const response = await kelpClawApi.denyAgentRunEvent(runId, event.id, {
+        reviewedBy: "kelpclaw"
       });
       replaceTrajectoryRun(response.run);
     });
@@ -1469,7 +1469,7 @@ export function App() {
 
   function anchorTrajectoryRun(runId: string) {
     void executeApiAction(`agent-anchor-${runId}`, async () => {
-      const response = await openClawApi.anchorAgentRun(runId);
+      const response = await kelpClawApi.anchorAgentRun(runId);
       replaceTrajectoryRun(response.run);
       setTrajectoryNotice(
         response.externalAnchor.enabled
@@ -1495,7 +1495,7 @@ export function App() {
     }
 
     void executeApiAction(`secret-${secretName}`, async () => {
-      await openClawApi.upsertSecret(secretName, value);
+      await kelpClawApi.upsertSecret(secretName, value);
       setSecretDrafts((previous) => ({
         ...previous,
         [secretName]: ""
@@ -1506,14 +1506,14 @@ export function App() {
 
   function deleteSecret(secretName: string) {
     void executeApiAction(`delete-secret-${secretName}`, async () => {
-      await openClawApi.deleteSecret(secretName);
+      await kelpClawApi.deleteSecret(secretName);
       await refreshIntegrations();
     });
   }
 
   function switchBranch(branchId: string) {
     void executeApiAction("switch-branch", async () => {
-      const response = await openClawApi.fetchBranch(workflow.id, branchId);
+      const response = await kelpClawApi.fetchBranch(workflow.id, branchId);
       setActiveBranchId(response.branch.id);
       setBranchRenameDraft(response.branch.name);
       setPromptTurns(response.promptTurns);
@@ -1546,7 +1546,7 @@ export function App() {
     }
 
     void executeApiAction("fork-branch", async () => {
-      const response = await openClawApi.createBranch(workflow.id, {
+      const response = await kelpClawApi.createBranch(workflow.id, {
         name,
         createdBy: "owner@example.com",
         ...(activeBranchId ? { fromBranchId: activeBranchId } : {})
@@ -1578,7 +1578,7 @@ export function App() {
     }
 
     void executeApiAction("rename-branch", async () => {
-      const response = await openClawApi.updateBranch(workflow.id, activeBranch.id, {
+      const response = await kelpClawApi.updateBranch(workflow.id, activeBranch.id, {
         name,
         updatedBy: "owner@example.com"
       });
@@ -1598,7 +1598,7 @@ export function App() {
 
     void executeApiAction("archive-branch", async () => {
       const nextStatus = activeBranch.status === "archived" ? "active" : "archived";
-      const response = await openClawApi.updateBranch(workflow.id, activeBranch.id, {
+      const response = await kelpClawApi.updateBranch(workflow.id, activeBranch.id, {
         status: nextStatus,
         updatedBy: "owner@example.com"
       });
@@ -1635,7 +1635,7 @@ export function App() {
     }
 
     void executeApiAction("merge-preview", async () => {
-      const response = await openClawApi.previewBranchMerge(workflow.id, sourceBranchId, {
+      const response = await kelpClawApi.previewBranchMerge(workflow.id, sourceBranchId, {
         targetBranchId: activeBranchId,
         mode: selectedMergeMode
       });
@@ -1679,7 +1679,7 @@ export function App() {
       const resolutions = mergePreview.conflicts.map((conflict) =>
         mergeResolutionForConflict(conflict, resolutionModes, manualJson)
       );
-      const response = await openClawApi.mergeBranch(workflow.id, mergePreview.sourceBranchId, {
+      const response = await kelpClawApi.mergeBranch(workflow.id, mergePreview.sourceBranchId, {
         targetBranchId: activeBranchId,
         mode: mergePreview.mode,
         appliedBy: "owner@example.com",
@@ -1709,7 +1709,7 @@ export function App() {
     }
 
     void executeApiAction("reuse-candidates", async () => {
-      const response = await openClawApi.fetchReuseCandidates(workflow.id, activeBranchId);
+      const response = await kelpClawApi.fetchReuseCandidates(workflow.id, activeBranchId);
       setReuseDecisions(response.decisions);
       setBranchNotice(`Reuse candidates: ${response.decisions.length}`);
     });
@@ -1717,14 +1717,14 @@ export function App() {
 
   function connectGoogle() {
     void executeApiAction("google-connect", async () => {
-      const response = await openClawApi.googleConnect();
+      const response = await kelpClawApi.googleConnect();
       globalThis.location.assign(response.url);
     });
   }
 
   function revokeGoogle() {
     void executeApiAction("google-revoke", async () => {
-      await openClawApi.googleRevoke();
+      await kelpClawApi.googleRevoke();
       await refreshIntegrations();
     });
   }
@@ -1804,13 +1804,13 @@ export function App() {
 
     void executeApiAction("reprompt", async () => {
       const response = activeBranchId
-        ? await openClawApi.repromptBranchNode(workflow.id, activeBranchId, {
+        ? await kelpClawApi.repromptBranchNode(workflow.id, activeBranchId, {
             nodeId: node.id,
             prompt: node.description,
             currentWorkflow: workflow,
             actor: "owner@example.com"
           })
-        : await openClawApi.repromptNode(workflow.id, {
+        : await kelpClawApi.repromptNode(workflow.id, {
             nodeId: node.id,
             prompt: node.description,
             currentWorkflow: workflow
@@ -1819,7 +1819,7 @@ export function App() {
       setApprovalDiff(response.diff);
       if ("branch" in response) {
         const branchResponse = response as Awaited<
-          ReturnType<typeof openClawApi.repromptBranchNode>
+          ReturnType<typeof kelpClawApi.repromptBranchNode>
         >;
         setPromptTurns((previous) => [...previous, branchResponse.promptTurn]);
         await refreshBranches(branchResponse.workflow.id, branchResponse.branch.id);
@@ -2047,7 +2047,7 @@ export function App() {
         ...(currentWorkflow ? { workflowId: currentWorkflow.id } : {})
       });
       const response = activeBranchId
-        ? await openClawApi.planBranch(
+        ? await kelpClawApi.planBranch(
             workflow.id,
             activeBranchId,
             {
@@ -2067,7 +2067,7 @@ export function App() {
             },
             job.id
           )
-        : await openClawApi.plan(
+        : await kelpClawApi.plan(
             {
               prompt: nextPrompt,
               ...(currentWorkflow ? { currentWorkflow } : {}),
@@ -2130,7 +2130,7 @@ export function App() {
       return;
     }
     void executeApiAction("validate", async () => {
-      const response = await openClawApi.validate(workflow.id, { workflow });
+      const response = await kelpClawApi.validate(workflow.id, { workflow });
       setValidation(response.validation);
       if (response.workflow) {
         loadWorkflow(response.workflow, response.validation);
@@ -2149,7 +2149,7 @@ export function App() {
         type: "evaluate.draft",
         workflowId: workflow.id
       });
-      const response = await openClawApi.evaluateDraft(
+      const response = await kelpClawApi.evaluateDraft(
         workflow.id,
         {
           workflow,
@@ -2176,7 +2176,7 @@ export function App() {
       if (!plannerFeedback) {
         return;
       }
-      const response = await openClawApi.decideSuggestion(
+      const response = await kelpClawApi.decideSuggestion(
         workflow.id,
         plannerFeedback.id,
         suggestionId,
@@ -2200,13 +2200,13 @@ export function App() {
 
     void executeApiAction("reprompt", async () => {
       const response = activeBranchId
-        ? await openClawApi.repromptBranchNode(workflow.id, activeBranchId, {
+        ? await kelpClawApi.repromptBranchNode(workflow.id, activeBranchId, {
             nodeId: selectedNode.id,
             prompt: nodePrompt,
             currentWorkflow: workflow,
             actor: "owner@example.com"
           })
-        : await openClawApi.repromptNode(workflow.id, {
+        : await kelpClawApi.repromptNode(workflow.id, {
             nodeId: selectedNode.id,
             prompt: nodePrompt,
             currentWorkflow: workflow
@@ -2215,7 +2215,7 @@ export function App() {
       setApprovalDiff(response.diff);
       if ("branch" in response) {
         const branchResponse = response as Awaited<
-          ReturnType<typeof openClawApi.repromptBranchNode>
+          ReturnType<typeof kelpClawApi.repromptBranchNode>
         >;
         setPromptTurns((previous) => [...previous, branchResponse.promptTurn]);
         await refreshBranches(branchResponse.workflow.id, branchResponse.branch.id);
@@ -2235,7 +2235,7 @@ export function App() {
     }
 
     void executeApiAction("review-codegen", async () => {
-      const response = await openClawApi.reviewCodegen(workflow.id, selectedNode.id, {
+      const response = await kelpClawApi.reviewCodegen(workflow.id, selectedNode.id, {
         status: "approved",
         reviewedBy: "owner@example.com",
         ...(activeBranchId ? { branchId: activeBranchId } : {})
@@ -2258,7 +2258,7 @@ export function App() {
     }
 
     void executeApiAction("promote-codegen", async () => {
-      const response = await openClawApi.promoteCodegen(workflow.id, selectedNode.id);
+      const response = await kelpClawApi.promoteCodegen(workflow.id, selectedNode.id);
       setPromotionNotice(`Promoted ${response.skill.name}`);
     });
   }
@@ -2278,7 +2278,7 @@ export function App() {
         workflowId: workflow.id,
         nodeId: selectedNode.id
       });
-      const response = await openClawApi.buildCodegen(
+      const response = await kelpClawApi.buildCodegen(
         workflow.id,
         selectedNode.id,
         {
@@ -2307,7 +2307,7 @@ export function App() {
       return;
     }
     void executeApiAction("approve", async () => {
-      const response = await openClawApi.approve(workflow.id, {
+      const response = await kelpClawApi.approve(workflow.id, {
         workflow,
         approvedBy: "owner@example.com",
         ...(activeBranchId ? { branchId: activeBranchId } : {})
@@ -2326,11 +2326,11 @@ export function App() {
     }
     void executeApiAction("accept-plan", async () => {
       const response = activeBranchId
-        ? await openClawApi.acceptBranchPlan(workflow.id, activeBranchId, {
+        ? await kelpClawApi.acceptBranchPlan(workflow.id, activeBranchId, {
             workflow,
             acceptedBy: "owner@example.com"
           })
-        : await openClawApi.acceptPlan(workflow.id, {
+        : await kelpClawApi.acceptPlan(workflow.id, {
             workflow,
             acceptedBy: "owner@example.com"
           });
@@ -2365,7 +2365,7 @@ export function App() {
         workflowId: workflow.id,
         revisionId: approvedRevision.id
       });
-      const response = await openClawApi.startRun(
+      const response = await kelpClawApi.startRun(
         workflow.id,
         {
           approvedRevisionId: approvedRevision.id,
@@ -2375,7 +2375,7 @@ export function App() {
         job.id
       );
       setRun(response.run);
-      const fetched = await openClawApi.fetchRun(workflow.id, response.run.id);
+      const fetched = await kelpClawApi.fetchRun(workflow.id, response.run.id);
       setRun(fetched.run);
       await refreshRuntimeStatus(workflow.id, activeBranchId);
     });
@@ -2396,7 +2396,7 @@ export function App() {
         workflowId: workflow.id,
         revisionId: approvedRevision.id
       });
-      const response = await openClawApi.deployWorkflow(
+      const response = await kelpClawApi.deployWorkflow(
         workflow.id,
         {
           approvedRevisionId: approvedRevision.id,
@@ -2405,12 +2405,12 @@ export function App() {
           rollbackPlan: `Rollback to ${approvedRevision.id}.`,
           ...(activeBranchId ? { branchId: activeBranchId } : {}),
           metadata: {
-            source: "openclaw"
+            source: "kelpclaw"
           }
         },
         job.id
       );
-      const active = await openClawApi.fetchActiveDeployments(workflow.id);
+      const active = await kelpClawApi.fetchActiveDeployments(workflow.id);
       setDeploymentNotice(`Deployment ${response.deployment.status}: ${response.deployment.kind}`);
       setDeploymentActivations(active);
       await refreshRuntimeStatus(workflow.id, activeBranchId);
@@ -2424,7 +2424,7 @@ export function App() {
     }
 
     void executeApiAction("export-decision-traces", async () => {
-      const response = await openClawApi.exportDecisionTraces(workflow.id);
+      const response = await kelpClawApi.exportDecisionTraces(workflow.id);
       setDecisionTraceExportNotice(
         `Decision trace export ${response.export.id}: ${response.export.lineCount} JSONL line(s).`
       );
@@ -2438,7 +2438,7 @@ export function App() {
     }
 
     void executeApiAction("export-audit", async () => {
-      const response = await openClawApi.exportAudit(workflow.id);
+      const response = await kelpClawApi.exportAudit(workflow.id);
       setAuditExportNotice(
         `Audit export ${response.export.id}: ${response.export.lineCount} JSONL line(s).`
       );
@@ -2452,7 +2452,7 @@ export function App() {
     }
 
     void executeApiAction("undeploy", async () => {
-      const response = await openClawApi.undeployDeployment(workflow.id, activeRunnerDeployment.id);
+      const response = await kelpClawApi.undeployDeployment(workflow.id, activeRunnerDeployment.id);
       setDeploymentActivations(response.active);
       setDeploymentNotice(`Deployment ${response.deployment.status}: ${response.deployment.kind}`);
       await refreshRuntimeStatus(workflow.id, activeBranchId);
@@ -2466,7 +2466,7 @@ export function App() {
     }
 
     void executeApiAction("rollback", async () => {
-      const response = await openClawApi.rollbackDeployment(workflow.id, activeRunnerDeployment.id);
+      const response = await kelpClawApi.rollbackDeployment(workflow.id, activeRunnerDeployment.id);
       setDeploymentActivations(response.active);
       setDeploymentNotice(
         `Rollback target ${response.rollbackTarget.deploymentId}: ${response.deployment.status}`
@@ -2482,7 +2482,7 @@ export function App() {
     }
 
     void executeApiAction("connector-import", async () => {
-      const response = await openClawApi.importOpenApiConnector({
+      const response = await kelpClawApi.importOpenApiConnector({
         name: input.name.trim() || undefined,
         sourceUrl: input.sourceUrl.trim()
       });
@@ -2501,7 +2501,7 @@ export function App() {
     }
 
     void executeApiAction("connector-mcp", async () => {
-      const response = await openClawApi.registerMcpConnector({
+      const response = await kelpClawApi.registerMcpConnector({
         name: input.name.trim() || undefined,
         endpointUrl: input.endpointUrl.trim()
       });
@@ -2515,7 +2515,7 @@ export function App() {
 
   function testConnector(connectorId: string) {
     void executeApiAction("connector-test", async () => {
-      const response = await openClawApi.testConnector(connectorId);
+      const response = await kelpClawApi.testConnector(connectorId);
       setConnectors((current) =>
         current.map((connector) =>
           connector.id === response.connector.id ? response.connector : connector
@@ -2527,7 +2527,7 @@ export function App() {
 
   function deleteConnector(connectorId: string) {
     void executeApiAction("connector-delete", async () => {
-      await openClawApi.deleteConnector(connectorId);
+      await kelpClawApi.deleteConnector(connectorId);
       setConnectors((current) => current.filter((connector) => connector.id !== connectorId));
       await refreshRuntimeStatus(workflow.id, activeBranchId);
     });
@@ -2535,7 +2535,7 @@ export function App() {
 
   function runRouterEvals() {
     void executeApiAction("router-evals", async () => {
-      const response = await openClawApi.runRouterEvals();
+      const response = await kelpClawApi.runRouterEvals();
       setRouterEvalRun(response.run);
       setRouterEvalCases(
         response.run.results.map((result) => ({
@@ -2600,7 +2600,7 @@ export function App() {
 
   function replayRun(runId: string) {
     void executeApiAction("run-replay", async () => {
-      const response = await openClawApi.replayRun(workflow.id, runId);
+      const response = await kelpClawApi.replayRun(workflow.id, runId);
       setRun(response.run);
       await refreshRuntimeStatus(workflow.id, activeBranchId);
     });
@@ -2608,7 +2608,7 @@ export function App() {
 
   function pauseSchedule(scheduleId: string) {
     void executeApiAction("schedule-pause", async () => {
-      const response = await openClawApi.pauseSchedule(workflow.id, scheduleId);
+      const response = await kelpClawApi.pauseSchedule(workflow.id, scheduleId);
       setWorkflowSchedules((current) =>
         current.map((schedule) =>
           schedule.id === response.schedule.id ? response.schedule : schedule
@@ -2620,7 +2620,7 @@ export function App() {
 
   function resumeSchedule(scheduleId: string) {
     void executeApiAction("schedule-resume", async () => {
-      const response = await openClawApi.resumeSchedule(workflow.id, scheduleId);
+      const response = await kelpClawApi.resumeSchedule(workflow.id, scheduleId);
       setWorkflowSchedules((current) =>
         current.map((schedule) =>
           schedule.id === response.schedule.id ? response.schedule : schedule
@@ -2636,7 +2636,7 @@ export function App() {
     }
 
     void executeApiAction("cancel-job", async () => {
-      const response = await openClawApi.cancelJob(activeJob.id, "Stopped from OpenClaw.");
+      const response = await kelpClawApi.cancelJob(activeJob.id, "Stopped from KelpClaw.");
       setActiveJob(response.job);
     });
   }
@@ -3108,7 +3108,7 @@ export function App() {
       id: "integration-admin-token",
       group: "Integrations",
       label: "Set Admin Token",
-      detail: "Save the bearer token used for OpenClaw admin API calls.",
+      detail: "Save the bearer token used for KelpClaw admin API calls.",
       closeOnSelect: false,
       onSelect: () => openPalette({ kind: "admin-token", value: adminToken })
     },
@@ -3236,9 +3236,9 @@ export function App() {
         >
           <header className="canvas-header">
             <div className="workflow-header-card">
-              <img className="app-logo-mark" src="/app-logo.png" alt="OpenClaw logo" />
+              <img className="app-logo-mark" src="/app-logo.png" alt="KelpClaw logo" />
               <div>
-                <h1>OpenClaw</h1>
+                <h1>KelpClaw</h1>
                 <p className="topbar-workflow">Revision {workflow.revision}</p>
               </div>
             </div>

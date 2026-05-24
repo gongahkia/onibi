@@ -1,6 +1,6 @@
 # KelpClaw Quickstart
 
-This guide starts the local KelpClaw stack and walks through the runtime stages OpenClaw now shows explicitly.
+This guide starts the local KelpClaw stack and walks through the runtime stages KelpClaw now shows explicitly.
 
 For the fastest agent-skill governance demo, use the CLI path first:
 
@@ -63,13 +63,13 @@ KELPCLAW_OPENWEIGHT_MODEL=qwen2.5-coder
 $ docker compose up --build
 ```
 
-OpenClaw runs at `http://127.0.0.1:5173`. The API runs at `http://127.0.0.1:8787`.
+KelpClaw runs at `http://127.0.0.1:5173`. The API runs at `http://127.0.0.1:8787`.
 
 The Docker preflight blocks startup before the API server runs if the admin token, secret master key, selected provider key, Docker socket, or workspace mounts are invalid. Fix `.env`, then run Compose again.
 
 ## 3. First Deployed Workflow
 
-1. Open OpenClaw.
+1. Open KelpClaw.
 2. Press `Cmd+P` on macOS or `Ctrl+P` elsewhere.
 3. Run `Plan Workflow`, enter a prompt, and answer clarification questions if prompted.
 4. Edit the graph if needed.
@@ -81,15 +81,15 @@ The Docker preflight blocks startup before the API server runs if the admin toke
 
 `Run` stays disabled until there is an active `runner.configuration` deployment for the approved revision. Local deployment means KelpClaw has created local activation/config/artifact records; it does not provision cloud infrastructure.
 
-Runs are queued. The API returns a run record immediately, then the local worker executes the `run.workflow` job, writes events/checkpoints, and updates run history in OpenClaw.
+Runs are queued. The API returns a run record immediately, then the local worker executes the `run.workflow` job, writes events/checkpoints, and updates run history in KelpClaw.
 
 ## Connectors
 
-OpenClaw's connector panel can import an OpenAPI document or register a Streamable HTTP MCP endpoint. Imported operations appear as adapter-backed nodes you can add to the current draft. Connector records store allowed hosts and secret refs; tokens still go through encrypted `/api/secrets`.
+KelpClaw's connector panel can import an OpenAPI document or register a Streamable HTTP MCP endpoint. Imported operations appear as adapter-backed nodes you can add to the current draft. Connector records store allowed hosts and secret refs; tokens still go through encrypted `/api/secrets`.
 
 For OpenAPI OAuth flows in this version, create or refresh the token outside KelpClaw, store it as a secret, and reference that secret from the connector.
 
-Built-in live adapters are available for Google, SMTP email, WhatsApp, Telegram, GitHub, Slack, Discord, Notion, Linear, Jira Cloud, Airtable, generic webhooks, and databases. Store their credentials in OpenClaw's setup panel or through `PUT /api/secrets` using these default secret names:
+Built-in live adapters are available for Google, SMTP email, WhatsApp, Telegram, GitHub, Slack, Discord, Notion, Linear, Jira Cloud, Airtable, generic webhooks, and databases. Store their credentials in KelpClaw's setup panel or through `PUT /api/secrets` using these default secret names:
 
 - `google.oauth.default`
 - `email.smtp.default`
@@ -109,7 +109,7 @@ SQLite works without adding a package when the database secret is JSON like `{"e
 
 ## Runtime Truth
 
-OpenClaw distinguishes these stages:
+KelpClaw distinguishes these stages:
 
 - `Planned`: a draft graph exists.
 - `Accepted`: the user accepted the plan shape.
@@ -121,7 +121,7 @@ OpenClaw distinguishes these stages:
 
 ## Budgets And Providers
 
-OpenClaw reads provider status from `/api/runtime/providers` and budget state from `/api/workflows/:id/budget`. Live provider calls are hard-stopped before the next agent step when the projected cost would exceed the configured budget.
+KelpClaw reads provider status from `/api/runtime/providers` and budget state from `/api/workflows/:id/budget`. Live provider calls are hard-stopped before the next agent step when the projected cost would exceed the configured budget.
 
 Default budgets:
 
@@ -132,7 +132,7 @@ Default budgets:
 
 ## Agent Runtime Diagnostics
 
-OpenClaw's Agent Runtime panel shows the deterministic router decision, classifier confidence, route scores, scoped memory records, router eval status, and runtime policy/memory trace events.
+KelpClaw's Agent Runtime panel shows the deterministic router decision, classifier confidence, route scores, scoped memory records, router eval status, and runtime policy/memory trace events.
 
 Useful API checks:
 

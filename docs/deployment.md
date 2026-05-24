@@ -2,7 +2,7 @@
 
 ## Local Production Mode
 
-KelpClaw Phase 8 is aimed at a single-host deployment: Fastify API, SQLite workflow/audit/secrets storage, local artifact storage, OpenClaw, live adapters, and Docker-backed custom/codegen execution.
+KelpClaw Phase 8 is aimed at a single-host deployment: Fastify API, SQLite workflow/audit/secrets storage, local artifact storage, KelpClaw, live adapters, and Docker-backed custom/codegen execution.
 
 ```console
 $ corepack enable
@@ -12,7 +12,7 @@ $ cp .env.example .env
 
 Edit `.env` before starting the API:
 
-- `KELPCLAW_ADMIN_TOKEN`: required Bearer token for OpenClaw and API calls.
+- `KELPCLAW_ADMIN_TOKEN`: required Bearer token for KelpClaw and API calls.
 - `KELPCLAW_SECRET_MASTER_KEY`: required AES-256-GCM master key for encrypted local secrets.
 - `KELPCLAW_PUBLIC_BASE_URL`: externally reachable API base URL for OAuth callbacks.
 - `KELPCLAW_PLANNER_PROVIDER`: `anthropic`, `openai`, or `openweight` for live planning/codegen during planning.
@@ -46,19 +46,19 @@ $ pnpm --filter @kelpclaw/api build
 $ pnpm --filter @kelpclaw/api start
 ```
 
-Start OpenClaw in another shell:
+Start KelpClaw in another shell:
 
 ```console
-$ OPENCLAW_API_TARGET=http://127.0.0.1:8787 \
-  VITE_OPENCLAW_ADMIN_TOKEN="$KELPCLAW_ADMIN_TOKEN" \
-  pnpm --filter @kelpclaw/openclaw dev
+$ KELPCLAW_API_TARGET=http://127.0.0.1:8787 \
+  VITE_KELPCLAW_ADMIN_TOKEN="$KELPCLAW_ADMIN_TOKEN" \
+  pnpm --filter @kelpclaw/kelpclaw dev
 ```
 
-OpenClaw stores the admin token in local browser storage and sends `Authorization: Bearer <token>` on API calls.
+KelpClaw stores the admin token in local browser storage and sends `Authorization: Bearer <token>` on API calls.
 
 ## Secrets
 
-Production workflows use `secret:<name>` refs. Raw provider tokens must be inserted through the API or OpenClaw integration panel; list responses return metadata only.
+Production workflows use `secret:<name>` refs. Raw provider tokens must be inserted through the API or KelpClaw integration panel; list responses return metadata only.
 
 ```console
 $ curl -H "Authorization: Bearer $KELPCLAW_ADMIN_TOKEN" \
@@ -92,11 +92,11 @@ $ cp .env.example .env
 $ docker compose up --build
 ```
 
-OpenClaw: `http://127.0.0.1:5173`
+KelpClaw: `http://127.0.0.1:5173`
 
 API health: `http://127.0.0.1:8787/health`
 
-The named `kelpclaw-data` volume stores SQLite data and artifacts. The `kelpclaw-workspaces` volume is mounted at `/workspace` for Docker-backed node execution. The API and OpenClaw services are fully wrapped by Compose; the mounted Docker socket is only for NanoClaw's nested Docker-per-node sandbox.
+The named `kelpclaw-data` volume stores SQLite data and artifacts. The `kelpclaw-workspaces` volume is mounted at `/workspace` for Docker-backed node execution. The API and KelpClaw services are fully wrapped by Compose; the mounted Docker socket is only for NanoClaw's nested Docker-per-node sandbox.
 
 Both containers run a fast preflight before starting the servers. It blocks startup when required admin tokens, provider keys, secret encryption keys, Docker socket access, or writable mounted directories are missing. Set `KELPCLAW_PREFLIGHT=0` only for local debugging when you intentionally want to bypass those startup checks.
 
@@ -138,9 +138,9 @@ $ KELPCLAW_PLANNER_PROVIDER=openweight \
 
 ## Runtime Truth, Budgets, And Runs
 
-OpenClaw and the API expose the authoritative lifecycle through `GET /api/workflows/:id/runtime-truth`. The visible stages are `planned`, `accepted`, `generated`, `evaluated`, `approved`, `deployed`, and `runnable`.
+KelpClaw and the API expose the authoritative lifecycle through `GET /api/workflows/:id/runtime-truth`. The visible stages are `planned`, `accepted`, `generated`, `evaluated`, `approved`, `deployed`, and `runnable`.
 
-Production runs require an active `runner.configuration` deployment for the approved revision. Creating a `workflow.bundle` export is useful for inspection and rollback artifacts, but it is not enough to run production traffic. `POST /api/workflows/:id/runs` now creates a queued `run.workflow` job and returns immediately. The local API worker executes that job, writes run events, and persists per-node checkpoints so a restarted API can mark interrupted runs resumable and reuse completed checkpoints when node input hashes still match. OpenClaw's primary `Deploy` action creates a runner configuration; the deployment panel can also export a bundle, undeploy the active runner, rollback to the recorded target, and export redacted audit JSONL.
+Production runs require an active `runner.configuration` deployment for the approved revision. Creating a `workflow.bundle` export is useful for inspection and rollback artifacts, but it is not enough to run production traffic. `POST /api/workflows/:id/runs` now creates a queued `run.workflow` job and returns immediately. The local API worker executes that job, writes run events, and persists per-node checkpoints so a restarted API can mark interrupted runs resumable and reuse completed checkpoints when node input hashes still match. KelpClaw's primary `Deploy` action creates a runner configuration; the deployment panel can also export a bundle, undeploy the active runner, rollback to the recorded target, and export redacted audit JSONL.
 
 Run history and replay are available through:
 
@@ -185,7 +185,7 @@ $ curl -X POST http://127.0.0.1:8787/api/connectors/mcp \
   -d '{"name":"Internal Tools","endpointUrl":"https://tools.example.com/mcp"}'
 ```
 
-OpenClaw's connector panel can import/register connectors, test them, inspect allowed hosts and auth readiness, and add connector operations to the current draft workflow as adapter-backed nodes.
+KelpClaw's connector panel can import/register connectors, test them, inspect allowed hosts and auth readiness, and add connector operations to the current draft workflow as adapter-backed nodes.
 
 ## Schedules And Ops Health
 

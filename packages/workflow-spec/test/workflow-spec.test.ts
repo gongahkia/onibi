@@ -622,7 +622,7 @@ describe("enterprise observability contracts", () => {
 });
 
 describe("workflow graph helpers", () => {
-  it("creates valid default nodes and edges for OpenClaw editing", () => {
+  it("creates valid default nodes and edges for KelpClaw editing", () => {
     const trigger = createWorkflowNode({
       id: "manual-trigger",
       kind: "trigger"

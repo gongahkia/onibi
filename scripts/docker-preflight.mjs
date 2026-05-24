@@ -6,8 +6,8 @@ import { dirname } from "node:path";
 
 const [, , service, separator, ...command] = process.argv;
 
-if (!["api", "openclaw"].includes(service) || separator !== "--" || command.length === 0) {
-  console.error("Usage: docker-preflight.mjs <api|openclaw> -- <command...>");
+if (!["api", "kelpclaw"].includes(service) || separator !== "--" || command.length === 0) {
+  console.error("Usage: docker-preflight.mjs <api|kelpclaw> -- <command...>");
   process.exit(64);
 }
 
@@ -20,7 +20,7 @@ if (process.env.KELPCLAW_PREFLIGHT === "0") {
   if (service === "api") {
     await validateApi(errors, warnings);
   } else {
-    validateOpenClaw(errors);
+    validateKelpClaw(errors);
   }
 
   if (warnings.length > 0) {
@@ -45,7 +45,7 @@ if (process.env.KELPCLAW_PREFLIGHT === "0") {
 async function validateApi(errors, warnings) {
   requireSecret(errors, "KELPCLAW_ADMIN_TOKEN", {
     placeholder: "change-me-admin-token",
-    reason: "OpenClaw and API calls require a Bearer token."
+    reason: "KelpClaw and API calls require a Bearer token."
   });
 
   const secretStore = stringValue("KELPCLAW_SECRET_STORE", "sqlite");
@@ -122,17 +122,17 @@ async function validateApi(errors, warnings) {
   }
 }
 
-function validateOpenClaw(errors) {
-  requireUrl(errors, "OPENCLAW_API_TARGET", true);
-  requireSecret(errors, "VITE_OPENCLAW_ADMIN_TOKEN", {
+function validateKelpClaw(errors) {
+  requireUrl(errors, "KELPCLAW_API_TARGET", true);
+  requireSecret(errors, "VITE_KELPCLAW_ADMIN_TOKEN", {
     placeholder: "change-me-admin-token",
     reason: "the browser client must send the same Bearer token expected by the API."
   });
 
   const apiToken = optionalString("KELPCLAW_ADMIN_TOKEN");
-  const uiToken = optionalString("VITE_OPENCLAW_ADMIN_TOKEN");
+  const uiToken = optionalString("VITE_KELPCLAW_ADMIN_TOKEN");
   if (apiToken && uiToken && apiToken !== uiToken) {
-    errors.push("KELPCLAW_ADMIN_TOKEN and VITE_OPENCLAW_ADMIN_TOKEN must match.");
+    errors.push("KELPCLAW_ADMIN_TOKEN and VITE_KELPCLAW_ADMIN_TOKEN must match.");
   }
 }
 
