@@ -112,6 +112,8 @@ interface PolicyDecisionRecord {
 interface AgentRunRecord {
   readonly agent: string;
   readonly command: readonly string[];
+  readonly hookCommand: string;
+  readonly hookEventsPath: string;
   readonly workspaceDir: string;
   readonly artifactsDir: string;
   readonly stdoutPath: string;
@@ -120,11 +122,32 @@ interface AgentRunRecord {
   readonly exitCode: number;
   readonly stdout: string;
   readonly stderr: string;
+  readonly hookEvents: readonly LocalHookEvent[];
+  readonly enforcement: LiveRunEnforcement;
   readonly observedSteps: readonly PlannedToolStep[];
   readonly generatedArtifacts: readonly string[];
   readonly workspaceFiles: readonly string[];
   readonly startedAt: string;
   readonly finishedAt: string;
+}
+
+interface LocalHookEvent {
+  readonly id: string;
+  readonly hookEvent: string;
+  readonly toolName: string;
+  readonly args: JsonRecord;
+  readonly result?: JsonValue | undefined;
+  readonly decision: PolicyDecision;
+  readonly status: "allowed" | "denied" | "approval-required";
+  readonly recordedAt: string;
+}
+
+interface LiveRunEnforcement {
+  readonly enabled: boolean;
+  readonly plannedBlocked: boolean;
+  readonly hookBlocked: boolean;
+  readonly observedBlocked: boolean;
+  readonly source: "planned-policy" | "hook-pretool" | "observed-policy" | "none";
 }
 
 interface SkillRunInternalResult extends SkillRunOutput {
@@ -196,6 +219,7 @@ async function runSkillInternal(args: readonly string[]): Promise<SkillRunIntern
   const analysis = await analyzeSkillReference(skillRef, policyPack.ruleset);
   const compatibility = compatibilityFromAnalysis(analysis, policyPack.ruleset);
   const plannedDecisions = evaluatePlannedSteps(analysis, policyPack.ruleset);
+  const enforcePolicy = hasFlag(args, "--enforce-policy") || agent !== undefined;
   const plannedBlocked =
     !compatibility.runnable || plannedDecisions.some((record) => record.decision.action === "deny");
   const createdAt = new Date().toISOString();
@@ -210,14 +234,24 @@ async function runSkillInternal(args: readonly string[]): Promise<SkillRunIntern
       agent,
       analysis,
       input,
-      runDir
+      runDir,
+      policyPackName: policyPack.name,
+      ruleset: policyPack.ruleset,
+      enforcePolicy
     });
     observedDecisions = evaluatePlannedSteps(
       { ...analysis, plannedSteps: agentRun.observedSteps },
       policyPack.ruleset
     );
-    const observedBlocked = observedDecisions.some((record) => record.decision.action === "deny");
-    status = observedBlocked ? "blocked" : agentRun.exitCode === 0 ? "succeeded" : "failed";
+    const observedBlocked = observedDecisions.some(
+      (record) => record.decision.action === "deny" || record.decision.action === "require-approval"
+    );
+    status =
+      agentRun.enforcement.hookBlocked || observedBlocked
+        ? "blocked"
+        : agentRun.exitCode === 0
+          ? "succeeded"
+          : "failed";
     await writeJson(join(runDir, "agent-run.json"), agentRun);
     await writeFile(join(runDir, "stdout.log"), agentRun.stdout, "utf8");
     await writeFile(join(runDir, "stderr.log"), agentRun.stderr, "utf8");
@@ -435,28 +469,61 @@ async function runLiveAgent(input: {
   readonly analysis: SkillAnalysis;
   readonly input: JsonRecord;
   readonly runDir: string;
+  readonly policyPackName: string;
+  readonly ruleset: PolicyRuleSet;
+  readonly enforcePolicy: boolean;
 }): Promise<AgentRunRecord> {
   const workspaceDir = join(input.runDir, "workspace");
   const artifactsDir = join(workspaceDir, "artifacts");
+  const hookDir = join(input.runDir, "hooks");
+  const hookEventsPath = join(input.runDir, "hook-events.jsonl");
+  const hookScriptPath = join(hookDir, "kelpclaw-skill-hook.mjs");
   const stdoutPath = join(input.runDir, "stdout.log");
   const stderrPath = join(input.runDir, "stderr.log");
   const lastMessagePath = join(input.runDir, "last-message.md");
   const promptPath = join(workspaceDir, "prompt.md");
   await mkdir(artifactsDir, { recursive: true });
+  await mkdir(hookDir, { recursive: true });
   await writeFile(join(workspaceDir, "SKILL.md"), input.analysis.document.content, "utf8");
   await writeJson(join(workspaceDir, "input.json"), input.input);
-  const prompt = liveAgentPrompt(input.analysis, input.input, artifactsDir);
+  await writeFile(hookScriptPath, localHookScript(), "utf8");
+  const hookCommand = `${process.execPath} ${JSON.stringify(hookScriptPath)}`;
+  const prompt = liveAgentPrompt(input.analysis, input.input, artifactsDir, hookCommand);
   await writeFile(promptPath, prompt, "utf8");
   const command = liveAgentCommand(input.args, input.agent, workspaceDir, lastMessagePath);
   const startedAt = new Date().toISOString();
-  const result = await runCommand(command, prompt, workspaceDir);
+  const result = await runCommand(command, prompt, workspaceDir, {
+    KELPCLAW_SKILL_HOOK_COMMAND: hookCommand,
+    KELPCLAW_SKILL_HOOK_EVENTS: hookEventsPath,
+    KELPCLAW_SKILL_HOOK_POLICY: stableJsonStringify(input.ruleset as unknown as JsonValue),
+    KELPCLAW_SKILL_HOOK_ENFORCE: input.enforcePolicy ? "1" : "0",
+    KELPCLAW_SKILL_HOOK_POLICY_PACK: input.policyPackName,
+    KELPCLAW_SKILL_ID: input.analysis.name,
+    KELPCLAW_SKILL_TAGS: input.analysis.tags.join(",")
+  });
   const finishedAt = new Date().toISOString();
-  const observedSteps = parseObservedToolSteps(result.stdout, result.stderr);
+  const hookEvents = await readHookEvents(hookEventsPath);
+  const observedSteps =
+    hookEvents.length > 0 ? plannedStepsFromHookEvents(hookEvents) : parseObservedToolSteps(result.stdout, result.stderr);
   const generatedArtifacts = await listFilesIfPresent(artifactsDir);
   const workspaceFiles = await listFilesIfPresent(workspaceDir);
+  const hookBlocked = hookEvents.some(
+    (event) =>
+      event.hookEvent === "PreToolUse" &&
+      (event.status === "denied" || event.status === "approval-required")
+  );
+  const observedDecisions = evaluatePlannedSteps(
+    { ...input.analysis, plannedSteps: observedSteps },
+    input.ruleset
+  );
+  const observedBlocked = observedDecisions.some(
+    (record) => record.decision.action === "deny" || record.decision.action === "require-approval"
+  );
   return {
     agent: input.agent,
     command,
+    hookCommand,
+    hookEventsPath,
     workspaceDir,
     artifactsDir,
     stdoutPath,
@@ -465,6 +532,14 @@ async function runLiveAgent(input: {
     exitCode: result.exitCode,
     stdout: result.stdout,
     stderr: result.stderr,
+    hookEvents,
+    enforcement: {
+      enabled: input.enforcePolicy,
+      plannedBlocked: false,
+      hookBlocked,
+      observedBlocked,
+      source: hookBlocked ? "hook-pretool" : observedBlocked ? "observed-policy" : "none"
+    },
     observedSteps,
     generatedArtifacts,
     workspaceFiles: workspaceFiles.filter(
@@ -510,7 +585,12 @@ function liveAgentCommand(
   ];
 }
 
-function liveAgentPrompt(analysis: SkillAnalysis, input: JsonRecord, artifactsDir: string): string {
+function liveAgentPrompt(
+  analysis: SkillAnalysis,
+  input: JsonRecord,
+  artifactsDir: string,
+  hookCommand: string
+): string {
   return `You are running a KelpClaw SKILL.md in a temporary workspace.
 
 Rules:
@@ -518,6 +598,9 @@ Rules:
 - Treat SKILL.md as the authoritative skill instructions.
 - Read input.json for the invocation input.
 - Write generated files under ${artifactsDir}.
+- Before each tool action, pipe a JSON object to this hook command and do not execute the action if it exits nonzero:
+  ${hookCommand}
+- After each tool action, pipe a PostToolUse JSON object to the same hook command.
 - Print or return a concise final result.
 
 ## Skill Reference
@@ -534,7 +617,8 @@ ${stableJsonStringify(input)}
 async function runCommand(
   command: readonly string[],
   stdin: string,
-  cwd: string
+  cwd: string,
+  extraEnv: Readonly<Record<string, string>> = {}
 ): Promise<{ readonly exitCode: number; readonly stdout: string; readonly stderr: string }> {
   const [executable, ...args] = command;
   if (!executable) {
@@ -545,7 +629,8 @@ async function runCommand(
       cwd,
       env: {
         ...process.env,
-        KELPCLAW_SKILL_WORKSPACE: cwd
+        KELPCLAW_SKILL_WORKSPACE: cwd,
+        ...extraEnv
       },
       stdio: ["pipe", "pipe", "pipe"]
     });
