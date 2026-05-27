@@ -1,17 +1,5 @@
 use anyhow::{Context, Result};
 use qrcodegen::{QrCode, QrCodeEcc};
-use serde_json::json;
-
-pub fn pairing_payload(port: u16, token: &str) -> String {
-    json!({
-        "host": "127.0.0.1",
-        "port": port,
-        "token": token,
-        "cert_fingerprint": null,
-        "transports": ["loopback"]
-    })
-    .to_string()
-}
 
 pub fn qr_png(payload: &str) -> Result<Vec<u8>> {
     let qr = QrCode::encode_text(payload, QrCodeEcc::Medium).context("encode QR payload")?;

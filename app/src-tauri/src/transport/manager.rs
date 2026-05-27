@@ -38,7 +38,7 @@ impl TransportManager {
             vec![
                 Arc::new(TailscaleFunnel::default()),
                 Arc::new(CloudflareTunnel::default()),
-                Arc::new(LanTransport::default()),
+                Arc::new(LanTransport),
             ],
         )
     }
