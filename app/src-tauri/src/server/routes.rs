@@ -4,9 +4,10 @@ use crate::{
     approval::store::now_millis,
     protocol::{
         ApiError, Approval, ApprovalDecisionBody, ApprovalDecisionResponse, ApprovalRequestBody,
-        Decision, PairRequest, PairResponse, PtyOutputBody, RunEventBody, ServerMessage,
+        Decision, PairRequest, PairResponse, PtyOutputBody, RunEvent, RunEventBody, ServerMessage,
         PROTOCOL_VERSION,
     },
+    push,
     transport::{lan, TransportSnapshot},
 };
 use anyhow::Result;
@@ -109,6 +110,14 @@ pub async fn run_event(
     Ok(Json(
         json!({"ok": true, "protocol_version": PROTOCOL_VERSION}),
     ))
+}
+
+pub async fn run_recent(State(state): State<AppState>) -> ApiResult<Vec<RunEvent>> {
+    state
+        .store
+        .list_recent_run_events(50)
+        .map(Json)
+        .map_err(internal_error)
 }
 
 pub async fn pty_output(
@@ -255,6 +264,11 @@ pub async fn wait_for_approval_decision(
     state.store.insert_approval(&approval)?;
     let rx = state.pending.insert(approval_id.clone()).await;
     state.broadcast(ServerMessage::from(&approval));
+    tokio::spawn(push::fanout_approval_pending(
+        state.store.clone(),
+        state.vapid.clone(),
+        approval.clone(),
+    ));
 
     match time::timeout(state.approval_timeout, rx).await {
         Ok(Ok(response)) => Ok(response),

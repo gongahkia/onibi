@@ -1,4 +1,4 @@
-use crate::protocol::{Approval, ApprovalDecisionBody, Decision, PROTOCOL_VERSION};
+use crate::protocol::{Approval, ApprovalDecisionBody, Decision, RunEvent, PROTOCOL_VERSION};
 use anyhow::{Context, Result};
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
@@ -220,6 +220,33 @@ impl ApprovalStore {
         Ok(())
     }
 
+    pub fn list_recent_run_events(&self, limit: usize) -> Result<Vec<RunEvent>> {
+        let conn = self.pool.get().context("open sqlite connection")?;
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id, machine_id, session_id, kind, payload, ts
+            FROM run_events
+            ORDER BY ts DESC
+            LIMIT ?
+            "#,
+        )?;
+        let mut rows = stmt.query([limit.min(200) as i64])?;
+        let mut events = Vec::new();
+        while let Some(row) = rows.next()? {
+            let payload: String = row.get(4)?;
+            events.push(RunEvent {
+                id: row.get(0)?,
+                protocol_version: PROTOCOL_VERSION.to_string(),
+                machine_id: row.get(1)?,
+                session_id: row.get(2)?,
+                kind: row.get(3)?,
+                payload: serde_json::from_str(&payload).context("parse run event payload")?,
+                ts: row.get(5)?,
+            });
+        }
+        Ok(events)
+    }
+
     pub fn insert_device(
         &self,
         device_id: &str,
@@ -249,6 +276,25 @@ impl ApprovalStore {
         )
         .context("insert device")?;
         Ok(())
+    }
+
+    pub fn list_push_subscriptions(&self) -> Result<Vec<Value>> {
+        let conn = self.pool.get().context("open sqlite connection")?;
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT push_subscription
+            FROM devices
+            WHERE push_subscription IS NOT NULL AND push_subscription != ''
+            "#,
+        )?;
+        let mut rows = stmt.query([])?;
+        let mut subscriptions = Vec::new();
+        while let Some(row) = rows.next()? {
+            let raw: String = row.get(0)?;
+            subscriptions
+                .push(serde_json::from_str(&raw).context("parse device push subscription")?);
+        }
+        Ok(subscriptions)
     }
 }
 
@@ -368,5 +414,37 @@ mod tests {
         let stored = restarted.get_approval("approval-1").unwrap().unwrap();
         assert_eq!(stored.decision, Some(Decision::Allow));
         assert_eq!(stored.decided_by.as_deref(), Some("desktop"));
+    }
+
+    #[test]
+    fn stores_recent_runs_and_push_subscriptions() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        store
+            .insert_run_event(
+                "machine",
+                "session",
+                "started",
+                &json!({"cwd": "/tmp/project"}),
+            )
+            .unwrap();
+        store
+            .insert_device(
+                "device",
+                "phone",
+                Some(&json!({
+                    "endpoint": "https://push.example/device",
+                    "keys": {"p256dh": "p256dh", "auth": "auth"}
+                })),
+            )
+            .unwrap();
+
+        let events = store.list_recent_run_events(10).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, "started");
+
+        let subscriptions = store.list_push_subscriptions().unwrap();
+        assert_eq!(subscriptions.len(), 1);
+        assert_eq!(subscriptions[0]["endpoint"], "https://push.example/device");
     }
 }

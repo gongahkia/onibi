@@ -36,7 +36,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 axum = { version = "0.7", features = ["ws"] }
 tower = { version = "0.5", features = ["util"] }
-tower-http = { version = "0.5", features = ["cors", "trace"] }
+tower-http = { version = "0.5", features = ["cors", "fs", "trace"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 r2d2 = "0.8"
 r2d2_sqlite = "0.24"
@@ -59,6 +59,8 @@ mdns-sd = "0.19"
 if-addrs = "0.13"
 sha2 = "0.10"
 hex = "0.4"
+web-push = "0.11"
+p256 = { version = "0.13", features = ["ecdsa", "pkcs8", "pem"] }
 
 [dev-dependencies]
 tempfile = "3"

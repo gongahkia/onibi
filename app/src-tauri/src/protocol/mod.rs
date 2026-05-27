@@ -111,6 +111,17 @@ pub struct RunEventBody {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RunEvent {
+    pub id: i64,
+    pub protocol_version: String,
+    pub machine_id: String,
+    pub session_id: String,
+    pub kind: String,
+    pub payload: Value,
+    pub ts: i64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PtyOutputBody {
     #[serde(default)]
     pub protocol_version: Option<String>,
