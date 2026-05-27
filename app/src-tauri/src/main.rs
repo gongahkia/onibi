@@ -5,6 +5,7 @@ mod adapters;
 mod approval;
 mod cli;
 mod protocol;
+mod push;
 mod secret;
 mod server;
 mod transport;

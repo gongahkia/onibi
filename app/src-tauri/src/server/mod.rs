@@ -1,12 +1,13 @@
 pub mod auth;
 pub mod pairing;
 pub mod routes;
+pub mod static_files;
 pub mod ws_hub;
 
 use crate::{
     approval::{pending::PendingApprovals, store::ApprovalStore},
     protocol::ServerMessage,
-    secret,
+    secret::{self, VapidKeys},
     transport::TransportManager,
 };
 use anyhow::{Context, Result};
@@ -37,6 +38,7 @@ pub struct AppState {
     pub hub: ws_hub::WsHub,
     pub machine_id: String,
     pub token: String,
+    pub vapid: VapidKeys,
     pub transports: TransportManager,
     pub approval_timeout: Duration,
     pty_ring: Arc<RwLock<HashMap<String, VecDeque<u8>>>>,
@@ -63,6 +65,7 @@ impl AppState {
             hub: ws_hub::WsHub::new(),
             machine_id: machine_id.clone(),
             token: token.clone(),
+            vapid: vapid.clone(),
             transports: TransportManager::new(
                 port,
                 machine_id.clone(),
@@ -83,6 +86,10 @@ impl AppState {
             hub: ws_hub::WsHub::new(),
             machine_id: "01H00000000000000000000000".to_string(),
             token: "test-token".to_string(),
+            vapid: VapidKeys {
+                public_key: "test-vapid".to_string(),
+                private_key: "test-vapid-private".to_string(),
+            },
             transports: TransportManager::new(
                 17893,
                 "01H00000000000000000000000".to_string(),
@@ -164,6 +171,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/pty/output", post(routes::pty_output))
         .route("/v1/pair", post(routes::pair))
         .route("/v1/qr", get(routes::qr))
+        .route("/v1/run/recent", get(routes::run_recent))
         .route("/v1/transport/status", get(routes::transport_status))
         .route("/v1/transport/:name/enable", post(routes::transport_enable))
         .route(
@@ -185,6 +193,7 @@ pub fn router(state: AppState) -> Router {
 
     Router::new()
         .route("/healthz", get(routes::healthz))
+        .nest_service("/m", static_files::mobile_service())
         .merge(authed)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())

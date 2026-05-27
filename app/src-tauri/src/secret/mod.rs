@@ -1,6 +1,11 @@
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use directories::BaseDirs;
+use p256::{
+    ecdsa::SigningKey,
+    elliptic_curve::rand_core::OsRng as EcOsRng,
+    pkcs8::{EncodePrivateKey, LineEnding},
+};
 use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -113,19 +118,40 @@ pub fn load_or_create_vapid_keys() -> Result<VapidKeys> {
             .with_context(|| format!("open {}", path.display()))?
             .read_to_string(&mut raw)
             .with_context(|| format!("read {}", path.display()))?;
-        return serde_json::from_str(&raw).with_context(|| format!("parse {}", path.display()));
+        let keys: VapidKeys =
+            serde_json::from_str(&raw).with_context(|| format!("parse {}", path.display()))?;
+        if valid_vapid_keys(&keys) {
+            return Ok(keys);
+        }
     }
 
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("create config directory {}", parent.display()))?;
     }
-    let keys = VapidKeys {
-        public_key: generate_token(),
-        private_key: generate_token(),
-    };
+    let keys = generate_vapid_keys()?;
     write_secret_file(&path, serde_json::to_string_pretty(&keys)?.as_bytes())?;
     Ok(keys)
+}
+
+fn generate_vapid_keys() -> Result<VapidKeys> {
+    let signing_key = SigningKey::random(&mut EcOsRng);
+    let public_key = signing_key.verifying_key().to_encoded_point(false);
+    let private_key = signing_key
+        .to_pkcs8_pem(LineEnding::LF)
+        .context("encode VAPID private key")?
+        .to_string();
+    Ok(VapidKeys {
+        public_key: URL_SAFE_NO_PAD.encode(public_key.as_bytes()),
+        private_key,
+    })
+}
+
+fn valid_vapid_keys(keys: &VapidKeys) -> bool {
+    let Ok(public_key) = URL_SAFE_NO_PAD.decode(&keys.public_key) else {
+        return false;
+    };
+    public_key.len() == 65 && keys.private_key.contains("BEGIN PRIVATE KEY")
 }
 
 pub fn generate_token() -> String {

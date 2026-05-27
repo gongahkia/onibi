@@ -7,10 +7,17 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
+      strategies: "injectManifest",
+      srcDir: "src",
+      filename: "sw.ts",
       manifest: {
         name: "Onibi Mobile",
         short_name: "Onibi",
         theme_color: "#0b0e14",
+        background_color: "#0b0e14",
+        display: "standalone",
+        scope: "/m/",
+        start_url: "/m/",
         icons: [
           {
             src: "/favicon.svg",
