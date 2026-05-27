@@ -183,68 +183,56 @@ pub async fn fs_read_ghostty_config() -> Result<Option<String>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use tempfile::{tempdir, TempDir};
 
-    fn temp_workspace() -> PathBuf {
-        let mut path = env::temp_dir();
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        path.push(format!("onibi-fs-test-{nonce}"));
-        fs::create_dir_all(&path).unwrap();
-        path
+    fn temp_workspace() -> TempDir {
+        tempdir().unwrap()
     }
 
     #[tokio::test]
     async fn list_dir_rejects_parent_escape() {
         let root = temp_workspace();
-        let outside = root.parent().unwrap().to_path_buf();
-        let result = fs_list_dir(root.clone(), outside).await;
+        let outside = tempdir().unwrap();
+        let result = fs_list_dir(root.path().to_path_buf(), outside.path().to_path_buf()).await;
         assert!(result.unwrap_err().contains("escapes workspace"));
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]
     async fn read_file_rejects_parent_escape() {
         let root = temp_workspace();
-        let outside = root.parent().unwrap().join("onibi-outside.txt");
+        let outside_dir = tempdir().unwrap();
+        let outside = outside_dir.path().join("onibi-outside.txt");
         fs::write(&outside, b"nope").unwrap();
-        let result = fs_read_file(root.clone(), outside.clone()).await;
+        let result = fs_read_file(root.path().to_path_buf(), outside.clone()).await;
         assert!(result.unwrap_err().contains("escapes workspace"));
-        fs::remove_file(outside).unwrap();
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]
     async fn write_file_rejects_symlink_escape() {
         let root = temp_workspace();
-        let outside = root.parent().unwrap().join("onibi-outside-write.txt");
-        let link = root.join("link.txt");
+        let outside_dir = tempdir().unwrap();
+        let outside = outside_dir.path().join("onibi-outside-write.txt");
+        let link = root.path().join("link.txt");
         fs::write(&outside, b"before").unwrap();
         #[cfg(unix)]
         std::os::unix::fs::symlink(&outside, &link).unwrap();
 
         #[cfg(unix)]
         {
-            let result = fs_write_file(root.clone(), link, b"after".to_vec()).await;
+            let result = fs_write_file(root.path().to_path_buf(), link, b"after".to_vec()).await;
             assert!(result.unwrap_err().contains("escapes workspace"));
             assert_eq!(fs::read(&outside).unwrap(), b"before");
         }
-
-        fs::remove_file(outside).unwrap();
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]
     async fn write_file_updates_existing_workspace_file() {
         let root = temp_workspace();
-        let file = root.join("note.txt");
+        let file = root.path().join("note.txt");
         fs::write(&file, b"before").unwrap();
-        fs_write_file(root.clone(), file.clone(), b"after".to_vec())
+        fs_write_file(root.path().to_path_buf(), file.clone(), b"after".to_vec())
             .await
             .unwrap();
         assert_eq!(fs::read(file).unwrap(), b"after");
-        fs::remove_dir_all(root).unwrap();
     }
 }
