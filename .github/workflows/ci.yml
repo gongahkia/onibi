@@ -1,209 +1,110 @@
-name: Onibi CI/CD and .DMG release on push
+name: CI
 
 on:
   push:
-    branches: [main, master]
   pull_request:
-    branches: [main, master]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-  build-and-test:
-    name: Build and Test
-    runs-on: macos-14
+  rust:
+    name: rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        xcode-version: ["15.0", "15.4"]
-
+        os: [macos-14, ubuntu-22.04]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - name: Install Linux Tauri dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: OnibiWeb/package-lock.json
-
-      - name: Install Web Dependencies
-        run: npm --prefix OnibiWeb ci
-
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
         with:
-          xcode-version: ${{ matrix.xcode-version }}
+          workspaces: app/src-tauri -> target
+      - name: cargo fmt
+        working-directory: app/src-tauri
+        run: cargo fmt --check
+      - name: cargo clippy
+        working-directory: app/src-tauri
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: cargo test
+        working-directory: app/src-tauri
+        run: cargo test --workspace
 
-      - name: Show Swift version
-        run: swift --version
-
-      - name: Install SwiftLint
-        run: brew install swiftlint
-
-      - name: Run SwiftLint
-        run: swiftlint lint --strict --reporter github-actions-logging
-
-      - name: Build Debug
-        run: swift build -c debug
-
-      - name: Run Tests
-        run: swift test
-
-      - name: Run Web Tests
-        run: npm --prefix OnibiWeb test
-
-      - name: Verify Bundled Web Assets Are Synced
-        run: ./scripts/check_web_assets_synced.sh
-
-      - name: Build Release
-        run: swift build -c release
-
-      - name: Upload Build Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Onibi-${{ matrix.xcode-version }}-${{ github.sha }}
-          path: .build/release/Onibi
-          retention-days: 7
-
-  release:
-    name: Create Release
-    runs-on: macos-14
-    needs: build-and-test
-    if: startsWith(github.ref, 'refs/tags/v')
-
+  app-frontend:
+    name: app frontend (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-22.04]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
         with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: OnibiWeb/package-lock.json
-
-      - name: Install Web Dependencies
-        run: npm --prefix OnibiWeb ci
-
-      - name: Verify Bundled Web Assets Are Synced
-        run: ./scripts/check_web_assets_synced.sh
-
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
+          version: 10.33.0
+      - uses: actions/setup-node@v4
         with:
-          xcode-version: "15.0"
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter onibi-app typecheck
+      - run: pnpm --filter onibi-app test
 
-      - name: Build Release
-        run: swift build -c release
-
-      - name: Create App Bundle
-        run: |
-          # Create app bundle structure
-          mkdir -p Onibi.app/Contents/MacOS
-          mkdir -p Onibi.app/Contents/Resources
-
-          # Copy executable
-          cp .build/release/Onibi Onibi.app/Contents/MacOS/
-
-          # Create Info.plist
-          cat > Onibi.app/Contents/Info.plist << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundleExecutable</key>
-              <string>Onibi</string>
-              <key>CFBundleIdentifier</key>
-              <string>com.onibi.app</string>
-              <key>CFBundleName</key>
-              <string>Onibi</string>
-              <key>CFBundlePackageType</key>
-              <string>APPL</string>
-              <key>CFBundleShortVersionString</key>
-              <string>1.0.0</string>
-              <key>CFBundleVersion</key>
-              <string>1</string>
-              <key>LSMinimumSystemVersion</key>
-              <string>14.0</string>
-              <key>LSUIElement</key>
-              <true/>
-              <key>NSHighResolutionCapable</key>
-              <true/>
-              <key>NSPrincipalClass</key>
-              <string>NSApplication</string>
-          </dict>
-          </plist>
-          EOF
-
-          # Copy icon if exists
-          if [ -f "asset/icon.icns" ]; then
-            cp asset/icon.icns Onibi.app/Contents/Resources/AppIcon.icns
-          fi
-
-      - name: Create DMG
-        run: |
-          mkdir -p dmg-contents
-          cp -R Onibi.app dmg-contents/
-          hdiutil create -volname "Onibi" -srcfolder dmg-contents -ov -format UDZO Onibi-unsigned.dmg
-
-      - name: Code Sign and Prepare DMG
-        env:
-          DEVELOPER_ID_CERTIFICATE: ${{ secrets.DEVELOPER_ID_CERTIFICATE }}
-          DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
-        run: |
-          if [ -n "$DEVELOPER_ID_CERTIFICATE" ]; then
-            echo "Signing DMG with Developer ID certificate..."
-            # Import Developer ID certificate
-            echo "$DEVELOPER_ID_CERTIFICATE" | base64 --decode > certificate.p12
-            security create-keychain -p actions build.keychain
-            security default-keychain -s build.keychain
-            security unlock-keychain -p actions build.keychain
-            security import certificate.p12 -k build.keychain -P "$DEVELOPER_ID_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-            security set-key-partition-list -S apple-tool:,apple: -s -k actions build.keychain
-            
-            # Sign the DMG for Gatekeeper compatibility
-            codesign --force --sign "Developer ID Application" --timestamp Onibi-unsigned.dmg
-            mv Onibi-unsigned.dmg Onibi.dmg
-            
-            # Verify signature
-            codesign --verify --verbose Onibi.dmg
-            
-            # Clean up
-            security delete-keychain build.keychain
-            rm certificate.p12
-          else
-            echo "No Developer ID certificate configured, using unsigned DMG..."
-            mv Onibi-unsigned.dmg Onibi.dmg
-          fi
-
-      - name: Notarize DMG
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          if [ -n "$APPLE_ID" ] && [ -n "$APPLE_ID_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
-            echo "Submitting DMG for notarization..."
-            xcrun notarytool submit Onibi.dmg \
-              --apple-id "$APPLE_ID" \
-              --password "$APPLE_ID_PASSWORD" \
-              --team-id "$APPLE_TEAM_ID" \
-              --wait
-            
-            # Staple the notarization ticket to the DMG
-            echo "Stapling notarization ticket..."
-            xcrun stapler staple Onibi.dmg
-            
-            # Verify stapling
-            echo "Verifying stapled notarization..."
-            xcrun stapler validate Onibi.dmg
-          else
-            echo "Notarization credentials not configured, skipping notarization..."
-          fi
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+  mobile:
+    name: mobile (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-22.04]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
         with:
-          files: Onibi.dmg
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter onibi-mobile typecheck
+      - run: pnpm --filter onibi-mobile test
+
+  tauri-build-smoke:
+    name: tauri build smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-22.04]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux Tauri dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri -> target
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter onibi-app tauri build --debug

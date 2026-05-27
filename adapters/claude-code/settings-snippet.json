@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:17893/v1/adapters/claude-code/hook",
+            "timeout": 600000,
+            "headers": {
+              "Authorization": "Bearer ${ONIBI_TOKEN}"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

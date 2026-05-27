@@ -1,0 +1,140 @@
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+
+export type ApprovalDecision = "allow" | "deny";
+
+export interface ApprovalPendingMessage {
+  type: "approval-pending";
+  protocol_version: string;
+  approval_id: string;
+  machine_id: string;
+  session_id: string;
+  agent: string;
+  tool: string;
+  input: unknown;
+  cwd: string;
+  metadata?: unknown;
+}
+
+export interface ApprovalResolvedMessage {
+  type: "approval-resolved";
+  protocol_version: string;
+  approval_id: string;
+  machine_id: string;
+  decision: ApprovalDecision;
+  by?: string | null;
+  reason?: string | null;
+}
+
+export type ApprovalRealtimeMessage =
+  | ApprovalPendingMessage
+  | ApprovalResolvedMessage
+  | { type: "run-event"; [key: string]: unknown }
+  | { type: "pty-output"; [key: string]: unknown }
+  | { type: "ping"; [key: string]: unknown };
+
+export interface ApprovalClientOptions {
+  port?: number;
+  token?: string;
+}
+
+export interface DecideApprovalOptions extends ApprovalClientOptions {
+  approvalId: string;
+  decision: ApprovalDecision;
+  updatedInput?: unknown;
+  reason?: string;
+}
+
+export function storedApprovalToken(): string | undefined {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+  return window.localStorage.getItem("onibi.token") ?? undefined;
+}
+
+export function storedApprovalPort(): number | undefined {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+  const raw = window.localStorage.getItem("onibi.port");
+  const port = raw ? Number.parseInt(raw, 10) : Number.NaN;
+  return Number.isFinite(port) ? port : undefined;
+}
+
+export async function decideApproval({
+  port = 17893,
+  token = storedApprovalToken(),
+  approvalId,
+  decision,
+  updatedInput,
+  reason,
+}: DecideApprovalOptions): Promise<void> {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  if (token) {
+    headers.authorization = `Bearer ${token}`;
+  }
+  const response = await fetch(`http://127.0.0.1:${port}/v1/approval/${approvalId}/decide`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      decision,
+      updatedInput,
+      reason,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`approval decision failed: HTTP ${response.status}`);
+  }
+}
+
+export async function subscribeApprovalEvents(
+  options: ApprovalClientOptions,
+  handler: (message: ApprovalRealtimeMessage) => void,
+): Promise<() => void> {
+  const disposers: Array<() => void> = [];
+  let disposed = false;
+
+  void listen<ApprovalRealtimeMessage>(
+    "approval:realtime",
+    (event) => handler(event.payload),
+  )
+    .then((unlisten: UnlistenFn) => {
+      if (disposed) {
+        unlisten();
+      } else {
+        disposers.push(unlisten);
+      }
+    })
+    .catch(() => {
+      // Outside Tauri, fall back to the local WebSocket path below.
+    });
+
+  const token = options.token ?? storedApprovalToken();
+  if (
+    token &&
+    typeof WebSocket !== "undefined" &&
+    typeof window !== "undefined" &&
+    window.location.protocol !== "about:"
+  ) {
+    const port = options.port ?? storedApprovalPort() ?? 17893;
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${port}/v1/realtime?token=${encodeURIComponent(token)}`,
+    );
+    socket.addEventListener("message", (event) => {
+      try {
+        handler(JSON.parse(event.data) as ApprovalRealtimeMessage);
+      } catch {
+        // Ignore malformed daemon messages. The Rust side keeps the source of truth.
+      }
+    });
+    disposers.push(() => socket.close());
+  }
+
+  return () => {
+    disposed = true;
+    for (const dispose of disposers) {
+      dispose();
+    }
+  };
+}
