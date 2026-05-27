@@ -12,24 +12,36 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use axum::{
+    body::Body,
+    extract::{ConnectInfo, DefaultBodyLimit},
+    http::{header, HeaderMap, HeaderValue, Request},
     middleware,
+    middleware::Next,
+    response::Response,
     routing::{get, post},
     Router,
 };
 use std::{
     collections::{HashMap, VecDeque},
+    convert::Infallible,
     fs::{self, OpenOptions},
     io::Write,
-    net::SocketAddr,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     path::Path,
     sync::Arc,
     time::Duration,
 };
 use tokio::{net::TcpListener, sync::RwLock};
+use tower_governor::{
+    errors::GovernorError, governor::GovernorConfigBuilder, key_extractor::KeyExtractor,
+    GovernorLayer,
+};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use ulid::Ulid;
 
 const DEFAULT_RING_LIMIT: usize = 5_000;
+const APPROVAL_BODY_LIMIT: usize = 1024 * 1024;
+const PTY_OUTPUT_BODY_LIMIT: usize = 5 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -163,15 +175,35 @@ fn write_token_file(path: &Path, token: &str) -> Result<()> {
 }
 
 pub fn router(state: AppState) -> Router {
+    let mut governor = GovernorConfigBuilder::default();
+    governor.per_millisecond(100).burst_size(10);
+    let approval_rate_limit = governor
+        .key_extractor(OnibiIpKeyExtractor)
+        .finish()
+        .expect("valid approval rate-limit config");
+    let approval_rate_limit = Arc::new(approval_rate_limit);
+
     let authed = Router::new()
-        .route("/v1/approval/request", post(routes::approval_request))
+        .route(
+            "/v1/approval/request",
+            post(routes::approval_request)
+                .layer::<_, Infallible>(DefaultBodyLimit::max(APPROVAL_BODY_LIMIT))
+                .layer(GovernorLayer {
+                    config: approval_rate_limit,
+                }),
+        )
         .route("/v1/approval/pending", get(routes::approval_pending))
         .route("/v1/approval/:id/decide", post(routes::approval_decide))
         .route("/v1/run/event", post(routes::run_event))
-        .route("/v1/pty/output", post(routes::pty_output))
+        .route(
+            "/v1/pty/output",
+            post(routes::pty_output)
+                .layer::<_, Infallible>(DefaultBodyLimit::max(PTY_OUTPUT_BODY_LIMIT)),
+        )
         .route("/v1/pair", post(routes::pair))
         .route("/v1/qr", get(routes::qr))
         .route("/v1/run/recent", get(routes::run_recent))
+        .route("/v1/status", get(routes::status))
         .route("/v1/transport/status", get(routes::transport_status))
         .route("/v1/transport/:name/enable", post(routes::transport_enable))
         .route(
@@ -195,6 +227,7 @@ pub fn router(state: AppState) -> Router {
         .route("/healthz", get(routes::healthz))
         .nest_service("/m", static_files::mobile_service())
         .merge(authed)
+        .layer(middleware::from_fn(security_headers))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
@@ -206,10 +239,115 @@ pub async fn start_server(state: AppState, port: u16) -> Result<()> {
         .await
         .with_context(|| format!("bind Onibi server on {addr}"))?;
     tracing::info!(%addr, "Onibi approval server listening");
-    axum::serve(listener, router(state)).await?;
+    axum::serve(
+        listener,
+        router(state).into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 
+#[derive(Clone)]
+struct OnibiIpKeyExtractor;
+
+impl KeyExtractor for OnibiIpKeyExtractor {
+    type Key = IpAddr;
+
+    fn extract<T>(&self, req: &Request<T>) -> Result<Self::Key, GovernorError> {
+        Ok(first_forwarded_ip(req.headers())
+            .or_else(|| {
+                req.extensions()
+                    .get::<ConnectInfo<SocketAddr>>()
+                    .map(|ConnectInfo(addr)| addr.ip())
+            })
+            .unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST)))
+    }
+}
+
+fn first_forwarded_ip(headers: &HeaderMap) -> Option<IpAddr> {
+    headers
+        .get("x-forwarded-for")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .and_then(parse_forwarded_ip)
+        .or_else(|| {
+            headers
+                .get("x-real-ip")
+                .and_then(|value| value.to_str().ok())
+                .and_then(parse_forwarded_ip)
+        })
+        .or_else(|| {
+            headers
+                .get(header::FORWARDED)
+                .and_then(|value| value.to_str().ok())
+                .and_then(parse_rfc_forwarded_ip)
+        })
+}
+
+fn parse_rfc_forwarded_ip(value: &str) -> Option<IpAddr> {
+    value.split(';').find_map(|part| {
+        let (key, value) = part.trim().split_once('=')?;
+        key.eq_ignore_ascii_case("for")
+            .then_some(value)
+            .and_then(parse_forwarded_ip)
+    })
+}
+
+fn parse_forwarded_ip(value: &str) -> Option<IpAddr> {
+    let value = value
+        .trim()
+        .trim_matches('"')
+        .trim_start_matches('[')
+        .trim_end_matches(']');
+    value.parse().ok()
+}
+
+async fn security_headers(req: Request<Body>, next: Next) -> Response {
+    let path = req.uri().path().to_string();
+    let hsts = should_send_hsts(req.headers());
+    let mut response = next.run(req).await;
+
+    if hsts {
+        response.headers_mut().insert(
+            header::STRICT_TRANSPORT_SECURITY,
+            HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+        );
+    }
+
+    if path == "/m" || path.starts_with("/m/") {
+        response.headers_mut().insert(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static(
+                "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; img-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https: wss:; worker-src 'self'; manifest-src 'self'",
+            ),
+        );
+        response.headers_mut().insert(
+            header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        );
+        response.headers_mut().insert(
+            header::REFERRER_POLICY,
+            HeaderValue::from_static("no-referrer"),
+        );
+    }
+
+    response
+}
+
+fn should_send_hsts(headers: &HeaderMap) -> bool {
+    let forwarded_https = headers
+        .get("x-forwarded-proto")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.eq_ignore_ascii_case("https"));
+    let tunnel_host = headers
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|host| host.ends_with(".ts.net") || host.ends_with(".trycloudflare.com"));
+
+    forwarded_https || tunnel_host
+}
+
+#[cfg(feature = "gui")]
 pub fn start_background_server(port: u16) {
     std::thread::Builder::new()
         .name("onibi-approval-server".to_string())

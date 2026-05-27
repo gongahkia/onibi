@@ -6,6 +6,8 @@ use axum::{
 };
 use tokio::sync::broadcast;
 
+const WS_MESSAGE_LIMIT: usize = 256 * 1024;
+
 #[derive(Clone)]
 pub struct WsHub {
     tx: broadcast::Sender<ServerMessage>,
@@ -27,41 +29,43 @@ impl WsHub {
 }
 
 pub async fn realtime(State(state): State<AppState>, ws: WebSocketUpgrade) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| async move {
-        let mut socket = socket;
-        let pending = state.store.list_pending().unwrap_or_default();
-        for approval in pending {
-            let message = ServerMessage::from(&approval);
-            if send_message(&mut socket, &message).await.is_err() {
-                return;
-            }
-        }
-
-        let mut rx = state.hub.subscribe();
-        let mut ping = tokio::time::interval(std::time::Duration::from_secs(30));
-        loop {
-            tokio::select! {
-                _ = ping.tick() => {
-                    let message = ServerMessage::Ping {
-                        protocol_version: PROTOCOL_VERSION.to_string(),
-                        machine_id: state.machine_id.clone(),
-                    };
-                    if send_message(&mut socket, &message).await.is_err() {
-                        break;
-                    }
+    ws.max_message_size(WS_MESSAGE_LIMIT)
+        .max_frame_size(WS_MESSAGE_LIMIT)
+        .on_upgrade(move |socket| async move {
+            let mut socket = socket;
+            let pending = state.store.list_pending().unwrap_or_default();
+            for approval in pending {
+                let message = ServerMessage::from(&approval);
+                if send_message(&mut socket, &message).await.is_err() {
+                    return;
                 }
-                result = rx.recv() => match result {
-                    Ok(message) => {
+            }
+
+            let mut rx = state.hub.subscribe();
+            let mut ping = tokio::time::interval(std::time::Duration::from_secs(30));
+            loop {
+                tokio::select! {
+                    _ = ping.tick() => {
+                        let message = ServerMessage::Ping {
+                            protocol_version: PROTOCOL_VERSION.to_string(),
+                            machine_id: state.machine_id.clone(),
+                        };
                         if send_message(&mut socket, &message).await.is_err() {
                             break;
                         }
                     }
-                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                    Err(broadcast::error::RecvError::Closed) => break,
+                    result = rx.recv() => match result {
+                        Ok(message) => {
+                            if send_message(&mut socket, &message).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(broadcast::error::RecvError::Closed) => break,
+                    }
                 }
             }
-        }
-    })
+        })
 }
 
 async fn send_message(

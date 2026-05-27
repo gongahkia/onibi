@@ -1,7 +1,11 @@
-use crate::{adapters, secret, server, transport};
+pub mod doctor;
+pub mod setup;
+pub mod status;
+
+use crate::{adapters, headless, secret, server, transport};
 use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, Parser, Subcommand};
-use std::{io::Write, net::TcpStream};
+use std::{io::Write, net::TcpStream, path::PathBuf};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -14,6 +18,13 @@ pub struct Cli {
     headless: bool,
     #[arg(long, default_value_t = 17893, help = "Local approval server port")]
     port: u16,
+    #[arg(
+        long,
+        help = "Enable LAN, Tailscale Funnel, and Cloudflare Tunnel at headless startup"
+    )]
+    auto_transports: bool,
+    #[arg(long, help = "Override the Onibi config directory")]
+    config_dir: Option<PathBuf>,
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -22,6 +33,7 @@ pub struct Cli {
 enum Command {
     Setup,
     Status,
+    Doctor,
     Token {
         #[command(subcommand)]
         command: TokenCommand,
@@ -62,7 +74,22 @@ enum TransportCommand {
 }
 
 pub fn should_dispatch(args: &[String]) -> bool {
-    args.len() > 1
+    const COMMANDS: &[&str] = &[
+        "setup",
+        "status",
+        "doctor",
+        "token",
+        "adapter",
+        "transport",
+        "_hook",
+    ];
+
+    args.iter().skip(1).any(|arg| {
+        matches!(
+            arg.as_str(),
+            "--headless" | "--help" | "-h" | "--version" | "-V"
+        ) || COMMANDS.contains(&arg.as_str())
+    })
 }
 
 pub fn run_blocking(args: Vec<String>) -> Result<()> {
@@ -84,13 +111,22 @@ pub fn run_blocking(args: Vec<String>) -> Result<()> {
 
 async fn run(cli: Cli) -> Result<()> {
     if cli.headless {
-        let state = server::AppState::from_config(cli.port)?;
-        return server::start_server(state, cli.port).await;
+        return headless::run(headless::HeadlessOpts {
+            config_dir: cli.config_dir,
+            port: Some(cli.port),
+            auto_transports: cli.auto_transports,
+        })
+        .await;
+    }
+
+    if let Some(config_dir) = cli.config_dir {
+        std::env::set_var("ONIBI_CONFIG_DIR", config_dir);
     }
 
     match cli.command {
-        Some(Command::Setup) => setup(cli.port),
-        Some(Command::Status) => status(cli.port),
+        Some(Command::Setup) => setup::run(cli.port).await,
+        Some(Command::Status) => status::run(cli.port).await,
+        Some(Command::Doctor) => doctor::run(cli.port).await,
         Some(Command::Token { command }) => token(command),
         Some(Command::Adapter { command }) => adapter(command),
         Some(Command::Transport { command }) => transport(command, cli.port).await,
@@ -101,32 +137,6 @@ async fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
     }
-}
-
-fn setup(port: u16) -> Result<()> {
-    let token = secret::load_or_create_token()?;
-    let vapid = secret::load_or_create_vapid_keys()?;
-    let state = server::AppState::from_config(port)?;
-    println!("Onibi setup complete");
-    println!("config_dir={}", secret::config_dir()?.display());
-    println!("db_path={}", state.store.path().display());
-    println!("machine_id={}", state.machine_id);
-    println!("token_source={:?}", token.source);
-    println!("vapid_public_key={}", vapid.public_key);
-    Ok(())
-}
-
-fn status(port: u16) -> Result<()> {
-    let config_dir = secret::config_dir()?;
-    let db_path = secret::db_path()?;
-    println!("config_dir={}", config_dir.display());
-    println!("db_path={}", db_path.display());
-    println!("db_exists={}", db_path.exists());
-    println!(
-        "daemon={}",
-        if healthz(port) { "running" } else { "stopped" }
-    );
-    Ok(())
 }
 
 fn token(command: TokenCommand) -> Result<()> {
@@ -230,7 +240,7 @@ fn env_port() -> Option<u16> {
         .and_then(|port| port.parse::<u16>().ok())
 }
 
-fn healthz(port: u16) -> bool {
+pub(crate) fn healthz(port: u16) -> bool {
     let Ok(mut stream) = TcpStream::connect(("127.0.0.1", port)) else {
         return false;
     };
@@ -254,7 +264,12 @@ fn ensure_daemon_running(port: u16) -> Result<()> {
     }
 }
 
-fn authed_http(port: u16, method: &str, path: &str, body: Option<&str>) -> Result<String> {
+pub(crate) fn authed_http(
+    port: u16,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+) -> Result<String> {
     let tokens = auth_token_candidates()?;
     let body = body.unwrap_or_default();
     let mut last_error = None;

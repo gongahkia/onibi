@@ -170,6 +170,18 @@ pub async fn qr(State(state): State<AppState>) -> Result<Response, (StatusCode, 
     Ok(response)
 }
 
+pub async fn status(State(state): State<AppState>) -> ApiResult<Value> {
+    let pending_approvals = state.store.list_pending().map_err(internal_error)?.len();
+    Ok(Json(json!({
+        "ok": true,
+        "protocol_version": PROTOCOL_VERSION,
+        "version": env!("CARGO_PKG_VERSION"),
+        "machine_id": state.machine_id.clone(),
+        "pending_approvals": pending_approvals,
+        "transports": state.transports.status_snapshot().await,
+    })))
+}
+
 pub async fn transport_status(State(state): State<AppState>) -> ApiResult<Vec<TransportSnapshot>> {
     Ok(Json(state.transports.status_snapshot().await))
 }
@@ -314,9 +326,17 @@ fn validate_version(version: Option<&str>) -> Result<(), (StatusCode, Json<ApiEr
 }
 
 fn internal_error(error: anyhow::Error) -> (StatusCode, Json<ApiError>) {
+    #[cfg(debug_assertions)]
+    let message = error.to_string();
+    #[cfg(not(debug_assertions))]
+    let message = {
+        tracing::warn!(%error, "request failed");
+        "internal server error".to_string()
+    };
+
     (
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ApiError::new(error.to_string())),
+        Json(ApiError::new(message)),
     )
 }
 

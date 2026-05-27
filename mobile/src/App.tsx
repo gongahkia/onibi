@@ -609,7 +609,12 @@ export function parsePairingInput(raw: string): PairingPayload {
     const token = url.searchParams.get("token");
     const baseUrl = url.searchParams.get("baseUrl") ?? url.searchParams.get("url");
     if (token && baseUrl) {
-      return { token, transports: [{ name: "deep-link", url: baseUrl }] };
+      return {
+        token,
+        machineId: url.searchParams.get("machineId") ?? undefined,
+        vapidPublicKey: url.searchParams.get("vapidPublicKey") ?? undefined,
+        transports: [{ name: "deep-link", url: baseUrl }],
+      };
     }
   }
   try {
