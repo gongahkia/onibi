@@ -1,50 +1,75 @@
-import { useEffect, useState } from "react";
-import "./App.css";
-import { TerminalView } from "./components/TerminalView";
-import { ptyKill, ptySpawn, shellPath, type PtyId } from "./lib/tauri-bridge";
+import { useEffect } from "react";
+import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
+import { AgentTabBar } from "./components/AgentTabBar";
+import { FileTree } from "./components/FileTree";
+import { MainPane } from "./components/MainPane";
+import {
+  applyDocumentSettings,
+  hydrateSessionStore,
+  useSessionStore,
+} from "./lib/sessions";
+import "./styles/layout.css";
 
 function App() {
-  const [ptyId, setPtyId] = useState<PtyId | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const settings = useSessionStore((state) => state.settings);
 
   useEffect(() => {
-    let active = true;
-    let spawnedId: PtyId | null = null;
-    void ptySpawn({
-      command: shellPath(),
-      args: [],
-      cwd: null,
-      env: [],
-      rows: 30,
-      cols: 100,
-    })
-      .then((id) => {
-        spawnedId = id;
-        if (active) {
-          setPtyId(id);
-        } else {
-          void ptyKill(id);
-        }
-      })
-      .catch((err: unknown) => {
-        if (active) {
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      });
-
-    return () => {
-      active = false;
-      if (spawnedId) {
-        void ptyKill(spawnedId);
-      }
-    };
+    void hydrateSessionStore();
   }, []);
 
+  useEffect(() => {
+    applyDocumentSettings(settings);
+  }, [settings]);
+
+  const content = <ContentPanels />;
+
+  if (settings.tabBarOrientation === "horizontal") {
+    const tabs = (
+      <Panel defaultSize={7} minSize={6} maxSize={12}>
+        <AgentTabBar orientation="horizontal" />
+      </Panel>
+    );
+    return (
+      <main className="app-shell" data-tab-orientation="horizontal">
+        <PanelGroup direction="vertical">
+          {settings.tabBarPosition === "bottom" ? content : tabs}
+          <PanelResizeHandle className="panel-resize-handle" />
+          {settings.tabBarPosition === "bottom" ? tabs : content}
+        </PanelGroup>
+      </main>
+    );
+  }
+
+  const tabs = (
+    <Panel defaultSize={6} minSize={4} maxSize={10}>
+      <AgentTabBar orientation="vertical" />
+    </Panel>
+  );
+
   return (
-    <main className="app-shell">
-      {ptyId ? <TerminalView ptyId={ptyId} /> : <div className="terminal-loading">Starting shell...</div>}
-      {error ? <div className="terminal-error">{error}</div> : null}
+    <main className="app-shell" data-tab-orientation="vertical">
+      <PanelGroup direction="horizontal">
+        {settings.tabBarPosition === "right" ? content : tabs}
+        <PanelResizeHandle className="panel-resize-handle" />
+        {settings.tabBarPosition === "right" ? tabs : content}
+      </PanelGroup>
     </main>
+  );
+}
+
+function ContentPanels() {
+  return (
+    <Panel defaultSize={94} minSize={70}>
+      <PanelGroup direction="horizontal">
+        <Panel defaultSize={18} minSize={10} maxSize={34}>
+          <FileTree />
+        </Panel>
+        <PanelResizeHandle className="panel-resize-handle" />
+        <Panel defaultSize={76} minSize={40}>
+          <MainPane />
+        </Panel>
+      </PanelGroup>
+    </Panel>
   );
 }
 
