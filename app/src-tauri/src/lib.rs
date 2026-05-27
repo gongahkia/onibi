@@ -1,7 +1,12 @@
+pub mod fs;
 pub mod pty;
 pub mod util;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
+use fs::{
+    fs_list_dir, fs_read_file, fs_read_ghostty_config, fs_resolve_binary, fs_workspace_info,
+    fs_write_file,
+};
 use pty::{PtyEvent, PtyId, PtyManager, PtySpawnRequest};
 use serde::Serialize;
 use std::sync::Arc;
@@ -123,8 +128,19 @@ pub fn run() {
     tauri::Builder::default()
         .manage(PtyManager::new())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_store::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
-            pty_spawn, pty_write, pty_resize, pty_kill, pty_list
+            pty_spawn,
+            pty_write,
+            pty_resize,
+            pty_kill,
+            pty_list,
+            fs_list_dir,
+            fs_read_file,
+            fs_write_file,
+            fs_workspace_info,
+            fs_resolve_binary,
+            fs_read_ghostty_config
         ])
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {

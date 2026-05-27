@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>Goose placeholder icon</title>
+  <rect width="64" height="64" rx="14" fill="#1d2d44"/>
+  <path d="M17 45c4-14 12-22 24-24 6-1 10 2 10 7 0 4-3 7-9 7h-6l6 10H17Z" fill="#edf2f4"/>
+  <circle cx="43" cy="27" r="2" fill="#18232a"/>
+  <path d="M47 32h8" stroke="#f2c14e" stroke-width="4" stroke-linecap="round"/>
+</svg>

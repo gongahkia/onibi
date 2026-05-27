@@ -1,4 +1,5 @@
-import { vi, type Mock } from "vitest";
+import { cleanup } from "@testing-library/react";
+import { afterEach, vi, type Mock } from "vitest";
 
 type TauriMocks = {
   invoke: Mock;
@@ -6,10 +7,25 @@ type TauriMocks = {
   unlisten: Mock;
 };
 
+const storeData = new Map<string, unknown>();
+
 const tauriMocks: TauriMocks = {
   invoke: vi.fn(),
   listen: vi.fn(async () => tauriMocks.unlisten),
   unlisten: vi.fn(),
+};
+
+const storeMock = {
+  get: vi.fn(async (key: string) => storeData.get(key)),
+  set: vi.fn(async (key: string, value: unknown) => {
+    storeData.set(key, value);
+  }),
+  save: vi.fn(async () => undefined),
+  has: vi.fn(async (key: string) => storeData.has(key)),
+  delete: vi.fn(async (key: string) => storeData.delete(key)),
+  clear: vi.fn(async () => {
+    storeData.clear();
+  }),
 };
 
 Object.defineProperty(globalThis, "__TAURI_MOCKS__", {
@@ -38,6 +54,32 @@ Object.defineProperty(globalThis, "cancelAnimationFrame", {
   writable: true,
 });
 
+Object.defineProperty(window, "matchMedia", {
+  value: vi.fn(() => ({
+    matches: false,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  })),
+  writable: true,
+});
+
+Object.defineProperty(window, "confirm", {
+  value: vi.fn(() => true),
+  writable: true,
+});
+
+Object.defineProperty(window, "prompt", {
+  value: vi.fn(() => null),
+  writable: true,
+});
+
+Object.defineProperty(navigator, "clipboard", {
+  value: {
+    writeText: vi.fn(async () => undefined),
+  },
+  writable: true,
+});
+
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: tauriMocks.invoke,
 }));
@@ -45,3 +87,14 @@ vi.mock("@tauri-apps/api/core", () => ({
 vi.mock("@tauri-apps/api/event", () => ({
   listen: tauriMocks.listen,
 }));
+
+vi.mock("@tauri-apps/plugin-store", () => ({
+  load: vi.fn(async () => storeMock),
+  Store: {
+    load: vi.fn(async () => storeMock),
+  },
+}));
+
+afterEach(() => {
+  cleanup();
+});

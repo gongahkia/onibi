@@ -14,6 +14,9 @@ importers:
       '@tauri-apps/plugin-opener':
         specifier: ^2
         version: 2.5.4
+      '@tauri-apps/plugin-store':
+        specifier: ^2.4.3
+        version: 2.4.3
       '@xterm/addon-fit':
         specifier: ^0.10.0
         version: 0.10.0(@xterm/xterm@5.5.0)
@@ -32,6 +35,12 @@ importers:
       react-dom:
         specifier: ^19.1.0
         version: 19.2.6(react@19.2.6)
+      react-resizable-panels:
+        specifier: ^4.11.2
+        version: 4.11.2(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      zustand:
+        specifier: ^5.0.13
+        version: 5.0.13(@types/react@19.2.15)(react@19.2.6)
     devDependencies:
       '@tauri-apps/cli':
         specifier: ^2
@@ -1250,6 +1259,9 @@ packages:
   '@tauri-apps/plugin-opener@2.5.4':
     resolution: {integrity: sha512-1HnPkb+AmgO29HBazm4uPLKB+r7zzcTBW1d0fyYp1uP+jwtpoiNDGKMMzz58SFp49nOIrxdE3aUJtT57lfO9CQ==}
 
+  '@tauri-apps/plugin-store@2.4.3':
+    resolution: {integrity: sha512-9LWPj9yMphRi9czEtUv87XHbl1b6xgd9EXpPrUnq6nG7+nbtoF84d4Kwz9xhAv/Hf30sr58pq7EOlyI936y8qw==}
+
   '@testing-library/dom@10.4.1':
     resolution: {integrity: sha512-o4PXJQidqJl82ckFaXUeoAW+XysPLauYI43Abki5hABd853iMhitooc6znOnczgbTYmEP6U6/y1ZyKAIsvMKGg==}
     engines: {node: '>=18'}
@@ -2128,6 +2140,12 @@ packages:
     resolution: {integrity: sha512-z6F7K9bV85EfseRCp2bzrpyQ0Gkw1uLoCel9XBVWPg/TjRj94SkJzUTGfOa4bs7iJvBWtQG0Wq7wnI0syw3EBQ==}
     engines: {node: '>=0.10.0'}
 
+  react-resizable-panels@4.11.2:
+    resolution: {integrity: sha512-+kfFbDZ8mygc7g0vxOcDzCVGuwiIUOnILqPoUHo6/uP+Mmyx6HzZU+kj1aOPDlktXuobYbr6BtQekvJwHRX4Eg==}
+    peerDependencies:
+      react: ^18.0.0 || ^19.0.0
+      react-dom: ^18.0.0 || ^19.0.0
+
   react@19.2.6:
     resolution: {integrity: sha512-sfWGGfavi0xr8Pg0sVsyHMAOziVYKgPLNrS7ig+ivMNb3wbCBw3KxtflsGBAwD3gYQlE/AEZsTLgToRrSCjb0Q==}
     engines: {node: '>=0.10.0'}
@@ -2671,6 +2689,24 @@ packages:
 
   yallist@3.1.1:
     resolution: {integrity: sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g==}
+
+  zustand@5.0.13:
+    resolution: {integrity: sha512-efI2tVaVQPqtOh114loML/Z80Y4NP3yc+Ff0fYiZJPauNeWZeIp/bRFD7I9bfmCOYBh/PHxlglQ9+wvlwnPikQ==}
+    engines: {node: '>=12.20.0'}
+    peerDependencies:
+      '@types/react': '>=18.0.0'
+      immer: '>=9.0.6'
+      react: '>=18.0.0'
+      use-sync-external-store: '>=1.2.0'
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      immer:
+        optional: true
+      react:
+        optional: true
+      use-sync-external-store:
+        optional: true
 
 snapshots:
 
@@ -3759,6 +3795,10 @@ snapshots:
     dependencies:
       '@tauri-apps/api': 2.11.0
 
+  '@tauri-apps/plugin-store@2.4.3':
+    dependencies:
+      '@tauri-apps/api': 2.11.0
+
   '@testing-library/dom@10.4.1':
     dependencies:
       '@babel/code-frame': 7.29.7
@@ -4700,6 +4740,11 @@ snapshots:
 
   react-refresh@0.17.0: {}
 
+  react-resizable-panels@4.11.2(react-dom@19.2.6(react@19.2.6))(react@19.2.6):
+    dependencies:
+      react: 19.2.6
+      react-dom: 19.2.6(react@19.2.6)
+
   react@19.2.6: {}
 
   reflect.getprototypeof@1.0.10:
@@ -5371,3 +5416,8 @@ snapshots:
   xmlchars@2.2.0: {}
 
   yallist@3.1.1: {}
+
+  zustand@5.0.13(@types/react@19.2.15)(react@19.2.6):
+    optionalDependencies:
+      '@types/react': 19.2.15
+      react: 19.2.6
