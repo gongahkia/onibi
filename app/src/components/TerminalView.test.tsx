@@ -1,0 +1,101 @@
+import { render, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { TerminalView } from "./TerminalView";
+
+const terminalMocks = vi.hoisted(() => {
+  class MockTerminal {
+    rows = 30;
+    cols = 100;
+    onDataHandler: ((data: string) => void) | undefined;
+    loadAddon = vi.fn();
+    open = vi.fn();
+    focus = vi.fn();
+    write = vi.fn();
+    dispose = vi.fn();
+    onData = vi.fn((handler: (data: string) => void) => {
+      this.onDataHandler = handler;
+      return { dispose: vi.fn() };
+    });
+    emitData(data: string) {
+      this.onDataHandler?.(data);
+    }
+  }
+  return {
+    instances: [] as MockTerminal[],
+    MockTerminal,
+  };
+});
+
+vi.mock("@xterm/xterm", () => ({
+  Terminal: vi.fn().mockImplementation(function TerminalConstructor() {
+    const terminal = new terminalMocks.MockTerminal();
+    terminalMocks.instances.push(terminal);
+    return terminal;
+  }),
+}));
+
+vi.mock("@xterm/addon-fit", () => ({
+  FitAddon: vi.fn().mockImplementation(function FitAddonConstructor() {
+    return {
+    fit: vi.fn(),
+    dispose: vi.fn(),
+    };
+  }),
+}));
+
+vi.mock("@xterm/addon-webgl", () => ({
+  WebglAddon: vi.fn().mockImplementation(function WebglAddonConstructor() {
+    return {
+    dispose: vi.fn(),
+    };
+  }),
+}));
+
+vi.mock("@xterm/addon-web-links", () => ({
+  WebLinksAddon: vi.fn().mockImplementation(function WebLinksAddonConstructor() {
+    return {
+    dispose: vi.fn(),
+    };
+  }),
+}));
+
+describe("TerminalView", () => {
+  beforeEach(() => {
+    terminalMocks.instances.length = 0;
+    globalThis.__TAURI_MOCKS__.invoke.mockResolvedValue(undefined);
+    globalThis.__TAURI_MOCKS__.listen.mockResolvedValue(
+      globalThis.__TAURI_MOCKS__.unlisten,
+    );
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  test("mounts without throwing", () => {
+    render(<TerminalView ptyId="pty-1" />);
+    expect(terminalMocks.instances).toHaveLength(1);
+  });
+
+  test("subscribes on mount and unsubscribes on unmount", async () => {
+    const { unmount } = render(<TerminalView ptyId="pty-1" />);
+    await waitFor(() => {
+      expect(globalThis.__TAURI_MOCKS__.listen).toHaveBeenCalledWith(
+        "pty:pty-1",
+        expect.any(Function),
+      );
+    });
+    unmount();
+    expect(globalThis.__TAURI_MOCKS__.unlisten).toHaveBeenCalled();
+  });
+
+  test("writes encoded terminal input to the pty", async () => {
+    render(<TerminalView ptyId="pty-1" />);
+    await waitFor(() => expect(terminalMocks.instances[0]).toBeDefined());
+    terminalMocks.instances[0].emitData("a");
+    expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith("pty_write", {
+      id: "pty-1",
+      data: [97],
+    });
+  });
+});
