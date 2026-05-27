@@ -7,6 +7,7 @@ use crate::{
         Decision, PairRequest, PairResponse, PtyOutputBody, RunEventBody, ServerMessage,
         PROTOCOL_VERSION,
     },
+    transport::{lan, TransportSnapshot},
 };
 use anyhow::Result;
 use axum::{
@@ -149,8 +150,58 @@ pub async fn pair(
 }
 
 pub async fn qr(State(state): State<AppState>) -> Result<Response, (StatusCode, Json<ApiError>)> {
-    let payload = pairing::pairing_payload(state.port, &state.token);
+    let payload = state.transports.pairing_payload().await;
+    let payload = serde_json::to_string(&payload)
+        .map_err(|error| internal_error(anyhow::Error::new(error)))?;
     let png = pairing::qr_png(&payload).map_err(internal_error)?;
+    let mut response = Body::from(png).into_response();
+    response
+        .headers_mut()
+        .insert(header::CONTENT_TYPE, HeaderValue::from_static("image/png"));
+    Ok(response)
+}
+
+pub async fn transport_status(State(state): State<AppState>) -> ApiResult<Vec<TransportSnapshot>> {
+    Ok(Json(state.transports.status_snapshot().await))
+}
+
+pub async fn transport_enable(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> ApiResult<TransportSnapshot> {
+    state
+        .transports
+        .enable(&name)
+        .await
+        .map(Json)
+        .map_err(internal_error)
+}
+
+pub async fn transport_disable(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> ApiResult<Value> {
+    state
+        .transports
+        .disable(&name)
+        .await
+        .map_err(internal_error)?;
+    Ok(Json(json!({"ok": true, "transport": name})))
+}
+
+pub async fn lan_cert() -> Result<Response, (StatusCode, Json<ApiError>)> {
+    let pem = lan::read_cert_pem().map_err(internal_error)?;
+    let mut response = Body::from(pem).into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/x-pem-file"),
+    );
+    Ok(response)
+}
+
+pub async fn lan_cert_qr() -> Result<Response, (StatusCode, Json<ApiError>)> {
+    let pem = lan::read_cert_pem().map_err(internal_error)?;
+    let png = pairing::qr_png(&pem).map_err(internal_error)?;
     let mut response = Body::from(png).into_response();
     response
         .headers_mut()

@@ -7,6 +7,7 @@ use crate::{
     approval::{pending::PendingApprovals, store::ApprovalStore},
     protocol::ServerMessage,
     secret,
+    transport::TransportManager,
 };
 use anyhow::{Context, Result};
 use axum::{
@@ -16,7 +17,10 @@ use axum::{
 };
 use std::{
     collections::{HashMap, VecDeque},
+    fs::{self, OpenOptions},
+    io::Write,
     net::SocketAddr,
+    path::Path,
     sync::Arc,
     time::Duration,
 };
@@ -33,7 +37,7 @@ pub struct AppState {
     pub hub: ws_hub::WsHub,
     pub machine_id: String,
     pub token: String,
-    pub port: u16,
+    pub transports: TransportManager,
     pub approval_timeout: Duration,
     pty_ring: Arc<RwLock<HashMap<String, VecDeque<u8>>>>,
     ring_limit: usize,
@@ -42,7 +46,8 @@ pub struct AppState {
 impl AppState {
     pub fn from_config(port: u16) -> Result<Self> {
         let token = secret::load_or_create_token()?.token;
-        let _ = secret::load_or_create_vapid_keys()?;
+        mirror_token_file(&token);
+        let vapid = secret::load_or_create_vapid_keys()?;
         let store = ApprovalStore::open(secret::db_path()?)?;
         let machine_id = match store.get_meta("machine_id")? {
             Some(machine_id) => machine_id,
@@ -56,9 +61,14 @@ impl AppState {
             store,
             pending: PendingApprovals::default(),
             hub: ws_hub::WsHub::new(),
-            machine_id,
-            token,
-            port,
+            machine_id: machine_id.clone(),
+            token: token.clone(),
+            transports: TransportManager::new(
+                port,
+                machine_id.clone(),
+                token.clone(),
+                vapid.public_key,
+            ),
             approval_timeout: Duration::from_secs(600),
             pty_ring: Arc::new(RwLock::new(HashMap::new())),
             ring_limit: DEFAULT_RING_LIMIT,
@@ -73,7 +83,12 @@ impl AppState {
             hub: ws_hub::WsHub::new(),
             machine_id: "01H00000000000000000000000".to_string(),
             token: "test-token".to_string(),
-            port: 17893,
+            transports: TransportManager::new(
+                17893,
+                "01H00000000000000000000000".to_string(),
+                "test-token".to_string(),
+                "test-vapid".to_string(),
+            ),
             approval_timeout: Duration::from_secs(5),
             pty_ring: Arc::new(RwLock::new(HashMap::new())),
             ring_limit: DEFAULT_RING_LIMIT,
@@ -94,6 +109,52 @@ impl AppState {
     }
 }
 
+fn mirror_token_file(token: &str) {
+    let Ok(path) = secret::token_path() else {
+        return;
+    };
+    if fs::read_to_string(&path).is_ok_and(|raw| raw.trim() == token) {
+        return;
+    }
+    if let Err(error) = write_token_file(&path, token) {
+        tracing::debug!(%error, "failed to mirror bearer token to file");
+    }
+}
+
+fn write_token_file(path: &Path, token: &str) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create config directory {}", parent.display()))?;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        let mut file = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .mode(0o600)
+            .open(path)
+            .with_context(|| format!("open {}", path.display()))?;
+        file.write_all(format!("{token}\n").as_bytes())
+            .with_context(|| format!("write {}", path.display()))?;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("chmod 0600 {}", path.display()))?;
+    }
+    #[cfg(not(unix))]
+    {
+        let mut file = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(path)
+            .with_context(|| format!("open {}", path.display()))?;
+        file.write_all(format!("{token}\n").as_bytes())
+            .with_context(|| format!("write {}", path.display()))?;
+    }
+    Ok(())
+}
+
 pub fn router(state: AppState) -> Router {
     let authed = Router::new()
         .route("/v1/approval/request", post(routes::approval_request))
@@ -103,6 +164,14 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/pty/output", post(routes::pty_output))
         .route("/v1/pair", post(routes::pair))
         .route("/v1/qr", get(routes::qr))
+        .route("/v1/transport/status", get(routes::transport_status))
+        .route("/v1/transport/:name/enable", post(routes::transport_enable))
+        .route(
+            "/v1/transport/:name/disable",
+            post(routes::transport_disable),
+        )
+        .route("/v1/transport/lan/cert", get(routes::lan_cert))
+        .route("/v1/transport/lan/cert-qr", get(routes::lan_cert_qr))
         .route("/v1/realtime", get(ws_hub::realtime))
         .route(
             "/v1/adapters/claude-code/hook",

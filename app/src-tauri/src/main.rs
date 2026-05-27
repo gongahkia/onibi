@@ -7,6 +7,7 @@ mod cli;
 mod protocol;
 mod secret;
 mod server;
+mod transport;
 
 fn main() {
     let args = std::env::args().collect::<Vec<_>>();

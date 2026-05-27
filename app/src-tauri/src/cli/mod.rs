@@ -1,4 +1,4 @@
-use crate::{adapters, secret, server};
+use crate::{adapters, secret, server, transport};
 use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, Parser, Subcommand};
 use std::{io::Write, net::TcpStream};
@@ -30,6 +30,10 @@ enum Command {
         #[command(subcommand)]
         command: AdapterCommand,
     },
+    Transport {
+        #[command(subcommand)]
+        command: TransportCommand,
+    },
     #[command(name = "_hook", hide = true)]
     Hook {
         name: String,
@@ -47,6 +51,14 @@ enum AdapterCommand {
     List,
     Install { name: String },
     Uninstall { name: String },
+}
+
+#[derive(Debug, Subcommand)]
+enum TransportCommand {
+    List,
+    Enable { name: String },
+    Disable { name: String },
+    Status,
 }
 
 pub fn should_dispatch(args: &[String]) -> bool {
@@ -81,6 +93,7 @@ async fn run(cli: Cli) -> Result<()> {
         Some(Command::Status) => status(cli.port),
         Some(Command::Token { command }) => token(command),
         Some(Command::Adapter { command }) => adapter(command),
+        Some(Command::Transport { command }) => transport(command, cli.port).await,
         Some(Command::Hook { name }) => hook(&name, cli.port),
         None => {
             Cli::command().print_help()?;
@@ -151,6 +164,59 @@ fn adapter(command: AdapterCommand) -> Result<()> {
     Ok(())
 }
 
+async fn transport(command: TransportCommand, port: u16) -> Result<()> {
+    match command {
+        TransportCommand::List => {
+            for name in transport::default_transport_names() {
+                println!("{name}");
+            }
+        }
+        TransportCommand::Status => {
+            if healthz(port) {
+                println!(
+                    "{}",
+                    authed_http(port, "GET", "/v1/transport/status", None)?
+                );
+            } else {
+                let state = server::AppState::from_config(port)?;
+                for snapshot in state.transports.status_snapshot().await {
+                    println!(
+                        "{}\tenabled={}\tstatus={}",
+                        snapshot.name,
+                        snapshot.enabled,
+                        serde_json::to_string(&snapshot.status)?
+                    );
+                }
+            }
+        }
+        TransportCommand::Enable { name } => {
+            ensure_daemon_running(port)?;
+            println!(
+                "{}",
+                authed_http(
+                    port,
+                    "POST",
+                    &format!("/v1/transport/{name}/enable"),
+                    Some("{}"),
+                )?
+            );
+        }
+        TransportCommand::Disable { name } => {
+            ensure_daemon_running(port)?;
+            println!(
+                "{}",
+                authed_http(
+                    port,
+                    "POST",
+                    &format!("/v1/transport/{name}/disable"),
+                    Some("{}"),
+                )?
+            );
+        }
+    }
+    Ok(())
+}
+
 fn hook(name: &str, port: u16) -> Result<()> {
     match name {
         "codex" => adapters::codex::run_stdin_hook(env_port().unwrap_or(port)),
@@ -178,4 +244,71 @@ fn healthz(port: u16) -> bool {
     }
     let mut raw = String::new();
     std::io::Read::read_to_string(&mut stream, &mut raw).is_ok() && raw.starts_with("HTTP/1.1 200")
+}
+
+fn ensure_daemon_running(port: u16) -> Result<()> {
+    if healthz(port) {
+        Ok(())
+    } else {
+        bail!("Onibi daemon is not running on 127.0.0.1:{port}; start the app or `onibi --headless` first")
+    }
+}
+
+fn authed_http(port: u16, method: &str, path: &str, body: Option<&str>) -> Result<String> {
+    let tokens = auth_token_candidates()?;
+    let body = body.unwrap_or_default();
+    let mut last_error = None;
+
+    for token in tokens {
+        match authed_http_with_token(port, method, path, body, &token) {
+            Ok(body) => return Ok(body),
+            Err(error) => {
+                let message = error.to_string();
+                if !message.contains(" 401 ") {
+                    return Err(error);
+                }
+                last_error = Some(error);
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| anyhow::anyhow!("no bearer token candidates available")))
+}
+
+fn auth_token_candidates() -> Result<Vec<String>> {
+    let mut tokens = vec![secret::load_or_create_token()?.token];
+    if let Ok(path) = secret::token_path() {
+        if let Ok(raw) = std::fs::read_to_string(path) {
+            let token = raw.trim().to_string();
+            if !token.is_empty() && !tokens.iter().any(|known| known == &token) {
+                tokens.push(token);
+            }
+        }
+    }
+    Ok(tokens)
+}
+
+fn authed_http_with_token(
+    port: u16,
+    method: &str,
+    path: &str,
+    body: &str,
+    token: &str,
+) -> Result<String> {
+    let mut stream = TcpStream::connect(("127.0.0.1", port))
+        .with_context(|| format!("connect Onibi daemon on 127.0.0.1:{port}"))?;
+    write!(
+        stream,
+        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )?;
+    let mut raw = String::new();
+    std::io::Read::read_to_string(&mut stream, &mut raw)?;
+    let (head, body) = raw.split_once("\r\n\r\n").unwrap_or((&raw, ""));
+    let status = head.lines().next().unwrap_or_default();
+    if status.contains(" 200 ") {
+        Ok(body.trim().to_string())
+    } else {
+        bail!("{method} {path} failed: {status} {body}")
+    }
 }

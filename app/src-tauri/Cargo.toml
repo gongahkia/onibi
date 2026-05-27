@@ -46,6 +46,18 @@ keyring = "3"
 clap = { version = "4", features = ["derive"] }
 qrcodegen = "1.8"
 png = "0.17"
+async-trait = "0.1"
+which = "6"
+regex = "1"
+rcgen = { version = "0.13", features = ["ring"] }
+rustls = "0.23"
+rustls-pemfile = "2"
+tokio-rustls = "0.26"
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+mdns-sd = "0.19"
+if-addrs = "0.13"
+sha2 = "0.10"
+hex = "0.4"
 
 [dev-dependencies]
 tempfile = "3"
