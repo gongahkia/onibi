@@ -70,9 +70,13 @@ pub fn stub_info(name: &'static str) -> AdapterInfo {
 }
 
 pub fn stub_install(name: &str) -> Result<String> {
-    Ok(format!("{name} adapter is registered as a Phase-03 stub; no hooks were installed"))
+    Ok(format!(
+        "{name} adapter is registered as a Phase-03 stub; no hooks were installed"
+    ))
 }
 
 pub fn stub_uninstall(name: &str) -> Result<String> {
-    Ok(format!("{name} adapter is a Phase-03 stub; no hooks were removed"))
+    Ok(format!(
+        "{name} adapter is a Phase-03 stub; no hooks were removed"
+    ))
 }

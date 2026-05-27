@@ -8,10 +8,7 @@ pub struct PendingApprovals {
 }
 
 impl PendingApprovals {
-    pub async fn insert(
-        &self,
-        approval_id: String,
-    ) -> oneshot::Receiver<ApprovalDecisionResponse> {
+    pub async fn insert(&self, approval_id: String) -> oneshot::Receiver<ApprovalDecisionResponse> {
         let (tx, rx) = oneshot::channel();
         self.waiters.lock().await.insert(approval_id, tx);
         rx

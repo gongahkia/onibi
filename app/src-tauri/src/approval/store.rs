@@ -36,10 +36,6 @@ impl ApprovalStore {
         &self.path
     }
 
-    pub fn pool(&self) -> DbPool {
-        self.pool.clone()
-    }
-
     pub fn init(&self) -> Result<()> {
         let conn = self.pool.get().context("open sqlite connection")?;
         conn.execute_batch(
@@ -97,9 +93,11 @@ impl ApprovalStore {
 
     pub fn get_meta(&self, key: &str) -> Result<Option<String>> {
         let conn = self.pool.get().context("open sqlite connection")?;
-        conn.query_row("SELECT value FROM meta WHERE key = ?", [key], |row| row.get(0))
-            .optional()
-            .with_context(|| format!("read meta {key}"))
+        conn.query_row("SELECT value FROM meta WHERE key = ?", [key], |row| {
+            row.get(0)
+        })
+        .optional()
+        .with_context(|| format!("read meta {key}"))
     }
 
     pub fn set_meta(&self, key: &str, value: &str) -> Result<()> {

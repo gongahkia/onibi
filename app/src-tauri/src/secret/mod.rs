@@ -52,11 +52,13 @@ pub fn token_path() -> Result<PathBuf> {
 }
 
 pub fn load_or_create_token() -> Result<LoadedToken> {
-    if let Some(token) = read_keyring_token()? {
-        return Ok(LoadedToken {
-            token,
-            source: SecretSource::Keyring,
-        });
+    if !keyring_disabled() {
+        if let Some(token) = read_keyring_token()? {
+            return Ok(LoadedToken {
+                token,
+                source: SecretSource::Keyring,
+            });
+        }
     }
 
     let path = token_path()?;
@@ -68,7 +70,7 @@ pub fn load_or_create_token() -> Result<LoadedToken> {
     }
 
     let token = generate_token();
-    if write_keyring_token(&token).is_ok() {
+    if !keyring_disabled() && write_keyring_token(&token).is_ok() {
         return Ok(LoadedToken {
             token,
             source: SecretSource::Keyring,
@@ -84,7 +86,7 @@ pub fn load_or_create_token() -> Result<LoadedToken> {
 
 pub fn rotate_token() -> Result<LoadedToken> {
     let token = generate_token();
-    if write_keyring_token(&token).is_ok() {
+    if !keyring_disabled() && write_keyring_token(&token).is_ok() {
         if let Ok(path) = token_path() {
             let _ = fs::remove_file(path);
         }
@@ -144,6 +146,10 @@ fn read_keyring_token() -> Result<Option<String>> {
     }
 }
 
+fn keyring_disabled() -> bool {
+    std::env::var("ONIBI_DISABLE_KEYRING").is_ok_and(|value| value == "1")
+}
+
 fn write_keyring_token(token: &str) -> Result<()> {
     let entry = keyring::Entry::new(SERVICE, TOKEN_USER).context("open keyring entry")?;
     entry.set_password(token).context("write token to keyring")
@@ -175,7 +181,7 @@ fn write_token_file(path: &PathBuf, token: &str) -> Result<()> {
 fn write_secret_file(path: &PathBuf, bytes: &[u8]) -> Result<()> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::OpenOptionsExt;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
         let mut file = OpenOptions::new()
             .create(true)
             .truncate(true)

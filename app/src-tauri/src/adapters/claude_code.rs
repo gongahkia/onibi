@@ -11,7 +11,7 @@ use std::{
     process::Command,
 };
 
-const HOOK_URL: &str = "http://127.0.0.1:17893/v1/adapters/claude-code/hook";
+const HOOK_PATH: &str = "/v1/adapters/claude-code/hook";
 const MIN_VERSION: (u64, u64, u64) = (2, 0, 10);
 
 pub fn install(token: &str) -> Result<String> {
@@ -36,7 +36,7 @@ pub fn installed() -> Result<bool> {
         return Ok(false);
     }
     let raw = fs::read_to_string(path)?;
-    Ok(raw.contains(HOOK_URL))
+    Ok(raw.contains(HOOK_PATH))
 }
 
 pub async fn handle_http_hook(state: &AppState, payload: Value) -> Result<Value> {
@@ -101,7 +101,8 @@ pub async fn handle_http_hook(state: &AppState, payload: Value) -> Result<Value>
 }
 
 pub fn ensure_supported_version(raw: &str) -> Result<()> {
-    let version = parse_version(raw).with_context(|| format!("parse Claude Code version: {raw}"))?;
+    let version =
+        parse_version(raw).with_context(|| format!("parse Claude Code version: {raw}"))?;
     if version < MIN_VERSION {
         bail!(
             "Claude Code v{}.{}.{} is unsupported; Onibi requires v2.0.10+",
@@ -140,14 +141,16 @@ fn install_at(path: &Path, token: &str) -> Result<()> {
         "matcher": "*",
         "hooks": [{
             "type": "http",
-            "url": HOOK_URL,
+            "url": hook_url(),
             "timeout": 600000,
             "headers": {
                 "Authorization": format!("Bearer {token}")
             }
         }]
     });
-    let root = settings.as_object_mut().context("Claude settings must be an object")?;
+    let root = settings
+        .as_object_mut()
+        .context("Claude settings must be an object")?;
     let hooks = root.entry("hooks").or_insert_with(|| json!({}));
     let hooks = hooks
         .as_object_mut()
@@ -184,8 +187,11 @@ fn write_settings(path: &Path, settings: &Value) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
-    fs::write(path, format!("{}\n", serde_json::to_string_pretty(settings)?))
-        .with_context(|| format!("write {}", path.display()))
+    fs::write(
+        path,
+        format!("{}\n", serde_json::to_string_pretty(settings)?),
+    )
+    .with_context(|| format!("write {}", path.display()))
 }
 
 fn remove_onibi_hook(settings: &mut Value) {
@@ -199,7 +205,7 @@ fn remove_onibi_hook(settings: &mut Value) {
 
     for group in pre_tool.iter_mut() {
         if let Some(handlers) = group.get_mut("hooks").and_then(Value::as_array_mut) {
-            handlers.retain(|handler| handler.get("url").and_then(Value::as_str) != Some(HOOK_URL));
+            handlers.retain(|handler| !is_onibi_handler(handler));
         }
     }
     pre_tool.retain(|group| {
@@ -208,6 +214,18 @@ fn remove_onibi_hook(settings: &mut Value) {
             .and_then(Value::as_array)
             .is_none_or(|handlers| !handlers.is_empty())
     });
+}
+
+fn hook_url() -> String {
+    let port = std::env::var("ONIBI_PORT").unwrap_or_else(|_| "17893".to_string());
+    format!("http://127.0.0.1:{port}{HOOK_PATH}")
+}
+
+fn is_onibi_handler(handler: &Value) -> bool {
+    handler
+        .get("url")
+        .and_then(Value::as_str)
+        .is_some_and(|url| url.starts_with("http://127.0.0.1:") && url.ends_with(HOOK_PATH))
 }
 
 #[cfg(test)]
@@ -251,13 +269,13 @@ mod tests {
         install_at(&path, "token-1").unwrap();
         install_at(&path, "token-1").unwrap();
         let installed = fs::read_to_string(&path).unwrap();
-        assert_eq!(installed.matches(HOOK_URL).count(), 1);
+        assert_eq!(installed.matches(HOOK_PATH).count(), 1);
         assert!(installed.contains("/tmp/existing.sh"));
         assert!(installed.contains("/tmp/stop.sh"));
 
         uninstall_at(&path).unwrap();
         let uninstalled = fs::read_to_string(&path).unwrap();
-        assert!(!uninstalled.contains(HOOK_URL));
+        assert!(!uninstalled.contains(HOOK_PATH));
         assert!(uninstalled.contains("/tmp/existing.sh"));
         assert!(uninstalled.contains("/tmp/stop.sh"));
     }

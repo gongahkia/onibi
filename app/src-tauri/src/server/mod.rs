@@ -14,7 +14,6 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use serde_json::Value;
 use std::{
     collections::{HashMap, VecDeque},
     net::SocketAddr,
@@ -92,14 +91,6 @@ impl AppState {
         while buffer.len() > self.ring_limit {
             buffer.pop_front();
         }
-    }
-
-    pub async fn pty_tail(&self, session_id: &str) -> Option<Value> {
-        let ring = self.pty_ring.read().await;
-        ring.get(session_id).map(|buffer| {
-            let bytes: Vec<u8> = buffer.iter().copied().collect();
-            Value::String(String::from_utf8_lossy(&bytes).to_string())
-        })
     }
 }
 

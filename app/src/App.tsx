@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import "./App.css";
+import { ApprovalModal } from "./components/ApprovalModal";
 import { TerminalView } from "./components/TerminalView";
 import { ptyKill, ptySpawn, shellPath, type PtyId } from "./lib/tauri-bridge";
 
@@ -44,6 +45,7 @@ function App() {
     <main className="app-shell">
       {ptyId ? <TerminalView ptyId={ptyId} /> : <div className="terminal-loading">Starting shell...</div>}
       {error ? <div className="terminal-error">{error}</div> : null}
+      <ApprovalModal />
     </main>
   );
 }

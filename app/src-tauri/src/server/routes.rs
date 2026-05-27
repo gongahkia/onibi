@@ -8,7 +8,7 @@ use crate::{
         PROTOCOL_VERSION,
     },
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
 use axum::{
     body::Body,
     extract::{Path, State},
@@ -38,11 +38,7 @@ pub async fn approval_request(
 }
 
 pub async fn approval_pending(State(state): State<AppState>) -> ApiResult<Vec<Approval>> {
-    state
-        .store
-        .list_pending()
-        .map(Json)
-        .map_err(internal_error)
+    state.store.list_pending().map(Json).map_err(internal_error)
 }
 
 pub async fn approval_decide(
@@ -71,10 +67,7 @@ pub async fn approval_decide(
         updated_input: body.updated_input.clone(),
         reason: body.reason.clone(),
     };
-    let _ = state
-        .pending
-        .resolve(&approval_id, response.clone())
-        .await;
+    let _ = state.pending.resolve(&approval_id, response.clone()).await;
 
     let machine_id = state
         .store
@@ -100,9 +93,7 @@ pub async fn run_event(
     Json(body): Json<RunEventBody>,
 ) -> ApiResult<Value> {
     validate_version(body.protocol_version.as_deref())?;
-    let machine_id = body
-        .machine_id
-        .unwrap_or_else(|| state.machine_id.clone());
+    let machine_id = body.machine_id.unwrap_or_else(|| state.machine_id.clone());
     state
         .store
         .insert_run_event(&machine_id, &body.session_id, &body.kind, &body.payload)
@@ -114,7 +105,9 @@ pub async fn run_event(
         kind: body.kind,
         payload: body.payload,
     });
-    Ok(Json(json!({"ok": true, "protocol_version": PROTOCOL_VERSION})))
+    Ok(Json(
+        json!({"ok": true, "protocol_version": PROTOCOL_VERSION}),
+    ))
 }
 
 pub async fn pty_output(
@@ -122,9 +115,7 @@ pub async fn pty_output(
     Json(body): Json<PtyOutputBody>,
 ) -> ApiResult<Value> {
     validate_version(body.protocol_version.as_deref())?;
-    let machine_id = body
-        .machine_id
-        .unwrap_or_else(|| state.machine_id.clone());
+    let machine_id = body.machine_id.unwrap_or_else(|| state.machine_id.clone());
     state.append_pty_output(&body.session_id, &body.data).await;
     state.broadcast(ServerMessage::PtyOutput {
         protocol_version: PROTOCOL_VERSION.to_string(),
@@ -132,7 +123,9 @@ pub async fn pty_output(
         session_id: body.session_id,
         data: body.data,
     });
-    Ok(Json(json!({"ok": true, "protocol_version": PROTOCOL_VERSION})))
+    Ok(Json(
+        json!({"ok": true, "protocol_version": PROTOCOL_VERSION}),
+    ))
 }
 
 pub async fn pair(
@@ -142,7 +135,11 @@ pub async fn pair(
     let device_id = Ulid::new().to_string();
     state
         .store
-        .insert_device(&device_id, &body.device_label, body.push_subscription.as_ref())
+        .insert_device(
+            &device_id,
+            &body.device_label,
+            body.push_subscription.as_ref(),
+        )
         .map_err(internal_error)?;
     Ok(Json(PairResponse {
         protocol_version: PROTOCOL_VERSION.to_string(),
@@ -155,10 +152,9 @@ pub async fn qr(State(state): State<AppState>) -> Result<Response, (StatusCode, 
     let payload = pairing::pairing_payload(state.port, &state.token);
     let png = pairing::qr_png(&payload).map_err(internal_error)?;
     let mut response = Body::from(png).into_response();
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("image/png"),
-    );
+    response
+        .headers_mut()
+        .insert(header::CONTENT_TYPE, HeaderValue::from_static("image/png"));
     Ok(response)
 }
 
@@ -190,12 +186,8 @@ pub async fn wait_for_approval_decision(
     let approval = Approval {
         protocol_version: PROTOCOL_VERSION.to_string(),
         approval_id: approval_id.clone(),
-        machine_id: body
-            .machine_id
-            .unwrap_or_else(|| state.machine_id.clone()),
-        session_id: body
-            .session_id
-            .unwrap_or_else(|| Ulid::new().to_string()),
+        machine_id: body.machine_id.unwrap_or_else(|| state.machine_id.clone()),
+        session_id: body.session_id.unwrap_or_else(|| Ulid::new().to_string()),
         agent: body.agent,
         tool: body.tool,
         input: body.input,
@@ -300,7 +292,8 @@ mod tests {
             .unwrap();
 
         let pending_app = app.clone();
-        let response_task = tokio::spawn(async move { pending_app.oneshot(request).await.unwrap() });
+        let response_task =
+            tokio::spawn(async move { pending_app.oneshot(request).await.unwrap() });
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         let pending_response = app
