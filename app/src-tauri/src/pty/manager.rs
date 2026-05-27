@@ -1,0 +1,366 @@
+use super::session::{
+    PtyError, PtyEvent, PtyExitStatus, PtyId, PtySession, PtySpawnRequest, PtyStore,
+};
+use bytes::Bytes;
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use std::{
+    collections::HashMap,
+    io::{Read, Write},
+    sync::Arc,
+    time::Duration,
+};
+use tokio::{
+    sync::{broadcast, mpsc},
+    task, time,
+};
+use tracing::{debug, info, warn};
+use uuid::Uuid;
+
+type Result<T> = std::result::Result<T, PtyError>;
+
+pub struct PtyManager {
+    sessions: PtyStore,
+}
+
+impl PtyManager {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self {
+            sessions: Arc::new(parking_lot::RwLock::new(HashMap::new())),
+        })
+    }
+
+    pub async fn spawn(&self, req: PtySpawnRequest) -> Result<PtyId> {
+        let id = Uuid::new_v4();
+        let rows = req.rows.max(1);
+        let cols = req.cols.max(1);
+        let pty_system = native_pty_system();
+        let pair = pty_system.openpty(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })?;
+        let command = if req.command.trim().is_empty() {
+            crate::util::shell::default_shell()
+        } else {
+            req.command
+        };
+        let mut cmd = CommandBuilder::new(&command);
+        cmd.args(req.args.iter());
+        cmd.env("TERM", "xterm-256color");
+        cmd.env("COLORTERM", "truecolor");
+        if let Some(cwd) = req.cwd {
+            cmd.cwd(cwd.as_os_str());
+        }
+        for (key, value) in req.env {
+            cmd.env(key, value);
+        }
+        let mut reader = pair.master.try_clone_reader()?;
+        let writer = pair.master.take_writer()?;
+        let child = pair.slave.spawn_command(cmd)?;
+        let (tx, _) = broadcast::channel(1024);
+        let session = PtySession::new(id, pair.master, child, writer, tx);
+        self.sessions.write().insert(id, session.clone());
+        self.spawn_reader(id, session.sender(), &mut reader);
+        self.spawn_waiter(session.clone());
+        info!(%id, command, rows, cols, "spawned pty");
+        Ok(id)
+    }
+
+    pub async fn write(&self, id: PtyId, data: &[u8]) -> Result<()> {
+        let session = self.session(id)?;
+        if session.is_terminated() {
+            return Err(PtyError::Terminated(id));
+        }
+        debug!(%id, bytes = data.len(), "pty write");
+        let writer = session.writer();
+        let payload = Bytes::copy_from_slice(data);
+        task::spawn_blocking(move || {
+            let handle = tokio::runtime::Handle::current();
+            handle.block_on(async {
+                let mut writer = writer.lock().await;
+                writer.write_all(&payload)?;
+                writer.flush()
+            })
+        })
+        .await??;
+        Ok(())
+    }
+
+    pub async fn resize(&self, id: PtyId, rows: u16, cols: u16) -> Result<()> {
+        let session = self.session(id)?;
+        if session.is_terminated() {
+            return Err(PtyError::Terminated(id));
+        }
+        let rows = rows.max(1);
+        let cols = cols.max(1);
+        debug!(%id, rows, cols, "pty resize");
+        let master = session.master();
+        task::spawn_blocking(move || {
+            master.lock().resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+        })
+        .await??;
+        Ok(())
+    }
+
+    pub async fn kill(&self, id: PtyId) -> Result<()> {
+        let session = self.session(id)?;
+        if session.is_terminated() {
+            return Ok(());
+        }
+        debug!(%id, "pty kill");
+        let child = session.child();
+        task::spawn_blocking(move || child.lock().kill()).await??;
+        Ok(())
+    }
+
+    pub fn subscribe(&self, id: PtyId) -> Result<broadcast::Receiver<PtyEvent>> {
+        Ok(self.session(id)?.subscribe())
+    }
+
+    pub async fn list(&self) -> Vec<PtyId> {
+        self.sessions
+            .read()
+            .iter()
+            .filter_map(|(id, session)| (!session.is_terminated()).then_some(*id))
+            .collect()
+    }
+
+    fn session(&self, id: PtyId) -> Result<PtySession> {
+        self.sessions
+            .read()
+            .get(&id)
+            .cloned()
+            .ok_or(PtyError::NotFound(id))
+    }
+
+    fn spawn_reader(
+        &self,
+        id: PtyId,
+        tx: broadcast::Sender<PtyEvent>,
+        reader: &mut Box<dyn Read + Send>,
+    ) {
+        let mut reader = std::mem::replace(reader, Box::new(std::io::empty()));
+        let (chunk_tx, mut chunk_rx) = mpsc::unbounded_channel::<Bytes>();
+        task::spawn_blocking(move || {
+            let mut buf = [0_u8; 8192];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        if chunk_tx.send(Bytes::copy_from_slice(&buf[..n])).is_err() {
+                            break;
+                        }
+                    }
+                    Err(err) => {
+                        debug!(%id, %err, "pty reader stopped");
+                        break;
+                    }
+                }
+            }
+        });
+        tokio::spawn(async move {
+            let mut pending = Vec::with_capacity(64 * 1024);
+            let mut flush = time::interval(Duration::from_millis(16));
+            flush.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
+
+            loop {
+                tokio::select! {
+                    chunk = chunk_rx.recv() => match chunk {
+                        Some(bytes) => {
+                            pending.extend_from_slice(&bytes);
+                            if pending.len() >= 64 * 1024 {
+                                broadcast_pending(&tx, &mut pending);
+                            }
+                        }
+                        None => {
+                            broadcast_pending(&tx, &mut pending);
+                            break;
+                        }
+                    },
+                    _ = flush.tick() => broadcast_pending(&tx, &mut pending),
+                }
+            }
+        });
+    }
+
+    fn spawn_waiter(&self, session: PtySession) {
+        let id = session.id();
+        let child = session.child();
+        let tx = session.sender();
+        tokio::spawn(async move {
+            loop {
+                let child = child.clone();
+                match task::spawn_blocking(move || child.lock().try_wait()).await {
+                    Ok(Ok(Some(status))) => {
+                        let exit = PtyExitStatus::from(status);
+                        session.set_terminated(exit.clone());
+                        info!(%id, code = exit.code, signal = ?exit.signal, "pty exited");
+                        let _ = tx.send(PtyEvent::Exit(exit));
+                        break;
+                    }
+                    Ok(Ok(None)) => time::sleep(Duration::from_millis(20)).await,
+                    Ok(Err(err)) => {
+                        warn!(%id, %err, "pty wait failed");
+                        let exit = PtyExitStatus {
+                            code: 1,
+                            signal: Some(format!("wait error: {err}")),
+                        };
+                        session.set_terminated(exit.clone());
+                        let _ = tx.send(PtyEvent::Exit(exit));
+                        break;
+                    }
+                    Err(err) => {
+                        warn!(%id, %err, "pty wait task failed");
+                        let exit = PtyExitStatus {
+                            code: 1,
+                            signal: Some(format!("wait task error: {err}")),
+                        };
+                        session.set_terminated(exit.clone());
+                        let _ = tx.send(PtyEvent::Exit(exit));
+                        break;
+                    }
+                }
+            }
+        });
+    }
+}
+
+fn broadcast_pending(tx: &broadcast::Sender<PtyEvent>, pending: &mut Vec<u8>) {
+    if pending.is_empty() {
+        return;
+    }
+    let _ = tx.send(PtyEvent::Data(Bytes::copy_from_slice(pending)));
+    pending.clear();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::time::{timeout, Instant};
+
+    async fn collect_until_exit(
+        rx: &mut broadcast::Receiver<PtyEvent>,
+        max_wait: Duration,
+    ) -> (Vec<u8>, PtyExitStatus) {
+        let deadline = Instant::now() + max_wait;
+        let mut output = Vec::new();
+        loop {
+            let now = Instant::now();
+            assert!(now < deadline, "timed out waiting for pty exit");
+            let remaining = deadline - now;
+            match timeout(remaining, rx.recv()).await.unwrap().unwrap() {
+                PtyEvent::Data(bytes) => output.extend_from_slice(&bytes),
+                PtyEvent::Exit(status) => return (output, status),
+            }
+        }
+    }
+
+    async fn recv_until_contains(
+        rx: &mut broadcast::Receiver<PtyEvent>,
+        needle: &[u8],
+        max_wait: Duration,
+    ) -> Vec<u8> {
+        let deadline = Instant::now() + max_wait;
+        let mut output = Vec::new();
+        loop {
+            let now = Instant::now();
+            assert!(now < deadline, "timed out waiting for pty output");
+            let remaining = deadline - now;
+            if let PtyEvent::Data(bytes) = timeout(remaining, rx.recv()).await.unwrap().unwrap() {
+                output.extend_from_slice(&bytes);
+                if output.windows(needle.len()).any(|window| window == needle) {
+                    return output;
+                }
+            }
+        }
+    }
+
+    fn sh_req(script: &str) -> PtySpawnRequest {
+        PtySpawnRequest {
+            command: "/bin/sh".to_string(),
+            args: vec!["-c".to_string(), script.to_string()],
+            cwd: None,
+            env: vec![],
+            rows: 24,
+            cols: 80,
+        }
+    }
+
+    #[tokio::test]
+    async fn spawn_echo_collects_output_and_exit() {
+        let manager = PtyManager::new();
+        let id = manager.spawn(sh_req("echo hello")).await.unwrap();
+        let mut rx = manager.subscribe(id).unwrap();
+        let (output, status) = collect_until_exit(&mut rx, Duration::from_secs(2)).await;
+        assert!(String::from_utf8_lossy(&output).contains("hello"));
+        assert_eq!(status.code, 0);
+    }
+
+    #[tokio::test]
+    async fn cat_echoes_written_input() {
+        let manager = PtyManager::new();
+        let id = manager
+            .spawn(PtySpawnRequest {
+                command: "/bin/cat".to_string(),
+                args: vec![],
+                cwd: None,
+                env: vec![],
+                rows: 24,
+                cols: 80,
+            })
+            .await
+            .unwrap();
+        let mut rx = manager.subscribe(id).unwrap();
+        manager.write(id, b"ping\n").await.unwrap();
+        let output = recv_until_contains(&mut rx, b"ping", Duration::from_secs(2)).await;
+        assert!(String::from_utf8_lossy(&output).contains("ping"));
+        manager.kill(id).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn sleep_can_be_killed() {
+        let manager = PtyManager::new();
+        let id = manager
+            .spawn(PtySpawnRequest {
+                command: "/bin/sleep".to_string(),
+                args: vec!["10".to_string()],
+                cwd: None,
+                env: vec![],
+                rows: 24,
+                cols: 80,
+            })
+            .await
+            .unwrap();
+        let mut rx = manager.subscribe(id).unwrap();
+        manager.kill(id).await.unwrap();
+        let (_, status) = collect_until_exit(&mut rx, Duration::from_secs(1)).await;
+        assert_ne!(status.code, 0);
+    }
+
+    #[tokio::test]
+    async fn resize_active_pty() {
+        let manager = PtyManager::new();
+        let id = manager.spawn(sh_req("sleep 1")).await.unwrap();
+        manager.resize(id, 40, 120).await.unwrap();
+        manager.kill(id).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn integration_receives_output_and_exit_code() {
+        let manager = PtyManager::new();
+        let id = manager
+            .spawn(sh_req("echo hi; sleep 0.1; exit 7"))
+            .await
+            .unwrap();
+        let mut rx = manager.subscribe(id).unwrap();
+        let (output, status) = collect_until_exit(&mut rx, Duration::from_secs(2)).await;
+        assert!(String::from_utf8_lossy(&output).contains("hi"));
+        assert_eq!(status.code, 7);
+    }
+}

@@ -1,26 +1,17 @@
-.PHONY: build test web-sync check-web-sync smoke-mobile-access install-hooks install-hooks-remote uninstall-hooks
+.PHONY: dev-app dev-mobile test build clean
 
-build:
-	swift build
+dev-app:
+	cd app && pnpm tauri dev
+
+dev-mobile:
+	cd mobile && pnpm dev
 
 test:
-	swift test
-	npm --prefix OnibiWeb test
+	cd app/src-tauri && cargo test && cd ../.. && cd mobile && pnpm test && cd ../app && pnpm test
 
-web-sync:
-	./scripts/sync_web_assets.sh
+build:
+	cd app && pnpm tauri build
+	cd mobile && pnpm build
 
-check-web-sync:
-	./scripts/check_web_assets_synced.sh
-
-smoke-mobile-access:
-	./scripts/smoke_mobile_access.sh
-
-install-hooks:
-	./scripts/install_shell_hooks.sh --shell zsh
-
-install-hooks-remote:
-	./scripts/install_shell_hooks.sh --shell zsh --remote-control
-
-uninstall-hooks:
-	./scripts/install_shell_hooks.sh --shell zsh --uninstall
+clean:
+	rm -rf app/dist app/src-tauri/target mobile/dist node_modules app/node_modules mobile/node_modules

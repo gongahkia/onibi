@@ -1,3 +1,11 @@
+# v1.5
+target/
+dist/
+dist-ssr/
+node_modules/
+*.local
+.DS_Store
+
 # Xcode
 *.xcodeproj/*
 !*.xcodeproj/project.pbxproj
@@ -9,7 +17,6 @@
 # Build generated
 build/
 DerivedData/
-dist/
 
 # Various settings
 *.pbxuser
