@@ -1,16 +1,23 @@
-# Onibi Transports
+# Transports
 
-Onibi starts its approval server on `127.0.0.1:17893`. Transports publish that same protocol through additional reachable URLs so the mobile PWA can approve requests when it is not running on the host Mac.
+Onibi starts the approval server on `127.0.0.1:17893`. Transports publish that same protocol to the phone without requiring inbound firewall rules.
 
-The pairing QR now includes:
+Use all three during development; recommend one during onboarding:
+
+| Transport | Best for | Account | Phone on LTE | URL lifetime | Notes |
+| --- | --- | --- | ---: | --- | --- |
+| Tailscale Funnel | Daily personal use | Tailscale | Yes | Stable tailnet DNS | Best persistent option if you already use Tailscale. |
+| Cloudflare Quick Tunnel | Demos and first-time trials | No | Yes | Ephemeral | Random `trycloudflare.com` URL changes when restarted. |
+| LAN HTTPS | Same Wi-Fi fallback | No | No | Stable while IP stays stable | Requires trusting Onibi's self-signed cert on the phone. |
+
+The pairing QR includes every enabled transport:
 
 ```json
 {
   "machine_id": "01J...",
   "token": "<bearer token>",
-  "vapid_public_key": "<phase-03 vapid public key>",
+  "vapid_public_key": "<public key>",
   "transports": [
-    { "name": "loopback", "url": "http://127.0.0.1:17893/" },
     { "name": "tailscale-funnel", "url": "https://host.tailnet.ts.net/" },
     { "name": "cloudflared", "url": "https://random.trycloudflare.com/" },
     {
@@ -22,7 +29,7 @@ The pairing QR now includes:
 }
 ```
 
-The PWA should try transports in order and reconnect through the next working URL if one fails.
+The PWA tries transports in order and reconnects through the next working URL if one fails.
 
 ## CLI
 
@@ -38,114 +45,181 @@ onibi transport disable cloudflared
 
 `enable` and `disable` talk to the running daemon so child processes and tunnel handles stay alive.
 
-## Settings UI
-
-The `TransportSettings` React component polls `/v1/transport/status` every five seconds and exposes toggles for:
-
-- Tailscale Funnel
-- Cloudflare Tunnel
-- LAN
-
-LAN also exposes a certificate QR button for the self-signed cert. The mobile device must trust that cert before browser HTTPS requests to the LAN URL will succeed.
-
 ## Tailscale Funnel
-
-Best for users already on Tailscale and for phone-on-LTE to Mac-on-home-Wi-Fi demos.
-
-Requirements:
-
-- Tailscale CLI in `PATH`.
-- Tailscale logged in: `tailscale up`.
-- MagicDNS and HTTPS enabled for the tailnet.
-- Funnel allowed by the tailnet policy.
-
-Onibi runs:
-
-```sh
-tailscale status --json
-tailscale funnel --bg 17893
-```
-
-The daemon reads `Self.DNSName` from `tailscale status --json` and publishes `https://<dns-name>/` in the QR payload. Disabling the transport runs `tailscale funnel reset`.
 
 Reference: <https://tailscale.com/docs/features/tailscale-funnel>
 
-## Cloudflare Tunnel
+Tailscale Funnel exposes one local service through a public HTTPS URL under your tailnet DNS name. Tailscale documents these launch requirements: Tailscale v1.38.3 or later, MagicDNS enabled, HTTPS certificates enabled, and a tailnet policy that allows the `funnel` node attribute.
 
-Best for quick public demos without a Cloudflare account. Cloudflare marks Quick Tunnels as testing/development infrastructure, so treat the generated URL as ephemeral.
+![Tailscale Funnel setup screenshot](tailscale-funnel-setup.png)
 
-Requirements:
+Setup:
 
-- `cloudflared` in `PATH`.
-- No conflicting `~/.cloudflared/config.yaml` for Quick Tunnel mode.
+```sh
+tailscale version
+tailscale up
+tailscale status --json
+onibi transport enable tailscale-funnel
+onibi transport status
+```
 
-Onibi runs:
+What Onibi runs:
+
+```sh
+tailscale funnel --bg 17893
+tailscale funnel status --json
+```
+
+Troubleshooting:
+
+| Symptom | Fix |
+| --- | --- |
+| `tailscale CLI not found` | Install Tailscale and ensure `tailscale version` works in the same shell that launches Onibi. |
+| Not logged in | Run `tailscale up`. |
+| Funnel policy denied | In the Tailscale admin console, enable Funnel for your tailnet policy. |
+| DNS URL does not resolve yet | Wait for DNS propagation; Tailscale notes this can take several minutes. |
+| Certificate or quota errors | Stop repeated enable/disable loops; use Cloudflare or LAN while the limit clears. |
+
+## Cloudflare Quick Tunnel
+
+References:
+
+- <https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/>
+- <https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/>
+
+Cloudflare Quick Tunnels generate a random `trycloudflare.com` URL and proxy it to localhost. Cloudflare positions Quick Tunnels as testing/development infrastructure; use named tunnels for production.
+
+![Cloudflare Quick Tunnel setup screenshot](cloudflare-quick-tunnel.png)
+
+macOS:
+
+```sh
+brew install cloudflared
+cloudflared --version
+onibi transport enable cloudflared
+```
+
+Debian / Ubuntu:
+
+```sh
+sudo mkdir -p --mode=0755 /usr/share/keyrings
+curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg \
+  | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main" \
+  | sudo tee /etc/apt/sources.list.d/cloudflared.list
+sudo apt-get update
+sudo apt-get install cloudflared
+cloudflared --version
+onibi transport enable cloudflared
+```
+
+RHEL / Fedora:
+
+```sh
+curl -fsSL https://pkg.cloudflare.com/cloudflared.repo \
+  | sudo tee /etc/yum.repos.d/cloudflared.repo
+sudo yum update
+sudo yum install cloudflared
+cloudflared --version
+onibi transport enable cloudflared
+```
+
+What Onibi runs:
 
 ```sh
 cloudflared tunnel --url http://127.0.0.1:17893 --no-autoupdate
 ```
 
-The daemon parses the first `https://*.trycloudflare.com` URL from stderr and keeps the child process alive until the transport is disabled or the daemon exits.
+Troubleshooting:
 
-Reference: <https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/>
+| Symptom | Fix |
+| --- | --- |
+| `cloudflared not found` | Install via Homebrew or the Cloudflare package repository. |
+| Quick Tunnel refuses to start | Move conflicting `~/.cloudflared/config.yaml` aside for the demo. |
+| URL changed | Re-open the pairing QR; Quick Tunnel URLs are ephemeral. |
+| Corporate firewall blocks tunnel | Allow outbound Cloudflare Tunnel traffic or use Tailscale/LAN. |
 
-## LAN
+## LAN HTTPS
 
-Best when the phone and Mac are on the same Wi-Fi network.
-
-On first use, Onibi creates:
+LAN mode is the no-account path for same-Wi-Fi use. Onibi creates:
 
 ```text
 ~/.config/onibi/lan.crt
 ~/.config/onibi/lan.key
 ```
 
-The certificate includes `localhost`, `127.0.0.1`, and discovered private/link-local IPv4 addresses as SANs. The daemon starts a TLS listener on the selected LAN IP and proxies traffic to the loopback approval server. It also advertises `_onibi._tcp.local.` with mDNS.
+The certificate includes `localhost`, `127.0.0.1`, and discovered LAN IPv4 addresses as SANs. The daemon starts a TLS listener on the selected LAN IP and proxies traffic to the loopback server. It also advertises `_onibi._tcp.local.` with mDNS.
 
-Trust the certificate before pairing:
+![LAN certificate install screenshot](lan-cert-install.png)
 
-- iOS/iPadOS: transfer `lan.crt`, open it, install the profile, then enable full trust in Settings > General > About > Certificate Trust Settings.
-- Android: install `lan.crt` as a user certificate under Security > Encryption & credentials. Browser behavior varies by Android version and browser.
-- macOS: add `lan.crt` to Keychain Access and set it to Always Trust for testing.
+Enable:
 
-Verify:
+```sh
+onibi transport enable lan
+onibi transport status
+```
+
+Verify from another machine on the same Wi-Fi:
 
 ```sh
 curl -k https://<lan-ip>:17893/healthz
 ```
 
-The pairing payload includes the LAN URL and the SHA256 certificate fingerprint for display and manual verification.
+### iOS / iPadOS Certificate Install
 
-## Comparison
+1. Export or AirDrop `~/.config/onibi/lan.crt` to the device, or scan the LAN certificate QR in Onibi.
+2. Open the downloaded profile.
+3. Go to Settings > General > VPN & Device Management and install the profile.
+4. Go to Settings > General > About > Certificate Trust Settings.
+5. Enable full trust for the Onibi certificate.
+6. Re-open the pairing QR and choose the LAN URL.
 
-| Transport | Account | Public LTE access | URL persistence | Notes |
-| --- | --- | --- | --- | --- |
-| Tailscale Funnel | Tailscale | Yes | Stable tailnet DNS | Best persistent option for Tailscale users. |
-| Cloudflare Tunnel | No | Yes | Ephemeral | Good demos, generated URL changes on restart. |
-| LAN | No | No | Stable while IP stays stable | Requires same Wi-Fi and trusted self-signed cert. |
+### Android Certificate Install
 
-## Troubleshooting
+1. Copy `~/.config/onibi/lan.crt` to the device.
+2. Open Settings > Security > Encryption & credentials.
+3. Choose Install a certificate > CA certificate.
+4. Select the Onibi certificate and confirm.
+5. Re-open the pairing QR and choose the LAN URL.
 
-`tailscale CLI not found`
+Browser behavior differs by Android version. Chrome may still restrict user-installed CA roots for some app contexts; use Tailscale or Cloudflare if LAN trust becomes noisy.
 
-Install Tailscale and confirm `tailscale version` works in the same shell that launches Onibi.
+### macOS Certificate Install
 
-`tailscale is not logged in`
+1. Open Keychain Access.
+2. Drag `~/.config/onibi/lan.crt` into the System or login keychain.
+3. Open the certificate, expand Trust, and set "When using this certificate" to "Always Trust".
+4. Restart the browser before testing.
 
-Run `tailscale up`, then retry. If Funnel still fails, check MagicDNS, HTTPS, and node attributes in the Tailscale admin console.
+### Linux Certificate Install
 
-`Tailscale Funnel quota or certificate limit reached`
+Debian / Ubuntu:
 
-Use Cloudflare or LAN temporarily. Tailscale can hit certificate or policy limits while repeatedly testing Funnel.
+```sh
+sudo cp ~/.config/onibi/lan.crt /usr/local/share/ca-certificates/onibi.crt
+sudo update-ca-certificates
+```
 
-`cloudflared not found`
+Fedora:
 
-Install `cloudflared` and confirm `cloudflared --version` works. If Quick Tunnels refuse to start, temporarily move any existing `.cloudflared/config.yaml`.
+```sh
+sudo cp ~/.config/onibi/lan.crt /etc/pki/ca-trust/source/anchors/onibi.crt
+sudo update-ca-trust
+```
 
-`no non-loopback LAN IPv4 address found`
+## Security Notes
 
-Join Wi-Fi or another LAN with a private IPv4 address. IPv6-only LANs are not explicitly supported in v1.5.
+- The bearer token is mandatory on every API and WebSocket route.
+- HSTS is sent for tunnel-bound HTTPS responses, not LAN self-signed responses.
+- LAN certificate trust is an OS-level step; browser JavaScript cannot pin a self-signed cert before TLS succeeds.
+- Rotate the token after demos with `onibi token rotate`.
 
-Browser certificate warning on LAN
+## Support
 
-Install and trust `~/.config/onibi/lan.crt` on the phone. A self-signed cert must be trusted by the OS before the PWA can use `fetch` or WebSocket over HTTPS.
+Run:
+
+```sh
+onibi doctor
+```
+
+Paste the output into the issue. It reports token storage, DB writability, port availability, and adapter binary detection.

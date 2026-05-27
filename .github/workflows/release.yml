@@ -8,37 +8,76 @@ on:
 permissions:
   contents: write
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  release:
-    name: release ${{ matrix.target-name }}
+  headless-smoke:
+    name: headless smoke
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri -> target
+      - name: Build headless without GUI dependencies
+        run: cargo build --manifest-path app/src-tauri/Cargo.toml --release --no-default-features
+      - name: Smoke /v1/status authentication
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ONIBI_CONFIG_DIR="$(mktemp -d)"
+          export ONIBI_DISABLE_KEYRING=1
+          BIN="app/src-tauri/target/release/onibi"
+          TOKEN="$("$BIN" --port 17894 token show)"
+          "$BIN" --headless --port 17894 >headless.log 2>&1 &
+          PID="$!"
+          trap 'kill "$PID" 2>/dev/null || true' EXIT
+          for _ in {1..30}; do
+            curl -fsS http://127.0.0.1:17894/healthz >/dev/null && break
+            sleep 1
+          done
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:17894/v1/status)" = "401"
+          curl -fsS -H "Authorization: Bearer ${TOKEN}" http://127.0.0.1:17894/v1/status >/tmp/onibi-status.json
+          grep -q '"ok":true' /tmp/onibi-status.json
+      - name: Install cross
+        run: cargo install cross --locked
+      - name: Cross-build Pi headless binary
+        run: cross build --manifest-path app/src-tauri/Cargo.toml --release --target aarch64-unknown-linux-gnu --no-default-features
+
+  build-gui:
+    name: build ${{ matrix.target-name }}
+    needs: headless-smoke
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - target-name: darwin-x86_64
-            os: macos-14
+            os: macos-13
             rust-target: x86_64-apple-darwin
             bundles: dmg
+            asset-suffix: x86_64
           - target-name: darwin-aarch64
             os: macos-14
             rust-target: aarch64-apple-darwin
             bundles: dmg
+            asset-suffix: aarch64
           - target-name: linux-x86_64
             os: ubuntu-22.04
             rust-target: x86_64-unknown-linux-gnu
             bundles: appimage,deb
-          - target-name: linux-aarch64
-            os: ubuntu-22.04
-            rust-target: aarch64-unknown-linux-gnu
-            bundles: appimage,deb
+            asset-suffix: linux-x86_64
     steps:
       - uses: actions/checkout@v4
       - name: Install Linux Tauri dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev gcc-aarch64-linux-gnu
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.rust-target }}
@@ -54,16 +93,56 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Build Tauri bundle
-        env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: pnpm --filter onibi-app tauri build --target ${{ matrix.rust-target }} --bundles ${{ matrix.bundles }}
+      - name: Build Linux x86_64 headless installer binary
+        if: matrix.target-name == 'linux-x86_64'
+        run: cargo build --manifest-path app/src-tauri/Cargo.toml --release --no-default-features
       - name: Stage release assets
+        shell: bash
         run: |
+          set -euo pipefail
           mkdir -p release
+          VERSION="${GITHUB_REF_NAME#v}"
           find app/src-tauri/target -type f \( -name "*.dmg" -o -name "*.AppImage" -o -name "*.deb" \) -print0 | while IFS= read -r -d '' file; do
             ext="${file##*.}"
-            cp "$file" "release/onibi-${GITHUB_REF_NAME}-${{ matrix.target-name }}.${ext}"
+            case "$ext" in
+              dmg) name="Onibi-${VERSION}-${{ matrix.asset-suffix }}.dmg" ;;
+              AppImage) name="Onibi-${VERSION}-linux-x86_64.AppImage" ;;
+              deb) name="Onibi-${VERSION}-linux-x86_64.deb" ;;
+              *) name="$(basename "$file")" ;;
+            esac
+            cp "$file" "release/$name"
           done
+          if [ "${{ matrix.target-name }}" = "linux-x86_64" ]; then
+            cp app/src-tauri/target/release/onibi "release/onibi-headless-${VERSION}-linux-x86_64"
+          fi
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+
+  build-linux-arm64-headless:
+    name: build linux-arm64 headless
+    needs: headless-smoke
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri -> target
+      - name: Install cross
+        run: cargo install cross --locked
+      - name: Cross-build Pi headless binary
+        run: cross build --manifest-path app/src-tauri/Cargo.toml --release --target aarch64-unknown-linux-gnu --no-default-features
+      - name: Stage release asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          VERSION="${GITHUB_REF_NAME#v}"
+          cp app/src-tauri/target/aarch64-unknown-linux-gnu/release/onibi "release/onibi-headless-${VERSION}-linux-arm64"
       - uses: softprops/action-gh-release@v2
         with:
           files: release/*
