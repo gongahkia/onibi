@@ -244,7 +244,9 @@ export const useSessionStore = create<SessionStore>((set) => ({
       return {
         sessions,
         activeSessionId:
-          state.activeSessionId === id ? sessions.at(-1)?.id ?? null : state.activeSessionId,
+          state.activeSessionId === id
+            ? sessions[sessions.length - 1]?.id ?? null
+            : state.activeSessionId,
       };
     });
     persistLater();
@@ -316,7 +318,7 @@ export async function hydrateSessionStore(): Promise<void> {
     const mergedSettings = applyGhosttyDefaults(mergeSettings(settings), ghosttyTheme);
     useSessionStore.setState({
       sessions: liveSessions,
-      activeSessionId: liveSessions.at(-1)?.id ?? null,
+      activeSessionId: liveSessions[liveSessions.length - 1]?.id ?? null,
       workspaces: workspaces ?? [],
       settings: mergedSettings,
       hydrated: true,
@@ -333,7 +335,8 @@ export function workspaceIdForPath(path: string): string {
 
 export function pathBasename(path: string): string {
   const trimmed = path.replace(/\/+$/, "");
-  return trimmed.split("/").at(-1) || trimmed || "/";
+  const parts = trimmed.split("/");
+  return parts[parts.length - 1] || trimmed || "/";
 }
 
 export async function workspaceFromPath(path: string): Promise<Workspace> {

@@ -277,10 +277,24 @@ button {
   padding: 8px 0 16px;
 }
 
-.workspace-row,
-.tree-row {
+.workspace-row {
   display: grid;
   grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  color: var(--fg-1);
+  background: transparent;
+  border: 0;
+  text-align: left;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.tree-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px;
   width: 100%;

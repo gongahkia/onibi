@@ -1,5 +1,9 @@
 import { useEffect } from "react";
-import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
+import {
+  Group as PanelGroup,
+  Panel,
+  Separator as PanelResizeHandle,
+} from "react-resizable-panels";
 import { AgentTabBar } from "./components/AgentTabBar";
 import { FileTree } from "./components/FileTree";
 import { MainPane } from "./components/MainPane";
@@ -25,13 +29,13 @@ function App() {
 
   if (settings.tabBarOrientation === "horizontal") {
     const tabs = (
-      <Panel defaultSize={7} minSize={6} maxSize={12}>
+      <Panel defaultSize="7%" minSize="6%" maxSize="12%">
         <AgentTabBar orientation="horizontal" />
       </Panel>
     );
     return (
       <main className="app-shell" data-tab-orientation="horizontal">
-        <PanelGroup direction="vertical">
+        <PanelGroup orientation="vertical">
           {settings.tabBarPosition === "bottom" ? content : tabs}
           <PanelResizeHandle className="panel-resize-handle" />
           {settings.tabBarPosition === "bottom" ? tabs : content}
@@ -41,14 +45,14 @@ function App() {
   }
 
   const tabs = (
-    <Panel defaultSize={6} minSize={4} maxSize={10}>
+    <Panel defaultSize="6%" minSize="4%" maxSize="10%">
       <AgentTabBar orientation="vertical" />
     </Panel>
   );
 
   return (
     <main className="app-shell" data-tab-orientation="vertical">
-      <PanelGroup direction="horizontal">
+      <PanelGroup orientation="horizontal">
         {settings.tabBarPosition === "right" ? content : tabs}
         <PanelResizeHandle className="panel-resize-handle" />
         {settings.tabBarPosition === "right" ? tabs : content}
@@ -59,13 +63,13 @@ function App() {
 
 function ContentPanels() {
   return (
-    <Panel defaultSize={94} minSize={70}>
-      <PanelGroup direction="horizontal">
-        <Panel defaultSize={18} minSize={10} maxSize={34}>
+    <Panel defaultSize="94%" minSize="70%">
+      <PanelGroup orientation="horizontal">
+        <Panel defaultSize="18%" minSize="10%" maxSize="34%">
           <FileTree />
         </Panel>
         <PanelResizeHandle className="panel-resize-handle" />
-        <Panel defaultSize={76} minSize={40}>
+        <Panel defaultSize="76%" minSize="40%">
           <MainPane />
         </Panel>
       </PanelGroup>
