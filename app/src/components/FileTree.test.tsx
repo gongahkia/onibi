@@ -29,6 +29,29 @@ function resetStore() {
   vi.mocked(window.prompt).mockReturnValue(null);
 }
 
+function createDataTransfer(): DataTransfer {
+  const data = new Map<string, string>();
+  return {
+    dropEffect: "none",
+    effectAllowed: "all",
+    files: [] as unknown as FileList,
+    items: [] as unknown as DataTransferItemList,
+    types: [],
+    clearData: vi.fn((type?: string) => {
+      if (type) {
+        data.delete(type);
+      } else {
+        data.clear();
+      }
+    }),
+    getData: vi.fn((type: string) => data.get(type) ?? ""),
+    setData: vi.fn((type: string, value: string) => {
+      data.set(type, value);
+    }),
+    setDragImage: vi.fn(),
+  } as unknown as DataTransfer;
+}
+
 describe("FileTree", () => {
   beforeEach(() => {
     resetStore();
@@ -364,6 +387,93 @@ describe("FileTree", () => {
 
     expect(globalThis.__TAURI_MOCKS__.openerRevealItemInDir).toHaveBeenCalledWith(
       "/repo/README.md",
+    );
+  });
+
+  test("moves files by dragging them onto folders", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
+      async (command: string, args: Record<string, string>) => {
+        if (command === "fs_list_dir" && args.path === "/repo") {
+          return [
+            { name: "src", path: "/repo/src", kind: "dir", size: 0 },
+            { name: "README.md", path: "/repo/README.md", kind: "file", size: 12 },
+          ];
+        }
+        if (command === "fs_move_path") {
+          expect(args).toEqual({
+            root: "/repo",
+            path: "/repo/README.md",
+            destination: "/repo/src",
+          });
+          return {
+            name: "README.md",
+            path: "/repo/src/README.md",
+            kind: "file",
+            size: 12,
+          };
+        }
+        if (command === "fs_list_dir" && args.path === "/repo/src") {
+          return [
+            {
+              name: "README.md",
+              path: "/repo/src/README.md",
+              kind: "file",
+              size: 12,
+            },
+          ];
+        }
+        return [];
+      },
+    );
+    const dataTransfer = createDataTransfer();
+
+    render(<FileTree />);
+    expect(await screen.findByText("README.md")).toBeTruthy();
+
+    fireEvent.dragStart(screen.getByText("README.md"), { dataTransfer });
+    fireEvent.dragOver(screen.getByText("src"), { dataTransfer });
+    fireEvent.drop(screen.getByText("src"), { dataTransfer });
+
+    await waitFor(() => {
+      expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith(
+        "fs_move_path",
+        {
+          root: "/repo",
+          path: "/repo/README.md",
+          destination: "/repo/src",
+        },
+      );
+    });
+  });
+
+  test("ignores dropping folders onto their descendants", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
+      async (command: string, args: Record<string, string>) => {
+        if (command === "fs_list_dir" && args.path === "/repo") {
+          return [{ name: "src", path: "/repo/src", kind: "dir", size: 0 }];
+        }
+        if (command === "fs_list_dir" && args.path === "/repo/src") {
+          return [
+            { name: "child", path: "/repo/src/child", kind: "dir", size: 0 },
+          ];
+        }
+        return [];
+      },
+    );
+    const dataTransfer = createDataTransfer();
+
+    render(<FileTree />);
+    expect(await screen.findByText("src")).toBeTruthy();
+    fireEvent.click(screen.getByText("src"));
+    expect(await screen.findByText("child")).toBeTruthy();
+
+    fireEvent.dragStart(screen.getByText("src"), { dataTransfer });
+    fireEvent.dragOver(screen.getByText("child"), { dataTransfer });
+    fireEvent.drop(screen.getByText("child"), { dataTransfer });
+
+    expect(globalThis.__TAURI_MOCKS__.invoke).not.toHaveBeenCalledWith(
+      "fs_move_path",
+      expect.anything(),
     );
   });
 });

@@ -374,6 +374,17 @@ button {
   color: var(--fg-0);
 }
 
+.workspace-row.drop-target,
+.tree-row.drop-target {
+  color: var(--fg-0);
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-2));
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.tree-row.dragging {
+  opacity: 0.55;
+}
+
 .tree-row-name,
 .workspace-name {
   overflow: hidden;
