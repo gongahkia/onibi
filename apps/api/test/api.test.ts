@@ -1196,9 +1196,54 @@ rules:
     });
 
     expect(accepted.statusCode).toBe(200);
+    expect(planned.json().workflow.planning.requiredCapabilities.length).toBeGreaterThan(0);
+    expect(planned.json().workflow.planning.acceptanceCriteria.length).toBeGreaterThan(0);
     expect(accepted.json().draftRevision.source).toBe("plan-accepted");
     expect(accepted.json().workflow.approval).toBeNull();
     expect(stored.json().latestApprovedRevisionId).toBeNull();
+  });
+
+  it("blocks approval when workflow planning metadata has unresolved quality gaps", async () => {
+    app = buildTestApiApp();
+
+    const planned = await app.inject({
+      method: "POST",
+      url: "/api/workflows/plan",
+      payload: {
+        prompt: "extract transaction details from Gmail receipts into Sheets"
+      }
+    });
+    const workflow = {
+      ...planned.json().workflow,
+      planning: {
+        ...planned.json().workflow.planning,
+        acceptanceCriteria: [],
+        openQuestions: [{ question: "Which delivery owner approves this?", blocking: true }]
+      }
+    };
+    const evaluated = await app.inject({
+      method: "POST",
+      url: `/api/workflows/${workflow.id}/evaluate-draft`,
+      payload: { workflow, mockOnly: true }
+    });
+    expect(evaluated.statusCode).toBe(200);
+
+    const approved = await app.inject({
+      method: "POST",
+      url: `/api/workflows/${workflow.id}/approve`,
+      payload: {
+        workflow,
+        approvedBy: "owner@example.com"
+      }
+    });
+
+    expect(approved.statusCode).toBe(409);
+    expect(approved.json().issues.map((issue: { code: string }) => issue.code)).toContain(
+      "WORKFLOW_PLAN_ACCEPTANCE_CRITERIA_MISSING"
+    );
+    expect(approved.json().issues.map((issue: { code: string }) => issue.code)).toContain(
+      "WORKFLOW_PLAN_BLOCKING_QUESTION"
+    );
   });
 
   it("keeps branch planning and acceptance local to the selected branch", async () => {
@@ -1946,6 +1991,10 @@ rules:
     expect(approved.statusCode).toBe(200);
     expect(approved.json().approvedRevisionId).toBe(`approved.${workflow.id}.r2`);
     expect(approved.json().diff.summary).toContain("Frozen approval metadata changed.");
+    expect(approved.json().handoffArtifact).toMatchObject({
+      path: `.kelpclaw/handoffs/${workflow.id}/approved.${workflow.id}.r2/workflow-handoff.json`,
+      contentType: "application/json"
+    });
 
     const missingRun = await app.inject({
       method: "POST",

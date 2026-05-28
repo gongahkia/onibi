@@ -85,6 +85,7 @@ export interface WorkflowSpecFactoryInput {
   readonly nodes: readonly WorkflowNode[];
   readonly edges: readonly WorkflowEdge[];
   readonly revision?: number | undefined;
+  readonly planning?: WorkflowSpec["planning"] | undefined;
   readonly approval?: WorkflowSpec["approval"] | undefined;
   readonly createdAt?: string | undefined;
   readonly updatedAt?: string | undefined;
@@ -178,6 +179,7 @@ export function createWorkflowSpec(input: WorkflowSpecFactoryInput): WorkflowSpe
     name: input.name,
     prompt: input.prompt,
     revision: input.revision ?? 1,
+    ...(input.planning ? { planning: input.planning } : {}),
     nodes: input.nodes,
     edges: input.edges,
     approval: input.approval ?? null,

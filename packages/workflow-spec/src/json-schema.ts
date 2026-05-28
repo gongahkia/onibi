@@ -24,6 +24,7 @@ export const workflowJsonSchema = {
     name: { type: "string", minLength: 1 },
     prompt: { type: "string", minLength: 1 },
     revision: { type: "integer", minimum: 1 },
+    planning: { $ref: "#/$defs/planning" },
     nodes: {
       type: "array",
       minItems: 1,
@@ -60,6 +61,79 @@ export const workflowJsonSchema = {
     schemaShape: {
       type: "object",
       additionalProperties: { $ref: "#/$defs/jsonValue" }
+    },
+    planningQuestion: {
+      type: "object",
+      required: ["question", "blocking"],
+      additionalProperties: false,
+      properties: {
+        question: { type: "string", minLength: 1 },
+        blocking: { type: "boolean" }
+      }
+    },
+    plannerRevision: {
+      type: "object",
+      required: ["revision", "mode", "summary", "createdAt"],
+      additionalProperties: false,
+      properties: {
+        revision: { type: "integer", minimum: 1 },
+        mode: { enum: ["initial", "revision", "manual"] },
+        summary: { type: "string", minLength: 1 },
+        createdAt: { type: "string", format: "date-time" }
+      }
+    },
+    planning: {
+      type: "object",
+      required: [
+        "requiredCapabilities",
+        "optionalCapabilities",
+        "deferredIdeas",
+        "acceptanceCriteria",
+        "implementationGuidance",
+        "validationGuidance",
+        "openQuestions",
+        "nodeResponsibilities",
+        "plannerRevision"
+      ],
+      additionalProperties: false,
+      properties: {
+        requiredCapabilities: {
+          type: "array",
+          items: { type: "string", minLength: 1 }
+        },
+        optionalCapabilities: {
+          type: "array",
+          items: { type: "string", minLength: 1 }
+        },
+        deferredIdeas: {
+          type: "array",
+          items: { type: "string", minLength: 1 }
+        },
+        acceptanceCriteria: {
+          type: "array",
+          items: { type: "string", minLength: 1 }
+        },
+        implementationGuidance: {
+          type: "array",
+          items: { type: "string", minLength: 1 }
+        },
+        validationGuidance: {
+          type: "array",
+          items: { type: "string", minLength: 1 }
+        },
+        openQuestions: {
+          type: "array",
+          items: { $ref: "#/$defs/planningQuestion" }
+        },
+        nodeResponsibilities: {
+          type: "object",
+          additionalProperties: {
+            type: "array",
+            items: { type: "string", minLength: 1 }
+          }
+        },
+        plannerRevision: { $ref: "#/$defs/plannerRevision" }
+      }
     },
     node: {
       type: "object",

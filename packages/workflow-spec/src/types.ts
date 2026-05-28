@@ -1753,6 +1753,7 @@ export interface WorkflowApproveResponse {
   readonly approvedRevision: WorkflowApprovedRevision;
   readonly workflow: WorkflowSpec;
   readonly diff: WorkflowSpecDiff;
+  readonly handoffArtifact?: WorkflowCodegenArtifactRef | undefined;
 }
 
 export interface WorkflowStartRunRequest {

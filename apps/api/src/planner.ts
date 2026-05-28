@@ -26,6 +26,7 @@ import type {
 } from "@kelpclaw/codegen";
 import type {
   WorkflowNode,
+  WorkflowPlanningMetadata,
   WorkflowPlanRequest,
   WorkflowRepromptNodeRequest,
   WorkflowRepromptNodeResponse,
@@ -451,11 +452,21 @@ export function repromptWorkflow(
   }
 
   const after = repromptWorkflowNode(workflow, request);
-  const nextWorkflow: WorkflowSpec = {
+  const now = new Date().toISOString();
+  const nextWorkflowWithoutPlanning: WorkflowSpec = {
     ...workflow,
     nodes: workflow.nodes.map((node) => (node.id === request.nodeId ? after : node)),
     approval: null,
-    updatedAt: new Date().toISOString()
+    updatedAt: now
+  };
+  const nextWorkflow: WorkflowSpec = {
+    ...nextWorkflowWithoutPlanning,
+    planning: createWorkflowPlanningMetadata(nextWorkflowWithoutPlanning, {
+      now,
+      mode: "revision",
+      previousPlanning: workflow.planning,
+      summary: `Revised node '${after.label}'.`
+    })
   };
 
   return {
@@ -481,8 +492,7 @@ function finalizeTemplateWorkflow(input: {
   );
   const nodes = input.nodes.map((node) => preservedNodes.get(node.id) ?? node);
   const workflowId = currentWorkflow?.id ?? workflowIdFromPrompt(input.prompt);
-
-  return {
+  const draftWorkflow: WorkflowSpec = {
     ...input.template,
     id: workflowId,
     name: titleFromPrompt(input.prompt),
@@ -493,6 +503,79 @@ function finalizeTemplateWorkflow(input: {
     createdAt: currentWorkflow?.createdAt ?? now,
     updatedAt: now
   };
+
+  return {
+    ...draftWorkflow,
+    planning: createWorkflowPlanningMetadata(draftWorkflow, {
+      now,
+      mode: currentWorkflow?.planning ? "revision" : "initial",
+      previousPlanning: currentWorkflow?.planning,
+      summary: currentWorkflow?.planning
+        ? `Revised workflow plan for '${titleFromPrompt(input.prompt)}'.`
+        : `Initial workflow plan for '${titleFromPrompt(input.prompt)}'.`
+    })
+  };
+}
+
+function createWorkflowPlanningMetadata(
+  workflow: WorkflowSpec,
+  input: {
+    readonly now: string;
+    readonly mode: WorkflowPlanningMetadata["plannerRevision"]["mode"];
+    readonly previousPlanning?: WorkflowPlanningMetadata | undefined;
+    readonly summary: string;
+  }
+): WorkflowPlanningMetadata {
+  const operationalNodes = workflow.nodes.filter((node) => node.kind !== "approval");
+  const approvalNodes = workflow.nodes.filter((node) => node.kind === "approval");
+  const deliveryNodes = workflow.nodes.filter((node) => node.kind === "delivery");
+  const adapterNodes = workflow.nodes.filter(
+    (node) => node.adapterId || (node.adapterIds?.length ?? 0) > 0
+  );
+
+  return {
+    requiredCapabilities: uniqueNonEmpty(
+      operationalNodes.map((node) => `${node.label}: ${node.description}`)
+    ),
+    optionalCapabilities: input.previousPlanning?.optionalCapabilities ?? [],
+    deferredIdeas: input.previousPlanning?.deferredIdeas ?? [],
+    acceptanceCriteria: uniqueNonEmpty([
+      "Workflow graph validates without missing nodes, ports, or cycles.",
+      ...deliveryNodes.map((node) => `${node.label} completes through declared delivery channels.`),
+      ...approvalNodes.map((node) => `${node.label} records the required human decision.`),
+      ...adapterNodes.map((node) => `${node.label} has its declared connector secrets configured.`)
+    ]),
+    implementationGuidance: uniqueNonEmpty([
+      "Use each node's declared runtime, inputs, outputs, adapter operations, and secret refs as the implementation contract.",
+      "Preserve the approved node ids and port names so review diffs and replay remain stable."
+    ]),
+    validationGuidance: uniqueNonEmpty([
+      "Run workflow validation before accepting the plan.",
+      "Run a passing draft evaluation before production approval.",
+      "Confirm generated/codegen nodes have reviewed artifacts and passing evals before approval."
+    ]),
+    openQuestions: input.previousPlanning?.openQuestions ?? [],
+    nodeResponsibilities: Object.fromEntries(
+      workflow.nodes.map((node) => [
+        node.id,
+        uniqueNonEmpty([
+          node.description,
+          ...Object.keys(node.inputs).map((port) => `Consumes '${port}'.`),
+          ...Object.keys(node.outputs).map((port) => `Produces '${port}'.`)
+        ])
+      ])
+    ),
+    plannerRevision: {
+      revision: (input.previousPlanning?.plannerRevision.revision ?? 0) + 1,
+      mode: input.mode,
+      summary: input.summary,
+      createdAt: input.now
+    }
+  };
+}
+
+function uniqueNonEmpty(values: readonly string[]): readonly string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
 function annotateSkillPlanning(node: WorkflowNode, prompt: string): WorkflowNode {

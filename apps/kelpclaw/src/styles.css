@@ -156,6 +156,51 @@ textarea::placeholder {
   padding-top: 0.95rem;
 }
 
+.plan-review-panel {
+  background: rgba(24, 25, 29, 0.94);
+  border: 1px solid #333743;
+  border-radius: 8px;
+  bottom: 4.1rem;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.3);
+  display: grid;
+  gap: 0.65rem;
+  left: 1.2rem;
+  max-height: min(40vh, 440px);
+  overflow: auto;
+  padding: 0.85rem;
+  position: absolute;
+  width: min(380px, calc(100vw - 2.4rem));
+  z-index: 8;
+}
+
+.plan-review-list {
+  display: grid;
+  gap: 0.35rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.plan-review-list li {
+  background: #202126;
+  border: 1px solid #30333b;
+  border-radius: 6px;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.48rem 0.55rem;
+}
+
+.plan-review-list strong {
+  color: #d7dbe7;
+  font-size: 0.7rem;
+}
+
+.plan-review-list span {
+  color: #a7adbd;
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
 .topbar,
 .canvas-header {
   align-items: center;

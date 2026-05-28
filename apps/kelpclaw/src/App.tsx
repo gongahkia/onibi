@@ -58,6 +58,7 @@ import type {
   WorkflowOpsHealth,
   WorkflowPlanResponse,
   WorkflowPlanSuccessResponse,
+  WorkflowPlanningMetadata,
   WorkflowPlannerFeedback,
   WorkflowPromptTurn,
   WorkflowRunRecord,
@@ -1007,6 +1008,7 @@ export function App() {
     [activeBranchId, branches, showArchivedBranches]
   );
   const workflowHasGraph = workflow.nodes.length > 0;
+  const planReviewIssues = useMemo(() => workflowPlanningIssues(workflow), [workflow]);
   const clarificationReady =
     !clarification ||
     clarification.questions.every(
@@ -1029,9 +1031,11 @@ export function App() {
     ? "Plan or add nodes before approval."
     : !validation.ok
       ? "Fix validation issues before approval."
-      : draftEvaluation?.readyForApproval !== true
-        ? "Run a passing draft evaluation before approval."
-        : actionBlockedReason(busyAction, branchLifecycleLocked);
+      : planReviewIssues.length > 0
+        ? planReviewIssues[0]?.message
+        : draftEvaluation?.readyForApproval !== true
+          ? "Run a passing draft evaluation before approval."
+          : actionBlockedReason(busyAction, branchLifecycleLocked);
   const deployDisabledReason = !approvedRevision
     ? "Approve a revision before deployment."
     : draftEvaluation?.readyForApproval !== true
@@ -3370,6 +3374,7 @@ export function App() {
               workflow={workflow}
               activeBranch={activeBranch}
               validationIssues={validationIssues}
+              planReviewIssues={planReviewIssues}
               runtimeTruth={runtimeTruth}
               run={run}
               activeJob={activeJob}
@@ -3391,6 +3396,14 @@ export function App() {
             >
               <Plus size={26} />
             </button>
+          ) : null}
+
+          {surfaceMode === "edit" && workflowHasGraph ? (
+            <PlanReviewPanel
+              workflow={workflow}
+              issues={planReviewIssues}
+              plannerFeedback={plannerFeedback}
+            />
           ) : null}
 
           {surfaceMode === "edit" && detailsOpen && (selectedNode || selectedEdge) ? (
@@ -4120,10 +4133,167 @@ function PaletteTextForm(props: {
 }
 /* eslint-enable react-hooks/refs */
 
+function PlanReviewPanel(props: {
+  readonly workflow: WorkflowSpec;
+  readonly issues: readonly WorkflowValidationIssue[];
+  readonly plannerFeedback: WorkflowPlannerFeedback | null;
+}) {
+  const planning = props.workflow.planning;
+  const requiredCapabilities = planList(
+    planning?.requiredCapabilities,
+    props.workflow.nodes.map((node) => `${node.label}: ${node.description}`)
+  );
+  const acceptanceCriteria = planList(planning?.acceptanceCriteria, [
+    "Workflow graph validates without missing nodes, ports, or cycles."
+  ]);
+  const responsibilityEntries = planning
+    ? Object.entries(planning.nodeResponsibilities)
+    : props.workflow.nodes.map((node) => [node.id, [node.description]] as const);
+
+  return (
+    <aside className="plan-review-panel" aria-label="Plan review">
+      <div className="panel-heading">
+        <ListChecks size={18} />
+        <h2>Plan Review</h2>
+      </div>
+      <dl className="compact-detail-list">
+        <StatusRow
+          label="Quality"
+          value={props.issues.length > 0 ? `${props.issues.length} issues` : "ready"}
+          tone={props.issues.length > 0 ? "blocked" : "valid"}
+        />
+        <StatusRow
+          label="Revision"
+          value={
+            planning?.plannerRevision
+              ? `r${planning.plannerRevision.revision}`
+              : `r${props.workflow.revision}`
+          }
+          tone={planning?.plannerRevision ? "pending" : "idle"}
+        />
+        <StatusRow
+          label="Feedback"
+          value={props.plannerFeedback?.status ?? "closed"}
+          tone={props.plannerFeedback?.status === "blocked" ? "blocked" : "pending"}
+        />
+      </dl>
+      {planning?.plannerRevision ? (
+        <p className="muted-text">{planning.plannerRevision.summary}</p>
+      ) : null}
+      <PlanReviewList title="Required" items={requiredCapabilities.slice(0, 3)} />
+      <PlanReviewList title="Criteria" items={acceptanceCriteria.slice(0, 3)} />
+      {planning?.optionalCapabilities.length ? (
+        <PlanReviewList title="Optional" items={planning.optionalCapabilities.slice(0, 3)} />
+      ) : null}
+      {planning?.deferredIdeas.length ? (
+        <PlanReviewList title="Deferred" items={planning.deferredIdeas.slice(0, 3)} />
+      ) : null}
+      {planning?.openQuestions.length ? (
+        <ul className="plan-review-list" aria-label="Open questions">
+          {planning.openQuestions.slice(0, 3).map((question, index) => (
+            <li key={`${question.question}-${index}`}>
+              <strong>{question.blocking ? "Blocking" : "Open"}</strong>
+              <span>{question.question}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {props.issues.length ? (
+        <ul className="plan-review-list" aria-label="Plan review issues">
+          {props.issues.slice(0, 3).map((issue, index) => (
+            <li key={`${issue.code}-${index}`}>
+              <strong>{issue.code}</strong>
+              <span>{issue.message}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <ul className="plan-review-list" aria-label="Node responsibilities">
+        {responsibilityEntries.slice(0, 3).map(([nodeId, responsibilities]) => (
+          <li key={nodeId}>
+            <strong>{nodeId}</strong>
+            <span>{responsibilities[0] ?? "No responsibility recorded."}</span>
+          </li>
+        ))}
+      </ul>
+    </aside>
+  );
+}
+
+function PlanReviewList(props: { readonly title: string; readonly items: readonly string[] }) {
+  if (props.items.length === 0) {
+    return null;
+  }
+
+  return (
+    <ul className="plan-review-list" aria-label={props.title}>
+      {props.items.map((item) => (
+        <li key={`${props.title}-${item}`}>
+          <strong>{props.title}</strong>
+          <span>{item}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function planList(
+  primary:
+    | WorkflowPlanningMetadata["requiredCapabilities"]
+    | WorkflowPlanningMetadata["acceptanceCriteria"]
+    | undefined,
+  fallback: readonly string[]
+): readonly string[] {
+  return primary && primary.length > 0 ? primary : fallback;
+}
+
+function workflowPlanningIssues(workflow: WorkflowSpec): readonly WorkflowValidationIssue[] {
+  const planning = workflow.planning;
+  if (!planning) {
+    return [];
+  }
+
+  const issues: WorkflowValidationIssue[] = [];
+  if (planning.requiredCapabilities.length === 0) {
+    issues.push({
+      code: "WORKFLOW_PLAN_CAPABILITY_MISSING",
+      message: "Workflow plan must include at least one required capability before approval.",
+      path: ["planning", "requiredCapabilities"]
+    });
+  }
+  if (planning.acceptanceCriteria.length === 0) {
+    issues.push({
+      code: "WORKFLOW_PLAN_ACCEPTANCE_CRITERIA_MISSING",
+      message: "Workflow plan must include acceptance criteria before approval.",
+      path: ["planning", "acceptanceCriteria"]
+    });
+  }
+  workflow.nodes.forEach((node, index) => {
+    if ((planning.nodeResponsibilities[node.id] ?? []).length === 0) {
+      issues.push({
+        code: "WORKFLOW_PLAN_RESPONSIBILITY_MISSING",
+        message: `Workflow plan must describe responsibilities for node '${node.id}'.`,
+        path: ["planning", "nodeResponsibilities", node.id || index]
+      });
+    }
+  });
+  planning.openQuestions.forEach((question, index) => {
+    if (question.blocking) {
+      issues.push({
+        code: "WORKFLOW_PLAN_BLOCKING_QUESTION",
+        message: `Blocking open question must be resolved before approval: ${question.question}`,
+        path: ["planning", "openQuestions", index]
+      });
+    }
+  });
+  return issues;
+}
+
 function StatusPopover(props: {
   readonly workflow: WorkflowSpec;
   readonly activeBranch: WorkflowBranch | null;
   readonly validationIssues: readonly WorkflowValidationIssue[];
+  readonly planReviewIssues: readonly WorkflowValidationIssue[];
   readonly runtimeTruth: WorkflowRuntimeTruthSnapshot | null;
   readonly run: WorkflowRunRecord | null;
   readonly activeJob: WorkflowJob | null;
@@ -4154,6 +4324,13 @@ function StatusPopover(props: {
           }
           tone={props.validationIssues.length > 0 ? "blocked" : "valid"}
         />
+        <StatusRow
+          label="Plan Review"
+          value={
+            props.planReviewIssues.length > 0 ? `${props.planReviewIssues.length} issues` : "ready"
+          }
+          tone={props.planReviewIssues.length > 0 ? "blocked" : "valid"}
+        />
         <StatusRow label="Runtime" value={props.runtimeTruth?.stage ?? "empty"} tone="pending" />
         <StatusRow
           label="Run"
@@ -4164,6 +4341,16 @@ function StatusPopover(props: {
       {props.validationIssues.length > 0 ? (
         <ul className="issue-list compact-issue-list">
           {props.validationIssues.slice(0, 4).map((issue, index) => (
+            <li key={`${issue.code}-${index}`}>
+              <strong>{issue.code}</strong>
+              <span>{issue.message}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {props.planReviewIssues.length > 0 ? (
+        <ul className="issue-list compact-issue-list">
+          {props.planReviewIssues.slice(0, 4).map((issue, index) => (
             <li key={`${issue.code}-${index}`}>
               <strong>{issue.code}</strong>
               <span>{issue.message}</span>

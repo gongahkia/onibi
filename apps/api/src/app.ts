@@ -90,6 +90,7 @@ import type {
   WorkflowAcceptPlanResponse,
   WorkflowApproveRequest,
   WorkflowApproveResponse,
+  WorkflowApprovedRevision,
   WorkflowBranch,
   WorkflowBranchMergeConflict,
   WorkflowBranchMergePreview,
@@ -2200,6 +2201,15 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         validation
       } as never);
     }
+    const planningIssues = validatePlanningReadiness(validation.workflow);
+    if (planningIssues.length > 0) {
+      return reply.code(409).send({
+        ok: false,
+        error: planningIssues[0]?.code ?? "WORKFLOW_PLAN_ACCEPTANCE_CRITERIA_MISSING",
+        message: planningIssues.map((issue) => issue.message).join(", "),
+        issues: planningIssues
+      } as never);
+    }
 
     const draftRevision = store.saveDraftRevision(
       validation.workflow,
@@ -2499,6 +2509,15 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         error: "WORKFLOW_PLAN_ACCEPTANCE_INVALID",
         message: validation.errors.map((error) => error.code).join(", "),
         validation
+      } as never);
+    }
+    const planningIssues = validatePlanningReadiness(validation.workflow);
+    if (planningIssues.length > 0) {
+      return reply.code(409).send({
+        ok: false,
+        error: planningIssues[0]?.code ?? "WORKFLOW_PLAN_ACCEPTANCE_CRITERIA_MISSING",
+        message: planningIssues.map((issue) => issue.message).join(", "),
+        issues: planningIssues
       } as never);
     }
 
@@ -2873,18 +2892,27 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
             issues
           });
         }
+        const correlationId = correlationIdForRequest(request);
         const approvedRevision = store.approveWorkflow(request.params.id, request.body.approvedBy);
         const workflow = approvedRevision.workflow;
+        const handoffArtifact = persistWorkflowHandoffArtifact(
+          store,
+          approvedRevision,
+          correlationId
+        );
         recordAudit(store, {
           action: "workflow.approved",
           actor: request.body.approvedBy,
           workflowId: approvedRevision.workflowId,
           revisionId: approvedRevision.id,
-          correlationId: correlationIdForRequest(request),
+          correlationId,
           summary: "Approved workflow revision.",
           diff: approvedRevision.diff,
           secretRefs: collectSecretRefs(workflow),
-          approvedArtifactRefs: collectCodegenArtifactRefs(workflow)
+          approvedArtifactRefs: [...collectCodegenArtifactRefs(workflow), handoffArtifact],
+          metadata: jsonRecord({
+            handoffArtifact
+          })
         });
         return {
           workflowId: workflow.id,
@@ -2892,6 +2920,7 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
           approval: workflow.approval,
           approvedRevisionId: approvedRevision.id,
           approvedRevision,
+          handoffArtifact,
           workflow
         };
       } catch (error) {
@@ -3037,17 +3066,29 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         validation.workflow,
         request.body.branchId
       );
+      const correlationId = correlationIdForRequest(request);
+      const handoffArtifact = persistWorkflowHandoffArtifact(
+        store,
+        approvedRevision,
+        correlationId
+      );
       recordAudit(store, {
         action: "workflow.approved",
         actor: request.body.approvedBy,
         workflowId: approvedRevision.workflowId,
         branchId: approvedRevision.branchId,
         revisionId: approvedRevision.id,
-        correlationId: correlationIdForRequest(request),
+        correlationId,
         summary: "Approved workflow revision.",
         diff: approvedRevision.diff,
         secretRefs: collectSecretRefs(approvedRevision.workflow),
-        approvedArtifactRefs: collectCodegenArtifactRefs(approvedRevision.workflow)
+        approvedArtifactRefs: [
+          ...collectCodegenArtifactRefs(approvedRevision.workflow),
+          handoffArtifact
+        ],
+        metadata: jsonRecord({
+          handoffArtifact
+        })
       });
       return {
         ok: true,
@@ -3055,7 +3096,8 @@ export function buildApiApp(options: ApiAppOptions = {}): FastifyInstance {
         approvedRevisionId: approvedRevision.id,
         approvedRevision,
         workflow: approvedRevision.workflow,
-        diff: approvedRevision.diff
+        diff: approvedRevision.diff,
+        handoffArtifact
       };
     } catch (error) {
       return reply.code(404).send({
@@ -5012,6 +5054,7 @@ async function validateApprovalReadiness(
   branchId?: string | undefined
 ): Promise<readonly WorkflowValidationIssue[]> {
   const issues: WorkflowValidationIssue[] = [];
+  issues.push(...validatePlanningReadiness(workflow));
   const latestEvaluation = store.getLatestDraftEvaluation(workflow.id, branchId);
   if (!latestEvaluation || latestEvaluation.status !== "passed") {
     issues.push({
@@ -5070,6 +5113,52 @@ async function validateApprovalReadiness(
       });
     }
   }
+
+  return issues;
+}
+
+function validatePlanningReadiness(workflow: WorkflowSpec): readonly WorkflowValidationIssue[] {
+  const planning = workflow.planning;
+  if (!planning) {
+    return [];
+  }
+
+  const issues: WorkflowValidationIssue[] = [];
+  if (planning.requiredCapabilities.length === 0) {
+    issues.push({
+      code: "WORKFLOW_PLAN_CAPABILITY_MISSING",
+      message: "Workflow plan must include at least one required capability before approval.",
+      path: ["planning", "requiredCapabilities"]
+    });
+  }
+  if (planning.acceptanceCriteria.length === 0) {
+    issues.push({
+      code: "WORKFLOW_PLAN_ACCEPTANCE_CRITERIA_MISSING",
+      message: "Workflow plan must include acceptance criteria before approval.",
+      path: ["planning", "acceptanceCriteria"]
+    });
+  }
+
+  workflow.nodes.forEach((node, index) => {
+    const responsibilities = planning.nodeResponsibilities[node.id] ?? [];
+    if (responsibilities.length === 0) {
+      issues.push({
+        code: "WORKFLOW_PLAN_RESPONSIBILITY_MISSING",
+        message: `Workflow plan must describe responsibilities for node '${node.id}'.`,
+        path: ["planning", "nodeResponsibilities", node.id || index]
+      });
+    }
+  });
+
+  planning.openQuestions.forEach((question, index) => {
+    if (question.blocking) {
+      issues.push({
+        code: "WORKFLOW_PLAN_BLOCKING_QUESTION",
+        message: `Blocking open question must be resolved before approval: ${question.question}`,
+        path: ["planning", "openQuestions", index]
+      });
+    }
+  });
 
   return issues;
 }
@@ -9028,6 +9117,69 @@ function persistCodegenArtifactManifests(
         manifestChecksum: checksumArtifactContent(stableJsonStringify(artifacts as never))
       });
     });
+}
+
+function persistWorkflowHandoffArtifact(
+  store: WorkflowStore,
+  approvedRevision: WorkflowApprovedRevision,
+  correlationId: string
+): WorkflowCodegenArtifactRef {
+  const workflow = approvedRevision.workflow;
+  const handoff = redactJsonRecord(
+    jsonRecord({
+      handoffVersion: "1.0.0",
+      workflowId: workflow.id,
+      workflowName: workflow.name,
+      branchId: approvedRevision.branchId ?? null,
+      approvedRevisionId: approvedRevision.id,
+      approvedBy: approvedRevision.approvedBy,
+      approvedAt: approvedRevision.createdAt,
+      prompt: workflow.prompt,
+      planning: workflow.planning ?? null,
+      nodes: workflow.nodes.map((node) => ({
+        id: node.id,
+        kind: node.kind,
+        label: node.label,
+        description: node.description,
+        inputs: node.inputs,
+        outputs: node.outputs,
+        adapterIds: node.adapterIds ?? (node.adapterId ? [node.adapterId] : []),
+        adapterOperations: node.adapterOperations ?? [],
+        secretRefs: Object.values(node.secretRefs ?? {}),
+        runtime: {
+          image: node.runtime.image,
+          command: node.runtime.command,
+          timeoutSeconds: node.runtime.timeoutSeconds,
+          retry: node.runtime.retry,
+          resources: node.runtime.resources
+        },
+        config: node.config
+      })),
+      edges: workflow.edges,
+      policyConstraints: {
+        secretRefs: collectSecretRefs(workflow),
+        codegenArtifactRefs: collectCodegenArtifactRefs(workflow),
+        frozenDagHash: workflow.approval?.frozenDagHash ?? null,
+        nodeOrder: workflow.approval?.nodeOrder ?? []
+      },
+      correlationId
+    })
+  );
+  const artifact: WorkflowCodegenArtifactRef = {
+    path: `.kelpclaw/handoffs/${workflow.id}/${approvedRevision.id}/workflow-handoff.json`,
+    checksum: checksumArtifactContent(stableJsonStringify(handoff)),
+    contentType: "application/json"
+  };
+  store.saveArtifactManifest({
+    id: `manifest.${workflow.id}.${approvedRevision.id}.workflow-handoff`,
+    workflowId: workflow.id,
+    ...(approvedRevision.branchId ? { branchId: approvedRevision.branchId } : {}),
+    revisionId: approvedRevision.id,
+    createdAt: approvedRevision.createdAt,
+    artifacts: [artifact],
+    manifestChecksum: checksumArtifactContent(stableJsonStringify([artifact] as never))
+  });
+  return artifact;
 }
 
 function collectSecretRefs(workflow: WorkflowSpec): readonly string[] {
