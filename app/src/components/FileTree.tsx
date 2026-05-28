@@ -21,6 +21,7 @@ import {
   type Workspace,
   useSessionStore,
 } from "../lib/sessions";
+import type { AgentReviewRecord } from "../lib/agent-review";
 import type { GitTreeState } from "../lib/git";
 import { chooseWorkspaceFolder } from "../lib/workspace-picker";
 
@@ -174,6 +175,7 @@ function iconForEntry(entry: FsEntry): TreeIcon {
 
 interface FileTreeProps {
   gitStatusByPath?: Record<string, GitTreeState>;
+  agentReviewsByPath?: Record<string, AgentReviewRecord>;
 }
 
 function TreeFileIcon({ entry }: { entry: FsEntry }) {
@@ -221,7 +223,7 @@ function GitStateBadge({ state }: { state: GitTreeState | null }) {
   );
 }
 
-export function FileTree({ gitStatusByPath }: FileTreeProps = {}) {
+export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps = {}) {
   const workspaces = useSessionStore((state) => state.workspaces);
   const sessions = useSessionStore((state) => state.sessions);
   const activeSessionId = useSessionStore((state) => state.activeSessionId);
@@ -691,11 +693,26 @@ export function FileTree({ gitStatusByPath }: FileTreeProps = {}) {
               selectedPath={selectedFile?.path ?? null}
               showFileIcons={settings.showFileIcons}
               gitStatusByPath={gitStatusByPath}
+              agentReviewsByPath={agentReviewsByPath}
               draggedPath={dragged?.path ?? null}
               dropTargetKey={dropTargetKey}
               onToggle={(path) => void toggleDir(workspace, path)}
               onContextMenu={(event, item) => openContextMenu(event, workspace, item)}
-              onSelect={(file) => selectFile(selectedFileFromEntry(workspace, file))}
+              onSelect={(file) => {
+                const review = agentReviewsByPath?.[file.path];
+                if (review) {
+                  selectFile({
+                    type: "agent-review",
+                    workspaceId: workspace.id,
+                    workspaceRoot: workspace.path,
+                    path: file.path,
+                    name: file.name,
+                    reviewId: review.id,
+                  });
+                } else {
+                  selectFile(selectedFileFromEntry(workspace, file));
+                }
+              }}
               onDragStart={(event, item) => handleDragStart(event, workspace, item)}
               onDragEnd={handleDragEnd}
               onDragOver={(event, item) =>
@@ -722,6 +739,7 @@ export function FileTree({ gitStatusByPath }: FileTreeProps = {}) {
       selectedFile,
       settings.showFileIcons,
       gitStatusByPath,
+      agentReviewsByPath,
       visibleEntries,
       visibleWorkspaces,
     ],
@@ -939,6 +957,7 @@ interface WorkspaceRootProps {
   entries: FsEntry[];
   showFileIcons: boolean;
   gitStatusByPath?: Record<string, GitTreeState>;
+  agentReviewsByPath?: Record<string, AgentReviewRecord>;
   isDropTarget: boolean;
   onToggle: () => void;
   onSelectRoot: () => void;
@@ -957,6 +976,7 @@ function WorkspaceRoot({
   entries,
   showFileIcons,
   gitStatusByPath,
+  agentReviewsByPath,
   isDropTarget,
   onToggle,
   onSelectRoot,
@@ -1051,6 +1071,7 @@ function TreeNode({
   const isExpanded = Boolean(expanded[key]);
   const childEntries = visibleEntries(childrenByPath[key] ?? []);
   const gitState = gitStateForPath(gitStatusByPath, entry.path, isDir);
+  const agentReview = agentReviewsByPath?.[entry.path] ?? null;
   return (
     <div>
       <button
@@ -1089,6 +1110,11 @@ function TreeNode({
           {entry.name}
         </span>
         <span className="tree-meta">{loading[key] ? "..." : ""}</span>
+        {agentReview ? (
+          <span className="tree-agent-state" title="Agent edit pending review">
+            A
+          </span>
+        ) : null}
         <GitStateBadge state={gitState} />
       </button>
       {errors[key] ? <div className="tree-error">{errors[key]}</div> : null}
@@ -1108,6 +1134,7 @@ function TreeNode({
               selectedPath={selectedPath}
               showFileIcons={showFileIcons}
               gitStatusByPath={gitStatusByPath}
+              agentReviewsByPath={agentReviewsByPath}
               draggedPath={draggedPath}
               dropTargetKey={dropTargetKey}
               onToggle={onToggle}

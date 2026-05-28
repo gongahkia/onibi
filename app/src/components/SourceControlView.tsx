@@ -11,7 +11,7 @@ import {
   type GitStatusEntry,
   unstageGitPaths,
 } from "../lib/git";
-import type { Workspace } from "../lib/sessions";
+import { useSessionStore, type Workspace } from "../lib/sessions";
 
 interface SourceControlViewProps {
   workspace: Workspace | null;
@@ -42,18 +42,30 @@ function SourceControlEntry({
   onStage,
   onUnstage,
   onDiscard,
+  onOpen,
 }: {
   entry: GitStatusEntry;
   busy: boolean;
   onStage: (entry: GitStatusEntry) => void;
   onUnstage: (entry: GitStatusEntry) => void;
   onDiscard: (entry: GitStatusEntry) => void;
+  onOpen: (entry: GitStatusEntry, stage: "staged" | "working") => void;
 }) {
   const state = gitStateForEntry(entry);
   const staged = hasStagedChange(entry);
   const working = hasWorkingTreeChange(entry);
   return (
-    <div className="source-control-row">
+    <div
+      className="source-control-row"
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpen(entry, staged && !working ? "staged" : "working")}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          onOpen(entry, staged && !working ? "staged" : "working");
+        }
+      }}
+    >
       <span className={`source-control-state tone-${state.tone}`} title={state.label}>
         {state.badge}
       </span>
@@ -66,7 +78,10 @@ function SourceControlEntry({
           type="button"
           className="tree-action-button"
           disabled={busy}
-          onClick={() => onStage(entry)}
+          onClick={(event) => {
+            event.stopPropagation();
+            onStage(entry);
+          }}
           title="Stage"
           aria-label={`Stage ${entry.path}`}
         >
@@ -78,7 +93,10 @@ function SourceControlEntry({
           type="button"
           className="tree-action-button"
           disabled={busy}
-          onClick={() => onUnstage(entry)}
+          onClick={(event) => {
+            event.stopPropagation();
+            onUnstage(entry);
+          }}
           title="Unstage"
           aria-label={`Unstage ${entry.path}`}
         >
@@ -89,7 +107,10 @@ function SourceControlEntry({
         type="button"
         className="tree-action-button danger"
         disabled={busy}
-        onClick={() => onDiscard(entry)}
+        onClick={(event) => {
+          event.stopPropagation();
+          onDiscard(entry);
+        }}
         title="Discard"
         aria-label={`Discard ${entry.path}`}
       >
@@ -109,6 +130,7 @@ export function SourceControlView({
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
+  const selectFile = useSessionStore((state) => state.selectFile);
 
   const entries = status?.entries ?? [];
   const stagedEntries = useMemo(
@@ -155,6 +177,20 @@ export function SourceControlView({
       return;
     }
     void runAction(() => discardGitPaths(workspace!.path, [entry.path]));
+  }
+
+  function openEntry(entry: GitStatusEntry, stage: "staged" | "working") {
+    if (!workspace) {
+      return;
+    }
+    selectFile({
+      type: "git-diff",
+      workspaceId: workspace.id,
+      workspaceRoot: workspace.path,
+      path: entry.path,
+      name: entry.path.split("/").pop() ?? entry.path,
+      stage,
+    });
   }
 
   if (!workspace) {
@@ -259,6 +295,7 @@ export function SourceControlView({
                   onStage={stageEntry}
                   onUnstage={unstageEntry}
                   onDiscard={discardEntry}
+                  onOpen={(entry) => openEntry(entry, "staged")}
                 />
               ))}
             </section>
@@ -282,6 +319,7 @@ export function SourceControlView({
                   onStage={stageEntry}
                   onUnstage={unstageEntry}
                   onDiscard={discardEntry}
+                  onOpen={(entry) => openEntry(entry, "working")}
                 />
               ))
             )}

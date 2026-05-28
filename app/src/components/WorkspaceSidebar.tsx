@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { listAgentReviews, type AgentReviewRecord } from "../lib/agent-review";
 import { getGitStatus, gitStateByFullPath, type GitStatus } from "../lib/git";
 import { useSessionStore, type Session, type Workspace } from "../lib/sessions";
 import { FileTree } from "./FileTree";
@@ -18,6 +19,7 @@ function activeWorkspaceFor(
 export function WorkspaceSidebar() {
   const [view, setView] = useState<WorkspaceSidebarView>("files");
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
+  const [agentReviews, setAgentReviews] = useState<AgentReviewRecord[]>([]);
   const [gitLoading, setGitLoading] = useState(false);
   const [gitError, setGitError] = useState("");
   const sessions = useSessionStore((state) => state.sessions);
@@ -46,11 +48,31 @@ export function WorkspaceSidebar() {
     }
   }, [activeWorkspace]);
 
+  const refreshAgentReviews = useCallback(async () => {
+    if (!activeWorkspace) {
+      setAgentReviews([]);
+      return;
+    }
+    setAgentReviews(await listAgentReviews(activeWorkspace.path).catch(() => []));
+  }, [activeWorkspace]);
+
   useEffect(() => {
     void refreshGitStatus();
   }, [refreshGitStatus]);
 
+  useEffect(() => {
+    void refreshAgentReviews();
+    const timer = window.setInterval(() => {
+      void refreshAgentReviews();
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [refreshAgentReviews]);
+
   const gitStatusByPath = useMemo(() => gitStateByFullPath(gitStatus), [gitStatus]);
+  const agentReviewsByPath = useMemo(
+    () => Object.fromEntries(agentReviews.map((record) => [record.fullPath, record])),
+    [agentReviews],
+  );
   const changeCount = gitStatus?.entries.length ?? 0;
 
   return (
@@ -78,7 +100,10 @@ export function WorkspaceSidebar() {
       </div>
       <div className="workspace-view-pane">
         {view === "files" ? (
-          <FileTree gitStatusByPath={gitStatusByPath} />
+          <FileTree
+            gitStatusByPath={gitStatusByPath}
+            agentReviewsByPath={agentReviewsByPath}
+          />
         ) : (
           <SourceControlView
             workspace={activeWorkspace}

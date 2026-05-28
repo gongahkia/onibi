@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import { css } from "@codemirror/lang-css";
 import { html } from "@codemirror/lang-html";
@@ -23,7 +24,12 @@ import { EditorState, type Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { tags as highlightTags } from "@lezer/highlight";
 import { basicSetup } from "codemirror";
-import { readWorkspaceFile, useSessionStore, writeWorkspaceFile } from "../lib/sessions";
+import {
+  readWorkspaceFile,
+  readWorkspacePreviewFile,
+  useSessionStore,
+  writeWorkspaceFile,
+} from "../lib/sessions";
 
 export interface EditorBufferProps {
   path: string;
@@ -31,7 +37,37 @@ export interface EditorBufferProps {
   fontFamily?: string;
 }
 
-type BufferState = "loading" | "ready" | "binary" | "large" | "error";
+type BufferState = "loading" | "ready" | "preview" | "binary" | "large" | "error";
+type PreviewKind = "image" | "pdf" | "audio" | "video";
+
+const PREVIEW_MIME_BY_EXTENSION: Record<string, { kind: PreviewKind; mime: string }> = {
+  png: { kind: "image", mime: "image/png" },
+  jpg: { kind: "image", mime: "image/jpeg" },
+  jpeg: { kind: "image", mime: "image/jpeg" },
+  gif: { kind: "image", mime: "image/gif" },
+  webp: { kind: "image", mime: "image/webp" },
+  svg: { kind: "image", mime: "image/svg+xml" },
+  pdf: { kind: "pdf", mime: "application/pdf" },
+  mp3: { kind: "audio", mime: "audio/mpeg" },
+  wav: { kind: "audio", mime: "audio/wav" },
+  m4a: { kind: "audio", mime: "audio/mp4" },
+  ogg: { kind: "audio", mime: "audio/ogg" },
+  mp4: { kind: "video", mime: "video/mp4" },
+  webm: { kind: "video", mime: "video/webm" },
+  mov: { kind: "video", mime: "video/quicktime" },
+};
+
+function extensionForPath(path: string): string {
+  return path.split(".").pop()?.toLowerCase() ?? "";
+}
+
+function previewTypeForPath(path: string) {
+  return PREVIEW_MIME_BY_EXTENSION[extensionForPath(path)];
+}
+
+function isMarkdownPath(path: string): boolean {
+  return ["md", "mdx", "markdown"].includes(extensionForPath(path));
+}
 
 function bytesToText(bytes: number[]): string | null {
   if (bytes.some((byte) => byte === 0)) {
@@ -49,7 +85,7 @@ function isLargeFileError(message: string): boolean {
 }
 
 function languageForPath(path: string): LanguageSupport | [] {
-  const extension = path.split(".").pop()?.toLowerCase();
+  const extension = extensionForPath(path);
   switch (extension) {
     case "cjs":
     case "js":
@@ -244,18 +280,153 @@ function CodeEditor({ value, path, fontFamily, onChange }: CodeEditorProps) {
   );
 }
 
+function inlineText(value: string): ReactNode {
+  const parts = value.split(/(`[^`]+`)/g);
+  return parts.map((part, index) => {
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return <code key={index}>{part.slice(1, -1)}</code>;
+    }
+    return part;
+  });
+}
+
+function MarkdownPreview({ content }: { content: string }) {
+  const blocks = content.split(/\n{2,}/);
+  return (
+    <article className="markdown-preview" aria-label="Markdown preview">
+      {blocks.map((block, index) => {
+        const trimmed = block.trim();
+        if (!trimmed) {
+          return null;
+        }
+        if (trimmed.startsWith("```")) {
+          const code = trimmed.replace(/^```[^\n]*\n?/, "").replace(/\n?```$/, "");
+          return (
+            <pre key={index}>
+              <code>{code}</code>
+            </pre>
+          );
+        }
+        const heading = /^(#{1,6})\s+(.+)$/.exec(trimmed);
+        if (heading) {
+          const level = Math.min(heading[1].length, 6);
+          const children = inlineText(heading[2]);
+          if (level === 1) return <h1 key={index}>{children}</h1>;
+          if (level === 2) return <h2 key={index}>{children}</h2>;
+          if (level === 3) return <h3 key={index}>{children}</h3>;
+          if (level === 4) return <h4 key={index}>{children}</h4>;
+          if (level === 5) return <h5 key={index}>{children}</h5>;
+          return <h6 key={index}>{children}</h6>;
+        }
+        if (trimmed.startsWith(">")) {
+          return (
+            <blockquote key={index}>
+              {trimmed
+                .split(/\r?\n/)
+                .map((line) => line.replace(/^>\s?/, ""))
+                .join("\n")}
+            </blockquote>
+          );
+        }
+        const lines = trimmed.split(/\r?\n/);
+        if (lines.every((line) => /^\s*[-*]\s+/.test(line))) {
+          return (
+            <ul key={index}>
+              {lines.map((line, lineIndex) => (
+                <li key={lineIndex}>{inlineText(line.replace(/^\s*[-*]\s+/, ""))}</li>
+              ))}
+            </ul>
+          );
+        }
+        if (lines.every((line) => /^\s*\d+\.\s+/.test(line))) {
+          return (
+            <ol key={index}>
+              {lines.map((line, lineIndex) => (
+                <li key={lineIndex}>{inlineText(line.replace(/^\s*\d+\.\s+/, ""))}</li>
+              ))}
+            </ol>
+          );
+        }
+        return <p key={index}>{inlineText(lines.join(" "))}</p>;
+      })}
+    </article>
+  );
+}
+
+function FilePreview({
+  kind,
+  url,
+  path,
+}: {
+  kind: PreviewKind;
+  url: string;
+  path: string;
+}) {
+  if (kind === "image") {
+    return (
+      <div className="file-preview image-preview">
+        <img src={url} alt={path} />
+      </div>
+    );
+  }
+  if (kind === "pdf") {
+    return (
+      <div className="file-preview pdf-preview">
+        <object data={url} type="application/pdf" aria-label={path}>
+          <iframe src={url} title={path} />
+        </object>
+      </div>
+    );
+  }
+  if (kind === "audio") {
+    return (
+      <div className="file-preview media-preview">
+        <audio src={url} controls />
+      </div>
+    );
+  }
+  return (
+    <div className="file-preview media-preview">
+      <video src={url} controls />
+    </div>
+  );
+}
+
 export function EditorBuffer({ path, workspaceRoot, fontFamily }: EditorBufferProps) {
   const selectFile = useSessionStore((state) => state.selectFile);
   const [state, setState] = useState<BufferState>("loading");
   const [content, setContent] = useState("");
   const [savedContent, setSavedContent] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewKind, setPreviewKind] = useState<PreviewKind | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
   const dirty = content !== savedContent;
 
   const loadFile = useCallback(async () => {
     setState("loading");
     setError(null);
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = null;
+      setPreviewUrl(null);
+      setPreviewKind(null);
+    }
     try {
+      const previewType = previewTypeForPath(path);
+      if (previewType) {
+        const bytes = await readWorkspacePreviewFile(workspaceRoot, path);
+        const url = URL.createObjectURL(
+          new Blob([new Uint8Array(bytes)], { type: previewType.mime }),
+        );
+        previewUrlRef.current = url;
+        setPreviewUrl(url);
+        setPreviewKind(previewType.kind);
+        setState("preview");
+        setContent("");
+        setSavedContent("");
+        return;
+      }
       const bytes = await readWorkspaceFile(workspaceRoot, path);
       const text = bytesToText(bytes);
       if (text === null) {
@@ -276,6 +447,12 @@ export function EditorBuffer({ path, workspaceRoot, fontFamily }: EditorBufferPr
 
   useEffect(() => {
     void loadFile();
+    return () => {
+      if (previewUrlRef.current) {
+        URL.revokeObjectURL(previewUrlRef.current);
+        previewUrlRef.current = null;
+      }
+    };
   }, [loadFile]);
 
   async function save() {
@@ -327,6 +504,9 @@ export function EditorBuffer({ path, workspaceRoot, fontFamily }: EditorBufferPr
       {state === "binary" ? (
         <div className="editor-message">Cannot edit binary file.</div>
       ) : null}
+      {state === "preview" && previewUrl && previewKind ? (
+        <FilePreview kind={previewKind} url={previewUrl} path={path} />
+      ) : null}
       {state === "large" ? (
         <div className="editor-message">
           <div>File too large; open in $EDITOR.</div>
@@ -337,12 +517,24 @@ export function EditorBuffer({ path, workspaceRoot, fontFamily }: EditorBufferPr
       ) : null}
       {state === "error" ? <div className="editor-error">{error}</div> : null}
       {state === "ready" ? (
-        <CodeEditor
-          path={path}
-          fontFamily={fontFamily}
-          value={content}
-          onChange={setContent}
-        />
+        isMarkdownPath(path) ? (
+          <div className="editor-markdown-split">
+            <CodeEditor
+              path={path}
+              fontFamily={fontFamily}
+              value={content}
+              onChange={setContent}
+            />
+            <MarkdownPreview content={content} />
+          </div>
+        ) : (
+          <CodeEditor
+            path={path}
+            fontFamily={fontFamily}
+            value={content}
+            onChange={setContent}
+          />
+        )
       ) : null}
     </section>
   );

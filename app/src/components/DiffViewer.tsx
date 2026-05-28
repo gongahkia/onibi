@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import type { DiffViewMode } from "../lib/sessions";
 
 export interface DiffContent {
@@ -13,7 +13,7 @@ export interface DiffContent {
 interface DiffViewerProps {
   diff: DiffContent;
   mode: DiffViewMode;
-  actions?: React.ReactNode;
+  actions?: ReactNode;
 }
 
 type DiffRowKind = "context" | "add" | "delete" | "change";

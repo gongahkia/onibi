@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { AgentReviewBuffer, GitDiffBuffer } from "./DiffBuffer";
 import { EmptyState } from "./EmptyState";
 import { EditorBuffer } from "./EditorBuffer";
 import { TerminalView } from "./TerminalView";
@@ -96,11 +97,17 @@ export function MainPane() {
         </section>
         {selectedFile ? (
           <section className="main-pane-surface editor-surface">
-            <EditorBuffer
-              path={selectedFile.path}
-              workspaceRoot={selectedFile.workspaceRoot}
-              fontFamily={settings.editorFontFamily}
-            />
+            {selectedFile.type === "git-diff" ? (
+              <GitDiffBuffer selection={selectedFile} mode={settings.diffViewMode} />
+            ) : selectedFile.type === "agent-review" ? (
+              <AgentReviewBuffer selection={selectedFile} mode={settings.diffViewMode} />
+            ) : (
+              <EditorBuffer
+                path={selectedFile.path}
+                workspaceRoot={selectedFile.workspaceRoot}
+                fontFamily={settings.editorFontFamily}
+              />
+            )}
           </section>
         ) : null}
       </main>
@@ -110,11 +117,17 @@ export function MainPane() {
   if (selectedFile) {
     return (
       <main className="main-pane" data-testid="main-pane-editor">
-        <EditorBuffer
-          path={selectedFile.path}
-          workspaceRoot={selectedFile.workspaceRoot}
-          fontFamily={settings.editorFontFamily}
-        />
+        {selectedFile.type === "git-diff" ? (
+          <GitDiffBuffer selection={selectedFile} mode={settings.diffViewMode} />
+        ) : selectedFile.type === "agent-review" ? (
+          <AgentReviewBuffer selection={selectedFile} mode={settings.diffViewMode} />
+        ) : (
+          <EditorBuffer
+            path={selectedFile.path}
+            workspaceRoot={selectedFile.workspaceRoot}
+            fontFamily={settings.editorFontFamily}
+          />
+        )}
       </main>
     );
   }
