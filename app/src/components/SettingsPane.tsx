@@ -130,6 +130,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
             <LayoutSettings
               orientation={settings.tabBarOrientation}
               position={settings.tabBarPosition}
+              showFileIcons={settings.showFileIcons}
               onOrientation={(orientation) =>
                 updateSettings({
                   tabBarOrientation: orientation,
@@ -137,6 +138,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
                 })
               }
               onPosition={(tabBarPosition) => updateSettings({ tabBarPosition })}
+              onShowFileIcons={(showFileIcons) => updateSettings({ showFileIcons })}
             />
           ) : null}
           {section === "agents" ? (
@@ -301,15 +303,19 @@ function GeneralSettings({
 interface LayoutSettingsProps {
   orientation: TabBarOrientation;
   position: TabBarPosition;
+  showFileIcons: boolean;
   onOrientation: (orientation: TabBarOrientation) => void;
   onPosition: (position: TabBarPosition) => void;
+  onShowFileIcons: (showFileIcons: boolean) => void;
 }
 
 function LayoutSettings({
   orientation,
   position,
+  showFileIcons,
   onOrientation,
   onPosition,
+  onShowFileIcons,
 }: LayoutSettingsProps) {
   const positions =
     orientation === "horizontal"
@@ -341,6 +347,18 @@ function LayoutSettings({
             </option>
           ))}
         </select>
+      </label>
+      <label className="settings-row">
+        <span>File tree icons</span>
+        <span className="settings-check-row">
+          <input
+            type="checkbox"
+            aria-label="Show file icons"
+            checked={showFileIcons}
+            onChange={(event) => onShowFileIcons(event.target.checked)}
+          />
+          Show file icons
+        </span>
       </label>
     </section>
   );

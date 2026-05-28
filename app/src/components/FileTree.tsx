@@ -1,4 +1,11 @@
-import { useCallback, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import {
   listWorkspaceDir,
   selectedFileFromEntry,
@@ -19,8 +26,85 @@ function isHidden(entry: FsEntry): boolean {
   return entry.name.startsWith(".");
 }
 
+interface TreeIcon {
+  label: string;
+  tone: string;
+  title: string;
+}
+
+const SPECIAL_FILE_ICONS: Record<string, TreeIcon> = {
+  ".env": { label: "ENV", tone: "config", title: "Environment file" },
+  ".gitignore": { label: "GIT", tone: "config", title: "Git ignore file" },
+  Dockerfile: { label: "DKR", tone: "config", title: "Docker file" },
+  Makefile: { label: "MK", tone: "config", title: "Makefile" },
+  "package.json": { label: "NPM", tone: "data", title: "Package manifest" },
+  "pnpm-lock.yaml": { label: "LCK", tone: "lock", title: "Lockfile" },
+  "package-lock.json": { label: "LCK", tone: "lock", title: "Lockfile" },
+  "README.md": { label: "MD", tone: "docs", title: "Markdown file" },
+};
+
+const EXTENSION_FILE_ICONS: Record<string, TreeIcon> = {
+  css: { label: "CSS", tone: "style", title: "CSS file" },
+  gif: { label: "IMG", tone: "image", title: "Image file" },
+  html: { label: "HTM", tone: "markup", title: "HTML file" },
+  ico: { label: "IMG", tone: "image", title: "Image file" },
+  jpeg: { label: "IMG", tone: "image", title: "Image file" },
+  jpg: { label: "IMG", tone: "image", title: "Image file" },
+  js: { label: "JS", tone: "code", title: "JavaScript file" },
+  json: { label: "JSN", tone: "data", title: "JSON file" },
+  jsx: { label: "JSX", tone: "code", title: "JavaScript React file" },
+  lock: { label: "LCK", tone: "lock", title: "Lockfile" },
+  md: { label: "MD", tone: "docs", title: "Markdown file" },
+  png: { label: "IMG", tone: "image", title: "Image file" },
+  rs: { label: "RS", tone: "code", title: "Rust file" },
+  svg: { label: "SVG", tone: "image", title: "SVG file" },
+  toml: { label: "TOM", tone: "config", title: "TOML file" },
+  ts: { label: "TS", tone: "code", title: "TypeScript file" },
+  tsx: { label: "TSX", tone: "code", title: "TypeScript React file" },
+  txt: { label: "TXT", tone: "docs", title: "Text file" },
+  yaml: { label: "YML", tone: "config", title: "YAML file" },
+  yml: { label: "YML", tone: "config", title: "YAML file" },
+};
+
+function iconForEntry(entry: FsEntry): TreeIcon {
+  if (entry.kind === "dir") {
+    return { label: "DIR", tone: "folder", title: "Folder" };
+  }
+
+  const specialIcon = SPECIAL_FILE_ICONS[entry.name];
+  if (specialIcon) {
+    return specialIcon;
+  }
+
+  const extension = entry.name.includes(".")
+    ? entry.name.split(".").pop()?.toLowerCase()
+    : "";
+  return (
+    (extension ? EXTENSION_FILE_ICONS[extension] : undefined) ?? {
+      label: "TXT",
+      tone: "file",
+      title: "File",
+    }
+  );
+}
+
+function TreeFileIcon({ entry }: { entry: FsEntry }) {
+  const icon = iconForEntry(entry);
+  return (
+    <span
+      className={`tree-file-icon ${icon.tone}`}
+      title={icon.title}
+      aria-hidden="true"
+    >
+      {icon.label}
+    </span>
+  );
+}
+
 export function FileTree() {
   const workspaces = useSessionStore((state) => state.workspaces);
+  const sessions = useSessionStore((state) => state.sessions);
+  const activeSessionId = useSessionStore((state) => state.activeSessionId);
   const selectedFile = useSessionStore((state) => state.selectedFile);
   const selectFile = useSessionStore((state) => state.selectFile);
   const addWorkspace = useSessionStore((state) => state.addWorkspace);
@@ -35,6 +119,12 @@ export function FileTree() {
   const [choosingWorkspace, setChoosingWorkspace] = useState(false);
 
   const normalizedFilter = filter.trim().toLowerCase();
+  const activeWorkspace = useMemo(() => {
+    const activeSession = sessions.find((session) => session.id === activeSessionId);
+    const scopedWorkspaceId = activeSession?.workspaceId ?? selectedFile?.workspaceId;
+    return workspaces.find((workspace) => workspace.id === scopedWorkspaceId) ?? null;
+  }, [activeSessionId, selectedFile?.workspaceId, sessions, workspaces]);
+  const visibleWorkspaces = activeWorkspace ? [activeWorkspace] : workspaces;
 
   const visibleEntries = useCallback(
     (entries: FsEntry[]) =>
@@ -97,9 +187,18 @@ export function FileTree() {
     }
   }
 
+  useEffect(() => {
+    if (!activeWorkspace) {
+      return;
+    }
+    const key = nodeKey(activeWorkspace, activeWorkspace.path);
+    setExpanded((state) => (state[key] ? state : { ...state, [key]: true }));
+    void loadChildren(activeWorkspace, activeWorkspace.path);
+  }, [activeWorkspace?.id, activeWorkspace?.path]);
+
   const workspaceRows = useMemo(
     () =>
-      workspaces.map((workspace) => (
+      visibleWorkspaces.map((workspace) => (
         <WorkspaceRoot
           key={workspace.id}
           workspace={workspace}
@@ -107,7 +206,7 @@ export function FileTree() {
           loading={Boolean(loading[nodeKey(workspace, workspace.path)])}
           error={errors[nodeKey(workspace, workspace.path)]}
           entries={visibleEntries(children[nodeKey(workspace, workspace.path)] ?? [])}
-          selectedPath={selectedFile?.path ?? null}
+          showFileIcons={settings.showFileIcons}
           onToggle={() => void toggleDir(workspace, workspace.path)}
           onSelectRoot={() => selectFile(null)}
           onRemove={() => removeWorkspace(workspace.id)}
@@ -123,6 +222,7 @@ export function FileTree() {
               childrenByPath={children}
               visibleEntries={visibleEntries}
               selectedPath={selectedFile?.path ?? null}
+              showFileIcons={settings.showFileIcons}
               onToggle={(path) => void toggleDir(workspace, path)}
               onSelect={(file) => selectFile(selectedFileFromEntry(workspace, file))}
             />
@@ -137,8 +237,9 @@ export function FileTree() {
       removeWorkspace,
       selectFile,
       selectedFile,
+      settings.showFileIcons,
       visibleEntries,
-      workspaces,
+      visibleWorkspaces,
     ],
   );
 
@@ -185,7 +286,7 @@ interface WorkspaceRootProps {
   loading: boolean;
   error?: string;
   entries: FsEntry[];
-  selectedPath: string | null;
+  showFileIcons: boolean;
   onToggle: () => void;
   onSelectRoot: () => void;
   onRemove: () => void;
@@ -198,6 +299,7 @@ function WorkspaceRoot({
   loading,
   error,
   entries,
+  showFileIcons,
   onToggle,
   onSelectRoot,
   onRemove,
@@ -207,7 +309,7 @@ function WorkspaceRoot({
     <section>
       <button
         type="button"
-        className="workspace-row"
+        className={`workspace-row ${showFileIcons ? "with-icons" : ""}`}
         onClick={onSelectRoot}
         onDoubleClick={onToggle}
         onContextMenu={(event) => {
@@ -220,6 +322,11 @@ function WorkspaceRoot({
         <span className="tree-glyph" onClick={onToggle}>
           {expanded ? "v" : ">"}
         </span>
+        {showFileIcons ? (
+          <TreeFileIcon
+            entry={{ name: workspace.name, path: workspace.path, kind: "dir", size: 0 }}
+          />
+        ) : null}
         <span className="workspace-name">{workspace.name}</span>
         <span className="workspace-path">{loading ? "loading" : ""}</span>
       </button>
@@ -239,6 +346,7 @@ interface TreeNodeProps {
   childrenByPath: ChildrenByPath;
   visibleEntries: (entries: FsEntry[]) => FsEntry[];
   selectedPath: string | null;
+  showFileIcons: boolean;
   onToggle: (path: string) => void;
   onSelect: (entry: FsEntry) => void;
 }
@@ -253,6 +361,7 @@ function TreeNode({
   childrenByPath,
   visibleEntries,
   selectedPath,
+  showFileIcons,
   onToggle,
   onSelect,
 }: TreeNodeProps) {
@@ -264,12 +373,15 @@ function TreeNode({
     <div>
       <button
         type="button"
-        className={`tree-row ${selectedPath === entry.path ? "selected" : ""}`}
+        className={`tree-row ${showFileIcons ? "with-icons" : ""} ${
+          selectedPath === entry.path ? "selected" : ""
+        }`}
         style={{ "--depth": depth } as CSSProperties}
         onClick={() => (isDir ? onToggle(entry.path) : onSelect(entry))}
       >
         <span className="tree-depth" />
         <span className="tree-glyph">{isDir ? (isExpanded ? "v" : ">") : ""}</span>
+        {showFileIcons ? <TreeFileIcon entry={entry} /> : null}
         <span className="tree-row-name">{entry.name}</span>
         <span className="tree-meta">{loading[key] ? "..." : ""}</span>
       </button>
@@ -288,6 +400,7 @@ function TreeNode({
               childrenByPath={childrenByPath}
               visibleEntries={visibleEntries}
               selectedPath={selectedPath}
+              showFileIcons={showFileIcons}
               onToggle={onToggle}
               onSelect={onSelect}
             />
