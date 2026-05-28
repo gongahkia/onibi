@@ -64,6 +64,12 @@ KelpClaw can absorb useful patterns from mature operational products without bec
 - **Evidence handoff** for security and compliance teams through signed static bundles, SARIF export, governance reports, controls matrices, and repository inventory.
 - **Runtime truth** for separating a planned workflow from an accepted, generated, evaluated, approved, deployed, runnable, or running one.
 
+## Architecture
+
+![KelpClaw architecture](docs/assets/kelpclaw-architecture.svg)
+
+The editable source is [`docs/assets/kelpclaw-architecture.dot`](docs/assets/kelpclaw-architecture.dot) and is rendered with Graphviz. The diagram shows KelpClaw as a workflow creation and governance control plane: authoring surfaces feed the API, the API coordinates workflow specs, policy, secrets, planning, jobs, and runtime guards, NanoClaw executes approved revisions, and the evidence layer produces replayable audit artifacts for reviewers and CI.
+
 ## Workspace Layout
 
 | Workspace                 | Ownership                                                                                 |

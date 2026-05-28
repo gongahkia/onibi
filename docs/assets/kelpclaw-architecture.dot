@@ -1,0 +1,320 @@
+digraph KelpClawArchitecture {
+  graph [
+    rankdir=LR,
+    compound=true,
+    bgcolor="#ffffff",
+    pad="0.35",
+    nodesep="0.45",
+    ranksep="0.85",
+    splines=ortho,
+    concentrate=true,
+    outputorder=edgesfirst,
+    fontname="Helvetica",
+    label="KelpClaw Architecture\nworkflow creation, governance, execution, and evidence",
+    labelloc=t,
+    fontsize=28,
+    fontcolor="#0f172a"
+  ];
+
+  node [
+    shape=rect,
+    style="rounded,filled",
+    fontname="Helvetica",
+    fontsize=12,
+    color="#334155",
+    penwidth=1.2,
+    margin="0.12,0.08"
+  ];
+
+  edge [
+    fontname="Helvetica",
+    fontsize=10,
+    color="#475569",
+    arrowsize=0.7,
+    penwidth=1.2
+  ];
+
+  subgraph cluster_inputs {
+    label="Inputs and operators";
+    color="#cbd5e1";
+    fillcolor="#f8fafc";
+    style="rounded,filled";
+
+    operator [
+      label="Operators\nbuilders, reviewers,\nplatform and security"
+      fillcolor="#f1f5f9"
+    ];
+    prompt [
+      label="Prompt or idea\nnatural-language\nworkflow request"
+      fillcolor="#f1f5f9"
+    ];
+    skill_md [
+      label="SKILL.md\nagent skills and\nautomation recipes"
+      fillcolor="#f1f5f9"
+    ];
+    repository [
+      label="Repository estate\nskills, runs, bundles,\nconnectors, CI"
+      fillcolor="#f1f5f9"
+    ];
+  }
+
+  subgraph cluster_surfaces {
+    label="Authoring and review surfaces";
+    color="#93c5fd";
+    fillcolor="#eff6ff";
+    style="rounded,filled";
+
+    graph_ui [
+      label="Workflow Graph UI\nprompt planning, graph edits,\nports, branches, deploy/run"
+      fillcolor="#dbeafe"
+    ];
+    skill_ui [
+      label="Skill Governance UI\ncompatibility, policy,\nreplay, audit handoff"
+      fillcolor="#dbeafe"
+    ];
+    runtime_ui [
+      label="Runtime Panels\nprovider status, budgets,\nmemory, run history"
+      fillcolor="#dbeafe"
+    ];
+    cli [
+      label="kelp-claw CLI\ncompat, run-skill,\npolicy explain, audit export,\ninventory, web, evidence"
+      fillcolor="#dbeafe"
+    ];
+    github_action [
+      label="GitHub Action\nPR audit, SARIF upload,\ninventory coverage"
+      fillcolor="#dbeafe"
+    ];
+    mcp_gateway [
+      label="MCP Web Gateway\npolicy-bound web search,\nfetch, answer, browser tools"
+      fillcolor="#dbeafe"
+    ];
+  }
+
+  subgraph cluster_control {
+    label="apps/api control plane";
+    color="#c4b5fd";
+    fillcolor="#f5f3ff";
+    style="rounded,filled";
+
+    api [
+      label="Fastify API\nplanning, workflow state,\napproval, execution control"
+      fillcolor="#ede9fe"
+    ];
+    planner [
+      label="Planner service\nregistry reuse,\nclarifications,\ncodegen fallback"
+      fillcolor="#ede9fe"
+    ];
+    workflow_store [
+      label="Workflow persistence\nrevision history,\napproval state,\ndeployment records"
+      fillcolor="#ede9fe"
+    ];
+    policy_engine [
+      label="Policy engine\nbaseline, PII, finance,\nSG/APAC, web, browser,\nshell safety"
+      fillcolor="#ede9fe"
+    ];
+    secrets [
+      label="Secrets and integrations\nencrypted local store,\nsecret refs, OAuth,\nprovider config"
+      fillcolor="#ede9fe"
+    ];
+    runtime_guards [
+      label="Runtime guards\nbudget ledger,\nprovider status,\nrouter and memory traces"
+      fillcolor="#ede9fe"
+    ];
+    worker [
+      label="Worker and jobs\nqueue, schedules,\ncheckpoints, run history"
+      fillcolor="#ede9fe"
+    ];
+  }
+
+  subgraph cluster_core {
+    label="Shared KelpClaw packages";
+    color="#86efac";
+    fillcolor="#f0fdf4";
+    style="rounded,filled";
+
+    workflow_spec [
+      label="packages/workflow-spec\nv1 JSON IR, Zod schemas,\nJSON Schema, canonical\nserialization, fixtures"
+      fillcolor="#dcfce7"
+    ];
+    skill_registry [
+      label="packages/skill-registry\nbuilt-in skills, metadata,\nmetaprompts, validation,\nexample fixtures"
+      fillcolor="#dcfce7"
+    ];
+    codegen [
+      label="packages/codegen\ngenerated artifacts,\nchecksums, provenance,\nreview and promote gates"
+      fillcolor="#dcfce7"
+    ];
+    adapters [
+      label="packages/adapters\nGmail, Sheets, email,\nchat, GitHub, SaaS,\nwebhook, database"
+      fillcolor="#dcfce7"
+    ];
+    nanoclaw [
+      label="packages/nanoclaw\nDAG compiler,\napproved-run gate,\nDocker and in-process\nexecution"
+      fillcolor="#dcfce7"
+    ];
+    hooks [
+      label="packages/agent-hooks\nCodex, Claude, Goose,\ncustom-agent tool-event\nnormalization"
+      fillcolor="#dcfce7"
+    ];
+    web_intel [
+      label="packages/web-intel\nExa/TinyFish search,\nfetch, answer, research,\nbrowser evidence"
+      fillcolor="#dcfce7"
+    ];
+    evidence [
+      label="packages/evidence\nlocal evidence vault,\nfindings imports,\ncustody, QA, retest diff,\nstatic viewer"
+      fillcolor="#dcfce7"
+    ];
+  }
+
+  subgraph cluster_lifecycle {
+    label="Governed workflow lifecycle";
+    color="#fdba74";
+    fillcolor="#fff7ed";
+    style="rounded,filled";
+
+    draft [
+      label="Draft workflow\neditable graph,\naccepted plan,\nbranchable revision"
+      fillcolor="#ffedd5"
+    ];
+    evaluated [
+      label="Evaluated draft\nschema checks,\npolicy decisions,\nmock/Docker gates,\ncodegen review"
+      fillcolor="#ffedd5"
+    ];
+    approved [
+      label="Approved revision\nfrozen DAG hash,\ncompiled node order,\napprover and timestamp"
+      fillcolor="#ffedd5"
+    ];
+    deployment [
+      label="Deployment records\nactivation artifacts,\nrunner.configuration,\nschedules"
+      fillcolor="#ffedd5"
+    ];
+    run [
+      label="Execution run\nnode attempts,\nstdout/stderr,\nartifacts, checkpoints,\npolicy decisions"
+      fillcolor="#ffedd5"
+    ];
+  }
+
+  subgraph cluster_runtime {
+    label="Execution backends and external systems";
+    color="#f9a8d4";
+    fillcolor="#fdf2f8";
+    style="rounded,filled";
+
+    model_providers [
+      label="Model providers\nOpenAI, Anthropic,\nOpenAI-compatible\nopen-weight endpoints"
+      fillcolor="#fce7f3"
+    ];
+    docker_nodes [
+      label="Docker nodes\nread-only workflow spec,\nnode workspace,\nnetwork none by default"
+      fillcolor="#fce7f3"
+    ];
+    live_systems [
+      label="External APIs\nGitHub, Slack, Discord,\nNotion, Linear, Jira,\nAirtable, DBs, webhooks"
+      fillcolor="#fce7f3"
+    ];
+    agent_clis [
+      label="Agent CLIs\ncodex-cli, claude-code,\ngoose, custom agents"
+      fillcolor="#fce7f3"
+    ];
+    web_providers [
+      label="Web providers\nExa, TinyFish,\nbrowser automation"
+      fillcolor="#fce7f3"
+    ];
+  }
+
+  subgraph cluster_state {
+    label="Local state and artifacts";
+    color="#a7f3d0";
+    fillcolor="#ecfdf5";
+    style="rounded,filled";
+
+    local_state [
+      label="Local state\nSQLite, encrypted secrets,\nartifact store,\n.kelpclaw/runs"
+      fillcolor="#d1fae5"
+    ];
+    replay [
+      label="Replay evidence\nworkflow.json,\ninput/output JSON,\nrun-manifest,\nhashes and logs"
+      fillcolor="#d1fae5"
+    ];
+    audit_bundle [
+      label="Static audit bundle\nindex.html, manifest,\nattestation,\nredaction report"
+      fillcolor="#d1fae5"
+    ];
+    governance_outputs [
+      label="Governance outputs\nreports, controls matrix,\nSARIF, inventory graph,\ncoverage gaps"
+      fillcolor="#d1fae5"
+    ];
+    reviewer [
+      label="Review surfaces\noffline reviewer,\nsecurity/compliance,\nPR checks"
+      fillcolor="#d1fae5"
+    ];
+  }
+
+  operator -> graph_ui;
+  operator -> skill_ui;
+  operator -> cli;
+  prompt -> graph_ui;
+  skill_md -> skill_ui;
+  skill_md -> cli;
+  repository -> cli;
+  repository -> github_action;
+
+  graph_ui -> api;
+  skill_ui -> api;
+  runtime_ui -> api;
+  cli -> api;
+  github_action -> cli;
+  mcp_gateway -> web_intel;
+
+  api -> planner;
+  api -> workflow_store;
+  api -> policy_engine;
+  api -> secrets;
+  api -> runtime_guards;
+  api -> worker;
+
+  planner -> skill_registry;
+  planner -> codegen;
+  planner -> workflow_spec;
+  planner -> model_providers;
+  workflow_store -> workflow_spec;
+  policy_engine -> workflow_spec;
+  policy_engine -> evaluated;
+  secrets -> adapters;
+  runtime_guards -> worker;
+  worker -> nanoclaw;
+
+  workflow_spec -> draft;
+  skill_registry -> draft;
+  codegen -> evaluated;
+  draft -> evaluated;
+  evaluated -> approved;
+  approved -> deployment;
+  deployment -> worker;
+  worker -> run;
+
+  nanoclaw -> docker_nodes;
+  nanoclaw -> adapters;
+  nanoclaw -> hooks;
+  docker_nodes -> run;
+  adapters -> live_systems;
+  adapters -> run;
+  hooks -> agent_clis;
+  agent_clis -> run;
+  web_intel -> web_providers;
+  web_intel -> replay;
+  web_intel -> evidence;
+
+  workflow_store -> local_state;
+  secrets -> local_state;
+  deployment -> local_state;
+  run -> local_state;
+  run -> replay;
+  run -> evidence;
+  policy_engine -> replay;
+  evidence -> audit_bundle;
+  replay -> audit_bundle;
+  audit_bundle -> governance_outputs;
+  governance_outputs -> reviewer;
+  github_action -> governance_outputs;
+}
