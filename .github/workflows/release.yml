@@ -16,7 +16,7 @@ jobs:
     name: headless smoke
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-unknown-linux-gnu
@@ -72,7 +72,7 @@ jobs:
             bundles: appimage,deb
             asset-suffix: linux-x86_64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install Linux Tauri dependencies
         if: runner.os == 'Linux'
         run: |
@@ -84,10 +84,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: app/src-tauri -> target
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10.33.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: pnpm
@@ -116,7 +116,7 @@ jobs:
           if [ "${{ matrix.target-name }}" = "linux-x86_64" ]; then
             cp app/src-tauri/target/release/onibi "release/onibi-headless-${VERSION}-linux-x86_64"
           fi
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: release/*
 
@@ -125,7 +125,7 @@ jobs:
     needs: headless-smoke
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-unknown-linux-gnu
@@ -143,6 +143,6 @@ jobs:
           mkdir -p release
           VERSION="${GITHUB_REF_NAME#v}"
           cp app/src-tauri/target/aarch64-unknown-linux-gnu/release/onibi "release/onibi-headless-${VERSION}-linux-arm64"
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: release/*

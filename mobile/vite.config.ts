@@ -8,6 +8,9 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       strategies: "injectManifest",
+      injectManifest: {
+        rollupFormat: "iife",
+      },
       srcDir: "src",
       filename: "sw.ts",
       manifest: {
