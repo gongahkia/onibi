@@ -7,6 +7,7 @@ import {
 } from "react";
 import {
   AGENT_LABELS,
+  COLOR_SCHEME_OPTIONS,
   DEFAULT_AGENT_COMMANDS,
   workspaceFromPath,
   type AppSettings,
@@ -223,30 +224,14 @@ export function CommandPalette() {
         keywords: ["dotfiles", "files", "tree"],
         run: () => updateSettings({ showHiddenFiles: !settings.showHiddenFiles }),
       },
-      {
-        id: "settings.theme.dark",
-        label: "Theme: Dark",
+      ...COLOR_SCHEME_OPTIONS.map<PaletteCommand>((option) => ({
+        id: `settings.theme.${option.id}`,
+        label: `Theme: ${option.label}`,
         group: "Settings",
-        description: settings.theme === "dark" ? "Current theme" : undefined,
-        keywords: ["appearance", "color"],
-        run: () => updateSettings({ theme: "dark" }),
-      },
-      {
-        id: "settings.theme.light",
-        label: "Theme: Light",
-        group: "Settings",
-        description: settings.theme === "light" ? "Current theme" : undefined,
-        keywords: ["appearance", "color"],
-        run: () => updateSettings({ theme: "light" }),
-      },
-      {
-        id: "settings.theme.system",
-        label: "Theme: System",
-        group: "Settings",
-        description: settings.theme === "system" ? "Current theme" : undefined,
-        keywords: ["appearance", "color"],
-        run: () => updateSettings({ theme: "system" }),
-      },
+        description: settings.theme === option.id ? "Current theme" : undefined,
+        keywords: ["appearance", "color", "scheme"],
+        run: () => updateSettings({ theme: option.id }),
+      })),
       {
         id: "settings.font.increase",
         label: "Increase Terminal Font Size",

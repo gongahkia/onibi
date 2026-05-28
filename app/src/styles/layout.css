@@ -11,6 +11,10 @@
   --danger: #e85d5d;
   --flash: rgba(242, 193, 78, 0.72);
   --border: #26343c;
+  --terminal-bg: #0b0e14;
+  --terminal-fg: #e6edf3;
+  --terminal-cursor: #f4d35e;
+  --terminal-selection: #315f7d;
   --font-ui: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
   --font-mono: Menlo, Monaco, Consolas, "Liberation Mono", monospace;
@@ -33,6 +37,10 @@
   --danger: #b3261e;
   --flash: rgba(184, 121, 19, 0.42);
   --border: #cac3b7;
+  --terminal-bg: #fbfaf7;
+  --terminal-fg: #18232a;
+  --terminal-cursor: #a46300;
+  --terminal-selection: #cbe7e3;
 }
 
 * {
@@ -690,6 +698,71 @@ button {
   align-items: center;
 }
 
+.settings-stack,
+.custom-scheme-editor,
+.color-setting-control {
+  display: grid;
+  gap: 8px;
+}
+
+.scheme-preview {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(24px, 1fr));
+  gap: 6px;
+  width: 100%;
+  min-height: 26px;
+}
+
+.scheme-swatch {
+  min-height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.custom-scheme-editor {
+  gap: 14px;
+  padding: 12px;
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.custom-color-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.color-setting-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--fg-1);
+  font-size: 12px;
+}
+
+.color-setting-control {
+  grid-template-columns: auto minmax(76px, auto);
+  align-items: center;
+}
+
+.color-setting-control code {
+  color: var(--fg-2);
+  font: 12px/1.2 var(--font-mono);
+}
+
+.color-picker {
+  width: 36px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
 .agent-command-row,
 .workspace-settings-row {
   display: grid;
@@ -730,8 +803,13 @@ button {
   }
 
   .settings-row,
+  .color-setting-row,
   .agent-command-row,
   .workspace-settings-row {
+    grid-template-columns: 1fr;
+  }
+
+  .custom-color-grid {
     grid-template-columns: 1fr;
   }
 

@@ -31,4 +31,19 @@ describe("SettingsPane", () => {
     expect(useSessionStore.getState().settings.tabBarOrientation).toBe("horizontal");
     expect(useSessionStore.getState().settings.tabBarPosition).toBe("top");
   });
+
+  test("updates a custom color scheme", () => {
+    render(<SettingsPane open onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText("Color scheme"), {
+      target: { value: "custom" },
+    });
+    fireEvent.change(screen.getByLabelText("Terminal background color"), {
+      target: { value: "#123456" },
+    });
+
+    const settings = useSessionStore.getState().settings;
+    expect(settings.theme).toBe("custom");
+    expect(settings.customColorScheme.colors.terminalBackground).toBe("#123456");
+  });
 });

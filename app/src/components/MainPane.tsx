@@ -28,6 +28,7 @@ export function MainPane() {
           ptyId={session.id}
           fontFamily={settings.fontFamily}
           fontSize={settings.fontSize}
+          settings={settings}
         />
       </main>
     );
