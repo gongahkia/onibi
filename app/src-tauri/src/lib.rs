@@ -1,4 +1,6 @@
 #[cfg(feature = "gui")]
+pub mod fonts;
+#[cfg(feature = "gui")]
 pub mod fs;
 #[cfg(feature = "gui")]
 pub mod pty;
@@ -7,6 +9,8 @@ pub mod util;
 
 #[cfg(feature = "gui")]
 use base64::{engine::general_purpose::STANDARD, Engine as _};
+#[cfg(feature = "gui")]
+use fonts::list_font_families;
 #[cfg(feature = "gui")]
 use fs::{
     fs_create_dir, fs_create_file, fs_delete_path, fs_list_dir, fs_move_path, fs_read_file,
@@ -166,7 +170,8 @@ pub fn run() {
             fs_delete_path,
             fs_workspace_info,
             fs_resolve_binary,
-            fs_read_ghostty_config
+            fs_read_ghostty_config,
+            list_font_families
         ])
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {

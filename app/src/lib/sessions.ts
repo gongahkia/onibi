@@ -865,6 +865,11 @@ export async function deleteWorkspacePath(
   await invoke("fs_delete_path", { root: workspaceRoot, path });
 }
 
+export async function listLocalFontFamilies(): Promise<string[]> {
+  const families = await invoke<string[]>("list_font_families");
+  return Array.isArray(families) ? families : [];
+}
+
 export function selectedFileFromEntry(
   workspace: Workspace,
   entry: FsEntry,

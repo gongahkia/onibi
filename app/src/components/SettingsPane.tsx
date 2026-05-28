@@ -13,6 +13,7 @@ import {
   type TabBarOrientation,
   type TabBarPosition,
   type ThemeMode,
+  listLocalFontFamilies,
   resolveAgentBinary,
   useSessionStore,
   workspaceFromPath,
@@ -37,6 +38,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
   const [binaryStatus, setBinaryStatus] = useState<BinaryStatus>(() =>
     Object.fromEntries(AGENT_KINDS.map((agent) => [agent, null])) as BinaryStatus,
   );
+  const [fontFamilies, setFontFamilies] = useState<string[]>([]);
   const [workspacePath, setWorkspacePath] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -59,6 +61,27 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
       cancelled = true;
     };
   }, [open, settings.agentCommands]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    let cancelled = false;
+    void listLocalFontFamilies()
+      .then((families) => {
+        if (!cancelled) {
+          setFontFamilies(families);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFontFamilies([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   if (!open) {
     return null;
@@ -117,6 +140,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               theme={settings.theme}
               customColorScheme={settings.customColorScheme}
               fontFamily={settings.fontFamily}
+              fontFamilies={fontFamilies}
               fontSize={settings.fontSize}
               onTheme={(theme) => updateSettings({ theme })}
               onCustomColorScheme={(customColorScheme) =>
@@ -172,6 +196,7 @@ interface GeneralSettingsProps {
   theme: ThemeMode;
   customColorScheme: CustomColorScheme;
   fontFamily: string;
+  fontFamilies: string[];
   fontSize: number;
   onTheme: (theme: ThemeMode) => void;
   onCustomColorScheme: (scheme: CustomColorScheme) => void;
@@ -183,12 +208,14 @@ function GeneralSettings({
   theme,
   customColorScheme,
   fontFamily,
+  fontFamilies,
   fontSize,
   onTheme,
   onCustomColorScheme,
   onFontFamily,
   onFontSize,
 }: GeneralSettingsProps) {
+  const selectedFontIsInstalled = fontFamilies.includes(fontFamily);
   const previewColors =
     theme === "custom"
       ? customColorScheme.colors
@@ -279,11 +306,29 @@ function GeneralSettings({
       ) : null}
       <label className="settings-row">
         <span>Font family</span>
-        <input
-          className="settings-input"
-          value={fontFamily}
-          onChange={(event) => onFontFamily(event.target.value)}
-        />
+        <span className="settings-stack">
+          <select
+            className="settings-select"
+            aria-label="Installed font family"
+            value={fontFamily}
+            onChange={(event) => onFontFamily(event.target.value)}
+          >
+            {!selectedFontIsInstalled ? (
+              <option value={fontFamily}>{fontFamily || "Custom"}</option>
+            ) : null}
+            {fontFamilies.map((family) => (
+              <option key={family} value={family}>
+                {family}
+              </option>
+            ))}
+          </select>
+          <input
+            className="settings-input"
+            aria-label="Custom font family"
+            value={fontFamily}
+            onChange={(event) => onFontFamily(event.target.value)}
+          />
+        </span>
       </label>
       <label className="settings-row">
         <span>Font size</span>
