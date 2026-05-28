@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import {
   AGENT_KINDS,
   AGENT_LABELS,
-  BUILT_IN_COLOR_SCHEMES,
   COLOR_SCHEME_COLOR_KEYS,
   COLOR_SCHEME_COLOR_LABELS,
   COLOR_SCHEME_OPTIONS,
@@ -231,12 +230,6 @@ function GeneralSettings({
   onEditorFontFamily,
   onFontSize,
 }: GeneralSettingsProps) {
-  const previewColors =
-    theme === "custom"
-      ? customColorScheme.colors
-      : (BUILT_IN_COLOR_SCHEMES.find((scheme) => scheme.id === theme)?.colors ??
-        BUILT_IN_COLOR_SCHEMES[0].colors);
-
   function updateCustomLabel(label: string) {
     onCustomColorScheme({ ...customColorScheme, label });
   }
@@ -255,40 +248,18 @@ function GeneralSettings({
     <section className="settings-section" aria-label="General settings">
       <div className="settings-row">
         <label htmlFor="settings-color-scheme">Color scheme</label>
-        <span className="settings-stack">
-          <select
-            id="settings-color-scheme"
-            className="settings-select"
-            value={theme}
-            onChange={(event) => onTheme(event.target.value as ThemeMode)}
-          >
-            {COLOR_SCHEME_OPTIONS.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <span className="scheme-preview" aria-label="Color scheme preview">
-            {(
-              [
-                "bg0",
-                "bg1",
-                "bg2",
-                "fg0",
-                "accent",
-                "accent2",
-                "danger",
-              ] as const
-            ).map((key) => (
-              <span
-                key={key}
-                className="scheme-swatch"
-                aria-hidden="true"
-                style={{ background: previewColors[key] }}
-              />
-            ))}
-          </span>
-        </span>
+        <select
+          id="settings-color-scheme"
+          className="settings-select"
+          value={theme}
+          onChange={(event) => onTheme(event.target.value as ThemeMode)}
+        >
+          {COLOR_SCHEME_OPTIONS.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
+            </option>
+          ))}
+        </select>
       </div>
       {theme === "custom" ? (
         <div className="custom-scheme-editor">
