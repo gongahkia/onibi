@@ -58,6 +58,21 @@ Object.defineProperty(globalThis, "cancelAnimationFrame", {
   writable: true,
 });
 
+if (typeof Range !== "undefined") {
+  Object.defineProperty(Range.prototype, "getBoundingClientRect", {
+    value: () => new DOMRect(0, 0, 0, 0),
+    writable: true,
+  });
+  Object.defineProperty(Range.prototype, "getClientRects", {
+    value: () => ({
+      length: 0,
+      item: () => null,
+      [Symbol.iterator]: function* iterator() {},
+    }),
+    writable: true,
+  });
+}
+
 Object.defineProperty(window, "matchMedia", {
   value: vi.fn(() => ({
     matches: false,

@@ -139,14 +139,22 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
             <GeneralSettings
               theme={settings.theme}
               customColorScheme={settings.customColorScheme}
-              fontFamily={settings.fontFamily}
+              uiFontFamily={settings.uiFontFamily}
+              terminalFontFamily={settings.terminalFontFamily}
+              editorFontFamily={settings.editorFontFamily}
               fontFamilies={fontFamilies}
               fontSize={settings.fontSize}
               onTheme={(theme) => updateSettings({ theme })}
               onCustomColorScheme={(customColorScheme) =>
                 updateSettings({ customColorScheme })
               }
-              onFontFamily={(fontFamily) => updateSettings({ fontFamily })}
+              onUiFontFamily={(uiFontFamily) => updateSettings({ uiFontFamily })}
+              onTerminalFontFamily={(terminalFontFamily) =>
+                updateSettings({ terminalFontFamily })
+              }
+              onEditorFontFamily={(editorFontFamily) =>
+                updateSettings({ editorFontFamily })
+              }
               onFontSize={(fontSize) => updateSettings({ fontSize })}
             />
           ) : null}
@@ -195,27 +203,34 @@ function labelFor(value: string): string {
 interface GeneralSettingsProps {
   theme: ThemeMode;
   customColorScheme: CustomColorScheme;
-  fontFamily: string;
+  uiFontFamily: string;
+  terminalFontFamily: string;
+  editorFontFamily: string;
   fontFamilies: string[];
   fontSize: number;
   onTheme: (theme: ThemeMode) => void;
   onCustomColorScheme: (scheme: CustomColorScheme) => void;
-  onFontFamily: (fontFamily: string) => void;
+  onUiFontFamily: (fontFamily: string) => void;
+  onTerminalFontFamily: (fontFamily: string) => void;
+  onEditorFontFamily: (fontFamily: string) => void;
   onFontSize: (fontSize: number) => void;
 }
 
 function GeneralSettings({
   theme,
   customColorScheme,
-  fontFamily,
+  uiFontFamily,
+  terminalFontFamily,
+  editorFontFamily,
   fontFamilies,
   fontSize,
   onTheme,
   onCustomColorScheme,
-  onFontFamily,
+  onUiFontFamily,
+  onTerminalFontFamily,
+  onEditorFontFamily,
   onFontSize,
 }: GeneralSettingsProps) {
-  const selectedFontIsInstalled = fontFamilies.includes(fontFamily);
   const previewColors =
     theme === "custom"
       ? customColorScheme.colors
@@ -304,34 +319,26 @@ function GeneralSettings({
           </div>
         </div>
       ) : null}
+      <FontFamilyControl
+        label="UI font"
+        value={uiFontFamily}
+        families={fontFamilies}
+        onChange={onUiFontFamily}
+      />
+      <FontFamilyControl
+        label="Terminal font"
+        value={terminalFontFamily}
+        families={fontFamilies}
+        onChange={onTerminalFontFamily}
+      />
+      <FontFamilyControl
+        label="File content font"
+        value={editorFontFamily}
+        families={fontFamilies}
+        onChange={onEditorFontFamily}
+      />
       <label className="settings-row">
-        <span>Font family</span>
-        <span className="settings-stack">
-          <select
-            className="settings-select"
-            aria-label="Installed font family"
-            value={fontFamily}
-            onChange={(event) => onFontFamily(event.target.value)}
-          >
-            {!selectedFontIsInstalled ? (
-              <option value={fontFamily}>{fontFamily || "Custom"}</option>
-            ) : null}
-            {fontFamilies.map((family) => (
-              <option key={family} value={family}>
-                {family}
-              </option>
-            ))}
-          </select>
-          <input
-            className="settings-input"
-            aria-label="Custom font family"
-            value={fontFamily}
-            onChange={(event) => onFontFamily(event.target.value)}
-          />
-        </span>
-      </label>
-      <label className="settings-row">
-        <span>Font size</span>
+        <span>Terminal font size</span>
         <input
           className="settings-input"
           type="number"
@@ -342,6 +349,50 @@ function GeneralSettings({
         />
       </label>
     </section>
+  );
+}
+
+interface FontFamilyControlProps {
+  label: string;
+  value: string;
+  families: string[];
+  onChange: (fontFamily: string) => void;
+}
+
+function FontFamilyControl({
+  label,
+  value,
+  families,
+  onChange,
+}: FontFamilyControlProps) {
+  const selectedFontIsInstalled = families.includes(value);
+  return (
+    <label className="settings-row">
+      <span>{label}</span>
+      <span className="settings-stack">
+        <select
+          className="settings-select"
+          aria-label={`${label} installed font`}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        >
+          {!selectedFontIsInstalled ? (
+            <option value={value}>{value || "Custom"}</option>
+          ) : null}
+          {families.map((family) => (
+            <option key={family} value={family}>
+              {family}
+            </option>
+          ))}
+        </select>
+        <input
+          className="settings-input"
+          aria-label={`${label} custom font`}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      </span>
+    </label>
   );
 }
 

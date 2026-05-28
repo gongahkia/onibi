@@ -29,7 +29,7 @@ function decodeBase64(data: string): Uint8Array {
 
 export function TerminalView({
   ptyId,
-  fontFamily = "Menlo, Monaco, monospace",
+  fontFamily = DEFAULT_SETTINGS.terminalFontFamily,
   fontSize = 13,
   settings = DEFAULT_SETTINGS,
 }: TerminalViewProps) {
