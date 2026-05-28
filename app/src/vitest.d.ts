@@ -6,6 +6,7 @@ declare global {
     dialogOpen: Mock;
     invoke: Mock;
     listen: Mock;
+    openerRevealItemInDir: Mock;
     unlisten: Mock;
   };
 }
