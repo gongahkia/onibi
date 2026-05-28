@@ -239,6 +239,50 @@ pub async fn fs_rename_path(root: PathBuf, path: PathBuf, name: String) -> Resul
 }
 
 #[tauri::command]
+pub async fn fs_move_path(
+    root: PathBuf,
+    path: PathBuf,
+    destination: PathBuf,
+) -> Result<FsEntry, String> {
+    let (root, path) = ensure_inside_workspace(&root, &path)?;
+    if path == root {
+        return Err("cannot move the workspace root".to_string());
+    }
+
+    let destination = canonicalize_existing(&destination)?;
+    if !destination.starts_with(&root) {
+        return Err(format!(
+            "path {} escapes workspace {}",
+            destination.display(),
+            root.display()
+        ));
+    }
+    let destination_metadata = fs::metadata(&destination).map_err(|err| err.to_string())?;
+    if !destination_metadata.is_dir() {
+        return Err(format!("{} is not a directory", destination.display()));
+    }
+
+    let metadata = fs::metadata(&path).map_err(|err| err.to_string())?;
+    if metadata.is_dir() && (destination == path || destination.starts_with(&path)) {
+        return Err("cannot move a folder into itself".to_string());
+    }
+
+    let name = path
+        .file_name()
+        .ok_or_else(|| format!("{} has no file name", path.display()))?;
+    let target = destination.join(name);
+    if target == path {
+        return Err("item is already in that folder".to_string());
+    }
+    if target.exists() {
+        return Err(format!("{} already exists", target.display()));
+    }
+
+    fs::rename(&path, &target).map_err(|err| err.to_string())?;
+    fs_entry_for_path(&root, &target)
+}
+
+#[tauri::command]
 pub async fn fs_delete_path(root: PathBuf, path: PathBuf) -> Result<(), String> {
     let (root, path) = ensure_inside_workspace(&root, &path)?;
     if path == root {
@@ -403,5 +447,66 @@ mod tests {
         let root = temp_workspace();
         let result = fs_delete_path(root.path().to_path_buf(), root.path().to_path_buf()).await;
         assert!(result.unwrap_err().contains("cannot delete"));
+    }
+
+    #[tokio::test]
+    async fn move_workspace_file_into_folder() {
+        let root = temp_workspace();
+        let dir = root.path().join("src");
+        let file = root.path().join("note.txt");
+        fs::create_dir(&dir).unwrap();
+        fs::write(&file, b"note").unwrap();
+
+        let moved = fs_move_path(root.path().to_path_buf(), file, dir.clone())
+            .await
+            .unwrap();
+
+        assert_eq!(moved.name, "note.txt");
+        assert_eq!(moved.path, fs::canonicalize(dir.join("note.txt")).unwrap());
+        assert!(dir.join("note.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn move_rejects_destination_escape() {
+        let root = temp_workspace();
+        let outside = tempdir().unwrap();
+        let file = root.path().join("note.txt");
+        fs::write(&file, b"note").unwrap();
+
+        let result = fs_move_path(
+            root.path().to_path_buf(),
+            file,
+            outside.path().to_path_buf(),
+        )
+        .await;
+
+        assert!(result.unwrap_err().contains("escapes workspace"));
+    }
+
+    #[tokio::test]
+    async fn move_rejects_folder_into_descendant() {
+        let root = temp_workspace();
+        let dir = root.path().join("src");
+        let child = dir.join("child");
+        fs::create_dir(&dir).unwrap();
+        fs::create_dir(&child).unwrap();
+
+        let result = fs_move_path(root.path().to_path_buf(), dir, child).await;
+
+        assert!(result
+            .unwrap_err()
+            .contains("cannot move a folder into itself"));
+    }
+
+    #[tokio::test]
+    async fn move_rejects_workspace_root() {
+        let root = temp_workspace();
+        let child = root.path().join("child");
+        fs::create_dir(&child).unwrap();
+
+        let result =
+            fs_move_path(root.path().to_path_buf(), root.path().to_path_buf(), child).await;
+
+        assert!(result.unwrap_err().contains("cannot move"));
     }
 }

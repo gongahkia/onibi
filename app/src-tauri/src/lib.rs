@@ -9,7 +9,7 @@ pub mod util;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 #[cfg(feature = "gui")]
 use fs::{
-    fs_create_dir, fs_create_file, fs_delete_path, fs_list_dir, fs_read_file,
+    fs_create_dir, fs_create_file, fs_delete_path, fs_list_dir, fs_move_path, fs_read_file,
     fs_read_ghostty_config, fs_rename_path, fs_resolve_binary, fs_workspace_info, fs_write_file,
 };
 #[cfg(feature = "gui")]
@@ -162,6 +162,7 @@ pub fn run() {
             fs_create_file,
             fs_create_dir,
             fs_rename_path,
+            fs_move_path,
             fs_delete_path,
             fs_workspace_info,
             fs_resolve_binary,

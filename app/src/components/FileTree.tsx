@@ -4,6 +4,7 @@ import {
   useMemo,
   useState,
   type CSSProperties,
+  type DragEvent,
   type MouseEvent,
   type ReactNode,
 } from "react";
@@ -13,6 +14,7 @@ import {
   createWorkspaceFile,
   deleteWorkspacePath,
   listWorkspaceDir,
+  moveWorkspacePath,
   renameWorkspacePath,
   selectedFileFromEntry,
   type FsEntry,
@@ -23,6 +25,7 @@ import { chooseWorkspaceFolder } from "../lib/workspace-picker";
 
 type ChildrenByPath = Record<string, FsEntry[]>;
 type ErrorByPath = Record<string, string>;
+const FILE_TREE_DRAG_MIME = "application/x-onibi-file-tree-entry";
 
 interface ContextTarget {
   workspace: Workspace;
@@ -34,6 +37,13 @@ interface ContextMenuState {
   x: number;
   y: number;
   target: ContextTarget;
+}
+
+interface DragPayload {
+  workspaceId: string;
+  path: string;
+  kind: FsEntry["kind"];
+  name: string;
 }
 
 function nodeKey(workspace: Workspace, path: string): string {
@@ -63,6 +73,11 @@ function relativeWorkspacePath(workspace: Workspace, path: string): string {
   return path === workspace.path
     ? "."
     : path.replace(`${workspace.path.replace(/\/+$/, "")}/`, "");
+}
+
+function isDescendantPath(parent: string, path: string): boolean {
+  const normalizedParent = parent.replace(/\/+$/, "");
+  return path === normalizedParent || path.startsWith(`${normalizedParent}/`);
 }
 
 interface TreeIcon {
@@ -157,6 +172,8 @@ export function FileTree() {
   const [errors, setErrors] = useState<ErrorByPath>({});
   const [choosingWorkspace, setChoosingWorkspace] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [dragged, setDragged] = useState<DragPayload | null>(null);
+  const [dropTargetKey, setDropTargetKey] = useState<string | null>(null);
 
   const normalizedFilter = filter.trim().toLowerCase();
   const activeSession = useMemo(
@@ -237,6 +254,109 @@ export function FileTree() {
       entry: entry ?? rootEntry(workspace),
       isWorkspaceRoot: !entry,
     };
+  }
+
+  function dragPayloadFor(workspace: Workspace, entry: FsEntry): DragPayload {
+    return {
+      workspaceId: workspace.id,
+      path: entry.path,
+      kind: entry.kind,
+      name: entry.name,
+    };
+  }
+
+  function dragPayloadFromEvent(event: DragEvent): DragPayload | null {
+    if (dragged) {
+      return dragged;
+    }
+    const raw = event.dataTransfer.getData(FILE_TREE_DRAG_MIME);
+    if (!raw) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(raw) as Partial<DragPayload>;
+      if (
+        typeof parsed.workspaceId === "string" &&
+        typeof parsed.path === "string" &&
+        (parsed.kind === "file" || parsed.kind === "dir") &&
+        typeof parsed.name === "string"
+      ) {
+        return parsed as DragPayload;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  function canDropOnTarget(payload: DragPayload | null, target: ContextTarget): boolean {
+    if (!payload || target.entry.kind !== "dir") {
+      return false;
+    }
+    if (payload.workspaceId !== target.workspace.id) {
+      return false;
+    }
+    if (parentPath(payload.path) === target.entry.path) {
+      return false;
+    }
+    if (payload.kind === "dir" && isDescendantPath(payload.path, target.entry.path)) {
+      return false;
+    }
+    return true;
+  }
+
+  function handleDragStart(
+    event: DragEvent,
+    workspace: Workspace,
+    entry: FsEntry,
+  ) {
+    event.stopPropagation();
+    const payload = dragPayloadFor(workspace, entry);
+    setDragged(payload);
+    setContextMenu(null);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(FILE_TREE_DRAG_MIME, JSON.stringify(payload));
+    event.dataTransfer.setData("text/plain", entry.path);
+  }
+
+  function handleDragEnd() {
+    setDragged(null);
+    setDropTargetKey(null);
+  }
+
+  function handleDragOver(event: DragEvent, target: ContextTarget) {
+    const payload = dragPayloadFromEvent(event);
+    if (!canDropOnTarget(payload, target)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "move";
+    setDropTargetKey(nodeKey(target.workspace, target.entry.path));
+  }
+
+  function handleDragLeave(event: DragEvent, target: ContextTarget) {
+    if (
+      event.currentTarget instanceof Node &&
+      event.relatedTarget instanceof Node &&
+      event.currentTarget.contains(event.relatedTarget)
+    ) {
+      return;
+    }
+    const key = nodeKey(target.workspace, target.entry.path);
+    setDropTargetKey((current) => (current === key ? null : current));
+  }
+
+  async function handleDrop(event: DragEvent, target: ContextTarget) {
+    const payload = dragPayloadFromEvent(event);
+    setDragged(null);
+    setDropTargetKey(null);
+    if (!canDropOnTarget(payload, target) || !payload) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    await moveTarget(payload, target);
   }
 
   function openContextMenu(
@@ -329,6 +449,47 @@ export function FileTree() {
       await refreshChildren(target.workspace, parent);
       if (selectedFile?.path.startsWith(target.entry.path)) {
         selectFile(null);
+      }
+    } catch (caught) {
+      setErrors((state) => ({
+        ...state,
+        global: caught instanceof Error ? caught.message : String(caught),
+      }));
+    }
+  }
+
+  async function moveTarget(source: DragPayload, target: ContextTarget) {
+    setErrors((state) => ({ ...state, global: "" }));
+    const sourceParent = parentPath(source.path);
+    const destination = target.entry.path;
+    try {
+      const moved = await moveWorkspacePath(
+        target.workspace.path,
+        source.path,
+        destination,
+      );
+      clearCachedPath(target.workspace, source.path);
+      setExpanded((state) => ({
+        ...state,
+        [nodeKey(target.workspace, destination)]: true,
+      }));
+      await Promise.all([
+        refreshChildren(target.workspace, sourceParent),
+        refreshChildren(target.workspace, destination),
+      ]);
+      if (selectedFile?.path === source.path && moved.kind === "file") {
+        selectFile(selectedFileFromEntry(target.workspace, moved));
+      } else if (
+        source.kind === "dir" &&
+        selectedFile?.path &&
+        isDescendantPath(source.path, selectedFile.path)
+      ) {
+        selectFile({
+          ...selectedFile,
+          workspaceId: target.workspace.id,
+          workspaceRoot: target.workspace.path,
+          path: selectedFile.path.replace(source.path, moved.path),
+        });
       }
     } catch (caught) {
       setErrors((state) => ({
@@ -438,9 +599,17 @@ export function FileTree() {
           error={errors[nodeKey(workspace, workspace.path)]}
           entries={visibleEntries(children[nodeKey(workspace, workspace.path)] ?? [])}
           showFileIcons={settings.showFileIcons}
+          isDropTarget={dropTargetKey === nodeKey(workspace, workspace.path)}
           onToggle={() => void toggleDir(workspace, workspace.path)}
           onSelectRoot={() => selectFile(null)}
           onContextMenu={(event) => openContextMenu(event, workspace)}
+          onDragOver={(event) =>
+            handleDragOver(event, contextTargetFor(workspace))
+          }
+          onDragLeave={(event) =>
+            handleDragLeave(event, contextTargetFor(workspace))
+          }
+          onDrop={(event) => void handleDrop(event, contextTargetFor(workspace))}
           renderNode={(entry, depth) => (
             <TreeNode
               key={entry.path}
@@ -454,9 +623,22 @@ export function FileTree() {
               visibleEntries={visibleEntries}
               selectedPath={selectedFile?.path ?? null}
               showFileIcons={settings.showFileIcons}
+              draggedPath={dragged?.path ?? null}
+              dropTargetKey={dropTargetKey}
               onToggle={(path) => void toggleDir(workspace, path)}
               onContextMenu={(event, item) => openContextMenu(event, workspace, item)}
               onSelect={(file) => selectFile(selectedFileFromEntry(workspace, file))}
+              onDragStart={(event, item) => handleDragStart(event, workspace, item)}
+              onDragEnd={handleDragEnd}
+              onDragOver={(event, item) =>
+                handleDragOver(event, contextTargetFor(workspace, item))
+              }
+              onDragLeave={(event, item) =>
+                handleDragLeave(event, contextTargetFor(workspace, item))
+              }
+              onDrop={(event, item) =>
+                void handleDrop(event, contextTargetFor(workspace, item))
+              }
             />
           )}
         />
@@ -465,6 +647,8 @@ export function FileTree() {
       children,
       errors,
       expanded,
+      dragged,
+      dropTargetKey,
       loading,
       selectFile,
       selectedFile,
@@ -685,9 +869,13 @@ interface WorkspaceRootProps {
   error?: string;
   entries: FsEntry[];
   showFileIcons: boolean;
+  isDropTarget: boolean;
   onToggle: () => void;
   onSelectRoot: () => void;
   onContextMenu: (event: MouseEvent) => void;
+  onDragOver: (event: DragEvent) => void;
+  onDragLeave: (event: DragEvent) => void;
+  onDrop: (event: DragEvent) => void;
   renderNode: (entry: FsEntry, depth: number) => ReactNode;
 }
 
@@ -698,19 +886,28 @@ function WorkspaceRoot({
   error,
   entries,
   showFileIcons,
+  isDropTarget,
   onToggle,
   onSelectRoot,
   onContextMenu,
+  onDragOver,
+  onDragLeave,
+  onDrop,
   renderNode,
 }: WorkspaceRootProps) {
   return (
     <section>
       <button
         type="button"
-        className={`workspace-row ${showFileIcons ? "with-icons" : ""}`}
+        className={`workspace-row ${showFileIcons ? "with-icons" : ""} ${
+          isDropTarget ? "drop-target" : ""
+        }`}
         onClick={onSelectRoot}
         onDoubleClick={onToggle}
         onContextMenu={onContextMenu}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
       >
         <span className="tree-glyph" onClick={onToggle}>
           {expanded ? "v" : ">"}
@@ -740,9 +937,16 @@ interface TreeNodeProps {
   visibleEntries: (entries: FsEntry[]) => FsEntry[];
   selectedPath: string | null;
   showFileIcons: boolean;
+  draggedPath: string | null;
+  dropTargetKey: string | null;
   onToggle: (path: string) => void;
   onContextMenu: (event: MouseEvent, entry: FsEntry) => void;
   onSelect: (entry: FsEntry) => void;
+  onDragStart: (event: DragEvent, entry: FsEntry) => void;
+  onDragEnd: () => void;
+  onDragOver: (event: DragEvent, entry: FsEntry) => void;
+  onDragLeave: (event: DragEvent, entry: FsEntry) => void;
+  onDrop: (event: DragEvent, entry: FsEntry) => void;
 }
 
 function TreeNode({
@@ -756,9 +960,16 @@ function TreeNode({
   visibleEntries,
   selectedPath,
   showFileIcons,
+  draggedPath,
+  dropTargetKey,
   onToggle,
   onContextMenu,
   onSelect,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDragLeave,
+  onDrop,
 }: TreeNodeProps) {
   const key = nodeKey(workspace, entry.path);
   const isDir = entry.kind === "dir";
@@ -770,10 +981,30 @@ function TreeNode({
         type="button"
         className={`tree-row ${showFileIcons ? "with-icons" : ""} ${
           selectedPath === entry.path ? "selected" : ""
+        } ${draggedPath === entry.path ? "dragging" : ""} ${
+          isDir && dropTargetKey === key ? "drop-target" : ""
         }`}
         style={{ "--depth": depth } as CSSProperties}
+        draggable
         onClick={() => (isDir ? onToggle(entry.path) : onSelect(entry))}
         onContextMenu={(event) => onContextMenu(event, entry)}
+        onDragStart={(event) => onDragStart(event, entry)}
+        onDragEnd={onDragEnd}
+        onDragOver={(event) => {
+          if (isDir) {
+            onDragOver(event, entry);
+          }
+        }}
+        onDragLeave={(event) => {
+          if (isDir) {
+            onDragLeave(event, entry);
+          }
+        }}
+        onDrop={(event) => {
+          if (isDir) {
+            onDrop(event, entry);
+          }
+        }}
       >
         <span className="tree-depth" />
         <span className="tree-glyph">{isDir ? (isExpanded ? "v" : ">") : ""}</span>
@@ -797,9 +1028,16 @@ function TreeNode({
               visibleEntries={visibleEntries}
               selectedPath={selectedPath}
               showFileIcons={showFileIcons}
+              draggedPath={draggedPath}
+              dropTargetKey={dropTargetKey}
               onToggle={onToggle}
               onContextMenu={onContextMenu}
               onSelect={onSelect}
+              onDragStart={onDragStart}
+              onDragEnd={onDragEnd}
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              onDrop={onDrop}
             />
           ))}
         </div>

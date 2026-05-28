@@ -846,6 +846,18 @@ export async function renameWorkspacePath(
   return invoke<FsEntry>("fs_rename_path", { root: workspaceRoot, path, name });
 }
 
+export async function moveWorkspacePath(
+  workspaceRoot: string,
+  path: string,
+  destination: string,
+): Promise<FsEntry> {
+  return invoke<FsEntry>("fs_move_path", {
+    root: workspaceRoot,
+    path,
+    destination,
+  });
+}
+
 export async function deleteWorkspacePath(
   workspaceRoot: string,
   path: string,
