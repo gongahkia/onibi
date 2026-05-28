@@ -54,4 +54,22 @@ describe("SettingsPane", () => {
     expect(settings.theme).toBe("custom");
     expect(settings.customColorScheme.colors.terminalBackground).toBe("#123456");
   });
+
+  test("selects locally available font families", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "list_font_families") {
+        return ["Fira Code", "Monaco"];
+      }
+      return null;
+    });
+
+    render(<SettingsPane open onClose={vi.fn()} />);
+    await screen.findByRole("option", { name: "Fira Code" });
+
+    fireEvent.change(screen.getByLabelText("Installed font family"), {
+      target: { value: "Fira Code" },
+    });
+
+    expect(useSessionStore.getState().settings.fontFamily).toBe("Fira Code");
+  });
 });
