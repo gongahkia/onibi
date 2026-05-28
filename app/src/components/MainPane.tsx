@@ -26,7 +26,7 @@ export function MainPane() {
           <TerminalView
             ptyId={session.id}
             fontFamily={settings.terminalFontFamily}
-            fontSize={settings.fontSize}
+            fontSize={settings.terminalFontSize}
             settings={settings}
             visible={terminalVisible}
           />

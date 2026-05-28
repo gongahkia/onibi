@@ -53,12 +53,33 @@ export interface FsEntry {
 }
 
 export interface SelectedFile {
+  type?: "file";
   workspaceId: string;
   workspaceRoot: string;
   path: string;
   name: string;
   size: number;
 }
+
+export interface SelectedGitDiff {
+  type: "git-diff";
+  workspaceId: string;
+  workspaceRoot: string;
+  path: string;
+  name: string;
+  stage: "staged" | "working";
+}
+
+export interface SelectedAgentReview {
+  type: "agent-review";
+  workspaceId: string;
+  workspaceRoot: string;
+  path: string;
+  name: string;
+  reviewId: string;
+}
+
+export type MainSelection = SelectedFile | SelectedGitDiff | SelectedAgentReview;
 
 export type ThemeMode =
   | "system"
@@ -129,13 +150,18 @@ export interface GhosttyTheme {
   palette: Record<number, string>;
 }
 
+export type DiffViewMode = "unified" | "side-by-side";
+
 export interface AppSettings {
   theme: ThemeMode;
   fontFamily: string;
   uiFontFamily: string;
   terminalFontFamily: string;
   editorFontFamily: string;
-  fontSize: number;
+  uiFontSize: number;
+  terminalFontSize: number;
+  editorFontSize: number;
+  diffViewMode: DiffViewMode;
   tabBarOrientation: TabBarOrientation;
   tabBarPosition: TabBarPosition;
   showHiddenFiles: boolean;
@@ -148,7 +174,7 @@ export interface AppSettings {
 type PersistedState = {
   sessions?: Session[];
   workspaces?: Workspace[];
-  settings?: Partial<AppSettings>;
+  settings?: Partial<AppSettings> & { fontSize?: number };
 };
 
 type SessionStore = {
@@ -156,7 +182,7 @@ type SessionStore = {
   sessions: Session[];
   activeSessionId: string | null;
   workspaces: Workspace[];
-  selectedFile: SelectedFile | null;
+  selectedFile: MainSelection | null;
   settings: AppSettings;
   setHydrated: (hydrated: boolean) => void;
   setActiveSession: (id: string | null) => void;
@@ -166,7 +192,7 @@ type SessionStore = {
   setWorkspaces: (workspaces: Workspace[]) => void;
   addWorkspace: (workspace: Workspace) => void;
   removeWorkspace: (id: string) => void;
-  selectFile: (file: SelectedFile | null) => void;
+  selectFile: (file: MainSelection | null) => void;
   updateSettings: (patch: Partial<AppSettings>) => void;
   updateAgentCommand: (agent: AgentKind, command: string) => void;
 };
@@ -515,7 +541,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
     'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   terminalFontFamily: "Menlo, Monaco, monospace",
   editorFontFamily: "Menlo, Monaco, monospace",
-  fontSize: 13,
+  uiFontSize: 15,
+  terminalFontSize: 13,
+  editorFontSize: 13,
+  diffViewMode: "side-by-side",
   tabBarOrientation: "vertical",
   tabBarPosition: "left",
   showHiddenFiles: false,
@@ -600,6 +629,19 @@ function normalizeFontFamily(value: unknown, fallback: string): string {
   return typeof value === "string" && value.trim() ? value : fallback;
 }
 
+function normalizeFontSize(value: unknown, fallback: number): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) && parsed > 0
+    ? Math.min(Math.max(parsed, 10), 28)
+    : fallback;
+}
+
+function normalizeDiffViewMode(value: unknown): DiffViewMode {
+  return value === "unified" || value === "side-by-side"
+    ? value
+    : DEFAULT_SETTINGS.diffViewMode;
+}
+
 function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings {
   const agentCommands = isRecord(settings?.agentCommands)
     ? {
@@ -619,6 +661,10 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
     merged.terminalFontFamily,
     legacyFontFamily,
   );
+  const legacyFontSize = normalizeFontSize(
+    (settings as (Partial<AppSettings> & { fontSize?: number }) | undefined)?.fontSize,
+    DEFAULT_SETTINGS.terminalFontSize,
+  );
   return {
     ...merged,
     theme: isThemeMode(merged.theme) ? merged.theme : DEFAULT_SETTINGS.theme,
@@ -632,10 +678,10 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
       merged.editorFontFamily,
       legacyFontFamily,
     ),
-    fontSize:
-      Number.isFinite(merged.fontSize) && merged.fontSize > 0
-        ? Math.min(Math.max(merged.fontSize, 10), 24)
-        : DEFAULT_SETTINGS.fontSize,
+    uiFontSize: normalizeFontSize(merged.uiFontSize, legacyFontSize),
+    terminalFontSize: normalizeFontSize(merged.terminalFontSize, legacyFontSize),
+    editorFontSize: normalizeFontSize(merged.editorFontSize, legacyFontSize),
+    diffViewMode: normalizeDiffViewMode(merged.diffViewMode),
     tabBarOrientation: isTabBarOrientation(merged.tabBarOrientation)
       ? merged.tabBarOrientation
       : DEFAULT_SETTINGS.tabBarOrientation,
@@ -1057,10 +1103,10 @@ function applyGhosttyDefaults(
       ghosttyTheme.fontFamily
         ? ghosttyTheme.fontFamily
         : settings.terminalFontFamily,
-    fontSize:
-      settings.fontSize === DEFAULT_SETTINGS.fontSize && ghosttyTheme.fontSize
+    terminalFontSize:
+      settings.terminalFontSize === DEFAULT_SETTINGS.terminalFontSize && ghosttyTheme.fontSize
         ? ghosttyTheme.fontSize
-        : settings.fontSize,
+        : settings.terminalFontSize,
     ghosttyTheme,
   };
 }
@@ -1074,7 +1120,9 @@ export function applyDocumentSettings(settings: AppSettings): void {
   root.style.setProperty("--font-terminal", settings.terminalFontFamily);
   root.style.setProperty("--font-editor", settings.editorFontFamily);
   root.style.setProperty("--font-mono", settings.terminalFontFamily);
-  root.style.setProperty("--font-size-terminal", `${settings.fontSize}px`);
+  root.style.setProperty("--font-size-ui", `${settings.uiFontSize}px`);
+  root.style.setProperty("--font-size-terminal", `${settings.terminalFontSize}px`);
+  root.style.setProperty("--font-size-editor", `${settings.editorFontSize}px`);
   for (const key of COLOR_SCHEME_COLOR_KEYS) {
     root.style.setProperty(COLOR_SCHEME_CSS_VARIABLES[key], colors[key]);
   }

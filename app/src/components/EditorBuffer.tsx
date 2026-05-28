@@ -96,7 +96,7 @@ const editorTheme = EditorView.theme(
       height: "100%",
       color: "var(--fg-0)",
       backgroundColor: "var(--bg-0)",
-      fontSize: "13px",
+      fontSize: "var(--font-size-editor)",
     },
     ".cm-scroller": {
       fontFamily: "var(--font-editor)",

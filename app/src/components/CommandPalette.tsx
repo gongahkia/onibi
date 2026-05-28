@@ -242,19 +242,25 @@ export function CommandPalette() {
         id: "settings.font.increase",
         label: "Increase Terminal Font Size",
         group: "Settings",
-        description: `${settings.fontSize}px`,
+        description: `${settings.terminalFontSize}px`,
         shortcut: primaryShortcut("+"),
         keywords: ["text", "terminal", "zoom"],
-        run: () => updateSettings({ fontSize: Math.min(settings.fontSize + 1, 24) }),
+        run: () =>
+          updateSettings({
+            terminalFontSize: Math.min(settings.terminalFontSize + 1, 28),
+          }),
       },
       {
         id: "settings.font.decrease",
         label: "Decrease Terminal Font Size",
         group: "Settings",
-        description: `${settings.fontSize}px`,
+        description: `${settings.terminalFontSize}px`,
         shortcut: primaryShortcut("-"),
         keywords: ["text", "terminal", "zoom"],
-        run: () => updateSettings({ fontSize: Math.max(settings.fontSize - 1, 10) }),
+        run: () =>
+          updateSettings({
+            terminalFontSize: Math.max(settings.terminalFontSize - 1, 10),
+          }),
       },
       {
         id: "layout.left",

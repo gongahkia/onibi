@@ -9,6 +9,7 @@ import {
   type AgentKind,
   type ColorSchemeColorKey,
   type CustomColorScheme,
+  type DiffViewMode,
   type TabBarOrientation,
   type TabBarPosition,
   type ThemeMode,
@@ -142,7 +143,10 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               terminalFontFamily={settings.terminalFontFamily}
               editorFontFamily={settings.editorFontFamily}
               fontFamilies={fontFamilies}
-              fontSize={settings.fontSize}
+              uiFontSize={settings.uiFontSize}
+              terminalFontSize={settings.terminalFontSize}
+              editorFontSize={settings.editorFontSize}
+              diffViewMode={settings.diffViewMode}
               onTheme={(theme) => updateSettings({ theme })}
               onCustomColorScheme={(customColorScheme) =>
                 updateSettings({ customColorScheme })
@@ -154,7 +158,12 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               onEditorFontFamily={(editorFontFamily) =>
                 updateSettings({ editorFontFamily })
               }
-              onFontSize={(fontSize) => updateSettings({ fontSize })}
+              onUiFontSize={(uiFontSize) => updateSettings({ uiFontSize })}
+              onTerminalFontSize={(terminalFontSize) =>
+                updateSettings({ terminalFontSize })
+              }
+              onEditorFontSize={(editorFontSize) => updateSettings({ editorFontSize })}
+              onDiffViewMode={(diffViewMode) => updateSettings({ diffViewMode })}
             />
           ) : null}
           {section === "layout" ? (
@@ -206,13 +215,19 @@ interface GeneralSettingsProps {
   terminalFontFamily: string;
   editorFontFamily: string;
   fontFamilies: string[];
-  fontSize: number;
+  uiFontSize: number;
+  terminalFontSize: number;
+  editorFontSize: number;
+  diffViewMode: DiffViewMode;
   onTheme: (theme: ThemeMode) => void;
   onCustomColorScheme: (scheme: CustomColorScheme) => void;
   onUiFontFamily: (fontFamily: string) => void;
   onTerminalFontFamily: (fontFamily: string) => void;
   onEditorFontFamily: (fontFamily: string) => void;
-  onFontSize: (fontSize: number) => void;
+  onUiFontSize: (fontSize: number) => void;
+  onTerminalFontSize: (fontSize: number) => void;
+  onEditorFontSize: (fontSize: number) => void;
+  onDiffViewMode: (mode: DiffViewMode) => void;
 }
 
 function GeneralSettings({
@@ -222,13 +237,19 @@ function GeneralSettings({
   terminalFontFamily,
   editorFontFamily,
   fontFamilies,
-  fontSize,
+  uiFontSize,
+  terminalFontSize,
+  editorFontSize,
+  diffViewMode,
   onTheme,
   onCustomColorScheme,
   onUiFontFamily,
   onTerminalFontFamily,
   onEditorFontFamily,
-  onFontSize,
+  onUiFontSize,
+  onTerminalFontSize,
+  onEditorFontSize,
+  onDiffViewMode,
 }: GeneralSettingsProps) {
   function updateCustomLabel(label: string) {
     onCustomColorScheme({ ...customColorScheme, label });
@@ -296,11 +317,21 @@ function GeneralSettings({
         families={fontFamilies}
         onChange={onUiFontFamily}
       />
+      <FontSizeControl
+        label="UI font size"
+        value={uiFontSize}
+        onChange={onUiFontSize}
+      />
       <FontFamilyControl
         label="Terminal font"
         value={terminalFontFamily}
         families={fontFamilies}
         onChange={onTerminalFontFamily}
+      />
+      <FontSizeControl
+        label="Terminal font size"
+        value={terminalFontSize}
+        onChange={onTerminalFontSize}
       />
       <FontFamilyControl
         label="File content font"
@@ -308,16 +339,22 @@ function GeneralSettings({
         families={fontFamilies}
         onChange={onEditorFontFamily}
       />
+      <FontSizeControl
+        label="File content font size"
+        value={editorFontSize}
+        onChange={onEditorFontSize}
+      />
       <label className="settings-row">
-        <span>Terminal font size</span>
-        <input
-          className="settings-input"
-          type="number"
-          min={10}
-          max={24}
-          value={fontSize}
-          onChange={(event) => onFontSize(Number(event.target.value))}
-        />
+        <span>Diff view</span>
+        <select
+          className="settings-select"
+          aria-label="Diff view"
+          value={diffViewMode}
+          onChange={(event) => onDiffViewMode(event.target.value as DiffViewMode)}
+        >
+          <option value="side-by-side">Side by side</option>
+          <option value="unified">Unified</option>
+        </select>
       </label>
     </section>
   );
@@ -355,6 +392,31 @@ function FontFamilyControl({
           </option>
         ))}
       </select>
+    </label>
+  );
+}
+
+function FontSizeControl({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (fontSize: number) => void;
+}) {
+  return (
+    <label className="settings-row">
+      <span>{label}</span>
+      <input
+        className="settings-input"
+        aria-label={label}
+        type="number"
+        min={10}
+        max={28}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
     </label>
   );
 }
