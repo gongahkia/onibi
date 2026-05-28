@@ -1453,20 +1453,6 @@ button {
   color: var(--fg-1);
 }
 
-.scheme-preview {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(24px, 1fr));
-  gap: 6px;
-  width: 100%;
-  min-height: 26px;
-}
-
-.scheme-swatch {
-  min-height: 26px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-
 .custom-scheme-editor {
   gap: 14px;
   padding: 12px;
