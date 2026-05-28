@@ -6,8 +6,18 @@ import { DEFAULT_SETTINGS, useSessionStore } from "../lib/sessions";
 function resetStore() {
   useSessionStore.setState({
     hydrated: true,
-    sessions: [],
-    activeSessionId: null,
+    sessions: [
+      {
+        id: "session-1",
+        agent: "opencode",
+        workspaceId: "workspace:/repo",
+        title: "OpenCode repo",
+        status: "running",
+        createdAt: 1,
+        pendingApprovals: [],
+      },
+    ],
+    activeSessionId: "session-1",
     workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
     selectedFile: null,
     settings: DEFAULT_SETTINGS,
@@ -35,7 +45,6 @@ describe("FileTree", () => {
     ]);
 
     render(<FileTree />);
-    fireEvent.doubleClick(screen.getByText("repo"));
 
     expect(await screen.findByText("README.md")).toBeTruthy();
     fireEvent.click(screen.getByText("README.md"));
@@ -53,7 +62,6 @@ describe("FileTree", () => {
     ]);
 
     render(<FileTree />);
-    fireEvent.doubleClick(screen.getByText("repo"));
 
     expect(await screen.findByText("README.md")).toBeTruthy();
     expect(screen.queryByTitle("Markdown file")).toBeNull();
@@ -106,13 +114,125 @@ describe("FileTree", () => {
     });
   });
 
+  test("does not show every saved workspace when no session is active", () => {
+    useSessionStore.setState({
+      sessions: [],
+      activeSessionId: null,
+      workspaces: [
+        {
+          id: "workspace:/repo/bob_frontend",
+          path: "/repo/bob_frontend",
+          name: "bob_frontend",
+        },
+        {
+          id: "workspace:/repo/kelp-claw",
+          path: "/repo/kelp-claw",
+          name: "kelp-claw",
+        },
+      ],
+      selectedFile: {
+        workspaceId: "workspace:/repo/bob_frontend",
+        workspaceRoot: "/repo/bob_frontend",
+        path: "/repo/bob_frontend/package.json",
+        name: "package.json",
+        size: 24,
+      },
+    });
+
+    render(<FileTree />);
+
+    expect(screen.queryByText("bob_frontend")).toBeNull();
+    expect(screen.queryByText("kelp-claw")).toBeNull();
+    expect(screen.getByLabelText("New file").hasAttribute("disabled")).toBe(true);
+    expect(globalThis.__TAURI_MOCKS__.invoke).not.toHaveBeenCalledWith(
+      "fs_list_dir",
+      expect.anything(),
+    );
+  });
+
+  test("switches the tree when the active session changes workspaces", async () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "session-bob",
+          agent: "claude-code",
+          workspaceId: "workspace:/repo/bob_frontend",
+          title: "Claude Code bob_frontend",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+        },
+        {
+          id: "session-kelp",
+          agent: "opencode",
+          workspaceId: "workspace:/repo/kelp-claw",
+          title: "OpenCode kelp-claw",
+          status: "running",
+          createdAt: 2,
+          pendingApprovals: [],
+        },
+      ],
+      activeSessionId: "session-bob",
+      workspaces: [
+        {
+          id: "workspace:/repo/bob_frontend",
+          path: "/repo/bob_frontend",
+          name: "bob_frontend",
+        },
+        {
+          id: "workspace:/repo/kelp-claw",
+          path: "/repo/kelp-claw",
+          name: "kelp-claw",
+        },
+      ],
+    });
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
+      async (_command: string, args: Record<string, string>) => {
+        if (args.root === "/repo/bob_frontend") {
+          return [
+            {
+              name: "vite.config.js",
+              path: "/repo/bob_frontend/vite.config.js",
+              kind: "file",
+              size: 12,
+            },
+          ];
+        }
+        if (args.root === "/repo/kelp-claw") {
+          return [
+            {
+              name: "pnpm-workspace.yaml",
+              path: "/repo/kelp-claw/pnpm-workspace.yaml",
+              kind: "file",
+              size: 12,
+            },
+          ];
+        }
+        return [];
+      },
+    );
+
+    render(<FileTree />);
+
+    expect(screen.getByText("bob_frontend")).toBeTruthy();
+    expect(screen.queryByText("kelp-claw")).toBeNull();
+    expect(await screen.findByText("vite.config.js")).toBeTruthy();
+
+    useSessionStore.getState().setActiveSession("session-kelp");
+
+    await waitFor(() => {
+      expect(screen.getByText("kelp-claw")).toBeTruthy();
+    });
+    expect(screen.queryByText("bob_frontend")).toBeNull();
+    expect(await screen.findByText("pnpm-workspace.yaml")).toBeTruthy();
+  });
+
   test("shows sandbox errors returned by fs commands", async () => {
     globalThis.__TAURI_MOCKS__.invoke.mockRejectedValueOnce(
       "path /etc escapes workspace /repo",
     );
 
     render(<FileTree />);
-    fireEvent.doubleClick(screen.getByText("repo"));
 
     await waitFor(() => {
       expect(screen.getByText(/escapes workspace/)).toBeTruthy();
@@ -141,7 +261,6 @@ describe("FileTree", () => {
         title: "Choose workspace folder",
       });
     });
-    expect(await screen.findByText("new")).toBeTruthy();
     expect(useSessionStore.getState().workspaces).toContainEqual({
       id: "workspace:/repo/new",
       path: "/repo/new",
@@ -181,7 +300,6 @@ describe("FileTree", () => {
     ]);
 
     render(<FileTree />);
-    fireEvent.doubleClick(screen.getByText("repo"));
     expect(await screen.findByText("README.md")).toBeTruthy();
 
     fireEvent.contextMenu(screen.getByText("README.md"));
@@ -216,7 +334,6 @@ describe("FileTree", () => {
     );
 
     render(<FileTree />);
-    fireEvent.doubleClick(screen.getByText("repo"));
     expect(await screen.findByText("README.md")).toBeTruthy();
 
     fireEvent.contextMenu(screen.getByText("README.md"));
@@ -240,7 +357,6 @@ describe("FileTree", () => {
     ]);
 
     render(<FileTree />);
-    fireEvent.doubleClick(screen.getByText("repo"));
     expect(await screen.findByText("README.md")).toBeTruthy();
 
     fireEvent.contextMenu(screen.getByText("README.md"));

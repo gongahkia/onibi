@@ -159,13 +159,18 @@ export function FileTree() {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
   const normalizedFilter = filter.trim().toLowerCase();
+  const activeSession = useMemo(
+    () => sessions.find((session) => session.id === activeSessionId) ?? null,
+    [activeSessionId, sessions],
+  );
   const activeWorkspace = useMemo(() => {
-    const activeSession = sessions.find((session) => session.id === activeSessionId);
-    const scopedWorkspaceId = activeSession?.workspaceId ?? selectedFile?.workspaceId;
-    return workspaces.find((workspace) => workspace.id === scopedWorkspaceId) ?? null;
-  }, [activeSessionId, selectedFile?.workspaceId, sessions, workspaces]);
-  const visibleWorkspaces = activeWorkspace ? [activeWorkspace] : workspaces;
-  const actionWorkspace = activeWorkspace ?? visibleWorkspaces[0] ?? null;
+    return (
+      workspaces.find((workspace) => workspace.id === activeSession?.workspaceId) ??
+      null
+    );
+  }, [activeSession?.workspaceId, workspaces]);
+  const visibleWorkspaces = activeWorkspace ? [activeWorkspace] : [];
+  const actionWorkspace = activeWorkspace;
 
   const visibleEntries = useCallback(
     (entries: FsEntry[]) =>
@@ -373,8 +378,13 @@ export function FileTree() {
         return;
       }
       addWorkspace(workspace);
-      await loadChildren(workspace, workspace.path);
-      setExpanded((state) => ({ ...state, [nodeKey(workspace, workspace.path)]: true }));
+      if (activeWorkspace?.id === workspace.id) {
+        await loadChildren(workspace, workspace.path);
+        setExpanded((state) => ({
+          ...state,
+          [nodeKey(workspace, workspace.path)]: true,
+        }));
+      }
     } catch (caught) {
       setErrors((state) => ({
         ...state,
@@ -393,6 +403,10 @@ export function FileTree() {
     setExpanded((state) => (state[key] ? state : { ...state, [key]: true }));
     void loadChildren(activeWorkspace, activeWorkspace.path);
   }, [activeWorkspace?.id, activeWorkspace?.path]);
+
+  useEffect(() => {
+    setContextMenu(null);
+  }, [activeWorkspace?.id]);
 
   useEffect(() => {
     function closeContextMenu() {
