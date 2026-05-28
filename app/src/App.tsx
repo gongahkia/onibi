@@ -6,6 +6,7 @@ import {
 } from "react-resizable-panels";
 import { AgentTabBar } from "./components/AgentTabBar";
 import { ApprovalModal } from "./components/ApprovalModal";
+import { CommandPalette } from "./components/CommandPalette";
 import { FileTree } from "./components/FileTree";
 import { MainPane } from "./components/MainPane";
 import {
@@ -44,6 +45,7 @@ function App() {
           </PanelGroup>
         </main>
         <ApprovalModal />
+        <CommandPalette />
       </>
     );
   }
@@ -64,6 +66,7 @@ function App() {
         </PanelGroup>
       </main>
       <ApprovalModal />
+      <CommandPalette />
     </>
   );
 }
