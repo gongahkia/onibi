@@ -14,6 +14,7 @@ const terminalMocks = vi.hoisted(() => {
     focus = vi.fn();
     write = vi.fn();
     dispose = vi.fn();
+    clearTextureAtlas = vi.fn();
     onData = vi.fn((handler: (data: string) => void) => {
       this.onDataHandler = handler;
       return { dispose: vi.fn() };
@@ -97,6 +98,34 @@ describe("TerminalView", () => {
         cursor: "#6ec6ff",
         selectionBackground: "#24546b",
       },
+    });
+  });
+
+  test("passes selected terminal font to xterm with monospace fallbacks", () => {
+    render(<TerminalView ptyId="pty-1" fontFamily="Fira Code" />);
+
+    expect(terminalMocks.instances[0].options).toMatchObject({
+      fontFamily: '"Fira Code", Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+      letterSpacing: 0,
+      lineHeight: 1,
+    });
+  });
+
+  test("updates terminal font without remounting xterm", async () => {
+    const { rerender } = render(
+      <TerminalView ptyId="pty-1" fontFamily="Menlo" />,
+    );
+    const terminal = terminalMocks.instances[0];
+
+    rerender(<TerminalView ptyId="pty-1" fontFamily="Fira Code" />);
+
+    await waitFor(() => {
+      expect(terminalMocks.instances).toHaveLength(1);
+      expect(terminal.options).toMatchObject({
+        fontFamily:
+          '"Fira Code", Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+      });
+      expect(terminal.clearTextureAtlas).toHaveBeenCalled();
     });
   });
 

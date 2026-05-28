@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -18,6 +18,30 @@ export interface TerminalViewProps {
   settings?: AppSettings;
 }
 
+const TERMINAL_FONT_FALLBACK =
+  'Menlo, Monaco, Consolas, "Liberation Mono", monospace';
+
+function quoteFontFamily(family: string): string {
+  if (/^["'].*["']$/.test(family)) {
+    return family;
+  }
+  if (/^[a-zA-Z-]+$/.test(family)) {
+    return family;
+  }
+  return `"${family.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+function terminalFontStack(fontFamily: string | undefined): string {
+  const trimmed = fontFamily?.trim();
+  if (!trimmed) {
+    return TERMINAL_FONT_FALLBACK;
+  }
+  if (trimmed.includes(",")) {
+    return trimmed;
+  }
+  return `${quoteFontFamily(trimmed)}, ${TERMINAL_FONT_FALLBACK}`;
+}
+
 function decodeBase64(data: string): Uint8Array {
   const binary = atob(data);
   const bytes = new Uint8Array(binary.length);
@@ -34,7 +58,13 @@ export function TerminalView({
   settings = DEFAULT_SETTINGS,
 }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const terminalRef = useRef<Terminal | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
   const terminalTheme = useMemo(() => terminalThemeForSettings(settings), [settings]);
+  const resolvedFontFamily = useMemo(
+    () => terminalFontStack(fontFamily),
+    [fontFamily],
+  );
 
   useEffect(() => {
     const container = containerRef.current;
@@ -45,8 +75,10 @@ export function TerminalView({
     const term = new Terminal({
       cursorBlink: true,
       convertEol: false,
-      fontFamily,
+      fontFamily: resolvedFontFamily,
       fontSize,
+      letterSpacing: 0,
+      lineHeight: 1,
       scrollback: 10000,
       theme: terminalTheme,
     });
@@ -55,6 +87,8 @@ export function TerminalView({
     let webglAddon: WebglAddon | undefined;
     term.loadAddon(fitAddon);
     term.loadAddon(webLinksAddon);
+    terminalRef.current = term;
+    fitAddonRef.current = fitAddon;
     try {
       webglAddon = new WebglAddon();
       term.loadAddon(webglAddon);
@@ -113,16 +147,47 @@ export function TerminalView({
       webLinksAddon.dispose();
       fitAddon.dispose();
       term.dispose();
+      terminalRef.current = null;
+      fitAddonRef.current = null;
     };
+  }, [ptyId]);
+
+  useEffect(() => {
+    const term = terminalRef.current;
+    if (!term) {
+      return;
+    }
+    term.options = {
+      fontFamily: resolvedFontFamily,
+      fontSize,
+      letterSpacing: 0,
+      lineHeight: 1,
+      theme: terminalTheme,
+    };
+    term.clearTextureAtlas();
+    fitAddonRef.current?.fit();
+    void ptyResize(ptyId, term.rows, term.cols);
   }, [
-    fontFamily,
     fontSize,
     ptyId,
+    resolvedFontFamily,
     terminalTheme.background,
     terminalTheme.cursor,
     terminalTheme.foreground,
     terminalTheme.selectionBackground,
   ]);
 
-  return <div ref={containerRef} className="terminal-view" data-testid="terminal-view" />;
+  return (
+    <div
+      ref={containerRef}
+      className="terminal-view"
+      data-testid="terminal-view"
+      style={
+        {
+          "--font-terminal": resolvedFontFamily,
+          fontFamily: resolvedFontFamily,
+        } as CSSProperties
+      }
+    />
+  );
 }
