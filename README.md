@@ -4,11 +4,65 @@
   </a>
 </p>
 
-KelpClaw is an Agent Skill Governance Framework with policy, sandboxing, replay, evidence, and audit.
+<p align="center">
+  <img src="apps/kelpclaw/public/app-logo.png" alt="KelpClaw" width="140">
+</p>
 
-Its core adoption path is simple: run any `SKILL.md`, evaluate it against policy packs, capture replayable execution evidence, and export a static audit bundle that security, compliance, and platform teams can review without running KelpClaw.
+<p align="center">
+  <strong>PLAN. APPROVE. RUN. PROVE.</strong>
+</p>
 
-KelpClaw remains the editable workflow planner. The frontend now opens on Skill Governance for `SKILL.md` compatibility, policy, replay, and audit-bundle handoff; the Workflow Graph mode is still available for drag-and-drop workflow composition. NanoClaw remains the deterministic runtime that compiles approved workflow revisions and executes nodes through a Docker-per-node contract. The Piranesi-derived code is used as KelpClaw's local evidence subsystem, not as a separate product direction.
+**KelpClaw** is the control plane for agent workflows: plan them, review them, approve them, run them, and prove what happened.
+
+KelpClaw is intentionally workflow-first. It turns loose automation ideas, prompts, and `SKILL.md` files into editable workflow graphs, validates each graph before execution, freezes approvals by revision, and captures evidence for what a workflow was allowed to do and what it actually did.
+
+If [OpenClaw](https://github.com/openclaw/openclaw) is a personal, always-on assistant, KelpClaw is the workflow creation and governance layer around assistants, agents, skills, and automations. It is not tied to one business product. The portable parts are the controls: policy checks, audit trails, replay evidence, secret handling, and runtime visibility.
+
+Works with: visual workflow graphs, `SKILL.md` audit runs, policy packs, adapter-backed nodes, generated-code review, NanoClaw execution, replay manifests, static audit bundles, and repository-wide agent inventory.
+
+[Quickstart](docs/quickstart.md) | [Deployment](docs/deployment.md) | [Agent Runtime Demo](docs/agent-runtime-demo.md) | [Skill Governance Demo](docs/skill-governance-demo.md) | [Security Review Demo](docs/security-review-demo.md) | [Agent Inventory](docs/agent-inventory.md) | [Web Intel](docs/web-intel.md) | [Production Readiness](docs/production-readiness.md)
+
+New checkout? Start here: [Quickstart](docs/quickstart.md).
+
+Preferred local loop:
+
+```console
+$ corepack enable
+$ pnpm install
+$ pnpm verify
+```
+
+## Why KelpClaw
+
+Agent systems usually become risky at the boundary between "the workflow looked reasonable" and "the agent actually ran tools against real systems." KelpClaw makes that boundary explicit.
+
+- **Workflow creation first** - prompts become editable graphs, not opaque one-shot executions.
+- **Validation before execution** - graphs are checked for schema correctness, missing ports, cycles, unsupported versions, approval state, and codegen provenance.
+- **Approval by revision** - an approved workflow is frozen by hash; editing it creates a new draft that must be approved again.
+- **Runtime evidence** - every run can produce per-node inputs, outputs, logs, artifacts, manifests, policy decisions, and replay data.
+- **Product-agnostic governance** - connectors, policies, secrets, approvals, and runtime records are generic enough to wrap many kinds of agentic workflows.
+
+## Governance Terms
+
+These terms are the operational half of the KelpClaw pitch:
+
+- **Policy checks** decide what a workflow or skill is allowed to do before and during execution. Example: a workflow may read GitHub issues but cannot merge a pull request, send email, spend above a budget, use a networked tool, or run destructive shell commands unless the selected policy allows it.
+- **Audit trails** record the governance history around a workflow: who accepted the plan, what changed between revisions, who approved the frozen DAG, which policy pack ran, which tool calls occurred, which secrets were referenced, and what the result was.
+- **Replay evidence** keeps enough structured detail to inspect or reproduce a run later: frozen workflow spec, node order, node inputs and outputs, stdout/stderr, artifacts, tool/model call summaries, hashes, policy decisions, and run manifests.
+- **Secret controls** keep raw credentials out of workflow specs. Workflows reference names like `secret:github.token.default`; encrypted storage and provider adapters resolve the value at runtime without returning it through list APIs.
+- **Deployment and runtime visibility** show whether an approved workflow is actually runnable: deployment records, runner configuration, schedule state, queued/running/failed jobs, checkpoints, budget state, provider status, and integration blockers.
+
+In plain English, KelpClaw helps answer: is this workflow allowed, who approved it, what did it do, what evidence exists, were secrets handled safely, and is it running correctly?
+
+## Product-Agnostic Controls
+
+KelpClaw can absorb useful patterns from mature operational products without becoming product-specific:
+
+- **Connector contracts** for Gmail, Sheets, GitHub, Slack, Discord, Notion, Linear, Jira, Airtable, webhooks, databases, OpenAPI imports, and MCP endpoints.
+- **Approval gates** for accepting a plan, evaluating a draft, reviewing generated code, approving an immutable revision, deploying, and running.
+- **Policy packs** for baseline safety, PII, finance, destructive shell, GitHub PR safety, SG/APAC governance, web research, and browser automation.
+- **Evidence handoff** for security and compliance teams through signed static bundles, SARIF export, governance reports, controls matrices, and repository inventory.
+- **Runtime truth** for separating a planned workflow from an accepted, generated, evaluated, approved, deployed, runnable, or running one.
 
 ## Workspace Layout
 
