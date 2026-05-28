@@ -16,6 +16,7 @@ gui = [
     "dep:tauri-plugin-opener",
     "dep:tauri-plugin-store",
 ]
+tauri-plugin-dialog = ["dep:tauri-plugin-dialog"]
 
 [lib]
 # The `_lib` suffix may seem redundant but it is necessary
@@ -73,6 +74,7 @@ sha2 = "0.10"
 hex = "0.4"
 web-push = "0.11"
 p256 = { version = "0.13", features = ["ecdsa", "pkcs8", "pem"] }
+tauri-plugin-dialog = { version = "2", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
