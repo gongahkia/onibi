@@ -73,7 +73,9 @@ describe("FileTree", () => {
     fireEvent.click(screen.getByText("README.md"));
 
     expect(useSessionStore.getState().selectedFile?.path).toBe("/repo/README.md");
-    expect(screen.getByTitle("Markdown file")).toBeTruthy();
+    const markdownIcon = screen.getByTitle("Markdown file");
+    expect(markdownIcon.classList.contains("tree-file-icon--markdown")).toBe(true);
+    expect(markdownIcon.textContent).toBe("");
   });
 
   test("hides file icons when disabled in settings", async () => {

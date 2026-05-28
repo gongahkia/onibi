@@ -418,55 +418,316 @@ button {
 }
 
 .tree-file-icon {
-  display: inline-grid;
-  place-items: center;
-  width: 26px;
+  position: relative;
+  display: inline-block;
+  width: 18px;
   height: 18px;
-  color: var(--fg-0);
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  font: 8px/1 var(--font-mono);
-  font-weight: 700;
+  flex: 0 0 18px;
+  color: var(--fg-2);
 }
 
-.tree-file-icon.folder {
-  color: #08211d;
-  background: var(--accent-2);
-  border-color: var(--accent-2);
+.tree-file-icon::before,
+.tree-file-icon::after {
+  box-sizing: border-box;
 }
 
-.tree-file-icon.code,
-.tree-file-icon.markup {
-  color: #08131f;
-  background: #8ab4f8;
-  border-color: #8ab4f8;
+.tree-file-icon--folder::before {
+  content: "";
+  position: absolute;
+  left: 1px;
+  top: 6px;
+  width: 16px;
+  height: 10px;
+  background: currentColor;
+  border-radius: 2px;
 }
 
-.tree-file-icon.config {
-  color: #1f1604;
-  background: #f2c14e;
-  border-color: #f2c14e;
+.tree-file-icon--folder::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 3px;
+  width: 8px;
+  height: 5px;
+  background: currentColor;
+  border-radius: 2px 2px 0 0;
+  opacity: 0.86;
 }
 
-.tree-file-icon.docs {
-  color: #091f1c;
-  background: #8bd3c7;
-  border-color: #8bd3c7;
+.tree-file-icon--code::before,
+.tree-file-icon--braces::before,
+.tree-file-icon--package::before,
+.tree-file-icon--style::before {
+  content: attr(data-glyph);
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
-.tree-file-icon.data,
-.tree-file-icon.lock {
-  color: #201025;
-  background: #c792ea;
-  border-color: #c792ea;
+.tree-file-icon--braces::before {
+  font-size: 14px;
 }
 
-.tree-file-icon.image,
-.tree-file-icon.style {
-  color: #211106;
-  background: #ffb454;
-  border-color: #ffb454;
+.tree-file-icon--package::before {
+  font-size: 9px;
+}
+
+.tree-file-icon--file::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 11px;
+  height: 15px;
+  border: 1.6px solid currentColor;
+  border-radius: 2px;
+}
+
+.tree-file-icon--file::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: 1px;
+  width: 5px;
+  height: 5px;
+  border-left: 1.6px solid currentColor;
+  border-bottom: 1.6px solid currentColor;
+  background: var(--bg-1);
+}
+
+.tree-file-icon--text::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 5px;
+  width: 11px;
+  height: 1.6px;
+  background: currentColor;
+  box-shadow: 0 4px 0 currentColor, 0 8px 0 currentColor;
+}
+
+.tree-file-icon--markdown::before {
+  content: attr(data-glyph);
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.tree-file-icon--markdown[data-glyph="i"]::before {
+  left: 2px;
+  top: 2px;
+  width: 14px;
+  height: 14px;
+  border: 1.8px solid currentColor;
+  border-radius: 50%;
+  font-size: 10px;
+}
+
+.tree-file-icon--config::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  box-shadow:
+    0 -4px 0 -2px currentColor,
+    0 4px 0 -2px currentColor,
+    -4px 0 0 -2px currentColor,
+    4px 0 0 -2px currentColor;
+}
+
+.tree-file-icon--config::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  width: 2px;
+  height: 2px;
+  background: currentColor;
+  border-radius: 50%;
+}
+
+.tree-file-icon--config:not([data-glyph=""])::before {
+  content: attr(data-glyph);
+  inset: 0;
+  display: grid;
+  width: auto;
+  height: auto;
+  place-items: center;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  font-family: var(--font-ui);
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.tree-file-icon--config:not([data-glyph=""])::after {
+  content: none;
+}
+
+.tree-file-icon--image::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 13px;
+  height: 12px;
+  border: 1.7px solid currentColor;
+  border-radius: 2px;
+}
+
+.tree-file-icon--image::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 8px;
+  width: 7px;
+  height: 7px;
+  border-left: 2px solid currentColor;
+  border-top: 2px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.tree-file-icon--lock::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid currentColor;
+  border-bottom: 0;
+  border-radius: 5px 5px 0 0;
+}
+
+.tree-file-icon--lock::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 8px;
+  width: 10px;
+  height: 8px;
+  background: currentColor;
+  border-radius: 2px;
+}
+
+.tree-file-icon--docker::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 5px;
+  width: 3px;
+  height: 3px;
+  background: currentColor;
+  box-shadow:
+    4px 0 0 currentColor,
+    8px 0 0 currentColor,
+    0 4px 0 currentColor,
+    4px 4px 0 currentColor,
+    8px 4px 0 currentColor,
+    12px 4px 0 currentColor;
+}
+
+.tree-file-icon--docker::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 12px;
+  width: 14px;
+  height: 4px;
+  background: currentColor;
+  border-radius: 0 0 7px 7px;
+}
+
+.tree-file-icon--git::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 4px;
+  width: 7px;
+  height: 10px;
+  border-left: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  border-radius: 0 0 0 5px;
+}
+
+.tree-file-icon--git::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 2px;
+  width: 5px;
+  height: 5px;
+  background: currentColor;
+  border-radius: 50%;
+  box-shadow:
+    7px 4px 0 currentColor,
+    7px 11px 0 currentColor;
+}
+
+.tree-file-icon.tone-folder {
+  color: #dcb67a;
+}
+
+.tree-file-icon.tone-typescript,
+.tree-file-icon.tone-javascript {
+  color: #79a8ff;
+}
+
+.tree-file-icon.tone-html,
+.tree-file-icon.tone-rust,
+.tree-file-icon.tone-make {
+  color: #ff8b3d;
+}
+
+.tree-file-icon.tone-python,
+.tree-file-icon.tone-docker {
+  color: #49a8f8;
+}
+
+.tree-file-icon.tone-style,
+.tree-file-icon.tone-yaml,
+.tree-file-icon.tone-config {
+  color: #d9a441;
+}
+
+.tree-file-icon.tone-docs,
+.tree-file-icon.tone-text,
+.tree-file-icon.tone-image {
+  color: #68b7d9;
+}
+
+.tree-file-icon.tone-data,
+.tree-file-icon.tone-package,
+.tree-file-icon.tone-lock,
+.tree-file-icon.tone-agent {
+  color: #c792ea;
+}
+
+.tree-file-icon.tone-git {
+  color: #f05d4f;
+}
+
+.tree-file-icon.tone-file {
+  color: var(--fg-2);
 }
 
 .tree-error,

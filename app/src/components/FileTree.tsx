@@ -81,51 +81,80 @@ function isDescendantPath(parent: string, path: string): boolean {
 }
 
 interface TreeIcon {
-  label: string;
+  shape:
+    | "braces"
+    | "code"
+    | "config"
+    | "docker"
+    | "file"
+    | "folder"
+    | "git"
+    | "image"
+    | "lock"
+    | "markdown"
+    | "package"
+    | "style"
+    | "text";
+  glyph?: string;
   tone: string;
   title: string;
 }
 
 const SPECIAL_FILE_ICONS: Record<string, TreeIcon> = {
-  ".env": { label: "ENV", tone: "config", title: "Environment file" },
-  ".gitignore": { label: "GIT", tone: "config", title: "Git ignore file" },
-  Dockerfile: { label: "DKR", tone: "config", title: "Docker file" },
-  Makefile: { label: "MK", tone: "config", title: "Makefile" },
-  "package.json": { label: "NPM", tone: "data", title: "Package manifest" },
-  "pnpm-lock.yaml": { label: "LCK", tone: "lock", title: "Lockfile" },
-  "package-lock.json": { label: "LCK", tone: "lock", title: "Lockfile" },
-  "README.md": { label: "MD", tone: "docs", title: "Markdown file" },
+  ".env": { shape: "config", tone: "config", title: "Environment file" },
+  ".gitignore": { shape: "git", tone: "git", title: "Git ignore file" },
+  "agents.md": { shape: "markdown", glyph: "A", tone: "agent", title: "Markdown file" },
+  "claude.md": { shape: "markdown", glyph: "C", tone: "agent", title: "Markdown file" },
+  makefile: { shape: "code", glyph: "M", tone: "make", title: "Makefile" },
+  "package-lock.json": { shape: "lock", tone: "lock", title: "Lockfile" },
+  "package.json": { shape: "package", glyph: "npm", tone: "package", title: "Package manifest" },
+  "pnpm-lock.yaml": { shape: "lock", tone: "lock", title: "Lockfile" },
+  "pnpm-workspace.yaml": { shape: "package", glyph: "pn", tone: "package", title: "Package workspace" },
+  "readme.md": { shape: "markdown", glyph: "i", tone: "docs", title: "Markdown file" },
+  "tsconfig.json": { shape: "braces", glyph: "TS", tone: "data", title: "TypeScript config" },
 };
 
 const EXTENSION_FILE_ICONS: Record<string, TreeIcon> = {
-  css: { label: "CSS", tone: "style", title: "CSS file" },
-  gif: { label: "IMG", tone: "image", title: "Image file" },
-  html: { label: "HTM", tone: "markup", title: "HTML file" },
-  ico: { label: "IMG", tone: "image", title: "Image file" },
-  jpeg: { label: "IMG", tone: "image", title: "Image file" },
-  jpg: { label: "IMG", tone: "image", title: "Image file" },
-  js: { label: "JS", tone: "code", title: "JavaScript file" },
-  json: { label: "JSN", tone: "data", title: "JSON file" },
-  jsx: { label: "JSX", tone: "code", title: "JavaScript React file" },
-  lock: { label: "LCK", tone: "lock", title: "Lockfile" },
-  md: { label: "MD", tone: "docs", title: "Markdown file" },
-  png: { label: "IMG", tone: "image", title: "Image file" },
-  rs: { label: "RS", tone: "code", title: "Rust file" },
-  svg: { label: "SVG", tone: "image", title: "SVG file" },
-  toml: { label: "TOM", tone: "config", title: "TOML file" },
-  ts: { label: "TS", tone: "code", title: "TypeScript file" },
-  tsx: { label: "TSX", tone: "code", title: "TypeScript React file" },
-  txt: { label: "TXT", tone: "docs", title: "Text file" },
-  yaml: { label: "YML", tone: "config", title: "YAML file" },
-  yml: { label: "YML", tone: "config", title: "YAML file" },
+  css: { shape: "style", glyph: "#", tone: "style", title: "CSS file" },
+  gif: { shape: "image", tone: "image", title: "Image file" },
+  html: { shape: "code", glyph: "<>", tone: "html", title: "HTML file" },
+  ico: { shape: "image", tone: "image", title: "Image file" },
+  jpeg: { shape: "image", tone: "image", title: "Image file" },
+  jpg: { shape: "image", tone: "image", title: "Image file" },
+  js: { shape: "code", glyph: "JS", tone: "javascript", title: "JavaScript file" },
+  json: { shape: "braces", glyph: "{}", tone: "data", title: "JSON file" },
+  jsx: { shape: "code", glyph: "JSX", tone: "javascript", title: "JavaScript React file" },
+  lock: { shape: "lock", tone: "lock", title: "Lockfile" },
+  md: { shape: "markdown", glyph: "MD", tone: "docs", title: "Markdown file" },
+  mjs: { shape: "code", glyph: "JS", tone: "javascript", title: "JavaScript file" },
+  png: { shape: "image", tone: "image", title: "Image file" },
+  py: { shape: "code", glyph: "Py", tone: "python", title: "Python file" },
+  rs: { shape: "code", glyph: "RS", tone: "rust", title: "Rust file" },
+  svg: { shape: "image", tone: "image", title: "SVG file" },
+  toml: { shape: "config", tone: "config", title: "TOML file" },
+  ts: { shape: "code", glyph: "TS", tone: "typescript", title: "TypeScript file" },
+  tsx: { shape: "code", glyph: "TSX", tone: "typescript", title: "TypeScript React file" },
+  txt: { shape: "text", tone: "text", title: "Text file" },
+  yaml: { shape: "config", glyph: "!", tone: "yaml", title: "YAML file" },
+  yml: { shape: "config", glyph: "!", tone: "yaml", title: "YAML file" },
 };
 
 function iconForEntry(entry: FsEntry): TreeIcon {
   if (entry.kind === "dir") {
-    return { label: "DIR", tone: "folder", title: "Folder" };
+    return { shape: "folder", tone: "folder", title: "Folder" };
   }
 
-  const specialIcon = SPECIAL_FILE_ICONS[entry.name];
+  const lowerName = entry.name.toLowerCase();
+  if (
+    lowerName === "dockerfile" ||
+    lowerName.startsWith("dockerfile.") ||
+    lowerName === "docker-compose.yml" ||
+    lowerName === "docker-compose.yaml"
+  ) {
+    return { shape: "docker", tone: "docker", title: "Docker file" };
+  }
+
+  const specialIcon = SPECIAL_FILE_ICONS[lowerName];
   if (specialIcon) {
     return specialIcon;
   }
@@ -135,7 +164,7 @@ function iconForEntry(entry: FsEntry): TreeIcon {
     : "";
   return (
     (extension ? EXTENSION_FILE_ICONS[extension] : undefined) ?? {
-      label: "TXT",
+      shape: "file",
       tone: "file",
       title: "File",
     }
@@ -146,12 +175,11 @@ function TreeFileIcon({ entry }: { entry: FsEntry }) {
   const icon = iconForEntry(entry);
   return (
     <span
-      className={`tree-file-icon ${icon.tone}`}
+      className={`tree-file-icon tree-file-icon--${icon.shape} tone-${icon.tone}`}
+      data-glyph={icon.glyph ?? ""}
       title={icon.title}
       aria-hidden="true"
-    >
-      {icon.label}
-    </span>
+    />
   );
 }
 
