@@ -9,12 +9,12 @@ import {
   AGENT_LABELS,
   COLOR_SCHEME_OPTIONS,
   DEFAULT_AGENT_COMMANDS,
-  workspaceFromPath,
   type AppSettings,
   type Session,
   type Workspace,
   useSessionStore,
 } from "../lib/sessions";
+import { chooseWorkspaceFolder } from "../lib/workspace-picker";
 import { NewSessionDialog } from "./NewSessionDialog";
 import { SettingsPane } from "./SettingsPane";
 
@@ -176,16 +176,14 @@ export function CommandPalette() {
         id: "workspace.open",
         label: "Add Workspace",
         group: "Workspace",
-        description: "Add a folder by path",
+        description: "Choose a folder from this computer",
         shortcut: primaryShortcut("O"),
         keywords: ["folder", "project", "open"],
         run: async () => {
-          const path = window.prompt("Workspace path");
-          if (!path?.trim()) {
-            return;
+          const workspace = await chooseWorkspaceFolder();
+          if (workspace) {
+            addWorkspace(workspace);
           }
-          const workspace = await workspaceFromPath(path.trim());
-          addWorkspace(workspace);
         },
       },
       {

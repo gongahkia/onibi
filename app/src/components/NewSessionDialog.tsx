@@ -7,26 +7,26 @@ import {
   spawnAgentSession,
   type AgentKind,
   useSessionStore,
-  workspaceFromPath,
 } from "../lib/sessions";
+import { chooseWorkspaceFolder } from "../lib/workspace-picker";
 
 export interface NewSessionDialogProps {
   open: boolean;
   onClose: () => void;
 }
 
-const OPEN_FOLDER_VALUE = "__open_folder__";
-
 export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const workspaces = useSessionStore((state) => state.workspaces);
   const settings = useSessionStore((state) => state.settings);
   const addWorkspace = useSessionStore((state) => state.addWorkspace);
   const [agent, setAgent] = useState<AgentKind>("claude-code");
-  const [workspaceId, setWorkspaceId] = useState<string>(OPEN_FOLDER_VALUE);
-  const [folderPath, setFolderPath] = useState("");
+  const [workspaceId, setWorkspaceId] = useState<string>(
+    () => workspaces[0]?.id ?? "",
+  );
   const [initialPrompt, setInitialPrompt] = useState("");
   const [binaryPath, setBinaryPath] = useState<string | null>(null);
   const [checkingBinary, setCheckingBinary] = useState(false);
+  const [choosingWorkspace, setChoosingWorkspace] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [spawning, setSpawning] = useState(false);
 
@@ -36,9 +36,10 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   );
 
   useEffect(() => {
-    if (open && workspaces.length > 0 && workspaceId === OPEN_FOLDER_VALUE) {
-      setWorkspaceId(workspaces[0].id);
+    if (!open || workspaces.some((workspace) => workspace.id === workspaceId)) {
+      return;
     }
+    setWorkspaceId(workspaces[0]?.id ?? "");
   }, [open, workspaceId, workspaces]);
 
   useEffect(() => {
@@ -76,19 +77,28 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
 
   const missingBinary = agent !== "shell" && !checkingBinary && !binaryPath;
 
+  async function chooseWorkspace() {
+    setError(null);
+    setChoosingWorkspace(true);
+    try {
+      const workspace = await chooseWorkspaceFolder();
+      if (!workspace) {
+        return;
+      }
+      addWorkspace(workspace);
+      setWorkspaceId(workspace.id);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setChoosingWorkspace(false);
+    }
+  }
+
   async function handleStart() {
     setError(null);
     setSpawning(true);
     try {
-      let workspace = selectedWorkspace;
-      if (!workspace) {
-        if (!folderPath.trim()) {
-          throw new Error("Choose a workspace folder.");
-        }
-        workspace = await workspaceFromPath(folderPath.trim());
-        addWorkspace(workspace);
-      }
-      if (!workspace) {
+      if (!selectedWorkspace) {
         throw new Error("Choose a workspace folder.");
       }
       if (missingBinary) {
@@ -96,7 +106,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
           `${AGENT_LABELS[agent]} is not on PATH. Install details will live in docs/adapters.md once Phase-03 lands.`,
         );
       }
-      await spawnAgentSession(agent, workspace, initialPrompt);
+      await spawnAgentSession(agent, selectedWorkspace, initialPrompt);
       setInitialPrompt("");
       onClose();
     } catch (caught) {
@@ -145,29 +155,34 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
             </label>
             <label className="field-label">
               Workspace
-              <select
-                className="settings-select"
-                value={workspaceId}
-                onChange={(event) => setWorkspaceId(event.target.value)}
-              >
-                {workspaces.map((workspace) => (
-                  <option key={workspace.id} value={workspace.id}>
-                    {workspace.name}
-                  </option>
-                ))}
-                <option value={OPEN_FOLDER_VALUE}>Open Folder...</option>
-              </select>
+              <span className="workspace-picker-row">
+                <select
+                  className="settings-select"
+                  value={workspaceId}
+                  disabled={workspaces.length === 0}
+                  onChange={(event) => setWorkspaceId(event.target.value)}
+                >
+                  {workspaces.length === 0 ? (
+                    <option value="">No workspace selected</option>
+                  ) : null}
+                  {workspaces.map((workspace) => (
+                    <option key={workspace.id} value={workspace.id}>
+                      {workspace.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={choosingWorkspace}
+                  onClick={() => void chooseWorkspace()}
+                >
+                  {choosingWorkspace ? "Choosing" : "Choose Folder"}
+                </button>
+              </span>
             </label>
-            {workspaceId === OPEN_FOLDER_VALUE ? (
-              <label className="field-label">
-                Folder path
-                <input
-                  className="settings-input"
-                  value={folderPath}
-                  onChange={(event) => setFolderPath(event.target.value)}
-                  placeholder="/Users/name/project"
-                />
-              </label>
+            {selectedWorkspace ? (
+              <div className="settings-note">{selectedWorkspace.path}</div>
             ) : null}
             <label className="field-label">
               Initial prompt
@@ -197,7 +212,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
             <button
               type="button"
               className="text-button primary"
-              disabled={spawning || checkingBinary}
+              disabled={spawning || checkingBinary || !selectedWorkspace}
               onClick={() => void handleStart()}
             >
               {spawning ? "Starting" : "Start"}

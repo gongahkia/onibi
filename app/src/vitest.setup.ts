@@ -2,6 +2,7 @@ import { cleanup } from "@testing-library/react";
 import { afterEach, vi, type Mock } from "vitest";
 
 type TauriMocks = {
+  dialogOpen: Mock;
   invoke: Mock;
   listen: Mock;
   unlisten: Mock;
@@ -10,6 +11,7 @@ type TauriMocks = {
 const storeData = new Map<string, unknown>();
 
 const tauriMocks: TauriMocks = {
+  dialogOpen: vi.fn(),
   invoke: vi.fn(),
   listen: vi.fn(async () => tauriMocks.unlisten),
   unlisten: vi.fn(),
@@ -86,6 +88,10 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: tauriMocks.listen,
+}));
+
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  open: tauriMocks.dialogOpen,
 }));
 
 vi.mock("@tauri-apps/plugin-store", () => ({

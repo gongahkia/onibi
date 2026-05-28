@@ -187,6 +187,11 @@ button {
   border-color: var(--accent);
 }
 
+.icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .tab img {
   width: 24px;
   height: 24px;
@@ -656,6 +661,13 @@ button {
   gap: 12px;
 }
 
+.workspace-picker-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
 .field-label {
   display: grid;
   gap: 6px;
@@ -805,6 +817,7 @@ button {
   .settings-row,
   .color-setting-row,
   .agent-command-row,
+  .workspace-picker-row,
   .workspace-settings-row {
     grid-template-columns: 1fr;
   }
