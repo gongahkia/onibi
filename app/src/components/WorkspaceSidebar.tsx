@@ -3,9 +3,10 @@ import { listAgentReviews, type AgentReviewRecord } from "../lib/agent-review";
 import { getGitStatus, gitStateByFullPath, type GitStatus } from "../lib/git";
 import { useSessionStore, type Session, type Workspace } from "../lib/sessions";
 import { FileTree } from "./FileTree";
+import { SessionHistoryView } from "./SessionHistoryView";
 import { SourceControlView } from "./SourceControlView";
 
-type WorkspaceSidebarView = "files" | "source-control";
+type WorkspaceSidebarView = "files" | "source-control" | "history";
 
 function activeWorkspaceFor(
   sessions: Session[],
@@ -97,6 +98,15 @@ export function WorkspaceSidebar() {
           Git
           {changeCount > 0 ? <span className="workspace-view-badge">{changeCount}</span> : null}
         </button>
+        <button
+          type="button"
+          className={view === "history" ? "active" : ""}
+          role="tab"
+          aria-selected={view === "history"}
+          onClick={() => setView("history")}
+        >
+          History
+        </button>
       </div>
       <div className="workspace-view-pane">
         {view === "files" ? (
@@ -104,7 +114,7 @@ export function WorkspaceSidebar() {
             gitStatusByPath={gitStatusByPath}
             agentReviewsByPath={agentReviewsByPath}
           />
-        ) : (
+        ) : view === "source-control" ? (
           <SourceControlView
             workspace={activeWorkspace}
             status={gitStatus}
@@ -112,6 +122,8 @@ export function WorkspaceSidebar() {
             error={gitError}
             onRefresh={refreshGitStatus}
           />
+        ) : (
+          <SessionHistoryView />
         )}
       </div>
     </div>

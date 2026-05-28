@@ -6,6 +6,7 @@ import {
   resolveAgentBinary,
   spawnAgentSession,
   type AgentKind,
+  type TerminalPanePlacement,
   useSessionStore,
 } from "../lib/sessions";
 import { chooseWorkspaceFolder } from "../lib/workspace-picker";
@@ -13,15 +14,22 @@ import { chooseWorkspaceFolder } from "../lib/workspace-picker";
 export interface NewSessionDialogProps {
   open: boolean;
   onClose: () => void;
+  defaultWorkspaceId?: string | null;
+  placement?: TerminalPanePlacement | null;
 }
 
-export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
+export function NewSessionDialog({
+  open,
+  onClose,
+  defaultWorkspaceId,
+  placement,
+}: NewSessionDialogProps) {
   const workspaces = useSessionStore((state) => state.workspaces);
   const settings = useSessionStore((state) => state.settings);
   const addWorkspace = useSessionStore((state) => state.addWorkspace);
   const [agent, setAgent] = useState<AgentKind>("claude-code");
   const [workspaceId, setWorkspaceId] = useState<string>(
-    () => workspaces[0]?.id ?? "",
+    () => defaultWorkspaceId ?? workspaces[0]?.id ?? "",
   );
   const [initialPrompt, setInitialPrompt] = useState("");
   const [binaryPath, setBinaryPath] = useState<string | null>(null);
@@ -39,8 +47,15 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     if (!open || workspaces.some((workspace) => workspace.id === workspaceId)) {
       return;
     }
-    setWorkspaceId(workspaces[0]?.id ?? "");
-  }, [open, workspaceId, workspaces]);
+    setWorkspaceId(defaultWorkspaceId ?? workspaces[0]?.id ?? "");
+  }, [defaultWorkspaceId, open, workspaceId, workspaces]);
+
+  useEffect(() => {
+    if (!open || !defaultWorkspaceId) {
+      return;
+    }
+    setWorkspaceId(defaultWorkspaceId);
+  }, [defaultWorkspaceId, open]);
 
   useEffect(() => {
     if (!open || agent === "shell") {
@@ -106,7 +121,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
           `${AGENT_LABELS[agent]} is not on PATH. Install details will live in docs/adapters.md once Phase-03 lands.`,
         );
       }
-      await spawnAgentSession(agent, selectedWorkspace, initialPrompt);
+      await spawnAgentSession(agent, selectedWorkspace, initialPrompt, placement);
       setInitialPrompt("");
       onClose();
     } catch (caught) {

@@ -6,6 +6,7 @@ import {
   COLOR_SCHEME_COLOR_LABELS,
   COLOR_SCHEME_OPTIONS,
   DEFAULT_AGENT_COMMANDS,
+  DEFAULT_AGENT_INSTALL_COMMANDS,
   type AgentKind,
   type ColorSchemeColorKey,
   type CustomColorScheme,
@@ -13,11 +14,13 @@ import {
   type TabBarOrientation,
   type TabBarPosition,
   type ThemeMode,
+  type WebOpenMode,
   listLocalFontFamilies,
   resolveAgentBinary,
   useSessionStore,
   workspaceFromPath,
 } from "../lib/sessions";
+import { ptySpawn, shellPath } from "../lib/tauri-bridge";
 
 export interface SettingsPaneProps {
   open: boolean;
@@ -29,9 +32,12 @@ type BinaryStatus = Record<AgentKind, string | null>;
 
 export function SettingsPane({ open, onClose }: SettingsPaneProps) {
   const settings = useSessionStore((state) => state.settings);
+  const sessions = useSessionStore((state) => state.sessions);
+  const activeSessionId = useSessionStore((state) => state.activeSessionId);
   const workspaces = useSessionStore((state) => state.workspaces);
   const updateSettings = useSessionStore((state) => state.updateSettings);
   const updateAgentCommand = useSessionStore((state) => state.updateAgentCommand);
+  const addSession = useSessionStore((state) => state.addSession);
   const addWorkspace = useSessionStore((state) => state.addWorkspace);
   const removeWorkspace = useSessionStore((state) => state.removeWorkspace);
   const [section, setSection] = useState<SettingsSection>("general");
@@ -101,6 +107,43 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
     }
   }
 
+  async function runInstall(agent: AgentKind, command: string) {
+    if (!command.trim()) {
+      return;
+    }
+    if (!window.confirm(`Run install command for ${AGENT_LABELS[agent]}?`)) {
+      return;
+    }
+    const activeSession = sessions.find((session) => session.id === activeSessionId);
+    const workspace =
+      workspaces.find((item) => item.id === activeSession?.workspaceId) ??
+      workspaces[0] ??
+      null;
+    if (!workspace) {
+      setError("Add a workspace before running an install command.");
+      setSection("workspaces");
+      return;
+    }
+    const id = await ptySpawn({
+      command: shellPath(),
+      args: ["-lc", command],
+      cwd: workspace.path,
+      env: [],
+      rows: 30,
+      cols: 100,
+    });
+    addSession({
+      id,
+      agent: "shell",
+      workspaceId: workspace.id,
+      title: `Install ${AGENT_LABELS[agent]} · ${workspace.name}`,
+      status: "running",
+      createdAt: Date.now(),
+      pendingApprovals: [],
+    });
+    onClose();
+  }
+
   return (
     <div className="modal-backdrop settings-pane" role="presentation">
       <section
@@ -147,6 +190,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               terminalFontSize={settings.terminalFontSize}
               editorFontSize={settings.editorFontSize}
               diffViewMode={settings.diffViewMode}
+              webOpenMode={settings.webOpenMode}
               onTheme={(theme) => updateSettings({ theme })}
               onCustomColorScheme={(customColorScheme) =>
                 updateSettings({ customColorScheme })
@@ -164,6 +208,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               }
               onEditorFontSize={(editorFontSize) => updateSettings({ editorFontSize })}
               onDiffViewMode={(diffViewMode) => updateSettings({ diffViewMode })}
+              onWebOpenMode={(webOpenMode) => updateSettings({ webOpenMode })}
             />
           ) : null}
           {section === "layout" ? (
@@ -185,7 +230,17 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
             <AgentSettings
               binaryStatus={binaryStatus}
               commands={settings.agentCommands}
+              installCommands={settings.agentInstallCommands}
               onCommand={updateAgentCommand}
+              onInstallCommand={(agent, command) =>
+                updateSettings({
+                  agentInstallCommands: {
+                    ...settings.agentInstallCommands,
+                    [agent]: command,
+                  },
+                })
+              }
+              onInstall={(agent, command) => void runInstall(agent, command)}
             />
           ) : null}
           {section === "workspaces" ? (
@@ -219,6 +274,7 @@ interface GeneralSettingsProps {
   terminalFontSize: number;
   editorFontSize: number;
   diffViewMode: DiffViewMode;
+  webOpenMode: WebOpenMode;
   onTheme: (theme: ThemeMode) => void;
   onCustomColorScheme: (scheme: CustomColorScheme) => void;
   onUiFontFamily: (fontFamily: string) => void;
@@ -228,6 +284,7 @@ interface GeneralSettingsProps {
   onTerminalFontSize: (fontSize: number) => void;
   onEditorFontSize: (fontSize: number) => void;
   onDiffViewMode: (mode: DiffViewMode) => void;
+  onWebOpenMode: (mode: WebOpenMode) => void;
 }
 
 function GeneralSettings({
@@ -241,6 +298,7 @@ function GeneralSettings({
   terminalFontSize,
   editorFontSize,
   diffViewMode,
+  webOpenMode,
   onTheme,
   onCustomColorScheme,
   onUiFontFamily,
@@ -250,6 +308,7 @@ function GeneralSettings({
   onTerminalFontSize,
   onEditorFontSize,
   onDiffViewMode,
+  onWebOpenMode,
 }: GeneralSettingsProps) {
   function updateCustomLabel(label: string) {
     onCustomColorScheme({ ...customColorScheme, label });
@@ -354,6 +413,19 @@ function GeneralSettings({
         >
           <option value="side-by-side">Side by side</option>
           <option value="unified">Unified</option>
+        </select>
+      </label>
+      <label className="settings-row">
+        <span>Web links</span>
+        <select
+          className="settings-select"
+          aria-label="Web links"
+          value={webOpenMode}
+          onChange={(event) => onWebOpenMode(event.target.value as WebOpenMode)}
+        >
+          <option value="ask">Ask before opening in Onibi</option>
+          <option value="in-app">Open in Onibi</option>
+          <option value="off">Open externally</option>
         </select>
       </label>
     </section>
@@ -487,20 +559,33 @@ function LayoutSettings({
 
 interface AgentSettingsProps {
   commands: Record<AgentKind, string>;
+  installCommands: Partial<Record<AgentKind, string>>;
   binaryStatus: BinaryStatus;
   onCommand: (agent: AgentKind, command: string) => void;
+  onInstallCommand: (agent: AgentKind, command: string) => void;
+  onInstall: (agent: AgentKind, command: string) => void;
 }
 
-function AgentSettings({ commands, binaryStatus, onCommand }: AgentSettingsProps) {
+function AgentSettings({
+  commands,
+  installCommands,
+  binaryStatus,
+  onCommand,
+  onInstallCommand,
+  onInstall,
+}: AgentSettingsProps) {
   return (
     <section className="settings-section" aria-label="Agent settings">
       {AGENT_KINDS.map((agent) => {
         const status = agent === "shell" ? "system shell" : binaryStatus[agent] ?? "missing";
+        const installCommand =
+          installCommands[agent] ?? DEFAULT_AGENT_INSTALL_COMMANDS[agent] ?? "";
         return (
-          <label className="agent-command-row" key={agent}>
+          <div className="agent-command-row" key={agent}>
             <span>{AGENT_LABELS[agent]}</span>
             <input
               className="settings-input"
+              aria-label={`${AGENT_LABELS[agent]} launch command`}
               value={commands[agent] ?? DEFAULT_AGENT_COMMANDS[agent]}
               onChange={(event) => onCommand(agent, event.target.value)}
             />
@@ -512,7 +597,26 @@ function AgentSettings({ commands, binaryStatus, onCommand }: AgentSettingsProps
             >
               {status === "missing" ? "missing" : "found"}
             </span>
-          </label>
+            {agent !== "shell" ? (
+              <>
+                <span className="settings-note">Install</span>
+                <input
+                  className="settings-input"
+                  aria-label={`${AGENT_LABELS[agent]} install command`}
+                  value={installCommand}
+                  onChange={(event) => onInstallCommand(agent, event.target.value)}
+                />
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={!installCommand.trim()}
+                  onClick={() => onInstall(agent, installCommand)}
+                >
+                  Run
+                </button>
+              </>
+            ) : null}
+          </div>
         );
       })}
     </section>

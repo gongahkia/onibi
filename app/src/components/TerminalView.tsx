@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, type CSSProperties } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -18,6 +18,7 @@ export interface TerminalViewProps {
   settings?: AppSettings;
   visible?: boolean;
   onExit?: (event: { code: number; signal: string | null }) => void;
+  onOpenLink?: (url: string, event: MouseEvent) => void;
 }
 
 const TERMINAL_FONT_FALLBACK =
@@ -60,6 +61,7 @@ export function TerminalView({
   settings = DEFAULT_SETTINGS,
   visible = true,
   onExit,
+  onOpenLink,
 }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -70,6 +72,17 @@ export function TerminalView({
   const resolvedFontFamily = useMemo(
     () => terminalFontStack(fontFamily),
     [fontFamily],
+  );
+  const handleTerminalLink = useCallback(
+    (event: MouseEvent, uri: string) => {
+      if ((event.metaKey || event.ctrlKey) && onOpenLink) {
+        event.preventDefault();
+        onOpenLink(uri, event);
+        return;
+      }
+      window.open(uri, "_blank", "noopener,noreferrer");
+    },
+    [onOpenLink],
   );
 
   useEffect(() => {
@@ -127,7 +140,7 @@ export function TerminalView({
       theme: terminalTheme,
     });
     const fitAddon = new FitAddon();
-    const webLinksAddon = new WebLinksAddon();
+    const webLinksAddon = new WebLinksAddon(handleTerminalLink);
     let webglAddon: WebglAddon | undefined;
     term.loadAddon(fitAddon);
     term.loadAddon(webLinksAddon);
@@ -193,7 +206,7 @@ export function TerminalView({
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [onExit, ptyId]);
+  }, [handleTerminalLink, onExit, ptyId]);
 
   useEffect(() => {
     if (visible) {

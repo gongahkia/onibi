@@ -63,12 +63,45 @@ describe("EditorBuffer", () => {
 
   test("renders markdown files with a preview pane", async () => {
     globalThis.__TAURI_MOCKS__.invoke.mockResolvedValueOnce(
-      Array.from(new TextEncoder().encode("# Title\n\n- item")),
+      Array.from(
+        new TextEncoder().encode(
+          "# Title\n\n- [x] item\n\n[OpenAI](https://openai.com)\n\n<strong>raw html</strong>",
+        ),
+      ),
     );
     render(<EditorBuffer path="/repo/README.md" workspaceRoot="/repo" />);
 
     const preview = await screen.findByLabelText("Markdown preview");
     expect(within(preview).getByText("Title").tagName).toBe("H1");
+    expect(
+      within(preview).getByRole("link", { name: "OpenAI" }).getAttribute("href"),
+    ).toBe("https://openai.com");
+    expect(within(preview).getByText("raw html").tagName).toBe("STRONG");
+  });
+
+  test("syncs markdown editor and preview scrolling", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockResolvedValueOnce(
+      Array.from(new TextEncoder().encode("# Title\n\n".repeat(80))),
+    );
+    render(<EditorBuffer path="/repo/README.md" workspaceRoot="/repo" />);
+
+    const preview = await screen.findByLabelText("Markdown preview");
+    await waitFor(() => expect(document.querySelector(".cm-scroller")).toBeTruthy());
+    const scroller = document.querySelector(".cm-scroller") as HTMLElement;
+    Object.defineProperty(scroller, "scrollHeight", { value: 1000, configurable: true });
+    Object.defineProperty(scroller, "clientHeight", { value: 500, configurable: true });
+    Object.defineProperty(preview, "scrollHeight", { value: 2000, configurable: true });
+    Object.defineProperty(preview, "clientHeight", { value: 500, configurable: true });
+
+    scroller.scrollTop = 250;
+    fireEvent.scroll(scroller);
+
+    await waitFor(() => expect(preview.scrollTop).toBe(750));
+
+    preview.scrollTop = 375;
+    fireEvent.scroll(preview);
+
+    await waitFor(() => expect(scroller.scrollTop).toBe(125));
   });
 
   test("renders image files as previews", async () => {

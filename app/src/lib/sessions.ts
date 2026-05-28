@@ -40,6 +40,47 @@ export interface Session {
   pendingApprovals: string[];
 }
 
+export type TerminalSplitDirection = "vertical" | "horizontal";
+
+export interface TerminalLeafPane {
+  type: "leaf";
+  paneId: string;
+  sessionId: string;
+}
+
+export interface TerminalSplitPane {
+  type: "split";
+  paneId: string;
+  direction: TerminalSplitDirection;
+  children: TerminalPaneNode[];
+}
+
+export type TerminalPaneNode = TerminalLeafPane | TerminalSplitPane;
+
+export interface TerminalPanePlacement {
+  type: "split";
+  targetPaneId: string;
+  direction: TerminalSplitDirection;
+}
+
+export type SessionEventType =
+  | "session-started"
+  | "session-stopped"
+  | "session-split"
+  | "file-opened"
+  | "web-opened";
+
+export interface SessionEvent {
+  id: string;
+  timestamp: number;
+  type: SessionEventType;
+  workspaceId?: string;
+  sessionId?: string;
+  agent?: AgentKind;
+  summary: string;
+  metadata?: Record<string, string | number | boolean | null>;
+}
+
 export interface Workspace {
   id: string;
   path: string;
@@ -80,7 +121,20 @@ export interface SelectedAgentReview {
   reviewId: string;
 }
 
-export type MainSelection = SelectedFile | SelectedGitDiff | SelectedAgentReview;
+export interface SelectedWebView {
+  type: "web";
+  workspaceId: string;
+  workspaceRoot: string;
+  path: string;
+  url: string;
+  name: string;
+}
+
+export type MainSelection =
+  | SelectedFile
+  | SelectedGitDiff
+  | SelectedAgentReview
+  | SelectedWebView;
 
 export type ThemeMode =
   | "system"
@@ -152,6 +206,7 @@ export interface GhosttyTheme {
 }
 
 export type DiffViewMode = "unified" | "side-by-side";
+export type WebOpenMode = "off" | "ask" | "in-app";
 
 export interface AppSettings {
   theme: ThemeMode;
@@ -167,7 +222,10 @@ export interface AppSettings {
   tabBarPosition: TabBarPosition;
   showHiddenFiles: boolean;
   showFileIcons: boolean;
+  webOpenMode: WebOpenMode;
+  preferredBrowser: string;
   agentCommands: Record<AgentKind, string>;
+  agentInstallCommands: Partial<Record<AgentKind, string>>;
   customColorScheme: CustomColorScheme;
   ghosttyTheme: GhosttyTheme | null;
 }
@@ -175,6 +233,9 @@ export interface AppSettings {
 type PersistedState = {
   sessions?: Session[];
   workspaces?: Workspace[];
+  terminalLayout?: TerminalPaneNode | null;
+  activeTerminalPaneId?: string | null;
+  sessionEvents?: SessionEvent[];
   settings?: Partial<AppSettings> & { fontSize?: number };
 };
 
@@ -182,15 +243,21 @@ type SessionStore = {
   hydrated: boolean;
   sessions: Session[];
   activeSessionId: string | null;
+  terminalLayout: TerminalPaneNode | null;
+  activeTerminalPaneId: string | null;
   workspaces: Workspace[];
   selectedFile: MainSelection | null;
+  sessionEvents: SessionEvent[];
   settings: AppSettings;
   setHydrated: (hydrated: boolean) => void;
   setActiveSession: (id: string | null) => void;
-  addSession: (session: Session) => void;
+  setActiveTerminalPane: (paneId: string | null) => void;
+  addSession: (session: Session, placement?: TerminalPanePlacement | null) => void;
   updateSession: (id: string, patch: Partial<Session>) => void;
   replaceSession: (id: string, session: Session) => void;
   removeSession: (id: string) => void;
+  appendSessionEvent: (event: Omit<SessionEvent, "id" | "timestamp">) => void;
+  openWebUrl: (url: string, sessionId?: string) => void;
   setWorkspaces: (workspaces: Workspace[]) => void;
   addWorkspace: (workspace: Workspace) => void;
   removeWorkspace: (id: string) => void;
@@ -221,6 +288,15 @@ export const DEFAULT_AGENT_COMMANDS: Record<AgentKind, string> = {
   cursor: "cursor-agent",
   goose: "goose session",
   shell: "",
+};
+
+export const DEFAULT_AGENT_INSTALL_COMMANDS: Partial<Record<AgentKind, string>> = {
+  "claude-code": "npm install -g @anthropic-ai/claude-code",
+  codex: "npm install -g @openai/codex",
+  opencode: "curl -fsSL https://opencode.ai/install | bash",
+  gemini: "npm install -g @google/gemini-cli",
+  aider: "python3 -m pip install --user aider-chat",
+  goose: "curl -fsSL https://github.com/block/goose/releases/latest/download/download_cli.sh | bash",
 };
 
 export const COLOR_SCHEME_COLOR_KEYS = [
@@ -551,7 +627,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   tabBarPosition: "left",
   showHiddenFiles: false,
   showFileIcons: true,
+  webOpenMode: "ask",
+  preferredBrowser: "onibi",
   agentCommands: DEFAULT_AGENT_COMMANDS,
+  agentInstallCommands: DEFAULT_AGENT_INSTALL_COMMANDS,
   customColorScheme: DEFAULT_CUSTOM_COLOR_SCHEME,
   ghosttyTheme: null,
 };
@@ -564,6 +643,9 @@ function getStore(): Promise<Store> {
     defaults: {
       sessions: [],
       workspaces: [],
+      terminalLayout: null,
+      activeTerminalPaneId: null,
+      sessionEvents: [],
       settings: DEFAULT_SETTINGS,
     },
     autoSave: false,
@@ -644,6 +726,12 @@ function normalizeDiffViewMode(value: unknown): DiffViewMode {
     : DEFAULT_SETTINGS.diffViewMode;
 }
 
+function normalizeWebOpenMode(value: unknown): WebOpenMode {
+  return value === "off" || value === "ask" || value === "in-app"
+    ? value
+    : DEFAULT_SETTINGS.webOpenMode;
+}
+
 function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings {
   const agentCommands = isRecord(settings?.agentCommands)
     ? {
@@ -651,6 +739,12 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
         ...(settings?.agentCommands as Partial<Record<AgentKind, string>>),
       }
     : { ...DEFAULT_AGENT_COMMANDS };
+  const agentInstallCommands = isRecord(settings?.agentInstallCommands)
+    ? {
+        ...DEFAULT_AGENT_INSTALL_COMMANDS,
+        ...(settings?.agentInstallCommands as Partial<Record<AgentKind, string>>),
+      }
+    : { ...DEFAULT_AGENT_INSTALL_COMMANDS };
   const merged = {
     ...DEFAULT_SETTINGS,
     ...settings,
@@ -692,16 +786,198 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
       : DEFAULT_SETTINGS.tabBarPosition,
     showHiddenFiles: Boolean(merged.showHiddenFiles),
     showFileIcons: Boolean(merged.showFileIcons),
+    webOpenMode: normalizeWebOpenMode(merged.webOpenMode),
+    preferredBrowser: normalizeFontFamily(
+      merged.preferredBrowser,
+      DEFAULT_SETTINGS.preferredBrowser,
+    ),
     agentCommands,
+    agentInstallCommands,
     customColorScheme: normalizeCustomColorScheme(merged.customColorScheme),
     ghosttyTheme: settings?.ghosttyTheme ?? null,
   };
+}
+
+function makeId(prefix: string): string {
+  return `${prefix}-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
+}
+
+function makeTerminalLeaf(sessionId: string): TerminalLeafPane {
+  return { type: "leaf", paneId: makeId("pane"), sessionId };
+}
+
+function paneIdForSession(
+  node: TerminalPaneNode | null,
+  sessionId: string,
+): string | null {
+  if (!node) {
+    return null;
+  }
+  if (node.type === "leaf") {
+    return node.sessionId === sessionId ? node.paneId : null;
+  }
+  for (const child of node.children) {
+    const paneId = paneIdForSession(child, sessionId);
+    if (paneId) {
+      return paneId;
+    }
+  }
+  return null;
+}
+
+function paneContainsPane(node: TerminalPaneNode | null, paneId: string): boolean {
+  if (!node) {
+    return false;
+  }
+  if (node.paneId === paneId) {
+    return true;
+  }
+  return node.type === "split"
+    ? node.children.some((child) => paneContainsPane(child, paneId))
+    : false;
+}
+
+function sessionIdForPane(node: TerminalPaneNode | null, paneId: string): string | null {
+  if (!node) {
+    return null;
+  }
+  if (node.type === "leaf") {
+    return node.paneId === paneId ? node.sessionId : null;
+  }
+  for (const child of node.children) {
+    const sessionId = sessionIdForPane(child, paneId);
+    if (sessionId) {
+      return sessionId;
+    }
+  }
+  return null;
+}
+
+function firstLeaf(node: TerminalPaneNode | null): TerminalLeafPane | null {
+  if (!node) {
+    return null;
+  }
+  if (node.type === "leaf") {
+    return node;
+  }
+  for (const child of node.children) {
+    const leaf = firstLeaf(child);
+    if (leaf) {
+      return leaf;
+    }
+  }
+  return null;
+}
+
+function insertTerminalSplit(
+  node: TerminalPaneNode,
+  targetPaneId: string,
+  direction: TerminalSplitDirection,
+  newLeaf: TerminalLeafPane,
+): TerminalPaneNode {
+  if (node.type === "leaf") {
+    if (node.paneId !== targetPaneId) {
+      return node;
+    }
+    return {
+      type: "split",
+      paneId: makeId("split"),
+      direction,
+      children: [node, newLeaf],
+    };
+  }
+  return {
+    ...node,
+    children: node.children.map((child) =>
+      insertTerminalSplit(child, targetPaneId, direction, newLeaf),
+    ),
+  };
+}
+
+function replacePaneSession(
+  node: TerminalPaneNode | null,
+  oldSessionId: string,
+  newSessionId: string,
+): TerminalPaneNode | null {
+  if (!node) {
+    return null;
+  }
+  if (node.type === "leaf") {
+    return node.sessionId === oldSessionId ? { ...node, sessionId: newSessionId } : node;
+  }
+  return {
+    ...node,
+    children: node.children.map((child) =>
+      replacePaneSession(child, oldSessionId, newSessionId),
+    ) as TerminalPaneNode[],
+  };
+}
+
+function removePaneSession(
+  node: TerminalPaneNode | null,
+  sessionId: string,
+): TerminalPaneNode | null {
+  if (!node) {
+    return null;
+  }
+  if (node.type === "leaf") {
+    return node.sessionId === sessionId ? null : node;
+  }
+  const children = node.children
+    .map((child) => removePaneSession(child, sessionId))
+    .filter(Boolean) as TerminalPaneNode[];
+  if (children.length === 0) {
+    return null;
+  }
+  if (children.length === 1) {
+    return children[0];
+  }
+  return { ...node, children };
+}
+
+function pruneTerminalLayout(
+  node: TerminalPaneNode | null | undefined,
+  liveSessionIds: Set<string>,
+): TerminalPaneNode | null {
+  if (!node) {
+    return null;
+  }
+  if (node.type === "leaf") {
+    return liveSessionIds.has(node.sessionId) ? node : null;
+  }
+  const children = node.children
+    .map((child) => pruneTerminalLayout(child, liveSessionIds))
+    .filter(Boolean) as TerminalPaneNode[];
+  if (children.length === 0) {
+    return null;
+  }
+  if (children.length === 1) {
+    return children[0];
+  }
+  return { ...node, children };
+}
+
+function appendEvent(
+  events: SessionEvent[],
+  event: Omit<SessionEvent, "id" | "timestamp">,
+): SessionEvent[] {
+  return [
+    ...events.slice(-199),
+    {
+      ...event,
+      id: makeId("event"),
+      timestamp: Date.now(),
+    },
+  ];
 }
 
 function snapshot(state: SessionStore): PersistedState {
   return {
     sessions: state.sessions,
     workspaces: state.workspaces,
+    terminalLayout: state.terminalLayout,
+    activeTerminalPaneId: state.activeTerminalPaneId,
+    sessionEvents: state.sessionEvents,
     settings: state.settings,
   };
 }
@@ -719,6 +995,9 @@ export async function persistNow(): Promise<void> {
     const state = snapshot(useSessionStore.getState());
     await store.set("sessions", state.sessions);
     await store.set("workspaces", state.workspaces);
+    await store.set("terminalLayout", state.terminalLayout);
+    await store.set("activeTerminalPaneId", state.activeTerminalPaneId);
+    await store.set("sessionEvents", state.sessionEvents);
     await store.set("settings", state.settings);
     await store.save();
   } catch (error) {
@@ -730,23 +1009,87 @@ export const useSessionStore = create<SessionStore>((set) => ({
   hydrated: false,
   sessions: [],
   activeSessionId: null,
+  terminalLayout: null,
+  activeTerminalPaneId: null,
   workspaces: [],
   selectedFile: null,
+  sessionEvents: [],
   settings: DEFAULT_SETTINGS,
   setHydrated: (hydrated) => set({ hydrated }),
   setActiveSession: (id) => {
-    set({ activeSessionId: id, selectedFile: null });
-    persistLater();
-  },
-  addSession: (session) => {
     set((state) => ({
-      sessions: [
-        ...state.sessions.filter((existing) => existing.id !== session.id),
-        session,
-      ],
-      activeSessionId: session.id,
+      activeSessionId: id,
+      activeTerminalPaneId: id
+        ? paneIdForSession(state.terminalLayout, id) ?? state.activeTerminalPaneId
+        : null,
       selectedFile: null,
     }));
+    persistLater();
+  },
+  setActiveTerminalPane: (paneId) => {
+    set((state) => {
+      function sessionForPane(node: TerminalPaneNode | null): string | null {
+        if (!node) {
+          return null;
+        }
+        if (node.type === "leaf") {
+          return node.paneId === paneId ? node.sessionId : null;
+        }
+        for (const child of node.children) {
+          const sessionId = sessionForPane(child);
+          if (sessionId) {
+            return sessionId;
+          }
+        }
+        return null;
+      }
+      const sessionId = paneId ? sessionForPane(state.terminalLayout) : null;
+      return {
+        activeTerminalPaneId: paneId,
+        activeSessionId: sessionId ?? state.activeSessionId,
+        selectedFile: null,
+      };
+    });
+    persistLater();
+  },
+  addSession: (session, placement) => {
+    set((state) => {
+      const leaf = makeTerminalLeaf(session.id);
+      const terminalLayout =
+        placement && state.terminalLayout
+          ? insertTerminalSplit(
+              state.terminalLayout,
+              placement.targetPaneId,
+              placement.direction,
+              leaf,
+            )
+          : leaf;
+      return {
+        sessions: [
+          ...state.sessions.filter((existing) => existing.id !== session.id),
+          session,
+        ],
+        terminalLayout,
+        activeTerminalPaneId: leaf.paneId,
+        activeSessionId: session.id,
+        selectedFile: null,
+        sessionEvents: appendEvent(state.sessionEvents, {
+          type: placement ? "session-split" : "session-started",
+          workspaceId: session.workspaceId,
+          sessionId: session.id,
+          agent: session.agent,
+          summary: placement
+            ? `Split ${session.title}`
+            : `Started ${session.title}`,
+          metadata: placement
+            ? {
+                targetPaneId: placement.targetPaneId,
+                direction: placement.direction,
+              }
+            : undefined,
+        }),
+      };
+    });
     persistLater();
   },
   updateSession: (id, patch) => {
@@ -762,22 +1105,82 @@ export const useSessionStore = create<SessionStore>((set) => ({
       sessions: state.sessions.map((session) =>
         session.id === id ? replacement : session,
       ),
+      terminalLayout: replacePaneSession(state.terminalLayout, id, replacement.id),
       activeSessionId:
         state.activeSessionId === id ? replacement.id : state.activeSessionId,
+      activeTerminalPaneId:
+        state.activeSessionId === id
+          ? paneIdForSession(
+              replacePaneSession(state.terminalLayout, id, replacement.id),
+              replacement.id,
+            ) ?? state.activeTerminalPaneId
+          : state.activeTerminalPaneId,
     }));
     persistLater();
   },
   removeSession: (id) => {
     set((state) => {
       const sessions = state.sessions.filter((session) => session.id !== id);
+      const terminalLayout = removePaneSession(state.terminalLayout, id);
+      const activeLeaf = firstLeaf(terminalLayout);
       return {
         sessions,
+        terminalLayout,
+        activeTerminalPaneId:
+          state.activeSessionId === id
+            ? activeLeaf?.paneId ?? null
+            : state.activeTerminalPaneId,
         activeSessionId:
           state.activeSessionId === id
-            ? sessions[sessions.length - 1]?.id ?? null
+            ? activeLeaf?.sessionId ?? sessions[sessions.length - 1]?.id ?? null
             : state.activeSessionId,
       };
     });
+    persistLater();
+  },
+  appendSessionEvent: (event) => {
+    set((state) => ({ sessionEvents: appendEvent(state.sessionEvents, event) }));
+    persistLater();
+  },
+  openWebUrl: (url, sessionId) => {
+    const currentState = useSessionStore.getState();
+    const openerSession = sessionId
+      ? currentState.sessions.find((session) => session.id === sessionId)
+      : currentState.sessions.find((session) => session.id === currentState.activeSessionId) ??
+        null;
+    const workspace = openerSession
+      ? currentState.workspaces.find(
+          (item) => item.id === openerSession.workspaceId,
+        ) ?? null
+      : null;
+    const mode = currentState.settings.webOpenMode;
+    const openInApp =
+      mode === "in-app" ||
+      (mode === "ask" && window.confirm(`Open ${url} inside Onibi?`));
+    set((state) => ({
+      sessionEvents: appendEvent(state.sessionEvents, {
+        type: "web-opened",
+        workspaceId: openerSession?.workspaceId,
+        sessionId: openerSession?.id,
+        agent: openerSession?.agent,
+        summary: `Opened ${url}`,
+        metadata: { url },
+      }),
+      selectedFile:
+        openInApp && workspace
+          ? {
+              type: "web",
+              workspaceId: workspace.id,
+              workspaceRoot: workspace.path,
+              path: url,
+              name: url,
+              url,
+            }
+          : state.selectedFile,
+    }));
+    if (!openInApp) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
     persistLater();
   },
   setWorkspaces: (workspaces) => {
@@ -799,6 +1202,14 @@ export const useSessionStore = create<SessionStore>((set) => ({
       selectedFile:
         state.selectedFile?.workspaceId === id ? null : state.selectedFile,
       sessions: state.sessions.filter((session) => session.workspaceId !== id),
+      terminalLayout: state.sessions.some((session) => session.workspaceId === id)
+        ? null
+        : state.terminalLayout,
+      activeTerminalPaneId: state.sessions.some(
+        (session) => session.workspaceId === id && session.id === state.activeSessionId,
+      )
+        ? null
+        : state.activeTerminalPaneId,
       activeSessionId:
         state.sessions.some(
           (session) => session.workspaceId === id && session.id === state.activeSessionId,
@@ -839,16 +1250,40 @@ export async function hydrateSessionStore(): Promise<void> {
       store.get<Workspace[]>("workspaces"),
       store.get<Partial<AppSettings>>("settings"),
     ]);
+    const [terminalLayout, activeTerminalPaneId, sessionEvents] = await Promise.all([
+      store.get<TerminalPaneNode | null>("terminalLayout"),
+      store.get<string | null>("activeTerminalPaneId"),
+      store.get<SessionEvent[]>("sessionEvents"),
+    ]);
     const livePtys = new Set(await ptyList().catch(() => []));
     const liveSessions = (sessions ?? []).filter((session) =>
       livePtys.has(session.id),
     );
+    const liveIds = new Set(liveSessions.map((session) => session.id));
+    const prunedLayout =
+      pruneTerminalLayout(terminalLayout, liveIds) ??
+      (liveSessions.length > 0
+        ? makeTerminalLeaf(liveSessions[liveSessions.length - 1].id)
+        : null);
+    const activeLeaf =
+      (activeTerminalPaneId && paneContainsPane(prunedLayout, activeTerminalPaneId)
+        ? activeTerminalPaneId
+        : null) ?? firstLeaf(prunedLayout)?.paneId ?? null;
+    const activeSessionId =
+      activeLeaf && prunedLayout
+        ? sessionIdForPane(prunedLayout, activeLeaf) ??
+          liveSessions[liveSessions.length - 1]?.id ??
+          null
+        : liveSessions[liveSessions.length - 1]?.id ?? null;
     const ghosttyTheme = await readGhosttyTheme().catch(() => null);
     const mergedSettings = applyGhosttyDefaults(mergeSettings(settings), ghosttyTheme);
     useSessionStore.setState({
       sessions: liveSessions,
-      activeSessionId: liveSessions[liveSessions.length - 1]?.id ?? null,
+      activeSessionId,
+      terminalLayout: prunedLayout,
+      activeTerminalPaneId: activeLeaf,
       workspaces: workspaces ?? [],
+      sessionEvents: sessionEvents ?? [],
       settings: mergedSettings,
       hydrated: true,
     });
@@ -1037,6 +1472,7 @@ export async function spawnAgentSession(
   agent: AgentKind,
   workspace: Workspace,
   initialPrompt: string,
+  placement?: TerminalPanePlacement | null,
 ): Promise<PtyId> {
   const settings = useSessionStore.getState().settings;
   const launch = launchCommandForAgent(agent, settings, initialPrompt);
@@ -1048,15 +1484,18 @@ export async function spawnAgentSession(
     rows: 30,
     cols: 100,
   });
-  useSessionStore.getState().addSession({
-    id,
-    agent,
-    workspaceId: workspace.id,
-    title: sessionTitle(agent, workspace),
-    status: "running",
-    createdAt: Date.now(),
-    pendingApprovals: [],
-  });
+  useSessionStore.getState().addSession(
+    {
+      id,
+      agent,
+      workspaceId: workspace.id,
+      title: sessionTitle(agent, workspace),
+      status: "running",
+      createdAt: Date.now(),
+      pendingApprovals: [],
+    },
+    placement,
+  );
   if (agent !== "shell") {
     void startAgentReview(id, workspace.path).catch((error) => {
       console.warn("failed to start agent review tracking", error);

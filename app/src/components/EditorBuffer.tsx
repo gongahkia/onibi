@@ -5,7 +5,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type ReactNode,
+  type RefObject,
 } from "react";
 import { css } from "@codemirror/lang-css";
 import { html } from "@codemirror/lang-html";
@@ -24,6 +24,10 @@ import { EditorState, type Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { tags as highlightTags } from "@lezer/highlight";
 import { basicSetup } from "codemirror";
+import ReactMarkdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
+import remarkGfm from "remark-gfm";
 import {
   readWorkspaceFile,
   readWorkspacePreviewFile,
@@ -210,9 +214,16 @@ interface CodeEditorProps {
   path: string;
   fontFamily?: string;
   onChange: (value: string) => void;
+  onScroller?: (element: HTMLElement | null) => void;
 }
 
-function CodeEditor({ value, path, fontFamily, onChange }: CodeEditorProps) {
+function CodeEditor({
+  value,
+  path,
+  fontFamily,
+  onChange,
+  onScroller,
+}: CodeEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
@@ -248,11 +259,13 @@ function CodeEditor({ value, path, fontFamily, onChange }: CodeEditorProps) {
       state: EditorState.create({ doc: value, extensions }),
     });
     viewRef.current = view;
+    onScroller?.(view.scrollDOM);
     return () => {
+      onScroller?.(null);
       view.destroy();
       viewRef.current = null;
     };
-  }, [language]);
+  }, [language, onScroller]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -280,75 +293,68 @@ function CodeEditor({ value, path, fontFamily, onChange }: CodeEditorProps) {
   );
 }
 
-function inlineText(value: string): ReactNode {
-  const parts = value.split(/(`[^`]+`)/g);
-  return parts.map((part, index) => {
-    if (part.startsWith("`") && part.endsWith("`")) {
-      return <code key={index}>{part.slice(1, -1)}</code>;
+function useSyncedScroll(
+  primary: HTMLElement | null,
+  secondaryRef: RefObject<HTMLElement | null>,
+  enabled: boolean,
+) {
+  const syncingRef = useRef(false);
+
+  useEffect(() => {
+    const secondary = secondaryRef.current;
+    if (!enabled || !primary || !secondary) {
+      return undefined;
     }
-    return part;
-  });
+
+    function sync(source: HTMLElement, target: HTMLElement) {
+      if (syncingRef.current) {
+        return;
+      }
+      const sourceRange = source.scrollHeight - source.clientHeight;
+      const targetRange = target.scrollHeight - target.clientHeight;
+      if (sourceRange <= 0 || targetRange <= 0) {
+        return;
+      }
+      syncingRef.current = true;
+      target.scrollTop = (source.scrollTop / sourceRange) * targetRange;
+      requestAnimationFrame(() => {
+        syncingRef.current = false;
+      });
+    }
+
+    const syncToSecondary = () => sync(primary, secondary);
+    const syncToPrimary = () => sync(secondary, primary);
+    primary.addEventListener("scroll", syncToSecondary, { passive: true });
+    secondary.addEventListener("scroll", syncToPrimary, { passive: true });
+    return () => {
+      primary.removeEventListener("scroll", syncToSecondary);
+      secondary.removeEventListener("scroll", syncToPrimary);
+    };
+  }, [enabled, primary, secondaryRef]);
 }
 
-function MarkdownPreview({ content }: { content: string }) {
-  const blocks = content.split(/\n{2,}/);
+function MarkdownPreview({
+  content,
+  previewRef,
+}: {
+  content: string;
+  previewRef: RefObject<HTMLElement | null>;
+}) {
   return (
-    <article className="markdown-preview" aria-label="Markdown preview">
-      {blocks.map((block, index) => {
-        const trimmed = block.trim();
-        if (!trimmed) {
-          return null;
-        }
-        if (trimmed.startsWith("```")) {
-          const code = trimmed.replace(/^```[^\n]*\n?/, "").replace(/\n?```$/, "");
-          return (
-            <pre key={index}>
-              <code>{code}</code>
-            </pre>
-          );
-        }
-        const heading = /^(#{1,6})\s+(.+)$/.exec(trimmed);
-        if (heading) {
-          const level = Math.min(heading[1].length, 6);
-          const children = inlineText(heading[2]);
-          if (level === 1) return <h1 key={index}>{children}</h1>;
-          if (level === 2) return <h2 key={index}>{children}</h2>;
-          if (level === 3) return <h3 key={index}>{children}</h3>;
-          if (level === 4) return <h4 key={index}>{children}</h4>;
-          if (level === 5) return <h5 key={index}>{children}</h5>;
-          return <h6 key={index}>{children}</h6>;
-        }
-        if (trimmed.startsWith(">")) {
-          return (
-            <blockquote key={index}>
-              {trimmed
-                .split(/\r?\n/)
-                .map((line) => line.replace(/^>\s?/, ""))
-                .join("\n")}
-            </blockquote>
-          );
-        }
-        const lines = trimmed.split(/\r?\n/);
-        if (lines.every((line) => /^\s*[-*]\s+/.test(line))) {
-          return (
-            <ul key={index}>
-              {lines.map((line, lineIndex) => (
-                <li key={lineIndex}>{inlineText(line.replace(/^\s*[-*]\s+/, ""))}</li>
-              ))}
-            </ul>
-          );
-        }
-        if (lines.every((line) => /^\s*\d+\.\s+/.test(line))) {
-          return (
-            <ol key={index}>
-              {lines.map((line, lineIndex) => (
-                <li key={lineIndex}>{inlineText(line.replace(/^\s*\d+\.\s+/, ""))}</li>
-              ))}
-            </ol>
-          );
-        }
-        return <p key={index}>{inlineText(lines.join(" "))}</p>;
-      })}
+    <article ref={previewRef} className="markdown-preview" aria-label="Markdown preview">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeRaw, rehypeSanitize]}
+        components={{
+          a: ({ href, children, ...props }) => (
+            <a href={href} target="_blank" rel="noreferrer" {...props}>
+              {children}
+            </a>
+          ),
+        }}
+      >
+        {content}
+      </ReactMarkdown>
     </article>
   );
 }
@@ -400,8 +406,13 @@ export function EditorBuffer({ path, workspaceRoot, fontFamily }: EditorBufferPr
   const [error, setError] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewKind, setPreviewKind] = useState<PreviewKind | null>(null);
+  const [editorScroller, setEditorScroller] = useState<HTMLElement | null>(null);
   const previewUrlRef = useRef<string | null>(null);
+  const markdownPreviewRef = useRef<HTMLElement | null>(null);
   const dirty = content !== savedContent;
+  const isMarkdown = isMarkdownPath(path);
+
+  useSyncedScroll(editorScroller, markdownPreviewRef, state === "ready" && isMarkdown);
 
   const loadFile = useCallback(async () => {
     setState("loading");
@@ -517,15 +528,16 @@ export function EditorBuffer({ path, workspaceRoot, fontFamily }: EditorBufferPr
       ) : null}
       {state === "error" ? <div className="editor-error">{error}</div> : null}
       {state === "ready" ? (
-        isMarkdownPath(path) ? (
+        isMarkdown ? (
           <div className="editor-markdown-split">
             <CodeEditor
               path={path}
               fontFamily={fontFamily}
               value={content}
               onChange={setContent}
+              onScroller={setEditorScroller}
             />
-            <MarkdownPreview content={content} />
+            <MarkdownPreview content={content} previewRef={markdownPreviewRef} />
           </div>
         ) : (
           <CodeEditor
