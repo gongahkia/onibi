@@ -92,6 +92,27 @@ describe("FileTree", () => {
     expect(screen.queryByTitle("Markdown file")).toBeNull();
   });
 
+  test("shows git state badges for changed files", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockResolvedValueOnce([
+      { name: "README.md", path: "/repo/README.md", kind: "file", size: 12 },
+    ]);
+
+    render(
+      <FileTree
+        gitStatusByPath={{
+          "/repo/README.md": {
+            badge: "M",
+            label: "Modified",
+            tone: "modified",
+          },
+        }}
+      />,
+    );
+
+    expect(await screen.findByText("README.md")).toBeTruthy();
+    expect(screen.getByLabelText("Modified").textContent).toBe("M");
+  });
+
   test("scopes the visible tree to the active session workspace", async () => {
     useSessionStore.setState({
       sessions: [

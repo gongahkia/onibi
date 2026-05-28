@@ -244,6 +244,70 @@ button {
   border-right: 1px solid var(--border);
 }
 
+.workspace-sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  background: var(--bg-1);
+  border-right: 1px solid var(--border);
+}
+
+.workspace-view-switcher {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 8px;
+  background: var(--bg-0);
+  border-bottom: 1px solid var(--border);
+}
+
+.workspace-view-switcher button {
+  position: relative;
+  min-width: 0;
+  min-height: 32px;
+  color: var(--fg-1);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.workspace-view-switcher button:hover,
+.workspace-view-switcher button.active {
+  color: var(--fg-0);
+  background: var(--bg-2);
+  border-color: var(--border);
+}
+
+.workspace-view-switcher button.active {
+  border-color: var(--accent);
+}
+
+.workspace-view-badge {
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  place-items: center;
+  color: #061413;
+  background: var(--accent);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.workspace-view-pane {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.workspace-view-pane .file-tree {
+  border-right: 0;
+}
+
 .file-tree-toolbar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -284,6 +348,10 @@ button {
   color: var(--fg-0);
   background: var(--bg-2);
   border-color: var(--border);
+}
+
+.tree-action-button.danger {
+  color: var(--danger);
 }
 
 .tree-action-button:disabled {
@@ -347,12 +415,12 @@ button {
 }
 
 .workspace-row.with-icons {
-  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
 }
 
 .tree-row {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 6px;
   width: 100%;
@@ -366,7 +434,7 @@ button {
 }
 
 .tree-row.with-icons {
-  grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+  grid-template-columns: auto auto auto minmax(0, 1fr) auto auto;
 }
 
 .workspace-row:hover,
@@ -392,6 +460,18 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tree-row-name.git-modified,
+.tree-row-name.git-untracked,
+.tree-row-name.git-added,
+.tree-row-name.git-renamed {
+  color: var(--fg-0);
+}
+
+.tree-row-name.git-deleted {
+  color: var(--danger);
+  text-decoration: line-through;
 }
 
 .workspace-name {
@@ -728,6 +808,201 @@ button {
 
 .tree-file-icon.tone-file {
   color: var(--fg-2);
+}
+
+.tree-git-state {
+  justify-self: end;
+  min-width: 16px;
+  color: var(--fg-2);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  text-align: center;
+}
+
+.tree-git-state.tone-modified,
+.source-control-state.tone-modified {
+  color: #d9a441;
+}
+
+.tree-git-state.tone-untracked,
+.tree-git-state.tone-added,
+.source-control-state.tone-untracked,
+.source-control-state.tone-added {
+  color: #62c07b;
+}
+
+.tree-git-state.tone-deleted,
+.source-control-state.tone-deleted {
+  color: var(--danger);
+}
+
+.tree-git-state.tone-renamed,
+.source-control-state.tone-renamed {
+  color: #68b7d9;
+}
+
+.tree-git-state.tone-ignored,
+.source-control-state.tone-ignored {
+  color: var(--fg-2);
+}
+
+.source-control-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  color: var(--fg-1);
+  background: var(--bg-1);
+}
+
+.source-control-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  padding: 8px 10px;
+  color: var(--fg-0);
+  border-bottom: 1px solid var(--border);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.source-control-repo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 8px;
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.source-control-repo-name {
+  overflow: hidden;
+  color: var(--fg-0);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-control-branch,
+.source-control-upstream,
+.source-control-description {
+  overflow: hidden;
+  color: var(--fg-2);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-control-upstream {
+  grid-column: 1 / -1;
+}
+
+.source-control-message {
+  width: calc(100% - 20px);
+  margin: 10px 10px 8px;
+  padding: 8px 9px;
+  color: var(--fg-0);
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: none;
+}
+
+.source-control-message:focus {
+  border-color: var(--accent-2);
+}
+
+.source-control-actions {
+  display: flex;
+  gap: 8px;
+  padding: 0 10px 8px;
+}
+
+.source-control-primary,
+.source-control-secondary {
+  min-height: 34px;
+  color: #061413;
+  background: var(--accent-2);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.source-control-primary {
+  flex: 1;
+}
+
+.source-control-secondary {
+  flex: 1;
+  color: var(--fg-0);
+  background: var(--bg-2);
+  border-color: var(--border);
+}
+
+.source-control-primary:disabled,
+.source-control-secondary:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.source-control-section {
+  min-height: 0;
+  padding-bottom: 8px;
+}
+
+.source-control-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  color: var(--fg-0);
+  background: var(--bg-0);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  font-weight: 700;
+}
+
+.source-control-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 5px 10px;
+}
+
+.source-control-row:hover {
+  background: var(--bg-2);
+}
+
+.source-control-state {
+  min-width: 16px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.source-control-path {
+  overflow: hidden;
+  color: var(--fg-0);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-control-description {
+  display: none;
+}
+
+.source-control-empty {
+  padding: 18px 10px;
+  color: var(--fg-2);
+  text-align: center;
+}
+
+.source-control-empty.compact {
+  padding: 12px 10px;
+  text-align: left;
 }
 
 .tree-error,

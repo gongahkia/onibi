@@ -9,8 +9,8 @@ vi.mock("./components/AgentTabBar", () => ({
   ),
 }));
 
-vi.mock("./components/FileTree", () => ({
-  FileTree: () => <div data-testid="file-tree" />,
+vi.mock("./components/WorkspaceSidebar", () => ({
+  WorkspaceSidebar: () => <div data-testid="workspace-sidebar" />,
 }));
 
 vi.mock("./components/MainPane", () => ({
