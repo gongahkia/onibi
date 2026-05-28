@@ -16,6 +16,7 @@ export interface TerminalViewProps {
   fontFamily?: string;
   fontSize?: number;
   settings?: AppSettings;
+  visible?: boolean;
 }
 
 const TERMINAL_FONT_FALLBACK =
@@ -56,15 +57,56 @@ export function TerminalView({
   fontFamily = DEFAULT_SETTINGS.terminalFontFamily,
   fontSize = 13,
   settings = DEFAULT_SETTINGS,
+  visible = true,
 }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const visibleRef = useRef(visible);
+  const layoutFramesRef = useRef<number[]>([]);
   const terminalTheme = useMemo(() => terminalThemeForSettings(settings), [settings]);
   const resolvedFontFamily = useMemo(
     () => terminalFontStack(fontFamily),
     [fontFamily],
   );
+
+  useEffect(() => {
+    visibleRef.current = visible;
+  }, [visible]);
+
+  const cancelScheduledLayout = () => {
+    layoutFramesRef.current.forEach((frame) => cancelAnimationFrame(frame));
+    layoutFramesRef.current = [];
+  };
+
+  const refreshTerminalLayout = (focusTerminal = false) => {
+    cancelScheduledLayout();
+
+    const run = (shouldFocus: boolean) => {
+      const term = terminalRef.current;
+      const fitAddon = fitAddonRef.current;
+      if (!term || !fitAddon) {
+        return;
+      }
+      fitAddon.fit();
+      term.refresh(0, Math.max(term.rows - 1, 0));
+      if (shouldFocus) {
+        term.focus();
+      }
+      void ptyResize(ptyId, term.rows, term.cols);
+    };
+
+    run(focusTerminal);
+    const firstFrame = requestAnimationFrame(() => {
+      run(focusTerminal);
+      const secondFrame = requestAnimationFrame(() => {
+        run(false);
+        layoutFramesRef.current = [];
+      });
+      layoutFramesRef.current = [secondFrame];
+    });
+    layoutFramesRef.current = [firstFrame];
+  };
 
   useEffect(() => {
     const container = containerRef.current;
@@ -97,16 +139,13 @@ export function TerminalView({
     }
 
     term.open(container);
-    fitAddon.fit();
-    term.focus();
-    void ptyResize(ptyId, term.rows, term.cols);
+    refreshTerminalLayout(visibleRef.current);
 
     let frame = 0;
     const fit = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        fitAddon.fit();
-        void ptyResize(ptyId, term.rows, term.cols);
+        refreshTerminalLayout(false);
       });
     };
     const resizeObserver = new ResizeObserver(fit);
@@ -139,6 +178,7 @@ export function TerminalView({
 
     return () => {
       disposed = true;
+      cancelScheduledLayout();
       cancelAnimationFrame(frame);
       unlisten?.();
       resizeObserver.disconnect();
@@ -153,6 +193,12 @@ export function TerminalView({
   }, [ptyId]);
 
   useEffect(() => {
+    if (visible) {
+      refreshTerminalLayout(true);
+    }
+  }, [visible]);
+
+  useEffect(() => {
     const term = terminalRef.current;
     if (!term) {
       return;
@@ -165,8 +211,7 @@ export function TerminalView({
       theme: terminalTheme,
     };
     term.clearTextureAtlas();
-    fitAddonRef.current?.fit();
-    void ptyResize(ptyId, term.rows, term.cols);
+    refreshTerminalLayout(visibleRef.current);
   }, [
     fontSize,
     ptyId,
@@ -182,6 +227,7 @@ export function TerminalView({
       ref={containerRef}
       className="terminal-view"
       data-testid="terminal-view"
+      data-visible={visible ? "true" : "false"}
       style={
         {
           "--font-terminal": resolvedFontFamily,

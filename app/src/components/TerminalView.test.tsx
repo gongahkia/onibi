@@ -13,6 +13,7 @@ const terminalMocks = vi.hoisted(() => {
     open = vi.fn();
     focus = vi.fn();
     write = vi.fn();
+    refresh = vi.fn();
     dispose = vi.fn();
     clearTextureAtlas = vi.fn();
     onData = vi.fn((handler: (data: string) => void) => {
@@ -28,6 +29,10 @@ const terminalMocks = vi.hoisted(() => {
   }
   return {
     instances: [] as MockTerminal[],
+    fitAddons: [] as Array<{
+      fit: ReturnType<typeof vi.fn>;
+      dispose: ReturnType<typeof vi.fn>;
+    }>,
     MockTerminal,
   };
 });
@@ -42,10 +47,12 @@ vi.mock("@xterm/xterm", () => ({
 
 vi.mock("@xterm/addon-fit", () => ({
   FitAddon: vi.fn().mockImplementation(function FitAddonConstructor() {
-    return {
-    fit: vi.fn(),
-    dispose: vi.fn(),
+    const fitAddon = {
+      fit: vi.fn(),
+      dispose: vi.fn(),
     };
+    terminalMocks.fitAddons.push(fitAddon);
+    return fitAddon;
   }),
 }));
 
@@ -68,6 +75,7 @@ vi.mock("@xterm/addon-web-links", () => ({
 describe("TerminalView", () => {
   beforeEach(() => {
     terminalMocks.instances.length = 0;
+    terminalMocks.fitAddons.length = 0;
     globalThis.__TAURI_MOCKS__.invoke.mockResolvedValue(undefined);
     globalThis.__TAURI_MOCKS__.listen.mockResolvedValue(
       globalThis.__TAURI_MOCKS__.unlisten,
@@ -126,6 +134,25 @@ describe("TerminalView", () => {
           '"Fira Code", Menlo, Monaco, Consolas, "Liberation Mono", monospace',
       });
       expect(terminal.clearTextureAtlas).toHaveBeenCalled();
+    });
+  });
+
+  test("refits and refreshes when revealed after being hidden", async () => {
+    const { rerender } = render(<TerminalView ptyId="pty-1" visible={false} />);
+    const terminal = terminalMocks.instances[0];
+    const fitAddon = terminalMocks.fitAddons[0];
+
+    await waitFor(() => expect(terminal.refresh).toHaveBeenCalled());
+    terminal.refresh.mockClear();
+    terminal.focus.mockClear();
+    fitAddon.fit.mockClear();
+
+    rerender(<TerminalView ptyId="pty-1" visible />);
+
+    await waitFor(() => {
+      expect(fitAddon.fit).toHaveBeenCalled();
+      expect(terminal.refresh).toHaveBeenCalledWith(0, 29);
+      expect(terminal.focus).toHaveBeenCalled();
     });
   });
 

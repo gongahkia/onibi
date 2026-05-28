@@ -10,6 +10,40 @@ export function MainPane() {
   const settings = useSessionStore((state) => state.settings);
   const session = sessions.find((item) => item.id === activeSessionId) ?? null;
 
+  if (session) {
+    const terminalVisible = selectedFile === null;
+    return (
+      <main
+        className="main-pane main-pane-stacked"
+        data-testid={selectedFile ? "main-pane-editor" : "main-pane-terminal"}
+      >
+        <section
+          className={`main-pane-surface terminal-surface ${
+            terminalVisible ? "is-active" : "is-background"
+          }`}
+          aria-hidden={!terminalVisible}
+        >
+          <TerminalView
+            ptyId={session.id}
+            fontFamily={settings.terminalFontFamily}
+            fontSize={settings.fontSize}
+            settings={settings}
+            visible={terminalVisible}
+          />
+        </section>
+        {selectedFile ? (
+          <section className="main-pane-surface editor-surface">
+            <EditorBuffer
+              path={selectedFile.path}
+              workspaceRoot={selectedFile.workspaceRoot}
+              fontFamily={settings.editorFontFamily}
+            />
+          </section>
+        ) : null}
+      </main>
+    );
+  }
+
   if (selectedFile) {
     return (
       <main className="main-pane" data-testid="main-pane-editor">
@@ -17,19 +51,6 @@ export function MainPane() {
           path={selectedFile.path}
           workspaceRoot={selectedFile.workspaceRoot}
           fontFamily={settings.editorFontFamily}
-        />
-      </main>
-    );
-  }
-
-  if (session) {
-    return (
-      <main className="main-pane" data-testid="main-pane-terminal">
-        <TerminalView
-          ptyId={session.id}
-          fontFamily={settings.terminalFontFamily}
-          fontSize={settings.fontSize}
-          settings={settings}
         />
       </main>
     );
