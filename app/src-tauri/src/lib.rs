@@ -7,6 +7,8 @@ pub mod git;
 #[cfg(feature = "gui")]
 pub mod pty;
 #[cfg(feature = "gui")]
+pub mod review;
+#[cfg(feature = "gui")]
 pub mod util;
 
 #[cfg(feature = "gui")]
@@ -16,14 +18,21 @@ use fonts::list_font_families;
 #[cfg(feature = "gui")]
 use fs::{
     fs_create_dir, fs_create_file, fs_delete_path, fs_list_dir, fs_move_path, fs_read_file,
-    fs_read_ghostty_config, fs_rename_path, fs_resolve_binary, fs_workspace_info, fs_write_file,
+    fs_read_ghostty_config, fs_read_preview_file, fs_rename_path, fs_resolve_binary,
+    fs_workspace_info, fs_write_file,
 };
 #[cfg(feature = "gui")]
 use git::{
-    git_commit, git_discard_paths, git_stage_paths, git_status, git_sync, git_unstage_paths,
+    git_commit, git_diff_file, git_discard_paths, git_stage_paths, git_status, git_sync,
+    git_unstage_paths,
 };
 #[cfg(feature = "gui")]
 use pty::{PtyEvent, PtyId, PtyManager, PtySpawnRequest};
+#[cfg(feature = "gui")]
+use review::{
+    agent_review_accept, agent_review_diff, agent_review_note_human_write, agent_review_records,
+    agent_review_reject, agent_review_start, agent_review_stop, AgentReviewManager,
+};
 #[cfg(feature = "gui")]
 use serde::Serialize;
 #[cfg(feature = "gui")]
@@ -157,6 +166,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(PtyManager::new())
+        .manage(Arc::new(AgentReviewManager::new()))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
@@ -168,6 +178,7 @@ pub fn run() {
             pty_list,
             fs_list_dir,
             fs_read_file,
+            fs_read_preview_file,
             fs_write_file,
             fs_create_file,
             fs_create_dir,
@@ -183,6 +194,14 @@ pub fn run() {
             git_discard_paths,
             git_commit,
             git_sync,
+            git_diff_file,
+            agent_review_start,
+            agent_review_stop,
+            agent_review_note_human_write,
+            agent_review_records,
+            agent_review_diff,
+            agent_review_accept,
+            agent_review_reject,
             list_font_families
         ])
         .on_window_event(|window, event| {

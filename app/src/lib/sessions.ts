@@ -8,6 +8,7 @@ import {
   type PtyId,
   type PtySpawnRequest,
 } from "./tauri-bridge";
+import { startAgentReview } from "./agent-review";
 
 export const AGENT_KINDS = [
   "claude-code",
@@ -188,6 +189,7 @@ type SessionStore = {
   setActiveSession: (id: string | null) => void;
   addSession: (session: Session) => void;
   updateSession: (id: string, patch: Partial<Session>) => void;
+  replaceSession: (id: string, session: Session) => void;
   removeSession: (id: string) => void;
   setWorkspaces: (workspaces: Workspace[]) => void;
   addWorkspace: (workspace: Workspace) => void;
@@ -755,6 +757,16 @@ export const useSessionStore = create<SessionStore>((set) => ({
     }));
     persistLater();
   },
+  replaceSession: (id, replacement) => {
+    set((state) => ({
+      sessions: state.sessions.map((session) =>
+        session.id === id ? replacement : session,
+      ),
+      activeSessionId:
+        state.activeSessionId === id ? replacement.id : state.activeSessionId,
+    }));
+    persistLater();
+  },
   removeSession: (id) => {
     set((state) => {
       const sessions = state.sessions.filter((session) => session.id !== id);
@@ -881,11 +893,22 @@ export async function readWorkspaceFile(
   return invoke<number[]>("fs_read_file", { root: workspaceRoot, path });
 }
 
+export async function readWorkspacePreviewFile(
+  workspaceRoot: string,
+  path: string,
+): Promise<number[]> {
+  return invoke<number[]>("fs_read_preview_file", { root: workspaceRoot, path });
+}
+
 export async function writeWorkspaceFile(
   workspaceRoot: string,
   path: string,
   data: Uint8Array,
 ): Promise<void> {
+  await invoke("agent_review_note_human_write", {
+    root: workspaceRoot,
+    path,
+  }).catch(() => undefined);
   await invoke("fs_write_file", {
     root: workspaceRoot,
     path,
@@ -1032,6 +1055,11 @@ export async function spawnAgentSession(
     createdAt: Date.now(),
     pendingApprovals: [],
   });
+  if (agent !== "shell") {
+    void startAgentReview(id, workspace.path).catch((error) => {
+      console.warn("failed to start agent review tracking", error);
+    });
+  }
   return id;
 }
 

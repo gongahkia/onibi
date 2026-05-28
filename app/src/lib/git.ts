@@ -20,6 +20,15 @@ export interface GitStatus {
   entries: GitStatusEntry[];
 }
 
+export interface GitFileDiff {
+  path: string;
+  oldLabel: string;
+  newLabel: string;
+  oldText?: string | null;
+  newText?: string | null;
+  binary: boolean;
+}
+
 export interface GitTreeState {
   badge: string;
   label: string;
@@ -84,4 +93,12 @@ export async function commitGit(root: string, message: string): Promise<string> 
 
 export async function syncGit(root: string): Promise<string> {
   return invoke<string>("git_sync", { root });
+}
+
+export async function getGitFileDiff(
+  root: string,
+  path: string,
+  stage: "staged" | "working",
+): Promise<GitFileDiff> {
+  return invoke<GitFileDiff>("git_diff_file", { root, path, stage });
 }

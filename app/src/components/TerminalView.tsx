@@ -17,6 +17,7 @@ export interface TerminalViewProps {
   fontSize?: number;
   settings?: AppSettings;
   visible?: boolean;
+  onExit?: (event: { code: number; signal: string | null }) => void;
 }
 
 const TERMINAL_FONT_FALLBACK =
@@ -58,6 +59,7 @@ export function TerminalView({
   fontSize = DEFAULT_SETTINGS.terminalFontSize,
   settings = DEFAULT_SETTINGS,
   visible = true,
+  onExit,
 }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -167,6 +169,7 @@ export function TerminalView({
       } else {
         const suffix = event.signal ? ` (${event.signal})` : "";
         term.write(`\r\n[process exited: ${event.code}${suffix}]\r\n`);
+        onExit?.({ code: event.code, signal: event.signal });
       }
     }).then((dispose) => {
       if (disposed) {
@@ -190,7 +193,7 @@ export function TerminalView({
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [ptyId]);
+  }, [onExit, ptyId]);
 
   useEffect(() => {
     if (visible) {
