@@ -1,9 +1,11 @@
 import { render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { TerminalView } from "./TerminalView";
+import { DEFAULT_SETTINGS } from "../lib/sessions";
 
 const terminalMocks = vi.hoisted(() => {
   class MockTerminal {
+    options: unknown;
     rows = 30;
     cols = 100;
     onDataHandler: ((data: string) => void) | undefined;
@@ -19,6 +21,9 @@ const terminalMocks = vi.hoisted(() => {
     emitData(data: string) {
       this.onDataHandler?.(data);
     }
+    constructor(options: unknown) {
+      this.options = options;
+    }
   }
   return {
     instances: [] as MockTerminal[],
@@ -27,8 +32,8 @@ const terminalMocks = vi.hoisted(() => {
 });
 
 vi.mock("@xterm/xterm", () => ({
-  Terminal: vi.fn().mockImplementation(function TerminalConstructor() {
-    const terminal = new terminalMocks.MockTerminal();
+  Terminal: vi.fn().mockImplementation(function TerminalConstructor(options) {
+    const terminal = new terminalMocks.MockTerminal(options);
     terminalMocks.instances.push(terminal);
     return terminal;
   }),
@@ -75,6 +80,24 @@ describe("TerminalView", () => {
   test("mounts without throwing", () => {
     render(<TerminalView ptyId="pty-1" />);
     expect(terminalMocks.instances).toHaveLength(1);
+  });
+
+  test("uses the selected color scheme for xterm", () => {
+    render(
+      <TerminalView
+        ptyId="pty-1"
+        settings={{ ...DEFAULT_SETTINGS, theme: "ocean" }}
+      />,
+    );
+
+    expect(terminalMocks.instances[0].options).toMatchObject({
+      theme: {
+        background: "#07131a",
+        foreground: "#e6f7ff",
+        cursor: "#6ec6ff",
+        selectionBackground: "#24546b",
+      },
+    });
   });
 
   test("subscribes on mount and unsubscribes on unmount", async () => {

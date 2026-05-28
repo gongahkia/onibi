@@ -2,8 +2,14 @@ import { useEffect, useState } from "react";
 import {
   AGENT_KINDS,
   AGENT_LABELS,
+  BUILT_IN_COLOR_SCHEMES,
+  COLOR_SCHEME_COLOR_KEYS,
+  COLOR_SCHEME_COLOR_LABELS,
+  COLOR_SCHEME_OPTIONS,
   DEFAULT_AGENT_COMMANDS,
   type AgentKind,
+  type ColorSchemeColorKey,
+  type CustomColorScheme,
   type TabBarOrientation,
   type TabBarPosition,
   type ThemeMode,
@@ -52,7 +58,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
     return () => {
       cancelled = true;
     };
-  }, [open, settings]);
+  }, [open, settings.agentCommands]);
 
   if (!open) {
     return null;
@@ -109,9 +115,13 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
           {section === "general" ? (
             <GeneralSettings
               theme={settings.theme}
+              customColorScheme={settings.customColorScheme}
               fontFamily={settings.fontFamily}
               fontSize={settings.fontSize}
               onTheme={(theme) => updateSettings({ theme })}
+              onCustomColorScheme={(customColorScheme) =>
+                updateSettings({ customColorScheme })
+              }
               onFontFamily={(fontFamily) => updateSettings({ fontFamily })}
               onFontSize={(fontSize) => updateSettings({ fontSize })}
             />
@@ -158,35 +168,113 @@ function labelFor(value: string): string {
 
 interface GeneralSettingsProps {
   theme: ThemeMode;
+  customColorScheme: CustomColorScheme;
   fontFamily: string;
   fontSize: number;
   onTheme: (theme: ThemeMode) => void;
+  onCustomColorScheme: (scheme: CustomColorScheme) => void;
   onFontFamily: (fontFamily: string) => void;
   onFontSize: (fontSize: number) => void;
 }
 
 function GeneralSettings({
   theme,
+  customColorScheme,
   fontFamily,
   fontSize,
   onTheme,
+  onCustomColorScheme,
   onFontFamily,
   onFontSize,
 }: GeneralSettingsProps) {
+  const previewColors =
+    theme === "custom"
+      ? customColorScheme.colors
+      : (BUILT_IN_COLOR_SCHEMES.find((scheme) => scheme.id === theme)?.colors ??
+        BUILT_IN_COLOR_SCHEMES[0].colors);
+
+  function updateCustomLabel(label: string) {
+    onCustomColorScheme({ ...customColorScheme, label });
+  }
+
+  function updateCustomColor(key: ColorSchemeColorKey, value: string) {
+    onCustomColorScheme({
+      ...customColorScheme,
+      colors: {
+        ...customColorScheme.colors,
+        [key]: value,
+      },
+    });
+  }
+
   return (
     <section className="settings-section" aria-label="General settings">
-      <label className="settings-row">
-        <span>Theme</span>
-        <select
-          className="settings-select"
-          value={theme}
-          onChange={(event) => onTheme(event.target.value as ThemeMode)}
-        >
-          <option value="dark">Dark</option>
-          <option value="light">Light</option>
-          <option value="system">System</option>
-        </select>
-      </label>
+      <div className="settings-row">
+        <label htmlFor="settings-color-scheme">Color scheme</label>
+        <span className="settings-stack">
+          <select
+            id="settings-color-scheme"
+            className="settings-select"
+            value={theme}
+            onChange={(event) => onTheme(event.target.value as ThemeMode)}
+          >
+            {COLOR_SCHEME_OPTIONS.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <span className="scheme-preview" aria-label="Color scheme preview">
+            {(
+              [
+                "bg0",
+                "bg1",
+                "bg2",
+                "fg0",
+                "accent",
+                "accent2",
+                "danger",
+              ] as const
+            ).map((key) => (
+              <span
+                key={key}
+                className="scheme-swatch"
+                aria-hidden="true"
+                style={{ background: previewColors[key] }}
+              />
+            ))}
+          </span>
+        </span>
+      </div>
+      {theme === "custom" ? (
+        <div className="custom-scheme-editor">
+          <label className="settings-row">
+            <span>Custom name</span>
+            <input
+              className="settings-input"
+              value={customColorScheme.label}
+              onChange={(event) => updateCustomLabel(event.target.value)}
+            />
+          </label>
+          <div className="custom-color-grid" aria-label="Custom color settings">
+            {COLOR_SCHEME_COLOR_KEYS.map((key) => (
+              <label className="color-setting-row" key={key}>
+                <span>{COLOR_SCHEME_COLOR_LABELS[key]}</span>
+                <span className="color-setting-control">
+                  <input
+                    className="color-picker"
+                    type="color"
+                    aria-label={`${COLOR_SCHEME_COLOR_LABELS[key]} color`}
+                    value={customColorScheme.colors[key]}
+                    onChange={(event) => updateCustomColor(key, event.target.value)}
+                  />
+                  <code>{customColorScheme.colors[key]}</code>
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <label className="settings-row">
         <span>Font family</span>
         <input

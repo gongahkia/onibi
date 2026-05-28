@@ -60,9 +60,66 @@ export interface SelectedFile {
   size: number;
 }
 
-export type ThemeMode = "dark" | "light" | "system";
+export type ThemeMode =
+  | "system"
+  | "dark"
+  | "light"
+  | "graphite"
+  | "ember"
+  | "forest"
+  | "ocean"
+  | "violet"
+  | "solarized-dark"
+  | "solarized-light"
+  | "paper"
+  | "high-contrast"
+  | "custom";
 export type TabBarOrientation = "vertical" | "horizontal";
 export type TabBarPosition = "left" | "right" | "top" | "bottom";
+export type BuiltInThemeMode = Exclude<ThemeMode, "system" | "custom">;
+export type ColorSchemeColorKey =
+  | "bg0"
+  | "bg1"
+  | "bg2"
+  | "bg3"
+  | "fg0"
+  | "fg1"
+  | "fg2"
+  | "accent"
+  | "accent2"
+  | "danger"
+  | "flash"
+  | "border"
+  | "terminalBackground"
+  | "terminalForeground"
+  | "terminalCursor"
+  | "terminalSelection";
+
+export type ColorSchemeColors = Record<ColorSchemeColorKey, string>;
+
+export interface ColorScheme {
+  id: BuiltInThemeMode;
+  label: string;
+  colors: ColorSchemeColors;
+}
+
+export interface CustomColorScheme {
+  label: string;
+  colors: ColorSchemeColors;
+}
+
+export interface ResolvedColorScheme {
+  id: Exclude<ThemeMode, "system">;
+  label: string;
+  colors: ColorSchemeColors;
+}
+
+export interface TerminalTheme {
+  background: string;
+  foreground: string;
+  cursor: string;
+  selectionBackground: string;
+}
 
 export interface GhosttyTheme {
   fontFamily?: string;
@@ -80,6 +137,7 @@ export interface AppSettings {
   tabBarPosition: TabBarPosition;
   showHiddenFiles: boolean;
   agentCommands: Record<AgentKind, string>;
+  customColorScheme: CustomColorScheme;
   ghosttyTheme: GhosttyTheme | null;
 }
 
@@ -133,6 +191,319 @@ export const DEFAULT_AGENT_COMMANDS: Record<AgentKind, string> = {
   shell: "",
 };
 
+export const COLOR_SCHEME_COLOR_KEYS = [
+  "bg0",
+  "bg1",
+  "bg2",
+  "bg3",
+  "fg0",
+  "fg1",
+  "fg2",
+  "accent",
+  "accent2",
+  "danger",
+  "flash",
+  "border",
+  "terminalBackground",
+  "terminalForeground",
+  "terminalCursor",
+  "terminalSelection",
+] as const satisfies readonly ColorSchemeColorKey[];
+
+export const COLOR_SCHEME_COLOR_LABELS: Record<ColorSchemeColorKey, string> = {
+  bg0: "App background",
+  bg1: "Panel background",
+  bg2: "Raised background",
+  bg3: "Hover background",
+  fg0: "Primary text",
+  fg1: "Secondary text",
+  fg2: "Muted text",
+  accent: "Accent",
+  accent2: "Action accent",
+  danger: "Danger",
+  flash: "Alert flash",
+  border: "Border",
+  terminalBackground: "Terminal background",
+  terminalForeground: "Terminal text",
+  terminalCursor: "Terminal cursor",
+  terminalSelection: "Terminal selection",
+};
+
+const COLOR_SCHEME_CSS_VARIABLES: Record<ColorSchemeColorKey, string> = {
+  bg0: "--bg-0",
+  bg1: "--bg-1",
+  bg2: "--bg-2",
+  bg3: "--bg-3",
+  fg0: "--fg-0",
+  fg1: "--fg-1",
+  fg2: "--fg-2",
+  accent: "--accent",
+  accent2: "--accent-2",
+  danger: "--danger",
+  flash: "--flash",
+  border: "--border",
+  terminalBackground: "--terminal-bg",
+  terminalForeground: "--terminal-fg",
+  terminalCursor: "--terminal-cursor",
+  terminalSelection: "--terminal-selection",
+};
+
+export const BUILT_IN_COLOR_SCHEMES: ColorScheme[] = [
+  {
+    id: "dark",
+    label: "Dark",
+    colors: {
+      bg0: "#0b0f12",
+      bg1: "#11181c",
+      bg2: "#172127",
+      bg3: "#20303a",
+      fg0: "#edf2f4",
+      fg1: "#b9c4ca",
+      fg2: "#7f8f98",
+      accent: "#f2c14e",
+      accent2: "#2fb7a5",
+      danger: "#e85d5d",
+      flash: "#f2c14e",
+      border: "#26343c",
+      terminalBackground: "#0b0e14",
+      terminalForeground: "#e6edf3",
+      terminalCursor: "#f4d35e",
+      terminalSelection: "#315f7d",
+    },
+  },
+  {
+    id: "light",
+    label: "Light",
+    colors: {
+      bg0: "#f7f4ee",
+      bg1: "#ebe7de",
+      bg2: "#ffffff",
+      bg3: "#d8d2c7",
+      fg0: "#18232a",
+      fg1: "#43525b",
+      fg2: "#6a7780",
+      accent: "#b87913",
+      accent2: "#087f72",
+      danger: "#b3261e",
+      flash: "#b87913",
+      border: "#cac3b7",
+      terminalBackground: "#fbfaf7",
+      terminalForeground: "#18232a",
+      terminalCursor: "#a46300",
+      terminalSelection: "#cbe7e3",
+    },
+  },
+  {
+    id: "graphite",
+    label: "Graphite",
+    colors: {
+      bg0: "#0d0f12",
+      bg1: "#15181c",
+      bg2: "#20242a",
+      bg3: "#2d333b",
+      fg0: "#f0f3f6",
+      fg1: "#b9c0c9",
+      fg2: "#828c99",
+      accent: "#8ab4f8",
+      accent2: "#8bd3c7",
+      danger: "#ff6b6b",
+      flash: "#8ab4f8",
+      border: "#30363d",
+      terminalBackground: "#0d0f12",
+      terminalForeground: "#f0f3f6",
+      terminalCursor: "#8ab4f8",
+      terminalSelection: "#334155",
+    },
+  },
+  {
+    id: "ember",
+    label: "Ember",
+    colors: {
+      bg0: "#140d0b",
+      bg1: "#201512",
+      bg2: "#2e1d18",
+      bg3: "#3b281f",
+      fg0: "#fff1e8",
+      fg1: "#d8b8a7",
+      fg2: "#9d7768",
+      accent: "#ffb454",
+      accent2: "#ff7a59",
+      danger: "#ff5c5c",
+      flash: "#ffb454",
+      border: "#4a2c22",
+      terminalBackground: "#170f0d",
+      terminalForeground: "#ffe8d6",
+      terminalCursor: "#ffb454",
+      terminalSelection: "#5f3226",
+    },
+  },
+  {
+    id: "forest",
+    label: "Forest",
+    colors: {
+      bg0: "#07110d",
+      bg1: "#0e1a15",
+      bg2: "#15261f",
+      bg3: "#1f352b",
+      fg0: "#ecf7ef",
+      fg1: "#b7c9bd",
+      fg2: "#78917f",
+      accent: "#a3d977",
+      accent2: "#4ecdc4",
+      danger: "#ff6f61",
+      flash: "#a3d977",
+      border: "#244537",
+      terminalBackground: "#09130f",
+      terminalForeground: "#e8f5e9",
+      terminalCursor: "#a3d977",
+      terminalSelection: "#285243",
+    },
+  },
+  {
+    id: "ocean",
+    label: "Ocean",
+    colors: {
+      bg0: "#07131a",
+      bg1: "#0d1d27",
+      bg2: "#142b38",
+      bg3: "#1d3c4d",
+      fg0: "#edf8ff",
+      fg1: "#b6cbd7",
+      fg2: "#7895a5",
+      accent: "#6ec6ff",
+      accent2: "#3dd6c6",
+      danger: "#ff6b7a",
+      flash: "#6ec6ff",
+      border: "#254454",
+      terminalBackground: "#07131a",
+      terminalForeground: "#e6f7ff",
+      terminalCursor: "#6ec6ff",
+      terminalSelection: "#24546b",
+    },
+  },
+  {
+    id: "violet",
+    label: "Violet",
+    colors: {
+      bg0: "#120d19",
+      bg1: "#1b1424",
+      bg2: "#261c33",
+      bg3: "#342645",
+      fg0: "#f7edff",
+      fg1: "#cbbad9",
+      fg2: "#907ca3",
+      accent: "#c792ea",
+      accent2: "#82aaff",
+      danger: "#ff6e91",
+      flash: "#c792ea",
+      border: "#3e2d52",
+      terminalBackground: "#110c18",
+      terminalForeground: "#f2e8ff",
+      terminalCursor: "#c792ea",
+      terminalSelection: "#4a3563",
+    },
+  },
+  {
+    id: "solarized-dark",
+    label: "Solarized Dark",
+    colors: {
+      bg0: "#002b36",
+      bg1: "#073642",
+      bg2: "#0d4652",
+      bg3: "#145663",
+      fg0: "#fdf6e3",
+      fg1: "#93a1a1",
+      fg2: "#657b83",
+      accent: "#b58900",
+      accent2: "#2aa198",
+      danger: "#dc322f",
+      flash: "#b58900",
+      border: "#164b56",
+      terminalBackground: "#002b36",
+      terminalForeground: "#eee8d5",
+      terminalCursor: "#b58900",
+      terminalSelection: "#073642",
+    },
+  },
+  {
+    id: "solarized-light",
+    label: "Solarized Light",
+    colors: {
+      bg0: "#fdf6e3",
+      bg1: "#eee8d5",
+      bg2: "#f6f0dc",
+      bg3: "#ded6bf",
+      fg0: "#073642",
+      fg1: "#586e75",
+      fg2: "#839496",
+      accent: "#b58900",
+      accent2: "#2aa198",
+      danger: "#dc322f",
+      flash: "#b58900",
+      border: "#d6ccad",
+      terminalBackground: "#fdf6e3",
+      terminalForeground: "#073642",
+      terminalCursor: "#b58900",
+      terminalSelection: "#eee8d5",
+    },
+  },
+  {
+    id: "paper",
+    label: "Paper",
+    colors: {
+      bg0: "#fbf7ef",
+      bg1: "#f0eadf",
+      bg2: "#fffdf8",
+      bg3: "#ded6c8",
+      fg0: "#1f2528",
+      fg1: "#4f5a5f",
+      fg2: "#7b868a",
+      accent: "#8f5c2e",
+      accent2: "#267a7a",
+      danger: "#b13d35",
+      flash: "#8f5c2e",
+      border: "#d1c7b8",
+      terminalBackground: "#fffcf5",
+      terminalForeground: "#1f2528",
+      terminalCursor: "#8f5c2e",
+      terminalSelection: "#d7e6e4",
+    },
+  },
+  {
+    id: "high-contrast",
+    label: "High Contrast",
+    colors: {
+      bg0: "#000000",
+      bg1: "#080808",
+      bg2: "#111111",
+      bg3: "#1f1f1f",
+      fg0: "#ffffff",
+      fg1: "#d7d7d7",
+      fg2: "#a8a8a8",
+      accent: "#ffd400",
+      accent2: "#00d9ff",
+      danger: "#ff4d4d",
+      flash: "#ffd400",
+      border: "#595959",
+      terminalBackground: "#000000",
+      terminalForeground: "#ffffff",
+      terminalCursor: "#ffd400",
+      terminalSelection: "#144f63",
+    },
+  },
+];
+
+export const COLOR_SCHEME_OPTIONS: Array<{ id: ThemeMode; label: string }> = [
+  { id: "system", label: "System" },
+  ...BUILT_IN_COLOR_SCHEMES.map(({ id, label }) => ({ id, label })),
+  { id: "custom", label: "Custom" },
+];
+
+export const DEFAULT_CUSTOM_COLOR_SCHEME: CustomColorScheme = {
+  label: "Custom",
+  colors: { ...BUILT_IN_COLOR_SCHEMES[0].colors },
+};
+
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: "dark",
   fontFamily: "Menlo, Monaco, monospace",
@@ -141,6 +512,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   tabBarPosition: "left",
   showHiddenFiles: false,
   agentCommands: DEFAULT_AGENT_COMMANDS,
+  customColorScheme: DEFAULT_CUSTOM_COLOR_SCHEME,
   ghosttyTheme: null,
 };
 
@@ -164,17 +536,88 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isThemeMode(value: unknown): value is ThemeMode {
+  return (
+    typeof value === "string" &&
+    COLOR_SCHEME_OPTIONS.some((option) => option.id === value)
+  );
+}
+
+function isTabBarOrientation(value: unknown): value is TabBarOrientation {
+  return value === "vertical" || value === "horizontal";
+}
+
+function isTabBarPosition(value: unknown): value is TabBarPosition {
+  return value === "left" || value === "right" || value === "top" || value === "bottom";
+}
+
+function normalizeHexColor(value: unknown, fallback: string): string {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+  const trimmed = value.trim();
+  return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed : fallback;
+}
+
+function normalizeColorSchemeColors(
+  value: unknown,
+  fallback: ColorSchemeColors,
+): ColorSchemeColors {
+  const source = isRecord(value) ? value : {};
+  return Object.fromEntries(
+    COLOR_SCHEME_COLOR_KEYS.map((key) => [
+      key,
+      normalizeHexColor(source[key], fallback[key]),
+    ]),
+  ) as ColorSchemeColors;
+}
+
+function normalizeCustomColorScheme(value: unknown): CustomColorScheme {
+  const source = isRecord(value) ? value : {};
+  const label =
+    typeof source.label === "string" && source.label.trim()
+      ? source.label.trim().slice(0, 48)
+      : DEFAULT_CUSTOM_COLOR_SCHEME.label;
+  return {
+    label,
+    colors: normalizeColorSchemeColors(
+      source.colors,
+      DEFAULT_CUSTOM_COLOR_SCHEME.colors,
+    ),
+  };
+}
+
 function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings {
   const agentCommands = isRecord(settings?.agentCommands)
     ? {
         ...DEFAULT_AGENT_COMMANDS,
         ...(settings?.agentCommands as Partial<Record<AgentKind, string>>),
       }
-    : DEFAULT_AGENT_COMMANDS;
-  return {
+    : { ...DEFAULT_AGENT_COMMANDS };
+  const merged = {
     ...DEFAULT_SETTINGS,
     ...settings,
+  };
+  return {
+    ...merged,
+    theme: isThemeMode(merged.theme) ? merged.theme : DEFAULT_SETTINGS.theme,
+    fontFamily:
+      typeof merged.fontFamily === "string" && merged.fontFamily.trim()
+        ? merged.fontFamily
+        : DEFAULT_SETTINGS.fontFamily,
+    fontSize:
+      Number.isFinite(merged.fontSize) && merged.fontSize > 0
+        ? Math.min(Math.max(merged.fontSize, 10), 24)
+        : DEFAULT_SETTINGS.fontSize,
+    tabBarOrientation: isTabBarOrientation(merged.tabBarOrientation)
+      ? merged.tabBarOrientation
+      : DEFAULT_SETTINGS.tabBarOrientation,
+    tabBarPosition: isTabBarPosition(merged.tabBarPosition)
+      ? merged.tabBarPosition
+      : DEFAULT_SETTINGS.tabBarPosition,
+    showHiddenFiles: Boolean(merged.showHiddenFiles),
     agentCommands,
+    customColorScheme: normalizeCustomColorScheme(merged.customColorScheme),
     ghosttyTheme: settings?.ghosttyTheme ?? null,
   };
 }
@@ -542,17 +985,69 @@ function applyGhosttyDefaults(
 
 export function applyDocumentSettings(settings: AppSettings): void {
   const root = document.documentElement;
-  const prefersLight = window.matchMedia("(prefers-color-scheme: light)").matches;
-  const resolvedTheme =
-    settings.theme === "system" ? (prefersLight ? "light" : "dark") : settings.theme;
-  root.dataset.theme = resolvedTheme;
+  const scheme = resolveColorScheme(settings);
+  const colors = colorsForSettings(settings);
+  root.dataset.theme = scheme.id;
   root.style.setProperty("--font-ui", settings.fontFamily);
   root.style.setProperty("--font-mono", settings.fontFamily);
   root.style.setProperty("--font-size-terminal", `${settings.fontSize}px`);
-  if (settings.ghosttyTheme?.background) {
-    root.style.setProperty("--bg-0", settings.ghosttyTheme.background);
+  for (const key of COLOR_SCHEME_COLOR_KEYS) {
+    root.style.setProperty(COLOR_SCHEME_CSS_VARIABLES[key], colors[key]);
   }
-  if (settings.ghosttyTheme?.foreground) {
-    root.style.setProperty("--fg-0", settings.ghosttyTheme.foreground);
+}
+
+function prefersLightTheme(): boolean {
+  return (
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-color-scheme: light)").matches
+  );
+}
+
+export function resolveThemeMode(theme: ThemeMode): Exclude<ThemeMode, "system"> {
+  return theme === "system" ? (prefersLightTheme() ? "light" : "dark") : theme;
+}
+
+function builtInColorScheme(id: BuiltInThemeMode): ColorScheme {
+  return (
+    BUILT_IN_COLOR_SCHEMES.find((scheme) => scheme.id === id) ??
+    BUILT_IN_COLOR_SCHEMES[0]
+  );
+}
+
+export function resolveColorScheme(settings: AppSettings): ResolvedColorScheme {
+  const resolvedTheme = resolveThemeMode(settings.theme);
+  if (resolvedTheme === "custom") {
+    return {
+      id: "custom",
+      label: settings.customColorScheme.label || DEFAULT_CUSTOM_COLOR_SCHEME.label,
+      colors: settings.customColorScheme.colors,
+    };
   }
+  return builtInColorScheme(resolvedTheme);
+}
+
+function colorsForSettings(settings: AppSettings): ColorSchemeColors {
+  const scheme = resolveColorScheme(settings);
+  const colors = { ...scheme.colors };
+  if (scheme.id === "dark") {
+    if (settings.ghosttyTheme?.background) {
+      colors.bg0 = settings.ghosttyTheme.background;
+      colors.terminalBackground = settings.ghosttyTheme.background;
+    }
+    if (settings.ghosttyTheme?.foreground) {
+      colors.fg0 = settings.ghosttyTheme.foreground;
+      colors.terminalForeground = settings.ghosttyTheme.foreground;
+    }
+  }
+  return colors;
+}
+
+export function terminalThemeForSettings(settings: AppSettings): TerminalTheme {
+  const colors = colorsForSettings(settings);
+  return {
+    background: colors.terminalBackground,
+    foreground: colors.terminalForeground,
+    cursor: colors.terminalCursor,
+    selectionBackground: colors.terminalSelection,
+  };
 }
