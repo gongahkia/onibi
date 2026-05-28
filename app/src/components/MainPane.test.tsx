@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { MainPane } from "./MainPane";
 import { DEFAULT_SETTINGS, useSessionStore } from "../lib/sessions";
@@ -22,8 +22,11 @@ function resetStore() {
     hydrated: true,
     sessions: [],
     activeSessionId: null,
+    terminalLayout: null,
+    activeTerminalPaneId: null,
     workspaces: [],
     selectedFile: null,
+    sessionEvents: [],
     settings: DEFAULT_SETTINGS,
   });
 }
@@ -63,6 +66,9 @@ describe("MainPane", () => {
         },
       ],
       activeSessionId: "pty-1",
+      terminalLayout: { type: "leaf", paneId: "pane-1", sessionId: "pty-1" },
+      activeTerminalPaneId: "pane-1",
+      workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
     });
 
     render(<MainPane />);
@@ -71,6 +77,32 @@ describe("MainPane", () => {
     expect(screen.getByTestId("terminal-view").getAttribute("data-visible")).toBe(
       "true",
     );
+  });
+
+  test("opens the new-session picker for a split shortcut", () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-1",
+          agent: "shell",
+          workspaceId: "workspace:/repo",
+          title: "Shell",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+        },
+      ],
+      activeSessionId: "pty-1",
+      terminalLayout: { type: "leaf", paneId: "pane-1", sessionId: "pty-1" },
+      activeTerminalPaneId: "pane-1",
+      workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
+    });
+
+    render(<MainPane />);
+    fireEvent.keyDown(window, { key: "d", metaKey: true });
+
+    expect(screen.getByRole("dialog", { name: "New Session" })).toBeTruthy();
+    expect(screen.getByText("/repo")).toBeTruthy();
   });
 
   test("keeps the active terminal mounted behind a selected file", () => {
