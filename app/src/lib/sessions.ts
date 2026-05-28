@@ -1219,7 +1219,21 @@ export const useSessionStore = create<SessionStore>((set) => ({
     }));
     persistLater();
   },
-  selectFile: (file) => set({ selectedFile: file }),
+  selectFile: (file) => {
+    set((state) => ({
+      selectedFile: file,
+      sessionEvents:
+        file && file.type !== "web"
+          ? appendEvent(state.sessionEvents, {
+              type: "file-opened",
+              workspaceId: file.workspaceId,
+              summary: `Opened ${file.path}`,
+              metadata: { path: file.path, kind: file.type ?? "file" },
+            })
+          : state.sessionEvents,
+    }));
+    persistLater();
+  },
   updateSettings: (patch) => {
     set((state) => ({ settings: mergeSettings({ ...state.settings, ...patch }) }));
     persistLater();

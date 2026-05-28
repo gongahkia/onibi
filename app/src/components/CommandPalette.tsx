@@ -6,19 +6,22 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import {
+  AGENT_KINDS,
   AGENT_LABELS,
   COLOR_SCHEME_OPTIONS,
   DEFAULT_AGENT_COMMANDS,
   type AppSettings,
   type Session,
+  type SessionEvent,
   type Workspace,
+  spawnAgentSession,
   useSessionStore,
 } from "../lib/sessions";
 import { chooseWorkspaceFolder } from "../lib/workspace-picker";
 import { NewSessionDialog } from "./NewSessionDialog";
 import { SettingsPane } from "./SettingsPane";
 
-type CommandGroup = "Session" | "Workspace" | "Settings" | "Layout" | "View";
+type CommandGroup = "Session" | "Workspace" | "Settings" | "Layout" | "View" | "Agent";
 
 interface PaletteCommand {
   id: string;
@@ -104,6 +107,34 @@ function focusActiveTerminal(): void {
   document.querySelector<HTMLElement>(".terminal-view")?.focus();
 }
 
+function handoffPrompt(
+  sourceSession: Session,
+  workspace: Workspace,
+  selectedPath: string | null,
+  events: SessionEvent[],
+): string {
+  const recentEvents = events
+    .filter((event) => event.workspaceId === workspace.id)
+    .slice(-8)
+    .map((event) => `- ${event.type}: ${event.summary}`)
+    .join("\n");
+  return [
+    `You are taking over an Onibi workspace from ${AGENT_LABELS[sourceSession.agent]}.`,
+    "",
+    `Workspace: ${workspace.name}`,
+    `Path: ${workspace.path}`,
+    `Prior session: ${sourceSession.title}`,
+    selectedPath ? `Open file or view: ${selectedPath}` : null,
+    "",
+    "Recent Onibi events:",
+    recentEvents || "- No recorded events yet.",
+    "",
+    "Continue from this context. Inspect the repository before editing, and preserve any user changes.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -117,6 +148,7 @@ export function CommandPalette() {
   const workspaces = useSessionStore((state) => state.workspaces);
   const selectedFile = useSessionStore((state) => state.selectedFile);
   const settings = useSessionStore((state) => state.settings);
+  const sessionEvents = useSessionStore((state) => state.sessionEvents);
   const addWorkspace = useSessionStore((state) => state.addWorkspace);
   const removeSession = useSessionStore((state) => state.removeSession);
   const selectFile = useSessionStore((state) => state.selectFile);
@@ -339,6 +371,31 @@ export function CommandPalette() {
           run: () => removeSession(activeSession.id),
         },
       );
+      if (currentWorkspace) {
+        for (const agent of AGENT_KINDS.filter(
+          (candidate) => candidate !== "shell" && candidate !== activeSession.agent,
+        )) {
+          nextCommands.push({
+            id: `agent.handoff.${agent}`,
+            label: `Handoff to ${AGENT_LABELS[agent]}`,
+            group: "Agent",
+            description: currentWorkspace.name,
+            keywords: ["handoff", "transfer", "context", agent],
+            run: async () => {
+              await spawnAgentSession(
+                agent,
+                currentWorkspace,
+                handoffPrompt(
+                  activeSession,
+                  currentWorkspace,
+                  selectedFile?.path ?? null,
+                  sessionEvents,
+                ),
+              );
+            },
+          });
+        }
+      }
     }
 
     return nextCommands;
@@ -348,6 +405,7 @@ export function CommandPalette() {
     removeSession,
     selectFile,
     selectedFile,
+    sessionEvents,
     sessions,
     setActiveSession,
     settings,

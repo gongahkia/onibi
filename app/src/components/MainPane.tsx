@@ -53,6 +53,16 @@ function fallbackLayout(session: Session): TerminalPaneNode {
   return { type: "leaf", paneId: `fallback-${session.id}`, sessionId: session.id };
 }
 
+function layoutContainsSession(node: TerminalPaneNode | null, sessionId: string): boolean {
+  if (!node) {
+    return false;
+  }
+  if (node.type === "leaf") {
+    return node.sessionId === sessionId;
+  }
+  return node.children.some((child) => layoutContainsSession(child, sessionId));
+}
+
 function TerminalPaneTree({
   node,
   sessions,
@@ -186,7 +196,8 @@ export function MainPane() {
       ) {
         return;
       }
-      if ((event.target as HTMLElement | null)?.closest(".modal-panel")) {
+      const target = event.target;
+      if (target instanceof Element && target.closest(".modal-panel")) {
         return;
       }
       event.preventDefault();
@@ -239,10 +250,9 @@ export function MainPane() {
 
   if (session) {
     const terminalVisible = selectedFile === null;
-    const layout =
-      terminalLayout && sessions.some((item) => item.id === session.id)
-        ? terminalLayout
-        : fallbackLayout(session);
+    const layout = layoutContainsSession(terminalLayout, session.id)
+      ? terminalLayout!
+      : fallbackLayout(session);
     const splitWorkspaceId = session.workspaceId;
     return (
       <>

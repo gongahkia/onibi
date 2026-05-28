@@ -5,7 +5,6 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type RefObject,
 } from "react";
 import { css } from "@codemirror/lang-css";
 import { html } from "@codemirror/lang-html";
@@ -295,13 +294,12 @@ function CodeEditor({
 
 function useSyncedScroll(
   primary: HTMLElement | null,
-  secondaryRef: RefObject<HTMLElement | null>,
+  secondary: HTMLElement | null,
   enabled: boolean,
 ) {
   const syncingRef = useRef(false);
 
   useEffect(() => {
-    const secondary = secondaryRef.current;
     if (!enabled || !primary || !secondary) {
       return undefined;
     }
@@ -330,18 +328,18 @@ function useSyncedScroll(
       primary.removeEventListener("scroll", syncToSecondary);
       secondary.removeEventListener("scroll", syncToPrimary);
     };
-  }, [enabled, primary, secondaryRef]);
+  }, [enabled, primary, secondary]);
 }
 
 function MarkdownPreview({
   content,
-  previewRef,
+  onPreview,
 }: {
   content: string;
-  previewRef: RefObject<HTMLElement | null>;
+  onPreview: (element: HTMLElement | null) => void;
 }) {
   return (
-    <article ref={previewRef} className="markdown-preview" aria-label="Markdown preview">
+    <article ref={onPreview} className="markdown-preview" aria-label="Markdown preview">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw, rehypeSanitize]}
@@ -407,12 +405,12 @@ export function EditorBuffer({ path, workspaceRoot, fontFamily }: EditorBufferPr
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewKind, setPreviewKind] = useState<PreviewKind | null>(null);
   const [editorScroller, setEditorScroller] = useState<HTMLElement | null>(null);
+  const [markdownPreview, setMarkdownPreview] = useState<HTMLElement | null>(null);
   const previewUrlRef = useRef<string | null>(null);
-  const markdownPreviewRef = useRef<HTMLElement | null>(null);
   const dirty = content !== savedContent;
   const isMarkdown = isMarkdownPath(path);
 
-  useSyncedScroll(editorScroller, markdownPreviewRef, state === "ready" && isMarkdown);
+  useSyncedScroll(editorScroller, markdownPreview, state === "ready" && isMarkdown);
 
   const loadFile = useCallback(async () => {
     setState("loading");
@@ -537,7 +535,7 @@ export function EditorBuffer({ path, workspaceRoot, fontFamily }: EditorBufferPr
               onChange={setContent}
               onScroller={setEditorScroller}
             />
-            <MarkdownPreview content={content} previewRef={markdownPreviewRef} />
+            <MarkdownPreview content={content} onPreview={setMarkdownPreview} />
           </div>
         ) : (
           <CodeEditor
