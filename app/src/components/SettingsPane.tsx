@@ -340,29 +340,21 @@ function FontFamilyControl({
   return (
     <label className="settings-row">
       <span>{label}</span>
-      <span className="settings-stack">
-        <select
-          className="settings-select"
-          aria-label={`${label} installed font`}
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-        >
-          {!selectedFontIsInstalled ? (
-            <option value={value}>{value || "Custom"}</option>
-          ) : null}
-          {families.map((family) => (
-            <option key={family} value={family}>
-              {family}
-            </option>
-          ))}
-        </select>
-        <input
-          className="settings-input"
-          aria-label={`${label} custom font`}
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-        />
-      </span>
+      <select
+        className="settings-select"
+        aria-label={`${label} installed font`}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {!selectedFontIsInstalled ? (
+          <option value={value}>{value || "Custom"}</option>
+        ) : null}
+        {families.map((family) => (
+          <option key={family} value={family}>
+            {family}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }
