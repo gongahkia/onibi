@@ -305,6 +305,10 @@ button {
   cursor: pointer;
 }
 
+.workspace-row.with-icons {
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+}
+
 .tree-row {
   display: grid;
   grid-template-columns: auto auto minmax(0, 1fr) auto;
@@ -318,6 +322,10 @@ button {
   text-align: left;
   padding: 5px 10px;
   cursor: pointer;
+}
+
+.tree-row.with-icons {
+  grid-template-columns: auto auto auto minmax(0, 1fr) auto;
 }
 
 .workspace-row:hover,
@@ -355,6 +363,58 @@ button {
   width: 14px;
   color: var(--fg-2);
   text-align: center;
+}
+
+.tree-file-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 18px;
+  color: var(--fg-0);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: 8px/1 var(--font-mono);
+  font-weight: 700;
+}
+
+.tree-file-icon.folder {
+  color: #08211d;
+  background: var(--accent-2);
+  border-color: var(--accent-2);
+}
+
+.tree-file-icon.code,
+.tree-file-icon.markup {
+  color: #08131f;
+  background: #8ab4f8;
+  border-color: #8ab4f8;
+}
+
+.tree-file-icon.config {
+  color: #1f1604;
+  background: #f2c14e;
+  border-color: #f2c14e;
+}
+
+.tree-file-icon.docs {
+  color: #091f1c;
+  background: #8bd3c7;
+  border-color: #8bd3c7;
+}
+
+.tree-file-icon.data,
+.tree-file-icon.lock {
+  color: #201025;
+  background: #c792ea;
+  border-color: #c792ea;
+}
+
+.tree-file-icon.image,
+.tree-file-icon.style {
+  color: #211106;
+  background: #ffb454;
+  border-color: #ffb454;
 }
 
 .tree-error,
@@ -712,9 +772,16 @@ button {
 
 .settings-stack,
 .custom-scheme-editor,
-.color-setting-control {
+.color-setting-control,
+.settings-check-row {
   display: grid;
   gap: 8px;
+}
+
+.settings-check-row {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  color: var(--fg-1);
 }
 
 .scheme-preview {

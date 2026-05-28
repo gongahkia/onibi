@@ -222,6 +222,14 @@ export function CommandPalette() {
         keywords: ["dotfiles", "files", "tree"],
         run: () => updateSettings({ showHiddenFiles: !settings.showHiddenFiles }),
       },
+      {
+        id: "settings.file-icons",
+        label: settings.showFileIcons ? "Hide File Icons" : "Show File Icons",
+        group: "Settings",
+        description: "Toggle icons in the workspace tree",
+        keywords: ["files", "tree", "sidebar", "icons"],
+        run: () => updateSettings({ showFileIcons: !settings.showFileIcons }),
+      },
       ...COLOR_SCHEME_OPTIONS.map<PaletteCommand>((option) => ({
         id: `settings.theme.${option.id}`,
         label: `Theme: ${option.label}`,

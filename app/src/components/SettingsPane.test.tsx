@@ -32,6 +32,14 @@ describe("SettingsPane", () => {
     expect(useSessionStore.getState().settings.tabBarPosition).toBe("top");
   });
 
+  test("updates file tree icon visibility", () => {
+    render(<SettingsPane open onClose={vi.fn()} />);
+    fireEvent.click(screen.getByText("Layout"));
+    fireEvent.click(screen.getByLabelText("Show file icons"));
+
+    expect(useSessionStore.getState().settings.showFileIcons).toBe(false);
+  });
+
   test("updates a custom color scheme", () => {
     render(<SettingsPane open onClose={vi.fn()} />);
 

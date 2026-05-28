@@ -38,6 +38,69 @@ describe("FileTree", () => {
     fireEvent.click(screen.getByText("README.md"));
 
     expect(useSessionStore.getState().selectedFile?.path).toBe("/repo/README.md");
+    expect(screen.getByTitle("Markdown file")).toBeTruthy();
+  });
+
+  test("hides file icons when disabled in settings", async () => {
+    useSessionStore.setState({
+      settings: { ...DEFAULT_SETTINGS, showFileIcons: false },
+    });
+    globalThis.__TAURI_MOCKS__.invoke.mockResolvedValueOnce([
+      { name: "README.md", path: "/repo/README.md", kind: "file", size: 12 },
+    ]);
+
+    render(<FileTree />);
+    fireEvent.doubleClick(screen.getByText("repo"));
+
+    expect(await screen.findByText("README.md")).toBeTruthy();
+    expect(screen.queryByTitle("Markdown file")).toBeNull();
+  });
+
+  test("scopes the visible tree to the active session workspace", async () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "session-1",
+          agent: "opencode",
+          workspaceId: "workspace:/repo/kelp-claw",
+          title: "OpenCode kelp-claw",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+        },
+      ],
+      activeSessionId: "session-1",
+      workspaces: [
+        {
+          id: "workspace:/repo/bob_frontend",
+          path: "/repo/bob_frontend",
+          name: "bob_frontend",
+        },
+        {
+          id: "workspace:/repo/kelp-claw",
+          path: "/repo/kelp-claw",
+          name: "kelp-claw",
+        },
+      ],
+    });
+    globalThis.__TAURI_MOCKS__.invoke.mockResolvedValueOnce([
+      {
+        name: "package.json",
+        path: "/repo/kelp-claw/package.json",
+        kind: "file",
+        size: 24,
+      },
+    ]);
+
+    render(<FileTree />);
+
+    expect(screen.queryByText("bob_frontend")).toBeNull();
+    expect(screen.getByText("kelp-claw")).toBeTruthy();
+    expect(await screen.findByText("package.json")).toBeTruthy();
+    expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith("fs_list_dir", {
+      root: "/repo/kelp-claw",
+      path: "/repo/kelp-claw",
+    });
   });
 
   test("shows sandbox errors returned by fs commands", async () => {

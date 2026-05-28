@@ -136,6 +136,7 @@ export interface AppSettings {
   tabBarOrientation: TabBarOrientation;
   tabBarPosition: TabBarPosition;
   showHiddenFiles: boolean;
+  showFileIcons: boolean;
   agentCommands: Record<AgentKind, string>;
   customColorScheme: CustomColorScheme;
   ghosttyTheme: GhosttyTheme | null;
@@ -511,6 +512,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   tabBarOrientation: "vertical",
   tabBarPosition: "left",
   showHiddenFiles: false,
+  showFileIcons: true,
   agentCommands: DEFAULT_AGENT_COMMANDS,
   customColorScheme: DEFAULT_CUSTOM_COLOR_SCHEME,
   ghosttyTheme: null,
@@ -616,6 +618,7 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
       ? merged.tabBarPosition
       : DEFAULT_SETTINGS.tabBarPosition,
     showHiddenFiles: Boolean(merged.showHiddenFiles),
+    showFileIcons: Boolean(merged.showFileIcons),
     agentCommands,
     customColorScheme: normalizeCustomColorScheme(merged.customColorScheme),
     ghosttyTheme: settings?.ghosttyTheme ?? null,
