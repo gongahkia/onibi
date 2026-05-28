@@ -104,4 +104,27 @@ describe("SettingsPane", () => {
     expect(settings.terminalFontFamily).toBe("Monaco");
     expect(settings.editorFontFamily).toBe("Fira Code");
   });
+
+  test("stores separate font sizes and diff view mode", () => {
+    render(<SettingsPane open onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText("UI font size"), {
+      target: { value: "16" },
+    });
+    fireEvent.change(screen.getByLabelText("Terminal font size"), {
+      target: { value: "18" },
+    });
+    fireEvent.change(screen.getByLabelText("File content font size"), {
+      target: { value: "14" },
+    });
+    fireEvent.change(screen.getByLabelText("Diff view"), {
+      target: { value: "unified" },
+    });
+
+    const settings = useSessionStore.getState().settings;
+    expect(settings.uiFontSize).toBe(16);
+    expect(settings.terminalFontSize).toBe(18);
+    expect(settings.editorFontSize).toBe(14);
+    expect(settings.diffViewMode).toBe("unified");
+  });
 });

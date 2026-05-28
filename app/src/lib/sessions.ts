@@ -905,10 +905,12 @@ export async function writeWorkspaceFile(
   path: string,
   data: Uint8Array,
 ): Promise<void> {
-  await invoke("agent_review_note_human_write", {
-    root: workspaceRoot,
-    path,
-  }).catch(() => undefined);
+  await Promise.resolve(
+    invoke("agent_review_note_human_write", {
+      root: workspaceRoot,
+      path,
+    }),
+  ).catch(() => undefined);
   await invoke("fs_write_file", {
     root: workspaceRoot,
     path,

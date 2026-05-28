@@ -957,7 +957,6 @@ interface WorkspaceRootProps {
   entries: FsEntry[];
   showFileIcons: boolean;
   gitStatusByPath?: Record<string, GitTreeState>;
-  agentReviewsByPath?: Record<string, AgentReviewRecord>;
   isDropTarget: boolean;
   onToggle: () => void;
   onSelectRoot: () => void;
@@ -976,7 +975,6 @@ function WorkspaceRoot({
   entries,
   showFileIcons,
   gitStatusByPath,
-  agentReviewsByPath,
   isDropTarget,
   onToggle,
   onSelectRoot,
