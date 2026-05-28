@@ -3,6 +3,8 @@ pub mod fonts;
 #[cfg(feature = "gui")]
 pub mod fs;
 #[cfg(feature = "gui")]
+pub mod git;
+#[cfg(feature = "gui")]
 pub mod pty;
 #[cfg(feature = "gui")]
 pub mod util;
@@ -15,6 +17,10 @@ use fonts::list_font_families;
 use fs::{
     fs_create_dir, fs_create_file, fs_delete_path, fs_list_dir, fs_move_path, fs_read_file,
     fs_read_ghostty_config, fs_rename_path, fs_resolve_binary, fs_workspace_info, fs_write_file,
+};
+#[cfg(feature = "gui")]
+use git::{
+    git_commit, git_discard_paths, git_stage_paths, git_status, git_sync, git_unstage_paths,
 };
 #[cfg(feature = "gui")]
 use pty::{PtyEvent, PtyId, PtyManager, PtySpawnRequest};
@@ -171,6 +177,12 @@ pub fn run() {
             fs_workspace_info,
             fs_resolve_binary,
             fs_read_ghostty_config,
+            git_status,
+            git_stage_paths,
+            git_unstage_paths,
+            git_discard_paths,
+            git_commit,
+            git_sync,
             list_font_families
         ])
         .on_window_event(|window, event| {

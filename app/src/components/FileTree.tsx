@@ -21,6 +21,7 @@ import {
   type Workspace,
   useSessionStore,
 } from "../lib/sessions";
+import type { GitTreeState } from "../lib/git";
 import { chooseWorkspaceFolder } from "../lib/workspace-picker";
 
 type ChildrenByPath = Record<string, FsEntry[]>;
@@ -171,6 +172,10 @@ function iconForEntry(entry: FsEntry): TreeIcon {
   );
 }
 
+interface FileTreeProps {
+  gitStatusByPath?: Record<string, GitTreeState>;
+}
+
 function TreeFileIcon({ entry }: { entry: FsEntry }) {
   const icon = iconForEntry(entry);
   return (
@@ -183,7 +188,40 @@ function TreeFileIcon({ entry }: { entry: FsEntry }) {
   );
 }
 
-export function FileTree() {
+function gitStateForPath(
+  gitStatusByPath: Record<string, GitTreeState> | undefined,
+  path: string,
+  isDir: boolean,
+): GitTreeState | null {
+  if (!gitStatusByPath) {
+    return null;
+  }
+  const exactState = gitStatusByPath[path];
+  if (exactState || !isDir) {
+    return exactState ?? null;
+  }
+  const prefix = `${path.replace(/\/+$/, "")}/`;
+  return Object.keys(gitStatusByPath).some((changedPath) => changedPath.startsWith(prefix))
+    ? { badge: "•", label: "Contains git changes", tone: "modified" }
+    : null;
+}
+
+function GitStateBadge({ state }: { state: GitTreeState | null }) {
+  if (!state) {
+    return null;
+  }
+  return (
+    <span
+      className={`tree-git-state tone-${state.tone}`}
+      title={state.label}
+      aria-label={state.label}
+    >
+      {state.badge}
+    </span>
+  );
+}
+
+export function FileTree({ gitStatusByPath }: FileTreeProps = {}) {
   const workspaces = useSessionStore((state) => state.workspaces);
   const sessions = useSessionStore((state) => state.sessions);
   const activeSessionId = useSessionStore((state) => state.activeSessionId);
@@ -627,6 +665,7 @@ export function FileTree() {
           error={errors[nodeKey(workspace, workspace.path)]}
           entries={visibleEntries(children[nodeKey(workspace, workspace.path)] ?? [])}
           showFileIcons={settings.showFileIcons}
+          gitStatusByPath={gitStatusByPath}
           isDropTarget={dropTargetKey === nodeKey(workspace, workspace.path)}
           onToggle={() => void toggleDir(workspace, workspace.path)}
           onSelectRoot={() => selectFile(null)}
@@ -651,6 +690,7 @@ export function FileTree() {
               visibleEntries={visibleEntries}
               selectedPath={selectedFile?.path ?? null}
               showFileIcons={settings.showFileIcons}
+              gitStatusByPath={gitStatusByPath}
               draggedPath={dragged?.path ?? null}
               dropTargetKey={dropTargetKey}
               onToggle={(path) => void toggleDir(workspace, path)}
@@ -681,6 +721,7 @@ export function FileTree() {
       selectFile,
       selectedFile,
       settings.showFileIcons,
+      gitStatusByPath,
       visibleEntries,
       visibleWorkspaces,
     ],
@@ -897,6 +938,7 @@ interface WorkspaceRootProps {
   error?: string;
   entries: FsEntry[];
   showFileIcons: boolean;
+  gitStatusByPath?: Record<string, GitTreeState>;
   isDropTarget: boolean;
   onToggle: () => void;
   onSelectRoot: () => void;
@@ -914,6 +956,7 @@ function WorkspaceRoot({
   error,
   entries,
   showFileIcons,
+  gitStatusByPath,
   isDropTarget,
   onToggle,
   onSelectRoot,
@@ -923,6 +966,7 @@ function WorkspaceRoot({
   onDrop,
   renderNode,
 }: WorkspaceRootProps) {
+  const gitState = gitStateForPath(gitStatusByPath, workspace.path, true);
   return (
     <section>
       <button
@@ -947,6 +991,7 @@ function WorkspaceRoot({
         ) : null}
         <span className="workspace-name">{workspace.name}</span>
         <span className="workspace-path">{loading ? "loading" : ""}</span>
+        <GitStateBadge state={gitState} />
       </button>
       {error ? <div className="tree-error">{error}</div> : null}
       {expanded ? <div className="tree-children">{entries.map((entry) => renderNode(entry, 1))}</div> : null}
@@ -965,6 +1010,7 @@ interface TreeNodeProps {
   visibleEntries: (entries: FsEntry[]) => FsEntry[];
   selectedPath: string | null;
   showFileIcons: boolean;
+  gitStatusByPath?: Record<string, GitTreeState>;
   draggedPath: string | null;
   dropTargetKey: string | null;
   onToggle: (path: string) => void;
@@ -988,6 +1034,7 @@ function TreeNode({
   visibleEntries,
   selectedPath,
   showFileIcons,
+  gitStatusByPath,
   draggedPath,
   dropTargetKey,
   onToggle,
@@ -1003,6 +1050,7 @@ function TreeNode({
   const isDir = entry.kind === "dir";
   const isExpanded = Boolean(expanded[key]);
   const childEntries = visibleEntries(childrenByPath[key] ?? []);
+  const gitState = gitStateForPath(gitStatusByPath, entry.path, isDir);
   return (
     <div>
       <button
@@ -1037,8 +1085,11 @@ function TreeNode({
         <span className="tree-depth" />
         <span className="tree-glyph">{isDir ? (isExpanded ? "v" : ">") : ""}</span>
         {showFileIcons ? <TreeFileIcon entry={entry} /> : null}
-        <span className="tree-row-name">{entry.name}</span>
+        <span className={`tree-row-name ${gitState ? `git-${gitState.tone}` : ""}`}>
+          {entry.name}
+        </span>
         <span className="tree-meta">{loading[key] ? "..." : ""}</span>
+        <GitStateBadge state={gitState} />
       </button>
       {errors[key] ? <div className="tree-error">{errors[key]}</div> : null}
       {isDir && isExpanded ? (
@@ -1056,6 +1107,7 @@ function TreeNode({
               visibleEntries={visibleEntries}
               selectedPath={selectedPath}
               showFileIcons={showFileIcons}
+              gitStatusByPath={gitStatusByPath}
               draggedPath={draggedPath}
               dropTargetKey={dropTargetKey}
               onToggle={onToggle}

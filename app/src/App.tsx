@@ -7,8 +7,8 @@ import {
 import { AgentTabBar } from "./components/AgentTabBar";
 import { ApprovalModal } from "./components/ApprovalModal";
 import { CommandPalette } from "./components/CommandPalette";
-import { FileTree } from "./components/FileTree";
 import { MainPane } from "./components/MainPane";
+import { WorkspaceSidebar } from "./components/WorkspaceSidebar";
 import {
   applyDocumentSettings,
   hydrateSessionStore,
@@ -76,7 +76,7 @@ function ContentPanels() {
     <Panel defaultSize="94%" minSize="70%">
       <PanelGroup orientation="horizontal">
         <Panel defaultSize="18%" minSize="10%" maxSize="34%">
-          <FileTree />
+          <WorkspaceSidebar />
         </Panel>
         <PanelResizeHandle className="panel-resize-handle" />
         <Panel defaultSize="76%" minSize="40%">
