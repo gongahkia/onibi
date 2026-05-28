@@ -11,6 +11,31 @@ export default defineConfig(async () => ({
     environment: "jsdom",
     setupFiles: "./src/vitest.setup.ts",
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) {
+            return;
+          }
+
+          if (id.includes("@xterm")) {
+            return "vendor-terminal";
+          }
+
+          if (id.includes("react") || id.includes("zustand")) {
+            return "vendor-ui";
+          }
+
+          if (id.includes("@tauri-apps")) {
+            return "vendor-tauri";
+          }
+
+          return "vendor";
+        },
+      },
+    },
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
