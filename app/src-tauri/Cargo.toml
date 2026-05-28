@@ -13,10 +13,10 @@ default = ["gui"]
 gui = [
     "dep:tauri",
     "dep:tauri-build",
+    "dep:tauri-plugin-dialog",
     "dep:tauri-plugin-opener",
     "dep:tauri-plugin-store",
 ]
-tauri-plugin-dialog = ["dep:tauri-plugin-dialog"]
 
 [lib]
 # The `_lib` suffix may seem redundant but it is necessary

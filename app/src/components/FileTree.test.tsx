@@ -12,6 +12,7 @@ function resetStore() {
     selectedFile: null,
     settings: DEFAULT_SETTINGS,
   });
+  globalThis.__TAURI_MOCKS__.dialogOpen.mockReset();
   globalThis.__TAURI_MOCKS__.invoke.mockReset();
 }
 
@@ -49,6 +50,36 @@ describe("FileTree", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/escapes workspace/)).toBeTruthy();
+    });
+  });
+
+  test("opens a native folder picker when adding a workspace", async () => {
+    globalThis.__TAURI_MOCKS__.dialogOpen.mockResolvedValue("/repo/new");
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "fs_workspace_info") {
+        return { path: "/repo/new", name: "new" };
+      }
+      if (command === "fs_list_dir") {
+        return [];
+      }
+      return null;
+    });
+
+    render(<FileTree />);
+    fireEvent.click(screen.getByLabelText("Open Folder"));
+
+    await waitFor(() => {
+      expect(globalThis.__TAURI_MOCKS__.dialogOpen).toHaveBeenCalledWith({
+        directory: true,
+        multiple: false,
+        title: "Choose workspace folder",
+      });
+    });
+    expect(await screen.findByText("new")).toBeTruthy();
+    expect(useSessionStore.getState().workspaces).toContainEqual({
+      id: "workspace:/repo/new",
+      path: "/repo/new",
+      name: "new",
     });
   });
 });

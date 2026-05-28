@@ -5,8 +5,8 @@ import {
   type FsEntry,
   type Workspace,
   useSessionStore,
-  workspaceFromPath,
 } from "../lib/sessions";
+import { chooseWorkspaceFolder } from "../lib/workspace-picker";
 
 type ChildrenByPath = Record<string, FsEntry[]>;
 type ErrorByPath = Record<string, string>;
@@ -32,6 +32,7 @@ export function FileTree() {
   const [children, setChildren] = useState<ChildrenByPath>({});
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<ErrorByPath>({});
+  const [choosingWorkspace, setChoosingWorkspace] = useState(false);
 
   const normalizedFilter = filter.trim().toLowerCase();
 
@@ -75,13 +76,14 @@ export function FileTree() {
     }
   }
 
-  async function addWorkspaceFromPrompt() {
-    const path = window.prompt("Workspace path");
-    if (!path) {
-      return;
-    }
+  async function addWorkspaceFromPicker() {
+    setChoosingWorkspace(true);
+    setErrors((state) => ({ ...state, global: "" }));
     try {
-      const workspace = await workspaceFromPath(path);
+      const workspace = await chooseWorkspaceFolder();
+      if (!workspace) {
+        return;
+      }
       addWorkspace(workspace);
       await loadChildren(workspace, workspace.path);
       setExpanded((state) => ({ ...state, [nodeKey(workspace, workspace.path)]: true }));
@@ -90,6 +92,8 @@ export function FileTree() {
         ...state,
         global: caught instanceof Error ? caught.message : String(caught),
       }));
+    } finally {
+      setChoosingWorkspace(false);
     }
   }
 
@@ -153,7 +157,8 @@ export function FileTree() {
           className="icon-button"
           aria-label="Open Folder"
           title="Open Folder"
-          onClick={() => void addWorkspaceFromPrompt()}
+          disabled={choosingWorkspace}
+          onClick={() => void addWorkspaceFromPicker()}
         >
           +
         </button>
