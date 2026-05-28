@@ -4,10 +4,16 @@ import {
   useMemo,
   useState,
   type CSSProperties,
+  type MouseEvent,
   type ReactNode,
 } from "react";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import {
+  createWorkspaceDir,
+  createWorkspaceFile,
+  deleteWorkspacePath,
   listWorkspaceDir,
+  renameWorkspacePath,
   selectedFileFromEntry,
   type FsEntry,
   type Workspace,
@@ -18,12 +24,45 @@ import { chooseWorkspaceFolder } from "../lib/workspace-picker";
 type ChildrenByPath = Record<string, FsEntry[]>;
 type ErrorByPath = Record<string, string>;
 
+interface ContextTarget {
+  workspace: Workspace;
+  entry: FsEntry;
+  isWorkspaceRoot: boolean;
+}
+
+interface ContextMenuState {
+  x: number;
+  y: number;
+  target: ContextTarget;
+}
+
 function nodeKey(workspace: Workspace, path: string): string {
   return `${workspace.id}:${path}`;
 }
 
 function isHidden(entry: FsEntry): boolean {
   return entry.name.startsWith(".");
+}
+
+function rootEntry(workspace: Workspace): FsEntry {
+  return {
+    name: workspace.name,
+    path: workspace.path,
+    kind: "dir",
+    size: 0,
+  };
+}
+
+function parentPath(path: string): string {
+  const trimmed = path.replace(/\/+$/, "");
+  const index = trimmed.lastIndexOf("/");
+  return index <= 0 ? "/" : trimmed.slice(0, index);
+}
+
+function relativeWorkspacePath(workspace: Workspace, path: string): string {
+  return path === workspace.path
+    ? "."
+    : path.replace(`${workspace.path.replace(/\/+$/, "")}/`, "");
 }
 
 interface TreeIcon {
@@ -117,6 +156,7 @@ export function FileTree() {
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<ErrorByPath>({});
   const [choosingWorkspace, setChoosingWorkspace] = useState(false);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
   const normalizedFilter = filter.trim().toLowerCase();
   const activeWorkspace = useMemo(() => {
@@ -125,6 +165,7 @@ export function FileTree() {
     return workspaces.find((workspace) => workspace.id === scopedWorkspaceId) ?? null;
   }, [activeSessionId, selectedFile?.workspaceId, sessions, workspaces]);
   const visibleWorkspaces = activeWorkspace ? [activeWorkspace] : workspaces;
+  const actionWorkspace = activeWorkspace ?? visibleWorkspaces[0] ?? null;
 
   const visibleEntries = useCallback(
     (entries: FsEntry[]) =>
@@ -137,11 +178,8 @@ export function FileTree() {
     [normalizedFilter, settings.showHiddenFiles],
   );
 
-  async function loadChildren(workspace: Workspace, path: string) {
+  async function refreshChildren(workspace: Workspace, path: string) {
     const key = nodeKey(workspace, path);
-    if (children[key] || loading[key]) {
-      return;
-    }
     setLoading((state) => ({ ...state, [key]: true }));
     setErrors((state) => ({ ...state, [key]: "" }));
     try {
@@ -157,6 +195,14 @@ export function FileTree() {
     }
   }
 
+  async function loadChildren(workspace: Workspace, path: string) {
+    const key = nodeKey(workspace, path);
+    if (children[key] || loading[key]) {
+      return;
+    }
+    await refreshChildren(workspace, path);
+  }
+
   async function toggleDir(workspace: Workspace, path: string) {
     const key = nodeKey(workspace, path);
     const nextExpanded = !expanded[key];
@@ -164,6 +210,158 @@ export function FileTree() {
     if (nextExpanded) {
       await loadChildren(workspace, path);
     }
+  }
+
+  function clearCachedPath(workspace: Workspace, path: string) {
+    const prefix = nodeKey(workspace, path);
+    setChildren((state) =>
+      Object.fromEntries(
+        Object.entries(state).filter(([key]) => !key.startsWith(prefix)),
+      ),
+    );
+    setExpanded((state) =>
+      Object.fromEntries(
+        Object.entries(state).filter(([key]) => !key.startsWith(prefix)),
+      ),
+    );
+  }
+
+  function contextTargetFor(workspace: Workspace, entry?: FsEntry): ContextTarget {
+    return {
+      workspace,
+      entry: entry ?? rootEntry(workspace),
+      isWorkspaceRoot: !entry,
+    };
+  }
+
+  function openContextMenu(
+    event: MouseEvent,
+    workspace: Workspace,
+    entry?: FsEntry,
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      target: contextTargetFor(workspace, entry),
+    });
+  }
+
+  function targetParentPath(target: ContextTarget): string {
+    return target.entry.kind === "dir" ? target.entry.path : parentPath(target.entry.path);
+  }
+
+  async function createChild(target: ContextTarget, kind: "file" | "dir") {
+    const name = window.prompt(kind === "file" ? "New file name" : "New folder name");
+    if (!name?.trim()) {
+      return;
+    }
+    setErrors((state) => ({ ...state, global: "" }));
+    const parent = targetParentPath(target);
+    try {
+      const entry =
+        kind === "file"
+          ? await createWorkspaceFile(target.workspace.path, parent, name)
+          : await createWorkspaceDir(target.workspace.path, parent, name);
+      setExpanded((state) => ({
+        ...state,
+        [nodeKey(target.workspace, parent)]: true,
+      }));
+      await refreshChildren(target.workspace, parent);
+      if (entry.kind === "file") {
+        selectFile(selectedFileFromEntry(target.workspace, entry));
+      }
+    } catch (caught) {
+      setErrors((state) => ({
+        ...state,
+        global: caught instanceof Error ? caught.message : String(caught),
+      }));
+    }
+  }
+
+  async function renameTarget(target: ContextTarget) {
+    if (target.isWorkspaceRoot) {
+      return;
+    }
+    const name = window.prompt("Rename", target.entry.name);
+    if (!name?.trim() || name === target.entry.name) {
+      return;
+    }
+    setErrors((state) => ({ ...state, global: "" }));
+    const parent = parentPath(target.entry.path);
+    try {
+      const renamed = await renameWorkspacePath(
+        target.workspace.path,
+        target.entry.path,
+        name,
+      );
+      clearCachedPath(target.workspace, target.entry.path);
+      await refreshChildren(target.workspace, parent);
+      if (selectedFile?.path === target.entry.path && renamed.kind === "file") {
+        selectFile(selectedFileFromEntry(target.workspace, renamed));
+      }
+    } catch (caught) {
+      setErrors((state) => ({
+        ...state,
+        global: caught instanceof Error ? caught.message : String(caught),
+      }));
+    }
+  }
+
+  async function deleteTarget(target: ContextTarget) {
+    if (target.isWorkspaceRoot) {
+      return;
+    }
+    if (!window.confirm(`Delete ${target.entry.name}?`)) {
+      return;
+    }
+    setErrors((state) => ({ ...state, global: "" }));
+    const parent = parentPath(target.entry.path);
+    try {
+      await deleteWorkspacePath(target.workspace.path, target.entry.path);
+      clearCachedPath(target.workspace, target.entry.path);
+      await refreshChildren(target.workspace, parent);
+      if (selectedFile?.path.startsWith(target.entry.path)) {
+        selectFile(null);
+      }
+    } catch (caught) {
+      setErrors((state) => ({
+        ...state,
+        global: caught instanceof Error ? caught.message : String(caught),
+      }));
+    }
+  }
+
+  async function refreshTarget(target: ContextTarget) {
+    const path = target.entry.kind === "dir" ? target.entry.path : parentPath(target.entry.path);
+    await refreshChildren(target.workspace, path);
+  }
+
+  async function revealTarget(target: ContextTarget) {
+    await revealItemInDir(target.entry.path);
+  }
+
+  async function copyText(value: string) {
+    await navigator.clipboard?.writeText(value);
+  }
+
+  function openTarget(target: ContextTarget) {
+    if (target.entry.kind === "dir") {
+      void toggleDir(target.workspace, target.entry.path);
+      return;
+    }
+    selectFile(selectedFileFromEntry(target.workspace, target.entry));
+  }
+
+  function collapseAll() {
+    setExpanded({});
+  }
+
+  async function refreshVisibleWorkspaces() {
+    await Promise.all(
+      visibleWorkspaces.map((workspace) => refreshChildren(workspace, workspace.path)),
+    );
   }
 
   async function addWorkspaceFromPicker() {
@@ -196,6 +394,25 @@ export function FileTree() {
     void loadChildren(activeWorkspace, activeWorkspace.path);
   }, [activeWorkspace?.id, activeWorkspace?.path]);
 
+  useEffect(() => {
+    function closeContextMenu() {
+      setContextMenu(null);
+    }
+
+    function closeWithEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setContextMenu(null);
+      }
+    }
+
+    window.addEventListener("click", closeContextMenu);
+    window.addEventListener("keydown", closeWithEscape);
+    return () => {
+      window.removeEventListener("click", closeContextMenu);
+      window.removeEventListener("keydown", closeWithEscape);
+    };
+  }, []);
+
   const workspaceRows = useMemo(
     () =>
       visibleWorkspaces.map((workspace) => (
@@ -209,7 +426,7 @@ export function FileTree() {
           showFileIcons={settings.showFileIcons}
           onToggle={() => void toggleDir(workspace, workspace.path)}
           onSelectRoot={() => selectFile(null)}
-          onRemove={() => removeWorkspace(workspace.id)}
+          onContextMenu={(event) => openContextMenu(event, workspace)}
           renderNode={(entry, depth) => (
             <TreeNode
               key={entry.path}
@@ -224,6 +441,7 @@ export function FileTree() {
               selectedPath={selectedFile?.path ?? null}
               showFileIcons={settings.showFileIcons}
               onToggle={(path) => void toggleDir(workspace, path)}
+              onContextMenu={(event, item) => openContextMenu(event, workspace, item)}
               onSelect={(file) => selectFile(selectedFileFromEntry(workspace, file))}
             />
           )}
@@ -234,7 +452,6 @@ export function FileTree() {
       errors,
       expanded,
       loading,
-      removeWorkspace,
       selectFile,
       selectedFile,
       settings.showFileIcons,
@@ -263,6 +480,55 @@ export function FileTree() {
         >
           +
         </button>
+        <div className="tree-toolbar-actions" aria-label="File tree actions">
+          <button
+            type="button"
+            className="tree-action-button"
+            aria-label="New file"
+            title="New file"
+            disabled={!actionWorkspace}
+            onClick={() =>
+              actionWorkspace
+                ? void createChild(contextTargetFor(actionWorkspace), "file")
+                : undefined
+            }
+          >
+            +F
+          </button>
+          <button
+            type="button"
+            className="tree-action-button"
+            aria-label="New folder"
+            title="New folder"
+            disabled={!actionWorkspace}
+            onClick={() =>
+              actionWorkspace
+                ? void createChild(contextTargetFor(actionWorkspace), "dir")
+                : undefined
+            }
+          >
+            +D
+          </button>
+          <button
+            type="button"
+            className="tree-action-button"
+            aria-label="Refresh file tree"
+            title="Refresh"
+            disabled={visibleWorkspaces.length === 0}
+            onClick={() => void refreshVisibleWorkspaces()}
+          >
+            R
+          </button>
+          <button
+            type="button"
+            className="tree-action-button"
+            aria-label="Collapse all folders"
+            title="Collapse all"
+            onClick={collapseAll}
+          >
+            []
+          </button>
+        </div>
         <label className="tree-options">
           <input
             type="checkbox"
@@ -276,7 +542,125 @@ export function FileTree() {
       </div>
       {errors.global ? <div className="tree-error">{errors.global}</div> : null}
       <div className="workspace-list">{workspaceRows}</div>
+      {contextMenu ? (
+        <FileTreeContextMenu
+          menu={contextMenu}
+          onClose={() => setContextMenu(null)}
+          onOpen={openTarget}
+          onReveal={(target) => void revealTarget(target)}
+          onCopyPath={(target) => void copyText(target.entry.path)}
+          onCopyRelativePath={(target) =>
+            void copyText(relativeWorkspacePath(target.workspace, target.entry.path))
+          }
+          onNewFile={(target) => void createChild(target, "file")}
+          onNewFolder={(target) => void createChild(target, "dir")}
+          onRefresh={(target) => void refreshTarget(target)}
+          onRename={(target) => void renameTarget(target)}
+          onDelete={(target) => void deleteTarget(target)}
+          onRemoveWorkspace={(target) => removeWorkspace(target.workspace.id)}
+        />
+      ) : null}
     </aside>
+  );
+}
+
+interface FileTreeContextMenuProps {
+  menu: ContextMenuState;
+  onClose: () => void;
+  onOpen: (target: ContextTarget) => void;
+  onReveal: (target: ContextTarget) => void;
+  onCopyPath: (target: ContextTarget) => void;
+  onCopyRelativePath: (target: ContextTarget) => void;
+  onNewFile: (target: ContextTarget) => void;
+  onNewFolder: (target: ContextTarget) => void;
+  onRefresh: (target: ContextTarget) => void;
+  onRename: (target: ContextTarget) => void;
+  onDelete: (target: ContextTarget) => void;
+  onRemoveWorkspace: (target: ContextTarget) => void;
+}
+
+function FileTreeContextMenu({
+  menu,
+  onClose,
+  onOpen,
+  onReveal,
+  onCopyPath,
+  onCopyRelativePath,
+  onNewFile,
+  onNewFolder,
+  onRefresh,
+  onRename,
+  onDelete,
+  onRemoveWorkspace,
+}: FileTreeContextMenuProps) {
+  const { target } = menu;
+
+  function run(action: (target: ContextTarget) => void) {
+    action(target);
+    onClose();
+  }
+
+  return (
+    <div
+      className="file-context-menu"
+      role="menu"
+      style={{ left: menu.x, top: menu.y }}
+      onClick={(event) => event.stopPropagation()}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      <button type="button" role="menuitem" onClick={() => run(onOpen)}>
+        Open
+      </button>
+      <button type="button" role="menuitem" onClick={() => run(onReveal)}>
+        Reveal in Finder
+      </button>
+      <div className="context-separator" />
+      {target.entry.kind === "dir" ? (
+        <>
+          <button type="button" role="menuitem" onClick={() => run(onNewFile)}>
+            New File
+          </button>
+          <button type="button" role="menuitem" onClick={() => run(onNewFolder)}>
+            New Folder
+          </button>
+          <button type="button" role="menuitem" onClick={() => run(onRefresh)}>
+            Refresh
+          </button>
+          <div className="context-separator" />
+        </>
+      ) : null}
+      <button type="button" role="menuitem" onClick={() => run(onCopyPath)}>
+        Copy Path
+      </button>
+      <button type="button" role="menuitem" onClick={() => run(onCopyRelativePath)}>
+        Copy Relative Path
+      </button>
+      <div className="context-separator" />
+      {target.isWorkspaceRoot ? (
+        <button
+          type="button"
+          role="menuitem"
+          className="danger"
+          onClick={() => run(onRemoveWorkspace)}
+        >
+          Remove Workspace
+        </button>
+      ) : (
+        <>
+          <button type="button" role="menuitem" onClick={() => run(onRename)}>
+            Rename...
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="danger"
+            onClick={() => run(onDelete)}
+          >
+            Delete
+          </button>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -289,7 +673,7 @@ interface WorkspaceRootProps {
   showFileIcons: boolean;
   onToggle: () => void;
   onSelectRoot: () => void;
-  onRemove: () => void;
+  onContextMenu: (event: MouseEvent) => void;
   renderNode: (entry: FsEntry, depth: number) => ReactNode;
 }
 
@@ -302,7 +686,7 @@ function WorkspaceRoot({
   showFileIcons,
   onToggle,
   onSelectRoot,
-  onRemove,
+  onContextMenu,
   renderNode,
 }: WorkspaceRootProps) {
   return (
@@ -312,12 +696,7 @@ function WorkspaceRoot({
         className={`workspace-row ${showFileIcons ? "with-icons" : ""}`}
         onClick={onSelectRoot}
         onDoubleClick={onToggle}
-        onContextMenu={(event) => {
-          event.preventDefault();
-          if (window.confirm(`Remove ${workspace.name}?`)) {
-            onRemove();
-          }
-        }}
+        onContextMenu={onContextMenu}
       >
         <span className="tree-glyph" onClick={onToggle}>
           {expanded ? "v" : ">"}
@@ -348,6 +727,7 @@ interface TreeNodeProps {
   selectedPath: string | null;
   showFileIcons: boolean;
   onToggle: (path: string) => void;
+  onContextMenu: (event: MouseEvent, entry: FsEntry) => void;
   onSelect: (entry: FsEntry) => void;
 }
 
@@ -363,6 +743,7 @@ function TreeNode({
   selectedPath,
   showFileIcons,
   onToggle,
+  onContextMenu,
   onSelect,
 }: TreeNodeProps) {
   const key = nodeKey(workspace, entry.path);
@@ -378,6 +759,7 @@ function TreeNode({
         }`}
         style={{ "--depth": depth } as CSSProperties}
         onClick={() => (isDir ? onToggle(entry.path) : onSelect(entry))}
+        onContextMenu={(event) => onContextMenu(event, entry)}
       >
         <span className="tree-depth" />
         <span className="tree-glyph">{isDir ? (isExpanded ? "v" : ">") : ""}</span>
@@ -402,6 +784,7 @@ function TreeNode({
               selectedPath={selectedPath}
               showFileIcons={showFileIcons}
               onToggle={onToggle}
+              onContextMenu={onContextMenu}
               onSelect={onSelect}
             />
           ))}

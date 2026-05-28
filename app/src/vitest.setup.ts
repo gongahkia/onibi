@@ -5,6 +5,7 @@ type TauriMocks = {
   dialogOpen: Mock;
   invoke: Mock;
   listen: Mock;
+  openerRevealItemInDir: Mock;
   unlisten: Mock;
 };
 
@@ -14,6 +15,7 @@ const tauriMocks: TauriMocks = {
   dialogOpen: vi.fn(),
   invoke: vi.fn(),
   listen: vi.fn(async () => tauriMocks.unlisten),
+  openerRevealItemInDir: vi.fn(async () => undefined),
   unlisten: vi.fn(),
 };
 
@@ -92,6 +94,10 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: tauriMocks.dialogOpen,
+}));
+
+vi.mock("@tauri-apps/plugin-opener", () => ({
+  revealItemInDir: tauriMocks.openerRevealItemInDir,
 }));
 
 vi.mock("@tauri-apps/plugin-store", () => ({

@@ -14,6 +14,9 @@ function resetStore() {
   });
   globalThis.__TAURI_MOCKS__.dialogOpen.mockReset();
   globalThis.__TAURI_MOCKS__.invoke.mockReset();
+  globalThis.__TAURI_MOCKS__.openerRevealItemInDir.mockReset();
+  vi.mocked(navigator.clipboard.writeText).mockClear();
+  vi.mocked(window.prompt).mockReturnValue(null);
 }
 
 describe("FileTree", () => {
@@ -144,5 +147,107 @@ describe("FileTree", () => {
       path: "/repo/new",
       name: "new",
     });
+  });
+
+  test("creates a file from the tree toolbar", async () => {
+    vi.mocked(window.prompt).mockReturnValue("note.txt");
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
+      async (command: string, args: Record<string, string>) => {
+        if (command === "fs_create_file") {
+          expect(args).toEqual({
+            root: "/repo",
+            parent: "/repo",
+            name: "note.txt",
+          });
+          return { name: "note.txt", path: "/repo/note.txt", kind: "file", size: 0 };
+        }
+        if (command === "fs_list_dir") {
+          return [{ name: "note.txt", path: "/repo/note.txt", kind: "file", size: 0 }];
+        }
+        return null;
+      },
+    );
+
+    render(<FileTree />);
+    fireEvent.click(screen.getByLabelText("New file"));
+
+    expect(await screen.findByText("note.txt")).toBeTruthy();
+    expect(useSessionStore.getState().selectedFile?.path).toBe("/repo/note.txt");
+  });
+
+  test("shows supported context actions for files", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockResolvedValueOnce([
+      { name: "README.md", path: "/repo/README.md", kind: "file", size: 12 },
+    ]);
+
+    render(<FileTree />);
+    fireEvent.doubleClick(screen.getByText("repo"));
+    expect(await screen.findByText("README.md")).toBeTruthy();
+
+    fireEvent.contextMenu(screen.getByText("README.md"));
+
+    expect(screen.getByRole("menu")).toBeTruthy();
+    fireEvent.click(screen.getByText("Copy Relative Path"));
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("README.md");
+  });
+
+  test("renames files from the context menu and refreshes the parent", async () => {
+    vi.mocked(window.prompt).mockReturnValue("CHANGELOG.md");
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
+      async (command: string, args: Record<string, string>) => {
+        if (command === "fs_list_dir") {
+          return [{ name: "README.md", path: "/repo/README.md", kind: "file", size: 12 }];
+        }
+        if (command === "fs_rename_path") {
+          expect(args).toEqual({
+            root: "/repo",
+            path: "/repo/README.md",
+            name: "CHANGELOG.md",
+          });
+          return {
+            name: "CHANGELOG.md",
+            path: "/repo/CHANGELOG.md",
+            kind: "file",
+            size: 12,
+          };
+        }
+        return null;
+      },
+    );
+
+    render(<FileTree />);
+    fireEvent.doubleClick(screen.getByText("repo"));
+    expect(await screen.findByText("README.md")).toBeTruthy();
+
+    fireEvent.contextMenu(screen.getByText("README.md"));
+    fireEvent.click(screen.getByText("Rename..."));
+
+    await waitFor(() => {
+      expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith(
+        "fs_rename_path",
+        {
+          root: "/repo",
+          path: "/repo/README.md",
+          name: "CHANGELOG.md",
+        },
+      );
+    });
+  });
+
+  test("reveals files in Finder from the context menu", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockResolvedValueOnce([
+      { name: "README.md", path: "/repo/README.md", kind: "file", size: 12 },
+    ]);
+
+    render(<FileTree />);
+    fireEvent.doubleClick(screen.getByText("repo"));
+    expect(await screen.findByText("README.md")).toBeTruthy();
+
+    fireEvent.contextMenu(screen.getByText("README.md"));
+    fireEvent.click(screen.getByText("Reveal in Finder"));
+
+    expect(globalThis.__TAURI_MOCKS__.openerRevealItemInDir).toHaveBeenCalledWith(
+      "/repo/README.md",
+    );
   });
 });

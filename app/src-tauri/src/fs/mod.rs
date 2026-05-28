@@ -40,12 +40,66 @@ fn ensure_inside_workspace(root: &Path, path: &Path) -> Result<(PathBuf, PathBuf
     }
 }
 
+fn validate_child_name(name: &str) -> Result<&str, String> {
+    let name = name.trim();
+    if name.is_empty() || name == "." || name == ".." || name.contains('/') || name.contains('\\') {
+        return Err("name must be a single file or folder name".to_string());
+    }
+    Ok(name)
+}
+
+fn child_path_inside_workspace(
+    root: &Path,
+    parent: &Path,
+    name: &str,
+) -> Result<(PathBuf, PathBuf), String> {
+    let root = canonicalize_existing(root)?;
+    let parent = canonicalize_existing(parent)?;
+    if !parent.starts_with(&root) {
+        return Err(format!(
+            "path {} escapes workspace {}",
+            parent.display(),
+            root.display()
+        ));
+    }
+    let target = parent.join(validate_child_name(name)?);
+    if target.exists() {
+        return Err(format!("{} already exists", target.display()));
+    }
+    Ok((root, target))
+}
+
 fn basename(path: &Path) -> String {
     path.file_name()
         .and_then(|name| name.to_str())
         .filter(|name| !name.is_empty())
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| path.display().to_string())
+}
+
+fn fs_entry_for_path(root: &Path, path: &Path) -> Result<FsEntry, String> {
+    let path = canonicalize_existing(path)?;
+    if !path.starts_with(root) {
+        return Err(format!(
+            "path {} escapes workspace {}",
+            path.display(),
+            root.display()
+        ));
+    }
+    let metadata = fs::metadata(&path).map_err(|err| err.to_string())?;
+    let kind = if metadata.is_dir() {
+        "dir"
+    } else if metadata.is_file() {
+        "file"
+    } else {
+        return Err(format!("{} is not a file or directory", path.display()));
+    };
+    Ok(FsEntry {
+        name: basename(&path),
+        path,
+        kind: kind.to_string(),
+        size: metadata.len(),
+    })
 }
 
 #[tauri::command]
@@ -145,6 +199,62 @@ pub async fn fs_write_file(root: PathBuf, path: PathBuf, data: Vec<u8>) -> Resul
 }
 
 #[tauri::command]
+pub async fn fs_create_file(
+    root: PathBuf,
+    parent: PathBuf,
+    name: String,
+) -> Result<FsEntry, String> {
+    let (root, path) = child_path_inside_workspace(&root, &parent, &name)?;
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|err| err.to_string())?;
+    fs_entry_for_path(&root, &path)
+}
+
+#[tauri::command]
+pub async fn fs_create_dir(
+    root: PathBuf,
+    parent: PathBuf,
+    name: String,
+) -> Result<FsEntry, String> {
+    let (root, path) = child_path_inside_workspace(&root, &parent, &name)?;
+    fs::create_dir(&path).map_err(|err| err.to_string())?;
+    fs_entry_for_path(&root, &path)
+}
+
+#[tauri::command]
+pub async fn fs_rename_path(root: PathBuf, path: PathBuf, name: String) -> Result<FsEntry, String> {
+    let (root, path) = ensure_inside_workspace(&root, &path)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("{} has no parent directory", path.display()))?;
+    let target = parent.join(validate_child_name(&name)?);
+    if target.exists() {
+        return Err(format!("{} already exists", target.display()));
+    }
+    fs::rename(&path, &target).map_err(|err| err.to_string())?;
+    fs_entry_for_path(&root, &target)
+}
+
+#[tauri::command]
+pub async fn fs_delete_path(root: PathBuf, path: PathBuf) -> Result<(), String> {
+    let (root, path) = ensure_inside_workspace(&root, &path)?;
+    if path == root {
+        return Err("cannot delete the workspace root".to_string());
+    }
+    let metadata = fs::metadata(&path).map_err(|err| err.to_string())?;
+    if metadata.is_dir() {
+        fs::remove_dir_all(&path).map_err(|err| err.to_string())
+    } else if metadata.is_file() {
+        fs::remove_file(&path).map_err(|err| err.to_string())
+    } else {
+        Err(format!("{} is not a file or directory", path.display()))
+    }
+}
+
+#[tauri::command]
 pub async fn fs_resolve_binary(command: String) -> Result<Option<PathBuf>, String> {
     let command = command.trim();
     if command.is_empty() {
@@ -234,5 +344,64 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(fs::read(file).unwrap(), b"after");
+    }
+
+    #[tokio::test]
+    async fn create_file_rejects_parent_escape() {
+        let root = temp_workspace();
+        let outside = tempdir().unwrap();
+        let result = fs_create_file(
+            root.path().to_path_buf(),
+            outside.path().to_path_buf(),
+            "note.txt".to_string(),
+        )
+        .await;
+        assert!(result.unwrap_err().contains("escapes workspace"));
+    }
+
+    #[tokio::test]
+    async fn create_dir_rejects_nested_name() {
+        let root = temp_workspace();
+        let result = fs_create_dir(
+            root.path().to_path_buf(),
+            root.path().to_path_buf(),
+            "../bad".to_string(),
+        )
+        .await;
+        assert!(result.unwrap_err().contains("single file or folder name"));
+    }
+
+    #[tokio::test]
+    async fn create_rename_and_delete_workspace_file() {
+        let root = temp_workspace();
+        let created = fs_create_file(
+            root.path().to_path_buf(),
+            root.path().to_path_buf(),
+            "note.txt".to_string(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(created.name, "note.txt");
+
+        let renamed = fs_rename_path(
+            root.path().to_path_buf(),
+            created.path,
+            "renamed.txt".to_string(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(renamed.name, "renamed.txt");
+
+        fs_delete_path(root.path().to_path_buf(), renamed.path)
+            .await
+            .unwrap();
+        assert!(!root.path().join("renamed.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn delete_rejects_workspace_root() {
+        let root = temp_workspace();
+        let result = fs_delete_path(root.path().to_path_buf(), root.path().to_path_buf()).await;
+        assert!(result.unwrap_err().contains("cannot delete"));
     }
 }

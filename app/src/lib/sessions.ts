@@ -822,6 +822,37 @@ export async function writeWorkspaceFile(
   });
 }
 
+export async function createWorkspaceFile(
+  workspaceRoot: string,
+  parent: string,
+  name: string,
+): Promise<FsEntry> {
+  return invoke<FsEntry>("fs_create_file", { root: workspaceRoot, parent, name });
+}
+
+export async function createWorkspaceDir(
+  workspaceRoot: string,
+  parent: string,
+  name: string,
+): Promise<FsEntry> {
+  return invoke<FsEntry>("fs_create_dir", { root: workspaceRoot, parent, name });
+}
+
+export async function renameWorkspacePath(
+  workspaceRoot: string,
+  path: string,
+  name: string,
+): Promise<FsEntry> {
+  return invoke<FsEntry>("fs_rename_path", { root: workspaceRoot, path, name });
+}
+
+export async function deleteWorkspacePath(
+  workspaceRoot: string,
+  path: string,
+): Promise<void> {
+  await invoke("fs_delete_path", { root: workspaceRoot, path });
+}
+
 export function selectedFileFromEntry(
   workspace: Workspace,
   entry: FsEntry,
