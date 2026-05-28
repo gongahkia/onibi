@@ -1071,7 +1071,33 @@ button {
 }
 
 .main-pane {
+  position: relative;
+  overflow: hidden;
   background: var(--bg-0);
+}
+
+.main-pane-stacked {
+  isolation: isolate;
+}
+
+.main-pane-surface {
+  position: absolute;
+  inset: 0;
+  min-width: 0;
+  min-height: 0;
+}
+
+.terminal-surface {
+  z-index: 0;
+}
+
+.terminal-surface.is-background {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.editor-surface {
+  z-index: 1;
 }
 
 .terminal-view {

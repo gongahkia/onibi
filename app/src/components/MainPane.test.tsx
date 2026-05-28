@@ -4,8 +4,10 @@ import { MainPane } from "./MainPane";
 import { DEFAULT_SETTINGS, useSessionStore } from "../lib/sessions";
 
 vi.mock("./TerminalView", () => ({
-  TerminalView: ({ ptyId }: { ptyId: string }) => (
-    <div data-testid="terminal-view">{ptyId}</div>
+  TerminalView: ({ ptyId, visible }: { ptyId: string; visible?: boolean }) => (
+    <div data-testid="terminal-view" data-visible={String(visible)}>
+      {ptyId}
+    </div>
   ),
 }));
 
@@ -66,5 +68,40 @@ describe("MainPane", () => {
     render(<MainPane />);
 
     expect(screen.getByTestId("terminal-view").textContent).toContain("pty-1");
+    expect(screen.getByTestId("terminal-view").getAttribute("data-visible")).toBe(
+      "true",
+    );
+  });
+
+  test("keeps the active terminal mounted behind a selected file", () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-1",
+          agent: "claude-code",
+          workspaceId: "workspace:/repo",
+          title: "Claude",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+        },
+      ],
+      activeSessionId: "pty-1",
+      selectedFile: {
+        workspaceId: "workspace:/repo",
+        workspaceRoot: "/repo",
+        path: "/repo/a.txt",
+        name: "a.txt",
+        size: 1,
+      },
+    });
+
+    render(<MainPane />);
+
+    expect(screen.getByTestId("editor-buffer").textContent).toContain("/repo/a.txt");
+    expect(screen.getByTestId("terminal-view").textContent).toContain("pty-1");
+    expect(screen.getByTestId("terminal-view").getAttribute("data-visible")).toBe(
+      "false",
+    );
   });
 });
