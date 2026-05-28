@@ -330,12 +330,37 @@ export interface WorkflowNodeExecutionAttempt {
   readonly workspacePath?: string | undefined;
 }
 
+export interface WorkflowPlanningQuestion {
+  readonly question: string;
+  readonly blocking: boolean;
+}
+
+export interface WorkflowPlannerRevisionMetadata {
+  readonly revision: number;
+  readonly mode: "initial" | "revision" | "manual";
+  readonly summary: string;
+  readonly createdAt: string;
+}
+
+export interface WorkflowPlanningMetadata {
+  readonly requiredCapabilities: readonly string[];
+  readonly optionalCapabilities: readonly string[];
+  readonly deferredIdeas: readonly string[];
+  readonly acceptanceCriteria: readonly string[];
+  readonly implementationGuidance: readonly string[];
+  readonly validationGuidance: readonly string[];
+  readonly openQuestions: readonly WorkflowPlanningQuestion[];
+  readonly nodeResponsibilities: Readonly<Record<string, readonly string[]>>;
+  readonly plannerRevision: WorkflowPlannerRevisionMetadata;
+}
+
 export interface WorkflowSpec {
   readonly id: string;
   readonly schemaVersion: WorkflowSchemaVersion;
   readonly name: string;
   readonly prompt: string;
   readonly revision: number;
+  readonly planning?: WorkflowPlanningMetadata | undefined;
   readonly nodes: readonly WorkflowNode[];
   readonly edges: readonly WorkflowEdge[];
   readonly approval: WorkflowApprovalRecord | null;
@@ -389,6 +414,10 @@ export const workflowValidationErrorCodes = [
   "WORKFLOW_CODEGEN_ARTIFACT_DRIFT",
   "WORKFLOW_CODEGEN_EVAL_REQUIRED",
   "WORKFLOW_DRAFT_EVALUATION_REQUIRED",
+  "WORKFLOW_PLAN_CAPABILITY_MISSING",
+  "WORKFLOW_PLAN_ACCEPTANCE_CRITERIA_MISSING",
+  "WORKFLOW_PLAN_RESPONSIBILITY_MISSING",
+  "WORKFLOW_PLAN_BLOCKING_QUESTION",
   "WORKFLOW_DEPLOYMENT_BLOCKED",
   "AGENT_STEP_METADATA_MISSING",
   "AGENT_STEP_METADATA_FORBIDDEN",

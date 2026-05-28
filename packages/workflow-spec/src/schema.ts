@@ -215,12 +215,37 @@ export const workflowApprovalRecordSchema = z.object({
   nodeOrder: z.array(z.string().min(1)).min(1)
 });
 
+export const workflowPlanningQuestionSchema = z.object({
+  question: z.string().min(1),
+  blocking: z.boolean()
+});
+
+export const workflowPlannerRevisionMetadataSchema = z.object({
+  revision: z.number().int().positive(),
+  mode: z.enum(["initial", "revision", "manual"]),
+  summary: z.string().min(1),
+  createdAt: z.string().datetime()
+});
+
+export const workflowPlanningMetadataSchema = z.object({
+  requiredCapabilities: z.array(z.string().min(1)),
+  optionalCapabilities: z.array(z.string().min(1)),
+  deferredIdeas: z.array(z.string().min(1)),
+  acceptanceCriteria: z.array(z.string().min(1)),
+  implementationGuidance: z.array(z.string().min(1)),
+  validationGuidance: z.array(z.string().min(1)),
+  openQuestions: z.array(workflowPlanningQuestionSchema),
+  nodeResponsibilities: z.record(z.string(), z.array(z.string().min(1))),
+  plannerRevision: workflowPlannerRevisionMetadataSchema
+});
+
 export const workflowSpecSchema = z.object({
   id: z.string().min(1),
   schemaVersion: z.literal(workflowSchemaVersion),
   name: z.string().min(1),
   prompt: z.string().min(1),
   revision: z.number().int().positive(),
+  planning: workflowPlanningMetadataSchema.optional(),
   nodes: z.array(workflowNodeSchema).min(1),
   edges: z.array(workflowEdgeSchema),
   approval: workflowApprovalRecordSchema.nullable(),
