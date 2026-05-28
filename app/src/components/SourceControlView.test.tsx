@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { SourceControlView } from "./SourceControlView";
 import type { GitStatus } from "../lib/git";
+import { DEFAULT_SETTINGS, useSessionStore } from "../lib/sessions";
 
 const workspace = { id: "workspace:/repo", path: "/repo", name: "repo" };
 
@@ -32,6 +33,14 @@ describe("SourceControlView", () => {
   beforeEach(() => {
     globalThis.__TAURI_MOCKS__.invoke.mockReset();
     vi.mocked(window.confirm).mockReturnValue(true);
+    useSessionStore.setState({
+      hydrated: true,
+      sessions: [],
+      activeSessionId: null,
+      workspaces: [],
+      selectedFile: null,
+      settings: DEFAULT_SETTINGS,
+    });
   });
 
   test("renders repo state and stages changed paths", async () => {
@@ -90,6 +99,27 @@ describe("SourceControlView", () => {
         root: "/repo",
         message: "Add source view",
       });
+    });
+  });
+
+  test("opens clicked changed files as git diffs", () => {
+    render(
+      <SourceControlView
+        workspace={workspace}
+        status={status}
+        loading={false}
+        error=""
+        onRefresh={vi.fn(async () => undefined)}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("README.md"));
+
+    expect(useSessionStore.getState().selectedFile).toMatchObject({
+      type: "git-diff",
+      workspaceRoot: "/repo",
+      path: "README.md",
+      stage: "working",
     });
   });
 });

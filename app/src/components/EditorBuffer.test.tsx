@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { EditorView } from "@codemirror/view";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { EditorBuffer } from "./EditorBuffer";
@@ -59,5 +59,27 @@ describe("EditorBuffer", () => {
     render(<EditorBuffer path="/repo/blob.bin" workspaceRoot="/repo" />);
 
     expect(await screen.findByText("Cannot edit binary file.")).toBeTruthy();
+  });
+
+  test("renders markdown files with a preview pane", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockResolvedValueOnce(
+      Array.from(new TextEncoder().encode("# Title\n\n- item")),
+    );
+    render(<EditorBuffer path="/repo/README.md" workspaceRoot="/repo" />);
+
+    const preview = await screen.findByLabelText("Markdown preview");
+    expect(within(preview).getByText("Title").tagName).toBe("H1");
+  });
+
+  test("renders image files as previews", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockResolvedValueOnce([137, 80, 78, 71]);
+    render(<EditorBuffer path="/repo/image.png" workspaceRoot="/repo" />);
+
+    const image = await screen.findByAltText("/repo/image.png");
+    expect(image.getAttribute("src")).toContain("blob:");
+    expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith(
+      "fs_read_preview_file",
+      { root: "/repo", path: "/repo/image.png" },
+    );
   });
 });

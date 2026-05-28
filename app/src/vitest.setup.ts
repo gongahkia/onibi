@@ -99,6 +99,16 @@ Object.defineProperty(navigator, "clipboard", {
   writable: true,
 });
 
+Object.defineProperty(URL, "createObjectURL", {
+  value: vi.fn(() => "blob:onibi-test"),
+  writable: true,
+});
+
+Object.defineProperty(URL, "revokeObjectURL", {
+  value: vi.fn(),
+  writable: true,
+});
+
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: tauriMocks.invoke,
 }));
