@@ -16,6 +16,7 @@ export function MainPane() {
         <EditorBuffer
           path={selectedFile.path}
           workspaceRoot={selectedFile.workspaceRoot}
+          fontFamily={settings.editorFontFamily}
         />
       </main>
     );
@@ -26,7 +27,7 @@ export function MainPane() {
       <main className="main-pane" data-testid="main-pane-terminal">
         <TerminalView
           ptyId={session.id}
-          fontFamily={settings.fontFamily}
+          fontFamily={settings.terminalFontFamily}
           fontSize={settings.fontSize}
           settings={settings}
         />

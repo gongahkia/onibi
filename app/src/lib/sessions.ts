@@ -132,6 +132,9 @@ export interface GhosttyTheme {
 export interface AppSettings {
   theme: ThemeMode;
   fontFamily: string;
+  uiFontFamily: string;
+  terminalFontFamily: string;
+  editorFontFamily: string;
   fontSize: number;
   tabBarOrientation: TabBarOrientation;
   tabBarPosition: TabBarPosition;
@@ -508,6 +511,10 @@ export const DEFAULT_CUSTOM_COLOR_SCHEME: CustomColorScheme = {
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: "dark",
   fontFamily: "Menlo, Monaco, monospace",
+  uiFontFamily:
+    'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  terminalFontFamily: "Menlo, Monaco, monospace",
+  editorFontFamily: "Menlo, Monaco, monospace",
   fontSize: 13,
   tabBarOrientation: "vertical",
   tabBarPosition: "left",
@@ -589,6 +596,10 @@ function normalizeCustomColorScheme(value: unknown): CustomColorScheme {
   };
 }
 
+function normalizeFontFamily(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim() ? value : fallback;
+}
+
 function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings {
   const agentCommands = isRecord(settings?.agentCommands)
     ? {
@@ -600,13 +611,27 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
     ...DEFAULT_SETTINGS,
     ...settings,
   };
+  const legacyFontFamily = normalizeFontFamily(
+    settings?.fontFamily,
+    DEFAULT_SETTINGS.fontFamily,
+  );
+  const terminalFontFamily = normalizeFontFamily(
+    merged.terminalFontFamily,
+    legacyFontFamily,
+  );
   return {
     ...merged,
     theme: isThemeMode(merged.theme) ? merged.theme : DEFAULT_SETTINGS.theme,
-    fontFamily:
-      typeof merged.fontFamily === "string" && merged.fontFamily.trim()
-        ? merged.fontFamily
-        : DEFAULT_SETTINGS.fontFamily,
+    fontFamily: terminalFontFamily,
+    uiFontFamily: normalizeFontFamily(
+      merged.uiFontFamily,
+      DEFAULT_SETTINGS.uiFontFamily,
+    ),
+    terminalFontFamily,
+    editorFontFamily: normalizeFontFamily(
+      merged.editorFontFamily,
+      legacyFontFamily,
+    ),
     fontSize:
       Number.isFinite(merged.fontSize) && merged.fontSize > 0
         ? Math.min(Math.max(merged.fontSize, 10), 24)
@@ -1023,9 +1048,15 @@ function applyGhosttyDefaults(
   return {
     ...settings,
     fontFamily:
-      settings.fontFamily === DEFAULT_SETTINGS.fontFamily && ghosttyTheme.fontFamily
+      settings.terminalFontFamily === DEFAULT_SETTINGS.terminalFontFamily &&
+      ghosttyTheme.fontFamily
         ? ghosttyTheme.fontFamily
-        : settings.fontFamily,
+        : settings.terminalFontFamily,
+    terminalFontFamily:
+      settings.terminalFontFamily === DEFAULT_SETTINGS.terminalFontFamily &&
+      ghosttyTheme.fontFamily
+        ? ghosttyTheme.fontFamily
+        : settings.terminalFontFamily,
     fontSize:
       settings.fontSize === DEFAULT_SETTINGS.fontSize && ghosttyTheme.fontSize
         ? ghosttyTheme.fontSize
@@ -1039,8 +1070,10 @@ export function applyDocumentSettings(settings: AppSettings): void {
   const scheme = resolveColorScheme(settings);
   const colors = colorsForSettings(settings);
   root.dataset.theme = scheme.id;
-  root.style.setProperty("--font-ui", settings.fontFamily);
-  root.style.setProperty("--font-mono", settings.fontFamily);
+  root.style.setProperty("--font-ui", settings.uiFontFamily);
+  root.style.setProperty("--font-terminal", settings.terminalFontFamily);
+  root.style.setProperty("--font-editor", settings.editorFontFamily);
+  root.style.setProperty("--font-mono", settings.terminalFontFamily);
   root.style.setProperty("--font-size-terminal", `${settings.fontSize}px`);
   for (const key of COLOR_SCHEME_COLOR_KEYS) {
     root.style.setProperty(COLOR_SCHEME_CSS_VARIABLES[key], colors[key]);

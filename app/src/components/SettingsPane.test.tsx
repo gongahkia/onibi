@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { SettingsPane } from "./SettingsPane";
 import { DEFAULT_SETTINGS, useSessionStore } from "../lib/sessions";
@@ -64,12 +64,44 @@ describe("SettingsPane", () => {
     });
 
     render(<SettingsPane open onClose={vi.fn()} />);
-    await screen.findByRole("option", { name: "Fira Code" });
+    await within(screen.getByLabelText("Terminal font installed font")).findByRole(
+      "option",
+      { name: "Fira Code" },
+    );
 
-    fireEvent.change(screen.getByLabelText("Installed font family"), {
+    fireEvent.change(screen.getByLabelText("Terminal font installed font"), {
       target: { value: "Fira Code" },
     });
 
-    expect(useSessionStore.getState().settings.fontFamily).toBe("Fira Code");
+    expect(useSessionStore.getState().settings.terminalFontFamily).toBe("Fira Code");
+  });
+
+  test("stores separate font families for ui terminal and file content", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "list_font_families") {
+        return ["Avenir", "Fira Code", "Monaco"];
+      }
+      return null;
+    });
+
+    render(<SettingsPane open onClose={vi.fn()} />);
+    await within(screen.getByLabelText("UI font installed font")).findByRole("option", {
+      name: "Avenir",
+    });
+
+    fireEvent.change(screen.getByLabelText("UI font installed font"), {
+      target: { value: "Avenir" },
+    });
+    fireEvent.change(screen.getByLabelText("Terminal font installed font"), {
+      target: { value: "Monaco" },
+    });
+    fireEvent.change(screen.getByLabelText("File content font installed font"), {
+      target: { value: "Fira Code" },
+    });
+
+    const settings = useSessionStore.getState().settings;
+    expect(settings.uiFontFamily).toBe("Avenir");
+    expect(settings.terminalFontFamily).toBe("Monaco");
+    expect(settings.editorFontFamily).toBe("Fira Code");
   });
 });

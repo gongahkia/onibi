@@ -19,6 +19,81 @@ export default defineConfig(async () => ({
             return;
           }
 
+          if (
+            id.includes("@codemirror/lang-javascript") ||
+            id.includes("@lezer/javascript")
+          ) {
+            return "vendor-editor-javascript";
+          }
+
+          if (id.includes("@codemirror/lang-html") || id.includes("@lezer/html")) {
+            return "vendor-editor-html";
+          }
+
+          if (
+            id.includes("@codemirror/lang-markdown") ||
+            id.includes("@lezer/markdown")
+          ) {
+            return "vendor-editor-markdown";
+          }
+
+          if (id.includes("@codemirror/lang-css") || id.includes("@lezer/css")) {
+            return "vendor-editor-css";
+          }
+
+          if (id.includes("@codemirror/lang-python")) {
+            return "vendor-editor-python";
+          }
+
+          if (id.includes("@codemirror/lang-rust")) {
+            return "vendor-editor-rust";
+          }
+
+          if (id.includes("@codemirror/lang-yaml")) {
+            return "vendor-editor-yaml";
+          }
+
+          if (id.includes("@codemirror/lang-json")) {
+            return "vendor-editor-json";
+          }
+
+          if (id.includes("@codemirror/view")) {
+            return "vendor-editor-view";
+          }
+
+          if (id.includes("@codemirror/state")) {
+            return "vendor-editor-state";
+          }
+
+          if (
+            id.includes("@codemirror/commands") ||
+            id.includes("@codemirror/search") ||
+            id.includes("@codemirror/autocomplete") ||
+            id.includes("@codemirror/lint")
+          ) {
+            return "vendor-editor-tools";
+          }
+
+          if (
+            id.includes("@codemirror/language") ||
+            id.includes("@lezer/common") ||
+            id.includes("@lezer/highlight") ||
+            id.includes("@lezer/lr")
+          ) {
+            return "vendor-editor-language";
+          }
+
+          if (id.includes("/codemirror")) {
+            return "vendor-editor-setup";
+          }
+
+          if (
+            id.includes("@codemirror") ||
+            id.includes("@lezer")
+          ) {
+            return "vendor-editor-core";
+          }
+
           if (id.includes("@xterm")) {
             return "vendor-terminal";
           }

@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { EditorView } from "@codemirror/view";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { EditorBuffer } from "./EditorBuffer";
 import { DEFAULT_SETTINGS, useSessionStore } from "../lib/sessions";
@@ -28,8 +29,15 @@ describe("EditorBuffer", () => {
     globalThis.__TAURI_MOCKS__.invoke.mockResolvedValueOnce([104, 105]);
     render(<EditorBuffer path="/repo/a.txt" workspaceRoot="/repo" />);
 
-    const textarea = await screen.findByLabelText("Editor buffer");
-    fireEvent.change(textarea, { target: { value: "hello" } });
+    const editor = await screen.findByLabelText("Editor buffer");
+    expect(document.querySelector(".cm-lineNumbers")).toBeTruthy();
+    const view = EditorView.findFromDOM(editor as HTMLElement);
+    expect(view).toBeTruthy();
+    act(() => {
+      view?.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: "hello" },
+      });
+    });
     expect(screen.getByLabelText("dirty")).toBeTruthy();
 
     fireEvent.click(screen.getByText("Save"));
