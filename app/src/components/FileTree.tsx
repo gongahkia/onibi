@@ -1031,6 +1031,7 @@ interface TreeNodeProps {
   selectedPath: string | null;
   showFileIcons: boolean;
   gitStatusByPath?: Record<string, GitTreeState>;
+  agentReviewsByPath?: Record<string, AgentReviewRecord>;
   draggedPath: string | null;
   dropTargetKey: string | null;
   onToggle: (path: string) => void;
@@ -1055,6 +1056,7 @@ function TreeNode({
   selectedPath,
   showFileIcons,
   gitStatusByPath,
+  agentReviewsByPath,
   draggedPath,
   dropTargetKey,
   onToggle,
