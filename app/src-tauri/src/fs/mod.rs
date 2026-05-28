@@ -7,6 +7,7 @@ use std::{
 };
 
 const MAX_EDITABLE_FILE_BYTES: u64 = 2 * 1024 * 1024;
+const MAX_PREVIEW_FILE_BYTES: u64 = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct FsEntry {
@@ -171,6 +172,23 @@ pub async fn fs_read_file(root: PathBuf, path: PathBuf) -> Result<Vec<u8>, Strin
             "file too large: {} bytes exceeds {} bytes",
             metadata.len(),
             MAX_EDITABLE_FILE_BYTES
+        ));
+    }
+    fs::read(&path).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub async fn fs_read_preview_file(root: PathBuf, path: PathBuf) -> Result<Vec<u8>, String> {
+    let (_, path) = ensure_inside_workspace(&root, &path)?;
+    let metadata = fs::metadata(&path).map_err(|err| err.to_string())?;
+    if !metadata.is_file() {
+        return Err(format!("{} is not a file", path.display()));
+    }
+    if metadata.len() > MAX_PREVIEW_FILE_BYTES {
+        return Err(format!(
+            "file too large: {} bytes exceeds {} bytes",
+            metadata.len(),
+            MAX_PREVIEW_FILE_BYTES
         ));
     }
     fs::read(&path).map_err(|err| err.to_string())

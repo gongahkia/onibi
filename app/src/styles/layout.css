@@ -20,10 +20,13 @@
   --font-mono: Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   --font-terminal: Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   --font-editor: Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --font-size-ui: 15px;
   --font-size-terminal: 13px;
+  --font-size-editor: 13px;
   color: var(--fg-0);
   background: var(--bg-0);
   font-family: var(--font-ui);
+  font-size: var(--font-size-ui);
 }
 
 :root[data-theme="light"] {

@@ -76,6 +76,7 @@ web-push = "0.11"
 p256 = { version = "0.13", features = ["ecdsa", "pkcs8", "pem"] }
 tauri-plugin-dialog = { version = "2", optional = true }
 fontdb = "0.23.0"
+notify = "6"
 
 [dev-dependencies]
 tempfile = "3"

@@ -55,7 +55,7 @@ function decodeBase64(data: string): Uint8Array {
 export function TerminalView({
   ptyId,
   fontFamily = DEFAULT_SETTINGS.terminalFontFamily,
-  fontSize = 13,
+  fontSize = DEFAULT_SETTINGS.terminalFontSize,
   settings = DEFAULT_SETTINGS,
   visible = true,
 }: TerminalViewProps) {

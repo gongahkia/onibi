@@ -1,8 +1,11 @@
 use serde::Serialize;
 use std::{
+    fs,
     path::{Component, Path, PathBuf},
     process::{Command, Output},
 };
+
+const MAX_DIFF_FILE_BYTES: u64 = 2 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,6 +27,17 @@ pub struct GitStatusEntry {
     full_path: PathBuf,
     index_status: Option<String>,
     worktree_status: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitFileDiff {
+    path: String,
+    old_label: String,
+    new_label: String,
+    old_text: Option<String>,
+    new_text: Option<String>,
+    binary: bool,
 }
 
 fn command_text(args: &[&str]) -> String {
@@ -70,6 +84,65 @@ fn git_checked_with_paths(root: &Path, args: &[&str], paths: &[String]) -> Resul
             stderr
         })
     }
+}
+
+fn git_blob(root: &Path, spec: &str) -> Result<Option<Vec<u8>>, String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .arg("cat-file")
+        .arg("-e")
+        .arg(spec)
+        .output()
+        .map_err(|err| format!("failed to run git cat-file: {err}"))?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .arg("show")
+        .arg(spec)
+        .output()
+        .map_err(|err| format!("failed to run git show: {err}"))?;
+    if output.status.success() {
+        Ok(Some(output.stdout))
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(if stderr.is_empty() {
+            "git show failed".to_string()
+        } else {
+            stderr
+        })
+    }
+}
+
+fn text_from_bytes(bytes: Option<Vec<u8>>) -> (Option<String>, bool) {
+    let Some(bytes) = bytes else {
+        return (None, false);
+    };
+    if bytes.len() as u64 > MAX_DIFF_FILE_BYTES || bytes.iter().any(|byte| *byte == 0) {
+        return (None, true);
+    }
+    match String::from_utf8(bytes) {
+        Ok(text) => (Some(text), false),
+        Err(_) => (None, true),
+    }
+}
+
+fn read_worktree_file(repo_root: &Path, path: &str) -> Result<Option<Vec<u8>>, String> {
+    let target = repo_root.join(path);
+    if !target.exists() {
+        return Ok(None);
+    }
+    let metadata = fs::metadata(&target).map_err(|err| err.to_string())?;
+    if !metadata.is_file() {
+        return Ok(None);
+    }
+    if metadata.len() > MAX_DIFF_FILE_BYTES {
+        return Ok(Some(vec![0]));
+    }
+    fs::read(&target).map(Some).map_err(|err| err.to_string())
 }
 
 fn optional_git_string(root: &Path, args: &[&str]) -> Option<String> {
@@ -298,6 +371,52 @@ pub async fn git_sync(root: PathBuf) -> Result<String, String> {
         output.push_str(&push);
     }
     Ok(output.trim().to_string())
+}
+
+#[tauri::command]
+pub async fn git_diff_file(
+    root: PathBuf,
+    path: String,
+    stage: String,
+) -> Result<GitFileDiff, String> {
+    validate_relative_paths(std::slice::from_ref(&path))?;
+    let Some(repo_root) = repo_root_for(&root)? else {
+        return Err("No Git repository in this workspace.".to_string());
+    };
+
+    let head_spec = format!("HEAD:{path}");
+    let index_spec = format!(":{path}");
+    let (old_label, new_label, old_bytes, new_bytes) = if stage == "staged" {
+        (
+            "HEAD".to_string(),
+            "Index".to_string(),
+            git_blob(&repo_root, &head_spec)?,
+            git_blob(&repo_root, &index_spec)?,
+        )
+    } else {
+        let index = git_blob(&repo_root, &index_spec)?;
+        (
+            "Index".to_string(),
+            "Working tree".to_string(),
+            if index.is_some() {
+                index
+            } else {
+                git_blob(&repo_root, &head_spec)?
+            },
+            read_worktree_file(&repo_root, &path)?,
+        )
+    };
+
+    let (old_text, old_binary) = text_from_bytes(old_bytes);
+    let (new_text, new_binary) = text_from_bytes(new_bytes);
+    Ok(GitFileDiff {
+        path,
+        old_label,
+        new_label,
+        old_text,
+        new_text,
+        binary: old_binary || new_binary,
+    })
 }
 
 #[cfg(test)]
