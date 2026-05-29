@@ -4081,15 +4081,16 @@ export function parseTerminalConfigImport(
     candidate.source === "contour" ||
     candidate.source === "foot" ||
     candidate.source === "konsole" ||
-    candidate.source === "xfce-terminal"
+    candidate.source === "xfce-terminal" ||
+    candidate.source === "terminal-app" ||
+    candidate.source === "muxy" ||
+    candidate.source === "cmux"
   ) {
     return importFromLooseTerminal(candidate);
   }
   if (
     candidate.source === "tmux" ||
-    candidate.source === "zellij" ||
-    candidate.source === "muxy" ||
-    candidate.source === "cmux"
+    candidate.source === "zellij"
   ) {
     return terminalImport(
       candidate,
@@ -4107,9 +4108,7 @@ export async function detectTerminalConfigImports(): Promise<TerminalConfigImpor
   const candidates = await invoke<TerminalConfigCandidate[]>(
     "fs_detect_terminal_configs",
   );
-  return candidates
-    .map(parseTerminalConfigImport)
-    .filter((item) => item.importedFields.length > 0);
+  return candidates.map(parseTerminalConfigImport);
 }
 
 async function readGhosttyTheme(): Promise<GhosttyTheme | null> {

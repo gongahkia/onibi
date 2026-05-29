@@ -248,8 +248,11 @@ describe("SettingsPane", () => {
 
     render(<SettingsPane open onClose={vi.fn()} />);
     fireEvent.click(screen.getByText("Advanced"));
-    fireEvent.click(screen.getByRole("tab", { name: "Import config" }));
-    expect(await screen.findByText("Ghostty")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Import terminal settings" }));
+    expect((await screen.findAllByText("Ghostty")).length).toBeGreaterThan(0);
+    expect(screen.getByText("Supported terminal imports")).toBeTruthy();
+    expect(screen.getByText("Alacritty")).toBeTruthy();
+    expect(screen.getAllByText("Manual import").length).toBeGreaterThan(4);
     fireEvent.click(screen.getByText("Apply selected"));
 
     const settings = useSessionStore.getState().settings;
@@ -284,8 +287,8 @@ describe("SettingsPane", () => {
 
     render(<SettingsPane open onClose={vi.fn()} />);
     fireEvent.click(screen.getByText("Advanced"));
-    fireEvent.click(screen.getByRole("tab", { name: "Import config" }));
-    expect(await screen.findByText("Rio")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Import terminal settings" }));
+    expect((await screen.findAllByText("Rio")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByText("Apply selected"));
 
     const settings = useSessionStore.getState().settings;

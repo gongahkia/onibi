@@ -421,7 +421,7 @@ function labelFor(value: string): string {
     return "config.json";
   }
   if (value === "import-config") {
-    return "Import config from ...";
+    return "Import terminal settings";
   }
   if (value === "shell-integration") {
     return "Shell integration";
@@ -648,7 +648,7 @@ const ADVANCED_SECTIONS: Array<{ id: AdvancedSection; label: string }> = [
   { id: "shell-integration", label: "Shell integration" },
   { id: "triggers", label: "Triggers" },
   { id: "config-json", label: "config.json" },
-  { id: "import-config", label: "Import config" },
+  { id: "import-config", label: "Import terminal settings" },
 ];
 
 interface ShellIntegrationSessionStatus {
@@ -1255,6 +1255,9 @@ function sourceForConfigFile(file: File): TerminalConfigSource {
   if (lower.endsWith(".itermcolors")) {
     return "iterm2";
   }
+  if (lower.includes("windows") || lower.includes("wt") || lower.includes("settings.json")) {
+    return "windows-terminal";
+  }
   if (lower.includes("iterm")) {
     return "iterm2";
   }
@@ -1309,10 +1312,138 @@ function sourceForConfigFile(file: File): TerminalConfigSource {
   if (lower.includes("cmux")) {
     return "cmux";
   }
-  if (lower.includes("settings.json")) {
-    return "windows-terminal";
-  }
   return "ghostty";
+}
+
+interface TerminalImportSupport {
+  source: TerminalConfigSource;
+  label: string;
+  capabilities: string[];
+  detectHint: string;
+  lowValue?: boolean;
+}
+
+const TERMINAL_IMPORT_SUPPORT: TerminalImportSupport[] = [
+  {
+    source: "ghostty",
+    label: "Ghostty",
+    capabilities: ["colors", "font family", "font size", "keybindings", "shaders"],
+    detectHint: "~/.config/ghostty/config",
+  },
+  {
+    source: "iterm2",
+    label: "iTerm2",
+    capabilities: ["colors", "font family", "font size", "theme name"],
+    detectHint: "iTerm2 preferences, dynamic profiles, .itermcolors",
+  },
+  {
+    source: "terminal-app",
+    label: "Terminal.app",
+    capabilities: ["colors", "font family", "font size", "theme name"],
+    detectHint: "macOS Terminal preferences",
+  },
+  {
+    source: "alacritty",
+    label: "Alacritty",
+    capabilities: ["colors", "font family", "font size", "keybindings"],
+    detectHint: "~/.config/alacritty/alacritty.toml",
+  },
+  {
+    source: "wezterm",
+    label: "WezTerm",
+    capabilities: ["colors", "font family", "font size", "keybindings", "theme name"],
+    detectHint: "~/.wezterm.lua, ~/.config/wezterm/wezterm.lua",
+  },
+  {
+    source: "kitty",
+    label: "kitty",
+    capabilities: ["colors", "font family", "font size", "keybindings"],
+    detectHint: "~/.config/kitty/kitty.conf",
+  },
+  {
+    source: "warp",
+    label: "Warp",
+    capabilities: ["colors", "theme name"],
+    detectHint: "~/.warp/themes/*.yaml",
+  },
+  {
+    source: "windows-terminal",
+    label: "Windows Terminal",
+    capabilities: ["colors", "font family", "font size", "theme name"],
+    detectHint: "Windows Terminal settings.json",
+  },
+  {
+    source: "rio",
+    label: "Rio",
+    capabilities: ["colors", "font family", "font size", "keybindings", "theme name"],
+    detectHint: "~/.config/rio/config.toml",
+  },
+  {
+    source: "tabby",
+    label: "Tabby",
+    capabilities: ["colors", "font family", "font size", "keybindings", "theme name"],
+    detectHint: "Tabby config.yaml",
+  },
+  {
+    source: "hyper",
+    label: "Hyper",
+    capabilities: ["colors", "font family", "font size", "keybindings", "theme name"],
+    detectHint: "~/.hyper.js",
+  },
+  {
+    source: "contour",
+    label: "Contour",
+    capabilities: ["colors", "font family", "font size", "keybindings", "theme name"],
+    detectHint: "~/.config/contour/contour.yml",
+  },
+  {
+    source: "foot",
+    label: "foot",
+    capabilities: ["colors", "font family", "font size", "keybindings", "theme name"],
+    detectHint: "~/.config/foot/foot.ini",
+  },
+  {
+    source: "konsole",
+    label: "Konsole",
+    capabilities: ["colors", "font family", "font size", "keybindings", "theme name"],
+    detectHint: "~/.local/share/konsole/*.profile",
+  },
+  {
+    source: "xfce-terminal",
+    label: "Xfce Terminal",
+    capabilities: ["colors", "font family", "font size", "keybindings", "theme name"],
+    detectHint: "~/.config/xfce4/terminal/terminalrc",
+  },
+  {
+    source: "muxy",
+    label: "muxy",
+    capabilities: ["colors", "font family", "font size", "keybindings", "theme name"],
+    detectHint: "~/.config/muxy/config.toml",
+  },
+  {
+    source: "cmux",
+    label: "cmux",
+    capabilities: ["colors", "font family", "font size", "keybindings", "theme name"],
+    detectHint: "~/.config/cmux/config.toml",
+  },
+  {
+    source: "tmux",
+    label: "tmux",
+    capabilities: ["keybindings"],
+    detectHint: "~/.tmux.conf, ~/.config/tmux/tmux.conf",
+    lowValue: true,
+  },
+  {
+    source: "zellij",
+    label: "Zellij",
+    capabilities: ["keybindings"],
+    detectHint: "~/.config/zellij/config.kdl",
+    lowValue: true,
+  },
+];
+
+function capabilitySummary(fields: string[]): string {
+  return fields.length > 0 ? fields.join(", ") : "No importable settings";
 }
 
 function ImportConfigSettings({
@@ -1331,14 +1462,17 @@ function ImportConfigSettings({
   onApply: (item: TerminalConfigImport, options: ImportOptions) => void;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const manualSourceRef = useRef<TerminalConfigSource | null>(null);
   const [optionsById, setOptionsById] = useState<Record<string, ImportOptions>>({});
+  const [importStatus, setImportStatus] = useState<string | null>(null);
 
-  async function importFile(file: File | undefined) {
+  async function importFile(file: File | undefined, sourceOverride?: TerminalConfigSource | null) {
     if (!file) {
       return;
     }
+    setImportStatus(null);
     const candidate: TerminalConfigCandidate = {
-      source: sourceForConfigFile(file),
+      source: sourceOverride ?? sourceForConfigFile(file),
       label: file.name,
       path: file.name,
       content: await file.text(),
@@ -1346,7 +1480,15 @@ function ImportConfigSettings({
     const parsed = parseTerminalConfigImport(candidate);
     if (parsed.importedFields.length > 0) {
       onAddImport(parsed);
+      setImportStatus(`Imported ${file.name}.`);
+    } else {
+      setImportStatus(`No supported settings found in ${file.name}.`);
     }
+  }
+
+  function chooseImportFile(source: TerminalConfigSource | null = null) {
+    manualSourceRef.current = source;
+    inputRef.current?.click();
   }
 
   function optionsFor(item: TerminalConfigImport): ImportOptions {
@@ -1372,112 +1514,269 @@ function ImportConfigSettings({
     }));
   }
 
+  const importable = imports.filter((item) => item.importedFields.length > 0);
+  const importablePrimary = importable.filter(
+    (item) =>
+      !TERMINAL_IMPORT_SUPPORT.find((support) => support.source === item.source)
+        ?.lowValue,
+  );
+  const importableLowValue = importable.filter(
+    (item) =>
+      TERMINAL_IMPORT_SUPPORT.find((support) => support.source === item.source)
+        ?.lowValue,
+  );
+  function sourceImports(source: TerminalConfigSource): TerminalConfigImport[] {
+    return imports.filter((item) => item.source === source);
+  }
+
   return (
-    <section className="settings-section" aria-label="Import terminal config">
+    <section className="settings-section" aria-label="Import terminal settings">
       <div className="config-json-actions">
         <button type="button" className="text-button" onClick={onRefresh}>
-          {loading ? "Detecting" : "Detect configs"}
+          {loading ? "Detecting" : "Detect terminal settings"}
         </button>
         <button
           type="button"
           className="text-button"
-          onClick={() => inputRef.current?.click()}
+          onClick={() => chooseImportFile()}
         >
-          Import config file
+          Import terminal settings file
         </button>
         <input
           ref={inputRef}
           type="file"
           accept=".conf,.config,.ini,.itermcolors,.js,.json,.kdl,.lua,.plist,.profile,.toml,.yaml,.yml"
           className="visually-hidden"
-          onChange={(event) => void importFile(event.target.files?.[0])}
+          onChange={(event) => {
+            const source = manualSourceRef.current;
+            manualSourceRef.current = null;
+            void importFile(event.target.files?.[0], source);
+            event.currentTarget.value = "";
+          }}
         />
       </div>
       {error ? <div className="editor-error">{error}</div> : null}
-      {!loading && imports.length === 0 ? (
-        <div className="settings-note">No importable terminal configs found.</div>
-      ) : null}
-      {imports.map((item) => {
-        const options = optionsFor(item);
-        return (
-          <div className="terminal-import-card" key={item.id}>
-            <div>
-              <strong>{item.label}</strong>
-              <div className="settings-note">{item.path}</div>
-              {item.colorSchemeName ? (
-                <div className="settings-note">Theme: {item.colorSchemeName}</div>
-              ) : null}
-              {item.importedFields.length > 0 ? (
-                <div className="settings-note">
-                  Importable: {item.importedFields.join(", ")}
-                </div>
-              ) : null}
-            </div>
-            <label className="settings-check-row">
-              <input
-                type="checkbox"
-                checked={options.colors}
-                disabled={Object.keys(item.colors).length === 0}
-                onChange={(event) =>
-                  updateOption(item, "colors", event.target.checked)
-                }
-              />
-              Colors
-            </label>
-            <label className="settings-check-row">
-              <input
-                type="checkbox"
-                checked={options.fontFamily}
-                disabled={!item.fontFamily}
-                onChange={(event) =>
-                  updateOption(item, "fontFamily", event.target.checked)
-                }
-              />
-              Font family{item.fontFamily ? `: ${item.fontFamily}` : ""}
-            </label>
-            <label className="settings-check-row">
-              <input
-                type="checkbox"
-                checked={options.fontSize}
-                disabled={!item.fontSize}
-                onChange={(event) =>
-                  updateOption(item, "fontSize", event.target.checked)
-                }
-              />
-              Font size{item.fontSize ? `: ${item.fontSize}` : ""}
-            </label>
-            <label className="settings-check-row">
-              <input
-                type="checkbox"
-                checked={options.keybindings}
-                disabled={item.keybindings.length === 0}
-                onChange={(event) =>
-                  updateOption(item, "keybindings", event.target.checked)
-                }
-              />
-              Keybindings
-              {item.keybindings.length > 0 ? `: ${item.keybindings.length}` : ""}
-            </label>
-            <label className="settings-check-row">
-              <input
-                type="checkbox"
-                checked={options.shaders}
-                disabled={item.shaderPaths.length === 0}
-                onChange={(event) => updateOption(item, "shaders", event.target.checked)}
-              />
-              Shaders{item.shaderPaths.length > 0 ? `: ${item.shaderPaths.length}` : ""}
-            </label>
-            <button
-              type="button"
-              className="text-button primary"
-              onClick={() => onApply(item, options)}
-            >
-              Apply selected
-            </button>
+      {importStatus ? <div className="settings-note">{importStatus}</div> : null}
+      <div className="terminal-import-section">
+        <div>
+          <strong>Detected importable settings</strong>
+          <div className="settings-note">
+            These are local configs Onibi found and can apply now.
           </div>
-        );
-      })}
+        </div>
+        {!loading && importablePrimary.length === 0 ? (
+          <div className="settings-note">
+            No importable terminal settings found. Use manual import below or
+            review the supported-terminal matrix.
+          </div>
+        ) : null}
+        {importablePrimary.map((item) => (
+          <TerminalImportCard
+            key={item.id}
+            item={item}
+            options={optionsFor(item)}
+            onOption={(key, value) => updateOption(item, key, value)}
+            onApply={() => onApply(item, optionsFor(item))}
+          />
+        ))}
+      </div>
+      {importableLowValue.length > 0 ? (
+        <details className="terminal-low-value-imports">
+          <summary>Low-value terminal/multiplexer configs</summary>
+          <div className="settings-note">
+            These only add useful settings when they expose keybindings or other
+            Onibi-relevant fields.
+          </div>
+          {importableLowValue.map((item) => (
+            <TerminalImportCard
+              key={item.id}
+              item={item}
+              options={optionsFor(item)}
+              onOption={(key, value) => updateOption(item, key, value)}
+              onApply={() => onApply(item, optionsFor(item))}
+            />
+          ))}
+        </details>
+      ) : null}
+      <div className="terminal-support-matrix">
+        <div>
+          <strong>Supported terminal imports</strong>
+          <div className="settings-note">
+            Found means Onibi detected a local config. Not found means the parser is
+            available but no default-path config was present.
+          </div>
+        </div>
+        {TERMINAL_IMPORT_SUPPORT.filter((support) => !support.lowValue).map(
+          (support) => {
+            const found = sourceImports(support.source);
+            const canApply = found.some((item) => item.importedFields.length > 0);
+            return (
+              <div className="terminal-support-row" key={support.source}>
+                <div>
+                  <strong>{support.label}</strong>
+                  <div className="settings-note">{support.detectHint}</div>
+                </div>
+                <span
+                  className={`terminal-support-status ${
+                    found.length > 0 ? "found" : "missing"
+                  }`}
+                >
+                  {found.length > 0
+                    ? canApply
+                      ? "Found"
+                      : "Found, no importable settings"
+                    : "Not found"}
+                </span>
+                <div className="terminal-capability-list">
+                  {support.capabilities.map((field) => (
+                    <span key={field}>{field}</span>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => chooseImportFile(support.source)}
+                >
+                  Manual import
+                </button>
+              </div>
+            );
+          },
+        )}
+      </div>
+      <details className="terminal-low-value-imports">
+        <summary>Terminal multiplexers and low-signal configs</summary>
+        <div className="settings-note">
+          Onibi demotes these because they usually do not carry visual terminal
+          settings. They become useful only when their config exposes supported
+          keybindings.
+        </div>
+        {TERMINAL_IMPORT_SUPPORT.filter((support) => support.lowValue).map(
+          (support) => {
+            const found = sourceImports(support.source);
+            const canApply = found.some((item) => item.importedFields.length > 0);
+            const importableFields = found.flatMap((item) => item.importedFields);
+            return (
+              <div className="terminal-support-row" key={support.source}>
+                <div>
+                  <strong>{support.label}</strong>
+                  <div className="settings-note">{support.detectHint}</div>
+                </div>
+                <span
+                  className={`terminal-support-status ${
+                    canApply ? "found" : "missing"
+                  }`}
+                >
+                  {canApply ? "Importable" : found.length > 0 ? "Found, demoted" : "Not found"}
+                </span>
+                <div className="terminal-capability-list">
+                  {(importableFields.length > 0
+                    ? [...new Set(importableFields)]
+                    : support.capabilities
+                  ).map((field) => (
+                    <span key={field}>{field}</span>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => chooseImportFile(support.source)}
+                >
+                  Manual import
+                </button>
+              </div>
+            );
+          },
+        )}
+      </details>
     </section>
+  );
+}
+
+function TerminalImportCard({
+  item,
+  options,
+  onOption,
+  onApply,
+}: {
+  item: TerminalConfigImport;
+  options: ImportOptions;
+  onOption: (key: keyof ImportOptions, value: boolean) => void;
+  onApply: () => void;
+}) {
+  const support = TERMINAL_IMPORT_SUPPORT.find(
+    (candidate) => candidate.source === item.source,
+  );
+  const hasSelectedOption = Object.values(options).some(Boolean);
+  return (
+    <div className="terminal-import-card">
+      <div>
+        <strong>{item.label}</strong>
+        <div className="settings-note">{item.path}</div>
+        <div className="settings-note">
+          Source: {support?.label ?? item.source}
+        </div>
+        {item.colorSchemeName ? (
+          <div className="settings-note">Theme: {item.colorSchemeName}</div>
+        ) : null}
+        <div className="settings-note">
+          Importable: {capabilitySummary(item.importedFields)}
+        </div>
+      </div>
+      <label className="settings-check-row">
+        <input
+          type="checkbox"
+          checked={options.colors}
+          disabled={Object.keys(item.colors).length === 0}
+          onChange={(event) => onOption("colors", event.target.checked)}
+        />
+        Colors
+      </label>
+      <label className="settings-check-row">
+        <input
+          type="checkbox"
+          checked={options.fontFamily}
+          disabled={!item.fontFamily}
+          onChange={(event) => onOption("fontFamily", event.target.checked)}
+        />
+        Font family{item.fontFamily ? `: ${item.fontFamily}` : ""}
+      </label>
+      <label className="settings-check-row">
+        <input
+          type="checkbox"
+          checked={options.fontSize}
+          disabled={!item.fontSize}
+          onChange={(event) => onOption("fontSize", event.target.checked)}
+        />
+        Font size{item.fontSize ? `: ${item.fontSize}` : ""}
+      </label>
+      <label className="settings-check-row">
+        <input
+          type="checkbox"
+          checked={options.keybindings}
+          disabled={item.keybindings.length === 0}
+          onChange={(event) => onOption("keybindings", event.target.checked)}
+        />
+        Keybindings{item.keybindings.length > 0 ? `: ${item.keybindings.length}` : ""}
+      </label>
+      <label className="settings-check-row">
+        <input
+          type="checkbox"
+          checked={options.shaders}
+          disabled={item.shaderPaths.length === 0}
+          onChange={(event) => onOption("shaders", event.target.checked)}
+        />
+        Shaders{item.shaderPaths.length > 0 ? `: ${item.shaderPaths.length}` : ""}
+      </label>
+      <button
+        type="button"
+        className="text-button primary"
+        disabled={!hasSelectedOption}
+        onClick={onApply}
+      >
+        Apply selected
+      </button>
+    </div>
   );
 }
 

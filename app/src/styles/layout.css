@@ -2444,6 +2444,13 @@ button {
   min-height: 420px;
 }
 
+.terminal-import-section,
+.terminal-support-matrix,
+.terminal-low-value-imports {
+  display: grid;
+  gap: 10px;
+}
+
 .terminal-import-card {
   display: grid;
   gap: 10px;
@@ -2456,6 +2463,60 @@ button {
 
 .terminal-import-card strong {
   color: var(--fg-0);
+}
+
+.terminal-support-row {
+  display: grid;
+  grid-template-columns: minmax(170px, 1.2fr) minmax(130px, auto) minmax(220px, 2fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  color: var(--fg-1);
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.terminal-support-row strong {
+  color: var(--fg-0);
+}
+
+.terminal-support-status {
+  justify-self: start;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11px;
+}
+
+.terminal-support-status.found {
+  color: var(--accent-2);
+  border-color: var(--accent-2);
+}
+
+.terminal-support-status.missing {
+  color: var(--fg-2);
+}
+
+.terminal-capability-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.terminal-capability-list span {
+  padding: 2px 6px;
+  color: var(--fg-1);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11px;
+}
+
+.terminal-low-value-imports summary {
+  cursor: pointer;
+  color: var(--fg-0);
+  font-weight: 700;
 }
 
 .visually-hidden {
