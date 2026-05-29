@@ -253,7 +253,7 @@ describe("SettingsPane", () => {
     expect(screen.getByText("Supported terminal imports")).toBeTruthy();
     expect(screen.getByText("Alacritty")).toBeTruthy();
     expect(screen.getAllByText("Manual import").length).toBeGreaterThan(4);
-    fireEvent.click(screen.getByText("Apply selected"));
+    fireEvent.click(await screen.findByRole("button", { name: "Apply selected" }));
 
     const settings = useSessionStore.getState().settings;
     expect(settings.theme).toBe("custom");
@@ -289,7 +289,7 @@ describe("SettingsPane", () => {
     fireEvent.click(screen.getByText("Advanced"));
     fireEvent.click(screen.getByRole("tab", { name: "Import terminal settings" }));
     expect((await screen.findAllByText("Rio")).length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByText("Apply selected"));
+    fireEvent.click(await screen.findByRole("button", { name: "Apply selected" }));
 
     const settings = useSessionStore.getState().settings;
     expect(settings.terminalFontFamily).toBe("JetBrains Mono");
