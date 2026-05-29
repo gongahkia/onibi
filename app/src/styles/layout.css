@@ -1166,6 +1166,14 @@ button {
   color: #061413;
 }
 
+.file-context-menu button:disabled,
+.file-context-menu button:disabled:hover {
+  color: var(--fg-2);
+  background: transparent;
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
 .file-context-menu button.danger {
   color: var(--danger);
 }
@@ -1179,6 +1187,27 @@ button {
   height: 1px;
   margin: 5px 4px;
   background: var(--border);
+}
+
+.context-menu-title {
+  display: grid;
+  gap: 2px;
+  padding: 5px 10px 7px;
+  color: var(--fg-0);
+  font-weight: 700;
+}
+
+.context-menu-title span {
+  color: var(--fg-2);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.context-menu-error {
+  max-width: 260px;
+  padding: 6px 10px 3px;
+  color: var(--danger);
+  font-size: 12px;
 }
 
 .main-pane,
