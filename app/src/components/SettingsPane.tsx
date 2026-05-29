@@ -14,13 +14,16 @@ import {
   type DiffViewMode,
   type TabBarOrientation,
   type TabBarPosition,
+  type TerminalConfigCandidate,
   type TerminalConfigImport,
+  type TerminalConfigSource,
   type ThemeMode,
   type WebOpenMode,
   applyOnibiConfig,
   detectTerminalConfigImports,
   listLocalFontFamilies,
   parseOnibiConfigJson,
+  parseTerminalConfigImport,
   resolveAgentBinary,
   serializeOnibiConfig,
   useSessionStore,
@@ -335,6 +338,12 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               loading={detectingTerminalConfigs}
               error={terminalImportError}
               onRefresh={() => void refreshTerminalConfigImports()}
+              onAddImport={(item) =>
+                setTerminalImports((state) => [
+                  item,
+                  ...state.filter((existing) => existing.id !== item.id),
+                ])
+              }
               onApply={(item, options) => {
                 const nextCustomColors: ColorSchemeColors = {
                   ...settings.customColorScheme.colors,
@@ -817,20 +826,59 @@ interface ImportOptions {
   fontSize: boolean;
 }
 
+function sourceForConfigFile(file: File): TerminalConfigSource {
+  const lower = file.name.toLowerCase();
+  if (lower.endsWith(".itermcolors")) {
+    return "iterm2";
+  }
+  if (lower.includes("alacritty")) {
+    return "alacritty";
+  }
+  if (lower.includes("wezterm") || lower.endsWith(".lua")) {
+    return "wezterm";
+  }
+  if (lower.includes("kitty")) {
+    return "kitty";
+  }
+  if (lower.includes("settings.json")) {
+    return "windows-terminal";
+  }
+  return "ghostty";
+}
+
 function ImportConfigSettings({
   imports,
   loading,
   error,
   onRefresh,
+  onAddImport,
   onApply,
 }: {
   imports: TerminalConfigImport[];
   loading: boolean;
   error: string | null;
   onRefresh: () => void;
+  onAddImport: (item: TerminalConfigImport) => void;
   onApply: (item: TerminalConfigImport, options: ImportOptions) => void;
 }) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const [optionsById, setOptionsById] = useState<Record<string, ImportOptions>>({});
+
+  async function importFile(file: File | undefined) {
+    if (!file) {
+      return;
+    }
+    const candidate: TerminalConfigCandidate = {
+      source: sourceForConfigFile(file),
+      label: file.name,
+      path: file.name,
+      content: await file.text(),
+    };
+    const parsed = parseTerminalConfigImport(candidate);
+    if (parsed.importedFields.length > 0) {
+      onAddImport(parsed);
+    }
+  }
 
   function optionsFor(item: TerminalConfigImport): ImportOptions {
     return (
@@ -859,6 +907,20 @@ function ImportConfigSettings({
         <button type="button" className="text-button" onClick={onRefresh}>
           {loading ? "Detecting" : "Detect configs"}
         </button>
+        <button
+          type="button"
+          className="text-button"
+          onClick={() => inputRef.current?.click()}
+        >
+          Import config file
+        </button>
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".conf,.config,.itermcolors,.json,.lua,.toml,.yaml,.yml"
+          className="visually-hidden"
+          onChange={(event) => void importFile(event.target.files?.[0])}
+        />
       </div>
       {error ? <div className="editor-error">{error}</div> : null}
       {!loading && imports.length === 0 ? (

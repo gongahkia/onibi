@@ -1751,7 +1751,7 @@ button {
 }
 
 .settings-pane .modal-panel {
-  width: min(900px, calc(100vw - 32px));
+  width: min(1120px, calc(100vw - 32px));
 }
 
 .settings-grid {
@@ -1774,8 +1774,10 @@ button {
 
 .settings-section {
   display: grid;
+  align-content: start;
   gap: 14px;
   padding: 16px;
+  min-width: 0;
 }
 
 .settings-row {
@@ -1867,6 +1869,56 @@ button {
 
 .binary-status.missing {
   color: var(--danger);
+}
+
+.config-json-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-textarea {
+  width: 100%;
+  min-width: 0;
+  color: var(--fg-0);
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  outline: none;
+  resize: vertical;
+  font: 12px/1.45 var(--font-editor);
+}
+
+.settings-textarea:focus {
+  border-color: var(--accent-2);
+}
+
+.config-json-editor {
+  min-height: 420px;
+}
+
+.terminal-import-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  color: var(--fg-1);
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.terminal-import-card strong {
+  color: var(--fg-0);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
 }
 
 .session-history-view {

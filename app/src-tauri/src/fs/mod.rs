@@ -578,6 +578,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn create_file_with_contents_writes_new_file() {
+        let root = temp_workspace();
+        let created = fs_create_file_with_contents(
+            root.path().to_path_buf(),
+            root.path().to_path_buf(),
+            ".env.example".to_string(),
+            b"API_KEY=\n".to_vec(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(created.name, ".env.example");
+        assert_eq!(fs::read_to_string(root.path().join(".env.example")).unwrap(), "API_KEY=\n");
+    }
+
+    #[tokio::test]
+    async fn create_file_with_contents_rejects_existing_file() {
+        let root = temp_workspace();
+        fs::write(root.path().join(".env.example"), b"before").unwrap();
+
+        let result = fs_create_file_with_contents(
+            root.path().to_path_buf(),
+            root.path().to_path_buf(),
+            ".env.example".to_string(),
+            b"after".to_vec(),
+        )
+        .await;
+
+        assert!(result.unwrap_err().contains("already exists"));
+        assert_eq!(fs::read(root.path().join(".env.example")).unwrap(), b"before");
+    }
+
+    #[tokio::test]
     async fn delete_rejects_workspace_root() {
         let root = temp_workspace();
         let result = fs_delete_path(root.path().to_path_buf(), root.path().to_path_buf()).await;

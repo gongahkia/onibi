@@ -355,6 +355,57 @@ describe("FileTree", () => {
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("README.md");
   });
 
+  test("creates a redacted .env.example from .env context action", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
+      async (command: string, args: Record<string, unknown>) => {
+        if (command === "fs_list_dir") {
+          return [
+            { name: ".env", path: "/repo/.env", kind: "file", size: 25 },
+          ];
+        }
+        if (command === "fs_read_file") {
+          expect(args).toEqual({ root: "/repo", path: "/repo/.env" });
+          return Array.from(
+            new TextEncoder().encode("API_KEY=secret\n# keep\nexport FLAG=true\n"),
+          );
+        }
+        if (command === "fs_create_file_with_contents") {
+          expect(args.root).toBe("/repo");
+          expect(args.parent).toBe("/repo");
+          expect(args.name).toBe(".env.example");
+          expect(new TextDecoder().decode(new Uint8Array(args.data as number[]))).toBe(
+            "API_KEY=\n# keep\nexport FLAG=\n",
+          );
+          return {
+            name: ".env.example",
+            path: "/repo/.env.example",
+            kind: "file",
+            size: 24,
+          };
+        }
+        return [];
+      },
+    );
+
+    render(<FileTree />);
+    expect(await screen.findByText(".env")).toBeTruthy();
+
+    fireEvent.contextMenu(screen.getByText(".env"));
+    fireEvent.click(screen.getByText("Create .env.example from .env"));
+
+    await waitFor(() => {
+      expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith(
+        "fs_create_file_with_contents",
+        expect.objectContaining({
+          root: "/repo",
+          parent: "/repo",
+          name: ".env.example",
+        }),
+      );
+    });
+    expect(useSessionStore.getState().selectedFile?.path).toBe("/repo/.env.example");
+  });
+
   test("renames files from the context menu and refreshes the parent", async () => {
     vi.mocked(window.prompt).mockReturnValue("CHANGELOG.md");
     globalThis.__TAURI_MOCKS__.invoke.mockImplementation(

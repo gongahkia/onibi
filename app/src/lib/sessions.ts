@@ -2173,6 +2173,58 @@ function importFromWindowsTerminal(candidate: TerminalConfigCandidate): Terminal
   return terminalImport(candidate, colors, fontFamily, fontSize, colorSchemeName);
 }
 
+function itermComponent(block: string, name: string): number | null {
+  const match = block.match(
+    new RegExp(`<key>${name} Component</key>\\s*<real>([^<]+)</real>`),
+  );
+  const parsed = Number(match?.[1]);
+  return Number.isFinite(parsed) ? Math.min(255, Math.max(0, Math.round(parsed * 255))) : null;
+}
+
+function itermColor(config: string, name: string): string | undefined {
+  const match = config.match(
+    new RegExp(`<key>${name}</key>\\s*<dict>([\\s\\S]*?)</dict>`),
+  );
+  const block = match?.[1];
+  if (!block) {
+    return undefined;
+  }
+  const red = itermComponent(block, "Red");
+  const green = itermComponent(block, "Green");
+  const blue = itermComponent(block, "Blue");
+  if (red === null || green === null || blue === null) {
+    return undefined;
+  }
+  return `#${[red, green, blue]
+    .map((component) => component.toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+function importFromIterm2(candidate: TerminalConfigCandidate): TerminalConfigImport {
+  const colors: Partial<ColorSchemeColors> = {};
+  const background = itermColor(candidate.content, "Background Color");
+  const foreground = itermColor(candidate.content, "Foreground Color");
+  const cursor = itermColor(candidate.content, "Cursor Color");
+  const selection = itermColor(candidate.content, "Selection Color");
+  if (background) {
+    colors.bg0 = background;
+    colors.terminalBackground = background;
+  }
+  if (foreground) {
+    colors.fg0 = foreground;
+    colors.terminalForeground = foreground;
+  }
+  if (cursor) {
+    colors.terminalCursor = cursor;
+    colors.accent = cursor;
+  }
+  if (selection) {
+    colors.terminalSelection = selection;
+    colors.bg3 = selection;
+  }
+  return terminalImport(candidate, colors, undefined, undefined, candidate.label);
+}
+
 function terminalImport(
   candidate: TerminalConfigCandidate,
   colors: Partial<ColorSchemeColors>,
@@ -2226,6 +2278,9 @@ export function parseTerminalConfigImport(
   }
   if (candidate.source === "windows-terminal") {
     return importFromWindowsTerminal(candidate);
+  }
+  if (candidate.source === "iterm2") {
+    return importFromIterm2(candidate);
   }
   return terminalImport(candidate, {}, undefined, undefined);
 }
