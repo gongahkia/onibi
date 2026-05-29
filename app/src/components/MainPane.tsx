@@ -12,12 +12,15 @@ import { TerminalView, type TerminalShellUpdate } from "./TerminalView";
 import { stopAgentReview } from "../lib/agent-review";
 import {
   AGENT_LABELS,
+  defaultSessionControl,
   closeSession,
   duplicateSession,
+  newCommandBlockId,
   restartSession,
   sessionTitle,
   terminalPaneNodeForId,
   useSessionStore,
+  type CommandBlock,
   type Session,
   type TerminalTriggerMatch,
   type TerminalPaneNode,
@@ -25,6 +28,8 @@ import {
   type TerminalSplitDirection,
   type Workspace,
 } from "../lib/sessions";
+import { getGitStatus } from "../lib/git";
+import { persistCommandBlock } from "../lib/command-blocks";
 import { ptySpawn, shellPath } from "../lib/tauri-bridge";
 
 async function spawnShellReplacement(
@@ -50,6 +55,8 @@ async function spawnShellReplacement(
     cwd: workspace.path,
     lastExitCode: null,
     lastTrigger: null,
+    lastCommandBlockId: null,
+    control: defaultSessionControl("shell"),
     restart: {
       command: shellPath(),
       args: [],
@@ -65,6 +72,37 @@ function panelOrientation(direction: TerminalSplitDirection): "horizontal" | "ve
 
 function fallbackLayout(session: Session): TerminalPaneNode {
   return { type: "leaf", paneId: `fallback-${session.id}`, sessionId: session.id };
+}
+
+function commandBlockStatus(exitCode: number | null | undefined): CommandBlock["status"] {
+  return exitCode === 0 ? "succeeded" : "failed";
+}
+
+function outputPreview(output: string): string {
+  return output.trim().replace(/\n{3,}/g, "\n\n").slice(-4000);
+}
+
+async function changedFilesForSession(
+  session: Session,
+  workspaces: Workspace[],
+): Promise<string[]> {
+  const workspace = workspaces.find((item) => item.id === session.workspaceId);
+  if (!workspace) {
+    return [];
+  }
+  try {
+    const status = await getGitStatus(workspace.path);
+    const paths = new Set<string>();
+    for (const entry of status.entries) {
+      paths.add(entry.path);
+      if (entry.originalPath) {
+        paths.add(entry.originalPath);
+      }
+    }
+    return [...paths].slice(0, 30);
+  } catch {
+    return [];
+  }
 }
 
 function layoutContainsSession(node: TerminalPaneNode | null, sessionId: string): boolean {
@@ -107,6 +145,7 @@ function TerminalPaneTree({
   onClose: (session: Session) => void;
 }) {
   const setActiveTerminalPane = useSessionStore((state) => state.setActiveTerminalPane);
+  const setSessionControlState = useSessionStore((state) => state.setSessionControlState);
   if (node.type === "split") {
     return (
       <PanelGroup orientation={panelOrientation(node.direction)}>
@@ -223,6 +262,32 @@ function TerminalPaneTree({
         <button
           type="button"
           className="terminal-pane-button"
+          aria-label={
+            session.control?.owner === "user"
+              ? "Hand session back to agent"
+              : "Take over session"
+          }
+          title={
+            session.control?.externalInputBlocked
+              ? "External input is blocked"
+              : "External input is allowed"
+          }
+          onClick={(event) => {
+            event.stopPropagation();
+            const userOwned = session.control?.owner === "user";
+            setSessionControlState(session.id, {
+              owner: userOwned ? "agent" : "user",
+              externalInputBlocked: !userOwned,
+              updatedAt: Date.now(),
+              reason: userOwned ? "hand-back" : "takeover",
+            });
+          }}
+        >
+          {session.control?.owner === "user" ? "Hand Back" : "Take Over"}
+        </button>
+        <button
+          type="button"
+          className="terminal-pane-button"
           aria-label="Restart session"
           title="Restart session"
           onClick={(event) => {
@@ -269,17 +334,27 @@ function TerminalPaneTree({
           {maximizedPaneId === node.paneId ? "Restore" : "Maximize"}
         </button>
       </div>
-      <TerminalView
-        ptyId={session.id}
-        fontFamily={settings.terminalFontFamily}
-        fontSize={settings.terminalFontSize}
-        settings={settings}
-        visible={terminalVisible && active}
-        onExit={() => onTerminalExit(session)}
-        onOpenLink={(url) => useSessionStore.getState().openWebUrl(url, session.id)}
-        onShellUpdate={(update) => onShellUpdate(session, update)}
-        onTrigger={(match) => onTerminalTrigger(session, match)}
-      />
+      {session.status === "stale" ? (
+        <div className="terminal-stale-state">
+          <strong>Session is stale</strong>
+          <span>
+            The process is no longer attached. Restart, duplicate, or close this
+            saved session.
+          </span>
+        </div>
+      ) : (
+        <TerminalView
+          ptyId={session.id}
+          fontFamily={settings.terminalFontFamily}
+          fontSize={settings.terminalFontSize}
+          settings={settings}
+          visible={terminalVisible && active}
+          onExit={() => onTerminalExit(session)}
+          onOpenLink={(url) => useSessionStore.getState().openWebUrl(url, session.id)}
+          onShellUpdate={(update) => onShellUpdate(session, update)}
+          onTrigger={(match) => onTerminalTrigger(session, match)}
+        />
+      )}
     </section>
   );
 }
@@ -327,6 +402,8 @@ export function MainPane() {
   const replaceSession = useSessionStore((state) => state.replaceSession);
   const updateSession = useSessionStore((state) => state.updateSession);
   const appendSessionEvent = useSessionStore((state) => state.appendSessionEvent);
+  const startCommandBlock = useSessionStore((state) => state.startCommandBlock);
+  const finishCommandBlock = useSessionStore((state) => state.finishCommandBlock);
   const toggleMaximizedTerminalPane = useSessionStore(
     (state) => state.toggleMaximizedTerminalPane,
   );
@@ -439,6 +516,25 @@ export function MainPane() {
 
   const handleShellUpdate = useCallback(
     (updatedSession: Session, update: TerminalShellUpdate) => {
+      if (update.commandStarted) {
+        startCommandBlock({
+          id: newCommandBlockId(),
+          sessionId: updatedSession.id,
+          workspaceId: updatedSession.workspaceId,
+          agent: updatedSession.agent,
+          command: update.commandStarted.command,
+          cwd: update.cwd ?? updatedSession.cwd ?? "",
+          startedAt: update.commandStarted.startedAt,
+          endedAt: null,
+          exitCode: null,
+          status: "running",
+          outputPreview: "",
+          previewUrl: update.preview?.url ?? updatedSession.preview?.url ?? null,
+          changedFiles: [],
+          attention: "running",
+          source: "shell-integration",
+        });
+      }
       updateSession(updatedSession.id, {
         cwd: update.cwd ?? updatedSession.cwd,
         lastExitCode:
@@ -460,8 +556,39 @@ export function MainPane() {
               }
             : updatedSession.lastCommand ?? null),
       });
+      if (update.lastCommand) {
+        const draft =
+          useSessionStore.getState().activeCommandBlocks[updatedSession.id] ?? null;
+        const marker = update.lastCommand;
+        void changedFilesForSession(updatedSession, workspaces).then((changedFiles) => {
+          const block: CommandBlock = {
+            id: draft?.id ?? newCommandBlockId(),
+            sessionId: updatedSession.id,
+            workspaceId: updatedSession.workspaceId,
+            agent: updatedSession.agent,
+            command: marker.command || draft?.command || "",
+            cwd: update.cwd ?? draft?.cwd ?? updatedSession.cwd ?? "",
+            startedAt: marker.startedAt || draft?.startedAt || Date.now(),
+            endedAt: marker.endedAt ?? Date.now(),
+            exitCode: marker.exitCode ?? update.lastExitCode ?? null,
+            status: commandBlockStatus(marker.exitCode ?? update.lastExitCode),
+            outputPreview: outputPreview(marker.output),
+            previewUrl: update.preview?.url ?? updatedSession.preview?.url ?? null,
+            changedFiles,
+            attention:
+              (marker.exitCode ?? update.lastExitCode ?? 0) === 0
+                ? "idle"
+                : "failed",
+            source: "shell-integration",
+          };
+          finishCommandBlock(block);
+          void persistCommandBlock(block).catch((error) => {
+            console.warn("failed to persist command block", error);
+          });
+        });
+      }
     },
-    [updateSession],
+    [finishCommandBlock, startCommandBlock, updateSession, workspaces],
   );
 
   const handleTerminalTrigger = useCallback(

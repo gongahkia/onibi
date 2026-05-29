@@ -4,6 +4,7 @@ import {
   type ApprovalClientOptions,
   type DesktopCommandMessage,
 } from "./approval-client";
+import { listCommandBlocks } from "./command-blocks";
 import {
   launchSpecForProfile,
   restoreArrangement,
@@ -31,6 +32,14 @@ interface DesktopSnapshot {
     status: string;
     attention: string;
     previewUrl?: string | null;
+    commandBlockCount?: number;
+    lastCommandBlockId?: string | null;
+    control?: {
+      owner: string;
+      externalInputBlocked: boolean;
+      updatedAt: number;
+      reason?: string | null;
+    } | null;
   }>;
   arrangements: Array<{ id: string; name: string }>;
   profiles: Array<{ id: string; name: string }>;
@@ -54,6 +63,7 @@ function namedRefs<T extends { id: string; name: string }>(items: T[]) {
 }
 
 function snapshotSession(session: Session) {
+  const state = useSessionStore.getState();
   return {
     id: session.id,
     title: session.title,
@@ -63,6 +73,11 @@ function snapshotSession(session: Session) {
     status: session.status,
     attention: sessionAttentionState(session),
     previewUrl: session.preview?.url ?? null,
+    commandBlockCount: state.commandBlocks.filter(
+      (block) => block.sessionId === session.id,
+    ).length,
+    lastCommandBlockId: session.lastCommandBlockId ?? null,
+    control: session.control ?? null,
   };
 }
 
@@ -145,6 +160,20 @@ async function executeDesktopCommand(message: DesktopCommandMessage): Promise<vo
     const sessionId = stringPayloadField(message.payload, "sessionId");
     const text = stringPayloadField(message.payload, "text");
     if (sessionId && text) {
+      const session = useSessionStore
+        .getState()
+        .sessions.find((item) => item.id === sessionId);
+      if (session?.control?.externalInputBlocked) {
+        useSessionStore.getState().appendSessionEvent({
+          type: "session-control",
+          workspaceId: session.workspaceId,
+          sessionId: session.id,
+          agent: session.agent,
+          summary: "Blocked external session input",
+          metadata: { source: "desktop-command", commandId: message.command_id },
+        });
+        return;
+      }
       const payload = text.endsWith("\n") ? text : `${text}\n`;
       await ptyWrite(sessionId, new TextEncoder().encode(payload));
     }
@@ -183,6 +212,9 @@ async function executeDesktopCommand(message: DesktopCommandMessage): Promise<vo
 
 export async function startDesktopBridge(): Promise<() => void> {
   const config = await ensureApprovalConnectionConfig();
+  void listCommandBlocks({ limit: 150 })
+    .then((blocks) => useSessionStore.getState().setCommandBlocks(blocks))
+    .catch(() => undefined);
   let disposed = false;
   let timer: number | null = null;
   const queueSnapshot = () => {

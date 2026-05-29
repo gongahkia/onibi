@@ -1994,7 +1994,8 @@ export function sessionAttentionState(
   }
   if (
     session.lastTrigger &&
-    session.lastTrigger.actions.includes("badge") &&
+    (session.lastTrigger.actions.includes("badge") ||
+      session.lastTrigger.actions.includes("attention")) &&
     session.lastTrigger.timestamp > dismissedAt
   ) {
     return "triggered";
