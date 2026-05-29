@@ -169,6 +169,17 @@ pub struct DesktopNamedRef {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct DesktopSessionControlSnapshot {
+    pub owner: String,
+    #[serde(default, rename = "externalInputBlocked")]
+    pub external_input_blocked: bool,
+    #[serde(default, rename = "updatedAt")]
+    pub updated_at: Option<i64>,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct DesktopSessionSnapshot {
     pub id: String,
     pub title: String,
@@ -181,6 +192,12 @@ pub struct DesktopSessionSnapshot {
     pub attention: String,
     #[serde(default, rename = "previewUrl")]
     pub preview_url: Option<String>,
+    #[serde(default, rename = "commandBlockCount")]
+    pub command_block_count: Option<usize>,
+    #[serde(default, rename = "lastCommandBlockId")]
+    pub last_command_block_id: Option<String>,
+    #[serde(default)]
+    pub control: Option<DesktopSessionControlSnapshot>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]

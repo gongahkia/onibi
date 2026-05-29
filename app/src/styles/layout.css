@@ -1535,6 +1535,21 @@ button {
   border-color: var(--accent-2);
 }
 
+.terminal-stale-state {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 8px;
+  height: 100%;
+  padding: 48px 24px 24px;
+  color: var(--fg-1);
+  text-align: center;
+}
+
+.terminal-stale-state strong {
+  color: var(--fg-0);
+}
+
 .terminal-search {
   position: absolute;
   top: 8px;
@@ -2407,6 +2422,51 @@ button {
 .history-event-meta {
   color: var(--fg-2);
   font-size: 12px;
+}
+
+.history-command {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-0);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-output {
+  max-height: 118px;
+  margin: 6px 0 0;
+  overflow: auto;
+  color: var(--fg-1);
+  white-space: pre-wrap;
+}
+
+.history-files,
+.history-actions,
+.trigger-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.trigger-action-row {
+  color: var(--fg-2);
+  font-size: 11px;
+}
+
+.trigger-action-row span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.command-failed {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+}
+
+.command-running {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
 }
 
 @media (max-width: 800px) {

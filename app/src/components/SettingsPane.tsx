@@ -22,6 +22,7 @@ import {
   type TerminalKeybinding,
   type TerminalProfile,
   type TerminalTrigger,
+  type TerminalTriggerAction,
   type ThemeMode,
   type WebOpenMode,
   applyOnibiConfig,
@@ -750,6 +751,16 @@ function ScrollbackControl({
   );
 }
 
+const TRIGGER_ACTION_OPTIONS: Array<{ action: TerminalTriggerAction; label: string }> = [
+  { action: "highlight", label: "Highlight" },
+  { action: "badge", label: "Badge" },
+  { action: "notify", label: "Notify" },
+  { action: "attention", label: "Attention" },
+  { action: "timeline", label: "Timeline" },
+  { action: "open-preview", label: "Preview" },
+  { action: "copy-line", label: "Copy line" },
+];
+
 function TerminalTriggersControl({
   triggers,
   onChange,
@@ -763,6 +774,17 @@ function TerminalTriggersControl({
         trigger.id === id ? { ...trigger, ...patch } : trigger,
       ),
     );
+  }
+
+  function toggleAction(
+    trigger: TerminalTrigger,
+    action: TerminalTriggerAction,
+    enabled: boolean,
+  ) {
+    const actions = enabled
+      ? [...new Set([...trigger.actions, action])]
+      : trigger.actions.filter((item) => item !== action);
+    updateTrigger(trigger.id, { actions });
   }
 
   return (
@@ -782,6 +804,22 @@ function TerminalTriggersControl({
             <span className="trigger-row-main">
               <strong>{trigger.label}</strong>
               <code>{trigger.pattern}</code>
+              <span className="trigger-action-row">
+                {TRIGGER_ACTION_OPTIONS.map(({ action, label }) => (
+                  <span key={action}>
+                    <input
+                      type="checkbox"
+                      aria-label={`${trigger.label} ${label} action`}
+                      checked={trigger.actions.includes(action)}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={(event) =>
+                        toggleAction(trigger, action, event.target.checked)
+                      }
+                    />
+                    {label}
+                  </span>
+                ))}
+              </span>
             </span>
           </label>
         ))}

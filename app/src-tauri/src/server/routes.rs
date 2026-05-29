@@ -241,6 +241,19 @@ pub async fn desktop_session_input(
     Json(body): Json<DesktopSessionInputBody>,
 ) -> ApiResult<DesktopCommandResponse> {
     validate_version(body.protocol_version.as_deref())?;
+    let snapshot = state.desktop_snapshot().await;
+    if snapshot
+        .sessions
+        .iter()
+        .find(|session| session.id == session_id)
+        .and_then(|session| session.control.as_ref())
+        .is_some_and(|control| control.external_input_blocked)
+    {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(ApiError::new("external input is blocked for this session")),
+        ));
+    }
     Ok(Json(broadcast_desktop_command(
         &state,
         "session-input",
@@ -643,5 +656,65 @@ mod tests {
         let value: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(value["attentionCount"], 1);
         assert_eq!(value["sessions"][0]["previewUrl"], "http://localhost:1420/");
+    }
+
+    #[tokio::test]
+    async fn desktop_command_blocks_round_trip() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        let app = router(AppState::for_tests(store));
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/desktop/command-blocks")
+                    .header("authorization", "Bearer test-token")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "protocol_version": "1.0",
+                            "id": "cmd-1",
+                            "sessionId": "pty-1",
+                            "workspaceId": "workspace:/repo",
+                            "agent": "codex",
+                            "command": "pnpm test",
+                            "cwd": "/repo",
+                            "startedAt": 10,
+                            "endedAt": 20,
+                            "exitCode": 1,
+                            "status": "failed",
+                            "outputPreview": "failed",
+                            "previewUrl": "http://localhost:1420/",
+                            "changedFiles": ["src/main.ts"],
+                            "attention": "failed",
+                            "source": "shell-integration"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/v1/desktop/command-blocks?sessionId=pty-1")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let blocks: Vec<DesktopCommandBlock> = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].command, "pnpm test");
+        assert_eq!(blocks[0].changed_files, vec!["src/main.ts"]);
     }
 }

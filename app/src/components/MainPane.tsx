@@ -609,6 +609,14 @@ export function MainPane() {
           void Notification.requestPermission();
         }
       }
+      if (match.actions.includes("open-preview") && triggeredSession.preview) {
+        useSessionStore
+          .getState()
+          .openWebUrl(triggeredSession.preview.url, triggeredSession.id);
+      }
+      if (match.actions.includes("copy-line")) {
+        void navigator.clipboard?.writeText(match.line);
+      }
     },
     [appendSessionEvent, updateSession],
   );

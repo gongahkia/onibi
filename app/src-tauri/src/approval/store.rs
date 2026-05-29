@@ -497,7 +497,7 @@ fn row_to_command_block(row: &rusqlite::Row<'_>) -> Result<DesktopCommandBlock> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{ApprovalDecisionBody, Decision};
+    use crate::protocol::{ApprovalDecisionBody, Decision, DesktopCommandBlock};
     use serde_json::json;
     use tempfile::tempdir;
 
@@ -586,5 +586,35 @@ mod tests {
         let subscriptions = store.list_push_subscriptions().unwrap();
         assert_eq!(subscriptions.len(), 1);
         assert_eq!(subscriptions[0]["endpoint"], "https://push.example/device");
+    }
+
+    #[test]
+    fn stores_command_blocks() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        let block = DesktopCommandBlock {
+            id: "cmd-1".to_string(),
+            protocol_version: Some(PROTOCOL_VERSION.to_string()),
+            session_id: "pty-1".to_string(),
+            workspace_id: "workspace:/repo".to_string(),
+            agent: "codex".to_string(),
+            command: "pnpm test".to_string(),
+            cwd: "/repo".to_string(),
+            started_at: 10,
+            ended_at: Some(20),
+            exit_code: Some(1),
+            status: "failed".to_string(),
+            output_preview: "failed".to_string(),
+            preview_url: Some("http://localhost:1420/".to_string()),
+            changed_files: vec!["src/main.ts".to_string()],
+            attention: Some("failed".to_string()),
+            source: Some("shell-integration".to_string()),
+        };
+        store.upsert_command_block(&block).unwrap();
+
+        let blocks = store.list_command_blocks(Some("pty-1"), 10).unwrap();
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].command, "pnpm test");
+        assert_eq!(blocks[0].changed_files, vec!["src/main.ts"]);
     }
 }

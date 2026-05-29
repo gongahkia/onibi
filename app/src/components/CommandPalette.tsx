@@ -162,6 +162,9 @@ export function CommandPalette() {
   const saveCurrentArrangement = useSessionStore((state) => state.saveCurrentArrangement);
   const deleteArrangement = useSessionStore((state) => state.deleteArrangement);
   const clearSessionAttention = useSessionStore((state) => state.clearSessionAttention);
+  const setSessionControlState = useSessionStore(
+    (state) => state.setSessionControlState,
+  );
   const selectFile = useSessionStore((state) => state.selectFile);
   const setActiveSession = useSessionStore((state) => state.setActiveSession);
   const setActiveSidebarView = useSessionStore((state) => state.setActiveSidebarView);
@@ -214,6 +217,14 @@ export function CommandPalette() {
         description: "Choose an agent, workspace, and initial prompt",
         shortcut: primaryShortcut("N"),
         keywords: ["agent", "terminal", "spawn", "start"],
+        run: () => setNewSessionOpen(true),
+      },
+      {
+        id: "workspace.quick-launch",
+        label: "Quick Workspace Launcher",
+        group: "Workspace",
+        description: "Launch a profile, workspace, prompt, or split",
+        keywords: ["quick", "launcher", "profile", "worktree", "arrangement"],
         run: () => setNewSessionOpen(true),
       },
       {
@@ -521,6 +532,53 @@ export function CommandPalette() {
             ]
           : []),
         {
+          id: "session.takeover-toggle",
+          label:
+            activeSession.control?.owner === "user"
+              ? "Hand Session Back To Agent"
+              : "Take Over Active Session",
+          group: "Agent",
+          description:
+            activeSession.control?.owner === "user"
+              ? "Allow external agent or socket input again"
+              : "Block external writes while you type",
+          keywords: ["takeover", "handoff", "control", "block input"],
+          run: () => {
+            const userOwned = activeSession.control?.owner === "user";
+            setSessionControlState(activeSession.id, {
+              owner: userOwned ? "agent" : "user",
+              externalInputBlocked: !userOwned,
+              updatedAt: Date.now(),
+              reason: userOwned ? "palette-hand-back" : "palette-takeover",
+            });
+          },
+        },
+        {
+          id: "session.external-input-toggle",
+          label: activeSession.control?.externalInputBlocked
+            ? "Allow External Input"
+            : "Block External Input",
+          group: "Agent",
+          description: activeSession.title,
+          keywords: ["socket", "cli", "mobile", "remote", "control"],
+          run: () => {
+            const current = activeSession.control ?? {
+              owner: activeSession.agent === "shell" ? "user" : "agent",
+              externalInputBlocked: false,
+              updatedAt: Date.now(),
+              reason: null,
+            };
+            setSessionControlState(activeSession.id, {
+              ...current,
+              externalInputBlocked: !current.externalInputBlocked,
+              updatedAt: Date.now(),
+              reason: current.externalInputBlocked
+                ? "palette-allow-external"
+                : "palette-block-external",
+            });
+          },
+        },
+        {
           id: "session.restart-active",
           label: "Restart Active Session",
           group: "Session",
@@ -604,6 +662,7 @@ export function CommandPalette() {
     sessions,
     setActiveSession,
     setActiveSidebarView,
+    setSessionControlState,
     settings,
     toggleMaximizedTerminalPane,
     focusRelativeTerminalPane,

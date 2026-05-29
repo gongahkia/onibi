@@ -2330,9 +2330,12 @@ export const useSessionStore = create<SessionStore>((set) => ({
       const sessions = state.sessions.filter((session) => session.id !== id);
       const terminalLayout = removePaneSession(state.terminalLayout, id);
       const activeLeaf = firstLeaf(terminalLayout);
+      const { [id]: _removedCommandBlock, ...activeCommandBlocks } =
+        state.activeCommandBlocks;
       return {
         sessions,
         terminalLayout,
+        activeCommandBlocks,
         maximizedTerminalPaneId:
           state.maximizedTerminalPaneId &&
           paneContainsPane(terminalLayout, state.maximizedTerminalPaneId)
