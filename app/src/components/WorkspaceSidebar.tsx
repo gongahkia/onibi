@@ -22,11 +22,13 @@ export function WorkspaceSidebar() {
   const [agentReviews, setAgentReviews] = useState<AgentReviewRecord[]>([]);
   const [gitLoading, setGitLoading] = useState(false);
   const [gitError, setGitError] = useState("");
+  const [filesMode, setFilesMode] = useState<"tree" | "search">("tree");
   const sessions = useSessionStore((state) => state.sessions);
   const workspaces = useSessionStore((state) => state.workspaces);
   const activeSessionId = useSessionStore((state) => state.activeSessionId);
   const view = useSessionStore((state) => state.activeSidebarView);
   const setView = useSessionStore((state) => state.setActiveSidebarView);
+  const effectiveView = view === "search" ? "files" : view;
   const activeWorkspace = useMemo(
     () => activeWorkspaceFor(sessions, workspaces, activeSessionId),
     [activeSessionId, sessions, workspaces],
@@ -63,6 +65,13 @@ export function WorkspaceSidebar() {
   }, [refreshGitStatus]);
 
   useEffect(() => {
+    if (view === "search") {
+      setFilesMode("search");
+      setView("files");
+    }
+  }, [setView, view]);
+
+  useEffect(() => {
     void refreshAgentReviews();
     const timer = window.setInterval(() => {
       void refreshAgentReviews();
@@ -82,18 +91,18 @@ export function WorkspaceSidebar() {
       <div className="workspace-view-switcher" role="tablist" aria-label="Workspace views">
         <button
           type="button"
-          className={view === "files" ? "active" : ""}
+          className={effectiveView === "files" ? "active" : ""}
           role="tab"
-          aria-selected={view === "files"}
+          aria-selected={effectiveView === "files"}
           onClick={() => setView("files")}
         >
           Files
         </button>
         <button
           type="button"
-          className={view === "source-control" ? "active" : ""}
+          className={effectiveView === "source-control" ? "active" : ""}
           role="tab"
-          aria-selected={view === "source-control"}
+          aria-selected={effectiveView === "source-control"}
           onClick={() => setView("source-control")}
         >
           Git
@@ -101,41 +110,52 @@ export function WorkspaceSidebar() {
         </button>
         <button
           type="button"
-          className={view === "search" ? "active" : ""}
+          className={effectiveView === "sessions" ? "active" : ""}
           role="tab"
-          aria-selected={view === "search"}
-          onClick={() => setView("search")}
-        >
-          Search
-        </button>
-        <button
-          type="button"
-          className={view === "sessions" ? "active" : ""}
-          role="tab"
-          aria-selected={view === "sessions"}
+          aria-selected={effectiveView === "sessions"}
           onClick={() => setView("sessions")}
         >
           Sessions
         </button>
         <button
           type="button"
-          className={view === "history" ? "active" : ""}
+          className={effectiveView === "history" ? "active" : ""}
           role="tab"
-          aria-selected={view === "history"}
+          aria-selected={effectiveView === "history"}
           onClick={() => setView("history")}
         >
           History
         </button>
       </div>
       <div className="workspace-view-pane">
-        {view === "files" ? (
-          <FileTree
-            gitStatusByPath={gitStatusByPath}
-            agentReviewsByPath={agentReviewsByPath}
-          />
-        ) : view === "search" ? (
-          <WorkspaceSearchView />
-        ) : view === "source-control" ? (
+        {effectiveView === "files" ? (
+          <section className="files-view" aria-label="Files">
+            <div className="files-view-mode" role="tablist" aria-label="File view mode">
+              <button
+                type="button"
+                className={filesMode === "tree" ? "active" : ""}
+                onClick={() => setFilesMode("tree")}
+              >
+                Tree
+              </button>
+              <button
+                type="button"
+                className={filesMode === "search" ? "active" : ""}
+                onClick={() => setFilesMode("search")}
+              >
+                Text Search
+              </button>
+            </div>
+            {filesMode === "tree" ? (
+              <FileTree
+                gitStatusByPath={gitStatusByPath}
+                agentReviewsByPath={agentReviewsByPath}
+              />
+            ) : (
+              <WorkspaceSearchView />
+            )}
+          </section>
+        ) : effectiveView === "source-control" ? (
           <SourceControlView
             workspace={activeWorkspace}
             status={gitStatus}
@@ -143,7 +163,7 @@ export function WorkspaceSidebar() {
             error={gitError}
             onRefresh={refreshGitStatus}
           />
-        ) : view === "sessions" ? (
+        ) : effectiveView === "sessions" ? (
           <SessionListView />
         ) : (
           <SessionHistoryView />

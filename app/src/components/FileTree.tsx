@@ -801,8 +801,8 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
         <input
           className="filter-input"
           value={filter}
-          placeholder="Filter files"
-          aria-label="Filter files"
+          placeholder="Filter file names"
+          aria-label="Filter file names"
           onChange={(event) => setFilter(event.target.value)}
         />
         <button
