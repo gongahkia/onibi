@@ -14,6 +14,7 @@ import {
   hydrateSessionStore,
   useSessionStore,
 } from "./lib/sessions";
+import { startDesktopBridge } from "./lib/desktop-api";
 import "./styles/layout.css";
 
 function App() {
@@ -21,6 +22,22 @@ function App() {
 
   useEffect(() => {
     void hydrateSessionStore();
+  }, []);
+
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    let disposed = false;
+    void startDesktopBridge().then((dispose) => {
+      if (disposed) {
+        dispose();
+      } else {
+        cleanup = dispose;
+      }
+    });
+    return () => {
+      disposed = true;
+      cleanup?.();
+    };
   }, []);
 
   useEffect(() => {

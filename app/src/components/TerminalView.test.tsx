@@ -22,6 +22,7 @@ const terminalMocks = vi.hoisted(() => {
     focus = vi.fn();
     write = vi.fn();
     refresh = vi.fn();
+    scrollToBottom = vi.fn();
     clear = vi.fn();
     selectAll = vi.fn();
     dispose = vi.fn();
@@ -220,6 +221,36 @@ describe("TerminalView", () => {
     expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith("pty_write", {
       id: "pty-1",
       data: [97],
+    });
+  });
+
+  test("emits shell command metadata and detected previews", async () => {
+    const onShellUpdate = vi.fn();
+    render(<TerminalView ptyId="pty-1" onShellUpdate={onShellUpdate} />);
+    await waitFor(() => {
+      expect(globalThis.__TAURI_MOCKS__.listen).toHaveBeenCalledWith(
+        "pty:pty-1",
+        expect.any(Function),
+      );
+    });
+
+    const listener = globalThis.__TAURI_MOCKS__.listen.mock.calls[0][1] as (
+      event: { payload: unknown },
+    ) => void;
+    const text =
+      "\x1b]133;C;pnpm dev\x07Local: http://localhost:1420/\nready\n\x1b]133;D;0\x07";
+    listener({ payload: { type: "data", data: btoa(text) } });
+
+    await waitFor(() => {
+      expect(onShellUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          preview: expect.objectContaining({ url: "http://localhost:1420/" }),
+          lastCommand: expect.objectContaining({
+            command: "pnpm dev",
+            exitCode: 0,
+          }),
+        }),
+      );
     });
   });
 });

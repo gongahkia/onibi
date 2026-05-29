@@ -92,6 +92,66 @@ describe("CommandPalette", () => {
     expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull();
   });
 
+  test("focuses attention items and clears active attention", () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-ok",
+          agent: "shell",
+          workspaceId: "workspace:/repo",
+          title: "Shell",
+          status: "running",
+          createdAt: Date.now(),
+          pendingApprovals: [],
+        },
+        {
+          id: "pty-attention",
+          agent: "codex",
+          workspaceId: "workspace:/repo",
+          title: "Codex",
+          status: "running",
+          createdAt: Date.now(),
+          pendingApprovals: [],
+          lastTrigger: {
+            id: "tests-failed",
+            label: "Tests failed",
+            pattern: "failed",
+            line: "tests failed",
+            actions: ["badge"],
+            timestamp: Date.now(),
+          },
+        },
+      ],
+      activeSessionId: "pty-ok",
+      terminalLayout: {
+        type: "split",
+        paneId: "split-1",
+        direction: "vertical",
+        children: [
+          { type: "leaf", paneId: "pane-ok", sessionId: "pty-ok" },
+          { type: "leaf", paneId: "pane-attention", sessionId: "pty-attention" },
+        ],
+      },
+      activeTerminalPaneId: "pane-ok",
+      workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
+    });
+
+    render(<CommandPalette />);
+    fireEvent.keyDown(window, { key: "p", ctrlKey: true });
+    let input = screen.getByLabelText("Search commands");
+    fireEvent.change(input, { target: { value: "focus next attention" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(useSessionStore.getState().activeSessionId).toBe("pty-attention");
+
+    fireEvent.keyDown(window, { key: "p", ctrlKey: true });
+    input = screen.getByLabelText("Search commands");
+    fireEvent.change(input, { target: { value: "clear active session attention" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(useSessionStore.getState().sessions[1].lastTrigger).toBeNull();
+  });
+
   test("switches the sidebar to workspace search from the palette", () => {
     render(<CommandPalette />);
 

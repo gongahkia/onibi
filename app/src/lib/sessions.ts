@@ -49,6 +49,10 @@ export interface Session {
   lastTrigger?: TerminalTriggerMatch | null;
   profileId?: string | null;
   restart?: SessionRestartMetadata | null;
+  attentionDismissedAt?: number | null;
+  preview?: SessionPreview | null;
+  lastCommand?: SessionCommandMarker | null;
+  shellPromptMarkerSeen?: boolean;
 }
 
 export type TerminalSplitDirection = "vertical" | "horizontal";
@@ -114,6 +118,30 @@ export interface TerminalLaunchSpec extends SessionRestartMetadata {
   title: string;
   profileId?: string | null;
   initialPrompt?: string;
+}
+
+export type SessionAttentionState =
+  | "idle"
+  | "running"
+  | "needs-approval"
+  | "triggered"
+  | "failed"
+  | "exited"
+  | "stale";
+
+export interface SessionPreview {
+  url: string;
+  port: number | null;
+  label: string;
+  lastSeenAt: number;
+}
+
+export interface SessionCommandMarker {
+  command: string;
+  output: string;
+  startedAt: number;
+  endedAt?: number | null;
+  exitCode?: number | null;
 }
 
 export type WorkspaceSidebarView =
@@ -428,11 +456,13 @@ type SessionStore = {
   setMaximizedTerminalPane: (paneId: string | null) => void;
   toggleMaximizedTerminalPane: (paneId?: string | null) => void;
   focusRelativeTerminalPane: (delta: number) => void;
+  focusRelativeAttentionSession: (delta: number) => void;
   setActiveSidebarView: (view: WorkspaceSidebarView) => void;
   addSession: (session: Session, placement?: TerminalPanePlacement | null) => void;
   updateSession: (id: string, patch: Partial<Session>) => void;
   replaceSession: (id: string, session: Session) => void;
   removeSession: (id: string) => void;
+  clearSessionAttention: (id: string) => void;
   saveCurrentArrangement: (name?: string) => string | null;
   deleteArrangement: (id: string) => void;
   appendSessionEvent: (event: Omit<SessionEvent, "id" | "timestamp">) => void;
@@ -1864,6 +1894,85 @@ function normalizeArrangements(value: unknown): Arrangement[] {
   return arrangements;
 }
 
+export function sessionAttentionState(
+  session: Session,
+  now = Date.now(),
+): SessionAttentionState {
+  const dismissedAt = session.attentionDismissedAt ?? 0;
+  if (session.status === "awaiting-approval" || session.pendingApprovals.length > 0) {
+    return "needs-approval";
+  }
+  if (
+    session.lastTrigger &&
+    session.lastTrigger.actions.includes("badge") &&
+    session.lastTrigger.timestamp > dismissedAt
+  ) {
+    return "triggered";
+  }
+  if (
+    session.status === "error" ||
+    (session.lastExitCode !== null &&
+      session.lastExitCode !== undefined &&
+      session.lastExitCode !== 0 &&
+      (session.lastCommand?.endedAt ?? now) > dismissedAt)
+  ) {
+    return "failed";
+  }
+  if (session.status === "completed" && session.createdAt > dismissedAt) {
+    return "exited";
+  }
+  if (
+    session.status === "running" &&
+    now - session.createdAt > 2 * 60 * 60 * 1000 &&
+    session.createdAt > dismissedAt
+  ) {
+    return "stale";
+  }
+  return session.status === "running" ? "running" : "idle";
+}
+
+export function sessionNeedsAttention(session: Session, now = Date.now()): boolean {
+  return ["needs-approval", "triggered", "failed", "exited"].includes(
+    sessionAttentionState(session, now),
+  );
+}
+
+export function attentionSessions(
+  sessions: Session[],
+  now = Date.now(),
+): Session[] {
+  return sessions.filter((session) => sessionNeedsAttention(session, now));
+}
+
+export function detectSessionPreview(text: string): SessionPreview | null {
+  const plain = text.replace(/\x1b\].*?(?:\x07|\x1b\\)/g, "");
+  const urlMatch = plain.match(
+    /\bhttps?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0):(\d{2,5})(?:\/[^\s'"<>)]*)?/i,
+  );
+  const portMatch =
+    urlMatch ??
+    plain.match(
+      /\b(?:localhost|127\.0\.0\.1|0\.0\.0\.0):(\d{2,5})(?:\/[^\s'"<>)]*)?/i,
+    );
+  if (!portMatch) {
+    return null;
+  }
+  const raw = portMatch[0];
+  const port = Number(portMatch[1]);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return null;
+  }
+  const url = raw.startsWith("http")
+    ? raw.replace("0.0.0.0", "127.0.0.1")
+    : `http://${raw.replace("0.0.0.0", "127.0.0.1")}`;
+  return {
+    url,
+    port,
+    label: `:${port}`,
+    lastSeenAt: Date.now(),
+  };
+}
+
 function appendEvent(
   events: SessionEvent[],
   event: Omit<SessionEvent, "id" | "timestamp">,
@@ -2007,6 +2116,27 @@ export const useSessionStore = create<SessionStore>((set) => ({
     });
     persistLater();
   },
+  focusRelativeAttentionSession: (delta) => {
+    set((state) => {
+      const sessions = attentionSessions(state.sessions);
+      if (sessions.length === 0) {
+        return {};
+      }
+      const currentIndex = Math.max(
+        sessions.findIndex((session) => session.id === state.activeSessionId),
+        0,
+      );
+      const next = sessions[(currentIndex + delta + sessions.length) % sessions.length];
+      return {
+        activeSessionId: next.id,
+        activeTerminalPaneId:
+          paneIdForSession(state.terminalLayout, next.id) ?? state.activeTerminalPaneId,
+        activeSidebarView: "sessions" as const,
+        selectedFile: null,
+      };
+    });
+    persistLater();
+  },
   setActiveSidebarView: (view) => {
     set({ activeSidebarView: view });
     persistLater();
@@ -2111,6 +2241,24 @@ export const useSessionStore = create<SessionStore>((set) => ({
             : state.activeSessionId,
       };
     });
+    persistLater();
+  },
+  clearSessionAttention: (id) => {
+    set((state) => ({
+      sessions: state.sessions.map((session) =>
+        session.id === id
+          ? {
+              ...session,
+              attentionDismissedAt: Date.now(),
+              lastTrigger: null,
+              lastExitCode:
+                session.status === "completed" || session.status === "error"
+                  ? session.lastExitCode
+                  : session.lastExitCode ?? null,
+            }
+          : session,
+      ),
+    }));
     persistLater();
   },
   saveCurrentArrangement: (name) => {

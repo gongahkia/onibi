@@ -29,6 +29,15 @@ export interface GitFileDiff {
   binary: boolean;
 }
 
+export interface GitWorktree {
+  path: string;
+  branch?: string | null;
+  head?: string | null;
+  detached: boolean;
+  bare: boolean;
+  prunable: boolean;
+}
+
 export interface GitTreeState {
   badge: string;
   label: string;
@@ -101,4 +110,26 @@ export async function getGitFileDiff(
   stage: "staged" | "working",
 ): Promise<GitFileDiff> {
   return invoke<GitFileDiff>("git_diff_file", { root, path, stage });
+}
+
+export async function listGitWorktrees(root: string): Promise<GitWorktree[]> {
+  const worktrees = await invoke<GitWorktree[] | null>("git_worktrees", { root });
+  return Array.isArray(worktrees) ? worktrees : [];
+}
+
+export async function createGitWorktree(
+  root: string,
+  branch: string,
+  path: string,
+  base?: string | null,
+): Promise<GitWorktree> {
+  return invoke<GitWorktree>("git_create_worktree", { root, branch, path, base });
+}
+
+export async function removeGitWorktree(
+  root: string,
+  path: string,
+  force = false,
+): Promise<string> {
+  return invoke<string>("git_remove_worktree", { root, path, force });
 }

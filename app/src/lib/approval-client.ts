@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export type ApprovalDecision = "allow" | "deny";
@@ -25,9 +26,19 @@ export interface ApprovalResolvedMessage {
   reason?: string | null;
 }
 
+export interface DesktopCommandMessage {
+  type: "desktop-command";
+  protocol_version: string;
+  machine_id: string;
+  command_id: string;
+  kind: string;
+  payload: unknown;
+}
+
 export type ApprovalRealtimeMessage =
   | ApprovalPendingMessage
   | ApprovalResolvedMessage
+  | DesktopCommandMessage
   | { type: "run-event"; [key: string]: unknown }
   | { type: "pty-output"; [key: string]: unknown }
   | { type: "ping"; [key: string]: unknown };
@@ -58,6 +69,28 @@ export function storedApprovalPort(): number | undefined {
   const raw = window.localStorage.getItem("onibi.port");
   const port = raw ? Number.parseInt(raw, 10) : Number.NaN;
   return Number.isFinite(port) ? port : undefined;
+}
+
+export async function ensureApprovalConnectionConfig(): Promise<ApprovalClientOptions> {
+  const existingToken = storedApprovalToken();
+  const existingPort = storedApprovalPort();
+  if (existingToken && existingPort) {
+    return { token: existingToken, port: existingPort };
+  }
+  try {
+    const config = await invoke<{ token: string; port: number }>(
+      "approval_server_config",
+    );
+    if (config.token) {
+      window.localStorage.setItem("onibi.token", config.token);
+    }
+    if (config.port) {
+      window.localStorage.setItem("onibi.port", String(config.port));
+    }
+    return config;
+  } catch {
+    return { token: existingToken, port: existingPort };
+  }
 }
 
 export async function decideApproval({

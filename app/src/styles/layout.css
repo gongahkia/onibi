@@ -168,6 +168,7 @@ button {
 
 .tab,
 .icon-button {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -222,6 +223,38 @@ button {
 
 .tab-status.error {
   background: var(--danger);
+}
+
+.tab-attention {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--bg-0);
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.tab-attention.attention-failed,
+.tab-attention.attention-exited {
+  background: var(--danger);
+}
+
+.tab-preview {
+  position: absolute;
+  right: 3px;
+  bottom: 2px;
+  max-width: 34px;
+  overflow: hidden;
+  padding: 1px 3px;
+  color: #061413;
+  background: var(--accent-2);
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @keyframes flash-ring {
@@ -956,6 +989,43 @@ button {
   background: var(--bg-1);
 }
 
+.session-filter-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.session-filter-row button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  color: var(--fg-1);
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  font: 12px/1.2 var(--font-ui);
+}
+
+.session-filter-row button.active {
+  color: var(--fg-0);
+  border-color: var(--accent);
+}
+
+.session-filter-row span {
+  display: inline-grid;
+  min-width: 17px;
+  height: 17px;
+  place-items: center;
+  color: #061413;
+  background: var(--accent);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+}
+
 .session-card {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -973,7 +1043,8 @@ button {
 }
 
 .session-card:hover,
-.session-card.active {
+.session-card.active,
+.session-card.needs-attention {
   color: var(--fg-0);
   background: var(--bg-2);
   border-color: var(--accent);
@@ -1022,6 +1093,16 @@ button {
   color: var(--danger);
 }
 
+.session-card-status.attention-failed,
+.session-card-status.attention-exited {
+  color: var(--danger);
+}
+
+.session-card-status.attention-needs-approval,
+.session-card-status.attention-triggered {
+  color: var(--accent);
+}
+
 .session-card-time,
 .session-card-meta,
 .session-empty {
@@ -1053,6 +1134,17 @@ button {
   white-space: nowrap;
 }
 
+.session-card-clear {
+  min-height: 20px;
+  padding: 1px 6px;
+  color: var(--fg-1);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 10px;
+}
+
 .session-empty {
   padding: 18px 10px;
   text-align: center;
@@ -1076,6 +1168,38 @@ button {
   gap: 3px 8px;
   padding: 10px;
   border-bottom: 1px solid var(--border);
+}
+
+.source-control-worktrees {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.source-control-worktree-header,
+.source-control-worktree-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.source-control-worktree-header {
+  color: var(--fg-0);
+  font-weight: 700;
+}
+
+.source-control-worktree-row {
+  min-height: 28px;
+  padding: 4px 0;
+}
+
+.source-control-worktree-row > span {
+  overflow: hidden;
+  color: var(--fg-1);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .source-control-repo-name {

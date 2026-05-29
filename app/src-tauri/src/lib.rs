@@ -9,6 +9,8 @@ pub mod pty;
 #[cfg(feature = "gui")]
 pub mod review;
 #[cfg(feature = "gui")]
+pub mod secret;
+#[cfg(feature = "gui")]
 pub mod util;
 
 #[cfg(feature = "gui")]
@@ -18,14 +20,14 @@ use fonts::list_font_families;
 #[cfg(feature = "gui")]
 use fs::{
     fs_create_dir, fs_create_file, fs_create_file_with_contents, fs_delete_path,
-    fs_detect_terminal_configs, fs_list_dir, fs_move_path, fs_read_file,
-    fs_read_ghostty_config, fs_read_preview_file, fs_rename_path, fs_resolve_binary,
-    fs_search_workspace, fs_workspace_info, fs_write_file,
+    fs_detect_terminal_configs, fs_list_dir, fs_move_path, fs_read_file, fs_read_ghostty_config,
+    fs_read_preview_file, fs_rename_path, fs_resolve_binary, fs_search_workspace,
+    fs_workspace_info, fs_write_file,
 };
 #[cfg(feature = "gui")]
 use git::{
-    git_commit, git_diff_file, git_discard_paths, git_stage_paths, git_status, git_sync,
-    git_unstage_paths,
+    git_commit, git_create_worktree, git_diff_file, git_discard_paths, git_remove_worktree,
+    git_stage_paths, git_status, git_sync, git_unstage_paths, git_worktrees,
 };
 #[cfg(feature = "gui")]
 use pty::{PtyEvent, PtyId, PtyManager, PtySpawnRequest};
@@ -53,6 +55,24 @@ use tracing_subscriber::EnvFilter;
 enum PtyWireEvent {
     Data { data: String },
     Exit { code: u32, signal: Option<String> },
+}
+
+#[cfg(feature = "gui")]
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ApprovalServerConfig {
+    port: u16,
+    token: String,
+}
+
+#[cfg(feature = "gui")]
+#[tauri::command]
+async fn approval_server_config() -> Result<ApprovalServerConfig, String> {
+    let token = secret::load_or_create_token().map_err(|err| err.to_string())?;
+    Ok(ApprovalServerConfig {
+        port: 17893,
+        token: token.token,
+    })
 }
 
 #[cfg(feature = "gui")]
@@ -177,6 +197,7 @@ pub fn run() {
             pty_resize,
             pty_kill,
             pty_list,
+            approval_server_config,
             fs_list_dir,
             fs_read_file,
             fs_read_preview_file,
@@ -199,6 +220,9 @@ pub fn run() {
             git_commit,
             git_sync,
             git_diff_file,
+            git_worktrees,
+            git_create_worktree,
+            git_remove_worktree,
             agent_review_start,
             agent_review_stop,
             agent_review_note_human_write,

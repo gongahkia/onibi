@@ -131,6 +131,69 @@ pub struct PtyOutputBody {
     pub data: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct DesktopNamedRef {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct DesktopSessionSnapshot {
+    pub id: String,
+    pub title: String,
+    pub agent: String,
+    #[serde(rename = "workspaceId")]
+    pub workspace_id: String,
+    #[serde(default)]
+    pub cwd: Option<String>,
+    pub status: String,
+    pub attention: String,
+    #[serde(default, rename = "previewUrl")]
+    pub preview_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct DesktopSnapshotBody {
+    #[serde(default)]
+    pub protocol_version: Option<String>,
+    #[serde(default)]
+    pub sessions: Vec<DesktopSessionSnapshot>,
+    #[serde(default)]
+    pub arrangements: Vec<DesktopNamedRef>,
+    #[serde(default)]
+    pub profiles: Vec<DesktopNamedRef>,
+    #[serde(default, rename = "updatedAt")]
+    pub updated_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DesktopSessionLaunchBody {
+    #[serde(default)]
+    pub protocol_version: Option<String>,
+    pub profile: String,
+    pub workspace: String,
+    #[serde(default)]
+    pub prompt: Option<String>,
+    #[serde(default)]
+    pub cwd: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DesktopSessionInputBody {
+    #[serde(default)]
+    pub protocol_version: Option<String>,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DesktopCommandResponse {
+    pub ok: bool,
+    #[serde(rename = "protocolVersion")]
+    pub protocol_version: String,
+    #[serde(rename = "commandId")]
+    pub command_id: String,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PairRequest {
     #[serde(rename = "deviceLabel")]
@@ -182,6 +245,13 @@ pub enum ServerMessage {
         machine_id: String,
         session_id: String,
         data: String,
+    },
+    DesktopCommand {
+        protocol_version: String,
+        machine_id: String,
+        command_id: String,
+        kind: String,
+        payload: Value,
     },
     Ping {
         protocol_version: String,

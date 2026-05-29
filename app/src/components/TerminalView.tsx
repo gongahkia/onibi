@@ -14,9 +14,12 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import {
   DEFAULT_SETTINGS,
+  detectSessionPreview,
   terminalScrollbackLinesForSettings,
   terminalThemeForSettings,
   type AppSettings,
+  type SessionCommandMarker,
+  type SessionPreview,
   type TerminalKeybindingAction,
   type TerminalTriggerMatch,
 } from "../lib/sessions";
@@ -25,6 +28,10 @@ import { ptyResize, ptyWrite, subscribePty, type PtyId } from "../lib/tauri-brid
 export interface TerminalShellUpdate {
   cwd?: string;
   lastExitCode?: number;
+  promptMarkerSeen?: boolean;
+  commandStarted?: { command: string; startedAt: number };
+  lastCommand?: SessionCommandMarker;
+  preview?: SessionPreview;
 }
 
 export interface TerminalViewProps {
@@ -174,6 +181,14 @@ function decodeFileUriPath(uri: string): string | null {
   }
 }
 
+function decodeOscPayload(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 function parseShellUpdate(text: string): TerminalShellUpdate | null {
   const update: TerminalShellUpdate = {};
   const matcher = /\x1b\](7;.*?|133;.*?)(?:\x07|\x1b\\)/g;
@@ -192,9 +207,23 @@ function parseShellUpdate(text: string): TerminalShellUpdate | null {
           update.lastExitCode = parsed;
         }
       }
+      update.promptMarkerSeen = true;
+    } else if (payload.startsWith("133;C")) {
+      const command = payload.startsWith("133;C;")
+        ? decodeOscPayload(payload.slice("133;C;".length)).trim()
+        : "";
+      update.commandStarted = { command, startedAt: Date.now() };
+      update.promptMarkerSeen = true;
+    } else if (payload.startsWith("133;A")) {
+      update.promptMarkerSeen = true;
     }
   }
-  return update.cwd !== undefined || update.lastExitCode !== undefined ? update : null;
+  return update.cwd !== undefined ||
+    update.lastExitCode !== undefined ||
+    update.promptMarkerSeen ||
+    update.commandStarted
+    ? update
+    : null;
 }
 
 function stripTerminalControls(text: string): string {
@@ -231,6 +260,7 @@ export function TerminalView({
   const searchAddonRef = useRef<SearchAddon | null>(null);
   const textDecoderRef = useRef(new TextDecoder());
   const triggerLineBufferRef = useRef("");
+  const activeCommandRef = useRef<SessionCommandMarker | null>(null);
   const visibleRef = useRef(visible);
   const layoutFramesRef = useRef<number[]>([]);
   const keybindingsRef = useRef<Map<string, TerminalKeybindingAction>>(new Map());
@@ -455,6 +485,49 @@ export function TerminalView({
       }
     };
 
+    const applyOutputMetadata = (text: string) => {
+      const shellUpdate = parseShellUpdate(text) ?? {};
+      const plain = stripTerminalControls(text);
+      const preview = detectSessionPreview(plain);
+      const startedCommand = shellUpdate.commandStarted;
+      if (startedCommand) {
+        activeCommandRef.current = {
+          command: startedCommand.command,
+          output: "",
+          startedAt: startedCommand.startedAt,
+          endedAt: null,
+          exitCode: null,
+        };
+      }
+      if (activeCommandRef.current && plain) {
+        activeCommandRef.current = {
+          ...activeCommandRef.current,
+          output: `${activeCommandRef.current.output}${plain}`.slice(-20000),
+        };
+      }
+      if (shellUpdate.lastExitCode !== undefined && activeCommandRef.current) {
+        shellUpdate.lastCommand = {
+          ...activeCommandRef.current,
+          endedAt: Date.now(),
+          exitCode: shellUpdate.lastExitCode,
+        };
+        activeCommandRef.current = null;
+      }
+      if (preview) {
+        shellUpdate.preview = preview;
+      }
+      if (
+        shellUpdate.cwd !== undefined ||
+        shellUpdate.lastExitCode !== undefined ||
+        shellUpdate.promptMarkerSeen ||
+        shellUpdate.commandStarted ||
+        shellUpdate.lastCommand ||
+        shellUpdate.preview
+      ) {
+        onShellUpdateRef.current?.(shellUpdate);
+      }
+    };
+
     let disposed = false;
     let unlisten: (() => void) | undefined;
     void subscribePty(ptyId, (event) => {
@@ -464,10 +537,7 @@ export function TerminalView({
       if (event.type === "data") {
         const bytes = decodeBase64(event.data);
         const text = textDecoderRef.current.decode(bytes, { stream: true });
-        const shellUpdate = parseShellUpdate(text);
-        if (shellUpdate) {
-          onShellUpdateRef.current?.(shellUpdate);
-        }
+        applyOutputMetadata(text);
         applyTriggers(text);
         term.write(bytes);
       } else {
@@ -483,12 +553,21 @@ export function TerminalView({
       }
     });
 
+    function handleJumpToLastPrompt(event: Event) {
+      if ((event as CustomEvent<{ ptyId?: string }>).detail?.ptyId === ptyId) {
+        term.scrollToBottom();
+        term.focus();
+      }
+    }
+    window.addEventListener("onibi:jump-last-prompt", handleJumpToLastPrompt);
+
     return () => {
       disposed = true;
       cancelScheduledLayout();
       cancelAnimationFrame(frame);
       unlisten?.();
       resizeObserver.disconnect();
+      window.removeEventListener("onibi:jump-last-prompt", handleJumpToLastPrompt);
       inputDisposable.dispose();
       webLinksAddon.dispose();
       searchAddon.dispose();

@@ -33,12 +33,20 @@ describe("SourceControlView", () => {
   beforeEach(() => {
     globalThis.__TAURI_MOCKS__.invoke.mockReset();
     vi.mocked(window.confirm).mockReturnValue(true);
+    vi.mocked(window.prompt).mockReset();
+    vi.mocked(window.prompt).mockReturnValue(null);
     useSessionStore.setState({
       hydrated: true,
       sessions: [],
       activeSessionId: null,
+      terminalLayout: null,
+      activeTerminalPaneId: null,
+      maximizedTerminalPaneId: null,
+      arrangements: [],
+      activeSidebarView: "files",
       workspaces: [],
       selectedFile: null,
+      sessionEvents: [],
       settings: DEFAULT_SETTINGS,
     });
   });
@@ -120,6 +128,74 @@ describe("SourceControlView", () => {
       workspaceRoot: "/repo",
       path: "README.md",
       stage: "working",
+    });
+  });
+
+  test("creates a worktree and opens it as a workspace", async () => {
+    vi.mocked(window.prompt)
+      .mockReturnValueOnce("feature/mobile")
+      .mockReturnValueOnce("/repo-feature-mobile");
+    const onRefresh = vi.fn(async () => undefined);
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "git_worktrees") {
+        return [
+          {
+            path: "/repo",
+            branch: "main",
+            head: "abc",
+            detached: false,
+            bare: false,
+            prunable: false,
+          },
+        ];
+      }
+      if (command === "git_create_worktree") {
+        return {
+          path: "/repo-feature-mobile",
+          branch: "feature/mobile",
+          head: "def",
+          detached: false,
+          bare: false,
+          prunable: false,
+        };
+      }
+      if (command === "fs_workspace_info") {
+        return { path: "/repo-feature-mobile", name: "repo-feature-mobile" };
+      }
+      return "";
+    });
+
+    render(
+      <SourceControlView
+        workspace={workspace}
+        status={status}
+        loading={false}
+        error=""
+        onRefresh={onRefresh}
+      />,
+    );
+
+    const createButton = await screen.findByLabelText("Create worktree");
+    await waitFor(() =>
+      expect((createButton as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(createButton);
+
+    await waitFor(() => {
+      expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith(
+        "git_create_worktree",
+        {
+          root: "/repo",
+          branch: "feature/mobile",
+          path: "/repo-feature-mobile",
+          base: "main",
+        },
+      );
+    });
+    expect(useSessionStore.getState().workspaces).toContainEqual({
+      id: "workspace:/repo-feature-mobile",
+      path: "/repo-feature-mobile",
+      name: "repo-feature-mobile",
     });
   });
 });

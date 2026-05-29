@@ -4,8 +4,9 @@ use crate::{
     approval::store::now_millis,
     protocol::{
         ApiError, Approval, ApprovalDecisionBody, ApprovalDecisionResponse, ApprovalRequestBody,
-        Decision, PairRequest, PairResponse, PtyOutputBody, RunEvent, RunEventBody, ServerMessage,
-        PROTOCOL_VERSION,
+        Decision, DesktopCommandResponse, DesktopSessionInputBody, DesktopSessionLaunchBody,
+        DesktopSnapshotBody, PairRequest, PairResponse, PtyOutputBody, RunEvent, RunEventBody,
+        ServerMessage, PROTOCOL_VERSION,
     },
     push,
     transport::{lan, TransportSnapshot},
@@ -136,6 +137,123 @@ pub async fn pty_output(
     Ok(Json(
         json!({"ok": true, "protocol_version": PROTOCOL_VERSION}),
     ))
+}
+
+pub async fn desktop_state(
+    State(state): State<AppState>,
+    Json(mut body): Json<DesktopSnapshotBody>,
+) -> ApiResult<Value> {
+    validate_version(body.protocol_version.as_deref())?;
+    body.protocol_version = Some(PROTOCOL_VERSION.to_string());
+    state.set_desktop_snapshot(body).await;
+    Ok(Json(
+        json!({"ok": true, "protocol_version": PROTOCOL_VERSION}),
+    ))
+}
+
+pub async fn desktop_sessions(State(state): State<AppState>) -> ApiResult<Value> {
+    let snapshot = state.desktop_snapshot().await;
+    Ok(Json(json!({
+        "protocol_version": PROTOCOL_VERSION,
+        "sessions": snapshot.sessions,
+        "arrangements": snapshot.arrangements,
+        "profiles": snapshot.profiles,
+        "updatedAt": snapshot.updated_at,
+    })))
+}
+
+pub async fn desktop_attention(State(state): State<AppState>) -> ApiResult<Value> {
+    let snapshot = state.desktop_snapshot().await;
+    let sessions = snapshot
+        .sessions
+        .into_iter()
+        .filter(|session| {
+            matches!(
+                session.attention.as_str(),
+                "needs-approval" | "triggered" | "failed" | "exited"
+            )
+        })
+        .collect::<Vec<_>>();
+    Ok(Json(json!({
+        "protocol_version": PROTOCOL_VERSION,
+        "attentionCount": sessions.len(),
+        "sessions": sessions,
+    })))
+}
+
+pub async fn desktop_session_launch(
+    State(state): State<AppState>,
+    Json(body): Json<DesktopSessionLaunchBody>,
+) -> ApiResult<DesktopCommandResponse> {
+    validate_version(body.protocol_version.as_deref())?;
+    Ok(Json(broadcast_desktop_command(
+        &state,
+        "session-launch",
+        json!({
+            "profile": body.profile,
+            "workspace": body.workspace,
+            "prompt": body.prompt,
+            "cwd": body.cwd,
+        }),
+    )))
+}
+
+pub async fn desktop_session_input(
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+    Json(body): Json<DesktopSessionInputBody>,
+) -> ApiResult<DesktopCommandResponse> {
+    validate_version(body.protocol_version.as_deref())?;
+    Ok(Json(broadcast_desktop_command(
+        &state,
+        "session-input",
+        json!({
+            "sessionId": session_id,
+            "text": body.text,
+        }),
+    )))
+}
+
+pub async fn desktop_session_focus(
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+) -> ApiResult<DesktopCommandResponse> {
+    Ok(Json(broadcast_desktop_command(
+        &state,
+        "session-focus",
+        json!({ "sessionId": session_id }),
+    )))
+}
+
+pub async fn desktop_arrangement_restore(
+    State(state): State<AppState>,
+    Path(arrangement_id): Path<String>,
+) -> ApiResult<DesktopCommandResponse> {
+    Ok(Json(broadcast_desktop_command(
+        &state,
+        "arrangement-restore",
+        json!({ "arrangementId": arrangement_id }),
+    )))
+}
+
+fn broadcast_desktop_command(
+    state: &AppState,
+    kind: &str,
+    payload: Value,
+) -> DesktopCommandResponse {
+    let command_id = Ulid::new().to_string();
+    state.broadcast(ServerMessage::DesktopCommand {
+        protocol_version: PROTOCOL_VERSION.to_string(),
+        machine_id: state.machine_id.clone(),
+        command_id: command_id.clone(),
+        kind: kind.to_string(),
+        payload,
+    });
+    DesktopCommandResponse {
+        ok: true,
+        protocol_version: PROTOCOL_VERSION.to_string(),
+        command_id,
+    }
 }
 
 pub async fn pair(
@@ -430,5 +548,63 @@ mod tests {
             decision.updated_input,
             Some(json!({"command": "echo skipped"}))
         );
+    }
+
+    #[tokio::test]
+    async fn desktop_state_round_trips_attention() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        let app = router(AppState::for_tests(store));
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/desktop/state")
+                    .header("authorization", "Bearer test-token")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "protocol_version": "1.0",
+                            "sessions": [
+                                {
+                                    "id": "pty-1",
+                                    "title": "Codex",
+                                    "agent": "codex",
+                                    "workspaceId": "workspace:/repo",
+                                    "status": "running",
+                                    "attention": "failed",
+                                    "previewUrl": "http://localhost:1420/"
+                                }
+                            ],
+                            "arrangements": [{"id": "arrangement-1", "name": "Pairing"}],
+                            "profiles": [{"id": "profile:codex", "name": "Codex"}],
+                            "updatedAt": 1
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/v1/desktop/attention")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["attentionCount"], 1);
+        assert_eq!(value["sessions"][0]["previewUrl"], "http://localhost:1420/");
     }
 }

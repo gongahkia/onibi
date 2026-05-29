@@ -6,7 +6,7 @@ pub mod ws_hub;
 
 use crate::{
     approval::{pending::PendingApprovals, store::ApprovalStore},
-    protocol::ServerMessage,
+    protocol::{DesktopSnapshotBody, ServerMessage},
     secret::{self, VapidKeys},
     transport::TransportManager,
 };
@@ -54,6 +54,7 @@ pub struct AppState {
     pub transports: TransportManager,
     pub approval_timeout: Duration,
     pty_ring: Arc<RwLock<HashMap<String, VecDeque<u8>>>>,
+    desktop_snapshot: Arc<RwLock<DesktopSnapshotBody>>,
     ring_limit: usize,
 }
 
@@ -86,6 +87,7 @@ impl AppState {
             ),
             approval_timeout: Duration::from_secs(600),
             pty_ring: Arc::new(RwLock::new(HashMap::new())),
+            desktop_snapshot: Arc::new(RwLock::new(DesktopSnapshotBody::default())),
             ring_limit: DEFAULT_RING_LIMIT,
         })
     }
@@ -110,6 +112,7 @@ impl AppState {
             ),
             approval_timeout: Duration::from_secs(5),
             pty_ring: Arc::new(RwLock::new(HashMap::new())),
+            desktop_snapshot: Arc::new(RwLock::new(DesktopSnapshotBody::default())),
             ring_limit: DEFAULT_RING_LIMIT,
         }
     }
@@ -125,6 +128,14 @@ impl AppState {
         while buffer.len() > self.ring_limit {
             buffer.pop_front();
         }
+    }
+
+    pub async fn desktop_snapshot(&self) -> DesktopSnapshotBody {
+        self.desktop_snapshot.read().await.clone()
+    }
+
+    pub async fn set_desktop_snapshot(&self, snapshot: DesktopSnapshotBody) {
+        *self.desktop_snapshot.write().await = snapshot;
     }
 }
 
@@ -203,6 +214,25 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/pair", post(routes::pair))
         .route("/v1/qr", get(routes::qr))
         .route("/v1/run/recent", get(routes::run_recent))
+        .route("/v1/desktop/state", post(routes::desktop_state))
+        .route("/v1/desktop/sessions", get(routes::desktop_sessions))
+        .route("/v1/desktop/attention", get(routes::desktop_attention))
+        .route(
+            "/v1/desktop/session/launch",
+            post(routes::desktop_session_launch),
+        )
+        .route(
+            "/v1/desktop/session/:id/input",
+            post(routes::desktop_session_input),
+        )
+        .route(
+            "/v1/desktop/session/:id/focus",
+            post(routes::desktop_session_focus),
+        )
+        .route(
+            "/v1/desktop/arrangement/:id/restore",
+            post(routes::desktop_arrangement_restore),
+        )
         .route("/v1/status", get(routes::status))
         .route("/v1/transport/status", get(routes::transport_status))
         .route("/v1/transport/:name/enable", post(routes::transport_enable))

@@ -17,6 +17,10 @@ vi.mock("./components/MainPane", () => ({
   MainPane: () => <div data-testid="main-pane" />,
 }));
 
+vi.mock("./lib/desktop-api", () => ({
+  startDesktopBridge: vi.fn(async () => vi.fn()),
+}));
+
 function resetStore() {
   useSessionStore.setState({
     hydrated: true,

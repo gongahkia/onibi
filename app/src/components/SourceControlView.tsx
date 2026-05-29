@@ -1,17 +1,27 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   commitGit,
+  createGitWorktree,
   discardGitPaths,
   gitStateForEntry,
   hasStagedChange,
   hasWorkingTreeChange,
+  listGitWorktrees,
+  removeGitWorktree,
   stageGitPaths,
   syncGit,
   type GitStatus,
   type GitStatusEntry,
+  type GitWorktree,
   unstageGitPaths,
 } from "../lib/git";
-import { useSessionStore, type Workspace } from "../lib/sessions";
+import {
+  launchSpecForProfile,
+  spawnSessionFromLaunchSpec,
+  useSessionStore,
+  workspaceFromPath,
+  type Workspace,
+} from "../lib/sessions";
 
 interface SourceControlViewProps {
   workspace: Workspace | null;
@@ -130,7 +140,11 @@ export function SourceControlView({
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
+  const [worktrees, setWorktrees] = useState<GitWorktree[]>([]);
+  const [worktreesLoading, setWorktreesLoading] = useState(false);
   const selectFile = useSessionStore((state) => state.selectFile);
+  const addWorkspace = useSessionStore((state) => state.addWorkspace);
+  const settings = useSessionStore((state) => state.settings);
 
   const entries = status?.entries ?? [];
   const stagedEntries = useMemo(
@@ -148,6 +162,25 @@ export function SourceControlView({
       ? `Sync ${status.behind}↓ ${status.ahead}↑`
       : "Sync";
 
+  async function refreshWorktrees() {
+    if (!workspace) {
+      setWorktrees([]);
+      return;
+    }
+    setWorktreesLoading(true);
+    try {
+      setWorktrees(await listGitWorktrees(workspace.path));
+    } catch {
+      setWorktrees([]);
+    } finally {
+      setWorktreesLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void refreshWorktrees();
+  }, [workspace?.path]);
+
   async function runAction(action: () => Promise<unknown>) {
     if (!workspace) {
       return;
@@ -157,6 +190,7 @@ export function SourceControlView({
     try {
       await action();
       await onRefresh();
+      await refreshWorktrees();
     } catch (caught) {
       setActionError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -190,6 +224,81 @@ export function SourceControlView({
       path: entry.path,
       name: entry.path.split("/").pop() ?? entry.path,
       stage,
+    });
+  }
+
+  function siblingWorktreePath(branch: string): string {
+    const root = status?.repoRoot ?? workspace?.path ?? "";
+    const trimmed = root.replace(/\/+$/, "");
+    const slash = trimmed.lastIndexOf("/");
+    const parent = slash > 0 ? trimmed.slice(0, slash) : ".";
+    const name = slash > 0 ? trimmed.slice(slash + 1) : "repo";
+    const slug = branch
+      .trim()
+      .replace(/[^A-Za-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase();
+    return `${parent}/${name}-${slug || "worktree"}`;
+  }
+
+  async function openWorktree(path: string) {
+    const nextWorkspace = await workspaceFromPath(path);
+    addWorkspace(nextWorkspace);
+  }
+
+  function createWorktree() {
+    if (!workspace) {
+      return;
+    }
+    const branch = window.prompt("New worktree branch");
+    if (!branch?.trim()) {
+      return;
+    }
+    const path = window.prompt("Worktree path", siblingWorktreePath(branch));
+    if (!path?.trim()) {
+      return;
+    }
+    void runAction(async () => {
+      const worktree = await createGitWorktree(
+        workspace.path,
+        branch,
+        path,
+        status?.branch ?? undefined,
+      );
+      await openWorktree(worktree.path);
+    });
+  }
+
+  function deleteWorktree(worktree: GitWorktree) {
+    if (!workspace || !window.confirm(`Remove worktree ${worktree.path}?`)) {
+      return;
+    }
+    void runAction(() => removeGitWorktree(workspace.path, worktree.path, false));
+  }
+
+  function launchDefaultProfile(worktree: GitWorktree) {
+    if (!workspace) {
+      return;
+    }
+    const profile =
+      settings.terminalProfiles.find(
+        (item) => item.id === settings.defaultTerminalProfileId,
+      ) ??
+      settings.terminalProfiles[0] ??
+      null;
+    if (!profile) {
+      setActionError("No terminal profiles are configured.");
+      return;
+    }
+    void runAction(async () => {
+      const nextWorkspace = await workspaceFromPath(worktree.path);
+      addWorkspace(nextWorkspace);
+      await spawnSessionFromLaunchSpec(
+        launchSpecForProfile(
+          { ...profile, cwdPolicy: "custom", customCwd: worktree.path },
+          nextWorkspace,
+        ),
+      );
     });
   }
 
@@ -235,6 +344,74 @@ export function SourceControlView({
             {status.upstream ? (
               <span className="source-control-upstream">{status.upstream}</span>
             ) : null}
+          </div>
+          <div className="source-control-worktrees">
+            <div className="source-control-worktree-header">
+              <span>Worktrees</span>
+              <button
+                type="button"
+                className="tree-action-button"
+                disabled={busy || worktreesLoading}
+                onClick={createWorktree}
+                title="Create worktree"
+                aria-label="Create worktree"
+              >
+                +
+              </button>
+              <button
+                type="button"
+                className="tree-action-button"
+                disabled={worktreesLoading}
+                onClick={() => void refreshWorktrees()}
+                title="Refresh worktrees"
+                aria-label="Refresh worktrees"
+              >
+                R
+              </button>
+            </div>
+            {worktrees.length === 0 ? (
+              <div className="source-control-empty">
+                {worktreesLoading ? "Loading worktrees..." : "No worktrees found."}
+              </div>
+            ) : (
+              worktrees.map((worktree) => (
+                <div className="source-control-worktree-row" key={worktree.path}>
+                  <span title={worktree.path}>
+                    {worktree.branch ?? (worktree.detached ? "detached" : "worktree")}
+                  </span>
+                  <button
+                    type="button"
+                    className="tree-action-button"
+                    disabled={busy}
+                    onClick={() => void openWorktree(worktree.path)}
+                    title="Open as workspace"
+                    aria-label={`Open ${worktree.path} as workspace`}
+                  >
+                    O
+                  </button>
+                  <button
+                    type="button"
+                    className="tree-action-button"
+                    disabled={busy}
+                    onClick={() => launchDefaultProfile(worktree)}
+                    title="Launch default profile"
+                    aria-label={`Launch default profile in ${worktree.path}`}
+                  >
+                    ▶
+                  </button>
+                  <button
+                    type="button"
+                    className="tree-action-button danger"
+                    disabled={busy || worktree.path === status.repoRoot}
+                    onClick={() => deleteWorktree(worktree)}
+                    title="Remove worktree"
+                    aria-label={`Remove worktree ${worktree.path}`}
+                  >
+                    x
+                  </button>
+                </div>
+              ))
+            )}
           </div>
           <input
             className="source-control-message"

@@ -298,7 +298,7 @@ function _onibi_precmd() {
 }
 
 function _onibi_preexec() {
-  printf '\033]133;C\007'
+  printf '\033]133;C;%s\007' "$1"
 }
 
 precmd_functions+=(_onibi_precmd)
@@ -341,7 +341,7 @@ else
   PROMPT_COMMAND="__onibi_prompt_command"
 fi
 
-trap 'printf "\033]133;C\a"' DEBUG
+trap 'printf "\033]133;C;%s\a" "$BASH_COMMAND"' DEBUG
 "#,
     )?;
     Ok(rcfile)
@@ -362,7 +362,7 @@ function __onibi_prompt --on-event fish_prompt
 end
 
 function __onibi_preexec --on-event fish_preexec
-  printf '\033]133;C\a'
+  printf '\033]133;C;%s\a' "$argv"
 end
 "#,
     )

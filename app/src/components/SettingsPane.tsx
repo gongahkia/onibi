@@ -1193,7 +1193,15 @@ function ShellIntegrationSettings({
   onEnabled,
 }: {
   enabled: boolean;
-  sessions: Array<{ id: string; title: string; cwd?: string; lastExitCode?: number | null }>;
+  sessions: Array<{
+    id: string;
+    title: string;
+    cwd?: string;
+    lastExitCode?: number | null;
+    shellPromptMarkerSeen?: boolean;
+    lastCommand?: { command: string; exitCode?: number | null } | null;
+    preview?: { url: string } | null;
+  }>;
   onEnabled: (enabled: boolean) => void;
 }) {
   const snippet = [
@@ -1230,6 +1238,15 @@ function ShellIntegrationSettings({
                     ? "exit marker not seen"
                     : `last exit: ${session.lastExitCode}`}
                 </span>
+                <span>
+                  {session.shellPromptMarkerSeen
+                    ? "prompt markers seen"
+                    : "prompt marker not seen"}
+                </span>
+                {session.lastCommand?.command ? (
+                  <span>{`last command: ${session.lastCommand.command}`}</span>
+                ) : null}
+                {session.preview ? <span>{`preview: ${session.preview.url}`}</span> : null}
               </div>
             ))
           )}

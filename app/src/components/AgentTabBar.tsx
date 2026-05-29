@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import {
   AGENT_LABELS,
+  sessionAttentionState,
+  sessionNeedsAttention,
   useSessionStore,
   type DiffViewMode,
   type Session,
@@ -167,10 +169,8 @@ export function AgentTabBar({ orientation }: AgentTabBarProps) {
       <div className="agent-tabs">
         {sessions.map((session) => {
           const workspace = workspaceById.get(session.workspaceId);
-          const flash =
-            session.status === "awaiting-approval" ||
-            session.status === "completed" ||
-            Boolean(session.lastTrigger?.actions.includes("badge"));
+          const attention = sessionAttentionState(session);
+          const flash = sessionNeedsAttention(session);
           return (
             <button
               key={session.id}
@@ -185,6 +185,17 @@ export function AgentTabBar({ orientation }: AgentTabBarProps) {
             >
               <img src={agentIconUrl(session.agent)} alt="" />
               <span className={`tab-status ${session.status}`} />
+              {flash ? (
+                <span
+                  className={`tab-attention attention-${attention}`}
+                  aria-label={attention}
+                />
+              ) : null}
+              {session.preview ? (
+                <span className="tab-preview" title={session.preview.url}>
+                  {session.preview.label}
+                </span>
+              ) : null}
             </button>
           );
         })}

@@ -40,6 +40,17 @@ pub struct GitFileDiff {
     binary: bool,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GitWorktree {
+    path: PathBuf,
+    branch: Option<String>,
+    head: Option<String>,
+    detached: bool,
+    bare: bool,
+    prunable: bool,
+}
+
 fn command_text(args: &[&str]) -> String {
     format!("git {}", args.join(" "))
 }
@@ -252,6 +263,68 @@ fn parse_status_entries(repo_root: &Path, bytes: &[u8]) -> Vec<GitStatusEntry> {
     entries
 }
 
+fn parse_worktrees(raw: &str) -> Vec<GitWorktree> {
+    let mut worktrees = Vec::new();
+    let mut current: Option<GitWorktree> = None;
+    for line in raw.lines() {
+        let line = line.trim_end();
+        if line.is_empty() {
+            if let Some(worktree) = current.take() {
+                worktrees.push(worktree);
+            }
+            continue;
+        }
+        if let Some(path) = line.strip_prefix("worktree ") {
+            if let Some(worktree) = current.take() {
+                worktrees.push(worktree);
+            }
+            current = Some(GitWorktree {
+                path: PathBuf::from(path),
+                branch: None,
+                head: None,
+                detached: false,
+                bare: false,
+                prunable: false,
+            });
+            continue;
+        }
+        let Some(worktree) = current.as_mut() else {
+            continue;
+        };
+        if let Some(head) = line.strip_prefix("HEAD ") {
+            worktree.head = Some(head.to_string());
+        } else if let Some(branch) = line.strip_prefix("branch ") {
+            worktree.branch = Some(
+                branch
+                    .strip_prefix("refs/heads/")
+                    .unwrap_or(branch)
+                    .to_string(),
+            );
+        } else if line == "detached" {
+            worktree.detached = true;
+        } else if line == "bare" {
+            worktree.bare = true;
+        } else if line == "prunable" || line.starts_with("prunable ") {
+            worktree.prunable = true;
+        }
+    }
+    if let Some(worktree) = current {
+        worktrees.push(worktree);
+    }
+    worktrees
+}
+
+fn validate_branch_name(branch: &str) -> Result<String, String> {
+    let branch = branch.trim();
+    if branch.is_empty() || branch.contains('\0') {
+        return Err("branch name is required".to_string());
+    }
+    if branch.starts_with('-') || branch.contains("..") || branch.ends_with('/') {
+        return Err("branch name is not valid for a worktree".to_string());
+    }
+    Ok(branch.to_string())
+}
+
 #[tauri::command]
 pub async fn git_status(root: PathBuf) -> Result<GitStatus, String> {
     let Some(repo_root) = repo_root_for(&root)? else {
@@ -419,6 +492,87 @@ pub async fn git_diff_file(
     })
 }
 
+#[tauri::command]
+pub async fn git_worktrees(root: PathBuf) -> Result<Vec<GitWorktree>, String> {
+    let Some(repo_root) = repo_root_for(&root)? else {
+        return Ok(Vec::new());
+    };
+    let output = git_checked(&repo_root, &["worktree", "list", "--porcelain"])?;
+    Ok(parse_worktrees(&output))
+}
+
+#[tauri::command]
+pub async fn git_create_worktree(
+    root: PathBuf,
+    branch: String,
+    path: PathBuf,
+    base: Option<String>,
+) -> Result<GitWorktree, String> {
+    let Some(repo_root) = repo_root_for(&root)? else {
+        return Err("No Git repository in this workspace.".to_string());
+    };
+    let branch = validate_branch_name(&branch)?;
+    let base = base
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "HEAD".to_string());
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(&repo_root)
+        .args(["worktree", "add", "-b"])
+        .arg(&branch)
+        .arg(&path)
+        .arg(&base)
+        .output()
+        .map_err(|err| format!("failed to run git worktree add: {err}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "git worktree add failed".to_string()
+        } else {
+            stderr
+        });
+    }
+    git_worktrees(repo_root)
+        .await?
+        .into_iter()
+        .find(|worktree| worktree.path == path)
+        .ok_or_else(|| "worktree was created but could not be listed".to_string())
+}
+
+#[tauri::command]
+pub async fn git_remove_worktree(
+    root: PathBuf,
+    path: PathBuf,
+    force: bool,
+) -> Result<String, String> {
+    let Some(repo_root) = repo_root_for(&root)? else {
+        return Err("No Git repository in this workspace.".to_string());
+    };
+    let mut command = Command::new("git");
+    command
+        .arg("-C")
+        .arg(&repo_root)
+        .args(["worktree", "remove"]);
+    if force {
+        command.arg("--force");
+    }
+    let output = command
+        .arg(path)
+        .output()
+        .map_err(|err| format!("failed to run git worktree remove: {err}"))?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(if stderr.is_empty() {
+            "git worktree remove failed".to_string()
+        } else {
+            stderr
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -435,5 +589,30 @@ mod tests {
         assert_eq!(entries[2].index_status.as_deref(), Some("?"));
         assert_eq!(entries[3].original_path.as_deref(), Some("old.ts"));
         assert_eq!(entries[3].full_path, PathBuf::from("/repo/new.ts"));
+    }
+
+    #[test]
+    fn parses_worktree_porcelain() {
+        let raw = "\
+worktree /repo
+HEAD abc123
+branch refs/heads/main
+
+worktree /repo-feature
+HEAD def456
+branch refs/heads/feature/mobile
+
+worktree /repo-detached
+HEAD fedcba
+detached
+prunable gitdir file points to non-existent location
+";
+        let worktrees = parse_worktrees(raw);
+        assert_eq!(worktrees.len(), 3);
+        assert_eq!(worktrees[0].path, PathBuf::from("/repo"));
+        assert_eq!(worktrees[0].branch.as_deref(), Some("main"));
+        assert_eq!(worktrees[1].branch.as_deref(), Some("feature/mobile"));
+        assert!(worktrees[2].detached);
+        assert!(worktrees[2].prunable);
     }
 }

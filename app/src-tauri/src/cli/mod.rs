@@ -5,6 +5,7 @@ pub mod status;
 use crate::{adapters, headless, secret, server, transport};
 use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, Parser, Subcommand};
+use serde_json::json;
 use std::{io::Write, net::TcpStream, path::PathBuf};
 
 #[derive(Debug, Parser)]
@@ -46,6 +47,15 @@ enum Command {
         #[command(subcommand)]
         command: TransportCommand,
     },
+    Session {
+        #[command(subcommand)]
+        command: SessionCommand,
+    },
+    Attention,
+    Arrangement {
+        #[command(subcommand)]
+        command: ArrangementCommand,
+    },
     #[command(name = "_hook", hide = true)]
     Hook {
         name: String,
@@ -73,6 +83,31 @@ enum TransportCommand {
     Status,
 }
 
+#[derive(Debug, Subcommand)]
+enum SessionCommand {
+    List,
+    Launch {
+        #[arg(long)]
+        profile: String,
+        #[arg(long)]
+        workspace: PathBuf,
+        #[arg(long)]
+        prompt: Option<String>,
+    },
+    Send {
+        id: String,
+        text: Vec<String>,
+    },
+    Focus {
+        id: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum ArrangementCommand {
+    Restore { id_or_name: String },
+}
+
 pub fn should_dispatch(args: &[String]) -> bool {
     const COMMANDS: &[&str] = &[
         "setup",
@@ -81,6 +116,9 @@ pub fn should_dispatch(args: &[String]) -> bool {
         "token",
         "adapter",
         "transport",
+        "session",
+        "attention",
+        "arrangement",
         "_hook",
     ];
 
@@ -130,6 +168,9 @@ async fn run(cli: Cli) -> Result<()> {
         Some(Command::Token { command }) => token(command),
         Some(Command::Adapter { command }) => adapter(command),
         Some(Command::Transport { command }) => transport(command, cli.port).await,
+        Some(Command::Session { command }) => session(command, cli.port),
+        Some(Command::Attention) => desktop_get(cli.port, "/v1/desktop/attention"),
+        Some(Command::Arrangement { command }) => arrangement(command, cli.port),
         Some(Command::Hook { name }) => hook(&name, cli.port),
         None => {
             Cli::command().print_help()?;
@@ -137,6 +178,104 @@ async fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
     }
+}
+
+fn session(command: SessionCommand, port: u16) -> Result<()> {
+    match command {
+        SessionCommand::List => desktop_get(port, "/v1/desktop/sessions"),
+        SessionCommand::Launch {
+            profile,
+            workspace,
+            prompt,
+        } => {
+            ensure_daemon_running(port)?;
+            let body = json!({
+                "protocol_version": "1.0",
+                "profile": profile,
+                "workspace": workspace.display().to_string(),
+                "prompt": prompt,
+            });
+            println!(
+                "{}",
+                authed_http(
+                    port,
+                    "POST",
+                    "/v1/desktop/session/launch",
+                    Some(&body.to_string()),
+                )?
+            );
+            Ok(())
+        }
+        SessionCommand::Send { id, text } => {
+            ensure_daemon_running(port)?;
+            let body = json!({
+                "protocol_version": "1.0",
+                "text": text.join(" "),
+            });
+            println!(
+                "{}",
+                authed_http(
+                    port,
+                    "POST",
+                    &format!("/v1/desktop/session/{}/input", path_segment(&id)),
+                    Some(&body.to_string()),
+                )?
+            );
+            Ok(())
+        }
+        SessionCommand::Focus { id } => {
+            ensure_daemon_running(port)?;
+            println!(
+                "{}",
+                authed_http(
+                    port,
+                    "POST",
+                    &format!("/v1/desktop/session/{}/focus", path_segment(&id)),
+                    Some("{}"),
+                )?
+            );
+            Ok(())
+        }
+    }
+}
+
+fn arrangement(command: ArrangementCommand, port: u16) -> Result<()> {
+    match command {
+        ArrangementCommand::Restore { id_or_name } => {
+            ensure_daemon_running(port)?;
+            println!(
+                "{}",
+                authed_http(
+                    port,
+                    "POST",
+                    &format!(
+                        "/v1/desktop/arrangement/{}/restore",
+                        path_segment(&id_or_name)
+                    ),
+                    Some("{}"),
+                )?
+            );
+            Ok(())
+        }
+    }
+}
+
+fn desktop_get(port: u16, path: &str) -> Result<()> {
+    ensure_daemon_running(port)?;
+    println!("{}", authed_http(port, "GET", path, None)?);
+    Ok(())
+}
+
+fn path_segment(value: &str) -> String {
+    value
+        .bytes()
+        .flat_map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                vec![byte as char]
+            }
+            _ => format!("%{byte:02X}").chars().collect(),
+        })
+        .collect()
 }
 
 fn token(command: TokenCommand) -> Result<()> {

@@ -19,6 +19,7 @@ import {
   launchSpecForProfile,
   restartSession,
   restoreArrangement,
+  sessionNeedsAttention,
   spawnAgentSession,
   spawnSessionFromLaunchSpec,
   useSessionStore,
@@ -160,9 +161,13 @@ export function CommandPalette() {
   const addWorkspace = useSessionStore((state) => state.addWorkspace);
   const saveCurrentArrangement = useSessionStore((state) => state.saveCurrentArrangement);
   const deleteArrangement = useSessionStore((state) => state.deleteArrangement);
+  const clearSessionAttention = useSessionStore((state) => state.clearSessionAttention);
   const selectFile = useSessionStore((state) => state.selectFile);
   const setActiveSession = useSessionStore((state) => state.setActiveSession);
   const setActiveSidebarView = useSessionStore((state) => state.setActiveSidebarView);
+  const focusRelativeAttentionSession = useSessionStore(
+    (state) => state.focusRelativeAttentionSession,
+  );
   const updateSettings = useSessionStore((state) => state.updateSettings);
   const toggleMaximizedTerminalPane = useSessionStore(
     (state) => state.toggleMaximizedTerminalPane,
@@ -241,6 +246,22 @@ export function CommandPalette() {
         description: currentWorkspace?.name ?? "No active workspace",
         keywords: ["find", "ripgrep", "text"],
         run: () => setActiveSidebarView("search"),
+      },
+      {
+        id: "attention.next",
+        label: "Focus Next Attention Item",
+        group: "Session",
+        description: `${sessions.filter((session) => sessionNeedsAttention(session)).length} sessions need attention`,
+        keywords: ["approval", "failed", "trigger", "needs attention"],
+        run: () => focusRelativeAttentionSession(1),
+      },
+      {
+        id: "attention.previous",
+        label: "Focus Previous Attention Item",
+        group: "Session",
+        description: "Move backward through sessions that need attention",
+        keywords: ["approval", "failed", "trigger", "needs attention"],
+        run: () => focusRelativeAttentionSession(-1),
       },
       {
         id: "arrangement.save",
@@ -469,6 +490,37 @@ export function CommandPalette() {
           run: () => void navigator.clipboard?.writeText(activeSession.id),
         },
         {
+          id: "session.clear-attention",
+          label: "Clear Active Session Attention",
+          group: "Session",
+          description: activeSession.title,
+          keywords: ["attention", "badge", "trigger", "dismiss"],
+          run: () => clearSessionAttention(activeSession.id),
+        },
+        ...(activeSession.preview
+          ? [
+              {
+                id: "session.open-preview",
+                label: "Open Active Session Preview",
+                group: "View" as const,
+                description: activeSession.preview.url,
+                keywords: ["preview", "port", "server", "localhost"],
+                run: () =>
+                  useSessionStore
+                    .getState()
+                    .openWebUrl(activeSession.preview!.url, activeSession.id),
+              },
+              {
+                id: "session.copy-preview",
+                label: "Copy Active Session Preview URL",
+                group: "View" as const,
+                description: activeSession.preview.url,
+                keywords: ["preview", "port", "server", "localhost"],
+                run: () => void navigator.clipboard?.writeText(activeSession.preview!.url),
+              },
+            ]
+          : []),
+        {
           id: "session.restart-active",
           label: "Restart Active Session",
           group: "Session",
@@ -542,7 +594,9 @@ export function CommandPalette() {
     activeTerminalPaneId,
     addWorkspace,
     arrangements,
+    clearSessionAttention,
     deleteArrangement,
+    focusRelativeAttentionSession,
     saveCurrentArrangement,
     selectFile,
     selectedFile,

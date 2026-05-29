@@ -160,6 +160,66 @@ function TerminalPaneTree({
             {session.lastTrigger.label}
           </span>
         ) : null}
+        {session.preview ? (
+          <button
+            type="button"
+            className="terminal-pane-button"
+            aria-label="Open session preview"
+            title={session.preview.url}
+            onClick={(event) => {
+              event.stopPropagation();
+              useSessionStore.getState().openWebUrl(session.preview!.url, session.id);
+            }}
+          >
+            Preview
+          </button>
+        ) : null}
+        {session.lastCommand?.command ? (
+          <button
+            type="button"
+            className="terminal-pane-button"
+            aria-label="Copy last command"
+            title={session.lastCommand.command}
+            onClick={(event) => {
+              event.stopPropagation();
+              void navigator.clipboard?.writeText(session.lastCommand!.command);
+            }}
+          >
+            Copy Cmd
+          </button>
+        ) : null}
+        {session.lastCommand?.output ? (
+          <button
+            type="button"
+            className="terminal-pane-button"
+            aria-label="Copy last output"
+            title="Copy last command output"
+            onClick={(event) => {
+              event.stopPropagation();
+              void navigator.clipboard?.writeText(session.lastCommand!.output);
+            }}
+          >
+            Copy Out
+          </button>
+        ) : null}
+        {session.shellPromptMarkerSeen ? (
+          <button
+            type="button"
+            className="terminal-pane-button"
+            aria-label="Jump to last prompt"
+            title="Jump to last prompt"
+            onClick={(event) => {
+              event.stopPropagation();
+              window.dispatchEvent(
+                new CustomEvent("onibi:jump-last-prompt", {
+                  detail: { ptyId: session.id },
+                }),
+              );
+            }}
+          >
+            Prompt
+          </button>
+        ) : null}
         <button
           type="button"
           className="terminal-pane-button"
@@ -385,6 +445,20 @@ export function MainPane() {
           update.lastExitCode !== undefined
             ? update.lastExitCode
             : updatedSession.lastExitCode,
+        preview: update.preview ?? updatedSession.preview ?? null,
+        shellPromptMarkerSeen:
+          update.promptMarkerSeen ?? updatedSession.shellPromptMarkerSeen,
+        lastCommand:
+          update.lastCommand ??
+          (update.commandStarted
+            ? {
+                command: update.commandStarted.command,
+                output: "",
+                startedAt: update.commandStarted.startedAt,
+                endedAt: null,
+                exitCode: null,
+              }
+            : updatedSession.lastCommand ?? null),
       });
     },
     [updateSession],
