@@ -68,6 +68,16 @@ vi.mock("@xterm/addon-fit", () => ({
   }),
 }));
 
+vi.mock("@xterm/addon-search", () => ({
+  SearchAddon: vi.fn().mockImplementation(function SearchAddonConstructor() {
+    return {
+      findNext: vi.fn(),
+      findPrevious: vi.fn(),
+      dispose: vi.fn(),
+    };
+  }),
+}));
+
 vi.mock("@xterm/addon-webgl", () => ({
   WebglAddon: vi.fn().mockImplementation(function WebglAddonConstructor() {
     return {

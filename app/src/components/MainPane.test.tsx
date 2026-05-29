@@ -24,6 +24,7 @@ function resetStore() {
     activeSessionId: null,
     terminalLayout: null,
     activeTerminalPaneId: null,
+    maximizedTerminalPaneId: null,
     workspaces: [],
     selectedFile: null,
     sessionEvents: [],
@@ -68,6 +69,7 @@ describe("MainPane", () => {
       activeSessionId: "pty-1",
       terminalLayout: { type: "leaf", paneId: "pane-1", sessionId: "pty-1" },
       activeTerminalPaneId: "pane-1",
+      maximizedTerminalPaneId: null,
       workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
     });
 
@@ -95,6 +97,7 @@ describe("MainPane", () => {
       activeSessionId: "pty-1",
       terminalLayout: { type: "leaf", paneId: "pane-1", sessionId: "pty-1" },
       activeTerminalPaneId: "pane-1",
+      maximizedTerminalPaneId: null,
       workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
     });
 

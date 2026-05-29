@@ -571,7 +571,7 @@ function GeneralSettings({
         <span className="settings-check-row">
           <input
             type="checkbox"
-            aria-label="Enable shell integration"
+            aria-label="Enable shell completions and autosuggestions"
             checked={terminalShellIntegration}
             onChange={(event) => onTerminalShellIntegration(event.target.checked)}
           />

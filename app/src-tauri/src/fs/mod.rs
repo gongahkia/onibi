@@ -402,7 +402,6 @@ fn is_search_skipped_dir(path: &Path) -> bool {
 
 fn search_file(
     path: &Path,
-    query: &str,
     query_lower: &str,
     results: &mut Vec<WorkspaceSearchResult>,
 ) -> Result<(), String> {
@@ -445,7 +444,6 @@ fn search_file(
 fn search_dir(
     root: &Path,
     dir: &Path,
-    query: &str,
     query_lower: &str,
     results: &mut Vec<WorkspaceSearchResult>,
 ) -> Result<(), String> {
@@ -475,9 +473,9 @@ fn search_dir(
             continue;
         };
         if metadata.is_dir() {
-            search_dir(root, &canonical_path, query, query_lower, results)?;
+            search_dir(root, &canonical_path, query_lower, results)?;
         } else if metadata.is_file() {
-            search_file(&canonical_path, query, query_lower, results)?;
+            search_file(&canonical_path, query_lower, results)?;
         }
     }
     Ok(())
@@ -498,7 +496,7 @@ pub async fn fs_search_workspace(
     }
     let query_lower = query.to_lowercase();
     let mut results = Vec::new();
-    search_dir(&root, &root, query, &query_lower, &mut results)?;
+    search_dir(&root, &root, &query_lower, &mut results)?;
     results.sort_by(|left, right| {
         left.path
             .cmp(&right.path)
@@ -863,6 +861,26 @@ mod tests {
 
         assert!(result.unwrap_err().contains("already exists"));
         assert_eq!(fs::read(root.path().join(".env.example")).unwrap(), b"before");
+    }
+
+    #[tokio::test]
+    async fn search_workspace_skips_heavy_dirs_and_returns_matches() {
+        let root = temp_workspace();
+        let src = root.path().join("src");
+        let ignored = root.path().join("node_modules");
+        fs::create_dir(&src).unwrap();
+        fs::create_dir(&ignored).unwrap();
+        fs::write(src.join("main.rs"), "fn main() {\n  println!(\"Onibi\");\n}\n").unwrap();
+        fs::write(ignored.join("copy.rs"), "Onibi should not appear\n").unwrap();
+
+        let results = fs_search_workspace(root.path().to_path_buf(), "onibi".to_string())
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].line, 2);
+        assert!(results[0].path.ends_with("src/main.rs"));
+        assert!(results[0].preview.contains("Onibi"));
     }
 
     #[tokio::test]

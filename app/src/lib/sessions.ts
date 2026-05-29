@@ -2208,7 +2208,7 @@ export async function spawnAgentSession(
   const launch = launchCommandForAgent(agent, settings, initialPrompt);
   const cwd =
     options?.cwd && options.cwd.startsWith(workspace.path) ? options.cwd : workspace.path;
-  const env =
+  const env: Array<[string, string]> =
     agent === "shell" && settings.terminalShellIntegration
       ? [["ONIBI_SHELL_INTEGRATION", "1"]]
       : [];
