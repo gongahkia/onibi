@@ -2190,6 +2190,37 @@ button {
   min-width: 0;
 }
 
+.advanced-settings {
+  gap: 12px;
+}
+
+.advanced-settings > .settings-section {
+  padding: 0;
+}
+
+.settings-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.settings-subnav button {
+  min-height: 30px;
+  padding: 0 10px;
+  color: var(--fg-1);
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  font: 12px/1.2 var(--font-ui);
+}
+
+.settings-subnav button:hover,
+.settings-subnav button.active {
+  color: var(--fg-0);
+  border-color: var(--accent);
+}
+
 .settings-row {
   display: grid;
   grid-template-columns: 180px 1fr;

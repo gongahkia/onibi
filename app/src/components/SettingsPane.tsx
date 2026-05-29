@@ -46,10 +46,12 @@ type SettingsSection =
   | "general"
   | "layout"
   | "agents"
-  | "profiles"
+  | "workspaces"
+  | "advanced";
+type AdvancedSection =
+  | "launch-presets"
   | "shell-integration"
   | "triggers"
-  | "workspaces"
   | "config-json"
   | "import-config";
 type BinaryStatus = Record<AgentKind, string | null>;
@@ -65,6 +67,8 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
   const addWorkspace = useSessionStore((state) => state.addWorkspace);
   const removeWorkspace = useSessionStore((state) => state.removeWorkspace);
   const [section, setSection] = useState<SettingsSection>("general");
+  const [advancedSection, setAdvancedSection] =
+    useState<AdvancedSection>("launch-presets");
   const [binaryStatus, setBinaryStatus] = useState<BinaryStatus>(() =>
     Object.fromEntries(AGENT_KINDS.map((agent) => [agent, null])) as BinaryStatus,
   );
@@ -193,6 +197,17 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
     }
   }
 
+  function selectAdvancedSection(item: AdvancedSection) {
+    setAdvancedSection(item);
+    if (item === "config-json") {
+      setConfigJson(serializeOnibiConfig());
+      setConfigStatus(null);
+    }
+    if (item === "import-config" && terminalImports.length === 0) {
+      void refreshTerminalConfigImports();
+    }
+  }
+
   return (
     <div className="modal-backdrop settings-pane" role="presentation">
       <section
@@ -221,12 +236,8 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
                 "general",
                 "layout",
                 "agents",
-                "profiles",
-                "shell-integration",
-                "triggers",
                 "workspaces",
-                "config-json",
-                "import-config",
+                "advanced",
               ] as const
             ).map((item) => (
               <button
@@ -235,13 +246,6 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
                 className={`text-button ${section === item ? "primary" : ""}`}
                 onClick={() => {
                   setSection(item);
-                  if (item === "config-json") {
-                    setConfigJson(serializeOnibiConfig());
-                    setConfigStatus(null);
-                  }
-                  if (item === "import-config" && terminalImports.length === 0) {
-                    void refreshTerminalConfigImports();
-                  }
                 }}
               >
                 {labelFor(item)}
@@ -259,7 +263,6 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               uiFontSize={settings.uiFontSize}
               terminalFontSize={settings.terminalFontSize}
               terminalScrollbackLines={settings.terminalScrollbackLines}
-              terminalShellIntegration={settings.terminalShellIntegration}
               terminalConfirmClose={settings.terminalConfirmClose}
               editorFontSize={settings.editorFontSize}
               diffViewMode={settings.diffViewMode}
@@ -281,9 +284,6 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               }
               onTerminalScrollbackLines={(terminalScrollbackLines) =>
                 updateSettings({ terminalScrollbackLines })
-              }
-              onTerminalShellIntegration={(terminalShellIntegration) =>
-                updateSettings({ terminalShellIntegration })
               }
               onTerminalConfirmClose={(terminalConfirmClose) =>
                 updateSettings({ terminalConfirmClose })
@@ -325,31 +325,6 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               onInstall={(agent, command) => void runInstall(agent, command)}
             />
           ) : null}
-          {section === "profiles" ? (
-            <ProfileSettings
-              profiles={settings.terminalProfiles}
-              defaultProfileId={settings.defaultTerminalProfileId}
-              onProfiles={(terminalProfiles) => updateSettings({ terminalProfiles })}
-              onDefaultProfile={(defaultTerminalProfileId) =>
-                updateSettings({ defaultTerminalProfileId })
-              }
-            />
-          ) : null}
-          {section === "shell-integration" ? (
-            <ShellIntegrationSettings
-              enabled={settings.terminalShellIntegration}
-              sessions={sessions}
-              onEnabled={(terminalShellIntegration) =>
-                updateSettings({ terminalShellIntegration })
-              }
-            />
-          ) : null}
-          {section === "triggers" ? (
-            <TriggersSettings
-              triggers={settings.terminalTriggers}
-              onTriggers={(terminalTriggers) => updateSettings({ terminalTriggers })}
-            />
-          ) : null}
           {section === "workspaces" ? (
             <WorkspaceSettings
               workspacePath={workspacePath}
@@ -360,16 +335,34 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               onRemove={removeWorkspace}
             />
           ) : null}
-          {section === "config-json" ? (
-            <ConfigJsonSettings
-              value={configJson}
-              status={configStatus}
-              onValue={setConfigJson}
-              onRefresh={() => {
+          {section === "advanced" ? (
+            <AdvancedSettings
+              active={advancedSection}
+              onActive={selectAdvancedSection}
+              profiles={settings.terminalProfiles}
+              defaultProfileId={settings.defaultTerminalProfileId}
+              shellIntegrationEnabled={settings.terminalShellIntegration}
+              sessions={sessions}
+              triggers={settings.terminalTriggers}
+              configJson={configJson}
+              configStatus={configStatus}
+              imports={terminalImports}
+              importLoading={detectingTerminalConfigs}
+              importError={terminalImportError}
+              onProfiles={(terminalProfiles) => updateSettings({ terminalProfiles })}
+              onDefaultProfile={(defaultTerminalProfileId) =>
+                updateSettings({ defaultTerminalProfileId })
+              }
+              onShellIntegrationEnabled={(terminalShellIntegration) =>
+                updateSettings({ terminalShellIntegration })
+              }
+              onTriggers={(terminalTriggers) => updateSettings({ terminalTriggers })}
+              onConfigJson={setConfigJson}
+              onRefreshConfig={() => {
                 setConfigJson(serializeOnibiConfig());
                 setConfigStatus("Refreshed from current settings.");
               }}
-              onApply={() => {
+              onApplyConfig={() => {
                 try {
                   const config = parseOnibiConfigJson(configJson);
                   applyOnibiConfig(config);
@@ -379,21 +372,14 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
                   setConfigStatus(caught instanceof Error ? caught.message : String(caught));
                 }
               }}
-            />
-          ) : null}
-          {section === "import-config" ? (
-            <ImportConfigSettings
-              imports={terminalImports}
-              loading={detectingTerminalConfigs}
-              error={terminalImportError}
-              onRefresh={() => void refreshTerminalConfigImports()}
+              onRefreshImports={() => void refreshTerminalConfigImports()}
               onAddImport={(item) =>
                 setTerminalImports((state) => [
                   item,
                   ...state.filter((existing) => existing.id !== item.id),
                 ])
               }
-              onApply={(item, options) => {
+              onApplyImport={(item, options) => {
                 const nextCustomColors: ColorSchemeColors = {
                   ...settings.customColorScheme.colors,
                   ...item.colors,
@@ -444,6 +430,9 @@ function labelFor(value: string): string {
   if (value === "import-config") {
     return "Import config from ...";
   }
+  if (value === "launch-presets") {
+    return "Launch presets";
+  }
   if (value === "shell-integration") {
     return "Shell integration";
   }
@@ -463,7 +452,6 @@ interface GeneralSettingsProps {
   uiFontSize: number;
   terminalFontSize: number;
   terminalScrollbackLines: number;
-  terminalShellIntegration: boolean;
   terminalConfirmClose: boolean;
   editorFontSize: number;
   diffViewMode: DiffViewMode;
@@ -476,7 +464,6 @@ interface GeneralSettingsProps {
   onUiFontSize: (fontSize: number) => void;
   onTerminalFontSize: (fontSize: number) => void;
   onTerminalScrollbackLines: (lines: number) => void;
-  onTerminalShellIntegration: (enabled: boolean) => void;
   onTerminalConfirmClose: (enabled: boolean) => void;
   onEditorFontSize: (fontSize: number) => void;
   onDiffViewMode: (mode: DiffViewMode) => void;
@@ -493,7 +480,6 @@ function GeneralSettings({
   uiFontSize,
   terminalFontSize,
   terminalScrollbackLines,
-  terminalShellIntegration,
   terminalConfirmClose,
   editorFontSize,
   diffViewMode,
@@ -506,7 +492,6 @@ function GeneralSettings({
   onUiFontSize,
   onTerminalFontSize,
   onTerminalScrollbackLines,
-  onTerminalShellIntegration,
   onTerminalConfirmClose,
   onEditorFontSize,
   onDiffViewMode,
@@ -599,18 +584,6 @@ function GeneralSettings({
         onChange={onTerminalScrollbackLines}
       />
       <label className="settings-row">
-        <span>Shell integration</span>
-        <span className="settings-check-row">
-          <input
-            type="checkbox"
-            aria-label="Enable shell completions and autosuggestions"
-            checked={terminalShellIntegration}
-            onChange={(event) => onTerminalShellIntegration(event.target.checked)}
-          />
-          Track current directory, prompt boundaries, and shell completions
-        </span>
-      </label>
-      <label className="settings-row">
         <span>Close confirmation</span>
         <span className="settings-check-row">
           <input
@@ -658,6 +631,128 @@ function GeneralSettings({
           <option value="off">Open externally</option>
         </select>
       </label>
+    </section>
+  );
+}
+
+const ADVANCED_SECTIONS: Array<{ id: AdvancedSection; label: string }> = [
+  { id: "launch-presets", label: "Launch presets" },
+  { id: "shell-integration", label: "Shell integration" },
+  { id: "triggers", label: "Triggers" },
+  { id: "config-json", label: "config.json" },
+  { id: "import-config", label: "Import config" },
+];
+
+interface ShellIntegrationSessionStatus {
+  id: string;
+  title: string;
+  cwd?: string;
+  lastExitCode?: number | null;
+  shellPromptMarkerSeen?: boolean;
+  lastCommand?: { command: string; exitCode?: number | null } | null;
+  preview?: { url: string } | null;
+}
+
+function AdvancedSettings({
+  active,
+  onActive,
+  profiles,
+  defaultProfileId,
+  shellIntegrationEnabled,
+  sessions,
+  triggers,
+  configJson,
+  configStatus,
+  imports,
+  importLoading,
+  importError,
+  onProfiles,
+  onDefaultProfile,
+  onShellIntegrationEnabled,
+  onTriggers,
+  onConfigJson,
+  onRefreshConfig,
+  onApplyConfig,
+  onRefreshImports,
+  onAddImport,
+  onApplyImport,
+}: {
+  active: AdvancedSection;
+  onActive: (section: AdvancedSection) => void;
+  profiles: TerminalProfile[];
+  defaultProfileId: string | null;
+  shellIntegrationEnabled: boolean;
+  sessions: ShellIntegrationSessionStatus[];
+  triggers: TerminalTrigger[];
+  configJson: string;
+  configStatus: string | null;
+  imports: TerminalConfigImport[];
+  importLoading: boolean;
+  importError: string | null;
+  onProfiles: (profiles: TerminalProfile[]) => void;
+  onDefaultProfile: (profileId: string | null) => void;
+  onShellIntegrationEnabled: (enabled: boolean) => void;
+  onTriggers: (triggers: TerminalTrigger[]) => void;
+  onConfigJson: (value: string) => void;
+  onRefreshConfig: () => void;
+  onApplyConfig: () => void;
+  onRefreshImports: () => void;
+  onAddImport: (item: TerminalConfigImport) => void;
+  onApplyImport: (item: TerminalConfigImport, options: ImportOptions) => void;
+}) {
+  return (
+    <section className="settings-section advanced-settings" aria-label="Advanced settings">
+      <div className="settings-subnav" role="tablist" aria-label="Advanced settings sections">
+        {ADVANCED_SECTIONS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={active === item.id ? "active" : ""}
+            role="tab"
+            aria-selected={active === item.id}
+            onClick={() => onActive(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+      {active === "launch-presets" ? (
+        <LaunchPresetSettings
+          profiles={profiles}
+          defaultProfileId={defaultProfileId}
+          onProfiles={onProfiles}
+          onDefaultProfile={onDefaultProfile}
+        />
+      ) : null}
+      {active === "shell-integration" ? (
+        <ShellIntegrationSettings
+          enabled={shellIntegrationEnabled}
+          sessions={sessions}
+          onEnabled={onShellIntegrationEnabled}
+        />
+      ) : null}
+      {active === "triggers" ? (
+        <TriggersSettings triggers={triggers} onTriggers={onTriggers} />
+      ) : null}
+      {active === "config-json" ? (
+        <ConfigJsonSettings
+          value={configJson}
+          status={configStatus}
+          onValue={onConfigJson}
+          onRefresh={onRefreshConfig}
+          onApply={onApplyConfig}
+        />
+      ) : null}
+      {active === "import-config" ? (
+        <ImportConfigSettings
+          imports={imports}
+          loading={importLoading}
+          error={importError}
+          onRefresh={onRefreshImports}
+          onAddImport={onAddImport}
+          onApply={onApplyImport}
+        />
+      ) : null}
     </section>
   );
 }
@@ -1000,11 +1095,11 @@ function makeProfile(): TerminalProfile {
   return {
     ...DEFAULT_TERMINAL_PROFILES[0],
     id: `profile:${crypto.randomUUID?.() ?? Date.now().toString(36)}`,
-    name: "New profile",
+    name: "New launch preset",
   };
 }
 
-function ProfileSettings({
+function LaunchPresetSettings({
   profiles,
   defaultProfileId,
   onProfiles,
@@ -1054,18 +1149,18 @@ function ProfileSettings({
 
   if (!selected) {
     return (
-      <section className="settings-section" aria-label="Profile settings">
+      <section className="settings-section nested-settings-section" aria-label="Launch preset settings">
         <button type="button" className="text-button primary" onClick={addProfile}>
-          Add profile
+          Add launch preset
         </button>
       </section>
     );
   }
 
   return (
-    <section className="settings-section" aria-label="Profile settings">
+    <section className="settings-section nested-settings-section" aria-label="Launch preset settings">
       <div className="profile-settings-grid">
-        <div className="profile-list" role="listbox" aria-label="Profiles">
+        <div className="profile-list" role="listbox" aria-label="Launch presets">
           {profiles.map((profile) => (
             <button
               key={profile.id}
@@ -1078,7 +1173,7 @@ function ProfileSettings({
             </button>
           ))}
           <button type="button" className="text-button" onClick={addProfile}>
-            Add profile
+            Add launch preset
           </button>
         </div>
         <div className="profile-editor">
@@ -1086,7 +1181,7 @@ function ProfileSettings({
             <span>Name</span>
             <input
               className="settings-input"
-              aria-label="Profile name"
+              aria-label="Launch preset name"
               value={selected.name}
               onChange={(event) =>
                 updateProfile(selected.id, { name: event.target.value })
@@ -1097,7 +1192,7 @@ function ProfileSettings({
             <span>Agent</span>
             <select
               className="settings-select"
-              aria-label="Profile agent"
+              aria-label="Launch preset agent"
               value={selected.agent}
               onChange={(event) =>
                 updateProfile(selected.id, {
@@ -1120,7 +1215,7 @@ function ProfileSettings({
             <span>Command</span>
             <input
               className="settings-input"
-              aria-label="Profile command"
+              aria-label="Launch preset command"
               value={selected.command}
               placeholder={
                 selected.agent === "shell"
@@ -1136,7 +1231,7 @@ function ProfileSettings({
             <span>Args</span>
             <textarea
               className="settings-textarea settings-small-textarea"
-              aria-label="Profile args"
+              aria-label="Launch preset args"
               value={selected.args.join("\n")}
               onChange={(event) =>
                 updateProfile(selected.id, {
@@ -1149,7 +1244,7 @@ function ProfileSettings({
             <span>Env</span>
             <textarea
               className="settings-textarea settings-small-textarea"
-              aria-label="Profile environment"
+              aria-label="Launch preset environment"
               value={envToText(selected.env)}
               onChange={(event) =>
                 updateProfile(selected.id, { env: textToEnv(event.target.value) })
@@ -1160,7 +1255,7 @@ function ProfileSettings({
             <span>Cwd policy</span>
             <select
               className="settings-select"
-              aria-label="Profile cwd policy"
+              aria-label="Launch preset cwd policy"
               value={selected.cwdPolicy}
               onChange={(event) =>
                 updateProfile(selected.id, {
@@ -1178,7 +1273,7 @@ function ProfileSettings({
               <span>Custom cwd</span>
               <input
                 className="settings-input"
-                aria-label="Profile custom cwd"
+                aria-label="Launch preset custom cwd"
                 value={selected.customCwd}
                 onChange={(event) =>
                   updateProfile(selected.id, { customCwd: event.target.value })
@@ -1190,7 +1285,7 @@ function ProfileSettings({
             <span>Initial prompt</span>
             <textarea
               className="settings-textarea settings-small-textarea"
-              aria-label="Profile initial prompt"
+              aria-label="Launch preset initial prompt"
               value={selected.initialPrompt}
               onChange={(event) =>
                 updateProfile(selected.id, { initialPrompt: event.target.value })
@@ -1202,13 +1297,13 @@ function ProfileSettings({
             <span className="settings-check-row">
               <input
                 type="checkbox"
-                aria-label="Use as default profile"
+                aria-label="Use as default launch preset"
                 checked={defaultProfileId === selected.id}
                 onChange={(event) =>
                   onDefaultProfile(event.target.checked ? selected.id : null)
                 }
               />
-              Use as default profile
+              Use as default launch preset
             </span>
           </label>
           <div className="settings-inline-actions">
@@ -1218,7 +1313,7 @@ function ProfileSettings({
               disabled={profiles.length <= 1}
               onClick={deleteProfile}
             >
-              Delete profile
+              Delete launch preset
             </button>
             <button
               type="button"
@@ -1229,7 +1324,7 @@ function ProfileSettings({
                 setSelectedId("profile:shell");
               }}
             >
-              Reset profiles
+              Reset launch presets
             </button>
           </div>
         </div>
@@ -1244,15 +1339,7 @@ function ShellIntegrationSettings({
   onEnabled,
 }: {
   enabled: boolean;
-  sessions: Array<{
-    id: string;
-    title: string;
-    cwd?: string;
-    lastExitCode?: number | null;
-    shellPromptMarkerSeen?: boolean;
-    lastCommand?: { command: string; exitCode?: number | null } | null;
-    preview?: { url: string } | null;
-  }>;
+  sessions: ShellIntegrationSessionStatus[];
   onEnabled: (enabled: boolean) => void;
 }) {
   const snippet = [

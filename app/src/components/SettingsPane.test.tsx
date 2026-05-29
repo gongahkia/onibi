@@ -134,24 +134,25 @@ describe("SettingsPane", () => {
     expect(settings.diffViewMode).toBe("unified");
   });
 
-  test("stores terminal scrollback and shell integration settings", () => {
+  test("stores terminal scrollback without exposing shell integration in general", () => {
     render(<SettingsPane open onClose={vi.fn()} />);
 
     fireEvent.change(screen.getByLabelText("Terminal scrollback lines"), {
       target: { value: "50000" },
     });
-    fireEvent.click(screen.getByLabelText("Enable shell completions and autosuggestions"));
 
     const settings = useSessionStore.getState().settings;
     expect(settings.terminalScrollbackLines).toBe(50000);
-    expect(settings.terminalShellIntegration).toBe(false);
+    expect(screen.queryByLabelText("Enable shell integration")).toBeNull();
   });
 
-  test("moves terminal triggers into a dedicated settings tab", () => {
+  test("moves terminal triggers into advanced settings", () => {
     render(<SettingsPane open onClose={vi.fn()} />);
 
+    expect(screen.queryByRole("button", { name: "Triggers" })).toBeNull();
     expect(screen.queryByText("Approval needed")).toBeNull();
-    fireEvent.click(screen.getByText("Triggers"));
+    fireEvent.click(screen.getByText("Advanced"));
+    fireEvent.click(screen.getByRole("tab", { name: "Triggers" }));
 
     expect(screen.getByText("Approval needed")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Approval needed trigger"));
@@ -169,20 +170,21 @@ describe("SettingsPane", () => {
     expect(screen.getByLabelText("Crush launch command")).toBeTruthy();
   });
 
-  test("edits terminal profiles", () => {
+  test("edits advanced launch presets", () => {
     render(<SettingsPane open onClose={vi.fn()} />);
-    fireEvent.click(screen.getByText("Profiles"));
+    expect(screen.queryByRole("button", { name: "Profiles" })).toBeNull();
+    fireEvent.click(screen.getByText("Advanced"));
 
-    fireEvent.change(screen.getByLabelText("Profile name"), {
+    fireEvent.change(screen.getByLabelText("Launch preset name"), {
       target: { value: "Project shell" },
     });
-    fireEvent.change(screen.getByLabelText("Profile environment"), {
+    fireEvent.change(screen.getByLabelText("Launch preset environment"), {
       target: { value: "FOO=bar\nEMPTY=" },
     });
-    fireEvent.change(screen.getByLabelText("Profile cwd policy"), {
+    fireEvent.change(screen.getByLabelText("Launch preset cwd policy"), {
       target: { value: "custom" },
     });
-    fireEvent.change(screen.getByLabelText("Profile custom cwd"), {
+    fireEvent.change(screen.getByLabelText("Launch preset custom cwd"), {
       target: { value: "/tmp/onibi" },
     });
 
@@ -214,7 +216,8 @@ describe("SettingsPane", () => {
     });
 
     render(<SettingsPane open onClose={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: "Shell integration" }));
+    fireEvent.click(screen.getByText("Advanced"));
+    fireEvent.click(screen.getByRole("tab", { name: "Shell integration" }));
 
     expect(screen.getByText("cwd: /repo/packages/app")).toBeTruthy();
     expect(screen.getByText("last exit: 2")).toBeTruthy();
@@ -224,7 +227,8 @@ describe("SettingsPane", () => {
 
   test("applies config.json edits", () => {
     render(<SettingsPane open onClose={vi.fn()} />);
-    fireEvent.click(screen.getByText("config.json"));
+    fireEvent.click(screen.getByText("Advanced"));
+    fireEvent.click(screen.getByRole("tab", { name: "config.json" }));
     fireEvent.change(screen.getByLabelText("Onibi config JSON"), {
       target: {
         value: JSON.stringify({
@@ -260,7 +264,8 @@ describe("SettingsPane", () => {
     });
 
     render(<SettingsPane open onClose={vi.fn()} />);
-    fireEvent.click(screen.getByText("Import config from ..."));
+    fireEvent.click(screen.getByText("Advanced"));
+    fireEvent.click(screen.getByRole("tab", { name: "Import config" }));
     expect(await screen.findByText("Ghostty")).toBeTruthy();
     fireEvent.click(screen.getByText("Apply selected"));
 
@@ -295,7 +300,8 @@ describe("SettingsPane", () => {
     });
 
     render(<SettingsPane open onClose={vi.fn()} />);
-    fireEvent.click(screen.getByText("Import config from ..."));
+    fireEvent.click(screen.getByText("Advanced"));
+    fireEvent.click(screen.getByRole("tab", { name: "Import config" }));
     expect(await screen.findByText("Rio")).toBeTruthy();
     fireEvent.click(screen.getByText("Apply selected"));
 
