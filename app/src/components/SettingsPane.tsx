@@ -48,6 +48,7 @@ type SettingsSection =
   | "agents"
   | "profiles"
   | "shell-integration"
+  | "triggers"
   | "workspaces"
   | "config-json"
   | "import-config";
@@ -222,6 +223,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
                 "agents",
                 "profiles",
                 "shell-integration",
+                "triggers",
                 "workspaces",
                 "config-json",
                 "import-config",
@@ -259,7 +261,6 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               terminalScrollbackLines={settings.terminalScrollbackLines}
               terminalShellIntegration={settings.terminalShellIntegration}
               terminalConfirmClose={settings.terminalConfirmClose}
-              terminalTriggers={settings.terminalTriggers}
               editorFontSize={settings.editorFontSize}
               diffViewMode={settings.diffViewMode}
               webOpenMode={settings.webOpenMode}
@@ -286,9 +287,6 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               }
               onTerminalConfirmClose={(terminalConfirmClose) =>
                 updateSettings({ terminalConfirmClose })
-              }
-              onTerminalTriggers={(terminalTriggers) =>
-                updateSettings({ terminalTriggers })
               }
               onEditorFontSize={(editorFontSize) => updateSettings({ editorFontSize })}
               onDiffViewMode={(diffViewMode) => updateSettings({ diffViewMode })}
@@ -344,6 +342,12 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               onEnabled={(terminalShellIntegration) =>
                 updateSettings({ terminalShellIntegration })
               }
+            />
+          ) : null}
+          {section === "triggers" ? (
+            <TriggersSettings
+              triggers={settings.terminalTriggers}
+              onTriggers={(terminalTriggers) => updateSettings({ terminalTriggers })}
             />
           ) : null}
           {section === "workspaces" ? (
@@ -443,6 +447,9 @@ function labelFor(value: string): string {
   if (value === "shell-integration") {
     return "Shell integration";
   }
+  if (value === "triggers") {
+    return "Triggers";
+  }
   return value[0].toUpperCase() + value.slice(1);
 }
 
@@ -458,7 +465,6 @@ interface GeneralSettingsProps {
   terminalScrollbackLines: number;
   terminalShellIntegration: boolean;
   terminalConfirmClose: boolean;
-  terminalTriggers: TerminalTrigger[];
   editorFontSize: number;
   diffViewMode: DiffViewMode;
   webOpenMode: WebOpenMode;
@@ -472,7 +478,6 @@ interface GeneralSettingsProps {
   onTerminalScrollbackLines: (lines: number) => void;
   onTerminalShellIntegration: (enabled: boolean) => void;
   onTerminalConfirmClose: (enabled: boolean) => void;
-  onTerminalTriggers: (triggers: TerminalTrigger[]) => void;
   onEditorFontSize: (fontSize: number) => void;
   onDiffViewMode: (mode: DiffViewMode) => void;
   onWebOpenMode: (mode: WebOpenMode) => void;
@@ -490,7 +495,6 @@ function GeneralSettings({
   terminalScrollbackLines,
   terminalShellIntegration,
   terminalConfirmClose,
-  terminalTriggers,
   editorFontSize,
   diffViewMode,
   webOpenMode,
@@ -504,7 +508,6 @@ function GeneralSettings({
   onTerminalScrollbackLines,
   onTerminalShellIntegration,
   onTerminalConfirmClose,
-  onTerminalTriggers,
   onEditorFontSize,
   onDiffViewMode,
   onWebOpenMode,
@@ -619,10 +622,6 @@ function GeneralSettings({
           Confirm before closing running terminals
         </span>
       </label>
-      <TerminalTriggersControl
-        triggers={terminalTriggers}
-        onChange={onTerminalTriggers}
-      />
       <FontFamilyControl
         label="File content font"
         value={editorFontFamily}
@@ -659,6 +658,20 @@ function GeneralSettings({
           <option value="off">Open externally</option>
         </select>
       </label>
+    </section>
+  );
+}
+
+function TriggersSettings({
+  triggers,
+  onTriggers,
+}: {
+  triggers: TerminalTrigger[];
+  onTriggers: (triggers: TerminalTrigger[]) => void;
+}) {
+  return (
+    <section className="settings-section" aria-label="Terminal trigger settings">
+      <TerminalTriggersControl triggers={triggers} onChange={onTriggers} />
     </section>
   );
 }

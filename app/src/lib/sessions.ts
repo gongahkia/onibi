@@ -372,6 +372,13 @@ export type TerminalConfigSource =
   | "warp"
   | "muxy"
   | "cmux"
+  | "rio"
+  | "tabby"
+  | "hyper"
+  | "contour"
+  | "foot"
+  | "konsole"
+  | "xfce-terminal"
   | "windows-terminal";
 
 export type TerminalKeybindingAction =

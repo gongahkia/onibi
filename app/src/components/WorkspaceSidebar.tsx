@@ -3,8 +3,6 @@ import { listAgentReviews, type AgentReviewRecord } from "../lib/agent-review";
 import { getGitStatus, gitStateByFullPath, type GitStatus } from "../lib/git";
 import { useSessionStore, type Session, type Workspace } from "../lib/sessions";
 import { FileTree } from "./FileTree";
-import { SessionHistoryView } from "./SessionHistoryView";
-import { SessionListView } from "./SessionListView";
 import { SourceControlView } from "./SourceControlView";
 import { WorkspaceSearchView } from "./WorkspaceSearchView";
 
@@ -28,7 +26,8 @@ export function WorkspaceSidebar() {
   const activeSessionId = useSessionStore((state) => state.activeSessionId);
   const view = useSessionStore((state) => state.activeSidebarView);
   const setView = useSessionStore((state) => state.setActiveSidebarView);
-  const effectiveView = view === "search" ? "files" : view;
+  const effectiveView =
+    view === "search" || view === "sessions" || view === "history" ? "files" : view;
   const activeWorkspace = useMemo(
     () => activeWorkspaceFor(sessions, workspaces, activeSessionId),
     [activeSessionId, sessions, workspaces],
@@ -65,7 +64,7 @@ export function WorkspaceSidebar() {
   }, [refreshGitStatus]);
 
   useEffect(() => {
-    if (view === "search") {
+    if (view === "search" || view === "sessions" || view === "history") {
       setFilesMode("search");
       setView("files");
     }
@@ -108,24 +107,6 @@ export function WorkspaceSidebar() {
           Git
           {changeCount > 0 ? <span className="workspace-view-badge">{changeCount}</span> : null}
         </button>
-        <button
-          type="button"
-          className={effectiveView === "sessions" ? "active" : ""}
-          role="tab"
-          aria-selected={effectiveView === "sessions"}
-          onClick={() => setView("sessions")}
-        >
-          Sessions
-        </button>
-        <button
-          type="button"
-          className={effectiveView === "history" ? "active" : ""}
-          role="tab"
-          aria-selected={effectiveView === "history"}
-          onClick={() => setView("history")}
-        >
-          History
-        </button>
       </div>
       <div className="workspace-view-pane">
         {effectiveView === "files" ? (
@@ -163,11 +144,7 @@ export function WorkspaceSidebar() {
             error={gitError}
             onRefresh={refreshGitStatus}
           />
-        ) : effectiveView === "sessions" ? (
-          <SessionListView />
-        ) : (
-          <SessionHistoryView />
-        )}
+        ) : null}
       </div>
     </div>
   );

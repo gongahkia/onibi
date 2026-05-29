@@ -213,7 +213,7 @@ function SessionCard({
             {session.pendingApprovals.length}
           </span>
         ) : null}
-        {session.lastTrigger?.actions.includes("badge") ? (
+        {needsAttention && session.lastTrigger?.actions.includes("badge") ? (
           <span className="session-card-trigger" title={session.lastTrigger.line}>
             {session.lastTrigger.label}
           </span>

@@ -15,6 +15,7 @@ import {
   type GitStatusEntry,
 } from "../lib/git";
 import { agentIconUrl } from "../lib/agent-icons";
+import { ActivityCenter } from "./ActivityCenter";
 import { NewSessionDialog } from "./NewSessionDialog";
 import { SettingsPane } from "./SettingsPane";
 
@@ -52,6 +53,7 @@ function chooseDiffEntry(
 
 export function AgentTabBar({ orientation }: AgentTabBarProps) {
   const [newSessionOpen, setNewSessionOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<WorkflowContextMenuState | null>(
     null,
@@ -213,6 +215,15 @@ export function AgentTabBar({ orientation }: AgentTabBarProps) {
         <button
           type="button"
           className="icon-button"
+          aria-label="Activity"
+          title="Activity"
+          onClick={() => setActivityOpen(true)}
+        >
+          H
+        </button>
+        <button
+          type="button"
+          className="icon-button"
           aria-label="Settings"
           title="Settings"
           onClick={() => setSettingsOpen(true)}
@@ -224,6 +235,7 @@ export function AgentTabBar({ orientation }: AgentTabBarProps) {
         open={newSessionOpen}
         onClose={() => setNewSessionOpen(false)}
       />
+      <ActivityCenter open={activityOpen} onClose={() => setActivityOpen(false)} />
       <SettingsPane open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       {contextMenu && contextSession ? (
         <WorkflowContextMenu
