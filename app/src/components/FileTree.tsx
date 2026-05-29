@@ -12,9 +12,11 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import {
   createWorkspaceDir,
   createWorkspaceFile,
+  createWorkspaceFileWithContents,
   deleteWorkspacePath,
   listWorkspaceDir,
   moveWorkspacePath,
+  readWorkspaceFile,
   renameWorkspacePath,
   selectedFileFromEntry,
   type FsEntry,
@@ -75,6 +77,23 @@ function relativeWorkspacePath(workspace: Workspace, path: string): string {
   return path === workspace.path
     ? "."
     : path.replace(`${workspace.path.replace(/\/+$/, "")}/`, "");
+}
+
+function envTargetName(name: string): string | null {
+  if (name === ".env") {
+    return ".env.example";
+  }
+  if (name === ".env.example") {
+    return ".env";
+  }
+  return null;
+}
+
+function redactEnvContents(contents: string): string {
+  return contents.replace(
+    /^(\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=\s*).*$/gm,
+    "$1",
+  );
 }
 
 function isDescendantPath(parent: string, path: string): boolean {
@@ -473,6 +492,37 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
     }
   }
 
+  async function createEnvSibling(target: ContextTarget) {
+    const targetName = envTargetName(target.entry.name);
+    if (!targetName || target.entry.kind !== "file") {
+      return;
+    }
+    setErrors((state) => ({ ...state, global: "" }));
+    const parent = parentPath(target.entry.path);
+    try {
+      const sourceBytes = await readWorkspaceFile(
+        target.workspace.path,
+        target.entry.path,
+      );
+      const text = new TextDecoder().decode(new Uint8Array(sourceBytes));
+      const nextText =
+        target.entry.name === ".env" ? redactEnvContents(text) : text;
+      const created = await createWorkspaceFileWithContents(
+        target.workspace.path,
+        parent,
+        targetName,
+        new TextEncoder().encode(nextText),
+      );
+      await refreshChildren(target.workspace, parent);
+      selectFile(selectedFileFromEntry(target.workspace, created));
+    } catch (caught) {
+      setErrors((state) => ({
+        ...state,
+        global: caught instanceof Error ? caught.message : String(caught),
+      }));
+    }
+  }
+
   async function renameTarget(target: ContextTarget) {
     if (target.isWorkspaceRoot) {
       return;
@@ -839,6 +889,7 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
           }
           onNewFile={(target) => void createChild(target, "file")}
           onNewFolder={(target) => void createChild(target, "dir")}
+          onCreateEnvSibling={(target) => void createEnvSibling(target)}
           onRefresh={(target) => void refreshTarget(target)}
           onRename={(target) => void renameTarget(target)}
           onDelete={(target) => void deleteTarget(target)}
@@ -858,6 +909,7 @@ interface FileTreeContextMenuProps {
   onCopyRelativePath: (target: ContextTarget) => void;
   onNewFile: (target: ContextTarget) => void;
   onNewFolder: (target: ContextTarget) => void;
+  onCreateEnvSibling: (target: ContextTarget) => void;
   onRefresh: (target: ContextTarget) => void;
   onRename: (target: ContextTarget) => void;
   onDelete: (target: ContextTarget) => void;
@@ -873,6 +925,7 @@ function FileTreeContextMenu({
   onCopyRelativePath,
   onNewFile,
   onNewFolder,
+  onCreateEnvSibling,
   onRefresh,
   onRename,
   onDelete,
@@ -910,6 +963,20 @@ function FileTreeContextMenu({
           </button>
           <button type="button" role="menuitem" onClick={() => run(onRefresh)}>
             Refresh
+          </button>
+          <div className="context-separator" />
+        </>
+      ) : null}
+      {target.entry.kind === "file" && envTargetName(target.entry.name) ? (
+        <>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => run(onCreateEnvSibling)}
+          >
+            {target.entry.name === ".env"
+              ? "Create .env.example from .env"
+              : "Create .env from .env.example"}
           </button>
           <div className="context-separator" />
         </>

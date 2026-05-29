@@ -1,33 +1,11 @@
 import { useMemo, useState } from "react";
-import { AGENT_LABELS, type AgentKind, useSessionStore } from "../lib/sessions";
+import { AGENT_LABELS, useSessionStore } from "../lib/sessions";
+import { agentIconUrl } from "../lib/agent-icons";
 import { NewSessionDialog } from "./NewSessionDialog";
 import { SettingsPane } from "./SettingsPane";
-import claudeIcon from "../assets/agents/claude-code.svg";
-import codexIcon from "../assets/agents/codex.svg";
-import opencodeIcon from "../assets/agents/opencode.svg";
-import geminiIcon from "../assets/agents/gemini.svg";
-import aiderIcon from "../assets/agents/aider.svg";
-import cursorIcon from "../assets/agents/cursor.svg";
-import gooseIcon from "../assets/agents/goose.svg";
-import shellIcon from "../assets/agents/shell.svg";
 
 export interface AgentTabBarProps {
   orientation: "vertical" | "horizontal";
-}
-
-const AGENT_ICONS: Record<AgentKind, string> = {
-  "claude-code": claudeIcon,
-  codex: codexIcon,
-  opencode: opencodeIcon,
-  gemini: geminiIcon,
-  aider: aiderIcon,
-  cursor: cursorIcon,
-  goose: gooseIcon,
-  shell: shellIcon,
-};
-
-export function agentIconUrl(agent: AgentKind): string {
-  return AGENT_ICONS[agent];
 }
 
 export function AgentTabBar({ orientation }: AgentTabBarProps) {

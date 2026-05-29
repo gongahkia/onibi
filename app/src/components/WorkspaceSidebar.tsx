@@ -4,9 +4,10 @@ import { getGitStatus, gitStateByFullPath, type GitStatus } from "../lib/git";
 import { useSessionStore, type Session, type Workspace } from "../lib/sessions";
 import { FileTree } from "./FileTree";
 import { SessionHistoryView } from "./SessionHistoryView";
+import { SessionListView } from "./SessionListView";
 import { SourceControlView } from "./SourceControlView";
 
-type WorkspaceSidebarView = "files" | "source-control" | "history";
+type WorkspaceSidebarView = "files" | "source-control" | "sessions" | "history";
 
 function activeWorkspaceFor(
   sessions: Session[],
@@ -100,6 +101,15 @@ export function WorkspaceSidebar() {
         </button>
         <button
           type="button"
+          className={view === "sessions" ? "active" : ""}
+          role="tab"
+          aria-selected={view === "sessions"}
+          onClick={() => setView("sessions")}
+        >
+          Sessions
+        </button>
+        <button
+          type="button"
           className={view === "history" ? "active" : ""}
           role="tab"
           aria-selected={view === "history"}
@@ -122,6 +132,8 @@ export function WorkspaceSidebar() {
             error={gitError}
             onRefresh={refreshGitStatus}
           />
+        ) : view === "sessions" ? (
+          <SessionListView />
         ) : (
           <SessionHistoryView />
         )}

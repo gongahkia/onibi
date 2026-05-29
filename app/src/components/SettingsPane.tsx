@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AGENT_KINDS,
   AGENT_LABELS,
@@ -9,14 +9,20 @@ import {
   DEFAULT_AGENT_INSTALL_COMMANDS,
   type AgentKind,
   type ColorSchemeColorKey,
+  type ColorSchemeColors,
   type CustomColorScheme,
   type DiffViewMode,
   type TabBarOrientation,
   type TabBarPosition,
+  type TerminalConfigImport,
   type ThemeMode,
   type WebOpenMode,
+  applyOnibiConfig,
+  detectTerminalConfigImports,
   listLocalFontFamilies,
+  parseOnibiConfigJson,
   resolveAgentBinary,
+  serializeOnibiConfig,
   useSessionStore,
   workspaceFromPath,
 } from "../lib/sessions";
@@ -27,7 +33,13 @@ export interface SettingsPaneProps {
   onClose: () => void;
 }
 
-type SettingsSection = "general" | "layout" | "agents" | "workspaces";
+type SettingsSection =
+  | "general"
+  | "layout"
+  | "agents"
+  | "workspaces"
+  | "config-json"
+  | "import-config";
 type BinaryStatus = Record<AgentKind, string | null>;
 
 export function SettingsPane({ open, onClose }: SettingsPaneProps) {
@@ -47,6 +59,11 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
   const [fontFamilies, setFontFamilies] = useState<string[]>([]);
   const [workspacePath, setWorkspacePath] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [configJson, setConfigJson] = useState("");
+  const [configStatus, setConfigStatus] = useState<string | null>(null);
+  const [terminalImports, setTerminalImports] = useState<TerminalConfigImport[]>([]);
+  const [terminalImportError, setTerminalImportError] = useState<string | null>(null);
+  const [detectingTerminalConfigs, setDetectingTerminalConfigs] = useState(false);
 
   useEffect(() => {
     if (!open) {
@@ -87,6 +104,13 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
     return () => {
       cancelled = true;
     };
+  }, [open]);
+
+  useEffect(() => {
+    if (open) {
+      setConfigJson(serializeOnibiConfig());
+      setConfigStatus(null);
+    }
   }, [open]);
 
   if (!open) {
@@ -144,6 +168,19 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
     onClose();
   }
 
+  async function refreshTerminalConfigImports() {
+    setDetectingTerminalConfigs(true);
+    setTerminalImportError(null);
+    try {
+      setTerminalImports(await detectTerminalConfigImports());
+    } catch (caught) {
+      setTerminalImports([]);
+      setTerminalImportError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setDetectingTerminalConfigs(false);
+    }
+  }
+
   return (
     <div className="modal-backdrop settings-pane" role="presentation">
       <section
@@ -167,12 +204,30 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
         </header>
         <div className="settings-grid">
           <nav className="settings-nav" aria-label="Settings sections">
-            {(["general", "layout", "agents", "workspaces"] as const).map((item) => (
+            {(
+              [
+                "general",
+                "layout",
+                "agents",
+                "workspaces",
+                "config-json",
+                "import-config",
+              ] as const
+            ).map((item) => (
               <button
                 key={item}
                 type="button"
                 className={`text-button ${section === item ? "primary" : ""}`}
-                onClick={() => setSection(item)}
+                onClick={() => {
+                  setSection(item);
+                  if (item === "config-json") {
+                    setConfigJson(serializeOnibiConfig());
+                    setConfigStatus(null);
+                  }
+                  if (item === "import-config" && terminalImports.length === 0) {
+                    void refreshTerminalConfigImports();
+                  }
+                }}
               >
                 {labelFor(item)}
               </button>
@@ -253,6 +308,62 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               onRemove={removeWorkspace}
             />
           ) : null}
+          {section === "config-json" ? (
+            <ConfigJsonSettings
+              value={configJson}
+              status={configStatus}
+              onValue={setConfigJson}
+              onRefresh={() => {
+                setConfigJson(serializeOnibiConfig());
+                setConfigStatus("Refreshed from current settings.");
+              }}
+              onApply={() => {
+                try {
+                  const config = parseOnibiConfigJson(configJson);
+                  applyOnibiConfig(config);
+                  setConfigJson(serializeOnibiConfig());
+                  setConfigStatus("Applied config.json.");
+                } catch (caught) {
+                  setConfigStatus(caught instanceof Error ? caught.message : String(caught));
+                }
+              }}
+            />
+          ) : null}
+          {section === "import-config" ? (
+            <ImportConfigSettings
+              imports={terminalImports}
+              loading={detectingTerminalConfigs}
+              error={terminalImportError}
+              onRefresh={() => void refreshTerminalConfigImports()}
+              onApply={(item, options) => {
+                const nextCustomColors: ColorSchemeColors = {
+                  ...settings.customColorScheme.colors,
+                  ...item.colors,
+                };
+                updateSettings({
+                  theme: options.colors ? "custom" : settings.theme,
+                  customColorScheme: options.colors
+                    ? {
+                        label: item.colorSchemeName ?? item.label,
+                        colors: nextCustomColors,
+                      }
+                    : settings.customColorScheme,
+                  terminalFontFamily:
+                    options.fontFamily && item.fontFamily
+                      ? item.fontFamily
+                      : settings.terminalFontFamily,
+                  editorFontFamily:
+                    options.fontFamily && item.fontFamily
+                      ? item.fontFamily
+                      : settings.editorFontFamily,
+                  terminalFontSize:
+                    options.fontSize && item.fontSize
+                      ? item.fontSize
+                      : settings.terminalFontSize,
+                });
+              }}
+            />
+          ) : null}
         </div>
       </section>
     </div>
@@ -260,6 +371,12 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
 }
 
 function labelFor(value: string): string {
+  if (value === "config-json") {
+    return "config.json";
+  }
+  if (value === "import-config") {
+    return "Import config from ...";
+  }
   return value[0].toUpperCase() + value.slice(1);
 }
 
@@ -616,6 +733,196 @@ function AgentSettings({
                 </button>
               </>
             ) : null}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+function ConfigJsonSettings({
+  value,
+  status,
+  onValue,
+  onRefresh,
+  onApply,
+}: {
+  value: string;
+  status: string | null;
+  onValue: (value: string) => void;
+  onRefresh: () => void;
+  onApply: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  function exportConfig() {
+    const blob = new Blob([value], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "onibi.config.json";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importConfig(file: File | undefined) {
+    if (!file) {
+      return;
+    }
+    onValue(await file.text());
+  }
+
+  return (
+    <section className="settings-section" aria-label="config.json settings">
+      <div className="config-json-actions">
+        <button type="button" className="text-button" onClick={onRefresh}>
+          Refresh
+        </button>
+        <button type="button" className="text-button primary" onClick={onApply}>
+          Apply JSON
+        </button>
+        <button type="button" className="text-button" onClick={exportConfig}>
+          Export
+        </button>
+        <button
+          type="button"
+          className="text-button"
+          onClick={() => inputRef.current?.click()}
+        >
+          Import
+        </button>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="application/json,.json"
+          className="visually-hidden"
+          onChange={(event) => void importConfig(event.target.files?.[0])}
+        />
+      </div>
+      <textarea
+        className="settings-textarea config-json-editor"
+        aria-label="Onibi config JSON"
+        spellCheck={false}
+        value={value}
+        onChange={(event) => onValue(event.target.value)}
+      />
+      {status ? <div className="settings-note">{status}</div> : null}
+    </section>
+  );
+}
+
+interface ImportOptions {
+  colors: boolean;
+  fontFamily: boolean;
+  fontSize: boolean;
+}
+
+function ImportConfigSettings({
+  imports,
+  loading,
+  error,
+  onRefresh,
+  onApply,
+}: {
+  imports: TerminalConfigImport[];
+  loading: boolean;
+  error: string | null;
+  onRefresh: () => void;
+  onApply: (item: TerminalConfigImport, options: ImportOptions) => void;
+}) {
+  const [optionsById, setOptionsById] = useState<Record<string, ImportOptions>>({});
+
+  function optionsFor(item: TerminalConfigImport): ImportOptions {
+    return (
+      optionsById[item.id] ?? {
+        colors: Object.keys(item.colors).length > 0,
+        fontFamily: Boolean(item.fontFamily),
+        fontSize: Boolean(item.fontSize),
+      }
+    );
+  }
+
+  function updateOption(
+    item: TerminalConfigImport,
+    key: keyof ImportOptions,
+    value: boolean,
+  ) {
+    setOptionsById((state) => ({
+      ...state,
+      [item.id]: { ...optionsFor(item), [key]: value },
+    }));
+  }
+
+  return (
+    <section className="settings-section" aria-label="Import terminal config">
+      <div className="config-json-actions">
+        <button type="button" className="text-button" onClick={onRefresh}>
+          {loading ? "Detecting" : "Detect configs"}
+        </button>
+      </div>
+      {error ? <div className="editor-error">{error}</div> : null}
+      {!loading && imports.length === 0 ? (
+        <div className="settings-note">No importable terminal configs found.</div>
+      ) : null}
+      {imports.map((item) => {
+        const options = optionsFor(item);
+        return (
+          <div className="terminal-import-card" key={item.id}>
+            <div>
+              <strong>{item.label}</strong>
+              <div className="settings-note">{item.path}</div>
+              {item.colorSchemeName ? (
+                <div className="settings-note">Theme: {item.colorSchemeName}</div>
+              ) : null}
+              {item.importedFields.length > 0 ? (
+                <div className="settings-note">
+                  Importable: {item.importedFields.join(", ")}
+                </div>
+              ) : null}
+            </div>
+            <label className="settings-check-row">
+              <input
+                type="checkbox"
+                checked={options.colors}
+                disabled={Object.keys(item.colors).length === 0}
+                onChange={(event) =>
+                  updateOption(item, "colors", event.target.checked)
+                }
+              />
+              Colors
+            </label>
+            <label className="settings-check-row">
+              <input
+                type="checkbox"
+                checked={options.fontFamily}
+                disabled={!item.fontFamily}
+                onChange={(event) =>
+                  updateOption(item, "fontFamily", event.target.checked)
+                }
+              />
+              Font family{item.fontFamily ? `: ${item.fontFamily}` : ""}
+            </label>
+            <label className="settings-check-row">
+              <input
+                type="checkbox"
+                checked={options.fontSize}
+                disabled={!item.fontSize}
+                onChange={(event) =>
+                  updateOption(item, "fontSize", event.target.checked)
+                }
+              />
+              Font size{item.fontSize ? `: ${item.fontSize}` : ""}
+            </label>
+            <div className="settings-note">
+              Keybind and shader imports are detected as future import categories.
+            </div>
+            <button
+              type="button"
+              className="text-button primary"
+              onClick={() => onApply(item, options)}
+            >
+              Apply selected
+            </button>
           </div>
         );
       })}
