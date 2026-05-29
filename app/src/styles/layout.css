@@ -291,7 +291,7 @@ button {
 
 .workspace-view-switcher {
   display: grid;
-  grid-template-columns: repeat(5, minmax(max-content, 1fr));
+  grid-template-columns: repeat(4, minmax(max-content, 1fr));
   gap: 6px;
   overflow-x: auto;
   padding: 8px;
@@ -344,6 +344,36 @@ button {
   flex: 1;
   min-height: 0;
   min-width: 0;
+}
+
+.files-view {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.files-view-mode {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 10px 10px 0;
+  background: var(--bg-1);
+}
+
+.files-view-mode button {
+  min-width: 0;
+  padding: 7px 8px;
+  color: var(--fg-1);
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.files-view-mode button.active {
+  color: var(--fg-0);
+  border-color: var(--accent);
 }
 
 .workspace-view-pane .file-tree {

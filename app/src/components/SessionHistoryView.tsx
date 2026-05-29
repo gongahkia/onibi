@@ -32,6 +32,32 @@ export function SessionHistoryView() {
   const openWebUrl = useSessionStore((state) => state.openWebUrl);
   const selectFile = useSessionStore((state) => state.selectFile);
   const latestEvents = [...events].reverse();
+  const latestTranscripts = useMemo(
+    () =>
+      sessions
+        .filter((session) => session.transcript?.text.trim())
+        .filter((session) => {
+          const needle = query.trim().toLowerCase();
+          if (!needle) {
+            return true;
+          }
+          return [
+            session.title,
+            session.cwd,
+            session.transcript?.text,
+            AGENT_LABELS[session.agent],
+          ]
+            .join(" ")
+            .toLowerCase()
+            .includes(needle);
+        })
+        .sort(
+          (a, b) =>
+            (b.transcript?.updatedAt ?? b.createdAt) -
+            (a.transcript?.updatedAt ?? a.createdAt),
+        ),
+    [query, sessions],
+  );
   const latestBlocks = useMemo(
     () =>
       [
@@ -60,7 +86,11 @@ export function SessionHistoryView() {
     [activeCommandBlocks, commandBlocks, query],
   );
 
-  if (latestBlocks.length === 0 && latestEvents.length === 0) {
+  if (
+    latestBlocks.length === 0 &&
+    latestTranscripts.length === 0 &&
+    latestEvents.length === 0
+  ) {
     return (
       <section className="session-history-view">
         <input
@@ -123,7 +153,40 @@ export function SessionHistoryView() {
           />
         );
       })}
-      {latestBlocks.length === 0
+      {latestTranscripts.map((session) => {
+        const workspace = workspaces.find((item) => item.id === session.workspaceId);
+        return (
+          <article className="history-event transcript-event" key={`log:${session.id}`}>
+            <div className="history-event-time">
+              {formatTime(session.transcript?.updatedAt ?? session.createdAt)}
+            </div>
+            <div className="history-event-body">
+              <div className="history-event-label">
+                {AGENT_LABELS[session.agent]} · Chat Log
+              </div>
+              <div className="history-event-summary">{session.title}</div>
+              <pre className="history-output">
+                {(session.transcript?.text ?? "").trim().slice(-6000)}
+              </pre>
+              {workspace ? (
+                <div className="history-event-meta">{workspace.name}</div>
+              ) : null}
+              <div className="history-actions">
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() =>
+                    void navigator.clipboard?.writeText(session.transcript?.text ?? "")
+                  }
+                >
+                  Copy Log
+                </button>
+              </div>
+            </div>
+          </article>
+        );
+      })}
+      {latestBlocks.length === 0 && latestTranscripts.length === 0
         ? latestEvents.map((event) => {
         const workspace = workspaces.find((item) => item.id === event.workspaceId);
         return (

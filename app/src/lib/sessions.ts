@@ -55,6 +55,7 @@ export interface Session {
   lastCommand?: SessionCommandMarker | null;
   lastCommandBlockId?: string | null;
   control?: SessionControlState | null;
+  transcript?: SessionTranscript | null;
   shellPromptMarkerSeen?: boolean;
 }
 
@@ -177,6 +178,11 @@ export interface SessionControlState {
   externalInputBlocked: boolean;
   updatedAt: number;
   reason?: string | null;
+}
+
+export interface SessionTranscript {
+  text: string;
+  updatedAt: number;
 }
 
 export type WorkspaceSidebarView =
@@ -508,6 +514,7 @@ type SessionStore = {
   removeSession: (id: string) => void;
   clearSessionAttention: (id: string) => void;
   setSessionControlState: (id: string, control: SessionControlState) => void;
+  appendSessionTranscript: (id: string, text: string) => void;
   startCommandBlock: (block: CommandBlock) => void;
   finishCommandBlock: (block: CommandBlock) => void;
   setCommandBlocks: (blocks: CommandBlock[]) => void;
@@ -524,6 +531,7 @@ type SessionStore = {
 };
 
 const STORE_PATH = "settings.json";
+const SESSION_TRANSCRIPT_LIMIT = 80_000;
 
 export const AGENT_LABELS: Record<AgentKind, string> = {
   "claude-code": "Claude Code",
@@ -2023,7 +2031,7 @@ export function sessionAttentionState(
 }
 
 export function sessionNeedsAttention(session: Session, now = Date.now()): boolean {
-  return ["needs-approval", "triggered", "failed", "exited", "stale"].includes(
+  return ["needs-approval", "triggered", "failed", "exited"].includes(
     sessionAttentionState(session, now),
   );
 }
@@ -2090,6 +2098,17 @@ function mergeCommandBlocks(
   return [...byId.values()]
     .sort((a, b) => b.startedAt - a.startedAt)
     .slice(0, limit);
+}
+
+function appendTranscript(
+  transcript: SessionTranscript | null | undefined,
+  text: string,
+): SessionTranscript {
+  const combined = `${transcript?.text ?? ""}${text}`;
+  return {
+    text: combined.slice(-SESSION_TRANSCRIPT_LIMIT),
+    updatedAt: Date.now(),
+  };
 }
 
 function snapshot(state: SessionStore): PersistedState {
@@ -2390,6 +2409,22 @@ export const useSessionStore = create<SessionStore>((set) => ({
           reason: control.reason ?? null,
         },
       }),
+    }));
+    persistLater();
+  },
+  appendSessionTranscript: (id, text) => {
+    if (!text) {
+      return;
+    }
+    set((state) => ({
+      sessions: state.sessions.map((session) =>
+        session.id === id
+          ? {
+              ...session,
+              transcript: appendTranscript(session.transcript, text),
+            }
+          : session,
+      ),
     }));
     persistLater();
   },
@@ -3083,6 +3118,7 @@ export async function spawnSessionFromLaunchSpec(
       lastTrigger: null,
       lastCommandBlockId: null,
       control: defaultSessionControl(spec.agent),
+      transcript: null,
       restart: {
         command: spec.command,
         args: spec.args,
@@ -3189,6 +3225,7 @@ export async function restartSession(sessionId: string): Promise<PtyId | null> {
     lastTrigger: null,
     lastCommandBlockId: null,
     control: session.control ?? defaultSessionControl(session.agent),
+    transcript: null,
   };
   await ptyKill(sessionId).catch(() => undefined);
   if (session.agent !== "shell") {
@@ -3274,6 +3311,7 @@ export async function restoreArrangement(arrangementId: string): Promise<boolean
       lastTrigger: null,
       lastCommandBlockId: null,
       control: defaultSessionControl(savedSession.agent),
+      transcript: null,
       restart: launch,
     });
     if (savedSession.agent !== "shell") {

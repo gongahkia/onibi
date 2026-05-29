@@ -402,6 +402,9 @@ export function MainPane() {
   const replaceSession = useSessionStore((state) => state.replaceSession);
   const updateSession = useSessionStore((state) => state.updateSession);
   const appendSessionEvent = useSessionStore((state) => state.appendSessionEvent);
+  const appendSessionTranscript = useSessionStore(
+    (state) => state.appendSessionTranscript,
+  );
   const startCommandBlock = useSessionStore((state) => state.startCommandBlock);
   const finishCommandBlock = useSessionStore((state) => state.finishCommandBlock);
   const toggleMaximizedTerminalPane = useSessionStore(
@@ -516,6 +519,9 @@ export function MainPane() {
 
   const handleShellUpdate = useCallback(
     (updatedSession: Session, update: TerminalShellUpdate) => {
+      if (update.transcriptChunk) {
+        appendSessionTranscript(updatedSession.id, update.transcriptChunk);
+      }
       if (update.commandStarted) {
         startCommandBlock({
           id: newCommandBlockId(),
@@ -535,27 +541,36 @@ export function MainPane() {
           source: "shell-integration",
         });
       }
-      updateSession(updatedSession.id, {
-        cwd: update.cwd ?? updatedSession.cwd,
-        lastExitCode:
-          update.lastExitCode !== undefined
-            ? update.lastExitCode
-            : updatedSession.lastExitCode,
-        preview: update.preview ?? updatedSession.preview ?? null,
-        shellPromptMarkerSeen:
-          update.promptMarkerSeen ?? updatedSession.shellPromptMarkerSeen,
-        lastCommand:
-          update.lastCommand ??
-          (update.commandStarted
-            ? {
-                command: update.commandStarted.command,
-                output: "",
-                startedAt: update.commandStarted.startedAt,
-                endedAt: null,
-                exitCode: null,
-              }
-            : updatedSession.lastCommand ?? null),
-      });
+      if (
+        update.cwd !== undefined ||
+        update.lastExitCode !== undefined ||
+        update.preview ||
+        update.promptMarkerSeen ||
+        update.commandStarted ||
+        update.lastCommand
+      ) {
+        updateSession(updatedSession.id, {
+          cwd: update.cwd ?? updatedSession.cwd,
+          lastExitCode:
+            update.lastExitCode !== undefined
+              ? update.lastExitCode
+              : updatedSession.lastExitCode,
+          preview: update.preview ?? updatedSession.preview ?? null,
+          shellPromptMarkerSeen:
+            update.promptMarkerSeen ?? updatedSession.shellPromptMarkerSeen,
+          lastCommand:
+            update.lastCommand ??
+            (update.commandStarted
+              ? {
+                  command: update.commandStarted.command,
+                  output: "",
+                  startedAt: update.commandStarted.startedAt,
+                  endedAt: null,
+                  exitCode: null,
+                }
+              : updatedSession.lastCommand ?? null),
+        });
+      }
       if (update.lastCommand) {
         const draft =
           useSessionStore.getState().activeCommandBlocks[updatedSession.id] ?? null;
@@ -588,7 +603,13 @@ export function MainPane() {
         });
       }
     },
-    [finishCommandBlock, startCommandBlock, updateSession, workspaces],
+    [
+      appendSessionTranscript,
+      finishCommandBlock,
+      startCommandBlock,
+      updateSession,
+      workspaces,
+    ],
   );
 
   const handleTerminalTrigger = useCallback(

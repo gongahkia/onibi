@@ -32,6 +32,7 @@ export interface TerminalShellUpdate {
   commandStarted?: { command: string; startedAt: number };
   lastCommand?: SessionCommandMarker;
   preview?: SessionPreview;
+  transcriptChunk?: string;
 }
 
 export interface TerminalViewProps {
@@ -488,6 +489,9 @@ export function TerminalView({
     const applyOutputMetadata = (text: string) => {
       const shellUpdate = parseShellUpdate(text) ?? {};
       const plain = stripTerminalControls(text);
+      if (plain) {
+        shellUpdate.transcriptChunk = plain;
+      }
       const preview = detectSessionPreview(plain);
       const startedCommand = shellUpdate.commandStarted;
       if (startedCommand) {
@@ -522,7 +526,8 @@ export function TerminalView({
         shellUpdate.promptMarkerSeen ||
         shellUpdate.commandStarted ||
         shellUpdate.lastCommand ||
-        shellUpdate.preview
+        shellUpdate.preview ||
+        shellUpdate.transcriptChunk
       ) {
         onShellUpdateRef.current?.(shellUpdate);
       }

@@ -89,4 +89,21 @@ describe("SessionHistoryView", () => {
 
     expect(useSessionStore.getState().selectedFile?.path).toBe("/repo/src/App.tsx");
   });
+
+  test("shows retained session chat logs", () => {
+    useSessionStore.setState((state) => ({
+      sessions: state.sessions.map((session) => ({
+        ...session,
+        transcript: {
+          text: "Agent: inspected the repository\nUser: run the tests\n",
+          updatedAt: 1_700_000_002_000,
+        },
+      })),
+    }));
+
+    render(<SessionHistoryView />);
+
+    expect(screen.getByText("Codex · Chat Log")).toBeTruthy();
+    expect(screen.getByText(/inspected the repository/)).toBeTruthy();
+  });
 });
