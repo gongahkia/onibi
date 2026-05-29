@@ -873,7 +873,7 @@ export const DEFAULT_CUSTOM_COLOR_SCHEME: CustomColorScheme = {
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  theme: "dark",
+  theme: "github-dark",
   fontFamily: "Menlo, Monaco, monospace",
   uiFontFamily:
     'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
@@ -923,6 +923,29 @@ function isThemeMode(value: unknown): value is ThemeMode {
     typeof value === "string" &&
     COLOR_SCHEME_OPTIONS.some((option) => option.id === value)
   );
+}
+
+const LEGACY_THEME_MAP: Record<string, ThemeMode> = {
+  dark: "github-dark",
+  light: "github-light",
+  graphite: "github-dark",
+  ember: "gruvbox-dark",
+  forest: "nord",
+  ocean: "night-owl",
+  violet: "shades-of-purple",
+  "solarized-light": "github-light",
+  paper: "github-light",
+  "high-contrast": "github-dark",
+};
+
+function normalizeThemeMode(value: unknown): ThemeMode {
+  if (isThemeMode(value)) {
+    return value;
+  }
+  if (typeof value === "string" && LEGACY_THEME_MAP[value]) {
+    return LEGACY_THEME_MAP[value];
+  }
+  return DEFAULT_SETTINGS.theme;
 }
 
 function isTabBarOrientation(value: unknown): value is TabBarOrientation {
@@ -1023,7 +1046,7 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
   );
   return {
     ...merged,
-    theme: isThemeMode(merged.theme) ? merged.theme : DEFAULT_SETTINGS.theme,
+    theme: normalizeThemeMode(merged.theme),
     fontFamily: terminalFontFamily,
     uiFontFamily: normalizeFontFamily(
       merged.uiFontFamily,
@@ -1635,6 +1658,20 @@ export async function createWorkspaceFile(
   return invoke<FsEntry>("fs_create_file", { root: workspaceRoot, parent, name });
 }
 
+export async function createWorkspaceFileWithContents(
+  workspaceRoot: string,
+  parent: string,
+  name: string,
+  data: Uint8Array,
+): Promise<FsEntry> {
+  return invoke<FsEntry>("fs_create_file_with_contents", {
+    root: workspaceRoot,
+    parent,
+    name,
+    data: Array.from(data),
+  });
+}
+
 export async function createWorkspaceDir(
   workspaceRoot: string,
   parent: string,
@@ -1879,7 +1916,11 @@ function prefersLightTheme(): boolean {
 }
 
 export function resolveThemeMode(theme: ThemeMode): Exclude<ThemeMode, "system"> {
-  return theme === "system" ? (prefersLightTheme() ? "light" : "dark") : theme;
+  return theme === "system"
+    ? prefersLightTheme()
+      ? "github-light"
+      : "github-dark"
+    : theme;
 }
 
 function builtInColorScheme(id: BuiltInThemeMode): ColorScheme {
@@ -1904,7 +1945,7 @@ export function resolveColorScheme(settings: AppSettings): ResolvedColorScheme {
 function colorsForSettings(settings: AppSettings): ColorSchemeColors {
   const scheme = resolveColorScheme(settings);
   const colors = { ...scheme.colors };
-  if (scheme.id === "dark") {
+  if (scheme.id === "github-dark") {
     if (settings.ghosttyTheme?.background) {
       colors.bg0 = settings.ghosttyTheme.background;
       colors.terminalBackground = settings.ghosttyTheme.background;
