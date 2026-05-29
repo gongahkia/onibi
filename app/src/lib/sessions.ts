@@ -1725,6 +1725,64 @@ export function selectedFileFromEntry(
   };
 }
 
+function normalizeWorkspaces(value: unknown): Workspace[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const workspaces: Workspace[] = [];
+  for (const item of value) {
+    if (!isRecord(item) || typeof item.path !== "string" || !item.path.trim()) {
+      continue;
+    }
+    const path = item.path.trim();
+    const name =
+      typeof item.name === "string" && item.name.trim()
+        ? item.name.trim()
+        : pathBasename(path);
+    const id =
+      typeof item.id === "string" && item.id.trim()
+        ? item.id.trim()
+        : workspaceIdForPath(path);
+    workspaces.push({ id, path, name });
+  }
+  return workspaces;
+}
+
+export function getOnibiConfigSnapshot(): OnibiConfigExport {
+  const state = useSessionStore.getState();
+  return {
+    version: 1,
+    settings: state.settings,
+    workspaces: state.workspaces,
+  };
+}
+
+export function serializeOnibiConfig(): string {
+  return `${JSON.stringify(getOnibiConfigSnapshot(), null, 2)}\n`;
+}
+
+export function parseOnibiConfigJson(json: string): OnibiConfigExport {
+  const parsed = JSON.parse(json) as unknown;
+  if (!isRecord(parsed)) {
+    throw new Error("Config must be a JSON object.");
+  }
+  return {
+    version: 1,
+    settings: mergeSettings(
+      isRecord(parsed.settings) ? (parsed.settings as Partial<AppSettings>) : undefined,
+    ),
+    workspaces: normalizeWorkspaces(parsed.workspaces),
+  };
+}
+
+export function applyOnibiConfig(config: OnibiConfigExport): void {
+  useSessionStore.setState({
+    settings: mergeSettings(config.settings),
+    workspaces: normalizeWorkspaces(config.workspaces),
+  });
+  persistLater();
+}
+
 export function sessionTitle(agent: AgentKind, workspace: Workspace): string {
   return `${AGENT_LABELS[agent]} · ${workspace.name}`;
 }
@@ -1854,6 +1912,331 @@ export function parseGhosttyConfig(config: string): GhosttyTheme {
     }
   }
   return theme;
+}
+
+function parseConfigHexColor(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const trimmed = value.trim().replace(/^['"]|['"]$/g, "");
+  const normalized = trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+  return /^#[0-9a-fA-F]{6}$/.test(normalized) ? normalized : undefined;
+}
+
+function withoutInlineComment(line: string): string {
+  return line.replace(/\s+#.*$/, "").trim();
+}
+
+function parseSimpleAssignments(config: string): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const rawLine of config.split(/\r?\n/)) {
+    const line = withoutInlineComment(rawLine);
+    if (!line || line.startsWith("#")) {
+      continue;
+    }
+    const separator = line.includes("=") ? line.indexOf("=") : line.search(/\s/);
+    if (separator < 0) {
+      continue;
+    }
+    const key = line.slice(0, separator).trim();
+    const value = line.slice(separator + 1).trim();
+    if (key) {
+      values[key] = value;
+    }
+  }
+  return values;
+}
+
+function matchFirst(config: string, patterns: RegExp[]): string | undefined {
+  for (const pattern of patterns) {
+    const match = config.match(pattern);
+    if (match?.[1]) {
+      return match[1].trim();
+    }
+  }
+  return undefined;
+}
+
+function importFromGhostty(candidate: TerminalConfigCandidate): TerminalConfigImport {
+  const theme = parseGhosttyConfig(candidate.content);
+  const colors: Partial<ColorSchemeColors> = {};
+  if (theme.background) {
+    colors.bg0 = theme.background;
+    colors.terminalBackground = theme.background;
+  }
+  if (theme.foreground) {
+    colors.fg0 = theme.foreground;
+    colors.terminalForeground = theme.foreground;
+  }
+  if (theme.palette[1]) {
+    colors.danger = theme.palette[1];
+  }
+  if (theme.palette[2]) {
+    colors.accent2 = theme.palette[2];
+  }
+  if (theme.palette[4]) {
+    colors.accent = theme.palette[4];
+  }
+  return terminalImport(candidate, colors, theme.fontFamily, theme.fontSize);
+}
+
+function importFromKitty(candidate: TerminalConfigCandidate): TerminalConfigImport {
+  const values = parseSimpleAssignments(candidate.content);
+  const colors: Partial<ColorSchemeColors> = {};
+  const background = parseConfigHexColor(values.background);
+  const foreground = parseConfigHexColor(values.foreground);
+  const cursor = parseConfigHexColor(values.cursor);
+  const selection = parseConfigHexColor(values.selection_background);
+  if (background) {
+    colors.bg0 = background;
+    colors.terminalBackground = background;
+  }
+  if (foreground) {
+    colors.fg0 = foreground;
+    colors.terminalForeground = foreground;
+  }
+  if (cursor) {
+    colors.terminalCursor = cursor;
+    colors.accent = cursor;
+  }
+  if (selection) {
+    colors.terminalSelection = selection;
+    colors.bg3 = selection;
+  }
+  const danger = parseConfigHexColor(values.color1);
+  const accent2 = parseConfigHexColor(values.color2);
+  const accent = parseConfigHexColor(values.color4);
+  if (danger) {
+    colors.danger = danger;
+  }
+  if (accent2) {
+    colors.accent2 = accent2;
+  }
+  if (accent) {
+    colors.accent = accent;
+  }
+  const fontSize = values.font_size ? Number(values.font_size) : undefined;
+  return terminalImport(
+    candidate,
+    colors,
+    values.font_family?.replace(/^['"]|['"]$/g, ""),
+    Number.isFinite(fontSize) ? fontSize : undefined,
+  );
+}
+
+function importFromAlacritty(candidate: TerminalConfigCandidate): TerminalConfigImport {
+  const config = candidate.content;
+  const colors: Partial<ColorSchemeColors> = {};
+  const background = parseConfigHexColor(
+    matchFirst(config, [/background\s*=\s*["']([^"']+)["']/]),
+  );
+  const foreground = parseConfigHexColor(
+    matchFirst(config, [/foreground\s*=\s*["']([^"']+)["']/]),
+  );
+  const cursor = parseConfigHexColor(
+    matchFirst(config, [/cursor\s*=\s*\{[^}]*cursor\s*=\s*["']([^"']+)["']/s]),
+  );
+  const selection = parseConfigHexColor(
+    matchFirst(config, [
+      /selection\s*=\s*\{[^}]*background\s*=\s*["']([^"']+)["']/s,
+      /\[colors\.selection\][\s\S]*?background\s*=\s*["']([^"']+)["']/,
+    ]),
+  );
+  if (background) {
+    colors.bg0 = background;
+    colors.terminalBackground = background;
+  }
+  if (foreground) {
+    colors.fg0 = foreground;
+    colors.terminalForeground = foreground;
+  }
+  if (cursor) {
+    colors.terminalCursor = cursor;
+    colors.accent = cursor;
+  }
+  if (selection) {
+    colors.terminalSelection = selection;
+    colors.bg3 = selection;
+  }
+  const fontFamily = matchFirst(config, [
+    /family\s*=\s*["']([^"']+)["']/,
+    /normal\s*=\s*\{[^}]*family\s*=\s*["']([^"']+)["']/s,
+  ]);
+  const fontSize = Number(matchFirst(config, [/size\s*=\s*([0-9.]+)/]));
+  return terminalImport(
+    candidate,
+    colors,
+    fontFamily,
+    Number.isFinite(fontSize) ? fontSize : undefined,
+  );
+}
+
+function importFromWezTerm(candidate: TerminalConfigCandidate): TerminalConfigImport {
+  const config = candidate.content;
+  const colors: Partial<ColorSchemeColors> = {};
+  const background = parseConfigHexColor(
+    matchFirst(config, [/background\s*=\s*["']([^"']+)["']/]),
+  );
+  const foreground = parseConfigHexColor(
+    matchFirst(config, [/foreground\s*=\s*["']([^"']+)["']/]),
+  );
+  const cursor = parseConfigHexColor(
+    matchFirst(config, [/cursor_bg\s*=\s*["']([^"']+)["']/]),
+  );
+  const selection = parseConfigHexColor(
+    matchFirst(config, [/selection_bg\s*=\s*["']([^"']+)["']/]),
+  );
+  if (background) {
+    colors.bg0 = background;
+    colors.terminalBackground = background;
+  }
+  if (foreground) {
+    colors.fg0 = foreground;
+    colors.terminalForeground = foreground;
+  }
+  if (cursor) {
+    colors.terminalCursor = cursor;
+    colors.accent = cursor;
+  }
+  if (selection) {
+    colors.terminalSelection = selection;
+    colors.bg3 = selection;
+  }
+  const colorSchemeName = matchFirst(config, [/color_scheme\s*=\s*["']([^"']+)["']/]);
+  const fontFamily = matchFirst(config, [
+    /font\s*=\s*wezterm\.font(?:_with_fallback)?\(\s*["']([^"']+)["']/,
+    /font\s*=\s*["']([^"']+)["']/,
+  ]);
+  const fontSize = Number(matchFirst(config, [/font_size\s*=\s*([0-9.]+)/]));
+  return terminalImport(
+    candidate,
+    colors,
+    fontFamily,
+    Number.isFinite(fontSize) ? fontSize : undefined,
+    colorSchemeName,
+  );
+}
+
+function importFromWindowsTerminal(candidate: TerminalConfigCandidate): TerminalConfigImport {
+  const colors: Partial<ColorSchemeColors> = {};
+  let fontFamily: string | undefined;
+  let fontSize: number | undefined;
+  let colorSchemeName: string | undefined;
+  try {
+    const parsed = JSON.parse(candidate.content) as unknown;
+    if (isRecord(parsed)) {
+      const profiles = isRecord(parsed.profiles) ? parsed.profiles : {};
+      const defaults = isRecord(profiles.defaults) ? profiles.defaults : {};
+      const font = isRecord(defaults.font) ? defaults.font : {};
+      fontFamily = typeof font.face === "string" ? font.face : undefined;
+      fontSize = typeof defaults.fontSize === "number" ? defaults.fontSize : undefined;
+      const schemes = Array.isArray(parsed.schemes) ? parsed.schemes : [];
+      const scheme = schemes.find(isRecord);
+      if (scheme) {
+        colorSchemeName =
+          typeof scheme.name === "string" ? scheme.name : "Windows Terminal Scheme";
+        const background = parseConfigHexColor(
+          typeof scheme.background === "string" ? scheme.background : undefined,
+        );
+        const foreground = parseConfigHexColor(
+          typeof scheme.foreground === "string" ? scheme.foreground : undefined,
+        );
+        const cursor = parseConfigHexColor(
+          typeof scheme.cursorColor === "string" ? scheme.cursorColor : undefined,
+        );
+        const selection = parseConfigHexColor(
+          typeof scheme.selectionBackground === "string"
+            ? scheme.selectionBackground
+            : undefined,
+        );
+        if (background) {
+          colors.bg0 = background;
+          colors.terminalBackground = background;
+        }
+        if (foreground) {
+          colors.fg0 = foreground;
+          colors.terminalForeground = foreground;
+        }
+        if (cursor) {
+          colors.terminalCursor = cursor;
+          colors.accent = cursor;
+        }
+        if (selection) {
+          colors.terminalSelection = selection;
+          colors.bg3 = selection;
+        }
+      }
+    }
+  } catch {
+    // Invalid Windows Terminal JSON is surfaced as an import with no fields.
+  }
+  return terminalImport(candidate, colors, fontFamily, fontSize, colorSchemeName);
+}
+
+function terminalImport(
+  candidate: TerminalConfigCandidate,
+  colors: Partial<ColorSchemeColors>,
+  fontFamily?: string,
+  fontSize?: number,
+  colorSchemeName?: string,
+): TerminalConfigImport {
+  const importedFields: string[] = [];
+  if (Object.keys(colors).length > 0) {
+    importedFields.push("colors");
+  }
+  if (fontFamily) {
+    importedFields.push("font family");
+  }
+  if (fontSize) {
+    importedFields.push("font size");
+  }
+  if (colorSchemeName) {
+    importedFields.push("theme name");
+  }
+  return {
+    id: `${candidate.source}:${candidate.path}`,
+    source: candidate.source,
+    label: candidate.label,
+    path: candidate.path,
+    colors,
+    fontFamily,
+    fontSize,
+    colorSchemeName,
+    importedFields,
+    unsupportedFields: ["keybinds", "shaders"].filter(
+      (field) => !candidate.content.toLowerCase().includes(field),
+    ),
+  };
+}
+
+export function parseTerminalConfigImport(
+  candidate: TerminalConfigCandidate,
+): TerminalConfigImport {
+  if (candidate.source === "ghostty") {
+    return importFromGhostty(candidate);
+  }
+  if (candidate.source === "alacritty") {
+    return importFromAlacritty(candidate);
+  }
+  if (candidate.source === "wezterm") {
+    return importFromWezTerm(candidate);
+  }
+  if (candidate.source === "kitty") {
+    return importFromKitty(candidate);
+  }
+  if (candidate.source === "windows-terminal") {
+    return importFromWindowsTerminal(candidate);
+  }
+  return terminalImport(candidate, {}, undefined, undefined);
+}
+
+export async function detectTerminalConfigImports(): Promise<TerminalConfigImport[]> {
+  const candidates = await invoke<TerminalConfigCandidate[]>(
+    "fs_detect_terminal_configs",
+  );
+  return candidates
+    .map(parseTerminalConfigImport)
+    .filter((item) => item.importedFields.length > 0);
 }
 
 async function readGhosttyTheme(): Promise<GhosttyTheme | null> {
