@@ -214,12 +214,16 @@ export function AgentTabBar({ orientation }: AgentTabBarProps) {
         </button>
         <button
           type="button"
-          className="icon-button"
+          className="icon-button activity-button"
           aria-label="Activity"
           title="Activity"
           onClick={() => setActivityOpen(true)}
         >
-          H
+          <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+            <path d="M12 7v5l3 2" />
+            <path d="M5.6 5.9A8.5 8.5 0 1 1 4 12" />
+            <path d="M4 4v5h5" />
+          </svg>
         </button>
         <button
           type="button"
