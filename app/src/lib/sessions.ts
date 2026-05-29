@@ -2818,6 +2818,34 @@ export function sessionTitle(agent: AgentKind, workspace: Workspace): string {
   return `${AGENT_LABELS[agent]} · ${workspace.name}`;
 }
 
+export function buildAgentHandoffPrompt(
+  sourceSession: Session,
+  workspace: Workspace,
+  selectedPath: string | null,
+  events: SessionEvent[],
+): string {
+  const recentEvents = events
+    .filter((event) => event.workspaceId === workspace.id)
+    .slice(-8)
+    .map((event) => `- ${event.type}: ${event.summary}`)
+    .join("\n");
+  return [
+    `You are taking over an Onibi workspace from ${AGENT_LABELS[sourceSession.agent]}.`,
+    "",
+    `Workspace: ${workspace.name}`,
+    `Path: ${workspace.path}`,
+    `Prior session: ${sourceSession.title}`,
+    selectedPath ? `Open file or view: ${selectedPath}` : null,
+    "",
+    "Recent Onibi events:",
+    recentEvents || "- No recorded events yet.",
+    "",
+    "Continue from this context. Inspect the repository before editing, and preserve any user changes.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 function unquoteToken(token: string): string {
   if (
     (token.startsWith('"') && token.endsWith('"')) ||

@@ -11,17 +11,22 @@ import { NewSessionDialog } from "./NewSessionDialog";
 import { TerminalView, type TerminalShellUpdate } from "./TerminalView";
 import { stopAgentReview } from "../lib/agent-review";
 import {
+  AGENT_KINDS,
   AGENT_LABELS,
+  buildAgentHandoffPrompt,
   defaultSessionControl,
   closeSession,
   duplicateSession,
   newCommandBlockId,
   restartSession,
   sessionTitle,
+  spawnAgentSession,
   terminalPaneNodeForId,
   useSessionStore,
+  type AgentKind,
   type CommandBlock,
   type Session,
+  type SessionEvent,
   type TerminalTriggerMatch,
   type TerminalPaneNode,
   type TerminalPanePlacement,
@@ -118,6 +123,9 @@ function layoutContainsSession(node: TerminalPaneNode | null, sessionId: string)
 function TerminalPaneTree({
   node,
   sessions,
+  workspaces,
+  selectedPath,
+  sessionEvents,
   activeSessionId,
   terminalVisible,
   settings,
@@ -132,6 +140,9 @@ function TerminalPaneTree({
 }: {
   node: TerminalPaneNode;
   sessions: Session[];
+  workspaces: Workspace[];
+  selectedPath: string | null;
+  sessionEvents: SessionEvent[];
   activeSessionId: string | null;
   terminalVisible: boolean;
   settings: ReturnType<typeof useSessionStore.getState>["settings"];
@@ -145,7 +156,7 @@ function TerminalPaneTree({
   onClose: (session: Session) => void;
 }) {
   const setActiveTerminalPane = useSessionStore((state) => state.setActiveTerminalPane);
-  const setSessionControlState = useSessionStore((state) => state.setSessionControlState);
+  const [handoffOpen, setHandoffOpen] = useState(false);
   if (node.type === "split") {
     return (
       <PanelGroup orientation={panelOrientation(node.direction)}>
@@ -155,6 +166,9 @@ function TerminalPaneTree({
               <TerminalPaneTree
                 node={child}
                 sessions={sessions}
+                workspaces={workspaces}
+                selectedPath={selectedPath}
+                sessionEvents={sessionEvents}
                 activeSessionId={activeSessionId}
                 terminalVisible={terminalVisible}
                 settings={settings}
@@ -182,6 +196,7 @@ function TerminalPaneTree({
     return <div className="editor-message">Terminal session is no longer available.</div>;
   }
   const active = activeSessionId === session.id;
+  const workspace = workspaces.find((item) => item.id === session.workspaceId) ?? null;
   return (
     <section
       className={`terminal-pane ${active ? "active" : ""}`}
@@ -262,28 +277,15 @@ function TerminalPaneTree({
         <button
           type="button"
           className="terminal-pane-button"
-          aria-label={
-            session.control?.owner === "user"
-              ? "Hand session back to agent"
-              : "Take over session"
-          }
-          title={
-            session.control?.externalInputBlocked
-              ? "External input is blocked"
-              : "External input is allowed"
-          }
+          aria-label="Handoff session to another agent"
+          title="Start another agent in this workspace with recent context"
+          disabled={!workspace}
           onClick={(event) => {
             event.stopPropagation();
-            const userOwned = session.control?.owner === "user";
-            setSessionControlState(session.id, {
-              owner: userOwned ? "agent" : "user",
-              externalInputBlocked: !userOwned,
-              updatedAt: Date.now(),
-              reason: userOwned ? "hand-back" : "takeover",
-            });
+            setHandoffOpen(true);
           }}
         >
-          {session.control?.owner === "user" ? "Hand Back" : "Take Over"}
+          Handoff
         </button>
         <button
           type="button"
@@ -355,7 +357,142 @@ function TerminalPaneTree({
           onTrigger={(match) => onTerminalTrigger(session, match)}
         />
       )}
+      {handoffOpen ? (
+        <AgentHandoffDialog
+          session={session}
+          workspace={workspace}
+          selectedPath={selectedPath}
+          sessionEvents={sessionEvents}
+          paneId={node.paneId}
+          onClose={() => setHandoffOpen(false)}
+        />
+      ) : null}
     </section>
+  );
+}
+
+function defaultHandoffAgent(source: AgentKind): AgentKind {
+  return (
+    AGENT_KINDS.find((agent) => agent !== "shell" && agent !== source) ??
+    "claude-code"
+  );
+}
+
+function AgentHandoffDialog({
+  session,
+  workspace,
+  selectedPath,
+  sessionEvents,
+  paneId,
+  onClose,
+}: {
+  session: Session;
+  workspace: Workspace | null;
+  selectedPath: string | null;
+  sessionEvents: SessionEvent[];
+  paneId: string;
+  onClose: () => void;
+}) {
+  const [agent, setAgent] = useState<AgentKind>(() => defaultHandoffAgent(session.agent));
+  const [handoffError, setHandoffError] = useState<string | null>(null);
+  const [spawning, setSpawning] = useState(false);
+
+  async function startHandoff() {
+    if (!workspace) {
+      setHandoffError("This session has no workspace.");
+      return;
+    }
+    setSpawning(true);
+    setHandoffError(null);
+    try {
+      await spawnAgentSession(
+        agent,
+        workspace,
+        buildAgentHandoffPrompt(session, workspace, selectedPath, sessionEvents),
+        {
+          type: "split",
+          targetPaneId: paneId,
+          direction: "vertical",
+        },
+        {
+          cwd:
+            session.cwd && session.cwd.startsWith(workspace.path)
+              ? session.cwd
+              : workspace.path,
+        },
+      );
+      onClose();
+    } catch (caught) {
+      setHandoffError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setSpawning(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section
+        className="modal-panel handoff-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="handoff-title"
+      >
+        <header className="modal-header">
+          <h2 className="modal-title" id="handoff-title">
+            Handoff Session
+          </h2>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Close handoff dialog"
+            onClick={onClose}
+          >
+            x
+          </button>
+        </header>
+        <div className="modal-body">
+          <div className="form-grid">
+            <label className="field-label">
+              Next agent
+              <select
+                className="settings-select"
+                aria-label="Next agent"
+                value={agent}
+                onChange={(event) => setAgent(event.target.value as AgentKind)}
+              >
+                {AGENT_KINDS.filter(
+                  (candidate) => candidate !== "shell" && candidate !== session.agent,
+                ).map((candidate) => (
+                  <option key={candidate} value={candidate}>
+                    {AGENT_LABELS[candidate]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="settings-note">
+              Workspace: {workspace?.path ?? "No workspace"}
+            </div>
+            <div className="settings-note">
+              Source: {AGENT_LABELS[session.agent]} · {session.title}
+            </div>
+          </div>
+          {handoffError ? <div className="editor-error">{handoffError}</div> : null}
+          <footer className="dialog-actions">
+            <button type="button" className="text-button" onClick={onClose}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="text-button primary"
+              disabled={spawning || !workspace}
+              onClick={() => void startHandoff()}
+            >
+              {spawning ? "Starting" : "Start Handoff"}
+            </button>
+          </footer>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -392,6 +529,7 @@ export function MainPane() {
   const selectedFile = useSessionStore((state) => state.selectedFile);
   const sessions = useSessionStore((state) => state.sessions);
   const workspaces = useSessionStore((state) => state.workspaces);
+  const sessionEvents = useSessionStore((state) => state.sessionEvents);
   const activeSessionId = useSessionStore((state) => state.activeSessionId);
   const activeTerminalPaneId = useSessionStore((state) => state.activeTerminalPaneId);
   const maximizedTerminalPaneId = useSessionStore(
@@ -694,6 +832,9 @@ export function MainPane() {
               <TerminalPaneTree
                 node={visibleLayout}
                 sessions={sessions}
+                workspaces={workspaces}
+                selectedPath={selectedFile?.path ?? null}
+                sessionEvents={sessionEvents}
                 activeSessionId={activeSessionId}
                 terminalVisible={terminalVisible}
                 settings={settings}
