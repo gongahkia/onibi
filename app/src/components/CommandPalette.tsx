@@ -14,7 +14,13 @@ import {
   type Session,
   type SessionEvent,
   type Workspace,
+  closeSession,
+  duplicateSession,
+  launchSpecForProfile,
+  restartSession,
+  restoreArrangement,
   spawnAgentSession,
+  spawnSessionFromLaunchSpec,
   useSessionStore,
 } from "../lib/sessions";
 import { chooseWorkspaceFolder } from "../lib/workspace-picker";
@@ -145,14 +151,18 @@ export function CommandPalette() {
 
   const sessions = useSessionStore((state) => state.sessions);
   const activeSessionId = useSessionStore((state) => state.activeSessionId);
+  const activeTerminalPaneId = useSessionStore((state) => state.activeTerminalPaneId);
   const workspaces = useSessionStore((state) => state.workspaces);
+  const arrangements = useSessionStore((state) => state.arrangements);
   const selectedFile = useSessionStore((state) => state.selectedFile);
   const settings = useSessionStore((state) => state.settings);
   const sessionEvents = useSessionStore((state) => state.sessionEvents);
   const addWorkspace = useSessionStore((state) => state.addWorkspace);
-  const removeSession = useSessionStore((state) => state.removeSession);
+  const saveCurrentArrangement = useSessionStore((state) => state.saveCurrentArrangement);
+  const deleteArrangement = useSessionStore((state) => state.deleteArrangement);
   const selectFile = useSessionStore((state) => state.selectFile);
   const setActiveSession = useSessionStore((state) => state.setActiveSession);
+  const setActiveSidebarView = useSessionStore((state) => state.setActiveSidebarView);
   const updateSettings = useSessionStore((state) => state.updateSettings);
   const toggleMaximizedTerminalPane = useSessionStore(
     (state) => state.toggleMaximizedTerminalPane,
@@ -222,6 +232,25 @@ export function CommandPalette() {
           if (workspace) {
             addWorkspace(workspace);
           }
+        },
+      },
+      {
+        id: "workspace.search",
+        label: "Open Workspace Search",
+        group: "Workspace",
+        description: currentWorkspace?.name ?? "No active workspace",
+        keywords: ["find", "ripgrep", "text"],
+        run: () => setActiveSidebarView("search"),
+      },
+      {
+        id: "arrangement.save",
+        label: "Save Current Arrangement",
+        group: "Layout",
+        description: currentWorkspace?.name ?? "Current terminal layout",
+        keywords: ["layout", "workspace", "restore"],
+        run: () => {
+          const name = window.prompt("Arrangement name");
+          saveCurrentArrangement(name ?? undefined);
         },
       },
       {
@@ -382,6 +411,53 @@ export function CommandPalette() {
       });
     }
 
+    for (const profile of settings.terminalProfiles) {
+      nextCommands.push({
+        id: `profile.launch.${profile.id}`,
+        label: `Launch Profile: ${profile.name}`,
+        group: "Session",
+        description: currentWorkspace
+          ? `${AGENT_LABELS[profile.agent]} · ${currentWorkspace.name}`
+          : AGENT_LABELS[profile.agent],
+        keywords: ["profile", "terminal", "agent", profile.agent],
+        run: async () => {
+          if (!currentWorkspace) {
+            return;
+          }
+          await spawnSessionFromLaunchSpec(
+            launchSpecForProfile(profile, currentWorkspace, activeSession),
+          );
+        },
+      });
+    }
+
+    for (const arrangement of arrangements) {
+      nextCommands.push(
+        {
+          id: `arrangement.restore.${arrangement.id}`,
+          label: `Restore Arrangement: ${arrangement.name}`,
+          group: "Layout",
+          description: `${arrangement.sessions.length} sessions`,
+          keywords: ["layout", "arrangement", "restore"],
+          run: async () => {
+            await restoreArrangement(arrangement.id);
+          },
+        },
+        {
+          id: `arrangement.delete.${arrangement.id}`,
+          label: `Delete Arrangement: ${arrangement.name}`,
+          group: "Layout",
+          description: "Remove saved arrangement",
+          keywords: ["layout", "arrangement", "delete"],
+          run: () => {
+            if (window.confirm(`Delete ${arrangement.name}?`)) {
+              deleteArrangement(arrangement.id);
+            }
+          },
+        },
+      );
+    }
+
     if (activeSession) {
       nextCommands.push(
         {
@@ -393,20 +469,43 @@ export function CommandPalette() {
           run: () => void navigator.clipboard?.writeText(activeSession.id),
         },
         {
+          id: "session.restart-active",
+          label: "Restart Active Session",
+          group: "Session",
+          description: activeSession.title,
+          keywords: ["reload", "respawn", "terminal"],
+          run: async () => {
+            await restartSession(activeSession.id);
+          },
+        },
+        {
+          id: "session.duplicate-active",
+          label: "Duplicate Active Session",
+          group: "Session",
+          description: activeSession.cwd ?? activeSession.title,
+          keywords: ["copy", "split", "terminal"],
+          run: async () => {
+            await duplicateSession(
+              activeSession.id,
+              activeTerminalPaneId
+                ? {
+                    type: "split",
+                    targetPaneId: activeTerminalPaneId,
+                    direction: "vertical",
+                  }
+                : null,
+            );
+          },
+        },
+        {
           id: "session.close-active",
           label: "Close Active Session",
           group: "Session",
           description: activeSession.title,
           shortcut: primaryShortcut("W"),
           keywords: ["remove", "tab"],
-          run: () => {
-            if (
-              !settings.terminalConfirmClose ||
-              activeSession.status !== "running" ||
-              window.confirm(`Close ${activeSession.title}?`)
-            ) {
-              removeSession(activeSession.id);
-            }
+          run: async () => {
+            await closeSession(activeSession.id);
           },
         },
       );
@@ -440,13 +539,17 @@ export function CommandPalette() {
     return nextCommands;
   }, [
     activeSessionId,
+    activeTerminalPaneId,
     addWorkspace,
-    removeSession,
+    arrangements,
+    deleteArrangement,
+    saveCurrentArrangement,
     selectFile,
     selectedFile,
     sessionEvents,
     sessions,
     setActiveSession,
+    setActiveSidebarView,
     settings,
     toggleMaximizedTerminalPane,
     focusRelativeTerminalPane,

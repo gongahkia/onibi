@@ -12,6 +12,9 @@ import { TerminalView, type TerminalShellUpdate } from "./TerminalView";
 import { stopAgentReview } from "../lib/agent-review";
 import {
   AGENT_LABELS,
+  closeSession,
+  duplicateSession,
+  restartSession,
   sessionTitle,
   terminalPaneNodeForId,
   useSessionStore,
@@ -85,6 +88,9 @@ function TerminalPaneTree({
   onTerminalTrigger,
   maximizedPaneId,
   onToggleMaximize,
+  onRestart,
+  onDuplicate,
+  onClose,
 }: {
   node: TerminalPaneNode;
   sessions: Session[];
@@ -96,6 +102,9 @@ function TerminalPaneTree({
   onTerminalTrigger: (session: Session, match: TerminalTriggerMatch) => void;
   maximizedPaneId: string | null;
   onToggleMaximize: (paneId: string) => void;
+  onRestart: (session: Session) => void;
+  onDuplicate: (session: Session, paneId: string) => void;
+  onClose: (session: Session) => void;
 }) {
   const setActiveTerminalPane = useSessionStore((state) => state.setActiveTerminalPane);
   if (node.type === "split") {
@@ -115,6 +124,9 @@ function TerminalPaneTree({
                 onTerminalTrigger={onTerminalTrigger}
                 maximizedPaneId={maximizedPaneId}
                 onToggleMaximize={onToggleMaximize}
+                onRestart={onRestart}
+                onDuplicate={onDuplicate}
+                onClose={onClose}
               />
             </Panel>
             {index < node.children.length - 1 ? (
@@ -148,6 +160,42 @@ function TerminalPaneTree({
             {session.lastTrigger.label}
           </span>
         ) : null}
+        <button
+          type="button"
+          className="terminal-pane-button"
+          aria-label="Restart session"
+          title="Restart session"
+          onClick={(event) => {
+            event.stopPropagation();
+            onRestart(session);
+          }}
+        >
+          Restart
+        </button>
+        <button
+          type="button"
+          className="terminal-pane-button"
+          aria-label="Duplicate session"
+          title="Duplicate session"
+          onClick={(event) => {
+            event.stopPropagation();
+            onDuplicate(session, node.paneId);
+          }}
+        >
+          Duplicate
+        </button>
+        <button
+          type="button"
+          className="terminal-pane-button"
+          aria-label="Close session"
+          title="Close session"
+          onClick={(event) => {
+            event.stopPropagation();
+            onClose(session);
+          }}
+        >
+          Close
+        </button>
         <button
           type="button"
           className="terminal-pane-button"
@@ -364,6 +412,32 @@ export function MainPane() {
     [appendSessionEvent, updateSession],
   );
 
+  const handleRestartSession = useCallback(
+    (target: Session) => {
+      void restartSession(target.id).catch((error) => {
+        console.warn("failed to restart session", error);
+        updateSession(target.id, { status: "error" });
+      });
+    },
+    [updateSession],
+  );
+
+  const handleDuplicateSession = useCallback((target: Session, paneId: string) => {
+    void duplicateSession(target.id, {
+      type: "split",
+      targetPaneId: paneId,
+      direction: "vertical",
+    }).catch((error) => {
+      console.warn("failed to duplicate session", error);
+    });
+  }, []);
+
+  const handleCloseSession = useCallback((target: Session) => {
+    void closeSession(target.id).catch((error) => {
+      console.warn("failed to close session", error);
+    });
+  }, []);
+
   if (session) {
     const terminalVisible = selectedFile === null;
     const layout = layoutContainsSession(terminalLayout, session.id)
@@ -398,6 +472,9 @@ export function MainPane() {
                 onTerminalTrigger={handleTerminalTrigger}
                 maximizedPaneId={maximizedTerminalPaneId}
                 onToggleMaximize={toggleMaximizedTerminalPane}
+                onRestart={handleRestartSession}
+                onDuplicate={handleDuplicateSession}
+                onClose={handleCloseSession}
               />
           </section>
           {selectedFile ? (

@@ -8,8 +8,6 @@ import { SessionListView } from "./SessionListView";
 import { SourceControlView } from "./SourceControlView";
 import { WorkspaceSearchView } from "./WorkspaceSearchView";
 
-type WorkspaceSidebarView = "files" | "search" | "source-control" | "sessions" | "history";
-
 function activeWorkspaceFor(
   sessions: Session[],
   workspaces: Workspace[],
@@ -20,7 +18,6 @@ function activeWorkspaceFor(
 }
 
 export function WorkspaceSidebar() {
-  const [view, setView] = useState<WorkspaceSidebarView>("files");
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
   const [agentReviews, setAgentReviews] = useState<AgentReviewRecord[]>([]);
   const [gitLoading, setGitLoading] = useState(false);
@@ -28,6 +25,8 @@ export function WorkspaceSidebar() {
   const sessions = useSessionStore((state) => state.sessions);
   const workspaces = useSessionStore((state) => state.workspaces);
   const activeSessionId = useSessionStore((state) => state.activeSessionId);
+  const view = useSessionStore((state) => state.activeSidebarView);
+  const setView = useSessionStore((state) => state.setActiveSidebarView);
   const activeWorkspace = useMemo(
     () => activeWorkspaceFor(sessions, workspaces, activeSessionId),
     [activeSessionId, sessions, workspaces],

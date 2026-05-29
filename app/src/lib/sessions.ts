@@ -2,13 +2,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { load, type Store } from "@tauri-apps/plugin-store";
 import { create } from "zustand";
 import {
+  ptyKill,
   ptyList,
   ptySpawn,
   shellPath,
   type PtyId,
   type PtySpawnRequest,
 } from "./tauri-bridge";
-import { startAgentReview } from "./agent-review";
+import { startAgentReview, stopAgentReview } from "./agent-review";
 
 export const AGENT_KINDS = [
   "claude-code",
@@ -46,6 +47,7 @@ export interface Session {
   cwd?: string;
   lastExitCode?: number | null;
   lastTrigger?: TerminalTriggerMatch | null;
+  profileId?: string | null;
   restart?: SessionRestartMetadata | null;
 }
 
@@ -76,6 +78,8 @@ export type SessionEventType =
   | "session-started"
   | "session-stopped"
   | "session-split"
+  | "arrangement-saved"
+  | "arrangement-restored"
   | "terminal-trigger"
   | "file-opened"
   | "web-opened";
@@ -102,6 +106,60 @@ export interface SessionRestartMetadata {
   args: string[];
   cwd: string | null;
   env: Array<[string, string]>;
+}
+
+export interface TerminalLaunchSpec extends SessionRestartMetadata {
+  agent: AgentKind;
+  workspaceId: string;
+  title: string;
+  profileId?: string | null;
+  initialPrompt?: string;
+}
+
+export type WorkspaceSidebarView =
+  | "files"
+  | "search"
+  | "source-control"
+  | "sessions"
+  | "history";
+
+export type TerminalProfileCwdPolicy = "workspace" | "active-pane" | "custom";
+
+export interface TerminalProfile {
+  id: string;
+  name: string;
+  agent: AgentKind;
+  command: string;
+  args: string[];
+  env: Array<[string, string]>;
+  cwdPolicy: TerminalProfileCwdPolicy;
+  customCwd: string;
+  initialPrompt: string;
+  theme: ThemeMode | null;
+  terminalFontFamily: string | null;
+}
+
+export interface ArrangementSession {
+  sessionId: string;
+  title: string;
+  agent: AgentKind;
+  workspaceId: string;
+  profileId?: string | null;
+  launch: SessionRestartMetadata;
+}
+
+export interface Arrangement {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  workspaceId?: string;
+  terminalLayout: TerminalPaneNode | null;
+  activeTerminalPaneId: string | null;
+  maximizedTerminalPaneId: string | null;
+  selectedFile: MainSelection | null;
+  activeSidebarView: WorkspaceSidebarView;
+  sessions: ArrangementSession[];
 }
 
 export interface FsEntry {
@@ -317,6 +375,8 @@ export interface AppSettings {
   terminalShaderPaths: string[];
   terminalConfirmClose: boolean;
   terminalTriggers: TerminalTrigger[];
+  terminalProfiles: TerminalProfile[];
+  defaultTerminalProfileId: string | null;
   editorFontSize: number;
   diffViewMode: DiffViewMode;
   tabBarOrientation: TabBarOrientation;
@@ -343,6 +403,8 @@ type PersistedState = {
   terminalLayout?: TerminalPaneNode | null;
   activeTerminalPaneId?: string | null;
   maximizedTerminalPaneId?: string | null;
+  arrangements?: Arrangement[];
+  activeSidebarView?: WorkspaceSidebarView;
   sessionEvents?: SessionEvent[];
   settings?: Partial<AppSettings> & { fontSize?: number };
 };
@@ -354,6 +416,8 @@ type SessionStore = {
   terminalLayout: TerminalPaneNode | null;
   activeTerminalPaneId: string | null;
   maximizedTerminalPaneId: string | null;
+  arrangements: Arrangement[];
+  activeSidebarView: WorkspaceSidebarView;
   workspaces: Workspace[];
   selectedFile: MainSelection | null;
   sessionEvents: SessionEvent[];
@@ -364,10 +428,13 @@ type SessionStore = {
   setMaximizedTerminalPane: (paneId: string | null) => void;
   toggleMaximizedTerminalPane: (paneId?: string | null) => void;
   focusRelativeTerminalPane: (delta: number) => void;
+  setActiveSidebarView: (view: WorkspaceSidebarView) => void;
   addSession: (session: Session, placement?: TerminalPanePlacement | null) => void;
   updateSession: (id: string, patch: Partial<Session>) => void;
   replaceSession: (id: string, session: Session) => void;
   removeSession: (id: string) => void;
+  saveCurrentArrangement: (name?: string) => string | null;
+  deleteArrangement: (id: string) => void;
   appendSessionEvent: (event: Omit<SessionEvent, "id" | "timestamp">) => void;
   openWebUrl: (url: string, sessionId?: string) => void;
   setWorkspaces: (workspaces: Workspace[]) => void;
@@ -974,6 +1041,48 @@ export const DEFAULT_TERMINAL_TRIGGERS: TerminalTrigger[] = [
   },
 ];
 
+export const DEFAULT_TERMINAL_PROFILES: TerminalProfile[] = [
+  {
+    id: "profile:shell",
+    name: "Plain shell",
+    agent: "shell",
+    command: "",
+    args: [],
+    env: [],
+    cwdPolicy: "active-pane",
+    customCwd: "",
+    initialPrompt: "",
+    theme: null,
+    terminalFontFamily: null,
+  },
+  {
+    id: "profile:claude-code",
+    name: "Claude Code",
+    agent: "claude-code",
+    command: DEFAULT_AGENT_COMMANDS["claude-code"],
+    args: [],
+    env: [],
+    cwdPolicy: "active-pane",
+    customCwd: "",
+    initialPrompt: "",
+    theme: null,
+    terminalFontFamily: null,
+  },
+  {
+    id: "profile:codex",
+    name: "Codex",
+    agent: "codex",
+    command: DEFAULT_AGENT_COMMANDS.codex,
+    args: [],
+    env: [],
+    cwdPolicy: "active-pane",
+    customCwd: "",
+    initialPrompt: "",
+    theme: null,
+    terminalFontFamily: null,
+  },
+];
+
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: "github-dark",
   fontFamily: "Menlo, Monaco, monospace",
@@ -989,6 +1098,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   terminalShaderPaths: [],
   terminalConfirmClose: true,
   terminalTriggers: DEFAULT_TERMINAL_TRIGGERS,
+  terminalProfiles: DEFAULT_TERMINAL_PROFILES,
+  defaultTerminalProfileId: "profile:shell",
   editorFontSize: 13,
   diffViewMode: "side-by-side",
   tabBarOrientation: "vertical",
@@ -1014,6 +1125,8 @@ function getStore(): Promise<Store> {
       terminalLayout: null,
       activeTerminalPaneId: null,
       maximizedTerminalPaneId: null,
+      arrangements: [],
+      activeSidebarView: "files",
       sessionEvents: [],
       settings: DEFAULT_SETTINGS,
     },
@@ -1239,6 +1352,103 @@ function normalizeTerminalTriggers(value: unknown): TerminalTrigger[] {
   return normalized;
 }
 
+function normalizeEnvPairs(value: unknown): Array<[string, string]> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const pairs: Array<[string, string]> = [];
+  for (const item of value) {
+    if (
+      Array.isArray(item) &&
+      item.length >= 2 &&
+      typeof item[0] === "string" &&
+      typeof item[1] === "string" &&
+      item[0].trim()
+    ) {
+      pairs.push([item[0].trim(), item[1]]);
+    }
+  }
+  return pairs;
+}
+
+function normalizeStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizeAgentKind(value: unknown, fallback: AgentKind): AgentKind {
+  return typeof value === "string" && (AGENT_KINDS as readonly string[]).includes(value)
+    ? (value as AgentKind)
+    : fallback;
+}
+
+function normalizeProfileCwdPolicy(value: unknown): TerminalProfileCwdPolicy {
+  return value === "workspace" || value === "active-pane" || value === "custom"
+    ? value
+    : "active-pane";
+}
+
+function normalizeTerminalProfiles(value: unknown): TerminalProfile[] {
+  const source = Array.isArray(value) ? value : DEFAULT_TERMINAL_PROFILES;
+  const profiles: TerminalProfile[] = [];
+  const seen = new Set<string>();
+  for (const item of source) {
+    if (!isRecord(item)) {
+      continue;
+    }
+    const agent = normalizeAgentKind(item.agent, "shell");
+    const id =
+      typeof item.id === "string" && item.id.trim()
+        ? item.id.trim().slice(0, 80)
+        : makeId("profile");
+    if (seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    profiles.push({
+      id,
+      name:
+        typeof item.name === "string" && item.name.trim()
+          ? item.name.trim().slice(0, 80)
+          : AGENT_LABELS[agent],
+      agent,
+      command:
+        typeof item.command === "string"
+          ? item.command
+          : agent === "shell"
+            ? ""
+            : DEFAULT_AGENT_COMMANDS[agent],
+      args: normalizeStringList(item.args),
+      env: normalizeEnvPairs(item.env),
+      cwdPolicy: normalizeProfileCwdPolicy(item.cwdPolicy),
+      customCwd: typeof item.customCwd === "string" ? item.customCwd : "",
+      initialPrompt:
+        typeof item.initialPrompt === "string" ? item.initialPrompt : "",
+      theme: isThemeMode(item.theme) ? item.theme : null,
+      terminalFontFamily:
+        typeof item.terminalFontFamily === "string" && item.terminalFontFamily.trim()
+          ? item.terminalFontFamily
+          : null,
+    });
+  }
+  return profiles.length > 0 ? profiles : DEFAULT_TERMINAL_PROFILES;
+}
+
+function normalizeWorkspaceSidebarView(value: unknown): WorkspaceSidebarView {
+  return value === "files" ||
+    value === "search" ||
+    value === "source-control" ||
+    value === "sessions" ||
+    value === "history"
+    ? value
+    : "files";
+}
+
 function normalizeDiffViewMode(value: unknown): DiffViewMode {
   return value === "unified" || value === "side-by-side"
     ? value
@@ -1310,6 +1520,12 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
         ? merged.terminalConfirmClose
         : DEFAULT_SETTINGS.terminalConfirmClose,
     terminalTriggers: normalizeTerminalTriggers(merged.terminalTriggers),
+    terminalProfiles: normalizeTerminalProfiles(merged.terminalProfiles),
+    defaultTerminalProfileId:
+      typeof merged.defaultTerminalProfileId === "string" &&
+      merged.defaultTerminalProfileId.trim()
+        ? merged.defaultTerminalProfileId
+        : DEFAULT_SETTINGS.defaultTerminalProfileId,
     editorFontSize: normalizeFontSize(merged.editorFontSize, legacyFontSize),
     diffViewMode: normalizeDiffViewMode(merged.diffViewMode),
     tabBarOrientation: isTabBarOrientation(merged.tabBarOrientation)
@@ -1529,6 +1745,125 @@ function pruneTerminalLayout(
   return { ...node, children };
 }
 
+function mapTerminalLayoutSessions(
+  node: TerminalPaneNode | null,
+  sessionIds: Map<string, string>,
+): TerminalPaneNode | null {
+  if (!node) {
+    return null;
+  }
+  if (node.type === "leaf") {
+    const sessionId = sessionIds.get(node.sessionId);
+    return sessionId ? { ...node, sessionId } : null;
+  }
+  const children = node.children
+    .map((child) => mapTerminalLayoutSessions(child, sessionIds))
+    .filter(Boolean) as TerminalPaneNode[];
+  if (children.length === 0) {
+    return null;
+  }
+  if (children.length === 1) {
+    return children[0];
+  }
+  return { ...node, children };
+}
+
+function normalizeArrangementSessions(value: unknown): ArrangementSession[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const sessions: ArrangementSession[] = [];
+  for (const item of value) {
+    if (!isRecord(item) || !isRecord(item.launch)) {
+      continue;
+    }
+    const agent = normalizeAgentKind(item.agent, "shell");
+    const command =
+      typeof item.launch.command === "string" ? item.launch.command : "";
+    const cwd =
+      typeof item.launch.cwd === "string" && item.launch.cwd.trim()
+        ? item.launch.cwd
+        : null;
+    sessions.push({
+      sessionId:
+        typeof item.sessionId === "string" && item.sessionId.trim()
+          ? item.sessionId
+          : makeId("arrangement-session"),
+      title:
+        typeof item.title === "string" && item.title.trim()
+          ? item.title.trim()
+          : AGENT_LABELS[agent],
+      agent,
+      workspaceId:
+        typeof item.workspaceId === "string" && item.workspaceId.trim()
+          ? item.workspaceId.trim()
+          : "",
+      profileId:
+        typeof item.profileId === "string" && item.profileId.trim()
+          ? item.profileId.trim()
+          : null,
+      launch: {
+        command,
+        args: normalizeStringList(item.launch.args),
+        cwd,
+        env: normalizeEnvPairs(item.launch.env),
+      },
+    });
+  }
+  return sessions;
+}
+
+function normalizeArrangements(value: unknown): Arrangement[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const arrangements: Arrangement[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (!isRecord(item)) {
+      continue;
+    }
+    const id =
+      typeof item.id === "string" && item.id.trim()
+        ? item.id.trim()
+        : makeId("arrangement");
+    if (seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    arrangements.push({
+      id,
+      name:
+        typeof item.name === "string" && item.name.trim()
+          ? item.name.trim().slice(0, 80)
+          : "Arrangement",
+      createdAt: typeof item.createdAt === "number" ? item.createdAt : Date.now(),
+      updatedAt: typeof item.updatedAt === "number" ? item.updatedAt : Date.now(),
+      workspaceId:
+        typeof item.workspaceId === "string" && item.workspaceId.trim()
+          ? item.workspaceId.trim()
+          : undefined,
+      terminalLayout: isRecord(item.terminalLayout)
+        ? (item.terminalLayout as unknown as TerminalPaneNode)
+        : null,
+      activeTerminalPaneId:
+        typeof item.activeTerminalPaneId === "string"
+          ? item.activeTerminalPaneId
+          : null,
+      maximizedTerminalPaneId:
+        typeof item.maximizedTerminalPaneId === "string"
+          ? item.maximizedTerminalPaneId
+          : null,
+      selectedFile: isRecord(item.selectedFile)
+        ? (item.selectedFile as unknown as MainSelection)
+        : null,
+      activeSidebarView: normalizeWorkspaceSidebarView(item.activeSidebarView),
+      sessions: normalizeArrangementSessions(item.sessions),
+    });
+  }
+  return arrangements;
+}
+
 function appendEvent(
   events: SessionEvent[],
   event: Omit<SessionEvent, "id" | "timestamp">,
@@ -1550,6 +1885,8 @@ function snapshot(state: SessionStore): PersistedState {
     terminalLayout: state.terminalLayout,
     activeTerminalPaneId: state.activeTerminalPaneId,
     maximizedTerminalPaneId: state.maximizedTerminalPaneId,
+    arrangements: state.arrangements,
+    activeSidebarView: state.activeSidebarView,
     sessionEvents: state.sessionEvents,
     settings: state.settings,
   };
@@ -1571,6 +1908,8 @@ export async function persistNow(): Promise<void> {
     await store.set("terminalLayout", state.terminalLayout);
     await store.set("activeTerminalPaneId", state.activeTerminalPaneId);
     await store.set("maximizedTerminalPaneId", state.maximizedTerminalPaneId);
+    await store.set("arrangements", state.arrangements);
+    await store.set("activeSidebarView", state.activeSidebarView);
     await store.set("sessionEvents", state.sessionEvents);
     await store.set("settings", state.settings);
     await store.save();
@@ -1586,6 +1925,8 @@ export const useSessionStore = create<SessionStore>((set) => ({
   terminalLayout: null,
   activeTerminalPaneId: null,
   maximizedTerminalPaneId: null,
+  arrangements: [],
+  activeSidebarView: "files",
   workspaces: [],
   selectedFile: null,
   sessionEvents: [],
@@ -1664,6 +2005,10 @@ export const useSessionStore = create<SessionStore>((set) => ({
         selectedFile: null,
       };
     });
+    persistLater();
+  },
+  setActiveSidebarView: (view) => {
+    set({ activeSidebarView: view });
     persistLater();
   },
   addSession: (session, placement) => {
@@ -1768,6 +2113,58 @@ export const useSessionStore = create<SessionStore>((set) => ({
     });
     persistLater();
   },
+  saveCurrentArrangement: (name) => {
+    const state = useSessionStore.getState();
+    const sessions = state.sessions
+      .filter((session) => session.restart)
+      .map<ArrangementSession>((session) => ({
+        sessionId: session.id,
+        title: session.title,
+        agent: session.agent,
+        workspaceId: session.workspaceId,
+        profileId: session.profileId ?? null,
+        launch: session.restart!,
+      }));
+    if (sessions.length === 0) {
+      return null;
+    }
+    const now = Date.now();
+    const activeSession = state.sessions.find(
+      (session) => session.id === state.activeSessionId,
+    );
+    const id = makeId("arrangement");
+    const arrangement: Arrangement = {
+      id,
+      name:
+        name?.trim() ||
+        `${activeSession?.title ?? "Onibi"} arrangement ${new Date(now).toLocaleString()}`,
+      createdAt: now,
+      updatedAt: now,
+      workspaceId: activeSession?.workspaceId ?? sessions[0]?.workspaceId,
+      terminalLayout: state.terminalLayout,
+      activeTerminalPaneId: state.activeTerminalPaneId,
+      maximizedTerminalPaneId: state.maximizedTerminalPaneId,
+      selectedFile: state.selectedFile,
+      activeSidebarView: state.activeSidebarView,
+      sessions,
+    };
+    set((current) => ({
+      arrangements: [arrangement, ...current.arrangements].slice(0, 50),
+      sessionEvents: appendEvent(current.sessionEvents, {
+        type: "arrangement-saved",
+        workspaceId: arrangement.workspaceId,
+        summary: `Saved ${arrangement.name}`,
+      }),
+    }));
+    persistLater();
+    return id;
+  },
+  deleteArrangement: (id) => {
+    set((state) => ({
+      arrangements: state.arrangements.filter((arrangement) => arrangement.id !== id),
+    }));
+    persistLater();
+  },
   appendSessionEvent: (event) => {
     set((state) => ({ sessionEvents: appendEvent(state.sessionEvents, event) }));
     persistLater();
@@ -1832,6 +2229,9 @@ export const useSessionStore = create<SessionStore>((set) => ({
       selectedFile:
         state.selectedFile?.workspaceId === id ? null : state.selectedFile,
       sessions: state.sessions.filter((session) => session.workspaceId !== id),
+      arrangements: state.arrangements.filter(
+        (arrangement) => arrangement.workspaceId !== id,
+      ),
       terminalLayout: state.sessions.some((session) => session.workspaceId === id)
         ? null
         : state.terminalLayout,
@@ -1901,11 +2301,15 @@ export async function hydrateSessionStore(): Promise<void> {
       terminalLayout,
       activeTerminalPaneId,
       maximizedTerminalPaneId,
+      arrangements,
+      activeSidebarView,
       sessionEvents,
     ] = await Promise.all([
       store.get<TerminalPaneNode | null>("terminalLayout"),
       store.get<string | null>("activeTerminalPaneId"),
       store.get<string | null>("maximizedTerminalPaneId"),
+      store.get<Arrangement[]>("arrangements"),
+      store.get<WorkspaceSidebarView>("activeSidebarView"),
       store.get<SessionEvent[]>("sessionEvents"),
     ]);
     const livePtys = new Set(await ptyList().catch(() => []));
@@ -1939,6 +2343,8 @@ export async function hydrateSessionStore(): Promise<void> {
         maximizedTerminalPaneId && paneContainsPane(prunedLayout, maximizedTerminalPaneId)
           ? maximizedTerminalPaneId
           : null,
+      arrangements: normalizeArrangements(arrangements),
+      activeSidebarView: normalizeWorkspaceSidebarView(activeSidebarView),
       workspaces: workspaces ?? [],
       sessionEvents: sessionEvents ?? [],
       settings: mergedSettings,
@@ -2188,13 +2594,166 @@ export async function resolveAgentBinary(
   if (agent === "shell") {
     return null;
   }
-  const [command] = splitCommandLine(
+  return resolveCommandBinary(
     settings.agentCommands[agent] || DEFAULT_AGENT_COMMANDS[agent],
   );
+}
+
+export async function resolveCommandBinary(
+  commandLine: string,
+): Promise<string | null> {
+  const [command] = splitCommandLine(commandLine);
   if (!command) {
     return null;
   }
   return invoke<string | null>("fs_resolve_binary", { command });
+}
+
+export function commandLineForProfile(
+  profile: TerminalProfile,
+  settings: AppSettings,
+): string {
+  return (
+    profile.command.trim() ||
+    settings.agentCommands[profile.agent] ||
+    DEFAULT_AGENT_COMMANDS[profile.agent]
+  );
+}
+
+export async function resolveProfileBinary(
+  profile: TerminalProfile,
+  settings: AppSettings,
+): Promise<string | null> {
+  if (profile.agent === "shell") {
+    return null;
+  }
+  return resolveCommandBinary(commandLineForProfile(profile, settings));
+}
+
+function workspaceForSession(session: Session, workspaces: Workspace[]): Workspace | null {
+  return workspaces.find((workspace) => workspace.id === session.workspaceId) ?? null;
+}
+
+function shellIntegrationEnv(
+  agent: AgentKind,
+  settings: AppSettings,
+): Array<[string, string]> {
+  return agent === "shell" && settings.terminalShellIntegration
+    ? [["ONIBI_SHELL_INTEGRATION", "1"]]
+    : [];
+}
+
+function mergeEnvPairs(
+  base: Array<[string, string]>,
+  extra: Array<[string, string]>,
+): Array<[string, string]> {
+  const values = new Map<string, string>();
+  for (const [key, value] of [...base, ...extra]) {
+    if (key.trim()) {
+      values.set(key.trim(), value);
+    }
+  }
+  return [...values.entries()];
+}
+
+export function terminalProfileById(
+  settings: AppSettings,
+  profileId: string | null | undefined,
+): TerminalProfile | null {
+  return (
+    settings.terminalProfiles.find((profile) => profile.id === profileId) ??
+    settings.terminalProfiles.find(
+      (profile) => profile.id === settings.defaultTerminalProfileId,
+    ) ??
+    settings.terminalProfiles[0] ??
+    null
+  );
+}
+
+export function launchSpecForProfile(
+  profile: TerminalProfile,
+  workspace: Workspace,
+  activeSession?: Session | null,
+): TerminalLaunchSpec {
+  const settings = useSessionStore.getState().settings;
+  const command =
+    profile.agent === "shell" && !profile.command.trim()
+      ? shellPath()
+      : commandLineForProfile(profile, settings);
+  const commandParts = profile.command.trim()
+    ? splitCommandLine(command)
+    : splitCommandLine(
+        settings.agentCommands[profile.agent] || DEFAULT_AGENT_COMMANDS[profile.agent] || command,
+      );
+  const [resolvedCommand = command || shellPath(), ...defaultArgs] = commandParts;
+  const cwd =
+    profile.cwdPolicy === "custom" && profile.customCwd.trim()
+      ? profile.customCwd.trim()
+      : profile.cwdPolicy === "active-pane" &&
+          activeSession?.cwd?.startsWith(workspace.path)
+        ? activeSession.cwd
+        : workspace.path;
+  const prompt = profile.initialPrompt.trim();
+  return {
+    agent: profile.agent,
+    workspaceId: workspace.id,
+    profileId: profile.id,
+    title: `${profile.name} · ${workspace.name}`,
+    command: profile.agent === "shell" && !profile.command.trim() ? shellPath() : resolvedCommand,
+    args: [
+      ...defaultArgs,
+      ...profile.args,
+      ...(prompt && profile.agent !== "shell" ? [prompt] : []),
+    ],
+    cwd,
+    env: mergeEnvPairs(shellIntegrationEnv(profile.agent, settings), profile.env),
+    initialPrompt: prompt,
+  };
+}
+
+export async function spawnSessionFromLaunchSpec(
+  spec: TerminalLaunchSpec,
+  placement?: TerminalPanePlacement | null,
+): Promise<PtyId> {
+  const id = await ptySpawn({
+    command: spec.command,
+    args: spec.args,
+    cwd: spec.cwd,
+    env: spec.env,
+    rows: 30,
+    cols: 100,
+  });
+  useSessionStore.getState().addSession(
+    {
+      id,
+      agent: spec.agent,
+      workspaceId: spec.workspaceId,
+      profileId: spec.profileId ?? null,
+      title: spec.title,
+      status: "running",
+      createdAt: Date.now(),
+      pendingApprovals: [],
+      cwd: spec.cwd ?? undefined,
+      lastExitCode: null,
+      lastTrigger: null,
+      restart: {
+        command: spec.command,
+        args: spec.args,
+        cwd: spec.cwd,
+        env: spec.env,
+      },
+    },
+    placement,
+  );
+  const workspace = useSessionStore
+    .getState()
+    .workspaces.find((item) => item.id === spec.workspaceId);
+  if (spec.agent !== "shell" && workspace) {
+    void startAgentReview(id, workspace.path).catch((error) => {
+      console.warn("failed to start agent review tracking", error);
+    });
+  }
+  return id;
 }
 
 export async function spawnAgentSession(
@@ -2202,51 +2761,219 @@ export async function spawnAgentSession(
   workspace: Workspace,
   initialPrompt: string,
   placement?: TerminalPanePlacement | null,
-  options?: { cwd?: string | null },
+  options?: { cwd?: string | null; profileId?: string | null },
 ): Promise<PtyId> {
   const settings = useSessionStore.getState().settings;
   const launch = launchCommandForAgent(agent, settings, initialPrompt);
   const cwd =
     options?.cwd && options.cwd.startsWith(workspace.path) ? options.cwd : workspace.path;
   const env: Array<[string, string]> =
-    agent === "shell" && settings.terminalShellIntegration
-      ? [["ONIBI_SHELL_INTEGRATION", "1"]]
-      : [];
-  const id = await ptySpawn({
-    command: launch.command,
-    args: launch.args,
-    cwd,
-    env,
-    rows: 30,
-    cols: 100,
-  });
-  useSessionStore.getState().addSession(
+    shellIntegrationEnv(agent, settings);
+  return spawnSessionFromLaunchSpec(
     {
-      id,
       agent,
       workspaceId: workspace.id,
+      profileId: options?.profileId ?? null,
       title: sessionTitle(agent, workspace),
-      status: "running",
-      createdAt: Date.now(),
-      pendingApprovals: [],
+      command: launch.command,
+      args: launch.args,
       cwd,
-      lastExitCode: null,
-      lastTrigger: null,
-      restart: {
-        command: launch.command,
-        args: launch.args,
-        cwd,
-        env,
-      },
+      env,
+      initialPrompt,
     },
     placement,
   );
-  if (agent !== "shell") {
-    void startAgentReview(id, workspace.path).catch((error) => {
-      console.warn("failed to start agent review tracking", error);
-    });
+}
+
+export function sessionNeedsCloseConfirmation(
+  session: Session | null | undefined,
+  settings: AppSettings,
+): boolean {
+  return Boolean(
+    session &&
+      settings.terminalConfirmClose &&
+      (session.status === "running" || session.status === "awaiting-approval"),
+  );
+}
+
+export async function closeSession(sessionId: string, force = false): Promise<boolean> {
+  const state = useSessionStore.getState();
+  const session = state.sessions.find((item) => item.id === sessionId);
+  if (!session) {
+    return false;
   }
+  if (
+    !force &&
+    sessionNeedsCloseConfirmation(session, state.settings) &&
+    !window.confirm(`Close ${session.title}?`)
+  ) {
+    return false;
+  }
+  await ptyKill(sessionId).catch(() => undefined);
+  if (session.agent !== "shell") {
+    await stopAgentReview(sessionId).catch(() => undefined);
+  }
+  useSessionStore.getState().removeSession(sessionId);
+  return true;
+}
+
+export async function restartSession(sessionId: string): Promise<PtyId | null> {
+  const state = useSessionStore.getState();
+  const session = state.sessions.find((item) => item.id === sessionId);
+  if (!session?.restart) {
+    return null;
+  }
+  const id = await ptySpawn({
+    command: session.restart.command,
+    args: session.restart.args,
+    cwd: session.restart.cwd,
+    env: session.restart.env,
+    rows: 30,
+    cols: 100,
+  });
+  const replacement: Session = {
+    ...session,
+    id,
+    status: "running",
+    createdAt: Date.now(),
+    pendingApprovals: [],
+    cwd: session.restart.cwd ?? session.cwd,
+    lastExitCode: null,
+    lastTrigger: null,
+  };
+  await ptyKill(sessionId).catch(() => undefined);
+  if (session.agent !== "shell") {
+    await stopAgentReview(sessionId).catch(() => undefined);
+    const workspace = workspaceForSession(session, state.workspaces);
+    if (workspace) {
+      void startAgentReview(id, workspace.path).catch((error) => {
+        console.warn("failed to start agent review tracking", error);
+      });
+    }
+  }
+  useSessionStore.getState().replaceSession(sessionId, replacement);
   return id;
+}
+
+export async function duplicateSession(
+  sessionId: string,
+  placement?: TerminalPanePlacement | null,
+): Promise<PtyId | null> {
+  const state = useSessionStore.getState();
+  const session = state.sessions.find((item) => item.id === sessionId);
+  if (!session?.restart) {
+    return null;
+  }
+  return spawnSessionFromLaunchSpec(
+    {
+      agent: session.agent,
+      workspaceId: session.workspaceId,
+      profileId: session.profileId ?? null,
+      title: `${session.title} copy`,
+      command: session.restart.command,
+      args: session.restart.args,
+      cwd: session.cwd ?? session.restart.cwd,
+      env: session.restart.env,
+    },
+    placement,
+  );
+}
+
+export async function restoreArrangement(arrangementId: string): Promise<boolean> {
+  const state = useSessionStore.getState();
+  const arrangement = state.arrangements.find((item) => item.id === arrangementId);
+  if (!arrangement) {
+    return false;
+  }
+  if (
+    state.sessions.some((session) => sessionNeedsCloseConfirmation(session, state.settings)) &&
+    !window.confirm(`Restore ${arrangement.name} and close current sessions?`)
+  ) {
+    return false;
+  }
+
+  const newSessions: Session[] = [];
+  const sessionIds = new Map<string, string>();
+  for (const savedSession of arrangement.sessions) {
+    const workspace =
+      state.workspaces.find((item) => item.id === savedSession.workspaceId) ??
+      state.workspaces.find((item) => item.id === arrangement.workspaceId);
+    if (!workspace) {
+      continue;
+    }
+    const launch = savedSession.launch;
+    const id = await ptySpawn({
+      command: launch.command,
+      args: launch.args,
+      cwd: launch.cwd,
+      env: launch.env,
+      rows: 30,
+      cols: 100,
+    });
+    sessionIds.set(savedSession.sessionId, id);
+    newSessions.push({
+      id,
+      agent: savedSession.agent,
+      workspaceId: savedSession.workspaceId,
+      profileId: savedSession.profileId ?? null,
+      title: savedSession.title,
+      status: "running",
+      createdAt: Date.now(),
+      pendingApprovals: [],
+      cwd: launch.cwd ?? undefined,
+      lastExitCode: null,
+      lastTrigger: null,
+      restart: launch,
+    });
+    if (savedSession.agent !== "shell") {
+      void startAgentReview(id, workspace.path).catch((error) => {
+        console.warn("failed to start agent review tracking", error);
+      });
+    }
+  }
+
+  for (const session of state.sessions) {
+    await ptyKill(session.id).catch(() => undefined);
+    if (session.agent !== "shell") {
+      await stopAgentReview(session.id).catch(() => undefined);
+    }
+  }
+
+  const terminalLayout = mapTerminalLayoutSessions(
+    arrangement.terminalLayout,
+    sessionIds,
+  );
+  const activeTerminalPaneId =
+    arrangement.activeTerminalPaneId &&
+    terminalLayout &&
+    paneContainsPane(terminalLayout, arrangement.activeTerminalPaneId)
+      ? arrangement.activeTerminalPaneId
+      : firstLeaf(terminalLayout)?.paneId ?? null;
+  const activeSessionId =
+    activeTerminalPaneId && terminalLayout
+      ? sessionIdForPane(terminalLayout, activeTerminalPaneId)
+      : newSessions[0]?.id ?? null;
+  useSessionStore.setState((current) => ({
+    sessions: newSessions,
+    terminalLayout,
+    activeTerminalPaneId,
+    maximizedTerminalPaneId:
+      arrangement.maximizedTerminalPaneId &&
+      terminalLayout &&
+      paneContainsPane(terminalLayout, arrangement.maximizedTerminalPaneId)
+        ? arrangement.maximizedTerminalPaneId
+        : null,
+    activeSessionId,
+    selectedFile: arrangement.selectedFile,
+    activeSidebarView: arrangement.activeSidebarView,
+    sessionEvents: appendEvent(current.sessionEvents, {
+      type: "arrangement-restored",
+      workspaceId: arrangement.workspaceId,
+      summary: `Restored ${arrangement.name}`,
+    }),
+  }));
+  persistLater();
+  return true;
 }
 
 function parseGhosttyColor(value: string): string | undefined {

@@ -8,8 +8,14 @@ function resetStore() {
     hydrated: true,
     sessions: [],
     activeSessionId: null,
+    terminalLayout: null,
+    activeTerminalPaneId: null,
+    maximizedTerminalPaneId: null,
+    arrangements: [],
+    activeSidebarView: "files",
     workspaces: [],
     selectedFile: null,
+    sessionEvents: [],
     settings: DEFAULT_SETTINGS,
   });
   globalThis.__TAURI_MOCKS__.invoke.mockReset();
@@ -150,6 +156,59 @@ describe("SettingsPane", () => {
     expect(screen.getByLabelText("Pi launch command")).toBeTruthy();
     expect(screen.getByLabelText("Cline launch command")).toBeTruthy();
     expect(screen.getByLabelText("Crush launch command")).toBeTruthy();
+  });
+
+  test("edits terminal profiles", () => {
+    render(<SettingsPane open onClose={vi.fn()} />);
+    fireEvent.click(screen.getByText("Profiles"));
+
+    fireEvent.change(screen.getByLabelText("Profile name"), {
+      target: { value: "Project shell" },
+    });
+    fireEvent.change(screen.getByLabelText("Profile environment"), {
+      target: { value: "FOO=bar\nEMPTY=" },
+    });
+    fireEvent.change(screen.getByLabelText("Profile cwd policy"), {
+      target: { value: "custom" },
+    });
+    fireEvent.change(screen.getByLabelText("Profile custom cwd"), {
+      target: { value: "/tmp/onibi" },
+    });
+
+    const profile = useSessionStore.getState().settings.terminalProfiles[0];
+    expect(profile.name).toBe("Project shell");
+    expect(profile.env).toEqual([
+      ["FOO", "bar"],
+      ["EMPTY", ""],
+    ]);
+    expect(profile.cwdPolicy).toBe("custom");
+    expect(profile.customCwd).toBe("/tmp/onibi");
+  });
+
+  test("shows shell integration runtime status", () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-1",
+          agent: "shell",
+          workspaceId: "workspace:/repo",
+          title: "Shell",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+          cwd: "/repo/packages/app",
+          lastExitCode: 2,
+        },
+      ],
+    });
+
+    render(<SettingsPane open onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Shell integration" }));
+
+    expect(screen.getByText("cwd: /repo/packages/app")).toBeTruthy();
+    expect(screen.getByText("last exit: 2")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Enable shell integration"));
+    expect(useSessionStore.getState().settings.terminalShellIntegration).toBe(false);
   });
 
   test("applies config.json edits", () => {
