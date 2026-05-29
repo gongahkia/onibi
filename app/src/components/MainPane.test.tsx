@@ -240,4 +240,72 @@ describe("MainPane", () => {
       );
     });
   });
+
+  test("hands off the active workspace to another agent from the toolbar", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "pty_spawn") {
+        return "pty-codex";
+      }
+      return null;
+    });
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-1",
+          agent: "claude-code",
+          workspaceId: "workspace:/repo",
+          title: "Claude · repo",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+          cwd: "/repo/packages/app",
+        },
+      ],
+      activeSessionId: "pty-1",
+      terminalLayout: { type: "leaf", paneId: "pane-1", sessionId: "pty-1" },
+      activeTerminalPaneId: "pane-1",
+      workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
+      sessionEvents: [
+        {
+          id: "event-1",
+          timestamp: 1,
+          type: "session-started",
+          workspaceId: "workspace:/repo",
+          sessionId: "pty-1",
+          agent: "claude-code",
+          summary: "Started Claude",
+        },
+      ],
+    });
+
+    render(<MainPane />);
+    fireEvent.click(screen.getByLabelText("Handoff session to another agent"));
+    expect(screen.getByRole("dialog", { name: "Handoff Session" })).toBeTruthy();
+    expect((screen.getByLabelText("Next agent") as HTMLSelectElement).value).toBe(
+      "codex",
+    );
+    fireEvent.click(screen.getByText("Start Handoff"));
+
+    await waitFor(() => {
+      expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith("pty_spawn", {
+        req: {
+          command: "codex",
+          args: [
+            expect.stringContaining(
+              "You are taking over an Onibi workspace from Claude Code.",
+            ),
+          ],
+          cwd: "/repo/packages/app",
+          env: [],
+          rows: 30,
+          cols: 100,
+        },
+      });
+    });
+    expect(useSessionStore.getState().activeSessionId).toBe("pty-codex");
+    expect(useSessionStore.getState().terminalLayout).toMatchObject({
+      type: "split",
+      direction: "vertical",
+    });
+  });
 });

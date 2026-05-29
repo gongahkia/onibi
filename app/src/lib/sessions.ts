@@ -53,7 +53,6 @@ export interface Session {
   preview?: SessionPreview | null;
   lastCommand?: SessionCommandMarker | null;
   lastCommandBlockId?: string | null;
-  control?: SessionControlState | null;
   transcript?: SessionTranscript | null;
   shellPromptMarkerSeen?: boolean;
 }
@@ -89,7 +88,6 @@ export type SessionEventType =
   | "arrangement-restored"
   | "terminal-trigger"
   | "command-block"
-  | "session-control"
   | "file-opened"
   | "web-opened";
 
@@ -167,15 +165,6 @@ export interface CommandBlock {
   changedFiles: string[];
   attention?: SessionAttentionState | null;
   source: CommandBlockSource;
-}
-
-export type SessionControlOwner = "user" | "agent";
-
-export interface SessionControlState {
-  owner: SessionControlOwner;
-  externalInputBlocked: boolean;
-  updatedAt: number;
-  reason?: string | null;
 }
 
 export interface SessionTranscript {
@@ -500,7 +489,6 @@ type SessionStore = {
   replaceSession: (id: string, session: Session) => void;
   removeSession: (id: string) => void;
   clearSessionAttention: (id: string) => void;
-  setSessionControlState: (id: string, control: SessionControlState) => void;
   appendSessionTranscript: (id: string, text: string) => void;
   startCommandBlock: (block: CommandBlock) => void;
   finishCommandBlock: (block: CommandBlock) => void;
@@ -1558,15 +1546,6 @@ export function newCommandBlockId(): string {
   return makeId("cmd");
 }
 
-export function defaultSessionControl(agent: AgentKind): SessionControlState {
-  return {
-    owner: agent === "shell" ? "user" : "agent",
-    externalInputBlocked: false,
-    updatedAt: Date.now(),
-    reason: null,
-  };
-}
-
 function makeTerminalLeaf(sessionId: string): TerminalLeafPane {
   return { type: "leaf", paneId: makeId("pane"), sessionId };
 }
@@ -2276,28 +2255,6 @@ export const useSessionStore = create<SessionStore>((set) => ({
     }));
     persistLater();
   },
-  setSessionControlState: (id, control) => {
-    set((state) => ({
-      sessions: state.sessions.map((session) =>
-        session.id === id ? { ...session, control } : session,
-      ),
-      sessionEvents: appendEvent(state.sessionEvents, {
-        type: "session-control",
-        sessionId: id,
-        workspaceId: state.sessions.find((session) => session.id === id)?.workspaceId,
-        agent: state.sessions.find((session) => session.id === id)?.agent,
-        summary: `${control.owner === "user" ? "User took over" : "Handed back to agent"}${
-          control.externalInputBlocked ? " · external input blocked" : ""
-        }`,
-        metadata: {
-          owner: control.owner,
-          externalInputBlocked: control.externalInputBlocked,
-          reason: control.reason ?? null,
-        },
-      }),
-    }));
-    persistLater();
-  },
   appendSessionTranscript: (id, text) => {
     if (!text) {
       return;
@@ -2578,7 +2535,6 @@ export async function hydrateSessionStore(): Promise<void> {
             : session.status
           : "stale",
         pendingApprovals: session.pendingApprovals ?? [],
-        control: session.control ?? defaultSessionControl(session.agent),
       } satisfies Session;
     });
     const restoredIds = new Set(restoredSessions.map((session) => session.id));
@@ -2940,7 +2896,6 @@ export async function spawnSessionFromLaunchSpec(
       lastExitCode: null,
       lastTrigger: null,
       lastCommandBlockId: null,
-      control: defaultSessionControl(spec.agent),
       transcript: null,
       restart: {
         command: spec.command,
@@ -3046,7 +3001,6 @@ export async function restartSession(sessionId: string): Promise<PtyId | null> {
     lastExitCode: null,
     lastTrigger: null,
     lastCommandBlockId: null,
-    control: session.control ?? defaultSessionControl(session.agent),
     transcript: null,
   };
   await ptyKill(sessionId).catch(() => undefined);
@@ -3130,7 +3084,6 @@ export async function restoreArrangement(arrangementId: string): Promise<boolean
       lastExitCode: null,
       lastTrigger: null,
       lastCommandBlockId: null,
-      control: defaultSessionControl(savedSession.agent),
       transcript: null,
       restart: launch,
     });

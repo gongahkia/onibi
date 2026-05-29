@@ -240,19 +240,6 @@ pub async fn desktop_session_input(
     Json(body): Json<DesktopSessionInputBody>,
 ) -> ApiResult<DesktopCommandResponse> {
     validate_version(body.protocol_version.as_deref())?;
-    let snapshot = state.desktop_snapshot().await;
-    if snapshot
-        .sessions
-        .iter()
-        .find(|session| session.id == session_id)
-        .and_then(|session| session.control.as_ref())
-        .is_some_and(|control| control.external_input_blocked)
-    {
-        return Err((
-            StatusCode::CONFLICT,
-            Json(ApiError::new("external input is blocked for this session")),
-        ));
-    }
     Ok(Json(broadcast_desktop_command(
         &state,
         "session-input",

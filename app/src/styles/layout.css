@@ -2160,6 +2160,10 @@ button {
   overflow: hidden;
 }
 
+.handoff-dialog {
+  width: min(720px, calc(100vw - 32px));
+}
+
 .activity-center-body {
   min-height: 0;
 }

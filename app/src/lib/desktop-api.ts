@@ -34,12 +34,6 @@ interface DesktopSnapshot {
     previewUrl?: string | null;
     commandBlockCount?: number;
     lastCommandBlockId?: string | null;
-    control?: {
-      owner: string;
-      externalInputBlocked: boolean;
-      updatedAt: number;
-      reason?: string | null;
-    } | null;
   }>;
   arrangements: Array<{ id: string; name: string }>;
   updatedAt: number;
@@ -76,7 +70,6 @@ function snapshotSession(session: Session) {
       (block) => block.sessionId === session.id,
     ).length,
     lastCommandBlockId: session.lastCommandBlockId ?? null,
-    control: session.control ?? null,
   };
 }
 
@@ -160,20 +153,6 @@ async function executeDesktopCommand(message: DesktopCommandMessage): Promise<vo
     const sessionId = stringPayloadField(message.payload, "sessionId");
     const text = stringPayloadField(message.payload, "text");
     if (sessionId && text) {
-      const session = useSessionStore
-        .getState()
-        .sessions.find((item) => item.id === sessionId);
-      if (session?.control?.externalInputBlocked) {
-        useSessionStore.getState().appendSessionEvent({
-          type: "session-control",
-          workspaceId: session.workspaceId,
-          sessionId: session.id,
-          agent: session.agent,
-          summary: "Blocked external session input",
-          metadata: { source: "desktop-command", commandId: message.command_id },
-        });
-        return;
-      }
       const payload = text.endsWith("\n") ? text : `${text}\n`;
       await ptyWrite(sessionId, new TextEncoder().encode(payload));
     }

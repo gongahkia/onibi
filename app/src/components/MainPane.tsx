@@ -14,7 +14,6 @@ import {
   AGENT_KINDS,
   AGENT_LABELS,
   buildAgentHandoffPrompt,
-  defaultSessionControl,
   closeSession,
   duplicateSession,
   newCommandBlockId,
@@ -61,7 +60,6 @@ async function spawnShellReplacement(
     lastExitCode: null,
     lastTrigger: null,
     lastCommandBlockId: null,
-    control: defaultSessionControl("shell"),
     restart: {
       command: shellPath(),
       args: [],
