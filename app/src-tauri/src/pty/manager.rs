@@ -291,6 +291,18 @@ for plugin in \
     break
   fi
 done
+
+function _onibi_precmd() {
+  local status="$?"
+  printf '\033]133;D;%s\007\033]7;file://%s%s\007\033]133;A\007' "$status" "${HOST:-localhost}" "$PWD"
+}
+
+function _onibi_preexec() {
+  printf '\033]133;C\007'
+}
+
+precmd_functions+=(_onibi_precmd)
+preexec_functions+=(_onibi_preexec)
 "#,
     )
 }
@@ -317,9 +329,43 @@ done
 
 bind 'set show-all-if-ambiguous on'
 bind 'TAB:menu-complete'
+
+__onibi_prompt_command() {
+  local status="$?"
+  printf '\033]133;D;%s\a\033]7;file://%s%s\a\033]133;A\a' "$status" "${HOSTNAME:-localhost}" "$PWD"
+}
+
+if [ -n "${PROMPT_COMMAND:-}" ]; then
+  PROMPT_COMMAND="__onibi_prompt_command; $PROMPT_COMMAND"
+else
+  PROMPT_COMMAND="__onibi_prompt_command"
+fi
+
+trap 'printf "\033]133;C\a"' DEBUG
 "#,
     )?;
     Ok(rcfile)
+}
+
+fn write_fish_integration(root: &Path) -> std::io::Result<()> {
+    let fish_dir = root.join("fish");
+    fs::create_dir_all(&fish_dir)?;
+    fs::write(
+        fish_dir.join("config.fish"),
+        r#"if test -r "$HOME/.config/fish/config.fish"
+  source "$HOME/.config/fish/config.fish"
+end
+
+function __onibi_prompt --on-event fish_prompt
+  set -l code $status
+  printf '\033]133;D;%s\a\033]7;file://%s%s\a\033]133;A\a' "$code" (hostname) (pwd)
+end
+
+function __onibi_preexec --on-event fish_preexec
+  printf '\033]133;C\a'
+end
+"#,
+    )
 }
 
 fn configure_shell_integration(
@@ -346,6 +392,11 @@ fn configure_shell_integration(
             args.push("--rcfile".to_string());
             args.push(rcfile.display().to_string());
             args.push("-i".to_string());
+            Ok(Some(root))
+        }
+        "fish" => {
+            write_fish_integration(&root)?;
+            env_values.push(("XDG_CONFIG_HOME".to_string(), root.display().to_string()));
             Ok(Some(root))
         }
         _ => Ok(None),
