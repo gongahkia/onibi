@@ -8,6 +8,8 @@ use std::{
 
 const MAX_EDITABLE_FILE_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_PREVIEW_FILE_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_SEARCH_FILE_BYTES: u64 = 2 * 1024 * 1024;
+const MAX_SEARCH_RESULTS: usize = 300;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct FsEntry {
@@ -29,6 +31,15 @@ pub struct TerminalConfigCandidate {
     label: String,
     path: PathBuf,
     content: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSearchResult {
+    path: PathBuf,
+    line: usize,
+    column: usize,
+    preview: String,
 }
 
 fn canonicalize_existing(path: &Path) -> Result<PathBuf, String> {
@@ -369,6 +380,132 @@ pub async fn fs_resolve_binary(command: String) -> Result<Option<PathBuf>, Strin
         }
     }
     Ok(None)
+}
+
+fn is_search_skipped_dir(path: &Path) -> bool {
+    matches!(
+        path.file_name().and_then(|name| name.to_str()),
+        Some(
+            ".git"
+                | ".hg"
+                | ".svn"
+                | "node_modules"
+                | "target"
+                | "dist"
+                | "build"
+                | ".next"
+                | ".turbo"
+                | ".cache"
+        )
+    )
+}
+
+fn search_file(
+    path: &Path,
+    query: &str,
+    query_lower: &str,
+    results: &mut Vec<WorkspaceSearchResult>,
+) -> Result<(), String> {
+    if results.len() >= MAX_SEARCH_RESULTS {
+        return Ok(());
+    }
+    let metadata = match fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(_) => return Ok(()),
+    };
+    if !metadata.is_file() || metadata.len() > MAX_SEARCH_FILE_BYTES {
+        return Ok(());
+    }
+    let Ok(content) = fs::read_to_string(path) else {
+        return Ok(());
+    };
+    for (line_index, line) in content.lines().enumerate() {
+        let haystack = line.to_lowercase();
+        let Some(column) = haystack.find(query_lower) else {
+            continue;
+        };
+        let preview = if line.chars().count() > 240 {
+            line.chars().take(240).collect()
+        } else {
+            line.to_string()
+        };
+        results.push(WorkspaceSearchResult {
+            path: path.to_path_buf(),
+            line: line_index + 1,
+            column: column + 1,
+            preview,
+        });
+        if results.len() >= MAX_SEARCH_RESULTS {
+            break;
+        }
+    }
+    Ok(())
+}
+
+fn search_dir(
+    root: &Path,
+    dir: &Path,
+    query: &str,
+    query_lower: &str,
+    results: &mut Vec<WorkspaceSearchResult>,
+) -> Result<(), String> {
+    if results.len() >= MAX_SEARCH_RESULTS || is_search_skipped_dir(dir) {
+        return Ok(());
+    }
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return Ok(()),
+    };
+    for entry in entries {
+        if results.len() >= MAX_SEARCH_RESULTS {
+            break;
+        }
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
+        let path = entry.path();
+        let Ok(canonical_path) = fs::canonicalize(&path) else {
+            continue;
+        };
+        if !canonical_path.starts_with(root) {
+            continue;
+        }
+        let Ok(metadata) = fs::metadata(&canonical_path) else {
+            continue;
+        };
+        if metadata.is_dir() {
+            search_dir(root, &canonical_path, query, query_lower, results)?;
+        } else if metadata.is_file() {
+            search_file(&canonical_path, query, query_lower, results)?;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn fs_search_workspace(
+    root: PathBuf,
+    query: String,
+) -> Result<Vec<WorkspaceSearchResult>, String> {
+    let root = canonicalize_existing(&root)?;
+    if !root.is_dir() {
+        return Err(format!("{} is not a directory", root.display()));
+    }
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    let query_lower = query.to_lowercase();
+    let mut results = Vec::new();
+    search_dir(&root, &root, query, &query_lower, &mut results)?;
+    results.sort_by(|left, right| {
+        left.path
+            .cmp(&right.path)
+            .then_with(|| left.line.cmp(&right.line))
+            .then_with(|| left.column.cmp(&right.column))
+    });
+    Ok(results)
 }
 
 #[tauri::command]

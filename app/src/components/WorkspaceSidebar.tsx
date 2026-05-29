@@ -6,8 +6,9 @@ import { FileTree } from "./FileTree";
 import { SessionHistoryView } from "./SessionHistoryView";
 import { SessionListView } from "./SessionListView";
 import { SourceControlView } from "./SourceControlView";
+import { WorkspaceSearchView } from "./WorkspaceSearchView";
 
-type WorkspaceSidebarView = "files" | "source-control" | "sessions" | "history";
+type WorkspaceSidebarView = "files" | "search" | "source-control" | "sessions" | "history";
 
 function activeWorkspaceFor(
   sessions: Session[],
@@ -101,6 +102,15 @@ export function WorkspaceSidebar() {
         </button>
         <button
           type="button"
+          className={view === "search" ? "active" : ""}
+          role="tab"
+          aria-selected={view === "search"}
+          onClick={() => setView("search")}
+        >
+          Search
+        </button>
+        <button
+          type="button"
           className={view === "sessions" ? "active" : ""}
           role="tab"
           aria-selected={view === "sessions"}
@@ -124,6 +134,8 @@ export function WorkspaceSidebar() {
             gitStatusByPath={gitStatusByPath}
             agentReviewsByPath={agentReviewsByPath}
           />
+        ) : view === "search" ? (
+          <WorkspaceSearchView />
         ) : view === "source-control" ? (
           <SourceControlView
             workspace={activeWorkspace}

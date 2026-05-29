@@ -168,7 +168,9 @@ export function AgentTabBar({ orientation }: AgentTabBarProps) {
         {sessions.map((session) => {
           const workspace = workspaceById.get(session.workspaceId);
           const flash =
-            session.status === "awaiting-approval" || session.status === "completed";
+            session.status === "awaiting-approval" ||
+            session.status === "completed" ||
+            Boolean(session.lastTrigger?.actions.includes("badge"));
           return (
             <button
               key={session.id}

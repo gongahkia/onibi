@@ -8,13 +8,15 @@ import { AgentReviewBuffer, GitDiffBuffer } from "./DiffBuffer";
 import { EmptyState } from "./EmptyState";
 import { EditorBuffer } from "./EditorBuffer";
 import { NewSessionDialog } from "./NewSessionDialog";
-import { TerminalView } from "./TerminalView";
+import { TerminalView, type TerminalShellUpdate } from "./TerminalView";
 import { stopAgentReview } from "../lib/agent-review";
 import {
   AGENT_LABELS,
   sessionTitle,
+  terminalPaneNodeForId,
   useSessionStore,
   type Session,
+  type TerminalTriggerMatch,
   type TerminalPaneNode,
   type TerminalPanePlacement,
   type TerminalSplitDirection,
@@ -42,6 +44,15 @@ async function spawnShellReplacement(
     status: "running",
     createdAt: Date.now(),
     pendingApprovals: [],
+    cwd: workspace.path,
+    lastExitCode: null,
+    lastTrigger: null,
+    restart: {
+      command: shellPath(),
+      args: [],
+      cwd: workspace.path,
+      env: [],
+    },
   };
 }
 
@@ -70,6 +81,10 @@ function TerminalPaneTree({
   terminalVisible,
   settings,
   onTerminalExit,
+  onShellUpdate,
+  onTerminalTrigger,
+  maximizedPaneId,
+  onToggleMaximize,
 }: {
   node: TerminalPaneNode;
   sessions: Session[];
@@ -77,6 +92,10 @@ function TerminalPaneTree({
   terminalVisible: boolean;
   settings: ReturnType<typeof useSessionStore.getState>["settings"];
   onTerminalExit: (session: Session) => void;
+  onShellUpdate: (session: Session, update: TerminalShellUpdate) => void;
+  onTerminalTrigger: (session: Session, match: TerminalTriggerMatch) => void;
+  maximizedPaneId: string | null;
+  onToggleMaximize: (paneId: string) => void;
 }) {
   const setActiveTerminalPane = useSessionStore((state) => state.setActiveTerminalPane);
   if (node.type === "split") {
@@ -92,6 +111,10 @@ function TerminalPaneTree({
                 terminalVisible={terminalVisible}
                 settings={settings}
                 onTerminalExit={onTerminalExit}
+                onShellUpdate={onShellUpdate}
+                onTerminalTrigger={onTerminalTrigger}
+                maximizedPaneId={maximizedPaneId}
+                onToggleMaximize={onToggleMaximize}
               />
             </Panel>
             {index < node.children.length - 1 ? (
@@ -113,6 +136,31 @@ function TerminalPaneTree({
       className={`terminal-pane ${active ? "active" : ""}`}
       onPointerDown={() => setActiveTerminalPane(node.paneId)}
     >
+      <div className="terminal-pane-toolbar">
+        <span title={session.cwd ?? session.title}>
+          {session.cwd ?? session.title}
+          {session.lastExitCode !== null && session.lastExitCode !== undefined
+            ? ` · ${session.lastExitCode}`
+            : ""}
+        </span>
+        {session.lastTrigger ? (
+          <span className="terminal-trigger-pill" title={session.lastTrigger.line}>
+            {session.lastTrigger.label}
+          </span>
+        ) : null}
+        <button
+          type="button"
+          className="terminal-pane-button"
+          aria-label={maximizedPaneId === node.paneId ? "Restore pane" : "Maximize pane"}
+          title={maximizedPaneId === node.paneId ? "Restore pane" : "Maximize pane"}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleMaximize(node.paneId);
+          }}
+        >
+          {maximizedPaneId === node.paneId ? "Restore" : "Maximize"}
+        </button>
+      </div>
       <TerminalView
         ptyId={session.id}
         fontFamily={settings.terminalFontFamily}
@@ -121,6 +169,8 @@ function TerminalPaneTree({
         visible={terminalVisible && active}
         onExit={() => onTerminalExit(session)}
         onOpenLink={(url) => useSessionStore.getState().openWebUrl(url, session.id)}
+        onShellUpdate={(update) => onShellUpdate(session, update)}
+        onTrigger={(match) => onTerminalTrigger(session, match)}
       />
     </section>
   );
@@ -161,11 +211,20 @@ export function MainPane() {
   const workspaces = useSessionStore((state) => state.workspaces);
   const activeSessionId = useSessionStore((state) => state.activeSessionId);
   const activeTerminalPaneId = useSessionStore((state) => state.activeTerminalPaneId);
+  const maximizedTerminalPaneId = useSessionStore(
+    (state) => state.maximizedTerminalPaneId,
+  );
   const terminalLayout = useSessionStore((state) => state.terminalLayout);
   const settings = useSessionStore((state) => state.settings);
   const replaceSession = useSessionStore((state) => state.replaceSession);
   const updateSession = useSessionStore((state) => state.updateSession);
   const appendSessionEvent = useSessionStore((state) => state.appendSessionEvent);
+  const toggleMaximizedTerminalPane = useSessionStore(
+    (state) => state.toggleMaximizedTerminalPane,
+  );
+  const focusRelativeTerminalPane = useSessionStore(
+    (state) => state.focusRelativeTerminalPane,
+  );
   const session = sessions.find((item) => item.id === activeSessionId) ?? null;
   const [splitPlacement, setSplitPlacement] = useState<TerminalPanePlacement | null>(
     null,
@@ -190,7 +249,6 @@ export function MainPane() {
       const primary = event.metaKey || event.ctrlKey;
       if (
         event.defaultPrevented ||
-        event.key.toLowerCase() !== "d" ||
         !primary ||
         event.altKey
       ) {
@@ -200,12 +258,35 @@ export function MainPane() {
       if (target instanceof Element && target.closest(".modal-panel")) {
         return;
       }
-      event.preventDefault();
-      requestSplit(event.shiftKey ? "horizontal" : "vertical");
+      if (event.key.toLowerCase() === "d") {
+        event.preventDefault();
+        requestSplit(event.shiftKey ? "horizontal" : "vertical");
+      } else if (event.key === "Enter" && event.shiftKey) {
+        event.preventDefault();
+        toggleMaximizedTerminalPane(activeTerminalPaneId);
+      }
     }
     window.addEventListener("keydown", handleSplitShortcut);
     return () => window.removeEventListener("keydown", handleSplitShortcut);
-  }, [requestSplit]);
+  }, [activeTerminalPaneId, requestSplit, toggleMaximizedTerminalPane]);
+
+  useEffect(() => {
+    function handlePaneFocusShortcut(event: KeyboardEvent) {
+      const primary = event.metaKey || event.ctrlKey;
+      if (!primary || !event.altKey || event.defaultPrevented) {
+        return;
+      }
+      if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+        event.preventDefault();
+        focusRelativeTerminalPane(1);
+      } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+        event.preventDefault();
+        focusRelativeTerminalPane(-1);
+      }
+    }
+    window.addEventListener("keydown", handlePaneFocusShortcut);
+    return () => window.removeEventListener("keydown", handlePaneFocusShortcut);
+  }, [focusRelativeTerminalPane]);
 
   const handleTerminalExit = useCallback(
     (exitedSession: Session) => {
@@ -248,12 +329,52 @@ export function MainPane() {
     [appendSessionEvent, replaceSession, updateSession, workspaces],
   );
 
+  const handleShellUpdate = useCallback(
+    (updatedSession: Session, update: TerminalShellUpdate) => {
+      updateSession(updatedSession.id, {
+        cwd: update.cwd ?? updatedSession.cwd,
+        lastExitCode:
+          update.lastExitCode !== undefined
+            ? update.lastExitCode
+            : updatedSession.lastExitCode,
+      });
+    },
+    [updateSession],
+  );
+
+  const handleTerminalTrigger = useCallback(
+    (triggeredSession: Session, match: TerminalTriggerMatch) => {
+      updateSession(triggeredSession.id, { lastTrigger: match });
+      appendSessionEvent({
+        type: "terminal-trigger",
+        workspaceId: triggeredSession.workspaceId,
+        sessionId: triggeredSession.id,
+        agent: triggeredSession.agent,
+        summary: `${match.label}: ${match.line}`,
+        metadata: { triggerId: match.id },
+      });
+      if ("Notification" in window && match.actions.includes("notify")) {
+        if (Notification.permission === "granted") {
+          new Notification(`Onibi: ${match.label}`, { body: match.line });
+        } else if (Notification.permission === "default") {
+          void Notification.requestPermission();
+        }
+      }
+    },
+    [appendSessionEvent, updateSession],
+  );
+
   if (session) {
     const terminalVisible = selectedFile === null;
     const layout = layoutContainsSession(terminalLayout, session.id)
       ? terminalLayout!
       : fallbackLayout(session);
+    const visibleLayout =
+      maximizedTerminalPaneId && terminalPaneNodeForId(layout, maximizedTerminalPaneId)
+        ? terminalPaneNodeForId(layout, maximizedTerminalPaneId)!
+        : layout;
     const splitWorkspaceId = session.workspaceId;
+    const splitDefaultCwd = session.cwd ?? null;
     return (
       <>
         <main
@@ -266,14 +387,18 @@ export function MainPane() {
             }`}
             aria-hidden={!terminalVisible}
           >
-            <TerminalPaneTree
-              node={layout}
-              sessions={sessions}
-              activeSessionId={activeSessionId}
-              terminalVisible={terminalVisible}
-              settings={settings}
-              onTerminalExit={handleTerminalExit}
-            />
+              <TerminalPaneTree
+                node={visibleLayout}
+                sessions={sessions}
+                activeSessionId={activeSessionId}
+                terminalVisible={terminalVisible}
+                settings={settings}
+                onTerminalExit={handleTerminalExit}
+                onShellUpdate={handleShellUpdate}
+                onTerminalTrigger={handleTerminalTrigger}
+                maximizedPaneId={maximizedTerminalPaneId}
+                onToggleMaximize={toggleMaximizedTerminalPane}
+              />
           </section>
           {selectedFile ? (
             <section className="main-pane-surface editor-surface">
@@ -296,6 +421,7 @@ export function MainPane() {
         <NewSessionDialog
           open={splitPlacement !== null}
           defaultWorkspaceId={splitWorkspaceId}
+          defaultCwd={splitDefaultCwd}
           placement={splitPlacement}
           onClose={() => setSplitPlacement(null)}
         />

@@ -107,7 +107,7 @@ function SessionCard({
       <img src={agentIconUrl(session.agent)} alt="" />
       <span className="session-card-main">
         <span className="session-card-title">{AGENT_LABELS[session.agent]}</span>
-        <span className="session-card-meta">{workspace?.name ?? "Workspace"}</span>
+        <span className="session-card-meta">{session.cwd ?? workspace?.name ?? "Workspace"}</span>
       </span>
       <span className="session-card-side">
         <span className={`session-card-status ${session.status}`}>
@@ -117,6 +117,11 @@ function SessionCard({
         {session.pendingApprovals.length > 0 ? (
           <span className="session-card-approval">
             {session.pendingApprovals.length}
+          </span>
+        ) : null}
+        {session.lastTrigger?.actions.includes("badge") ? (
+          <span className="session-card-trigger" title={session.lastTrigger.line}>
+            {session.lastTrigger.label}
           </span>
         ) : null}
       </span>

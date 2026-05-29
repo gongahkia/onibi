@@ -7,6 +7,7 @@ import {
   COLOR_SCHEME_OPTIONS,
   DEFAULT_AGENT_COMMANDS,
   DEFAULT_AGENT_INSTALL_COMMANDS,
+  DEFAULT_TERMINAL_TRIGGERS,
   type AgentKind,
   type ColorSchemeColorKey,
   type ColorSchemeColors,
@@ -18,6 +19,7 @@ import {
   type TerminalConfigImport,
   type TerminalConfigSource,
   type TerminalKeybinding,
+  type TerminalTrigger,
   type ThemeMode,
   type WebOpenMode,
   applyOnibiConfig,
@@ -249,6 +251,8 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               terminalFontSize={settings.terminalFontSize}
               terminalScrollbackLines={settings.terminalScrollbackLines}
               terminalShellIntegration={settings.terminalShellIntegration}
+              terminalConfirmClose={settings.terminalConfirmClose}
+              terminalTriggers={settings.terminalTriggers}
               editorFontSize={settings.editorFontSize}
               diffViewMode={settings.diffViewMode}
               webOpenMode={settings.webOpenMode}
@@ -272,6 +276,12 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               }
               onTerminalShellIntegration={(terminalShellIntegration) =>
                 updateSettings({ terminalShellIntegration })
+              }
+              onTerminalConfirmClose={(terminalConfirmClose) =>
+                updateSettings({ terminalConfirmClose })
+              }
+              onTerminalTriggers={(terminalTriggers) =>
+                updateSettings({ terminalTriggers })
               }
               onEditorFontSize={(editorFontSize) => updateSettings({ editorFontSize })}
               onDiffViewMode={(diffViewMode) => updateSettings({ diffViewMode })}
@@ -418,6 +428,8 @@ interface GeneralSettingsProps {
   terminalFontSize: number;
   terminalScrollbackLines: number;
   terminalShellIntegration: boolean;
+  terminalConfirmClose: boolean;
+  terminalTriggers: TerminalTrigger[];
   editorFontSize: number;
   diffViewMode: DiffViewMode;
   webOpenMode: WebOpenMode;
@@ -430,6 +442,8 @@ interface GeneralSettingsProps {
   onTerminalFontSize: (fontSize: number) => void;
   onTerminalScrollbackLines: (lines: number) => void;
   onTerminalShellIntegration: (enabled: boolean) => void;
+  onTerminalConfirmClose: (enabled: boolean) => void;
+  onTerminalTriggers: (triggers: TerminalTrigger[]) => void;
   onEditorFontSize: (fontSize: number) => void;
   onDiffViewMode: (mode: DiffViewMode) => void;
   onWebOpenMode: (mode: WebOpenMode) => void;
@@ -446,6 +460,8 @@ function GeneralSettings({
   terminalFontSize,
   terminalScrollbackLines,
   terminalShellIntegration,
+  terminalConfirmClose,
+  terminalTriggers,
   editorFontSize,
   diffViewMode,
   webOpenMode,
@@ -458,6 +474,8 @@ function GeneralSettings({
   onTerminalFontSize,
   onTerminalScrollbackLines,
   onTerminalShellIntegration,
+  onTerminalConfirmClose,
+  onTerminalTriggers,
   onEditorFontSize,
   onDiffViewMode,
   onWebOpenMode,
@@ -549,17 +567,33 @@ function GeneralSettings({
         onChange={onTerminalScrollbackLines}
       />
       <label className="settings-row">
-        <span>Shell completions</span>
+        <span>Shell integration</span>
         <span className="settings-check-row">
           <input
             type="checkbox"
-            aria-label="Enable shell completions and autosuggestions"
+            aria-label="Enable shell integration"
             checked={terminalShellIntegration}
             onChange={(event) => onTerminalShellIntegration(event.target.checked)}
           />
-          Enable shell completions and autosuggestions
+          Track current directory, prompt boundaries, and shell completions
         </span>
       </label>
+      <label className="settings-row">
+        <span>Close confirmation</span>
+        <span className="settings-check-row">
+          <input
+            type="checkbox"
+            aria-label="Confirm before closing running terminals"
+            checked={terminalConfirmClose}
+            onChange={(event) => onTerminalConfirmClose(event.target.checked)}
+          />
+          Confirm before closing running terminals
+        </span>
+      </label>
+      <TerminalTriggersControl
+        triggers={terminalTriggers}
+        onChange={onTerminalTriggers}
+      />
       <FontFamilyControl
         label="File content font"
         value={editorFontFamily}
@@ -685,6 +719,53 @@ function ScrollbackControl({
         <span className="settings-note">0 keeps up to 1,000,000 lines.</span>
       </span>
     </label>
+  );
+}
+
+function TerminalTriggersControl({
+  triggers,
+  onChange,
+}: {
+  triggers: TerminalTrigger[];
+  onChange: (triggers: TerminalTrigger[]) => void;
+}) {
+  function updateTrigger(id: string, patch: Partial<TerminalTrigger>) {
+    onChange(
+      triggers.map((trigger) =>
+        trigger.id === id ? { ...trigger, ...patch } : trigger,
+      ),
+    );
+  }
+
+  return (
+    <div className="settings-row settings-row-top">
+      <span>Terminal triggers</span>
+      <div className="trigger-list">
+        {triggers.map((trigger) => (
+          <label className="trigger-row" key={trigger.id}>
+            <input
+              type="checkbox"
+              aria-label={`${trigger.label} trigger`}
+              checked={trigger.enabled}
+              onChange={(event) =>
+                updateTrigger(trigger.id, { enabled: event.target.checked })
+              }
+            />
+            <span className="trigger-row-main">
+              <strong>{trigger.label}</strong>
+              <code>{trigger.pattern}</code>
+            </span>
+          </label>
+        ))}
+        <button
+          type="button"
+          className="text-button"
+          onClick={() => onChange(DEFAULT_TERMINAL_TRIGGERS)}
+        >
+          Reset trigger presets
+        </button>
+      </div>
+    </div>
   );
 }
 

@@ -43,6 +43,10 @@ export interface Session {
   status: SessionStatus;
   createdAt: number;
   pendingApprovals: string[];
+  cwd?: string;
+  lastExitCode?: number | null;
+  lastTrigger?: TerminalTriggerMatch | null;
+  restart?: SessionRestartMetadata | null;
 }
 
 export type TerminalSplitDirection = "vertical" | "horizontal";
@@ -72,6 +76,7 @@ export type SessionEventType =
   | "session-started"
   | "session-stopped"
   | "session-split"
+  | "terminal-trigger"
   | "file-opened"
   | "web-opened";
 
@@ -90,6 +95,13 @@ export interface Workspace {
   id: string;
   path: string;
   name: string;
+}
+
+export interface SessionRestartMetadata {
+  command: string;
+  args: string[];
+  cwd: string | null;
+  env: Array<[string, string]>;
 }
 
 export interface FsEntry {
@@ -235,12 +247,38 @@ export type TerminalConfigSource =
   | "cmux"
   | "windows-terminal";
 
-export type TerminalKeybindingAction = "copy" | "paste" | "clear" | "select-all";
+export type TerminalKeybindingAction =
+  | "copy"
+  | "paste"
+  | "clear"
+  | "select-all"
+  | "find";
 
 export interface TerminalKeybinding {
   keys: string;
   action: TerminalKeybindingAction;
   source?: TerminalConfigSource;
+}
+
+export type TerminalTriggerAction = "highlight" | "badge" | "notify";
+export type TerminalTriggerSource = "builtin" | "user";
+
+export interface TerminalTrigger {
+  id: string;
+  label: string;
+  pattern: string;
+  enabled: boolean;
+  actions: TerminalTriggerAction[];
+  source: TerminalTriggerSource;
+}
+
+export interface TerminalTriggerMatch {
+  id: string;
+  label: string;
+  pattern: string;
+  line: string;
+  actions: TerminalTriggerAction[];
+  timestamp: number;
 }
 
 export interface TerminalConfigCandidate {
@@ -277,6 +315,8 @@ export interface AppSettings {
   terminalShellIntegration: boolean;
   terminalKeybindings: TerminalKeybinding[];
   terminalShaderPaths: string[];
+  terminalConfirmClose: boolean;
+  terminalTriggers: TerminalTrigger[];
   editorFontSize: number;
   diffViewMode: DiffViewMode;
   tabBarOrientation: TabBarOrientation;
@@ -302,6 +342,7 @@ type PersistedState = {
   workspaces?: Workspace[];
   terminalLayout?: TerminalPaneNode | null;
   activeTerminalPaneId?: string | null;
+  maximizedTerminalPaneId?: string | null;
   sessionEvents?: SessionEvent[];
   settings?: Partial<AppSettings> & { fontSize?: number };
 };
@@ -312,6 +353,7 @@ type SessionStore = {
   activeSessionId: string | null;
   terminalLayout: TerminalPaneNode | null;
   activeTerminalPaneId: string | null;
+  maximizedTerminalPaneId: string | null;
   workspaces: Workspace[];
   selectedFile: MainSelection | null;
   sessionEvents: SessionEvent[];
@@ -319,6 +361,9 @@ type SessionStore = {
   setHydrated: (hydrated: boolean) => void;
   setActiveSession: (id: string | null) => void;
   setActiveTerminalPane: (paneId: string | null) => void;
+  setMaximizedTerminalPane: (paneId: string | null) => void;
+  toggleMaximizedTerminalPane: (paneId?: string | null) => void;
+  focusRelativeTerminalPane: (delta: number) => void;
   addSession: (session: Session, placement?: TerminalPanePlacement | null) => void;
   updateSession: (id: string, patch: Partial<Session>) => void;
   replaceSession: (id: string, session: Session) => void;
@@ -894,6 +939,41 @@ export const DEFAULT_CUSTOM_COLOR_SCHEME: CustomColorScheme = {
 
 export const TERMINAL_EFFECTIVE_UNLIMITED_SCROLLBACK_LINES = 1_000_000;
 
+export const DEFAULT_TERMINAL_TRIGGERS: TerminalTrigger[] = [
+  {
+    id: "approval-needed",
+    label: "Approval needed",
+    pattern: "\\b(approval|permission|confirm|allow|deny)\\b",
+    enabled: false,
+    actions: ["highlight", "badge", "notify"],
+    source: "builtin",
+  },
+  {
+    id: "tests-failed",
+    label: "Tests failed",
+    pattern: "\\b(test|tests)\\b.*\\b(fail|failed|failure|failing)\\b|\\bFAIL\\b",
+    enabled: false,
+    actions: ["highlight", "badge"],
+    source: "builtin",
+  },
+  {
+    id: "build-failed",
+    label: "Build failed",
+    pattern: "\\b(build|compile|compilation)\\b.*\\b(fail|failed|error)\\b",
+    enabled: false,
+    actions: ["highlight", "badge"],
+    source: "builtin",
+  },
+  {
+    id: "dangerous-command",
+    label: "Dangerous command",
+    pattern: "\\b(rm\\s+-rf|git\\s+clean\\s+-[a-z]*x|drop\\s+database|truncate\\s+table)\\b",
+    enabled: false,
+    actions: ["highlight", "badge", "notify"],
+    source: "builtin",
+  },
+];
+
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: "github-dark",
   fontFamily: "Menlo, Monaco, monospace",
@@ -907,6 +987,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   terminalShellIntegration: true,
   terminalKeybindings: [],
   terminalShaderPaths: [],
+  terminalConfirmClose: true,
+  terminalTriggers: DEFAULT_TERMINAL_TRIGGERS,
   editorFontSize: 13,
   diffViewMode: "side-by-side",
   tabBarOrientation: "vertical",
@@ -931,6 +1013,7 @@ function getStore(): Promise<Store> {
       workspaces: [],
       terminalLayout: null,
       activeTerminalPaneId: null,
+      maximizedTerminalPaneId: null,
       sessionEvents: [],
       settings: DEFAULT_SETTINGS,
     },
@@ -1043,7 +1126,8 @@ function normalizeTerminalKeybindingAction(
   return value === "copy" ||
     value === "paste" ||
     value === "clear" ||
-    value === "select-all"
+    value === "select-all" ||
+    value === "find"
     ? value
     : null;
 }
@@ -1098,6 +1182,61 @@ function normalizeStringArray(value: unknown): string[] {
     result.push(trimmed);
   }
   return result;
+}
+
+function normalizeTerminalTriggerAction(value: unknown): TerminalTriggerAction | null {
+  return value === "highlight" || value === "badge" || value === "notify" ? value : null;
+}
+
+function normalizeTerminalTriggers(value: unknown): TerminalTrigger[] {
+  const sourceItems = Array.isArray(value) ? value : DEFAULT_TERMINAL_TRIGGERS;
+  const defaultsById = new Map(DEFAULT_TERMINAL_TRIGGERS.map((item) => [item.id, item]));
+  const seen = new Set<string>();
+  const normalized: TerminalTrigger[] = [];
+
+  for (const item of sourceItems) {
+    if (!isRecord(item)) {
+      continue;
+    }
+    const id =
+      typeof item.id === "string" && item.id.trim()
+        ? item.id.trim().slice(0, 64)
+        : "";
+    const fallback = id ? defaultsById.get(id) : undefined;
+    const label =
+      typeof item.label === "string" && item.label.trim()
+        ? item.label.trim().slice(0, 80)
+        : fallback?.label ?? id;
+    const pattern =
+      typeof item.pattern === "string" && item.pattern.trim()
+        ? item.pattern.trim()
+        : fallback?.pattern ?? "";
+    if (!id || !label || !pattern || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    const actions = Array.isArray(item.actions)
+      ? item.actions
+          .map(normalizeTerminalTriggerAction)
+          .filter((action): action is TerminalTriggerAction => action !== null)
+      : fallback?.actions ?? ["highlight", "badge"];
+    normalized.push({
+      id,
+      label,
+      pattern,
+      enabled: typeof item.enabled === "boolean" ? item.enabled : fallback?.enabled ?? false,
+      actions: actions.length > 0 ? actions : fallback?.actions ?? ["highlight", "badge"],
+      source: item.source === "user" ? "user" : fallback?.source ?? "user",
+    });
+  }
+
+  for (const item of DEFAULT_TERMINAL_TRIGGERS) {
+    if (!seen.has(item.id)) {
+      normalized.push(item);
+    }
+  }
+
+  return normalized;
 }
 
 function normalizeDiffViewMode(value: unknown): DiffViewMode {
@@ -1166,6 +1305,11 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
         : DEFAULT_SETTINGS.terminalShellIntegration,
     terminalKeybindings: normalizeTerminalKeybindings(merged.terminalKeybindings),
     terminalShaderPaths: normalizeStringArray(merged.terminalShaderPaths),
+    terminalConfirmClose:
+      typeof merged.terminalConfirmClose === "boolean"
+        ? merged.terminalConfirmClose
+        : DEFAULT_SETTINGS.terminalConfirmClose,
+    terminalTriggers: normalizeTerminalTriggers(merged.terminalTriggers),
     editorFontSize: normalizeFontSize(merged.editorFontSize, legacyFontSize),
     diffViewMode: normalizeDiffViewMode(merged.diffViewMode),
     tabBarOrientation: isTabBarOrientation(merged.tabBarOrientation)
@@ -1257,6 +1401,44 @@ function firstLeaf(node: TerminalPaneNode | null): TerminalLeafPane | null {
     }
   }
   return null;
+}
+
+function findPaneNode(
+  node: TerminalPaneNode | null,
+  paneId: string | null,
+): TerminalPaneNode | null {
+  if (!node || !paneId) {
+    return null;
+  }
+  if (node.paneId === paneId) {
+    return node;
+  }
+  if (node.type === "split") {
+    for (const child of node.children) {
+      const found = findPaneNode(child, paneId);
+      if (found) {
+        return found;
+      }
+    }
+  }
+  return null;
+}
+
+function terminalLeafOrder(node: TerminalPaneNode | null): TerminalLeafPane[] {
+  if (!node) {
+    return [];
+  }
+  if (node.type === "leaf") {
+    return [node];
+  }
+  return node.children.flatMap(terminalLeafOrder);
+}
+
+export function terminalPaneNodeForId(
+  node: TerminalPaneNode | null,
+  paneId: string | null,
+): TerminalPaneNode | null {
+  return findPaneNode(node, paneId);
 }
 
 function insertTerminalSplit(
@@ -1367,6 +1549,7 @@ function snapshot(state: SessionStore): PersistedState {
     workspaces: state.workspaces,
     terminalLayout: state.terminalLayout,
     activeTerminalPaneId: state.activeTerminalPaneId,
+    maximizedTerminalPaneId: state.maximizedTerminalPaneId,
     sessionEvents: state.sessionEvents,
     settings: state.settings,
   };
@@ -1387,6 +1570,7 @@ export async function persistNow(): Promise<void> {
     await store.set("workspaces", state.workspaces);
     await store.set("terminalLayout", state.terminalLayout);
     await store.set("activeTerminalPaneId", state.activeTerminalPaneId);
+    await store.set("maximizedTerminalPaneId", state.maximizedTerminalPaneId);
     await store.set("sessionEvents", state.sessionEvents);
     await store.set("settings", state.settings);
     await store.save();
@@ -1401,6 +1585,7 @@ export const useSessionStore = create<SessionStore>((set) => ({
   activeSessionId: null,
   terminalLayout: null,
   activeTerminalPaneId: null,
+  maximizedTerminalPaneId: null,
   workspaces: [],
   selectedFile: null,
   sessionEvents: [],
@@ -1442,6 +1627,45 @@ export const useSessionStore = create<SessionStore>((set) => ({
     });
     persistLater();
   },
+  setMaximizedTerminalPane: (paneId) => {
+    set((state) => ({
+      maximizedTerminalPaneId:
+        paneId && paneContainsPane(state.terminalLayout, paneId) ? paneId : null,
+    }));
+    persistLater();
+  },
+  toggleMaximizedTerminalPane: (paneId) => {
+    set((state) => {
+      const targetPaneId = paneId ?? state.activeTerminalPaneId;
+      const next =
+        targetPaneId &&
+        state.maximizedTerminalPaneId !== targetPaneId &&
+        paneContainsPane(state.terminalLayout, targetPaneId)
+          ? targetPaneId
+          : null;
+      return { maximizedTerminalPaneId: next };
+    });
+    persistLater();
+  },
+  focusRelativeTerminalPane: (delta) => {
+    set((state) => {
+      const leaves = terminalLeafOrder(state.terminalLayout);
+      if (leaves.length === 0) {
+        return {};
+      }
+      const currentIndex = Math.max(
+        leaves.findIndex((leaf) => leaf.paneId === state.activeTerminalPaneId),
+        0,
+      );
+      const next = leaves[(currentIndex + delta + leaves.length) % leaves.length];
+      return {
+        activeTerminalPaneId: next.paneId,
+        activeSessionId: next.sessionId,
+        selectedFile: null,
+      };
+    });
+    persistLater();
+  },
   addSession: (session, placement) => {
     set((state) => {
       const leaf = makeTerminalLeaf(session.id);
@@ -1461,6 +1685,9 @@ export const useSessionStore = create<SessionStore>((set) => ({
         ],
         terminalLayout,
         activeTerminalPaneId: leaf.paneId,
+        maximizedTerminalPaneId: state.maximizedTerminalPaneId
+          ? leaf.paneId
+          : state.maximizedTerminalPaneId,
         activeSessionId: session.id,
         selectedFile: null,
         sessionEvents: appendEvent(state.sessionEvents, {
@@ -1505,6 +1732,14 @@ export const useSessionStore = create<SessionStore>((set) => ({
               replacement.id,
             ) ?? state.activeTerminalPaneId
           : state.activeTerminalPaneId,
+      maximizedTerminalPaneId:
+        state.maximizedTerminalPaneId &&
+        paneContainsPane(
+          replacePaneSession(state.terminalLayout, id, replacement.id),
+          state.maximizedTerminalPaneId,
+        )
+          ? state.maximizedTerminalPaneId
+          : state.maximizedTerminalPaneId,
     }));
     persistLater();
   },
@@ -1516,6 +1751,11 @@ export const useSessionStore = create<SessionStore>((set) => ({
       return {
         sessions,
         terminalLayout,
+        maximizedTerminalPaneId:
+          state.maximizedTerminalPaneId &&
+          paneContainsPane(terminalLayout, state.maximizedTerminalPaneId)
+            ? state.maximizedTerminalPaneId
+            : null,
         activeTerminalPaneId:
           state.activeSessionId === id
             ? activeLeaf?.paneId ?? null
@@ -1595,6 +1835,9 @@ export const useSessionStore = create<SessionStore>((set) => ({
       terminalLayout: state.sessions.some((session) => session.workspaceId === id)
         ? null
         : state.terminalLayout,
+      maximizedTerminalPaneId: state.sessions.some((session) => session.workspaceId === id)
+        ? null
+        : state.maximizedTerminalPaneId,
       activeTerminalPaneId: state.sessions.some(
         (session) => session.workspaceId === id && session.id === state.activeSessionId,
       )
@@ -1654,9 +1897,15 @@ export async function hydrateSessionStore(): Promise<void> {
       store.get<Workspace[]>("workspaces"),
       store.get<Partial<AppSettings>>("settings"),
     ]);
-    const [terminalLayout, activeTerminalPaneId, sessionEvents] = await Promise.all([
+    const [
+      terminalLayout,
+      activeTerminalPaneId,
+      maximizedTerminalPaneId,
+      sessionEvents,
+    ] = await Promise.all([
       store.get<TerminalPaneNode | null>("terminalLayout"),
       store.get<string | null>("activeTerminalPaneId"),
+      store.get<string | null>("maximizedTerminalPaneId"),
       store.get<SessionEvent[]>("sessionEvents"),
     ]);
     const livePtys = new Set(await ptyList().catch(() => []));
@@ -1686,6 +1935,10 @@ export async function hydrateSessionStore(): Promise<void> {
       activeSessionId,
       terminalLayout: prunedLayout,
       activeTerminalPaneId: activeLeaf,
+      maximizedTerminalPaneId:
+        maximizedTerminalPaneId && paneContainsPane(prunedLayout, maximizedTerminalPaneId)
+          ? maximizedTerminalPaneId
+          : null,
       workspaces: workspaces ?? [],
       sessionEvents: sessionEvents ?? [],
       settings: mergedSettings,
@@ -1949,17 +2202,21 @@ export async function spawnAgentSession(
   workspace: Workspace,
   initialPrompt: string,
   placement?: TerminalPanePlacement | null,
+  options?: { cwd?: string | null },
 ): Promise<PtyId> {
   const settings = useSessionStore.getState().settings;
   const launch = launchCommandForAgent(agent, settings, initialPrompt);
+  const cwd =
+    options?.cwd && options.cwd.startsWith(workspace.path) ? options.cwd : workspace.path;
+  const env =
+    agent === "shell" && settings.terminalShellIntegration
+      ? [["ONIBI_SHELL_INTEGRATION", "1"]]
+      : [];
   const id = await ptySpawn({
     command: launch.command,
     args: launch.args,
-    cwd: workspace.path,
-    env:
-      agent === "shell" && settings.terminalShellIntegration
-        ? [["ONIBI_SHELL_INTEGRATION", "1"]]
-        : [],
+    cwd,
+    env,
     rows: 30,
     cols: 100,
   });
@@ -1972,6 +2229,15 @@ export async function spawnAgentSession(
       status: "running",
       createdAt: Date.now(),
       pendingApprovals: [],
+      cwd,
+      lastExitCode: null,
+      lastTrigger: null,
+      restart: {
+        command: launch.command,
+        args: launch.args,
+        cwd,
+        env,
+      },
     },
     placement,
   );
@@ -2140,6 +2406,13 @@ function actionFromTerminalAction(value: string | undefined): TerminalKeybinding
   }
   if (normalized.includes("selectall") || normalized.includes("select_all")) {
     return "select-all";
+  }
+  if (
+    normalized.includes("find") ||
+    normalized.includes("search") ||
+    normalized === "find"
+  ) {
+    return "find";
   }
   return null;
 }

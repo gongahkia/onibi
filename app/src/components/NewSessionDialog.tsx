@@ -15,6 +15,7 @@ export interface NewSessionDialogProps {
   open: boolean;
   onClose: () => void;
   defaultWorkspaceId?: string | null;
+  defaultCwd?: string | null;
   placement?: TerminalPanePlacement | null;
 }
 
@@ -22,6 +23,7 @@ export function NewSessionDialog({
   open,
   onClose,
   defaultWorkspaceId,
+  defaultCwd,
   placement,
 }: NewSessionDialogProps) {
   const workspaces = useSessionStore((state) => state.workspaces);
@@ -32,6 +34,7 @@ export function NewSessionDialog({
     () => defaultWorkspaceId ?? workspaces[0]?.id ?? "",
   );
   const [initialPrompt, setInitialPrompt] = useState("");
+  const [cwdMode, setCwdMode] = useState<"workspace" | "current">("current");
   const [binaryPath, setBinaryPath] = useState<string | null>(null);
   const [checkingBinary, setCheckingBinary] = useState(false);
   const [choosingWorkspace, setChoosingWorkspace] = useState(false);
@@ -121,7 +124,18 @@ export function NewSessionDialog({
           `${AGENT_LABELS[agent]} is not on PATH. Install details will live in docs/adapters.md once Phase-03 lands.`,
         );
       }
-      await spawnAgentSession(agent, selectedWorkspace, initialPrompt, placement);
+      await spawnAgentSession(
+        agent,
+        selectedWorkspace,
+        initialPrompt,
+        placement,
+        {
+          cwd:
+            cwdMode === "current" && defaultCwd?.startsWith(selectedWorkspace.path)
+              ? defaultCwd
+              : selectedWorkspace.path,
+        },
+      );
       setInitialPrompt("");
       onClose();
     } catch (caught) {
@@ -198,6 +212,21 @@ export function NewSessionDialog({
             </label>
             {selectedWorkspace ? (
               <div className="settings-note">{selectedWorkspace.path}</div>
+            ) : null}
+            {selectedWorkspace && defaultCwd?.startsWith(selectedWorkspace.path) ? (
+              <label className="field-label">
+                Start directory
+                <select
+                  className="settings-select"
+                  value={cwdMode}
+                  onChange={(event) =>
+                    setCwdMode(event.target.value as "workspace" | "current")
+                  }
+                >
+                  <option value="current">{defaultCwd}</option>
+                  <option value="workspace">{selectedWorkspace.path}</option>
+                </select>
+              </label>
             ) : null}
             <label className="field-label">
               Initial prompt

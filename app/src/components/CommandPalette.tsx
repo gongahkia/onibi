@@ -154,6 +154,12 @@ export function CommandPalette() {
   const selectFile = useSessionStore((state) => state.selectFile);
   const setActiveSession = useSessionStore((state) => state.setActiveSession);
   const updateSettings = useSessionStore((state) => state.updateSettings);
+  const toggleMaximizedTerminalPane = useSessionStore(
+    (state) => state.toggleMaximizedTerminalPane,
+  );
+  const focusRelativeTerminalPane = useSessionStore(
+    (state) => state.focusRelativeTerminalPane,
+  );
 
   useEffect(() => {
     function handleGlobalKeyDown(event: KeyboardEvent) {
@@ -237,6 +243,31 @@ export function CommandPalette() {
           : "No active terminal session",
         keywords: ["shell", "pty", "agent"],
         run: focusActiveTerminal,
+      },
+      {
+        id: "terminal.maximize",
+        label: "Maximize or Restore Active Pane",
+        group: "Layout",
+        description: "Toggle the active terminal pane",
+        shortcut: primaryShortcut("⇧↵"),
+        keywords: ["pane", "split", "zoom"],
+        run: () => toggleMaximizedTerminalPane(),
+      },
+      {
+        id: "terminal.focus-next-pane",
+        label: "Focus Next Pane",
+        group: "Layout",
+        description: "Move focus through terminal splits",
+        keywords: ["pane", "split", "next"],
+        run: () => focusRelativeTerminalPane(1),
+      },
+      {
+        id: "terminal.focus-previous-pane",
+        label: "Focus Previous Pane",
+        group: "Layout",
+        description: "Move focus backward through terminal splits",
+        keywords: ["pane", "split", "previous"],
+        run: () => focusRelativeTerminalPane(-1),
       },
       {
         id: "file.clear-selection",
@@ -368,7 +399,15 @@ export function CommandPalette() {
           description: activeSession.title,
           shortcut: primaryShortcut("W"),
           keywords: ["remove", "tab"],
-          run: () => removeSession(activeSession.id),
+          run: () => {
+            if (
+              !settings.terminalConfirmClose ||
+              activeSession.status !== "running" ||
+              window.confirm(`Close ${activeSession.title}?`)
+            ) {
+              removeSession(activeSession.id);
+            }
+          },
         },
       );
       if (currentWorkspace) {
@@ -409,6 +448,8 @@ export function CommandPalette() {
     sessions,
     setActiveSession,
     settings,
+    toggleMaximizedTerminalPane,
+    focusRelativeTerminalPane,
     updateSettings,
     workspaces,
   ]);
