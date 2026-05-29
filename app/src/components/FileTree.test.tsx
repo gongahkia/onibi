@@ -356,6 +356,9 @@ describe("FileTree", () => {
   });
 
   test("creates a redacted .env.example from .env context action", async () => {
+    useSessionStore.setState({
+      settings: { ...DEFAULT_SETTINGS, showHiddenFiles: true },
+    });
     globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
       async (command: string, args: Record<string, unknown>) => {
         if (command === "fs_list_dir") {

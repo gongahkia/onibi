@@ -127,4 +127,63 @@ describe("SettingsPane", () => {
     expect(settings.editorFontSize).toBe(14);
     expect(settings.diffViewMode).toBe("unified");
   });
+
+  test("lists newly supported agent commands", () => {
+    render(<SettingsPane open onClose={vi.fn()} />);
+    fireEvent.click(screen.getByText("Agents"));
+
+    expect(screen.getByLabelText("Copilot CLI launch command")).toBeTruthy();
+    expect(screen.getByLabelText("Amp launch command")).toBeTruthy();
+    expect(screen.getByLabelText("Pi launch command")).toBeTruthy();
+    expect(screen.getByLabelText("Cline launch command")).toBeTruthy();
+    expect(screen.getByLabelText("Crush launch command")).toBeTruthy();
+  });
+
+  test("applies config.json edits", () => {
+    render(<SettingsPane open onClose={vi.fn()} />);
+    fireEvent.click(screen.getByText("config.json"));
+    fireEvent.change(screen.getByLabelText("Onibi config JSON"), {
+      target: {
+        value: JSON.stringify({
+          version: 1,
+          settings: { ...DEFAULT_SETTINGS, theme: "github-light" },
+          workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
+        }),
+      },
+    });
+    fireEvent.click(screen.getByText("Apply JSON"));
+
+    expect(useSessionStore.getState().settings.theme).toBe("github-light");
+    expect(useSessionStore.getState().workspaces[0].path).toBe("/repo");
+  });
+
+  test("imports terminal config colors and fonts", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "fs_detect_terminal_configs") {
+        return [
+          {
+            source: "ghostty",
+            label: "Ghostty",
+            path: "/Users/test/.config/ghostty/config",
+            content: "font-family = Fira Code\nfont-size = 16\nbackground = #101010\nforeground = #eeeeee\npalette = 4=#88aaff\n",
+          },
+        ];
+      }
+      if (command === "list_font_families") {
+        return [];
+      }
+      return null;
+    });
+
+    render(<SettingsPane open onClose={vi.fn()} />);
+    fireEvent.click(screen.getByText("Import config from ..."));
+    expect(await screen.findByText("Ghostty")).toBeTruthy();
+    fireEvent.click(screen.getByText("Apply selected"));
+
+    const settings = useSessionStore.getState().settings;
+    expect(settings.theme).toBe("custom");
+    expect(settings.terminalFontFamily).toBe("Fira Code");
+    expect(settings.terminalFontSize).toBe(16);
+    expect(settings.customColorScheme.colors.terminalBackground).toBe("#101010");
+  });
 });

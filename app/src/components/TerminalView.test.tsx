@@ -95,16 +95,16 @@ describe("TerminalView", () => {
     render(
       <TerminalView
         ptyId="pty-1"
-        settings={{ ...DEFAULT_SETTINGS, theme: "ocean" }}
+        settings={{ ...DEFAULT_SETTINGS, theme: "night-owl" }}
       />,
     );
 
     expect(terminalMocks.instances[0].options).toMatchObject({
       theme: {
-        background: "#07131a",
-        foreground: "#e6f7ff",
-        cursor: "#6ec6ff",
-        selectionBackground: "#24546b",
+        background: "#011627",
+        foreground: "#d6deeb",
+        cursor: "#80a4c2",
+        selectionBackground: "#1d3b53",
       },
     });
   });

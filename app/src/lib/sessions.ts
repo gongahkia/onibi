@@ -1881,7 +1881,7 @@ function parseGhosttyColor(value: string): string | undefined {
 export function parseGhosttyConfig(config: string): GhosttyTheme {
   const theme: GhosttyTheme = { palette: {} };
   for (const rawLine of config.split(/\r?\n/)) {
-    const line = rawLine.replace(/\s+#.*$/, "").trim();
+    const line = rawLine.trim();
     if (!line || line.startsWith("#")) {
       continue;
     }
@@ -1919,18 +1919,18 @@ function parseConfigHexColor(value: string | undefined): string | undefined {
     return undefined;
   }
   const trimmed = value.trim().replace(/^['"]|['"]$/g, "");
-  const normalized = trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+  const color = trimmed.match(/#?[0-9a-fA-F]{6}/)?.[0];
+  if (!color) {
+    return undefined;
+  }
+  const normalized = color.startsWith("#") ? color : `#${color}`;
   return /^#[0-9a-fA-F]{6}$/.test(normalized) ? normalized : undefined;
-}
-
-function withoutInlineComment(line: string): string {
-  return line.replace(/\s+#.*$/, "").trim();
 }
 
 function parseSimpleAssignments(config: string): Record<string, string> {
   const values: Record<string, string> = {};
   for (const rawLine of config.split(/\r?\n/)) {
-    const line = withoutInlineComment(rawLine);
+    const line = rawLine.trim();
     if (!line || line.startsWith("#")) {
       continue;
     }
