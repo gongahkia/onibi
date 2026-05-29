@@ -3,6 +3,14 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { TerminalView } from "./TerminalView";
 import { DEFAULT_SETTINGS } from "../lib/sessions";
 
+const EXPECTED_TERMINAL_FONT_FALLBACK =
+  '"Symbols Nerd Font Mono", "Symbols Nerd Font", "MesloLGS NF", ' +
+  '"MesloLGS Nerd Font Mono", "JetBrainsMono Nerd Font Mono", ' +
+  '"JetBrainsMono Nerd Font", "FiraCode Nerd Font Mono", "FiraCode Nerd Font", ' +
+  '"Hack Nerd Font Mono", "Hack Nerd Font", "CaskaydiaCove Nerd Font Mono", ' +
+  '"CaskaydiaCove Nerd Font", "CaskaydiaMono Nerd Font Mono", ' +
+  '"CaskaydiaMono Nerd Font", Menlo, Monaco, Consolas, "Liberation Mono", monospace';
+
 const terminalMocks = vi.hoisted(() => {
   class MockTerminal {
     options: unknown;
@@ -113,9 +121,20 @@ describe("TerminalView", () => {
     render(<TerminalView ptyId="pty-1" fontFamily="Fira Code" />);
 
     expect(terminalMocks.instances[0].options).toMatchObject({
-      fontFamily: '"Fira Code", Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+      fontFamily: `"Fira Code", ${EXPECTED_TERMINAL_FONT_FALLBACK}`,
       letterSpacing: 0,
       lineHeight: 1,
+    });
+  });
+
+  test("adds Nerd Font fallbacks to comma-separated terminal stacks", () => {
+    render(<TerminalView ptyId="pty-1" fontFamily="Menlo, Monaco, monospace" />);
+
+    expect(terminalMocks.instances[0].options).toMatchObject({
+      fontFamily: `Menlo, ${EXPECTED_TERMINAL_FONT_FALLBACK.replace(
+        "Menlo, ",
+        "",
+      )}`,
     });
   });
 
@@ -130,8 +149,7 @@ describe("TerminalView", () => {
     await waitFor(() => {
       expect(terminalMocks.instances).toHaveLength(1);
       expect(terminal.options).toMatchObject({
-        fontFamily:
-          '"Fira Code", Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+        fontFamily: `"Fira Code", ${EXPECTED_TERMINAL_FONT_FALLBACK}`,
       });
       expect(terminal.clearTextureAtlas).toHaveBeenCalled();
     });

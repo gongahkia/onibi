@@ -21,8 +21,34 @@ export interface TerminalViewProps {
   onOpenLink?: (url: string, event: MouseEvent) => void;
 }
 
-const TERMINAL_FONT_FALLBACK =
-  'Menlo, Monaco, Consolas, "Liberation Mono", monospace';
+const TERMINAL_SYMBOL_FONT_FALLBACKS = [
+  '"Symbols Nerd Font Mono"',
+  '"Symbols Nerd Font"',
+  '"MesloLGS NF"',
+  '"MesloLGS Nerd Font Mono"',
+  '"JetBrainsMono Nerd Font Mono"',
+  '"JetBrainsMono Nerd Font"',
+  '"FiraCode Nerd Font Mono"',
+  '"FiraCode Nerd Font"',
+  '"Hack Nerd Font Mono"',
+  '"Hack Nerd Font"',
+  '"CaskaydiaCove Nerd Font Mono"',
+  '"CaskaydiaCove Nerd Font"',
+  '"CaskaydiaMono Nerd Font Mono"',
+  '"CaskaydiaMono Nerd Font"',
+];
+
+const TERMINAL_STANDARD_FONT_FALLBACKS = [
+  "Menlo",
+  "Monaco",
+  "Consolas",
+  '"Liberation Mono"',
+  "monospace",
+];
+
+const TERMINAL_STANDARD_FONT_KEYS = new Set(
+  TERMINAL_STANDARD_FONT_FALLBACKS.map((family) => fontFamilyKey(family)),
+);
 
 function quoteFontFamily(family: string): string {
   if (/^["'].*["']$/.test(family)) {
@@ -34,15 +60,57 @@ function quoteFontFamily(family: string): string {
   return `"${family.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
+function fontFamilyKey(family: string): string {
+  let normalized = family.trim();
+  if (
+    (normalized.startsWith('"') && normalized.endsWith('"')) ||
+    (normalized.startsWith("'") && normalized.endsWith("'"))
+  ) {
+    normalized = normalized.slice(1, -1);
+  }
+  return normalized.replace(/\\(["'])/g, "$1").toLowerCase();
+}
+
+function splitFontStack(fontFamily: string | undefined): string[] {
+  return (
+    fontFamily
+      ?.split(",")
+      .map((family) => family.trim())
+      .filter(Boolean) ?? []
+  );
+}
+
+function mergeFontStacks(families: string[]): string {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const family of families) {
+    const key = fontFamilyKey(family);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(family);
+  }
+  return result.join(", ");
+}
+
+function isStandardTerminalFallback(family: string): boolean {
+  return TERMINAL_STANDARD_FONT_KEYS.has(fontFamilyKey(family));
+}
+
 function terminalFontStack(fontFamily: string | undefined): string {
-  const trimmed = fontFamily?.trim();
-  if (!trimmed) {
-    return TERMINAL_FONT_FALLBACK;
-  }
-  if (trimmed.includes(",")) {
-    return trimmed;
-  }
-  return `${quoteFontFamily(trimmed)}, ${TERMINAL_FONT_FALLBACK}`;
+  const selectedFamilies = splitFontStack(fontFamily).map(quoteFontFamily);
+  const [primaryFont = "Menlo", ...secondaryFonts] = selectedFamilies;
+  const preferredSecondaryFonts = secondaryFonts.filter(
+    (family) => !isStandardTerminalFallback(family),
+  );
+
+  return mergeFontStacks([
+    primaryFont,
+    ...preferredSecondaryFonts,
+    ...TERMINAL_SYMBOL_FONT_FALLBACKS,
+    ...TERMINAL_STANDARD_FONT_FALLBACKS,
+  ]);
 }
 
 function decodeBase64(data: string): Uint8Array {
