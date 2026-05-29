@@ -88,7 +88,7 @@ describe("NewSessionDialog", () => {
     });
   });
 
-  test("spawns the selected terminal profile", async () => {
+  test("uses the default agent while still requiring an explicit workspace", async () => {
     globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
       if (command === "fs_resolve_binary") {
         return "/usr/local/bin/codex";
@@ -101,28 +101,21 @@ describe("NewSessionDialog", () => {
     useSessionStore.setState({
       settings: {
         ...DEFAULT_SETTINGS,
-        defaultTerminalProfileId: "profile:codex-review",
-        terminalProfiles: [
-          {
-            id: "profile:codex-review",
-            name: "Codex review",
-            agent: "codex",
-            command: "codex --model gpt-5",
-            args: ["--sandbox", "workspace-write"],
-            env: [["ONIBI_PROFILE", "review"]],
-            cwdPolicy: "workspace",
-            customCwd: "",
-            initialPrompt: "review this repo",
-            theme: null,
-            terminalFontFamily: null,
-          },
-        ],
+        defaultAgent: "codex",
+        agentCommands: {
+          ...DEFAULT_SETTINGS.agentCommands,
+          codex: "codex --model gpt-5",
+        },
       },
     });
 
     render(<NewSessionDialog open onClose={vi.fn()} />);
+    expect((screen.getByLabelText("Agent") as HTMLSelectElement).value).toBe("codex");
     await waitFor(() => {
       expect(screen.getByText(/usr\/local\/bin\/codex/)).toBeTruthy();
+    });
+    fireEvent.change(screen.getByLabelText("Initial prompt"), {
+      target: { value: "review this repo" },
     });
     fireEvent.click(screen.getByText("Start"));
 
@@ -133,12 +126,10 @@ describe("NewSessionDialog", () => {
           args: [
             "--model",
             "gpt-5",
-            "--sandbox",
-            "workspace-write",
             "review this repo",
           ],
           cwd: "/repo",
-          env: [["ONIBI_PROFILE", "review"]],
+          env: [],
           rows: 30,
           cols: 100,
         },

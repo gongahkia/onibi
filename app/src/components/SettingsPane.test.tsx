@@ -170,32 +170,15 @@ describe("SettingsPane", () => {
     expect(screen.getByLabelText("Crush launch command")).toBeTruthy();
   });
 
-  test("edits advanced launch presets", () => {
+  test("sets the default agent from general settings", () => {
     render(<SettingsPane open onClose={vi.fn()} />);
-    expect(screen.queryByRole("button", { name: "Profiles" })).toBeNull();
+    fireEvent.change(screen.getByLabelText("Default agent"), {
+      target: { value: "codex" },
+    });
     fireEvent.click(screen.getByText("Advanced"));
 
-    fireEvent.change(screen.getByLabelText("Launch preset name"), {
-      target: { value: "Project shell" },
-    });
-    fireEvent.change(screen.getByLabelText("Launch preset environment"), {
-      target: { value: "FOO=bar\nEMPTY=" },
-    });
-    fireEvent.change(screen.getByLabelText("Launch preset cwd policy"), {
-      target: { value: "custom" },
-    });
-    fireEvent.change(screen.getByLabelText("Launch preset custom cwd"), {
-      target: { value: "/tmp/onibi" },
-    });
-
-    const profile = useSessionStore.getState().settings.terminalProfiles[0];
-    expect(profile.name).toBe("Project shell");
-    expect(profile.env).toEqual([
-      ["FOO", "bar"],
-      ["EMPTY", ""],
-    ]);
-    expect(profile.cwdPolicy).toBe("custom");
-    expect(profile.customCwd).toBe("/tmp/onibi");
+    expect(useSessionStore.getState().settings.defaultAgent).toBe("codex");
+    expect(screen.getByRole("tab", { name: "Shell integration" })).toBeTruthy();
   });
 
   test("shows shell integration runtime status", () => {

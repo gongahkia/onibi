@@ -7,7 +7,6 @@ import {
   COLOR_SCHEME_OPTIONS,
   DEFAULT_AGENT_COMMANDS,
   DEFAULT_AGENT_INSTALL_COMMANDS,
-  DEFAULT_TERMINAL_PROFILES,
   DEFAULT_TERMINAL_TRIGGERS,
   type AgentKind,
   type ColorSchemeColorKey,
@@ -20,7 +19,6 @@ import {
   type TerminalConfigImport,
   type TerminalConfigSource,
   type TerminalKeybinding,
-  type TerminalProfile,
   type TerminalTrigger,
   type TerminalTriggerAction,
   type ThemeMode,
@@ -49,7 +47,6 @@ type SettingsSection =
   | "workspaces"
   | "advanced";
 type AdvancedSection =
-  | "launch-presets"
   | "shell-integration"
   | "triggers"
   | "config-json"
@@ -68,7 +65,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
   const removeWorkspace = useSessionStore((state) => state.removeWorkspace);
   const [section, setSection] = useState<SettingsSection>("general");
   const [advancedSection, setAdvancedSection] =
-    useState<AdvancedSection>("launch-presets");
+    useState<AdvancedSection>("shell-integration");
   const [binaryStatus, setBinaryStatus] = useState<BinaryStatus>(() =>
     Object.fromEntries(AGENT_KINDS.map((agent) => [agent, null])) as BinaryStatus,
   );
@@ -256,6 +253,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
             <GeneralSettings
               theme={settings.theme}
               customColorScheme={settings.customColorScheme}
+              defaultAgent={settings.defaultAgent}
               uiFontFamily={settings.uiFontFamily}
               terminalFontFamily={settings.terminalFontFamily}
               editorFontFamily={settings.editorFontFamily}
@@ -271,6 +269,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               onCustomColorScheme={(customColorScheme) =>
                 updateSettings({ customColorScheme })
               }
+              onDefaultAgent={(defaultAgent) => updateSettings({ defaultAgent })}
               onUiFontFamily={(uiFontFamily) => updateSettings({ uiFontFamily })}
               onTerminalFontFamily={(terminalFontFamily) =>
                 updateSettings({ terminalFontFamily })
@@ -339,8 +338,6 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
             <AdvancedSettings
               active={advancedSection}
               onActive={selectAdvancedSection}
-              profiles={settings.terminalProfiles}
-              defaultProfileId={settings.defaultTerminalProfileId}
               shellIntegrationEnabled={settings.terminalShellIntegration}
               sessions={sessions}
               triggers={settings.terminalTriggers}
@@ -349,10 +346,6 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               imports={terminalImports}
               importLoading={detectingTerminalConfigs}
               importError={terminalImportError}
-              onProfiles={(terminalProfiles) => updateSettings({ terminalProfiles })}
-              onDefaultProfile={(defaultTerminalProfileId) =>
-                updateSettings({ defaultTerminalProfileId })
-              }
               onShellIntegrationEnabled={(terminalShellIntegration) =>
                 updateSettings({ terminalShellIntegration })
               }
@@ -430,9 +423,6 @@ function labelFor(value: string): string {
   if (value === "import-config") {
     return "Import config from ...";
   }
-  if (value === "launch-presets") {
-    return "Launch presets";
-  }
   if (value === "shell-integration") {
     return "Shell integration";
   }
@@ -445,6 +435,7 @@ function labelFor(value: string): string {
 interface GeneralSettingsProps {
   theme: ThemeMode;
   customColorScheme: CustomColorScheme;
+  defaultAgent: AgentKind;
   uiFontFamily: string;
   terminalFontFamily: string;
   editorFontFamily: string;
@@ -458,6 +449,7 @@ interface GeneralSettingsProps {
   webOpenMode: WebOpenMode;
   onTheme: (theme: ThemeMode) => void;
   onCustomColorScheme: (scheme: CustomColorScheme) => void;
+  onDefaultAgent: (agent: AgentKind) => void;
   onUiFontFamily: (fontFamily: string) => void;
   onTerminalFontFamily: (fontFamily: string) => void;
   onEditorFontFamily: (fontFamily: string) => void;
@@ -473,6 +465,7 @@ interface GeneralSettingsProps {
 function GeneralSettings({
   theme,
   customColorScheme,
+  defaultAgent,
   uiFontFamily,
   terminalFontFamily,
   editorFontFamily,
@@ -486,6 +479,7 @@ function GeneralSettings({
   webOpenMode,
   onTheme,
   onCustomColorScheme,
+  onDefaultAgent,
   onUiFontFamily,
   onTerminalFontFamily,
   onEditorFontFamily,
@@ -557,6 +551,21 @@ function GeneralSettings({
           </div>
         </div>
       ) : null}
+      <label className="settings-row">
+        <span>Default agent</span>
+        <select
+          className="settings-select"
+          aria-label="Default agent"
+          value={defaultAgent}
+          onChange={(event) => onDefaultAgent(event.target.value as AgentKind)}
+        >
+          {AGENT_KINDS.map((agent) => (
+            <option key={agent} value={agent}>
+              {AGENT_LABELS[agent]}
+            </option>
+          ))}
+        </select>
+      </label>
       <FontFamilyControl
         label="UI font"
         value={uiFontFamily}
@@ -636,7 +645,6 @@ function GeneralSettings({
 }
 
 const ADVANCED_SECTIONS: Array<{ id: AdvancedSection; label: string }> = [
-  { id: "launch-presets", label: "Launch presets" },
   { id: "shell-integration", label: "Shell integration" },
   { id: "triggers", label: "Triggers" },
   { id: "config-json", label: "config.json" },
@@ -656,8 +664,6 @@ interface ShellIntegrationSessionStatus {
 function AdvancedSettings({
   active,
   onActive,
-  profiles,
-  defaultProfileId,
   shellIntegrationEnabled,
   sessions,
   triggers,
@@ -666,8 +672,6 @@ function AdvancedSettings({
   imports,
   importLoading,
   importError,
-  onProfiles,
-  onDefaultProfile,
   onShellIntegrationEnabled,
   onTriggers,
   onConfigJson,
@@ -679,8 +683,6 @@ function AdvancedSettings({
 }: {
   active: AdvancedSection;
   onActive: (section: AdvancedSection) => void;
-  profiles: TerminalProfile[];
-  defaultProfileId: string | null;
   shellIntegrationEnabled: boolean;
   sessions: ShellIntegrationSessionStatus[];
   triggers: TerminalTrigger[];
@@ -689,8 +691,6 @@ function AdvancedSettings({
   imports: TerminalConfigImport[];
   importLoading: boolean;
   importError: string | null;
-  onProfiles: (profiles: TerminalProfile[]) => void;
-  onDefaultProfile: (profileId: string | null) => void;
   onShellIntegrationEnabled: (enabled: boolean) => void;
   onTriggers: (triggers: TerminalTrigger[]) => void;
   onConfigJson: (value: string) => void;
@@ -716,14 +716,6 @@ function AdvancedSettings({
           </button>
         ))}
       </div>
-      {active === "launch-presets" ? (
-        <LaunchPresetSettings
-          profiles={profiles}
-          defaultProfileId={defaultProfileId}
-          onProfiles={onProfiles}
-          onDefaultProfile={onDefaultProfile}
-        />
-      ) : null}
       {active === "shell-integration" ? (
         <ShellIntegrationSettings
           enabled={shellIntegrationEnabled}
@@ -1069,266 +1061,6 @@ function AgentSettings({
           </div>
         );
       })}
-    </section>
-  );
-}
-
-function envToText(env: Array<[string, string]>): string {
-  return env.map(([key, value]) => `${key}=${value}`).join("\n");
-}
-
-function textToEnv(value: string): Array<[string, string]> {
-  return value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line): [string, string] => {
-      const separator = line.indexOf("=");
-      return separator < 0
-        ? [line, ""]
-        : [line.slice(0, separator).trim(), line.slice(separator + 1)];
-    })
-    .filter(([key]) => key.length > 0);
-}
-
-function makeProfile(): TerminalProfile {
-  return {
-    ...DEFAULT_TERMINAL_PROFILES[0],
-    id: `profile:${crypto.randomUUID?.() ?? Date.now().toString(36)}`,
-    name: "New launch preset",
-  };
-}
-
-function LaunchPresetSettings({
-  profiles,
-  defaultProfileId,
-  onProfiles,
-  onDefaultProfile,
-}: {
-  profiles: TerminalProfile[];
-  defaultProfileId: string | null;
-  onProfiles: (profiles: TerminalProfile[]) => void;
-  onDefaultProfile: (profileId: string | null) => void;
-}) {
-  const [selectedId, setSelectedId] = useState(
-    defaultProfileId ?? profiles[0]?.id ?? "",
-  );
-  const selected = profiles.find((profile) => profile.id === selectedId) ?? profiles[0];
-
-  useEffect(() => {
-    if (!selected && profiles[0]) {
-      setSelectedId(profiles[0].id);
-    }
-  }, [profiles, selected]);
-
-  function updateProfile(id: string, patch: Partial<TerminalProfile>) {
-    onProfiles(
-      profiles.map((profile) =>
-        profile.id === id ? { ...profile, ...patch } : profile,
-      ),
-    );
-  }
-
-  function addProfile() {
-    const profile = makeProfile();
-    onProfiles([profile, ...profiles]);
-    setSelectedId(profile.id);
-  }
-
-  function deleteProfile() {
-    if (!selected || profiles.length <= 1) {
-      return;
-    }
-    const nextProfiles = profiles.filter((profile) => profile.id !== selected.id);
-    onProfiles(nextProfiles);
-    if (defaultProfileId === selected.id) {
-      onDefaultProfile(nextProfiles[0]?.id ?? null);
-    }
-    setSelectedId(nextProfiles[0]?.id ?? "");
-  }
-
-  if (!selected) {
-    return (
-      <section className="settings-section nested-settings-section" aria-label="Launch preset settings">
-        <button type="button" className="text-button primary" onClick={addProfile}>
-          Add launch preset
-        </button>
-      </section>
-    );
-  }
-
-  return (
-    <section className="settings-section nested-settings-section" aria-label="Launch preset settings">
-      <div className="profile-settings-grid">
-        <div className="profile-list" role="listbox" aria-label="Launch presets">
-          {profiles.map((profile) => (
-            <button
-              key={profile.id}
-              type="button"
-              className={`profile-row ${profile.id === selected.id ? "active" : ""}`}
-              onClick={() => setSelectedId(profile.id)}
-            >
-              <strong>{profile.name}</strong>
-              <span>{AGENT_LABELS[profile.agent]}</span>
-            </button>
-          ))}
-          <button type="button" className="text-button" onClick={addProfile}>
-            Add launch preset
-          </button>
-        </div>
-        <div className="profile-editor">
-          <label className="settings-row">
-            <span>Name</span>
-            <input
-              className="settings-input"
-              aria-label="Launch preset name"
-              value={selected.name}
-              onChange={(event) =>
-                updateProfile(selected.id, { name: event.target.value })
-              }
-            />
-          </label>
-          <label className="settings-row">
-            <span>Agent</span>
-            <select
-              className="settings-select"
-              aria-label="Launch preset agent"
-              value={selected.agent}
-              onChange={(event) =>
-                updateProfile(selected.id, {
-                  agent: event.target.value as AgentKind,
-                  command:
-                    event.target.value === "shell"
-                      ? ""
-                      : DEFAULT_AGENT_COMMANDS[event.target.value as AgentKind],
-                })
-              }
-            >
-              {AGENT_KINDS.map((agent) => (
-                <option key={agent} value={agent}>
-                  {AGENT_LABELS[agent]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="settings-row">
-            <span>Command</span>
-            <input
-              className="settings-input"
-              aria-label="Launch preset command"
-              value={selected.command}
-              placeholder={
-                selected.agent === "shell"
-                  ? "System shell"
-                  : DEFAULT_AGENT_COMMANDS[selected.agent]
-              }
-              onChange={(event) =>
-                updateProfile(selected.id, { command: event.target.value })
-              }
-            />
-          </label>
-          <label className="settings-row settings-row-top">
-            <span>Args</span>
-            <textarea
-              className="settings-textarea settings-small-textarea"
-              aria-label="Launch preset args"
-              value={selected.args.join("\n")}
-              onChange={(event) =>
-                updateProfile(selected.id, {
-                  args: event.target.value.split(/\r?\n/).filter(Boolean),
-                })
-              }
-            />
-          </label>
-          <label className="settings-row settings-row-top">
-            <span>Env</span>
-            <textarea
-              className="settings-textarea settings-small-textarea"
-              aria-label="Launch preset environment"
-              value={envToText(selected.env)}
-              onChange={(event) =>
-                updateProfile(selected.id, { env: textToEnv(event.target.value) })
-              }
-            />
-          </label>
-          <label className="settings-row">
-            <span>Cwd policy</span>
-            <select
-              className="settings-select"
-              aria-label="Launch preset cwd policy"
-              value={selected.cwdPolicy}
-              onChange={(event) =>
-                updateProfile(selected.id, {
-                  cwdPolicy: event.target.value as TerminalProfile["cwdPolicy"],
-                })
-              }
-            >
-              <option value="active-pane">Active pane cwd</option>
-              <option value="workspace">Workspace root</option>
-              <option value="custom">Custom path</option>
-            </select>
-          </label>
-          {selected.cwdPolicy === "custom" ? (
-            <label className="settings-row">
-              <span>Custom cwd</span>
-              <input
-                className="settings-input"
-                aria-label="Launch preset custom cwd"
-                value={selected.customCwd}
-                onChange={(event) =>
-                  updateProfile(selected.id, { customCwd: event.target.value })
-                }
-              />
-            </label>
-          ) : null}
-          <label className="settings-row settings-row-top">
-            <span>Initial prompt</span>
-            <textarea
-              className="settings-textarea settings-small-textarea"
-              aria-label="Launch preset initial prompt"
-              value={selected.initialPrompt}
-              onChange={(event) =>
-                updateProfile(selected.id, { initialPrompt: event.target.value })
-              }
-            />
-          </label>
-          <label className="settings-row">
-            <span>Default</span>
-            <span className="settings-check-row">
-              <input
-                type="checkbox"
-                aria-label="Use as default launch preset"
-                checked={defaultProfileId === selected.id}
-                onChange={(event) =>
-                  onDefaultProfile(event.target.checked ? selected.id : null)
-                }
-              />
-              Use as default launch preset
-            </span>
-          </label>
-          <div className="settings-inline-actions">
-            <button
-              type="button"
-              className="text-button danger"
-              disabled={profiles.length <= 1}
-              onClick={deleteProfile}
-            >
-              Delete launch preset
-            </button>
-            <button
-              type="button"
-              className="text-button"
-              onClick={() => {
-                onProfiles(DEFAULT_TERMINAL_PROFILES);
-                onDefaultProfile("profile:shell");
-                setSelectedId("profile:shell");
-              }}
-            >
-              Reset launch presets
-            </button>
-          </div>
-        </div>
-      </div>
     </section>
   );
 }

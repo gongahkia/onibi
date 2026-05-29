@@ -16,8 +16,7 @@ import {
   unstageGitPaths,
 } from "../lib/git";
 import {
-  launchSpecForProfile,
-  spawnSessionFromLaunchSpec,
+  spawnAgentSession,
   useSessionStore,
   workspaceFromPath,
   type Workspace,
@@ -276,29 +275,16 @@ export function SourceControlView({
     void runAction(() => removeGitWorktree(workspace.path, worktree.path, false));
   }
 
-  function launchDefaultProfile(worktree: GitWorktree) {
+  function launchDefaultAgent(worktree: GitWorktree) {
     if (!workspace) {
-      return;
-    }
-    const profile =
-      settings.terminalProfiles.find(
-        (item) => item.id === settings.defaultTerminalProfileId,
-      ) ??
-      settings.terminalProfiles[0] ??
-      null;
-    if (!profile) {
-      setActionError("No terminal profiles are configured.");
       return;
     }
     void runAction(async () => {
       const nextWorkspace = await workspaceFromPath(worktree.path);
       addWorkspace(nextWorkspace);
-      await spawnSessionFromLaunchSpec(
-        launchSpecForProfile(
-          { ...profile, cwdPolicy: "custom", customCwd: worktree.path },
-          nextWorkspace,
-        ),
-      );
+      await spawnAgentSession(settings.defaultAgent, nextWorkspace, "", null, {
+        cwd: worktree.path,
+      });
     });
   }
 
@@ -393,9 +379,9 @@ export function SourceControlView({
                     type="button"
                     className="tree-action-button"
                     disabled={busy}
-                    onClick={() => launchDefaultProfile(worktree)}
-                    title="Launch default profile"
-                    aria-label={`Launch default profile in ${worktree.path}`}
+                    onClick={() => launchDefaultAgent(worktree)}
+                    title="Launch default agent"
+                    aria-label={`Launch default agent in ${worktree.path}`}
                   >
                     ▶
                   </button>

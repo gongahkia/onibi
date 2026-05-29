@@ -48,7 +48,6 @@ export interface Session {
   cwd?: string;
   lastExitCode?: number | null;
   lastTrigger?: TerminalTriggerMatch | null;
-  profileId?: string | null;
   restart?: SessionRestartMetadata | null;
   attentionDismissedAt?: number | null;
   preview?: SessionPreview | null;
@@ -122,7 +121,6 @@ export interface TerminalLaunchSpec extends SessionRestartMetadata {
   agent: AgentKind;
   workspaceId: string;
   title: string;
-  profileId?: string | null;
   initialPrompt?: string;
 }
 
@@ -192,28 +190,11 @@ export type WorkspaceSidebarView =
   | "sessions"
   | "history";
 
-export type TerminalProfileCwdPolicy = "workspace" | "active-pane" | "custom";
-
-export interface TerminalProfile {
-  id: string;
-  name: string;
-  agent: AgentKind;
-  command: string;
-  args: string[];
-  env: Array<[string, string]>;
-  cwdPolicy: TerminalProfileCwdPolicy;
-  customCwd: string;
-  initialPrompt: string;
-  theme: ThemeMode | null;
-  terminalFontFamily: string | null;
-}
-
 export interface ArrangementSession {
   sessionId: string;
   title: string;
   agent: AgentKind;
   workspaceId: string;
-  profileId?: string | null;
   launch: SessionRestartMetadata;
 }
 
@@ -458,8 +439,6 @@ export interface AppSettings {
   terminalShaderPaths: string[];
   terminalConfirmClose: boolean;
   terminalTriggers: TerminalTrigger[];
-  terminalProfiles: TerminalProfile[];
-  defaultTerminalProfileId: string | null;
   editorFontSize: number;
   diffViewMode: DiffViewMode;
   tabBarOrientation: TabBarOrientation;
@@ -468,6 +447,7 @@ export interface AppSettings {
   showFileIcons: boolean;
   webOpenMode: WebOpenMode;
   preferredBrowser: string;
+  defaultAgent: AgentKind;
   agentCommands: Record<AgentKind, string>;
   agentInstallCommands: Partial<Record<AgentKind, string>>;
   customColorScheme: CustomColorScheme;
@@ -1152,48 +1132,6 @@ export const DEFAULT_TERMINAL_TRIGGERS: TerminalTrigger[] = [
   },
 ];
 
-export const DEFAULT_TERMINAL_PROFILES: TerminalProfile[] = [
-  {
-    id: "profile:shell",
-    name: "Plain shell",
-    agent: "shell",
-    command: "",
-    args: [],
-    env: [],
-    cwdPolicy: "active-pane",
-    customCwd: "",
-    initialPrompt: "",
-    theme: null,
-    terminalFontFamily: null,
-  },
-  {
-    id: "profile:claude-code",
-    name: "Claude Code",
-    agent: "claude-code",
-    command: DEFAULT_AGENT_COMMANDS["claude-code"],
-    args: [],
-    env: [],
-    cwdPolicy: "active-pane",
-    customCwd: "",
-    initialPrompt: "",
-    theme: null,
-    terminalFontFamily: null,
-  },
-  {
-    id: "profile:codex",
-    name: "Codex",
-    agent: "codex",
-    command: DEFAULT_AGENT_COMMANDS.codex,
-    args: [],
-    env: [],
-    cwdPolicy: "active-pane",
-    customCwd: "",
-    initialPrompt: "",
-    theme: null,
-    terminalFontFamily: null,
-  },
-];
-
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: "github-dark",
   fontFamily: "Menlo, Monaco, monospace",
@@ -1209,8 +1147,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   terminalShaderPaths: [],
   terminalConfirmClose: true,
   terminalTriggers: DEFAULT_TERMINAL_TRIGGERS,
-  terminalProfiles: DEFAULT_TERMINAL_PROFILES,
-  defaultTerminalProfileId: "profile:shell",
   editorFontSize: 13,
   diffViewMode: "side-by-side",
   tabBarOrientation: "vertical",
@@ -1219,6 +1155,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showFileIcons: true,
   webOpenMode: "ask",
   preferredBrowser: "onibi",
+  defaultAgent: "claude-code",
   agentCommands: DEFAULT_AGENT_COMMANDS,
   agentInstallCommands: DEFAULT_AGENT_INSTALL_COMMANDS,
   customColorScheme: DEFAULT_CUSTOM_COLOR_SCHEME,
@@ -1506,58 +1443,6 @@ function normalizeAgentKind(value: unknown, fallback: AgentKind): AgentKind {
     : fallback;
 }
 
-function normalizeProfileCwdPolicy(value: unknown): TerminalProfileCwdPolicy {
-  return value === "workspace" || value === "active-pane" || value === "custom"
-    ? value
-    : "active-pane";
-}
-
-function normalizeTerminalProfiles(value: unknown): TerminalProfile[] {
-  const source = Array.isArray(value) ? value : DEFAULT_TERMINAL_PROFILES;
-  const profiles: TerminalProfile[] = [];
-  const seen = new Set<string>();
-  for (const item of source) {
-    if (!isRecord(item)) {
-      continue;
-    }
-    const agent = normalizeAgentKind(item.agent, "shell");
-    const id =
-      typeof item.id === "string" && item.id.trim()
-        ? item.id.trim().slice(0, 80)
-        : makeId("profile");
-    if (seen.has(id)) {
-      continue;
-    }
-    seen.add(id);
-    profiles.push({
-      id,
-      name:
-        typeof item.name === "string" && item.name.trim()
-          ? item.name.trim().slice(0, 80)
-          : AGENT_LABELS[agent],
-      agent,
-      command:
-        typeof item.command === "string"
-          ? item.command
-          : agent === "shell"
-            ? ""
-            : DEFAULT_AGENT_COMMANDS[agent],
-      args: normalizeStringList(item.args),
-      env: normalizeEnvPairs(item.env),
-      cwdPolicy: normalizeProfileCwdPolicy(item.cwdPolicy),
-      customCwd: typeof item.customCwd === "string" ? item.customCwd : "",
-      initialPrompt:
-        typeof item.initialPrompt === "string" ? item.initialPrompt : "",
-      theme: isThemeMode(item.theme) ? item.theme : null,
-      terminalFontFamily:
-        typeof item.terminalFontFamily === "string" && item.terminalFontFamily.trim()
-          ? item.terminalFontFamily
-          : null,
-    });
-  }
-  return profiles.length > 0 ? profiles : DEFAULT_TERMINAL_PROFILES;
-}
-
 function normalizeWorkspaceSidebarView(value: unknown): WorkspaceSidebarView {
   return value === "files" ||
     value === "search" ||
@@ -1597,6 +1482,9 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
     ...DEFAULT_SETTINGS,
     ...settings,
   };
+  const normalizedBase = { ...merged } as AppSettings & Record<string, unknown>;
+  delete normalizedBase["terminalProfiles"];
+  delete normalizedBase["defaultTerminalProfileId"];
   const legacyFontFamily = normalizeFontFamily(
     settings?.fontFamily,
     DEFAULT_SETTINGS.fontFamily,
@@ -1610,7 +1498,7 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
     DEFAULT_SETTINGS.terminalFontSize,
   );
   return {
-    ...merged,
+    ...normalizedBase,
     theme: normalizeThemeMode(merged.theme),
     fontFamily: terminalFontFamily,
     uiFontFamily: normalizeFontFamily(
@@ -1639,12 +1527,6 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
         ? merged.terminalConfirmClose
         : DEFAULT_SETTINGS.terminalConfirmClose,
     terminalTriggers: normalizeTerminalTriggers(merged.terminalTriggers),
-    terminalProfiles: normalizeTerminalProfiles(merged.terminalProfiles),
-    defaultTerminalProfileId:
-      typeof merged.defaultTerminalProfileId === "string" &&
-      merged.defaultTerminalProfileId.trim()
-        ? merged.defaultTerminalProfileId
-        : DEFAULT_SETTINGS.defaultTerminalProfileId,
     editorFontSize: normalizeFontSize(merged.editorFontSize, legacyFontSize),
     diffViewMode: normalizeDiffViewMode(merged.diffViewMode),
     tabBarOrientation: isTabBarOrientation(merged.tabBarOrientation)
@@ -1660,6 +1542,7 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
       merged.preferredBrowser,
       DEFAULT_SETTINGS.preferredBrowser,
     ),
+    defaultAgent: normalizeAgentKind(merged.defaultAgent, DEFAULT_SETTINGS.defaultAgent),
     agentCommands,
     agentInstallCommands,
     customColorScheme: normalizeCustomColorScheme(merged.customColorScheme),
@@ -1930,10 +1813,6 @@ function normalizeArrangementSessions(value: unknown): ArrangementSession[] {
         typeof item.workspaceId === "string" && item.workspaceId.trim()
           ? item.workspaceId.trim()
           : "",
-      profileId:
-        typeof item.profileId === "string" && item.profileId.trim()
-          ? item.profileId.trim()
-          : null,
       launch: {
         command,
         args: normalizeStringList(item.launch.args),
@@ -2499,7 +2378,6 @@ export const useSessionStore = create<SessionStore>((set) => ({
         title: session.title,
         agent: session.agent,
         workspaceId: session.workspaceId,
-        profileId: session.profileId ?? null,
         launch: session.restart!,
       }));
     if (sessions.length === 0) {
@@ -2996,27 +2874,6 @@ export async function resolveCommandBinary(
   return invoke<string | null>("fs_resolve_binary", { command });
 }
 
-export function commandLineForProfile(
-  profile: TerminalProfile,
-  settings: AppSettings,
-): string {
-  return (
-    profile.command.trim() ||
-    settings.agentCommands[profile.agent] ||
-    DEFAULT_AGENT_COMMANDS[profile.agent]
-  );
-}
-
-export async function resolveProfileBinary(
-  profile: TerminalProfile,
-  settings: AppSettings,
-): Promise<string | null> {
-  if (profile.agent === "shell") {
-    return null;
-  }
-  return resolveCommandBinary(commandLineForProfile(profile, settings));
-}
-
 function workspaceForSession(session: Session, workspaces: Workspace[]): Workspace | null {
   return workspaces.find((workspace) => workspace.id === session.workspaceId) ?? null;
 }
@@ -3028,74 +2885,6 @@ function shellIntegrationEnv(
   return agent === "shell" && settings.terminalShellIntegration
     ? [["ONIBI_SHELL_INTEGRATION", "1"]]
     : [];
-}
-
-function mergeEnvPairs(
-  base: Array<[string, string]>,
-  extra: Array<[string, string]>,
-): Array<[string, string]> {
-  const values = new Map<string, string>();
-  for (const [key, value] of [...base, ...extra]) {
-    if (key.trim()) {
-      values.set(key.trim(), value);
-    }
-  }
-  return [...values.entries()];
-}
-
-export function terminalProfileById(
-  settings: AppSettings,
-  profileId: string | null | undefined,
-): TerminalProfile | null {
-  return (
-    settings.terminalProfiles.find((profile) => profile.id === profileId) ??
-    settings.terminalProfiles.find(
-      (profile) => profile.id === settings.defaultTerminalProfileId,
-    ) ??
-    settings.terminalProfiles[0] ??
-    null
-  );
-}
-
-export function launchSpecForProfile(
-  profile: TerminalProfile,
-  workspace: Workspace,
-  activeSession?: Session | null,
-): TerminalLaunchSpec {
-  const settings = useSessionStore.getState().settings;
-  const command =
-    profile.agent === "shell" && !profile.command.trim()
-      ? shellPath()
-      : commandLineForProfile(profile, settings);
-  const commandParts = profile.command.trim()
-    ? splitCommandLine(command)
-    : splitCommandLine(
-        settings.agentCommands[profile.agent] || DEFAULT_AGENT_COMMANDS[profile.agent] || command,
-      );
-  const [resolvedCommand = command || shellPath(), ...defaultArgs] = commandParts;
-  const cwd =
-    profile.cwdPolicy === "custom" && profile.customCwd.trim()
-      ? profile.customCwd.trim()
-      : profile.cwdPolicy === "active-pane" &&
-          activeSession?.cwd?.startsWith(workspace.path)
-        ? activeSession.cwd
-        : workspace.path;
-  const prompt = profile.initialPrompt.trim();
-  return {
-    agent: profile.agent,
-    workspaceId: workspace.id,
-    profileId: profile.id,
-    title: `${profile.name} · ${workspace.name}`,
-    command: profile.agent === "shell" && !profile.command.trim() ? shellPath() : resolvedCommand,
-    args: [
-      ...defaultArgs,
-      ...profile.args,
-      ...(prompt && profile.agent !== "shell" ? [prompt] : []),
-    ],
-    cwd,
-    env: mergeEnvPairs(shellIntegrationEnv(profile.agent, settings), profile.env),
-    initialPrompt: prompt,
-  };
 }
 
 export async function spawnSessionFromLaunchSpec(
@@ -3115,7 +2904,6 @@ export async function spawnSessionFromLaunchSpec(
       id,
       agent: spec.agent,
       workspaceId: spec.workspaceId,
-      profileId: spec.profileId ?? null,
       title: spec.title,
       status: "running",
       createdAt: Date.now(),
@@ -3151,7 +2939,7 @@ export async function spawnAgentSession(
   workspace: Workspace,
   initialPrompt: string,
   placement?: TerminalPanePlacement | null,
-  options?: { cwd?: string | null; profileId?: string | null },
+  options?: { cwd?: string | null },
 ): Promise<PtyId> {
   const settings = useSessionStore.getState().settings;
   const launch = launchCommandForAgent(agent, settings, initialPrompt);
@@ -3163,7 +2951,6 @@ export async function spawnAgentSession(
     {
       agent,
       workspaceId: workspace.id,
-      profileId: options?.profileId ?? null,
       title: sessionTitle(agent, workspace),
       command: launch.command,
       args: launch.args,
@@ -3261,7 +3048,6 @@ export async function duplicateSession(
     {
       agent: session.agent,
       workspaceId: session.workspaceId,
-      profileId: session.profileId ?? null,
       title: `${session.title} copy`,
       command: session.restart.command,
       args: session.restart.args,
@@ -3308,7 +3094,6 @@ export async function restoreArrangement(arrangementId: string): Promise<boolean
       id,
       agent: savedSession.agent,
       workspaceId: savedSession.workspaceId,
-      profileId: savedSession.profileId ?? null,
       title: savedSession.title,
       status: "running",
       createdAt: Date.now(),

@@ -16,12 +16,10 @@ import {
   type Workspace,
   closeSession,
   duplicateSession,
-  launchSpecForProfile,
   restartSession,
   restoreArrangement,
   sessionNeedsAttention,
   spawnAgentSession,
-  spawnSessionFromLaunchSpec,
   useSessionStore,
 } from "../lib/sessions";
 import { chooseWorkspaceFolder } from "../lib/workspace-picker";
@@ -223,8 +221,8 @@ export function CommandPalette() {
         id: "workspace.quick-launch",
         label: "Quick Workspace Launcher",
         group: "Workspace",
-        description: "Launch a profile, workspace, prompt, or split",
-        keywords: ["quick", "launcher", "profile", "worktree", "arrangement"],
+        description: "Choose an agent, workspace, prompt, or split",
+        keywords: ["quick", "launcher", "agent", "worktree", "arrangement"],
         run: () => setNewSessionOpen(true),
       },
       {
@@ -440,26 +438,6 @@ export function CommandPalette() {
         shortcut: session.id === activeSessionId ? "Active" : undefined,
         keywords: ["tab", "terminal", "agent", session.agent],
         run: () => setActiveSession(session.id),
-      });
-    }
-
-    for (const profile of settings.terminalProfiles) {
-      nextCommands.push({
-        id: `profile.launch.${profile.id}`,
-        label: `Launch Profile: ${profile.name}`,
-        group: "Session",
-        description: currentWorkspace
-          ? `${AGENT_LABELS[profile.agent]} · ${currentWorkspace.name}`
-          : AGENT_LABELS[profile.agent],
-        keywords: ["profile", "terminal", "agent", profile.agent],
-        run: async () => {
-          if (!currentWorkspace) {
-            return;
-          }
-          await spawnSessionFromLaunchSpec(
-            launchSpecForProfile(profile, currentWorkspace, activeSession),
-          );
-        },
       });
     }
 

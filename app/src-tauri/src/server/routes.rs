@@ -166,7 +166,6 @@ pub async fn desktop_sessions(State(state): State<AppState>) -> ApiResult<Value>
         "protocol_version": PROTOCOL_VERSION,
         "sessions": snapshot.sessions,
         "arrangements": snapshot.arrangements,
-        "profiles": snapshot.profiles,
         "updatedAt": snapshot.updated_at,
     })))
 }
@@ -227,7 +226,7 @@ pub async fn desktop_session_launch(
         &state,
         "session-launch",
         json!({
-            "profile": body.profile,
+            "agent": body.agent,
             "workspace": body.workspace,
             "prompt": body.prompt,
             "cwd": body.cwd,
@@ -629,7 +628,6 @@ mod tests {
                                 }
                             ],
                             "arrangements": [{"id": "arrangement-1", "name": "Pairing"}],
-                            "profiles": [{"id": "profile:codex", "name": "Codex"}],
                             "updatedAt": 1
                         })
                         .to_string(),

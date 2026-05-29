@@ -208,8 +208,6 @@ pub struct DesktopSnapshotBody {
     pub sessions: Vec<DesktopSessionSnapshot>,
     #[serde(default)]
     pub arrangements: Vec<DesktopNamedRef>,
-    #[serde(default)]
-    pub profiles: Vec<DesktopNamedRef>,
     #[serde(default, rename = "updatedAt")]
     pub updated_at: Option<i64>,
 }
@@ -218,7 +216,8 @@ pub struct DesktopSnapshotBody {
 pub struct DesktopSessionLaunchBody {
     #[serde(default)]
     pub protocol_version: Option<String>,
-    pub profile: String,
+    #[serde(default)]
+    pub agent: Option<String>,
     pub workspace: String,
     #[serde(default)]
     pub prompt: Option<String>,

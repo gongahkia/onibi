@@ -163,13 +163,7 @@ describe("CommandPalette", () => {
     expect(useSessionStore.getState().activeSidebarView).toBe("search");
   });
 
-  test("launches a terminal profile for the active workspace", async () => {
-    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
-      if (command === "pty_spawn") {
-        return "pty-profile";
-      }
-      return null;
-    });
+  test("opens the quick workspace launcher", () => {
     useSessionStore.setState({
       sessions: [
         {
@@ -192,22 +186,10 @@ describe("CommandPalette", () => {
     render(<CommandPalette />);
     fireEvent.keyDown(window, { key: "p", ctrlKey: true });
     const input = screen.getByLabelText("Search commands");
-    fireEvent.change(input, { target: { value: "launch profile plain" } });
+    fireEvent.change(input, { target: { value: "quick workspace launcher" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
-    await waitFor(() => {
-      expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith("pty_spawn", {
-        req: {
-          command: "",
-          args: [],
-          cwd: "/repo/pkg",
-          env: [["ONIBI_SHELL_INTEGRATION", "1"]],
-          rows: 30,
-          cols: 100,
-        },
-      });
-    });
-    expect(useSessionStore.getState().activeSessionId).toBe("pty-profile");
+    expect(screen.getByRole("dialog", { name: "New Session" })).toBeTruthy();
   });
 
   test("saves and restores terminal arrangements from the palette", async () => {

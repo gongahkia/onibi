@@ -6,15 +6,15 @@ import {
 } from "./approval-client";
 import { listCommandBlocks } from "./command-blocks";
 import {
-  launchSpecForProfile,
+  AGENT_KINDS,
   restoreArrangement,
   sessionAttentionState,
-  spawnSessionFromLaunchSpec,
+  spawnAgentSession,
   useSessionStore,
   workspaceFromPath,
+  type AgentKind,
   type Arrangement,
   type Session,
-  type TerminalProfile,
   type Workspace,
 } from "./sessions";
 import { ptyWrite } from "./tauri-bridge";
@@ -42,7 +42,6 @@ interface DesktopSnapshot {
     } | null;
   }>;
   arrangements: Array<{ id: string; name: string }>;
-  profiles: Array<{ id: string; name: string }>;
   updatedAt: number;
 }
 
@@ -87,7 +86,6 @@ function desktopSnapshot(): DesktopSnapshot {
     protocol_version: PROTOCOL_VERSION,
     sessions: state.sessions.map(snapshotSession),
     arrangements: namedRefs(state.arrangements),
-    profiles: namedRefs(state.settings.terminalProfiles),
     updatedAt: Date.now(),
   };
 }
@@ -109,20 +107,22 @@ function stringPayloadField(payload: unknown, key: string): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
-function findProfile(value: string, profiles: TerminalProfile[]): TerminalProfile | null {
-  const lower = value.toLowerCase();
-  return (
-    profiles.find((profile) => profile.id === value) ??
-    profiles.find((profile) => profile.name.toLowerCase() === lower) ??
-    null
-  );
-}
-
 function findArrangement(value: string, arrangements: Arrangement[]): Arrangement | null {
   const lower = value.toLowerCase();
   return (
     arrangements.find((arrangement) => arrangement.id === value) ??
     arrangements.find((arrangement) => arrangement.name.toLowerCase() === lower) ??
+    null
+  );
+}
+
+function findAgent(value: string | null, fallback: AgentKind): AgentKind | null {
+  if (!value) {
+    return fallback;
+  }
+  const lower = value.toLowerCase();
+  return (
+    AGENT_KINDS.find((agent) => agent === value || agent.toLowerCase() === lower) ??
     null
   );
 }
@@ -188,25 +188,19 @@ async function executeDesktopCommand(message: DesktopCommandMessage): Promise<vo
     return;
   }
   if (message.kind === "session-launch") {
-    const profileValue = stringPayloadField(message.payload, "profile");
+    const agentValue = stringPayloadField(message.payload, "agent");
     const workspaceValue = stringPayloadField(message.payload, "workspace");
-    if (!profileValue || !workspaceValue) {
+    if (!workspaceValue) {
       return;
     }
-    const profile = findProfile(profileValue, state.settings.terminalProfiles);
-    if (!profile) {
+    const agent = findAgent(agentValue, state.settings.defaultAgent);
+    if (!agent) {
       return;
     }
     const workspace = await workspaceForCommand(workspaceValue);
-    const prompt = stringPayloadField(message.payload, "prompt") ?? profile.initialPrompt;
+    const prompt = stringPayloadField(message.payload, "prompt") ?? "";
     const cwd = stringPayloadField(message.payload, "cwd");
-    await spawnSessionFromLaunchSpec(
-      launchSpecForProfile(
-        cwd ? { ...profile, initialPrompt: prompt, cwdPolicy: "custom", customCwd: cwd } : { ...profile, initialPrompt: prompt },
-        workspace,
-        state.sessions.find((session) => session.id === state.activeSessionId) ?? null,
-      ),
-    );
+    await spawnAgentSession(agent, workspace, prompt, null, { cwd });
   }
 }
 

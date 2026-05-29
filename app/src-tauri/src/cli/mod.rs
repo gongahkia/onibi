@@ -88,7 +88,7 @@ enum SessionCommand {
     List,
     Launch {
         #[arg(long)]
-        profile: String,
+        agent: Option<String>,
         #[arg(long)]
         workspace: PathBuf,
         #[arg(long)]
@@ -184,14 +184,14 @@ fn session(command: SessionCommand, port: u16) -> Result<()> {
     match command {
         SessionCommand::List => desktop_get(port, "/v1/desktop/sessions"),
         SessionCommand::Launch {
-            profile,
+            agent,
             workspace,
             prompt,
         } => {
             ensure_daemon_running(port)?;
             let body = json!({
                 "protocol_version": "1.0",
-                "profile": profile,
+                "agent": agent,
                 "workspace": workspace.display().to_string(),
                 "prompt": prompt,
             });
